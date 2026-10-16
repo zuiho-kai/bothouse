@@ -22,14 +22,32 @@
 
 - companion：uv sync 创建独立环境；uv run python -m pytest -q → **102 passed, 1 skipped**。跳过项是真实语音识别模型测试，未发 Discord 消息或调用真实模型。
 - bridge：go build -tags no_web -o ../.local/cc-connect ./cmd/cc-connect → **通过**。
-- bridge：go test -tags no_web ./... → **失败**，涉及 antigravity、codex、opencode、daemon、media_pipeline。core、cmd、config、Discord等包本轮通过。
+- bridge（本机macOS）：go test -tags no_web ./... → **失败**，涉及 antigravity、codex、opencode、daemon、media_pipeline。core、cmd、config、Discord等包本轮通过。
 - 为区分并行负载影响，串行复核上述失败包：antigravity/codex/opencode通过；daemon的 TestLaunchdStatusUsesUserDomainWhenGUIDomainUnavailable 仍失败；media_pipeline出现另一处 TempDir 清理竞争。不得把复核部分通过改写为全量通过，完整根因待专项修复。
 - 初次直接 uv run pytest 导入本地模块失败，改用 python -m pytest 后通过；不引入旧网页 demo 的 conftest。
 
 本机原始日志在新目录 .local/ 下：companion-tests-module.log、bridge-tests.log、bridge-failure-check.log；不提交完整运行日志。后续改代码后应重新验证，以上不自动代表新版本。
 
+2026-10-16，GitHub Ubuntu [CI run 38889638594](https://github.com/Zssan12/conest/actions/runs/38889638594) 在0ed5b4f0上通过：Go校验、构建、全量测试（-p 1 -count=1）与Python检查均成功。这补充Linux环境证据，不覆盖或消除上述macOS失败。工作流变更不修改业务代码，后续提交以对应CI结果为准。
+
 ## 产品约束
 
 G哥当前生产权限仍为 suggest/read-only。代码有派工能力不表示拥有项目写权限。模型可用性、额度与权限需按实际后端核对，不能凭 bot 自称判断。
 
-当前 Go 回归失败会阻止将本快照称为可发布版本；仓库基线保存既有工作，后续功能 PR 必须说明相关检查及未解决缺口。
+当前macOS Go回归失败使本快照仍不具备完整发布验收；仓库基线保存既有工作，后续功能PR必须说明相关检查及未解决缺口。文档/协作流程PR可以在自身检查和审核通过后合并，不能把它等同于修复Issue #3或发布软件。
+
+## 工作入口
+
+进度、验收清单与讨论以对应 Issue 为准；下表只说明处理顺序，不维护第二份状态。
+
+| 顺序 | Issue |
+| --- | --- |
+| 仓库协作基础 | [#1 工作流与统一交接](https://github.com/Zssan12/conest/issues/1) |
+| 先消除新目录误连旧实例的风险 | [#2 独立实例配置](https://github.com/Zssan12/conest/issues/2) |
+| 修复自动验证基线 | [#3 Go测试失败](https://github.com/Zssan12/conest/issues/3) |
+| 验证核心用户体验 | [#4 电脑语音与共享记忆](https://github.com/Zssan12/conest/issues/4) |
+| 验证各后端真实能力 | [#5 模型切换与按需子Agent](https://github.com/Zssan12/conest/issues/5) |
+| 用真实产物验证协作 | [#6 项目交付闭环](https://github.com/Zssan12/conest/issues/6) |
+| 核对真实活动结果 | [#7 活动与日报](https://github.com/Zssan12/conest/issues/7) |
+| 电脑验收后推进 | [#8 单设备展示](https://github.com/Zssan12/conest/issues/8) |
+| 补齐来源资料 | [#9 许可与归属](https://github.com/Zssan12/conest/issues/9) |

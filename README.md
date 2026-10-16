@@ -20,6 +20,7 @@ CoNest 基于 cc-connect 的 maomao 分支与一家子产品扩展整合。面�
 - [bridge/](bridge/)：Go 桥接、会话、平台和 CLI 适配器。保留 cc-connect 命令与 Go module 名称以维持兼容。
 - [companion/](companion/)：Python 语音、共享记录、自主活动、日报与阅读页。
 - [skills/](skills/)：产品协作技能；模型切换技能随桥接嵌入。
+- [协作流程](CONTRIBUTING.md)、[Agent 入口](AGENTS.md)。
 - [架构](docs/ARCHITECTURE.md)、[当前交接](docs/HANDOFF.md)、[代码来源](SOURCE_ORIGINS.md)。
 
 ## 本地开发验证
@@ -27,6 +28,7 @@ CoNest 基于 cc-connect 的 maomao 分支与一家子产品扩展整合。面�
 需要 Go（版本见 bridge/go.mod）、Python 3.11+ 和 uv。以下命令不启动生产服务，也不需要 Discord 凭据：
 
 ~~~sh
+mkdir -p .local
 cd companion
 uv sync --locked
 uv run python -m pytest -q

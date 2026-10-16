@@ -1,6 +1,6 @@
 # 共栖当前交接
 
-更新：2026-10-16，Asia/Shanghai。任务：建立独立私有仓库与 Issue/PR 工作流。
+更新：2026-10-16，Asia/Shanghai。任务：完成私有仓库的 Issue/PR 工作流与主分支门禁。
 
 ## 已确认目标
 
@@ -10,9 +10,13 @@
 
 新工作区 /Users/zhaixinyang/conest；由 cc-connect maomao 克隆保留历史，bridge/ 导入当前桥接源码，companion/ 导入语音、活动、日报及测试。旧 Python 网页 demo 留在旧仓库。来源与基线见 [SOURCE_ORIGINS.md](../SOURCE_ORIGINS.md)。
 
-Python独立环境102项通过、1项跳过，Go构建通过、全量测试有失败，详见状态表。快照复制后再次核对原源文件哈希，没有发现导入期间继续变化的文件。本地导入清单在 .local/import-manifest.json，未纳入 Git。
+Python独立环境102项通过、1项跳过，Go构建通过；Ubuntu云端Go全量测试通过，本机macOS仍有失败，详见状态表。快照复制后再次核对原源文件哈希，没有发现导入期间继续变化的文件。本地导入清单在 .local/import-manifest.json，未纳入 Git。
 
-仓库发布和首批 Issue/PR 尚在准备；完成后本段更新为实际链接。当前尚未发生服务重启、配置替换、Discord投递或硬件操作。
+私有仓库 [Zssan12/conest](https://github.com/Zssan12/conest) 已创建并核对 private=true，默认分支 main，初始导入提交 e9f902d4。已建立 [Issue #1–#9](https://github.com/Zssan12/conest/issues)，入口见状态表。工作流通过 [PR #10](https://github.com/Zssan12/conest/pull/10) 交付：统一Agent入口、协作规则、模板、CI和主分支保护。本轮没有服务重启、配置替换、Discord投递或硬件操作。PR最新审核、checks与合并结果以GitHub为准，恢复前先核对分支和差异。
+
+GitHub CI run 38889638594在0ed5b4f0上两项全部成功。本地actionlint、文档本地链接和git diff --check通过。main保护已通过API配置并回读：PR必经、bridge/companion检查绑定GitHub Actions且必须成功、分支与main同步、讨论已解决；包含管理员，禁止强推/删除，线性历史。仓库仅开放squash合并，保留分支。
+
+本轮只补充工作流文档、PR模板及仓库设置，不改业务代码。最终提交还须通过对应CI和自查后按完整SHA合并，避免审核之后的变化混入；实际证据保留在PR。当前所需批准数0，适配单账号协作；并未安排独立Agent审核，不能冒称独立审核已通过。具体步骤见CONTRIBUTING.md。旧源码和运行数据保留。
 
 ## 旧生产边界
 
@@ -25,7 +29,7 @@ Python独立环境102项通过、1项跳过，Go构建通过、全量测试有�
 
 ## 下一步
 
-1. 完成私有仓库发布、首批Issue和工作流PR；把真实链接补到本文。
+1. 恢复时确认PR #10合并结果与Issue #1状态；若尚未合并，先核对最终SHA的CI/审核再合并。不要因Ubuntu检查成功关闭macOS基线问题Issue #3。
 2. 优先修复配置可移植性，避免新目录入口意外复用旧配置。再处理Go测试基线和真实电脑语音/跨角色记忆验收。
 3. 用小型真实项目验证Issue→分工→PR→测试审核。硬件采购放在电脑体验验收之后。
 

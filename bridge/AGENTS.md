@@ -2,7 +2,7 @@
 
 ## Local 一家子 deployment handoff
 
-When working on this Mac's 一家子 / maomao bot deployment, first read [the unified handoff](../yijiazi/docs/HANDOFF.md). It records the actual configuration paths, existing uncommitted changes, verification scope, and unfinished tasks. Recheck runtime state before acting; update that file after deployment progress instead of duplicating status here. The development rules below still apply to code changes.
+When working on this Mac's 一家子 / maomao bot deployment, first read [the unified handoff](../docs/HANDOFF.md). It records the actual configuration paths, existing uncommitted changes, verification scope, and unfinished tasks. Recheck runtime state before acting; update that file after deployment progress instead of duplicating status here. The development rules below still apply to code changes.
 
 ## Project Overview
 
