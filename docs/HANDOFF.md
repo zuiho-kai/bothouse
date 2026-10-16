@@ -1,5 +1,12 @@
 # 共栖当前交接
 
+## 2026-10-17：Antigravity 模型列表来源修复（Issue #5，未部署）
+
+- 用户授权修复 `agy models` 已有目标而桥接拒绝切换的问题。独立工作区 `/Users/zhaixinyang/conest-5-models-gge`，分支 `fix/5-antigravity-cli-models`，基于 main `12ad8bd4`；本线自行实现和审核，无子 Agent。
+- 显式 provider 模型仍优先，否则用同一 CLI/参数/目录/环境执行 `models`；去除公共 Gemini API 和四项旧静态兜底。超时或失败返回空候选，不伪造可用性。回归旧代码红、新代码绿；真实 CLI 读到13个模型，隔离 Engine 接受 `gemini-3.8-flash-high`，未切换真实伙伴。
+- 最终 macOS 串行 Go 全量、相关 race/完整 CUJ、vet、构建和差异检查通过。首轮默认包并发有 Codex thread ID 等待超时，环境补测也曾因路径别名失败；原始失败与修复范围均保留，见[模型发现验证](ANTIGRAVITY_MODEL_DISCOVERY.md)。
+- 未部署、未重启、未改生产配置/会话，也未改旧源码和其他工作区。Issue #5含其他后端验收，不因本修复关闭。下一步按 PR 审核/CI，再另行部署并在原伙伴下一轮确认真实模型。
+
 ## Issue #34：大豆包历史错误污染当前终态
 
 - 已用 agy 1.4.0 的隔离会话副本复现：新回答已完成，但result复制历史地区拒绝错误；同条件新会话成功。不是额度耗尽，也不能用“有正文”直接改成功。

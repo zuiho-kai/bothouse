@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,64 +139,7 @@ func (a *Agent) AvailableModels(ctx context.Context) []core.ModelOption {
 	if models := a.configuredModels(); len(models) > 0 {
 		return models
 	}
-	if models := a.fetchModelsFromAPI(ctx); len(models) > 0 {
-		return models
-	}
-	return []core.ModelOption{
-		{Name: "gemini-3.1-pro-preview", Desc: "Gemini 3.1 Pro Preview"},
-		{Name: "gemini-3-flash-preview", Desc: "Gemini 3 Flash Preview"},
-		{Name: "gemini-2.5-pro", Desc: "Gemini 2.5 Pro"},
-		{Name: "gemini-2.5-flash", Desc: "Gemini 2.5 Flash"},
-	}
-}
-
-func (a *Agent) fetchModelsFromAPI(ctx context.Context) []core.ModelOption {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		apiKey = os.Getenv("GOOGLE_API_KEY")
-	}
-	if apiKey == "" {
-		return nil
-	}
-
-	url := "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		slog.Debug("antigravity: failed to fetch models", "error", err)
-		return nil
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-
-	var result struct {
-		Models []struct {
-			Name        string `json:"name"`
-			DisplayName string `json:"displayName"`
-		} `json:"models"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil
-	}
-
-	var models []core.ModelOption
-	for _, m := range result.Models {
-		id := strings.TrimPrefix(m.Name, "models/")
-		if !strings.HasPrefix(id, "gemini-") {
-			continue
-		}
-		models = append(models, core.ModelOption{Name: id, Desc: m.DisplayName})
-	}
-	sort.Slice(models, func(i, j int) bool { return models[i].Name > models[j].Name })
-	return models
+	return a.fetchModelsFromCLI(ctx)
 }
 
 func (a *Agent) SetSessionEnv(env []string) {
