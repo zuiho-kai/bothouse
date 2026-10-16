@@ -30,6 +30,7 @@ type acpSession struct {
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	alive     atomic.Bool
+	closeOnce sync.Once
 
 	cmd *exec.Cmd
 	tr  *transport
@@ -37,7 +38,12 @@ type acpSession struct {
 	acpSessMu sync.RWMutex
 	acpSessID string
 
-	sendMu sync.Mutex
+	sendMu       sync.Mutex
+	inputMu      sync.Mutex
+	inputGuard   bool // suppress replay and notifications outside a strict prompt
+	inputActive  bool
+	inputErr     error
+	strictResume bool // immutable: cold start must never fall back to session/new
 
 	permMu   sync.Mutex
 	permByID map[string]permState
@@ -71,6 +77,7 @@ type acpSessionConfig struct {
 	extraEnv        []string
 	workDir         string
 	resumeSessionID string
+	strictResume    bool
 	authMethod      string
 	initialMode     string           // if non-empty, applied via session/set_mode after session/new
 	initialModel    string           // if non-empty, applied after session/new (set_model or the "model" config option)
@@ -94,6 +101,8 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		toolInputByID: make(map[string]string),
 		acpSessID:     cfg.resumeSessionID,
 		callbacks:     cfg.callbacks,
+		strictResume:  cfg.strictResume,
+		inputGuard:    cfg.strictResume,
 	}
 	s.alive.Store(true)
 
@@ -213,6 +222,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	}
 
 	wantResume := resumeSessionID != "" && resumeSessionID != core.ContinueSession
+	if s.strictResume && (!wantResume || !initOut.AgentCapabilities.LoadSession) {
+		return fmt.Errorf("acp: strict resume requires a concrete session and loadSession support")
+	}
 	if wantResume && initOut.AgentCapabilities.LoadSession {
 		loadParams := map[string]any{
 			"sessionId":  resumeSessionID,
@@ -221,6 +233,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		}
 		loadRes, err := s.tr.call(s.ctx, "session/load", loadParams)
 		if err != nil {
+			if s.strictResume {
+				return fmt.Errorf("acp: strict session/load: %w", err)
+			}
 			slog.Warn("acp: session/load failed, starting new session", "error", err)
 		} else {
 			var lr struct {
@@ -229,7 +244,20 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 				Models        *acpModelsBlock   `json:"models"`
 				ConfigOptions []acpConfigOption `json:"configOptions"`
 			}
-			if json.Unmarshal(loadRes, &lr) == nil && lr.SessionID != "" {
+			parseErr := json.Unmarshal(loadRes, &lr)
+			if s.strictResume {
+				// ACP v1 LoadSessionResponse has no required sessionId: a successful
+				// object response acknowledges the requested ID. Reject a conflicting
+				// vendor extension, malformed result, or null; never create a session.
+				if parseErr != nil || len(bytes.TrimSpace(loadRes)) == 0 || bytes.TrimSpace(loadRes)[0] != '{' {
+					return fmt.Errorf("acp: invalid strict session/load response")
+				}
+				if lr.SessionID != "" && lr.SessionID != resumeSessionID {
+					return fmt.Errorf("acp: loaded session does not match original binding")
+				}
+				lr.SessionID = resumeSessionID
+			}
+			if parseErr == nil && lr.SessionID != "" {
 				s.setACPSessionID(lr.SessionID)
 				s.absorbModes(lr.Modes)
 				s.absorbModelInfo(lr.Models, lr.ConfigOptions)
@@ -384,6 +412,9 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 		slog.Debug("acp: notification", "method", method)
 		return
 	}
+	if !s.acceptInputUpdate(params) {
+		return
+	}
 	s.cacheToolCallInput(params)
 	s.maybeAbsorbCurrentModeUpdate(params)
 	sid := s.currentACPSessionID()
@@ -496,6 +527,10 @@ func (s *acpSession) cacheToolCallInput(params json.RawMessage) {
 }
 
 func (s *acpSession) onServerRequest(method string, id json.RawMessage, params json.RawMessage) {
+	if !s.acceptInputUpdate(params) {
+		_ = s.tr.respondError(id, -32602, "request outside the original active session")
+		return
+	}
 	switch method {
 	case "session/request_permission":
 		s.handlePermissionRequest(id, params)
@@ -602,12 +637,18 @@ func (s *acpSession) emit(ev core.Event) {
 }
 
 func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	if !s.alive.Load() {
 		return fmt.Errorf("acp: session closed")
 	}
+	s.inputMu.Lock()
+	s.inputGuard, s.inputActive, s.inputErr = false, false, nil
+	s.inputMu.Unlock()
+	return s.sendLocked(prompt, messageID, images, files, false)
+}
 
-	s.sendMu.Lock()
-	defer s.sendMu.Unlock()
+func (s *acpSession) sendLocked(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, strict bool) error {
 
 	filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
 	prompt = core.AppendFileRefs(prompt, filePaths)
@@ -629,7 +670,28 @@ func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAt
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
-	res, err := s.tr.call(s.ctx, "session/prompt", params)
+	var complete func()
+	if strict {
+		s.inputMu.Lock()
+		s.inputActive = true
+		s.inputMu.Unlock()
+		complete = s.finishInputUpdates
+	}
+	res, err := s.tr.callCompleted(s.ctx, "session/prompt", params, complete)
+	if strict {
+		s.finishInputUpdates()
+		s.inputMu.Lock()
+		if err == nil {
+			err = s.inputErr
+		}
+		s.inputMu.Unlock()
+		var result struct {
+			StopReason string `json:"stopReason"`
+		}
+		if err == nil && (json.Unmarshal(res, &result) != nil || result.StopReason != "end_turn") {
+			err = fmt.Errorf("acp: strict prompt did not complete successfully (%s)", result.StopReason)
+		}
+	}
 	if err != nil {
 		s.emit(core.Event{Type: core.EventError, Error: err})
 		return fmt.Errorf("acp: session/prompt: %w", err)
@@ -739,22 +801,28 @@ func (s *acpSession) Alive() bool {
 }
 
 func (s *acpSession) Close() error {
-	s.alive.Store(false)
-	s.cancel()
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-	}
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		close(s.events)
-	case <-time.After(8 * time.Second):
-		slog.Warn("acp: close timed out waiting for I/O loop")
-	}
+	s.closeOnce.Do(func() {
+		s.alive.Store(false)
+		s.cancel()
+		if s.cmd != nil && s.cmd.Process != nil {
+			_ = s.cmd.Process.Kill()
+		}
+		done := make(chan struct{})
+		go func() {
+			s.wg.Wait()
+			// RPC cancellation wakes Send, which still publishes its error.
+			// Wait for that producer as well as the reader/permission workers.
+			s.sendMu.Lock()
+			close(s.events)
+			s.sendMu.Unlock()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(8 * time.Second):
+			slog.Warn("acp: close timed out waiting for session workers")
+		}
+	})
 	return nil
 }
 

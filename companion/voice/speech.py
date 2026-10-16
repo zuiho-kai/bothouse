@@ -155,7 +155,7 @@ class Speech:
             raise ValueError("未识别到可用语音，请重新录音。")
         return text.strip()
 
-    def synthesize(self, text: str) -> bytes:
+    def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
         if not isinstance(text, str) or not text.strip():
             raise ValueError("待合成文本不能为空。")
         if len(text) > MAX_TEXT_CHARS:
@@ -169,7 +169,9 @@ class Speech:
         except UnicodeEncodeError as exc:
             raise ValueError("待合成文本不是有效的 UTF-8 文本。") from exc
         if self.tts is not None:
-            return self.tts.synthesize(text)
+            return self.tts.synthesize(text, **({'voice': voice} if voice is not None else {}))
+        if voice is not None:
+            raise ValueError('逐伙伴自然音色需要本地 Qwen 后端。')
         with _TTS_LOCK:
             try:
                 cache = _cache_directory()

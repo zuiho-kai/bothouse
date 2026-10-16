@@ -38,10 +38,12 @@
 
   function updateControls() {
     const locked = busy() || inputPhase !== 'idle';
+    const available = config?.roles.find((role) => role.id === ui.role.value)?.available !== false;
+    ui['reload-config'].disabled = locked;
     ui.role.disabled = !config || locked;
     ui.draft.disabled = !config || locked;
-    ui.send.disabled = !config || locked || !ui.draft.value.trim();
-    ui.record.disabled = !config || busy() || ['encoding', 'transcribing'].includes(inputPhase);
+    ui.send.disabled = !config || !available || locked || !ui.draft.value.trim();
+    ui.record.disabled = !config || !available || busy() || ['encoding', 'transcribing'].includes(inputPhase);
     ui.record.setAttribute('aria-pressed', String(inputPhase === 'recording'));
     ui['record-label'].textContent = ({ requesting: '等待麦克风', recording: '松开结束', encoding: '整理录音', transcribing: '正在识别' })[inputPhase] || '按住说话';
     ui.play.disabled = !playerTurn?.audioURL || inputPhase !== 'idle' || Boolean(playIntent);
@@ -86,6 +88,8 @@
   }
 
   async function loadConfig() {
+    if (busy() || inputPhase !== 'idle') return;
+    const selectedRole = ui.role.value;
     ui['reload-config'].hidden = true;
     ui['connection-state'].textContent = '连接中';
     showError(null);
@@ -98,14 +102,15 @@
       ui.role.replaceChildren(...data.roles.map((role) => {
         const option = document.createElement('option');
         option.value = role.id;
-        option.textContent = role.name;
+        option.textContent = role.name + (role.available === false ? '（暂不可用）' : '');
         return option;
       }));
-      if (data.roles.some((role) => role.id === data.default_role)) ui.role.value = data.default_role;
+      ui.role.value = data.roles.some((role) => role.id === selectedRole) ? selectedRole : data.default_role;
       updateSessionLabel();
       ui['record-limit'].textContent = String(config.max_record_seconds);
       ui['connection-state'].textContent = '本地服务已连接';
-      ui['voice-label'].textContent = data.voice_label || '';
+      ui['reload-config'].hidden = false;
+      ui['reload-config'].textContent = '刷新伙伴状态';
       ui['input-status'].textContent = '准备好了。按住说话，或直接打字。';
       if (typeof data.active_turn === 'string' && data.active_turn) {
         const role = config.roles.find((item) => item.id === ui.role.value);
@@ -130,7 +135,9 @@
 
   function updateSessionLabel() {
     const role = config?.roles.find((item) => item.id === ui.role.value);
-    ui['session-label'].textContent = role ? `接续常规中的${role.name}记忆 · 语音内容仅在此展示` : '请先选择伙伴';
+    ui['session-label'].textContent = role ? `${config.session_label} · ${role.name} · ${role.detail || '接续原会话，语音仅在此展示'}` : '请先选择伙伴';
+    ui['voice-label'].textContent = role?.voice_label || config?.voice_label || '';
+    updateControls();
   }
 
   async function unlockAudio() {
@@ -385,6 +392,7 @@
     if (!window.crypto?.randomUUID) { showError('此浏览器缺少安全 UUID 支持，请使用 HTTPS 或 localhost。'); return; }
     const role = config.roles.find((item) => item.id === ui.role.value);
     if (!role) { showError('请选择后端提供的伙伴。'); return; }
+    if (role.available === false) { showError(role.detail || '这位伙伴暂不可用，请刷新状态。'); return; }
     void unlockAudio().catch(() => {});
     const previousPlayback = playerTurn;
     stopPlayback();

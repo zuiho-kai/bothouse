@@ -237,6 +237,10 @@ func (a *Agent) SetSessionEnv(env []string) {
 }
 
 func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentSession, error) {
+	return a.startSession(ctx, sessionID, false)
+}
+
+func (a *Agent) startSession(ctx context.Context, sessionID string, strict bool) (core.AgentSession, error) {
 	a.mu.RLock()
 	command := a.cmd
 	allArgs := append(append([]string{}, a.cliExtraArgs...), a.args...)
@@ -255,6 +259,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		extraEnv:        extra,
 		workDir:         workDir,
 		resumeSessionID: sessionID,
+		strictResume:    strict,
 		authMethod:      authMethod,
 		initialMode:     pendingMode,
 		initialModel:    model,

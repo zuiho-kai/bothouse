@@ -27,10 +27,27 @@ type StrictResumeSession interface {
 }
 
 type InputRequest struct {
-	RequestID  string `json:"request_id"`
-	Project    string `json:"project"`
-	SessionKey string `json:"session_key"`
-	Text       string `json:"text"`
+	RequestID              string  `json:"request_id"`
+	Project                string  `json:"project"`
+	SessionKey             string  `json:"session_key"`
+	Text                   string  `json:"text"`
+	ExpectedSessionID      *string `json:"expected_session_id,omitempty"`
+	ExpectedAgentSessionID *string `json:"expected_agent_session_id,omitempty"`
+}
+
+// Compare optional IDs by value: each HTTP retry decodes fresh pointers.
+func (r InputRequest) sameInput(other InputRequest) bool {
+	return r.RequestID == other.RequestID && r.Project == other.Project &&
+		r.SessionKey == other.SessionKey && r.Text == other.Text &&
+		sameInputID(r.ExpectedSessionID, other.ExpectedSessionID) &&
+		sameInputID(r.ExpectedAgentSessionID, other.ExpectedAgentSessionID)
+}
+
+func sameInputID(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 type InputResult struct {
@@ -168,6 +185,11 @@ func (s *APIServer) handleInput(w http.ResponseWriter, r *http.Request) {
 		inputHTTPError(w, 400, fmt.Errorf("request_id, project, session_key and nonempty text required"))
 		return
 	}
+	if (req.ExpectedSessionID == nil) != (req.ExpectedAgentSessionID == nil) ||
+		(req.ExpectedSessionID != nil && (*req.ExpectedSessionID == "" || *req.ExpectedAgentSessionID == "")) {
+		inputHTTPError(w, 400, fmt.Errorf("expected_session_id and expected_agent_session_id must be supplied together and nonempty"))
+		return
+	}
 	if strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!") {
 		inputHTTPError(w, 400, fmt.Errorf("control commands are not accepted by local input"))
 		return
@@ -175,7 +197,7 @@ func (s *APIServer) handleInput(w http.ResponseWriter, r *http.Request) {
 	s.inputs.mu.Lock()
 	defer s.inputs.mu.Unlock()
 	if old := s.inputs.entries[req.RequestID]; old != nil {
-		if old.request != req {
+		if !old.request.sameInput(req) {
 			inputHTTPError(w, 409, fmt.Errorf("request_id already used with different input"))
 			return
 		}
@@ -211,7 +233,13 @@ func (s *APIServer) handleInput(w http.ResponseWriter, r *http.Request) {
 		inputHTTPError(w, 409, fmt.Errorf("active binding changed"))
 		return
 	}
-	entry := &inputEntry{request: req, result: InputResult{RequestID: req.RequestID, Status: "running", SessionID: session.ID, AgentSessionID: session.GetAgentSessionID()}}
+	agentSessionID := session.GetAgentSessionID()
+	if req.ExpectedSessionID != nil && (session.ID != *req.ExpectedSessionID || agentSessionID != *req.ExpectedAgentSessionID) {
+		session.UnlockWithoutUpdate()
+		inputHTTPError(w, 409, fmt.Errorf("session binding does not match expected IDs"))
+		return
+	}
+	entry := &inputEntry{request: req, result: InputResult{RequestID: req.RequestID, Status: "running", SessionID: session.ID, AgentSessionID: agentSessionID}}
 	if s.inputs.entries == nil {
 		s.inputs.entries = make(map[string]*inputEntry)
 	}

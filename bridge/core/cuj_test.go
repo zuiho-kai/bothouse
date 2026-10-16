@@ -32,6 +32,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,61 @@ import (
 	"testing"
 	"time"
 )
+
+func TestCUJ_Input1_SwitchRejectsStaleVoiceBinding(t *testing.T) {
+	api, e, a, p, _ := inputFixture(t)
+	a.listed = []AgentSessionInfo{
+		{ID: "original-thread", Summary: "original conversation"},
+		{ID: "replacement-thread", Summary: "replacement conversation"},
+	}
+	a.session.id = "replacement-thread"
+	send := func(id, content string) {
+		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
+	}
+
+	// The user views available conversations, while voice captures its binding.
+	send("list", "/list")
+	inputWait(t, func() bool { return strings.Contains(strings.Join(p.getSent(), "\n"), "replacement conversation") })
+	stale := inputBoundRequest(t, api, "voice-after-switch")
+	stale["text"] = "stale voice question"
+
+	p.clearSent()
+	send("switch", "/switch replacement-thread")
+	inputWait(t, func() bool { return strings.Contains(strings.Join(p.getSent(), "\n"), "replacement conversation") })
+	if code, result := inputPost(api, stale); code != http.StatusConflict {
+		t.Fatalf("stale voice binding: %d %+v", code, result)
+	}
+	if code, _ := inputGet(api, "voice-after-switch"); code != http.StatusNotFound {
+		t.Fatalf("rejected voice request was reserved: %d", code)
+	}
+	if a.starts.Load() != 0 || len(a.session.prompts) != 0 {
+		t.Fatal("stale voice question reached the agent")
+	}
+
+	// Refreshing permits a deliberate retry, still with local-only output.
+	p.clearSent()
+	fresh := inputBoundRequest(t, api, "voice-after-switch")
+	fresh["text"] = "fresh voice question"
+	if code, result := inputPost(api, fresh); code != http.StatusAccepted {
+		t.Fatalf("refreshed voice binding: %d %+v", code, result)
+	}
+	inputPrompt(t, a)
+	inputDone(a, "fresh voice answer")
+	result := inputResult(t, api, "voice-after-switch", "completed")
+	session := e.sessions.FindByID(result.SessionID)
+	inputWait(t, func() bool { return !session.Busy() })
+	if result.Text != "fresh voice answer" || len(p.getSent()) != 0 {
+		t.Fatalf("voice answer missing or leaked: %+v, %v", result, p.getSent())
+	}
+
+	// Explicit /history shows the accepted question, never the rejected one.
+	send("history", "/history")
+	inputWait(t, func() bool { return strings.Contains(strings.Join(p.getSent(), "\n"), "fresh voice answer") })
+	visible := strings.Join(p.getSent(), "\n")
+	if !strings.Contains(visible, "fresh voice question") || strings.Contains(visible, "stale voice question") {
+		t.Fatalf("incorrect conversation history: %s", visible)
+	}
+}
 
 func TestCUJ_Response1_EmptyAnswerKeepsQueueAndHistory(t *testing.T) {
 	_, e, a, p, s := inputFixture(t)

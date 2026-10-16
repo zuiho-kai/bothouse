@@ -12,6 +12,7 @@ import re
 import secrets
 import time
 from uuid import UUID
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -22,6 +23,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .bridge import Bridge, BridgeError
 from .settings import Settings
 from .memory import SharedMemory
+from .roles import Role, validate_roles, voice_label
 
 
 class TurnInput(BaseModel):
@@ -50,8 +52,12 @@ def spoken_answer(text: str) -> str:
 
 
 class VoiceService:
-    def __init__(self, settings: Settings, speech, bridge=None):
+    def __init__(self, settings: Settings, speech, bridge=None, roles=None):
         self.settings = settings
+        self.check_bindings = roles is not None
+        roster = validate_roles(roles if roles is not None else [Role(settings.project, settings.role_name)], settings)
+        self.roles = {role.project: role for role in roster}
+        self.submit_lock = asyncio.Lock()
         self.speech = speech
         self.bridge = bridge or Bridge(settings.bridge_socket)
         self.token = secrets.token_urlsafe(32)
@@ -60,7 +66,7 @@ class VoiceService:
         self.tasks: set[asyncio.Task] = set()
         self.active: str | None = None
         self.transcribing = False
-        self.last_turn: str | None = None
+        self.last_turn: dict[str, str] = {}
         self.data_dir = Path(settings.data_dir).expanduser()
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.memory = SharedMemory(settings.shared_memory_dir, settings.session_key)
@@ -73,12 +79,13 @@ class VoiceService:
         self.memory.append(event, value)
 
     def snapshot(self, turn: dict) -> dict:
-        return {k: v for k, v in turn.items() if k not in {'prompt', 'started'}}
+        return {k: v for k, v in turn.items() if k not in {'prompt', 'started'} and not k.startswith('_')}
 
-    def playback_context(self) -> str:
-        if not self.last_turn or self.last_turn not in self.turns:
+    def playback_context(self, project: str) -> str:
+        previous = self.last_turn.get(project)
+        if not previous or previous not in self.turns:
             return ''
-        turn = self.turns[self.last_turn]
+        turn = self.turns[previous]
         feedback = turn.get('playback', {})
         state = feedback.get('state', 'not_started')
         if state == 'completed':
@@ -94,12 +101,39 @@ class VoiceService:
                 '屏幕保留了完整回答。停止播放不代表取消后台任务。]\n')
 
     async def submit(self, data: TurnInput) -> dict:
+        # Binding checks yield to I/O: hold admission until a turn is reserved,
+        # so two simultaneous role submissions cannot both pass the busy check.
+        async with self.submit_lock:
+            return await self._submit(data)
+
+    async def binding(self, project: str) -> dict:
+        query = urlencode({'project': project, 'session_key': self.settings.session_key})
+        result = await asyncio.to_thread(self.bridge.call, '/input/bindings?' + query)
+        if (result.get('project') != project or result.get('session_key') != self.settings.session_key
+                or not result.get('session_id') or not result.get('agent_session_id')
+                or not isinstance(result.get('busy'), bool)):
+            raise BridgeError('伙伴会话绑定未通过核对，本轮未发送。', 422)
+        return result
+
+    async def role_status(self, role: Role) -> dict:
+        result = {'id': role.project, 'name': role.name, 'voice_label': voice_label(self.settings, role)}
+        if self.check_bindings:
+            try:
+                binding = await self.binding(role.project)
+                result.update(available=not binding['busy'],
+                              status='busy' if binding['busy'] else 'bound',
+                              detail='原会话正忙，请刷新状态。' if binding['busy'] else '已找到原会话；发送时严格核验续接。')
+            except BridgeError as exc:
+                result.update(available=False, status='unavailable', detail=str(exc))
+        return result
+
+    async def _submit(self, data: TurnInput) -> dict:
         try:
             UUID(data.id)
         except ValueError:
             raise HTTPException(400, '请求编号格式不正确。') from None
-        if data.project != self.settings.project:
-            raise HTTPException(400, '首版只连接已核实的 G哥。')
+        if data.project not in self.roles:
+            raise HTTPException(400, '该伙伴不在本机明确配置的名单中。')
         text = data.text.strip()
         if not text or text.startswith('/'):
             raise HTTPException(400, '请输入普通对话；管理命令请在 Discord 使用。')
@@ -110,6 +144,14 @@ class VoiceService:
             return self.snapshot(existing)
         if self.active:
             raise HTTPException(409, '上一条消息仍在处理，请先等它结束。停止播放不会取消任务。')
+        binding = None
+        if self.check_bindings:
+            try:
+                binding = await self.binding(data.project)
+            except BridgeError as exc:
+                raise HTTPException(422, '本轮未发送。' + str(exc)) from None
+            if binding['busy']:
+                raise HTTPException(409, '这位伙伴的原会话正忙；本轮未发送，也不会排队。')
         while len(self.turns) >= 20:
             oldest = next(iter(self.turns))
             self.turns.pop(oldest)
@@ -117,7 +159,10 @@ class VoiceService:
         turn = {'id': data.id, 'project': data.project, 'input_text': text,
                 'status': 'thinking', 'text': '', 'spoken_text': '', 'error': '',
                 'timings': {}, 'started': time.monotonic(),
-                'prompt': self.playback_context() +
+                '_binding': binding,
+                'role_name': self.roles[data.project].name,
+                'voice_label': voice_label(self.settings, self.roles[data.project]),
+                'prompt': self.playback_context(data.project) +
                 '[用户从电脑语音入口发言，请接续当前会话，用适合朗读的简短中文回答。'
                 '本轮结果由语音页面展示；不要另外用消息工具向Discord重复发送本轮对话。]\n' + text}
         try:
@@ -134,11 +179,15 @@ class VoiceService:
     async def run(self, turn: dict):
         request_id = 'voice-' + turn['id']
         try:
+            body = {
+                'request_id': request_id, 'project': turn['project'],
+                'session_key': self.settings.session_key, 'text': turn['prompt'],
+            }
+            if expected := turn.get('_binding'):
+                body.update(expected_session_id=expected['session_id'],
+                            expected_agent_session_id=expected['agent_session_id'])
             try:
-                await asyncio.to_thread(self.bridge.call, '/input', {
-                    'request_id': request_id, 'project': turn['project'],
-                    'session_key': self.settings.session_key, 'text': turn['prompt'],
-                })
+                await asyncio.to_thread(self.bridge.call, '/input', body)
             except BridgeError as exc:
                 if exc.status < 500:
                     raise
@@ -159,6 +208,11 @@ class VoiceService:
             turn['timings']['agent_ms'] = round((time.monotonic() - turn['started']) * 1000)
             turn['session_id'] = result.get('session_id', '')
             turn['agent_session_id'] = result.get('agent_session_id', '')
+            expected = turn.get('_binding')
+            if expected and (result.get('request_id') != request_id
+                             or result.get('session_id') != expected['session_id']
+                             or result.get('agent_session_id') != expected['agent_session_id']):
+                raise BridgeError('原会话或回执编号发生变化；本轮不播放，请核对伙伴会话后再继续。', 422)
             if result['status'] != 'completed':
                 raise BridgeError('伙伴本轮没有可播放的完整回答。原会话可能需要恢复或权限处理，请检查桥接状态。', 502)
             turn['text'] = result.get('text', '')
@@ -168,7 +222,9 @@ class VoiceService:
             turn['status'] = 'synthesizing'
             tts_start = time.monotonic()
             try:
-                audio = await asyncio.to_thread(self.speech.synthesize, turn['spoken_text'])
+                role = self.roles[turn['project']]
+                options = {'voice': role.tts_voice} if role.tts_voice is not None else {}
+                audio = await asyncio.to_thread(self.speech.synthesize, turn['spoken_text'], **options)
             except Exception:
                 turn['status'] = 'error'
                 turn['error'] = '文字回答已收到，但语音合成失败；请看文字，勿重复发送任务。'
@@ -190,14 +246,16 @@ class VoiceService:
         finally:
             turn['timings']['total_ms'] = round((time.monotonic() - turn['started']) * 1000)
             self.active = None
-            self.last_turn = turn['id']
+            self.last_turn[turn['project']] = turn['id']
             try:
                 self.record('finished', self.snapshot(turn))
             except OSError:
                 turn['memory_warning'] = '共享记录保存失败，本轮可能无法被其他伙伴查到。'
 
 
-def create_app(settings: Settings, speech=None, bridge=None) -> FastAPI:
+def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> FastAPI:
+    if roles is not None:
+        roles = validate_roles(roles, settings)
     if speech is None:
         from .speech import Speech
         tts = None
@@ -205,7 +263,7 @@ def create_app(settings: Settings, speech=None, bridge=None) -> FastAPI:
             from .neural_tts import NeuralTTS
             tts = NeuralTTS(settings.tts_python, settings.tts_model_path, settings.tts_voice)
         speech = Speech(settings.model_path, settings.voice, tts=tts)
-    service = VoiceService(settings, speech, bridge)
+    service = VoiceService(settings, speech, bridge, roles)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -216,7 +274,7 @@ def create_app(settings: Settings, speech=None, bridge=None) -> FastAPI:
         if hasattr(speech, 'close'):
             await asyncio.to_thread(speech.close)
 
-    app = FastAPI(title='一家子 · 电脑语音', lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title='共栖 · 电脑语音', lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.service = service
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost'])
 
@@ -244,12 +302,11 @@ def create_app(settings: Settings, speech=None, bridge=None) -> FastAPI:
 
     @app.get('/api/config')
     async def configuration():
-        return {'roles': [{'id': settings.project, 'name': settings.role_name}],
+        return {'roles': await asyncio.gather(*(service.role_status(role) for role in service.roles.values())),
                 'default_role': settings.project, 'session_label': settings.session_label,
                 'max_record_seconds': 30, 'token': service.token,
                 'active_turn': service.active,
-                'voice_label': ('本机自然音色 · ' + {'uncle_fu': '温和男声', 'serena': '柔和女声', 'vivian': '明亮女声'}.get(settings.tts_voice, settings.tts_voice)
-                                if settings.tts_backend == 'qwen3' else '系统音色 · ' + settings.voice),
+                'voice_label': voice_label(settings, service.roles[settings.project]),
                 'asr_model_ready': Path(settings.model_path).is_dir()}
 
     @app.post('/api/transcribe')
@@ -299,7 +356,7 @@ def create_app(settings: Settings, speech=None, bridge=None) -> FastAPI:
         if data.position_seconds > data.duration_seconds + 0.25:
             raise HTTPException(400, '播放位置超过总时长。')
         turn['playback'] = data.model_dump()
-        service.record('playback', {'id': turn_id, **data.model_dump()})
+        service.record('playback', {'id': turn_id, 'project': turn['project'], **data.model_dump()})
         return {'ok': True}
 
     static = Path(__file__).with_name('static')

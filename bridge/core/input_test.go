@@ -93,10 +93,14 @@ type inputTestAgent struct {
 	err          error
 	unsupported  bool
 	requested    chan string
+	listed       []AgentSessionInfo
 }
 
 func (a *inputTestAgent) CompressCommand() string    { return "/compact" }
 func (a *inputTestAgent) SupportsStrictResume() bool { return !a.unsupported }
+func (a *inputTestAgent) ListSessions(context.Context) ([]AgentSessionInfo, error) {
+	return a.listed, nil
+}
 func (a *inputTestAgent) StartSessionStrict(_ context.Context, id string) (AgentSession, error) {
 	a.starts.Add(1)
 	a.requested <- id
@@ -135,7 +139,7 @@ func inputWait(t *testing.T, fn func() bool) {
 	}
 	t.Fatal("condition timed out")
 }
-func inputPost(s *APIServer, r InputRequest) (int, InputResult) {
+func inputPost(s *APIServer, r any) (int, InputResult) {
 	b, _ := json.Marshal(r)
 	w := httptest.NewRecorder()
 	s.handleInput(w, httptest.NewRequest("POST", "/input", strings.NewReader(string(b))))
@@ -174,6 +178,144 @@ func inputPrompt(t *testing.T, a *inputTestAgent) string {
 }
 func inputDone(a *inputTestAgent, text string) {
 	a.session.events <- Event{Type: EventResult, Done: true, Content: text, SessionID: a.session.id}
+}
+
+// Build the wire request from the public lookup response so this regression
+// also exercises the JSON contract, including on servers without the fields.
+func inputBoundRequest(t *testing.T, api *APIServer, id string) map[string]any {
+	t.Helper()
+	code, binding := inputGet(api, "bindings?project=gge&session_key="+inputTestKey)
+	if code != http.StatusOK || binding.SessionID == "" || binding.AgentSessionID == "" {
+		t.Fatalf("binding lookup: %d %+v", code, binding)
+	}
+	return map[string]any{
+		"request_id": id, "project": "gge", "session_key": inputTestKey, "text": "voice words",
+		"expected_session_id": binding.SessionID, "expected_agent_session_id": binding.AgentSessionID,
+	}
+}
+
+func TestLocalInputRejectsBindingChangedAfterLookup(t *testing.T) {
+	for _, change := range []string{"session", "agent-session"} {
+		t.Run(change, func(t *testing.T) {
+			api, e, a, p, s := inputFixture(t)
+			req := inputBoundRequest(t, api, "binding-retry")
+			if change == "session" {
+				s = e.sessions.NewSession(inputTestKey, "replacement")
+			} else {
+				a.session.id = "replacement-thread"
+			}
+			s.SetAgentSessionID(a.session.id, a.Name())
+			if code, result := inputPost(api, req); code != http.StatusConflict {
+				t.Fatalf("stale binding: got %d %+v, want 409", code, result)
+			}
+			if code, _ := inputGet(api, "binding-retry"); code != http.StatusNotFound {
+				t.Fatalf("rejected request ID was reserved: %d", code)
+			}
+			if a.starts.Load() != 0 || a.normalStarts.Load() != 0 || a.session.strict.Load() != 0 || len(a.session.prompts) != 0 || len(p.getSent()) != 0 {
+				t.Fatal("stale binding started or sent a turn")
+			}
+			// Refreshing the binding must allow the very same request ID to run.
+			req = inputBoundRequest(t, api, "binding-retry")
+			if code, result := inputPost(api, req); code != http.StatusAccepted {
+				t.Fatalf("refreshed binding: %d %+v", code, result)
+			}
+			inputPrompt(t, a)
+			inputDone(a, "fresh answer")
+			result := inputResult(t, api, "binding-retry", "completed")
+			inputWait(t, func() bool { return !s.Busy() })
+			if result.SessionID != s.ID || result.AgentSessionID != a.session.id {
+				t.Fatalf("wrong result binding: %+v", result)
+			}
+		})
+	}
+}
+
+func TestLocalInputExpectedBindingAndLegacyAreIdempotent(t *testing.T) {
+	for _, mode := range []string{"expected-binding", "legacy"} {
+		t.Run(mode, func(t *testing.T) {
+			api, e, a, _, s := inputFixture(t)
+			req := inputBoundRequest(t, api, "idempotent")
+			if mode == "legacy" {
+				delete(req, "expected_session_id")
+				delete(req, "expected_agent_session_id")
+			}
+			var wg sync.WaitGroup
+			codes := make(chan int, 8)
+			for i := 0; i < cap(codes); i++ {
+				wg.Add(1)
+				go func() { defer wg.Done(); code, _ := inputPost(api, req); codes <- code }()
+			}
+			wg.Wait()
+			close(codes)
+			accepted := 0
+			for code := range codes {
+				if code == http.StatusAccepted {
+					accepted++
+				} else if code != http.StatusOK {
+					t.Fatalf("identical retry: got %d, want 200", code)
+				}
+			}
+			if accepted != 1 {
+				t.Fatalf("accepted %d identical requests, want 1", accepted)
+			}
+			inputPrompt(t, a)
+			inputDone(a, "bound answer")
+			result := inputResult(t, api, "idempotent", "completed")
+			inputWait(t, func() bool { return !s.Busy() })
+			if result.Text != "bound answer" || result.SessionID != s.ID || result.AgentSessionID != a.session.id {
+				t.Fatalf("wrong result: %+v", result)
+			}
+			// A completed retry returns its original result even after a switch.
+			next := e.sessions.NewSession(inputTestKey, "next conversation")
+			next.SetAgentSessionID("next-thread", a.Name())
+			if code, retry := inputPost(api, req); code != http.StatusOK || retry != result {
+				t.Fatalf("completed retry: %d %+v, want %+v", code, retry, result)
+			}
+			if code, retry := inputPost(api, inputBoundRequest(t, api, "idempotent")); code != http.StatusConflict {
+				t.Fatalf("changed binding reused request ID: %d %+v", code, retry)
+			}
+			if a.session.strict.Load() != 1 || a.normalStarts.Load() != 0 {
+				t.Fatal("retry executed another prompt")
+			}
+		})
+	}
+}
+
+func TestLocalInputExpectedBindingRequiresCompletePair(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(map[string]any)
+	}{
+		{"session-only", func(r map[string]any) { delete(r, "expected_agent_session_id") }},
+		{"agent-only", func(r map[string]any) { delete(r, "expected_session_id") }},
+		{"empty-session", func(r map[string]any) { r["expected_session_id"] = "" }},
+		{"empty-agent", func(r map[string]any) { r["expected_agent_session_id"] = "" }},
+		{"null-session", func(r map[string]any) { r["expected_session_id"] = nil }},
+		{"null-agent", func(r map[string]any) { r["expected_agent_session_id"] = nil }},
+		{"empty-pair", func(r map[string]any) { r["expected_session_id"], r["expected_agent_session_id"] = "", "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, _, a, _, s := inputFixture(t)
+			req := inputBoundRequest(t, api, "pair-retry")
+			tc.change(req)
+			if code, result := inputPost(api, req); code != http.StatusBadRequest {
+				t.Fatalf("invalid pair: %d %+v, want 400", code, result)
+			}
+			if code, _ := inputGet(api, "pair-retry"); code != http.StatusNotFound {
+				t.Fatalf("invalid request ID was reserved: %d", code)
+			}
+			if a.starts.Load() != 0 || len(a.session.prompts) != 0 {
+				t.Fatal("invalid pair started a turn")
+			}
+			if code, result := inputPost(api, inputBoundRequest(t, api, "pair-retry")); code != http.StatusAccepted {
+				t.Fatalf("corrected pair: %d %+v", code, result)
+			}
+			inputPrompt(t, a)
+			inputDone(a, "corrected answer")
+			inputResult(t, api, "pair-retry", "completed")
+			inputWait(t, func() bool { return !s.Busy() })
+		})
+	}
 }
 
 func TestLocalInputSameSessionLocalOnlyAndDiscord(t *testing.T) {

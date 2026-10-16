@@ -20,7 +20,7 @@ for line in sys.stdin:
     if mode=='exit': sys.exit(1)
     with wave.open(r['output'],'wb') as f:
         f.setnchannels(1);f.setsampwidth(2);f.setframerate(24000);f.writeframes(b'\\0\\0'*2400)
-    print(json.dumps({'id':r['id'] if mode!='wrong' else 'stale', 'ok':True}),flush=True)
+    print(json.dumps({'id':r['id'] if mode!='wrong' else 'stale', 'ok':True, 'voice':r['voice']}),flush=True)
 ''')
     class FakeTTS(NeuralTTS):
         def _start(self):
@@ -36,9 +36,15 @@ def test_worker_reuses_process_and_correlates_answers(tmp_path, monkeypatch):
         assert tts.synthesize('第一句').startswith(b'RIFF')
         pid = tts.process.pid
         first = tts.last_metrics['id']
-        assert tts.synthesize('第二句').startswith(b'RIFF')
+        assert tts.synthesize('第二句', voice='serena').startswith(b'RIFF')
+        assert tts.last_metrics['voice'] == 'serena'
         assert tts.process.pid == pid
         assert tts.last_metrics['id'] != first
+        tts.synthesize('第三句')
+        assert tts.last_metrics['voice'] == 'uncle_fu'
+        assert tts.process.pid == pid
+        with pytest.raises(ValueError):
+            tts.synthesize('拒绝未知音色', voice='unknown')
     finally:
         tts.close()
 

@@ -10,6 +10,7 @@ import time
 from uuid import uuid4
 
 from .speech import _cache_directory, _pcm_samples
+from .roles import QWEN_VOICES
 
 
 class NeuralTTS:
@@ -22,7 +23,7 @@ class NeuralTTS:
         self.model = str(Path(model_path).expanduser().resolve(strict=True))
         if not (Path(self.model) / 'model.safetensors').is_file():
             raise ValueError('本地自然音色模型不完整。')
-        if voice not in {'uncle_fu', 'serena', 'vivian', 'ryan', 'aiden', 'eric', 'dylan'}:
+        if voice not in QWEN_VOICES:
             raise ValueError('本地音色名称不受支持。')
         self.voice, self.timeout = voice, timeout
         self.lock = threading.Lock()
@@ -60,16 +61,19 @@ class NeuralTTS:
         with self.lock:
             self._stop()
 
-    def synthesize(self, text: str) -> bytes:
+    def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
         if not isinstance(text, str) or not text.strip() or len(text) > 500:
             raise ValueError('待合成文本长度必须为1至500字。')
+        selected_voice = self.voice if voice is None else voice
+        if selected_voice not in QWEN_VOICES:
+            raise ValueError('本地音色名称不受支持。')
         with self.lock:
             try:
                 self._start()
                 request_id = str(uuid4())
                 fd, path = tempfile.mkstemp(prefix='neural-', suffix='.wav', dir=_cache_directory())
                 os.close(fd)
-                request = {'id': request_id, 'text': text, 'voice': self.voice, 'output': path}
+                request = {'id': request_id, 'text': text, 'voice': selected_voice, 'output': path}
                 self.process.stdin.write((json.dumps(request)+'\n').encode())
                 self.process.stdin.flush()
                 deadline, raw = time.monotonic()+self.timeout, b''
