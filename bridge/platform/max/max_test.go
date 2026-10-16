@@ -272,9 +272,10 @@ func (m *mockAPI) handleUploads(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCDN mimics per-kind MAX CDN response shapes:
-//   image: {"photos": {"<id>": {"token": "..."}}}
-//   file:  {"token": "..."}
-//   video/audio: XML "<retval>1</retval>" (token comes from /uploads instead)
+//
+//	image: {"photos": {"<id>": {"token": "..."}}}
+//	file:  {"token": "..."}
+//	video/audio: XML "<retval>1</retval>" (token comes from /uploads instead)
 func (m *mockAPI) handleCDN(w http.ResponseWriter, r *http.Request) {
 	atomic.AddInt32(&m.cdnCalls, 1)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -606,7 +607,7 @@ func TestFetchAttachmentsFileWithAudioMimeRoutesToAudio(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := newTestPlatform(t, "http://unused")
+	p := newTestPlatform(t, server.URL)
 	atts := []maxAttachmentRaw{
 		{Type: "file", Filename: "song.mp3", Payload: maxAttachmentPayld{URL: server.URL + "/song.mp3"}},
 	}
@@ -623,10 +624,14 @@ func TestFetchAttachmentsFileWithAudioMimeRoutesToAudio(t *testing.T) {
 }
 
 func TestHandleMessageDedupsByID(t *testing.T) {
-	p := newTestPlatform(t, "http://unused")
+	m := newMockAPI(t)
+	defer m.close()
+	p := newTestPlatform(t, m.server.URL)
 
 	delivered := 0
-	_ = p.Start(func(_ core.Platform, _ *core.Message) { delivered++ })
+	if err := p.Start(func(_ core.Platform, _ *core.Message) { delivered++ }); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 	defer func() { _ = p.Stop() }()
 
 	msg := &maxMessage{
@@ -665,7 +670,6 @@ func TestSendAudio(t *testing.T) {
 		t.Fatalf("want audio attachment, got %+v", body.Attachments)
 	}
 }
-
 
 func TestNormalizeLineBreaks(t *testing.T) {
 	cases := []struct {

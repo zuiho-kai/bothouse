@@ -13,6 +13,29 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
+// Interaction routing also acknowledges the click. Supply both authentication
+// and ACK endpoints so routing assertions never depend on the live QQ API.
+func mockInteractionACK(t *testing.T) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/app/getAppAccessToken":
+			_, _ = fmt.Fprint(w, `{"access_token":"test-token","expires_in":"7200"}`)
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/interactions/"):
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected interaction request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	originalTokenURL, originalAPI := tokenURL, apiBaseProduction
+	tokenURL, apiBaseProduction = server.URL+"/app/getAppAccessToken", server.URL
+	t.Cleanup(func() {
+		server.Close()
+		tokenURL, apiBaseProduction = originalTokenURL, originalAPI
+	})
+}
+
 func TestPlatform_Name(t *testing.T) {
 	p := &Platform{}
 	if got := p.Name(); got != "qqbot" {
@@ -867,6 +890,7 @@ func TestSendWithButtons_EmptySessionKey(t *testing.T) {
 // TestHandleInteractionCreate_RouterPermission is a table-driven test covering
 // all permission decision routing for INTERACTION_CREATE events.
 func TestHandleInteractionCreate_RouterPermission(t *testing.T) {
+	mockInteractionACK(t)
 	tests := []struct {
 		name        string
 		buttonData  string
@@ -1066,6 +1090,7 @@ func TestSendWithButtons_EmptyEventMsgID(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleInteractionCreate_Allow(t *testing.T) {
+	mockInteractionACK(t)
 	p := &Platform{
 		allowFrom: "*",
 	}
@@ -1125,6 +1150,7 @@ func TestHandleInteractionCreate_Allow(t *testing.T) {
 }
 
 func TestHandleInteractionCreate_Deny(t *testing.T) {
+	mockInteractionACK(t)
 	p := &Platform{
 		allowFrom: "*",
 	}
@@ -1171,6 +1197,7 @@ func TestHandleInteractionCreate_Deny(t *testing.T) {
 }
 
 func TestHandleInteractionCreate_AllowAll(t *testing.T) {
+	mockInteractionACK(t)
 	p := &Platform{
 		allowFrom: "*",
 	}
@@ -1208,6 +1235,7 @@ func TestHandleInteractionCreate_AllowAll(t *testing.T) {
 }
 
 func TestHandleInteractionCreate_UnknownButtonData(t *testing.T) {
+	mockInteractionACK(t)
 	p := &Platform{
 		allowFrom: "*",
 	}
@@ -1236,6 +1264,7 @@ func TestHandleInteractionCreate_UnknownButtonData(t *testing.T) {
 }
 
 func TestHandleInteractionCreate_InvalidFormat(t *testing.T) {
+	mockInteractionACK(t)
 	p := &Platform{
 		allowFrom: "*",
 	}

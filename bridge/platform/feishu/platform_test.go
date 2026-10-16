@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +22,41 @@ import (
 	callback "github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
+
+// Routing tests exercise dispatch, not the live Feishu/Lark service. Keep name
+// and optional reply-chain lookups inside the test while retaining SDK decoding.
+func stubRoutingLookups(t *testing.T, p *Platform) {
+	t.Helper()
+	p.client = lark.NewClient("routing-test", "test-secret",
+		lark.WithEnableTokenCache(false),
+		lark.WithHttpClient(routingLookupClient{t: t}),
+	)
+}
+
+type routingLookupClient struct {
+	t *testing.T
+}
+
+func (c routingLookupClient) Do(req *http.Request) (*http.Response, error) {
+	var body string
+	switch {
+	case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/open-apis/contact/v3/users/"):
+		body = `{"code":0,"data":{"user":{"name":"Test User"}}}`
+	case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/open-apis/im/v1/chats/"):
+		body = `{"code":0,"data":{"name":"Test Chat"}}`
+	case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/open-apis/im/v1/messages/"):
+		body = `{"code":0,"data":{"items":[]}}`
+	default:
+		c.t.Errorf("unexpected routing lookup: %s %s", req.Method, req.URL.Path)
+		return nil, errors.New("unexpected routing lookup")
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    req,
+	}, nil
+}
 
 func TestNew_DefaultsToInteractivePlatform(t *testing.T) {
 	p, err := New(map[string]any{"app_id": "cli_xxx", "app_secret": "secret"})
@@ -205,6 +242,7 @@ func TestInteractivePlatform_OnMessagePassesCardSenderToHandler(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type = %T, want *interactivePlatform", platformAny)
 	}
+	stubRoutingLookups(t, ip.Platform)
 
 	messageID := "om_test_message"
 	chatID := "oc_test_chat"
@@ -252,6 +290,9 @@ func TestInteractivePlatform_OnMessagePassesCardSenderToHandler(t *testing.T) {
 	if receivedMsg == nil {
 		t.Fatal("expected handler to receive a message")
 	}
+	if receivedMsg.UserName != "Test User" || receivedMsg.ChatName != "Test Chat" {
+		t.Fatalf("lookup names = %q / %q, want local fixture names", receivedMsg.UserName, receivedMsg.ChatName)
+	}
 	if receivedMsg.Content != "/help" {
 		t.Fatalf("message content = %q, want /help", receivedMsg.Content)
 	}
@@ -269,6 +310,7 @@ func TestInteractivePlatform_CardActionPassesCardSenderToHandler(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type = %T, want *interactivePlatform", platformAny)
 	}
+	stubRoutingLookups(t, ip.Platform)
 
 	openID := "ou_test_user"
 	chatID := "oc_test_chat"
@@ -490,6 +532,7 @@ func TestInteractivePlatform_CardActionUsesCallbackSessionKey(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 	ip := platformAny.(*interactivePlatform)
+	stubRoutingLookups(t, ip.Platform)
 
 	wantSessionKey := "feishu:oc_test_chat:root:om_root_thread"
 	msgCh := make(chan *core.Message, 1)
@@ -662,6 +705,7 @@ func TestLark_SessionKeyPrefix(t *testing.T) {
 		t.Fatalf("newPlatform(lark) error = %v", err)
 	}
 	ip := p.(*interactivePlatform)
+	stubRoutingLookups(t, ip.Platform)
 
 	messageID := "om_test"
 	chatID := "oc_test"
@@ -723,6 +767,7 @@ func TestLark_ThreadIsolationUsesRootSessionKey(t *testing.T) {
 		t.Fatalf("newPlatform(lark) error = %v", err)
 	}
 	ip := p.(*interactivePlatform)
+	stubRoutingLookups(t, ip.Platform)
 
 	messageID := "om_reply"
 	rootID := "om_root"
@@ -791,6 +836,7 @@ func TestLark_GroupReplyAllWithThreadIsolationUsesRootSessionKeyWithoutMention(t
 		t.Fatalf("newPlatform(lark) error = %v", err)
 	}
 	ip := p.(*interactivePlatform)
+	stubRoutingLookups(t, ip.Platform)
 
 	messageID := "om_root"
 	chatID := "oc_test"
@@ -1718,6 +1764,7 @@ func TestAllowChat_FiltersGroupMessages(t *testing.T) {
 				t.Fatalf("newPlatform() error = %v", err)
 			}
 			ip := p.(*interactivePlatform)
+			stubRoutingLookups(t, ip.Platform)
 
 			messageID := "om_test_" + tt.name
 			openID := "ou_test"
@@ -2102,6 +2149,7 @@ func TestOnMessage_NewMessageAfterRestartIsProcessed(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type = %T, want *interactivePlatform", platformAny)
 	}
+	stubRoutingLookups(t, ip.Platform)
 
 	var (
 		wg          sync.WaitGroup
@@ -2165,6 +2213,7 @@ func TestOnMessage_GracePeriodMessageIsProcessed(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type = %T, want *interactivePlatform", platformAny)
 	}
+	stubRoutingLookups(t, ip.Platform)
 
 	var (
 		wg          sync.WaitGroup
@@ -2221,6 +2270,7 @@ func TestCmdAction_WithoutAfterClick_DispatchesAndReturnsNil(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type = %T, want *interactivePlatform", platformAny)
 	}
+	stubRoutingLookups(t, ip.Platform)
 
 	msgCh := make(chan *core.Message, 1)
 	ip.handler = func(_ core.Platform, msg *core.Message) { msgCh <- msg }
@@ -2258,6 +2308,7 @@ func TestCmdAction_WithAfterClick_DispatchesAndReturnsCard(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type = %T, want *interactivePlatform", platformAny)
 	}
+	stubRoutingLookups(t, ip.Platform)
 
 	msgCh := make(chan *core.Message, 1)
 	ip.handler = func(_ core.Platform, msg *core.Message) { msgCh <- msg }
@@ -2320,6 +2371,7 @@ func TestCmdAction_WithAfterClick_SessionKeyRoutes(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type = %T, want *interactivePlatform", platformAny)
 	}
+	stubRoutingLookups(t, ip.Platform)
 
 	const wantSessionKey = "custom-session-abc"
 	msgCh := make(chan *core.Message, 1)

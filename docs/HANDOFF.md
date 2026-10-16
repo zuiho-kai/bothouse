@@ -1,5 +1,13 @@
 # 共栖当前交接
 
+## 2026-10-16 21:33：Issue #13 已由另一工作线部署，本线完成补充验证
+
+核对现场发现 PR #18 已合并为 7027a4a15b1212379604819860eadb5bfc7c8028，并于21:26完成部署。当前桥接PID76033，二进制SHA256 f3acbb3e2fdebba6031c277a81dddba53582432a309503471a6a3e61325b845c；备份及部署记录在 ~/.cc-connect-maomao/backups/quota-20261016-212557/。本线已只读核对六个Discord连接、配置字节与六份会话映射；独立重建产物与生产SHA256完全一致；同步最新源码后的原TCP、完整CUJ、全量Go、相关race、vet和构建全部通过。不要用旧候选dd9d752f覆盖已经上线的额度功能，也不要重复重启。
+
+PR #20（deploy/13-empty-response，/Users/zhaixinyang/conest-issue-13-deploy）同步最新main，完整保留其业务代码，仅补审批合同回归、QQ/MAX/飞书本地HTTP测试隔离及验证文档。测试误连bots.qq.com和unused的根因已定位为fixture缺失，修复前网络保护明确报错，修复后通过；没有修改LuLu/权限策略。历史TCP监听限制已解除，原TCP、完整CUJ、默认并发全量Go、相关race和vet已在此前候选通过，同步后的相同检查也全部通过，详见[部署复核](ISSUE_13_DEPLOYMENT.md)。一次Codex假进程启动5秒超时没有稳定复现，保留原始失败与复核边界，未延长超时掩盖。
+
+部署成功与真人验收分开：目前未发送Discord测试消息，仍待用户亲自对大豆包发起一次只读工具任务并核对正文/审批。先前独立验证提交07700992及红绿证据见[验证记录](ISSUE_13_EMPTY_RESPONSE_VALIDATION.md)，下文“未部署”是PR #18发布前的历史快照。
+
 ## 2026-10-16：大豆包空响应与额度状态（Issue #13）
 
 本轮在独立分支 `fix/13-response-usage` 修复源码，关联 [Issue #13](https://github.com/Zssan12/conest/issues/13)，通过 [PR #18](https://github.com/Zssan12/conest/pull/18) 交付。未修改私密配置、旧源码或运行进程，未发送真实 Discord 消息；合并和部署均须另外核对，不能把以下测试当成线上已生效。
