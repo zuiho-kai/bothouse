@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f4ee">
+  <title>一家子 · 说说话</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="一家子首页"><span class="brand-icon" aria-hidden="true">家</span>一家子<span class="brand-divider">/</span><span class="brand-sub">说说话</span></a>
+      <span class="mode-pill"><span aria-hidden="true"></span>单人语音</span>
+    </header>
+    <section class="intro" aria-labelledby="page-title">
+      <p class="eyebrow">留一点时间，聊聊眼前的事</p>
+      <h1 id="page-title">和熟悉的伙伴，<br class="mobile-break">接着聊。</h1>
+      <p class="intro-copy">说一句，确认文字，再听听对方的回答。</p>
+    </section>
+    <section class="connection" aria-label="对话设置">
+      <div class="role-field"><label for="role">对话伙伴</label><select id="role" disabled><option>正在连接…</option></select></div>
+      <div class="session"><span class="small-label">接续会话记忆</span><strong id="session-label">等待后端确认 · 语音内容仅在此展示</strong><span id="voice-label" class="small-label"></span></div>
+      <span id="connection-state" class="connection-state">连接中</span>
+      <button id="reload-config" class="text-button" type="button" hidden>重新连接</button>
+    </section>
+    <p id="page-error" class="error-banner" role="alert" hidden></p>
+    <div class="workspace">
+      <section class="panel input-panel" aria-labelledby="input-title">
+        <div class="section-heading"><h2 id="input-title"><span class="step-number">01</span>你想说的</h2><span class="small-label">语音 / 文字</span></div>
+        <div class="record-area">
+          <button id="record" class="record-button" type="button" disabled aria-label="按住说话，松开识别" aria-describedby="record-help input-status" aria-keyshortcuts="Space" aria-pressed="false">
+            <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="12" y="4" width="8" height="15" rx="4" stroke="currentColor" stroke-width="1.8"/><path d="M8 14v2a8 8 0 0 0 16 0v-2M16 24v4M12 28h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span id="record-label">按住说话</span>
+          </button>
+          <div class="record-readout"><span id="record-time">0.0</span><span> / <span id="record-limit">30</span> 秒</span></div>
+          <p id="record-help" class="hint">按住按钮或空格键，松开后识别。<br>首次使用需允许麦克风；停止后即释放。</p>
+          <p id="input-status" class="input-status" role="status" aria-live="polite">正在连接本地语音服务…</p>
+        </div>
+        <form id="message-form">
+          <div class="text-label-row"><label id="draft-label" for="draft">也可以直接打字</label><span id="transcribe-time" class="small-label"></span></div>
+          <textarea id="draft" rows="4" placeholder="此刻想说什么？" disabled aria-describedby="draft-help"></textarea>
+          <div class="send-row"><p id="draft-help" class="hint">识别后可修改，确认后才发送。</p><button id="send" class="primary-button" type="submit" disabled>确认发送 <span aria-hidden="true">↗</span></button></div>
+        </form>
+      </section>
+      <section class="panel output-panel" aria-labelledby="output-title">
+        <div class="section-heading"><h2 id="output-title"><span class="step-number">02</span>伙伴的回答</h2><span id="turn-state" class="status-pill" role="status">等待你的消息</span></div>
+        <p id="task-note" class="task-note" role="status">一次聊一件事，回答会留在这里。</p>
+        <div id="empty-state" class="empty-state"><span class="conversation-mark" aria-hidden="true">“</span><h3>从一句话开始</h3><p>说说今天，或接着上次的话题。<br>这里只显示伙伴实际返回的回答。</p></div>
+        <div id="records" class="records" aria-label="最近对话记录"></div>
+        <div class="player" aria-label="回答播放控制">
+          <div class="player-info"><span id="playback-state" role="status">尚无可播放的回答</span><span id="playback-time">0:00 / —</span></div>
+          <progress id="playback-progress" value="0" max="1" aria-label="播放进度"></progress>
+          <div class="player-actions"><button id="play" class="primary-button" type="button" disabled>播放回答</button><button id="stop" class="secondary-button" type="button" disabled>停止播放</button><span class="hint">停止播放不会取消后台任务</span></div>
+          <audio id="audio" preload="none"></audio>
+        </div>
+      </section>
+    </div>
+    <footer>按住时才使用麦克风<span aria-hidden="true">·</span>每轮确认后发送<span aria-hidden="true">·</span>最近 12 轮记录保留在本页</footer>
+    <noscript><p class="error-banner">请启用 JavaScript 后使用语音对话。</p></noscript>
+  </main>
+</body>
+</html>

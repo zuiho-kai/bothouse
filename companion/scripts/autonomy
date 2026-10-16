@@ -1,0 +1,5 @@
+#!/bin/sh
+# Stable entry point from any working directory.
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
+cd "$ROOT" || exit 1
+exec "$ROOT/.venv/bin/python" -m autonomy "$@"

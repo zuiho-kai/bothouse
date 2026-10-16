@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+VOICE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$VOICE_ROOT"
+exec "$VOICE_ROOT/.venv/bin/python" -m voice "$@"
