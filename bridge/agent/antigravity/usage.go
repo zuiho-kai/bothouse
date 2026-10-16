@@ -69,16 +69,9 @@ func (q *nativeQuota) get(ctx context.Context, model string) (*core.UsageReport,
 	if q.cached != nil && q.cacheModel == model && time.Since(q.fetchedAt) < 30*time.Second {
 		return q.cached, nil
 	}
-	addresses := []string{q.address}
-	if q.address == "" {
-		// Inspect only the exact subprocess PID, never other apps or agents. lsof
-		// is supplied by macOS and is an explicit prerequisite on other platforms.
-		cmd := exec.CommandContext(ctx, "lsof", "-nP", "-a", "-p", strconv.Itoa(q.pid), "-iTCP", "-sTCP:LISTEN", "-Fn")
-		raw, err := cmd.Output()
-		if err != nil {
-			return nil, errors.New("quota: cannot discover CLI listener (lsof required)")
-		}
-		addresses = nativeQuotaAddresses(string(raw))
+	addresses, err := q.addresses(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var last error
 	for _, address := range addresses {
@@ -94,6 +87,22 @@ func (q *nativeQuota) get(ctx context.Context, model string) (*core.UsageReport,
 		last = errors.New("quota: CLI listener not ready")
 	}
 	return nil, last
+}
+
+// addresses is called with q.mu held; discovery is restricted to our child PID.
+func (q *nativeQuota) addresses(ctx context.Context) ([]string, error) {
+	addresses := []string{q.address}
+	if q.address == "" {
+		// Inspect only the exact subprocess PID, never other apps or agents. lsof
+		// is supplied by macOS and is an explicit prerequisite on other platforms.
+		cmd := exec.CommandContext(ctx, "lsof", "-nP", "-a", "-p", strconv.Itoa(q.pid), "-iTCP", "-sTCP:LISTEN", "-Fn")
+		raw, err := cmd.Output()
+		if err != nil {
+			return nil, errors.New("quota: cannot discover CLI listener (lsof required)")
+		}
+		addresses = nativeQuotaAddresses(string(raw))
+	}
+	return addresses, nil
 }
 
 func nativeQuotaAddresses(raw string) []string {
@@ -117,7 +126,19 @@ func nativeQuotaAddresses(raw string) []string {
 }
 
 func fetchNativeQuota(ctx context.Context, address, csrf, model string) (*core.UsageReport, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, address+"/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary", bytes.NewBufferString("{}"))
+	raw, err := fetchNativeRPC(ctx, address, csrf, "RetrieveUserQuotaSummary", []byte("{}"), 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	var summary quotaSummary
+	if json.Unmarshal(raw, &summary) != nil {
+		return nil, errors.New("quota: invalid CLI quota response")
+	}
+	return summary.report(model)
+}
+
+func fetchNativeRPC(ctx context.Context, address, csrf, method string, body []byte, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, address+"/exa.language_server_pb.LanguageServerService/"+method, bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.New("quota: invalid CLI listener")
 	}
@@ -135,15 +156,11 @@ func fetchNativeQuota(ctx context.Context, address, csrf, model string) (*core.U
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("quota: CLI returned HTTP %d", resp.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
-	if err != nil || len(raw) > 1<<20 {
-		return nil, errors.New("quota: cannot read CLI quota")
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil || int64(len(raw)) > limit {
+		return nil, errors.New("antigravity: cannot read native CLI response")
 	}
-	var summary quotaSummary
-	if json.Unmarshal(raw, &summary) != nil {
-		return nil, errors.New("quota: invalid CLI quota response")
-	}
-	return summary.report(model)
+	return raw, nil
 }
 
 func (s quotaSummary) report(model string) (*core.UsageReport, error) {

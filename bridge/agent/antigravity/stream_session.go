@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -25,6 +26,7 @@ type streamSession struct {
 	busy          bool
 	streamed      bool
 	turnTimer     *time.Timer
+	turn          streamTurnEvidence
 	tempFiles     []string
 	quota         *nativeQuota
 }
@@ -33,13 +35,17 @@ type agyStreamEvent struct {
 	Event          string `json:"event"`
 	ConversationID string `json:"conversation_id"`
 	Step           struct {
-		Type      string `json:"step_type"`
-		TextDelta string `json:"text_delta"`
+		ConversationID string `json:"conversation_id"`
+		Index          *int   `json:"step_index"`
+		State          string `json:"state"`
+		Type           string `json:"step_type"`
+		TextDelta      string `json:"text_delta"`
 	} `json:"step_update"`
 	Result struct {
 		ConversationID string `json:"conversation_id"`
 		Status         string `json:"status"`
 		Response       string `json:"response"`
+		Error          string `json:"error"`
 	} `json:"result"`
 }
 
@@ -110,6 +116,7 @@ func (s *streamSession) Send(prompt, _ string, images []core.ImageAttachment, fi
 	fullPrompt, tempFiles := s.preparePrompt(prompt, images, files)
 	s.tempFiles = tempFiles
 	s.busy, s.streamed = true, false
+	s.turn = streamTurnEvidence{}
 	input := struct {
 		Event   string            `json:"event"`
 		Message map[string]string `json:"message"`
@@ -191,6 +198,9 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 	case "init":
 		s.emit(core.Event{Type: core.EventText, SessionID: s.CurrentSessionID()})
 	case "step_update":
+		if s.busy {
+			s.turn.observe(ev)
+		}
 		if s.busy && ev.Step.Type == "agent_response" && ev.Step.TextDelta != "" {
 			if strings.TrimSpace(ev.Step.TextDelta) != "" {
 				s.streamed = true
@@ -208,8 +218,13 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 		if s.streamed {
 			content = "" // the result repeats the streamed answer
 		}
+		succeeded := ev.Result.Status == "SUCCESS"
+		if !succeeded && s.verifyHistoricalError(ev) {
+			succeeded = true
+			slog.Warn("antigravity: ignored historical CLI error after current-turn verification", "turn_start", s.turn.start, "turn_end", s.turn.last)
+		}
 		s.finishTurnLocked()
-		if ev.Result.Status != "SUCCESS" {
+		if !succeeded {
 			s.emit(core.Event{Type: core.EventError, Error: fmt.Errorf("antigravity: stream turn failed (%s): %s", ev.Result.Status, ev.Result.Response)})
 			return
 		}
