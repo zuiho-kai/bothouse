@@ -1,5 +1,12 @@
 # 共栖当前交接
 
+## 2026-10-17：模型 list→set 连续查询失败（Issue #5，后续修复待发布）
+
+- PR #37 已于01:24部署并读到13个原生模型，但用户后续 list成功、set失败。日志01:36:23记录原生发现被终止；旧日志不足以确定是超时/取消/外部终止，外层stream ERROR也未独立归因。
+- 已通过真实 Agent/Engine + 第一次成功、第二次失败的 CLI fixture 复现相同误报。新增同环境成功列表60秒内存复用、环境/过期边界、空列表独立报错与安全诊断。未知ID仍拒绝，模型仍到下一轮才应用。
+- 分支 fix/5-model-discovery-snapshot，工作区 /Users/zhaixinyang/conest-5-models-gge；同一Agent实现和自查，无子Agent。定向回归、相关race/完整CUJ、vet与构建通过；串行全量在测试进程umask=022下全部通过，首次077的daemon fixture前置失败保留。真实CLI隔离 list约7.94秒、随后排队校验约0.54毫秒，原模型保持。完整验证见[模型发现验证](ANTIGRAVITY_MODEL_DISCOVERY.md)。
+- 本次后续源码尚未部署；未切换任何生产伙伴，未更改权限、配置或原会话。真人下一轮切换仍待验收，不能把隔离排队或一次列表成功当作闭环通过。
+
 ## 2026-10-17：Antigravity 模型列表来源修复（Issue #5，未部署）
 
 - 用户授权修复 `agy models` 已有目标而桥接拒绝切换的问题。独立工作区 `/Users/zhaixinyang/conest-5-models-gge`，分支 `fix/5-antigravity-cli-models`，基于 main `12ad8bd4`；本线自行实现和审核，无子 Agent。

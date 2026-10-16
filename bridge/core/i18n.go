@@ -309,6 +309,7 @@ const (
 	MsgModelCardSwitched     MsgKey = "model_card_switched"
 	MsgModelCardSwitchFailed MsgKey = "model_card_switch_failed"
 	MsgModelNotSupported     MsgKey = "model_not_supported"
+	MsgModelListUnavailable  MsgKey = "model_catalog_unavailable"
 	MsgReasoningCurrent      MsgKey = "reasoning_current"
 	MsgReasoningChanged      MsgKey = "reasoning_changed"
 	MsgReasoningNotSupported MsgKey = "reasoning_not_supported"
@@ -2275,6 +2276,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "切換模型失敗: %v",
 		LangJapanese:           "モデルの切り替えに失敗しました: %v",
 		LangSpanish:            "Error al cambiar el modelo: %v",
+	},
+	MsgModelListUnavailable: {
+		LangEnglish:            "model list is currently unavailable or empty; retry model list before switching (nothing changed)",
+		LangChinese:            "模型列表当前不可用或为空；请重新查询 model list 后再切换（未作更改）",
+		LangTraditionalChinese: "模型列表目前無法取得或為空；請重新查詢 model list 後再切換（未作變更）",
+		LangJapanese:           "モデル一覧を取得できないか、一覧が空です。model list を再実行してから切り替えてください（変更なし）",
+		LangSpanish:            "La lista de modelos no está disponible o está vacía; vuelva a ejecutar model list antes de cambiar (sin cambios)",
 	},
 	MsgModelNotSupported: {
 		LangEnglish:            "This agent does not support model switching.",

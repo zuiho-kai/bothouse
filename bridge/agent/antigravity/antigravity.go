@@ -42,6 +42,7 @@ type Agent struct {
 	sessionEnv   []string
 	mu           sync.RWMutex
 	quota        *nativeQuota
+	modelCatalog cliModelCatalog // protected by mu; successful discovery only
 }
 
 func New(opts map[string]any) (core.Agent, error) {

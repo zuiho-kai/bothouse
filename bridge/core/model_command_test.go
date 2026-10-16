@@ -2,9 +2,23 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestQueueModelSwitchEmptyCatalogDoesNotClaimIDMismatch(t *testing.T) {
+	agent := &stubStrictModelAgent{}
+	e := NewEngine("test", agent, nil, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	r := e.QueueModelSwitch(context.Background(), "test", "native-model", "", false)
+	if r.OK || !strings.Contains(r.Message, "unavailable or empty") || strings.Contains(r.Message, "no unique model") {
+		t.Fatalf("empty discovery misreported as model mismatch: %+v", r)
+	}
+	if st := e.ModelStatus(context.Background(), "test"); st.Pending != "" {
+		t.Fatalf("empty catalog queued a switch: %+v", st)
+	}
+}
 
 func TestResolveModelQueryRequiresExactAdvertisedID(t *testing.T) {
 	options := []ModelOption{{Name: "relay/opus-5", Alias: "opus"}, {Name: "relay/opus-5-5"}, {Name: "relay/opus55"}}

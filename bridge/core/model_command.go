@@ -180,6 +180,9 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 		if !canModel {
 			return ModelSwitchResult{Message: "this agent cannot switch models"}
 		}
+		if len(options) == 0 {
+			return ModelSwitchResult{Message: e.i18n.T(MsgModelListUnavailable)}
+		}
 		var cands []ModelOption
 		target, cands = resolveModelQuery(model, options)
 		if target == "" {

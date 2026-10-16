@@ -56,6 +56,36 @@ printf 'claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n'
 	}
 }
 
+func TestAvailableModels_ListThenSwitchSurvivesSecondDiscoveryFailure(t *testing.T) {
+	dir := t.TempDir()
+	cmd := modelCLI(t, `
+test "$1" = models
+if [ -f queried ]; then exit 3; fi
+: > queried
+printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
+`)
+	ag, err := New(map[string]any{"cmd": cmd, "work_dir": dir, "model": "gemini-4-argon-medium"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := core.NewEngine("discovery-regression", ag, nil, filepath.Join(dir, "sessions.json"), core.LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	st := e.ModelStatus(context.Background(), "test")
+	if len(st.Models) != 1 || st.Models[0].Name != "gemini-3.8-flash-high" {
+		t.Fatalf("initial list failed: %+v", st)
+	}
+	r := e.QueueModelSwitch(context.Background(), "test", st.Models[0].Name, "", false)
+	if !r.OK {
+		t.Fatalf("freshly advertised model rejected on second discovery: %+v", r)
+	}
+	if ag.(*Agent).GetModel() != "gemini-4-argon-medium" {
+		t.Fatal("queue changed current model")
+	}
+	if r := e.QueueModelSwitch(context.Background(), "other", "invented-model", "", false); r.OK {
+		t.Fatal("snapshot accepted an unadvertised model")
+	}
+}
+
 func TestAvailableModels_UsesSessionCommandAndEnvironment(t *testing.T) {
 	t.Setenv("MODEL_DISCOVERY_ORDER", "inherited")
 	dir := t.TempDir()
@@ -80,6 +110,104 @@ printf 'native-model-high\tNative Model (High)\n'
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "native-model-high" {
 		t.Fatalf("CLI command/environment mismatch: %+v", got)
+	}
+}
+
+func TestAvailableModels_CatalogExpiryDoesNotReuseStaleModels(t *testing.T) {
+	a := &Agent{cmd: modelCLI(t, `
+if [ -f queried ]; then exit 3; fi
+: > queried
+printf 'native-high\tNative High\n'
+`), workDir: t.TempDir(), activeIdx: -1}
+	if got := a.AvailableModels(context.Background()); len(got) != 1 {
+		t.Fatalf("initial discovery = %+v", got)
+	}
+	a.mu.Lock()
+	a.modelCatalog.expiresAt = time.Now().Add(-time.Second)
+	a.mu.Unlock()
+	if got := a.AvailableModels(context.Background()); len(got) != 0 {
+		t.Fatalf("failed refresh reused stale catalog: %+v", got)
+	}
+}
+
+func TestAvailableModels_CatalogTracksQueryContext(t *testing.T) {
+	for _, change := range []string{"session env", "config env", "provider env", "provider index", "inherited env", "directory", "binary", "arguments"} {
+		t.Run(change, func(t *testing.T) {
+			a := &Agent{cmd: modelCLI(t, "printf 'initial-model\tInitial Model\n'\n"), workDir: t.TempDir(), activeIdx: -1}
+			if change == "provider env" {
+				a.SetProviders([]core.ProviderConfig{{Name: "same", Env: map[string]string{"MODEL_ACCOUNT": "original"}}})
+				a.SetActiveProvider("same")
+			}
+			if got := a.AvailableModels(context.Background()); len(got) != 1 {
+				t.Fatal("initial discovery failed")
+			}
+			// The same executable now fails. Only a changed query context must
+			// rediscover; otherwise the fresh successful snapshot is usable.
+			if err := os.WriteFile(a.cmd, []byte("#!/bin/sh\nexit 3\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "session env":
+				a.SetSessionEnv([]string{"MODEL_ACCOUNT=changed"})
+			case "config env":
+				a.configEnv = []string{"MODEL_ACCOUNT=changed"}
+			case "provider env":
+				a.SetProviders([]core.ProviderConfig{{Name: "same", Env: map[string]string{"MODEL_ACCOUNT": "changed"}}})
+			case "provider index":
+				a.SetProviders([]core.ProviderConfig{{Name: "new"}})
+				a.SetActiveProvider("new")
+			case "inherited env":
+				t.Setenv("MODEL_ACCOUNT", "changed")
+			case "directory":
+				a.SetWorkDir(t.TempDir())
+			case "binary":
+				a.cmd = modelCLI(t, "exit 3\n")
+			case "arguments":
+				a.cliExtraArgs = []string{"--other-profile"}
+			}
+			if got := a.AvailableModels(context.Background()); len(got) != 0 {
+				t.Fatalf("different context reused old catalog: %+v", got)
+			}
+		})
+	}
+}
+
+func TestAvailableModels_CatalogDoesNotCacheFailures(t *testing.T) {
+	a := &Agent{cmd: modelCLI(t, `
+if [ ! -f queried ]; then : > queried; exit 3; fi
+printf 'native-high\tNative High\n'
+`), workDir: t.TempDir(), activeIdx: -1}
+	if got := a.AvailableModels(context.Background()); len(got) != 0 {
+		t.Fatal("first query should fail")
+	}
+	if got := a.AvailableModels(context.Background()); len(got) != 1 {
+		t.Fatalf("failure was cached: %+v", got)
+	}
+}
+
+func TestAvailableModels_CatalogOwnsResultsAndIgnoresEnvOrder(t *testing.T) {
+	a := &Agent{cmd: modelCLI(t, `
+if [ -f queried ]; then exit 3; fi
+: > queried
+printf 'native-high\tNative High\n'
+`), workDir: t.TempDir(), activeIdx: -1, sessionEnv: []string{"MODEL_A=first", "MODEL_B=second"}}
+	got := a.AvailableModels(context.Background())
+	if len(got) != 1 {
+		t.Fatal("initial discovery failed")
+	}
+	got[0].Name = "invented"
+	a.SetSessionEnv([]string{"MODEL_B=second", "MODEL_A=first"})
+	for i := 0; i < 2; i++ {
+		got = a.AvailableModels(context.Background())
+		if len(got) != 1 || got[0].Name != "native-high" {
+			t.Fatalf("cache poisoned or equivalent environment missed: %+v", got)
+		}
+		got[0].Name = "invented"
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := a.AvailableModels(ctx); len(got) != 0 {
+		t.Fatal("canceled request returned cached models")
 	}
 }
 
