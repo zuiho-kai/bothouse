@@ -72,8 +72,23 @@ func TestAgyPermissionBridgePreservesHooksAndRelaysDecisions(t *testing.T) {
 		t.Fatal("overlay does not contain cc-connect permission hook")
 	}
 
-	testBridgeDecision(t, bridge, events, "allow", "", "allow", "")
+	testBridgeDecision(t, bridge, events, "allow", "", "auto_approve", "")
 	testBridgeDecision(t, bridge, events, "deny", "not now", "deny", "not now")
+
+	// Explicit approval must still require the private bridge token.
+	var output bytes.Buffer
+	if err := antigravityhook.Relay(strings.NewReader("{}"), &output, bridge.address, "wrong-token"); err != nil {
+		t.Fatal(err)
+	}
+	var rejected antigravityhook.BridgeResponse
+	if err := json.Unmarshal(output.Bytes(), &rejected); err != nil || rejected.Decision != "deny" {
+		t.Fatalf("unauthenticated request was not denied: %q, %v", output.String(), err)
+	}
+	select {
+	case ev := <-events:
+		t.Fatalf("unauthenticated request reached session: %+v", ev)
+	default:
+	}
 }
 
 func testBridgeDecision(t *testing.T, bridge *agyPermissionBridge, events <-chan core.Event, behavior, message, wantDecision, wantReason string) {

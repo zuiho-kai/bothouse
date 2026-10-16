@@ -297,6 +297,11 @@ const (
 
 	MsgStatusTitle           MsgKey = "status_title"
 	MsgReplyFooterRemaining  MsgKey = "reply_footer_remaining"
+	MsgQuotaRemaining        MsgKey = "quota_remaining"
+	MsgQuotaUnsupported      MsgKey = "quota_unsupported"
+	MsgQuotaNoData           MsgKey = "quota_no_data"
+	MsgQuotaFetchFailed      MsgKey = "quota_fetch_failed"
+	MsgEmptyAgentResponse    MsgKey = "empty_agent_response"
 	MsgModelCurrent          MsgKey = "model_current"
 	MsgModelChanged          MsgKey = "model_changed"
 	MsgModelChangeFailed     MsgKey = "model_change_failed"
@@ -378,31 +383,31 @@ const (
 	MsgCronIDLabel               MsgKey = "cron_id_label"
 	MsgCronFailedSuffix          MsgKey = "cron_failed_suffix"
 
-	MsgTimerNotAvailable  MsgKey = "timer_not_available"
-	MsgTimerUsage         MsgKey = "timer_usage"
-	MsgTimerAddUsage      MsgKey = "timer_add_usage"
-	MsgTimerAdded         MsgKey = "timer_added"
-	MsgTimerAddedExec     MsgKey = "timer_added_exec"
-	MsgTimerAddExecUsage  MsgKey = "timer_addexec_usage"
-	MsgTimerEmpty         MsgKey = "timer_empty"
-	MsgTimerListTitle     MsgKey = "timer_list_title"
-	MsgTimerListFooter    MsgKey = "timer_list_footer"
-	MsgTimerDelUsage      MsgKey = "timer_del_usage"
-	MsgTimerMuteUsage     MsgKey = "timer_mute_usage"
-	MsgTimerDeleted       MsgKey = "timer_deleted"
-	MsgTimerNotFound      MsgKey = "timer_not_found"
-	MsgTimerMuted         MsgKey = "timer_muted"
-	MsgTimerUnmuted       MsgKey = "timer_unmuted"
-	MsgTimerCardHint      MsgKey = "timer_card_hint"
-	MsgTimerBtnMute       MsgKey = "timer_btn_mute"
-	MsgTimerBtnUnmute     MsgKey = "timer_btn_unmute"
-	MsgTimerBtnDelete     MsgKey = "timer_btn_delete"
-	MsgTimerIDLabel       MsgKey = "timer_id_label"
-	MsgTimerScheduledLabel MsgKey = "timer_scheduled_label"
-	MsgTimerFailedSuffix  MsgKey = "timer_failed_suffix"
-	MsgCommandsTagAgent          MsgKey = "commands_tag_agent"
-	MsgCommandsTagShell          MsgKey = "commands_tag_shell"
-	MsgUpgradeTimeoutSuffix      MsgKey = "upgrade_timeout_suffix"
+	MsgTimerNotAvailable    MsgKey = "timer_not_available"
+	MsgTimerUsage           MsgKey = "timer_usage"
+	MsgTimerAddUsage        MsgKey = "timer_add_usage"
+	MsgTimerAdded           MsgKey = "timer_added"
+	MsgTimerAddedExec       MsgKey = "timer_added_exec"
+	MsgTimerAddExecUsage    MsgKey = "timer_addexec_usage"
+	MsgTimerEmpty           MsgKey = "timer_empty"
+	MsgTimerListTitle       MsgKey = "timer_list_title"
+	MsgTimerListFooter      MsgKey = "timer_list_footer"
+	MsgTimerDelUsage        MsgKey = "timer_del_usage"
+	MsgTimerMuteUsage       MsgKey = "timer_mute_usage"
+	MsgTimerDeleted         MsgKey = "timer_deleted"
+	MsgTimerNotFound        MsgKey = "timer_not_found"
+	MsgTimerMuted           MsgKey = "timer_muted"
+	MsgTimerUnmuted         MsgKey = "timer_unmuted"
+	MsgTimerCardHint        MsgKey = "timer_card_hint"
+	MsgTimerBtnMute         MsgKey = "timer_btn_mute"
+	MsgTimerBtnUnmute       MsgKey = "timer_btn_unmute"
+	MsgTimerBtnDelete       MsgKey = "timer_btn_delete"
+	MsgTimerIDLabel         MsgKey = "timer_id_label"
+	MsgTimerScheduledLabel  MsgKey = "timer_scheduled_label"
+	MsgTimerFailedSuffix    MsgKey = "timer_failed_suffix"
+	MsgCommandsTagAgent     MsgKey = "commands_tag_agent"
+	MsgCommandsTagShell     MsgKey = "commands_tag_shell"
+	MsgUpgradeTimeoutSuffix MsgKey = "upgrade_timeout_suffix"
 
 	MsgCronScheduleLabel MsgKey = "cron_schedule_label"
 	MsgCronNextRunLabel  MsgKey = "cron_next_run_label"
@@ -2186,6 +2191,41 @@ var messages = map[MsgKey]map[Language]string{
 			"Tiempo activo: %s\n" +
 			"Idioma: %s\n" +
 			"%s" + "%s" + "%s" + "%s" + "%s" + "%s",
+	},
+	MsgQuotaRemaining: {
+		LangEnglish:            "quota: %d%% left",
+		LangChinese:            "额度剩余 %d%%",
+		LangTraditionalChinese: "額度剩餘 %d%%",
+		LangJapanese:           "利用枠: 残り %d%%",
+		LangSpanish:            "cuota: %d%% restante",
+	},
+	MsgQuotaUnsupported: {
+		LangEnglish:            "quota unavailable for this backend",
+		LangChinese:            "额度暂不可查询",
+		LangTraditionalChinese: "額度暫不可查詢",
+		LangJapanese:           "このバックエンドの利用枠は照会できません",
+		LangSpanish:            "cuota no consultable en este backend",
+	},
+	MsgQuotaNoData: {
+		LangEnglish:            "quota: no data",
+		LangChinese:            "额度暂无数据",
+		LangTraditionalChinese: "額度暫無資料",
+		LangJapanese:           "利用枠: データなし",
+		LangSpanish:            "cuota: sin datos",
+	},
+	MsgQuotaFetchFailed: {
+		LangEnglish:            "quota lookup failed",
+		LangChinese:            "额度查询失败",
+		LangTraditionalChinese: "額度查詢失敗",
+		LangJapanese:           "利用枠の照会に失敗しました",
+		LangSpanish:            "falló la consulta de cuota",
+	},
+	MsgEmptyAgentResponse: {
+		LangEnglish:            "⚠️ The backend ended this turn without an answer. Tool actions may already have run; check their results before retrying.",
+		LangChinese:            "⚠️ 后端结束了本轮，但没有返回回答。工具操作可能已经执行，请核对结果后再重试。",
+		LangTraditionalChinese: "⚠️ 後端結束了本輪，但沒有返回回答。工具操作可能已經執行，請核對結果後再重試。",
+		LangJapanese:           "⚠️ バックエンドは回答なしで終了しました。ツールが実行済みの可能性があるため、結果を確認してから再試行してください。",
+		LangSpanish:            "⚠️ El backend terminó sin respuesta. Las herramientas pueden haberse ejecutado; comprueba los resultados antes de reintentar.",
 	},
 	MsgReplyFooterRemaining: {
 		LangEnglish:            "%d%% left",

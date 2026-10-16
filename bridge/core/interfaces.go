@@ -18,6 +18,10 @@ type Platform interface {
 // ErrNotSupported indicates a platform doesn't support a particular operation.
 var ErrNotSupported = errors.New("operation not supported by this platform")
 
+// ErrEmptyAgentResponse marks a completed turn without any usable answer.
+// It must not be saved as a successful assistant reply or retried automatically.
+var ErrEmptyAgentResponse = errors.New("agent returned no answer")
+
 // ReplyContextReconstructor is an optional interface for platforms that can
 // recreate a reply context from a session key. This is needed for cron jobs
 // to send messages to users without an incoming message.
@@ -516,6 +520,17 @@ type ModelOption struct {
 // model quota usage from their backing provider.
 type UsageReporter interface {
 	GetUsage(ctx context.Context) (*UsageReport, error)
+}
+
+// ModelUsageReporter selects the quota for the model of this reply, which can
+// differ from the agent's pending/default model after a switch.
+type ModelUsageReporter interface {
+	GetUsageForModel(ctx context.Context, model string) (*UsageReport, error)
+}
+
+// UsageCapability lets a generic adapter opt out for unsupported transports.
+type UsageCapability interface {
+	SupportsUsageReporting() bool
 }
 
 // UsageReport is a provider-neutral quota snapshot returned by UsageReporter.

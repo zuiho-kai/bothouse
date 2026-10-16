@@ -92,6 +92,10 @@ func streamTestProcess() {
 			fmt.Println(`{"event":"result","result":{"status":"ERROR","response":"prompt or process continuity lost"}}`)
 			return
 		}
+		if os.Getenv("CC_AGY_STREAM_FAILURE") == "empty-first" && turn == 1 {
+			fmt.Println("{\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"\"}}")
+			continue
+		}
 		fmt.Println(`{"event":"step_update","step_update":{"step_type":"thinking","text_delta":"private thought"}}`)
 		fmt.Printf(`{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"answer-%d"}}`+"\n", turn)
 		fmt.Printf(`{"event":"result","result":{"conversation_id":"resume-123","status":"SUCCESS","response":"answer-%d"}}`+"\n", turn)

@@ -1,8 +1,20 @@
 # 共栖当前交接
 
-更新：2026-10-16，Asia/Shanghai。当前任务：Issue #15 CosyVoice本机试听。
+## 2026-10-16：大豆包空响应与额度状态（Issue #13）
 
-## 最新进展：Issue #15
+本轮在独立分支 `fix/13-response-usage` 修复源码，关联 [Issue #13](https://github.com/Zssan12/conest/issues/13)，通过 [PR #18](https://github.com/Zssan12/conest/pull/18) 交付。未修改私密配置、旧源码或运行进程，未发送真实 Discord 消息；合并和部署均须另外核对，不能把以下测试当成线上已生效。
+
+- 现场配置核对：大豆包走 Antigravity 的 stream-json；Cursor 走 ACP 且 auth_method=cursor_login。现已接入真实额度：Cursor 使用账期接口并按响应选择模型额度池；大豆包使用自己会话的 CLI 本地配额接口，覆盖 Argon 独立周额度。上下文占用不用于推算余额。
+- 空响应证据：19:16:33 的本机 CLI 日志显示 print 模式对工具确认执行 soft-deny，同一时刻桥接把 11 字节的空响应占位符记为正常完成。源码在桥接已批准后返回 `allow`；[官方 PreToolUse 文档](https://antigravity.google/docs/hooks/) 说明该值仍委托默认权限策略，而 `auto_approve` 才表示已批准（仍遵守显式规则）。已修正转换，鉴权、用户拒绝和 pending request 校验保留；未启用跳过全部权限。
+- 空结果兜底：没有非空白正文的 SUCCESS 转为可本地化的错误；不写成功历史、不自动重发工具任务。纯空白流片段不再遮掉最终正文。同一进程下一轮和引擎排队继续的回归通过。
+- 额度反馈：普通消息、富卡片、缓存 token 状态行独立展示额度；明确区分“额度暂不可查询”“额度暂无数据”“额度查询失败”和真实剩余比例。查询失败不继续冒充上次成功余额；上下文仍按原有口径显示，额度带独立标签，遵守原有状态栏开关。
+- 真实接口验收：2026-10-16 20:29 前，新代码分别成功读取当前 Cursor 模型所属池与 Gemini 4 Argon 周额度。Cursor 在 macOS 继承系统 HTTPS 代理，3 秒状态栏预算下查询成功；大豆包启动隔离空闲 CLI 验证本地鉴权/RPC后关闭，没有提交推理轮次。模型/Agent 缓存隔离、零额度、未知数值及周额度优先级有回归。详见 [额度查询说明](QUOTA_REPORTING.md)。
+- 尚未验收：旧服务部署及真人 Discord 回归；Cursor 企业团队/PAC代理、Antigravity 非 stream-json 与其他操作系统。内部接口可能随 CLI 升级变化，失败时明确提示；不要将账户数据接口实测写成频道已上线。
+- 已验证：旧代码的审批 relay、空结果/缺失额度、两个后端缺失 UsageReporter 回归均出现预期失败；修复后通过。Go 构建、vet、CUJ、相关竞态测试、按 CI 方式执行的全量（no_web、-p 1、-count=1）通过；两个真实接口只读验收通过。首次将全量与 race 同时运行时，Claude 孙进程重复 kill 出现 operation not permitted，Codex 进程重叠用例等待 thread id 超时；未改这些包，随后完整串行运行通过。原始日志留在本机 /tmp/conest-real-quota-*.log。更早同步 main 前的 launchd 等失败属于前序检查记录，已纳入 PR #14 基线。
+
+恢复时先查看 Issue #13 对应 PR 的最新 SHA、CI 和部署记录。自动测试使用本地模拟 CLI/平台，另有显式只读真实账号验收；两者均未提交真实模型推理请求。不要将本轮自动化验证描述为真人 Discord 验收。
+
+## 前序交接：Issue #15（已通过 PR #17 合入主分支）
 
 - 用户要求试听GitHub候选CosyVoice。独立worktree：/Users/zhaixinyang/conest-issue-15，分支experiment/15-cosyvoice，从已合并PR #14的b280972f开始；Issue #3已关闭。未修改主目录并行文档、PR #12/#16或旧生产配置。
 - 已在M3 Pro / 18GiB本机用固定社区mlx-audio-plus源码与CosyVoice3 FP16生成4个WAV（短句首次/预热、安慰句、中英混合句），并用现有Qwen3-TTS生成同文对照。模型、环境和音频只在.local/cosyvoice/，不进入Git。源码、复现步骤与结果见[试听记录](COSYVOICE_TRIAL.md)。
@@ -10,7 +22,7 @@
 - 初次完整加载因社区包间接缺torch失败，独立环境补齐并固定依赖后退出0。8个WAV验证、离线识别回查、依赖/语法检查已完成，原始失败保留。社区实现不是官方CUDA性能；未测流式/打断/真人麦克风/全链路。
 - 本任务自行复核，未派生子Agent；PR最新SHA、CI和合并结果以Issue #15关联PR为准。生产仍使用Qwen，未重启服务或投递Discord。Issue #4保持开放，后续接入先看用户试听反馈。
 
-## 前一阶段：Issue #3
+## 前序交接：Issue #3（已合入主分支）
 
 - 独立worktree：/Users/zhaixinyang/conest-issue-3；分支fix/3-go-test-baseline，从origin/main的8c040812开始。主目录的未提交语音文档未修改。
 - 已修复launchd测试隔离、Engine关闭时消息写盘竞争、OpenCode刷新回收/测试同步、CLI测试脚本启动延迟及模型查询命令参数丢失；Antigravity非零退出不再冒充成功。

@@ -22,6 +22,7 @@ CoNest 基于 cc-connect 的 maomao 分支与一家子产品扩展整合。面�
 - [skills/](skills/)：产品协作技能；模型切换技能随桥接嵌入。
 - [协作流程](CONTRIBUTING.md)、[Agent 入口](AGENTS.md)。
 - [架构](docs/ARCHITECTURE.md)、[当前交接](docs/HANDOFF.md)、[代码来源](SOURCE_ORIGINS.md)。
+- [回复额度查询](docs/QUOTA_REPORTING.md)：真实额度来源、支持范围与只读验收方式。
 
 ## 本地开发验证
 

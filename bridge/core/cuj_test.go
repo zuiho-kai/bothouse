@@ -40,6 +40,41 @@ import (
 	"time"
 )
 
+func TestCUJ_Response1_EmptyAnswerKeepsQueueAndHistory(t *testing.T) {
+	_, e, a, p, s := inputFixture(t)
+	e.i18n.SetLang(LangChinese)
+	send := func(id, content string) {
+		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
+	}
+	send("first", "first request")
+	inputPrompt(t, a)
+	send("second", "queued request")
+	a.session.events <- Event{Type: EventError, Error: ErrEmptyAgentResponse}
+	if prompt := inputPrompt(t, a); !strings.Contains(prompt, "queued request") {
+		t.Fatalf("retried the failed turn instead of processing the queue: %q", prompt)
+	}
+	inputDone(a, "queued-answer")
+	inputWait(t, func() bool { return !s.Busy() })
+	send("third", "next request")
+	inputPrompt(t, a)
+	inputDone(a, "next-answer")
+	inputWait(t, func() bool { return !s.Busy() })
+	visible := strings.Join(p.getSent(), "\n")
+	for _, want := range []string{"后端结束了本轮", "queued-answer", "next-answer"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing %q in %q", want, visible)
+		}
+	}
+	for _, h := range s.GetHistory(0) {
+		if h.Role == "assistant" && h.Content != "queued-answer" && h.Content != "next-answer" {
+			t.Fatalf("empty/error answer saved as successful history: %+v", h)
+		}
+	}
+	if a.session.normal.Load() != 3 {
+		t.Fatal("unexpected automatic retry")
+	}
+}
+
 // The real-model acceptance separately checks semantic consent. This journey
 // checks transport: fresh, queued-bot and resumed-human requests must each get
 // their own source policy, while user-visible responses still reach the sink.

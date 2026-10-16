@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -75,7 +76,7 @@ const (
 )
 
 const (
-	replyFooterUsageTimeout  = 1500 * time.Millisecond
+	replyFooterUsageTimeout  = 3 * time.Second
 	replyFooterUsageCacheTTL = 30 * time.Second
 )
 
@@ -102,7 +103,10 @@ type RestartRequest struct {
 }
 
 type replyFooterUsageCache struct {
+	agent     Agent
+	model     string
 	text      string
+	hasQuota  bool
 	fetchedAt time.Time
 }
 
@@ -6339,6 +6343,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					Error:      event.Error.Error(),
 				})
 				userMsg := fmt.Sprintf(e.i18n.T(MsgError), errMsg)
+				if errors.Is(event.Error, ErrEmptyAgentResponse) {
+					userMsg = e.i18n.T(MsgEmptyAgentResponse)
+				}
 				for _, h := range agentErrorHandlers {
 					if strings.Contains(errMsg, h.contains) {
 						userMsg = e.i18n.T(h.msgKey)
@@ -7482,7 +7489,8 @@ func (e *Engine) buildReplyFooter(agent Agent, session AgentSession, workspaceDi
 		} else if contextLeft != "" {
 			parts = append(parts, contextLeft)
 			hasStatus = true
-		} else if usage := e.replyFooterUsageText(session, agent); usage != "" {
+		}
+		if usage, hasQuota := e.replyFooterUsageStatus(session, agent); hasStatus || hasQuota {
 			parts = append(parts, usage)
 			hasStatus = true
 		}
@@ -7506,7 +7514,8 @@ func (e *Engine) buildReplyFooter(agent Agent, session AgentSession, workspaceDi
 //
 //	line 1: ⏱ <i18n elapsed>                                  (subject to e.replyFooterEnabled)
 //	line 2: model · out N · in N cw N cr N · ctx N%           (subject to e.showContextIndicator)
-//	line 3: <workdir>                                         (subject to e.showWorkdirIndicator)
+//	line 3: quota or availability                             (subject to e.showContextIndicator)
+//	line 4: <workdir>                                         (subject to e.showWorkdirIndicator)
 //
 // Returns "" when the master replyFooterEnabled toggle is off, or while the
 // turn is still streaming (footer represents finalized turn metadata —
@@ -7531,21 +7540,13 @@ func (e *Engine) composeRichStatusFooter(streaming bool, turnStart time.Time, ag
 		effort := replyFooterReasoningEffort(session, agent)
 		if line := buildClaudeStatusLineFooter(model, effort, usage); line != "" {
 			lines = append(lines, line)
-		} else if fallback := e.replyFooterUsageText(session, agent); fallback != "" {
-			// fallback for non-claudecode agents that still expose UsageReporter
-			parts := []string{}
-			if model != "" {
-				parts = append(parts, model)
-			}
-			if effort != "" {
-				parts = append(parts, effort)
-			}
-			parts = append(parts, fallback)
-			lines = append(lines, strings.Join(parts, " · "))
+		}
+		if quota := e.replyFooterUsageText(session, agent); quota != "" {
+			lines = append(lines, quota)
 		}
 	}
 
-	// Line 3: workdir
+	// Last line: workdir
 	if e.showWorkdirIndicator {
 		if dir := replyFooterWorkDir(session, agent, workspaceDir); dir != "" {
 			lines = append(lines, dir)
@@ -7710,47 +7711,95 @@ func replyFooterReasoningEffort(session AgentSession, agent Agent) string {
 }
 
 func (e *Engine) replyFooterUsageText(session AgentSession, agent Agent) string {
-	ctx, cancel := context.WithTimeout(e.ctx, replyFooterUsageTimeout)
+	text, _ := e.replyFooterUsageStatus(session, agent)
+	return text
+}
+
+// The boolean distinguishes a measured quota from an availability message, so
+// an unknown quota alone does not resurrect a workdir-only footer.
+func (e *Engine) replyFooterUsageStatus(session AgentSession, agent Agent) (string, bool) {
+	if !supportsUsageReporting(session, agent) {
+		return e.i18n.T(MsgQuotaUnsupported), false
+	}
+	parent := e.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, replyFooterUsageTimeout)
 	defer cancel()
+	status := e.i18n.T(MsgQuotaNoData)
 
 	if session != nil {
-		if reporter, ok := session.(UsageReporter); ok {
+		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
 			if report, err := reporter.GetUsage(ctx); err == nil {
-				return formatReplyFooterUsage(report, e.i18n)
+				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
+					return text, true
+				}
+			} else {
+				status = e.i18n.T(MsgQuotaFetchFailed)
 			}
 		}
 	}
 
 	reporter, ok := agent.(UsageReporter)
-	if !ok {
-		return ""
+	if !ok || !usageReporterAvailable(agent) {
+		return status, false
 	}
+	model := replyFooterModel(session, agent)
 
 	e.replyFooterMu.Lock()
 	cached := e.replyFooterUsage
 	e.replyFooterMu.Unlock()
-	if !cached.fetchedAt.IsZero() && time.Since(cached.fetchedAt) < replyFooterUsageCacheTTL {
-		return cached.text
+	if reflect.ValueOf(agent).Comparable() && cached.agent == agent && cached.model == model && !cached.fetchedAt.IsZero() && time.Since(cached.fetchedAt) < replyFooterUsageCacheTTL {
+		return cached.text, cached.hasQuota
 	}
 
-	text := ""
-	if report, err := reporter.GetUsage(ctx); err == nil {
-		text = formatReplyFooterUsage(report, e.i18n)
-	} else if !cached.fetchedAt.IsZero() {
-		text = cached.text
+	text := status
+	hasQuota := false
+	var report *UsageReport
+	var err error
+	if scoped, ok := agent.(ModelUsageReporter); ok {
+		report, err = scoped.GetUsageForModel(ctx, model)
+	} else {
+		report, err = reporter.GetUsage(ctx)
+	}
+	if err == nil {
+		if usage := formatReplyFooterUsage(report, e.i18n); usage != "" {
+			text = usage
+			hasQuota = true
+		}
+	} else {
+		text = e.i18n.T(MsgQuotaFetchFailed)
 	}
 
 	e.replyFooterMu.Lock()
-	e.replyFooterUsage = replyFooterUsageCache{text: text, fetchedAt: time.Now()}
+	e.replyFooterUsage = replyFooterUsageCache{agent: agent, model: model, text: text, hasQuota: hasQuota, fetchedAt: time.Now()}
 	e.replyFooterMu.Unlock()
-	return text
+	return text, hasQuota
+}
+
+func supportsUsageReporting(session AgentSession, agent Agent) bool {
+	return usageReporterAvailable(session) || usageReporterAvailable(agent)
+}
+
+func usageReporterAvailable(v any) bool {
+	if capability, ok := v.(UsageCapability); ok && !capability.SupportsUsageReporting() {
+		return false
+	}
+	_, ok := v.(UsageReporter)
+	return ok
 }
 
 func formatReplyFooterUsage(report *UsageReport, i18n *I18n) string {
 	if report == nil || i18n == nil {
 		return ""
 	}
-	window, _ := selectUsageWindows(report)
+	window, secondary := selectUsageWindows(report)
+	// Both short and weekly limits can stop the next request. Report the most
+	// constrained window, including accounts that only have a weekly limit.
+	if secondary != nil && (window == nil || secondary.UsedPercent > window.UsedPercent) {
+		window = secondary
+	}
 	if window == nil {
 		return ""
 	}
@@ -7761,7 +7810,7 @@ func formatReplyFooterUsage(report *UsageReport, i18n *I18n) string {
 	if remaining > 100 {
 		remaining = 100
 	}
-	return i18n.Tf(MsgReplyFooterRemaining, remaining)
+	return i18n.Tf(MsgQuotaRemaining, remaining)
 }
 
 func replyFooterSessionContextUsage(session AgentSession) *ContextUsage {
@@ -7946,6 +7995,9 @@ func (e *Engine) buildClaudeStatusLineFooter(agent Agent, session AgentSession, 
 			formatStatusTokenCount(usage.CacheCreationInputTokens),
 			formatStatusTokenCount(usage.CachedInputTokens)))
 		line1Parts = append(line1Parts, fmt.Sprintf("ctx %d%%", pct))
+		if quota := e.replyFooterUsageText(session, agent); quota != "" {
+			line1Parts = append(line1Parts, quota)
+		}
 		line1 = strings.Join(line1Parts, " · ")
 	}
 
@@ -8932,7 +8984,7 @@ func (e *Engine) cmdUsage(p Platform, msg *Message) {
 	}
 
 	reporter, ok := agent.(UsageReporter)
-	if !ok {
+	if !ok || !usageReporterAvailable(agent) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgUsageNotSupported))
 		return
 	}

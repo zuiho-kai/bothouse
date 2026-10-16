@@ -42,6 +42,7 @@ type Agent struct {
 	activeIdx    int
 	sessionEnv   []string
 	mu           sync.RWMutex
+	quota        *nativeQuota
 }
 
 func New(opts map[string]any) (core.Agent, error) {
@@ -225,7 +226,13 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	a.mu.Unlock()
 
 	if streamJSON {
-		return newStreamSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
+		s, err := newStreamSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
+		if err == nil {
+			a.mu.Lock()
+			a.quota = s.quota
+			a.mu.Unlock()
+		}
+		return s, err
 	}
 	return newAntigravitySession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
 }

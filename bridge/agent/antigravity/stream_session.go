@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ type streamSession struct {
 	streamed      bool
 	turnTimer     *time.Timer
 	tempFiles     []string
+	quota         *nativeQuota
 }
 
 type agyStreamEvent struct {
@@ -48,6 +50,12 @@ func newStreamSession(ctx context.Context, cmd string, extraArgs []string, workD
 	}
 	processCtx, cancel := context.WithCancel(base.ctx)
 	s := &streamSession{antigravitySession: base, cancelProcess: cancel}
+	s.quota, err = newNativeQuota()
+	if err != nil {
+		cancel()
+		_ = base.Close()
+		return nil, fmt.Errorf("antigravity: initialize quota authentication: %w", err)
+	}
 	configDir := ""
 	if base.permissionBridge != nil {
 		configDir = base.permissionBridge.AgyConfigDir()
@@ -55,6 +63,7 @@ func newStreamSession(ctx context.Context, cmd string, extraArgs []string, workD
 	args := base.buildAntigravityArgs(base.CurrentSessionID(), base.CurrentSessionID() != "", mode, configDir, "")
 	// Stream input supplies each prompt; no -p argument and no EOF between turns.
 	args = append(args[:len(args)-2], "--input-format", "stream-json", "--output-format", "stream-json")
+	args = append(args, "--csrf_token="+s.quota.csrf)
 	proc := exec.CommandContext(processCtx, cmd, args...)
 	proc.WaitDelay = time.Second
 	proc.Dir = workDir
@@ -83,6 +92,7 @@ func newStreamSession(ctx context.Context, cmd string, extraArgs []string, workD
 		_ = base.Close()
 		return nil, fmt.Errorf("antigravity: start stream transport: %w", err)
 	}
+	s.quota.pid = proc.Process.Pid
 	base.wg.Add(1)
 	go s.readStream(proc, stdout)
 	return s, nil
@@ -139,6 +149,7 @@ func (s *streamSession) finishTurnLocked() {
 
 func (s *streamSession) readStream(proc *exec.Cmd, stdout io.ReadCloser) {
 	defer s.wg.Done()
+	defer s.quota.close()
 	defer s.cancelProcess()
 	defer s.stdin.Close()
 	scanner := bufio.NewScanner(stdout)
@@ -181,7 +192,9 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 		s.emit(core.Event{Type: core.EventText, SessionID: s.CurrentSessionID()})
 	case "step_update":
 		if s.busy && ev.Step.Type == "agent_response" && ev.Step.TextDelta != "" {
-			s.streamed = true
+			if strings.TrimSpace(ev.Step.TextDelta) != "" {
+				s.streamed = true
+			}
 			s.emit(core.Event{Type: core.EventText, Content: ev.Step.TextDelta, SessionID: s.CurrentSessionID()})
 		}
 	case "result":
@@ -198,6 +211,10 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 		s.finishTurnLocked()
 		if ev.Result.Status != "SUCCESS" {
 			s.emit(core.Event{Type: core.EventError, Error: fmt.Errorf("antigravity: stream turn failed (%s): %s", ev.Result.Status, ev.Result.Response)})
+			return
+		}
+		if !s.streamed && strings.TrimSpace(content) == "" {
+			s.emit(core.Event{Type: core.EventError, Error: core.ErrEmptyAgentResponse, SessionID: s.CurrentSessionID()})
 			return
 		}
 		s.emit(core.Event{Type: core.EventResult, Content: content, SessionID: s.CurrentSessionID(), Done: true})

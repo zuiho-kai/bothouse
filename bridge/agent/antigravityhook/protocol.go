@@ -63,7 +63,7 @@ func Relay(in io.Reader, out io.Writer, address, token string) error {
 		return fmt.Errorf("read permission response: %w", err)
 	}
 	switch response.Decision {
-	case "allow", "deny":
+	case "allow", "auto_approve", "deny":
 	default:
 		return fmt.Errorf("invalid permission decision %q", response.Decision)
 	}

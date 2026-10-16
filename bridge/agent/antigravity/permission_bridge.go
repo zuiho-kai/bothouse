@@ -275,7 +275,10 @@ func (b *agyPermissionBridge) handleConnection(conn net.Conn) {
 
 	select {
 	case result := <-resultCh:
-		response := antigravityhook.BridgeResponse{Decision: "allow"}
+		// Agy's "allow" only continues to the default permission policy, which
+		// soft-denies interactive prompts in print mode. The bridge has already
+		// obtained approval; auto_approve still honors explicit CLI deny rules.
+		response := antigravityhook.BridgeResponse{Decision: "auto_approve"}
 		if strings.EqualFold(strings.TrimSpace(result.Behavior), "deny") {
 			response.Decision = "deny"
 			response.Reason = strings.TrimSpace(result.Message)

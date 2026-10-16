@@ -11,7 +11,7 @@ import (
 // newClaudeFooterEngine returns an Engine with all three footer-related flags
 // turned on, suitable for invoking buildClaudeStatusLineFooter as a method.
 func newClaudeFooterEngine() *Engine {
-	e := &Engine{}
+	e := &Engine{ctx: context.Background(), i18n: NewI18n(LangEnglish)}
 	e.SetReplyFooterEnabled(true)
 	e.SetShowContextIndicator(true)
 	e.SetShowWorkdirIndicator(true)
@@ -89,8 +89,8 @@ func TestBuildClaudeStatusLineFooter_FullRender(t *testing.T) {
 		t.Fatalf("expected 2 lines (metrics + dir), got %d: %q", len(lines), got)
 	}
 	parts := strings.Split(lines[0], " · ")
-	if len(parts) != 4 {
-		t.Fatalf("expected 4 segments on line 1, got %d: %q", len(parts), lines[0])
+	if len(parts) != 5 {
+		t.Fatalf("expected 5 segments on line 1, got %d: %q", len(parts), lines[0])
 	}
 	if parts[0] != "claude-opus-4-7[1m]" {
 		t.Errorf("segment 0 = %q, want raw model id", parts[0])
@@ -103,6 +103,9 @@ func TestBuildClaudeStatusLineFooter_FullRender(t *testing.T) {
 	}
 	if parts[3] != "ctx 4%" {
 		t.Errorf("ctx segment = %q, want %q", parts[3], "ctx 4%")
+	}
+	if parts[4] != "quota lookup failed" {
+		t.Errorf("quota segment = %q, want explicit lookup failure", parts[4])
 	}
 	if lines[1] == "" || !strings.Contains(lines[1], "ws") {
 		t.Errorf("line 2 = %q, want workspace path containing 'ws'", lines[1])
@@ -232,7 +235,7 @@ func (a *stubFooterAgent) GetWorkDir() string         { return a.workDir }
 // suitable for invoking buildReplyFooter directly against the legacy single-
 // line footer path.
 func newLegacyFooterEngine() *Engine {
-	e := &Engine{}
+	e := &Engine{ctx: context.Background(), i18n: NewI18n(LangEnglish)}
 	e.SetReplyFooterEnabled(true)
 	e.SetShowContextIndicator(true)
 	e.SetShowWorkdirIndicator(true)

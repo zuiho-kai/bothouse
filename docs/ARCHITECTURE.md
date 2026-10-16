@@ -27,6 +27,10 @@ Engine通过bridge/core/engine_workers.go登记消息处理工作；开始关闭
 
 此等待依赖适配器响应取消或Close，不是强制中断任意第三方代码，也没有覆盖所有非消息后台任务。边界及回归证据见[Go测试基线诊断](GO_TEST_BASELINE.md)。
 
+## 额度查询
+
+core 通过 UsageReporter、ModelUsageReporter 与 UsageCapability 查询后端能力，不识别具体服务商名称。Cursor 的原生/ACP 适配器共用 bridge/internal/accountquota；Antigravity stream-json 会话只查询自己拥有的 CLI 本地 RPC。回复优先读取当前会话，核心回退缓存按 Agent 实例与回复模型隔离。认证、模型额度池和网络差异留在适配层，详见 [额度说明](QUOTA_REPORTING.md)。
+
 ## 活动和日志
 
 autonomy/__main__.py 读取外部配置和历史状态，判断活动时段，通过本地桥接创建任务；采集已配置频道的消息，交给 journal.py 和 reading.py 生成归档与阅读页。日报保留原话归档，再尝试生成今日手记；额度不足不能写成成功。
