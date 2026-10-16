@@ -24,6 +24,7 @@ from .bridge import Bridge, BridgeError
 from .settings import Settings
 from .memory import SharedMemory
 from .roles import Role, validate_roles, voice_label
+from .discussion import Discussions, DiscussionInput, AdvanceInput
 
 
 class TurnInput(BaseModel):
@@ -67,6 +68,7 @@ class VoiceService:
         self.active: str | None = None
         self.transcribing = False
         self.last_turn: dict[str, str] = {}
+        self.discussions = Discussions(self)
         self.data_dir = Path(settings.data_dir).expanduser()
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.memory = SharedMemory(settings.shared_memory_dir, settings.session_key)
@@ -127,7 +129,12 @@ class VoiceService:
                 result.update(available=False, status='unavailable', detail=str(exc))
         return result
 
-    async def _submit(self, data: TurnInput) -> dict:
+    async def discussion_turn(self, identifier, project, topic, context, binding, metadata):
+        await self._submit(TurnInput(id=identifier, project=project, text=topic),
+                           expected_binding=binding, discussion=metadata, context=context)
+        return self.turns[identifier]
+
+    async def _submit(self, data: TurnInput, *, expected_binding=None, discussion=None, context='') -> dict:
         try:
             UUID(data.id)
         except ValueError:
@@ -142,7 +149,9 @@ class VoiceService:
             if existing['input_text'] != text or existing['project'] != data.project:
                 raise HTTPException(409, '同一请求编号不能用于不同内容。')
             return self.snapshot(existing)
-        if self.active:
+        if self.discussions.active and (not discussion or discussion['discussion_id'] != self.discussions.active):
+            raise HTTPException(409, '讨论正在进行，请先结束讨论再单独发言。')
+        if self.active or self.transcribing:
             raise HTTPException(409, '上一条消息仍在处理，请先等它结束。停止播放不会取消任务。')
         binding = None
         if self.check_bindings:
@@ -152,6 +161,11 @@ class VoiceService:
                 raise HTTPException(422, '本轮未发送。' + str(exc)) from None
             if binding['busy']:
                 raise HTTPException(409, '这位伙伴的原会话正忙；本轮未发送，也不会排队。')
+            if expected_binding and any(binding[k] != expected_binding[k]
+                                        for k in ('session_id', 'agent_session_id')):
+                raise HTTPException(409, '伙伴会话已变更，讨论停止；本轮尚未发送。')
+        if discussion and self.discussions.get(discussion['discussion_id'])['stop_requested']:
+            raise HTTPException(409, '已停止讨论，本轮尚未发送。')
         while len(self.turns) >= 20:
             oldest = next(iter(self.turns))
             self.turns.pop(oldest)
@@ -164,7 +178,9 @@ class VoiceService:
                 'voice_label': voice_label(self.settings, self.roles[data.project]),
                 'prompt': self.playback_context(data.project) +
                 '[用户从电脑语音入口发言，请接续当前会话，用适合朗读的简短中文回答。'
-                '本轮结果由语音页面展示；不要另外用消息工具向Discord重复发送本轮对话。]\n' + text}
+                '本轮结果由语音页面展示；不要另外用消息工具向Discord重复发送本轮对话。]\n' + (context or text)}
+        if discussion:
+            turn.update(discussion)
         try:
             self.record('submitted', self.snapshot(turn))
         except OSError:
@@ -172,6 +188,7 @@ class VoiceService:
         self.turns[data.id] = turn
         self.active = data.id
         task = asyncio.create_task(self.run(turn))
+        turn['_task'] = task
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return self.snapshot(turn)
@@ -179,6 +196,9 @@ class VoiceService:
     async def run(self, turn: dict):
         request_id = 'voice-' + turn['id']
         try:
+            if turn.get('discussion_id') and self.discussions.get(turn['discussion_id'])['stop_requested']:
+                turn.update(status='error', error='已停止讨论，本轮尚未发送。')
+                return
             body = {
                 'request_id': request_id, 'project': turn['project'],
                 'session_key': self.settings.session_key, 'text': turn['prompt'],
@@ -306,14 +326,17 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
                 'default_role': settings.project, 'session_label': settings.session_label,
                 'max_record_seconds': 30, 'token': service.token,
                 'active_turn': service.active,
+                'active_discussion': service.discussions.active,
+                'last_discussion': service.discussions.last,
                 'voice_label': voice_label(settings, service.roles[settings.project]),
                 'asr_model_ready': Path(settings.model_path).is_dir()}
 
     @app.post('/api/transcribe')
     async def transcribe(request: Request):
-        if service.transcribing or service.active:
-            raise HTTPException(409, '上一条消息仍在处理，请稍后录音。')
-        service.transcribing = True
+        async with service.submit_lock:
+            if service.transcribing or service.active or service.discussions.active:
+                raise HTTPException(409, '上一条消息仍在处理，请稍后录音。')
+            service.transcribing = True
         started = time.monotonic()
         try:
             body = await request.body()
@@ -329,6 +352,22 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
     @app.post('/api/turn', status_code=202)
     async def submit(data: TurnInput):
         return await service.submit(data)
+
+    @app.post('/api/discussion', status_code=202)
+    async def start_discussion(data: DiscussionInput):
+        return await service.discussions.start(data)
+
+    @app.get('/api/discussion/{identifier}')
+    async def discussion_status(identifier: str):
+        return service.discussions.snapshot(service.discussions.get(identifier))
+
+    @app.post('/api/discussion/{identifier}/advance')
+    async def advance_discussion(identifier: str, data: AdvanceInput):
+        return await service.discussions.advance(identifier, data)
+
+    @app.post('/api/discussion/{identifier}/stop')
+    async def stop_discussion(identifier: str):
+        return await service.discussions.stop(identifier)
 
     def get_turn(turn_id):
         if turn_id not in service.turns:
@@ -356,7 +395,9 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
         if data.position_seconds > data.duration_seconds + 0.25:
             raise HTTPException(400, '播放位置超过总时长。')
         turn['playback'] = data.model_dump()
-        service.record('playback', {'id': turn_id, 'project': turn['project'], **data.model_dump()})
+        service.record('playback', {'id': turn_id, 'project': turn['project'],
+                                  **{k: turn[k] for k in ('discussion_id', 'phase', 'round') if k in turn},
+                                  **data.model_dump()})
         return {'ok': True}
 
     static = Path(__file__).with_name('static')
@@ -364,6 +405,10 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
     @app.get('/')
     async def index():
         return FileResponse(static / 'index.html')
+
+    @app.get('/discussion')
+    async def discussion_page():
+        return FileResponse(static / 'discussion.html')
 
     @app.get('/favicon.ico')
     async def favicon():

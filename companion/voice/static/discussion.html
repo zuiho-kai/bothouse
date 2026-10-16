@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f4ee">
+  <title>共栖 · 一起讨论</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/discussion.css">
+  <script src="/static/discussion.js" defer></script>
+</head>
+<body>
+  <main class="shell discussion-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="返回共栖说说话"><span class="brand-icon" aria-hidden="true">栖</span>共栖<span class="brand-divider">/</span><span class="brand-sub">一起讨论</span></a>
+      <a class="text-button" href="/">回到单人对话</a>
+    </header>
+    <section class="intro" aria-labelledby="page-title">
+      <p class="eyebrow">一个话题，听听不同的想法</p>
+      <h1 id="page-title">把想法放到一起。</h1>
+      <p class="intro-copy">选 2—3 位伙伴，按选择顺序交流两轮，最后由第一位总结。每段听完，再接着聊。</p>
+    </section>
+    <div class="discussion-connection">
+      <span id="connection-state" class="connection-state" role="status">正在连接本地语音服务…</span>
+      <button id="reload-config" class="text-button" type="button" disabled>刷新伙伴状态</button>
+      <button id="refresh-page" class="text-button" type="button" hidden>刷新页面</button>
+    </div>
+    <p id="page-error" class="error-banner" role="alert" hidden></p>
+    <div class="workspace discussion-workspace">
+      <section class="panel setup-panel" aria-labelledby="setup-title">
+        <div class="section-heading"><h2 id="setup-title"><span class="step-number">01</span>邀请伙伴</h2><span class="small-label">固定两轮 + 总结</span></div>
+        <form id="discussion-form">
+          <fieldset id="role-fieldset" disabled aria-describedby="selection-order">
+            <legend>按发言顺序选择 2—3 位</legend>
+            <div id="roles" class="discussion-roles"></div>
+          </fieldset>
+          <p id="selection-order" class="selection-order" role="status">正在读取伙伴状态…</p>
+          <label class="topic-label" for="topic">这次想讨论什么？</label>
+          <textarea id="topic" rows="5" placeholder="例如：怎样安排一个既能休息，又有收获的周末？" required disabled></textarea>
+          <p id="plan" class="hint discussion-plan">每位发言两轮，第一位最后总结共同点与分歧，共 5—7 段。</p>
+          <button id="start" class="primary-button start-discussion" type="submit" disabled>开始讨论 <span aria-hidden="true">↗</span></button>
+          <p class="hint">这里只交流想法，不授予伙伴执行项目或派工的权限。</p>
+        </form>
+      </section>
+      <section class="panel discussion-panel" aria-labelledby="discussion-title">
+        <div class="section-heading"><h2 id="discussion-title"><span class="step-number">02</span>讨论现场</h2><span id="discussion-state" class="status-pill" role="status">等待话题</span></div>
+        <p id="task-note" class="task-note" role="status">准备好后，邀请伙伴开始讨论。</p>
+        <p id="discussion-topic" class="discussion-topic" hidden></p>
+        <div class="recovery-actions">
+          <button id="retry-query" class="secondary-button" type="button" hidden>重新查询讨论状态</button>
+          <button id="retry-start" class="secondary-button" type="button" hidden>用同一请求重试开始</button>
+          <button id="retry-advance" class="secondary-button" type="button" hidden>重试确认本段</button>
+        </div>
+        <div id="empty-state" class="empty-state"><span class="conversation-mark" aria-hidden="true">“</span><h3>让不同的想法相遇</h3><p>第一轮各自表达，第二轮相互回应。<br>每一段文字和播放状态都会留在这里。</p></div>
+        <ol id="turns" class="discussion-turns" aria-label="本场发言记录"></ol>
+        <div class="player discussion-player" aria-label="当前发言播放控制">
+          <div class="player-info"><span id="playback-state" role="status">等待第一位伙伴</span><span id="playback-time">0:00 / —</span></div>
+          <progress id="playback-progress" value="0" max="1" aria-label="本段播放进度"></progress>
+          <div class="player-actions">
+            <button id="play" class="primary-button" type="button" disabled>播放本段</button>
+            <button id="skip" class="secondary-button" type="button" disabled>跳过本段</button>
+            <button id="stop" class="secondary-button stop-discussion" type="button" disabled>停止讨论</button>
+          </div>
+          <p class="hint player-hint">只有完整播完或明确跳过，才开始下一段。停止后，已送达的任务可能继续执行。</p>
+          <audio id="audio" preload="none"></audio>
+        </div>
+      </section>
+    </div>
+    <footer>2—3 位伙伴<span aria-hidden="true">·</span>固定 5—7 段<span aria-hidden="true">·</span>随时停止讨论</footer>
+    <noscript><p class="error-banner">请启用 JavaScript 后使用语音讨论。</p></noscript>
+  </main>
+</body>
+</html>
