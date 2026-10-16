@@ -23,3 +23,19 @@
 - `go vet -tags no_web ./...` 与 `go build -tags no_web -o ../.local/cc-connect-candidate ./cmd/cc-connect`；`.local/vet.log`、`.local/build.log`，exit0且无诊断。
 
 默认全量保留原先显式要求环境变量的真实账号测试跳过项；本轮没有把它们当作执行通过。真实接口采样来自前述生产CLI只读核对。此次由同一Agent自查，没有派生Agent或声称独立审核；Ubuntu检查以对应PR最终SHA为准。生产部署成功与真人Discord验收须独立记录，自动测试不发Discord消息。
+
+## 部署记录
+
+用户随后明确授权“合并部署”。PR #29于2026-10-16 23:28:58（Asia/Shanghai）合并：最终审核提交ae71cdd8541faac0e4b27e4cb68d73546328c694，合并提交a884de2dbc001975e7348b7963eb4d22b0f4b7a6。源码树完全相等；最终Ubuntu run38923207087的bridge（依赖校验、构建、Go全量）和companion（Python测试）均成功，同一Agent自查结论已留在PR。
+
+发布前动态核对生产仍为3090217c、PID18026、二进制SHA256 c57b7555a9444b8ce9cc69032128f924fb2db291a80b85caad03d05f39272e08。相对该版本，本次仅新增错误尾注投递、回归与文档，保留已有语音严格续接、模型切换、记忆和调度。初次检查G哥仍忙，未中断任务；待六份新鲜心跳无busy且8787/8793无活动轮次或讨论后才切换。
+
+- 构建参数：在bridge内执行 go build -tags no_web -ldflags '-s -w -X main.version=conest-20261016 -X main.commit=a884de2dbc001975e7348b7963eb4d22b0f4b7a6' -o ../.local/cc-connect-release ./cmd/cc-connect。
+- 发布路径：/Users/zhaixinyang/cc-connect/cc-connect，SHA256 deb7fae10bfad53e63205ca8e356dcb8353a56b724fa31565dd3ceee71762206，权限0755；旧源码工作树未覆盖。
+- 备份：~/.cc-connect-maomao/backups/error-quota-20261016-233528/。目录0700，旧二进制、最新config.toml、六份会话、cron/timer快照保留原文件权限，deployment.json为0600。原配置与G哥刚应用的yolo模式保留；不复制凭据或完整会话进Git。
+- 切换：旧PID18026经SIGTERM正常退出，新PID22719于23:35:37启动；复用原参数、进程环境、cwd、/dev/null输入，stdout/stderr追加run.log。PID仅为当时快照。
+- 复核：六个不同Discord连接、六Engine、本地/sessions、/cron/list、/timer/list正常；配置字节及0600权限、六份active_session/agent_session_id映射和调度定义保持；旧日志前缀哈希一致，启动后无ERROR/panic；8787/8793仍可访问且空闲。未发送Discord消息，没有重启通知标记，未改权限/配置/会话，未派生Agent。
+
+**部署成功，真人验收尚未完成。** 用户在“常规”点名大豆包，要求只执行一次 git -C /Users/zhaixinyang/conest branch --show-current 并返回实际输出，不改文件、不派生。若出现审批，选“本次允许”，按本轮时间核对permission request/resolved及工具结果；未出现审批则如实记录，不更改策略强行制造审批。核对回答、错误状态和正确模型/额度尾注。CLI仍可能返回ERROR，本修复不将其改为成功；Issue #28保持开放。
+
+回滚仅恢复上述备份二进制：先重查唯一PID与忙闲，正常停止、保权限原子替换、按原方式追加日志启动；保留最新配置、会话、共享记忆与调度。本次未触发回滚。部署脚本和检查日志在独立工作区.local/，敏感快照仅在私密备份；有旧二进制哈希保护的脚本不能作为通用重启命令盲目重跑。

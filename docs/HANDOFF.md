@@ -1,5 +1,11 @@
 # 共栖当前交接
 
+## 2026-10-16 23:35：PR #29额度尾注修复已部署，真人验收待完成
+
+用户在暂缓后明确授权“合并部署”。PR #29按已审核提交ae71cdd8541faac0e4b27e4cb68d73546328c694合并为a884de2dbc001975e7348b7963eb4d22b0f4b7a6；两个源码树相等，macOS必要检查与最终Ubuntu CI均成功。发现G哥忙时等待，六伙伴及两个语音入口均空闲后完成备份、正常停止和原子替换。当前PID22719（操作前须重查），生产二进制SHA256为deb7fae10bfad53e63205ca8e356dcb8353a56b724fa31565dd3ceee71762206。
+
+六Discord连接/API/配置/会话映射/调度定义和日志连续性检查通过，原权限与G哥yolo设置保留，未发Discord消息。备份、完整版本、回滚及真人验收方法见[额度验证记录](ERROR_QUOTA_VALIDATION.md#部署记录)。旧cc-connect工作树未同步，不能在旧源码目录重建覆盖。错误仍保留，CLI返回ERROR的原因尚未解决；Issue #28继续等待真人验证。下节“未部署”为发布前记录。
+
 ## 2026-10-16：Issue #28 失败回复的模型与额度尾注
 
 独立工作区 `/Users/zhaixinyang/conest-issue-28`，分支 `fix/28-error-quota`，基于main的3090217c，交付[PR #29](https://github.com/Zssan12/conest/pull/29)。用户明确要求修复大豆包额度显示。已复现：CLI返回ERROR及正文时，core错误分支跳过正常答案尾注；现复用会话模型与真实额度展示，同时保留错误、排队恢复和历史边界。回归修复前红、修复后绿，详见[验证记录](ERROR_QUOTA_VALIDATION.md)。
