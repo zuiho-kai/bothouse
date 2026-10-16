@@ -1,8 +1,16 @@
 # 共栖当前交接
 
-更新：2026-10-16，Asia/Shanghai。当前任务：Issue #3 Go测试基线修复。
+更新：2026-10-16，Asia/Shanghai。当前任务：Issue #15 CosyVoice本机试听。
 
-## 最新进展：Issue #3
+## 最新进展：Issue #15
+
+- 用户要求试听GitHub候选CosyVoice。独立worktree：/Users/zhaixinyang/conest-issue-15，分支experiment/15-cosyvoice，从已合并PR #14的b280972f开始；Issue #3已关闭。未修改主目录并行文档、PR #12/#16或旧生产配置。
+- 已在M3 Pro / 18GiB本机用固定社区mlx-audio-plus源码与CosyVoice3 FP16生成4个WAV（短句首次/预热、安慰句、中英混合句），并用现有Qwen3-TTS生成同文对照。模型、环境和音频只在.local/cosyvoice/，不进入Git。源码、复现步骤与结果见[试听记录](COSYVOICE_TRIAL.md)。
+- CosyVoice预热后三句耗时3.140/4.618/6.194秒，对照Qwen为3.232/2.928/3.815秒，只算合成；没有整体速度优势。两者音色不同，主观自然度待用户听。CosyVoice短句专名的ASR回查有歧义，不能写成全部发音合格。
+- 初次完整加载因社区包间接缺torch失败，独立环境补齐并固定依赖后退出0。8个WAV验证、离线识别回查、依赖/语法检查已完成，原始失败保留。社区实现不是官方CUDA性能；未测流式/打断/真人麦克风/全链路。
+- 本任务自行复核，未派生子Agent；PR最新SHA、CI和合并结果以Issue #15关联PR为准。生产仍使用Qwen，未重启服务或投递Discord。Issue #4保持开放，后续接入先看用户试听反馈。
+
+## 前一阶段：Issue #3
 
 - 独立worktree：/Users/zhaixinyang/conest-issue-3；分支fix/3-go-test-baseline，从origin/main的8c040812开始。主目录的未提交语音文档未修改。
 - 已修复launchd测试隔离、Engine关闭时消息写盘竞争、OpenCode刷新回收/测试同步、CLI测试脚本启动延迟及模型查询命令参数丢失；Antigravity非零退出不再冒充成功。
@@ -39,8 +47,8 @@ PR #10只补充工作流文档、PR模板及仓库设置，已合并；Issue #3�
 
 ## 下一步
 
-1. 恢复时核对PR #14最新SHA、checks、自查与合并结果；若尚未合并，完成剩余门禁后再合并，Issue #3随Closes关闭。不要覆盖主目录未提交的语音文档或PR #12的并行工作。
-2. 后续优先处理Issue #2配置可移植性，避免新目录入口意外复用旧配置；再验收真实电脑语音/跨角色记忆。新任务按用户授权确定范围，测试修复不自动授权运行迁移。
+1. 恢复时核对Issue #15关联PR最新SHA、checks、自查与合并结果；试听音频在上述独立worktree的.local/cosyvoice/{cosy-samples,qwen-samples}/。先收真人自然度反馈，再决定是否接入。保护主目录未提交文件及其他PR的并行工作。
+2. Issue #2配置可移植性由其他任务推进，先核对当前负责人；真实电脑语音/跨角色记忆仍按Issue #4验收。新任务按用户授权确定范围，试听实验不自动授权运行迁移。
 3. 用小型真实项目验证Issue→分工→PR→测试审核。硬件采购放在电脑体验验收之后。
 
 ## 交给下一个 Agent
