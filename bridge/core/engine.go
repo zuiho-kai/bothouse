@@ -6325,11 +6325,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			state.eventsNeedResync = true
 			state.mu.Unlock()
+			errorFooterDelivered := false
 			if hasRichCard && cardMessageID != nil {
-				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, partialText, false, e.composeRichStatusFooter(false, turnStart, e.agent, state.agentSession, state.workspaceDir))
+				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, partialText, false, e.composeRichStatusFooter(false, turnStart, replyAgent, state.agentSession, workspaceDir))
 				if updater, ok := p.(MessageUpdater); ok {
 					if err := updater.UpdateMessage(e.ctx, cardMessageID, errCard); err != nil {
 						slog.Debug("rich card: failed to update error card", "platform", p.Name(), "error", err)
+					} else {
+						errorFooterDelivered = true
 					}
 				}
 			}
@@ -6352,7 +6355,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						break
 					}
 				}
-				e.send(p, replyCtx, userMsg)
+				// Quota describes the account/model, not whether this turn succeeded.
+				// Keep failures on the error path while showing the same measured
+				// status (or explicit query failure) as a successful reply.
+				var statusFooter string
+				if !errorFooterDelivered {
+					statusFooter = e.buildClaudeStatusLineFooter(replyAgent, state.agentSession, workspaceDir)
+					if statusFooter == "" {
+						statusFooter = e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, "")
+					}
+				}
+				sendChunksWithStatusFooter(e.ctx, p, replyCtx, userMsg, statusFooter, e.sendWithError)
 			}
 			// Only drop queued messages if the agent session is dead.
 			// Some agents (e.g. Codex) emit EventError for per-turn failures
