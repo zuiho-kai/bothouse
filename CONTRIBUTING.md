@@ -40,7 +40,7 @@ go test -race -tags no_web ./core ./agent/acp ./agent/codex ./agent/antigravity 
 
 CI 在 Ubuntu 上构建并执行 Go 全量测试（-p 1降低跨包并发干扰）与 Python 独立环境测试，不调用真实 Discord、模型或麦克风。测试失败使任务失败，没有 continue-on-error 或删测。macOS launchd、真机音频、真实 CLI 身份与额度需要单独验收；Ubuntu CI 不能证明这些通过。
 
-2026-10-16的Ubuntu云端Go全量与Python检查均已通过。本机macOS Go基线仍有失败，Issue #3继续处理；本次工作流PR不修改这些业务源码。平台门禁和人工验收分开：前者已启用，后者需要实际记录。
+2026-10-16，Issue #3 的修复已通过本机 macOS Go 全量（默认包并发）、关键生命周期竞态/CUJ检查，以及 Ubuntu 云端 Go 全量与 Python 检查。原始失败和修复证据见 docs/GO_TEST_BASELINE.md；后续变更须核对其最新提交的检查。平台门禁和真实入口验收分开，测试通过不等于已经部署。
 
 ## 数据与来源
 

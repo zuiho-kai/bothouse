@@ -214,14 +214,16 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 
 		sid := as.CurrentSessionID()
 		if err != nil {
-			stderrMsg := strings.TrimSpace(stderrBuf.String())
-			if stderrMsg != "" {
-				slog.Error("antigravitySession: process failed", "error", err, "stderr", stderrMsg)
-				select {
-				case as.events <- core.Event{Type: core.EventError, Error: fmt.Errorf("%s", stderrMsg)}:
-				case <-as.ctx.Done():
-				}
+			processErr := fmt.Errorf("antigravity process: %w", err)
+			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
+				processErr = fmt.Errorf("%s: %w", stderrMsg, err)
 			}
+			slog.Error("antigravitySession: process failed", "error", processErr)
+			select {
+			case as.events <- core.Event{Type: core.EventError, Error: processErr}:
+			case <-as.ctx.Done():
+			}
+			return
 		}
 
 		// Finalize turn.

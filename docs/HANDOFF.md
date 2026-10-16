@@ -1,6 +1,16 @@
 # 共栖当前交接
 
-更新：2026-10-16，Asia/Shanghai。任务：完成私有仓库的 Issue/PR 工作流与主分支门禁。
+更新：2026-10-16，Asia/Shanghai。当前任务：Issue #3 Go测试基线修复。
+
+## 最新进展：Issue #3
+
+- 独立worktree：/Users/zhaixinyang/conest-issue-3；分支fix/3-go-test-baseline，从origin/main的8c040812开始。主目录的未提交语音文档未修改。
+- 已修复launchd测试隔离、Engine关闭时消息写盘竞争、OpenCode刷新回收/测试同步、CLI测试脚本启动延迟及模型查询命令参数丢失；Antigravity非零退出不再冒充成功。
+- 代码提交8c860baf；[PR #14](https://github.com/Zssan12/conest/pull/14)交付。macOS全量（-count=1、默认并发）、构建/vet、关键-race/CUJ通过；Ubuntu [CI run 38894302371](https://github.com/Zssan12/conest/actions/runs/38894302371) 的Go全量及Python检查通过。根因、修复前回归和中间失败见[诊断记录](GO_TEST_BASELINE.md)。
+- 本任务自行复核，没有独立Agent审核。最终文档提交仍须通过CI后按完整SHA合并；当前合并结果和Issue关闭状态以PR为准。工作区保留，未清理或覆盖其他任务文件。
+- PR #10已在2026-10-16合并，Issue #1关闭。当前不操作旧生产配置/服务，没有部署。根目录仍可能存在其他任务的未提交文件，恢复时先核对。
+
+以下保留前一阶段的导入与工作流背景；当前验证以本节及Issue #3的PR为准。
 
 ## 已确认目标
 
@@ -10,13 +20,13 @@
 
 新工作区 /Users/zhaixinyang/conest；由 cc-connect maomao 克隆保留历史，bridge/ 导入当前桥接源码，companion/ 导入语音、活动、日报及测试。旧 Python 网页 demo 留在旧仓库。来源与基线见 [SOURCE_ORIGINS.md](../SOURCE_ORIGINS.md)。
 
-Python独立环境102项通过、1项跳过，Go构建通过；Ubuntu云端Go全量测试通过，本机macOS仍有失败，详见状态表。快照复制后再次核对原源文件哈希，没有发现导入期间继续变化的文件。本地导入清单在 .local/import-manifest.json，未纳入 Git。
+初始导入时Python独立环境102项通过、1项跳过，Go构建通过；Ubuntu云端Go全量测试通过，但macOS当时失败。该历史失败已由Issue #3修复并完成双平台验证，详见状态表。快照复制后再次核对原源文件哈希，没有发现导入期间继续变化的文件。本地导入清单在 .local/import-manifest.json，未纳入 Git。
 
 私有仓库 [Zssan12/conest](https://github.com/Zssan12/conest) 已创建并核对 private=true，默认分支 main，初始导入提交 e9f902d4。已建立 [Issue #1–#9](https://github.com/Zssan12/conest/issues)，入口见状态表。工作流通过 [PR #10](https://github.com/Zssan12/conest/pull/10) 交付：统一Agent入口、协作规则、模板、CI和主分支保护。本轮没有服务重启、配置替换、Discord投递或硬件操作。PR最新审核、checks与合并结果以GitHub为准，恢复前先核对分支和差异。
 
 GitHub CI run 38889638594在0ed5b4f0上两项全部成功。本地actionlint、文档本地链接和git diff --check通过。main保护已通过API配置并回读：PR必经、bridge/companion检查绑定GitHub Actions且必须成功、分支与main同步、讨论已解决；包含管理员，禁止强推/删除，线性历史。仓库仅开放squash合并，保留分支。
 
-本轮只补充工作流文档、PR模板及仓库设置，不改业务代码。最终提交还须通过对应CI和自查后按完整SHA合并，避免审核之后的变化混入；实际证据保留在PR。当前所需批准数0，适配单账号协作；并未安排独立Agent审核，不能冒称独立审核已通过。具体步骤见CONTRIBUTING.md。旧源码和运行数据保留。
+PR #10只补充工作流文档、PR模板及仓库设置，已合并；Issue #3的业务修复单独在PR #14交付。当前所需批准数0，适配单账号协作；没有独立审核时须如实标注自查。具体步骤见CONTRIBUTING.md。旧源码和运行数据保留。
 
 ## 旧生产边界
 
@@ -29,8 +39,8 @@ GitHub CI run 38889638594在0ed5b4f0上两项全部成功。本地actionlint、�
 
 ## 下一步
 
-1. 恢复时确认PR #10合并结果与Issue #1状态；若尚未合并，先核对最终SHA的CI/审核再合并。不要因Ubuntu检查成功关闭macOS基线问题Issue #3。
-2. 优先修复配置可移植性，避免新目录入口意外复用旧配置。再处理Go测试基线和真实电脑语音/跨角色记忆验收。
+1. 恢复时核对PR #14最新SHA、checks、自查与合并结果；若尚未合并，完成剩余门禁后再合并，Issue #3随Closes关闭。不要覆盖主目录未提交的语音文档或PR #12的并行工作。
+2. 后续优先处理Issue #2配置可移植性，避免新目录入口意外复用旧配置；再验收真实电脑语音/跨角色记忆。新任务按用户授权确定范围，测试修复不自动授权运行迁移。
 3. 用小型真实项目验证Issue→分工→PR→测试审核。硬件采购放在电脑体验验收之后。
 
 ## 交给下一个 Agent

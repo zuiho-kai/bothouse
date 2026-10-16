@@ -217,12 +217,12 @@ func TestSendDoesNotHoldStdinOpen(t *testing.T) {
 
 	workDir := t.TempDir()
 	cmdPath := filepath.Join(t.TempDir(), "fake-agy.sh")
-	script := "#!/bin/sh\ncat >/dev/null\nprintf 'done\\n'\n"
+	script := "#!/bin/sh\nwhile IFS= read -r line; do :; done\nprintf 'done\\n'\n"
 	if err := os.WriteFile(cmdPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("WriteFile fake agy: %v", err)
 	}
 
-	s, err := newAntigravitySession(context.Background(), cmdPath, nil, workDir, "", "default", "", nil, 2*time.Second)
+	s, err := newAntigravitySession(context.Background(), "/bin/sh", []string{cmdPath}, workDir, "", "default", "", nil, 2*time.Second)
 	if err != nil {
 		t.Fatalf("newAntigravitySession: %v", err)
 	}
@@ -281,5 +281,29 @@ func TestBuildAntigravityArgsPassesModel(t *testing.T) {
 		if a == "--model" {
 			t.Fatalf("--model passed without a configured model: %v", none)
 		}
+	}
+}
+
+func TestSendReportsProcessFailureWithoutStderr(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bin := filepath.Join(t.TempDir(), "fail-agy")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 7\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newAntigravitySession(context.Background(), "/bin/sh", []string{bin}, t.TempDir(), "", "yolo", "", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Send("hello", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-s.Events():
+		if ev.Type != core.EventError || ev.Error == nil || !strings.Contains(ev.Error.Error(), "exit status 7") {
+			t.Fatalf("failed process must produce an error, got %+v", ev)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("missing process failure")
 	}
 }

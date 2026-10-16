@@ -39,7 +39,7 @@ go test -tags no_web ./...
 
 Python 使用 python -m pytest，让本地源码进入导入路径。实际语音识别、自然音色依赖另见 companion/requirements-voice.txt 和 requirements-tts.txt；基础测试不下载模型。no_web 构建不包含上游网页控制台。
 
-**Go 全量测试基线存在失败**，准确结果和复核范围见 [状态表](docs/STATUS.md)。构建通过不等于全量测试通过，也不证明真实 Discord 或麦克风体验已验收。
+2026-10-16，Issue #3 修复后的 macOS 与 Linux Go 全量测试均通过。原始失败、根因及回归证据见 [Go 测试基线诊断](docs/GO_TEST_BASELINE.md)。自动测试通过不代表真实 Discord 或麦克风体验已验收。
 
 ## 运行边界
 

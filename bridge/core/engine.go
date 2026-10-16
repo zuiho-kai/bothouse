@@ -473,6 +473,7 @@ type Engine struct {
 	platformLifecycleMu sync.Mutex
 	platformReady       map[Platform]bool
 	stopping            bool
+	messageWorkers      sync.WaitGroup // admission is serialized with Stop by platformLifecycleMu
 	replyFooterMu       sync.Mutex
 	replyFooterUsage    replyFooterUsageCache
 
@@ -2382,9 +2383,12 @@ func (e *Engine) Stop() error {
 	e.interactiveMu.Unlock()
 
 	for key, state := range states {
-		if state.agentSession != nil {
+		state.mu.Lock()
+		as := state.agentSession
+		state.mu.Unlock()
+		if as != nil {
 			slog.Debug("engine.Stop: closing agent session", "session", key)
-			state.agentSession.Close()
+			as.Close()
 		}
 	}
 
@@ -2400,6 +2404,9 @@ func (e *Engine) Stop() error {
 	if err := e.agent.Stop(); err != nil {
 		errs = append(errs, fmt.Errorf("stop agent %s: %w", e.agent.Name(), err))
 	}
+	// Cancellation requests shutdown; joining ensures no accepted message or
+	// event reader can persist state after Stop returns.
+	e.messageWorkers.Wait()
 	if len(errs) > 0 {
 		return fmt.Errorf("engine stop errors: %v", errs)
 	}
@@ -2811,6 +2818,10 @@ func (e *Engine) startMessageRecallMonitor(sessionKey string) context.CancelFunc
 }
 
 func (e *Engine) handleMessage(p Platform, msg *Message) {
+	if !e.beginMessageWork() {
+		return
+	}
+	defer e.messageWorkers.Done()
 	if msg.Recalled {
 		e.handleMessageRecall(p, msg)
 		return
@@ -3055,7 +3066,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			// and the queue append. Re-try TryLock — if it succeeds, no one is
 			// draining the queue so we must start a processor ourselves.
 			if session.TryLock() {
-				go e.drainOrphanedQueue(session, sessions, interactiveKey, agent, resolvedWorkspace)
+				if !e.startMessageWorker(func() { e.drainOrphanedQueue(session, sessions, interactiveKey, agent, resolvedWorkspace) }) {
+					session.Unlock()
+				}
 			}
 			return
 		}
@@ -3094,7 +3107,7 @@ sessionLocked:
 		"session", session.ID,
 	)
 
-	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, msg.SessionKey)
+	e.startInteractiveMessage(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, msg.SessionKey)
 }
 
 func runMessageAccepted(msg *Message) {
@@ -3717,6 +3730,13 @@ func (e *Engine) processInteractiveMessage(p Platform, msg *Message, session *Se
 // and workspaceDir so that multi-workspace mode can route to per-workspace agents.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY in the agent env; otherwise interactiveKey is used.
 func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string, ccSessionKey string) {
+	if !e.beginMessageWork() {
+		session.Unlock()
+		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine stopped")})
+		return
+	}
+	defer e.messageWorkers.Done()
+
 	if msg.inputTurn != nil {
 		defer msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("input turn ended without a terminal result")})
 	}
@@ -3882,7 +3902,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
 	// EventPermissionRequest while blocked — the event loop must run in parallel.
 	sendDone := make(chan error, 1)
+	e.messageWorkers.Add(1) // child of the registered foreground turn
 	go func() {
+		defer e.messageWorkers.Done()
 		if as == nil {
 			session.SettleHandoff(false)
 			sendDone <- fmt.Errorf("agent session became nil")
@@ -4668,7 +4690,12 @@ func (e *Engine) startUnsolicitedReader(state *interactiveState, session *Sessio
 	state.unsolicitedDone = done
 	state.mu.Unlock()
 
-	go e.runUnsolicitedReader(ctx, cancel, done, state, agentSession, session, sessions, sessionKey, workspaceDir)
+	if !e.startMessageWorker(func() {
+		e.runUnsolicitedReader(ctx, cancel, done, state, agentSession, session, sessions, sessionKey, workspaceDir)
+	}) {
+		cancel()
+		close(done)
+	}
 }
 
 // runUnsolicitedReader is the goroutine body for the unsolicited event reader.
@@ -6521,7 +6548,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		session.AddHistory("user", queued.content)
 
 		sendDone := make(chan error, 1)
+		e.messageWorkers.Add(1) // child of the registered queue drain
 		go func() {
+			defer e.messageWorkers.Done()
 			if as == nil {
 				session.SettleHandoff(false)
 				sendDone <- fmt.Errorf("agent session became nil")
@@ -10514,7 +10543,9 @@ func (e *Engine) cmdCompress(p Platform, msg *Message) {
 
 	e.send(p, msg.ReplyCtx, e.i18n.T(MsgCompressing))
 
-	go e.runCompress(state, session, sessions, iKey, p, msg.ReplyCtx, false)
+	if !e.startMessageWorker(func() { e.runCompress(state, session, sessions, iKey, p, msg.ReplyCtx, false) }) {
+		session.Unlock()
+	}
 }
 
 // runCompress sends the agent's compress command and handles results.
@@ -14840,7 +14871,7 @@ func (e *Engine) executeCustomCommand(p Platform, msg *Message, cmd *CustomComma
 	)
 
 	msg.Content = prompt
-	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
+	e.startInteractiveMessage(p, msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
 }
 
 // executeShellCommand runs a shell command and sends the output to the user.
@@ -15068,7 +15099,7 @@ func (e *Engine) executeSkill(p Platform, msg *Message, skill *Skill, args []str
 	)
 
 	msg.Content = prompt
-	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
+	e.startInteractiveMessage(p, msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
 }
 
 func (e *Engine) cmdSkills(p Platform, msg *Message) {

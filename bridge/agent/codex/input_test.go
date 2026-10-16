@@ -28,11 +28,13 @@ func inputCodexHome(t *testing.T) string {
 func inputFakeCodex(t *testing.T, home, output string, exit int) *Agent {
 	t.Helper()
 	bin := filepath.Join(home, "fake-codex")
-	script := "#!/bin/sh\n[ \"$1\" = exec ] && [ \"$2\" = resume ] || exit 91\nprintf '%s\\n' \"$@\" >> \"$CODEX_HOME/args.txt\"\ncat >/dev/null\ncat <<'EVENTS'\n" + output + "\nEVENTS\n" + fmt.Sprintf("exit %d\n", exit)
+	// Consume stdin to EOF with builtins: external cat processes add unrelated
+	// scheduling/exec latency to assertions about the protocol.
+	script := "#!/bin/sh\n[ \"$1\" = exec ] && [ \"$2\" = resume ] || exit 91\nprintf '%s\\n' \"$@\" >> \"$CODEX_HOME/args.txt\"\nwhile IFS= read -r line; do :; done\nprintf '%s\\n' '" + strings.ReplaceAll(output, "'", "'\\''") + "'\n" + fmt.Sprintf("exit %d\n", exit)
 	if err := os.WriteFile(bin, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	return &Agent{backend: "exec", cmd: bin, codexHome: home, workDir: home, mode: "suggest", activeIdx: -1}
+	return &Agent{backend: "exec", cmd: "/bin/sh", cliExtraArgs: []string{bin}, codexHome: home, workDir: home, mode: "suggest", activeIdx: -1}
 }
 func inputReadTerminal(t *testing.T, s core.AgentSession) (core.Event, string) {
 	t.Helper()

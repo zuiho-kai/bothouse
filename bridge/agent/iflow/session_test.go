@@ -394,7 +394,7 @@ while :; do sleep 1; done
 		t.Fatalf("WriteFile fake iflow: %v", err)
 	}
 
-	sess, err := newIFlowSession(context.Background(), cmdPath, nil, workDir, "", "default", "", nil, 0)
+	sess, err := newIFlowSession(context.Background(), "/bin/sh", []string{cmdPath}, workDir, "", "default", "", nil, 0)
 	if err != nil {
 		t.Fatalf("newIFlowSession: %v", err)
 	}

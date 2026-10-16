@@ -231,7 +231,11 @@ func (s *APIServer) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	msg := &Message{SessionKey: req.SessionKey, Platform: p.Name(), UserID: "local-input", UserName: "local-input", Content: text, ReplyCtx: reply, inputTurn: turn}
-	go e.processInteractiveMessageWith(p, msg, session, e.agent, e.sessions, req.SessionKey, "", req.SessionKey)
+	if !e.startInteractiveMessage(p, msg, session, e.agent, e.sessions, req.SessionKey, "", req.SessionKey) {
+		delete(s.inputs.entries, req.RequestID)
+		inputHTTPError(w, 503, fmt.Errorf("engine stopped"))
+		return
+	}
 	apiJSON(w, http.StatusAccepted, entry.result)
 }
 

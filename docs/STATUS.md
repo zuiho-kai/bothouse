@@ -18,7 +18,7 @@
 | ESP32 单/多设备 | 未实现 | 先验收电脑，再确定设备和协议 |
 | 伙伴间“涌现” | 目标，未证明 | 需持续真实合作产物与行为变化；不能由定时消息证明 |
 
-## 本轮独立目录验证
+## 初始导入验证（修复前）
 
 - companion：uv sync 创建独立环境；uv run python -m pytest -q → **102 passed, 1 skipped**。跳过项是真实语音识别模型测试，未发 Discord 消息或调用真实模型。
 - bridge：go build -tags no_web -o ../.local/cc-connect ./cmd/cc-connect → **通过**。
@@ -30,11 +30,15 @@
 
 2026-10-16，GitHub Ubuntu [CI run 38889638594](https://github.com/Zssan12/conest/actions/runs/38889638594) 在0ed5b4f0上通过：Go校验、构建、全量测试（-p 1 -count=1）与Python检查均成功。这补充Linux环境证据，不覆盖或消除上述macOS失败。工作流变更不修改业务代码，后续提交以对应CI结果为准。
 
+## Issue #3 修复验证
+
+[PR #14](https://github.com/Zssan12/conest/pull/14) 已完成根因复现和修复。macOS全量 go test -tags no_web -count=1 ./...（默认并发）、构建/vet、关键生命周期-race与CUJ通过；Ubuntu [CI run 38894302371](https://github.com/Zssan12/conest/actions/runs/38894302371) 的Go全量与Python检查也通过。代码提交8c860baf，详细证据和局限见[Go测试基线诊断](GO_TEST_BASELINE.md)。上面保留初始失败记录；后续版本以各自检查为准。没有部署到旧生产服务。
+
 ## 产品约束
 
 G哥当前生产权限仍为 suggest/read-only。代码有派工能力不表示拥有项目写权限。模型可用性、额度与权限需按实际后端核对，不能凭 bot 自称判断。
 
-当前macOS Go回归失败使本快照仍不具备完整发布验收；仓库基线保存既有工作，后续功能PR必须说明相关检查及未解决缺口。文档/协作流程PR可以在自身检查和审核通过后合并，不能把它等同于修复Issue #3或发布软件。
+Go测试基线已通过修复验证；独立实例配置、真实电脑语音/共享记忆、真实后端和硬件仍需对应Issue验收。后续功能PR必须说明相关检查及未解决缺口，不把自动测试或合并等同于产品发布。
 
 ## 工作入口
 

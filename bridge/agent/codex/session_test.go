@@ -285,15 +285,16 @@ func TestGetModelAndReasoningEffort_FromRuntimeConfigWhenUnset(t *testing.T) {
 		t.Fatalf("mkdir bin: %v", err)
 	}
 
+	// Fixed RPC IDs match this two-request exchange. Avoid spawning sed for
+	// every line inside a 1.5s RPC budget.
 	script := `#!/bin/sh
 while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":[[:space:]]*\([0-9][0-9]*\).*/\1/p')
   case "$line" in
     *'"method":"initialize"'*)
-      printf '{"id":%s,"result":{"protocolVersion":"2"}}\n' "$id"
+      printf '{"id":1,"result":{"protocolVersion":"2"}}\n'
       ;;
     *'"method":"config/read"'*)
-      printf '{"id":%s,"result":{"config":{"model":"gpt-5.4","model_reasoning_effort":"xhigh"},"origins":{}}}\n' "$id"
+      printf '{"id":2,"result":{"config":{"model":"gpt-5.4","model_reasoning_effort":"xhigh"},"origins":{}}}\n'
       ;;
   esac
 done
@@ -311,7 +312,13 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
 
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
+	bin, args := "codex", []string(nil)
+	if runtime.GOOS != "windows" {
+		bin, args = "/bin/sh", []string{filepath.Join(binDir, "codex")}
+		// Prove runtime discovery honors the configured command, not PATH.
+		t.Setenv("PATH", t.TempDir())
+	}
+	cs, err := newCodexSession(context.Background(), bin, args, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -392,11 +399,12 @@ func TestSend_WithImages_PassesImageArgsAndDefaultPrompt(t *testing.T) {
 [Console]::Out.WriteLine('{"type":"turn.completed"}')
 `
 	writeFakeCodexScript(t, binDir, script, powershellScript)
+	cliBin, cliArgs := fakeCodexCommand(binDir)
 
 	t.Setenv("CODEX_ARGS_FILE", argsFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
+	cs, err := newCodexSession(context.Background(), cliBin, cliArgs, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -453,11 +461,12 @@ func TestSend_ResumeWithImages_PlacesSessionBeforeImageFlags(t *testing.T) {
 [Console]::Out.WriteLine('{"type":"turn.completed"}')
 `
 	writeFakeCodexScript(t, binDir, script, powershellScript)
+	cliBin, cliArgs := fakeCodexCommand(binDir)
 
 	t.Setenv("CODEX_ARGS_FILE", argsFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "thread-123", "", nil, "", "", "")
+	cs, err := newCodexSession(context.Background(), cliBin, cliArgs, workDir, "", "", "", "thread-123", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -505,12 +514,13 @@ func TestSend_UsesStdinForMultilinePrompt(t *testing.T) {
 [Console]::Out.WriteLine('{"type":"turn.completed"}')
 `
 	writeFakeCodexScript(t, binDir, script, powershellScript)
+	cliBin, cliArgs := fakeCodexCommand(binDir)
 
 	t.Setenv("CODEX_ARGS_FILE", argsFile)
 	t.Setenv("CODEX_STDIN_FILE", stdinFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "thread-stdin", "", nil, "", "", "")
+	cs, err := newCodexSession(context.Background(), cliBin, cliArgs, workDir, "", "", "", "thread-stdin", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -549,11 +559,12 @@ func TestSend_PrependsProjectPromptOnFreshSession(t *testing.T) {
 [Console]::Out.WriteLine('{"type":"turn.completed"}')
 `
 	writeFakeCodexScript(t, binDir, script, powershellScript)
+	cliBin, cliArgs := fakeCodexCommand(binDir)
 
 	t.Setenv("CODEX_STDIN_FILE", stdinFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "You are Linear Reporter.", "Always invoke linear-bug-intake.")
+	cs, err := newCodexSession(context.Background(), cliBin, cliArgs, workDir, "", "", "", "", "", nil, "", "You are Linear Reporter.", "Always invoke linear-bug-intake.")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -601,11 +612,12 @@ func TestSend_HandlesLargeJSONLines(t *testing.T) {
 	powershellScript := `[Console]::Out.Write([IO.File]::ReadAllText($env:CODEX_PAYLOAD_FILE))
 `
 	writeFakeCodexScript(t, binDir, script, powershellScript)
+	cliBin, cliArgs := fakeCodexCommand(binDir)
 
 	t.Setenv("CODEX_PAYLOAD_FILE", payloadFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
+	cs, err := newCodexSession(context.Background(), cliBin, cliArgs, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -1024,4 +1036,13 @@ func waitForFileLines(t *testing.T, path string, want int) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %d lines in %s", want, path)
+}
+
+// Execute test scripts with a stable interpreter; direct execution of a newly
+// created script on macOS can spend seconds in startup before reading stdin.
+func fakeCodexCommand(dir string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(dir, "codex.cmd"), nil
+	}
+	return "/bin/sh", []string{filepath.Join(dir, "codex")}
 }

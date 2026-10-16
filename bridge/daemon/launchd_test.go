@@ -67,6 +67,16 @@ func TestPreferredLaunchdDomainFallsBackToUserWhenGUIDomainUnavailable(t *testin
 }
 
 func TestLaunchdStatusUsesUserDomainWhenGUIDomainUnavailable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// Status checks installation before querying launchctl. Never depend on
+	// the developer's real LaunchAgents directory.
+	path := launchdPlistPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("plist"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	orig := runLaunchctl
 	t.Cleanup(func() { runLaunchctl = orig })
 

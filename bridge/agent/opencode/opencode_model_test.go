@@ -169,31 +169,22 @@ func writeCountingModelsBin(t *testing.T, countPath, gatePath string, lines []st
 	return name
 }
 
-func waitForModelsInPersistentCache(t *testing.T, cachePath string, want []string) {
+func waitForModelsInPersistentCache(t *testing.T, agent core.Agent, cachePath string, want []string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		cache, err := loadOpencodePersistentModelCache(cachePath)
-		if err == nil && cache != nil && len(cache.Models) == len(want) {
-			match := true
-			for i, model := range cache.Models {
-				if model.Name != want[i] {
-					match = false
-					break
-				}
-			}
-			if match {
-				return
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
+	// Disk rename precedes the in-memory publication; wait for the complete operation.
+	agent.(*Agent).refreshWg.Wait()
 	cache, err := loadOpencodePersistentModelCache(cachePath)
 	if err != nil {
-		t.Fatalf("loadOpencodePersistentModelCache(%q) error = %v", cachePath, err)
+		t.Fatal(err)
 	}
-	t.Fatalf("persistent cache models = %v, want %v", cache, want)
+	if cache == nil || len(cache.Models) != len(want) {
+		t.Fatalf("persistent cache = %v, want %v", cache, want)
+	}
+	for i, model := range cache.Models {
+		if model.Name != want[i] {
+			t.Fatalf("persistent cache = %v, want %v", cache, want)
+		}
+	}
 }
 
 func waitForFileContent(t *testing.T, path, want string) {
@@ -398,8 +389,9 @@ func TestAgent_SetActiveProvider_Invalid(t *testing.T) {
 // the model list produced by `opencode models` when it succeeds.
 func TestAvailableModels_UsesDynamicDiscovery(t *testing.T) {
 	bin := writeFakeModelsBin(t, []string{"anthropic/claude-3-5-sonnet", "openai/gpt-4o"}, 0)
-	a := &Agent{cmd: bin, activeIdx: -1}
+	a := &Agent{cmd: "/bin/sh", cliExtraArgs: []string{bin}, activeIdx: -1}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 2 {
 		t.Fatalf("AvailableModels() = %v (len %d), want 2 models", got, len(got))
@@ -418,13 +410,15 @@ func TestAvailableModels_UsesDynamicDiscovery(t *testing.T) {
 func TestAvailableModels_DynamicTakesPriorityOverConfigured(t *testing.T) {
 	bin := writeFakeModelsBin(t, []string{"discovered/model"}, 0)
 	a := &Agent{
-		cmd: bin,
+		cmd:          "/bin/sh",
+		cliExtraArgs: []string{bin},
 		providers: []core.ProviderConfig{
 			{Models: []core.ModelOption{{Name: "configured/model"}}},
 		},
 		activeIdx: 0,
 	}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "discovered/model" {
 		t.Errorf("AvailableModels() = %v, want [discovered/model]", got)
@@ -436,13 +430,15 @@ func TestAvailableModels_DynamicTakesPriorityOverConfigured(t *testing.T) {
 func TestAvailableModels_FallsBackToConfiguredOnDiscoveryFail(t *testing.T) {
 	bin := writeFakeModelsBin(t, nil, 1) // exits with error
 	a := &Agent{
-		cmd: bin,
+		cmd:          "/bin/sh",
+		cliExtraArgs: []string{bin},
 		providers: []core.ProviderConfig{
 			{Models: []core.ModelOption{{Name: "configured-model"}}},
 		},
 		activeIdx: 0,
 	}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "configured-model" {
 		t.Errorf("AvailableModels() = %v, want [configured-model]", got)
@@ -453,8 +449,9 @@ func TestAvailableModels_FallsBackToConfiguredOnDiscoveryFail(t *testing.T) {
 // fallback to the hardcoded built-in model list.
 func TestAvailableModels_FallsBackToBuiltinWhenBothUnavailable(t *testing.T) {
 	bin := writeFakeModelsBin(t, nil, 1)
-	a := &Agent{cmd: bin, activeIdx: -1}
+	a := &Agent{cmd: "/bin/sh", cliExtraArgs: []string{bin}, activeIdx: -1}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) == 0 {
 		t.Fatal("AvailableModels() returned empty list, want built-in fallback")
@@ -475,8 +472,9 @@ func TestAvailableModels_FallsBackToBuiltinWhenBothUnavailable(t *testing.T) {
 // names from the CLI output appear only once.
 func TestAvailableModels_DeduplicatesDiscoveredModels(t *testing.T) {
 	bin := writeFakeModelsBin(t, []string{"openai/gpt-4o", "openai/gpt-4o", "anthropic/claude"}, 0)
-	a := &Agent{cmd: bin, activeIdx: -1}
+	a := &Agent{cmd: "/bin/sh", cliExtraArgs: []string{bin}, activeIdx: -1}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 2 {
 		t.Fatalf("AvailableModels() = %v (len %d), want 2 after dedup", got, len(got))
@@ -486,8 +484,9 @@ func TestAvailableModels_DeduplicatesDiscoveredModels(t *testing.T) {
 // TestAvailableModels_SortsDiscoveredModels verifies lexicographic sort order.
 func TestAvailableModels_SortsDiscoveredModels(t *testing.T) {
 	bin := writeFakeModelsBin(t, []string{"z-model", "a-model", "m-model"}, 0)
-	a := &Agent{cmd: bin, activeIdx: -1}
+	a := &Agent{cmd: "/bin/sh", cliExtraArgs: []string{bin}, activeIdx: -1}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 3 {
 		t.Fatalf("AvailableModels() = %v, want 3 models", got)
@@ -511,13 +510,15 @@ func TestAvailableModels_SortsDiscoveredModels(t *testing.T) {
 func TestAvailableModels_EmptyDiscoveryOutputFallsBackToConfigured(t *testing.T) {
 	bin := writeFakeModelsBin(t, []string{}, 0) // exits 0 but no output
 	a := &Agent{
-		cmd: bin,
+		cmd:          "/bin/sh",
+		cliExtraArgs: []string{bin},
 		providers: []core.ProviderConfig{
 			{Models: []core.ModelOption{{Name: "fallback-model"}}},
 		},
 		activeIdx: 0,
 	}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "fallback-model" {
 		t.Errorf("AvailableModels() empty discovery = %v, want [fallback-model]", got)
@@ -555,6 +556,7 @@ func TestAvailableModels_CustomCmdUsedForDiscovery(t *testing.T) {
 	}
 
 	a := &Agent{cmd: customBin, activeIdx: -1}
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "custom/model-a" {
 		t.Errorf("AvailableModels() with custom cmd = %v, want [custom/model-a]", got)
@@ -627,7 +629,7 @@ func TestNew_SurfacesPersistentModelCacheViaAvailableModels(t *testing.T) {
 	writePersistentModelCache(t, cachePath, []core.ModelOption{{Name: "cached/model"}}, time.Now())
 	fakeEmptyBin := writeFakeModelsBin(t, []string{}, 0)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         fakeEmptyBin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -652,7 +654,7 @@ func TestAvailableModels_PrefersPersistentCacheOverDiscoveredModels(t *testing.T
 	writePersistentModelCache(t, cachePath, []core.ModelOption{{Name: "cached/model"}}, time.Now())
 	bin := writeFakeModelsBin(t, []string{"fresh/model"}, 0)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -660,13 +662,6 @@ func TestAvailableModels_PrefersPersistentCacheOverDiscoveredModels(t *testing.T
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	a := agent.(*Agent)
-	// AvailableModels with a cached result launches a background refresh goroutine that
-	// writes into dataDir. Register cleanup BEFORE calling AvailableModels so that
-	// t.Cleanup runs in LIFO order: our Wait() fires first, then t.TempDir's RemoveAll.
-	// Without this, the goroutine can still be writing when RemoveAll runs, causing
-	// "TempDir RemoveAll cleanup: directory not empty" under -cover (see #1118).
-	t.Cleanup(func() { a.refreshWg.Wait() })
 
 	switcher, ok := agent.(core.ModelSwitcher)
 	if !ok {
@@ -685,7 +680,7 @@ func TestAvailableModels_ReturnsPersistentCacheWhenDiscoveryFails(t *testing.T) 
 	writePersistentModelCache(t, cachePath, []core.ModelOption{{Name: "cached/model"}}, time.Now())
 	failingBin := writeFakeModelsBin(t, nil, 1)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         failingBin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -708,7 +703,7 @@ func TestAvailableModels_PersistsDiscoveryOnColdStart(t *testing.T) {
 	dataDir := t.TempDir()
 	bin := writeFakeModelsBin(t, []string{"fresh/model", "second/model"}, 0)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -748,7 +743,7 @@ func TestAvailableModels_BackgroundRefreshUpdatesDiskCache(t *testing.T) {
 	gatePath := filepath.Join(t.TempDir(), "refresh-ready")
 	bin := writeBlockingModelsBin(t, gatePath, []string{"fresh/model", "second/model"})
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -770,7 +765,7 @@ func TestAvailableModels_BackgroundRefreshUpdatesDiskCache(t *testing.T) {
 		t.Fatalf("os.WriteFile(%q) error = %v", gatePath, err)
 	}
 
-	waitForModelsInPersistentCache(t, cachePath, []string{"fresh/model", "second/model"})
+	waitForModelsInPersistentCache(t, agent, cachePath, []string{"fresh/model", "second/model"})
 
 	got = switcher.AvailableModels(context.Background())
 	if len(got) != 2 || got[0].Name != "fresh/model" || got[1].Name != "second/model" {
@@ -786,7 +781,7 @@ func TestAvailableModels_BackgroundRefreshFailurePreservesCache(t *testing.T) {
 	gatePath := filepath.Join(t.TempDir(), "refresh-ready")
 	bin := writeCountingModelsBin(t, countPath, gatePath, nil, "", 1)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -803,6 +798,7 @@ func TestAvailableModels_BackgroundRefreshFailurePreservesCache(t *testing.T) {
 	if err := os.WriteFile(gatePath, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v", gatePath, err)
 	}
+	a.refreshWg.Wait()
 	waitForFileContent(t, countPath, "1")
 
 	cache, err := loadOpencodePersistentModelCache(cachePath)
@@ -826,7 +822,7 @@ func TestAvailableModels_BackgroundRefreshSingleFlight(t *testing.T) {
 	gatePath := filepath.Join(t.TempDir(), "refresh-ready")
 	bin := writeCountingModelsBin(t, countPath, gatePath, []string{"fresh/model"}, "", 0)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -846,7 +842,7 @@ func TestAvailableModels_BackgroundRefreshSingleFlight(t *testing.T) {
 	if err := os.WriteFile(gatePath, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v", gatePath, err)
 	}
-	waitForModelsInPersistentCache(t, cachePath, []string{"fresh/model"})
+	waitForModelsInPersistentCache(t, agent, cachePath, []string{"fresh/model"})
 	data, err := os.ReadFile(countPath)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v", countPath, err)
@@ -864,7 +860,7 @@ func TestStartInitialModelRefresh_UsesCurrentProviderWiring(t *testing.T) {
 	gatePath := filepath.Join(t.TempDir(), "refresh-ready")
 	bin := writeCountingModelsBin(t, countPath, gatePath, []string{"provider/model"}, "MODEL_DISCOVERY_TOKEN", 0)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -886,7 +882,7 @@ func TestStartInitialModelRefresh_UsesCurrentProviderWiring(t *testing.T) {
 	if err := os.WriteFile(gatePath, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v", gatePath, err)
 	}
-	waitForModelsInPersistentCache(t, cachePath, []string{"provider/model"})
+	waitForModelsInPersistentCache(t, agent, cachePath, []string{"provider/model"})
 }
 
 func TestStartInitialModelRefresh_PrewarmsColdStartCacheAfterProviderWiring(t *testing.T) {
@@ -896,7 +892,7 @@ func TestStartInitialModelRefresh_PrewarmsColdStartCacheAfterProviderWiring(t *t
 	gatePath := filepath.Join(t.TempDir(), "refresh-ready")
 	bin := writeCountingModelsBin(t, countPath, gatePath, []string{"provider/model"}, "MODEL_DISCOVERY_TOKEN", 0)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -923,15 +919,16 @@ func TestStartInitialModelRefresh_PrewarmsColdStartCacheAfterProviderWiring(t *t
 	if err := os.WriteFile(gatePath, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v", gatePath, err)
 	}
-	waitForModelsInPersistentCache(t, cachePath, []string{"provider/model"})
+	waitForModelsInPersistentCache(t, agent, cachePath, []string{"provider/model"})
 }
 
 func TestAvailableModels_DiscoveryUsesProviderEnv(t *testing.T) {
 	countPath := filepath.Join(t.TempDir(), "refresh-count")
 	bin := writeCountingModelsBin(t, countPath, "", []string{"provider/model"}, "MODEL_DISCOVERY_TOKEN", 0)
 	a := &Agent{
-		cmd:     bin,
-		workDir: t.TempDir(),
+		cmd:          "/bin/sh",
+		cliExtraArgs: []string{bin},
+		workDir:      t.TempDir(),
 		providers: []core.ProviderConfig{{
 			Name:  "provider-a",
 			Model: "provider/model",
@@ -940,6 +937,7 @@ func TestAvailableModels_DiscoveryUsesProviderEnv(t *testing.T) {
 		activeIdx: 0,
 	}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "provider/model" {
 		t.Fatalf("AvailableModels() = %v, want provider/model discovered via provider env", got)
@@ -951,7 +949,8 @@ func TestAvailableModels_PersistsProviderKeyOnColdStartDiscovery(t *testing.T) {
 	cachePath := opencodeProjectModelCachePath(dataDir, "demo")
 	bin := writeCountingModelsBin(t, "", "", []string{"provider/model"}, "MODEL_DISCOVERY_TOKEN", 0)
 	a := &Agent{
-		cmd:            bin,
+		cmd:            "/bin/sh",
+		cliExtraArgs:   []string{bin},
 		workDir:        t.TempDir(),
 		modelCachePath: cachePath,
 		providers: []core.ProviderConfig{{
@@ -961,6 +960,7 @@ func TestAvailableModels_PersistsProviderKeyOnColdStartDiscovery(t *testing.T) {
 		activeIdx: 0,
 	}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "provider/model" {
 		t.Fatalf("AvailableModels() = %v, want provider/model", got)
@@ -977,7 +977,7 @@ func TestAvailableModels_IgnoresPersistentCacheForProviderMismatch(t *testing.T)
 	cachePath := opencodeProjectModelCachePath(dataDir, "demo")
 	bin := writeFakeModelsBin(t, []string{"fresh/provider-b"}, 0)
 
-	agent, err := New(map[string]any{
+	agent, err := newModelTestAgent(t, map[string]any{
 		"cmd":         bin,
 		"cc_data_dir": dataDir,
 		"cc_project":  "demo",
@@ -1018,7 +1018,8 @@ func TestAvailableModels_BackgroundRefreshPersistsProviderKey(t *testing.T) {
 	bin := writeCountingModelsBin(t, "", gatePath, []string{"fresh/model"}, "MODEL_DISCOVERY_TOKEN", 0)
 
 	a := &Agent{
-		cmd:            bin,
+		cmd:            "/bin/sh",
+		cliExtraArgs:   []string{bin},
 		workDir:        t.TempDir(),
 		modelCachePath: cachePath,
 		providers: []core.ProviderConfig{{
@@ -1032,6 +1033,7 @@ func TestAvailableModels_BackgroundRefreshPersistsProviderKey(t *testing.T) {
 	writePersistentModelCacheWithSnapshot(t, cachePath, providerASnapshot, []core.ModelOption{{Name: "cached/model"}}, time.Now())
 	a.persistentModelCache = &opencodePersistentModelCache{Models: []core.ModelOption{{Name: "cached/model"}}, UpdatedAt: time.Now(), ProviderKey: providerAKey, ContextKey: modelDiscoveryContextKey(providerASnapshot)}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "cached/model" {
 		t.Fatalf("AvailableModels() = %v, want cached/model", got)
@@ -1039,7 +1041,7 @@ func TestAvailableModels_BackgroundRefreshPersistsProviderKey(t *testing.T) {
 	if err := os.WriteFile(gatePath, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v", gatePath, err)
 	}
-	waitForModelsInPersistentCache(t, cachePath, []string{"fresh/model"})
+	waitForModelsInPersistentCache(t, a, cachePath, []string{"fresh/model"})
 	payload := readPersistentModelCachePayload(t, cachePath)
 	if payload["provider_key"] != providerAKey {
 		t.Fatalf("provider_key = %v, want %q", payload["provider_key"], providerAKey)
@@ -1053,7 +1055,8 @@ func TestAvailableModels_BackgroundRefreshUsesProviderSnapshot(t *testing.T) {
 	gatePath := filepath.Join(t.TempDir(), "refresh-ready")
 	bin := writeCountingModelsBin(t, countPath, gatePath, []string{"provider-a/model"}, "MODEL_DISCOVERY_TOKEN", 0)
 	a := &Agent{
-		cmd:            bin,
+		cmd:            "/bin/sh",
+		cliExtraArgs:   []string{bin},
 		workDir:        t.TempDir(),
 		modelCachePath: cachePath,
 		providers: []core.ProviderConfig{
@@ -1067,6 +1070,7 @@ func TestAvailableModels_BackgroundRefreshUsesProviderSnapshot(t *testing.T) {
 	writePersistentModelCacheWithSnapshot(t, cachePath, providerASnapshot, []core.ModelOption{{Name: "cached/model"}}, time.Now())
 	a.persistentModelCache = &opencodePersistentModelCache{Models: []core.ModelOption{{Name: "cached/model"}}, UpdatedAt: time.Now(), ProviderKey: providerAKey, ContextKey: modelDiscoveryContextKey(providerASnapshot)}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "cached/model" {
 		t.Fatalf("AvailableModels() = %v, want cached/model", got)
@@ -1078,7 +1082,7 @@ func TestAvailableModels_BackgroundRefreshUsesProviderSnapshot(t *testing.T) {
 	if err := os.WriteFile(gatePath, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v", gatePath, err)
 	}
-	waitForModelsInPersistentCache(t, cachePath, []string{"provider-a/model"})
+	waitForModelsInPersistentCache(t, a, cachePath, []string{"provider-a/model"})
 	payload := readPersistentModelCachePayload(t, cachePath)
 	if payload["provider_key"] != providerAKey {
 		t.Fatalf("provider_key after provider switch = %v, want %q snapshot", payload["provider_key"], providerAKey)
@@ -1090,7 +1094,8 @@ func TestAvailableModels_IgnoresPersistentCacheForSameProviderNameDifferentConfi
 	cachePath := opencodeProjectModelCachePath(dataDir, "demo")
 	bin := writeCountingModelsBin(t, "", "", []string{"fresh/provider-a"}, "MODEL_DISCOVERY_TOKEN", 0)
 	a := &Agent{
-		cmd:            bin,
+		cmd:            "/bin/sh",
+		cliExtraArgs:   []string{bin},
 		workDir:        t.TempDir(),
 		modelCachePath: cachePath,
 		providers: []core.ProviderConfig{{
@@ -1107,6 +1112,7 @@ func TestAvailableModels_IgnoresPersistentCacheForSameProviderNameDifferentConfi
 	writePersistentModelCacheWithSnapshot(t, cachePath, staleSnapshot, []core.ModelOption{{Name: "cached/stale"}}, time.Now())
 	a.persistentModelCache = &opencodePersistentModelCache{Models: []core.ModelOption{{Name: "cached/stale"}}, UpdatedAt: time.Now(), ProviderKey: staleKey, ContextKey: modelDiscoveryContextKey(staleSnapshot)}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "fresh/provider-a" {
 		t.Fatalf("AvailableModels() = %v, want stale cache ignored for changed config", got)
@@ -1132,7 +1138,8 @@ func TestAvailableModels_IgnoresPersistentCacheForWorkDirMismatch(t *testing.T) 
 	}
 	bin := writeCountingModelsBin(t, countPath, "", []string{"fresh/workspace-b"}, "MODEL_DISCOVERY_TOKEN", 0)
 	a := &Agent{
-		cmd:            bin,
+		cmd:            "/bin/sh",
+		cliExtraArgs:   []string{bin},
 		workDir:        workDirB,
 		modelCachePath: cachePath,
 		providers: []core.ProviderConfig{{
@@ -1158,6 +1165,7 @@ func TestAvailableModels_IgnoresPersistentCacheForWorkDirMismatch(t *testing.T) 
 		ContextKey:  modelDiscoveryContextKey(staleSnapshot),
 	}
 
+	t.Cleanup(func() { _ = a.Stop() })
 	got := a.AvailableModels(context.Background())
 	if len(got) != 1 || got[0].Name != "fresh/workspace-b" {
 		t.Fatalf("AvailableModels() = %v, want stale cache ignored for changed workdir", got)
@@ -1235,3 +1243,33 @@ var _ core.SessionDeleter = (*Agent)(nil)
 
 // verify Agent implements core.Agent
 var _ core.Agent = (*Agent)(nil)
+
+// All tests that start background discovery must stop it before TempDir cleanup.
+func newModelTestAgent(t *testing.T, opts map[string]any) (core.Agent, error) {
+	t.Helper()
+	if bin, ok := opts["cmd"].(string); ok {
+		opts["cmd"] = []string{"/bin/sh", bin}
+	}
+	a, err := New(opts)
+	if err == nil {
+		t.Cleanup(func() {
+			if err := a.Stop(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	return a, err
+}
+
+func TestAvailableModelsPreservesCommandArgs(t *testing.T) {
+	bin := writeFakeModelsBin(t, []string{"wrapped/model"}, 0)
+	a, err := New(map[string]any{"cmd": []string{"/bin/sh", bin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop() })
+	got := a.(*Agent).AvailableModels(context.Background())
+	if len(got) != 1 || got[0].Name != "wrapped/model" {
+		t.Fatalf("configured wrapper args lost: %v", got)
+	}
+}

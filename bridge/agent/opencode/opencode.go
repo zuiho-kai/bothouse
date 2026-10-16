@@ -35,13 +35,15 @@ type Agent struct {
 	cmd                  string   // CLI binary name, default "opencode"
 	cliExtraArgs         []string // extra args from cmd after the binary name
 	configEnv            []string // env vars from [projects.agent.options.env]
-	agentName            string // passed as --agent to opencode (for plugin-defined agents)
+	agentName            string   // passed as --agent to opencode (for plugin-defined agents)
 	providers            []core.ProviderConfig
 	activeIdx            int
 	sessionEnv           []string
 	modelCachePath       string
 	persistentModelCache *opencodePersistentModelCache
 	refreshingModelCache bool
+	stopped              bool
+	refreshCancel        context.CancelFunc
 	refreshWg            sync.WaitGroup // tracks in-flight background model-cache refresh goroutines
 	mu                   sync.RWMutex
 }
@@ -54,6 +56,7 @@ type opencodePersistentModelCache struct {
 }
 
 type opencodeModelDiscoverySnapshot struct {
+	extraArgs   []string
 	cmd         string
 	workDir     string
 	providerEnv []string
@@ -300,6 +303,7 @@ func (a *Agent) modelDiscoverySnapshot() opencodeModelDiscoverySnapshot {
 	defer a.mu.RUnlock()
 	return opencodeModelDiscoverySnapshot{
 		cmd:         a.cmd,
+		extraArgs:   append([]string(nil), a.cliExtraArgs...),
 		workDir:     a.workDir,
 		providerEnv: append([]string(nil), a.providerEnvLocked()...),
 		providerKey: a.activeProviderKeyLocked(),
@@ -341,10 +345,12 @@ func (a *Agent) persistentModels() []core.ModelOption {
 func (a *Agent) startPersistentModelRefresh(snapshot opencodeModelDiscoverySnapshot, allowColdStart bool) {
 	a.mu.Lock()
 	hasPersistentModels := a.persistentModelCache != nil && len(a.persistentModelCache.Models) > 0
-	if (!allowColdStart && !hasPersistentModels) || a.refreshingModelCache {
+	if a.stopped || (!allowColdStart && !hasPersistentModels) || a.refreshingModelCache {
 		a.mu.Unlock()
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	a.refreshCancel = cancel
 	a.refreshingModelCache = true
 	a.refreshWg.Add(1)
 	a.mu.Unlock()
@@ -354,10 +360,10 @@ func (a *Agent) startPersistentModelRefresh(snapshot opencodeModelDiscoverySnaps
 		defer func() {
 			a.mu.Lock()
 			a.refreshingModelCache = false
+			a.refreshCancel = nil
 			a.mu.Unlock()
 		}()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		models := a.discoverModelsWithSnapshot(ctx, snapshot)
@@ -407,7 +413,10 @@ func (a *Agent) storePersistentModelCache(snapshot opencodeModelDiscoverySnapsho
 }
 
 func (a *Agent) discoverModelsWithSnapshot(ctx context.Context, snapshot opencodeModelDiscoverySnapshot) []core.ModelOption {
-	c := exec.CommandContext(ctx, snapshot.cmd, "models")
+	args := append(append([]string(nil), snapshot.extraArgs...), "models")
+	c := exec.CommandContext(ctx, snapshot.cmd, args...)
+	// Bound inherited output pipes if a CLI child outlives cancellation.
+	c.WaitDelay = time.Second
 	c.Dir = snapshot.workDir
 	if len(snapshot.providerEnv) > 0 {
 		c.Env = append(os.Environ(), snapshot.providerEnv...)
@@ -490,7 +499,17 @@ func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error)
 	return listOpencodeSessions(cmd, workDir)
 }
 
-func (a *Agent) Stop() error { return nil }
+func (a *Agent) Stop() error {
+	a.mu.Lock()
+	a.stopped = true
+	cancel := a.refreshCancel
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	a.refreshWg.Wait()
+	return nil
+}
 
 // DeleteSession implements core.SessionDeleter via `opencode session delete <id>`.
 func (a *Agent) DeleteSession(_ context.Context, sessionID string) error {

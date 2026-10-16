@@ -673,8 +673,12 @@ func codexToolSuccess(status string, exitCode *int) bool {
 	return s == "completed" || s == "success" || s == "succeeded" || s == "ok"
 }
 
-func loadCodexRuntimeConfig(ctx context.Context, workDir string, extraEnv []string) (string, string, error) {
-	cmd := exec.CommandContext(ctx, "codex", "app-server")
+func loadCodexRuntimeConfig(ctx context.Context, bin string, extraArgs []string, workDir string, extraEnv []string) (string, string, error) {
+	if bin == "" {
+		bin = "codex"
+	}
+	args := append(append([]string(nil), extraArgs...), "app-server")
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = workDir
 	prepareCmdForKill(cmd)
 	if len(extraEnv) > 0 {
@@ -856,7 +860,7 @@ func (cs *codexSession) runtimeConfig() (string, string) {
 	ctx, cancel := context.WithTimeout(cs.ctx, codexRuntimeConfigTimeout)
 	defer cancel()
 
-	model, effort, err := loadCodexRuntimeConfig(ctx, cs.workDir, cs.extraEnv)
+	model, effort, err := loadCodexRuntimeConfig(ctx, cs.cmd, cs.cliExtraArgs, cs.workDir, cs.extraEnv)
 	if err == nil {
 		cs.runtimeCfgModel = model
 		cs.runtimeCfgEffort = effort
