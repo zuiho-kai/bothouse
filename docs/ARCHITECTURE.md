@@ -29,6 +29,8 @@ voice/discussion.py在单轮VoiceService之上管理有界讨论：开始时冻�
 
 `tts_worker.py`通过带请求ID与序号的消息输出完整WAV块；`NeuralTTS.synthesize_stream`校验后同步回调，`VoiceService`在事件循环中发布块元数据和读取端点。两页面共用`static/queue-player.js`，边合成边顺序播放；合成成功与播放结束是两个独立条件，均满足后才能推进讨论。停止会使旧播放回调失效，已送达CLI的任务仍需收尾；协议、计时和验证见[分块语音](VOICE_STREAMING.md)。
 
+设备模拟通过 `voice.device_server` 独立启动，`DeviceRegistry` 管理静态设备映射，`device_app.DeviceRoom` 管理从接纳直到播放结束的全房间占位及每页归属。它复用VoiceService单条投递/合成/共享记忆链路，通用单轮/讨论API不挂载到设备服务，避免绕过占位。原会话固定、设备/轮次/页面校验和迟到音频拒绝发生在服务端；客户端复用录音和分块播放器。具体边界及失联恢复见[电脑设备](DESKTOP_DEVICES.md)。这不是硬件认证或跨进程音频锁。
+
 ## 消息处理的关闭边界
 
 Engine通过bridge/core/engine_workers.go登记消息处理工作；开始关闭后拒收新工作，取消上下文并关闭会话/适配器，最后等待已登记的消息、队列、压缩、事件读取和Send结束。因此这些工作不会在Stop返回后继续写盘。OpenCode自己负责取消并等待模型缓存的后台刷新；测试必须先Stop，再回收临时目录。

@@ -1,6 +1,9 @@
 'use strict';
 
 (() => {
+  const devicePath = /^\/device\/[A-Za-z0-9_-]+$/.test(location.pathname) ? location.pathname : '';
+  // Fresh per document: refreshed/duplicate pages cannot replay old audio.
+  const deviceClient = devicePath ? crypto.randomUUID() : null;
   const $ = (id) => document.getElementById(id);
   const ui = Object.fromEntries(['role', 'session-label', 'voice-label', 'connection-state', 'reload-config',
     'page-error', 'record', 'record-label', 'record-time', 'record-limit', 'input-status',
@@ -24,11 +27,11 @@
   let disposed = false;
   const records = [];
   const player = new VoiceQueuePlayer(audio, { baseURL: location.href, onState: playbackState, onProgress: updateProgress });
-  const playable = (turn) => turn?.audioData && ['synthesizing', 'ready'].includes(turn.audioData.status)
+  const playable = (turn) => turn?.audioData && (!devicePath || (!turn.deviceReleased && !turn.deviceStopped && turn.audioData.playback_allowed)) && ['synthesizing', 'ready'].includes(turn.audioData.status)
     && typeof turn.audioData.text === 'string' && turn.audioData.text.trim()
     && (Array.isArray(turn.audioData.audio_chunks) || turn.audioURL);
 
-  const busy = () => Boolean(activeTurn && !activeTurn.terminal);
+  const busy = () => Boolean(activeTurn && (!activeTurn.terminal || (devicePath && !activeTurn.deviceReleased)));
   const seconds = (ms) => typeof ms === 'number' && Number.isFinite(ms) ? `${(ms / 1000).toFixed(2)} 秒` : '—';
   const mediaNumber = (n) => Number.isFinite(n) && n >= 0 ? n : 0;
   const clock = (n) => `${Math.floor(mediaNumber(n) / 60)}:${String(Math.floor(mediaNumber(n) % 60)).padStart(2, '0')}`;
@@ -43,7 +46,7 @@
     const locked = busy() || inputPhase !== 'idle';
     const available = config?.roles.find((role) => role.id === ui.role.value)?.available !== false;
     ui['reload-config'].disabled = locked;
-    ui.role.disabled = !config || locked;
+    ui.role.disabled = Boolean(devicePath) || !config || locked;
     ui.draft.disabled = !config || locked;
     ui.send.disabled = !config || !available || locked || !ui.draft.value.trim();
     ui.record.disabled = !config || !available || busy() || ['encoding', 'transcribing'].includes(inputPhase);
@@ -51,6 +54,7 @@
     ui['record-label'].textContent = ({ requesting: '等待麦克风', recording: '松开结束', encoding: '整理录音', transcribing: '正在识别' })[inputPhase] || '按住说话';
     ui.play.disabled = !playable(playerTurn) || inputPhase !== 'idle' || Boolean(playIntent);
     ui.stop.disabled = !playIntent && !(busy() && activeTurn.autoplay);
+    if (devicePath) ui.stop.disabled = !activeTurn || (activeTurn.deviceReleased && activeTurn.terminal);
     for (const turn of records) turn.nodes.replay.disabled = !playable(turn) || inputPhase !== 'idle' || Boolean(playIntent);
     if (busy()) {
       ui['input-status'].textContent = activeTurn.answerReady
@@ -70,8 +74,9 @@
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const headers = new Headers(init.headers);
+      if (devicePath) headers.set('X-Device-Client', deviceClient);
       if (init.method && init.method !== 'GET') headers.set('X-Voice-Token', config.token);
-      const response = await fetch(path, { ...init, headers, signal: controller.signal, cache: 'no-store', credentials: 'same-origin' });
+      const response = await fetch(devicePath + path, { ...init, headers, signal: controller.signal, cache: 'no-store', credentials: 'same-origin' });
       const raw = await response.text();
       let body;
       try { body = raw ? JSON.parse(raw) : {}; } catch {
@@ -102,6 +107,13 @@
         throw new Error('服务配置缺少可用伙伴或请求令牌。');
       }
       config = { ...data, max_record_seconds: Math.min(30, Math.max(1, Number(data.max_record_seconds) || 30)) };
+      if (devicePath) {
+        document.title = data.device_name + ' · 共栖';
+        $('page-title').textContent = data.device_name;
+        document.querySelector('.intro-copy').textContent = '这个入口固定属于一位伙伴。等它播完，再去另一台设备说话；没有自动排队。';
+        document.querySelector('.mode-pill').textContent = '电脑设备模拟 · 固定伙伴';
+        ui.stop.textContent = '停止本轮';
+      }
       ui.role.replaceChildren(...data.roles.map((role) => {
         const option = document.createElement('option');
         option.value = role.id;
@@ -412,11 +424,13 @@
       if (!currentTurn(turn)) return;
       if (result.id !== turn.id) throw new Error('服务返回的轮次 ID 不匹配，提交结果待核实。');
       acceptTurn(turn);
+      if (devicePath && turn.deviceStopped) stopDevice(turn);
       void pollTurn(turn);
     } catch (error) {
       if (!currentTurn(turn)) return;
       if (error.status >= 400 && error.status < 500) {
         turn.terminal = true;
+        turn.deviceReleased = true;
         turn.nodes.answer.textContent = error.status === 409 ? '服务正忙，本轮未发送。没有排队或自动重试。' : '本轮请求被服务拒绝，输入已保留。';
         setTurnError(turn, error);
         ui['turn-state'].textContent = '请求被拒绝';
@@ -458,8 +472,9 @@
           turn.nodes.memoryWarning.textContent = `共享记录警告：${String(result.memory_warning)}`;
           turn.nodes.memoryWarning.hidden = false;
         }
-        if (!['thinking', 'synthesizing', 'ready', 'error'].includes(result.status)) throw new Error(`未知轮次状态：${String(result.status)}`);
+        if (!['thinking', 'synthesizing', 'ready', 'error', 'stopped'].includes(result.status)) throw new Error(`未知轮次状态：${String(result.status)}`);
         acceptTurn(turn);
+        if (devicePath && turn.deviceStopped) stopDevice(turn);
         setTurnError(turn, null);
         setTimings(turn, result.timings || {});
         turn.audioData = result;
@@ -482,14 +497,15 @@
         turn.nodes.answer.classList.remove('pending');
         turn.nodes.answer.textContent = typeof result.text === 'string' ? result.text : '';
         ui['input-status'].textContent = '可以继续录音，或直接打字。';
-        if (result.status === 'error') {
+        if (result.status === 'error' || result.status === 'stopped') {
           turn.autoplay = false;
           turn.audioURL = null;
-          if (playerTurn === turn) player.update(result);
+          if (playerTurn === turn) player.update({ ...result, status: 'error' });
+          if (devicePath) stopDevice(turn);
           setTurnError(turn, result.error || '服务返回 error，但未提供错误详情。');
-          setPlayback(turn, '本轮失败 · 已停止播放');
-          ui['turn-state'].textContent = '本轮失败';
-          ui['task-note'].textContent = '具体错误已保留在本轮记录中。';
+          setPlayback(turn, result.status === 'stopped' ? '本轮已停止' : '本轮失败 · 已停止播放');
+          ui['turn-state'].textContent = result.status === 'stopped' ? '本轮已停止' : '本轮失败';
+          ui['task-note'].textContent = result.status === 'stopped' ? '迟到回答不会再播放。已送达的后台任务仍须收尾，期间不能开始下一轮。' : '具体错误已保留在本轮记录中。';
         } else {
           ui['turn-state'].textContent = '回答已生成';
           ui['task-note'].textContent = '回答已生成；播放进度和完成情况单独记录。';
@@ -533,9 +549,31 @@
   function reportPlayback(turn, state, snapshot) {
     const body = JSON.stringify({ state, position_seconds: snapshot.position, duration_seconds: snapshot.duration });
     // Preserve transition order on the wire; failed reports are not retried.
-    turn.reportChain = turn.reportChain.then(() => api(`/api/turn/${encodeURIComponent(turn.id)}/playback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true, timeout: 10000 })).catch((error) => {
+    turn.reportChain = turn.reportChain.then(() => api(`/api/turn/${encodeURIComponent(turn.id)}/playback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true, timeout: 10000 })).then(() => {
+      if (devicePath && ['completed', 'stopped', 'failed'].includes(state)) {
+        turn.deviceReleased = true;
+        turn.nodes.replay.hidden = true;
+        updateControls();
+      }
+    }).catch((error) => {
       turn.nodes.reportError.textContent = `播放状态上报失败（${state}）：${message(error)}`;
       turn.nodes.reportError.hidden = false;
+    });
+  }
+
+  function stopDevice(turn) {
+    turn.deviceStopped = true;
+    turn.autoplay = false;
+    if (!turn.accepted || turn.stopSent) return;
+    turn.stopSent = true;
+    // Local pause precedes server release. Already delivered CLI work drains.
+    void api('/api/turn/' + encodeURIComponent(turn.id) + '/stop', {
+      method: 'POST', keepalive: true, body: '{}',
+      headers: { 'Content-Type': 'application/json' },
+    }).then(() => { turn.deviceReleased = true; updateControls(); }).catch((error) => {
+      turn.stopSent = false;
+      setTurnError(turn, '声音已停止，服务端停止尚未确认：' + message(error) + '。请再按停止。');
+      updateControls();
     });
   }
 
@@ -550,6 +588,7 @@
     const old = playIntent;
     playIntent = null;
     const snapshot = player.stop();
+    if (devicePath && suppressAutoplay && activeTurn && !activeTurn.deviceReleased) stopDevice(activeTurn);
     if (old) {
       setPlayback(old.turn, '已停止 · 停在 ' + clock(snapshot.position));
       reportPlayback(old.turn, 'stopped', snapshot);
@@ -622,7 +661,7 @@
       const blocked = error.name === 'NotAllowedError';
       setPlayback(turn, blocked ? '自动播放被浏览器阻止 · 请点击播放' : '播放失败 · 请查看错误');
       setTurnError(turn, error);
-      reportPlayback(turn, 'failed', snapshot);
+      if (!devicePath || !blocked) reportPlayback(turn, 'failed', snapshot);
     } else if (state === 'paused') {
       stopPlayback();
     } else {
