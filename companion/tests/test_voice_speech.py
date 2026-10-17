@@ -257,6 +257,69 @@ def test_tts_rejects_invalid_output(engine, fake_say):
         engine.synthesize("你好")
 
 
+@pytest.mark.parametrize('text', [None, '', ' \n', '字' * 501, '坏\x00文本',
+                                  '[[slnc 999999999]]', 'text]]', '\ud800'])
+@pytest.mark.parametrize('kind', ['system', 'blocking', 'streaming'])
+def test_stream_rejects_text_before_any_backend(engine, fake_say, text, kind):
+    backend = Mock()
+    if kind == 'blocking':
+        engine.tts = SimpleNamespace(synthesize=backend)
+    elif kind == 'streaming':
+        engine.tts = SimpleNamespace(synthesize_stream=backend)
+    callback = Mock()
+    with pytest.raises(ValueError):
+        engine.synthesize_stream(text, callback)
+    fake_say.assert_not_called()
+    backend.assert_not_called()
+    callback.assert_not_called()
+
+
+def test_stream_delegates_voice_and_delivers_before_backend_returns(engine):
+    chunks = []
+    first, second, complete = wav(rate=24000), wav(rate=24000), wav(rate=24000, seconds=0.4)
+
+    def stream(text, on_chunk, *, voice):
+        assert text == '测试' and voice == 'serena'
+        on_chunk(first)
+        assert chunks == [first]
+        on_chunk(second)
+        return complete
+
+    engine.tts = SimpleNamespace(synthesize_stream=stream)
+    assert engine.synthesize_stream('测试', chunks.append, voice='serena') == complete
+    assert chunks == [first, second]
+
+
+def test_stream_system_say_falls_back_to_one_chunk(engine, fake_say):
+    chunks = []
+    assert engine.synthesize_stream('测试', chunks.append) == chunks[0]
+    assert len(chunks) == 1 and fake_say.call_count == 1
+    with pytest.raises(ValueError, match='Qwen'):
+        engine.synthesize_stream('测试', chunks.append, voice='serena')
+
+
+def test_stream_blocking_backend_compatibility_and_voice(engine):
+    backend = Mock(return_value=wav(rate=24000))
+    engine.tts = SimpleNamespace(synthesize=backend)
+    chunks = []
+    assert engine.synthesize_stream('测试', chunks.append, voice='serena') == chunks[0]
+    backend.assert_called_once_with('测试', voice='serena')
+    assert len(chunks) == 1
+    backend.return_value = b'invalid'
+    with pytest.raises(ValueError):
+        engine.synthesize_stream('测试', chunks.append)
+    assert len(chunks) == 1
+
+
+def test_stream_fallback_callback_failure_is_not_swallowed(engine, fake_say):
+    error = ValueError('callback failed')
+    callback = Mock(side_effect=error)
+    with pytest.raises(ValueError) as caught:
+        engine.synthesize_stream('测试', callback)
+    assert caught.value is error
+    assert callback.call_count == 1 and fake_say.call_count == 1
+
+
 @pytest.mark.skipif(not os.environ.get("YIJIAZI_VOICE_REAL_MODEL"),
                     reason="Independent opt-in local model/say smoke test")
 def test_real_local_say_and_whisper(monkeypatch):

@@ -27,6 +27,8 @@ roles.py 定义允许接入的项目与音色，VoiceService按project保存上�
 
 voice/discussion.py在单轮VoiceService之上管理有界讨论：开始时冻结全部伙伴绑定，两轮及总结，每段播放完成/明确跳过才派发下一轮；共同的提交锁和讨论占位排斥单人输入。停止不取消已送达CLI任务，需等待原回执再释放占位。前文以带作者的资料传给下一位，事件带discussion_id与阶段；完整合同见[语音讨论](VOICE_DISCUSSION.md)。
 
+`tts_worker.py`通过带请求ID与序号的消息输出完整WAV块；`NeuralTTS.synthesize_stream`校验后同步回调，`VoiceService`在事件循环中发布块元数据和读取端点。两页面共用`static/queue-player.js`，边合成边顺序播放；合成成功与播放结束是两个独立条件，均满足后才能推进讨论。停止会使旧播放回调失效，已送达CLI的任务仍需收尾；协议、计时和验证见[分块语音](VOICE_STREAMING.md)。
+
 ## 消息处理的关闭边界
 
 Engine通过bridge/core/engine_workers.go登记消息处理工作；开始关闭后拒收新工作，取消上下文并关闭会话/适配器，最后等待已登记的消息、队列、压缩、事件读取和Send结束。因此这些工作不会在Stop返回后继续写盘。OpenCode自己负责取消并等待模型缓存的后台刷新；测试必须先Stop，再回收临时目录。

@@ -15,7 +15,6 @@
   let inputPhase = 'idle';
   let inputGeneration = 0;
   let turnGeneration = 0;
-  let playbackGeneration = 0;
   let capture = null;
   let held = null;
   let activeTurn = null;
@@ -24,6 +23,10 @@
   let transcriptionMs = null;
   let disposed = false;
   const records = [];
+  const player = new VoiceQueuePlayer(audio, { baseURL: location.href, onState: playbackState, onProgress: updateProgress });
+  const playable = (turn) => turn?.audioData && ['synthesizing', 'ready'].includes(turn.audioData.status)
+    && typeof turn.audioData.text === 'string' && turn.audioData.text.trim()
+    && (Array.isArray(turn.audioData.audio_chunks) || turn.audioURL);
 
   const busy = () => Boolean(activeTurn && !activeTurn.terminal);
   const seconds = (ms) => typeof ms === 'number' && Number.isFinite(ms) ? `${(ms / 1000).toFixed(2)} 秒` : '—';
@@ -46,9 +49,9 @@
     ui.record.disabled = !config || !available || busy() || ['encoding', 'transcribing'].includes(inputPhase);
     ui.record.setAttribute('aria-pressed', String(inputPhase === 'recording'));
     ui['record-label'].textContent = ({ requesting: '等待麦克风', recording: '松开结束', encoding: '整理录音', transcribing: '正在识别' })[inputPhase] || '按住说话';
-    ui.play.disabled = !playerTurn?.audioURL || inputPhase !== 'idle' || Boolean(playIntent);
+    ui.play.disabled = !playable(playerTurn) || inputPhase !== 'idle' || Boolean(playIntent);
     ui.stop.disabled = !playIntent && !(busy() && activeTurn.autoplay);
-    for (const turn of records) turn.nodes.replay.disabled = !turn.audioURL || inputPhase !== 'idle' || Boolean(playIntent);
+    for (const turn of records) turn.nodes.replay.disabled = !playable(turn) || inputPhase !== 'idle' || Boolean(playIntent);
     if (busy()) {
       ui['input-status'].textContent = activeTurn.answerReady
         ? '文字已返回。请等声音准备好后，再录音或发送。'
@@ -365,7 +368,7 @@
 
   function setTimings(turn, timings) {
     turn.nodes.timings.replaceChildren(...[
-      ['识别', turn.transcriptionMs], ['模型', timings.agent_ms], ['合成', timings.tts_ms], ['总计', timings.total_ms]
+      ['识别', turn.transcriptionMs], ['模型', timings.agent_ms], ['首块', timings.tts_first_chunk_ms], ['合成', timings.tts_ms], ['总计', timings.total_ms]
     ].map(([label, value]) => element('span', '', `${label} ${seconds(value)}`)));
   }
 
@@ -459,6 +462,7 @@
         acceptTurn(turn);
         setTurnError(turn, null);
         setTimings(turn, result.timings || {});
+        turn.audioData = result;
         if (result.status === 'thinking' || result.status === 'synthesizing') {
           ui['turn-state'].textContent = result.status === 'thinking' ? '正在思考' : '正在合成语音';
           // Synthesizing starts only after the bridge returns a completed answer.
@@ -467,9 +471,10 @@
           turn.nodes.answer.classList.toggle('pending', !turn.answerReady);
           turn.nodes.answer.textContent = turn.answerReady ? result.text
             : (result.status === 'thinking' ? '伙伴正在处理这轮消息…' : '正在准备声音…');
-          turn.nodes.playback.textContent = result.status === 'synthesizing' ? '正在准备声音 · 尚未播放' : '尚未生成语音';
+          if (turn.answerReady && Array.isArray(result.audio_chunks)) receiveAudio(turn);
+          else turn.nodes.playback.textContent = result.status === 'synthesizing' ? '正在准备声音 · 尚未播放' : '尚未生成语音';
           updateControls();
-          await new Promise((resolve) => { turn.pollWake = resolve; turn.pollTimer = setTimeout(resolve, 1000); });
+          await new Promise((resolve) => { turn.pollWake = resolve; turn.pollTimer = setTimeout(resolve, 200); });
           turn.pollWake = null;
           continue;
         }
@@ -478,29 +483,31 @@
         turn.nodes.answer.textContent = typeof result.text === 'string' ? result.text : '';
         ui['input-status'].textContent = '可以继续录音，或直接打字。';
         if (result.status === 'error') {
+          turn.autoplay = false;
+          turn.audioURL = null;
+          if (playerTurn === turn) player.update(result);
           setTurnError(turn, result.error || '服务返回 error，但未提供错误详情。');
-          turn.nodes.playback.textContent = '本轮失败，未播放';
+          setPlayback(turn, '本轮失败 · 已停止播放');
           ui['turn-state'].textContent = '本轮失败';
           ui['task-note'].textContent = '具体错误已保留在本轮记录中。';
         } else {
           ui['turn-state'].textContent = '回答已生成';
           ui['task-note'].textContent = '回答已生成；播放进度和完成情况单独记录。';
           if (typeof result.text !== 'string' || !result.text.trim()) {
+            if (playerTurn === turn) stopPlayback();
             setTurnError(turn, '服务返回 ready，但没有最终回答文字，未播放音频。');
             turn.nodes.playback.textContent = '无最终文字，未播放';
           } else {
-            turn.audioURL = new URL(result.audio_url || `/api/turn/${encodeURIComponent(turn.id)}/audio`, location.href).href;
-            turn.nodes.playback.textContent = '语音已生成 · 尚未播放';
-            turn.nodes.replay.hidden = false;
-            selectAudio(turn);
-            if (turn.autoplay && !document.hidden) void playTurn(turn);
-            else setPlayback(turn, '语音已生成 · 点击播放');
+            turn.audioURL = result.audio_url || (Array.isArray(result.audio_chunks) ? null : '/api/turn/' + encodeURIComponent(turn.id) + '/audio');
+            turn.audioData = { ...result, audio_url: turn.audioURL };
+            receiveAudio(turn);
           }
         }
         updateControls();
       }
     } catch (error) {
       if (!currentTurn(turn)) return;
+      stopPlayback();
       if (turn.terminal) {
         turn.audioURL = null;
         setTurnError(turn, `回答已返回，但音频无法载入：${message(error)}`);
@@ -532,26 +539,22 @@
     });
   }
 
-  const mediaSnapshot = () => ({ position: mediaNumber(audio.currentTime), duration: mediaNumber(audio.duration) });
-
   function updateProgress() {
-    ui['playback-time'].textContent = `${clock(audio.currentTime)} / ${Number.isFinite(audio.duration) ? clock(audio.duration) : '—'}`;
-    ui['playback-progress'].value = audio.duration > 0 ? Math.min(1, audio.currentTime / audio.duration) : 0;
+    const snapshot = player.snapshot();
+    ui['playback-time'].textContent = clock(snapshot.position) + ' / ' + (snapshot.duration ? clock(snapshot.duration) : '—');
+    ui['playback-progress'].value = snapshot.duration > 0 ? Math.min(1, snapshot.position / snapshot.duration) : 0;
   }
 
   function stopPlayback(suppressAutoplay = true) {
-    if (suppressAutoplay && busy()) activeTurn.autoplay = false;
+    if (suppressAutoplay && activeTurn) activeTurn.autoplay = false;
     const old = playIntent;
-    const snapshot = mediaSnapshot(); // Capture before resetting currentTime.
-    playbackGeneration += 1;
     playIntent = null;
-    audio.pause();
-    try { audio.currentTime = 0; } catch { /* No source/metadata loaded yet. */ }
+    const snapshot = player.stop();
     if (old) {
-      setPlayback(old.turn, `已停止 · 停在 ${clock(snapshot.position)} / ${snapshot.duration ? clock(snapshot.duration) : '—'}`);
+      setPlayback(old.turn, '已停止 · 停在 ' + clock(snapshot.position));
       reportPlayback(old.turn, 'stopped', snapshot);
     }
-    ui.play.textContent = playerTurn?.played ? '重播回答' : '播放回答';
+    ui.play.textContent = player.done ? '重播回答' : playerTurn?.played ? '继续播放' : '播放回答';
     updateProgress();
     updateControls();
   }
@@ -559,74 +562,74 @@
   function selectAudio(turn) {
     stopPlayback(false);
     playerTurn = turn;
-    audio.src = turn.audioURL;
-    audio.load();
+    player.select(turn.audioData);
     ui['playback-state'].textContent = turn.nodes.playback.textContent;
-    ui.play.textContent = turn.played ? '重播回答' : '播放回答';
     updateProgress();
     updateControls();
   }
 
-  function validPlayback(intent) {
-    return !disposed && intent && playIntent === intent && intent.generation === playbackGeneration && playerTurn === intent.turn && audio.currentSrc === intent.turn.audioURL;
+  function receiveAudio(turn) {
+    turn.nodes.replay.hidden = false;
+    if (playerTurn !== turn && (turn.autoplay || !playerTurn)) selectAudio(turn);
+    else if (playerTurn === turn) player.update(turn.audioData);
+    if (playerTurn === turn && player.fatal) {
+      turn.autoplay = false;
+      setTurnError(turn, player.error);
+      setPlayback(turn, '音频不可用 · 请查看错误');
+      return;
+    }
+    if (turn.autoplay && !turn.autoAttempted && !document.hidden) playTurn(turn);
+    else if (!playIntent && !turn.played) setPlayback(turn, '语音已到达 · 点击播放');
   }
 
-  function playbackFailed(intent, error) {
-    if (playIntent !== intent || intent.generation !== playbackGeneration) return;
-    const snapshot = mediaSnapshot();
-    playIntent = null;
-    playbackGeneration += 1;
-    audio.pause();
-    const blocked = error.name === 'NotAllowedError';
-    setPlayback(intent.turn, blocked ? '自动播放被浏览器阻止 · 请点击播放' : '播放失败 · 可点击重新播放');
-    setTurnError(intent.turn, `${blocked ? '请点击播放按钮。' : '播放失败：'} ${message(error)}`);
-    reportPlayback(intent.turn, 'failed', snapshot);
-    updateControls();
-  }
-
-  async function playTurn(turn) {
-    if (!turn.audioURL || inputPhase !== 'idle' || disposed) return;
-    if (playerTurn !== turn || audio.error) selectAudio(turn);
+  function playTurn(turn) {
+    if (!playable(turn) || inputPhase !== 'idle' || disposed) return;
+    if (activeTurn && activeTurn !== turn) activeTurn.autoplay = false;
+    const changed = playerTurn !== turn;
+    if (changed || player.fatal) selectAudio(turn);
     else stopPlayback(false);
-    const intent = { turn, generation: ++playbackGeneration, reported: false };
-    playIntent = intent;
-    setPlayback(turn, '正在载入音频…');
+    if (player.fatal) {
+      turn.autoplay = false;
+      setTurnError(turn, player.error);
+      setPlayback(turn, '音频不可用 · 请查看错误');
+      updateControls();
+      return;
+    }
+    turn.autoAttempted = true;
+    playIntent = { turn, reported: false };
+    player.start({ replay: Boolean(turn.completed && changed) });
     updateControls();
-    try {
-      await audio.play();
-      // Superseded play promises must never revive or stop newer playback.
-      if (playIntent !== intent || intent.generation !== playbackGeneration) return;
-    } catch (error) { playbackFailed(intent, error); }
   }
 
-  audio.addEventListener('playing', () => {
+  function playbackState(state, snapshot, error) {
     const intent = playIntent;
-    if (!validPlayback(intent) || audio.paused) return;
-    intent.turn.played = true;
-    setTurnError(intent.turn, null);
-    setPlayback(intent.turn, '正在播放 · 尚未播完');
-    if (!intent.reported) { intent.reported = true; reportPlayback(intent.turn, 'playing', mediaSnapshot()); }
-  });
-  audio.addEventListener('ended', () => {
-    const intent = playIntent;
-    if (!validPlayback(intent) || !audio.ended) return;
-    reportPlayback(intent.turn, 'completed', mediaSnapshot());
-    setPlayback(intent.turn, '音频已完整播放');
-    playIntent = null;
-    playbackGeneration += 1;
-    ui.play.textContent = '重播回答';
-    updateProgress();
+    if (!intent || disposed || playerTurn !== intent.turn || player.id !== intent.turn.id) return;
+    const turn = intent.turn;
+    if (state === 'playing') {
+      turn.played = true;
+      setTurnError(turn, null);
+      setPlayback(turn, '正在播放 · 尚未播完');
+      if (!intent.reported) { intent.reported = true; reportPlayback(turn, 'playing', snapshot); }
+    } else if (state === 'completed') {
+      turn.completed = true;
+      reportPlayback(turn, 'completed', snapshot);
+      setPlayback(turn, '音频已完整播放');
+      playIntent = null;
+      ui.play.textContent = '重播回答';
+    } else if (state === 'failed') {
+      turn.autoplay = false;
+      playIntent = null;
+      const blocked = error.name === 'NotAllowedError';
+      setPlayback(turn, blocked ? '自动播放被浏览器阻止 · 请点击播放' : '播放失败 · 请查看错误');
+      setTurnError(turn, error);
+      reportPlayback(turn, 'failed', snapshot);
+    } else if (state === 'paused') {
+      stopPlayback();
+    } else {
+      setPlayback(turn, ({ loading: '正在载入音频…', waiting: '等待后续音频 · 尚未播完', buffering: '音频缓冲中 · 尚未播完' })[state]);
+    }
     updateControls();
-  });
-  audio.addEventListener('error', () => {
-    if (validPlayback(playIntent) && audio.error) playbackFailed(playIntent, new Error(`音频错误 ${audio.error.code}：${audio.error.message || '音频无法加载或解码'}`));
-  });
-  audio.addEventListener('pause', () => {
-    if (validPlayback(playIntent) && audio.paused && !audio.ended) stopPlayback(false);
-  });
-  audio.addEventListener('waiting', () => { if (validPlayback(playIntent)) setPlayback(playIntent.turn, '音频缓冲中 · 尚未播完'); });
-  audio.addEventListener('timeupdate', updateProgress);
-  audio.addEventListener('loadedmetadata', updateProgress);
+  }
 
   ui.record.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || held || ui.record.disabled) return;
@@ -669,7 +672,7 @@
   window.addEventListener('pageshow', (event) => { if (event.persisted) location.reload(); });
   ui['message-form'].addEventListener('submit', sendTurn);
   ui.draft.addEventListener('input', updateControls);
-  ui.role.addEventListener('change', updateSessionLabel);
+  ui.role.addEventListener('change', () => { stopPlayback(); updateSessionLabel(); });
   ui['reload-config'].addEventListener('click', loadConfig);
   ui.play.addEventListener('click', () => { void unlockAudio().catch(() => {}); if (playerTurn) void playTurn(playerTurn); });
   ui.stop.addEventListener('click', () => stopPlayback());

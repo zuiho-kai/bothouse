@@ -13,6 +13,7 @@ These methods block: web adapters should invoke them in a worker thread.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 import os
 from pathlib import Path
 import re
@@ -32,6 +33,22 @@ TTS_TIMEOUT_SECONDS = 180
 _MAX_TTS_BYTES = 15_000_000
 _ASR_LOCK = threading.Lock()  # mlx_whisper.ModelHolder is process-global.
 _TTS_LOCK = threading.Lock()
+
+
+def _validate_tts_text(text: str) -> bytes:
+    """One validation contract for blocking and streaming synthesis."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("待合成文本不能为空。")
+    if len(text) > MAX_TEXT_CHARS:
+        raise ValueError(f"待合成文本不得超过 {MAX_TEXT_CHARS} 个字符，请分段播放。")
+    if any(ord(c) < 32 and c not in "\n\t" for c in text):
+        raise ValueError("待合成文本含不支持的控制字符。")
+    if "[[" in text or "]]" in text:
+        raise ValueError("待合成文本不允许包含 say 的内嵌控制指令。")
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError("待合成文本不是有效的 UTF-8 文本。") from exc
 
 
 def _resolve_model_path(model_path: str) -> Path:
@@ -156,18 +173,7 @@ class Speech:
         return text.strip()
 
     def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
-        if not isinstance(text, str) or not text.strip():
-            raise ValueError("待合成文本不能为空。")
-        if len(text) > MAX_TEXT_CHARS:
-            raise ValueError(f"待合成文本不得超过 {MAX_TEXT_CHARS} 个字符，请分段播放。")
-        if any(ord(c) < 32 and c not in "\n\t" for c in text):
-            raise ValueError("待合成文本含不支持的控制字符。")
-        if "[[" in text or "]]" in text:
-            raise ValueError("待合成文本不允许包含 say 的内嵌控制指令。")
-        try:
-            encoded = text.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise ValueError("待合成文本不是有效的 UTF-8 文本。") from exc
+        encoded = _validate_tts_text(text)
         if self.tts is not None:
             return self.tts.synthesize(text, **({'voice': voice} if voice is not None else {}))
         if voice is not None:
@@ -198,3 +204,23 @@ class Speech:
                 ) from exc
             except (OSError, ValueError) as exc:
                 raise RuntimeError("系统语音合成或 WAV 读取失败，请检查本地音色及缓存目录。") from exc
+
+    def synthesize_stream(
+        self, text: str, on_chunk: Callable[[bytes], None], *, voice: str | None = None,
+    ) -> bytes:
+        """Deliver WAV chunks synchronously; return a complete WAV only on success.
+
+        Callbacks must return promptly and must not reenter synthesis/close on
+        this backend. A later exception invalidates completion, even if audio
+        has already been delivered. Blocking backends emit one validated chunk.
+        """
+        _validate_tts_text(text)
+        if not callable(on_chunk):
+            raise TypeError("on_chunk 必须可调用。")
+        stream = getattr(self.tts, 'synthesize_stream', None)
+        if callable(stream):
+            return stream(text, on_chunk, **({'voice': voice} if voice is not None else {}))
+        audio = self.synthesize(text, **({'voice': voice} if voice is not None else {}))
+        _pcm_samples(audio, rate=24000, max_bytes=_MAX_TTS_BYTES, max_seconds=300)
+        on_chunk(audio)
+        return audio

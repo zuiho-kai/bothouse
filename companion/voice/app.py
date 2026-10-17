@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import threading
 import time
 from uuid import UUID
 from urllib.parse import urlencode
@@ -25,6 +26,7 @@ from .settings import Settings
 from .memory import SharedMemory
 from .roles import Role, validate_roles, voice_label
 from .discussion import Discussions, DiscussionInput, AdvanceInput
+from .speech import _pcm_samples
 
 
 class TurnInput(BaseModel):
@@ -64,6 +66,7 @@ class VoiceService:
         self.token = secrets.token_urlsafe(32)
         self.turns: dict[str, dict] = {}
         self.audio: dict[str, bytes] = {}
+        self.audio_chunks: dict[str, list[bytes]] = {}
         self.tasks: set[asyncio.Task] = set()
         self.active: str | None = None
         self.transcribing = False
@@ -81,7 +84,11 @@ class VoiceService:
         self.memory.append(event, value)
 
     def snapshot(self, turn: dict) -> dict:
-        return {k: v for k, v in turn.items() if k not in {'prompt', 'started'} and not k.startswith('_')}
+        result = {k: v for k, v in turn.items() if k not in {'prompt', 'started'} and not k.startswith('_')}
+        if 'audio_chunks' in result:
+            result['audio_chunks'] = [dict(chunk) for chunk in result['audio_chunks']]
+        result['timings'] = dict(result.get('timings', {}))
+        return result
 
     def playback_context(self, project: str) -> str:
         previous = self.last_turn.get(project)
@@ -170,6 +177,7 @@ class VoiceService:
             oldest = next(iter(self.turns))
             self.turns.pop(oldest)
             self.audio.pop(oldest, None)
+            self.audio_chunks.pop(oldest, None)
         turn = {'id': data.id, 'project': data.project, 'input_text': text,
                 'status': 'thinking', 'text': '', 'spoken_text': '', 'error': '',
                 'timings': {}, 'started': time.monotonic(),
@@ -192,6 +200,60 @@ class VoiceService:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return self.snapshot(turn)
+
+    def discussion_stopped(self, turn: dict) -> bool:
+        return bool(turn.get('discussion_id') and
+                    self.discussions.get(turn['discussion_id'])['stop_requested'])
+
+    async def synthesize_stream(self, turn: dict, options: dict) -> bytes:
+        """Publish immutable chunks on the event loop while the worker continues."""
+        loop = asyncio.get_running_loop()
+        accepting = threading.Event()
+        accepting.set()
+        received: list[tuple[bytes, int]] = []
+        total_bytes, total_frames = 0, 0
+        turn.update(audio_chunks=[], audio_complete=False)
+        self.audio_chunks[turn['id']] = []
+
+        def publish(index, audio, frames):
+            if (not accepting.is_set() or turn['status'] != 'synthesizing'
+                    or self.discussion_stopped(turn)):
+                return
+            if index < len(turn['audio_chunks']):
+                return
+            self.audio_chunks[turn['id']].append(audio)
+            turn['audio_chunks'].append({
+                'index': index, 'audio_url': f"/api/turn/{turn['id']}/audio/chunks/{index}",
+                'duration_seconds': frames / 24000,
+            })
+            if index == 0:
+                turn['timings']['tts_first_chunk_ms'] = round((time.monotonic() - turn['_tts_started']) * 1000)
+
+        def receive(audio):
+            nonlocal total_bytes, total_frames
+            if not accepting.is_set():
+                raise RuntimeError('stream consumer closed')
+            frames = len(_pcm_samples(audio, rate=24000, max_bytes=15_000_000, max_seconds=300))
+            total_bytes += len(audio)
+            total_frames += frames
+            if len(received) >= 512 or total_bytes > 15_000_000 or total_frames > 24000 * 300:
+                raise ValueError('stream exceeds bounds')
+            index = len(received)
+            received.append((audio, frames))
+            loop.call_soon_threadsafe(publish, index, audio, frames)
+
+        try:
+            audio = await asyncio.to_thread(self.speech.synthesize_stream, turn['spoken_text'], receive, **options)
+            frames = len(_pcm_samples(audio, rate=24000, max_bytes=15_000_000, max_seconds=300))
+            if not received or frames != total_frames:
+                raise ValueError('incomplete stream')
+            # Drain any already-delivered callbacks before exposing completion.
+            for index in range(len(turn['audio_chunks']), len(received)):
+                publish(index, *received[index])
+            return audio
+        finally:
+            # A cancelled task cannot publish late worker data into a new turn.
+            accepting.clear()
 
     async def run(self, turn: dict):
         request_id = 'voice-' + turn['id']
@@ -241,10 +303,14 @@ class VoiceService:
             turn['spoken_text'] = spoken_answer(turn['text'])
             turn['status'] = 'synthesizing'
             tts_start = time.monotonic()
+            turn['_tts_started'] = tts_start
             try:
                 role = self.roles[turn['project']]
                 options = {'voice': role.tts_voice} if role.tts_voice is not None else {}
-                audio = await asyncio.to_thread(self.speech.synthesize, turn['spoken_text'], **options)
+                if callable(getattr(self.speech, 'synthesize_stream', None)):
+                    audio = await self.synthesize_stream(turn, options)
+                else:
+                    audio = await asyncio.to_thread(self.speech.synthesize, turn['spoken_text'], **options)
             except Exception:
                 turn['status'] = 'error'
                 turn['error'] = '文字回答已收到，但语音合成失败；请看文字，勿重复发送任务。'
@@ -252,6 +318,8 @@ class VoiceService:
                 self.audio[turn['id']] = audio
                 turn['audio_url'] = '/api/turn/' + turn['id'] + '/audio'
                 turn['status'] = 'ready'
+                if 'audio_chunks' in turn:
+                    turn['audio_complete'] = not self.discussion_stopped(turn)
             turn['timings']['tts_ms'] = round((time.monotonic() - tts_start) * 1000)
         except BridgeError as exc:
             turn['status'] = 'error'
@@ -385,6 +453,15 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
             raise HTTPException(404, '本轮音频尚未就绪或合成失败。')
         return Response(service.audio[turn_id], media_type='audio/wav')
 
+    @app.get('/api/turn/{turn_id}/audio/chunks/{index}')
+    async def audio_chunk(turn_id: str, index: int):
+        turn = get_turn(turn_id)
+        chunks = service.audio_chunks.get(turn_id, [])
+        if (turn['status'] not in {'synthesizing', 'ready'} or service.discussion_stopped(turn)
+                or not 0 <= index < len(chunks)):
+            raise HTTPException(404, '本段音频尚未就绪或本轮合成失败。')
+        return Response(chunks[index], media_type='audio/wav')
+
     @app.post('/api/turn/{turn_id}/playback')
     async def playback(turn_id: str, data: PlaybackInput):
         turn = get_turn(turn_id)
@@ -394,10 +471,29 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
             raise HTTPException(400, '播放时间不正确。')
         if data.position_seconds > data.duration_seconds + 0.25:
             raise HTTPException(400, '播放位置超过总时长。')
+        if data.state in {'playing', 'completed'}:
+            if service.discussion_stopped(turn) or turn['status'] not in {'synthesizing', 'ready'}:
+                raise HTTPException(409, '本轮尚无可播放音频，或讨论已停止。')
+            if data.state == 'playing' and turn['status'] != 'ready' and not turn.get('audio_chunks'):
+                raise HTTPException(409, '本轮尚无可播放音频。')
+            if data.state == 'completed' and turn['status'] != 'ready':
+                raise HTTPException(409, '语音尚未完整生成，不能报告完成。')
+        if 'audio_chunks' in turn:
+            if data.state == 'completed':
+                duration = sum(c['duration_seconds'] for c in turn['audio_chunks'])
+                tolerance = min(.25, duration * .01)
+                if (turn['status'] != 'ready' or not turn['audio_complete']
+                        or abs(data.duration_seconds - duration) > tolerance
+                        or abs(data.position_seconds - duration) > tolerance):
+                    raise HTTPException(409, '语音尚未完整生成或播放，不能报告完成。')
+        if data.state == 'playing' and '_tts_started' in turn and 'first_playback_ms' not in turn['timings']:
+            now = time.monotonic()
+            turn['timings']['first_playback_ms'] = round((now - turn['started']) * 1000)
+            turn['timings']['tts_to_playback_ms'] = round((now - turn['_tts_started']) * 1000)
         turn['playback'] = data.model_dump()
         service.record('playback', {'id': turn_id, 'project': turn['project'],
                                   **{k: turn[k] for k in ('discussion_id', 'phase', 'round') if k in turn},
-                                  **data.model_dump()})
+                                  **data.model_dump(), 'timings': dict(turn['timings'])})
         return {'ok': True}
 
     static = Path(__file__).with_name('static')

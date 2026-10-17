@@ -2,7 +2,7 @@
 
 让同一组 AI 伙伴在 Discord 和语音之间接着聊，按需协作完成真实项目，并留下可追溯的记忆、作品和每日记录。
 
-CoNest 基于 cc-connect 的 maomao 分支与一家子产品扩展整合。面向希望长期和多位 AI 伙伴共事、交流的个人用户。当前已具备 Discord 多 bot、电脑单人语音与活动日志的实现；硬件和自动项目协作仍待完成。详细能力与证据见 [状态表](docs/STATUS.md)。
+CoNest 基于 cc-connect 的 maomao 分支与一家子产品扩展整合。面向希望长期和多位 AI 伙伴共事、交流的个人用户。当前已具备 Discord 多 bot、电脑多伙伴轮流语音与活动日志的实现；首个实体展示也以多 AI 陪伴为目标，硬件和自动项目协作仍待完成。详细能力与证据见 [状态表](docs/STATUS.md)。
 
 ## 从目标理解系统
 
@@ -27,13 +27,14 @@ CoNest 基于 cc-connect 的 maomao 分支与一家子产品扩展整合。面�
 
 ## 本地开发验证
 
-需要 Go（版本见 bridge/go.mod）、Python 3.11+ 和 uv。以下命令不启动生产服务，也不需要 Discord 凭据：
+需要 Go（版本见 bridge/go.mod）、Python 3.11+、uv 和支持 node:test 的 Node.js。以下命令不启动生产服务，也不需要 Discord 凭据：
 
 ~~~sh
 mkdir -p .local
 cd companion
 uv sync --locked
 uv run python -m pytest -q
+node --test tests/test_voice_player.cjs
 cd ../bridge
 go build -tags no_web -o ../.local/cc-connect ./cmd/cc-connect
 go test -tags no_web ./...
@@ -44,6 +45,8 @@ Python 使用 python -m pytest，让本地源码进入导入路径。实际语�
 多伙伴语音的显式名单入口、会话恢复边界与验收证据见[多伙伴电脑语音](docs/MULTI_VOICE.md)。可一次选择一位伙伴，或从`/discussion`邀请2—3位进行[两轮语音讨论](docs/VOICE_DISCUSSION.md)，播放确认后依次发言、最后总结，可停止后续安排。源码验证不等于已经部署；口头点名与无限自主讨论尚未实现。
 
 2026-10-16，Issue #3 修复后的 macOS 与 Linux Go 全量测试均通过。原始失败、根因及回归证据见 [Go 测试基线诊断](docs/GO_TEST_BASELINE.md)。自动测试通过不代表真实 Discord 或麦克风体验已验收。
+
+Qwen 回答支持[分块合成与提前播放](docs/VOICE_STREAMING.md)：第一块生成后即可播放，其余部分继续合成；整段成功且全部播完后才安排下一位。仍保留完整音频重播，模型加载和 AI 回答耗时不因分块而消失。
 
 ## 运行边界
 
