@@ -181,6 +181,8 @@ const (
 	MsgToolAllowFailed           MsgKey = "tool_allow_failed"
 	MsgToolAllowedNew            MsgKey = "tool_allowed_new"
 	MsgError                     MsgKey = "error"
+	MsgAnswerWithFailure         MsgKey = "answer_with_failure"
+	MsgTaskAlreadyCompleted      MsgKey = "task_already_completed"
 	MsgSessionNotFound           MsgKey = "session_not_found"
 	MsgFailedToStartAgentSession MsgKey = "failed_to_start_agent_session"
 	MsgFailedToDeleteSession     MsgKey = "failed_to_delete_session"
@@ -805,6 +807,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "❌ 錯誤: %v",
 		LangJapanese:           "❌ エラー: %v",
 		LangSpanish:            "❌ Error: %v",
+	},
+	MsgAnswerWithFailure: {
+		LangEnglish:            "⚠️ An operation failed this turn. The reply above does not mean every operation succeeded: %v",
+		LangChinese:            "⚠️ 本轮有操作失败，以上回复不代表全部操作成功：%v",
+		LangTraditionalChinese: "⚠️ 本輪有操作失敗，以上回覆不代表全部操作成功：%v",
+		LangJapanese:           "⚠️ このターンの操作に失敗がありました。上の回答はすべての操作の成功を意味しません：%v",
+		LangSpanish:            "⚠️ Falló una operación en este turno. La respuesta anterior no implica que todas las operaciones hayan tenido éxito: %v",
+	},
+	MsgTaskAlreadyCompleted: {
+		LangEnglish:            "Tried to stop a command task that had already completed successfully; the stop was rejected.",
+		LangChinese:            "尝试停止一个已成功结束的命令任务，停止操作被拒绝。",
+		LangTraditionalChinese: "嘗試停止一個已成功結束的命令任務，停止操作被拒絕。",
+		LangJapanese:           "正常終了済みのコマンドタスクを停止しようとしたため、停止操作が拒否されました。",
+		LangSpanish:            "Se intentó detener una tarea de comando ya completada correctamente; se rechazó la detención.",
 	},
 	MsgBackgroundAutoDenied: {
 		LangEnglish:            "⚠️ Background task requested permission for `%s` but was auto-denied (no active user turn). Send a message or use `/yolo` to approve future requests.",

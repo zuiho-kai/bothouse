@@ -12,3 +12,13 @@ func TestPreparePromptIncludesModelSkill(t *testing.T) {
 		t.Fatalf("default stream/print prompt missing model skill: %s", got)
 	}
 }
+
+func TestPreparePromptIncludesTaskLifecycleGuidance(t *testing.T) {
+	s := &antigravitySession{workDir: t.TempDir()}
+	got, _ := s.preparePrompt("read a file", nil, nil)
+	for _, want := range []string{"manage_task", "DONE", "Do not kill", "latest task status"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("task lifecycle guidance missing %q", want)
+		}
+	}
+}

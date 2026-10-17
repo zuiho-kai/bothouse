@@ -35,8 +35,10 @@ func TestCUJ_ErrorQuota_FailureQueueAndRecovery(t *testing.T) {
 		hideFooter bool
 		hideStatus bool
 		cacheUsage bool
+		taskDone   bool
 	}{
 		{name: "measured", used: 17, want: "额度剩余 83%"},
+		{name: "completed_task_stop", used: 17, want: "额度剩余 83%", taskDone: true},
 		{name: "exhausted", used: 100, want: "额度剩余 0%"},
 		{name: "query_failed", err: errors.New("quota offline"), want: "额度查询失败"},
 		{name: "no_data", noData: true, want: "额度暂无数据"},
@@ -87,12 +89,22 @@ func TestCUJ_ErrorQuota_FailureQueueAndRecovery(t *testing.T) {
 			send("queued")
 			// Reproduce the provider's ERROR with a long, non-empty response.
 			partial := strings.Repeat("partial answer ", maxPlatformMessageLen/7)
-			as.events <- Event{Type: EventError, Error: errors.New("antigravity: stream turn failed (ERROR): " + partial)}
+			diagnostic := errors.New("tool failure diagnostic")
+			marker := diagnostic.Error()
+			if tc.taskDone {
+				diagnostic = ErrTaskAlreadyCompleted
+				marker = "尝试停止一个已成功结束的命令任务，停止操作被拒绝。"
+			}
+			as.events <- Event{Type: EventError, Content: partial, Error: diagnostic}
 			waitPrompt() // Queue advancement proves the error send is complete.
 			failure := strings.Join(p.getSent(), "\n")
-			checkFailure(failure, "stream turn failed (ERROR)")
+			checkFailure(failure, marker)
 			if !strings.Contains(failure, "partial answer") {
 				t.Error("partial response lost")
+			}
+			answerIndex := strings.Index(failure, "partial answer")
+			if answerIndex < 0 || strings.Index(failure, marker) < answerIndex || strings.Count(failure, marker) != 1 || !strings.Contains(failure, "⚠️") || strings.Contains(failure, "❌") {
+				t.Error("answer must precede one separate failure notice, without an error prefix")
 			}
 			if tc.want != "" {
 				parts := p.getSent()
@@ -159,7 +171,7 @@ func TestErrorQuota_RichCardDeliveryAndFallback(t *testing.T) {
 			e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), UserID: "human", Content: "read only", Mentioned: true, ReplyCtx: "local"})
 			inputPrompt(t, &inputTestAgent{session: as.inputTestSession})
 			as.events <- Event{Type: EventThinking, Content: "working"}
-			as.events <- Event{Type: EventError, Error: errors.New("provider turn failed")}
+			as.events <- Event{Type: EventError, Content: "answer despite tool failure", Error: errors.New("provider turn failed")}
 			inputWait(t, func() bool { return !s.Busy() })
 			p.previewMu.Lock()
 			cardText := strings.Join(p.previewEdits, "\n")
@@ -167,6 +179,9 @@ func TestErrorQuota_RichCardDeliveryAndFallback(t *testing.T) {
 			text := strings.Join(p.getSent(), "\n")
 			if !strings.Contains(text, "provider turn failed") || strings.Count(cardText+text, "额度剩余 83%") != 1 {
 				t.Fatalf("failure or quota missing/duplicated: card=%q, text=%q", cardText, text)
+			}
+			if strings.Count(cardText+text, "answer despite tool failure") != 1 {
+				t.Error("failed turn answer must be delivered exactly once in card or fallback text")
 			}
 			if failUpdate != strings.Contains(text, "额度剩余 83%") {
 				t.Fatal("inline quota must be used only if the rich card was not delivered")

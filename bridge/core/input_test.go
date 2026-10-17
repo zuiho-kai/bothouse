@@ -560,7 +560,7 @@ func TestLocalInputPartialFailureAndSilent(t *testing.T) {
 			switch kind {
 			case "error":
 				a.session.events <- Event{Type: EventText, Content: "partial"}
-				a.session.events <- Event{Type: EventError, Error: errors.New("failed after partial")}
+				a.session.events <- Event{Type: EventError, Content: "answer after tool failure", Error: errors.New("failed after partial")}
 			case "closed":
 				a.session.events <- Event{Type: EventText, Content: "partial"}
 				close(a.session.events)

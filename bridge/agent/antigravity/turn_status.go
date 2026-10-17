@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // agy 1.4.0 can copy an earlier errorMessage into a later successful result.
@@ -16,6 +19,7 @@ type streamTurnEvidence struct {
 	conversationID string
 	start, last    int
 	seen, invalid  bool
+	failed         bool
 	finalResponse  bool
 }
 
@@ -37,7 +41,9 @@ func (t *streamTurnEvidence) observe(ev agyStreamEvent) {
 	if s.ConversationID != t.conversationID || *s.Index < t.start || *s.Index < t.last {
 		t.invalid = true
 	}
-	if s.State != "ACTIVE" && s.State != "DONE" {
+	if s.State == "ERROR" {
+		t.failed = true
+	} else if s.State != "ACTIVE" && s.State != "DONE" {
 		t.invalid = true
 	}
 	if s.Type == "error_message" {
@@ -55,6 +61,15 @@ type nativeTrajectory struct {
 		Steps     []struct {
 			Type, Status string
 			Error        json.RawMessage `json:"error"`
+			Metadata     struct {
+				ToolCall struct {
+					Name          string `json:"name"`
+					ArgumentsJSON string `json:"argumentsJson"`
+				} `json:"toolCall"`
+			} `json:"metadata"`
+			RunCommand struct {
+				ExitCode *int `json:"exitCode"`
+			} `json:"runCommand"`
 			ErrorMessage *struct {
 				Error struct {
 					ShortError string `json:"shortError"`
@@ -69,11 +84,20 @@ type nativeTrajectory struct {
 	} `json:"trajectory"`
 }
 
-func (s *streamSession) verifyHistoricalError(ev agyStreamEvent) bool {
+func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 	t, r := s.turn, ev.Result
-	if r.Status != "ERROR" || strings.TrimSpace(r.Error) == "" || strings.TrimSpace(r.Response) == "" || s.quota == nil ||
+	// Provider errors can contain credentials or full tool output. Never use
+	// them (or the answer) as a diagnostic. Classify only proven native facts.
+	status := r.Status
+	switch status {
+	case "ERROR", "CANCELLED", "CANCELED":
+	default:
+		status = "UNKNOWN"
+	}
+	failure := fmt.Errorf("antigravity: stream turn failed (%s)", status)
+	if r.Status != "ERROR" || strings.TrimSpace(r.Response) == "" || s.quota == nil ||
 		!t.seen || t.invalid || !t.finalResponse || t.conversationID != r.ConversationID || t.conversationID != s.CurrentSessionID() {
-		return false
+		return false, failure
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
@@ -82,9 +106,15 @@ func (s *streamSession) verifyHistoricalError(ev agyStreamEvent) bool {
 		// Native transport errors are deliberately content-free. Never log the
 		// provider error, trajectory, response, credentials or reasoning here.
 		slog.Warn("antigravity: cannot verify current turn; retaining CLI failure", "error", err)
-		return false
+		return false, failure
 	}
-	return trajectory.confirmsHistoricalError(t, r.Error, r.Response)
+	if !t.failed && strings.TrimSpace(r.Error) != "" && trajectory.confirmsHistoricalError(t, r.Error, r.Response) {
+		return true, nil
+	}
+	if trajectory.confirmsCompletedTaskStop(t, r.Response) {
+		return false, fmt.Errorf("antigravity: manage_task: %w", core.ErrTaskAlreadyCompleted)
+	}
+	return false, failure
 }
 
 func (n *nativeTrajectory) confirmsHistoricalError(t streamTurnEvidence, resultError, response string) bool {

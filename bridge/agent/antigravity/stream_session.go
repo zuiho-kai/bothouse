@@ -219,13 +219,16 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 			content = "" // the result repeats the streamed answer
 		}
 		succeeded := ev.Result.Status == "SUCCESS"
-		if !succeeded && s.verifyHistoricalError(ev) {
-			succeeded = true
-			slog.Warn("antigravity: ignored historical CLI error after current-turn verification", "turn_start", s.turn.start, "turn_end", s.turn.last)
+		var failure error
+		if !succeeded {
+			succeeded, failure = s.verifyFailedTurn(ev)
+			if succeeded {
+				slog.Warn("antigravity: ignored historical CLI error after current-turn verification", "turn_start", s.turn.start, "turn_end", s.turn.last)
+			}
 		}
 		s.finishTurnLocked()
 		if !succeeded {
-			s.emit(core.Event{Type: core.EventError, Error: fmt.Errorf("antigravity: stream turn failed (%s): %s", ev.Result.Status, ev.Result.Response)})
+			s.emit(core.Event{Type: core.EventError, Error: failure, Content: ev.Result.Response, SessionID: s.CurrentSessionID()})
 			return
 		}
 		if !s.streamed && strings.TrimSpace(content) == "" {

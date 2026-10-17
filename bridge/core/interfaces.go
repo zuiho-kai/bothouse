@@ -22,6 +22,10 @@ var ErrNotSupported = errors.New("operation not supported by this platform")
 // It must not be saved as a successful assistant reply or retried automatically.
 var ErrEmptyAgentResponse = errors.New("agent returned no answer")
 
+// ErrTaskAlreadyCompleted describes a rejected stop of a completed task.
+// It remains a failure; adapters must establish the task state before using it.
+var ErrTaskAlreadyCompleted = errors.New("task is already completed")
+
 // ReplyContextReconstructor is an optional interface for platforms that can
 // recreate a reply context from a session key. This is needed for cron jobs
 // to send messages to users without an incoming message.

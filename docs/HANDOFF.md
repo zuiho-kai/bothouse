@@ -1,5 +1,12 @@
 # 共栖当前交接
 
+## 2026-10-17：有回答的工具失败（Issue #34 后续，待PR与部署）
+
+- 用户已授权本线修复、PR、合并及部署，不派生或联系子Agent。工作区/Users/zhaixinyang/conest-34-tool-error，fix/34-tool-error-answer，基于包含模型发现PR #37/#38的main 9c403ca4；不修改别的工作区及模型发现文件。
+- 00:38原生轨迹证明本轮manage_task试图kill已DONE、exit0的命令任务；后续最终回答DONE。修复把EventError.Content与安全原因分开，正文正常展示、失败提示另列，真实失败、语音API failed、队列/历史及额度语义保留。任务状态指引只减少无效kill，不承诺原生CLI不会再发生竞争。
+- 旧代码回归红，新代码定向绿；macOS串行全量Go、原TCP审批、完整CUJ、相关race及hook整包race、vet、构建通过，最终SHA CI随PR记录。额外回归确认stream已出现失败时，即使原生快照变干净也不能改判成功。说明与边界见[有回答的失败回合](ANTIGRAVITY_TURN_FAILURE.md)。同一Agent自行实现和自查，无独立审核。
+- 生产现场核对为9c403ca4，二进制哈希ecaec92fc867121ca09edb9726ae890ec6c7d5ece6e9ea9710345c56388eae41；此为开发前快照，部署前仍须重查。最终发布与真人验收分别记录在Issue #34及/Users/zhaixinyang/yijiazi/docs/HANDOFF.md。
+
 ## 2026-10-17：模型 list→set 连续查询失败（Issue #5，后续修复待发布）
 
 - PR #37 已于01:24部署并读到13个原生模型，但用户后续 list成功、set失败。日志01:36:23记录原生发现被终止；旧日志不足以确定是超时/取消/外部终止，外层stream ERROR也未独立归因。

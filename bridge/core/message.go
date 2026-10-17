@@ -439,7 +439,7 @@ type UserQuestionOption struct {
 // Event represents a single piece of agent output streamed back to the engine.
 type Event struct {
 	Type                     EventType
-	Content                  string
+	Content                  string         // EventError may carry an answer, separate from Error; it is not a successful result.
 	ToolName                 string         // populated for EventToolUse, EventPermissionRequest
 	ToolInput                string         // human-readable summary of tool input
 	ToolInputRaw             map[string]any // raw tool input (for EventPermissionRequest, used in allow response)

@@ -6322,17 +6322,33 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			input.finish(inputTurnResult{err: inputErr})
 			sp.discard()
+			// An error may still carry an answer. Display it separately, without
+			// marking the turn successful or adding it to successful history/API.
+			errorAnswer := strings.TrimSpace(event.Content)
+			if e.display.HideAgentFooter {
+				errorAnswer = stripAgentFooterLines(errorAnswer)
+			}
+			errorAnswer = strings.TrimSpace(ctxSelfReportRe.ReplaceAllString(errorAnswer, ""))
+			if isSilentReply(errorAnswer) {
+				errorAnswer = ""
+			}
 			state.mu.Lock()
 			state.eventsNeedResync = true
 			state.mu.Unlock()
 			errorFooterDelivered := false
+			errorAnswerDelivered := false
 			if hasRichCard && cardMessageID != nil {
-				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, partialText, false, e.composeRichStatusFooter(false, turnStart, replyAgent, state.agentSession, workspaceDir))
+				cardAnswer := partialText
+				if errorAnswer != "" {
+					cardAnswer = errorAnswer
+				}
+				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, cardAnswer, false, e.composeRichStatusFooter(false, turnStart, replyAgent, state.agentSession, workspaceDir))
 				if updater, ok := p.(MessageUpdater); ok {
 					if err := updater.UpdateMessage(e.ctx, cardMessageID, errCard); err != nil {
 						slog.Debug("rich card: failed to update error card", "platform", p.Name(), "error", err)
 					} else {
 						errorFooterDelivered = true
+						errorAnswerDelivered = errorAnswer != ""
 					}
 				}
 			}
@@ -6345,7 +6361,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					Platform:   p.Name(),
 					Error:      event.Error.Error(),
 				})
-				userMsg := fmt.Sprintf(e.i18n.T(MsgError), errMsg)
+				detail := errMsg
+				if errors.Is(event.Error, ErrTaskAlreadyCompleted) {
+					detail = e.i18n.T(MsgTaskAlreadyCompleted)
+				}
+				userMsg := fmt.Sprintf(e.i18n.T(MsgError), detail)
 				if errors.Is(event.Error, ErrEmptyAgentResponse) {
 					userMsg = e.i18n.T(MsgEmptyAgentResponse)
 				}
@@ -6354,6 +6374,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						userMsg = e.i18n.T(h.msgKey)
 						break
 					}
+				}
+				if errorAnswer != "" {
+					if !errorAnswerDelivered {
+						sendChunksWithStatusFooter(e.ctx, p, replyCtx, errorAnswer, "", sendWorkspaceWithError)
+					}
+					userMsg = e.i18n.Tf(MsgAnswerWithFailure, detail)
 				}
 				// Quota describes the account/model, not whether this turn succeeded.
 				// Keep failures on the error path while showing the same measured

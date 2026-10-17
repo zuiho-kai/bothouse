@@ -1,0 +1,30 @@
+# 有回答的失败回合（Issue #34 后续）
+
+## 已观察的根因
+
+2026-10-17北京时间00:37:34，大豆包原生命令任务成功结束（DONE、exit 0）；00:37:40又调用manage_task kill停止它，被原生CLI拒绝：task is not running (status: DONE)。00:38:17最终回答生成完成。当前回合确有工具失败，不能当作纯历史错误改为成功。
+
+旧适配器把result.response拼入错误信息；核心错误路径只显示错误，导致整段回答挂在❌前缀下，实际原因没有显示。PR #35的历史错误核验仍然正确拒绝本轮真实失败，这次补充输出和诊断合同。
+
+## 修复后的行为
+
+- Antigravity将回答放进EventError.Content，将安全诊断放进Error，两者分开。原始result.error、原生轨迹和工具输出不进入错误日志/钩子。
+- Discord先展示已有回答，再单独提示“本轮有操作失败，以上回复不代表全部操作成功”。若能证明是停止已成功结束的任务，显示对应中文原因。模型和额度仍只有一份；富卡片成功更新时不重复发送正文。无正文的失败仍显示错误。
+- 继续使用EventError；不发送成功反应、不写成功回答历史、不自动重试。存活会话继续处理排队消息。本地语音/input仍返回failed、空text，且不把语音内容发到Discord。
+- 原生任务指引随每轮提示注入：先核对任务最新状态，DONE或已退出无需kill；检查与停止间发生结束竞争时，不重复kill。这是行为指引，不是原生CLI的硬性拦截；未修改原生CLI或权限策略。
+
+## 安全诊断的边界
+
+只向自己拥有的CLI子进程调用既有认证GetCascadeTrajectory；失败回合最多一次查询，与历史终态核验共用10秒/8MiB预算。正常SUCCESS不增加查询。
+
+具体原因必须有完整空闲轨迹、当前输入/最后步骤/会话一致、最终正文一致，且仅一个失败步骤：manage_task Action=kill、TaskId精确指向同一回合之前的命令步骤、目标DONE且exitCode明确为0、原生shortError精确匹配。其余步骤全部DONE且无error。缺证据、不同会话、截断、其他失败或未知格式均保留通用失败，不推断安全原因。
+
+stream的ERROR步骤被单独记录为failed；它仍禁止历史错误被改判成功，但允许上述只读原因核验。拒绝、取消和不完整身份继续保守处理。
+
+## 回归与发布
+
+合成fixture复现真实协议结构，不包含私人聊天、会话ID、工具输出或凭据。旧实现明确失败；修复后覆盖回答/错误分离、原因验证与拒绝未知原因、历史恢复边界、富卡片/回退、长回答分块、额度、队列/历史和语音失败隔离。
+
+本机证据保存在工作区.local/：failure-red.log、failure-green.log、go-full.log、tcp-approval.log、cuj.log、race.log、final-regression.log、hook-race.log、vet.log、build.log。macOS全量、TCP审批、完整CUJ、相关race、hook整包race、vet与构建全部通过。race初次正则未选中hook用例，故另跑hook整包并通过；不把未选中当通过。macOS全量采用umask 022与go test -tags no_web -p 1 -count=1 ./...；串行包调度不跳过用例。最终SHA的Ubuntu CI以关联PR记录为准。
+
+本次仅从包含PR #37/#38的main创建独立分支，不修改模型发现逻辑。部署需核对实际生产/唯一操作人、空闲、备份、二进制原子替换和六连接/API/配置会话连续性。合并、部署和真人验收分别记录在Issue #34与本机统一运维交接，不因测试通过宣称真人体验已通过。

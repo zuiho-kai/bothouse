@@ -436,5 +436,8 @@ func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAt
 		}
 		fullPrompt += "\n\n[Attached files saved at: " + strings.Join(fileRefs, ", ") + "]"
 	}
-	return core.PrependModelSwitchInstructions(fullPrompt), append(imageRefs, fileRefs...)
+	return core.PrependModelSwitchInstructions(taskLifecycleInstructions + fullPrompt), append(imageRefs, fileRefs...)
 }
+
+// Guidance complements native task validation; it is not a permission rule.
+const taskLifecycleInstructions = "[Task lifecycle]\nBefore manage_task actions, check the latest task status. Do not kill a task that is DONE or has already exited. A completed command needs no cleanup kill. If a running task finishes between checking and stopping, report the rejected stop separately and do not retry it.\n\n"

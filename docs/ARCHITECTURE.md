@@ -17,6 +17,8 @@
 
 Discord 消息 → platform/discord → core/engine.go → agent 适配器 → 原生 CLI → 事件过滤与输出 → Discord。
 
+失败回合可通过EventError.Content携带已有回答，Error只携带诊断；核心将两者分开展示，仍保留失败终态、错误钩子和队列恢复。回答不进入成功历史，本地/input不将其作为可播放的成功text。Antigravity只用自身CLI的认证当前轨迹分类安全原因，详见[失败回合说明](ANTIGRAVITY_TURN_FAILURE.md)。
+
 语音录音 → voice/static → voice/app.py 的 /api/transcribe → speech.py 本机识别 → /api/turn → voice/bridge.py 本地 API → 所选伙伴原会话 → 回答正文 → 本机 TTS/浏览器播放。单伙伴入口默认 G哥；voice.multi 需要显式名单，同一频道、一次一轮。
 
 roles.py 定义允许接入的项目与音色，VoiceService按project保存上一轮播放反馈并在提交/回执处核对绑定。TTS共用worker，音色作为每次合成参数传递。ACP适配器新增严格续接接口，冷恢复失败不new、加载回放不输出、错会话更新和非end_turn不成功；RPC读取边界关闭本轮事件窗口。具体协议与验证见[MULTI_VOICE.md](MULTI_VOICE.md)。core仍只依赖能力接口，不按厂商名路由。
