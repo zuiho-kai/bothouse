@@ -39,7 +39,16 @@ class BridgeStub:
 
 def setup(tmp_path, bridge=None, speech=None):
     bridge = bridge or BridgeStub()
-    app = create_app(Settings(data_dir=str(tmp_path), shared_memory_dir=str(tmp_path / 'memory')), speech or SpeechStub(), bridge)
+    settings = Settings(
+        project='gge',
+        role_name='G哥',
+        session_key='discord:test-channel',
+        bridge_socket=str(tmp_path / 'api.sock'),
+        model_path=str(tmp_path / 'model'),
+        data_dir=str(tmp_path),
+        shared_memory_dir=str(tmp_path / 'memory'),
+    )
+    app = create_app(settings, speech or SpeechStub(), bridge)
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:8787')
     headers = {'X-Voice-Token': app.state.service.token}
     return app, client, headers, bridge
@@ -68,7 +77,7 @@ async def test_real_turn_contract_and_correlated_output(tmp_path):
         assert (await client.get(result['audio_url'])).content == b'RIFF-test-audio'
     posted = [body for path, body in bridge.calls if path == '/input']
     assert len(posted) == 1
-    assert posted[0]['session_key'] == 'discord:1560320196239953953'
+    assert posted[0]['session_key'] == 'discord:test-channel'
     assert posted[0]['request_id'] == 'voice-' + data['id']
     assert 'mode' not in posted[0]
     assert (tmp_path / 'events.jsonl').stat().st_mode & 0o777 == 0o600

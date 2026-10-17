@@ -1,0 +1,16 @@
+{
+  "project": "gge",
+  "role_name": "G哥",
+  "session_key": "discord:1000000000000000001",
+  "session_label": "Discord · 常规",
+  "bridge_socket": "/path/to/conest-gge/data/run/api.sock",
+  "model_path": "/path/to/models/whisper-large-v3-turbo",
+  "voice": "Tingting",
+  "tts_backend": "say",
+  "tts_python": "",
+  "tts_model_path": "",
+  "tts_voice": "uncle_fu",
+  "port": 8787,
+  "data_dir": "/path/to/conest-gge/voice",
+  "shared_memory_dir": "/path/to/conest-gge/shared-memory"
+}

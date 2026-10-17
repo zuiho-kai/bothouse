@@ -19,15 +19,50 @@ from .io import Bridge, Discord, RemoteError, write_json
 from .journal import Journal, excerpts, message_url, render
 from .sources import source_messages
 
-DEFAULT_CONFIG = Path.home() / '.cc-connect-maomao/autonomy/config.json'
+DEFAULT_CONFIG = Path('~/.conest/autonomy/config.json')
 OWNER = 'yijiazi-autonomy-v1'
 STATUS = {'submitted': '已提交，等待桥接结果', 'bridge_done': '桥接执行结束，实际结果见原消息',
           'failed': '桥接执行失败', 'unknown': '提交结果不明，禁止自动重发',
           'reserved': '提交中或上次进程中断', 'missed': '错过时段，未补发', 'paused': '暂停期间跳过',
           'published': '归档已发送', 'backend_blocked': '观察到模型限额/后端报错，未记为活动完成'}
+REQUIRED_KEYS = (
+    'timezone', 'activity_times', 'digest_time', 'enabled', 'grace_minutes',
+    'guild_id', 'main_channel', 'channels', 'roles', 'leader',
+    'start_at', 'archive_since', 'timer_store', 'journal_dir',
+)
+REQUIRED_STRING_KEYS = (
+    'timezone', 'digest_time', 'guild_id', 'main_channel', 'leader',
+    'start_at', 'archive_since', 'timer_store', 'journal_dir',
+)
+
+
+def _nonempty_str(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def default_config_path() -> Path:
+    if env := os.environ.get('AUTONOMY_CONFIG', '').strip():
+        return Path(env).expanduser()
+    if home := os.environ.get('CONEST_HOME', '').strip():
+        return Path(home).expanduser() / 'autonomy/config.json'
+    return DEFAULT_CONFIG.expanduser()
 
 
 def validate(config):
+    if not isinstance(config, dict):
+        raise ValueError('config must be a JSON object')
+    missing = [
+        key for key in REQUIRED_KEYS
+        if key not in config or config[key] is None or (isinstance(config[key], str) and not config[key].strip())
+    ]
+    if missing:
+        raise ValueError(f'missing required config fields: {", ".join(missing)}')
+    non_str = [key for key in REQUIRED_STRING_KEYS if not _nonempty_str(config.get(key))]
+    if non_str:
+        raise ValueError(f'invalid non-string config fields: {", ".join(non_str)}')
+    for key in ('socket', 'bridge_config'):
+        if key in config and not _nonempty_str(config[key]):
+            raise ValueError(f'invalid {key}: must be a non-empty string')
     ZoneInfo(config['timezone'])
     times = config['activity_times']
     if not isinstance(times, list) or not times or len(set(times)) != len(times):
@@ -39,13 +74,18 @@ def validate(config):
         raise ValueError('digest and activity must use different minutes')
     if not isinstance(config['enabled'], bool):
         raise ValueError('enabled must be boolean')
-    if not 1 <= config['grace_minutes'] <= 30:
+    if isinstance(config['grace_minutes'], bool) or not isinstance(config['grace_minutes'], int) or not 1 <= config['grace_minutes'] <= 30:
         raise ValueError('grace_minutes must be between 1 and 30')
     for key in ('guild_id', 'main_channel'):
-        if not str(config[key]).isdigit():
+        if not config[key].isdigit():
             raise ValueError(f'invalid {key}')
-    if config['main_channel'] not in config['channels'] or any(not str(c).isdigit() for c in config['channels']):
+    if (not isinstance(config['channels'], list)
+            or config['main_channel'] not in config['channels']
+            or any(not isinstance(c, str) or not c.isdigit() for c in config['channels'])):
         raise ValueError('channels must explicitly include main_channel')
+    if (not isinstance(config['roles'], list) or not config['roles']
+            or any(not isinstance(r, dict) or not all(_nonempty_str(r.get(k)) for k in ('project', 'id', 'name')) for r in config['roles'])):
+        raise ValueError('roles must be a nonempty list of role objects with non-empty project, id, and name')
     if len({r['id'] for r in config['roles']}) != len(config['roles']):
         raise ValueError('duplicate role ids')
     if not any(r['project'] == config['leader'] for r in config['roles']):
@@ -53,6 +93,21 @@ def validate(config):
     for key in ('start_at', 'archive_since'):
         if datetime.fromisoformat(config[key]).tzinfo is None:
             raise ValueError(f'{key} must include timezone')
+    return config
+
+
+def read_config(path: Path, *, require_socket: bool = False, require_bridge_config: bool = False) -> dict:
+    if not path.is_file():
+        raise ValueError(f'missing autonomy config: {path}; prepare config or run autonomy init first')
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f'invalid autonomy config JSON ({path}): {exc}') from None
+    config = validate(raw)
+    if require_socket and not _nonempty_str(config.get('socket')):
+        raise ValueError('missing required runtime binding: socket')
+    if require_bridge_config and not _nonempty_str(config.get('bridge_config')):
+        raise ValueError('missing required runtime binding: bridge_config')
     return config
 
 
@@ -253,41 +308,115 @@ class Runner:
                 self.render(date.isoformat(), now)
 
 
-def initialize(path, channel):
+def initialize(path, channel, *, leader='', bridge_config=None, socket=None, timer_store=None, journal_dir=None):
+    path = Path(path).expanduser()
     if path.exists():
         raise ValueError('config exists; use schedule/status instead of overwriting')
-    home = Path.home() / '.cc-connect-maomao'
-    bridge_config = home / 'config.toml'
-    with bridge_config.open('rb') as stream:
-        projects = tomllib.load(stream)['projects']
-    leader = Discord(str(bridge_config), 'cjiang')
-    target = leader.call('/channels/' + channel)
+    if not isinstance(channel, str) or not channel.strip().isdigit():
+        raise ValueError('channel must be a numeric Discord channel ID')
+    channel = channel.strip()
+    if leader is not None and not isinstance(leader, str):
+        raise ValueError('leader must be a string')
+    leader = (leader or os.environ.get('AUTONOMY_LEADER', '')).strip()
+    if not leader:
+        raise ValueError('missing leader project; pass --leader <project> (e.g. gge or cursor)')
+    for name, val in (('bridge_config', bridge_config), ('socket', socket), ('timer_store', timer_store), ('journal_dir', journal_dir)):
+        if val is not None and not isinstance(val, (str, Path)):
+            raise ValueError(f'{name} must be a path or string')
+        if isinstance(val, str) and not val.strip():
+            raise ValueError(f'{name} must not be empty')
+    bridge_cfg_raw = (
+        bridge_config
+        or os.environ.get('AUTONOMY_BRIDGE_CONFIG', '').strip()
+        or os.environ.get('CC_CONNECT_CONFIG', '').strip()
+    )
+    if not bridge_cfg_raw:
+        raise ValueError('missing bridge_config; pass --bridge-config /path/to/config.toml')
+    bridge_cfg_path = Path(bridge_cfg_raw).expanduser().resolve()
+    if not bridge_cfg_path.is_file():
+        raise ValueError(f'bridge_config not found: {bridge_cfg_path}')
+    with bridge_cfg_path.open('rb') as stream:
+        projects = tomllib.load(stream).get('projects', [])
+    discord_projects = [
+        p for p in projects
+        if any(plat.get('type') == 'discord' for plat in p.get('platforms', []))
+    ]
+    if not any(p.get('name') == leader for p in discord_projects):
+        raise ValueError(f'leader {leader!r} not found among Discord projects in {bridge_cfg_path}')
+    bridge_root = bridge_cfg_path.parent
+    socket_path = Path(socket or os.environ.get('AUTONOMY_SOCKET', '') or (bridge_root / 'data/run/api.sock')).expanduser().resolve()
+    timer_store_path = Path(timer_store or os.environ.get('AUTONOMY_TIMER_STORE', '') or (bridge_root / 'data/timers/jobs.json')).expanduser().resolve()
+    journal_dir_path = Path(journal_dir or os.environ.get('AUTONOMY_JOURNAL_DIR', '') or (path.parent / 'journal')).expanduser().resolve()
+    leader_client = Discord(str(bridge_cfg_path), leader)
+    target = leader_client.call('/channels/' + channel)
     roles = []
-    for project in projects:
-        if not any(p['type'] == 'discord' for p in project.get('platforms', [])):
-            continue
-        user = Discord(str(bridge_config), project['name']).call('/users/@me')
+    for project in discord_projects:
+        user = Discord(str(bridge_cfg_path), project['name']).call('/users/@me')
         roles.append({'project': project['name'], 'id': user['id'], 'name': user['username']})
     now = datetime.now(ZoneInfo('Asia/Shanghai'))
     config = {'version': 1, 'enabled': False, 'timezone': 'Asia/Shanghai',
               'activity_times': ['09:00', '12:00', '15:00', '18:00', '21:00'], 'digest_time': '22:00',
               'grace_minutes': 5, 'main_channel': channel, 'channels': [channel],
-              'guild_id': target['guild_id'], 'leader': 'cjiang', 'roles': roles,
+              'guild_id': target['guild_id'], 'leader': leader, 'roles': roles,
               'start_at': now.isoformat(), 'archive_since': now.replace(hour=0,minute=0,second=0,microsecond=0).isoformat(),
-              'bridge_config': str(bridge_config), 'socket': str(home / 'data/run/api.sock'),
-              'timer_store': str(home / 'data/timers/jobs.json'),
-              'journal_dir': '/Users/zhaixinyang/agents-demo/journal'}
+              'bridge_config': str(bridge_cfg_path), 'socket': str(socket_path),
+              'timer_store': str(timer_store_path),
+              'journal_dir': str(journal_dir_path)}
     write_json(path, validate(config))
     return config
 
 
+def _extract_config_path(exec_cmd: object) -> Path | None:
+    if not _nonempty_str(exec_cmd):
+        return None
+    try:
+        parts = shlex.split(exec_cmd)
+    except ValueError:
+        return None
+    candidates = []
+    for idx, token in enumerate(parts):
+        if token == '--config':
+            if idx + 1 == len(parts):
+                return None
+            candidates.append(parts[idx + 1])
+        elif token.startswith('--config='):
+            candidates.append(token.partition('=')[2])
+    if len(candidates) != 1 or not _nonempty_str(candidates[0]):
+        return None
+    candidate = Path(candidates[0]).expanduser()
+    # Relative paths depend on the cron's working directory, not this CLI.
+    return candidate.resolve() if candidate.is_absolute() else None
+
+
+def _classify_cron_jobs(jobs, config: dict, path: Path) -> tuple[list[dict], list[dict]]:
+    resolved_path = Path(path).expanduser().resolve()
+    expected_session = 'discord:' + str(config['main_channel'])
+    owned, foreign = [], []
+    for job in jobs or []:
+        if job.get('description') != OWNER:
+            continue
+        job_cfg = _extract_config_path(job.get('exec'))
+        job_session = job.get('session_key')
+        # The same leader/channel can be used by several configurations.
+        # Only an explicit matching config path proves ownership.
+        if job_cfg != resolved_path or (
+            job_session is not None and job_session != expected_session
+        ):
+            foreign.append(job)
+        else:
+            owned.append(job)
+    return owned, foreign
+
+
 def install(config, path, bridge):
     command = shlex.join([sys.executable, '-m', 'autonomy', '--config', str(path), 'tick'])
-    matches = [j for j in (bridge.call('/cron/list') or []) if j['description'] == OWNER]
-    if len(matches) > 1:
+    owned, foreign = _classify_cron_jobs(bridge.call('/cron/list') or [], config, path)
+    if foreign:
+        raise ValueError('bridge already has a foreign autonomy cron for another config or channel; use a separate bridge instance')
+    if len(owned) > 1:
         raise ValueError('multiple owned cron jobs; inspect before enabling')
-    if matches:
-        job = matches[0]
+    if owned:
+        job = owned[0]
     else:
         tomorrow = datetime.now(ZoneInfo(config['timezone'])) + timedelta(days=1)
         job = bridge.call('/cron/add', {'project': config['leader'],
@@ -305,8 +434,10 @@ def install(config, path, bridge):
 def change_leader(config, path, bridge, project):
     """Called under config.lock; preserve schedules, actions and existing cron ID."""
     candidate = validate(dict(config, leader=project))
-    jobs = [j for j in (bridge.call('/cron/list') or []) if j['description'] == OWNER]
-    if len(jobs) != 1:
+    owned, foreign = _classify_cron_jobs(bridge.call('/cron/list') or [], config, path)
+    if foreign:
+        raise ValueError('bridge autonomy cron belongs to another config or channel; refusing to switch leader')
+    if len(owned) != 1:
         raise ValueError('expected one installed autonomy cron; inspect before switching leader')
     state_path = path.parent / 'state.json'
     if state_path.exists():
@@ -316,7 +447,7 @@ def change_leader(config, path, bridge, project):
         write_json(state_path, state)
     # A shell cron owner controls error attribution; timers use config['leader'].
     # Update through the running scheduler, never edit its store behind its back.
-    bridge.call('/cron/edit', {'id': jobs[0]['id'], 'field': 'project', 'value': project})
+    bridge.call('/cron/edit', {'id': owned[0]['id'], 'field': 'project', 'value': project})
     write_json(path, candidate)
     return candidate
 
@@ -328,6 +459,11 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     init = sub.add_parser('init', help='核对 Discord 并创建暂停状态的配置')
     init.add_argument('--channel', required=True)
+    init.add_argument('--leader', default='', help='自主活动与日报主持人项目名，如 gge 或 cursor')
+    init.add_argument('--bridge-config', type=Path, default=None, help='本实例 cc-connect config.toml 路径')
+    init.add_argument('--socket', type=Path, default=None, help='本实例桥接 api.sock 路径')
+    init.add_argument('--timer-store', type=Path, default=None, help='本实例桥接 timers/jobs.json 路径')
+    init.add_argument('--journal-dir', type=Path, default=None, help='本实例每日日志输出目录')
     for name in ('status', 'install', 'tick', 'collect', 'pause', 'resume', 'preview'):
         sub.add_parser(name)
     schedule = sub.add_parser('schedule', help='修改时间，下一个 tick 自动生效')
@@ -345,21 +481,32 @@ def main():
     serve = sub.add_parser('serve', help='在 127.0.0.1 提供本机阅读页面，不触发活动')
     serve.add_argument('--port', type=int, default=8789)
     args = parser.parse_args()
-    path = args.config.expanduser().resolve()
+    raw_config = default_config_path() if args.config == DEFAULT_CONFIG else args.config
+    path = raw_config.expanduser().resolve()
     if args.command == 'serve':
         # A long-lived reader must never hold the dispatcher's config lock.
         from .reader_server import serve_pages
-        config = validate(json.loads(path.read_text()))
+        config = read_config(path)
         if not 1 <= args.port <= 65535:
             raise ValueError('port must be between 1 and 65535')
         serve_pages(Path(config['journal_dir']), args.port)
         return
     with locked(path):
         if args.command == 'init':
-            config = initialize(path, args.channel)
-            print(json.dumps({'config': str(path), 'channel': config['main_channel'], 'enabled': False}, ensure_ascii=False))
+            config = initialize(
+                path,
+                args.channel,
+                leader=args.leader,
+                bridge_config=args.bridge_config,
+                socket=args.socket,
+                timer_store=args.timer_store,
+                journal_dir=args.journal_dir,
+            )
+            print(json.dumps({'config': str(path), 'channel': config['main_channel'], 'leader': config['leader'], 'enabled': False}, ensure_ascii=False))
             return
-        config = validate(json.loads(path.read_text()))
+        need_socket = args.command in ('leader', 'install', 'status', 'tick', 'collect', 'run', 'snapshot')
+        need_bridge_cfg = args.command in ('status', 'tick', 'collect', 'run', 'snapshot')
+        config = read_config(path, require_socket=need_socket, require_bridge_config=need_bridge_cfg)
         now = datetime.now(ZoneInfo(config['timezone']))
         if args.command == 'build':
             database = path.parent / 'messages.sqlite3'
@@ -406,12 +553,14 @@ def main():
         try:
             if args.command == 'status':
                 runner.reconcile()
-                jobs = [j for j in (bridge.call('/cron/list') or []) if j['description'] == OWNER]
+                owned, foreign = _classify_cron_jobs(bridge.call('/cron/list') or [], config, path)
+                if foreign:
+                    raise ValueError('bridge autonomy cron belongs to another config or channel; check bridge binding')
                 print(json.dumps({'enabled': config['enabled'], 'activity_times': config['activity_times'], 'digest_time': config['digest_time'],
                     'timezone': config['timezone'], 'main_channel': config['main_channel'], 'leader': config['leader'],
                     'last_tick': runner.state.get('last_tick'), 'last_collected': runner.state.get('last_collected'),
                     'collection_error': runner.state.get('collection_error'),
-                    'cron': [{k: j.get(k) for k in ('id','project','enabled','mute','last_run','last_error')} for j in jobs],
+                    'cron': [{k: j.get(k) for k in ('id','project','enabled','mute','last_run','last_error')} for j in owned],
                     'recent_actions': dict(list(runner.state['actions'].items())[-12:]),
                     'journal': config['journal_dir'] + '/index.html'}, ensure_ascii=False, indent=2))
             elif args.command in ('tick', 'collect'):

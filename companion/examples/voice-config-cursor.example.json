@@ -1,0 +1,16 @@
+{
+  "project": "cursor",
+  "role_name": "Cursor",
+  "session_key": "discord:1000000000000000002",
+  "session_label": "Discord · Cursor 设备",
+  "bridge_socket": "/path/to/conest-cursor/data/run/api.sock",
+  "model_path": "/path/to/models/whisper-large-v3-turbo",
+  "voice": "Tingting",
+  "tts_backend": "say",
+  "tts_python": "",
+  "tts_model_path": "",
+  "tts_voice": "serena",
+  "port": 8788,
+  "data_dir": "/path/to/conest-cursor/voice",
+  "shared_memory_dir": "/path/to/conest-cursor/shared-memory"
+}

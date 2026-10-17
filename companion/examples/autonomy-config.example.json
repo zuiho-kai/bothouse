@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "enabled": false,
+  "timezone": "Asia/Shanghai",
+  "activity_times": [
+    "09:00",
+    "12:00",
+    "15:00",
+    "18:00",
+    "21:00"
+  ],
+  "digest_time": "22:00",
+  "grace_minutes": 5,
+  "main_channel": "1000000000000000001",
+  "channels": [
+    "1000000000000000001"
+  ],
+  "guild_id": "2000000000000000001",
+  "leader": "gge",
+  "roles": [
+    {
+      "project": "gge",
+      "id": "3000000000000000001",
+      "name": "G哥"
+    },
+    {
+      "project": "cursor",
+      "id": "3000000000000000002",
+      "name": "Cursor"
+    }
+  ],
+  "start_at": "2026-10-17T09:00:00+08:00",
+  "archive_since": "2026-10-17T00:00:00+08:00",
+  "bridge_config": "/path/to/conest-instance/config.toml",
+  "socket": "/path/to/conest-instance/data/run/api.sock",
+  "timer_store": "/path/to/conest-instance/data/timers/jobs.json",
+  "journal_dir": "/path/to/conest-instance/autonomy/journal"
+}

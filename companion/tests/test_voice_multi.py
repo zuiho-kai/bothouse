@@ -51,7 +51,10 @@ class Bridge:
 
 def setup(tmp_path, bridge=None):
     speech, bridge = Speech(), bridge or Bridge()
-    settings = Settings(session_key='discord:test-channel', session_label='测试频道',
+    settings = Settings(project='gge', role_name='伙伴甲',
+                        session_key='discord:test-channel', session_label='测试频道',
+                        bridge_socket=str(tmp_path / 'api.sock'),
+                        model_path=str(tmp_path / 'model'),
                         data_dir=str(tmp_path / 'voice'), shared_memory_dir=str(tmp_path / 'memory'),
                         tts_backend='qwen3')
     app = create_app(settings, speech, bridge,
@@ -168,7 +171,7 @@ async def test_concurrent_role_admission_is_serialized_across_binding_io(tmp_pat
 @pytest.mark.parametrize('roles', [[], [Role('other', '乙')], [Role('gge', '甲'), Role('gge', '乙')]])
 def test_roster_requires_unique_ids_and_existing_default(roles):
     with pytest.raises(ValueError):
-        validate_roles(roles, Settings())
+        validate_roles(roles, Settings(project='gge'))
 
 
 def test_roster_only_reads_explicit_file_and_checks_voice_backend(tmp_path):
@@ -179,7 +182,7 @@ def test_roster_only_reads_explicit_file_and_checks_voice_backend(tmp_path):
     path.write_text(json.dumps({'roles': [{'project': 'gge', 'name': '甲', 'tts_voice': 'serena'}]}))
     roles = read_roles(path)
     with pytest.raises(ValueError):
-        validate_roles(roles, Settings(tts_backend='say'))
-    assert validate_roles(roles, Settings(tts_backend='qwen3')) == roles
+        validate_roles(roles, Settings(project='gge', tts_backend='say'))
+    assert validate_roles(roles, Settings(project='gge', tts_backend='qwen3')) == roles
     with pytest.raises(ValueError):
         Role('gge', '甲', 'unknown-voice')

@@ -276,11 +276,14 @@ def test_change_leader_preserves_schedule_history_and_paused_cron(config, tmp_pa
     write_json(path, config)
     write_json(state_path, {'actions': {'activity:old': {'status': 'submitted'}}})
     bridge = FakeBridge()
-    bridge.jobs = [{'id': 'existing', 'description': OWNER, 'project': 'cjiang', 'enabled': False}]
+    command = f'python -m autonomy --config {path} tick'
+    bridge.jobs = [{'id': 'existing', 'description': OWNER, 'project': 'cjiang',
+                    'enabled': False, 'exec': command}]
     updated = change_leader(config, path, bridge, 'gge')
     assert updated == dict(config, leader='gge')
     assert json.loads(path.read_text()) == updated
-    assert bridge.jobs == [{'id': 'existing', 'description': OWNER, 'project': 'gge', 'enabled': False}]
+    assert bridge.jobs == [{'id': 'existing', 'description': OWNER, 'project': 'gge',
+                            'enabled': False, 'exec': command}]
     assert json.loads(state_path.read_text())['actions']['activity:old']['leader'] == 'cjiang'
     assert [url for url, _ in bridge.calls] == ['/cron/list', '/cron/edit']
     with pytest.raises(ValueError, match='leader missing'):
