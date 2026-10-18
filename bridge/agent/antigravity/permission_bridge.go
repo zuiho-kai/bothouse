@@ -307,6 +307,13 @@ func (b *agyPermissionBridge) writeResponse(conn net.Conn, response antigravityh
 	_ = json.NewEncoder(conn).Encode(response)
 }
 
+// HasPending reports whether a tool call is waiting for a human decision.
+func (b *agyPermissionBridge) HasPending() bool {
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	return len(b.pending) > 0
+}
+
 func (b *agyPermissionBridge) RespondPermission(requestID string, result core.PermissionResult) error {
 	behavior := strings.ToLower(strings.TrimSpace(result.Behavior))
 	if behavior != "allow" && behavior != "deny" {

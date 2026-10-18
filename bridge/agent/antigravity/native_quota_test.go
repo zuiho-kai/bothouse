@@ -118,7 +118,7 @@ func TestAntigravityQuotaLive(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	s, err := newStreamSession(ctx, bin, nil, t.TempDir(), "gemini-4-argon-medium", "plan", "", nil, 0)
+	s, err := newStreamSession(ctx, bin, nil, t.TempDir(), "gemini-4-argon-medium", "plan", "", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

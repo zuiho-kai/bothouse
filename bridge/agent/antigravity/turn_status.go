@@ -149,6 +149,10 @@ func (n *nativeTrajectory) confirmsHistoricalError(t streamTurnEvidence, resultE
 	return response != "" && (response == strings.TrimSpace(last.PlannerResponse.Response) || response == strings.TrimSpace(last.PlannerResponse.ModifiedResponse))
 }
 
+// Long conversations exceed 8 MiB as JSON (seen at ~370 steps), which made
+// every current-turn verification fail and kept historical-error false ERRORs.
+const nativeTrajectoryLimit = 64 << 20
+
 func (q *nativeQuota) trajectory(ctx context.Context, conversationID string) (*nativeTrajectory, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -161,7 +165,7 @@ func (q *nativeQuota) trajectory(ctx context.Context, conversationID string) (*n
 	}
 	body, _ := json.Marshal(map[string]string{"cascadeId": conversationID})
 	for _, address := range addresses {
-		raw, err := fetchNativeRPC(ctx, address, q.csrf, "GetCascadeTrajectory", body, 8<<20)
+		raw, err := fetchNativeRPC(ctx, address, q.csrf, "GetCascadeTrajectory", body, nativeTrajectoryLimit)
 		if err != nil {
 			continue
 		}

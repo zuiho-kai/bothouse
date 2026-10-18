@@ -2232,6 +2232,8 @@ app_secret = "your-feishu-app-secret"
 # cmd = "agy"      # CLI binary name (default: "agy") / CLI 二进制名称（默认 "agy"）
 # stream_json = true # Opt-in persistent transport; requires agy --input-format stream-json.
 #                    # 保持进程常驻，复用会话和权限桥；旧版 CLI 不要开启。
+# stall_timeout_mins = 15 # stream_json only: stop a turn after 15 min with no agy output outside a running tool or pending approval; 0 disables.
+#                    # 仅 stream_json：15 分钟无任何输出（不含工具执行中/等待审批）即中止本轮，下一条消息接续会话；0 关闭。
 # timeout_mins = 30  # Timeout per conversation turn (minutes) / 每次对话超时时间（分钟）
 #
 # Mode options / 模式说明:

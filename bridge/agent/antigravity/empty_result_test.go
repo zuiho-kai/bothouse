@@ -62,7 +62,7 @@ func TestStreamSession_EmptyTurnDoesNotRetryAndNextTurnRecovers(t *testing.T) {
 	s, err := newStreamSession(context.Background(), os.Args[0],
 		[]string{"-test.run=^TestStreamSession_ReusesProcessAndSeparatesThoughts$", "--"},
 		t.TempDir(), "", "default", "resume-123",
-		[]string{"CC_AGY_STREAM_TEST=1", "CC_AGY_STREAM_FAILURE=empty-first"}, 0)
+		[]string{"CC_AGY_STREAM_TEST=1", "CC_AGY_STREAM_FAILURE=empty-first"}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

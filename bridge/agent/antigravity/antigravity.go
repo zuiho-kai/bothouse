@@ -37,6 +37,7 @@ type Agent struct {
 	configEnv    []string // env vars from [projects.agent.options.env]
 	streamJSON   bool     // opt-in persistent NDJSON transport for newer agy versions
 	timeout      time.Duration
+	stallTimeout time.Duration // stream transport only; 0 disables
 	providers    []core.ProviderConfig
 	activeIdx    int
 	sessionEnv   []string
@@ -56,22 +57,18 @@ func New(opts map[string]any) (core.Agent, error) {
 	streamJSON, _ := opts["stream_json"].(bool)
 	cmd, extraArgs := core.ParseCmdOpts(opts, "agy")
 
-	var timeoutMins int64
-	switch v := opts["timeout_mins"].(type) {
-	case int64:
-		timeoutMins = v
-	case int:
-		timeoutMins = int64(v)
-	case float64:
-		timeoutMins = int64(v)
-	default:
-		if v != nil {
-			slog.Debug("antigravity: timeout_mins has unexpected type", "type", fmt.Sprintf("%T", v))
-		}
-	}
 	var timeout time.Duration
-	if timeoutMins > 0 {
+	if timeoutMins, _ := optionMinutes(opts, "timeout_mins"); timeoutMins > 0 {
 		timeout = time.Duration(timeoutMins) * time.Minute
+	}
+	// A stream turn with no agy output for this long, outside a running tool
+	// or a pending approval, is treated as stuck (e.g. a hung model request).
+	stallTimeout := defaultStallTimeout
+	if mins, ok := optionMinutes(opts, "stall_timeout_mins"); ok {
+		stallTimeout = 0
+		if mins > 0 {
+			stallTimeout = time.Duration(mins) * time.Minute
+		}
 	}
 
 	if _, err := exec.LookPath(cmd); err != nil {
@@ -86,9 +83,29 @@ func New(opts map[string]any) (core.Agent, error) {
 		cliExtraArgs: extraArgs,
 		configEnv:    core.ParseConfigEnv(opts),
 		timeout:      timeout,
+		stallTimeout: stallTimeout,
 		streamJSON:   streamJSON,
 		activeIdx:    -1,
 	}, nil
+}
+
+const defaultStallTimeout = 15 * time.Minute
+
+// optionMinutes reads a numeric minutes option; ok is false when it is unset.
+func optionMinutes(opts map[string]any, key string) (int64, bool) {
+	switch v := opts[key].(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case nil:
+		return 0, false
+	default:
+		slog.Debug("antigravity: option has unexpected type", "key", key, "type", fmt.Sprintf("%T", v))
+		return 0, false
+	}
 }
 
 func normalizeMode(raw string) string {
@@ -157,6 +174,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	extraArgs := append([]string{}, a.cliExtraArgs...)
 	workDir := a.workDir
 	timeout := a.timeout
+	stallTimeout := a.stallTimeout
 	streamJSON := a.streamJSON
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
@@ -169,7 +187,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	a.mu.Unlock()
 
 	if streamJSON {
-		s, err := newStreamSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
+		s, err := newStreamSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout, stallTimeout)
 		if err == nil {
 			a.mu.Lock()
 			a.quota = s.quota

@@ -27,8 +27,16 @@ type streamSession struct {
 	streamed      bool
 	turnTimer     *time.Timer
 	turn          streamTurnEvidence
-	tempFiles     []string
-	quota         *nativeQuota
+	// The stall watchdog stops a turn whose agy process writes nothing for
+	// stallTimeout while no tool or permission prompt is outstanding (e.g. a
+	// model request hung on the network). It never fires mid-tool.
+	stallTimeout time.Duration
+	stallTimer   *time.Timer
+	lastProgress time.Time
+	stalled      bool
+	activeTools  map[int]bool
+	tempFiles    []string
+	quota        *nativeQuota
 }
 
 type agyStreamEvent struct {
@@ -40,6 +48,10 @@ type agyStreamEvent struct {
 		State          string `json:"state"`
 		Type           string `json:"step_type"`
 		TextDelta      string `json:"text_delta"`
+		ToolName       string `json:"tool_name"`
+		ToolInfo       struct {
+			Parameters map[string]any `json:"parameters"`
+		} `json:"tool_info"`
 	} `json:"step_update"`
 	Result struct {
 		ConversationID string `json:"conversation_id"`
@@ -49,13 +61,13 @@ type agyStreamEvent struct {
 	} `json:"result"`
 }
 
-func newStreamSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration) (*streamSession, error) {
+func newStreamSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout, stallTimeout time.Duration) (*streamSession, error) {
 	base, err := newAntigravitySession(ctx, cmd, extraArgs, workDir, model, mode, resumeID, extraEnv, timeout)
 	if err != nil {
 		return nil, err
 	}
 	processCtx, cancel := context.WithCancel(base.ctx)
-	s := &streamSession{antigravitySession: base, cancelProcess: cancel}
+	s := &streamSession{antigravitySession: base, cancelProcess: cancel, stallTimeout: stallTimeout}
 	s.quota, err = newNativeQuota()
 	if err != nil {
 		cancel()
@@ -117,6 +129,7 @@ func (s *streamSession) Send(prompt, _ string, images []core.ImageAttachment, fi
 	s.tempFiles = tempFiles
 	s.busy, s.streamed = true, false
 	s.turn = streamTurnEvidence{}
+	s.activeTools, s.stalled = nil, false
 	input := struct {
 		Event   string            `json:"event"`
 		Message map[string]string `json:"message"`
@@ -132,7 +145,41 @@ func (s *streamSession) Send(prompt, _ string, images []core.ImageAttachment, fi
 		// conversation in a new process on the next message.
 		s.turnTimer = time.AfterFunc(s.timeout, s.cancelProcess)
 	}
+	s.touchLocked()
 	return nil
+}
+
+// touchLocked records stream progress and arms the stall watchdog for a busy turn.
+func (s *streamSession) touchLocked() {
+	s.lastProgress = time.Now()
+	if s.stallTimeout > 0 && s.busy && s.stallTimer == nil {
+		s.stallTimer = time.AfterFunc(s.stallTimeout, s.checkStall)
+	}
+}
+
+func (s *streamSession) checkStall() {
+	s.mu.Lock()
+	if !s.busy || s.stallTimer == nil {
+		s.mu.Unlock()
+		return
+	}
+	idle := time.Since(s.lastProgress)
+	waiting := len(s.activeTools) > 0 || (s.permissionBridge != nil && s.permissionBridge.HasPending())
+	if waiting || idle < s.stallTimeout {
+		// A running tool or a pending human decision is legitimate silence;
+		// the engine's idle and turn limits still bound those.
+		wait := s.stallTimeout - idle
+		if waiting || wait <= 0 {
+			wait = s.stallTimeout
+		}
+		s.stallTimer.Reset(wait)
+		s.mu.Unlock()
+		return
+	}
+	s.stalled = true
+	s.mu.Unlock()
+	slog.Warn("antigravity: no stream progress, stopping stalled turn", "timeout", s.stallTimeout)
+	s.cancelProcess()
 }
 
 func (s *streamSession) emit(ev core.Event) {
@@ -147,6 +194,11 @@ func (s *streamSession) finishTurnLocked() {
 		s.turnTimer.Stop()
 		s.turnTimer = nil
 	}
+	if s.stallTimer != nil {
+		s.stallTimer.Stop()
+		s.stallTimer = nil
+	}
+	s.activeTools = nil
 	for _, path := range s.tempFiles {
 		_ = os.Remove(path)
 	}
@@ -177,14 +229,52 @@ func (s *streamSession) readStream(proc *exec.Cmd, stdout io.ReadCloser) {
 	}
 	err := proc.Wait()
 	s.mu.Lock()
-	busy := s.busy
+	busy, stalled := s.busy, s.stalled
 	s.alive.Store(false)
 	s.finishTurnLocked()
 	s.mu.Unlock()
 	if protocolErr != nil {
 		s.emit(core.Event{Type: core.EventError, Error: protocolErr})
+	} else if stalled {
+		s.emit(core.Event{Type: core.EventError, Error: fmt.Errorf("antigravity: no progress for %s, stopped the stuck turn; the next message resumes this conversation", s.stallTimeout)})
 	} else if err != nil || busy {
 		s.emit(core.Event{Type: core.EventError, Error: fmt.Errorf("antigravity: stream process stopped before conversation ended (pending=%t, exit=%v)", busy, err)})
+	}
+}
+
+// trackToolLocked surfaces agy tool steps as progress so a long autonomous
+// turn is visible and keeps the engine's idle timer alive. Tool output is not
+// forwarded: it may contain credentials and the final answer summarizes it.
+func (s *streamSession) trackToolLocked(ev agyStreamEvent) {
+	step := ev.Step
+	if step.Type != "tool" || step.Index == nil {
+		return
+	}
+	idx := *step.Index
+	name := step.ToolName
+	if name == "" {
+		name = "tool"
+	}
+	if step.State == "ACTIVE" {
+		if s.activeTools[idx] {
+			return
+		}
+		if s.activeTools == nil {
+			s.activeTools = make(map[int]bool)
+		}
+		s.activeTools[idx] = true
+		params := step.ToolInfo.Parameters
+		if params == nil {
+			params = map[string]any{}
+		}
+		s.emit(core.Event{Type: core.EventToolUse, ToolName: name, ToolInput: formatAgyToolInput(params), ToolInputRaw: params, SessionID: s.CurrentSessionID()})
+		return
+	}
+	wasActive := s.activeTools[idx]
+	delete(s.activeTools, idx)
+	if wasActive && step.State != "DONE" {
+		ok := false
+		s.emit(core.Event{Type: core.EventToolResult, ToolName: name, ToolStatus: strings.ToLower(step.State), ToolSuccess: &ok, SessionID: s.CurrentSessionID()})
 	}
 }
 
@@ -194,12 +284,14 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.touchLocked()
 	switch ev.Event {
 	case "init":
 		s.emit(core.Event{Type: core.EventText, SessionID: s.CurrentSessionID()})
 	case "step_update":
 		if s.busy {
 			s.turn.observe(ev)
+			s.trackToolLocked(ev)
 		}
 		if s.busy && ev.Step.Type == "agent_response" && ev.Step.TextDelta != "" {
 			if strings.TrimSpace(ev.Step.TextDelta) != "" {

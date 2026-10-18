@@ -15,7 +15,7 @@
 
 ## 安全诊断的边界
 
-只向自己拥有的CLI子进程调用既有认证GetCascadeTrajectory；失败回合最多一次查询，与历史终态核验共用10秒/8MiB预算。正常SUCCESS不增加查询。
+只向自己拥有的CLI子进程调用既有认证GetCascadeTrajectory；失败回合最多一次查询，与历史终态核验共用10秒/64MiB预算。正常SUCCESS不增加查询。
 
 具体原因必须有完整空闲轨迹、当前输入/最后步骤/会话一致、最终正文一致，且仅一个失败步骤：manage_task Action=kill、TaskId精确指向同一回合之前的命令步骤、目标DONE且exitCode明确为0、原生shortError精确匹配。其余步骤全部DONE且无error。缺证据、不同会话、截断、其他失败或未知格式均保留通用失败，不推断安全原因。
 
