@@ -1,5 +1,22 @@
 # 共栖当前交接
 
+## 2026-10-18：发言权评审后续（PR #62，未接入、未部署）
+
+- 回应 C酱对 `136da1a5` 的审核（review 5562581156）。上一轮只把 main `3026ef88` 合了进来，没有改这四项。仍在草稿 [PR #62](https://github.com/Zssan12/conest/pull/62)，分支 `cursor/floor-control-33-0d68`。没有改 `devices.py`、`device_app.py`、`device_server.py`、`discussion.py` 或圆屏界面，没有子 Agent，没有动运行服务或部署配置。
+- 判重只保留正文、点名、群体模式及来源、当前设备伙伴。同一轮次在预算已被扣掉、或目标伙伴转入收尾后重发，仍是 duplicate，回答者保持第一次的决定，`calls_authorized` 为 0。内部 `speaker()` 与返回的回答者一致。
+- `review_reply` 用 `play` / `insert` 管播放和当前对话。过期但曾授权的正文仍 `archive`，`mark` 为 stopped 或 superseded；一轮既被新问题取代又随后停止时标 superseded。没有授权过的伙伴不归档。`is_current` 不再被解释成连共享记录一起丢。
+- `PartnerAvailability.state` 分为 available / busy / unavailable。busy 的原因写「上一轮仍在收尾」，不叫「不可用」，也不改叫下一位。
+- 文档写明：任何新的 `HumanUtterance` 都会使当前轮次失效，只能由按住说话或确认发送构造，不能来自声音活动检测、喇叭回声或伙伴消息。播放仍只锁播放；录音和请求不锁到播完；识别容量另算；房间占位留到集成时按 #43 拆。#33 不因本步关闭。
+- 验证：Linux。companion `uv run python -m pytest -q` **380 passed / 1 skipped**（`test_voice_floor.py` 46 passed；跳过项仍是未设 `YIJIAZI_VOICE_REAL_MODEL` 的既有本地合成/识别冒烟）。评审复现改为 `retry : gge dup=True rejected=False calls=0`，`speaker()` 仍是 gge。Node 播放器 **34 pass**。bridge `go test -tags no_web -p 1 -count=1 ./...` 退出码 0，各包通过。未部署。
+
+## 2026-10-18：发言权离线模块（Issue #33 第一步，未接入、未部署）
+
+- 本线从 main `024763ea` 建 `cursor/floor-control-33-0d68`，草稿 [PR #62](https://github.com/Zssan12/conest/pull/62)。只新增 `companion/voice/floor.py`、`companion/tests/test_voice_floor.py`、`docs/FLOOR_CONTROL.md`，并更新架构、状态、首页索引和本交接。没有改 `devices.py`、`device_app.py`、`device_server.py`、`discussion.py` 或圆屏界面，没有子 Agent，没有动运行服务或部署配置。
+- 调度按显式输入决定唯一回答者：默认当前设备伙伴；点名则只叫被点名的那位；只有真人显式开启群体模式才允许一位补充一次，无人补充是有效结果。预算用尽、不可用和重复事件不换人、不再次授权。停止或新轮次使旧世代失效，`is_current` / `reply_is_current` 拒绝把过期回复插入新对话。上限在 `FloorLimits`。
+- 文档建议：播放继续全局互斥，录音和人类新一轮不要跟这把锁绑到播完。播放和硬件转向跟唯一 `speaker()`；人类新轮次使旧世代过期并丢弃迟到回复。当前 `DeviceRoom` 单槽占位保持原样。#33 不因本步关闭。
+- 已将 origin/main `3026ef88` 合入本分支（其历史上还有 `5f3f2c11`：#58 C酱额度探针信任弹窗、#64 大豆包长回合停滞；以及 #63 局域网监听与每设备独立凭据）。第一次合并唯一冲突在本交接文首，两条记录都保留，main 的代码与 C酱交接原文未改。第二次合并无冲突，`devices.py`、`device_app.py`、`device_server.py` 按 main 原样进入，本线没有再改它们，也没有改 `discussion.py` 或圆屏界面。发言权模块仍未接入服务。
+- 验证：同步到 `3026ef88` 后在 Linux 重跑。companion 全量 pytest **369 passed / 1 skipped**（`test_voice_floor.py` 35 passed；比同步前多出的通过项来自 main 上的设备凭据测试；跳过项仍是未设 `YIJIAZI_VOICE_REAL_MODEL` 的既有本地合成/识别冒烟）。Node 播放器 **34 pass**。bridge `go test -tags no_web -p 1 -count=1 ./...` 退出码 0，各包通过。未部署。
+
 ## 2026-10-18：C酱额度尾注「额度查询失败」（Issue #57，未部署）
 
 - 本线 Claude 在临时克隆的 fix/57-claude-usage-trust-dialog（基线 main 1320bc90）只改 bridge/agent/claudecode/claude_usage.go 与其测试；无子 Agent，未碰 ~/cc-connect 或其他 conest 工作区。
