@@ -302,6 +302,7 @@ const (
 	MsgQuotaRemaining        MsgKey = "quota_remaining"
 	MsgQuotaUnsupported      MsgKey = "quota_unsupported"
 	MsgQuotaNoData           MsgKey = "quota_no_data"
+	MsgQuotaPending          MsgKey = "quota_pending"
 	MsgQuotaFetchFailed      MsgKey = "quota_fetch_failed"
 	MsgEmptyAgentResponse    MsgKey = "empty_agent_response"
 	MsgModelCurrent          MsgKey = "model_current"
@@ -2229,6 +2230,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "額度暫無資料",
 		LangJapanese:           "利用枠: データなし",
 		LangSpanish:            "cuota: sin datos",
+	},
+	MsgQuotaPending: {
+		LangEnglish:            "quota: checking",
+		LangChinese:            "额度查询中",
+		LangTraditionalChinese: "額度查詢中",
+		LangJapanese:           "利用枠: 照会中",
+		LangSpanish:            "cuota: consultando",
 	},
 	MsgQuotaFetchFailed: {
 		LangEnglish:            "quota lookup failed",

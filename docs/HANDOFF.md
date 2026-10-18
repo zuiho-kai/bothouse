@@ -1,5 +1,11 @@
 # 共栖当前交接
 
+## 2026-10-18：额度开关与非阻塞探针组合审核（#65 / #59，未部署）
+
+- #65 已合并（182629e3）：关闭额度显示时跳过探针，保留模型/上下文；审核中复现热更新与尾注读取的数据竞态，改为 atomic.Bool，新增并发回归修前 -race 失败、修后通过。
+- #59 同步包含 #65 的 main 后，按 agent/模型缓存成功额度、后台刷新与失败保留旧值；额度与 CUJ 的 -race 测试、core/config/cmd vet 通过。两条组合验证保留额度关闭时零探针调用。
+- 本次仅代码审核与合并准备，没有改运行配置、部署或重启桥接。
+
 ## 2026-10-18：PR #54 麦克风启动竞态修复（未部署）
 
 - G哥固定页面 a6fb4cab、服务端 7da2c18、测试 d27ebf48 做浏览器验收时，首次主流程未上传录音。随后延迟真实 getUserMedia 返回稳定复现：松手后停在 thinking，迟到麦克风轨道仍 live。
@@ -118,6 +124,7 @@
 - 本线 Claude 在临时克隆的 fix/57-claude-usage-trust-dialog（基线 main 1320bc90）只改 bridge/agent/claudecode/claude_usage.go 与其测试；无子 Agent，未碰 ~/cc-connect 或其他 conest 工作区。
 - 根因：Claude Code 2.1.301 信任弹窗默认光标在「No, exit」，探针回车即退出（exit status 1）；且新版用 CSI G 排版单词，探针终端模拟器不识别，弹窗文字粘连检测不到。修复：支持 CSI G/d；按 ❯ 所在行用方向键移到「Yes, I trust this folder」再回车；弹窗未渲染完或屏幕为空时不发键；探针改用固定目录 <data_dir>/claude-usage-probe，只需信任一次，不再每次往 ~/.claude.json 加一条临时目录记录。
 - 验证：bridge 全量 go test -tags no_web 通过，vet/构建通过；新测试在旧代码上失败。本机真实 claude 2.1.301 连续 3 次 GetUsage 均返回会话/周额度（每次约 3.2—3.7 秒），~/.claude.json 只新增 1 条固定目录记录。此前排查留下的 3 条 cc-connect-claude-usage-* 临时目录信任记录未清理（用户配置，未擅改）。
+- 跟进（同日，分支 fix/57-footer-usage-nonblocking，叠在上面分支之上）：部署 b62782a2 后探针成功但需 3.0—5.8 秒，超过尾注 3 秒超时，仍显示「额度查询失败」。改为尾注不等探针：按 agent+模型保留上次成功额度，旧于 60 秒在后台刷新（20 秒超时，每个 agent 同时最多一个探针，失败 30 秒后才重试）；刷新失败不覆盖旧值（超过 30 分钟的旧值不再显示）；从未成功且最近一次失败才显示「额度查询失败」，首次探针进行中显示「额度查询中」（首次最多等 0.5 秒）。core -race 连跑 3 次通过，bridge 全量 no_web 通过（claudecode 的 TestForceKillCmd_KillsGrandchild 全量并发下偶发失败一次，单独 20 次均过，与本改动无关）。未部署。
 - 未部署、未重启 cc-connect。部署需用户授权：合并后从 main 的 bridge/ 构建新二进制，备份并替换 ~/cc-connect/cc-connect 后由负责该进程的流程重启；验证 C酱尾注显示「额度剩余 N%」。已知余项：周额度重置时间解析为 0（reset 文本格式未覆盖），不影响尾注百分比。
 
 ## 2026-10-18：与角色小家的跨项目分工草案（Issue #56，仅文档，待双方确认）

@@ -89,16 +89,217 @@ func TestQuotaFooter_StatesAndNoStaleBalance(t *testing.T) {
 		t.Fatal(got)
 	}
 	a.report = &UsageReport{Buckets: []UsageBucket{{Windows: []UsageWindow{{UsedPercent: 35, WindowSeconds: 18000}}}}}
-	e.replyFooterUsage.fetchedAt = time.Now().Add(-time.Hour)
+	ageReplyFooterUsage(e, time.Hour)
+	_ = e.replyFooterUsageText(nil, a) // kicks a background refresh
+	waitReplyFooterUsageIdle(t, e)
 	if got := e.replyFooterUsageText(nil, a); got != "额度剩余 65%" {
 		t.Fatal(got)
 	}
+	// A balance too old to trust is not presented as current once refreshes fail.
 	a.err = errors.New("offline")
-	e.replyFooterUsage.fetchedAt = time.Now().Add(-time.Hour)
+	ageReplyFooterUsage(e, time.Hour)
+	_ = e.replyFooterUsageText(nil, a)
+	waitReplyFooterUsageIdle(t, e)
 	if got := e.replyFooterUsageText(nil, a); got != "额度查询失败" {
 		t.Fatalf("stale balance presented as current: %s", got)
 	}
 }
+
+// slowUsageAgent is a UsageReporter whose probe takes delay and can fail.
+type slowUsageAgent struct {
+	stubAgent
+	delay   time.Duration
+	mu      sync.Mutex
+	used    int
+	err     error
+	calls   int
+	running int
+	maxRun  int
+}
+
+func (a *slowUsageAgent) set(used int, err error) {
+	a.mu.Lock()
+	a.used, a.err = used, err
+	a.mu.Unlock()
+}
+
+func (a *slowUsageAgent) stats() (calls, maxRun int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.calls, a.maxRun
+}
+
+func (a *slowUsageAgent) GetUsage(ctx context.Context) (*UsageReport, error) {
+	a.mu.Lock()
+	a.calls++
+	a.running++
+	if a.running > a.maxRun {
+		a.maxRun = a.running
+	}
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.running--
+		a.mu.Unlock()
+	}()
+	select {
+	case <-time.After(a.delay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.err != nil {
+		return nil, a.err
+	}
+	return &UsageReport{Buckets: []UsageBucket{{Windows: []UsageWindow{{UsedPercent: a.used, WindowSeconds: 18000}}}}}, nil
+}
+
+// ageReplyFooterUsage pretends every cached result and attempt is older by d.
+func ageReplyFooterUsage(e *Engine, d time.Duration) {
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	for _, ent := range e.replyFooterUsage {
+		if !ent.okAt.IsZero() {
+			ent.okAt = ent.okAt.Add(-d)
+		}
+		if !ent.attemptAt.IsZero() {
+			ent.attemptAt = ent.attemptAt.Add(-d)
+		}
+	}
+}
+
+func waitReplyFooterUsageIdle(t *testing.T, e *Engine) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		e.replyFooterMu.Lock()
+		busy := len(e.replyFooterInflight) > 0
+		e.replyFooterMu.Unlock()
+		if !busy {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("quota probe still running")
+}
+
+func TestQuotaFooter_SlowProbeDoesNotBlockFooter(t *testing.T) {
+	e := newLegacyFooterEngine()
+	e.i18n = NewI18n(LangChinese)
+	a := &slowUsageAgent{delay: 2 * time.Second, used: 20}
+
+	start := time.Now()
+	got := e.replyFooterUsageText(nil, a)
+	if elapsed := time.Since(start); elapsed > replyFooterUsageFirstWait+300*time.Millisecond {
+		t.Fatalf("footer blocked %s on a slow probe", elapsed)
+	}
+	if got != "额度查询中" {
+		t.Fatalf("first footer while probing = %q", got)
+	}
+	start = time.Now()
+	if got := e.replyFooterUsageText(nil, a); got != "额度查询中" || time.Since(start) > 50*time.Millisecond {
+		t.Fatalf("second footer waited or wrong: %q after %s", got, time.Since(start))
+	}
+	waitReplyFooterUsageIdle(t, e)
+	if got := e.replyFooterUsageText(nil, a); got != "额度剩余 80%" {
+		t.Fatalf("finished probe not shown: %q", got)
+	}
+}
+
+func TestQuotaFooter_StaleValueRefreshedInBackground(t *testing.T) {
+	e := newLegacyFooterEngine()
+	e.i18n = NewI18n(LangChinese)
+	a := &slowUsageAgent{delay: 10 * time.Millisecond, used: 20}
+	if got := e.replyFooterUsageText(nil, a); got != "额度剩余 80%" {
+		t.Fatalf("fast first probe = %q", got)
+	}
+	a.set(50, nil)
+	a.delay = 300 * time.Millisecond
+	// Fresh: served from cache, no new probe.
+	_ = e.replyFooterUsageText(nil, a)
+	if calls, _ := a.stats(); calls != 1 {
+		t.Fatalf("fresh quota re-probed: %d calls", calls)
+	}
+	ageReplyFooterUsage(e, replyFooterUsageStaleAfter)
+	start := time.Now()
+	if got := e.replyFooterUsageText(nil, a); got != "额度剩余 80%" || time.Since(start) > 50*time.Millisecond {
+		t.Fatalf("stale footer should show old value at once: %q after %s", got, time.Since(start))
+	}
+	waitReplyFooterUsageIdle(t, e)
+	if got := e.replyFooterUsageText(nil, a); got != "额度剩余 50%" {
+		t.Fatalf("background refresh not applied: %q", got)
+	}
+}
+
+func TestQuotaFooter_FailedRefreshKeepsLastGoodValue(t *testing.T) {
+	e := newLegacyFooterEngine()
+	e.i18n = NewI18n(LangChinese)
+	a := &slowUsageAgent{delay: time.Millisecond, used: 30}
+	if got := e.replyFooterUsageText(nil, a); got != "额度剩余 70%" {
+		t.Fatal(got)
+	}
+	a.set(0, errors.New("claude exited"))
+	ageReplyFooterUsage(e, replyFooterUsageStaleAfter)
+	_ = e.replyFooterUsageText(nil, a)
+	waitReplyFooterUsageIdle(t, e)
+	if calls, _ := a.stats(); calls != 2 {
+		t.Fatalf("expected a refresh attempt, got %d calls", calls)
+	}
+	if got := e.replyFooterUsageText(nil, a); got != "额度剩余 70%" {
+		t.Fatalf("failed refresh overwrote good value: %q", got)
+	}
+	// Failures are retried no faster than replyFooterUsageRetryAfter.
+	_ = e.replyFooterUsageText(nil, a)
+	if calls, _ := a.stats(); calls != 2 {
+		t.Fatalf("failed refresh retried immediately: %d calls", calls)
+	}
+}
+
+func TestQuotaFooter_FailureWithoutAnySuccess(t *testing.T) {
+	e := newLegacyFooterEngine()
+	e.i18n = NewI18n(LangChinese)
+	a := &slowUsageAgent{delay: time.Millisecond, err: errors.New("claude exited")}
+	if got := e.replyFooterUsageText(nil, a); got != "额度查询失败" {
+		t.Fatalf("never-succeeded failure = %q", got)
+	}
+}
+
+func TestQuotaFooter_SingleFlightPerAgent(t *testing.T) {
+	e := newLegacyFooterEngine()
+	e.i18n = NewI18n(LangChinese)
+	a := &slowUsageAgent{delay: 300 * time.Millisecond, used: 10}
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = e.replyFooterUsageText(nil, a)
+		}()
+	}
+	wg.Wait()
+	waitReplyFooterUsageIdle(t, e)
+	if calls, maxRun := a.stats(); calls != 1 || maxRun != 1 {
+		t.Fatalf("concurrent footers probed %d times (max %d at once)", calls, maxRun)
+	}
+	// Another model of the same agent waits for the running probe instead of
+	// starting a second one.
+	m := &slowModelUsageAgent{slowUsageAgent: &slowUsageAgent{delay: 300 * time.Millisecond, used: 10}, model: "a"}
+	_ = e.replyFooterUsageText(nil, m)
+	m.model = "b"
+	_ = e.replyFooterUsageText(nil, m)
+	if _, maxRun := m.stats(); maxRun != 1 {
+		t.Fatalf("two probes ran at once for one agent: %d", maxRun)
+	}
+	waitReplyFooterUsageIdle(t, e)
+}
+
+type slowModelUsageAgent struct {
+	*slowUsageAgent
+	model string
+}
+
+func (a *slowModelUsageAgent) GetModel() string { return a.model }
 
 func TestQuotaFooter_ContextAndQuotaCoexist(t *testing.T) {
 	e := newLegacyFooterEngine()

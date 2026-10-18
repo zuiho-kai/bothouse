@@ -76,8 +76,18 @@ const (
 )
 
 const (
-	replyFooterUsageTimeout  = 3 * time.Second
-	replyFooterUsageCacheTTL = 30 * time.Second
+	// replyFooterUsageTimeout bounds session-level quota lookups, which run
+	// inline with the footer.
+	replyFooterUsageTimeout = 3 * time.Second
+	// Agent-level probes (e.g. Claude Code's PTY /usage, 3–6s) run in the
+	// background so the footer never waits on them; see replyFooterUsageStatus.
+	replyFooterUsageProbeTimeout = 20 * time.Second
+	replyFooterUsageFirstWait    = 500 * time.Millisecond
+	replyFooterUsageStaleAfter   = 60 * time.Second
+	replyFooterUsageRetryAfter   = 30 * time.Second
+	// A last good balance older than this is no longer shown once refreshes
+	// keep failing.
+	replyFooterUsageMaxAge = 30 * time.Minute
 )
 
 const (
@@ -102,12 +112,18 @@ type RestartRequest struct {
 	Platform   string `json:"platform"`
 }
 
-type replyFooterUsageCache struct {
-	agent     Agent
-	model     string
-	text      string
-	hasQuota  bool
-	fetchedAt time.Time
+type replyFooterUsageKey struct {
+	agent any // the Agent itself, or its Name() when the value is not comparable
+	model string
+}
+
+type replyFooterUsageEntry struct {
+	text      string    // last successful quota text
+	okAt      time.Time // when text was fetched; zero if never
+	failText  string    // set when the latest attempt failed
+	attemptAt time.Time // when the latest attempt finished
+	done      chan struct{}
+	waited    bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -482,7 +498,8 @@ type Engine struct {
 	stopping            bool
 	messageWorkers      sync.WaitGroup // admission is serialized with Stop by platformLifecycleMu
 	replyFooterMu       sync.Mutex
-	replyFooterUsage    replyFooterUsageCache
+	replyFooterUsage    map[replyFooterUsageKey]*replyFooterUsageEntry
+	replyFooterInflight map[any]bool // agent identity -> probe running
 
 	// pendingRestartNotify is queued at startup if a /restart was consumed
 	// from the run/restart_notify file. It is dispatched on the first
@@ -7782,16 +7799,70 @@ func (e *Engine) replyFooterUsageStatus(session AgentSession, agent Agent) (stri
 		return status, false
 	}
 	model := replyFooterModel(session, agent)
+	agentID := replyFooterAgentID(agent)
+	key := replyFooterUsageKey{agent: agentID, model: model}
 
+	// The footer never blocks on the agent probe: it shows the last known
+	// quota and refreshes it in the background, one probe per agent at a time.
+	// Only the very first probe gets a short wait so fast reporters still show
+	// a quota on the first reply.
 	e.replyFooterMu.Lock()
-	cached := e.replyFooterUsage
+	if e.replyFooterUsage == nil {
+		e.replyFooterUsage = make(map[replyFooterUsageKey]*replyFooterUsageEntry)
+		e.replyFooterInflight = make(map[any]bool)
+	}
+	ent := e.replyFooterUsage[key]
+	if ent == nil {
+		ent = &replyFooterUsageEntry{}
+		e.replyFooterUsage[key] = ent
+	}
+	now := time.Now()
+	retryDue := ent.attemptAt.IsZero() || now.Sub(ent.attemptAt) >= replyFooterUsageRetryAfter
+	stale := ent.okAt.IsZero() || now.Sub(ent.okAt) >= replyFooterUsageStaleAfter
+	if ent.done == nil && !e.replyFooterInflight[agentID] && stale && retryDue {
+		ent.done = make(chan struct{})
+		e.replyFooterInflight[agentID] = true
+		go e.refreshReplyFooterUsage(reporter, agent, model, agentID, ent)
+	}
+	var wait chan struct{}
+	if ent.done != nil && ent.okAt.IsZero() && ent.attemptAt.IsZero() && !ent.waited {
+		wait, ent.waited = ent.done, true
+	}
 	e.replyFooterMu.Unlock()
-	if reflect.ValueOf(agent).Comparable() && cached.agent == agent && cached.model == model && !cached.fetchedAt.IsZero() && time.Since(cached.fetchedAt) < replyFooterUsageCacheTTL {
-		return cached.text, cached.hasQuota
+
+	if wait != nil {
+		timer := time.NewTimer(replyFooterUsageFirstWait)
+		select {
+		case <-wait:
+		case <-timer.C:
+		}
+		timer.Stop()
 	}
 
-	text := status
-	hasQuota := false
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	switch {
+	case !ent.okAt.IsZero() && time.Since(ent.okAt) < replyFooterUsageMaxAge:
+		return ent.text, true
+	case ent.done != nil || (ent.attemptAt.IsZero() && e.replyFooterInflight[agentID]):
+		return e.i18n.T(MsgQuotaPending), false
+	case ent.failText != "":
+		return ent.failText, false
+	default:
+		return status, false
+	}
+}
+
+// refreshReplyFooterUsage runs one agent quota probe. A failed or empty
+// result never replaces the last good quota.
+func (e *Engine) refreshReplyFooterUsage(reporter UsageReporter, agent Agent, model string, agentID any, ent *replyFooterUsageEntry) {
+	parent := e.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, replyFooterUsageProbeTimeout)
+	defer cancel()
+
 	var report *UsageReport
 	var err error
 	if scoped, ok := agent.(ModelUsageReporter); ok {
@@ -7799,19 +7870,34 @@ func (e *Engine) replyFooterUsageStatus(session AgentSession, agent Agent) (stri
 	} else {
 		report, err = reporter.GetUsage(ctx)
 	}
-	if err == nil {
-		if usage := formatReplyFooterUsage(report, e.i18n); usage != "" {
-			text = usage
-			hasQuota = true
-		}
+	// An empty report leaves failText empty so the footer falls back to the
+	// session-level status, as before.
+	text, failText := "", ""
+	if err != nil {
+		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
+		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
-		text = e.i18n.T(MsgQuotaFetchFailed)
+		text = formatReplyFooterUsage(report, e.i18n)
 	}
 
 	e.replyFooterMu.Lock()
-	e.replyFooterUsage = replyFooterUsageCache{agent: agent, model: model, text: text, hasQuota: hasQuota, fetchedAt: time.Now()}
-	e.replyFooterMu.Unlock()
-	return text, hasQuota
+	defer e.replyFooterMu.Unlock()
+	ent.attemptAt = time.Now()
+	if text != "" {
+		ent.text, ent.okAt, ent.failText = text, ent.attemptAt, ""
+	} else {
+		ent.failText = failText
+	}
+	close(ent.done)
+	ent.done = nil
+	delete(e.replyFooterInflight, agentID)
+}
+
+func replyFooterAgentID(agent Agent) any {
+	if reflect.ValueOf(agent).Comparable() {
+		return agent
+	}
+	return agent.Name()
 }
 
 func supportsUsageReporting(session AgentSession, agent Agent) bool {
