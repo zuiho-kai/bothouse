@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -150,3 +151,62 @@ func TestQuotaFooter_QuotaAloneIsStillUsefulStatus(t *testing.T) {
 }
 
 func (s *quotaEmptySession) GetUsage(context.Context) (*UsageReport, error) { return nil, nil }
+
+func TestQuotaFooter_ToggleConcurrentWithRead(t *testing.T) {
+	e := newLegacyFooterEngine()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			e.SetShowQuotaIndicator(i%2 == 0)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			e.replyFooterUsageStatus(nil, nil)
+		}
+	}()
+	wg.Wait()
+}
+
+type countingUsageAgent struct {
+	stubFooterAgent
+	calls int
+}
+
+func (a *countingUsageAgent) GetUsage(context.Context) (*UsageReport, error) {
+	a.calls++
+	return &UsageReport{Buckets: []UsageBucket{{Windows: []UsageWindow{{UsedPercent: 35, WindowSeconds: 18000}}}}}, nil
+}
+
+func TestQuotaFooter_QuotaToggleKeepsStatusAndSkipsProbe(t *testing.T) {
+	e := newLegacyFooterEngine()
+	e.SetShowQuotaIndicator(false)
+	s := newControllableSession("quota-off")
+	s.model = "test-model"
+	s.contextUsage = &ContextUsage{UsedTokens: 100, ContextWindow: 1000, CachedInputTokens: 50}
+	a := &countingUsageAgent{stubFooterAgent: stubFooterAgent{model: "test-model"}}
+	for name, got := range map[string]string{
+		"plain":        e.buildReplyFooter(a, s, "", "[ctx: 10%]"),
+		"rich":         e.composeRichStatusFooter(false, time.Now(), a, s, ""),
+		"cache-status": e.buildClaudeStatusLineFooter(a, s, ""),
+	} {
+		if !strings.Contains(got, "test-model") || !strings.Contains(got, "10%") {
+			t.Errorf("%s lost model or context: %q", name, got)
+		}
+		if strings.Contains(got, "quota") || strings.Contains(got, " ·  ·") || strings.HasSuffix(got, " · ") {
+			t.Errorf("%s still shows quota or an empty segment: %q", name, got)
+		}
+	}
+	if a.calls != 0 {
+		t.Fatalf("quota probed %d times with the indicator off", a.calls)
+	}
+	if got := e.buildReplyFooter(a, nil, "", ""); got != "test-model" {
+		t.Fatalf("footer without session should keep just the model: %q", got)
+	}
+	if a.calls != 0 {
+		t.Fatalf("quota probed %d times with the indicator off", a.calls)
+	}
+}

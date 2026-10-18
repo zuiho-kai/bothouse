@@ -547,6 +547,9 @@ type ProjectConfig struct {
 	// ShowWorkdirIndicator: nil/true = render the reply footer's second line
 	// (workspace directory); false = hide that line. Subordinate to ReplyFooter.
 	ShowWorkdirIndicator *bool `toml:"show_workdir_indicator,omitempty"`
+	// ShowQuotaIndicator: nil/true = append the account quota to the status
+	// line; false = never query or show it. Subordinate to ShowContextIndicator.
+	ShowQuotaIndicator *bool `toml:"show_quota_indicator,omitempty"`
 	// ReplyFooter: nil/true = render the reply footer; false = disable it
 	// entirely (the per-line indicator flags above become no-ops).
 	ReplyFooter      *bool        `toml:"reply_footer,omitempty"`

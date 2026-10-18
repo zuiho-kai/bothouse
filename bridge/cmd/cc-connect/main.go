@@ -429,6 +429,7 @@ func main() {
 			showWorkdir = *proj.ShowWorkdirIndicator
 		}
 		engine.SetShowWorkdirIndicator(showWorkdir)
+		engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
 		engine.SetReplyFooterEnabled(showFooter)
 		engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
 		engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
@@ -1778,6 +1779,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 		showWorkdir = *proj.ShowWorkdirIndicator
 	}
 	engine.SetShowWorkdirIndicator(showWorkdir)
+	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
 	engine.SetReplyFooterEnabled(showFooter)
 
 	// Reload auto-compress settings

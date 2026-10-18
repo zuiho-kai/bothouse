@@ -440,7 +440,10 @@ type Engine struct {
 	// regardless of the per-line flags.
 	showContextIndicator bool
 	showWorkdirIndicator bool
-	replyFooterEnabled   bool
+	// hideQuotaIndicator drops the quota segment of the status line and stops
+	// the quota probe (for Claude that spawns a CLI each time). Zero value shows it.
+	hideQuotaIndicator atomic.Bool
+	replyFooterEnabled bool
 
 	// When true, /list etc. only show sessions tracked by cc-connect,
 	// hiding sessions created by direct CLI usage in the same work_dir.
@@ -993,6 +996,12 @@ func (e *Engine) SetShowContextIndicator(show bool) {
 // (workspace directory) is rendered. Subordinate to SetReplyFooterEnabled.
 func (e *Engine) SetShowWorkdirIndicator(show bool) {
 	e.showWorkdirIndicator = show
+}
+
+// SetShowQuotaIndicator controls whether the status line carries the account
+// quota. When false the quota is never queried; model and context stay.
+func (e *Engine) SetShowQuotaIndicator(show bool) {
+	e.hideQuotaIndicator.Store(!show)
 }
 
 // SetReplyFooterEnabled is the master toggle for the per-turn reply footer.
@@ -7514,7 +7523,7 @@ func (e *Engine) buildReplyFooter(agent Agent, session AgentSession, workspaceDi
 			parts = append(parts, contextLeft)
 			hasStatus = true
 		}
-		if usage, hasQuota := e.replyFooterUsageStatus(session, agent); hasStatus || hasQuota {
+		if usage, hasQuota := e.replyFooterUsageStatus(session, agent); usage != "" && (hasStatus || hasQuota) {
 			parts = append(parts, usage)
 			hasStatus = true
 		}
@@ -7742,6 +7751,9 @@ func (e *Engine) replyFooterUsageText(session AgentSession, agent Agent) string 
 // The boolean distinguishes a measured quota from an availability message, so
 // an unknown quota alone does not resurrect a workdir-only footer.
 func (e *Engine) replyFooterUsageStatus(session AgentSession, agent Agent) (string, bool) {
+	if e.hideQuotaIndicator.Load() {
+		return "", false
+	}
 	if !supportsUsageReporting(session, agent) {
 		return e.i18n.T(MsgQuotaUnsupported), false
 	}
