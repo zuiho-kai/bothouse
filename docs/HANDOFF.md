@@ -1,5 +1,11 @@
 # 共栖当前交接
 
+## 2026-10-18：与角色小家的跨项目分工草案（Issue #56，仅文档，待双方确认）
+
+- 用户（zuiho-kai）授权本线试协作者的提 PR 与合并流程。本线由用户侧 Claude 通过 GitHub API 在分支 juzi/collab-note 提交，基线 main fd51fd5e；只新增 docs/ROLE_HOUSEHOLD_COLLAB.md 和本交接，不改源码、配置或运行服务，无子 Agent。
+- 草案：频道、全局发言锁、硬件归 role-household；语音输入输出复用 companion/voice，经 role-household 频道的文字接口接入。这是待确认的跨项目边界，不是已定架构；双方确认前，#33、#42、#43 的设备与发言协调边界保持不变，不按草案改实现。
+- 待确认项见 Issue #56：许可证（#9）、companion/voice 是否拆包。确认后再同步 docs/ARCHITECTURE.md。未部署。
+
 ## 2026-10-17：电脑固定双设备入口（Issue #43，未部署）
 
 - 用户认可当前8793自然度和停顿后，确认下一步电脑模拟G哥、Cursor各自一台设备。本线Codex独立工作区 /Users/zhaixinyang/conest-43-desktop、feat/43-desktop-devices，无子Agent。已复用并同步原协作线合并的PR #47/#48/#50，并保留PR #51的新产品说明；没有改写它们的工作区。
