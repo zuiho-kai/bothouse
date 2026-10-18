@@ -44,9 +44,31 @@ uv run python -m voice.device_server \
 - 浏览器进一步复现“播完回执丢失后，输入锁住且停止按钮禁用”：旧页面stopDisabled=true；修复后停止按钮保持可用，点击后busy=false、音频暂停、重播禁用。保留红绿记录 browser-lost-receipt-red/green.txt。
 - 原始记录仅在本工作区 `.local/python-*.log`、`node-final.log`、`browser-*.txt` 和浏览器快照中。最终 CI 与审核结论见关联 PR。
 
+## 局域网设备接入（Issue #42）
+
+默认仍只监听 `127.0.0.1`，电脑页面行为不变。要让外接终端走 Wi-Fi，必须显式给地址：
+
+```sh
+cd companion
+uv run python -m voice.device_server \
+  --config /absolute/path/to/device-voice-config.json \
+  --roles /absolute/path/to/roles.json \
+  --devices /absolute/path/to/device-bindings.json \
+  --host 192.168.1.50
+```
+
+- `--host` 必须是本机实际网卡地址或 `0.0.0.0`；**非本机地址要求每台设备都有独立 `secret`**，缺一台就拒绝启动（不会降级成页面令牌）。
+- 设备凭据写在 `devices.json` 的 `secret` 字段，32–128 位字母数字 `_` `-`，每台不同；格式见 `companion/examples/device-bindings-lan.example.json`。生成：`python3 -c "import secrets; print(secrets.token_urlsafe(32))"`。
+- 设备请求带 `X-Device-Secret`。它只能访问 `/device/<自己的 id>/api/...`；拿别的设备的 secret 返回 403，未知设备也返回 403（不暴露设备是否存在）。
+- **页面令牌不会发给非本机客户端**：远端 `GET /api/config` 返回 `token: ""` 和 `auth: "device-secret"`。HTML 页面、`/api/devices`、`/static` 只对本机开放，远端一律 403。
+- `0.0.0.0` 无法固定 Host 头，此时 TrustedHost 放行任意 Host，唯一门槛就是设备凭据；能固定地址时优先写具体 IP。
+- 配置文件含明文凭据，必须 0600 且不入库；`statuses()`、`/api/devices`、`/api/config` 都不会回显 secret。
+
+仍是模拟测试：没有板上验证、没有 TLS、没有失联租约。局域网明文 HTTP 只适合封闭测试网，正式演示要等传输加密那一项。
+
 ## 当前边界
 
-这是 localhost 电脑模拟，设备 UUID/client UUID 是单用户页面归属，不是联网硬件认证。没有Wi-Fi传输、固件、独立音频输出、设备状态灯、自动接话或跨房间调度。#42 需要再定义设备凭据、连接世代、失联确认与音频协议；#33 负责何时允许其他伙伴加入。
+本机页面是电脑模拟；`--host` 已支持局域网设备用每设备独立凭据接入，但仍未做传输加密、失联租约与固件。设备 UUID/client UUID 在本机是页面归属，远端由设备凭据认证。没有Wi-Fi实机传输、独立音频输出、设备状态灯、自动接话或跨房间调度；音频协议见 [DEVICE_TERMINAL.md](DEVICE_TERMINAL.md)，#33 负责何时允许其他伙伴加入。
 
 未收到可信停止/播完回执时，不用超时猜测设备已静音。不能检测被修改的客户端是否真的播放，也不保证用户听见。页面崩溃或停止回执丢失可能需要人工恢复；本进程最多保留200轮请求防重记录，达到上限要求空闲时重启。重启不会恢复旧音频或自动重发。
 

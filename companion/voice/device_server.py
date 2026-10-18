@@ -1,4 +1,9 @@
-"""Explicit, localhost-only entry point for desktop device simulation."""
+"""Explicit entry point for desktop and LAN device terminals.
+
+The default stays on 127.0.0.1. Binding another address requires a per-device
+secret for every device, and turns the HTML pages and device list into
+loopback-only surfaces.
+"""
 import argparse
 import json
 from pathlib import Path
@@ -21,12 +26,14 @@ def main():
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--roles', type=Path, required=True)
     parser.add_argument('--devices', type=Path, required=True)
+    parser.add_argument('--host', default='127.0.0.1',
+                        help='监听地址；非本机地址要求每台设备都有独立凭据')
     args = parser.parse_args()
     settings, roles = read_settings(args.config), read_roles(args.roles)
     registry = read_devices(args.devices, roles)
+    app = create_device_app(settings, registry, roles=roles, host=args.host)
     import uvicorn
-    uvicorn.run(create_device_app(settings, registry, roles=roles), host='127.0.0.1', port=settings.port,
-                log_config=timestamped_log_config())
+    uvicorn.run(app, host=args.host, port=settings.port, log_config=timestamped_log_config())
 
 
 def timestamped_log_config():

@@ -1,0 +1,20 @@
+{
+  "devices": [
+    {
+      "device_id": "desk-gge-01",
+      "name": "G哥的设备",
+      "project": "gge",
+      "session_key": "discord:000000000000000000",
+      "appearance": "蓝色鲸鱼徽章",
+      "secret": "REPLACE_WITH_32_OR_MORE_URLSAFE_CHARS"
+    },
+    {
+      "device_id": "desk-cursor-01",
+      "name": "Cursor 的设备",
+      "project": "cursor",
+      "session_key": "discord:000000000000000000",
+      "appearance": "橙色方块徽章",
+      "secret": "ANOTHER_DIFFERENT_32_OR_MORE_URLSAFE_SECRET"
+    }
+  ]
+}

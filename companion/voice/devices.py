@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import hmac
 import json
 import math
 from pathlib import Path
@@ -28,6 +29,7 @@ from .bridge import BridgeError
 from .roles import Role
 
 DEVICE_ID_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
+DEVICE_SECRET_RE = re.compile(r'[A-Za-z0-9_-]{32,128}\Z')
 PROJECT_RE = re.compile(r'[A-Za-z0-9_-]{1,64}\Z')
 SESSION_KEY_RE = re.compile(r'[A-Za-z0-9:._-]{1,200}\Z')
 MAX_DEVICES = 8
@@ -51,6 +53,7 @@ class DeviceBinding:
     project: str
     session_key: str
     appearance: str = ''
+    secret: str = ''
 
     def __post_init__(self):
         if not isinstance(self.device_id, str) or not DEVICE_ID_RE.fullmatch(self.device_id):
@@ -63,6 +66,8 @@ class DeviceBinding:
             raise ValueError('设备绑定的 session_key 格式不正确。')
         if not isinstance(self.appearance, str) or len(self.appearance) > 80:
             raise ValueError('外观标识最多80字。')
+        if not isinstance(self.secret, str) or (self.secret and not DEVICE_SECRET_RE.fullmatch(self.secret)):
+            raise ValueError('设备凭据必须留空，或为32至128位字母、数字、下划线、短横线。')
 
 class DeviceRegistry:
     """Validated, immutable device-to-partner map loaded from one JSON file."""
@@ -82,6 +87,9 @@ class DeviceRegistry:
         names = [device.name for device in self.devices]
         if len(set(names)) != len(names):
             raise ValueError('设备名称不得重复，用户需要能辨认每台设备。')
+        secrets = [device.secret for device in self.devices if device.secret]
+        if len(set(secrets)) != len(secrets):
+            raise ValueError('设备凭据不得重复；共用凭据等于互相冒充。')
 
         roster = tuple(roles) if roles is not None else ()
         self.roles = {role.project: role for role in roster}
@@ -102,6 +110,26 @@ class DeviceRegistry:
 
     def by_project(self, project: str) -> DeviceBinding | None:
         return self._by_project.get(project)
+
+    def require_secrets(self) -> None:
+        """Refuse remote listening unless every device can authenticate itself."""
+        missing = [device.device_id for device in self.devices if not device.secret]
+        if missing:
+            raise ValueError('监听非本机地址前，必须为每台设备配置独立凭据：' + '、'.join(missing))
+
+    def authenticate(self, device_id: str, supplied: str) -> bool:
+        """Constant-time check of one device's own secret; never a shared token.
+
+        The shape is validated first: ``hmac.compare_digest`` raises on
+        non-ASCII strings, and a malformed header must be a refusal (403), not
+        an exception the middleware turns into a 500.
+        """
+        device = self._by_id.get(device_id)
+        if device is None or not device.secret or not isinstance(supplied, str):
+            return False
+        if not DEVICE_SECRET_RE.fullmatch(supplied):
+            return False
+        return hmac.compare_digest(supplied, device.secret)
 
     def role_name(self, device: DeviceBinding) -> str:
         role = self.roles.get(device.project)

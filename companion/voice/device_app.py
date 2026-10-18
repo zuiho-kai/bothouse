@@ -218,8 +218,25 @@ class DeviceRoom:
         return {'ok': True}
 
 
-def create_device_app(settings, registry, *, speech=None, bridge=None, roles):
+LOCAL_CLIENTS = frozenset({'127.0.0.1', '::1', 'localhost'})
+
+def device_api_id(path: str) -> str | None:
+    """Return the device id for /device/<id>/api/... paths, else None."""
+    parts = path.split('/')
+    if len(parts) >= 4 and parts[0] == '' and parts[1] == 'device' and parts[3] == 'api':
+        return parts[2]
+    return None
+
+def create_device_app(settings, registry, *, speech=None, bridge=None, roles, host='127.0.0.1'):
     settings.validate()
+    if not isinstance(host, str) or not host.strip():
+        raise ValueError('必须显式指定监听地址。')
+    host = host.strip()
+    wildcard = host in {'0.0.0.0', '::'}
+    if host not in LOCAL_CLIENTS:
+        # A reachable entry without per-device credentials would let any host on
+        # the LAN impersonate a partner's device. Refuse to start instead.
+        registry.require_secrets()
     service = build_service(settings, speech, bridge, roles)
     room = DeviceRoom(service, registry)
 
@@ -236,16 +253,38 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles):
 
     app = FastAPI(title='共栖 · 双设备电脑验证', lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.service, app.state.room = service, room
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost'])
+    app.state.host = host
+    # 0.0.0.0 cannot pin a Host header; the device secret is then the only gate.
+    app.add_middleware(TrustedHostMiddleware,
+                       allowed_hosts=['*'] if wildcard else sorted(LOCAL_CLIENTS | {host}))
+
+    def is_local(request):
+        client = request.client
+        return bool(client) and client.host in LOCAL_CLIENTS
 
     @app.middleware('http')
-    async def local_guard(request, call_next):
-        if request.method not in {'GET', 'HEAD'}:
-            allowed = {f'http://127.0.0.1:{settings.port}', f'http://localhost:{settings.port}'}
-            if request.headers.get('origin') and request.headers['origin'] not in allowed:
-                return JSONResponse({'detail': '只接受本机页面请求。'}, 403)
-            if not hmac.compare_digest(request.headers.get('x-voice-token', ''), service.token):
-                return JSONResponse({'detail': '页面已过期，请刷新。'}, 403)
+    async def device_guard(request, call_next):
+        local = is_local(request)
+        device_id = device_api_id(request.url.path)
+        authenticated = bool(device_id) and registry.authenticate(
+            device_id, request.headers.get('x-device-secret', ''))
+        if device_id is None and not local:
+            # Pages, the device list and static files stay on the computer.
+            return JSONResponse({'detail': '这个页面只在本机可用；设备请用 /device/<id>/api。'}, 403)
+        if request.method in {'GET', 'HEAD'}:
+            if not local and not authenticated:
+                return JSONResponse({'detail': '设备凭据不正确。'}, 403)
+        else:
+            if not authenticated:
+                allowed = {f'http://127.0.0.1:{settings.port}', f'http://localhost:{settings.port}'}
+                if not wildcard:
+                    allowed.add(f'http://{host}:{settings.port}')
+                if not local:
+                    return JSONResponse({'detail': '设备凭据不正确。'}, 403)
+                if request.headers.get('origin') and request.headers['origin'] not in allowed:
+                    return JSONResponse({'detail': '只接受本机页面请求。'}, 403)
+                if not hmac.compare_digest(request.headers.get('x-voice-token', ''), service.token):
+                    return JSONResponse({'detail': '页面已过期，请刷新。'}, 403)
             limit = 1_000_000 if request.url.path.endswith('/transcribe') else 32_000
             body = bytearray()
             async for part in request.stream():
@@ -286,7 +325,9 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles):
         except BridgeError as exc:
             detail, available = str(exc), False
         active = room.records.get(room.active)
-        return {'token': service.token, 'device_id': device_id, 'device_name': device.name,
+        local = is_local(request)
+        return {'token': service.token if local else '', 'auth': 'page-token' if local else 'device-secret',
+                'device_id': device_id, 'device_name': device.name,
                 'default_role': device.project, 'session_label': settings.session_label,
                 'max_record_seconds': 30, 'asr_model_ready': Path(settings.model_path).is_dir(),
                 'active_turn': active['id'] if active and active['device_id'] == device_id and active['client'] == client else None,
