@@ -40,10 +40,10 @@ python3 -m http.server 58249 --bind 127.0.0.1 --directory prototypes/device-ui
 | --- | --- | --- | --- | --- |
 | **G哥 (`gpt`)** · 默认伙伴 | `idle` / `busy` / `stopping` / `offline` | `gpt/idle-blink-square-v1.mp4` (`4.65s–9.90s`) | `1.18 / +1.8% / +1.5%` | 使用已居中裁好的 `720×720` 正方形视频，截取睁眼与安静眨眼段（避开前段闭眼大笑），放大 `1.18×` 隐藏底部胸口横切线，完整保留龙角、尖耳与右侧发花 |
 | **G哥 (`gpt`)** | `listening` / `peer` | `gpt/listening-nod.mp4` | `1.12 / -1.4% / +1.5%` | 专用闭嘴点头视频，微调水平位移与待机眼位对齐 |
-| **G哥 (`gpt`)** | `thinking` | `gpt/thinking-question.mp4` | 默认无问号段 `1.12 / 0% / +1.5%`<br>含问号原片 `1.03 / +2.2% / +6.2%` | 默认截取 `0.0s–1.18s` 问号出现前的轻歪头凝思段（符合无文字/符号要求且保持大头比例）；开发栏可切到 `1.35s–3.15s` 含问号原片对比 |
+| **G哥 (`gpt`)** | `thinking` | `gpt/thinking-question.mp4` (`0.00s–3.96s`) | **默认含问号全循环** `1.03 / +2.2% / +6.2%`<br>无问号安静对照 `1.12 / 0% / +1.5%` | 用户 10-18 指定保留含问号原片全循环（中性起步 $\to$ 歪头浮现问号 $\to$ 复位中性），首尾 MAE 仅 10.84px 无跳变；开发栏可切至 `0.0s–1.18s` 无问号安静段对照 |
 | **G哥 (`gpt`)** | `speaking` | `gpt/idle-blink-square-v2.mp4` (`6.40s–9.40s`) | `1.18 / +1.8% / +1.5%` | **候选预览（未冒充定稿）**：G哥本批缺专用 `speaking.mp4`，当前截取 `square-v2` 后半段睁眼张闭嘴动作作候选，顶部横幅明确提示缺口 |
-| **Claude (`claude`)** | `idle` / `listening` / `thinking` / `speaking` | `claude/idle.mp4`、`listening-nod.mp4`、`thinking-question.mp4`、`speaking.mp4` | `1.12 / 0~0.4% / +1.2%` | 5 段 `720×720` 动作齐全；放大 `1.12×` 消除原片内嵌灰框边线，完整保留橙黑贝雷帽与白花头饰 |
-| **DeepSeek (`deepseek`)** | `idle` / `listening` / `thinking` / `speaking` | `deepseek/idle.mp4`、`listening-nod.mp4`、`thinking-question.mp4`、`speaking.mp4` | `1.09 / 0~0.4% / +1.5%` | 5 段动作齐全（含最新补充的 `thinking-question.mp4`）；默认截取 `0.0s–1.18s` 无问号凝思段，开发栏可切换对比右上角含问号原片 |
+| **Claude (`claude`)** | `idle` / `listening` / `thinking` / `speaking` | `claude/idle.mp4`、`listening-nod.mp4`、`thinking-question.mp4`、`speaking.mp4` | 动作主体 `1.12 / 0~0.4% / +1.2%`<br>思考含问号全循环 `1.04 / +1.8% / +5.5%` | 5 段 `720×720` 动作齐全；思考默认采用含问号全循环（0.00s–3.96s，首尾中性复位 MAE 22.18px），下移完整露出问号；放大 1.12× 消除原片内嵌灰框，保留贝雷帽与白花 |
+| **DeepSeek (`deepseek`)** | `idle` / `listening` / `thinking` / `speaking` | `deepseek/idle.mp4`、`listening-nod.mp4`、`thinking-question.mp4`、`speaking.mp4` | 动作主体 `1.09 / 0~0.4% / +1.5%`<br>思考含问号全循环 `1.02 / -3.5% / +6.5%` | 5 段动作齐全；思考默认采用含问号全循环（0.00s–3.96s，首尾中性复位 MAE 21.03px），单独校准 `scale 1.02 / tx -3.5% / ty +6.5%` 确保右上角问号与发饰完整不被圆边裁切，开发栏可切换无问号对照 |
 
 ## 文件入口与构建检查
 

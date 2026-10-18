@@ -6,6 +6,16 @@
 - #59 同步包含 #65 的 main 后，按 agent/模型缓存成功额度、后台刷新与失败保留旧值；额度与 CUJ 的 -race 测试、core/config/cmd vet 通过。两条组合验证保留额度关闭时零探针调用。
 - 本次仅代码审核与合并准备，没有改运行配置、部署或重启桥接。
 
+## 2026-10-18：圆屏落板准备：帧序列轻量化方案与 Cursor 候选形象（Issue #53 / PR #70）
+
+- 大豆包（G酱）在独立工作区分支 `feat/53-esp32-board-assets` 针对 1.75" 466×466 圆屏完成落板方案（[docs/BOARD_ASSETS_PLAN.md](BOARD_ASSETS_PLAN.md)）：
+  - 核心选型：Baseline JPEG 序列流（12 fps, Q=80），整套 4 种状态 126 帧约 4.93MB（thinking 采用户 10-18 指定的 0.00s–3.96s 全循环含问号原片，48 帧约 2.21MB）；
+  - 网页圆屏：thinking 默认改为含问号全循环（中性起步→歪头问号浮现→平稳复位中性，首尾无缝闭合），GPT/Claude/DeepSeek 首尾平均像素差（MAE）低至 10.84 / 22.18 / 21.03 px，保留开发栏对照；
+  - 硬件适配：ESP32-S3 无独立 JPEG 硬解，采用乐鑫 `esp_new_jpeg` 库的 Xtensa SIMD 矢量优化软解（理论估算 ~7–10ms/帧，待到货实测）；双缓冲 848KB PSRAM；
+  - 导出工具：交付 `prototypes/device-ui/tools/export_board_frames.py`（支持显式路径、`FFMPEG_PATH` 环境变量与 PATH 探测，捕获 stderr 显式报错）；
+  - 角色设计：给出 Cursor 3 组候选外观（机能极客猫 / 几何浮空灵 / 复古代码侦探）供用户决选，暂未生成图像文件；
+  - 状态：PR #70 已提交，未改动 `companion/` 源码，未动 8796 守护进程，无子 Agent。
+
 ## 2026-10-18：PR #54 麦克风启动竞态修复（未部署）
 
 - G哥固定页面 a6fb4cab、服务端 7da2c18、测试 d27ebf48 做浏览器验收时，首次主流程未上传录音。随后延迟真实 getUserMedia 返回稳定复现：松手后停在 thinking，迟到麦克风轨道仍 live。

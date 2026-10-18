@@ -61,8 +61,8 @@
       <div class="cn-control-item">
         <label for="cn-thinking-mode">思考问号取舍</label>
         <select id="cn-thinking-mode" class="cursor-interaction">
-          <option value="calm">无问号安静思考（推荐 · 截取无符号段）</option>
-          <option value="question">歪头思考原片（保留问号段对照）</option>
+          <option value="question">歪头思考原片全循环（中性→问号→复位 · 默认）</option>
+          <option value="calm">无问号安静思考（截取 0.0s–1.18s 无符号段对照）</option>
         </select>
       </div>
 
@@ -1300,12 +1300,12 @@
           scale: 1.03,
           tx: 2.2,
           ty: 6.2,
-          start: 1.35,
-          end: 3.15,
+          start: 0.0,
+          end: 3.96,
           restTime: 2.0,
-          spec: 'gpt/thinking-question.mp4 (720×720 · 歪头思考含问号原片)',
-          note: '保留左上角问号时需适度缩小并下移 (scale 1.03, ty +6.2%) 以免圆屏裁掉问号；因此推荐默认采用无问号安静段以保持大头比例稳定。',
-          warn: true
+          spec: 'gpt/thinking-question.mp4 (720×720 · 0.00s–3.96s 中性→歪头问号→复位全循环)',
+          note: '用户 10-18 指定保留问号原片：中性姿态起步，歪头浮现问号后复位中性，首尾闭合平滑无突变 (scale 1.03, ty +6.2%)。',
+          warn: false
         },
         speaking: {
           src: 'assets/characters/gpt/idle-blink-square-v2.mp4',
@@ -1372,12 +1372,12 @@
           scale: 1.04,
           tx: 1.8,
           ty: 5.5,
-          start: 1.35,
-          end: 3.15,
+          start: 0.0,
+          end: 3.96,
           restTime: 2.0,
-          spec: 'claude/thinking-question.mp4 (720×720 · 歪头思考含问号原片)',
-          note: '保留左上角问号时需下移 (scale 1.04, ty +5.5%) 以完整露出问号；推荐默认采用无问号安静段。',
-          warn: true
+          spec: 'claude/thinking-question.mp4 (720×720 · 0.00s–3.96s 中性→歪头问号→复位全循环)',
+          note: '用户 10-18 指定保留问号原片：中性起步歪头浮现问号后复位中性 (scale 1.04, ty +5.5%)，下移确保问号完整不切边。',
+          warn: false
         },
         speaking: {
           src: 'assets/characters/claude/speaking.mp4',
@@ -1441,15 +1441,15 @@
         thinking_question: {
           src: 'assets/characters/deepseek/thinking-question.mp4',
           bg: '#404042',
-          scale: 1.04,
-          tx: -1.8,
-          ty: 5.5,
-          start: 1.35,
-          end: 3.15,
+          scale: 1.02,
+          tx: -3.5,
+          ty: 6.5,
+          start: 0.0,
+          end: 3.96,
           restTime: 2.02,
-          spec: 'deepseek/thinking-question.mp4 (720×720 · 歪头思考含问号原片)',
-          note: '保留右上角问号时需适度下移并微调左移 (scale 1.04, tx -1.8%, ty +5.5%) 以免圆屏裁掉问号；推荐默认采用无问号安静段。',
-          warn: true
+          spec: 'deepseek/thinking-question.mp4 (720×720 · 0.00s–3.96s 中性→歪头问号→复位全循环)',
+          note: '用户 10-18 指定保留问号原片：中性起步歪头浮现问号后复位中性 (scale 1.02, tx -3.5%, ty +6.5%)，确保问号完整不切边。',
+          warn: false
         },
         speaking: {
           src: 'assets/characters/deepseek/speaking.mp4',
@@ -1473,7 +1473,7 @@
     character: 'gpt',
     viewMode: 'dual',
     interactionMode: 'touch',
-    thinkingMode: 'calm',
+    thinkingMode: 'question',
     animate: true,
     volume: 60,
     brightness: 85,
