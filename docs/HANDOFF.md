@@ -1,5 +1,6 @@
 # 共栖当前交接
 
+
 ## 2026-10-19：8796 只读冒烟工具与真人验收指南（未合并）
 
 - 交付只读冒烟脚本 `companion/tools/smoke_device.py`：
@@ -10,6 +11,16 @@
   - 严格按「打开圆屏 → 按住说话 → 原会话接续 → 播放 → 停止 → 失败提示」标准化全链路撰写；
   - 详述各环节的圆屏视觉反馈、状态机流转、按键文案以及出现异常时在 `server.log` 中的精确排查行与关键字。
 - 验证：在当前运行的 8796 实例上实际执行 `python3 companion/tools/smoke_device.py`，15 项检测全部 PASS（15 PASSED, 0 FAILED）；无子 Agent，未动 8796 进程或配置。
+
+## 2026-10-19：#23 Codex 生命周期测试 thread.started 前置超时（调查，未部署）
+
+- 本机复现结果：**0/236 失败**。`TestClose_ForceKillsProcessGroupAfterGracefulTimeout` 单项 `-count=40`、`-count=200` 全过；`-race -count=30` 全过；6 个测试进程并行 + 8 个 CPU 满载进程加压 `-count=6` 全过；Codex 整包 `-count=5` 全过；bridge 全量 `go test ./...` 跑 3 轮，`agent/codex` 均 `ok`。仍未复现 #13 那次偶发。
+- 时序测量（8 次采样）：从 `Send` 到 `CurrentSessionID()=="thread-close"` 为 min 4.9ms / p50 10.5ms / max 263ms。5 秒阈值约有 500 倍余量，因此“超时”更可能是假 CLI 根本没有跑到打印那一行，而不是读取慢或调度慢——但原测试没有留下任何能区分这两种情况的证据。
+- 本次改动（只动测试，不动产品代码，不放大阈值、不跳过用例）：
+  - `waitForThreadID` 超时时输出假 CLI 的 PID、假 CLI 实际走到的阶段（`script.start` / `script.thread.started.written` / `go.send.returned`）、会话看到的 thread id、`alive` 与在册进程数。已验证：用一个“只启动不打印”的假 CLI 跑，失败信息为 `seen="" alive=true tracked_cmds=1` + `script.start pid=…`，可直接判定卡在“脚本已启动但没打印”。
+  - 两个 Close 用例补 `defer cs.Close()`：假 CLI 会留一个 `sleep 30` 孙进程握着 stdout，原测试在 `waitForThreadID` Fatal 时不 Close，进程组不会被杀，失败用例会继续在后台跑满 30 秒并给同一次 `go test ./...` 加压。
+- 结论：根因仍未确定；下一次真实失败会自带阶段证据。未改产品代码，未部署。
+- 边界：本机沙箱禁止写 `~/Library/Caches`、`~/.cursor` 和 pty，`agent/acp`、`agent/iflow` 的全量失败属环境限制，与 #23 无关。
 
 ## 2026-10-19：#73 客户端等待播放权（已合并至 main decef9be）
 

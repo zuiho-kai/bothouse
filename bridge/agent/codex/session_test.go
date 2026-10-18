@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -859,8 +860,11 @@ func TestClose_ForceKillsProcessGroupAfterGracefulTimeout(t *testing.T) {
 		t.Fatalf("mkdir bin: %v", err)
 	}
 
+	trace := fakeTrace{path: filepath.Join(workDir, "trace.txt")}
 	script := "#!/bin/sh\n" +
+		"printf 'script.start pid=%s\\n' \"$$\" >> \"$CODEX_TRACE_FILE\"\n" +
 		"printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"thread-close\"}'\n" +
+		"printf 'script.thread.started.written\\n' >> \"$CODEX_TRACE_FILE\"\n" +
 		"(sleep 0.12; printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"late child output\"}}'; sleep 30) &\n" +
 		"wait\n"
 	scriptPath := filepath.Join(binDir, "codex")
@@ -868,6 +872,7 @@ func TestClose_ForceKillsProcessGroupAfterGracefulTimeout(t *testing.T) {
 		t.Fatalf("write fake codex: %v", err)
 	}
 
+	t.Setenv("CODEX_TRACE_FILE", trace.path)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	oldCloseTimeout := codexSessionCloseTimeout
@@ -883,12 +888,17 @@ func TestClose_ForceKillsProcessGroupAfterGracefulTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
+	// Close on every exit path, including an early Fatal: the fake CLI leaves a
+	// `sleep 30` grandchild holding stdout, and a leaked group would keep
+	// running (and adding load) after this test has already failed.
+	defer cs.Close()
 
 	if err := cs.Send("hello", "", nil, nil); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
+	trace.mark("go.send.returned")
 
-	waitForThreadID(t, cs, "thread-close")
+	waitForThreadID(t, cs, "thread-close", trace)
 
 	closeStarted := time.Now()
 	if err := cs.Close(); err != nil {
@@ -950,11 +960,13 @@ func TestClose_ForceKillsAllTrackedProcessesAfterCmdOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
+	// Same reason as the test above: never leave the fake CLI's sleep running.
+	defer cs.Close()
 
 	if err := cs.Send("first", "", nil, nil); err != nil {
 		t.Fatalf("Send(first): %v", err)
 	}
-	waitForThreadID(t, cs, "thread-overlap")
+	waitForThreadID(t, cs, "thread-overlap", fakeTrace{path: startsFile})
 	waitForDoneResult(t, cs.Events())
 
 	if err := cs.Send("second", "", nil, nil); err != nil {
@@ -980,8 +992,41 @@ func TestClose_ForceKillsAllTrackedProcessesAfterCmdOverwrite(t *testing.T) {
 	}
 }
 
-func waitForThreadID(t *testing.T, cs *codexSession, want string) {
+// fakeTrace records what the fake CLI actually did, so an intermittent
+// "thread.started never arrived" failure (issue #23) can name the stage that
+// stalled instead of only reporting the deadline: the script never started,
+// it started but never printed the event, or Go never read what it printed.
+type fakeTrace struct{ path string }
+
+func (f fakeTrace) mark(line string) {
+	if f.path == "" {
+		return
+	}
+	file, err := os.OpenFile(f.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.WriteString(line + "\n")
+}
+
+func (f fakeTrace) dump() string {
+	if f.path == "" {
+		return "(no trace configured)"
+	}
+	data, err := os.ReadFile(f.path)
+	if err != nil {
+		return fmt.Sprintf("(trace unreadable: %v)", err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return "(trace empty: the fake CLI never ran)"
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func waitForThreadID(t *testing.T, cs *codexSession, want string, trace fakeTrace) {
 	t.Helper()
+	started := time.Now()
 	timeout := time.After(5 * time.Second)
 	for {
 		select {
@@ -990,7 +1035,13 @@ func waitForThreadID(t *testing.T, cs *codexSession, want string) {
 				return
 			}
 		case <-timeout:
-			t.Fatalf("timed out waiting for thread id %q", want)
+			// Keep the evidence the issue asked for: process state, the stage
+			// the fake CLI reached, and what the session saw. Never widen this
+			// deadline — a 5s wait already has ~500x headroom over the ~10ms
+			// this normally takes, so a timeout means something never ran.
+			t.Fatalf("timed out after %v waiting for thread id %q: seen=%q alive=%v tracked_cmds=%d\nfake CLI trace:\n%s",
+				time.Since(started).Round(time.Millisecond), want, cs.CurrentSessionID(),
+				cs.alive.Load(), len(cs.activeCmds()), trace.dump())
 		}
 	}
 }
