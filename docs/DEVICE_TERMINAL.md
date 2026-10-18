@@ -214,6 +214,18 @@ Origin:          <仅浏览器需要>        # 设备可不带；带了就必须
 
 `waiting`、`playing`、`draining` 期间设备本地拒绝新问题，不改写 `turn_id`：它是查询释放和幂等重发的唯一依据。提交请求发出前先把 `unconfirmed` 与编号一起写入 flash；响应丢失或掉电后（重启也一样）只能查询或 `retry()` 原轮，不能另开新轮。服务端明确拒绝（4xx）表示未投递，清除 `unconfirmed`，可以直接问下一句。
 
+## 10.5 心跳与失联
+
+设备每 30 秒至少发一次请求；空闲时用 `POST /device/<id>/api/heartbeat`，任何查询或回执也算。
+
+- 超时只释放**占位**，并把该轮标成 `abandoned` + `abandon_reason`；不会被记成已播完，也不当成用户停止。
+- 释放会写一条 `lease_expired` 进共享记录，含轮次编号、设备、原因。
+- `config` 与心跳都返回 `lease`（剩余秒数）和 `last_release`（上次释放的原因）。
+- 收到 `playing` 回执时，租约会延长到“剩余播放时长 + 一个租期”，所以一次心跳丢失不会把正在播的长回答打断；单次最多按 10 分钟算。
+- 被释放的设备回来后 `active_turn` 为 `null`、`available` 为 `true`，可以直接开新一轮。
+
+模拟终端：`await device.heartbeat()`；实现与测试见 `tests/test_voice_device_lease.py`、`test_heartbeat_and_abandoned_lease_are_visible_to_the_device`。
+
 ## 11. 错误码
 
 | HTTP | 场景 | 设备动作 |

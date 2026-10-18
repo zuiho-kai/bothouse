@@ -95,6 +95,23 @@
     } finally { clearTimeout(timer); }
   }
 
+  // A long answer is not silence: the entry releases a device that stops
+  // talking to it, so the page must keep saying it is still there while it
+  // holds the room. A missed beat is harmless; the server keeps a lease of slack.
+  const HEARTBEAT_MS = 10000;
+  let heartbeatTimer = null;
+  function startHeartbeat() {
+    if (!devicePath || heartbeatTimer) return;
+    heartbeatTimer = setInterval(() => {
+      if (document.hidden || !config) return;
+      if (!playIntent && (!activeTurn || activeTurn.deviceReleased)) return;
+      void api('/api/heartbeat', {
+        method: 'POST', body: '{}', timeout: 5000,
+        headers: { 'Content-Type': 'application/json' },
+      }).catch(() => {});
+    }, HEARTBEAT_MS);
+  }
+
   async function loadConfig() {
     if (busy() || inputPhase !== 'idle') return;
     const selectedRole = ui.role.value;
@@ -127,6 +144,7 @@
       ui['reload-config'].hidden = false;
       ui['reload-config'].textContent = '刷新伙伴状态';
       ui['input-status'].textContent = '准备好了。按住说话，或直接打字。';
+      startHeartbeat();
       if (typeof data.active_turn === 'string' && data.active_turn) {
         const role = config.roles.find((item) => item.id === ui.role.value);
         const turn = createTurn(data.active_turn, role, '正在读取原轮次输入…');

@@ -42,7 +42,7 @@ class Speech:
         self.recordings.append(len(body))
         return '今天测试设备接口'
 
-def build(tmp_path, bridge=None, speech=None):
+def build(tmp_path, bridge=None, speech=None, **options):
     roles = (Role('gge', 'G哥', 'uncle_fu'), Role('cursor', 'Cursor', 'serena'))
     settings = Settings(project='gge', role_name='G哥', session_key='discord:example',
                         bridge_socket=str(tmp_path / 'absent.sock'), model_path=str(tmp_path),
@@ -51,7 +51,7 @@ def build(tmp_path, bridge=None, speech=None):
     devices = DeviceRegistry([DeviceBinding('desk-' + r.project, r.name + '的设备',
                                             r.project, settings.session_key) for r in roles], roles)
     bridge, speech = bridge or Bridge(), speech or Speech()
-    app = create_device_app(settings, devices, speech=speech, bridge=bridge, roles=roles)
+    app = create_device_app(settings, devices, speech=speech, bridge=bridge, roles=roles, **options)
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE)
     return app, client, bridge, speech
 
@@ -699,3 +699,45 @@ async def test_reboot_with_connect_only_still_cannot_replace_an_unreleased_turn(
     finally:
         bridge.release.set()
         await asyncio.gather(*app.state.service.tasks, return_exceptions=True)
+
+
+class LeaseClock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+async def test_heartbeat_and_abandoned_lease_are_visible_to_the_device(tmp_path):
+    """A vanished device loses the slot; the reason is not hidden from it."""
+    clock = LeaseClock()
+    app, client, bridge, speech = setup(tmp_path)
+    app.state.room.clock = clock
+    app.state.room.lease_seconds = 30.0
+    async with client:
+        device = terminal(client, 'desk-gge')
+        await device.connect()
+        await device.transcribe(tone_wav(0.5))
+        await device.ask('第一个问题')
+        first = device.turn_id
+        await device.wait_ready()
+
+        beat = await device.heartbeat()
+        assert beat['ok'] is True and beat['active_turn'] == first
+        assert beat['lease']['seconds'] == 30.0
+
+        # The device goes silent past the lease: the slot is released, and the
+        # old turn is reported as abandoned rather than finished.
+        clock.now += 31
+        snapshot = await device.status(first)
+        assert snapshot['abandoned'] is True
+        assert '心跳' in snapshot['abandon_reason']
+        assert snapshot['device_released'] is True
+
+        # A returning device reconnects before it talks again.
+        await device.resume()
+        assert device.state == 'listening'
+        second = await device.ask('第二个问题')
+        assert second['id'] != first
+        assert (await device.wait_ready())['status'] == 'ready'

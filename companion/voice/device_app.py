@@ -5,6 +5,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import hmac
 import io
+import json
 from pathlib import Path
 import time
 from urllib.parse import urlencode
@@ -12,7 +13,7 @@ from uuid import UUID
 import wave
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -22,16 +23,32 @@ from .devices import DeviceRegistry, RoutingError
 from .roles import voice_label
 
 
+DEFAULT_LEASE_SECONDS = 30.0
+# A client can claim any duration; never let one receipt hold the room forever.
+MAX_PLAYBACK_HOLD = 600.0
+
+
 class DeviceRoom:
     """A room owns one turn through *playback*, not just through synthesis.
 
     Each page instance has a fresh client UUID. Refresh/duplicate tabs cannot
-    take over or replay the previous page's audio. No timeout guesses that a
-    disconnected speaker has stopped; a missing receipt keeps the room held.
+    take over or replay the previous page's audio.
+
+    A device that disappears must not keep the shared slot forever, but silence
+    is not proof that the turn ended: the lease expires the *slot* and records
+    why, and the turn is reported as abandoned rather than completed. A missing
+    receipt on a live device still keeps the room held.
     """
 
-    def __init__(self, service, registry: DeviceRegistry):
+    def __init__(self, service, registry: DeviceRegistry, *, lease_seconds: float = DEFAULT_LEASE_SECONDS,
+                 clock=time.monotonic):
         self.service, self.registry = service, registry
+        self.lease_seconds = float(lease_seconds)
+        self.clock = clock
+        self.leases: dict[tuple[str, str], float] = {}
+        # A playing receipt already promises future audio: hold the slot for the
+        # remaining duration plus one lease, so a lost heartbeat cannot cut it.
+        self.holds: dict[tuple[str, str], float] = {}
         if any(d.session_key != service.settings.session_key for d in registry.devices):
             raise ValueError('首版设备必须显式使用本实例的同一会话频道。')
         if any(d.project not in service.roles for d in registry.devices):
@@ -39,6 +56,96 @@ class DeviceRoom:
         self.bindings: dict[str, dict] = {}
         self.records: dict[str, dict] = {}
         self.active: str | None = None
+        self.last_release: dict | None = None
+
+    # -- lease ------------------------------------------------------------
+
+    def touch(self, device_id: str, client: str) -> None:
+        """Record that this client is alive right now."""
+        self.leases[(device_id, client)] = self.clock()
+
+    def lease(self, device_id: str, client: str) -> dict:
+        last = self.leases.get((device_id, client))
+        now = self.clock()
+        remaining = None if last is None else max(0.0, self.lease_seconds - (now - last))
+        held = self.holds.get((device_id, client))
+        if held is not None:
+            hold_remaining = max(0.0, held - now)
+            remaining = hold_remaining if remaining is None else max(remaining, hold_remaining)
+        return {'seconds': self.lease_seconds,
+                'last_heartbeat_seconds': None if last is None else round(now - last, 3),
+                'expires_in_seconds': None if remaining is None else round(remaining, 3)}
+
+    def hold_for_playback(self, device_id: str, client: str, remaining_seconds: float) -> None:
+        """Keep the slot for the audio this device has already promised to play.
+
+        The page reports ``playing`` once and then sends nothing until the answer
+        ends; without this hold a 45 s answer would look silent after 30 s.
+        """
+        key = (device_id, client)
+        remaining = min(max(0.0, float(remaining_seconds)), MAX_PLAYBACK_HOLD)
+        self.holds[key] = self.clock() + remaining + self.lease_seconds
+
+    def release_hold(self, device_id: str, client: str) -> None:
+        self.holds.pop((device_id, client), None)
+
+    def _prune(self) -> None:
+        """Forget long-dead clients so page reloads cannot grow the map forever."""
+        horizon = self.clock() - self.lease_seconds * 2
+        for key, last in list(self.leases.items()):
+            if last < horizon and key not in self.holds:
+                self.leases.pop(key, None)
+        for key, until in list(self.holds.items()):
+            if until < horizon:
+                self.holds.pop(key, None)
+
+    def _expire(self) -> None:
+        """Release the slot of a client whose lease ran out; say why, out loud.
+
+        Expiry is decided *before* pruning. Pruning first used to delete the
+        active client's old lease, which then looked like a first sighting and
+        restarted its clock -- a 61 s silence could hold the room forever.
+        """
+        now = self.clock()
+        record = self.records.get(self.active) if self.active else None
+        if record is not None and not record.get('completed'):
+            key = (record['device_id'], record['client'])
+            held = self.holds.get(key)
+            if held is None or now >= held:
+                last = self.leases.get(key)
+                if last is None:
+                    self.leases[key] = now  # First sighting starts the clock.
+                elif now - last > self.lease_seconds:
+                    self.abandon(record, now - last)
+        self._prune()
+
+    def abandon(self, record: dict, silent_for: float) -> dict:
+        """Drop the held slot and record that the device stopped answering.
+
+        Not a completion and not a user stop: the turn keeps its text in the
+        shared record, its playback state becomes ``stopped``, and every later
+        read reports ``abandoned`` with the reason instead of pretending the
+        answer was heard.
+        """
+        reason = (f'设备 {silent_for:.0f} 秒没有心跳，占位已释放；'
+                  '本轮没有播放完成确认，后台任务仍会收尾。')
+        record['abandoned'] = True
+        record['abandon_reason'] = reason
+        record['stop_requested'] = True
+        self.active = None
+        self.release_hold(record['device_id'], record['client'])
+        if record['id'] in self.service.turns:
+            try:
+                self.service.record_playback(record['id'], PlaybackInput(
+                    state='stopped', position_seconds=0, duration_seconds=0))
+            except HTTPException:
+                pass
+        self.last_release = {'turn_id': record['id'], 'device_id': record['device_id'],
+                             'reason': 'lease-expired', 'detail': reason}
+        # Written to the shared record too: a release must be auditable, not a
+        # quiet deletion from the room.
+        self.service.record('lease_expired', dict(self.last_release))
+        return self.last_release
 
     def device(self, device_id):
         try:
@@ -48,6 +155,8 @@ class DeviceRoom:
 
     def get(self, device_id, identifier, client=None):
         self.device(device_id)
+        if client is not None:
+            self.touch(device_id, client)
         record = self.records.get(identifier)
         if record is None or record['device_id'] != device_id:
             raise HTTPException(404, '这一轮不属于这台设备。')
@@ -56,6 +165,7 @@ class DeviceRoom:
         return record
 
     def reap(self):
+        self._expire()
         if not self.active:
             return
         record = self.records[self.active]
@@ -93,6 +203,9 @@ class DeviceRoom:
         result['playback_allowed'] = allowed
         # A stop acknowledgement is not a release: delivered CLI work keeps the slot.
         result['device_released'] = self.active != record['id']
+        if record.get('abandoned'):
+            result['abandoned'] = True
+            result['abandon_reason'] = record.get('abandon_reason', '')
         root = f"/device/{record['device_id']}/api/turn/{record['id']}"
         query = '?' + urlencode({'client': client})
         if allowed:
@@ -107,6 +220,7 @@ class DeviceRoom:
 
     async def submit(self, device_id, client, data: TurnInput):
         device = self.device(device_id)
+        self.touch(device_id, client)
         if data.project != device.project:
             raise HTTPException(400, '这个入口固定属于当前伙伴，不能指定另一位。')
         try:
@@ -209,11 +323,16 @@ class DeviceRoom:
         self.service.record_playback(identifier, data)
         if data.state == 'playing':
             record['started'] = True
+            # Hold the slot through the rest of the promised audio.
+            self.hold_for_playback(device_id, client,
+                                   data.duration_seconds - data.position_seconds)
         elif data.state == 'completed':
             record['completed'] = True
+            self.release_hold(device_id, client)
         elif data.state in {'stopped', 'failed'}:
             record['stop_requested'] = True
             record['stop_recorded'] = True
+            self.release_hold(device_id, client)
         self.reap()
         return {'ok': True}
 
@@ -227,7 +346,9 @@ def device_api_id(path: str) -> str | None:
         return parts[2]
     return None
 
-def create_device_app(settings, registry, *, speech=None, bridge=None, roles, host='127.0.0.1'):
+def create_device_app(settings, registry, *, speech=None, bridge=None, roles, host='127.0.0.1',
+                      lease_seconds: float = DEFAULT_LEASE_SECONDS, clock=time.monotonic,
+                      screen_dir=None):
     settings.validate()
     if not isinstance(host, str) or not host.strip():
         raise ValueError('必须显式指定监听地址。')
@@ -238,7 +359,9 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
         # the LAN impersonate a partner's device. Refuse to start instead.
         registry.require_secrets()
     service = build_service(settings, speech, bridge, roles)
-    room = DeviceRoom(service, registry)
+    if not isinstance(lease_seconds, (int, float)) or lease_seconds <= 0:
+        raise ValueError('租约时长必须是正数秒。')
+    room = DeviceRoom(service, registry, lease_seconds=lease_seconds, clock=clock)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -326,13 +449,28 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
             detail, available = str(exc), False
         active = room.records.get(room.active)
         local = is_local(request)
+        room.touch(device_id, client)
         return {'token': service.token if local else '', 'auth': 'page-token' if local else 'device-secret',
+                'lease': room.lease(device_id, client),
+                'last_release': room.last_release,
                 'device_id': device_id, 'device_name': device.name,
                 'default_role': device.project, 'session_label': settings.session_label,
                 'max_record_seconds': 30, 'asr_model_ready': Path(settings.model_path).is_dir(),
                 'active_turn': active['id'] if active and active['device_id'] == device_id and active['client'] == client else None,
                 'roles': [{'id': device.project, 'name': role.name, 'available': available,
                            'detail': detail, 'voice_label': voice_label(settings, role)}]}
+
+    @app.post('/device/{device_id}/api/heartbeat')
+    async def heartbeat(device_id: str, request: Request):
+        device = room.device(device_id)
+        client = client_id(request)
+        room.touch(device_id, client)
+        room.reap()
+        active = room.records.get(room.active)
+        return {'ok': True, 'device_id': device.device_id,
+                'active_turn': active['id'] if active and active['client'] == client else None,
+                'lease': room.lease(device_id, client),
+                'last_release': room.last_release}
 
     @app.post('/device/{device_id}/api/turn', status_code=202)
     async def submit(device_id: str, data: TurnInput, request: Request):
@@ -341,8 +479,10 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
     @app.get('/device/{device_id}/api/turn/{identifier}')
     async def status(device_id: str, identifier: str, request: Request):
         room.reap()
+        client = client_id(request)
+        room.touch(device_id, client)
         record = room.get(device_id, identifier)
-        return room.snapshot(record, client_id(request))
+        return room.snapshot(record, client)
 
     @app.post('/device/{device_id}/api/turn/{identifier}/stop')
     async def stop(device_id: str, identifier: str, request: Request):
@@ -392,6 +532,53 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
     async def page(device_id: str):
         room.device(device_id)
         return FileResponse(static / 'index.html')
+
+    # The round screen lives on the same origin as the API it drives: a page
+    # opened from http.server or file:// cannot reach /device/<id>/api at all.
+    # 大豆包 (#54) owns the page; this only serves whatever she drops here.
+    screen_root = Path(screen_dir).expanduser() if screen_dir else static / 'screen'
+
+    def screen_index(device_id: str) -> str:
+        index = screen_root / 'index.html'
+        if not index.is_file():
+            raise HTTPException(404, '圆屏页面还没有安装：把 #54 构建出的 index.html 与资源放进 '
+                                     'companion/voice/static/screen/ 后重启入口。')
+        html = index.read_text(encoding='utf-8')
+        # An inline bootstrap would be blocked by `script-src 'self'`. The
+        # bootstrap therefore comes from this same-origin endpoint; the page's
+        # own relative assets also need the final URL to end in `/screen/`.
+        bootstrap = (f'<script src="/device/{device_id}/screen/__coqin_device.js"></script>')
+        if '</head>' in html:
+            return html.replace('</head>', bootstrap + '</head>', 1)
+        return bootstrap + html
+
+    @app.get('/device/{device_id}/screen')
+    async def screen(device_id: str, request: Request):
+        room.device(device_id)
+        # `./app.js` must resolve under /screen/, not under /device/<id>/.
+        target = request.url.replace(path=f'/device/{device_id}/screen/')
+        return RedirectResponse(str(target), status_code=307)
+
+    @app.get('/device/{device_id}/screen/__coqin_device.js')
+    async def screen_bootstrap(device_id: str):
+        room.device(device_id)
+        payload = json.dumps({'id': device_id, 'api': f'/device/{device_id}/api'})
+        return Response(f'window.__COQIN_DEVICE__={payload};',
+                        media_type='application/javascript')
+
+    @app.get('/device/{device_id}/screen/')
+    async def screen_directory(device_id: str):
+        room.device(device_id)
+        return HTMLResponse(screen_index(device_id))
+
+    @app.get('/device/{device_id}/screen/{asset:path}')
+    async def screen_asset(device_id: str, asset: str):
+        room.device(device_id)
+        root = screen_root.resolve()
+        target = (screen_root / asset).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            raise HTTPException(404, '页面资源不存在。')
+        return FileResponse(target)
 
     app.mount('/static', StaticFiles(directory=static), name='static')
     return app

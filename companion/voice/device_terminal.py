@@ -333,6 +333,16 @@ class DeviceTerminal:
 
     # -- record and ask ----------------------------------------------------
 
+    async def heartbeat(self) -> dict:
+        """Tell the entry this device is still here.
+
+        Every request already refreshes the lease; an explicit beat matters when
+        the device is busy recording and sends nothing else for a while. When the
+        beats stop, the entry releases the shared slot and records why.
+        """
+        response = await self._request('POST', f'/device/{self.device_id}/api/heartbeat')
+        return response.json()
+
     async def transcribe(self, wav_bytes: bytes) -> dict:
         if len(wav_bytes) > MAX_RECORD_BYTES:
             raise DeviceError(0, f'录音超过 {MAX_RECORD_BYTES} 字节，请缩短后重传。')
