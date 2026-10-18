@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CoNest 外接语音终端消息样例（脱敏）",
+  "description": "每种消息一条脱敏样例；字段语义见 docs/DEVICE_TERMINAL.md。",
+  "type": "object",
+  "required": [
+    "config",
+    "transcribe_result",
+    "turn_request",
+    "turn_accepted",
+    "turn_ready",
+    "playback_playing",
+    "playback_completed",
+    "error_busy",
+    "stop_ack",
+    "playback_progress"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "config": {
+      "$ref": "#/$defs/config"
+    },
+    "transcribe_result": {
+      "$ref": "#/$defs/transcribe_result"
+    },
+    "turn_request": {
+      "$ref": "#/$defs/turn_request"
+    },
+    "turn_accepted": {
+      "$ref": "#/$defs/turn_snapshot"
+    },
+    "turn_ready": {
+      "$ref": "#/$defs/turn_snapshot"
+    },
+    "playback_playing": {
+      "$ref": "#/$defs/playback_receipt"
+    },
+    "playback_completed": {
+      "$ref": "#/$defs/playback_receipt"
+    },
+    "error_busy": {
+      "$ref": "#/$defs/error"
+    },
+    "stop_ack": {
+      "$ref": "#/$defs/stop_ack"
+    },
+    "playback_progress": {
+      "$ref": "#/$defs/playback_receipt"
+    }
+  },
+  "$defs": {
+    "config": {
+      "type": "object",
+      "required": [
+        "token",
+        "device_id",
+        "device_name",
+        "default_role",
+        "max_record_seconds",
+        "asr_model_ready",
+        "active_turn"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "device_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default_role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "max_record_seconds": {
+          "const": 30
+        },
+        "asr_model_ready": {
+          "type": "boolean"
+        },
+        "active_turn": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "transcribe_result": {
+      "type": "object",
+      "required": [
+        "text",
+        "elapsed_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "elapsed_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "turn_request": {
+      "type": "object",
+      "required": [
+        "id",
+        "project",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "turn_snapshot": {
+      "type": "object",
+      "required": [
+        "id",
+        "project",
+        "status",
+        "device_id",
+        "audio_target",
+        "playback_allowed"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "thinking",
+            "synthesizing",
+            "ready",
+            "stopped",
+            "error"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "audio_target": {
+          "type": "string"
+        },
+        "playback_allowed": {
+          "type": "boolean"
+        },
+        "audio_complete": {
+          "type": "boolean"
+        },
+        "audio_chunks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "audio_url",
+              "duration_seconds"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "audio_url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "duration_seconds": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "device_released": {
+          "type": "boolean"
+        }
+      }
+    },
+    "playback_receipt": {
+      "type": "object",
+      "required": [
+        "state",
+        "position_seconds",
+        "duration_seconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "playing",
+            "completed",
+            "stopped",
+            "failed"
+          ]
+        },
+        "position_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "detail"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "stop_ack": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "playback_allowed",
+        "device_released"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "const": "stopped"
+        },
+        "playback_allowed": {
+          "const": false
+        },
+        "device_released": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

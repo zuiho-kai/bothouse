@@ -1,0 +1,76 @@
+{
+  "config": {
+    "token": "REDACTED",
+    "device_id": "desk-gge",
+    "device_name": "G哥的设备",
+    "default_role": "gge",
+    "max_record_seconds": 30,
+    "asr_model_ready": true,
+    "active_turn": null
+  },
+  "transcribe_result": {
+    "text": "今天测试设备接口",
+    "elapsed_ms": 1180
+  },
+  "turn_request": {
+    "id": "cba6bc07-1f2a-4ba6-9984-00b530c6a20e",
+    "project": "gge",
+    "text": "今天测试设备接口"
+  },
+  "turn_accepted": {
+    "id": "cba6bc07-1f2a-4ba6-9984-00b530c6a20e",
+    "project": "gge",
+    "status": "thinking",
+    "device_id": "desk-gge",
+    "audio_target": "desk-gge",
+    "playback_allowed": true,
+    "device_released": false
+  },
+  "turn_ready": {
+    "id": "cba6bc07-1f2a-4ba6-9984-00b530c6a20e",
+    "project": "gge",
+    "status": "ready",
+    "text": "回答正文",
+    "device_id": "desk-gge",
+    "audio_target": "desk-gge",
+    "audio_complete": true,
+    "playback_allowed": true,
+    "audio_chunks": [
+      {
+        "index": 0,
+        "audio_url": "/device/desk-gge/api/turn/cba6bc07-1f2a-4ba6-9984-00b530c6a20e/audio/chunks/0?client=REDACTED",
+        "duration_seconds": 0.1
+      },
+      {
+        "index": 1,
+        "audio_url": "/device/desk-gge/api/turn/cba6bc07-1f2a-4ba6-9984-00b530c6a20e/audio/chunks/1?client=REDACTED",
+        "duration_seconds": 0.1
+      }
+    ],
+    "device_released": false
+  },
+  "playback_playing": {
+    "state": "playing",
+    "position_seconds": 0.0,
+    "duration_seconds": 0.2
+  },
+  "playback_completed": {
+    "state": "completed",
+    "position_seconds": 0.2,
+    "duration_seconds": 0.2
+  },
+  "error_busy": {
+    "detail": "请等当前轮次结束后再录音。"
+  },
+  "stop_ack": {
+    "id": "cba6bc07-1f2a-4ba6-9984-00b530c6a20e",
+    "status": "stopped",
+    "playback_allowed": false,
+    "device_released": true
+  },
+  "playback_progress": {
+    "state": "playing",
+    "position_seconds": 0.1,
+    "duration_seconds": 0.2
+  }
+}
