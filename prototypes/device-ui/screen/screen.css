@@ -1,0 +1,951 @@
+:root {
+  color-scheme: light dark;
+  --page-bg: light-dark(#f4f5f2, #111614);
+  --page-fg: light-dark(#1f2d28, #e5ece8);
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--page-bg);
+  color: var(--page-fg);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+body {
+  padding: 16px 20px 32px;
+  box-sizing: border-box;
+}
+@media (max-width: 520px) {
+  body {
+    padding: 10px 8px 24px;
+  }
+}
+
+#conest-device-ui {
+    --cn-ink: light-dark(#1d2d27, #e4ece7);
+    --cn-muted: light-dark(#52645c, #9ab0a5);
+    --cn-surface: light-dark(#ffffff, #18211e);
+    --cn-control: light-dark(#eef2ee, #212d28);
+    --cn-line: light-dark(#d3ddd6, #31423b);
+    --cn-accent-badge: light-dark(#dff0e4, #233c31);
+    --cn-accent-text: light-dark(#1c4a35, #a9dfc0);
+    color: var(--cn-ink);
+    max-width: 1320px;
+    margin: 0 auto;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  #conest-device-ui * {
+    box-sizing: border-box;
+  }
+  #conest-device-ui [hidden] {
+    display: none !important;
+  }
+  #conest-device-ui .cursor-interaction {
+    cursor: pointer;
+  }
+
+  /* 顶部开发预览控制台 */
+  #conest-device-ui .cn-dev-bar {
+    background: var(--cn-surface);
+    border: 1px solid var(--cn-line);
+    border-radius: 16px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-dev-top {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px 16px;
+    margin-bottom: 12px;
+  }
+  #conest-device-ui .cn-dev-brand {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 12px;
+  }
+  #conest-device-ui .cn-dev-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--cn-accent-badge);
+    color: var(--cn-accent-text);
+    letter-spacing: 0.02em;
+  }
+  #conest-device-ui .cn-dev-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  #conest-device-ui .cn-dev-sub {
+    font-size: 12px;
+    color: var(--cn-muted);
+  }
+  #conest-device-ui .cn-dev-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: flex-end;
+    padding-top: 10px;
+    border-top: 1px solid var(--cn-line);
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-control-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-control-item label {
+    color: var(--cn-muted);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  #conest-device-ui .cn-label-tag {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: light-dark(#f3e8d2, #3c3120);
+    color: light-dark(#7a5216, #e6c280);
+    font-weight: 600;
+  }
+  #conest-device-ui select {
+    font: inherit;
+    font-size: 13px;
+    color: var(--cn-ink);
+    background: var(--cn-control);
+    border: 1px solid var(--cn-line);
+    border-radius: 8px;
+    padding: 7px 10px;
+    min-height: 38px;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-control-toggle {
+    justify-content: center;
+    min-height: 38px;
+  }
+  #conest-device-ui .cn-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--cn-ink) !important;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--cn-control);
+    border: 1px solid var(--cn-line);
+    min-height: 38px;
+  }
+  #conest-device-ui .cn-voice-bar {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--cn-control);
+    border: 1px solid var(--cn-line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-voice-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-voice-field {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cn-muted);
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-voice-input {
+    flex: 1 1 220px;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 36px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--cn-line);
+    background: var(--cn-surface);
+    color: var(--cn-ink);
+    font: inherit;
+    font-size: 13px;
+  }
+  #conest-device-ui .cn-voice-btn {
+    min-height: 36px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--cn-line);
+    background: var(--cn-surface);
+    color: var(--cn-ink);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  #conest-device-ui .cn-voice-btn-primary {
+    background: var(--cn-accent-badge);
+    color: var(--cn-accent-text);
+    border-color: light-dark(#b7dec3, #355c4a);
+  }
+  #conest-device-ui .cn-voice-btn-danger {
+    background: light-dark(#fbe9e7, #3a2220);
+    color: light-dark(#8c2b23, #f5b3ac);
+    border-color: light-dark(#e8bdb8, #5c3532);
+  }
+  #conest-device-ui .cn-voice-btn[disabled] {
+    opacity: 0.52;
+    cursor: default;
+  }
+  #conest-device-ui .cn-voice-status {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cn-accent-text);
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--cn-accent-badge);
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  #conest-device-ui .cn-voice-status.is-error {
+    background: light-dark(#fdf1eb, #38231d);
+    color: light-dark(#94381c, #f4b29b);
+  }
+  #conest-device-ui .cn-voice-telemetry {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    font-size: 11.5px;
+    color: var(--cn-muted);
+    line-height: 1.4;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-voice-telemetry span {
+    overflow-wrap: anywhere;
+  }
+  #conest-device-ui .cn-asset-banner {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--cn-control);
+    font-size: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+    line-height: 1.45;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-asset-pill {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--cn-surface);
+    border: 1px solid var(--cn-line);
+    color: var(--cn-ink);
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  #conest-device-ui .cn-asset-note {
+    color: var(--cn-muted);
+  }
+  #conest-device-ui .cn-asset-note.is-warn {
+    color: light-dark(#8b4c13, #f0b877);
+    font-weight: 500;
+  }
+
+  /* 预览舞台网格 */
+  #conest-device-ui .cn-workbench {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+    align-items: flex-start;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-stage-card {
+    background: var(--cn-surface);
+    border: 1px solid var(--cn-line);
+    border-radius: 20px;
+    padding: 18px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    max-width: 100%;
+    min-width: 0;
+  }
+  #conest-device-ui .cn-stage-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    text-align: center;
+    max-width: 100%;
+  }
+  #conest-device-ui .cn-stage-tag {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--cn-control);
+    border: 1px solid var(--cn-line);
+  }
+  #conest-device-ui .cn-stage-tag-warn {
+    background: light-dark(#fdf1eb, #38231d);
+    border-color: light-dark(#efc8b5, #63392e);
+    color: light-dark(#94381c, #f4b29b);
+  }
+  #conest-device-ui .cn-stage-hint {
+    font-size: 11.5px;
+    color: var(--cn-muted);
+  }
+  #conest-device-ui .cn-design-caption {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--cn-muted);
+    text-align: center;
+  }
+
+  /* 466×466 真实硬件圆屏与 1.35× 放大外壳 */
+  #conest-device-ui .cn-device-shell {
+    --cn-target-size: 466px;
+    width: var(--cn-target-size);
+    max-width: 100%;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  #conest-device-ui .cn-device-shell.is-zoomed,
+  #conest-device-ui[data-view-mode="zoom"] .cn-primary-card .cn-device-shell {
+    --cn-target-size: 629px;
+  }
+  #conest-device-ui .cn-device {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    padding: 9px;
+    background: linear-gradient(145deg, light-dark(#cfd5cf, #2a332f), light-dark(#b8c0b8, #19201d));
+    box-shadow:
+      0 2px 0 rgba(255, 255, 255, 0.25) inset,
+      0 18px 40px rgba(0, 0, 0, 0.22);
+    --cn-screen-bg: #242827;
+    --cn-screen-fg: #f3f7f4;
+    --cn-screen-muted: #b8c8c0;
+    --cn-accent: #8ce0b5;
+    --cn-brightness-filter: 1;
+  }
+  #conest-device-ui .cn-screen {
+    position: relative;
+    isolation: isolate;
+    container-type: inline-size;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--cn-screen-bg);
+    color: var(--cn-screen-fg);
+    box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.08) inset;
+    filter: brightness(var(--cn-brightness-filter));
+    transition: background-color 220ms ease;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #conest-device-ui .cn-home,
+  #conest-device-ui .cn-settings {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* 角色视频舞台：双缓冲图层 + 逐角色逐视频精准校准 */
+  #conest-device-ui .cn-character-stage {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--cn-screen-bg);
+    transition: filter 260ms ease, opacity 260ms ease;
+  }
+  #conest-device-ui .cn-screen[data-state="offline"] .cn-character-stage {
+    filter: saturate(0.45) brightness(0.68);
+  }
+  #conest-device-ui .cn-video-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform-origin: 50% 50%;
+    transform: translate(var(--clip-tx, 0%), var(--clip-ty, 0%)) scale(var(--clip-scale, 1.12));
+    opacity: 0;
+    transition: opacity 160ms ease-out;
+    pointer-events: none;
+    will-change: opacity, transform;
+  }
+  #conest-device-ui .cn-video-layer.is-active {
+    opacity: 1;
+  }
+
+  /* 背景与视频边缘融合层：消除内嵌圆环、矩形切边与背景色差，保持领口通透 */
+  #conest-device-ui .cn-edge-fusion {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 48%, transparent 62%, rgba(12, 18, 16, 0.22) 84%, rgba(9, 14, 13, 0.80) 100%),
+      linear-gradient(180deg, rgba(10, 15, 14, 0.28) 0%, transparent 11%, transparent 84%, rgba(9, 14, 13, 0.56) 100%);
+  }
+
+  /* 状态光环（安静、克制，不闪光不摇晃） */
+  #conest-device-ui .cn-state-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06) inset;
+    transition: box-shadow 260ms ease;
+  }
+  #conest-device-ui .cn-screen[data-state="listening"] .cn-state-ring {
+    box-shadow: 0 0 0 3px rgba(136, 228, 180, 0.68) inset, 0 0 22px rgba(136, 228, 180, 0.22) inset;
+  }
+  #conest-device-ui .cn-screen[data-state="thinking"] .cn-state-ring {
+    box-shadow: 0 0 0 2.5px rgba(186, 182, 246, 0.62) inset, 0 0 18px rgba(186, 182, 246, 0.18) inset;
+  }
+  #conest-device-ui .cn-screen[data-state="speaking"] .cn-state-ring,
+  #conest-device-ui .cn-screen[data-state="peer"] .cn-state-ring {
+    box-shadow: 0 0 0 3px rgba(196, 236, 206, 0.64) inset, 0 0 20px rgba(196, 236, 206, 0.18) inset;
+  }
+  #conest-device-ui .cn-screen[data-state="busy"] .cn-state-ring,
+  #conest-device-ui .cn-screen[data-state="stopping"] .cn-state-ring {
+    box-shadow: 0 0 0 2.5px rgba(226, 196, 142, 0.52) inset;
+  }
+  #conest-device-ui .cn-screen[data-state="error"] .cn-state-ring {
+    box-shadow: 0 0 0 2.5px rgba(244, 143, 134, 0.72) inset, 0 0 18px rgba(244, 143, 134, 0.18) inset;
+  }
+  #conest-device-ui .cn-screen[data-state="offline"] .cn-state-ring {
+    box-shadow: 0 0 0 2.5px rgba(228, 156, 122, 0.65) inset;
+  }
+
+  /* 顶部极简伙伴徽章（适配 1.75 寸屏手指触控尺寸，采用高透轻玻璃不挡画面） */
+  #conest-device-ui .cn-top-pill {
+    position: absolute;
+    top: 3.0%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    min-height: 34px;
+    padding: 4px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(12, 19, 17, 0.24);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    color: rgba(245, 249, 246, 0.92);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font: inherit;
+    font-size: max(12.5px, 3.0cqw);
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    touch-action: manipulation;
+    outline: none;
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, transform 140ms ease;
+  }
+  #conest-device-ui .cn-top-pill:focus-visible,
+  #conest-device-ui .cn-action:focus-visible,
+  #conest-device-ui .cn-back:focus-visible {
+    outline: 2px solid var(--cn-accent);
+    outline-offset: 2px;
+  }
+  /* 外扩热区适配 1.75 寸屏指腹点击 */
+  #conest-device-ui .cn-top-pill::after {
+    content: "";
+    position: absolute;
+    inset: -10px -20px;
+  }
+  #conest-device-ui .cn-top-pill:hover {
+    background: rgba(18, 30, 27, 0.52);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.24);
+  }
+  #conest-device-ui .cn-top-pill:active {
+    transform: translateX(-50%) scale(0.96);
+  }
+  #conest-device-ui .cn-conn-dot {
+    width: 6.5px;
+    height: 6.5px;
+    border-radius: 50%;
+    background: var(--cn-accent);
+    box-shadow: 0 0 6px rgba(154, 217, 176, 0.65);
+    flex-shrink: 0;
+  }
+  #conest-device-ui .cn-screen[data-state="offline"] .cn-conn-dot,
+  #conest-device-ui .cn-screen[data-state="error"] .cn-conn-dot {
+    background: #e59b76;
+    box-shadow: 0 0 6px rgba(229, 155, 118, 0.7);
+  }
+  #conest-device-ui .cn-offline-tag {
+    font-size: max(11px, 2.6cqw);
+    font-weight: 500;
+    color: #f3bda1;
+    padding-left: 2px;
+  }
+  #conest-device-ui .cn-gear-icon {
+    width: 12.5px;
+    height: 12.5px;
+    opacity: 0.75;
+    flex-shrink: 0;
+  }
+
+  /* 底部弧区：兼顾 1.75 寸屏幕指腹按压面积与高透无感视觉 */
+  #conest-device-ui .cn-bottom-dock {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 3.2%;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+  }
+  #conest-device-ui .cn-status-chip {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 4px 13px;
+    border-radius: 999px;
+    background: rgba(12, 19, 17, 0.48);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    font-size: max(12px, 2.9cqw);
+    font-weight: 500;
+    color: rgba(242, 248, 244, 0.95);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    max-width: 82cqw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #conest-device-ui .cn-wave-dots {
+    display: none;
+    align-items: center;
+    gap: 3px;
+    height: 11px;
+  }
+  #conest-device-ui .cn-screen[data-state="listening"] .cn-wave-dots,
+  #conest-device-ui .cn-screen[data-state="speaking"] .cn-wave-dots,
+  #conest-device-ui .cn-screen[data-state="peer"] .cn-wave-dots {
+    display: inline-flex;
+  }
+  #conest-device-ui .cn-wave-dots i {
+    display: block;
+    width: 3px;
+    height: 5px;
+    border-radius: 2px;
+    background: var(--cn-accent);
+    animation: cn-quiet-wave 1.1s ease-in-out infinite;
+  }
+  #conest-device-ui .cn-wave-dots i:nth-child(2) {
+    height: 10px;
+    animation-delay: 0.18s;
+  }
+  #conest-device-ui .cn-wave-dots i:nth-child(3) {
+    height: 6.5px;
+    animation-delay: 0.36s;
+  }
+  @keyframes cn-quiet-wave {
+    0%, 100% { transform: scaleY(0.65); opacity: 0.7; }
+    50% { transform: scaleY(1.1); opacity: 1; }
+  }
+
+  /* 主触控按钮：适配 1.75 寸屏指腹宽度（约 158×40px），待机采用高透薄雾玻璃，不压暗领口 */
+  #conest-device-ui .cn-action {
+    position: relative;
+    pointer-events: auto;
+    width: auto;
+    min-width: 158px;
+    min-height: 40px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(215, 234, 219, 0.86);
+    color: #162b21 !important;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 7px 22px;
+    font: inherit;
+    outline: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    touch-action: none;
+    white-space: nowrap;
+    transition: background-color 180ms ease, color 180ms ease, transform 120ms ease, border-color 180ms ease, opacity 180ms ease;
+  }
+  /* 透明外扩热区覆盖底部弧区（约 222×64px），1.75 寸屏上盲按底部即可触发 */
+  #conest-device-ui .cn-action::after {
+    content: "";
+    position: absolute;
+    inset: -12px -32px;
+  }
+  /* 待机时：尺寸够指腹按压（约 156×40px），但底色高透轻盈（0.18 透明度），领口蝴蝶结/胸针可直接透出，视觉无感不笨重 */
+  #conest-device-ui .cn-screen[data-state="idle"] .cn-action {
+    min-width: 154px;
+    min-height: 39px;
+    padding: 6px 20px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(10, 16, 14, 0.22) 100%);
+    color: rgba(244, 248, 245, 0.88) !important;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.72);
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.10);
+    backdrop-filter: blur(2.5px);
+    -webkit-backdrop-filter: blur(2.5px);
+  }
+  #conest-device-ui .cn-screen[data-state="idle"] .cn-action:hover {
+    background: rgba(16, 26, 23, 0.42);
+    color: #ffffff !important;
+    border-color: rgba(255, 255, 255, 0.26);
+  }
+  /* 倾听时按钮高亮提示松手发送 */
+  #conest-device-ui .cn-screen[data-state="listening"] .cn-action {
+    background: rgba(191, 231, 203, 0.90);
+    color: #12291e !important;
+    text-shadow: none;
+    border-color: rgba(228, 247, 234, 0.85);
+  }
+  /* 思考/说话/同伴发言时：清楚好按的停止胶囊 */
+  #conest-device-ui .cn-action[data-mode="stop"] {
+    background: rgba(38, 20, 22, 0.72);
+    color: #ffdfdc !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    border-color: rgba(244, 143, 134, 0.46);
+  }
+  #conest-device-ui .cn-action[data-mode="retry"] {
+    background: rgba(42, 26, 20, 0.76);
+    color: #ffe8d6 !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    border-color: rgba(235, 165, 128, 0.52);
+  }
+  #conest-device-ui .cn-action[disabled] {
+    min-height: 38px;
+    padding: 6px 18px;
+    background: rgba(16, 24, 22, 0.36);
+    color: rgba(226, 234, 229, 0.72) !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: none;
+    cursor: default;
+  }
+  #conest-device-ui .cn-action:active:not([disabled]) {
+    transform: scale(0.96);
+  }
+  #conest-device-ui .cn-action-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #conest-device-ui .cn-action-icon {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.78;
+  }
+  #conest-device-ui .cn-screen[data-state="idle"] .cn-action-icon {
+    width: 6px;
+    height: 6px;
+    opacity: 0.72;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+  #conest-device-ui .cn-action[data-mode="stop"] .cn-action-icon {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: #f78b82;
+    opacity: 0.92;
+  }
+  #conest-device-ui .cn-action-label {
+    font-size: max(13.5px, 3.2cqw);
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+  #conest-device-ui .cn-screen[data-state="idle"] .cn-action-label {
+    font-size: max(13px, 3.1cqw);
+    font-weight: 500;
+  }
+  #conest-device-ui .cn-action-hint {
+    font-size: max(10.5px, 2.4cqw);
+    opacity: 0.78;
+  }
+
+  /* 后台可配交互模式：
+   * 1) active-only：待机隐藏“按住说话”按钮（画面 100% 纯净），仅在思考/说话/倾听时浮现操作按钮
+   * 2) hidden：无触摸屏或纯语音/实体键设备，全程隐藏圆屏底部按钮与顶部设置齿轮图标
+   */
+  #conest-device-ui .cn-screen[data-interaction="active-only"][data-state="idle"] .cn-action,
+  #conest-device-ui .cn-screen[data-interaction="hidden"] .cn-action {
+    display: none !important;
+  }
+  #conest-device-ui .cn-screen[data-interaction="hidden"] .cn-top-pill {
+    pointer-events: none;
+    padding-right: 12px;
+  }
+  #conest-device-ui .cn-screen[data-interaction="hidden"] .cn-gear-icon {
+    display: none !important;
+  }
+
+  /* 设备设置抽屉（圆屏内部页） */
+  #conest-device-ui .cn-settings {
+    z-index: 5;
+    background: radial-gradient(circle at 50% 35%, #1e2d28 0%, #111a17 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12% 18% 9%;
+    text-align: center;
+  }
+  #conest-device-ui .cn-settings-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #conest-device-ui .cn-settings-title {
+    font-size: max(16px, 4.4cqw);
+    font-weight: 600;
+  }
+  #conest-device-ui .cn-bound-role {
+    font-size: max(12px, 3.1cqw);
+    color: var(--cn-screen-muted);
+  }
+  #conest-device-ui .cn-settings-controls {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-align: left;
+  }
+  #conest-device-ui .cn-slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: max(12px, 3.2cqw);
+  }
+  #conest-device-ui .cn-slider-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #conest-device-ui .cn-slider-head output {
+    color: var(--cn-screen-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  #conest-device-ui .cn-slider-group input[type="range"] {
+    width: 100%;
+    height: 38px;
+    margin: 0;
+    accent-color: var(--cn-accent);
+    touch-action: pan-x;
+  }
+  #conest-device-ui .cn-settings-connection {
+    font-size: max(11px, 2.8cqw);
+    color: var(--cn-screen-muted);
+    text-align: center;
+    padding-top: 2px;
+  }
+  #conest-device-ui .cn-back {
+    min-height: 46px;
+    padding: 8px 28px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: #d3e7d7;
+    color: #152b20;
+    font: inherit;
+    font-size: max(13px, 3.4cqw);
+    font-weight: 600;
+    outline: none;
+  }
+
+  /* 修改前旧版对照区样式（保留原始参数供直观对比） */
+  #conest-device-ui .cn-legacy-device {
+    width: 466px;
+    max-width: 100%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    padding: 10px;
+    background: light-dark(#dedfd5, #303932);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
+  }
+  #conest-device-ui .cn-legacy-screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #22352e;
+    color: #f0f4eb;
+    container-type: inline-size;
+  }
+  #conest-device-ui .cn-legacy-character {
+    position: absolute;
+    top: -24%;
+    left: -30%;
+    width: 160%;
+    aspect-ratio: 192 / 208;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #conest-device-ui .cn-legacy-atlas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 800%;
+    height: 1100%;
+    max-width: none;
+  }
+  #conest-device-ui .cn-legacy-conn {
+    position: absolute;
+    top: 4%;
+    left: 20%;
+    right: 20%;
+    text-align: center;
+    font-size: 3.3cqw;
+    text-shadow: 0 1px 4px #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+  }
+  #conest-device-ui .cn-legacy-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #b7d4bd;
+  }
+  #conest-device-ui .cn-legacy-role {
+    position: absolute;
+    top: 8%;
+    left: 33%;
+    width: 34%;
+    height: 12%;
+    background: #14211dbb;
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 5cqw;
+    font-weight: 500;
+  }
+  #conest-device-ui .cn-legacy-status {
+    position: absolute;
+    top: 72%;
+    left: 22%;
+    right: 22%;
+    padding: 5px 6px;
+    border-radius: 18px;
+    background: #14211ddd;
+    text-align: center;
+    font-size: 4.6cqw;
+    font-weight: 500;
+  }
+  #conest-device-ui .cn-legacy-action {
+    position: absolute;
+    top: 82%;
+    left: 23%;
+    width: 54%;
+    height: 14%;
+    border-radius: 40px;
+    background: #d5e6ce;
+    color: #1c3425;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 4.4cqw;
+    font-weight: 500;
+  }
+  #conest-device-ui .cn-legacy-action small {
+    font-size: 3cqw;
+    font-weight: 400;
+  }
+
+  /* 署名与许可底栏 */
+  #conest-device-ui .cn-credit {
+    margin-top: 20px;
+    padding: 12px 10px;
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: var(--cn-muted);
+    text-align: center;
+    border-top: 1px solid var(--cn-line);
+  }
+  #conest-device-ui .cn-credit a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  #conest-device-ui .cn-credit-sub {
+    font-size: 11px;
+    opacity: 0.85;
+  }
+
+  @media (max-width: 520px) {
+    #conest-device-ui .cn-dev-bar {
+      padding: 10px 10px;
+    }
+    #conest-device-ui .cn-control-item,
+    #conest-device-ui select {
+      width: 100%;
+    }
+    #conest-device-ui .cn-stage-card {
+      padding: 12px 8px 14px;
+      width: 100%;
+    }
+    #conest-device-ui .cn-device-shell,
+    #conest-device-ui .cn-legacy-device {
+      width: calc(100vw - 36px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #conest-device-ui *,
+    #conest-device-ui *::before,
+    #conest-device-ui *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }

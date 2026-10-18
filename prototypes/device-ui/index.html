@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>共栖 · CoNest 圆屏设备 UI 原型（466×466 预览）</title>
+  <link rel="stylesheet" href="screen/screen.css">
+  <script src="screen/screen.js" defer></script>
+</head>
+<body>
+<div id="conest-device-ui" data-view-mode="dual">
+  <header class="cn-dev-bar" aria-label="开发预览控制台">
+    <div class="cn-dev-top">
+      <div class="cn-dev-brand">
+        <span class="cn-dev-badge">真实语音状态驱动 · 浏览器预览</span>
+        <h1 class="cn-dev-title">共栖 · CoNest 圆屏设备 UI</h1>
+        <span class="cn-dev-sub">Waveshare ESP32-S3-Touch-AMOLED-1.75 · 466×466 圆屏 · 视频静音（真实声音由 TTS 播放器驱动）</span>
+      </div>
+    </div>
+
+    <div class="cn-dev-controls" role="group" aria-label="演示参数控制">
+      <div class="cn-control-item">
+        <label for="cn-preview-state">当前状态</label>
+        <select id="cn-preview-state" class="cursor-interaction">
+          <option value="idle">待机 (idle)</option>
+          <option value="listening">倾听 (listening)</option>
+          <option value="thinking">思考 (thinking)</option>
+          <option value="speaking">说话 (speaking)</option>
+          <option value="peer">同伴发言 (peer)</option>
+          <option value="busy">任务忙碌 (busy)</option>
+          <option value="stopping">停止收尾 (stopping)</option>
+          <option value="error">错误提示 (error)</option>
+          <option value="offline">电脑离线 (offline)</option>
+        </select>
+      </div>
+
+      <div class="cn-control-item">
+        <label for="cn-preview-character">
+          开发预览角色
+          <span class="cn-label-tag" title="正式设备一机固定一位伙伴，设备屏内不提供换人">仅开发切换</span>
+        </label>
+        <select id="cn-preview-character" class="cursor-interaction">
+          <option value="gpt">G哥 · GPT 白发龙娘（默认设备伙伴）</option>
+          <option value="claude">Claude · 贝雷帽少女（5段动作齐全）</option>
+          <option value="deepseek">DeepSeek · 蓝发鲸鱼少女（5段动作齐全）</option>
+        </select>
+      </div>
+
+      <div class="cn-control-item">
+        <label for="cn-preview-scale">预览视图</label>
+        <select id="cn-preview-scale" class="cursor-interaction">
+          <option value="dual">1:1 真实圆屏 (466×466) + 放大查看</option>
+          <option value="466">仅 1:1 真实圆屏 (466×466)</option>
+          <option value="zoom">仅 1.35× 放大查看 (629×629)</option>
+          <option value="compare">修改前后对比（新高清视频 vs 旧192px图集）</option>
+        </select>
+      </div>
+
+      <div class="cn-control-item">
+        <label for="cn-interaction-mode">
+          交互按钮
+          <span class="cn-label-tag" title="支持后台配置或 URL ?interaction=hidden 下发，适配带触摸与无触摸设备">后台可配</span>
+        </label>
+        <select id="cn-interaction-mode" class="cursor-interaction">
+          <option value="touch">显示触控按钮（带触摸屏 · 默认）</option>
+          <option value="active-only">待机隐藏按钮（仅思考/说话浮现停止）</option>
+          <option value="hidden">全程隐藏按钮（无触摸屏 / 纯语音或实体键）</option>
+        </select>
+      </div>
+
+      <div class="cn-control-item">
+        <label for="cn-thinking-mode">思考问号取舍</label>
+        <select id="cn-thinking-mode" class="cursor-interaction">
+          <option value="calm">无问号安静思考（推荐 · 截取无符号段）</option>
+          <option value="question">歪头思考原片（保留问号段对照）</option>
+        </select>
+      </div>
+
+      <div class="cn-control-item cn-control-toggle">
+        <label class="cn-checkbox-label cursor-interaction">
+          <input type="checkbox" id="cn-motion-toggle" checked>
+          <span>播放动画</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="cn-voice-bar" aria-label="真实语音通道控制">
+      <div class="cn-voice-row">
+        <label class="cn-voice-field" for="cn-voice-endpoint">
+          <span>语音接口</span>
+          <select id="cn-voice-endpoint" class="cursor-interaction">
+            <option value="/device/desk-gge">固定设备：/device/desk-gge（G哥）</option>
+            <option value="/device/desk-cursor">固定设备：/device/desk-cursor（Cursor）</option>
+            <option value="">通用语音：/api（单/多伙伴入口）</option>
+          </select>
+        </label>
+        <button type="button" id="cn-voice-connect" class="cn-voice-btn cursor-interaction">连接语音服务</button>
+        <span id="cn-voice-status" class="cn-voice-status" role="status">事件驱动就绪 · 未连接后台</span>
+      </div>
+      <form id="cn-voice-form" class="cn-voice-row cn-voice-form">
+        <input id="cn-voice-text" class="cn-voice-input" type="text" maxlength="6000" placeholder="输入文字发起真实语音轮次，或在圆屏按住说话录音识别…" aria-label="对话输入文字">
+        <button type="submit" id="cn-voice-send" class="cn-voice-btn cn-voice-btn-primary cursor-interaction">发送真实对话</button>
+        <button type="button" id="cn-voice-stop" class="cn-voice-btn cn-voice-btn-danger cursor-interaction" disabled>停止本轮</button>
+      </form>
+      <div id="cn-voice-telemetry" class="cn-voice-telemetry" aria-live="polite">
+        <span id="cn-telemetry-phase">状态：待机 (idle)</span>
+        <span id="cn-telemetry-playback">音频：未播放 (0:00 / —)</span>
+        <span id="cn-telemetry-text">最近消息：尚无轮次记录</span>
+      </div>
+      <audio id="cn-voice-audio" preload="none"></audio>
+    </div>
+
+    <div class="cn-asset-banner" id="cn-asset-banner" aria-live="polite">
+      <span class="cn-asset-pill" id="cn-asset-clip">素材加载中…</span>
+      <span class="cn-asset-note" id="cn-asset-note">所有视频音轨已强制静音；圆屏状态完全由真实语音事件驱动（录音→listening，提交等待→thinking，音频 playing→speaking，播完/停止→idle），已移除 1.5s 假定时器。</span>
+    </div>
+  </header>
+
+  <main class="cn-workbench">
+    <!-- 主圆屏：466×466 实际硬件尺寸（或 1.35× 单屏放大） -->
+    <section class="cn-stage-card cn-primary-card" aria-label="推荐方案：466×466 圆屏设备预览">
+      <div class="cn-stage-meta">
+        <span class="cn-stage-tag" id="cn-primary-size-label">1:1 硬件实际尺寸 · 466×466 px</span>
+        <span class="cn-stage-hint">可直接按住说话、点击停止或点顶部名字打开设置</span>
+      </div>
+
+      <div class="cn-device-shell" data-panel="primary">
+        <div class="cn-device" aria-label="共栖圆屏设备交互预览">
+          <div class="cn-screen" data-state="idle" data-character="gpt">
+            <div class="cn-home">
+              <div class="cn-character-stage" role="img" aria-label="G哥的屏幕形象：ChatGPT 白发龙娘 Q版，非官方同人">
+                <video class="cn-video-layer is-active" muted defaultMuted playsinline preload="auto" disablepictureinpicture disableremoteplayback></video>
+                <video class="cn-video-layer is-standby" muted defaultMuted playsinline preload="auto" disablepictureinpicture disableremoteplayback></video>
+              </div>
+              <div class="cn-edge-fusion" aria-hidden="true"></div>
+              <div class="cn-state-ring" aria-hidden="true"></div>
+
+              <button type="button" class="cn-top-pill cursor-interaction" aria-label="G哥，已连接电脑，打开设备设置">
+                <span class="cn-conn-dot" aria-hidden="true"></span>
+                <span class="cn-role-name">G哥</span>
+                <span class="cn-offline-tag" hidden>未连接</span>
+                <svg class="cn-gear-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  <circle cx="5.5" cy="4.5" r="1.6" fill="var(--cn-screen-bg)" stroke="currentColor" stroke-width="1.3"/>
+                  <circle cx="10.5" cy="8" r="1.6" fill="var(--cn-screen-bg)" stroke="currentColor" stroke-width="1.3"/>
+                  <circle cx="6.5" cy="11.5" r="1.6" fill="var(--cn-screen-bg)" stroke="currentColor" stroke-width="1.3"/>
+                </svg>
+              </button>
+
+              <div class="cn-bottom-dock">
+                <div class="cn-status-chip" aria-live="polite" hidden>
+                  <span class="cn-wave-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="cn-title">我在</span>
+                </div>
+                <button type="button" class="cn-action cursor-interaction" data-mode="talk">
+                  <span class="cn-action-row">
+                    <span class="cn-action-icon" aria-hidden="true"></span>
+                    <span class="cn-action-label">按住说话</span>
+                  </span>
+                  <span class="cn-action-hint" hidden>松开发送</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="cn-settings" hidden>
+              <div class="cn-settings-header">
+                <div class="cn-settings-title">设备设置</div>
+                <div class="cn-bound-role">本机固定伙伴 · <strong class="cn-role-name">G哥</strong></div>
+              </div>
+              <div class="cn-settings-controls">
+                <label class="cn-slider-group">
+                  <span class="cn-slider-head"><span>播报音量</span><output class="cn-volume-value">60%</output></span>
+                  <input class="cn-volume cursor-interaction" type="range" min="0" max="100" value="60" aria-label="播报音量">
+                </label>
+                <label class="cn-slider-group">
+                  <span class="cn-slider-head"><span>屏幕亮度</span><output class="cn-brightness-value">85%</output></span>
+                  <input class="cn-brightness cursor-interaction" type="range" min="35" max="100" value="85" aria-label="屏幕亮度">
+                </label>
+                <div class="cn-settings-connection">已连接电脑语音后台 · 视频音轨已静音</div>
+              </div>
+              <button type="button" class="cn-back cursor-interaction">返回伙伴画面</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cn-design-caption">推荐方案：头肩大头特写 · 待机隐藏冗余状态框 · 边缘柔化融合无矩形硬边</p>
+    </section>
+
+    <!-- 副视口：1.35× 放大检视（默认在 dual 模式显示） -->
+    <section class="cn-stage-card cn-zoom-card" id="cn-zoom-card" aria-label="1.35倍放大细节查看">
+      <div class="cn-stage-meta">
+        <span class="cn-stage-tag">1.35× 放大检视 · 629×629 px</span>
+        <span class="cn-stage-hint">检查眼部清晰度、发饰/角安全边距、圆屏裁切与按钮触控区</span>
+      </div>
+
+      <div class="cn-device-shell is-zoomed" data-panel="zoom">
+        <div class="cn-device" aria-label="放大检视设备预览">
+          <div class="cn-screen" data-state="idle" data-character="gpt">
+            <div class="cn-home">
+              <div class="cn-character-stage" role="img" aria-label="角色放大检视画面">
+                <video class="cn-video-layer is-active" muted defaultMuted playsinline preload="auto" disablepictureinpicture disableremoteplayback></video>
+                <video class="cn-video-layer is-standby" muted defaultMuted playsinline preload="auto" disablepictureinpicture disableremoteplayback></video>
+              </div>
+              <div class="cn-edge-fusion" aria-hidden="true"></div>
+              <div class="cn-state-ring" aria-hidden="true"></div>
+
+              <button type="button" class="cn-top-pill cursor-interaction" aria-label="G哥，打开设备设置">
+                <span class="cn-conn-dot" aria-hidden="true"></span>
+                <span class="cn-role-name">G哥</span>
+                <span class="cn-offline-tag" hidden>未连接</span>
+                <svg class="cn-gear-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  <circle cx="5.5" cy="4.5" r="1.6" fill="var(--cn-screen-bg)" stroke="currentColor" stroke-width="1.3"/>
+                  <circle cx="10.5" cy="8" r="1.6" fill="var(--cn-screen-bg)" stroke="currentColor" stroke-width="1.3"/>
+                  <circle cx="6.5" cy="11.5" r="1.6" fill="var(--cn-screen-bg)" stroke="currentColor" stroke-width="1.3"/>
+                </svg>
+              </button>
+
+              <div class="cn-bottom-dock">
+                <div class="cn-status-chip" aria-live="polite" hidden>
+                  <span class="cn-wave-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="cn-title">我在</span>
+                </div>
+                <button type="button" class="cn-action cursor-interaction" data-mode="talk">
+                  <span class="cn-action-row">
+                    <span class="cn-action-icon" aria-hidden="true"></span>
+                    <span class="cn-action-label">按住说话</span>
+                  </span>
+                  <span class="cn-action-hint" hidden>松开发送</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="cn-settings" hidden>
+              <div class="cn-settings-header">
+                <div class="cn-settings-title">设备设置</div>
+                <div class="cn-bound-role">本机固定伙伴 · <strong class="cn-role-name">G哥</strong></div>
+              </div>
+              <div class="cn-settings-controls">
+                <label class="cn-slider-group">
+                  <span class="cn-slider-head"><span>播报音量</span><output class="cn-volume-value">60%</output></span>
+                  <input class="cn-volume cursor-interaction" type="range" min="0" max="100" value="60" aria-label="播报音量">
+                </label>
+                <label class="cn-slider-group">
+                  <span class="cn-slider-head"><span>屏幕亮度</span><output class="cn-brightness-value">85%</output></span>
+                  <input class="cn-brightness cursor-interaction" type="range" min="35" max="100" value="85" aria-label="屏幕亮度">
+                </label>
+                <div class="cn-settings-connection">已连接电脑语音后台 · 视频音轨已静音</div>
+              </div>
+              <button type="button" class="cn-back cursor-interaction">返回伙伴画面</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cn-design-caption">1.35× 放大查看：五官清晰锐利，头顶双角/帽饰与下巴操作区互不遮挡</p>
+    </section>
+
+    <!-- 旧版对照视口：仅在 compare 模式下显示，直观展示修改前后对比 -->
+    <section class="cn-stage-card cn-legacy-card" id="cn-legacy-card" hidden aria-label="修改前旧方案对照">
+      <div class="cn-stage-meta">
+        <span class="cn-stage-tag cn-stage-tag-warn">修改前基线对照 · 192×208 旧图集放大 2.9×</span>
+        <span class="cn-stage-hint">原问题：①全身小帧放大模糊 ②顶部胶囊压住额头与角 ③底部状态框+大按钮堆叠遮挡胸口</span>
+      </div>
+
+      <div class="cn-legacy-device" aria-label="修改前旧版界面对照">
+        <div class="cn-legacy-screen" id="cn-legacy-screen" data-state="idle">
+          <div class="cn-legacy-character">
+            <img class="cn-legacy-atlas" id="cn-legacy-atlas" alt="旧版 192×208 放大图集对照" draggable="false" data-legacy-src="https://cdn.jsdelivr.net/gh/fywdy/chatgpt-chibi-pets@d5bbb27c79e5c08e8b8ab44d4023cd35a67418e2/chatgpt-white-dragon-chibi-v5/spritesheet.webp">
+          </div>
+          <div class="cn-legacy-conn"><span class="cn-legacy-dot"></span><span id="cn-legacy-conn-text">已连接电脑</span></div>
+          <div class="cn-legacy-role"><span>G哥</span><span>⌄</span></div>
+          <div class="cn-legacy-status" id="cn-legacy-status">我在</div>
+          <div class="cn-legacy-action">
+            <span id="cn-legacy-action-label">按住说话</span>
+            <small id="cn-legacy-action-hint">松开发送</small>
+          </div>
+        </div>
+      </div>
+      <p class="cn-design-caption">修改前（旧版草图）：192×208 帧放大后边缘像素化，上下四层胶囊挤压人物面部</p>
+    </section>
+  </main>
+
+  <footer class="cn-credit">
+    <div>
+      角色参考来源：<strong>fywdy / chatgpt-chibi-pets</strong> · 非官方同人衍生素材 · 遵循 <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a> 非商用与署名约束 ·
+      <a href="https://github.com/fywdy/chatgpt-chibi-pets/tree/d5bbb27c79e5c08e8b8ab44d4023cd35a67418e2" target="_blank" rel="noopener noreferrer">上游仓库与声明</a> ·
+      <a href="UPSTREAM-NOTICE.md" target="_blank" rel="noopener noreferrer">非官方声明 (UPSTREAM-NOTICE)</a>
+    </div>
+    <div class="cn-credit-sub">
+      与 OpenAI / Anthropic / DeepSeek 无官方授权、赞助或背书关系；本页圆屏状态完全由真实语音事件驱动（录音、轮次状态与 TTS 音频播放事件），角色视频音轨永久静音。
+    </div>
+  </footer>
+</div>
+</body>
+</html>

@@ -1,5 +1,88 @@
 # 共栖当前交接
 
+## 2026-10-18：PR #54 麦克风启动竞态修复（未部署）
+
+- G哥固定页面 a6fb4cab、服务端 7da2c18、测试 d27ebf48 做浏览器验收时，首次主流程未上传录音。随后延迟真实 getUserMedia 返回稳定复现：松手后停在 thinking，迟到麦克风轨道仍 live。
+- 为每次采集加世代校验，松手/取消使待启动采集失效，迟到流立即关闭；无音频明确显示错误并允许重试，不再无请求地停在思考。原测试套件补真实麦克风延迟回归。
+- 修复后延迟复现通过（error、轨道 ended、无轮次投递）；#69 HTTP/浏览器验收 9 passed。语音识别、回答和合成使用模拟后端，不代表真人麦克风或板端验收。未部署 8796。
+
+## 2026-10-18：圆屏 UI 解决 G哥 评审项（彻底移除路由兜底、失联租约过期两段展示与严谨真实入口验收）（Issue #53 / PR #54）
+
+- 大豆包（G酱）在分支 `feat/53-device-ui-prototype`（PR #54）完成 G哥 的评审要求，严格遵守文件边界（仅修改 `prototypes/device-ui/` 及其文档，零改动 `companion/voice/device_app.py`、`devices.py`、`device_server.py`）：
+  1. **主干合并与冲突解决**：
+     - 将 `origin/main`（`ac3a108a`，含 PR #68）合入分支，彻底解决 `docs/STATUS.md` 与 `docs/HANDOFF.md` 的合并冲突，无残留冲突标记。
+  2. **失联心跳停止 / 租约过期（`lease-expired` / `abandoned`）两段界面提示与恢复**：
+     - 圆屏 UI 在轮询 `pollVoiceTurn`、释放等待 `awaitDeviceRelease`、服务重连与事件接收中全面接入 `result.abandoned`、`result.abandon_reason` 与 `last_release.reason === 'lease-expired'` 检测；
+     - 第一段（失联提示）：触发时立即停止音频播放、退出轮询、切入 `error` 阶段并在状态栏显示「连接中断，本轮已放弃 · {detail}」（对齐 G哥 与 Grok PR #69 的「没有心跳 / 占位已释放」文案），绝不停留在 thinking 或继续 speaking；
+     - 第二段（释放恢复）：服务端占位释放后，点击主按键可一键重置错误状态并安全回归 `idle`，支持立即发起新一轮真实问答，旧回复绝不重播。
+  3. **彻底删除测试中自行添加替代路由的兜底（缺少原生路由明确失败）**：
+     - 在 `prototypes/device-ui/test_device_ui_events.py` 中彻底删除 `screen_index`、`screen`、`screen_asset` 及 `if not has_native_screen` 的替代路由注入逻辑；
+     - 明确断言 `has_native_screen`：当 `create_device_app` 缺少原生圆屏路由（如当前未合并 #66 的分支）时，测试立即显式抛出 `AssertionError`，绝不自行兜底伪造通过。
+  4. **完善分块合成音频防御与播放器保护**：
+     - 在 `source.html` 中修复 `synthesizing` 状态下分块到达时提前设置 `turn.audioData`，并在 `DeviceQueuePlayer.select` 与 `selectTurnAudio` 增加对象防空保护，消除任何未定义对象引用隐患。
+- 验证结论：
+  - `python3 prototypes/device-ui/build.py --check` 一致无误；
+  - `prototypes/device-ui/test_device_ui_events.py` 前 12 项原生单元/事件断言全部 PASS，端到端浏览器部分如实校验原生路由并在缺少时明确拒绝；
+  - 在 Grok #69 独立真实入口验收测试（`companion/tests/screen_acceptance`）中，当前页面顺利通过全部 7 项真实浏览器轮次用例（包括 `test_expired_lease_shows_abandoned` 两段验收）；
+  - 临时测试环境使用 `tempfile.TemporaryDirectory`，零残留脏文件。
+
+## 2026-10-18：圆屏 UI 移除假 1.5s 定时器，全面接入真实语音生命周期（Issue #53 / PR #54）
+
+- 按任务分工，大豆包（G酱）在分支 `feat/53-device-ui-prototype`（PR #54）完成圆屏原型从假时钟模拟到真实语音生命周期的重构：
+  1. **彻底移除假 1.5s 思考定时器**（`thinkingTimer = setTimeout(..., 1500)`），UI 状态流转不再依赖任何内部计时跳变。
+  2. **全面绑定真实语音事件**：
+     - 按住说话麦克风录音或 `startListening()` → `listening`（倾听）；
+     - 松开提交转写或开始推理 → `thinking`（思考），且在音频真正生成前持续停留，绝无假超时；
+     - 接入内嵌队列播放器（`DeviceQueuePlayer`）与实体音频通道 `<audio id="cn-voice-audio">`，首个有效音频分块出声播放（`audio:playing` 或 `playback:state` `playing`）时才真正切入 `speaking`（说话）；
+     - 音频流全部分块完整播放完毕（`completed` 或 `audio:ended`）后回到 `idle`（待机）；
+     - 409 占用 → `busy`；请求/转写/TTS失败 → `error`；网络不可达 → `offline`；网络恢复 → `idle`。
+  3. **收尾防竞态与释放合同对齐**：
+     - 点击「停止本轮 / 停止回答」立即切入 `stopping`（正在收尾），使旧会话序号与迟到音频回调全部失效；
+     - 对齐 PR #61 的释放合同，轮询等待 `device_released !== false` 且全局空闲确认后再放开录音入口并回归 `idle`。
+  4. **严格遵守文件边界**：所有修改仅位于 `prototypes/device-ui/` 及其文档，零修改 `companion/voice/devices.py`、`companion/voice/device_server.py`，未干扰运行中的 8787 / 8793 / 8796 服务。
+- 自动化验证与产物：
+  - `python3 prototypes/device-ui/build.py --check` 严格同步；
+  - 新增 `prototypes/device-ui/test_device_ui_events.py`，12 项真实 Chromium 浏览器端对端断言全部通过（涵盖 2.2s 停留防自动跳变、各状态驱动、停止防竞态与异常分支）；
+  - 导出高保真截图与 8 种状态截图至 `preview.png` 与 `test-artifacts/`。
+
+## 2026-10-18：466×466 圆屏设备 UI 接入高清视频与交互收敛（Issue #53 / PR #54）
+
+- 按用户要求在独立工作区 `/Users/zhaixinyang/conest-53-ui-v2`（基于最新 `49f87a30`，完整保留 15 段原片与 2 段 GPT 正方形裁切版）重构[圆屏设备 UI 原型](../prototypes/device-ui/README.md)。收敛为单一推荐头肩特写方案，同时提供 1:1 真实硬件尺寸（`466×466 px`）、`1.35×` 放大查看（`629×629 px`）以及与旧 `192×208` 图集方案的同屏对比视图。
+- 解决现有界面最影响体验的 3 个问题：① 用 `720×720` 高清视频加逐角色逐动作校准表（`scale / tx / ty / bg`）及圆周径向柔化层替换旧 2.9 倍放大图集，消除面部模糊、底部横切线与内嵌灰框边线；② 将顶部连接与名字合并为极简徽章（`● G哥 ⚙`），待机时隐藏「我在」状态框、仅保留底部低干扰 `按住说话`，非待机阶段按需显示状态胶囊与细微光环，避免挤占五官、龙角与帽饰；③ 引入单调递增 `sessionSeq` 会话令牌与双缓冲 `<video>` 交叉淡入（配合内存 `Blob` 预取与强制静音 `muted + defaultMuted + volume=0`），确保思考或说话时点「停止」立即进入 `stopping` 且绝不被旧计时器切回说话。
+- 保留一机一伙伴的产品定位（圆屏内仅打开本机设置，开发用 `gpt / claude / deepseek` 切换与思考问号取舍放在顶部开发预览栏），诚实标注素材缺口（G哥缺专用连续说话视频，当前截取 `idle-blink-square-v2.mp4` 6.4s–9.4s 开口动作作候选；三组带问号思考视频默认截取 `0.0s–1.18s` 无问号凝思段并支持切换对比原片），保留 `fywdy / chatgpt-chibi-pets` 署名、CC BY-NC 4.0 与非官方声明。
+- 已验证：`python3 prototypes/device-ui/build.py --check` 一致；Chrome 实测 `466×466` 与 `629×629` 尺寸、全 `<video>` 静音、各状态区段寻址、按住说话→松开思考→点击停止 1.8s 后防回跳竞态、设置页滑块及 `1440/1024/768/320px` 无横向溢出通过，控制台 0 报错。未验证：未接真实麦克风、TTS、8793/8787 生产服务或 ESP32-S3 实体硬件解码与触控。
+
+## 2026-10-18：补充DeepSeek思考动画（Issue #53 / PR #54）
+
+- 用户提供并明确指定思考视频，按实际带问号的画面命名为 deepseek/thinking-question.mp4；720×720、约4.04秒、24fps、1条音轨。12帧解码/目视确认歪头、问号和复位；原件与副本SHA-256一致，未转码。
+- [素材目录](../prototypes/device-ui/assets/characters/README.md)及manifest已更新：15段原视频＋2段GPT裁切版，共17段。保留来源文件名与抽帧预览；仍只归档，未接入UI或硬件，循环及音轨听感未验收。
+
+## 2026-10-18：GPT两段宽屏视频裁为正方形（Issue #53 / PR #54）
+
+- 按用户要求新增 idle-blink-square-v1/v2.mp4，原1280×720居中取x=280、y=0、720×720，不缩放；原片保留。用AVFoundation最高质量重新编码，实测两段均720×720、10秒、24fps、1条音轨。
+- 每段解码12帧并目视检查，脸部、头发、龙角没有因新裁切被截断；已更新[素材目录](../prototypes/device-ui/assets/characters/README.md)、预览、转换参数及来源哈希。现有14段原件加2段衍生版；仍未接入UI或硬件，不宣称无缝循环已验收。
+
+## 2026-10-18：用户视频素材归档并按动作命名（Issue #53 / PR #54）
+
+- 用户要求将 Downloads/素材 上传私有 GitHub，并根据内容重新命名。新增[角色动画目录](../prototypes/device-ui/assets/characters/README.md)：GPT 5段、Claude 5段、DeepSeek 4段，共27,710,013字节；保留下载目录原件，仓库副本按主要动作命名。
+- 逐段以AVFoundation读取元数据、解码12个时间点并目视检查；新增抽帧预览、原名对照、SHA-256及尺寸/时长清单，复制后的14段哈希与源文件一致。仅抽帧检查，没有试听、逐帧、无缝循环、圆屏或板上验收。
+- 所有素材含音轨，后续UI应静音素材并用实际TTS；思考动画带问号，GPT宽屏v1/v2动作相似，尚未确认GPT专用说话动画。尺寸为720×720、1280×720或544×544，背景及人物比例需统一。不得把归档视为界面清晰度已验收。
+- 仍在 feat/53-device-ui-prototype 草稿PR #54；原型继续使用旧图集，本次未接入或部署。下一步先选择素材做466×466圆屏预览，再验收循环和声音驱动。具体生成工具与各文件提示词记录不全，保留fywdy来源、非官方声明及非商用美术约束。
+
+## 2026-10-18：圆屏人物模糊反馈，高清素材待生成（Issue #53 / PR #54）
+
+- 用户认为角色模糊，提出可考虑用 Gemini 生成视频。原帧实测192×208，当前大头单帧约显示560px宽，约2.9倍放大；原型没有blur滤镜。此前浏览器交互通过不代表用户认可清晰度。
+- 内置imagegen参照原角色生成高清头肩像，返回401认证错误（没有可用凭证）；未生成或替换任何图像，未使用替代付费API。保留旧图集和界面代码，没有用CSS锐化假称已修复。
+- 本轮继续在 `feat/53-device-ui-prototype` 更新草稿PR #54，仅补充[高清素材规格及母图/循环视频提示词](../prototypes/device-ui/ASSET_BRIEF.md)。下一步先生成并确认高清母图，再做动作和设备资源评估；用户尚未认可新素材。保持署名/非商用许可与非官方声明，保持已确认角色身份。
+
+## 2026-10-18：圆屏 UI 原型入库，交给其他 AI 审核（Issue #53）
+
+- 用户要求将已讨论的 UI 推到私有 GitHub，交给其他 AI 审核、重构、优化。本轮独立工作区 `/Users/zhaixinyang/conest-device-ui`，分支 `feat/53-device-ui-prototype`，基线 `fd51fd5e923c900a25f29e2cd247e6f60b62815d`；未使用子 Agent，交付草稿 PR，不自行合并或部署。
+- [原型入口与接手清单](../prototypes/device-ui/README.md)保存“大头特写 / 全身铺满”、G哥固定形象、已有图集动画与模拟交互。`source.html` 与对话原型逐字一致；随库外壳与 Python 构建让其他 AI 无需 Codex 也能预览、修改。素材固定 SHA、许可与原始 NOTICE 已保留；Cursor 形象未定，不猜配。
+- 用户已订购一块带喇叭的 Waveshare ESP32-S3-Touch-AMOLED-1.75，尚未确认到货。先验证单板，最终双设备陪伴目标保持。此目录不接真实语音/CLI/硬件；不要把状态动画、模拟连接或1.5秒计时当成产品能力。
+- 本机构建一致性、JavaScript语法、浏览器图片加载/换帧/方案切换、键盘说话→等待→回答→停止、离线设置与滑块、320px布局通过；详细范围见原型 README。只做同一 Agent 自查，独立审核与板上验收未发生。现有 CI 不覆盖此原型视觉，最新提交的 bridge/companion 结果以 PR 为准。
+- 下一位先从 `source.html` 检查触控/文字/圆形裁切和状态事件，再逐步整理遗留样式或替换导出外壳；保持角色放大与动画方向。优化后重新生成 `index.html`、复核预览并更新本交接。真实状态接口与资源预算另按 #42/#43 推进；不接管其他写者的硬件协议文档。
+- 未改 bridge/companion、私密配置、8793/8796服务，未发Discord消息、未刷固件。临时预览仅用于本轮自查；使用者按原型 README 在自己的电脑启动。
 ## 2026-10-18：PR #66 审核修复收尾（未部署）
 
 - G哥接手核对并提交已留在工作区的三处修复：先判断活跃租约是否到期再清理历史记录，避免超过两倍租期后重置计时；圆屏入口重定向到 `/screen/`，使相对资源路径正确；用同源外置 `__coqin_device.js` 初始化配置，保留严格 CSP。
