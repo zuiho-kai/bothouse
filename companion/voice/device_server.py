@@ -25,7 +25,19 @@ def main():
     settings, roles = read_settings(args.config), read_roles(args.roles)
     registry = read_devices(args.devices, roles)
     import uvicorn
-    uvicorn.run(create_device_app(settings, registry, roles=roles), host='127.0.0.1', port=settings.port)
+    uvicorn.run(create_device_app(settings, registry, roles=roles), host='127.0.0.1', port=settings.port,
+                log_config=timestamped_log_config())
+
+
+def timestamped_log_config():
+    """Access lines carry only paths and turn IDs; timestamps let them line up
+    with shared-memory events when diagnosing a 409 or a held slot."""
+    import copy
+    from uvicorn.config import LOGGING_CONFIG
+    config = copy.deepcopy(LOGGING_CONFIG)
+    for formatter in config['formatters'].values():
+        formatter['fmt'] = '%(asctime)s ' + formatter['fmt']
+    return config
 
 
 if __name__ == '__main__':

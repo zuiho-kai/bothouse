@@ -91,6 +91,8 @@ class DeviceRoom:
         allowed = (client == record['client'] and self.active == record['id']
                    and not record['stop_requested'] and not record.get('completed'))
         result['playback_allowed'] = allowed
+        # A stop acknowledgement is not a release: delivered CLI work keeps the slot.
+        result['device_released'] = self.active != record['id']
         root = f"/device/{record['device_id']}/api/turn/{record['id']}"
         query = '?' + urlencode({'client': client})
         if allowed:
@@ -162,7 +164,8 @@ class DeviceRoom:
             record['stop_recorded'] = True
         self.reap()
         if identifier not in self.service.turns and record.get('completed'):
-            return {'id': identifier, 'status': 'stopped', 'playback_allowed': False}
+            return {'id': identifier, 'status': 'stopped', 'playback_allowed': False,
+                    'device_released': self.active != identifier}
         return self.snapshot(record, client)
 
     def audio(self, device_id, identifier, client, index=None):

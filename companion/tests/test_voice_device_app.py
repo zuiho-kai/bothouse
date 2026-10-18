@@ -1,4 +1,5 @@
 import asyncio
+import logging.config
 from dataclasses import asdict
 import json
 from uuid import uuid4
@@ -292,3 +293,59 @@ async def test_evicted_audio_does_not_make_old_retry_look_pending_or_resend(tmp_
         assert (await client.get(path('gge', first['id']))).status_code == 410
         assert (await client.post(path() + '/turn', json=first)).status_code == 410
         assert len(bridge.requests) == 21
+
+
+async def test_stop_while_agent_runs_reports_drain_until_release_then_same_device_recovers(tmp_path):
+    # Stop during thinking: the delivered CLI task keeps running. The stop
+    # acknowledgement must not read as "device free", or the page lets the
+    # user record a whole sentence only to receive a 409 from /transcribe.
+    app, client, bridge, speech = setup(tmp_path)
+    import threading
+    running = threading.Event()
+    original = bridge.call
+
+    def held(endpoint, body=None):
+        if endpoint.startswith('/input/') and not endpoint.startswith('/input/bindings') and not running.is_set():
+            return {'status': 'running'}
+        return original(endpoint, body)
+
+    bridge.call = held
+    try:
+        async with client:
+            first = payload()
+            await client.post(path() + '/turn', json=first)
+            root = path('gge', first['id'])
+            stopped = (await client.post(root + '/stop')).json()
+            assert stopped['status'] == 'stopped' and stopped['device_released'] is False
+            assert (await client.get(root)).json()['device_released'] is False
+            fresh_page = {'X-Device-Client': str(uuid4())}
+            role = (await client.get(path() + '/config', headers=fresh_page)).json()['roles'][0]
+            assert role['available'] is False
+            assert (await client.post(path() + '/transcribe', content=b'fixture')).status_code == 409
+            assert (await client.post(path() + '/turn', json=payload())).status_code == 409
+
+            running.set()
+            await finish(app)
+            drained = (await client.get(root)).json()
+            assert drained['status'] == 'stopped' and drained['device_released'] is True
+            assert not drained['playback_allowed'] and 'audio_url' not in drained
+            assert (await client.get(path() + '/config')).json()['roles'][0]['available'] is True
+            assert (await client.post(path() + '/transcribe', content=b'fixture')).status_code == 200
+            second = payload()
+            assert (await client.post(path() + '/turn', json=second)).status_code == 202
+            await finish(app)
+            assert (await client.get(path('gge', second['id']))).json()['status'] == 'ready'
+            await play(client, second)
+            assert list(bridge.requests) == [f'voice-{first["id"]}', f'voice-{second["id"]}']
+            assert speech.spoken == ['gge的回答']
+    finally:
+        running.set()
+        await finish(app)
+
+
+def test_device_server_access_log_is_timestamped():
+    import logging
+    from voice.device_server import timestamped_log_config
+    config = timestamped_log_config()
+    assert all(f['fmt'].startswith('%(asctime)s ') for f in config['formatters'].values())
+    logging.config.dictConfig(config)

@@ -551,9 +551,8 @@
     // Preserve transition order on the wire; failed reports are not retried.
     turn.reportChain = turn.reportChain.then(() => api(`/api/turn/${encodeURIComponent(turn.id)}/playback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true, timeout: 10000 })).then(() => {
       if (devicePath && ['completed', 'stopped', 'failed'].includes(state)) {
-        turn.deviceReleased = true;
         turn.nodes.replay.hidden = true;
-        updateControls();
+        return awaitDeviceRelease(turn);
       }
     }).catch((error) => {
       turn.nodes.reportError.textContent = `播放状态上报失败（${state}）：${message(error)}`;
@@ -570,11 +569,40 @@
     void api('/api/turn/' + encodeURIComponent(turn.id) + '/stop', {
       method: 'POST', keepalive: true, body: '{}',
       headers: { 'Content-Type': 'application/json' },
-    }).then(() => { turn.deviceReleased = true; updateControls(); }).catch((error) => {
+    }).then(() => awaitDeviceRelease(turn), (error) => {
       turn.stopSent = false;
       setTurnError(turn, '声音已停止，服务端停止尚未确认：' + message(error) + '。请再按停止。');
       updateControls();
     });
+  }
+
+  // The server holds a stopped turn's slot until already delivered CLI work
+  // drains; recording before that would only end in a 409 from /transcribe.
+  function awaitDeviceRelease(turn) {
+    if (turn.releaseWait) return turn.releaseWait;
+    turn.releaseWait = (async () => {
+      for (;;) {
+        try {
+          const result = await api(`/api/turn/${encodeURIComponent(turn.id)}`);
+          if (result.device_released === true) break;
+          if (currentTurn(turn)) {
+            ui['task-note'].textContent = '已停止。伙伴后台仍在收尾，结束后才能开始下一轮。';
+            ui['input-status'].textContent = '后台收尾中，暂时不能录音。';
+          }
+        } catch (error) {
+          if (error.status === 404 || error.status === 410) break;
+          if (currentTurn(turn)) {
+            ui['task-note'].textContent = `查询设备是否释放失败：${message(error)}。仍保持禁用，正在重试。`;
+            ui['input-status'].textContent = '与服务连接异常，暂时不能录音。';
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      turn.deviceReleased = true;
+      if (currentTurn(turn)) ui['input-status'].textContent = '可以继续录音，或直接打字。';
+      updateControls();
+    })();
+    return turn.releaseWait;
   }
 
   function updateProgress() {
