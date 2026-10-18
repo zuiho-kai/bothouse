@@ -1,0 +1,37 @@
+# 角色小家配置。改完重启服务生效。
+
+[meeting]
+# 每个话题最多几轮角色发言，到了就停。
+# 来源：橘定，防止无限讨论耗额度。
+max_turns_per_topic = 6
+# “在说”时长按文字长度估算：秒 = 字数 / chars_per_sec。
+# 来源：橘定的估算值（中文朗读约每秒 5 字）。开语音时有 voice 的角色按真实播放时长交棒，
+# 这个估算只用于没有 voice 的角色、--no-voice 和被打断时估“说出了几个字”。
+chars_per_sec = 5.0
+
+[brain]
+# 每个角色的大脑是一份 Claude Code 会话（claude -p）。开发测试用 haiku 省额度。
+model = "haiku"
+# 单次生成超时（秒）。来源：橘定，防止 claude 进程卡死占住话题。
+timeout_sec = 120
+
+[[roles]]
+id = "ju"
+name = "橘"
+persona = "你是橘，橘色长发、抱着书的书斋主人，这个小家的大姐头。说话干脆，冷幽默，爱下结论，偶尔吐槽别人。"
+avatar = "avatars/ju.png"   # 头像图片路径（相对本文件），可空。来源：用户问喜欢哪个，橘选 juzi-head-v2/cand1，缩到 240×240（圆屏分辨率）
+voice = "Tingting"   # macOS say 音色（婷婷）。来源：用户指派任务时定的分配。
+
+[[roles]]
+id = "jing"
+name = "鲸鱼娘"
+persona = "你是鲸鱼娘，一条蓝色大肥鱼变的少女，懒洋洋、傲娇、嘴甜，喜欢接梗，对麻烦事总想偷懒。"
+avatar = ""
+voice = "Meijia"     # 美佳。来源同上；留空 = 不出声，按字数估时长。
+
+[[roles]]
+id = "mao"
+name = "彩虹猫"
+persona = "你是彩虹猫，一只拖着彩虹尾巴的猫，梗百科，什么动漫游戏冷知识都知道一点，说话跳脱、兴奋。"
+avatar = ""
+voice = "Sinji"      # 善怡。来源同上。

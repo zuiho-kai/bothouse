@@ -1,0 +1,11 @@
+# vps-arm 上放在 /opt/role-household-hub；token 在同目录 hub.env（RH_HUB_TOKEN=...，不进 git）。
+services:
+  hub:
+    build:
+      context: .
+      network: host        # vps-arm 的 nft forward 默认 drop，桥接容器出不了网（见 wiki infra/access/vps）
+    network_mode: host
+    restart: unless-stopped
+    env_file: hub.env
+    volumes:
+      - ./data:/data

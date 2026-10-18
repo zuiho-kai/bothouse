@@ -1,0 +1,12 @@
+[project]
+name = "role-household"
+version = "0.1.0"
+description = "角色小家：主机端（内置频道 + 会议发言锁 + 网页虚拟头）"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.9",
+    "sounddevice>=0.5.6",
+]
+
+[dependency-groups]
+dev = ["playwright>=1.40"]

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>角色小家</title>
+<style>
+  :root { --bg:#1e1f22; --panel:#2b2d31; --text:#dbdee1; --muted:#949ba4; --accent:#f0a020; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,"PingFang SC",sans-serif; display:flex; flex-direction:column; height:100vh; }
+  header { padding:10px 16px; border-bottom:1px solid #111; font-weight:600; display:flex; gap:12px; align-items:baseline; }
+  header .meta { color:var(--muted); font-weight:400; font-size:12px; }
+  #heads { display:flex; gap:28px; justify-content:center; padding:18px; background:#232428; }
+  .head { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  /* 模拟 1.28 寸 240×240 圆屏 */
+  .screen { width:240px; height:240px; border-radius:50%; background:#000; border:6px solid #3a3c42; overflow:hidden;
+            display:flex; align-items:center; justify-content:center; text-align:center; position:relative; transition:border-color .2s, box-shadow .2s; }
+  .screen .face { font-size:64px; color:#555; }
+  .screen img.face { width:100%; height:100%; object-fit:cover; position:absolute; inset:0; }
+  .head.speaking .screen img.face { display:block; filter:brightness(.35); }
+  .screen .line { position:relative; padding:34px; font-size:15px; color:#fff; max-height:100%; overflow:hidden; display:none; }
+  .head.speaking .screen { border-color:var(--accent); box-shadow:0 0 24px var(--accent); }
+  .head.speaking .screen .face { display:none; }
+  .head.speaking .screen .line { display:block; }
+  .head .label { font-weight:600; }
+  .head .state { font-size:12px; color:var(--muted); }
+  .head.speaking .state { color:var(--accent); }
+  #main { flex:1; display:flex; flex-direction:column; min-height:0; }
+  #log { flex:1; overflow-y:auto; padding:12px 16px; }
+  .msg { padding:4px 0; }
+  .msg .who { font-weight:600; margin-right:6px; }
+  .msg .t { color:var(--muted); font-size:11px; margin-right:6px; }
+  .msg.user .who { color:#7ab7ff; }
+  .msg.system { color:var(--muted); font-style:italic; }
+  .msg.speaking .who::after { content:" ▶"; }
+  .msg.interrupted .text::after { content:"（被打断）"; color:#e66; }
+  #err { color:#f66; padding:0 16px; font-size:12px; min-height:0; }
+  #err:not(:empty) { padding-top:6px; }
+  form { display:flex; gap:8px; padding:12px 16px; border-top:1px solid #111; }
+  input { flex:1; padding:10px 12px; border-radius:8px; border:none; background:#383a40; color:var(--text); font-size:14px; }
+  button { padding:0 18px; border-radius:8px; border:none; background:var(--accent); color:#000; font-weight:600; cursor:pointer; }
+  #sound { margin-left:auto; padding:4px 12px; font-size:12px; }
+  #sound:disabled { background:#3a3c42; color:var(--muted); cursor:default; }
+  #login { display:none; }
+  body.need-token #login { display:flex; }
+  body.need-token #f { display:none; }
+</style>
+</head>
+<body>
+<header># <span id="room">频道</span> <span class="meta" id="meta">连接中…</span>
+  <button id="sound" title="浏览器要点一下才允许出声；开了以后角色的声音在这个网页里播">开声音</button></header>
+<div id="heads"></div>
+<div id="main">
+  <div id="log"></div>
+  <div id="err"></div>
+  <form id="login"><input id="tok" type="password" placeholder="输入访问 token" autocomplete="off"><button>进入</button></form>
+  <form id="f"><input id="in" placeholder="发一个话题，或随时插话打断" autocomplete="off"><button>发送</button></form>
+</div>
+<script src="/queue-player.js"></script>
+<script>
+// 网页是云端的投影：WebSocket 收推送，HTTP 发消息。token 存在本机浏览器 localStorage，
+// 也可以用 地址#token=... 打开一次（# 后面的部分不会发给服务器）。
+const COLORS = ["#f0a020", "#4aa8ff", "#c67bff", "#3ecf8e", "#ff6b8a"];
+const RETRY_MIN = 1000, RETRY_MAX = 30000;  // 重连等待毫秒，翻倍。来源：实现者定，和 rh/host.py 一致。
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (t) => new Date(t*1000).toLocaleTimeString("zh-CN", {hour12:false});
+
+// ---------- 设备：每个头是该角色的一台设备，用户点“开声音”后才登记（浏览器不让没点过的页面自动出声） ----------
+// 事件定义见 rh/device.py：start 开始说 / audio 音频块 / stop 停止；播完、被停、失败都回执给主机。
+let soundOn = false;
+const players = new Map();   // 角色 id -> {player, audio, turn, sent, urls}
+window.rhAudioLog = [];      // 播放事件记录（验收脚本读）：{role, play_id, ev, t}
+// 记录最多留多少条，旧的丢掉。来源：一个话题最多 6 轮（roles.toml），每轮约 10 条事件，约 15 个话题。
+const AUDIO_LOG_MAX = 1000;
+function logAudio(x) {
+  window.rhAudioLog.push(x);
+  if (window.rhAudioLog.length > AUDIO_LOG_MAX) window.rhAudioLog.splice(0, window.rhAudioLog.length - AUDIO_LOG_MAX);
+}
+// 44 字节的空 WAV（16 kHz 单声道 16 位、0 帧）：点“开声音”时让每个 Audio 在点击里播一次，iOS Safari 才允许它之后出声。
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=";
+
+function sendJSON(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function deviceHello() {
+  if (soundOn) sendJSON({type: "device_hello", roles: members.filter(x => x.kind === "role").map(x => x.id)});
+}
+function receipt(role, d, result) {
+  if (!d.turn || d.sent) return;
+  d.sent = true;
+  logAudio({role, play_id: d.turn.id, ev: "receipt:" + result, t: Date.now()});
+  // started：有没有真的播出声。一句都没播出来就失败时，主机改用本机喇叭，不静默交棒。
+  sendJSON({type: "receipt", play_id: d.turn.id, result, started: d.started});
+}
+function deviceFor(role) {
+  if (!players.has(role)) {
+    const audio = new Audio();
+    const d = {audio, turn: null, sent: false, started: false, urls: []};
+    d.player = new VoiceQueuePlayer(audio, {baseURL: location.href, onState: (state) => {
+      if (!d.turn) return;
+      if (state === "playing") d.started = true;
+      if (state === "playing" || state === "completed" || state === "failed")
+        logAudio({role, play_id: d.turn.id, ev: state, t: Date.now()});
+      if (state === "completed") receipt(role, d, "done");
+      else if (state === "failed") receipt(role, d, "failed");
+      else if (state === "paused") receipt(role, d, "stopped");
+    }});
+    players.set(role, d);
+  }
+  return players.get(role);
+}
+function onDevice(e) {
+  const d = deviceFor(e.role);
+  if (e.event === "start") {
+    if (d.turn && !d.sent) { d.player.stop(); receipt(e.role, d, "stopped"); }
+    d.urls.forEach(u => URL.revokeObjectURL(u));
+    d.turn = {id: e.play_id, status: "synthesizing", audio_chunks: [], audio_complete: false};
+    d.sent = false; d.started = false; d.urls = [];
+    logAudio({role: e.role, play_id: e.play_id, ev: "start", t: Date.now()});
+    d.player.select(d.turn);
+    d.player.start();
+  } else if (!d.turn || d.turn.id !== e.play_id || d.sent) {
+    return;   // 旧播放或已停：停了就不续播
+  } else if (e.event === "audio") {
+    if (e.data) {   // 不带 data 的是结束标记（最后几句合成出 0 秒被主机跳过时）
+      const bin = atob(e.data), buf = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([buf], {type: e.mime || "audio/wav"}));
+      d.urls.push(url);
+      d.turn.audio_chunks.push({index: e.index, audio_url: url, duration_seconds: e.duration});
+    }
+    if (e.last) { d.turn.status = "ready"; d.turn.audio_complete = true; }
+    d.player.update({...d.turn, audio_chunks: [...d.turn.audio_chunks]});
+  } else if (e.event === "stop") {
+    d.player.stop();
+    logAudio({role: e.role, play_id: e.play_id, ev: "stop", t: Date.now()});
+    receipt(e.role, d, "stopped");
+  }
+}
+function stopAllDevices() {   // 断线：本页不再是设备，正在播的停掉（hub 会替我们回执 lost）
+  for (const d of players.values()) { d.player.stop(); d.sent = true; }
+}
+
+let token = "", room = null, members = [], msgs = new Map(), ws = null, retry = RETRY_MIN, timer = null;
+const m = location.hash.match(/token=([^&]+)/);
+if (m) { localStorage.setItem("rh_token", decodeURIComponent(m[1])); history.replaceState(null, "", location.pathname); }
+token = localStorage.getItem("rh_token") || "";
+
+function needToken(why) {
+  token = ""; localStorage.removeItem("rh_token");
+  document.body.classList.add("need-token");
+  $("meta").textContent = why;
+}
+
+function renderHeads() {
+  const roles = members.filter(x => x.kind === "role");
+  $("heads").innerHTML = roles.map((r, i) => `
+    <div class="head" id="head-${esc(r.id)}">
+      <div class="screen">${r.avatar && r.avatar.startsWith("data:image/") ? `<img class="face" alt="" src="${esc(r.avatar)}">`
+        : `<div class="face" style="color:${COLORS[i%COLORS.length]}">${esc(r.name[0])}</div>`}
+        <div class="line"></div></div>
+      <div class="label" style="color:${COLORS[i%COLORS.length]}">${esc(r.name)}</div>
+      <div class="state">待机</div>
+    </div>`).join("");
+}
+
+function render() {
+  const list = [...msgs.values()].sort((a, b) => a.id - b.id);
+  let sp = null;
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].status === "speaking") { sp = list[i]; break; }
+  for (const r of members) {
+    const el = $("head-" + r.id); if (!el) continue;
+    const on = !!sp && sp.author === r.id;
+    el.classList.toggle("speaking", on);
+    el.querySelector(".state").textContent = on ? "在说" : "待机";
+    el.querySelector(".line").textContent = on ? sp.text : "";
+  }
+  const color = Object.fromEntries(members.map((r, i) => [r.id, COLORS[i%COLORS.length]]));
+  const atBottom = $("log").scrollTop + $("log").clientHeight >= $("log").scrollHeight - 30;
+  $("log").innerHTML = list.map(x => `
+    <div class="msg ${x.status}"><span class="t">${fmt(x.created_at)}</span><span class="who" style="color:${color[x.author]||""}">${esc(x.name)}</span><span class="text">${esc(x.status === "interrupted" && x.spoken != null ? x.text.slice(0, x.spoken) + "……" : x.text)}</span></div>`).join("");
+  if (atBottom) $("log").scrollTop = $("log").scrollHeight;
+}
+
+function connect() {
+  if (!token) return needToken("需要 token");
+  document.body.classList.remove("need-token");
+  // 同一时间只留一条连接：取消还在等的重连，关掉旧连接（先摘掉 onclose，免得它再排一次重连）。
+  clearTimeout(timer); timer = null;
+  if (ws) { ws.onclose = null; ws.close(); }
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => ws.send(JSON.stringify({type: "hello", token, kind: "web", since: null}));
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.type === "ready") {
+      room = d.room.id; $("room").textContent = d.room.name; $("meta").textContent = "已连接";
+      members = d.members; msgs = new Map(d.messages.map(x => [x.id, x])); retry = RETRY_MIN;
+      renderHeads(); render(); deviceHello();
+    } else if (d.type === "message") {
+      msgs.set(d.message.id, d.message); render();
+    } else if (d.type === "members") {
+      members = d.members; renderHeads(); render(); deviceHello();
+    } else if (d.type === "device") {
+      onDevice(d);
+    }
+  };
+  ws.onclose = (e) => {
+    stopAllDevices();
+    if (e.code === 4001) return needToken("token 不对，请重新输入");
+    $("meta").textContent = `断开了，${Math.round(retry/1000)} 秒后重连…`;
+    timer = setTimeout(connect, retry); retry = Math.min(retry * 2, RETRY_MAX);
+  };
+}
+
+$("sound").onclick = () => {
+  soundOn = true;
+  // 在点击回调里给每个角色建好 Audio 并播一次空音频解锁（iOS 要求每个媒体元素先在用户手势里 play 过）。
+  for (const r of members.filter(x => x.kind === "role")) {
+    const a = deviceFor(r.id).audio;
+    a.src = SILENT_WAV;
+    Promise.resolve(a.play()).catch(() => {});
+    // 马上停下并清掉：解锁只要“在点击里 play 过”，这样它的 pause 等事件在点击后立刻派发完，
+    // 不会晚到、被播放器误当成真正播放被暂停。
+    a.pause(); a.removeAttribute("src"); a.load();
+  }
+  $("sound").disabled = true; $("sound").textContent = "声音已开（本网页是设备）";
+  deviceHello();
+};
+$("login").onsubmit = (e) => {
+  e.preventDefault();
+  const t = $("tok").value.trim(); if (!t) return;
+  token = t; localStorage.setItem("rh_token", t); $("tok").value = ""; connect();
+};
+$("f").onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $("in").value.trim(); if (!text || room == null) return;
+  let err = "";
+  try {
+    const r = await fetch(`/api/rooms/${room}/messages`, {method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token}, body: JSON.stringify({text})});
+    if (r.status === 401) { if (ws) ws.close(); return needToken("token 不对，请重新输入"); }
+    if (!r.ok) err = r.status === 413 ? "消息太长，没发出去" : `没发出去（${r.status} ${(await r.text()).slice(0, 60)}）`;
+  } catch (e) { err = "没发出去：连不上云端"; }
+  $("err").textContent = err;           // 失败时保留输入框内容，成功才清空
+  if (!err && $("in").value.trim() === text) $("in").value = "";
+};
+connect();
+</script>
+</body>
+</html>

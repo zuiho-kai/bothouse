@@ -17,6 +17,13 @@
 - 已将 origin/main `3026ef88` 合入本分支（其历史上还有 `5f3f2c11`：#58 C酱额度探针信任弹窗、#64 大豆包长回合停滞；以及 #63 局域网监听与每设备独立凭据）。第一次合并唯一冲突在本交接文首，两条记录都保留，main 的代码与 C酱交接原文未改。第二次合并无冲突，`devices.py`、`device_app.py`、`device_server.py` 按 main 原样进入，本线没有再改它们，也没有改 `discussion.py` 或圆屏界面。发言权模块仍未接入服务。
 - 验证：同步到 `3026ef88` 后在 Linux 重跑。companion 全量 pytest **369 passed / 1 skipped**（`test_voice_floor.py` 35 passed；比同步前多出的通过项来自 main 上的设备凭据测试；跳过项仍是未设 `YIJIAZI_VOICE_REAL_MODEL` 的既有本地合成/识别冒烟）。Node 播放器 **34 pass**。bridge `go test -tags no_web -p 1 -count=1 ./...` 退出码 0，各包通过。未部署。
 
+## 2026-10-18：导入角色小家代码到 role-household/（Issue #67，未部署）
+
+- 本线由用户侧 Claude 在临时克隆的 feat/67-role-household-import（基线 main 0e906d4）只新增 role-household/ 目录与本条记录；不改 bridge/、companion/。
+- 内容等于 role-household 本地仓库 85795de 的 git archive，去掉 docs/evidence、docs/screenshots（运行日志与对话截图留在 Git 外）。公网地址已脱敏，未含 token。
+- 验证（在原仓库）：97 个测试全过；两轮独立代码审查已修完；2026-10-18 21:49 外网网页真跑，三个角色按网页回执轮流出声，同时最多一个在播。本仓库 CI 不跑该目录。
+- 未部署。#56 分工仍是草案；queue-player.js 拷自 companion，许可证仍按 #9。
+
 ## 2026-10-18：C酱额度尾注「额度查询失败」（Issue #57，未部署）
 
 - 本线 Claude 在临时克隆的 fix/57-claude-usage-trust-dialog（基线 main 1320bc90）只改 bridge/agent/claudecode/claude_usage.go 与其测试；无子 Agent，未碰 ~/cc-connect 或其他 conest 工作区。

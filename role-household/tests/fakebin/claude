@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""测试用假 claude。行为由环境变量控制（FAKE_DIR 必填）：
+  FAKE_MODE=ok|is_error_first|exit1_first|sleep_first|grandchild|selfkill
+  FAKE_SLEEP=秒   每次调用先睡这么久
+会话文件已存在时 --session-id 报 already in use（和真 claude 一样）。
+每次调用把 pid 和 stdin 字节数追加到 FAKE_DIR/calls。"""
+import json, os, signal, subprocess, sys, time
+
+a = sys.argv[1:]
+d = os.environ["FAKE_DIR"]
+mode = os.environ.get("FAKE_MODE", "ok")
+prompt = sys.stdin.read()
+with open(os.path.join(d, "calls"), "a") as f:
+    f.write(f"{os.getpid()} {len(prompt)}\n")
+first = "--session-id" in a
+if first:
+    sid = a[a.index("--session-id") + 1]
+    p = os.path.join(d, sid)
+    if os.path.exists(p):
+        print(f"Error: Session ID {sid} is already in use.", file=sys.stderr)
+        sys.exit(1)
+    open(p, "w").close()
+    once = os.path.join(d, "failed_once")
+    if mode.endswith("_first") and not os.path.exists(once):
+        open(once, "w").close()
+        if mode == "is_error_first":
+            print(json.dumps({"is_error": True, "result": "API Error: 529 overloaded"})); sys.exit(0)
+        if mode == "exit1_first":
+            print("boom", file=sys.stderr); sys.exit(1)
+        if mode == "sleep_first":
+            time.sleep(30)
+if mode == "grandchild":
+    subprocess.Popen(["sleep", "30"])  # 继承 stdout/stderr 管道
+if mode == "selfkill":
+    os.kill(os.getpid(), signal.SIGKILL)
+time.sleep(float(os.environ.get("FAKE_SLEEP", "0")))
+print(json.dumps({"is_error": False, "result": "嗯。"}))
