@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -268,4 +269,105 @@ func mustLoadLocation(t *testing.T, name string) *time.Location {
 		t.Fatalf("LoadLocation(%q): %v", name, err)
 	}
 	return loc
+}
+
+// claudeTrustDialogScreen mirrors the folder-trust dialog captured from
+// Claude Code 2.1.301 in a fresh temp dir (cursor defaults to "No, exit").
+func claudeTrustDialogScreen(first, second string) string {
+	return strings.Join([]string{
+		"Accessing workspace:",
+		"",
+		"/private/tmp/cc-connect-claude-usage-123",
+		"",
+		"Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source",
+		"project, or work from your team). If not, take a moment to review what's in this folder first.",
+		"",
+		"Claude Code'll be able to read, edit, and execute files here.",
+		"",
+		"Security guide",
+		"",
+		first,
+		second,
+		"",
+		"Enter to confirm · Esc to cancel",
+	}, "\n")
+}
+
+func TestPromptActionForScreen_TrustDialogCursorOnNo(t *testing.T) {
+	// Raw PTY bytes captured from Claude Code 2.1.301: words are placed with
+	// CSI G (cursor horizontal absolute) instead of spaces.
+	raw := "Quick\x1b[8Gsafety\x1b[15Gcheck:\x1b[22GIs\x1b[25Gthis\x1b[30Ga\x1b[32Gproject\r\n" +
+		"\r\n" +
+		"\x1b[2Gyes\x1b[8Gexit\r\n" + // noise line, not an option
+		"\x1b[2G❯\x1b[4GNo,\x1b[8Gexit\r\n" +
+		"\x1b[4GYes,\x1b[9GI\x1b[11Gtrust\x1b[17Gthis\x1b[22Gfolder\r\n" +
+		"\r\n" +
+		"\x1b[2GEnter\x1b[8Gto\x1b[11Gconfirm\x1b[19G·\x1b[21GEsc\x1b[25Gto\x1b[28Gcancel\r\n"
+	terminal := newClaudeUsageTerminal()
+	terminal.Write([]byte(raw))
+	rendered := normalizeClaudeUsageText(terminal.String())
+	if !strings.Contains(rendered, "Quick safety check: Is this a project") || !strings.Contains(rendered, "❯ No, exit") {
+		t.Fatalf("CSI G not rendered as column moves: %q", rendered)
+	}
+
+	for name, screen := range map[string]string{
+		"fixture": claudeTrustDialogScreen("❯ No, exit", "Yes, I trust this folder"),
+		"raw":     rendered,
+	} {
+		if got := promptActionForScreen(screen); got != "\x1b[B\r" {
+			t.Fatalf("%s: promptActionForScreen = %q, want down+enter so Yes is chosen", name, got)
+		}
+	}
+}
+
+func TestPromptActionForScreen_TrustDialogCursorOnYes(t *testing.T) {
+	screen := claudeTrustDialogScreen("❯ 1. Yes, I trust this folder", "2. No, exit")
+	if got := promptActionForScreen(screen); got != "\r" {
+		t.Fatalf("promptActionForScreen = %q, want plain enter", got)
+	}
+}
+
+func TestPromptActionForScreen_TrustDialogNoBelowCursorOnNo(t *testing.T) {
+	screen := claudeTrustDialogScreen("Yes, I trust this folder", "❯ No, exit")
+	if got := promptActionForScreen(screen); got != "\x1b[A\r" {
+		t.Fatalf("promptActionForScreen = %q, want up+enter", got)
+	}
+}
+
+func TestPromptActionForScreen_TrustDialogNoCursorDefaultsToFirst(t *testing.T) {
+	screen := claudeTrustDialogScreen("No, exit", "Yes, I trust this folder")
+	if got := promptActionForScreen(screen); got != "\x1b[B\r" {
+		t.Fatalf("promptActionForScreen = %q, want down+enter", got)
+	}
+}
+
+func TestNextClaudeUsageProbeAction_WaitsForTrustDialogOptions(t *testing.T) {
+	now := time.Now()
+	state := &claudeUsageProbeState{}
+	partial := "Quick safety check: Is this a project you created or one you trust?"
+	if got := nextClaudeUsageProbeAction(partial, state, now); got != "" {
+		t.Fatalf("action on half-rendered trust dialog = %q, want wait", got)
+	}
+	if state.sentWake || state.sentUsage {
+		t.Fatalf("probe typed into trust dialog: %+v", state)
+	}
+}
+
+func TestNextClaudeUsageProbeAction_NoWakeOnEmptyScreen(t *testing.T) {
+	state := &claudeUsageProbeState{}
+	if got := nextClaudeUsageProbeAction("", state, time.Now()); got != "" {
+		t.Fatalf("action on empty screen = %q, want wait", got)
+	}
+	if got := nextClaudeUsageProbeAction("> ", state, time.Now().Add(time.Second)); got != "\r" {
+		t.Fatalf("wake on rendered prompt = %q, want enter", got)
+	}
+}
+
+func TestClaudeUsageProbeDir_IsStable(t *testing.T) {
+	if got, want := claudeUsageProbeDir("/data/cc"), filepath.Join("/data/cc", "claude-usage-probe"); got != want {
+		t.Fatalf("claudeUsageProbeDir = %q, want %q", got, want)
+	}
+	if a, b := claudeUsageProbeDir(""), claudeUsageProbeDir(""); a != b || a == "" {
+		t.Fatalf("fallback probe dir not stable: %q vs %q", a, b)
+	}
 }

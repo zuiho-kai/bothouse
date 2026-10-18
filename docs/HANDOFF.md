@@ -1,5 +1,12 @@
 # 共栖当前交接
 
+## 2026-10-18：C酱额度尾注「额度查询失败」（Issue #57，未部署）
+
+- 本线 Claude 在临时克隆的 fix/57-claude-usage-trust-dialog（基线 main 1320bc90）只改 bridge/agent/claudecode/claude_usage.go 与其测试；无子 Agent，未碰 ~/cc-connect 或其他 conest 工作区。
+- 根因：Claude Code 2.1.301 信任弹窗默认光标在「No, exit」，探针回车即退出（exit status 1）；且新版用 CSI G 排版单词，探针终端模拟器不识别，弹窗文字粘连检测不到。修复：支持 CSI G/d；按 ❯ 所在行用方向键移到「Yes, I trust this folder」再回车；弹窗未渲染完或屏幕为空时不发键；探针改用固定目录 <data_dir>/claude-usage-probe，只需信任一次，不再每次往 ~/.claude.json 加一条临时目录记录。
+- 验证：bridge 全量 go test -tags no_web 通过，vet/构建通过；新测试在旧代码上失败。本机真实 claude 2.1.301 连续 3 次 GetUsage 均返回会话/周额度（每次约 3.2—3.7 秒），~/.claude.json 只新增 1 条固定目录记录。此前排查留下的 3 条 cc-connect-claude-usage-* 临时目录信任记录未清理（用户配置，未擅改）。
+- 未部署、未重启 cc-connect。部署需用户授权：合并后从 main 的 bridge/ 构建新二进制，备份并替换 ~/cc-connect/cc-connect 后由负责该进程的流程重启；验证 C酱尾注显示「额度剩余 N%」。已知余项：周额度重置时间解析为 0（reset 文本格式未覆盖），不影响尾注百分比。
+
 ## 2026-10-18：与角色小家的跨项目分工草案（Issue #56，仅文档，待双方确认）
 
 - 用户（zuiho-kai）授权本线试协作者的提 PR 与合并流程。本线由用户侧 Claude 通过 GitHub API 在分支 juzi/collab-note 提交，基线 main fd51fd5e；只新增 docs/ROLE_HOUSEHOLD_COLLAB.md 和本交接，不改源码、配置或运行服务，无子 Agent。

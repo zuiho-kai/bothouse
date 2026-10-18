@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -62,11 +63,10 @@ func (a *Agent) runClaudeUsageProbe(ctx context.Context) (string, error) {
 	probeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	workDir, err := os.MkdirTemp("", "cc-connect-claude-usage-*")
-	if err != nil {
-		return "", fmt.Errorf("claudecode: create usage temp dir: %w", err)
+	workDir := claudeUsageProbeDir(a.ccDataDir)
+	if err := os.MkdirAll(workDir, 0o700); err != nil {
+		return "", fmt.Errorf("claudecode: create usage probe dir: %w", err)
 	}
-	defer os.RemoveAll(workDir)
 
 	args := []string{
 		"--tools", "",
@@ -205,6 +205,17 @@ func (a *Agent) runClaudeUsageProbe(ctx context.Context) (string, error) {
 	}
 }
 
+// claudeUsageProbeDir is a fixed, empty directory the probe runs in. Claude
+// Code asks to trust every new folder and records each accepted one in
+// ~/.claude.json, so a fresh temp dir per probe would show the trust dialog
+// every time and grow that file without bound. A stable dir is trusted once.
+func claudeUsageProbeDir(ccDataDir string) string {
+	if ccDataDir == "" {
+		return filepath.Join(os.TempDir(), "cc-connect-claude-usage")
+	}
+	return filepath.Join(ccDataDir, "claude-usage-probe")
+}
+
 func (a *Agent) usageProbeEnv() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -223,6 +234,19 @@ func nextClaudeUsageProbeAction(screen string, state *claudeUsageProbeState, now
 	}
 
 	if usageReady(screen) {
+		return ""
+	}
+
+	// Never type into the trust dialog: wait until its options render (or
+	// the response budget runs out and the probe times out), because any
+	// stray Enter confirms the default "No, exit".
+	if claudeTrustDialogVisible(screen) {
+		return ""
+	}
+
+	// Nothing rendered yet: a wake Enter now could land on the trust dialog
+	// as soon as it mounts.
+	if strings.TrimSpace(screen) == "" {
 		return ""
 	}
 
@@ -259,8 +283,8 @@ func promptActionForScreen(screen string) string {
 	if lower == "" {
 		return ""
 	}
-	if strings.Contains(lower, "quick safety check") || strings.Contains(lower, "yes, i trust this folder") {
-		return "\r"
+	if claudeTrustDialogVisible(screen) {
+		return trustDialogAction(screen)
 	}
 	if (strings.Contains(lower, "telemetry") || strings.Contains(lower, "help improve") || strings.Contains(lower, "usage data")) &&
 		(strings.Contains(lower, "2. no") || strings.Contains(lower, "2. disable") || strings.Contains(lower, "2. don't")) {
@@ -270,6 +294,52 @@ func promptActionForScreen(screen string) string {
 		return "\r"
 	}
 	return ""
+}
+
+func claudeTrustDialogVisible(screen string) bool {
+	lower := strings.ToLower(screen)
+	return strings.Contains(lower, "quick safety check") || strings.Contains(lower, "yes, i trust this folder")
+}
+
+// trustDialogAction answers the folder-trust dialog with "Yes, I trust this
+// folder". Claude Code 2.1.301 puts the ❯ cursor on "No, exit" by default, so
+// a bare Enter quits the probe with exit status 1; older versions defaulted
+// to Yes. Move the cursor from wherever it is onto the Yes option, then Enter.
+func trustDialogAction(screen string) string {
+	cursor, yes := -1, -1
+	options := 0
+	for _, line := range strings.Split(screen, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		isYes := strings.Contains(lower, "yes, i trust this folder")
+		if !isYes && !strings.Contains(lower, "no, exit") {
+			continue
+		}
+		if isYes {
+			yes = options
+		}
+		if strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, ">") {
+			cursor = options
+		}
+		options++
+	}
+	if yes < 0 {
+		// Options not rendered yet; Enter now would pick the default.
+		return ""
+	}
+	if cursor < 0 {
+		// No visible cursor: Ink lists put it on the first option.
+		cursor = 0
+	}
+	var b strings.Builder
+	for i := cursor; i < yes; i++ {
+		b.WriteString("\x1b[B")
+	}
+	for i := cursor; i > yes; i-- {
+		b.WriteString("\x1b[A")
+	}
+	b.WriteString("\r")
+	return b.String()
 }
 
 func usageReady(screen string) bool {
@@ -579,6 +649,13 @@ func (t *claudeUsageTerminal) applyCSI(params string, final byte) {
 				t.col = 0
 			}
 		}
+	case 'G':
+		// Cursor horizontal absolute. Claude Code 2.1.301 positions every
+		// word with it instead of printing spaces.
+		t.col = parseCSIInt(params, 1) - 1
+	case 'd':
+		t.row = parseCSIInt(params, 1) - 1
+		t.ensureRow(t.row)
 	case 'H', 'f':
 		row, col := parseCSICursor(params)
 		if row < 0 {
