@@ -57,6 +57,11 @@
     if (devicePath) ui.stop.disabled = !activeTurn || (activeTurn.deviceReleased && activeTurn.terminal);
     for (const turn of records) turn.nodes.replay.disabled = !playable(turn) || inputPhase !== 'idle' || Boolean(playIntent);
     if (busy()) {
+      if (activeTurn.waitingPlayback && !activeTurn.deviceStopped) {
+        ui['input-status'].textContent = '排队等待播放；本轮仍占用这台设备。';
+        ui['task-note'].textContent = '另一台设备正在回答，轮到本设备后自动播放；可以停止本轮。';
+        return;
+      }
       ui['input-status'].textContent = activeTurn.answerReady
         ? '文字已返回。请等声音准备好后，再录音或发送。'
         : '本轮任务仍在执行，请先等回答再录音或发送。';
@@ -127,7 +132,7 @@
       if (devicePath) {
         document.title = data.device_name + ' · 共栖';
         $('page-title').textContent = data.device_name;
-        document.querySelector('.intro-copy').textContent = '这个入口固定属于一位伙伴。等它播完，再去另一台设备说话；没有自动排队。';
+        document.querySelector('.intro-copy').textContent = '这个入口固定属于一位伙伴。另一台设备播放时可以提问；回答按接纳顺序播放。';
         document.querySelector('.mode-pill').textContent = '电脑设备模拟 · 固定伙伴';
         ui.stop.textContent = '停止本轮';
       }
@@ -492,10 +497,38 @@
         }
         if (!['thinking', 'synthesizing', 'ready', 'error', 'stopped'].includes(result.status)) throw new Error(`未知轮次状态：${String(result.status)}`);
         acceptTurn(turn);
-        if (devicePath && turn.deviceStopped) stopDevice(turn);
+        if (devicePath && turn.deviceStopped) {
+          stopDevice(turn);
+          turn.terminal = true;
+          return;
+        }
         setTurnError(turn, null);
         setTimings(turn, result.timings || {});
         turn.audioData = result;
+        turn.waitingPlayback = Boolean(devicePath && result.status === 'ready'
+          && result.playback_allowed !== true && result.device_released !== true
+          && !result.abandoned);
+        if (turn.waitingPlayback) {
+          turn.answerReady = typeof result.text === 'string' && Boolean(result.text.trim());
+          turn.nodes.answer.classList.toggle('pending', !turn.answerReady);
+          turn.nodes.answer.textContent = turn.answerReady ? result.text : '回答已生成';
+          ui['turn-state'].textContent = '排队等待播放';
+          setPlayback(turn, '排队等待播放');
+          updateControls();
+          await new Promise((resolve) => { turn.pollWake = resolve; turn.pollTimer = setTimeout(resolve, 200); });
+          turn.pollWake = null;
+          continue;
+        }
+        if (devicePath && result.status === 'ready' && result.playback_allowed !== true) {
+          // Released/completed snapshots must not become a replay URL.
+          turn.terminal = true;
+          turn.autoplay = false;
+          turn.deviceReleased = result.device_released === true;
+          turn.audioURL = null;
+          setPlayback(turn, '本轮已结束');
+          updateControls();
+          return;
+        }
         if (result.status === 'thinking' || result.status === 'synthesizing') {
           ui['turn-state'].textContent = result.status === 'thinking' ? '正在思考' : '正在合成语音';
           // Synthesizing starts only after the bridge returns a completed answer.

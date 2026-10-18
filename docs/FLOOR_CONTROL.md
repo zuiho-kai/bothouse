@@ -61,6 +61,14 @@ v1 的上限写在 `FloorLimits`：主回答者 1，补充 0 或 1，默认补�
 
 过期与否以轮次编号加世代编号为准，而不是只看房间槽是否还占着。集成时，播放、插入当前对话和硬件转向先问 `is_current`，或看 `review_reply` 的 `play` / `insert`。归档看 `review_reply` 的 `archive` 和 `mark`，不因过期跳过共享记录。这与现在的设备入口一致：停止或迟到的正文可以归档，只是不再合成、不再播放（见 [电脑设备](DESKTOP_DEVICES.md)）。停止把该世代关掉；新的人类轮次把旧世代标记为已被取代。两者都让旧回复失去当前播放和当前对话资格，正文仍留下。没有被本轮授权过的伙伴不写入这条归档。
 
-### 这还没有接到运行路径
+### 已接入设备入口（2026-10-18）
 
-本文件是集成前的建议。`devices.py`、`device_app.py`、`device_server.py`、`discussion.py` 都没有改，现有 409 和单槽占位保持原样。#56 里和角色小家的分工仍是草案，这里的边界以 #33 和现在的设备房间为准。未部署，也没有改任何正在运行的服务。
+`device_app.DeviceRoom` 已按上面的建议拆开：`active` 只做全局播放槽，`slots[device_id]` 管每台设备自己的录音、请求和收尾；`/transcribe` 与 `/turn` 不再因为另一台在播而拒绝。
+
+发言权也按设备拆开：`floors[device_id]` 各有一个 `FloorControl`，世代编号和 `currents[device_id]` 同样按设备记。**跨设备不互相取代**——一位 AI 一台设备、一条独立对话，B 提问不会把 A 已生成好、还没开播的回答判成过期，两条都按接纳顺序播出。取代只在同一位伙伴内部发生。
+
+调用顺序是**先 `decide` 再 `_submit`**：`decide` 返回没有回答者就直接 409，Bridge 一条输入都不会收到（否则页面收到“本轮未发送”，伙伴其实已经收到消息）；`_submit` 抛错时 `floor.stop` 掉这一代。`review_reply` 在轮次真正释放时写 `floor_review` 事件（含 `play`/`insert`/`archive`/`mark`）。
+
+与本文建议的一处取舍：**已经开始出声的回复不中途掐断**。同一设备的新问题接管发言权，但声音要等它播完再交接；只有还没开始播放的旧回复会被立刻判成 `superseded`。理由是打断半句话比多等一轮更难接受，而“同一时刻只有一路声音”仍然成立。用户已经停止、出错或失联的轮次保留原标记，不会被下一问改标成 `superseded`。
+
+`discussion.py` 和 8793 普通页没有接入，跨进程没有共享播放锁。回归见 `tests/test_voice_device_floor_integration.py` 与 `tests/test_voice_floor.py`。未部署。

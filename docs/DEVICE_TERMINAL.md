@@ -21,7 +21,7 @@
 1. 设备录音，得到 16 kHz 单声道 16 bit WAV。
 2. 设备上传录音，电脑返回识别文字。
 3. 设备用同一个 `turn_id` 提交这一轮，得到受理回执。
-4. 设备轮询状态，直到 `ready`（或 `error`/`stopped`）。
+4. 设备轮询状态，直到回答生成且获准播放（ready + playback_allowed=true），或 error/stopped 等终止结果。回答生成但没有播放权时继续轮询，不重发、不猜音频地址。
 5. 设备按 `index` 顺序取块、播放，并回报 `playing` / `completed`。
 6. 播完或停止后，设备回到待机，才允许下一次录音。
 
@@ -126,7 +126,8 @@ Origin:          <仅浏览器需要>        # 设备可不带；带了就必须
 }
 ```
 
-- `status`：`thinking`（已受理）→ `synthesizing`（回答已到，正在合成）→ `ready`（可播放）；失败为 `error`，被停止为 `stopped`。
+- `status`：`thinking`（已受理）→ `synthesizing`（回答已到，正在合成）→ `ready`（合成完成；播放还需 playback_allowed=true）；失败为 `error`，被停止为 `stopped`。
+- 排队：ready 且 playback_allowed=false、device_released=false 时，保留原编号、显示“排队等待播放”，继续查询续租。获得播放权后自动消费新快照的音频；stopped/error/abandoned 或释放后结束等待，不恢复旧音频。超时只报等待超时，不另发一轮。
 - `audio_chunks` 在合成过程中**增量出现**，`index` 从 0 连续递增；`audio_complete` 只在整段合成结束后为 true。
 - 每块是**独立可解码的 24 kHz 单声道 16 bit WAV**，设备可以逐块喂给 ES8311，不需要拼接。
 - 块没生成好时取块返回 404，设备应退避重试，不能跳块、不能用后面的块顶替。
@@ -155,11 +156,11 @@ Origin:          <仅浏览器需要>        # 设备可不带；带了就必须
 ## 8. 停止与忙
 
 - 设备侧停止：先本地停声，再 `POST …/stop`；返回 `playback_allowed: false`，之后取音频一律 409。
-- 已经送达电脑的请求仍会收尾；占位保留到收尾完成，这段时间内新的录音/提交返回 409。设备应显示“等待上一轮收尾”，而不是把它当失败重试。
-- **停止回执不等于释放。** 设备收到停止回执后，必须等轮次快照里的 `device_released` 变成 `true`，再确认入口全局空闲（`GET /api/config` 的 `active_turn` 为 null 且 `roles[].available` 为 true），才放开麦克风。两个条件缺一不可：`device_released` 只说明**这一轮**释放了，占位是跨设备共享的。
-- 模拟终端用 `wait_for_release()` 做这件事：先轮询轮次快照的 `device_released`，再查 `config`。回归 `test_stop_drain_blocks_recording_until_release` 覆盖收尾窗口（期间 `device_released` 为 false、`/transcribe` 409，收尾后同一设备正常完成第二轮）；`test_release_is_per_turn_but_the_room_is_shared` 覆盖“自己那轮已释放、但另一台还占着”的情况。
-- **占位是跨设备共享的**：G哥那台在收尾时，Cursor 那台也会被挡住。这是当前实现，是否按发言权分设备释放由 #33 决定，本协议不假设可以并行。
-- 停止后马上再说一句会拿到 409（`请等当前轮次结束后再录音`）。这是显式拒绝，不是丢消息；设备要给出可理解的提示并允许稍后重试。
+- 已经送达电脑的请求仍会收尾；**这台设备**的轮次槽保留到收尾完成，这段时间内它的新录音/提交返回 409。设备应显示“等待上一轮收尾”，而不是把它当失败重试。
+- **停止回执不等于释放。** 设备收到停止回执后，必须等轮次快照里的 `device_released` 变成 `true`，再确认本设备空闲（`GET /device/<id>/api/config` 的 `active_turn` 为 null 且 `roles[].available` 为 true），才放开麦克风。`device_released` 和 `active_turn` 都是**按设备**的（#33）。
+- 模拟终端用 `wait_for_release()` 做这件事：先轮询轮次快照的 `device_released`，再查 `config`。回归 `test_stop_drain_blocks_recording_until_release` 覆盖收尾窗口（期间 `device_released` 为 false、`/transcribe` 409，收尾后同一设备正常完成第二轮）；`test_release_is_per_turn_and_recording_is_per_device` 覆盖“一台在播时，另一台照常录音提问，但声音仍只有一路”。
+- **播放全局互斥，录音按设备各自管**（#33）：另一台在播或在收尾，不再挡住这台设备的麦克风；同一时刻仍然只有一路声音。快照里的 `playback_owner` 说明此刻是谁在出声。一次只跑一路识别/合成是管线容量，此时另一台会得到明确的 409，而不是静默丢弃。
+- 同一台设备在收尾期间再说一句会拿到 409（`这台设备还有一轮没结束…`）。这是显式拒绝，不是丢消息；设备要给出可理解的提示并允许稍后重试。
 - **停止时不要清 `turn_id`**：收尾期间还要用它查 `device_released`。确认释放且入口空闲后再清；清掉之后新问题才生成新编号。**投递结果不明时也必须保留原编号**，重发走 `retry()`，否则会变成第二次投递。
 - **收尾期间不要调 `ask()`**：设备应先在本地拒绝（状态是 `draining`/`waiting`/`playing` 时不发请求），否则会先换掉编号再被服务端 409，旧编号丢失，`wait_for_release()` 就查不到那一轮了。
 - 回归：`test_stop_keeps_turn_id_until_release_then_new_question_gets_new_id`、`test_uncertain_delivery_keeps_the_turn_id_for_retry`、`test_ask_during_draining_is_refused_locally_and_keeps_the_turn_id`。

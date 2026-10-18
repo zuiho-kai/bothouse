@@ -215,12 +215,13 @@ class DeviceTerminal:
         """Wait until the entry reports this device free before recording again.
 
         A stop acknowledgement is not a release: the delivered CLI work keeps
-        the slot until it finishes. The turn snapshot's ``device_released`` is
-        the per-turn signal; the config's ``active_turn``/``available`` is the
-        global one, and both are needed because the slot is shared between
-        devices. Recording into that window uploads a whole sentence that is
-        then rejected with 409, so the terminal must check first instead of
-        trusting its own stop button.
+        this device's slot until it finishes. Both signals are per device since
+        #33: the turn snapshot's ``device_released`` says this turn let go, and
+        the config's ``active_turn``/``available`` says this device has nothing
+        pending. Another device playing no longer blocks this one, but recording
+        into its own draining window still uploads a whole sentence that is then
+        rejected with 409, so the terminal checks first instead of trusting its
+        own stop button.
         """
         deadline = self.clock() + (self.timeout if timeout is None else timeout)
         identifier = turn_id or self.turn_id
@@ -425,11 +426,18 @@ class DeviceTerminal:
         deadline = self.clock() + (self.timeout if timeout is None else timeout)
         while True:
             snapshot = await self.status(turn_id)
-            if snapshot['status'] in {'ready', 'error', 'stopped'}:
+            ended = (snapshot['status'] in {'error', 'stopped'}
+                     or snapshot.get('abandoned')
+                     or snapshot.get('device_released') is True)
+            if ended or (snapshot['status'] == 'ready' and snapshot.get('playback_allowed') is True):
                 # A stopped turn may still be draining; only wait_for_release()
                 # returns the device to listening.
                 self.state = {'ready': 'waiting', 'stopped': 'draining'}.get(snapshot['status'], 'listening')
                 return snapshot
+            # Ready describes synthesis, not permission to use the speaker.
+            # Keep the original id and poll (also renewing this device's lease)
+            # until the preceding device hands over the playback slot.
+            self.state = 'waiting'
             if self.clock() >= deadline:
                 raise DeviceError(0, '等待回答超时；本轮不重发，请在电脑核对原会话。')
             await asyncio.sleep(self.poll_interval)

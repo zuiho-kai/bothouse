@@ -75,8 +75,8 @@ async def test_a_silent_device_returns_the_slot_with_an_explicit_reason(tmp_path
         first, second = payload(), payload('cursor')
         assert (await client.post(path() + '/turn', json=first)).status_code == 202
         await finish(app)
-        # Ready but never played: the slot is still held, as before.
-        assert (await client.post(path('cursor') + '/turn', json=second)).status_code == 409
+        # Ready but never played: this turn still owns playback.
+        assert app.state.room.active == first['id']
 
         clock.advance(31)
         assert (await client.post(path('cursor') + '/turn', json=second)).status_code == 202
@@ -138,8 +138,9 @@ async def test_heartbeat_keeps_the_slot_and_reports_the_remaining_time(tmp_path)
             assert beat['lease']['expires_in_seconds'] == pytest.approx(30, abs=.01)
             assert beat['lease']['last_heartbeat_seconds'] == 0
         # 60 s of wall clock, but never 30 s of silence.
-        assert (await client.post(path('cursor') + '/turn', json=second)).status_code == 409
+        assert app.state.room.slots.get('desk-gge') == first['id']
         assert app.state.room.active == first['id']
+        assert (await client.get(path('gge', first['id']))).json().get('abandoned') is None
 
 async def test_receipts_count_as_liveness_during_a_long_playback(tmp_path):
     app, client, bridge, speech, clock = setup(tmp_path)
@@ -155,10 +156,14 @@ async def test_receipts_count_as_liveness_during_a_long_playback(tmp_path):
             response = await client.post(root + '/playback', json={
                 'state': 'playing', 'position_seconds': position, 'duration_seconds': .2})
             assert response.status_code == 200
-            assert (await client.post(path('cursor') + '/turn', json=second)).status_code == 409
+            # Receipts keep this turn's own slot; the answer is not abandoned.
+            assert (await client.get(root)).json().get('abandoned') is None
+            assert app.state.room.active == first['id']
         clock.advance(20)
         assert (await client.post(root + '/playback', json={
             'state': 'completed', 'position_seconds': .2, 'duration_seconds': .2})).status_code == 200
+        # Playback is handed over only once this answer actually ended.
+        assert app.state.room.active is None
         assert (await client.post(path('cursor') + '/turn', json=second)).status_code == 202
 
 async def test_the_device_itself_can_ask_again_after_its_lease_expired(tmp_path):

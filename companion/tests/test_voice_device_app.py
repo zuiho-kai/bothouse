@@ -94,13 +94,14 @@ async def test_fixed_identity_audio_and_shared_memory_a_b_a(tmp_path):
 
 
 async def test_lease_covers_ready_until_real_playback_and_cannot_be_forged(tmp_path):
+    """Ready-but-unplayed audio keeps the playback slot; a forged receipt cannot end it."""
     app, client, bridge, _ = setup(tmp_path)
     async with client:
-        first, second = payload(), payload('cursor')
+        first = payload()
         await client.post(path() + '/turn', json=first)
         await finish(app)
         assert app.state.service.active is None  # synthesis alone used to release occupancy
-        assert (await client.post(path('cursor') + '/turn', json=second)).status_code == 409
+        assert app.state.room.active == first['id']
         endpoint = path('gge', first['id']) + '/playback'
         for duration in (0, .1, .2):
             assert (await client.post(endpoint, json={'state': 'completed', 'position_seconds': duration,
@@ -112,9 +113,11 @@ async def test_lease_covers_ready_until_real_playback_and_cannot_be_forged(tmp_p
             assert (await client.post(endpoint, json={'state': 'completed', 'position_seconds': duration,
                                                       'duration_seconds': duration})).status_code == 409
         await play(client, first)
+        # Playback is free again; the other device may ask and own the slot.
+        second = payload('cursor')
         assert (await client.post(path('cursor') + '/turn', json=second)).status_code == 202
         await finish(app)
-        # An old delayed event cannot release or overwrite the new lease.
+        # An old delayed event cannot release or overwrite the new turn.
         assert (await client.post(endpoint, json={'state': 'playing', 'position_seconds': 0,
                                                  'duration_seconds': .2})).status_code == 409
         assert app.state.room.active == second['id']

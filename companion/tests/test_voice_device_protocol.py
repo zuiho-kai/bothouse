@@ -317,8 +317,12 @@ async def test_stop_drain_blocks_recording_until_release(tmp_path):
         assert (await device.play(snapshot))['completed'] is True
         assert len(inputs(bridge)) == 2
 
-async def test_release_is_per_turn_but_the_room_is_shared(tmp_path):
-    """A released turn is not enough: another device holding the room still blocks."""
+async def test_release_is_per_turn_and_recording_is_per_device(tmp_path):
+    """#33: one voice plays at a time, but each device keeps its own microphone.
+
+    G哥 finishing its answer must not be a precondition for Cursor to record or
+    ask. What stays global is the sound: a second answer waits for the slot.
+    """
     bridge = GatedBridge()
     bridge.release.set()
     app, client, bridge, speech = build(tmp_path, bridge=bridge)
@@ -331,22 +335,36 @@ async def test_release_is_per_turn_but_the_room_is_shared(tmp_path):
         await gge.play(snapshot)
         assert (await gge.status())['device_released'] is True
 
-        # Cursor now holds the single room, so G哥 must still wait even though
-        # its own last turn is already released.
-        bridge.release.clear()
+        # Cursor records and asks while its own slot is free; nothing blocks it.
         cursor = terminal(client, 'desk-cursor')
         await cursor.connect()
         await cursor.transcribe(tone_wav(0.5))
         await cursor.ask('今天测试设备接口')
-        with pytest.raises(DeviceError):
-            await gge.wait_for_release(timeout=0.3)
-
-        bridge.release.set()
         await asyncio.gather(*app.state.service.tasks)
-        # Cursor still owns the room until it actually finishes playing.
-        with pytest.raises(DeviceError):
-            await gge.wait_for_release(timeout=0.3)
-        await cursor.play(await cursor.wait_ready())
+
+        # G哥 is free again even though Cursor's answer has not played yet.
+        await gge.wait_for_release(timeout=5)
+        assert (await cursor.status())['device_released'] is False
+
+        # The sound, however, is still Cursor's: G哥's next answer must wait.
+        cursor_snapshot = await cursor.wait_ready()
+        assert app.state.room.active == cursor_snapshot['id']
+        await cursor.play(cursor_snapshot, limit=1)  # first chunk is sounding now
+        assert (await gge.transcribe(tone_wav(0.5)))['text']
+        gge.turn_id = None
+        await gge.ask('我也说一句')
+        await asyncio.gather(*app.state.service.tasks)
+        # status() can inspect a generated answer while it is queued;
+        # wait_ready() must not return until the answer may actually play.
+        waiting = await gge.status()
+        assert waiting['status'] == 'ready'
+        assert waiting['playback_allowed'] is False and 'audio_url' not in waiting
+        assert app.state.room.active == cursor_snapshot['id']
+
+        # Once Cursor's answer is over, the queued answer gets the sound.
+        await cursor.play(cursor_snapshot)
+        assert app.state.room.active == waiting['id']
+        await gge.play(await gge.wait_ready())
         await gge.wait_for_release(timeout=5)
 
 

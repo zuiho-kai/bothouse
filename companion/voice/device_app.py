@@ -20,6 +20,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .app import TurnInput, PlaybackInput, build_service
 from .bridge import BridgeError
 from .devices import DeviceRegistry, RoutingError
+from .floor import FloorControl, FloorError, HumanUtterance
 from .roles import voice_label
 
 
@@ -29,15 +30,26 @@ MAX_PLAYBACK_HOLD = 600.0
 
 
 class DeviceRoom:
-    """A room owns one turn through *playback*, not just through synthesis.
+    """Two layers: one shared playback, one turn slot per device.
+
+    * Playback is global. Only ``active`` may fetch audio, so two answers never
+      sound at once. The slot is handed to the next waiting turn when it ends.
+    * Recording and new questions are per device (``slots``). A device whose
+      answer is playing does not stop another device from recording or asking;
+      that was the #43 room lock, not a playback rule.
+
+    A new human turn takes its device's floor (``floors[device_id].decide``)
+    and supersedes that device's previous generation: its late reply is archived
+    as ``superseded`` but can no longer play or enter the current conversation.
+    Devices do not supersede each other — they only queue for the sound. One
+    model call and one transcription still run at a time in this process, so
+    questions do not generate in parallel; only recording while another device
+    is playing is truly concurrent. Silence is still not proof that a turn
+    ended: the lease expires one device's slot and records why, and the turn is
+    reported as abandoned rather than completed.
 
     Each page instance has a fresh client UUID. Refresh/duplicate tabs cannot
     take over or replay the previous page's audio.
-
-    A device that disappears must not keep the shared slot forever, but silence
-    is not proof that the turn ended: the lease expires the *slot* and records
-    why, and the turn is reported as abandoned rather than completed. A missing
-    receipt on a live device still keeps the room held.
     """
 
     def __init__(self, service, registry: DeviceRegistry, *, lease_seconds: float = DEFAULT_LEASE_SECONDS,
@@ -55,7 +67,17 @@ class DeviceRoom:
             raise ValueError('设备伙伴不在显式名单中。')
         self.bindings: dict[str, dict] = {}
         self.records: dict[str, dict] = {}
+        # device_id -> the one turn that device is currently recording or asking.
+        self.slots: dict[str, str] = {}
+        # The one turn allowed to play right now (global).
         self.active: str | None = None
+        # One floor per device: each device is its own partner and its own
+        # conversation, so a question on one device never supersedes another
+        # device's answer. Across devices the only shared resource is playback.
+        self.floors: dict[str, FloorControl] = {}
+        self.generations: dict[str, int] = {}
+        self.currents: dict[str, str] = {}
+        self.order = 0
         self.last_release: dict | None = None
 
     # -- lease ------------------------------------------------------------
@@ -100,27 +122,155 @@ class DeviceRoom:
                 self.holds.pop(key, None)
 
     def _expire(self) -> None:
-        """Release the slot of a client whose lease ran out; say why, out loud.
+        """Release one device's slot when its lease ran out; say why, out loud.
 
         Expiry is decided *before* pruning. Pruning first used to delete the
         active client's old lease, which then looked like a first sighting and
         restarted its clock -- a 61 s silence could hold the room forever.
+        Each device is judged on its own lease now; a silent device must not
+        keep another device's turn or the shared playback slot.
         """
         now = self.clock()
-        record = self.records.get(self.active) if self.active else None
-        if record is not None and not record.get('completed'):
+        for device_id, identifier in list(self.slots.items()):
+            record = self.records.get(identifier)
+            if record is None or record.get('completed'):
+                continue
             key = (record['device_id'], record['client'])
             held = self.holds.get(key)
-            if held is None or now >= held:
-                last = self.leases.get(key)
-                if last is None:
-                    self.leases[key] = now  # First sighting starts the clock.
-                elif now - last > self.lease_seconds:
-                    self.abandon(record, now - last)
+            if held is not None and now < held:
+                continue
+            last = self.leases.get(key)
+            if last is None:
+                self.leases[key] = now  # First sighting starts the clock.
+            elif now - last > self.lease_seconds:
+                self.abandon(record, now - last)
         self._prune()
 
+    def _release_slot(self, device_id: str, identifier: str) -> None:
+        """This device is done with the turn; hand playback to the next one."""
+        record = self.records.get(identifier)
+        if record is not None:
+            self._review(record)
+        if self.slots.get(device_id) == identifier:
+            self.slots.pop(device_id, None)
+        if self.active == identifier:
+            self.active = None
+            self._grant_playback()
+
+    def _grant_playback(self) -> None:
+        """Give the free playback slot to the oldest turn still waiting for it.
+
+        Admission order is the only fair rule we have: the user asked in that
+        order. A turn that was stopped or completed is skipped, so a dead turn
+        cannot keep the room silent.
+        """
+        if self.active is not None:
+            return
+        waiting = sorted((self.records[turn_id].get('order', 0), turn_id)
+                         for turn_id in self.slots.values() if turn_id in self.records)
+        for _, turn_id in waiting:
+            record = self.records[turn_id]
+            if not record.get('stop_requested') and not record.get('completed'):
+                self.active = turn_id
+                return
+
+    def _floor(self, device_id: str) -> FloorControl:
+        return self.floors.setdefault(device_id, FloorControl())
+
+    def _is_current(self, record: dict) -> bool:
+        generation = self.generations.get(record['id'])
+        return generation is None or self._floor(record['device_id']).is_current(
+            record['id'], generation)
+
+    def _may_play(self, record: dict) -> bool:
+        """Only the playback owner may fetch or start audio.
+
+        A reply that already started may finish even after a new question took
+        the floor: cutting a sentence mid-word because someone asked elsewhere
+        would be worse than letting the two turns queue. A reply that never
+        started is dropped as soon as it is superseded.
+        """
+        if self.active != record['id']:
+            return False
+        return bool(record.get('started')) or self._is_current(record)
+
+    def _close_floor(self, record: dict) -> None:
+        """Tell the floor this generation is over, so its review archives it.
+
+        A device stop, a lease expiry and a supersede all end the turn for the
+        user; without this the floor would still call the reply current and log
+        ``play=true`` for audio the page is not allowed to fetch.
+        """
+        if record.get('floor_closed') or record['id'] not in self.generations:
+            return
+        record['floor_closed'] = True
+        try:
+            self._floor(record['device_id']).stop(record['id'])
+        except FloorError:
+            pass
+
+    def _review(self, record: dict) -> None:
+        """Ask the floor how a finished reply may be used; archive either way.
+
+        A superseded or stopped reply keeps its text in the shared record. The
+        review only decides playback and insertion into the current turn.
+        """
+        if record.get('reviewed'):
+            return
+        generation = self.generations.get(record['id'])
+        if generation is None:
+            return
+        review = self._floor(record['device_id']).review_reply(
+            record['id'], generation, record['project'])
+        record['reviewed'] = True
+        record['floor'] = {
+            'play': review.play, 'insert': review.insert, 'archive': review.archive,
+            'mark': None if review.mark is None else review.mark.value,
+            'reason': review.reason,
+        }
+        try:
+            self.service.record('floor_review', {'id': record['id'],
+                                                 'device_id': record['device_id'],
+                                                 'generation': generation,
+                                                 **record['floor']})
+        except OSError:
+            pass
+
+    def _supersede(self, record: dict) -> None:
+        """A new turn on the same device; a reply that never played is dropped.
+
+        Only that device's previous generation is affected: another device's
+        answer belongs to a different partner and a different conversation, and
+        only queues for the playback slot. A reply already playing is left
+        alone: it owns the sound, and the new turn waits for the playback slot.
+        Either way the old text is archived (``superseded`` when it never
+        played) and never re-enters the current conversation. The old turn keeps
+        running; a delivered CLI call is not cancelled.
+        """
+        if (record.get('superseded') or record.get('completed')
+                or record.get('abandoned') or record.get('stop_requested')):
+            # Already ended by the user, an error or a lease expiry: keep the
+            # mark it was archived with instead of relabelling it superseded.
+            return
+        if record.get('started'):
+            record['superseded'] = True
+            return
+        record['superseded'] = True
+        record['stop_requested'] = True
+        record['stop_reason'] = '本轮已被新问题取代；正文归档为 superseded，不播放、不插入当前对话。'
+        self.release_hold(record['device_id'], record['client'])
+        self._release_slot(record['device_id'], record['id'])
+        try:
+            self.service.record('turn_superseded', {
+                'id': record['id'], 'device_id': record['device_id'],
+                'generation': self.generations.get(record['id']),
+                'mark': 'superseded',
+            })
+        except OSError:
+            pass
+
     def abandon(self, record: dict, silent_for: float) -> dict:
-        """Drop the held slot and record that the device stopped answering.
+        """Drop one device's slot and record that it stopped answering.
 
         Not a completion and not a user stop: the turn keeps its text in the
         shared record, its playback state becomes ``stopped``, and every later
@@ -132,8 +282,9 @@ class DeviceRoom:
         record['abandoned'] = True
         record['abandon_reason'] = reason
         record['stop_requested'] = True
-        self.active = None
+        self._close_floor(record)
         self.release_hold(record['device_id'], record['client'])
+        self._release_slot(record['device_id'], record['id'])
         if record['id'] in self.service.turns:
             try:
                 self.service.record_playback(record['id'], PlaybackInput(
@@ -166,15 +317,19 @@ class DeviceRoom:
 
     def reap(self):
         self._expire()
-        if not self.active:
-            return
-        record = self.records[self.active]
-        turn = self.service.turns.get(self.active)
-        if record['admitting'] or (turn and not turn['_task'].done()):
-            return
-        if (record['stop_requested'] or record.get('completed')
-                or (turn and turn['status'] == 'error' and not record['audio_fetched'])):
-            self.active = None
+        for device_id, identifier in list(self.slots.items()):
+            record = self.records.get(identifier)
+            if record is None:
+                self.slots.pop(device_id, None)
+                continue
+            turn = self.service.turns.get(identifier)
+            if record['admitting'] or (turn and not turn['_task'].done()):
+                continue
+            # The floor review happens when the slot is actually released: a
+            # reply still waiting to play must not be archived as stale early.
+            if (record['stop_requested'] or record.get('completed')
+                    or (turn and turn['status'] == 'error' and not record['audio_fetched'])):
+                self._release_slot(device_id, identifier)
 
     async def binding(self, device):
         binding = await self.service.binding(device.project)
@@ -195,17 +350,28 @@ class DeviceRoom:
         })
         result.update(device_id=record['device_id'], audio_target=record['device_id'])
         if record['stop_requested']:
-            result.update(status='stopped', error='已停止本轮；已送达的后台任务仍会收尾。')
+            result.update(status='stopped',
+                          error=record.get('stop_reason') or '已停止本轮；已送达的后台任务仍会收尾。')
         elif record.get('error'):
             result.update(status='error', error=record['error'])
-        allowed = (client == record['client'] and self.active == record['id']
+        # Playback is global and per-generation: only the current turn that owns
+        # the shared slot may fetch audio. A superseded reply keeps its text in
+        # the shared record but cannot play or re-enter the conversation.
+        allowed = (client == record['client'] and self._may_play(record)
                    and not record['stop_requested'] and not record.get('completed'))
         result['playback_allowed'] = allowed
-        # A stop acknowledgement is not a release: delivered CLI work keeps the slot.
-        result['device_released'] = self.active != record['id']
+        # A stop acknowledgement is not a release: delivered CLI work keeps the
+        # device slot. Release is per device, not per room.
+        result['device_released'] = self.slots.get(record['device_id']) != record['id']
+        result['playback_owner'] = (self.records[self.active]['device_id']
+                                    if self.active in self.records else None)
         if record.get('abandoned'):
             result['abandoned'] = True
             result['abandon_reason'] = record.get('abandon_reason', '')
+        if record.get('superseded'):
+            result['superseded'] = True
+        if record.get('floor'):
+            result['floor'] = dict(record['floor'])
         root = f"/device/{record['device_id']}/api/turn/{record['id']}"
         query = '?' + urlencode({'client': client})
         if allowed:
@@ -237,55 +403,105 @@ class DeviceRoom:
                 if record['text'] != text:
                     raise HTTPException(409, '同一请求编号不能用于不同内容。')
                 return self.snapshot(record, client)
-            if self.active or self.service.transcribing:
-                raise HTTPException(409, '另一轮仍在处理或播放，请等它播完或在原页面停止。没有自动排队。')
+            # Only this device's own unfinished turn blocks a new question. The
+            # other device may be playing; that is exactly what #33 separates.
+            if self.slots.get(device_id):
+                raise HTTPException(409, '这台设备还有一轮没结束，请等它播完或先停止；不会排队。')
+            # One model call and one transcription run at a time in this
+            # process: a pipeline capacity limit, not a room-wide playback lock.
+            if self.service.active or self.service.transcribing:
+                # ``service.active`` clears when the whole run ends, not when
+                # playback starts: the next question may have to wait through
+                # generation and synthesis, so do not promise otherwise.
+                raise HTTPException(409, '另一台设备的回答还在生成，请稍后再问；本轮未发送。')
             # Bound tombstones prevent old UUIDs from ever being accepted again
             # in this process, including after VoiceService evicts old audio.
             if len(self.records) >= 200:
                 raise HTTPException(503, '本次演示已达200轮，请在空闲时重启独立设备入口。')
+            busy = set(self.slots)
+            # Decide before sending: a 409 must mean the partner never saw this
+            # message. Doing it afterwards left the CLI task already delivered
+            # while the page was told "本轮未发送".
+            floor = self._floor(device_id)
+            decision = floor.decide(
+                HumanUtterance(data.id, text),
+                device_partner=device.project,
+                partners=self.registry.availability(busy),
+                remaining_budget=1,
+            )
+            if decision.responder is None:
+                # Nothing has been sent: the only cleanup is closing the
+                # generation this rejected question just opened.
+                floor.stop(data.id)
+                raise HTTPException(409, decision.reason)
+            previous = self.currents.get(device_id)
             record = dict(id=data.id, device_id=device_id, project=device.project,
                           client=client, text=text, stop_requested=False,
-                          admitting=True, audio_fetched=False, started=False)
+                          admitting=True, audio_fetched=False, started=False,
+                          order=self.order)
+            self.order += 1
             self.records[data.id] = record
-            self.active = data.id
+            self.generations[data.id] = decision.generation
+            self.slots[device_id] = data.id
+            if self.active is None:
+                self.active = data.id
             try:
                 binding = await self.binding(device)
                 await self.service._submit(data, expected_binding=binding, device=record)
             except asyncio.CancelledError:
                 record['stop_requested'] = True
+                self._close_floor(record)
+                self._release_slot(device_id, data.id)
                 raise
             except (HTTPException, BridgeError) as exc:
                 record['error'] = exc.detail if isinstance(exc, HTTPException) else str(exc)
                 record['stop_requested'] = True
+                self._close_floor(record)
+                self._release_slot(device_id, data.id)
                 raise HTTPException(getattr(exc, 'status_code', getattr(exc, 'status', 422)), record['error']) from None
             except Exception:
                 record['error'] = '设备接纳失败，本轮未发送。'
                 record['stop_requested'] = True
+                self._close_floor(record)
+                self._release_slot(device_id, data.id)
                 raise
             finally:
                 record['admitting'] = False
                 self.reap()
+            # The question is on its way: this device's previous generation is
+            # no longer current. Its late text is still archived, never played.
+            # Only this device is affected; another device's answer keeps its
+            # own floor and only queues for the playback slot.
+            self.currents[device_id] = data.id
+            if previous and previous != data.id and previous in self.records:
+                self._supersede(self.records[previous])
             return self.snapshot(record, client)
 
     def stop(self, device_id, identifier, client):
         record = self.get(device_id, identifier, client)
         # Does not cancel a thread that may already have delivered a CLI task.
-        # Keep the slot until that task finishes; all later audio stays denied.
+        # Keep the device slot until that task finishes; all later audio stays denied.
         record['stop_requested'] = True
+        self._close_floor(record)
         if identifier in self.service.turns and not record.get('stop_recorded'):
             self.service.record_playback(identifier, PlaybackInput(
                 state='stopped', position_seconds=0, duration_seconds=0))
             record['stop_recorded'] = True
+        self.release_hold(device_id, client)
+        if self.active == identifier:
+            self.active = None
+            self._grant_playback()
         self.reap()
         if identifier not in self.service.turns and record.get('completed'):
             return {'id': identifier, 'status': 'stopped', 'playback_allowed': False,
-                    'device_released': self.active != identifier}
+                    'device_released': self.slots.get(device_id) != identifier}
         return self.snapshot(record, client)
 
     def audio(self, device_id, identifier, client, index=None):
         record = self.get(device_id, identifier, client)
         turn = self.service.turns.get(identifier)
-        if (self.active != identifier or record['stop_requested'] or record.get('completed')
+        if (not self._may_play(record)
+                or record['stop_requested'] or record.get('completed')
                 or not turn or turn['status'] not in {'synthesizing', 'ready'}):
             raise HTTPException(409, '本轮没有播放权，已停止或已经结束。')
         if index is None:
@@ -302,7 +518,7 @@ class DeviceRoom:
         record = self.get(device_id, identifier, client)
         if record.get('completed') and data.state == 'completed':
             return {'ok': True}
-        if self.active != identifier or record['stop_requested']:
+        if not self._may_play(record) or record['stop_requested']:
             if data.state in {'stopped', 'failed'}:
                 return {'ok': True}
             raise HTTPException(409, '旧轮次不能恢复播放。')
@@ -333,6 +549,10 @@ class DeviceRoom:
             record['stop_requested'] = True
             record['stop_recorded'] = True
             self.release_hold(device_id, client)
+            if self.active == identifier:
+                # Playback ended; the device slot may still drain the CLI task.
+                self.active = None
+                self._grant_playback()
         self.reap()
         return {'ok': True}
 
@@ -432,7 +652,8 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
     @app.get('/api/devices')
     async def devices():
         room.reap()
-        return {'devices': registry.statuses(), 'busy': bool(room.active)}
+        return {'devices': registry.statuses(), 'busy': bool(room.slots),
+                'playback': room.records[room.active]['device_id'] if room.active in room.records else None}
 
     @app.get('/device/{device_id}/api/config')
     async def configuration(device_id: str, request: Request):
@@ -442,12 +663,15 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
         detail, available = '接续原会话；声音只从这台设备播放。', True
         try:
             binding = await room.binding(device)
-            available = not binding['busy'] and not room.active
-            if not available:
-                detail = '正在处理或播放另一轮，请在结束后刷新状态。'
+            # Another device playing no longer blocks this one from recording.
+            available = not binding['busy'] and not room.slots.get(device_id)
+            if room.slots.get(device_id):
+                detail = '这台设备还有一轮没结束，请等它播完或先停止。'
+            elif binding['busy']:
+                detail = '这位伙伴的原会话正在收尾，请稍后刷新。'
         except BridgeError as exc:
             detail, available = str(exc), False
-        active = room.records.get(room.active)
+        held = room.records.get(room.slots.get(device_id))
         local = is_local(request)
         room.touch(device_id, client)
         return {'token': service.token if local else '', 'auth': 'page-token' if local else 'device-secret',
@@ -456,7 +680,8 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
                 'device_id': device_id, 'device_name': device.name,
                 'default_role': device.project, 'session_label': settings.session_label,
                 'max_record_seconds': 30, 'asr_model_ready': Path(settings.model_path).is_dir(),
-                'active_turn': active['id'] if active and active['device_id'] == device_id and active['client'] == client else None,
+                'active_turn': held['id'] if held and held['client'] == client else None,
+                'playback_owner': room.records[room.active]['device_id'] if room.active in room.records else None,
                 'roles': [{'id': device.project, 'name': role.name, 'available': available,
                            'detail': detail, 'voice_label': voice_label(settings, role)}]}
 
@@ -466,9 +691,9 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
         client = client_id(request)
         room.touch(device_id, client)
         room.reap()
-        active = room.records.get(room.active)
+        held = room.records.get(room.slots.get(device_id))
         return {'ok': True, 'device_id': device.device_id,
-                'active_turn': active['id'] if active and active['client'] == client else None,
+                'active_turn': held['id'] if held and held['client'] == client else None,
                 'lease': room.lease(device_id, client),
                 'last_release': room.last_release}
 
@@ -506,8 +731,12 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
         client_id(request)
         async with service.submit_lock:
             room.reap()
-            if room.active or service.transcribing:
-                raise HTTPException(409, '请等当前轮次结束后再录音。')
+            # Only this device's own unfinished turn blocks recording. Another
+            # device playing or draining must not keep this microphone shut.
+            if room.slots.get(device_id):
+                raise HTTPException(409, '这台设备还有一轮没结束，请等它播完或先停止。')
+            if service.transcribing:
+                raise HTTPException(409, '另一台设备正在识别，请稍后再录。')
             service.transcribing = True
         started = time.monotonic()
         try:

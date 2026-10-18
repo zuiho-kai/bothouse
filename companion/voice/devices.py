@@ -26,6 +26,7 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from .bridge import BridgeError
+from .floor import Availability, PartnerAvailability
 from .roles import Role
 
 DEVICE_ID_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
@@ -138,6 +139,20 @@ class DeviceRegistry:
     def voice(self, device: DeviceBinding) -> str | None:
         role = self.roles.get(device.project)
         return role.tts_voice if role is not None else None
+
+    def availability(self, busy_devices: Iterable[str] = ()) -> list[PartnerAvailability]:
+        """Who each device's partner is, and whether that partner can answer now.
+
+        The floor needs the explicit device-to-partner map, not a guess from the
+        current speaker. A device with an unfinished turn reports its partner as
+        busy; every other configured partner is available. Availability is per
+        device, so one device finishing playback never hides another partner.
+        """
+        busy = set(busy_devices)
+        return [PartnerAvailability(device.project,
+                                    Availability.BUSY if device.device_id in busy
+                                    else Availability.AVAILABLE)
+                for device in self.devices]
 
     def statuses(self) -> list[dict]:
         return [{'device_id': device.device_id, 'name': device.name,

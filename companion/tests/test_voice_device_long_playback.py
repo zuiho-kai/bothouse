@@ -34,9 +34,16 @@ async def test_browser_page_playing_a_long_answer_keeps_its_slot(tmp_path):
         await c.post(f'/device/desk-gge/api/turn/{tid}/playback', headers=page, json={'state': 'playing', 'position_seconds': 0, 'duration_seconds': 45})
         # The browser page sends nothing while a 45 s answer plays (app.js has no heartbeat).
         now[0] += 31
-        r = await c.post('/device/desk-cursor/api/turn', headers=other, json={'id': str(uuid4()), 'project': 'cursor', 'text': '我也说一句'})
-        print('other device while G哥 still speaking:', r.status_code)
-        assert r.status_code == 409, 'slot released mid-playback: two voices would overlap'
+        # The other device may now *ask* (#33), but it must not get the sound:
+        # one voice at a time still holds, and this answer is not abandoned.
+        second = str(uuid4())
+        r = await c.post('/device/desk-cursor/api/turn', headers=other,
+                         json={'id': second, 'project': 'cursor', 'text': '我也说一句'})
+        assert r.status_code == 202, 'the other device may form a new human turn while G哥 speaks'
+        waiting = (await c.get(f'/device/desk-cursor/api/turn/{second}', headers=other)).json()
+        assert waiting['playback_allowed'] is False and 'audio_url' not in waiting
+        assert (await c.get(f'/device/desk-gge/api/turn/{tid}', headers=page)).json().get('abandoned') is None
+        assert app.state.room.active == tid, 'slot released mid-playback: two voices would overlap'
 
 
 async def test_hold_expires_after_the_announced_playback_ends(tmp_path):
@@ -66,9 +73,12 @@ async def test_hold_expires_after_the_announced_playback_ends(tmp_path):
                      json={'state': 'playing', 'position_seconds': 0, 'duration_seconds': 45})
         # 45 s of audio + one 30 s lease of slack, then the slot is free again.
         now[0] += 44
-        assert (await c.post('/device/desk-cursor/api/turn', headers=other,
-                             json={'id': str(uuid4()), 'project': 'cursor', 'text': '等等'})).status_code == 409
+        assert app.state.room.active == tid, 'the hold must outlast the announced audio'
         now[0] += 32
+        # Past the promise the held slot expires with an explicit reason.
+        abandoned = (await c.get(f'/device/desk-gge/api/turn/{tid}', headers=page)).json()
+        assert abandoned['abandoned'] is True and '心跳' in abandoned['abandon_reason']
+        assert app.state.room.active is None
         assert (await c.post('/device/desk-cursor/api/turn', headers=other,
                              json={'id': str(uuid4()), 'project': 'cursor', 'text': '该我了'})).status_code == 202
 

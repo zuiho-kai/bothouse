@@ -2431,6 +2431,23 @@
           changePhase('error', reason);
           return;
         }
+        if (voiceState.apiPrefix.startsWith('/device/') && result.status === 'ready'
+            && result.playback_allowed !== true) {
+          if (result.device_released === true) {
+            turn.terminal = true;
+            turn.autoplay = false;
+            turn.deviceReleased = true;
+            changePhase('idle', '本轮已结束');
+            return;
+          }
+          // Synthesis is complete, but another device still owns playback.
+          // Do not invent an audio URL or stop polling before the grant arrives.
+          if (state.phase !== 'thinking' || state.statusDetail !== '排队等待播放') {
+            changePhase('thinking', '排队等待播放', false);
+          }
+          await new Promise(r => setTimeout(r, 200));
+          continue;
+        }
         if (result.status === 'thinking' || result.status === 'synthesizing') {
           const detail = result.status === 'thinking' ? '正在思考…' : '正在准备声音…';
           if (state.phase === 'thinking') {
