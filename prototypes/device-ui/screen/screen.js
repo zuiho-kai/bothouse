@@ -5,6 +5,7 @@
   const scaleSelect = root.querySelector('#cn-preview-scale');
   const interactionSelect = root.querySelector('#cn-interaction-mode');
   const thinkingSelect = root.querySelector('#cn-thinking-mode');
+  const idleVariantSelect = root.querySelector('#cn-idle-variant');
   const motionToggle = root.querySelector('#cn-motion-toggle');
   const assetClipEl = root.querySelector('#cn-asset-clip');
   const assetNoteEl = root.querySelector('#cn-asset-note');
@@ -93,17 +94,115 @@
           warn: false
         },
         speaking: {
-          src: 'assets/characters/gpt/idle-blink-square-v2.mp4',
+          src: 'assets/characters/gpt/speaking.mp4',
           bg: '#242827',
           scale: 1.18,
           tx: 1.8,
           ty: 1.5,
-          start: 6.4,
-          end: 9.4,
-          restTime: 7.55,
-          spec: 'gpt/idle-blink-square-v2.mp4 (720×720 · 6.4s–9.4s 开口动作候选段)',
-          note: '注意：G哥本批素材缺专用连续说话视频；当前截取 square-v2 中睁眼张闭嘴片段作候选预览，不冒充已验收说话口型。',
-          warn: true
+          start: 0,
+          end: null,
+          restTime: 0.5,
+          spec: 'gpt/speaking.mp4 (720×720 · 专用连续张闭嘴说话)',
+          note: 'G哥专用连续说话循环视频，多次自然张闭嘴；视频音轨已静音，实际语音由 TTS 播放器驱动。',
+          warn: false
+        }
+      },
+      idleVariants: {
+        yawn: {
+          name: 'yawn',
+          label: '打哈欠伸懒腰',
+          src: 'assets/characters/gpt/yawn.mp4',
+          bg: '#242827',
+          scale: 1.18,
+          tx: 1.8,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gpt/yawn.mp4 (720×720 · 打哈欠伸懒腰 · 4.04s)',
+          note: '待机随机小动作：大哈欠揉眼伸腰后复位正视闭嘴微笑。',
+          isVariant: true
+        },
+        doze: {
+          name: 'doze',
+          label: '打瞌睡惊醒',
+          src: 'assets/characters/gpt/doze.mp4',
+          bg: '#242827',
+          scale: 1.18,
+          tx: 1.8,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gpt/doze.mp4 (720×720 · 打瞌睡惊醒 · 4.04s)',
+          note: '待机随机小动作：眼皮垂落点头小睡后惊醒回正。',
+          isVariant: true
+        },
+        pout: {
+          name: 'pout',
+          label: '鼓腮生气',
+          src: 'assets/characters/gpt/pout.mp4',
+          bg: '#242827',
+          scale: 1.18,
+          tx: 1.8,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gpt/pout.mp4 (720×720 · 鼓腮生气 · 4.04s)',
+          note: '待机随机小动作：两颊鼓气微嗔后呼气轻笑。',
+          isVariant: true
+        },
+        happy: {
+          name: 'happy',
+          label: '开心眯眼歪头',
+          src: 'assets/characters/gpt/happy.mp4',
+          bg: '#242827',
+          scale: 1.18,
+          tx: 1.8,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gpt/happy.mp4 (720×720 · 开心眯眼歪头 · 4.04s)',
+          note: '待机随机小动作：双眼弯月笑、歪头灿笑星光环绕后回正。',
+          isVariant: true
+        },
+        curious: {
+          name: 'curious',
+          label: '好奇凑近',
+          src: 'assets/characters/gpt/curious.mp4',
+          bg: '#242827',
+          scale: 1.18,
+          tx: 1.8,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gpt/curious.mp4 (720×720 · 好奇凑近 v4 · 4.04s)',
+          note: '待机随机小动作：身体前倾、睁大双眼歪头好奇打量后平稳复位。',
+          isVariant: true
+        },
+        shy: {
+          name: 'shy',
+          label: '害羞脸红',
+          src: 'assets/characters/gpt/shy.mp4',
+          bg: '#242827',
+          scale: 1.18,
+          tx: 1.8,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gpt/shy.mp4 (720×720 · 害羞脸红 v2 · 4.04s)',
+          note: '待机随机小动作：脸颊微红、双手微掩侧目偷瞄后温和复位。',
+          isVariant: true
         }
       }
     },
@@ -298,6 +397,81 @@
     return state.animate && !motionQuery.matches && !document.hidden && state.phase !== 'offline';
   }
 
+  let activeIdleVariant = null;
+  let lastIdleVariant = null;
+  let idleVariantTimer = null;
+  let idleVariantEndTimer = null;
+
+  function stopIdleVariant() {
+    activeIdleVariant = null;
+    if (idleVariantTimer) {
+      clearTimeout(idleVariantTimer);
+      idleVariantTimer = null;
+    }
+    if (idleVariantEndTimer) {
+      clearTimeout(idleVariantEndTimer);
+      idleVariantEndTimer = null;
+    }
+  }
+
+  function scheduleNextIdleVariant(customDelay = null) {
+    stopIdleVariant();
+    if (state.phase !== 'idle' || !shouldAnimate()) return;
+    const charCfg = CHARACTER_CONFIG[state.character];
+    if (!charCfg || !charCfg.idleVariants || Object.keys(charCfg.idleVariants).length === 0) return;
+
+    // 每隔 20–45 秒随机插播一段
+    const delay = customDelay !== null ? customDelay : (20000 + Math.floor(Math.random() * 25000));
+    idleVariantTimer = setTimeout(() => {
+      triggerRandomIdleVariant();
+    }, delay);
+  }
+
+  function triggerRandomIdleVariant(specificName = null) {
+    if (state.phase !== 'idle' || !shouldAnimate()) return;
+    const charCfg = CHARACTER_CONFIG[state.character];
+    if (!charCfg || !charCfg.idleVariants) return;
+    const keys = Object.keys(charCfg.idleVariants);
+    if (keys.length === 0) return;
+
+    let targetKey = specificName;
+    if (!targetKey || !charCfg.idleVariants[targetKey]) {
+      // 同一段不连着播两次
+      const candidates = keys.filter(k => k !== lastIdleVariant);
+      const pool = candidates.length > 0 ? candidates : keys;
+      targetKey = pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    const clip = charCfg.idleVariants[targetKey];
+    if (!clip) return;
+
+    lastIdleVariant = targetKey;
+    activeIdleVariant = targetKey;
+    render();
+
+    // 安全兜底定时器：单段播完后回到待机
+    const durMs = ((clip.duration || 4.04) + 0.3) * 1000;
+    idleVariantEndTimer = setTimeout(() => {
+      finishIdleVariant(targetKey);
+    }, durMs);
+  }
+
+  function finishIdleVariant(variantName) {
+    if (!activeIdleVariant || (variantName && activeIdleVariant !== variantName)) return;
+    activeIdleVariant = null;
+    if (idleVariantEndTimer) {
+      clearTimeout(idleVariantEndTimer);
+      idleVariantEndTimer = null;
+    }
+    if (idleVariantSelect && idleVariantSelect.value !== 'auto') {
+      idleVariantSelect.value = 'auto';
+    }
+    if (state.phase === 'idle') {
+      render();
+      scheduleNextIdleVariant();
+    }
+  }
+
   function resolveClip(characterKey, phase, thinkingMode) {
     const charCfg = CHARACTER_CONFIG[characterKey] || CHARACTER_CONFIG.gpt;
     if (phase === 'listening' || phase === 'peer') {
@@ -308,6 +482,12 @@
     }
     if (phase === 'speaking') {
       return charCfg.clips.speaking;
+    }
+    if (phase === 'idle') {
+      if (activeIdleVariant && charCfg.idleVariants && charCfg.idleVariants[activeIdleVariant]) {
+        return charCfg.idleVariants[activeIdleVariant];
+      }
+      return charCfg.clips.idle;
     }
     return charCfg.clips.idle;
   }
@@ -447,12 +627,12 @@
   }
 
   function updatePanelVideo(ctrl, clip) {
-    ctrl.clip = clip;
     const screen = ctrl.shell.querySelector('.cn-screen');
     screen.style.setProperty('--cn-screen-bg', clip.bg);
     const activeVideo = ctrl.layers[ctrl.activeIndex];
 
     if (ctrl.currentLogicalSrc === clip.src && activeVideo.dataset.logicalSrc === clip.src) {
+      ctrl.clip = clip;
       applyClipTransform(activeVideo, clip);
       syncVideoPlayback(ctrl);
       return;
@@ -464,7 +644,7 @@
 
     enforceSilentVideo(standbyVideo);
     applyClipTransform(standbyVideo, clip);
-    standbyVideo.loop = clip.end === null;
+    standbyVideo.loop = clip.end === null && !clip.isVariant;
 
     resolveMediaUrl(clip.src).then(resolvedUrl => {
       if (token !== ctrl.transitionId) return;
@@ -484,6 +664,7 @@
         activeVideo.classList.add('is-standby');
 
         ctrl.activeIndex = nextIndex;
+        ctrl.clip = clip;
         ctrl.currentLogicalSrc = clip.src;
         syncVideoPlayback(ctrl);
         setTimeout(() => {
@@ -516,11 +697,18 @@
     ctrl.layers.forEach((video, idx) => {
       const clampSegment = () => {
         if (idx !== ctrl.activeIndex || !ctrl.clip) return;
+        if (video.dataset.logicalSrc !== ctrl.clip.src) return;
         const { start = 0, end = null, restTime = 0 } = ctrl.clip;
         if (!shouldAnimate()) {
           const target = typeof restTime === 'number' ? restTime : start;
           if (Math.abs((video.currentTime || 0) - target) > 0.08) {
             try { video.currentTime = target; } catch {}
+          }
+          return;
+        }
+        if (ctrl.clip.isVariant) {
+          if (!video.seeking && end !== null && video.currentTime >= end - 0.05 && video.currentTime > (start || 0) + 0.5) {
+            finishIdleVariant(activeIdleVariant);
           }
           return;
         }
@@ -532,6 +720,11 @@
       video.addEventListener('loadedmetadata', clampSegment);
       video.addEventListener('loadeddata', clampSegment);
       video.addEventListener('timeupdate', clampSegment);
+      video.addEventListener('ended', () => {
+        if (idx === ctrl.activeIndex && ctrl.clip?.isVariant && video.dataset.logicalSrc === ctrl.clip.src) {
+          finishIdleVariant(activeIdleVariant);
+        }
+      });
     });
   });
 
@@ -677,6 +870,11 @@
     sessionSeq += 1;
     state.phase = nextPhase;
     state.statusDetail = detail;
+    if (nextPhase !== 'idle') {
+      stopIdleVariant();
+    } else {
+      scheduleNextIdleVariant();
+    }
     render();
     if (saveState) persistState();
   }
@@ -1726,6 +1924,8 @@
 
   charSelect.addEventListener('change', event => {
     state.character = event.target.value;
+    stopIdleVariant();
+    if (state.phase === 'idle') scheduleNextIdleVariant();
     render();
     persistState();
   });
@@ -1754,10 +1954,29 @@
 
   motionToggle.addEventListener('change', event => {
     state.animate = event.target.checked;
+    if (!state.animate) {
+      stopIdleVariant();
+    } else if (state.phase === 'idle') {
+      scheduleNextIdleVariant();
+    }
     render();
     panelControllers.forEach(syncVideoPlayback);
     persistState();
   });
+
+  if (idleVariantSelect) {
+    idleVariantSelect.addEventListener('change', event => {
+      const val = event.target.value;
+      if (val === 'auto') {
+        finishIdleVariant(activeIdleVariant);
+      } else {
+        if (state.phase !== 'idle') {
+          changePhase('idle', '');
+        }
+        triggerRandomIdleVariant(val);
+      }
+    });
+  }
 
   if (voiceEndpointSelect) {
     voiceEndpointSelect.addEventListener('change', event => {
@@ -1792,6 +2011,9 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       cancelListening();
+      stopIdleVariant();
+    } else if (state.phase === 'idle') {
+      scheduleNextIdleVariant();
     }
     panelControllers.forEach(syncVideoPlayback);
   });
@@ -1803,6 +2025,7 @@
   window.__conestDeviceUI = {
     getState: () => ({
       ...state,
+      idleVariant: activeIdleVariant,
       sessionSeq,
       connected: voiceState.connected,
       apiPrefix: voiceState.apiPrefix,
@@ -1909,11 +2132,28 @@
       }
       changePhase('speaking', '正在回答');
       return true;
+    },
+    triggerIdleVariant: name => {
+      if (state.phase !== 'idle') {
+        changePhase('idle', '');
+      }
+      triggerRandomIdleVariant(name);
+      return activeIdleVariant;
+    },
+    scheduleNextIdleVariant: delayMs => scheduleNextIdleVariant(delayMs),
+    stopIdleVariant: () => stopIdleVariant(),
+    getActiveIdleVariant: () => activeIdleVariant,
+    getIdleVariants: () => {
+      const charCfg = CHARACTER_CONFIG[state.character];
+      return charCfg?.idleVariants ? Object.keys(charCfg.idleVariants) : [];
     }
   };
 
   restoreState();
   render();
+  if (state.phase === 'idle') {
+    scheduleNextIdleVariant();
+  }
   // 静默探测并自动尝试连接同源/本地语音接口
   void connectVoiceService({ apiPrefix: voiceState.apiPrefix, silentIfAbsent: true });
 })();

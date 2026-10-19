@@ -267,6 +267,90 @@
       "fps": 24,
       "audio_tracks": 1,
       "contact_sheet": "previews/deepseek-thinking-question.jpg"
+    },
+    {
+      "file": "gpt/speaking.mp4",
+      "action": "说话",
+      "observation": "G哥专用连续张闭嘴说话视频，自然多次张闭嘴",
+      "sha256": "b357ea6ad967befd8a8d55eba4e7a901072371ae9baebd8d6f813f051432f465",
+      "bytes": 1347614,
+      "duration_seconds": 4.042,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "audio_tracks": 0
+    },
+    {
+      "file": "gpt/curious.mp4",
+      "action": "待机动作-好奇凑近",
+      "observation": "待机随机小动作：身体前倾，睁大眼睛歪头打量后复位",
+      "sha256": "163d02a4a34a5f00728a170c43605d14b5410bfe421c0e09054177768dfebb2f",
+      "bytes": 1238571,
+      "duration_seconds": 4.042,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "audio_tracks": 0
+    },
+    {
+      "file": "gpt/doze.mp4",
+      "action": "待机动作-打瞌睡惊醒",
+      "observation": "待机随机小动作：垂眼点头打瞌睡后猛然惊醒微笑",
+      "sha256": "83574301b08a00cbeabdfb298354ad9a1e608e102a976c06b2d5a5e5b2f75bf3",
+      "bytes": 1979107,
+      "duration_seconds": 4.042,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "audio_tracks": 0
+    },
+    {
+      "file": "gpt/happy.mp4",
+      "action": "待机动作-开心眯眼歪头",
+      "observation": "待机随机小动作：眯眼大笑歪头，微光星芒后平稳复位",
+      "sha256": "efa03be70ad26afb294c59b1af8849c5e75f6a3ec06ba73e31dc6ac993b19a62",
+      "bytes": 1526576,
+      "duration_seconds": 4.042,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "audio_tracks": 0
+    },
+    {
+      "file": "gpt/pout.mp4",
+      "action": "待机动作-鼓腮生气",
+      "observation": "待机随机小动作：鼓起两腮嘟嘴微嗔后呼气轻笑",
+      "sha256": "348c508b83d9a2a7fe366011eff852c54c269c66c83614b1f41fe6f0eb39f5b4",
+      "bytes": 1726659,
+      "duration_seconds": 4.042,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "audio_tracks": 0
+    },
+    {
+      "file": "gpt/shy.mp4",
+      "action": "待机动作-害羞脸红",
+      "observation": "待机随机小动作：双颊泛红捂脸颊侧目偷瞄后温和复位",
+      "sha256": "9ae107df73b89d129d4bdc4e14ec7a0afea94ae0914fd1b93ce46739f7eaaf4b",
+      "bytes": 1489925,
+      "duration_seconds": 4.042,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "audio_tracks": 0
+    },
+    {
+      "file": "gpt/yawn.mp4",
+      "action": "待机动作-打哈欠伸懒腰",
+      "observation": "待机随机小动作：打大哈欠揉眼耸肩伸懒腰后回正微笑",
+      "sha256": "609a78a54e3ff97b662db6df2c6b59e80813353d6ece24cb4c6300de94747704",
+      "bytes": 1271392,
+      "duration_seconds": 4.042,
+      "width": 720,
+      "height": 720,
+      "fps": 24,
+      "audio_tracks": 0
     }
   ]
 }

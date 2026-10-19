@@ -180,6 +180,63 @@ def test_browser_voice_state_transitions():
         assert ui_state["phase"] == "idle", f"Expected idle after connection:online, got {ui_state['phase']}"
         print("PASS: 12. connection:offline and connection:online transitions verified.")
 
+        # 13. Verify speaking clip uses dedicated gpt/speaking.mp4
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'playing' })")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["phase"] == "speaking", f"Expected speaking, got {ui_state['phase']}"
+        speaking_src = page.evaluate("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active ? active.dataset.logicalSrc : '';
+        }""")
+        assert "assets/characters/gpt/speaking.mp4" in speaking_src, f"Expected speaking.mp4, got {speaking_src}"
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'completed' })")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["phase"] == "idle", f"Expected idle, got {ui_state['phase']}"
+        print("PASS: 13. Speaking phase uses dedicated gpt/speaking.mp4.")
+
+        # 14. Idle random variants: available list and triggering
+        variants = page.evaluate("window.__conestDeviceUI.getIdleVariants()")
+        expected_variants = ["yawn", "doze", "pout", "happy", "curious", "shy"]
+        assert sorted(variants) == sorted(expected_variants), f"Expected variants {expected_variants}, got {variants}"
+
+        # Trigger specific variant 'happy'
+        page.evaluate("window.__conestDeviceUI.triggerIdleVariant('happy')")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["idleVariant"] == "happy", f"Expected idleVariant happy, got {ui_state['idleVariant']}"
+        page.wait_for_timeout(200)
+        happy_src = page.evaluate("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active ? active.dataset.logicalSrc : '';
+        }""")
+        assert "assets/characters/gpt/happy.mp4" in happy_src, f"Expected happy.mp4, got {happy_src}"
+        page.screenshot(path=str(screenshots_dir / "09_state_idle_variant_happy.png"))
+        print("PASS: 14. Idle variant 'happy' triggers and loads happy.mp4.")
+
+        # 15. Immediate interruption: starting to listen cuts off idle variant instantly
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'recording:start' })")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["phase"] == "listening", f"Expected listening, got {ui_state['phase']}"
+        assert ui_state["idleVariant"] is None, f"Expected idleVariant cleared, got {ui_state['idleVariant']}"
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/gpt/listening-nod.mp4');
+        }""")
+        print("PASS: 15. Active idle variant is immediately interrupted on state change.")
+
+        # 16. Returning to idle and avoiding repeating the same variant twice
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'recording:cancel' })")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["phase"] == "idle"
+
+        # Trigger twice randomly, assert consecutive choices differ
+        v1 = page.evaluate("window.__conestDeviceUI.triggerIdleVariant()")
+        assert v1 in expected_variants
+        v2 = page.evaluate("window.__conestDeviceUI.triggerIdleVariant()")
+        assert v2 in expected_variants
+        assert v1 != v2, f"Expected two consecutive variants to differ, got {v1} and {v2}"
+        page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+        print("PASS: 16. Consecutive random idle variants do not repeat.")
+
         browser.close()
 
 
@@ -348,7 +405,7 @@ def test_device_app_e2e_browser():
             # Verify no CSP violations
             csp_errors = [log for log in console_logs if "Content Security Policy" in log or "violates" in log]
             assert not csp_errors, f"Detected CSP violations: {csp_errors}"
-            print("PASS: 13. /device/desk-gge/screen loaded with zero CSP violations.")
+            print("PASS: 17. /device/desk-gge/screen loaded with zero CSP violations.")
 
             def wait_for_connected(timeout=4.0):
                 start = time.monotonic()
@@ -375,7 +432,7 @@ def test_device_app_e2e_browser():
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "idle"
             assert ui_state["apiPrefix"] == "/device/desk-gge"
-            print("PASS: 14. Auto-connected to /device/desk-gge/api/config, initial phase is 'idle'.")
+            print("PASS: 18. Auto-connected to /device/desk-gge/api/config, initial phase is 'idle'.")
 
             # Delay actual microphone readiness until after the user lets go.
             # No UI event/state injection: drive the button and the native API.
@@ -401,7 +458,7 @@ def test_device_app_e2e_browser():
             page.evaluate('() => { navigator.mediaDevices.getUserMedia = window.originalGetUserMedia; }')
             action.click()
             wait_for_phase('idle')
-            print('PASS: Early microphone release reports no audio, closes the late stream, and permits recovery.')
+            print('PASS: 19. Early microphone release reports no audio, closes the late stream, and permits recovery.')
 
             # Turn 1: Hold speech synthesis to test thinking phase does not auto-advance
             speech.hold_start.clear()
@@ -415,12 +472,12 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(1800)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "thinking", "Must remain in thinking phase while waiting for audio"
-            print("PASS: 15. Verified real API turn stays in 'thinking' without fake timer bypass.")
+            print("PASS: 20. Verified real API turn stays in 'thinking' without fake timer bypass.")
 
             # Release speech synthesis chunk -> audio delivered -> speaking
             speech.hold_start.set()
             wait_for_phase("speaking", 5.0)
-            print("PASS: 16. Real audio synthesized and played, transition to 'speaking'.")
+            print("PASS: 21. Real audio synthesized and played, transition to 'speaking'.")
 
             # Test Stop failure: intercept /stop with 500 error
             page.route("**/stop", lambda route: route.fulfill(status=500, body='{"detail": "模拟停服异常"}'))
@@ -437,7 +494,7 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(600)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "stopping", "Must NOT revert to idle when stop fails"
-            print("PASS: 17. Stop failure correctly keeps UI in 'stopping', enables retry button ('再按停止'), no 350ms revert.")
+            print("PASS: 22. Stop failure correctly keeps UI in 'stopping', enables retry button ('再按停止'), no 350ms revert.")
 
             # Retry stop: unroute /stop while speech.hold_finish is still cleared (backend task is held)
             page.unroute("**/stop")
@@ -454,12 +511,12 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(400)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "stopping", f"Repeated stop clicks during drain must remain in stopping, got {ui_state['phase']}"
-            print("PASS: 18. Successful stop enters drain wait; action button is disabled ('等待收尾完成') and remains in 'stopping'.")
+            print("PASS: 23. Successful stop enters drain wait; action button is disabled ('等待收尾完成') and remains in 'stopping'.")
 
             # Release backend synthesis completion -> task finishes -> device_released becomes True
             speech.hold_finish.set()
             wait_for_phase("idle", 6.0)
-            print("PASS: 19. Device release confirmed by backend, transitions from 'stopping' to 'idle'.")
+            print("PASS: 24. Device release confirmed by backend, transitions from 'stopping' to 'idle'.")
 
             # Turn 2: Natural completion (thinking -> speaking -> completed -> idle)
             speech.hold_start.set()
@@ -467,7 +524,7 @@ def test_device_app_e2e_browser():
             page.evaluate("window.__conestDeviceUI.submitTextTurn('第二句话')")
             wait_for_phase("speaking", 5.0)
             wait_for_phase("idle", 8.0)
-            print("PASS: 20. Second turn completes naturally through real audio playback to 'idle'.")
+            print("PASS: 25. Second turn completes naturally through real audio playback to 'idle'.")
 
             # Turn 3: Abandoned / lease-expired turn display and recovery
             speech.hold_start.clear()
@@ -503,7 +560,19 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(150)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "idle"
-            print("PASS: 21. Abandoned / lease-expired turn shows abandonment notice and recovers to 'idle'.")
+            print("PASS: 26. Abandoned / lease-expired turn shows abandonment notice and recovers to 'idle'.")
+
+            # 27. Live round-screen route triggers and plays idle variant
+            page.evaluate("window.__conestDeviceUI.triggerIdleVariant('shy')")
+            ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+            assert ui_state["idleVariant"] == "shy"
+            page.wait_for_function("""() => {
+                const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+                return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/gpt/shy.mp4');
+            }""")
+            page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+            assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") is None
+            print("PASS: 27. Live round-screen route successfully triggers and plays idle variant clip.")
 
             browser.close()
     finally:
@@ -518,7 +587,7 @@ def main():
     test_no_fake_timer_in_sources()
     test_browser_voice_state_transitions()
     test_device_app_e2e_browser()
-    print("\nALL 21 TESTS PASSED SUCCESSFULLY!")
+    print("\nALL 27 TESTS PASSED SUCCESSFULLY!")
 
 
 if __name__ == "__main__":

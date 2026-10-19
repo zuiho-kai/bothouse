@@ -1,6 +1,23 @@
 # 共栖当前交接
 
 
+## 2026-10-19：#53 G哥专用说话视频与 6 段待机小动作接入（分支 feat/53-round-screen-idle-variants，未合并）
+
+- **背景与目标**：落实 C酱在交接中的指示，为圆屏原型接入 G哥（`gpt`）的专用说话视频与待机插播小动作：
+  1. 接入 7 段素材至 `prototypes/device-ui/assets/characters/gpt/`：
+     - `speaking.mp4`（720×720，4.04s，专用连续张闭嘴说话循环视频，彻底消除此前说话视频缺失警告）；
+     - 6 段待机小动作：`curious.mp4`（采用重做的 v4 版，排除 -old）、`doze.mp4`、`happy.mp4`、`pout.mp4`、`shy.mp4`、`yawn.mp4`。
+  2. 待机小动作调度逻辑：
+     - 仅在 `idle` 状态且动画开启时按 20–45 秒随机插播一段；
+     - 同一动作不连续播放两次（随机池剔除上一段动作）；
+     - 状态一变（例如按住说话 `listening`、`thinking`、`speaking` 等）立即打断并重置；
+     - 单段动作播完（或接近末尾 0.05s）自动回归普通 `idle`，绝不循环播放；
+     - 修复视频图层交叉淡入切换时的竞态条件（消除旧图层 timeupdate 在新 clip 生效前误判导致提前触发动作结束的缺陷）。
+  3. 开发栏控制台：增加 `cn-idle-variant` 试看下拉框（含自动/各动作即时预览）。
+  4. 清单与构建：更新 `manifest.json` 追加 7 段视频 sha256 与规格条目；运行 `build.py` 同步 `index.html`、`screen.js` 与 `screen.css`，`build.py --check` 一致性通过。
+  5. 自动化测试与高保真证据：`prototypes/device-ui/test_device_ui_events.py` 扩展至全量 27 项通过（涵盖专用 speaking 校验、6 段小动作列表、happy 触发、listening 立即打断、连续两次随机不重复、真实后端 /device/desk-gge/screen 路由端到端触发校验）；生成包含小动作状态的真实浏览器截图 `test-artifacts/09_state_idle_variant_happy.png`。
+- **边界与安全**：未启动子 Agent，未修改或重启运行中的 8796 服务。基于 `origin/main`（`565d5013`）开新分支，单独提 PR。
+
 ## 2026-10-19：8796 只读冒烟工具与真人验收指南（未合并）
 
 - 交付只读冒烟脚本 `companion/tools/smoke_device.py`：
