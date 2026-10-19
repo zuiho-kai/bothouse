@@ -6,8 +6,8 @@
 namespace cn_dial::layout {
 
 inline constexpr int kCanvas = 466;
-// min_short_side: tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23）：160 及以下名牌胶囊越出安全圆；DialMetrics::Supported() 为假时不画表盘
-inline constexpr int kMinShortSide = 161;
+// min_short_side: tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23；名牌、状态胶囊取 conest 0006 数值，名牌含「· 工作中」）：198 及以下名牌加工作状态后越出避让圆或压到下方胶囊/气泡；DialMetrics::Supported() 为假时不画表盘
+inline constexpr int kMinShortSide = 199;
 
 // battery_arc.diameter: DECOR:14 半径 228px；P0010:170 lv_obj_set_size(456, 456)
 inline constexpr Px kBatteryArcDiameter{456.0f, 1};
@@ -35,52 +35,38 @@ inline constexpr Px kSpeechBubbleTextHeight{40.0f, 1};
 inline constexpr Px kSpeechBubbleTextPad{18.0f, 1};
 // name_tag.top: DECOR:24 仍在 y=28；P0006:90 TOP_MID, 0, 28
 inline constexpr Px kNameTagTop{28.0f, 1};
-// name_tag.dot: P0006:93 lv_obj_set_size(name_dot_, 10, 10)
-inline constexpr Px kNameTagDot{10.0f, 1};
-// pill.pad_hor: P0006:77
-inline constexpr Px kPillPadHor{16.0f, 1};
-// pill.pad_ver: P0006:78
-inline constexpr Px kPillPadVer{6.0f, 1};
-// pill.gap: P0006:79
-inline constexpr Px kPillGap{8.0f, 1};
+// name_tag.dot: P0006:93 lv_obj_set_size(name_dot_, 10, 10)；min_px 7 = RH:63 kNameDot（240 屏现值，设计 5.3 的下限规则）
+inline constexpr Px kNameTagDot{10.0f, 7};
+// name_tag.glow_extra: RH:240 kNameDot + 6（web box-shadow 6px），RH:627 偏移取一半；角色小家加的连线光晕
+inline constexpr Px kNameTagGlowExtra{0.0f, 6};  // fixed
+// pill.pad_hor: P0006:77；min_px 12 = RH:62 kPillPadHor（240 屏现值，设计 5.3 的下限规则）
+inline constexpr Px kPillPadHor{16.0f, 12};
+// pill.pad_ver: P0006:78；min_px 4 = RH:62 kPillPadVer
+inline constexpr Px kPillPadVer{6.0f, 4};
+// pill.gap: P0006:79；min_px 6 = RH:62 kPillGap
+inline constexpr Px kPillGap{8.0f, 6};
 // status_chip.bottom: P0006:102 BOTTOM_MID, 0, -30
 inline constexpr Px kStatusChipBottom{30.0f, 1};
-// work_status.gap: DECOR:47 紧跟名字，间距 8px
+// status_chip.bar.width: RH:64 kBarW = 3（web 3）；角色小家加的胶囊内容（说话音柱）
+inline constexpr Px kStatusChipBarWidth{3.0f, 3};
+// status_chip.bar.height: RH:64 kBarH = 15（web 16）
+inline constexpr Px kStatusChipBarHeight{16.0f, 15};
+// status_chip.bar.gap: RH:64 kBarGap = 3（web 3）
+inline constexpr Px kStatusChipBarGap{3.0f, 3};
+// status_chip.bar.radius: RH:466 d.radius = 2
+inline constexpr Px kStatusChipBarRadius{0.0f, 2};  // fixed
+// status_chip.dot.size: RH:65 kDotSize = 5（web 5）；角色小家加的胶囊内容（思考跳点）
+inline constexpr Px kStatusChipDotSize{5.0f, 5};
+// status_chip.dot.gap: RH:65 kDotGap = 4（web 4）
+inline constexpr Px kStatusChipDotGap{4.0f, 4};
+// status_chip.dot.jump: RH:65 kDotJump = 5（web 5）
+inline constexpr Px kStatusChipDotJump{5.0f, 5};
+// status_chip.stop.size: RH:66 kStopSize = 9（web 10）；角色小家加的胶囊内容（被打断停止方块）
+inline constexpr Px kStatusChipStopSize{10.0f, 9};
+// status_chip.stop.radius: RH:258 Box(..., 2)
+inline constexpr Px kStatusChipStopRadius{0.0f, 2};  // fixed
+// work_status.gap: DECOR:47 紧跟名字，间距 8px（名牌里是 pill.gap 的同一个列间距）
 inline constexpr Px kWorkStatusGap{8.0f, 1};
-// rh_dial.name_tag.top: RH:236 lroundf(H * 0.07f)
-inline constexpr Frac kRhDialNameTagTop{0.07f};
-// rh_dial.status_chip.bottom: RH:249 lroundf(H * 0.13f)
-inline constexpr Frac kRhDialStatusChipBottom{0.13f};
-// rh_dial.pill.pad_ver: RH:62 kPillPadVer = 4（web 5）
-inline constexpr Px kRhDialPillPadVer{5.0f, 4};
-// rh_dial.pill.pad_hor: RH:62 kPillPadHor = 12（web 18）
-inline constexpr Px kRhDialPillPadHor{18.0f, 12};
-// rh_dial.pill.gap: RH:62 kPillGap = 6（web 8）
-inline constexpr Px kRhDialPillGap{8.0f, 6};
-// rh_dial.pill.border: RH:126 border_width 1
-inline constexpr Px kRhDialPillBorder{0.0f, 1};  // fixed
-// rh_dial.name_dot: RH:63 kNameDot = 7（web 9）
-inline constexpr Px kRhDialNameDot{9.0f, 7};
-// rh_dial.name_glow.extra: RH:240 kNameDot + 6（web box-shadow 6px），RH:627 偏移取一半
-inline constexpr Px kRhDialNameGlowExtra{0.0f, 6};  // fixed
-// rh_dial.bar.width: RH:64 kBarW = 3（web 3）
-inline constexpr Px kRhDialBarWidth{3.0f, 3};
-// rh_dial.bar.height: RH:64 kBarH = 15（web 16）
-inline constexpr Px kRhDialBarHeight{16.0f, 15};
-// rh_dial.bar.gap: RH:64 kBarGap = 3（web 3）
-inline constexpr Px kRhDialBarGap{3.0f, 3};
-// rh_dial.bar.radius: RH:466 d.radius = 2
-inline constexpr Px kRhDialBarRadius{0.0f, 2};  // fixed
-// rh_dial.dot.size: RH:65 kDotSize = 5（web 5）
-inline constexpr Px kRhDialDotSize{5.0f, 5};
-// rh_dial.dot.gap: RH:65 kDotGap = 4（web 4）
-inline constexpr Px kRhDialDotGap{4.0f, 4};
-// rh_dial.dot.jump: RH:65 kDotJump = 5（web 5）
-inline constexpr Px kRhDialDotJump{5.0f, 5};
-// rh_dial.stop.size: RH:66 kStopSize = 9（web 10）
-inline constexpr Px kRhDialStopSize{10.0f, 9};
-// rh_dial.stop.radius: RH:258 Box(..., 2)
-inline constexpr Px kRhDialStopRadius{0.0f, 2};  // fixed
 // rh_dial.ring.width: RH:405、RH:541 max(2, round(6 * W/466))（web .ring 6px）
 inline constexpr Px kRhDialRingWidth{6.0f, 2};
 // rh_dial.halo.min: RH:72 kHaloMin = 3（240 板上目测）
@@ -96,5 +82,7 @@ inline constexpr Px kRhDialGlowMax{0.0f, 8};  // fixed
 inline constexpr Font kSpeechBubbleText{14, 2};
 // work_status.text: DECOR:48 14px
 inline constexpr Font kWorkStatusText{14, 1};
+// pill.text: P0006 SetTheme：名牌与状态胶囊用主题字体（DECOR:33 主题的 14px）
+inline constexpr Font kPillText{14, 1};
 
 }  // namespace cn_dial::layout

@@ -1,0 +1,5 @@
+# LVGL 9 (lv_anim_set_reverse_duration, LV_LABEL_LONG_MODE_DOTS). cn_dial (the sibling component)
+# is not listed: the firmware adds both from firmware/dial/components (git dependency or
+# EXTRA_COMPONENT_DIRS).
+dependencies:
+  lvgl/lvgl: ">=9.3,<10"

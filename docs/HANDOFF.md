@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #133 / PR #134 表盘第二步：新 ESP-IDF 组件 `firmware/dial/components/cn_dial_lvgl`（`cn_dial::DialOverlay`，只依赖 LVGL 与 cn_dial），一个类画名牌（含 DECOR.md 3 工作状态）、状态胶囊、电量弧、字幕气泡；外观与数值取 #110 的补丁 0006/0010 与 DECOR.md，角色小家的音柱/跳点/停止方块/「被打断」作为胶囊内容。尺寸全走 `DialMetrics`，纯计算在 cn_dial `overlay_layout.{h,cc}`；JSON 删掉与 conest 重复的 `rh_dial` 名牌/胶囊数值（0006 设计值，240 屏现值作 `min_px` 下限），`min_short_side` 161→199（检查含「· 工作中」）；`battery` 不是 `gauge` 的屏不建电量弧。角色小家固件（xiaozhi-esp32 分支 rh-dial-step2）的 `RhDialDisplay` 只做接线。未做：全屏头像动画 CNAS（第三步：0005 写死 466、1.28 带宽待实测、240 素材在草稿 #123）。#110 合并后按它的版本对齐 DialOverlay。只改 firmware/dial/ 与本条；未刷板、未部署。
+
 2026-10-20：Issue #127 按代码审查修 cn_dial：`font_px()` 不再低于 `font_min_px`（板上无合格档时取 font_min_px，`pick_font().on_board=false` 供固件打日志）；`ScreenProfile::Valid()`；dial-layout.v1.json 新增 `min_short_side`=161（16px 字时 160 及以下名牌越出安全圆），`DialMetrics::Supported()` 为假时不画表盘；单测补 fonts_px={12}/font_min_px=16、Valid、W=16..1024 胶囊在安全圆内且不重叠、环像素深度 d16 在 W≥1204 超出 uint8（固件改 uint16）。只改 firmware/dial/ 与本条。
 
 2026-10-20：Issue #124 表盘屏幕参数与尺寸换算抽成共用组件 `firmware/dial/components/cn_dial`（`ScreenProfile` + `DialMetrics`，纯 C++，不依赖 LVGL/ESP-IDF）。数值只在 `firmware/dial/layout/dial-layout.v1.json`（466 画布单位；conest 数值取自 #110 的 DECOR.md 与补丁 0006/0010，角色小家 240 屏现值作下限），`tools/gen_layout.py` 生成头文件，CI 新 job `dial-metrics` 检查一致并跑主机单测（466/240/360 圆屏、320×240 与 240×320 假屏）。角色小家固件用 `EXTRA_COMPONENT_DIRS` 引用本目录，表盘尺寸只经 `DialMetrics` 取，hello 多报 `display`（主机只记日志）。只改 firmware/dial/、CI 与本条；未刷板、未部署。下一步：角色小家把已移植的 conest 电量弧/气泡/工作状态放进本目录，不等 #110 合并。

@@ -2,6 +2,7 @@
 // process exits non-zero if any failed.
 #include "cn_dial/dial_layout_v1.h"
 #include "cn_dial/dial_metrics.h"
+#include "cn_dial/overlay_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -45,50 +46,49 @@ static int LineH(int font_px) {
     return 0;
 }
 
-// The speech bubble as conest_decor.cc (role-household fw branch rh-conest-decor) builds it:
-// text box = max(design 40, lines * line height), bubble = max(design 58, text box + 18).
+// The speech bubble as cn_dial_lvgl DialOverlay builds it (cn_dial::Bubble): text box =
+// max(design 40, lines * line height), bubble = max(design 58, text box + 18).
 struct Box { int x, y, w, h, r; };
 static Box Bubble(const DialMetrics& m) {
-    const int f = m.font_px(L::kSpeechBubbleText);
-    const int text_h = m.text_box_h(L::kSpeechBubbleTextHeight, L::kSpeechBubbleText, LineH(f));
-    const int w = m.px(L::kSpeechBubbleWidth);
-    const int h = std::max(m.px(L::kSpeechBubbleHeight), text_h + m.px(L::kSpeechBubbleTextPad));
-    return {m.mid_x(w), m.bottom_mid_y(m.px(L::kSpeechBubbleBottom), h), w, h, m.px(L::kSpeechBubbleRadius)};
+    const OverlaySizes z = MakeOverlaySizes(m);
+    const BubbleBox b = cn_dial::Bubble(m, z, LineH(m.font_px(L::kSpeechBubbleText)));
+    return {b.x, b.y, b.w, b.h, b.r};
 }
 
-// The role-household dial's two pills as rh_dial_display.cc (fw branch rh-dial-metrics, SetupUI)
-// builds them: flex row of border + pad_hor + contents + pad_hor + border, height border + pad_ver +
-// tallest child + pad_ver + border, fully rounded (r = h/2). Name pill: dot + gap + name; status
-// pill (widest state, speaking): 5 bars + gap + text. Text is modelled as 4 CJK glyphs of the pill
-// font ("等待主机" / "正在回答", the longest fixed strings; dial.html STATUS_TEXT), each as wide as
-// the font size. The pill font is the board font picked for the web's 17 px (RH:62 comment).
-static constexpr int kPillGlyphs = 4;
-static constexpr int kPillFontDesign = 17;
-static Box NamePill(const DialMetrics& m) {
-    const int f = m.font_px(kPillFontDesign);
-    const int b = m.px(L::kRhDialPillBorder), pv = m.px(L::kRhDialPillPadVer), ph = m.px(L::kRhDialPillPadHor);
-    const int dot = m.px(L::kRhDialNameDot);
-    const int w = 2 * b + 2 * ph + dot + m.px(L::kRhDialPillGap) + kPillGlyphs * f;
-    const int h = 2 * b + 2 * pv + std::max(LineH(f), dot);
-    return {m.mid_x(w), m.top_mid_y(m.px(L::kRhDialNameTagTop)), w, h, h / 2};
+// The name tag and status chip as DialOverlay builds them (conest patch 0006 Pill(): content-sized
+// flex row, no border, pad_hor + contents + pad_hor wide, pad_ver + tallest child + pad_ver high,
+// fully rounded r = h/2). Name tag: dot + gap + name (+ gap + work status); status chip (widest
+// state): 5 bars + gap + text. Text is modelled as CJK glyphs as wide as the pill font
+// (pill.text, the theme font): the name as 4 ("等待主机", the longest fixed string), the work
+// status 「· 工作中」 as 5, the chip text as 3 (「我在听」「想一想」「被打断」, patch 0006 Update()).
+static constexpr int kNameGlyphs = 4, kWorkGlyphs = 5, kChipGlyphs = 3;
+static Box NamePill(const DialMetrics& m, bool work) {
+    const OverlaySizes z = MakeOverlaySizes(m);
+    const int f = m.font_px(L::kPillText);
+    int w = 2 * z.pad_hor + z.name_dot + z.gap + kNameGlyphs * f;
+    if (work) w += z.gap + kWorkGlyphs * f;
+    const int h = 2 * z.pad_ver + std::max(LineH(f), z.name_dot);
+    return {m.mid_x(w), NameTagY(m, z, w, h), w, h, h / 2};
 }
 static Box StatusPill(const DialMetrics& m) {
-    const int f = m.font_px(kPillFontDesign);
-    const int b = m.px(L::kRhDialPillBorder), pv = m.px(L::kRhDialPillPadVer), ph = m.px(L::kRhDialPillPadHor);
-    const int bars = 5 * m.px(L::kRhDialBarWidth) + 4 * m.px(L::kRhDialBarGap);  // kBars = 5
-    const int w = 2 * b + 2 * ph + bars + m.px(L::kRhDialPillGap) + kPillGlyphs * f;
-    const int tallest = std::max({LineH(f), m.px(L::kRhDialBarHeight),
-                                  m.px(L::kRhDialDotSize) + m.px(L::kRhDialDotJump), m.px(L::kRhDialStopSize)});
-    const int h = 2 * b + 2 * pv + tallest;
-    return {m.mid_x(w), m.bottom_mid_y(m.px(L::kRhDialStatusChipBottom), h), w, h, h / 2};
+    const OverlaySizes z = MakeOverlaySizes(m);
+    const int f = m.font_px(L::kPillText);
+    const int w = 2 * z.pad_hor + z.bars_w() + z.gap + kChipGlyphs * f;
+    const int h = 2 * z.pad_ver + std::max({LineH(f), z.bar_h, z.dots_h(), z.stop});
+    return {m.mid_x(w), ChipY(m, z, h), w, h, h / 2};
 }
 static bool Inside(const DialMetrics& m, const Box& b) { return m.InSafeArea(b.x, b.y, b.w, b.h, b.r); }
 static bool Apart(const Box& top, const Box& bottom) { return top.y + top.h <= bottom.y; }
-// Everything drawn on the dial fits: pills and bubble in the safe circle, the name pill above
-// the status pill and above the speech bubble (conest_decor.cc overlays it on this dial).
+// Everything drawn on the dial fits: pills and bubble in the safe circle, the name tag (with and
+// without the work status) above the status chip and above the speech bubble.
 static bool LayoutFits(const DialMetrics& m) {
-    const Box n = NamePill(m), s = StatusPill(m), bub = Bubble(m);
-    return Inside(m, n) && Inside(m, s) && Inside(m, bub) && Apart(n, s) && Apart(n, bub);
+    const Box s = StatusPill(m), bub = Bubble(m);
+    if (!Inside(m, s) || !Inside(m, bub)) return false;
+    for (bool work : {false, true}) {
+        const Box n = NamePill(m, work);
+        if (!Inside(m, n) || !Apart(n, s) || !Apart(n, bub)) return false;
+    }
+    return true;
 }
 
 // Things every screen must satisfy.
@@ -137,6 +137,26 @@ static void Test466() {
     CHECK_EQ(m.px(L::kWorkStatusGap), 8);          // DECOR.md:47
     CHECK_EQ(m.font_px(L::kSpeechBubbleText), 14); // DECOR.md:33
     CHECK_EQ(m.font_px(L::kWorkStatusText), 14);   // DECOR.md:48
+    CHECK_EQ(m.font_px(L::kPillText), 14);         // patch 0006 SetTheme: theme font (14 px, DECOR.md:33)
+    // The overlay as drawn: every patch 0006 / DECOR.md number unchanged.
+    const OverlaySizes z = MakeOverlaySizes(m);
+    CHECK_EQ(z.name_top, 28);                      // patch 0006:90
+    CHECK_EQ(z.name_dot, 10);                      // patch 0006:93
+    CHECK_EQ(z.pad_hor, 16);                       // patch 0006:77-79
+    CHECK_EQ(z.pad_ver, 6);
+    CHECK_EQ(z.gap, 8);
+    CHECK_EQ(z.chip_bottom, 30);                   // patch 0006:102
+    CHECK_EQ(z.arc_d, 456);                        // DECOR.md:14-17
+    CHECK_EQ(z.arc_w, 5);
+    CHECK_EQ(z.arc_backing_w, 8);
+    CHECK_EQ(z.bubble_w, 300);                     // DECOR.md:31-33
+    CHECK_EQ(z.bubble_bottom, 52);
+    CHECK_EQ(z.bubble_r, 20);
+    CHECK_EQ(z.text_w, 272);
+    // A short name pill ("C酱", patch 0006 default) stays at y=28 (DECOR.md:24 仍在 y=28).
+    CHECK_EQ(NameTagY(m, z, 2 * 16 + 10 + 8 + 2 * 14, 6 * 2 + 16), 28);
+    // DECOR.md 1: arc ends at x~126/340, y~32; the name pill (x 185-281) stays clear of them.
+    CHECK(NamePill(m, false).x >= 126 && NamePill(m, false).x + NamePill(m, false).w <= 340);
     Box b = Bubble(m);                             // two 14 px lines fit the designed 272x40 box
     CHECK_EQ(b.w, 300);
     CHECK_EQ(b.h, 58);
@@ -153,23 +173,35 @@ static void Test240() {
     CHECK_EQ(m.canvas_x(), 0);
     CHECK_EQ(m.canvas_y(), 0);
     CHECK(m.center_x() == 240 / 2.0f && m.safe_radius() == 240 / 2.0f);
-    CHECK_EQ(m.px(L::kRhDialNameTagTop), 17);      // :236 lroundf(240 * 0.07f)
-    CHECK_EQ(m.px(L::kRhDialStatusChipBottom), 31); // :249 lroundf(240 * 0.13f)
-    CHECK_EQ(m.px(L::kRhDialPillPadVer), 4);       // :62
-    CHECK_EQ(m.px(L::kRhDialPillPadHor), 12);
-    CHECK_EQ(m.px(L::kRhDialPillGap), 6);
-    CHECK_EQ(m.px(L::kRhDialPillBorder), 1);       // :126
-    CHECK_EQ(m.px(L::kRhDialNameDot), 7);          // :63
-    CHECK_EQ(m.px(L::kRhDialNameGlowExtra), 6);    // :240
-    CHECK_EQ(m.px(L::kRhDialBarWidth), 3);         // :64
-    CHECK_EQ(m.px(L::kRhDialBarHeight), 15);
-    CHECK_EQ(m.px(L::kRhDialBarGap), 3);
-    CHECK_EQ(m.px(L::kRhDialBarRadius), 2);        // :466
-    CHECK_EQ(m.px(L::kRhDialDotSize), 5);          // :65
-    CHECK_EQ(m.px(L::kRhDialDotGap), 4);
-    CHECK_EQ(m.px(L::kRhDialDotJump), 5);
-    CHECK_EQ(m.px(L::kRhDialStopSize), 9);         // :66
-    CHECK_EQ(m.px(L::kRhDialStopRadius), 2);       // :258
+    // Name tag and status chip are conest's now (patch 0006 design values, scaled; the 240 board's
+    // old values stay as min_px floors, design doc 5.3). What changed on this screen vs rh-dial-metrics:
+    const OverlaySizes z = MakeOverlaySizes(m);
+    CHECK_EQ(z.name_top, 14);       // was 17 = lroundf(240 * 0.07f) (rh_dial.name_tag.top)
+    CHECK_EQ(z.chip_bottom, 15);    // was 31 = lroundf(240 * 0.13f) (rh_dial.status_chip.bottom)
+    CHECK_EQ(z.pad_ver, 4);         // unchanged (6 * k = 3 -> floor 4)
+    CHECK_EQ(z.pad_hor, 12);        // unchanged (16 * k = 8 -> floor 12)
+    CHECK_EQ(z.gap, 6);             // unchanged (8 * k = 4 -> floor 6)
+    CHECK_EQ(z.name_dot, 7);        // unchanged (10 * k = 5 -> floor 7)
+    CHECK_EQ(z.name_glow_extra, 6); // unchanged
+    // pill border: was 1 px white 14% (rh_dial.pill.border), now none (patch 0006 Pill())
+    CHECK_EQ(z.bar_w, 3);           // bars / dots / stop unchanged (now status_chip.* items)
+    CHECK_EQ(z.bar_h, 15);
+    CHECK_EQ(z.bar_gap, 3);
+    CHECK_EQ(z.bar_r, 2);
+    CHECK_EQ(z.dot, 5);
+    CHECK_EQ(z.dot_gap, 4);
+    CHECK_EQ(z.dot_jump, 5);
+    CHECK_EQ(z.stop, 9);
+    CHECK_EQ(z.stop_r, 2);
+    CHECK_EQ(m.font_px(L::kPillText), 16);  // unchanged: the board's only font
+    // New on this screen: speech bubble 155 x 55 (two 16 px lines), 27 px above the bottom.
+    const Box bub = Bubble(m);
+    CHECK_EQ(bub.w, 155);
+    CHECK_EQ(bub.h, 55);
+    CHECK_EQ(240 - bub.y - bub.h, 27);
+    // The name pill with 「· 工作中」 is too wide for y=14 and moves down (DECOR.md 5).
+    CHECK_EQ(NamePill(m, false).y, 14);
+    CHECK(NamePill(m, true).y > 14);
     CHECK_EQ(m.px(L::kRhDialRingWidth), 3);        // :405 / :541
     CHECK_EQ(m.px(L::kRhDialHaloMin), 3);          // :72
     CHECK_EQ(m.px(L::kRhDialHaloMax), 5);
@@ -192,8 +224,6 @@ static void TestOldFormulas() {
         const float k = W / 466.0f;
         CHECK_EQ(m.px(L::kRhDialRingWidth), (int)std::max(2.0f, roundf(6 * k)));        // :405
         CHECK_EQ(m.px(L::kRhDialRingWidth), std::max(2, (int)lroundf(6 * W / 466.0f))); // :541
-        CHECK_EQ(m.px(L::kRhDialNameTagTop), (int)lroundf(W * 0.07f));                  // :236
-        CHECK_EQ(m.px(L::kRhDialStatusChipBottom), (int)lroundf(W * 0.13f));            // :249
         // conest_decor.cc S(): max(1, lroundf(px466 * width / 466))
         CHECK_EQ(m.px(L::kBatteryArcDiameter), std::max(1, (int)lroundf(456 * (W / 466.0f))));
     }
