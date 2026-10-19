@@ -21,10 +21,10 @@
   `prototypes/device-ui/source.html` 的 `CHARACTER_CONFIG`，所以板端画面和网页
   圆屏同源，不会各写一份数字。
 - 输出 466×466 baseline JPEG（YUV420）帧序列，总大小默认上限 7 MiB。
-- **按落板方案截短**（`docs/BOARD_ASSETS_PLAN.md` §3）：`idle` 2.5s、`listening` 2s、
-  `speaking` 2s 循环、`thinking` 完整一圈 3.96s 且降到 10fps。起点仍取
-  `source.html`，所以画面和网页圆屏一致。当前实测合计 **5.77 MiB / 118 帧**，
-  起始档 Q80 就装得下，没有触发降级。
+- **按落板方案截短**（`docs/BOARD_ASSETS_PLAN.md` §3）：`idle` 取 2.5s 眨眼子段；
+  `listening`、`thinking`、`speaking` 是闭合循环，保持完整、降到 10fps。起点仍取
+  `source.html`，所以画面和网页圆屏一致。当前实测合计 **6.54 MiB / 150 帧**，
+  落在 Q75 档（预算 93.5%）。
 - 逐段大小一定会打印（含时长、fps、帧数）；超预算时按 `Q80 → Q75 → 11fps → 10fps`
   降级，最低档仍超预算就报错退出（退出码 2）并且不写文件。
 - 这一版**不带**待机小动作（`--extras` 默认 0），留到下一版。

@@ -65,13 +65,15 @@ STATE_CLIPS = (
 # 这里只覆盖「截多长」和「多少 fps」——把整段都塞进 Flash 装不下，
 # 而网页上的片段本来就比落板需要的长。
 #
-# duration=None 表示不截断，用 source.html 的完整片段（thinking 要完整一圈：
-# 中性起步 → 歪头问号 → 复位中性，截短会破坏首尾闭合）。
+# duration=None 表示用 source.html 的 start/end；listening/speaking 的源片段没有 end，
+# 按整段 4.04s 取 4.0s（只丢最后一帧，它与首帧同为待机姿势）。listening/thinking/speaking
+# 都是首尾钉在待机图上的闭合循环，截短会停在半张嘴或问号中途、每圈跳一下；
+# 只有 idle 取原片里含一次眨眼的 2.5s 子段。
 BOARD_PLAN = {
     "idle": {"duration": 2.5, "fps": 12},
-    "listening": {"duration": 2.0, "fps": 12},
+    "listening": {"duration": 4.0, "fps": 10},
     "thinking": {"duration": None, "fps": 10},
-    "speaking": {"duration": 2.0, "fps": 12},
+    "speaking": {"duration": 4.0, "fps": 10},
 }
 
 

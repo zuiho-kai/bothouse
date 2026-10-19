@@ -181,14 +181,14 @@ class WebParityTests(unittest.TestCase):
         self.assertEqual(len(segs), 4)
 
     def test_board_plan_durations_and_framerates(self):
-        """C酱 定的落板口径：idle 2.5s / listening 2s / speaking 2s，
-        thinking 完整一圈且降到 10fps。整段塞进去装不下。
+        """C酱 定的落板口径：idle 取 2.5s 眨眼子段；listening/thinking/speaking
+        都是闭合循环，保持完整、只降到 10fps。截短会停在半途、每圈跳一下。
         """
         segs = pa.select_segments(self.clips, self.chars, "question", extras=0, seed=0)
         got = {seg.name: (seg.take, seg.target_fps) for seg in segs}
         self.assertEqual(got["idle"], (2.5, 12))
-        self.assertEqual(got["listening"], (2.0, 12))
-        self.assertEqual(got["speaking"], (2.0, 12))
+        self.assertEqual(got["listening"], (4.0, 10))
+        self.assertEqual(got["speaking"], (4.0, 10))
         # thinking 不截断：3.96s 是网页标的完整一圈，截短会破坏首尾闭合。
         self.assertAlmostEqual(got["thinking"][0], 3.96, places=3)
         self.assertEqual(got["thinking"][1], 10)
@@ -383,10 +383,10 @@ class EndToEndTests(unittest.TestCase):
             segments = pa.unpack(blob)
             self.assertEqual([s.name for s in segments],
                              ["idle", "listening", "thinking", "speaking"])
-            # 帧数要跟落板口径对上：2.5s@12fps=30、2.0s@12fps=24、
-            # 3.96s@10fps=40、2.0s@12fps=24。
-            self.assertEqual([len(seg.frames) for seg in segments], [30, 24, 40, 24])
-            self.assertEqual([seg.fps for seg in segments], [12, 12, 10, 12])
+            # 帧数要跟落板口径对上：2.5s@12fps=30、4.0s@10fps=40、
+            # 3.96s@10fps=40、4.0s@10fps=40。
+            self.assertEqual([len(seg.frames) for seg in segments], [30, 40, 40, 40])
+            self.assertEqual([seg.fps for seg in segments], [12, 10, 10, 10])
             for seg in segments:
                 self.assertGreater(len(seg.frames), 0)
                 for frame in seg.frames:
