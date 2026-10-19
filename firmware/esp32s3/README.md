@@ -21,12 +21,15 @@
   `prototypes/device-ui/source.html` 的 `CHARACTER_CONFIG`，所以板端画面和网页
   圆屏同源，不会各写一份数字。
 - 输出 466×466 baseline JPEG（YUV420）帧序列，总大小默认上限 7 MiB。
-- **按落板方案截短**（`docs/BOARD_ASSETS_PLAN.md` §3）：`idle` 取 2.5s 眨眼子段；
-  `listening`、`thinking`、`speaking` 是闭合循环，保持完整、降到 10fps。起点仍取
-  `source.html`，所以画面和网页圆屏一致。当前实测合计 **6.54 MiB / 150 帧**，
-  落在 Q75 档（预算 93.5%）。
-- 逐段大小一定会打印（含时长、fps、帧数）；超预算时按 `Q80 → Q75 → 11fps → 10fps`
-  降级，最低档仍超预算就报错退出（退出码 2）并且不写文件。
+- **只缩 `idle`，另外三段保持完整**：`listening` / `thinking` / `speaking` 都是
+  首尾闭合的整圈循环，截一半会在接缝处跳帧。`idle` 取 **6.90–9.65s（2.75s）**，
+  是在原片 4.65–9.90s 里搜出的首尾帧最接区间（平均差 9.30 级）。
+- 这个覆盖**只对板端生效，不改 `source.html`**；起点和 `scale`/`tx`/`ty` 仍取自
+  `source.html`，画面与网页圆屏一致。
+- 当前实测合计 **6.58 MiB / 150 帧**，占 7 MiB 预算 94.0%，余量 432 KiB。
+  起始档 `Q80/12fps` 是 8.82 MiB 装不下，按阶梯降到最低档 `Q75/10fps` 才通过。
+- 逐段大小一定会打印（含区间、时长、fps、帧数）；最低档仍超预算就报错退出
+  （退出码 2）并且不写文件。
 - 这一版**不带**待机小动作（`--extras` 默认 0），留到下一版。
 
 常用参数：
@@ -36,7 +39,9 @@
 | `--character` | `gpt` | 角色目录名 |
 | `--thinking` | `question` | `question` 用带问号原片，`calm` 用无问号安静段 |
 | `--extras` | `0` | 额外打包几段待机小动作；这一版固件先不带，留到下一版 |
-| `--full-length` | 关 | 不截短、用 `source.html` 的完整片段（仅排查画质，会超预算） |
+| `--board-range` | 空 | `NAME=START,END`，只对板端生效的取帧区间，可重复；不改 `source.html` |
+| `--auto-idle-range` | 关 | 重新搜索 idle 的首尾最接区间（约 5 秒），用于复核默认值 |
+| `--full-length` | 关 | 全部用 `source.html` 的完整片段（仅排查画质，会超预算） |
 | `--seed` | `0` | 小动作抽样种子，固定以保证打包可复现 |
 | `--budget-mib` | `7` | 总大小预算 |
 | `--report` | 无 | 写出 JSON 报告（每段源文件、裁切框、帧数、字节数、整体 SHA256） |

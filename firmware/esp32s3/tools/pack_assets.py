@@ -35,7 +35,7 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 MAGIC = b"CNAS"
 VERSION = 1
@@ -59,22 +59,28 @@ STATE_CLIPS = (
     ("speaking", "speaking"),
 )
 
-# 板端每段的截取时长与帧率，出处 docs/BOARD_ASSETS_PLAN.md §3「各状态精简方案」。
+# 板端每段的取帧区间，只对板端生效，**不改 source.html**。
 #
 # 起点、scale/tx/ty 仍然来自 source.html（网页圆屏同源，不能各写一份）；
-# 这里只覆盖「截多长」和「多少 fps」——把整段都塞进 Flash 装不下，
-# 而网页上的片段本来就比落板需要的长。
+# 这里只覆盖「板端从哪一帧取到哪一帧」。
 #
-# duration=None 表示用 source.html 的 start/end；listening/speaking 的源片段没有 end，
-# 按整段 4.04s 取 4.0s（只丢最后一帧，它与首帧同为待机姿势）。listening/thinking/speaking
-# 都是首尾钉在待机图上的闭合循环，截短会停在半张嘴或问号中途、每圈跳一下；
-# 只有 idle 取原片里含一次眨眼的 2.5s 子段。
+# `full=True` 表示整段都要——listening / thinking / speaking 都是首尾闭合的
+# 整圈循环，截一半会在循环接缝处跳帧，所以一律不截。
+# `range=(start, end)` 是显式区间（绝对秒数），`--board-range` 可覆盖。
 BOARD_PLAN = {
-    "idle": {"duration": 2.5, "fps": 12},
-    "listening": {"duration": 4.0, "fps": 10},
-    "thinking": {"duration": None, "fps": 10},
-    "speaking": {"duration": 4.0, "fps": 10},
+    # 由 --auto-idle-range 在 idle 原片 4.65–9.90s 里搜出来的最优区间：
+    # 2.75s，首尾帧平均差 9.30 级（2.0~3.0s 候选里最小）。
+    # 复核：tools/pack_assets.py --auto-idle-range
+    "idle": {"range": (6.9, 9.65)},
+    "listening": {"full": True},
+    "thinking": {"full": True},
+    "speaking": {"full": True},
 }
+
+# idle 自动选段的搜索窗口：C酱 要求 2.0~3.0 秒之间首尾最接的一段。
+IDLE_SEARCH_MIN = 2.0
+IDLE_SEARCH_MAX = 3.0
+IDLE_SEARCH_STEP = 1.0 / 12.0   # 按 12fps 的帧格走，避免选出半个帧的区间
 
 
 class PackError(RuntimeError):
@@ -105,15 +111,19 @@ def find_ffmpeg(explicit_path: str = "") -> str:
     )
 
 
-def probe_video(ffmpeg: str, path: Path) -> tuple[int, int]:
-    """返回源视频的 (宽, 高)。用 ffmpeg 的 stderr 解析，避免依赖 ffprobe。"""
+def probe_video(ffmpeg: str, path: Path) -> tuple[int, int, float]:
+    """返回源视频的 (宽, 高, 时长秒)。解析 ffmpeg stderr，不依赖 ffprobe。"""
     proc = subprocess.run([ffmpeg, "-hide_banner", "-i", str(path)],
                           capture_output=True, text=True)
     # ffmpeg 没有输出文件时以非零退出，stderr 里仍有流信息。
     match = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", proc.stderr)
     if not match:
         raise PackError(f"无法读取视频尺寸：{path}")
-    return int(match.group(1)), int(match.group(2))
+    clock = re.search(r"Duration:\s*(\d+):(\d{2}):(\d{2}\.\d+)", proc.stderr)
+    if not clock:
+        raise PackError(f"无法读取视频时长：{path}")
+    hours, minutes, seconds = int(clock.group(1)), int(clock.group(2)), float(clock.group(3))
+    return int(match.group(1)), int(match.group(2)), hours * 3600 + minutes * 60 + seconds
 
 
 # --------------------------------------------------------------------------
@@ -309,25 +319,23 @@ class Segment:
     src_path: Path
     src_w: int
     src_h: int
-    target_fps: int = 12
-    duration: float | None = None
+    src_duration: float = 0.0
+    start: float = 0.0
+    end: float | None = None      # None = 一直取到文件末尾
     fps: int = 12
     pngs: list[Path] = field(default_factory=list)
     jpegs: list[bytes] = field(default_factory=list)
 
     @property
     def take(self) -> float:
-        """这一段实际截多长（秒）。None 的 duration 表示用完整片段。"""
-        if self.duration is not None:
-            return self.duration
-        if self.clip.end is not None:
-            return self.clip.end - self.clip.start
-        raise PackError(
-            f"片段 {self.name!r} 没有 end 也没有 duration，无法确定截多长。")
+        """这一段实际截多长（秒）。"""
+        if self.end is None:
+            return self.src_duration - self.start
+        return self.end - self.start
 
 
 class FrameCache:
-    """按 (源文件, 起止, fps) 缓存 PNG 帧，降级时不必重复抽同一档。"""
+    """按 (源文件, 区间, fps) 缓存 PNG 帧，降级时不必重复抽同一档。"""
 
     def __init__(self, ffmpeg: str, workdir: Path):
         self.ffmpeg = ffmpeg
@@ -339,16 +347,18 @@ class FrameCache:
         if take <= 0:
             raise PackError(
                 f"片段 {segment.name!r} 的截取时长必须为正（现在是 {take}s）。")
+        if segment.start < 0:
+            raise PackError(f"片段 {segment.name!r} 的起点不能为负。")
         # 截取不能越过片段本身：越了就是配置写错，别让 ffmpeg 悄悄少给帧。
-        available = None
-        if segment.clip.end is not None:
-            available = segment.clip.end - segment.clip.start
-        if available is not None and take > available + 1e-6:
-            raise PackError(
-                f"片段 {segment.name!r} 要截 {take}s，但 source.html 里只有 "
-                f"{available:.3f}s（start={segment.clip.start}, end={segment.clip.end}）。")
+        if segment.end is not None:
+            available = segment.clip.end - segment.clip.start if segment.clip.end else segment.src_duration
+            if segment.end > segment.clip.start + available + 1e-6:
+                raise PackError(
+                    f"片段 {segment.name!r} 要到 {segment.end:g}s，但 source.html 里"
+                    f"只有到 {segment.clip.start + available:.3f}s"
+                    f"（start={segment.clip.start}, end={segment.clip.end}）。")
 
-        key = (str(segment.src_path), segment.clip.start, take, fps,
+        key = (str(segment.src_path), segment.start, segment.end, fps,
                segment.src_w, segment.src_h)
         if key in self._cache:
             return self._cache[key]
@@ -357,7 +367,7 @@ class FrameCache:
         # 抽原始分辨率的整帧；裁切/缩放/底色由 render_frame 一次仿射做完，
         # 这样取景框位置不会被整数裁切取整，跟网页圆屏对得上。
         cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-               "-ss", f"{segment.clip.start:.3f}",
+               "-ss", f"{segment.start:.3f}",
                "-i", str(segment.src_path),
                "-t", f"{take:.3f}",
                "-an", "-sn", "-r", str(fps),
@@ -369,9 +379,61 @@ class FrameCache:
 
         pngs = sorted(out_dir.glob("f_*.png"))
         if not pngs:
-            raise PackError(f"片段 {segment.name!r} 没有抽出任何帧，检查 start/end。")
+            raise PackError(f"片段 {segment.name!r} 没有抽出任何帧，检查区间。")
         self._cache[key] = pngs
         return pngs
+
+
+def frame_delta(a: Image.Image, b: Image.Image) -> float:
+    """两帧的平均像素差（0~255 级）。用来量循环接缝有多大。"""
+    diff = ImageChops.difference(a.convert("RGB"), b.convert("RGB")).convert("L")
+    histogram = diff.histogram()
+    total = sum(histogram)
+    return sum(i * c for i, c in enumerate(histogram)) / total if total else 0.0
+
+
+def find_idle_range(ffmpeg: str, clip: Clip, src_path: Path, src_w: int, src_h: int,
+                    src_duration: float, workdir: Path, fps: int = 12,
+                    min_len: float = IDLE_SEARCH_MIN,
+                    max_len: float = IDLE_SEARCH_MAX) -> tuple[float, float, float]:
+    """在 idle 原片里找首尾帧最接近的一段。
+
+    候选区间长度在 ``min_len``~``max_len`` 之间，按 12fps 的帧格走；对每个
+    候选算首尾帧的平均像素差，取最小的。差值越小，循环回接时越不跳。
+
+    只在 idle 上做这件事：另外三段都是首尾闭合的整圈，本来就不该截。
+    """
+    span_start = clip.start
+    span_end = clip.end if clip.end is not None else src_duration
+    probe = Segment(name="idle-probe", clip=clip, src_path=src_path,
+                    src_w=src_w, src_h=src_h, src_duration=src_duration,
+                    start=span_start, end=span_end, fps=fps)
+    cache = FrameCache(ffmpeg, workdir)
+    pngs = cache.frames(probe, fps)
+    # 渲染成板端真正看到的 466×466 再比较，不然量的是原始视频而不是落板效果。
+    rendered = [render_frame(Image.open(p), clip) for p in pngs]
+
+    step = 1.0 / fps
+    best: tuple[float, float, float] | None = None
+    lengths = []
+    length = min_len
+    while length <= max_len + 1e-9:
+        lengths.append(round(length, 3))
+        length += step
+    for index in range(len(rendered)):
+        for length in lengths:
+            last = index + int(round(length * fps))
+            if last >= len(rendered):
+                continue
+            delta = frame_delta(rendered[index], rendered[last])
+            if best is None or delta < best[2]:
+                start_t = span_start + index * step
+                best = (start_t, start_t + length, delta)
+    if best is None:
+        raise PackError(
+            f"idle 里找不到 {min_len}~{max_len}s 的候选区间"
+            f"（可用帧数 {len(rendered)}）。")
+    return best
 
 
 def encode_jpegs(pngs: list[Path], clip: Clip, quality: int) -> list[bytes]:
@@ -548,15 +610,27 @@ def print_table(segments: list[Segment]) -> None:
 # 主流程
 # --------------------------------------------------------------------------
 
+def parse_board_range(text: str) -> tuple[str, float, float]:
+    """解析 ``name=start,end``。"""
+    match = re.fullmatch(r"\s*([A-Za-z_][\w]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*,"
+                         r"\s*(-?\d+(?:\.\d+)?)\s*", text)
+    if not match:
+        raise PackError(f"--board-range 格式应是 name=start,end，收到 {text!r}。")
+    name, start, end = match.group(1), float(match.group(2)), float(match.group(3))
+    if end <= start:
+        raise PackError(f"--board-range {name} 的 end 必须大于 start。")
+    return name, start, end
+
+
 def select_segments(clips: dict[str, Clip], character_dir: Path,
                     thinking: str, extras: int, seed: int,
                     plan: dict[str, dict] | None = None,
+                    overrides: dict[str, tuple[float, float]] | None = None,
                     full_length: bool = False) -> list[Segment]:
     """四个状态片段 + 最多 N 段待机小动作。
 
-    四个状态片段按 ``BOARD_PLAN`` 截取时长并各自定帧率；小动作按完整片段走
-    （它们是插播，本来就短）。``full_length=True`` 时不截断，用 source.html
-    的完整片段——只在排查画质时用。
+    四个状态片段按 ``BOARD_PLAN`` 决定取帧区间（整段或显式区间），
+    ``overrides`` 来自 ``--board-range``，优先级最高。小动作整段打包。
     """
     thinking_key = "thinking_question" if thinking == "question" else "thinking_calm"
     chosen: list[tuple[str, str]] = [
@@ -573,6 +647,7 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
         chosen += [(key, key) for key in pool[:extras]]
 
     plan = BOARD_PLAN if plan is None else plan
+    overrides = overrides or {}
     segments: list[Segment] = []
     for name, key in chosen:
         clip = clips.get(key)
@@ -581,11 +656,19 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
         src_path = character_dir / Path(clip.src).name
         if not src_path.is_file():
             raise PackError(f"素材文件不存在：{src_path}")
+
         spec = plan.get(name, {})
+        start = clip.start
+        end = clip.end
+        if full_length or spec.get("full"):
+            pass
+        elif name in overrides:
+            start, end = overrides[name]
+        elif spec.get("range"):
+            start, end = spec["range"]
         segments.append(Segment(
             name=name, clip=clip, src_path=src_path, src_w=0, src_h=0,
-            target_fps=spec.get("fps", 12),
-            duration=None if full_length else spec.get("duration")))
+            start=start, end=end))
     return segments
 
 
@@ -598,22 +681,47 @@ def build(args: argparse.Namespace) -> int:
 
     ffmpeg = find_ffmpeg(args.ffmpeg)
     clips = load_web_clips(source_html, args.character)
-    segments = select_segments(clips, character_dir, args.thinking, args.extras,
-                               args.seed, full_length=args.full_length)
-    for seg in segments:
-        seg.src_w, seg.src_h = probe_video(ffmpeg, seg.src_path)
+
+    overrides: dict[str, tuple[float, float]] = {}
+    for text in args.board_range:
+        name, start, end = parse_board_range(text)
+        overrides[name] = (start, end)
 
     budget = int(args.budget_mib * 1024 * 1024)
     print(f"ffmpeg      : {ffmpeg}")
     print(f"source.html : {source_html}")
     print(f"character   : {args.character}  ({character_dir})")
-    print(f"segments    : {', '.join(seg.name for seg in segments)}")
     print(f"budget      : {args.budget_mib:g} MiB = {budget:,} B")
     print()
-    for seg in segments:
-        print(f"  {seg.name:<10} 截 {seg.take:5.2f}s @ {seg.target_fps}fps"
-              f"  （源 {seg.clip.src} 从 {seg.clip.start:g}s 起）")
-    print()
+
+    with tempfile.TemporaryDirectory(prefix="cnas-") as tmp:
+        workdir = Path(tmp)
+
+        # idle 自动选段：找首尾最接的一段，把区间和差值打出来。
+        idle_clip = clips["idle"]
+        idle_path = character_dir / Path(idle_clip.src).name
+        if "idle" not in overrides and not args.full_length:
+            if args.auto_idle_range:
+                iw, ih, idur = probe_video(ffmpeg, idle_path)
+                start, end, delta = find_idle_range(
+                    ffmpeg, idle_clip, idle_path, iw, ih, idur, workdir)
+                overrides["idle"] = (start, end)
+                print(f"idle 自动选段：{start:.3f}s–{end:.3f}s"
+                      f"（{end - start:.2f}s，首尾帧平均差 {delta:.2f} 级）")
+                print()
+
+        segments = select_segments(clips, character_dir, args.thinking, args.extras,
+                                   args.seed, overrides=overrides,
+                                   full_length=args.full_length)
+        for seg in segments:
+            seg.src_w, seg.src_h, seg.src_duration = probe_video(ffmpeg, seg.src_path)
+
+        print(f"segments    : {', '.join(seg.name for seg in segments)}")
+        for seg in segments:
+            print(f"  {seg.name:<10} {seg.start:6.2f}s–{seg.end if seg.end is not None else seg.src_duration:6.2f}s"
+                  f"  截 {seg.take:5.2f}s"
+                  f"  （源 {seg.clip.src}）")
+        print()
 
     with tempfile.TemporaryDirectory(prefix="cnas-") as tmp:
         cache = FrameCache(ffmpeg, Path(tmp))
@@ -621,18 +729,15 @@ def build(args: argparse.Namespace) -> int:
                                  args.min_fps, args.min_quality)
         blob = b""
         final: tuple[int, int] | None = None
-        for fps_cap, quality in ladder:
+        for fps, quality in ladder:
             for seg in segments:
-                # 阶梯给的是上限：thinking 本来就只要 10fps，不必跟着抬到 12。
-                seg.fps = min(seg.target_fps, fps_cap)
+                seg.fps = fps
                 seg.pngs = cache.frames(seg, seg.fps)
                 seg.jpegs = encode_jpegs(seg.pngs, seg.clip, quality)
             blob = pack(segments)
-            detail = "/".join(str(seg.fps) for seg in segments)
-            print(f"try fps≤{fps_cap} quality={quality} (实际 {detail}) "
-                  f"→ {format_size(len(blob))}")
+            print(f"try fps={fps} quality={quality} → {format_size(len(blob))}")
             if len(blob) <= budget:
-                final = (fps_cap, quality)
+                final = (fps, quality)
                 break
 
         if final is None:
@@ -698,8 +803,9 @@ def build(args: argparse.Namespace) -> int:
                     "ty": seg.clip.ty,
                     "placement": asdict(placement(seg.clip, seg.src_w, seg.src_h)),
                     "bg": seg.clip.bg,
+                    "start": round(seg.start, 3),
+                    "end": None if seg.end is None else round(seg.end, 3),
                     "take_seconds": round(seg.take, 3),
-                    "target_fps": seg.target_fps,
                     "fps": seg.fps,
                     "frames": len(seg.jpegs),
                     "bytes": sum(len(jpeg) for jpeg in seg.jpegs),
@@ -734,7 +840,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--extras", type=int, default=0,
                         help="额外打包几段待机小动作（默认 0：这一版固件先不带小动作）")
     parser.add_argument("--full-length", action="store_true",
-                        help="不按落板方案截短，用 source.html 的完整片段（仅排查用）")
+                        help="全部用 source.html 的完整片段（仅排查用，会超预算）")
+    parser.add_argument("--board-range", action="append", default=[], metavar="NAME=START,END",
+                        help="只对板端生效的取帧区间，可重复；不改 source.html")
+    parser.add_argument("--auto-idle-range", action="store_true",
+                        help="在 idle 原片里重新搜索首尾最接的 2.0~3.0s 区间（较慢）")
     parser.add_argument("--seed", type=int, default=0,
                         help="小动作抽样种子；默认固定，保证打包可复现")
     parser.add_argument("--fps", type=int, default=12, help="起始帧率")

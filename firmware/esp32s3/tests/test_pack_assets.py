@@ -180,37 +180,59 @@ class WebParityTests(unittest.TestCase):
         segs = pa.select_segments(self.clips, self.chars, "question", extras=0, seed=0)
         self.assertEqual(len(segs), 4)
 
-    def test_board_plan_durations_and_framerates(self):
-        """C酱 定的落板口径：idle 取 2.5s 眨眼子段；listening/thinking/speaking
-        都是闭合循环，保持完整、只降到 10fps。截短会停在半途、每圈跳一下。
+    def test_board_plan_only_shrinks_idle(self):
+        """C酱 定的落板口径：只缩 idle，另外三段保持完整。
+
+        listening / thinking / speaking 都是首尾闭合的整圈循环，截一半会在
+        循环接缝处跳帧，所以一律不截。
         """
         segs = pa.select_segments(self.clips, self.chars, "question", extras=0, seed=0)
-        got = {seg.name: (seg.take, seg.target_fps) for seg in segs}
-        self.assertEqual(got["idle"], (2.5, 12))
-        self.assertEqual(got["listening"], (4.0, 10))
-        self.assertEqual(got["speaking"], (4.0, 10))
-        # thinking 不截断：3.96s 是网页标的完整一圈，截短会破坏首尾闭合。
-        self.assertAlmostEqual(got["thinking"][0], 3.96, places=3)
-        self.assertEqual(got["thinking"][1], 10)
+        got = {seg.name: (seg.start, seg.end) for seg in segs}
 
-    def test_board_plan_keeps_the_web_start_point(self):
-        """时长按落板方案截短，但起点仍用 source.html，否则画面和网页对不上。"""
-        segs = pa.select_segments(self.clips, self.chars, "question", extras=0, seed=0)
+        idle_start, idle_end = got["idle"]
+        self.assertAlmostEqual(idle_start, 6.9, places=3)
+        self.assertAlmostEqual(idle_end, 9.65, places=3)
+        self.assertGreaterEqual(idle_end - idle_start, pa.IDLE_SEARCH_MIN - 1e-6)
+        self.assertLessEqual(idle_end - idle_start, pa.IDLE_SEARCH_MAX + 1e-6)
+
+        # 另外三段必须和 source.html 完全一致（整段，不截）。
+        for name, key in (("listening", "listening"),
+                          ("thinking", "thinking_question"),
+                          ("speaking", "speaking")):
+            self.assertEqual(got[name], (self.clips[key].start, self.clips[key].end))
+
+    def test_idle_range_stays_inside_the_web_clip(self):
+        """只缩板端这一份，不能越出 source.html 里 idle 的取用区间。"""
+        idle = self.clips["idle"]
+        start, end = pa.BOARD_PLAN["idle"]["range"]
+        self.assertGreaterEqual(start, idle.start - 1e-9)
+        self.assertLessEqual(end, idle.end + 1e-9)
+
+    def test_board_range_override_wins_over_the_default(self):
+        segs = pa.select_segments(self.clips, self.chars, "question", extras=0, seed=0,
+                                  overrides={"idle": (5.0, 7.5)})
         idle = next(seg for seg in segs if seg.name == "idle")
-        self.assertAlmostEqual(idle.clip.start, 4.65)
-        self.assertAlmostEqual(idle.take, 2.5)
+        self.assertEqual((idle.start, idle.end), (5.0, 7.5))
+
+    def test_parse_board_range(self):
+        self.assertEqual(pa.parse_board_range("idle=6.9,9.65"), ("idle", 6.9, 9.65))
+        self.assertEqual(pa.parse_board_range(" idle = 6 , 9.6 "), ("idle", 6.0, 9.6))
+        for bad in ("idle", "idle=6.9", "idle=9,6", "=1,2"):
+            with self.assertRaises(pa.PackError):
+                pa.parse_board_range(bad)
 
     def test_full_length_opt_out_restores_whole_clips(self):
         segs = pa.select_segments(self.clips, self.chars, "question", extras=0,
                                   seed=0, full_length=True)
         idle = next(seg for seg in segs if seg.name == "idle")
-        self.assertAlmostEqual(idle.take, 9.9 - 4.65, places=3)
+        self.assertEqual((idle.start, idle.end), (self.clips["idle"].start,
+                                                  self.clips["idle"].end))
 
-    def test_take_longer_than_the_clip_is_rejected(self):
-        """截取越界要报错，不能让 ffmpeg 悄悄少给帧。"""
+    def test_range_beyond_the_clip_is_rejected(self):
+        """取帧越界要报错，不能让 ffmpeg 悄悄少给帧。"""
         seg = pa.Segment(name="idle", clip=self.clips["idle"],
                          src_path=Path("x.mp4"), src_w=720, src_h=720,
-                         duration=99.0)
+                         src_duration=10.0, start=4.65, end=99.0)
         with tempfile.TemporaryDirectory() as tmp:
             cache = pa.FrameCache("ffmpeg", Path(tmp))
             with self.assertRaises(pa.PackError) as ctx:
@@ -383,10 +405,9 @@ class EndToEndTests(unittest.TestCase):
             segments = pa.unpack(blob)
             self.assertEqual([s.name for s in segments],
                              ["idle", "listening", "thinking", "speaking"])
-            # 帧数要跟落板口径对上：2.5s@12fps=30、4.0s@10fps=40、
-            # 3.96s@10fps=40、4.0s@10fps=40。
-            self.assertEqual([len(seg.frames) for seg in segments], [30, 40, 40, 40])
-            self.assertEqual([seg.fps for seg in segments], [12, 10, 10, 10])
+            # 预算给足时用起始档 12fps：2.75s→33、4.04s→49、3.96s→48、4.04s→49。
+            self.assertEqual([len(seg.frames) for seg in segments], [33, 49, 48, 49])
+            self.assertEqual([seg.fps for seg in segments], [12, 12, 12, 12])
             for seg in segments:
                 self.assertGreater(len(seg.frames), 0)
                 for frame in seg.frames:
@@ -401,6 +422,23 @@ class EndToEndTests(unittest.TestCase):
                     markers = jpeg_markers(data)
                     self.assertIn(0xC0, markers)
                     self.assertNotIn(0xC2, markers)
+
+    def test_seven_mib_budget_lands_at_the_floor_and_fits(self):
+        """C酱 的硬要求：总量不超过 7 MiB。
+
+        按落板口径（只缩 idle、另外三段整段）在 7 MiB 下会落到最低档
+        Q75/10fps —— 这是允许的，但不能超，也不能不降就写出去。
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "assets.bin"
+            proc = self.run_tool("--out", str(out), "--verify")
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            blob = out.read_bytes()
+            self.assertLessEqual(len(blob), 7 * 1024 * 1024)
+
+            segments = pa.unpack(blob)
+            self.assertEqual([seg.fps for seg in segments], [10, 10, 10, 10])
+            self.assertEqual([len(seg.frames) for seg in segments], [28, 41, 40, 41])
 
     def test_budget_is_enforced_instead_of_silently_exceeded(self):
         with tempfile.TemporaryDirectory() as tmp:
