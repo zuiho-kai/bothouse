@@ -126,13 +126,19 @@ func TestMapSessionUpdate_FallbackTextExtraction(t *testing.T) {
 					"content": {"text": "fallback text"}
 				}
 			}`,
-			want: "fallback text",
+			want: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			evs := mapSessionUpdate("", json.RawMessage(tt.params))
+			if tt.want == "" {
+				if len(evs) != 0 {
+					t.Fatalf("unknown update became public: %+v", evs)
+				}
+				return
+			}
 			if len(evs) != 1 {
 				t.Fatalf("expected 1 event, got %d", len(evs))
 			}

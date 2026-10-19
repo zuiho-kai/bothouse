@@ -15,7 +15,7 @@ func mapSessionUpdate(sessionID string, params json.RawMessage) []core.Event {
 		Update    json.RawMessage `json:"update"`
 	}
 	if err := json.Unmarshal(params, &wrap); err != nil || len(wrap.Update) == 0 {
-		slog.Debug("acp: mapSessionUpdate: failed to parse wrap", "error", err, "params", string(params))
+		slog.Debug("acp: mapSessionUpdate: failed to parse wrap", "error", err, "bytes", len(params))
 		return nil
 	}
 	sid := wrap.SessionID
@@ -27,7 +27,7 @@ func mapSessionUpdate(sessionID string, params json.RawMessage) []core.Event {
 		SessionUpdate string `json:"sessionUpdate"`
 	}
 	if err := json.Unmarshal(wrap.Update, &head); err != nil {
-		slog.Debug("acp: mapSessionUpdate: failed to parse head", "error", err, "update", string(wrap.Update))
+		slog.Debug("acp: mapSessionUpdate: failed to parse head", "error", err, "bytes", len(wrap.Update))
 		return nil
 	}
 
@@ -44,7 +44,7 @@ func mapSessionUpdate(sessionID string, params json.RawMessage) []core.Event {
 		// History replay during session/load — suppress to avoid echoing user input.
 		return nil
 	default:
-		// Optional vendor / future ACP shapes — best-effort text extraction.
+		// Only known vendor message shapes are allowed to become public text.
 		return mapSessionUpdateFallback(sid, head.SessionUpdate, wrap.Update)
 	}
 }
@@ -110,7 +110,7 @@ func mapAgentMessageChunk(sessionID string, update json.RawMessage) []core.Event
 	}
 
 	// Log unknown format for debugging
-	slog.Debug("acp: mapAgentMessageChunk: unknown format", "update", string(update))
+	slog.Debug("acp: mapAgentMessageChunk: unknown format", "bytes", len(update))
 	return nil
 }
 
@@ -227,8 +227,8 @@ func extractToolCallContentText(blocks []struct {
 	return b.String()
 }
 
-// mapSessionUpdateFallback handles unknown sessionUpdate values (vendor extensions
-// that still carry human-readable text). Never guesses auth or tool semantics.
+// mapSessionUpdateFallback handles explicitly supported vendor extensions.
+// Unknown updates may contain internal state; text presence is not publication intent.
 func mapSessionUpdateFallback(sessionID string, kind string, update json.RawMessage) []core.Event {
 	// Some agents may send reasoning as a dedicated discriminator; map to EventThinking.
 	switch strings.ToLower(kind) {
@@ -283,34 +283,8 @@ func mapSessionUpdateFallback(sessionID string, kind string, update json.RawMess
 			SessionID: sessionID,
 		}}
 	default:
-		// Last resort: try to extract any text-like field from the JSON
-		var generic struct {
-			Content struct {
-				Text string `json:"text"`
-			} `json:"content"`
-			Text    string `json:"text"`
-			Message string `json:"message"`
-		}
-		if err := json.Unmarshal(update, &generic); err != nil {
-			return nil
-		}
-		t := generic.Content.Text
-		if t == "" {
-			t = generic.Text
-		}
-		if t == "" {
-			t = generic.Message
-		}
-		if t != "" {
-			slog.Debug("acp: mapSessionUpdateFallback: extracted text from unknown format", "kind", kind, "text_len", len(t))
-			return []core.Event{{
-				Type:      core.EventText,
-				Content:   t,
-				SessionID: sessionID,
-			}}
-		}
+		slog.Debug("acp: ignored unknown session update", "kind", kind)
 	}
-	slog.Debug("acp: mapSessionUpdateFallback: unrecognized format", "kind", kind, "update", string(update))
 	return nil
 }
 

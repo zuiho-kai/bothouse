@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-19：Issue #104 修复 ACP 普通 text 内显式私密区块泄漏、未知通知被猜为正文。现场没有压缩事件；流式边界与限制见 [ACP_PRIVATE_OUTPUT.md](ACP_PRIVATE_OUTPUT.md)。合成回归红→绿，独立分支 fix/104-acp-private-output；本条仅记录源码，尚未部署。发布必须保留线上 Claude strict 额外提交20c79756，等待所有忙碌伙伴结束。
+
 2026-10-19：#94 修复 Codex exec 提前交付终态、历史 stderr 串轮与重复写入者。独立工作区 conest-codex-writer；原 thread 保留，部署须检查实际写锁。实现与回归边界见 [CODEX_EXEC_LIFECYCLE.md](CODEX_EXEC_LIFECYCLE.md)。本条为源码记录，尚未部署。
 
 ## 2026-10-19：同步角色小家 38e754f 版与小智板子固件补丁（Issue #88，未部署）

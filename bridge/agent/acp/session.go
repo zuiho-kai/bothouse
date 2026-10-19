@@ -38,6 +38,10 @@ type acpSession struct {
 	acpSessMu sync.RWMutex
 	acpSessID string
 
+	outputMu        sync.Mutex
+	outputFilter    privateOutput
+	outputMessageID string
+
 	sendMu       sync.Mutex
 	inputMu      sync.Mutex
 	inputGuard   bool // suppress replay and notifications outside a strict prompt
@@ -418,9 +422,32 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 	s.cacheToolCallInput(params)
 	s.maybeAbsorbCurrentModeUpdate(params)
 	sid := s.currentACPSessionID()
-	// Debug log to capture raw session/update JSON for troubleshooting vendor compatibility
-	slog.Debug("acp: session/update", "session_id", sid, "params", string(params))
+	var header struct {
+		Update struct{ SessionUpdate, MessageID string }
+	}
+	if json.Unmarshal(params, &header) != nil {
+		return
+	}
+	slog.Debug("acp: session/update", "session_id", sid, "kind", header.Update.SessionUpdate, "bytes", len(params))
+	// The RPC reader serializes notifications. The mutex also protects prompt
+	// completion/error resets; foreground and unsolicited output use this seam.
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
 	for _, ev := range mapSessionUpdate(sid, params) {
+		if ev.Type == core.EventToolUse && s.outputMessageID == "" {
+			s.outputFilter = privateOutput{}
+		}
+		if ev.Type == core.EventText {
+			id := header.Update.MessageID
+			if id != "" && id != s.outputMessageID {
+				s.outputFilter = privateOutput{}
+				s.outputMessageID = id
+			}
+			ev.Content = s.outputFilter.feed(ev.Content)
+			if ev.Content == "" {
+				continue
+			}
+		}
 		s.emit(ev)
 	}
 }
@@ -649,6 +676,7 @@ func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAt
 }
 
 func (s *acpSession) sendLocked(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, strict bool) error {
+	s.resetPrivateOutput()
 
 	filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
 	prompt = core.AppendFileRefs(prompt, filePaths)
@@ -670,14 +698,22 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
-	var complete func()
+	var completed sync.Once
+	complete := func() {
+		completed.Do(func() {
+			if strict {
+				s.finishInputUpdates()
+			}
+			s.resetPrivateOutput()
+		})
+	}
 	if strict {
 		s.inputMu.Lock()
 		s.inputActive = true
 		s.inputMu.Unlock()
-		complete = s.finishInputUpdates
 	}
 	res, err := s.tr.callCompleted(s.ctx, "session/prompt", params, complete)
+	complete() // write failure/cancellation may not invoke the reader callback
 	if strict {
 		s.finishInputUpdates()
 		s.inputMu.Lock()
@@ -696,7 +732,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		s.emit(core.Event{Type: core.EventError, Error: err})
 		return fmt.Errorf("acp: session/prompt: %w", err)
 	}
-	slog.Debug("acp: session/prompt response", "session_id", sid, "response_len", len(res), "response", string(res))
+	slog.Debug("acp: session/prompt response", "session_id", sid, "response_len", len(res))
 
 	// Text was streamed via session/update; engine aggregates EventText.
 	s.emit(core.Event{
