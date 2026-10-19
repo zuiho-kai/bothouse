@@ -237,6 +237,104 @@ def test_browser_voice_state_transitions():
         page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
         print("PASS: 16. Consecutive random idle variants do not repeat.")
 
+        # 17. Verify Gemini character switching, clips, and idle variants
+        page.evaluate("window.__conestDeviceUI.setCharacter('gemini')")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["character"] == "gemini", f"Expected gemini, got {ui_state['character']}"
+        gemini_name = page.locator('.cn-primary-card .cn-role-name').first.inner_text()
+        assert gemini_name == "大豆包", f"Expected '大豆包', got '{gemini_name}'"
+        gemini_variants = page.evaluate("window.__conestDeviceUI.getIdleVariants()")
+        assert sorted(gemini_variants) == ["doze", "happy", "shy"], f"Expected ['doze', 'happy', 'shy'], got {gemini_variants}"
+
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/gemini/idle.mp4');
+        }""")
+
+        page.evaluate("window.__conestDeviceUI.triggerIdleVariant('happy')")
+        assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") == "happy"
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/gemini/happy.mp4');
+        }""")
+        page.screenshot(path=str(screenshots_dir / "10_gemini_idle_variant_happy.png"))
+        page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+
+        # Test Gemini consecutive random variants do not repeat
+        gv1 = page.evaluate("window.__conestDeviceUI.triggerIdleVariant()")
+        assert gv1 in gemini_variants
+        gv2 = page.evaluate("window.__conestDeviceUI.triggerIdleVariant()")
+        assert gv2 in gemini_variants
+        assert gv1 != gv2
+        page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+
+        # Verify Gemini speaking and thinking clips
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'playing' })")
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/gemini/speaking.mp4');
+        }""")
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'completed' })")
+        print("PASS: 17. Gemini character verified with 3 idle variants, dedicated speaking/thinking, and happy variant.")
+
+        # 18. Verify Grok character switching, clips, and idle variants
+        page.evaluate("window.__conestDeviceUI.setCharacter('grok')")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["character"] == "grok", f"Expected grok, got {ui_state['character']}"
+        grok_name = page.locator('.cn-primary-card .cn-role-name').first.inner_text()
+        assert grok_name == "Grok", f"Expected 'Grok', got '{grok_name}'"
+        grok_variants = page.evaluate("window.__conestDeviceUI.getIdleVariants()")
+        assert sorted(grok_variants) == ["doze", "happy", "shy"], f"Expected ['doze', 'happy', 'shy'], got {grok_variants}"
+
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/grok/idle.mp4');
+        }""")
+
+        page.evaluate("window.__conestDeviceUI.triggerIdleVariant('shy')")
+        assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") == "shy"
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/grok/shy.mp4');
+        }""")
+        page.screenshot(path=str(screenshots_dir / "11_grok_idle_variant_shy.png"))
+        page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+
+        # Test Grok consecutive random variants do not repeat
+        grv1 = page.evaluate("window.__conestDeviceUI.triggerIdleVariant()")
+        assert grv1 in grok_variants
+        grv2 = page.evaluate("window.__conestDeviceUI.triggerIdleVariant()")
+        assert grv2 in grok_variants
+        assert grv1 != grv2
+        page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+
+        # Verify Grok speaking clip
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'playing' })")
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/grok/speaking.mp4');
+        }""")
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'completed' })")
+        print("PASS: 18. Grok character verified with 3 idle variants, dedicated speaking/thinking, and shy variant.")
+
+        # 19. Verify character name updates dynamically across all character switches (大豆包, Grok, Claude, DeepSeek, G哥)
+        for char_id, expected_name in [
+            ("gemini", "大豆包"),
+            ("grok", "Grok"),
+            ("claude", "Claude"),
+            ("deepseek", "DeepSeek"),
+            ("gpt", "G哥"),
+        ]:
+            page.evaluate(f"window.__conestDeviceUI.setCharacter('{char_id}')")
+            role_el_name = page.locator('.cn-primary-card .cn-role-name').first.inner_text()
+            assert role_el_name == expected_name, f"Expected '{expected_name}' for {char_id}, got '{role_el_name}'"
+            aria = page.locator('.cn-primary-card .cn-top-pill').first.get_attribute('aria-label')
+            assert expected_name in aria, f"Expected '{expected_name}' in top pill aria-label, got '{aria}'"
+        print("PASS: 19. Character switching dynamically updates role name on top pill and aria-label ('大豆包', 'Grok', 'G哥').")
+
+        # Restore character to gpt for subsequent tests
+        page.evaluate("window.__conestDeviceUI.setCharacter('gpt')")
+
         browser.close()
 
 
@@ -405,7 +503,7 @@ def test_device_app_e2e_browser():
             # Verify no CSP violations
             csp_errors = [log for log in console_logs if "Content Security Policy" in log or "violates" in log]
             assert not csp_errors, f"Detected CSP violations: {csp_errors}"
-            print("PASS: 17. /device/desk-gge/screen loaded with zero CSP violations.")
+            print("PASS: 20. /device/desk-gge/screen loaded with zero CSP violations.")
 
             def wait_for_connected(timeout=4.0):
                 start = time.monotonic()
@@ -432,7 +530,7 @@ def test_device_app_e2e_browser():
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "idle"
             assert ui_state["apiPrefix"] == "/device/desk-gge"
-            print("PASS: 18. Auto-connected to /device/desk-gge/api/config, initial phase is 'idle'.")
+            print("PASS: 21. Auto-connected to /device/desk-gge/api/config, initial phase is 'idle'.")
 
             # Delay actual microphone readiness until after the user lets go.
             # No UI event/state injection: drive the button and the native API.
@@ -458,7 +556,7 @@ def test_device_app_e2e_browser():
             page.evaluate('() => { navigator.mediaDevices.getUserMedia = window.originalGetUserMedia; }')
             action.click()
             wait_for_phase('idle')
-            print('PASS: 19. Early microphone release reports no audio, closes the late stream, and permits recovery.')
+            print('PASS: 22. Early microphone release reports no audio, closes the late stream, and permits recovery.')
 
             # Turn 1: Hold speech synthesis to test thinking phase does not auto-advance
             speech.hold_start.clear()
@@ -472,12 +570,12 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(1800)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "thinking", "Must remain in thinking phase while waiting for audio"
-            print("PASS: 20. Verified real API turn stays in 'thinking' without fake timer bypass.")
+            print("PASS: 23. Verified real API turn stays in 'thinking' without fake timer bypass.")
 
             # Release speech synthesis chunk -> audio delivered -> speaking
             speech.hold_start.set()
             wait_for_phase("speaking", 5.0)
-            print("PASS: 21. Real audio synthesized and played, transition to 'speaking'.")
+            print("PASS: 24. Real audio synthesized and played, transition to 'speaking'.")
 
             # Test Stop failure: intercept /stop with 500 error
             page.route("**/stop", lambda route: route.fulfill(status=500, body='{"detail": "模拟停服异常"}'))
@@ -494,7 +592,7 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(600)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "stopping", "Must NOT revert to idle when stop fails"
-            print("PASS: 22. Stop failure correctly keeps UI in 'stopping', enables retry button ('再按停止'), no 350ms revert.")
+            print("PASS: 25. Stop failure correctly keeps UI in 'stopping', enables retry button ('再按停止'), no 350ms revert.")
 
             # Retry stop: unroute /stop while speech.hold_finish is still cleared (backend task is held)
             page.unroute("**/stop")
@@ -511,12 +609,12 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(400)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "stopping", f"Repeated stop clicks during drain must remain in stopping, got {ui_state['phase']}"
-            print("PASS: 23. Successful stop enters drain wait; action button is disabled ('等待收尾完成') and remains in 'stopping'.")
+            print("PASS: 26. Successful stop enters drain wait; action button is disabled ('等待收尾完成') and remains in 'stopping'.")
 
             # Release backend synthesis completion -> task finishes -> device_released becomes True
             speech.hold_finish.set()
             wait_for_phase("idle", 6.0)
-            print("PASS: 24. Device release confirmed by backend, transitions from 'stopping' to 'idle'.")
+            print("PASS: 27. Device release confirmed by backend, transitions from 'stopping' to 'idle'.")
 
             # Turn 2: Natural completion (thinking -> speaking -> completed -> idle)
             speech.hold_start.set()
@@ -524,7 +622,7 @@ def test_device_app_e2e_browser():
             page.evaluate("window.__conestDeviceUI.submitTextTurn('第二句话')")
             wait_for_phase("speaking", 5.0)
             wait_for_phase("idle", 8.0)
-            print("PASS: 25. Second turn completes naturally through real audio playback to 'idle'.")
+            print("PASS: 28. Second turn completes naturally through real audio playback to 'idle'.")
 
             # Turn 3: Abandoned / lease-expired turn display and recovery
             speech.hold_start.clear()
@@ -560,9 +658,9 @@ def test_device_app_e2e_browser():
             page.wait_for_timeout(150)
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["phase"] == "idle"
-            print("PASS: 26. Abandoned / lease-expired turn shows abandonment notice and recovers to 'idle'.")
+            print("PASS: 29. Abandoned / lease-expired turn shows abandonment notice and recovers to 'idle'.")
 
-            # 27. Live round-screen route triggers and plays idle variant
+            # 30. Live round-screen route triggers and plays idle variant
             page.evaluate("window.__conestDeviceUI.triggerIdleVariant('shy')")
             ui_state = page.evaluate("window.__conestDeviceUI.getState()")
             assert ui_state["idleVariant"] == "shy"
@@ -572,7 +670,24 @@ def test_device_app_e2e_browser():
             }""")
             page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
             assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") is None
-            print("PASS: 27. Live round-screen route successfully triggers and plays idle variant clip.")
+            print("PASS: 30. Live round-screen route successfully triggers and plays idle variant clip.")
+
+            # 31. Live round-screen route switches character to Grok and triggers doze variant
+            page.evaluate("window.__conestDeviceUI.setCharacter('grok')")
+            grok_live_name = page.locator('.cn-primary-card .cn-role-name').first.inner_text()
+            assert grok_live_name == "Grok", f"Expected 'Grok' in live route, got '{grok_live_name}'"
+            page.wait_for_function("""() => {
+                const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+                return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/grok/idle.mp4');
+            }""")
+            page.evaluate("window.__conestDeviceUI.triggerIdleVariant('doze')")
+            assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") == "doze"
+            page.wait_for_function("""() => {
+                const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+                return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/grok/doze.mp4');
+            }""")
+            page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+            print("PASS: 31. Live round-screen route switches to Grok (role name verified) and triggers doze variant clip.")
 
             browser.close()
     finally:
@@ -587,7 +702,7 @@ def main():
     test_no_fake_timer_in_sources()
     test_browser_voice_state_transitions()
     test_device_app_e2e_browser()
-    print("\nALL 27 TESTS PASSED SUCCESSFULLY!")
+    print("\nALL 31 TESTS PASSED SUCCESSFULLY!")
 
 
 if __name__ == "__main__":

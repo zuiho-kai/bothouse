@@ -26,7 +26,7 @@
   const voiceAudio = root.querySelector('#cn-voice-audio');
 
   const VALID_PHASES = ['idle', 'listening', 'thinking', 'speaking', 'peer', 'busy', 'stopping', 'error', 'offline'];
-  const VALID_CHARS = ['gpt', 'claude', 'deepseek'];
+  const VALID_CHARS = ['gpt', 'claude', 'deepseek', 'gemini', 'grok'];
   const VALID_INTERACTIONS = ['touch', 'active-only', 'hidden'];
 
   /*
@@ -347,6 +347,250 @@
           spec: 'deepseek/speaking.mp4 (720×720 · 专用连续说话)',
           note: 'DeepSeek 专用连续张闭嘴说话视频；视频原生音轨已静音。',
           warn: false
+        }
+      }
+    },
+    gemini: {
+      displayName: '大豆包',
+      peerName: 'G哥',
+      ariaDesc: '大豆包（Gemini）预览形象：双子星少女 Q版，非官方同人',
+      clips: {
+        idle: {
+          src: 'assets/characters/gemini/idle.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: null,
+          restTime: 0.5,
+          spec: 'gemini/idle.mp4 (720×720 · 待机呼吸眨眼 · 4.04s)',
+          note: '双子星少女待机：闭嘴微笑正脸平视，双马尾随轻微呼吸起伏，中段眨眼后平稳复位。',
+          warn: false
+        },
+        listening: {
+          src: 'assets/characters/gemini/listening.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: null,
+          restTime: 1.0,
+          spec: 'gemini/listening.mp4 (720×720 · 倾听点头 · 4.04s)',
+          note: '倾听状态：闭嘴点头专注注视镜头，与待机保持相同头肩比例与眼位。',
+          warn: false
+        },
+        thinking_calm: {
+          src: 'assets/characters/gemini/thinking.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0.0,
+          end: 1.2,
+          restTime: 0.6,
+          spec: 'gemini/thinking.mp4 (720×720 · 0.0s–1.2s 无问号安静段)',
+          note: '截取问号浮现前的轻微歪头凝思段。',
+          warn: false
+        },
+        thinking_question: {
+          src: 'assets/characters/gemini/thinking.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0.0,
+          end: 4.04,
+          restTime: 2.0,
+          spec: 'gemini/thinking.mp4 (720×720 · 歪头问号全循环 · 4.04s)',
+          note: '歪头浮现金色问号全循环：头侧浮现问号后自然淡出并复位闭嘴微笑，全程在安全圈内。',
+          warn: false
+        },
+        speaking: {
+          src: 'assets/characters/gemini/speaking.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: null,
+          restTime: 0.5,
+          spec: 'gemini/speaking.mp4 (720×720 · 连续张闭嘴说话 · 4.04s)',
+          note: '双子星专用连续说话循环视频，自然多次张闭嘴，视频音轨已静音，实际语音由 TTS 驱动。',
+          warn: false
+        }
+      },
+      idleVariants: {
+        doze: {
+          name: 'doze',
+          label: '打瞌睡惊醒',
+          src: 'assets/characters/gemini/doze.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gemini/doze.mp4 (720×720 · 打瞌睡惊醒 · 4.04s)',
+          note: '待机随机小动作：低头打瞌睡惊醒后回正。',
+          isVariant: true
+        },
+        happy: {
+          name: 'happy',
+          label: '开心眯眼笑',
+          src: 'assets/characters/gemini/happy.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gemini/happy.mp4 (720×720 · 开心眯眼笑 · 4.04s)',
+          note: '待机随机小动作：双眼弯月笑、歪头灿笑后回正。',
+          isVariant: true
+        },
+        shy: {
+          name: 'shy',
+          label: '害羞脸红',
+          src: 'assets/characters/gemini/shy.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'gemini/shy.mp4 (720×720 · 害羞脸红 · 4.04s)',
+          note: '待机随机小动作：脸颊微红、侧目偷瞄后温和复位。',
+          isVariant: true
+        }
+      }
+    },
+    grok: {
+      displayName: 'Grok',
+      peerName: 'G哥',
+      ariaDesc: 'Grok 预览形象：黑金哥特星饰少女 Q版，非官方同人',
+      clips: {
+        idle: {
+          src: 'assets/characters/grok/idle.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: null,
+          restTime: 0.5,
+          spec: 'grok/idle.mp4 (720×720 · 黑金待机呼吸眨眼 · 4.04s)',
+          note: 'Grok 待机：闭嘴微笑正脸平视，黑金发饰与挂饰轻晃，约 2 秒眨眼后平稳复位。',
+          warn: false
+        },
+        listening: {
+          src: 'assets/characters/grok/listening.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: null,
+          restTime: 1.0,
+          spec: 'grok/listening.mp4 (720×720 · 倾听点头 · 4.04s)',
+          note: '倾听状态：闭嘴微笑看镜头，轻歪头点头、中段眯眼笑，无符号。',
+          warn: false
+        },
+        thinking_calm: {
+          src: 'assets/characters/grok/thinking.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0.0,
+          end: 1.3,
+          restTime: 0.6,
+          spec: 'grok/thinking.mp4 (720×720 · 0.0s–1.3s 无问号安静段)',
+          note: '截取问号浮现前的头微歪凝思段。',
+          warn: false
+        },
+        thinking_question: {
+          src: 'assets/characters/grok/thinking.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0.0,
+          end: 4.04,
+          restTime: 2.0,
+          spec: 'grok/thinking.mp4 (720×720 · 金色问号全循环 · 4.04s)',
+          note: '头微歪歪头思考：左上星星头饰前浮现金色问号，3.2s 前后自然淡出，尾帧闭嘴微笑回正。',
+          warn: false
+        },
+        speaking: {
+          src: 'assets/characters/grok/speaking.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: null,
+          restTime: 0.5,
+          spec: 'grok/speaking.mp4 (720×720 · 连续张闭嘴说话 · 4.04s)',
+          note: '对着镜头开心地说话，自然张闭嘴配合轻微点头，中间有停顿，结尾回正。',
+          warn: false
+        }
+      },
+      idleVariants: {
+        doze: {
+          name: 'doze',
+          label: '低头打瞌睡 (z)',
+          src: 'assets/characters/grok/doze.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'grok/doze.mp4 (720×720 · 打瞌睡惊醒 · 4.04s)',
+          note: '待机小动作：眼皮垂落打瞌睡，右脸旁冒出小 z，惊醒后尴尬微笑回正。',
+          isVariant: true
+        },
+        happy: {
+          name: 'happy',
+          label: '月牙眼星光笑',
+          src: 'assets/characters/grok/happy.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'grok/happy.mp4 (720×720 · 开心歪头大笑 · 4.04s)',
+          note: '待机小动作：眼睛眯成弯弯月牙张嘴大笑，脸颊贴着金色小星光。',
+          isVariant: true
+        },
+        shy: {
+          name: 'shy',
+          label: '害羞侧目爱心',
+          src: 'assets/characters/grok/shy.mp4',
+          bg: '#1b2122',
+          scale: 1.10,
+          tx: 0,
+          ty: 1.5,
+          start: 0,
+          end: 4.04,
+          duration: 4.04,
+          restTime: 0,
+          spec: 'grok/shy.mp4 (720×720 · 害羞侧目爱心 · 4.04s)',
+          note: '待机小动作：脸颊泛红、侧目偷瞄缩肩，右颊浮现粉色小爱心后微笑回正。',
+          isVariant: true
         }
       }
     }
@@ -780,6 +1024,36 @@
     }
   }
 
+  let lastSyncChar = null;
+  function syncIdleVariantOptions() {
+    if (!idleVariantSelect) return;
+    const charCfg = CHARACTER_CONFIG[state.character] || CHARACTER_CONFIG.gpt;
+    const variants = charCfg.idleVariants || {};
+    const keys = Object.keys(variants);
+    if (lastSyncChar !== state.character) {
+      lastSyncChar = state.character;
+      idleVariantSelect.innerHTML = '';
+      const autoOpt = document.createElement('option');
+      autoOpt.value = 'auto';
+      autoOpt.textContent = keys.length > 0 ? '自动随机插播 (20–45s)' : '当前角色无待机小动作';
+      idleVariantSelect.appendChild(autoOpt);
+      idleVariantSelect.disabled = keys.length === 0;
+
+      keys.forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = `${variants[k].label || k} (${k})`;
+        idleVariantSelect.appendChild(opt);
+      });
+    }
+
+    if (activeIdleVariant && variants[activeIdleVariant]) {
+      idleVariantSelect.value = activeIdleVariant;
+    } else {
+      idleVariantSelect.value = 'auto';
+    }
+  }
+
   function render() {
     const charCfg = CHARACTER_CONFIG[state.character] || CHARACTER_CONFIG.gpt;
     const clip = resolveClip(state.character, state.phase, state.thinkingMode);
@@ -792,6 +1066,7 @@
     interactionSelect.value = state.interactionMode;
     thinkingSelect.value = state.thinkingMode;
     motionToggle.checked = state.animate;
+    syncIdleVariantOptions();
 
     zoomCard.hidden = state.viewMode !== 'dual';
     legacyCard.hidden = state.viewMode !== 'compare';
@@ -817,16 +1092,20 @@
       screen.dataset.character = state.character;
       screen.dataset.interaction = state.interactionMode;
 
+      const effectiveRoleName = (voiceState.connected && voiceState.boundRoleName && state.character === (voiceState.defaultRole === 'gge' ? 'gpt' : voiceState.defaultRole))
+        ? voiceState.boundRoleName
+        : (charCfg.displayName || 'G哥');
+
       ctrl.shell.querySelector('.cn-character-stage').setAttribute('aria-label', charCfg.ariaDesc);
       ctrl.shell.querySelectorAll('.cn-role-name').forEach(el => {
-        el.textContent = voiceState.boundRoleName || charCfg.displayName;
+        el.textContent = effectiveRoleName;
       });
 
       const topPill = ctrl.shell.querySelector('.cn-top-pill');
       const isOffline = state.phase === 'offline';
       topPill.setAttribute(
         'aria-label',
-        (voiceState.boundRoleName || charCfg.displayName) + (isOffline ? '，电脑未连接，打开设备设置' : '，已连接电脑，打开设备设置')
+        effectiveRoleName + (isOffline ? '，电脑未连接，打开设备设置' : '，已连接电脑，打开设备设置')
       );
       ctrl.shell.querySelector('.cn-offline-tag').hidden = !isOffline;
 
@@ -1189,6 +1468,8 @@
       if (boundRole?.id === 'gge' || boundRole?.id === 'gpt') state.character = 'gpt';
       else if (boundRole?.id === 'claude') state.character = 'claude';
       else if (boundRole?.id === 'deepseek') state.character = 'deepseek';
+      else if (boundRole?.id === 'gemini') state.character = 'gemini';
+      else if (boundRole?.id === 'grok') state.character = 'grok';
 
       if (voiceStatusEl) {
         voiceStatusEl.textContent = '已连接：' + (cfg.device_name || boundRole?.name) + ' (' + (apiPrefix || '/api') + ')';
@@ -1924,6 +2205,7 @@
 
   charSelect.addEventListener('change', event => {
     state.character = event.target.value;
+    voiceState.boundRoleName = CHARACTER_CONFIG[state.character]?.displayName || 'G哥';
     stopIdleVariant();
     if (state.phase === 'idle') scheduleNextIdleVariant();
     render();
@@ -2143,6 +2425,16 @@
     scheduleNextIdleVariant: delayMs => scheduleNextIdleVariant(delayMs),
     stopIdleVariant: () => stopIdleVariant(),
     getActiveIdleVariant: () => activeIdleVariant,
+    setCharacter: char => {
+      if (!VALID_CHARS.includes(char)) return false;
+      state.character = char;
+      voiceState.boundRoleName = CHARACTER_CONFIG[state.character]?.displayName || 'G哥';
+      stopIdleVariant();
+      if (state.phase === 'idle') scheduleNextIdleVariant();
+      render();
+      persistState();
+      return true;
+    },
     getIdleVariants: () => {
       const charCfg = CHARACTER_CONFIG[state.character];
       return charCfg?.idleVariants ? Object.keys(charCfg.idleVariants) : [];

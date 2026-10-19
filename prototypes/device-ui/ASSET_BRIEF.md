@@ -1,5 +1,22 @@
 # 高清角色素材交接
 
+## 2026-10-19 Gemini 与 Grok 全套素材与 3 段待机小动作已接入
+
+在 G哥高清素材基线之上，正式接入 Gemini（大豆包）与 Grok 两位新角色全套素材（各 7 段 720×720 mp4，共 14 段，入库 `assets/characters/{gemini,grok}/`，哈希与规格见 [manifest.json](assets/characters/manifest.json)）：
+
+- **素材与规格**：
+  - 来源：`journal/artifacts/idle-variants/{gemini,grok}/`（严格排除 `-old`, `-v1`, `-provisional`, `-rejected` 临时文件）；
+  - 规格：`720×720`，时长 4.042s，30fps，h264 (yuv420p)，无音轨；
+  - 动作集：每个角色均具备完整的基础 4 状态（`idle`, `listening`, `thinking`, `speaking`）以及 3 段待机插播小动作（`doze`, `happy`, `shy`）。
+- **底色与裁切校准**：
+  - 参考图：`journal/artifacts/2026-10-19-ref-{gemini,grok}-idle.png`，实测背景色严格为 `#1b2122` (RGB 27, 33, 34)；
+  - 空间边界：人物包围盒宽约 600px、高约 600px，底部在 y=699 处存在水平截断线；
+  - 校准参数：`scale: 1.10 / tx: 0 / ty: +1.5%`，底色 `#1b2122`。在 466×466 圆屏下，y=699 截断线被推至距圆心 373px 处（> 360px 半径），完全落在圆周外消除硬切；头顶与发饰（Grok 呆毛、Gemini 发饰）距圆顶保留约 82px 充足安全边距。
+- **动态小动作下拉与顶部名字联动**：
+  - 页面新增 `syncIdleVariantOptions()`，在角色切换时自动重构 `#cn-idle-variant` 小动作下拉框（G哥 6 段，大豆包/Grok 各 3 段，无小动作角色显示「无可用小动作」）；
+  - 角色切换时圆屏顶部身份徽章（`.cn-role-name`）与 `aria-label` 自动同步为对应伙伴名字（「大豆包」、「Grok」或「G哥」）；
+  - 遵循 20–45s 随机插播、状态打断即停、连续不重复机制；开发栏语音接口精简仅保留已在 8796 配置的有效端点（移除未上线的临时端点）。
+
 ## 2026-10-19 G哥专用说话视频与 6 段待机小动作已接入
 
 在 2026-10-18 高清素材基线之上，进一步落实 G哥（`gpt`）的专用说话与待机小动作接入（共 7 段新视频接入 `assets/characters/gpt/`，规格见 [manifest.json](assets/characters/manifest.json)）：

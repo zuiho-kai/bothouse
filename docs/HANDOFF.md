@@ -1,5 +1,25 @@
 # 共栖当前交接
 
+## 2026-10-19：#53 Gemini 与 Grok 角色全套素材及待机小动作接入（分支 feat/53-gemini-grok-characters）
+
+- **背景与目标**：为圆屏原型（`prototypes/device-ui`）接入 Gemini（大豆包）与 Grok 两位新角色的全套 7 段高清素材，支持开发栏角色切换、顶部名字（「大豆包」/「Grok」）动态同步、`doze / happy / shy` 待机随机插播小动作及下拉动态联动，逐角色精细校准，确保测试 100% 通过。
+- **改动范围**：
+  1. **素材入库与清单同步**：
+     - 从 `journal/artifacts/idle-variants/{gemini,grok}/` 筛选出两套共 14 段 720×720 mp4（每角色 7 段：`idle`, `listening`, `thinking`, `speaking`, `doze`, `happy`, `shy`，严格排除临时文件）；
+     - 入库至 `prototypes/device-ui/assets/characters/{gemini,grok}/`；
+     - `assets/characters/manifest.json` 录入 14 段视频的精准 sha256、文件大小与规格（清单总条目扩展至 38 条）。
+  2. **原型页面与调度逻辑 (`source.html`)**：
+     - 控制台配置：`#cn-preview-character` 增加大豆包（Gemini）与 Grok 选项；精简语音端点列表，删除 8796 未配置的 `/device/desk-gemini` 与 `/device/desk-grok`，避免连接失败；
+     - 角色配置注册：`VALID_CHARS` 追加 `'gemini'`, `'grok'`；在 `CHARACTER_CONFIG` 中注册双角色配置（背景 `#1b2122`，`scale: 1.10, tx: 0, ty: 1.5%`，Gemini 的 `displayName` 设为「大豆包」，Grok 的 `displayName` 设为「Grok」）；
+     - 顶部名字与 aria-label 动态同步：修复原型角色切换时顶部极简徽章仍显示旧绑定的缺陷，角色切换时自动将 `.cn-role-name` 与 `aria-label` 更新为当前伙伴名（「大豆包」/「Grok」/「G哥」）；
+     - 动态小动作下拉联动：实现 `syncIdleVariantOptions()`，在角色切换时自动重构 `#cn-idle-variant` 选项，确保下拉列表与当前角色动作池精准同步；
+     - 角色识别与切换接口：在 `connectVoiceService` 中支持 `gemini` 和 `grok` 识别；在 `window.__conestDeviceUI` 暴露 `setCharacter(char)` 支持测试与程序化切换。
+  3. **构建同步**：
+     - 运行 `build.py` 同步生成 `index.html`、`screen.js` 与 `screen.css`，`build.py --check` 一致性通过。
+  4. **自动化测试与高保真证据**：
+     - `test_device_ui_events.py` 扩展至全量 31 项测试全部通过（测试项 17 验证 Gemini、测试项 18 验证 Grok、测试项 19 专项验证角色切换时顶部名字动态同步更新为「大豆包」/「Grok」/「G哥」、测试项 31 验证真实服务端路由下切至 Grok 名字同步并触发 doze）；
+     - 生成真实无头 Chrome 截图证据：`test-artifacts/10_gemini_idle_variant_happy.png`（徽章显示「大豆包」）与 `11_grok_idle_variant_shy.png`（徽章显示「Grok」）。
+- **边界与安全**：未启动子 Agent，未修改或重启运行中的 8796 服务。基于最新 `origin/main`（`7e8473ae`）开新分支，单独提 PR。
 
 ## 2026-10-19：#53 G哥专用说话视频与 6 段待机小动作接入（分支 feat/53-round-screen-idle-variants，未合并）
 
