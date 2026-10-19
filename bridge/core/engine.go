@@ -492,6 +492,7 @@ type Engine struct {
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
 	interactiveStates map[string]*interactiveState // key = sessionKey
+	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
 	platformLifecycleMu sync.Mutex
 	platformReady       map[Platform]bool
@@ -3076,6 +3077,11 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
+	if e.nativeCompactRunning(interactiveKey) {
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
+		return
+	}
+
 	// Ensure an interactiveState entry exists before taking the session lock.
 	// Without this, concurrent messages can observe the session as busy during
 	// startup but still find no state to queue into.
@@ -3212,6 +3218,10 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 // Returns true if the message was successfully queued, false otherwise.
 func (e *Engine) queueMessageForBusySession(p Platform, msg *Message, interactiveKey string) bool {
 	e.interactiveMu.Lock()
+	if e.nativeCompactions[interactiveKey] != nil {
+		e.interactiveMu.Unlock()
+		return false
+	}
 	state, hasState := e.interactiveStates[interactiveKey]
 	if !hasState || state == nil {
 		e.interactiveMu.Unlock()
@@ -4380,6 +4390,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 // agent session is still being shut down (which can take up to 130s for Stop hooks).
 func (e *Engine) cleanupInteractiveState(sessionKey string, expected ...*interactiveState) {
 	e.interactiveMu.Lock()
+	if len(expected) == 0 {
+		if op := e.nativeCompactions[sessionKey]; op != nil {
+			op.cancel()
+		}
+	}
 	state, ok := e.interactiveStates[sessionKey]
 	if len(expected) > 0 && expected[0] != nil && state != expected[0] {
 		// Another turn has already replaced the state — skip cleanup.
@@ -10592,6 +10607,11 @@ func (e *Engine) stopInteractiveSessionSilently(sessionKey string) bool {
 
 func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueued bool) bool {
 	e.interactiveMu.Lock()
+	if op := e.nativeCompactions[sessionKey]; op != nil {
+		op.cancel()
+		e.interactiveMu.Unlock()
+		return true
+	}
 	state, ok := e.interactiveStates[sessionKey]
 	if !ok || state == nil {
 		e.interactiveMu.Unlock()
@@ -10678,9 +10698,14 @@ normalCleanup:
 }
 
 func (e *Engine) cmdCompress(p Platform, msg *Message) {
-	agent, sessions, _, err := e.commandContext(p, msg)
+	agent, sessions, iKey, err := e.commandContext(p, msg)
 	if err != nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgWsResolutionError, err))
+		return
+	}
+
+	if native, ok := agent.(NativeContextCompressor); ok {
+		e.cmdNativeCompact(agent, native, sessions, iKey, p, msg)
 		return
 	}
 
@@ -10690,7 +10715,6 @@ func (e *Engine) cmdCompress(p Platform, msg *Message) {
 		return
 	}
 
-	iKey := e.interactiveKeyForSessionKey(msg.SessionKey)
 	e.interactiveMu.Lock()
 	state, hasState := e.interactiveStates[iKey]
 	e.interactiveMu.Unlock()

@@ -463,6 +463,12 @@ func (a *Agent) SetSessionEnv(env []string) {
 }
 
 func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentSession, error) {
+	return a.startSession(ctx, sessionID, false)
+}
+
+// forceExec snapshots the same model/provider/environment without opening a live
+// app-server chat session. Native compaction uses this configuration snapshot.
+func (a *Agent) startSession(ctx context.Context, sessionID string, forceExec bool) (core.AgentSession, error) {
 	a.mu.Lock()
 	mode := a.mode
 	model := a.model
@@ -501,7 +507,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		}
 	}
 
-	if backend == "app_server" {
+	if backend == "app_server" && !forceExec {
 		return newAppServerSession(ctx, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, extraEnv, codexHome, systemPrompt, appendPrompt)
 	}
 	if codexHome != "" {

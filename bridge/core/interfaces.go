@@ -604,6 +604,14 @@ type ContextCompressor interface {
 	CompressCommand() string
 }
 
+// NativeContextCompressor compacts a persisted conversation without sending a
+// slash command as user text. It must not create a replacement conversation and
+// must return only after confirmed completion (or error/cancellation).
+// The engine owns the session lock and closes any idle live reader first.
+type NativeContextCompressor interface {
+	CompactSession(ctx context.Context, sessionID string) error
+}
+
 // AgentSessionCanceller is an optional interface for agent sessions that support
 // cancelling the current turn without terminating the session or its underlying
 // process. When implemented, the engine calls CancelTurn instead of Close() for

@@ -237,6 +237,10 @@ func (e *Engine) queueSwitch(key string, p pendingModelSwitch) {
 // applyPendingSwitch runs before an idle turn starts. keys: the session's interactive key and
 // its session key (CC_SESSION_KEY may be either).
 func (e *Engine) applyPendingSwitch(interactiveKey string, keys ...string) {
+	_ = e.applyPendingSwitchOnAgent(e.agent, interactiveKey, keys...)
+}
+
+func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, keys ...string) error {
 	e.modelSwitchMu.Lock()
 	var p pendingModelSwitch
 	found := false
@@ -248,22 +252,21 @@ func (e *Engine) applyPendingSwitch(interactiveKey string, keys ...string) {
 	}
 	e.modelSwitchMu.Unlock()
 	if !found {
-		return
+		return nil
 	}
-	agent := e.agent
 	if p.auto {
 		if e.tiers != nil {
 			e.tiers.clearManual(interactiveKey)
 		}
 		slog.Info("model switch applied", "session", interactiveKey, "auto", true)
-		return
+		return nil
 	}
 	from := modelOf(agent)
 	changed := false
 	if p.model != "" && p.model != from {
 		if _, err := e.switchModelOnAgent(agent, p.model, false); err != nil {
 			slog.Warn("model switch failed", "session", interactiveKey, "model", p.model, "error", err)
-			return
+			return err
 		}
 		changed = true
 	}
@@ -278,9 +281,12 @@ func (e *Engine) applyPendingSwitch(interactiveKey string, keys ...string) {
 	}
 	if !changed {
 		slog.Info("model switch: already on the requested model", "session", interactiveKey, "model", from)
-		return // nothing to restart
+		return nil // nothing to restart
 	}
-	e.cleanupInteractiveState(interactiveKey)
+	// Applying a queued model is part of native compaction setup when called
+	// from /compact; preserve its cancellation record while closing the reader.
+	e.cleanupInteractiveState(interactiveKey, nil)
 	e.sessions.Save()
 	slog.Info("model switch applied", "session", interactiveKey, "from", from, "to", modelOf(agent), "effort", p.effort)
+	return nil
 }

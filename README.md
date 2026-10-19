@@ -113,3 +113,7 @@ go test -tags no_web ./...
 实际语音识别和合成另需 [语音依赖](companion/requirements-voice.txt)、[TTS 依赖](companion/requirements-tts.txt) 及本地模型；基础测试不下载模型。no_web 不包含上游网页控制台。历史 Go 测试问题及修复证据见 [基线记录](docs/GO_TEST_BASELINE.md)。
 
 主分支已通过 [#2](https://github.com/Zssan12/conest/issues/2) 移除旧实例的隐式绑定，语音与活动需要明确配置角色、频道／会话、桥接和数据目录。按 [独立实例指南](docs/INSTANCE_SETUP.md) 准备配置与依赖，再按交接核对现有服务；拉取源码不会升级正在运行的实例。仓库尚不是克隆即用的一键安装包。
+
+## Codex 手动压缩
+
+Codex 已有会话可用 /compact 或 /compress 调用原生压缩接口，普通聊天后端无需迁移。支持 /stop 取消，忙碌时拒绝并发操作；容量不足时先 /model 选择可用模型。见 [原生压缩说明](docs/CODEX_COMPACT.md)。此源码功能尚未部署到旧实例。

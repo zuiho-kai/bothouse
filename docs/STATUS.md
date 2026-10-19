@@ -67,3 +67,7 @@ Go测试基线已通过修复验证；独立实例配置、真实电脑语音/�
 | 核对真实活动结果 | [#7 活动与日报](https://github.com/Zssan12/conest/issues/7) |
 | 电脑验收后推进 | [#8 多AI陪伴实体原型](https://github.com/Zssan12/conest/issues/8) |
 | 补齐来源资料 | [#9 许可与归属](https://github.com/Zssan12/conest/issues/9) |
+
+## 2026-10-19：Codex 原生手动压缩（#85）
+
+源码新增 /compact 原生 RPC 路径，适配 exec 与 app_server 配置，保留原 thread 和桥接历史，支持忙碌拒绝与取消。尚未部署或完成真实供应商/Discord 验收；证据与边界见 [CODEX_COMPACT.md](CODEX_COMPACT.md)。

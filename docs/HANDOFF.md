@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-19：Issue #85 原生 Codex /compact 在 feat/codex-native-compact 独立工作区实现。说明与验收边界见 [CODEX_COMPACT.md](CODEX_COMPACT.md)。当前未部署，未改原会话或生产进程。
+
 ## 2026-10-19：#53 Gemini 与 Grok 角色资产打包与上板预算验证（分支 feat/53-gemini-grok-board-assets）
 
 - **背景与目标**：大豆包（Gemini）验证另外两个角色（Gemini 与 Grok）能否上板。扩展 `firmware/esp32s3/tools/pack_assets.py`，支持按角色定制截取规则（Gemini 与 Grok 的 `idle` 是完整的 4 秒闭合循环，取 4.0s，不需要像 G哥 那样截 2.5s；`listening`, `thinking`, `speaking` 保持 4.0s 完整循环）。执行实测打包，验证能否装入 7 MiB 预算并如实汇报。
