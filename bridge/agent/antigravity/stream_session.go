@@ -315,7 +315,7 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 		if !succeeded {
 			succeeded, failure = s.verifyFailedTurn(ev)
 			if succeeded {
-				slog.Warn("antigravity: ignored historical CLI error after current-turn verification", "turn_start", s.turn.start, "turn_end", s.turn.last)
+				slog.Warn("antigravity: CLI reported failure but the native turn completed cleanly; treating as success", "turn_start", s.turn.start, "turn_end", s.turn.last)
 			}
 		}
 		s.finishTurnLocked()

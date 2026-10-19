@@ -92,6 +92,42 @@ func runTurnStatusFixture(t *testing.T, trajectory, resultError, status, respons
 	}
 }
 
+// A CLI ERROR is overruled only by a native record of a clean current turn,
+// whatever text the CLI attached (unknown, empty or not seen before).
+func TestStreamSession_CleanNativeTurnOverridesCLIError(t *testing.T) {
+	for _, tc := range []struct{ name, trajectory, err string }{
+		{"unknown-error", recoveredTrajectory, "new failure"},
+		{"no-error-detail", recoveredTrajectory, ""},
+		{"no-matching-history", strings.ReplaceAll(recoveredTrajectory, historicalError, "other old error"), historicalError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runTurnStatusFixture(t, tc.trajectory, tc.err, "ERROR", "CONEST_PROBE_OK", true, 200)
+		})
+	}
+}
+
+// agy may still be writing the turn when the result arrives; re-read until idle.
+func TestStreamSession_VerificationWaitsForIdleTrajectory(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			_, _ = io.WriteString(w, strings.ReplaceAll(recoveredTrajectory, "CASCADE_RUN_STATUS_IDLE", "CASCADE_RUN_STATUS_RUNNING"))
+			return
+		}
+		_, _ = io.WriteString(w, recoveredTrajectory)
+	}))
+	defer server.Close()
+	s := &streamSession{quota: &nativeQuota{pid: 123, address: server.URL, csrf: "fixture-csrf"}}
+	evidence := streamTurnEvidence{conversationID: "fixture-conversation", start: 2, last: 4, seen: true, finalResponse: true}
+	trajectory, err := s.settledTrajectory(context.Background(), evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason := trajectory.currentTurnRejection(evidence, "CONEST_PROBE_OK"); reason != "" || calls.Load() != 2 {
+		t.Fatalf("reason=%q calls=%d", reason, calls.Load())
+	}
+}
+
 func TestStreamSession_HistoricalErrorVerificationFailsClosed(t *testing.T) {
 	for _, tc := range []struct {
 		name, trajectory, err, status, response string
@@ -99,15 +135,12 @@ func TestStreamSession_HistoricalErrorVerificationFailsClosed(t *testing.T) {
 	}{
 		{"current-error", strings.Replace(recoveredTrajectory, `"CORTEX_STEP_TYPE_SYSTEM_MESSAGE"`, `"CORTEX_STEP_TYPE_ERROR_MESSAGE"`, 1), historicalError, "ERROR", "CONEST_PROBE_OK", 200},
 		{"current-tool-failed", strings.Replace(recoveredTrajectory, `"type":"CORTEX_STEP_TYPE_SYSTEM_MESSAGE","status":"CORTEX_STEP_STATUS_DONE"`, `"type":"CORTEX_STEP_TYPE_RUN_COMMAND","status":"CORTEX_STEP_STATUS_ERROR"`, 1), historicalError, "ERROR", "CONEST_PROBE_OK", 200},
-		{"unknown-error", recoveredTrajectory, "new failure", "ERROR", "CONEST_PROBE_OK", 200},
-		{"no-error-detail", recoveredTrajectory, "", "ERROR", "CONEST_PROBE_OK", 200},
 		{"empty-answer", recoveredTrajectory, historicalError, "ERROR", "", 200},
 		{"different-answer", recoveredTrajectory, historicalError, "ERROR", "different response", 200},
 		{"running", strings.ReplaceAll(recoveredTrajectory, "CASCADE_RUN_STATUS_IDLE", "CASCADE_RUN_STATUS_RUNNING"), historicalError, "ERROR", "CONEST_PROBE_OK", 200},
 		{"truncated", strings.Replace(recoveredTrajectory, `"numTotalSteps":5`, `"numTotalSteps":8`, 1), historicalError, "ERROR", "CONEST_PROBE_OK", 200},
 		{"wrong-conversation", strings.ReplaceAll(recoveredTrajectory, "fixture-conversation", "other"), historicalError, "ERROR", "CONEST_PROBE_OK", 200},
 		{"cancelled", recoveredTrajectory, historicalError, "CANCELLED", "CONEST_PROBE_OK", 200},
-		{"no-matching-history", strings.ReplaceAll(recoveredTrajectory, historicalError, "other old error"), historicalError, "ERROR", "CONEST_PROBE_OK", 200},
 		{"unknown-stop", strings.ReplaceAll(recoveredTrajectory, "STOP_REASON_STOP_PATTERN", "STOP_REASON_MAX_TOKENS"), historicalError, "ERROR", "CONEST_PROBE_OK", 200},
 		{"rpc-failed", `private fixture credential`, historicalError, "ERROR", "CONEST_PROBE_OK", 500},
 		{"rpc-malformed", `not json`, historicalError, "ERROR", "CONEST_PROBE_OK", 200},

@@ -1,5 +1,12 @@
 # 共栖当前交接
 
+## 2026-10-19：PR #71 失败保留与核验超时修复（未部署）
+
+- G哥在原 PR head 2e69ca3e 上接手：当前轮命令 DONE 但 exitCode 非零时保留失败；额度/轨迹查询等待互斥锁也响应调用者的 context，核验重试共用原来的10秒预算。
+- 两条审核复现原样收进 review71_regression_test.go，修复前均失败、修复后通过；锁竞争复现从12.107秒超限变成10秒预算内返回（测试清理等待独立额度请求，整项用例仍约12秒）。另补取消与锁释放回归。
+- 验证：go build -tags no_web ./...、go test -tags no_web -p 1 -count=1 ./...、go test -race -tags no_web ./agent/antigravity -count=1 均通过；最终远端 CI 另看 PR 页面。
+- 仅推送 #71 分支供复审，合并与桥接重启由 C酱另行安排；未操作8796或运行中的桥接。
+
 2026-10-19：Issue #85 原生 Codex /compact 在 feat/codex-native-compact 独立工作区实现。说明与验收边界见 [CODEX_COMPACT.md](CODEX_COMPACT.md)。当前未部署，未改原会话或生产进程。
 
 ## 2026-10-19：#53 Gemini 与 Grok 角色资产打包与上板预算验证（分支 feat/53-gemini-grok-board-assets）

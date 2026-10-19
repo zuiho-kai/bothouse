@@ -45,6 +45,31 @@ func newNativeQuota() (*nativeQuota, error) {
 
 func (q *nativeQuota) close() { q.mu.Lock(); q.closed = true; q.address = ""; q.mu.Unlock() }
 
+// lock includes contention with quota/trajectory RPCs in the caller's budget.
+// No waiter goroutine is left behind after cancellation. Callers unlock q.mu.
+func (q *nativeQuota) lock(ctx context.Context) error {
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if q.mu.TryLock() {
+			// Cancellation can race with acquisition; do not start another RPC.
+			if err := ctx.Err(); err != nil {
+				q.mu.Unlock()
+				return err
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
+}
+
 type quotaSummary struct {
 	Response struct {
 		Groups []struct {
@@ -61,7 +86,9 @@ type quotaSummary struct {
 }
 
 func (q *nativeQuota) get(ctx context.Context, model string) (*core.UsageReport, error) {
-	q.mu.Lock()
+	if err := q.lock(ctx); err != nil {
+		return nil, fmt.Errorf("antigravity: waiting for native quota: %w", err)
+	}
 	defer q.mu.Unlock()
 	if q.closed || q.pid <= 0 {
 		return nil, nil

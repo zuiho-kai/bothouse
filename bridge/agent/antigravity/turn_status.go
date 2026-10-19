@@ -95,58 +95,137 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 		status = "UNKNOWN"
 	}
 	failure := fmt.Errorf("antigravity: stream turn failed (%s)", status)
-	if r.Status != "ERROR" || strings.TrimSpace(r.Response) == "" || s.quota == nil ||
-		!t.seen || t.invalid || !t.finalResponse || t.conversationID != r.ConversationID || t.conversationID != s.CurrentSessionID() {
+	reject := func(reason string) (bool, error) {
+		// Reason codes only: no provider error, response, trajectory or credentials.
+		slog.Info("antigravity: retaining CLI failure", "reason", reason, "turn_start", t.start, "turn_end", t.last)
 		return false, failure
+	}
+	switch {
+	case r.Status != "ERROR":
+		return reject("status-" + strings.ToLower(status))
+	case strings.TrimSpace(r.Response) == "":
+		return reject("empty-response")
+	case s.quota == nil:
+		return reject("no-native-session")
+	case !t.seen:
+		return reject("turn-not-seen")
+	case t.invalid:
+		return reject("turn-invalid")
+	case !t.finalResponse:
+		return reject("no-final-response")
+	case t.conversationID != r.ConversationID || t.conversationID != s.CurrentSessionID():
+		return reject("conversation-mismatch")
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
-	trajectory, err := s.quota.trajectory(ctx, t.conversationID)
+	trajectory, err := s.settledTrajectory(ctx, t)
 	if err != nil {
 		// Native transport errors are deliberately content-free. Never log the
 		// provider error, trajectory, response, credentials or reasoning here.
 		slog.Warn("antigravity: cannot verify current turn; retaining CLI failure", "error", err)
 		return false, failure
 	}
-	if !t.failed && strings.TrimSpace(r.Error) != "" && trajectory.confirmsHistoricalError(t, r.Error, r.Response) {
+	// agy can report ERROR for a turn whose every native step completed (it
+	// copies an older errorMessage, or fails after the final answer). The
+	// trajectory, not the CLI status, decides: a clean turn is a success.
+	reason := "stream-step-failed" // the stream itself saw a step fail in this turn
+	if !t.failed {
+		reason = trajectory.currentTurnRejection(t, r.Response)
+	}
+	if reason == "" {
 		return true, nil
 	}
 	if trajectory.confirmsCompletedTaskStop(t, r.Response) {
 		return false, fmt.Errorf("antigravity: manage_task: %w", core.ErrTaskAlreadyCompleted)
 	}
-	return false, failure
+	return reject(reason)
 }
 
-func (n *nativeTrajectory) confirmsHistoricalError(t streamTurnEvidence, resultError, response string) bool {
-	steps := n.Trajectory.Steps
-	if n.Status != "CASCADE_RUN_STATUS_IDLE" || n.Trajectory.CascadeID != t.conversationID ||
-		n.NumTotalSteps != len(steps) || t.start < 1 || t.last <= t.start || t.last != len(steps)-1 {
-		return false
-	}
-	foundHistoricalError := false
-	for _, step := range steps[:t.start] {
-		if step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" && step.ErrorMessage != nil && step.ErrorMessage.Error.ShortError == resultError {
-			foundHistoricalError = true
+// settledTrajectory re-reads the native trajectory while agy is still writing
+// the turn (status not idle yet, or the final step not recorded), so a check
+// racing the CLI's own bookkeeping does not keep a false failure.
+func (s *streamSession) settledTrajectory(ctx context.Context, t streamTurnEvidence) (*nativeTrajectory, error) {
+	const attempts, gap = 4, 750 * time.Millisecond
+	var trajectory *nativeTrajectory
+	var err error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return trajectory, nil
+			case <-time.After(gap):
+			}
+		}
+		trajectory, err = s.quota.trajectory(ctx, t.conversationID)
+		if err != nil {
+			return nil, err
+		}
+		if trajectory.settled(t) {
+			break
 		}
 	}
-	if !foundHistoricalError || steps[t.start].Type != "CORTEX_STEP_TYPE_USER_INPUT" {
-		return false
+	return trajectory, nil
+}
+
+func (n *nativeTrajectory) settled(t streamTurnEvidence) bool {
+	return n.Status == "CASCADE_RUN_STATUS_IDLE" && n.NumTotalSteps == len(n.Trajectory.Steps) && len(n.Trajectory.Steps) > t.last
+}
+
+// currentTurnRejection returns "" when the native record proves the current
+// turn completed cleanly and produced exactly this response; otherwise a
+// content-free reason code.
+func (n *nativeTrajectory) currentTurnRejection(t streamTurnEvidence, response string) string {
+	steps := n.Trajectory.Steps
+	switch {
+	case n.Status != "CASCADE_RUN_STATUS_IDLE":
+		return "trajectory-not-idle"
+	case n.Trajectory.CascadeID != t.conversationID:
+		return "trajectory-wrong-conversation"
+	case n.NumTotalSteps != len(steps):
+		return "trajectory-truncated"
+	case t.start < 1 || t.last <= t.start || t.last != len(steps)-1:
+		return "trajectory-turn-bounds"
+	case steps[t.start].Type != "CORTEX_STEP_TYPE_USER_INPUT":
+		return "trajectory-boundary"
 	}
 	for i, step := range steps[t.start:] {
-		if step.Status != "CORTEX_STEP_STATUS_DONE" || step.Type == "" || step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" ||
-			step.ErrorMessage != nil || (len(step.Error) > 0 && string(step.Error) != "null") ||
-			(i > 0 && step.Type == "CORTEX_STEP_TYPE_USER_INPUT") {
-			return false
+		switch {
+		case step.Type == "" || (i > 0 && step.Type == "CORTEX_STEP_TYPE_USER_INPUT"):
+			return "trajectory-unexpected-step"
+		case step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" || step.ErrorMessage != nil:
+			return "trajectory-error-step"
+		case step.Status != "CORTEX_STEP_STATUS_DONE" || (len(step.Error) > 0 && string(step.Error) != "null"):
+			return "trajectory-step-not-done"
+		case step.RunCommand.ExitCode != nil && *step.RunCommand.ExitCode != 0:
+			// DONE means the command exited, not that it succeeded.
+			return "trajectory-command-failed"
 		}
 	}
 	last := steps[t.last]
 	if last.Type != "CORTEX_STEP_TYPE_PLANNER_RESPONSE" || last.PlannerResponse.StopReason != "STOP_REASON_STOP_PATTERN" {
-		return false
+		return "trajectory-no-final-answer"
 	}
 	// The CLI result adds a trailing newline to the native response. Compare
 	// only surrounding whitespace; do not normalize or infer semantic equality.
 	response = strings.TrimSpace(response)
-	return response != "" && (response == strings.TrimSpace(last.PlannerResponse.Response) || response == strings.TrimSpace(last.PlannerResponse.ModifiedResponse))
+	if response == "" || (response != strings.TrimSpace(last.PlannerResponse.Response) && response != strings.TrimSpace(last.PlannerResponse.ModifiedResponse)) {
+		return "trajectory-response-mismatch"
+	}
+	return ""
+}
+
+// confirmsHistoricalError is the narrower original proof: a clean current turn
+// whose CLI error text equals an error recorded before the turn began.
+func (n *nativeTrajectory) confirmsHistoricalError(t streamTurnEvidence, resultError, response string) bool {
+	if t.failed || n.currentTurnRejection(t, response) != "" {
+		return false
+	}
+	for _, step := range n.Trajectory.Steps[:t.start] {
+		if step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" && step.ErrorMessage != nil && step.ErrorMessage.Error.ShortError == resultError {
+			return true
+		}
+	}
+	return false
 }
 
 // Long conversations exceed 8 MiB as JSON (seen at ~370 steps), which made
@@ -154,7 +233,9 @@ func (n *nativeTrajectory) confirmsHistoricalError(t streamTurnEvidence, resultE
 const nativeTrajectoryLimit = 64 << 20
 
 func (q *nativeQuota) trajectory(ctx context.Context, conversationID string) (*nativeTrajectory, error) {
-	q.mu.Lock()
+	if err := q.lock(ctx); err != nil {
+		return nil, fmt.Errorf("antigravity: waiting for native trajectory: %w", err)
+	}
 	defer q.mu.Unlock()
 	if q.closed || q.pid <= 0 {
 		return nil, errors.New("antigravity: native CLI session unavailable")
