@@ -4,10 +4,13 @@ Issue #104：2026-10-19 肥鱼在 Discord 输出内部过程文字。只读核�
 
 DSH ACP 将 text 映射成 agent_message_chunk，旧桥接直接映射为 EventText。另一处风险是未知 sessionUpdate 只要含 text/message 字段，也会被猜为正文。
 
+Issue #111：同日22:32复现的普通 text 是 analysis 后紧跟裸 summary。#105 已上线，但只过滤前者，遗漏后者；本次会话同样没有 compaction 事件。回归仅使用合成文本复现这条通知路径。
+
 ## 行为
 
 - ACP 通知在送入任何前台或空闲事件消费者之前，流式剔除显式 `<think>`、`<thinking>`、`<analysis>`、`<compacted-summary>` 区块。标签不区分大小写，支持任意分片、嵌套及未闭合区块；剔除内容不会改发成 EventThinking。
 - 正常正文继续流式输出。Markdown 反引号行内代码及反引号/波浪线围栏里的示例保留。原生 agent_thought_chunk 仍遵循既有思考显示配置。
+- 裸 `<summary>` 同样视为私密区块；公开 `<details>` 上下文内的 `<summary>` 保留为折叠标题。支持嵌套 details、大小写、标签空白与带引号属性；属性流式处理，不缓存整段。私密区块和代码示例中的 details 不改变公开上下文。这里是有限标记扫描器，不是完整 HTML DOM 解析器；需要展示裸 summary 标记时应放入代码块。
 - 以公开消息 messageId 变化为新消息边界；无 messageId 的流以 tool_call 为步骤边界。tool_call_update 与原生思考消息不结束当前过滤区块。每轮输入开始及 RPC 终态/错误/取消时清理状态，严格续接的回放保护保留。
 - 仅缓冲短标签前缀，不存储被剔除的正文；嵌套超过32层时当前消息剩余内容全部隐藏。消息边界处未完成的标签前缀也丢弃，避免把半截内部标记作为答案补发。
 - 未知通知类型不再猜作正文。明确支持的 vendor message/message_chunk/text/response 继续兼容。调试日志保留类型与长度，不输出原始通知或 prompt 响应。
@@ -15,6 +18,8 @@ DSH ACP 将 text 映射成 agent_message_chunk，旧桥接直接映射为 EventT
 ## 验证与限制
 
 回归使用合成 PRIVATE 标记，直接经过 onNotification 与模拟 RPC Send/SendResumed；未收录生产对话。覆盖逐字节分片、所有二分切分点、未闭合块后的下一条消息/工具步骤/下一轮、正常中文与HTML、代码示例、取消与RPC失败。原实现回归失败，新实现通过。
+
+#111额外覆盖 analysis+summary 连续区块、summary未闭合及嵌套、details作用域隔离、属性内的闭合符号、闭标签空白、代码示例不改变details上下文。
 
 这不是语义分类器：若上游将完全没有标记的内部文字当成普通正文，桥接不能可靠区分它和用户要求的技术说明；也不猜测新的私有标签或扩展事件。没有消息ID、没有工具边界的连续 text 块被视为同一消息；未闭合内部块会一直隐藏至本轮结束。新增公开事件类型须显式适配并测试。
 

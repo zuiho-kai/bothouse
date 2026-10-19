@@ -38,6 +38,8 @@ func TestPrivateOutput_NotificationBoundary(t *testing.T) {
 		{"<thi", "nking>PRIVATE", "</thin", "king>答复"},
 		{"<thinking> </thinking>\n<thinking>PRIVATE never closed"},
 		{"<analysis>PRIVATE</analysis>答复"},
+		{"<analysis>PRIVATE</analysis>\n<summary>PRIVATE summary</summary>答复"},
+		{"<summary>PRIVATE never closed"},
 		{"<compacted-summary>PRIVATE</compacted-summary>答复"},
 	} {
 		s := privateOutputSession()
@@ -82,6 +84,18 @@ func TestPrivateOutput_AllChunkBoundaries(t *testing.T) {
 		{"unclosed", "<thinking>PRIVATE", ""},
 		{"partial marker", "答复<compacted-sum", "答复"},
 		{"summary", "<compacted-summary>PRIVATE</compacted-summary>好", "好"},
+		{"bare summary", "<analysis>PRIVATE</analysis>\n<summary>PRIVATE</summary>好", "\n好"},
+		{"summary attributes", "<SUMMARY kind='internal>memo'>PRIVATE</SUMMARY \n>好", "好"},
+		{"summary nested", "<summary>PRIVATE<summary>PRIVATE</summary>PRIVATE</summary>好", "好"},
+		{"summary unclosed", "前<summary>PRIVATE", "前"},
+		{"hidden details", "<summary><details><summary>PRIVATE</summary></details>PRIVATE</summary><summary>PRIVATE</summary>好", "好"},
+		{"hidden details close", "<details><analysis></details>PRIVATE</analysis><summary>标题</summary></details>", "<details><summary>标题</summary></details>"},
+		{"details", "<details><summary>标题</summary>正文</details><summary>PRIVATE</summary>好", "<details><summary>标题</summary>正文</details>好"},
+		{"details attributes", "<DETAILS open title='a>b'><SUMMARY class=title>标题</SUMMARY \t>正文</DETAILS \n><summary>PRIVATE</summary>", "<DETAILS open title='a>b'><SUMMARY class=title>标题</SUMMARY \t>正文</DETAILS \n>"},
+		{"nested details", "<details><summary>外</summary><details open><summary>内</summary></details><summary>外</summary></details><summary>PRIVATE</summary>", "<details><summary>外</summary><details open><summary>内</summary></details><summary>外</summary></details>"},
+		{"similar names", "<details-extra>正文</details-extra><summary>PRIVATE</summary>", "<details-extra>正文</details-extra>"},
+		{"summary inline example", tick + "<details><summary>示例</summary></details>" + tick + "<summary>PRIVATE</summary>好", tick + "<details><summary>示例</summary></details>" + tick + "好"},
+		{"summary fence example", "~~~html\n<details><summary>示例</summary>\n~~~\n<summary>PRIVATE</summary>好", "~~~html\n<details><summary>示例</summary>\n~~~\n好"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,9 +118,21 @@ func TestPrivateOutput_AllChunkBoundaries(t *testing.T) {
 	}
 }
 
+func TestPrivateOutput_SummaryContextMessageBoundary(t *testing.T) {
+	for _, first := range []string{"<details><summary>公开</summary>", "<summary>PRIVATE", "<summary title='"} {
+		s := privateOutputSession()
+		privateOutputNotify(s, "agent_message_chunk", "m1", first)
+		privateOutputAnswer(s)
+		privateOutputNotify(s, "agent_message_chunk", "m2", "<summary>PRIVATE</summary>好")
+		if got := privateOutputAnswer(s); got != "好" {
+			t.Fatalf("message inherited context: %q", got)
+		}
+	}
+}
+
 func TestPrivateOutput_NoIDToolBoundaryAndThought(t *testing.T) {
 	s := privateOutputSession()
-	privateOutputNotify(s, "agent_message_chunk", "", "<thinking>PRIVATE")
+	privateOutputNotify(s, "agent_message_chunk", "", "<summary>PRIVATE")
 	privateOutputNotify(s, "agent_thought_chunk", "", "native reasoning")
 	privateOutputNotify(s, "tool_call_update", "", "")
 	privateOutputNotify(s, "agent_message_chunk", "", "PRIVATE continuation")
@@ -145,7 +171,7 @@ func TestPrivateOutput_PromptCompletionAndErrors(t *testing.T) {
 						if dec.Decode(&req) != nil {
 							return
 						}
-						body := "<thinking>PRIVATE without close"
+						body := "<summary>PRIVATE without close"
 						if i == 1 {
 							body = "下一轮正常回复"
 						}
@@ -213,7 +239,7 @@ func TestPrivateOutput_CancelledTransportClearsState(t *testing.T) {
 			return
 		}
 		enc := json.NewEncoder(responses)
-		_ = enc.Encode(inputUpdate("test-session-id", "<thinking>PRIVATE"))
+		_ = enc.Encode(inputUpdate("test-session-id", "<summary>PRIVATE"))
 		// A non-text event proves the reader has consumed the preceding hidden block.
 		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{
 			"sessionId": "test-session-id", "update": map[string]any{"sessionUpdate": "agent_thought_chunk", "text": "barrier"},

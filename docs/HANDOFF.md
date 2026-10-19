@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-19：Issue #111 补齐 #105 遗漏的裸summary私密区块，保留公开details/summary与代码示例。普通text的analysis后接summary已用真实通知形状的合成回归复现旧版失败；现场仍无compaction事件。分支fix/111-acp-summary-output；此条是源码记录，生产部署另在统一交接记账。发布须保留Claude strict补丁20c79756；用户已授权此次中断任务部署，无需再次等全闲。
+
 2026-10-19：Issue #104 修复 ACP 普通 text 内显式私密区块泄漏、未知通知被猜为正文。现场没有压缩事件；流式边界与限制见 [ACP_PRIVATE_OUTPUT.md](ACP_PRIVATE_OUTPUT.md)。合成回归红→绿，独立分支 fix/104-acp-private-output；本条仅记录源码，尚未部署。发布必须保留线上 Claude strict 额外提交20c79756，等待所有忙碌伙伴结束。
 
 2026-10-19：#94 修复 Codex exec 提前交付终态、历史 stderr 串轮与重复写入者。独立工作区 conest-codex-writer；原 thread 保留，部署须检查实际写锁。实现与回归边界见 [CODEX_EXEC_LIFECYCLE.md](CODEX_EXEC_LIFECYCLE.md)。本条为源码记录，尚未部署。
