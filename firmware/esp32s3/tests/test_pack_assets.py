@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import sys
@@ -190,8 +191,8 @@ class WebParityTests(unittest.TestCase):
         got = {seg.name: (seg.start, seg.end) for seg in segs}
 
         idle_start, idle_end = got["idle"]
-        self.assertAlmostEqual(idle_start, 6.9, places=3)
-        self.assertAlmostEqual(idle_end, 9.65, places=3)
+        self.assertAlmostEqual(idle_start, 4.65, places=3)
+        self.assertAlmostEqual(idle_end, 7.15, places=3)
         self.assertGreaterEqual(idle_end - idle_start, pa.IDLE_SEARCH_MIN - 1e-6)
         self.assertLessEqual(idle_end - idle_start, pa.IDLE_SEARCH_MAX + 1e-6)
 
@@ -200,6 +201,31 @@ class WebParityTests(unittest.TestCase):
                           ("thinking", "thinking_question"),
                           ("speaking", "speaking")):
             self.assertEqual(got[name], (self.clips[key].start, self.clips[key].end))
+
+    def test_idle_range_actually_has_a_blink(self):
+        """idle 必须有动作。
+
+        这版 idle 整段不是闭合循环，"首尾差最小"会选出几乎静止的一段
+        （6.90–9.65，峰值 8.14 级），待机画面就不动了。默认区间必须含眨眼。
+        这条用例锁住这个取舍，防止以后有人只按首尾差把默认值改回去。
+        """
+        start, end = pa.BOARD_PLAN["idle"]["range"]
+        clip = self.clips["idle"]
+        path = self.chars / Path(clip.src).name
+        ffmpeg = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("没有 ffmpeg，跳过")
+        w, h, duration = pa.probe_video(ffmpeg, path)
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = pa.Segment(name="idle", clip=clip, src_path=path,
+                               src_w=w, src_h=h, src_duration=duration,
+                               start=start, end=end, fps=12)
+            pngs = pa.FrameCache(ffmpeg, Path(tmp)).frames(probe, 12)
+            frames = [pa.render_frame(Image.open(p), clip) for p in pngs]
+        moves = [pa.frame_delta(frames[i - 1], frames[i])
+                 for i in range(1, len(frames))]
+        self.assertGreaterEqual(max(moves), 12.0,
+                                "默认 idle 区间里没有眨眼（动作峰 <12 级）")
 
     def test_idle_range_stays_inside_the_web_clip(self):
         """只缩板端这一份，不能越出 source.html 里 idle 的取用区间。"""
@@ -405,8 +431,8 @@ class EndToEndTests(unittest.TestCase):
             segments = pa.unpack(blob)
             self.assertEqual([s.name for s in segments],
                              ["idle", "listening", "thinking", "speaking"])
-            # 预算给足时用起始档 12fps：2.75s→33、4.04s→49、3.96s→48、4.04s→49。
-            self.assertEqual([len(seg.frames) for seg in segments], [33, 49, 48, 49])
+            # 预算给足时用起始档 12fps：2.50s→30、4.04s→49、3.96s→48、4.04s→49。
+            self.assertEqual([len(seg.frames) for seg in segments], [30, 49, 48, 49])
             self.assertEqual([seg.fps for seg in segments], [12, 12, 12, 12])
             for seg in segments:
                 self.assertGreater(len(seg.frames), 0)
@@ -438,7 +464,7 @@ class EndToEndTests(unittest.TestCase):
 
             segments = pa.unpack(blob)
             self.assertEqual([seg.fps for seg in segments], [10, 10, 10, 10])
-            self.assertEqual([len(seg.frames) for seg in segments], [28, 41, 40, 41])
+            self.assertEqual([len(seg.frames) for seg in segments], [25, 41, 40, 41])
 
     def test_budget_is_enforced_instead_of_silently_exceeded(self):
         with tempfile.TemporaryDirectory() as tmp:

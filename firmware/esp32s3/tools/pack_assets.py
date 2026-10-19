@@ -68,10 +68,14 @@ STATE_CLIPS = (
 # 整圈循环，截一半会在循环接缝处跳帧，所以一律不截。
 # `range=(start, end)` 是显式区间（绝对秒数），`--board-range` 可覆盖。
 BOARD_PLAN = {
-    # 由 --auto-idle-range 在 idle 原片 4.65–9.90s 里搜出来的最优区间：
-    # 2.75s，首尾帧平均差 9.30 级（2.0~3.0s 候选里最小）。
-    # 复核：tools/pack_assets.py --auto-idle-range
-    "idle": {"range": (6.9, 9.65)},
+    # idle 从 source.html 的起点 4.65s 取 2.5s，含完整一次眨眼（动作峰值 19.38 级）。
+    #
+    # 为什么不用 --auto-idle-range 的首尾差最优解（6.90–9.65，9.30 级）：
+    # 这版 idle 整段 4.65–9.90s 本身不是闭合循环，想要有眨眼就必然首尾不接；
+    # 只按首尾差最小搜，会选出几乎静止的一段（峰值只有 8.14 级），
+    # 待机画面就不动了。两者不可兼得，这里选「有动作」。
+    # 复核：tools/pack_assets.py --auto-idle-range 会把两个指标都打出来。
+    "idle": {"range": (4.65, 7.15)},
     "listening": {"full": True},
     "thinking": {"full": True},
     "speaking": {"full": True},
@@ -395,7 +399,8 @@ def frame_delta(a: Image.Image, b: Image.Image) -> float:
 def find_idle_range(ffmpeg: str, clip: Clip, src_path: Path, src_w: int, src_h: int,
                     src_duration: float, workdir: Path, fps: int = 12,
                     min_len: float = IDLE_SEARCH_MIN,
-                    max_len: float = IDLE_SEARCH_MAX) -> tuple[float, float, float]:
+                    max_len: float = IDLE_SEARCH_MAX
+                    ) -> tuple[float, float, float, float]:
     """在 idle 原片里找首尾帧最接近的一段。
 
     候选区间长度在 ``min_len``~``max_len`` 之间，按 12fps 的帧格走；对每个
@@ -414,7 +419,9 @@ def find_idle_range(ffmpeg: str, clip: Clip, src_path: Path, src_w: int, src_h: 
     rendered = [render_frame(Image.open(p), clip) for p in pngs]
 
     step = 1.0 / fps
-    best: tuple[float, float, float] | None = None
+    # 相邻帧差：用来判断这段里到底有没有动作（眨眼是大峰）。
+    moves = [frame_delta(rendered[i - 1], rendered[i]) for i in range(1, len(rendered))]
+    best: tuple[float, float, float, float] | None = None
     lengths = []
     length = min_len
     while length <= max_len + 1e-9:
@@ -427,8 +434,9 @@ def find_idle_range(ffmpeg: str, clip: Clip, src_path: Path, src_w: int, src_h: 
                 continue
             delta = frame_delta(rendered[index], rendered[last])
             if best is None or delta < best[2]:
+                peak = max(moves[index:last - 1]) if last - 1 > index else 0.0
                 start_t = span_start + index * step
-                best = (start_t, start_t + length, delta)
+                best = (start_t, start_t + length, delta, peak)
     if best is None:
         raise PackError(
             f"idle 里找不到 {min_len}~{max_len}s 的候选区间"
@@ -703,11 +711,16 @@ def build(args: argparse.Namespace) -> int:
         if "idle" not in overrides and not args.full_length:
             if args.auto_idle_range:
                 iw, ih, idur = probe_video(ffmpeg, idle_path)
-                start, end, delta = find_idle_range(
+                start, end, delta, peak = find_idle_range(
                     ffmpeg, idle_clip, idle_path, iw, ih, idur, workdir)
                 overrides["idle"] = (start, end)
-                print(f"idle 自动选段：{start:.3f}s–{end:.3f}s"
-                      f"（{end - start:.2f}s，首尾帧平均差 {delta:.2f} 级）")
+                print(f"idle 自动选段：{start:.3f}s–{end:.3f}s（{end - start:.2f}s，"
+                      f"首尾帧平均差 {delta:.2f} 级，段内最大动作 {peak:.2f} 级）")
+                if peak < 12:
+                    print("  注意：这一段几乎没有动作（眨眼峰一般 ≥12 级），"
+                          "待机画面会基本静止。")
+                    print("  这版 idle 整段不是闭合循环，想要有眨眼就必然首尾不接；"
+                          "两者不可兼得时请用 --board-range 显式指定。")
                 print()
 
         segments = select_segments(clips, character_dir, args.thinking, args.extras,
