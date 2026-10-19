@@ -4926,7 +4926,11 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 			case EventError:
 				if event.Error != nil {
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
-					e.send(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgError), event.Error))
+					userMsg := fmt.Sprintf(e.i18n.T(MsgError), event.Error)
+					if errors.Is(event.Error, ErrNoPublicAnswer) {
+						userMsg = e.i18n.T(MsgNoPublicAnswer)
+					}
+					e.send(p, replyCtx, userMsg)
 				}
 				state.mu.Lock()
 				state.eventsNeedResync = true
@@ -6381,6 +6385,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				userMsg := fmt.Sprintf(e.i18n.T(MsgError), detail)
 				if errors.Is(event.Error, ErrEmptyAgentResponse) {
 					userMsg = e.i18n.T(MsgEmptyAgentResponse)
+				}
+				if errors.Is(event.Error, ErrNoPublicAnswer) {
+					userMsg = e.i18n.T(MsgNoPublicAnswer)
 				}
 				for _, h := range agentErrorHandlers {
 					if strings.Contains(errMsg, h.contains) {

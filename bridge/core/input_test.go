@@ -549,7 +549,7 @@ func TestLocalInputResumeFailureNeverFallsBack(t *testing.T) {
 	}
 }
 func TestLocalInputPartialFailureAndSilent(t *testing.T) {
-	for _, kind := range []string{"error", "closed", "wrong-event", "send-error", "nonterminal", "silent"} {
+	for _, kind := range []string{"error", "private-only", "closed", "wrong-event", "send-error", "nonterminal", "silent"} {
 		t.Run(kind, func(t *testing.T) {
 			api, _, a, p, s := inputFixture(t)
 			if kind == "send-error" {
@@ -558,6 +558,8 @@ func TestLocalInputPartialFailureAndSilent(t *testing.T) {
 			inputPost(api, inputReq("r", "voice"))
 			inputPrompt(t, a)
 			switch kind {
+			case "private-only":
+				a.session.events <- Event{Type: EventError, Error: ErrNoPublicAnswer}
 			case "error":
 				a.session.events <- Event{Type: EventText, Content: "partial"}
 				a.session.events <- Event{Type: EventError, Content: "answer after tool failure", Error: errors.New("failed after partial")}

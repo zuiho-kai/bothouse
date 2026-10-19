@@ -12,6 +12,7 @@ type privateOutput struct {
 	pending      string
 	stack        []string
 	sealed       bool // excessive nesting fails closed until the next message
+	suppressed   bool // an explicit private opening tag was recognized
 	markdown     codeLiteral
 	detailsDepth int
 	tag          *outputTag
@@ -52,6 +53,9 @@ func (f *privateOutput) feed(text string) string {
 				if len(candidate) == len(marker)+1 && strings.HasPrefix(candidate, marker) && (c == '>' || tagSpace(c)) {
 					public := len(f.stack) == 0 && (tag == "details" || tag == "summary" && f.detailsDepth > 0)
 					f.tag = &outputTag{name: tag, close: close, public: public}
+					if !public && !close && tag != "details" {
+						f.suppressed = true
+					}
 					if public {
 						out.WriteString(f.pending[:len(f.pending)-1])
 					}
@@ -198,8 +202,19 @@ func (m *codeLiteral) endRun() {
 	m.runWidth = 0
 }
 
-func (s *acpSession) resetPrivateOutput() {
+// These facts span the whole prompt, including message/tool filter resets.
+// No hidden content is retained. Completion takes a snapshot at the RPC reader
+// boundary so later notifications cannot change the completed turn's outcome.
+type privateOutputTurn struct {
+	suppressed bool
+	public     bool
+}
+
+func (s *acpSession) resetPrivateOutput() privateOutputTurn {
 	s.outputMu.Lock()
+	turn := s.outputTurn
 	s.outputFilter, s.outputMessageID = privateOutput{}, ""
+	s.outputTurn = privateOutputTurn{}
 	s.outputMu.Unlock()
+	return turn
 }

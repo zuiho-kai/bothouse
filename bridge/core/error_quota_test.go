@@ -28,16 +28,18 @@ func (a *errorQuotaAgent) GetModel() string { return "gemini-3.8-flash-medium" }
 
 func TestCUJ_ErrorQuota_FailureQueueAndRecovery(t *testing.T) {
 	for _, tc := range []struct {
-		name, want string
-		used       int
-		noData     bool
-		err        error
-		hideFooter bool
-		hideStatus bool
-		cacheUsage bool
-		taskDone   bool
+		name, want  string
+		used        int
+		noData      bool
+		err         error
+		hideFooter  bool
+		hideStatus  bool
+		cacheUsage  bool
+		taskDone    bool
+		privateOnly bool
 	}{
 		{name: "measured", used: 17, want: "额度剩余 83%"},
+		{name: "private_only_queue_recovery", used: 17, want: "额度剩余 83%", privateOnly: true},
 		{name: "completed_task_stop", used: 17, want: "额度剩余 83%", taskDone: true},
 		{name: "exhausted", used: 100, want: "额度剩余 0%"},
 		{name: "query_failed", err: errors.New("quota offline"), want: "额度查询失败"},
@@ -95,16 +97,25 @@ func TestCUJ_ErrorQuota_FailureQueueAndRecovery(t *testing.T) {
 				diagnostic = ErrTaskAlreadyCompleted
 				marker = "尝试停止一个已成功结束的命令任务，停止操作被拒绝。"
 			}
+			if tc.privateOnly {
+				partial, diagnostic, marker = "", ErrNoPublicAnswer, "模型未生成公开答复"
+			}
 			as.events <- Event{Type: EventError, Content: partial, Error: diagnostic}
 			waitPrompt() // Queue advancement proves the error send is complete.
 			failure := strings.Join(p.getSent(), "\n")
 			checkFailure(failure, marker)
-			if !strings.Contains(failure, "partial answer") {
-				t.Error("partial response lost")
-			}
-			answerIndex := strings.Index(failure, "partial answer")
-			if answerIndex < 0 || strings.Index(failure, marker) < answerIndex || strings.Count(failure, marker) != 1 || !strings.Contains(failure, "⚠️") || strings.Contains(failure, "❌") {
-				t.Error("answer must precede one separate failure notice, without an error prefix")
+			if tc.privateOnly {
+				if strings.Count(failure, marker) != 1 || strings.Contains(failure, "(空响应)") {
+					t.Fatal("queued recovery lost or duplicated the private-only warning")
+				}
+			} else {
+				if !strings.Contains(failure, "partial answer") {
+					t.Error("partial response lost")
+				}
+				answerIndex := strings.Index(failure, "partial answer")
+				if answerIndex < 0 || strings.Index(failure, marker) < answerIndex || strings.Count(failure, marker) != 1 || !strings.Contains(failure, "⚠️") || strings.Contains(failure, "❌") {
+					t.Error("answer must precede one separate failure notice, without an error prefix")
+				}
 			}
 			if tc.want != "" {
 				parts := p.getSent()
@@ -121,6 +132,17 @@ func TestCUJ_ErrorQuota_FailureQueueAndRecovery(t *testing.T) {
 			inputWait(t, func() bool { return !s.Busy() })
 			checkFailure(strings.Join(p.getSent(), "\n"), "后端结束了本轮")
 			p.clearSent()
+			send("private-only-result")
+			waitPrompt()
+			as.events <- Event{Type: EventError, Error: ErrNoPublicAnswer}
+			inputWait(t, func() bool { return !s.Busy() })
+			privateFailure := strings.Join(p.getSent(), "\n")
+			checkFailure(privateFailure, "模型未生成公开答复")
+			if strings.Count(privateFailure, "模型未生成公开答复") != 1 || strings.Contains(privateFailure, "(空响应)") ||
+				!strings.Contains(privateFailure, "工具操作可能已执行") || s.GetAgentSessionID() != as.id {
+				t.Fatal("private-only reply needs one actionable warning and the original session")
+			}
+			p.clearSent()
 			send("provider-empty-error")
 			waitPrompt()
 			as.events <- Event{Type: EventError, Error: errors.New("antigravity: stream turn failed (ERROR): ")}
@@ -135,7 +157,7 @@ func TestCUJ_ErrorQuota_FailureQueueAndRecovery(t *testing.T) {
 					}
 				}
 			}
-			if assistantTurns != 1 || as.normal.Load() != 4 {
+			if assistantTurns != 1 || as.normal.Load() != 5 {
 				t.Fatal("error recovery changed history or automatically retried a turn")
 			}
 		})

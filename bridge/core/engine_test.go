@@ -14181,54 +14181,64 @@ func TestUnsolicitedReader_SetsResyncOnChannelClose(t *testing.T) {
 // TestUnsolicitedReader_SetsResyncOnEventError verifies that EventError
 // sets eventsNeedResync to true and relays the error.
 func TestUnsolicitedReader_SetsResyncOnEventError(t *testing.T) {
-	p := &stubPlatformEngine{n: "test"}
-	sess := newControllableSession("unsol-error")
-	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
-	defer e.Stop()
+	for _, tc := range []struct {
+		name, want string
+		err        error
+	}{
+		{"generic", "something broke", errors.New("something broke")},
+		{"private_only", "模型未生成公开答复", fmt.Errorf("wrapped: %w", ErrNoPublicAnswer)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &stubPlatformEngine{n: "test"}
+			sess := newControllableSession("unsol-error")
+			e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangChinese)
+			defer e.Stop()
 
-	sessions := e.sessions
-	session := sessions.GetOrCreateActive("test:error:u1")
+			sessions := e.sessions
+			session := sessions.GetOrCreateActive("test:error:u1")
 
-	state := &interactiveState{
-		agentSession:     sess,
-		platform:         p,
-		replyCtx:         "ctx",
-		eventsNeedResync: false,
-	}
+			state := &interactiveState{
+				agentSession:     sess,
+				platform:         p,
+				replyCtx:         "ctx",
+				eventsNeedResync: false,
+			}
 
-	e.startUnsolicitedReader(state, session, sessions, "test:error:u1", "")
+			e.startUnsolicitedReader(state, session, sessions, "test:error:u1", "")
 
-	state.mu.Lock()
-	doneCh := state.unsolicitedDone
-	state.mu.Unlock()
+			state.mu.Lock()
+			doneCh := state.unsolicitedDone
+			state.mu.Unlock()
 
-	// Send an error event.
-	sess.events <- Event{Type: EventError, Error: errors.New("something broke")}
+			// Send an error event.
+			sess.events <- Event{Type: EventError, Error: tc.err}
 
-	select {
-	case <-doneCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("unsolicited reader did not exit after EventError")
-	}
+			select {
+			case <-doneCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("unsolicited reader did not exit after EventError")
+			}
 
-	state.mu.Lock()
-	resync := state.eventsNeedResync
-	state.mu.Unlock()
-	if !resync {
-		t.Error("expected eventsNeedResync=true after EventError")
-	}
+			state.mu.Lock()
+			resync := state.eventsNeedResync
+			state.mu.Unlock()
+			if !resync {
+				t.Error("expected eventsNeedResync=true after EventError")
+			}
 
-	// Verify error was relayed to platform.
-	sent := p.getSent()
-	found := false
-	for _, s := range sent {
-		if strings.Contains(s, "something broke") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected error to be relayed to platform, got %v", sent)
+			// Verify error was relayed to platform.
+			sent := p.getSent()
+			found := false
+			for _, s := range sent {
+				if strings.Contains(s, tc.want) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected error to be relayed to platform, got %v", sent)
+			}
+		})
 	}
 }
 

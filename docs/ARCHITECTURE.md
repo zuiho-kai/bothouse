@@ -66,3 +66,5 @@ autonomy/__main__.py 读取外部配置和历史状态，判断活动时段，�
 core 通过可选 NativeContextCompressor 能力管理会话锁、排队模型、取消与用户反馈；Codex 适配器负责短生命周期 App Server 和严格终态判断。压缩操作不占用普通提示词通道，不创建替代会话。已有 ContextCompressor 文本命令接口继续用于其他后端。
 
 ACP 的公开输出边界位于适配器通知入口：仅已知消息事件可生成正文，流式剔除显式私密区块后再交给前台/空闲消费者；裸summary隐藏，公开details内的summary与Markdown代码示例保留。不按模型或平台名分支。协议边界与无法识别无标记内部正文的限制见 [ACP_PRIVATE_OUTPUT.md](ACP_PRIVATE_OUTPUT.md)。
+
+正常 end_turn 若整轮只有被隐藏的显式私密区块，ACP 通过通用 ErrNoPublicAnswer 事件报告回复失败。整轮事实在 RPC 读取边界取快照；core 保留错误语义、原会话和待处理消息，不存成功答复、不自动重放工具。模型未提供的答案不能由过滤器补造。

@@ -22,6 +22,11 @@ var ErrNotSupported = errors.New("operation not supported by this platform")
 // It must not be saved as a successful assistant reply or retried automatically.
 var ErrEmptyAgentResponse = errors.New("agent returned no answer")
 
+// ErrNoPublicAnswer marks a completed turn whose explicit internal output was
+// hidden and which provided no public answer. Tools may already have run; this
+// is a failed reply, never a successful history entry or an automatic retry.
+var ErrNoPublicAnswer = errors.New("agent returned only private output, no public answer")
+
 // ErrTaskAlreadyCompleted describes a rejected stop of a completed task.
 // It remains a failure; adapters must establish the task state before using it.
 var ErrTaskAlreadyCompleted = errors.New("task is already completed")

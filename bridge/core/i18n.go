@@ -305,6 +305,7 @@ const (
 	MsgQuotaPending          MsgKey = "quota_pending"
 	MsgQuotaFetchFailed      MsgKey = "quota_fetch_failed"
 	MsgEmptyAgentResponse    MsgKey = "empty_agent_response"
+	MsgNoPublicAnswer        MsgKey = "no_public_answer"
 	MsgModelCurrent          MsgKey = "model_current"
 	MsgModelChanged          MsgKey = "model_changed"
 	MsgModelChangeFailed     MsgKey = "model_change_failed"
@@ -2244,6 +2245,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "額度查詢失敗",
 		LangJapanese:           "利用枠の照会に失敗しました",
 		LangSpanish:            "falló la consulta de cuota",
+	},
+	MsgNoPublicAnswer: {
+		LangEnglish:            "⚠️ The model produced no public answer; internal content was hidden. Tool actions may already have run. Check the results before asking for a conclusion.",
+		LangChinese:            "⚠️ 模型未生成公开答复，内部内容已隐藏。工具操作可能已执行，请先核对成果，再要求补充结论。",
+		LangTraditionalChinese: "⚠️ 模型未產生公開答覆，內部內容已隱藏。工具操作可能已執行，請先核對成果，再要求補充結論。",
+		LangJapanese:           "⚠️ モデルから公開用の回答がなく、内部内容は非表示にしました。ツールが実行済みの可能性があります。結果を確認してから結論を求めてください。",
+		LangSpanish:            "⚠️ El modelo no produjo una respuesta pública; el contenido interno se ocultó. Las herramientas pueden haberse ejecutado. Comprueba los resultados antes de pedir una conclusión.",
 	},
 	MsgEmptyAgentResponse: {
 		LangEnglish:            "⚠️ The backend ended this turn without an answer. Tool actions may already have run; check their results before retrying.",

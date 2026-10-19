@@ -41,6 +41,7 @@ type acpSession struct {
 	outputMu        sync.Mutex
 	outputFilter    privateOutput
 	outputMessageID string
+	outputTurn      privateOutputTurn
 
 	sendMu       sync.Mutex
 	inputMu      sync.Mutex
@@ -444,6 +445,8 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 				s.outputMessageID = id
 			}
 			ev.Content = s.outputFilter.feed(ev.Content)
+			s.outputTurn.suppressed = s.outputTurn.suppressed || s.outputFilter.suppressed
+			s.outputTurn.public = s.outputTurn.public || strings.TrimSpace(ev.Content) != ""
 			if ev.Content == "" {
 				continue
 			}
@@ -699,12 +702,13 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
 	var completed sync.Once
+	var output privateOutputTurn
 	complete := func() {
 		completed.Do(func() {
 			if strict {
 				s.finishInputUpdates()
 			}
-			s.resetPrivateOutput()
+			output = s.resetPrivateOutput()
 		})
 	}
 	if strict {
@@ -714,6 +718,10 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	}
 	res, err := s.tr.callCompleted(s.ctx, "session/prompt", params, complete)
 	complete() // write failure/cancellation may not invoke the reader callback
+	var result struct {
+		StopReason string `json:"stopReason"`
+	}
+	validResult := json.Unmarshal(res, &result) == nil
 	if strict {
 		s.finishInputUpdates()
 		s.inputMu.Lock()
@@ -721,10 +729,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 			err = s.inputErr
 		}
 		s.inputMu.Unlock()
-		var result struct {
-			StopReason string `json:"stopReason"`
-		}
-		if err == nil && (json.Unmarshal(res, &result) != nil || result.StopReason != "end_turn") {
+		if err == nil && (!validResult || result.StopReason != "end_turn") {
 			err = fmt.Errorf("acp: strict prompt did not complete successfully (%s)", result.StopReason)
 		}
 	}
@@ -733,6 +738,12 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		return fmt.Errorf("acp: session/prompt: %w", err)
 	}
 	slog.Debug("acp: session/prompt response", "session_id", sid, "response_len", len(res))
+	if validResult && result.StopReason == "end_turn" && output.suppressed && !output.public {
+		// The RPC completed; only the reply failed. Report one terminal event,
+		// not a competing Send error. Tools may have run: never replay this turn.
+		s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: core.ErrNoPublicAnswer})
+		return nil
+	}
 
 	// Text was streamed via session/update; engine aggregates EventText.
 	s.emit(core.Event{

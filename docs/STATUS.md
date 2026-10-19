@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 六个 Discord bot、点名交接、忙闲状态 | 已实现、旧环境已运行 | 既有部署记录；不等于自动项目协作 |
 | 空响应与额度反馈修复 | PR #18已合并，2026-10-16 21:26旧服务已部署 | 独立重建哈希、六连接/API/会话映射与自动检查通过；真人Discord审批及工具回答仍待验收，见[部署复核](ISSUE_13_DEPLOYMENT.md)；真实额度来源见[额度说明](QUOTA_REPORTING.md) |
+| ACP 私密输出过滤后的空答复终态 | Issue #120 源码修复，生产另行记账 | 全轮只有显式私密区块时明确失败，原会话保留且不自动重跑工具；mock RPC红绿、核心CUJ与语音API失败契约，见[公开回复边界](ACP_PRIVATE_OUTPUT.md)；真实频道续聊仍待用户验收 |
 | 失败回复的模型/额度尾注 | PR #29已合并，2026-10-16 23:35部署 | 新增CUJ红绿、macOS必要检查及Ubuntu CI通过；六连接/API/配置与会话连续性复核通过；CLI错误根因及真人Discord验收未完成，见[验证记录](ERROR_QUOTA_VALIDATION.md) |
 | 大豆包历史错误污染终态 | 已有严格核验修复；发布跟踪Issue #34 | 红绿回归与真实隔离会话连续两轮通过；当前真实失败仍保留，真人Discord验收单独记录；见[终态核验](ANTIGRAVITY_TURN_STATUS.md) |
 | 有回答的工具失败单独提示 | Issue #34后续已有实现，待发布 | 原生证据确认kill已完成任务；正文/安全原因分离，真实失败与语音隔离保留；红绿回归、macOS串行全量/TCP审批/CUJ/相关race/hook整包race/vet/构建通过，最终CI见PR；[行为说明](ANTIGRAVITY_TURN_FAILURE.md) |

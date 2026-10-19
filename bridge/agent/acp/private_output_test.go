@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -211,7 +212,27 @@ func TestPrivateOutput_PromptCompletionAndErrors(t *testing.T) {
 					case <-time.After(3 * time.Second):
 						t.Fatal("prompt timed out")
 					}
-					got := privateOutputAnswer(s)
+					var public strings.Builder
+					successes, failures := 0, 0
+					for len(s.events) > 0 {
+						ev := <-s.events
+						switch ev.Type {
+						case core.EventText:
+							public.WriteString(ev.Content)
+						case core.EventResult:
+							successes++
+						case core.EventError:
+							failures++
+							if errors.Is(ev.Error, core.ErrNoPublicAnswer) != (i == 0 && ending == "end_turn") {
+								t.Fatalf("RPC/strict errors must take precedence: %v", ev.Error)
+							}
+						}
+					}
+					wantFailure := i == 0 && (ending != "cancelled" || strict)
+					if successes+failures != 1 || (failures == 1) != wantFailure {
+						t.Fatalf("unexpected terminal: success=%d failure=%d", successes, failures)
+					}
+					got := public.String()
 					want := ""
 					if i == 1 {
 						want = "下一轮正常回复"
