@@ -63,7 +63,7 @@
      JPEG 数据、C 结构体、读端必须做的边界检查、预算阶梯、与网页圆屏的换算推导）。
   3. `firmware/esp32s3/README.md`：工具用法与参数表（注意 main 上原本没有这个目录，
      IDF 骨架在 PR #72（`feat/42-idf-skeleton`）里，两边 README 需要合一次）。
-  4. `firmware/esp32s3/tests/test_pack_assets.py`：34 项，覆盖容器布局、解包越界、
+  4. `firmware/esp32s3/tests/test_pack_assets.py`：38 项，覆盖容器布局、解包越界、
      网页同源裁切、几何对位、落板取帧区间与 idle 自动选段、预算阶梯和端到端
      （真跑 ffmpeg 验 466×466 baseline YUV420，并断言 7 MiB 下落到 10fps、
      四段帧数是 25/41/40/41、总字节不超预算）。
@@ -92,6 +92,24 @@
 - **背景：为什么之前要截 idle**：整段 4.65–9.90s 不是闭合循环，「有眨眼」和
   「首尾闭合」不可兼得；`--auto-idle-range` 只按首尾差最小会挑出几乎静止的一段
   （6.90–9.65，动作峰 8.14 级）。7 MiB 预算下只能取舍，现在预算够了就直接用整段。
+- **TF 版（`--profile tf`）**：板子和 TF 卡今天都能测，两条路一起准备。
+  TF 包**不设体积上限**、Q89、四段完整 + 六个待机小动作
+  （`curious`/`doze`/`happy`/`pout`/`shy`/`yawn`），帧率用 `--fps` 指定。
+  **默认 24 帧**（源片原生，不是插帧），12 帧只作对照包。实测 gpt：
+  24fps 是 **10 段 / 998 帧 / 63,408,933 B = 60.47 MiB**，每帧平均 62.0 KiB；
+  12fps 对照是 **10 段 / 503 帧 / 31,944,485 B = 30.46 MiB**，每帧平均 62.0 KiB。
+  gemini / grok 各 7 段 / 675 帧（45.19 / 48.69 MiB）——它们只有 3 个小动作，
+  不是 6 个。
+  逐段最重是 `listening` 的 **73.8 KiB/帧**，最轻是 `doze` 的 54.5 KiB/帧——
+  板端解码测速要按 `listening` 算，别按整体平均算。
+  格式与 flash 包完全相同，读端按名字查片段、不要假设段数。
+- **两套预设的关系**：`flash` 是保底（11 MiB/Q80/4 段），`tf` 是精细版
+  （不设限/Q89/10 段）。参数 `--budget-mib/--quality/--fps/--extras` 默认取
+  profile，给值即覆盖。
+- **2026-10-19 晚 rebase 到 #81 之后**：`BOARD_PLANS`（按角色）和 `PROFILES`
+  （按用途）是两件正交的事，都保留；`select_segments(character=...)` 负责挑角色
+  方案，`--profile` 负责挑预算/画质/帧率/小动作。rebase 前后 gpt 的 TF 24fps 包
+  sha256 完全一致（`68c5b0bc…`），可以拿它当「打包确定性」的对照。
 - **边界与安全**：未启动子 Agent；未动 8796 进程或配置。分支最初基于
   `origin/main`（`7e8473ae`）新建；#78/#79 落地后 main 为 `ad6e15dc`，本分支
   rebase 上去只保留增量（`--board-range`、`--auto-idle-range` 与 range/full 取帧

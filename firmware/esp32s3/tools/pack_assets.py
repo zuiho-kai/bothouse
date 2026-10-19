@@ -107,6 +107,29 @@ def get_board_plan(character: str) -> dict[str, dict]:
     return BOARD_PLANS.get(character, BOARD_PLANS["gpt"])
 
 
+# 两套打包预设。
+#
+# flash：刷进板载 Flash 的保底包。assets 分区 12 MiB、预算 11 MiB，四段完整，
+#        带 offline/error 状态图，不带小动作（小动作留给 TF，省空间）。
+# tf   ：拷进 TF 卡的精细包。**不设体积上限**，画质拉到 Q89，四段完整，
+#        六个待机小动作全部带上；帧率由 --fps 指定（12 或 24，源片是 24fps）。
+PROFILES = {
+    "flash": {
+        "budget_mib": 11.0,
+        "quality": 80,
+        "fps": 12,
+        "extras": 0,        # 0 = 不带小动作
+        "full": True,
+    },
+    "tf": {
+        "budget_mib": None,  # None = 不设上限
+        "quality": 89,
+        "fps": 24,           # 源片原生帧率；12 帧用 --fps 12 出对照包
+        "extras": -1,        # -1 = 全部小动作
+        "full": True,
+    },
+}
+
 # 断网 / 出错的静态状态片段名，按这个顺序进片段表。
 STATUS_SEGMENTS = ("offline", "error")
 
@@ -717,8 +740,13 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
         for name, key in STATE_CLIPS
     ]
 
-    variant_keys = sorted(key for key in clips if key not in {k for _, k in STATE_CLIPS})
-    if extras > 0 and variant_keys:
+    # thinking_calm 是 thinking 的备选，不是小动作，别把它当变体打进来。
+    reserved = {k for _, k in STATE_CLIPS} | {"thinking_calm", "thinking_question"}
+    variant_keys = sorted(key for key in clips if key not in reserved)
+    if extras < 0 and variant_keys:
+        # -1 = 全部小动作（TF 包用），按名字排序，结果确定。
+        chosen += [(key, key) for key in variant_keys]
+    elif extras > 0 and variant_keys:
         import random
         pool = list(variant_keys)
         # 固定 seed 时结果可复现；默认 seed=0，所以默认打包是确定性的。
@@ -762,6 +790,12 @@ def build(args: argparse.Namespace) -> int:
     character_dir = Path(args.character_dir) if args.character_dir else (
         repo_root / "prototypes/device-ui/assets/characters" / args.character)
 
+    profile = PROFILES[args.profile]
+    budget_mib = args.budget_mib if args.budget_mib is not None else profile["budget_mib"]
+    quality = args.quality if args.quality is not None else profile["quality"]
+    fps = args.fps if args.fps is not None else profile["fps"]
+    extras = args.extras if args.extras is not None else profile["extras"]
+
     ffmpeg = find_ffmpeg(args.ffmpeg)
     clips = load_web_clips(source_html, args.character)
 
@@ -770,12 +804,16 @@ def build(args: argparse.Namespace) -> int:
         name, start, end = parse_board_range(text)
         overrides[name] = (start, end)
 
-
-    budget = int(args.budget_mib * 1024 * 1024)
+    budget = None if budget_mib is None else int(budget_mib * 1024 * 1024)
+    print(f"profile     : {args.profile}"
+          f"{'' if budget is not None else '（不设体积上限）'}")
     print(f"ffmpeg      : {ffmpeg}")
     print(f"source.html : {source_html}")
     print(f"character   : {args.character}  ({character_dir})")
-    print(f"budget      : {args.budget_mib:g} MiB = {budget:,} B")
+    if budget is None:
+        print("budget      : 不设上限（TF 模式）")
+    else:
+        print(f"budget      : {budget_mib:g} MiB = {budget:,} B")
     print()
 
     with tempfile.TemporaryDirectory(prefix="cnas-") as tmp:
@@ -799,7 +837,7 @@ def build(args: argparse.Namespace) -> int:
                           "两者不可兼得时请用 --board-range 显式指定。")
                 print()
 
-        segments = select_segments(clips, character_dir, args.thinking, args.extras,
+        segments = select_segments(clips, character_dir, args.thinking, extras,
                                    args.seed, overrides=overrides,
                                    full_length=args.full_length,
                                    character=args.character)
@@ -835,8 +873,11 @@ def build(args: argparse.Namespace) -> int:
 
     with tempfile.TemporaryDirectory(prefix="cnas-") as tmp:
         cache = FrameCache(ffmpeg, Path(tmp))
-        ladder = settings_ladder(args.fps, args.quality,
-                                 args.min_fps, args.min_quality)
+        if budget is None:
+            # TF 模式不降级：只用指定档位，装多大算多大。
+            ladder = [(fps, quality)]
+        else:
+            ladder = settings_ladder(fps, quality, args.min_fps, args.min_quality)
         blob = b""
         final: tuple[int, int] | None = None
         for fps, quality in ladder:
@@ -847,7 +888,7 @@ def build(args: argparse.Namespace) -> int:
                 seg.jpegs = encode_jpegs(seg.pngs, seg.clip, quality)
             blob = pack(segments)
             print(f"try fps={fps} quality={quality} → {format_size(len(blob))}")
-            if len(blob) <= budget:
+            if budget is None or len(blob) <= budget:
                 final = (fps, quality)
                 break
 
@@ -879,7 +920,10 @@ def build(args: argparse.Namespace) -> int:
     print()
     print(f"打包完成：{len(segments)} 段 / {sum(len(s.jpegs) for s in segments)} 帧 / "
           f"fps={fps} / quality={quality}")
-    print(f"总大小：{format_size(total)}，预算占用 {total / budget * 100:.1f}%")
+    if budget is None:
+        print(f"总大小：{format_size(total)}（不设上限）")
+    else:
+        print(f"总大小：{format_size(total)}，预算占用 {total / budget * 100:.1f}%")
     print(f"sha256：{hashlib.sha256(blob).hexdigest()}")
 
     if args.verify:
@@ -929,8 +973,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report", default="", help="写出 JSON 报告")
     parser.add_argument("--thinking", choices=("question", "calm"), default="question",
                         help="thinking 用带问号原片还是无问号安静段")
-    parser.add_argument("--extras", type=int, default=0,
-                        help="额外打包几段待机小动作（默认 0：这一版固件先不带小动作）")
+    parser.add_argument("--extras", type=int, default=None,
+                        help="打包几段待机小动作：-1=全部，0=不带，正数=随机抽；默认取 profile")
     parser.add_argument("--full-length", action="store_true",
                         help="全部用 source.html 的完整片段（仅排查用，会超预算）")
     parser.add_argument("--board-range", action="append", default=[], metavar="NAME=START,END",
@@ -944,15 +988,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="在 idle 原片里重新搜索首尾最接的 2.0~3.0s 区间（较慢）")
     parser.add_argument("--seed", type=int, default=0,
                         help="小动作抽样种子；默认固定，保证打包可复现")
-    parser.add_argument("--fps", type=int, default=12, help="起始帧率")
-    parser.add_argument("--quality", type=int, default=80, help="起始 JPEG 质量")
+    parser.add_argument("--fps", type=int, default=None, help="起始帧率")
+    parser.add_argument("--quality", type=int, default=None, help="起始 JPEG 质量")
     parser.add_argument("--min-fps", type=int, default=MIN_FPS,
                         help="帧率下限；默认就是约定下限，调低等于放宽验收")
     parser.add_argument("--min-quality", type=int, default=MIN_QUALITY,
                         help="JPEG 质量下限；默认就是约定下限，调低等于放宽验收")
-    parser.add_argument("--budget-mib", type=float, default=11.0,
-                        help="总大小预算（MiB），默认 11（assets 分区 12 MiB 留 1 MiB 余量）；"
-                             "8MB Flash 的板子用 7")
+    parser.add_argument("--profile", choices=sorted(PROFILES), default="flash",
+                        help="打包预设：flash=11 MiB 预算/Q80/不带小动作；"
+                             "tf=不设上限/Q89/全部小动作（默认 flash）")
+    parser.add_argument("--budget-mib", type=float, default=None,
+                        help="总大小预算（MiB），默认取 profile；8MB Flash 的板子用 7")
     parser.add_argument("--verify", action="store_true", help="打包后解包自检")
     parser.add_argument("--allow-over-budget", action="store_true",
                         help="仅排查用：超预算也写文件")

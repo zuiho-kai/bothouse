@@ -146,6 +146,28 @@ class WebParityTests(unittest.TestCase):
         cls.clips = pa.load_web_clips(cls.source, "gpt")
         cls.chars = REPO_ROOT / "prototypes/device-ui/assets/characters/gpt"
 
+    def test_variants_follow_the_character_not_a_fixed_list(self):
+        """TF 包的小动作按角色实际有的来：gpt 有 6 个，gemini/grok 只有 3 个。
+
+        写死 6 个的话，gemini/grok 的 TF 包会缺段或者报错。
+        """
+        expected = {
+            "gpt": ["curious", "doze", "happy", "pout", "shy", "yawn"],
+            "gemini": ["doze", "happy", "shy"],
+            "grok": ["doze", "happy", "shy"],
+        }
+        for character, variants in expected.items():
+            char_dir = REPO_ROOT / "prototypes/device-ui/assets/characters" / character
+            if not char_dir.is_dir():
+                self.skipTest(f"仓库里没有 {character} 的素材")
+            clips = pa.load_web_clips(self.source, character)
+            segs = pa.select_segments(clips, char_dir, "thinking", -1, 0,
+                                      character=character)
+            names = [seg.name for seg in segs]
+            got = [n for n in names if n not in
+                   ("idle", "listening", "thinking", "speaking")]
+            self.assertEqual(got, variants, f"{character} 的小动作对不上")
+
     def test_reads_the_same_numbers_as_source_html(self):
         idle = self.clips["idle"]
         self.assertEqual(Path(idle.src).name, "idle-blink-square-v1.mp4")
@@ -505,6 +527,59 @@ class EndToEndTests(unittest.TestCase):
                 self.assertIn("超出预算", proc.stderr)
                 return
             self.assertLessEqual(out.stat().st_size, 7 * 1024 * 1024)
+
+    def test_tf_profile_defaults_to_24_fps(self):
+        """TF 默认 24 帧（源片原生），12 帧是对照包。"""
+        self.assertEqual(pa.PROFILES["tf"]["fps"], 24)
+        self.assertEqual(pa.PROFILES["tf"]["quality"], 89)
+        self.assertIsNone(pa.PROFILES["tf"]["budget_mib"])
+        self.assertEqual(pa.PROFILES["tf"]["extras"], -1)
+        self.assertEqual(pa.PROFILES["flash"]["fps"], 12)
+
+    def test_tf_profile_ignores_the_budget_and_packs_every_variant(self):
+        """TF 模式：不设体积上限、Q89、四段完整 + 六个小动作，且不带 thinking_calm。
+
+        这里显式给 --fps 12，让用例跑得快些；默认 24 帧由上面那条常量用例锁住。
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "tf.bin"
+            proc = self.run_tool("--profile", "tf", "--fps", "12",
+                                 "--out", str(out), "--verify")
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            self.assertNotIn("超出预算", proc.stderr)
+
+            segments = pa.unpack(out.read_bytes())
+            names = [seg.name for seg in segments]
+            self.assertEqual(names, ["idle", "listening", "thinking", "speaking",
+                                     "curious", "doze", "happy", "pout", "shy", "yawn"])
+            # thinking_calm 是 thinking 的备选，不是小动作。
+            self.assertNotIn("thinking_calm", names)
+            self.assertEqual([seg.fps for seg in segments], [12] * 10)
+            # 完整长度，不截：idle 5.25s→63、4.04s→49、3.96s→48。
+            self.assertEqual([len(seg.frames) for seg in segments],
+                             [63, 49, 48, 49, 49, 49, 49, 49, 49, 49])
+
+    def test_tf_profile_frame_rate_is_configurable(self):
+        """--fps 24 时帧数翻倍，源片本来就是 24fps。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "tf24.bin"
+            proc = self.run_tool("--profile", "tf", "--fps", "24",
+                                 "--out", str(out), budget_mib=200)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            segments = pa.unpack(out.read_bytes())
+            self.assertEqual([seg.fps for seg in segments], [24] * 10)
+            self.assertEqual([len(seg.frames) for seg in segments],
+                             [126, 97, 96, 97, 97, 97, 97, 97, 97, 97])
+
+    def test_flash_profile_has_no_variants_and_a_budget(self):
+        """默认 profile 仍是 flash：11 MiB 预算、不带小动作。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "flash.bin"
+            proc = self.run_tool("--out", str(out))
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            names = [seg.name for seg in pa.unpack(out.read_bytes())]
+            self.assertEqual(names, ["idle", "listening", "thinking", "speaking"])
+            self.assertLessEqual(out.stat().st_size, 11 * 1024 * 1024)
 
     def test_budget_is_enforced_instead_of_silently_exceeded(self):
         with tempfile.TemporaryDirectory() as tmp:

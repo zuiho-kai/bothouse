@@ -8,6 +8,43 @@
 
 > 素材打包工具是纯主机侧脚本，**不需要 ESP-IDF，也不需要板子**。
 
+## 两套预设：flash / tf
+
+| | `--profile flash`（默认） | `--profile tf` |
+| --- | --- | --- |
+| 用途 | 刷进板载 Flash 的保底包 | 拷进 TF 卡的精细包 |
+| 体积上限 | 11 MiB（assets 分区 12 MiB 留 1 MiB） | **不设上限** |
+| 画质 | Q80 | **Q89** |
+| 帧率 | 12 | **`--fps 24`（默认，源片原生）**，`--fps 12` 出对照包 |
+| 片段 | 四段完整 | 四段完整 + **该角色全部待机小动作** |
+| 体积 | 10.19 MiB / 209 帧 | **60.47 MiB / 998 帧**（24fps）<br>30.46 MiB / 503 帧（12fps 对照） |
+| 每帧平均 | 约 49 KiB | 约 62 KiB |
+
+TF 模式不降级、不报超预算，装多大算多大。**小动作按角色实际有的来**，
+不写死数量：gpt 有 6 个（`curious` `doze` `happy` `pout` `shy` `yawn`），
+gemini / grok 各 3 个（`doze` `happy` `shy`）。
+
+TF 24fps 实测（Q89，完整长度）：
+
+| 角色 | 段数 | 帧数 | 大小 |
+| --- | --- | --- | --- |
+| gpt | 10 | 998 | 60.47 MiB |
+| gemini | 7 | 675 | 45.19 MiB |
+| grok | 7 | 675 | 48.69 MiB |
+
+打包命令（24fps 主包，12fps 只做对照）：
+
+    # 主包
+    python3 tools/pack_assets.py --ffmpeg <path> --profile tf --character gpt \
+        --out build/assets-tf-24.bin --verify
+
+    # 对照包
+    python3 tools/pack_assets.py --ffmpeg <path> --profile tf --fps 12 --character gpt \
+        --out build/assets-tf-12.bin --verify
+
+TF 包每帧平均 **62.0 KiB**，最重的是 `listening`（**73.8 KiB/帧**），最轻的是
+`doze`（54.5 KiB/帧）。解码测速优先测 `listening`。
+
 ## 素材打包
 
 把圆屏角色的动画片段打包成板端可直接读取的 `assets.bin`：
@@ -42,6 +79,7 @@
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
+| `--profile` | `flash` | `flash` = 11 MiB/Q80/不带小动作；`tf` = 不设上限/Q89/全部小动作 |
 | `--character` | `gpt` | 角色目录名 |
 | `--thinking` | `question` | `question` 用带问号原片，`calm` 用无问号安静段 |
 | `--extras` | `0` | 额外打包几段待机小动作；这一版固件先不带，留到下一版 |
