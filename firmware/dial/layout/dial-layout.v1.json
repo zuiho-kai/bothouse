@@ -1,0 +1,68 @@
+{
+  "schema": "cn_dial.layout",
+  "version": 1,
+  "canvas": 466,
+  "rules": {
+    "design": "px = max(min_px, max(1, round(design * k)))，k = 屏幕短边 / 466；min_px 缺省为 1",
+    "fixed_px": "不缩放，任何屏都是这个像素数（只在 240 屏上目测定过，还没有 466 的值）",
+    "frac": "px = round(画布边长 * frac)",
+    "deg": "角度，不缩放",
+    "font": "目标 = round(design_px * k)；取板上已有字号里不小于 max(目标, font_min_px) 的最小一档，没有就取最大档"
+  },
+  "sources": {
+    "DECOR": "conest PR #110 分支 firmware/xiaozhi/DECOR.md（尺寸都按 466×466 圆屏算）",
+    "P0006": "conest PR #110 分支 firmware/xiaozhi/patches/0006-conest-name-pill-and-status-chip-over-the-character-.patch",
+    "P0010": "conest PR #110 分支 firmware/xiaozhi/patches/0010-conest-battery-arc-speech-hint-and-work-status.patch",
+    "RH": "角色小家固件 xiaozhi-esp32 分支 rh-uplink（37d2212）main/display/rh_dial_display.cc；min_px 是 240 圆屏现值，design 是该行注释里的网页 466 值"
+  },
+  "items": [
+    {"id": "battery_arc.diameter", "design": 456, "src": "DECOR:14 半径 228px；P0010:170 lv_obj_set_size(456, 456)"},
+    {"id": "battery_arc.width", "design": 5, "src": "DECOR:16 线宽 5px"},
+    {"id": "battery_arc.backing_width", "design": 8, "src": "DECOR:17 弧下方只垫 8px"},
+    {"id": "battery_arc.start", "deg": 242, "src": "DECOR:15 LVGL 242°–298°"},
+    {"id": "battery_arc.sweep", "deg": 56, "src": "DECOR:15 顶部居中 56°"},
+
+    {"id": "speech_bubble.width", "design": 300, "src": "DECOR:31 300×58px；P0010:198"},
+    {"id": "speech_bubble.height", "design": 58, "src": "DECOR:31；P0010:198"},
+    {"id": "speech_bubble.bottom", "design": 52, "src": "DECOR:31 距底 52px；P0010:199"},
+    {"id": "speech_bubble.radius", "design": 20, "src": "DECOR:32 20px 圆角"},
+    {"id": "speech_bubble.text_width", "design": 272, "src": "DECOR:33 272×40；P0010:212"},
+    {"id": "speech_bubble.text_height", "design": 40, "src": "DECOR:33 272×40，最多两行"},
+    {"id": "speech_bubble.text_pad", "design": 18, "src": "DECOR:31、DECOR:33 气泡高 58 − 文字框高 40；文字框按字体变高时气泡跟着加这么多"},
+
+    {"id": "name_tag.top", "design": 28, "src": "DECOR:24 仍在 y=28；P0006:90 TOP_MID, 0, 28"},
+    {"id": "name_tag.dot", "design": 10, "src": "P0006:93 lv_obj_set_size(name_dot_, 10, 10)"},
+    {"id": "pill.pad_hor", "design": 16, "src": "P0006:77"},
+    {"id": "pill.pad_ver", "design": 6, "src": "P0006:78"},
+    {"id": "pill.gap", "design": 8, "src": "P0006:79"},
+    {"id": "status_chip.bottom", "design": 30, "src": "P0006:102 BOTTOM_MID, 0, -30"},
+    {"id": "work_status.gap", "design": 8, "src": "DECOR:47 紧跟名字，间距 8px"},
+
+    {"id": "rh_dial.name_tag.top", "frac": 0.07, "src": "RH:236 lroundf(H * 0.07f)"},
+    {"id": "rh_dial.status_chip.bottom", "frac": 0.13, "src": "RH:249 lroundf(H * 0.13f)"},
+    {"id": "rh_dial.pill.pad_ver", "design": 5, "min_px": 4, "src": "RH:62 kPillPadVer = 4（web 5）"},
+    {"id": "rh_dial.pill.pad_hor", "design": 18, "min_px": 12, "src": "RH:62 kPillPadHor = 12（web 18）"},
+    {"id": "rh_dial.pill.gap", "design": 8, "min_px": 6, "src": "RH:62 kPillGap = 6（web 8）"},
+    {"id": "rh_dial.pill.border", "fixed_px": 1, "src": "RH:126 border_width 1"},
+    {"id": "rh_dial.name_dot", "design": 9, "min_px": 7, "src": "RH:63 kNameDot = 7（web 9）"},
+    {"id": "rh_dial.name_glow.extra", "fixed_px": 6, "src": "RH:240 kNameDot + 6（web box-shadow 6px），RH:627 偏移取一半"},
+    {"id": "rh_dial.bar.width", "design": 3, "min_px": 3, "src": "RH:64 kBarW = 3（web 3）"},
+    {"id": "rh_dial.bar.height", "design": 16, "min_px": 15, "src": "RH:64 kBarH = 15（web 16）"},
+    {"id": "rh_dial.bar.gap", "design": 3, "min_px": 3, "src": "RH:64 kBarGap = 3（web 3）"},
+    {"id": "rh_dial.bar.radius", "fixed_px": 2, "src": "RH:466 d.radius = 2"},
+    {"id": "rh_dial.dot.size", "design": 5, "min_px": 5, "src": "RH:65 kDotSize = 5（web 5）"},
+    {"id": "rh_dial.dot.gap", "design": 4, "min_px": 4, "src": "RH:65 kDotGap = 4（web 4）"},
+    {"id": "rh_dial.dot.jump", "design": 5, "min_px": 5, "src": "RH:65 kDotJump = 5（web 5）"},
+    {"id": "rh_dial.stop.size", "design": 10, "min_px": 9, "src": "RH:66 kStopSize = 9（web 10）"},
+    {"id": "rh_dial.stop.radius", "fixed_px": 2, "src": "RH:258 Box(..., 2)"},
+    {"id": "rh_dial.ring.width", "design": 6, "min_px": 2, "src": "RH:405、RH:541 max(2, round(6 * W/466))（web .ring 6px）"},
+    {"id": "rh_dial.halo.min", "fixed_px": 3, "src": "RH:72 kHaloMin = 3（240 板上目测）"},
+    {"id": "rh_dial.halo.max", "fixed_px": 5, "src": "RH:72 kHaloMax = 5（240 板上目测）"},
+    {"id": "rh_dial.glow.min", "fixed_px": 3, "src": "RH:72 kGlowMin = 3（240 板上目测）"},
+    {"id": "rh_dial.glow.max", "fixed_px": 8, "src": "RH:72 kGlowMax = 8（240 板上目测）"}
+  ],
+  "fonts": [
+    {"id": "speech_bubble.text", "design_px": 14, "lines": 2, "src": "DECOR:33 主题的 14px 字体，最多两行"},
+    {"id": "work_status.text", "design_px": 14, "lines": 1, "src": "DECOR:48 14px"}
+  ]
+}

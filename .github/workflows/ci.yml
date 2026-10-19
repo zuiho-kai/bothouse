@@ -51,6 +51,17 @@ jobs:
       - run: ffmpeg -version | head -1
       - run: python -m unittest discover -s tests -p 'test_pack_assets.py' -v
 
+  # 表盘尺寸换算（firmware/dial）是纯 C++，不需要 ESP-IDF：检查头文件与 JSON 一致，再编译跑主机单测。
+  dial-metrics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: python3 firmware/dial/tools/gen_layout.py --check
+      - run: cmake -S firmware/dial -B build/dial
+      - run: cmake --build build/dial
+      - run: ctest --test-dir build/dial --output-on-failure
+
   bridge:
     runs-on: ubuntu-latest
     timeout-minutes: 20

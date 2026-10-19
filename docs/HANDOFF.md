@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #124 表盘屏幕参数与尺寸换算抽成共用组件 `firmware/dial/components/cn_dial`（`ScreenProfile` + `DialMetrics`，纯 C++，不依赖 LVGL/ESP-IDF）。数值只在 `firmware/dial/layout/dial-layout.v1.json`（466 画布单位；conest 数值取自 #110 的 DECOR.md 与补丁 0006/0010，角色小家 240 屏现值作下限），`tools/gen_layout.py` 生成头文件，CI 新 job `dial-metrics` 检查一致并跑主机单测（466/240/360 圆屏、320×240 与 240×320 假屏）。角色小家固件用 `EXTRA_COMPONENT_DIRS` 引用本目录，表盘尺寸只经 `DialMetrics` 取，hello 多报 `display`（主机只记日志）。只改 firmware/dial/、CI 与本条；未刷板、未部署。下一步：角色小家把已移植的 conest 电量弧/气泡/工作状态放进本目录，不等 #110 合并。
+
 2026-10-20：Issue #120 修复 ACP 全轮私密输出被过滤后仍返回成功、显示 `(空响应)` 的缺口。整轮统计跨消息/工具保留，RPC边界取快照；只有显式过滤证据且无公开正文时发专用错误，保留会话、不自动重跑工具、不写成功历史。分支 fix/120-acp-no-public-answer；合成mock RPC旧版8例失败，验证见[公开回复边界](ACP_PRIVATE_OUTPUT.md)。本条为源码记录，部署另在统一交接记账，发布须保留Claude strict补丁20c79756。
 
 2026-10-19：Issue #111 补齐 #105 遗漏的裸summary私密区块，保留公开details/summary与代码示例。普通text的analysis后接summary已用真实通知形状的合成回归复现旧版失败；现场仍无compaction事件。分支fix/111-acp-summary-output；此条是源码记录，生产部署另在统一交接记账。发布须保留Claude strict补丁20c79756；用户已授权此次中断任务部署，无需再次等全闲。
