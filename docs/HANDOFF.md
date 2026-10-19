@@ -1,6 +1,36 @@
 # 共栖当前交接
 
+## 2026-10-19：#53 Gemini 与 Grok 角色资产打包与上板预算验证（分支 feat/53-gemini-grok-board-assets）
+
+- **背景与目标**：大豆包（Gemini）验证另外两个角色（Gemini 与 Grok）能否上板。扩展 `firmware/esp32s3/tools/pack_assets.py`，支持按角色定制截取规则（Gemini 与 Grok 的 `idle` 是完整的 4 秒闭合循环，取 4.0s，不需要像 G哥 那样截 2.5s；`listening`, `thinking`, `speaking` 保持 4.0s 完整循环）。执行实测打包，验证能否装入 7 MiB 预算并如实汇报。
+- **改动范围**：
+  1. **按角色定制截取规则 (`firmware/esp32s3/tools/pack_assets.py`)**：
+     - 定义 `BOARD_PLANS` 映射表与 `get_board_plan(character)` 查询函数，保持默认 `BOARD_PLAN` 兼容；
+     - 对 `gemini` 和 `grok`：`idle` 设为 4.0s @ 12fps（起始尝试 12fps，阶梯自动降至 10fps），`listening`、`thinking`、`speaking` 均设为 4.0s @ 10fps（保持 4.0s 闭合循环，丢弃尾部 0.04s 冗余帧）；
+     - `select_segments` 增加 `character: str = "gpt"` 参数；处理 `thinking_calm` 时自动回退至源片段 `clip.end - clip.start`。
+  2. **自动化测试套件 (`firmware/esp32s3/tests/test_pack_assets.py`)**：
+     - 增加 `test_gemini_and_grok_board_plans`、`test_gemini_select_segments`、`test_grok_select_segments`；
+     - 增加 `test_gemini_and_grok_end_to_end_pack`（足额预算下验证 4 段 160 帧解包与 SOI/EOI）与 `test_gemini_and_grok_enforce_7mib_budget`（断言 7 MiB 预算下超限退出码 2）；全量 34 项测试全部 PASS。
+  3. **文档同步 (`docs/BOARD_ASSETS_PLAN.md`, `firmware/esp32s3/README.md`)**：
+     - 同步更新 G哥 最新实测数据（6.54 MiB / 150 帧，Q75，占预算 93.5%）；
+     - 详细记录 Gemini 与 Grok 的逐段时长、fps、帧数、字节数、档位与预算分析，并提供针对性的 Flash 分区规划建议。
+- **实测数据与预算判定（11 MiB 新基线 vs 7 MiB 备用）**：
+  - **11 MiB 预算新基线（16MB Flash，顶档 Q80 / 12fps）**：
+    - **G哥 (`gpt`)**：四段保持完整原长（`idle` 取 4.65–9.90s 完整片段），合计 **10,679,852 B (10.19 MiB / 209 帧)**，占 11 MiB 预算 **92.6%**，余量 **854 KiB**；
+    - **Gemini (`gemini`)**：四段保持 4.0s 完整闭环，合计 **10,237,783 B (9.76 MiB / 192 帧)**，占 11 MiB 预算 **88.8%**，余量 **1,266 KiB (~1.24 MiB)**；
+    - **Grok (`grok`)**：四段保持 4.0s 完整闭环，合计 **11,077,333 B (10.56 MiB / 192 帧)**，占 11 MiB 预算 **96.0%**，余量 **446 KiB**；
+    - **判定**：三角色全部在 Q80 / 12fps 顶档顺利装入，无需任何画质或帧率妥协。解包校验全部 PASS。
+  - **7 MiB 预算备用方案（若到手硬件实测为 8MB Flash）**：
+    - G哥截 2.50s 眨眼段：6,746,583 B (6.43 MiB，Q75/10fps，余量 579.5 KiB)；
+    - Gemini（7.20 MiB，超 2.9%）与 Grok（7.85 MiB，超 12.1%）照实报超，返回退出码 2。
+- **C酱 2026-10-19 落板决议**：
+  - 硬件 Flash 确认为 16MB，固件分区规划为 app 3 MiB + NVS + assets 12 MiB，打包预算 11 MiB（留 1 MiB 余量）；
+  - G哥 `idle` 取网页同款完整片段（4.65–9.90s），不再截短；三个角色均以 Q80 / 12fps 顶档高画质落板；
+  - 硬件到手后先跑 `esptool flash_id` 确认容量，万一是 8MB 则使用 `--budget-mib 7` 备用方案。
+- **边界与安全**：未启动子 Agent，未动 8796 进程或配置。基于最新 `origin/main` 新建独立分支，提独立 PR。
+
 ## 2026-10-19：#53 Gemini 与 Grok 角色全套素材及待机小动作接入（分支 feat/53-gemini-grok-characters）
+
 
 - **背景与目标**：为圆屏原型（`prototypes/device-ui`）接入 Gemini（大豆包）与 Grok 两位新角色的全套 7 段高清素材，支持开发栏角色切换、顶部名字（「大豆包」/「Grok」）动态同步、`doze / happy / shy` 待机随机插播小动作及下拉动态联动，逐角色精细校准，确保测试 100% 通过。
 - **改动范围**：

@@ -237,6 +237,35 @@ class WebParityTests(unittest.TestCase):
         idle = next(seg for seg in segs if seg.name == "idle")
         self.assertEqual((idle.start, idle.end), (5.0, 7.5))
 
+    def test_gemini_and_grok_board_plans(self):
+        gemini_plan = pa.get_board_plan("gemini")
+        grok_plan = pa.get_board_plan("grok")
+        for plan in (gemini_plan, grok_plan):
+            self.assertEqual(plan["idle"], {"range": (0.0, 4.0)})
+            self.assertEqual(plan["listening"], {"range": (0.0, 4.0)})
+            self.assertEqual(plan["thinking"], {"range": (0.0, 4.0)})
+            self.assertEqual(plan["speaking"], {"range": (0.0, 4.0)})
+
+    def test_gemini_select_segments(self):
+        clips = pa.load_web_clips(self.source, "gemini")
+        chars = REPO_ROOT / "prototypes/device-ui/assets/characters/gemini"
+        segs = pa.select_segments(clips, chars, "question", extras=0, seed=0, character="gemini")
+        got = {seg.name: (seg.start, seg.end) for seg in segs}
+        self.assertEqual(got["idle"], (0.0, 4.0))
+        self.assertEqual(got["listening"], (0.0, 4.0))
+        self.assertEqual(got["thinking"], (0.0, 4.0))
+        self.assertEqual(got["speaking"], (0.0, 4.0))
+
+    def test_grok_select_segments(self):
+        clips = pa.load_web_clips(self.source, "grok")
+        chars = REPO_ROOT / "prototypes/device-ui/assets/characters/grok"
+        segs = pa.select_segments(clips, chars, "question", extras=0, seed=0, character="grok")
+        got = {seg.name: (seg.start, seg.end) for seg in segs}
+        self.assertEqual(got["idle"], (0.0, 4.0))
+        self.assertEqual(got["listening"], (0.0, 4.0))
+        self.assertEqual(got["thinking"], (0.0, 4.0))
+        self.assertEqual(got["speaking"], (0.0, 4.0))
+
     def test_parse_board_range(self):
         self.assertEqual(pa.parse_board_range("idle=6.9,9.65"), ("idle", 6.9, 9.65))
         self.assertEqual(pa.parse_board_range(" idle = 6 , 9.6 "), ("idle", 6.0, 9.6))
@@ -484,6 +513,35 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 2, proc.stdout)
             self.assertFalse(out.exists(), "超预算时不应该写出文件")
             self.assertIn("仍然超出预算", proc.stderr)
+
+    def test_gemini_and_grok_end_to_end_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for char in ("gemini", "grok"):
+                out = Path(tmp) / f"{char}.bin"
+                report = Path(tmp) / f"{char}.json"
+                # 给足预算验证打包结构与帧数（12fps idle 48 帧，其余各 40 帧）
+                proc = self.run_tool("--character", char, "--out", str(out),
+                                     "--report", str(report), "--verify",
+                                     budget_mib=16)
+                self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+                blob = out.read_bytes()
+                segments = pa.unpack(blob)
+                self.assertEqual([s.name for s in segments],
+                                 ["idle", "listening", "thinking", "speaking"])
+                self.assertEqual([len(seg.frames) for seg in segments], [48, 48, 48, 48])
+                self.assertEqual([seg.fps for seg in segments], [12, 12, 12, 12])
+
+    def test_gemini_and_grok_enforce_7mib_budget(self):
+        # 默认 7 MiB 预算下，Gemini (7.20 MiB) 和 Grok (7.85 MiB) 均会超预算退出码 2
+        for char in ("gemini", "grok"):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / f"{char}.bin"
+                proc = self.run_tool("--character", char, "--out", str(out),
+                                     budget_mib=7.0)
+                self.assertEqual(proc.returncode, 2, f"{char} 应超预算退出码 2")
+                self.assertFalse(out.exists())
+                self.assertIn("仍然超出预算", proc.stderr)
+
 
 
 if __name__ == "__main__":

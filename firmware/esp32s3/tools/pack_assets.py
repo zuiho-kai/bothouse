@@ -67,20 +67,45 @@ STATE_CLIPS = (
 # `full=True` 表示整段都要——listening / thinking / speaking 都是首尾闭合的
 # 整圈循环，截一半会在循环接缝处跳帧，所以一律不截。
 # `range=(start, end)` 是显式区间（绝对秒数），`--board-range` 可覆盖。
-BOARD_PLAN = {
-    # 四段都用网页同款的完整片段。Flash 分区放大到 12 MiB（预算 11 MiB）之后
-    # 不必再省，idle 直接用 4.65–9.90s 整段：里面有眨眼，首尾接不接得上跟网页
-    # 完全一致，不再单独截子段。
-    #
-    # 背景：这版 idle 整段本身不是闭合循环，「有眨眼」和「首尾接得上」不可兼得。
-    # --auto-idle-range 只按首尾差最小搜，会挑出几乎不动的一段（峰值 8.14 级）。
-    # 所以自动选段保留作工具，但不设为默认；默认就是要完整段。
-    # 8MB Flash 的备用方案：--budget-mib 7 --board-range idle=4.65,7.15。
-    "idle": {"full": True},
-    "listening": {"full": True},
-    "thinking": {"full": True},
-    "speaking": {"full": True},
+BOARD_PLANS = {
+    "gpt": {
+        # 四段都用网页同款的完整片段。Flash 分区放大到 12 MiB（预算 11 MiB）之后
+        # 不必再省，idle 直接用 4.65–9.90s 整段：里面有眨眼，首尾接不接得上跟网页
+        # 完全一致，不再单独截子段。
+        #
+        # 背景：这版 idle 整段本身不是闭合循环，「有眨眼」和「首尾接得上」不可兼得。
+        # --auto-idle-range 只按首尾差最小搜，会挑出几乎不动的一段（峰值 8.14 级）。
+        # 所以自动选段保留作工具，但不设为默认；默认就是要完整段。
+        # 8MB Flash 的备用方案：--budget-mib 7 --board-range idle=4.65,7.15。
+        "idle": {"full": True},
+        "listening": {"full": True},
+        "thinking": {"full": True},
+        "speaking": {"full": True},
+    },
+    "gemini": {
+        # Gemini 四段素材源片均为完整的 4 秒闭合循环，idle 不需要截 2.5s，
+        # 四个状态均取 4.0s 完整循环（丢弃末尾 0.04s 冗余帧）。
+        "idle": {"range": (0.0, 4.0)},
+        "listening": {"range": (0.0, 4.0)},
+        "thinking": {"range": (0.0, 4.0)},
+        "speaking": {"range": (0.0, 4.0)},
+    },
+    "grok": {
+        # Grok 四段素材源片亦为完整的 4 秒闭合循环，四个状态均取 4.0s 完整循环。
+        "idle": {"range": (0.0, 4.0)},
+        "listening": {"range": (0.0, 4.0)},
+        "thinking": {"range": (0.0, 4.0)},
+        "speaking": {"range": (0.0, 4.0)},
+    },
 }
+
+BOARD_PLAN = BOARD_PLANS["gpt"]
+
+
+def get_board_plan(character: str) -> dict[str, dict]:
+    """返回角色的落板截取方案。未专门定义的角色回退到 gpt。"""
+    return BOARD_PLANS.get(character, BOARD_PLANS["gpt"])
+
 
 # 断网 / 出错的静态状态片段名，按这个顺序进片段表。
 STATUS_SEGMENTS = ("offline", "error")
@@ -679,10 +704,11 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
                     thinking: str, extras: int, seed: int,
                     plan: dict[str, dict] | None = None,
                     overrides: dict[str, tuple[float, float]] | None = None,
-                    full_length: bool = False) -> list[Segment]:
+                    full_length: bool = False,
+                    character: str = "gpt") -> list[Segment]:
     """四个状态片段 + 最多 N 段待机小动作。
 
-    四个状态片段按 ``BOARD_PLAN`` 决定取帧区间（整段或显式区间），
+    四个状态片段按对应角色的 ``BOARD_PLANS`` 决定取帧区间（整段或显式区间），
     ``overrides`` 来自 ``--board-range``，优先级最高。小动作整段打包。
     """
     thinking_key = "thinking_question" if thinking == "question" else "thinking_calm"
@@ -699,7 +725,7 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
         random.Random(seed).shuffle(pool)
         chosen += [(key, key) for key in pool[:extras]]
 
-    plan = BOARD_PLAN if plan is None else plan
+    active_plan = get_board_plan(character) if plan is None else plan
     overrides = overrides or {}
     segments: list[Segment] = []
     for name, key in chosen:
@@ -710,7 +736,7 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
         if not src_path.is_file():
             raise PackError(f"素材文件不存在：{src_path}")
 
-        spec = plan.get(name, {})
+        spec = active_plan.get(name, {})
         start = clip.start
         end = clip.end
         # 优先级：--board-range（最具体）> --full-length（全局）> BOARD_PLAN。
@@ -719,7 +745,10 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
         elif full_length or spec.get("full"):
             pass
         elif spec.get("range"):
-            start, end = spec["range"]
+            if name == "thinking" and thinking == "calm":
+                pass
+            else:
+                start, end = spec["range"]
         segments.append(Segment(
             name=name, clip=clip, src_path=src_path, src_w=0, src_h=0,
             start=start, end=end))
@@ -740,6 +769,7 @@ def build(args: argparse.Namespace) -> int:
     for text in args.board_range:
         name, start, end = parse_board_range(text)
         overrides[name] = (start, end)
+
 
     budget = int(args.budget_mib * 1024 * 1024)
     print(f"ffmpeg      : {ffmpeg}")
@@ -771,7 +801,8 @@ def build(args: argparse.Namespace) -> int:
 
         segments = select_segments(clips, character_dir, args.thinking, args.extras,
                                    args.seed, overrides=overrides,
-                                   full_length=args.full_length)
+                                   full_length=args.full_length,
+                                   character=args.character)
         for seg in segments:
             seg.src_w, seg.src_h, seg.src_duration = probe_video(ffmpeg, seg.src_path)
 
