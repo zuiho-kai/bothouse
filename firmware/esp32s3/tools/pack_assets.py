@@ -68,18 +68,26 @@ STATE_CLIPS = (
 # 整圈循环，截一半会在循环接缝处跳帧，所以一律不截。
 # `range=(start, end)` 是显式区间（绝对秒数），`--board-range` 可覆盖。
 BOARD_PLAN = {
-    # idle 从 source.html 的起点 4.65s 取 2.5s，含完整一次眨眼（动作峰值 19.38 级）。
+    # 四段都用网页同款的完整片段。Flash 分区放大到 12 MiB（预算 11 MiB）之后
+    # 不必再省，idle 直接用 4.65–9.90s 整段：里面有眨眼，首尾接不接得上跟网页
+    # 完全一致，不再单独截子段。
     #
-    # 为什么不用 --auto-idle-range 的首尾差最优解（6.90–9.65，9.30 级）：
-    # 这版 idle 整段 4.65–9.90s 本身不是闭合循环，想要有眨眼就必然首尾不接；
-    # 只按首尾差最小搜，会选出几乎静止的一段（峰值只有 8.14 级），
-    # 待机画面就不动了。两者不可兼得，这里选「有动作」。
-    # 复核：tools/pack_assets.py --auto-idle-range 会把两个指标都打出来。
-    "idle": {"range": (4.65, 7.15)},
+    # 背景：这版 idle 整段本身不是闭合循环，「有眨眼」和「首尾接得上」不可兼得。
+    # --auto-idle-range 只按首尾差最小搜，会挑出几乎不动的一段（峰值 8.14 级）。
+    # 所以自动选段保留作工具，但不设为默认；默认就是要完整段。
+    # 8MB Flash 的备用方案：--budget-mib 7 --board-range idle=4.65,7.15。
+    "idle": {"full": True},
     "listening": {"full": True},
     "thinking": {"full": True},
     "speaking": {"full": True},
 }
+
+# 断网 / 出错的静态状态片段名，按这个顺序进片段表。
+STATUS_SEGMENTS = ("offline", "error")
+
+# 状态图文件名前缀不一定等于角色目录名：G哥 的素材叫 gge（GodGe）。
+# 其余角色目前与目录名一致；不一样时用 --status-prefix 覆盖。
+STATUS_PREFIX = {"gpt": "gge"}
 
 # idle 自动选段的搜索窗口：C酱 要求 2.0~3.0 秒之间首尾最接的一段。
 IDLE_SEARCH_MIN = 2.0
@@ -319,7 +327,7 @@ def render_frame(frame: Image.Image, clip: Clip, out: int = SCREEN) -> Image.Ima
 @dataclass
 class Segment:
     name: str
-    clip: Clip
+    clip: Clip | None            # 静态图片段没有裁切参数
     src_path: Path
     src_w: int
     src_h: int
@@ -327,12 +335,15 @@ class Segment:
     start: float = 0.0
     end: float | None = None      # None = 一直取到文件末尾
     fps: int = 12
+    static_png: Path | None = None   # 非 None 表示单帧静态图，不抽帧
     pngs: list[Path] = field(default_factory=list)
     jpegs: list[bytes] = field(default_factory=list)
 
     @property
     def take(self) -> float:
-        """这一段实际截多长（秒）。"""
+        """这一段实际截多长（秒）。静态图按 1 秒算。"""
+        if self.static_png is not None:
+            return 1.0
         if self.end is None:
             return self.src_duration - self.start
         return self.end - self.start
@@ -347,6 +358,8 @@ class FrameCache:
         self._cache: dict[tuple, list[Path]] = {}
 
     def frames(self, segment: Segment, fps: int) -> list[Path]:
+        if segment.static_png is not None:
+            return [segment.static_png]
         take = segment.take
         if take <= 0:
             raise PackError(
@@ -444,12 +457,19 @@ def find_idle_range(ffmpeg: str, clip: Clip, src_path: Path, src_w: int, src_h: 
     return best
 
 
-def encode_jpegs(pngs: list[Path], clip: Clip, quality: int) -> list[bytes]:
-    """PNG → 466×466 baseline JPEG（按网页的取景与底色渲染）。"""
+def encode_jpegs(pngs: list[Path], clip: Clip | None, quality: int) -> list[bytes]:
+    """PNG → 466×466 baseline JPEG。
+
+    ``clip`` 为 None 时是静态状态图（offline / error）：整幅缩放到 466×466，
+    不套角色的 scale/tx/ty——那是设计好的整屏画面，不是角色动画。
+    """
     out: list[bytes] = []
     for png in pngs:
         with Image.open(png) as image:
-            frame = render_frame(image, clip)
+            if clip is None:
+                frame = image.convert("RGB").resize((SCREEN, SCREEN), Image.LANCZOS)
+            else:
+                frame = render_frame(image, clip)
             if frame.size != (SCREEN, SCREEN):
                 raise PackError(f"合成后尺寸不是 {SCREEN}×{SCREEN}：{frame.size}")
             buffer = io.BytesIO()
@@ -605,13 +625,38 @@ def format_size(num_bytes: int) -> str:
             f"{num_bytes / 1024 / 1024:.2f} MiB)")
 
 
+def _segment_report(seg: Segment) -> dict:
+    """把一段的元数据写成报告条目；静态图没有裁切参数。"""
+    item = {
+        "name": seg.name,
+        "source": seg.src_path.name,
+        "take_seconds": round(seg.take, 3),
+        "fps": seg.fps,
+        "frames": len(seg.jpegs),
+        "bytes": sum(len(jpeg) for jpeg in seg.jpegs),
+    }
+    if seg.static_png is not None:
+        item["static"] = True
+        return item
+    item.update({
+        "start": round(seg.start, 3),
+        "end": None if seg.end is None else round(seg.end, 3),
+        "scale": seg.clip.scale,
+        "tx": seg.clip.tx,
+        "ty": seg.clip.ty,
+        "placement": asdict(placement(seg.clip, seg.src_w, seg.src_h)),
+        "bg": seg.clip.bg,
+    })
+    return item
+
+
 def print_table(segments: list[Segment]) -> None:
     width = max(len(seg.name) for seg in segments)
     print(f"{'segment'.ljust(width)}  take   fps  frames       bytes      KiB  source")
     for seg in segments:
         size = sum(len(jpeg) for jpeg in seg.jpegs)
         print(f"{seg.name.ljust(width)}  {seg.take:>4.2f}s  {seg.fps:>3}  "
-              f"{len(seg.jpegs):>6}  {size:>11,}  {size / 1024:>8.1f}  {seg.clip.src}")
+              f"{len(seg.jpegs):>6}  {size:>11,}  {size / 1024:>8.1f}  {seg.src_path.name}")
 
 
 # --------------------------------------------------------------------------
@@ -668,10 +713,11 @@ def select_segments(clips: dict[str, Clip], character_dir: Path,
         spec = plan.get(name, {})
         start = clip.start
         end = clip.end
-        if full_length or spec.get("full"):
-            pass
-        elif name in overrides:
+        # 优先级：--board-range（最具体）> --full-length（全局）> BOARD_PLAN。
+        if name in overrides:
             start, end = overrides[name]
+        elif full_length or spec.get("full"):
+            pass
         elif spec.get("range"):
             start, end = spec["range"]
         segments.append(Segment(
@@ -729,11 +775,31 @@ def build(args: argparse.Namespace) -> int:
         for seg in segments:
             seg.src_w, seg.src_h, seg.src_duration = probe_video(ffmpeg, seg.src_path)
 
+        # 断网 / 出错的静态状态图，各 1 帧、fps=1。整幅缩放，不套角色裁切。
+        if args.status_dir:
+            status_dir = Path(args.status_dir)
+            prefix = args.status_prefix or STATUS_PREFIX.get(args.character, args.character)
+            for name in STATUS_SEGMENTS:
+                png = status_dir / f"{prefix}-{name}.png"
+                if not png.is_file():
+                    raise PackError(
+                        f"状态图不存在：{png}\n"
+                        f"--status-dir 里应有 <前缀>-offline.png 和 <前缀>-error.png"
+                        f"（当前前缀 {prefix!r}，可用 --status-prefix 改）。")
+                with Image.open(png) as image:
+                    width, height = image.size
+                segments.append(Segment(
+                    name=name, clip=None, src_path=png, src_w=width, src_h=height,
+                    fps=1, static_png=png))
+
         print(f"segments    : {', '.join(seg.name for seg in segments)}")
         for seg in segments:
-            print(f"  {seg.name:<10} {seg.start:6.2f}s–{seg.end if seg.end is not None else seg.src_duration:6.2f}s"
-                  f"  截 {seg.take:5.2f}s"
-                  f"  （源 {seg.clip.src}）")
+            if seg.static_png is not None:
+                print(f"  {seg.name:<10} 静态 1 帧 @ 1fps  （源 {seg.src_path.name}）")
+            else:
+                print(f"  {seg.name:<10} {seg.start:6.2f}s–{seg.end if seg.end is not None else seg.src_duration:6.2f}s"
+                      f"  截 {seg.take:5.2f}s"
+                      f"  （源 {seg.clip.src}）")
         print()
 
     with tempfile.TemporaryDirectory(prefix="cnas-") as tmp:
@@ -744,7 +810,8 @@ def build(args: argparse.Namespace) -> int:
         final: tuple[int, int] | None = None
         for fps, quality in ladder:
             for seg in segments:
-                seg.fps = fps
+                # 静态图恒为 1fps，不跟着阶梯走。
+                seg.fps = 1 if seg.static_png is not None else fps
                 seg.pngs = cache.frames(seg, seg.fps)
                 seg.jpegs = encode_jpegs(seg.pngs, seg.clip, quality)
             blob = pack(segments)
@@ -805,26 +872,7 @@ def build(args: argparse.Namespace) -> int:
             "budget_bytes": budget,
             "total_bytes": total,
             "sha256": hashlib.sha256(blob).hexdigest(),
-            "segments": [
-                {
-                    "name": seg.name,
-                    "source": seg.clip.src,
-                    "start": seg.clip.start,
-                    "end": seg.clip.end,
-                    "scale": seg.clip.scale,
-                    "tx": seg.clip.tx,
-                    "ty": seg.clip.ty,
-                    "placement": asdict(placement(seg.clip, seg.src_w, seg.src_h)),
-                    "bg": seg.clip.bg,
-                    "start": round(seg.start, 3),
-                    "end": None if seg.end is None else round(seg.end, 3),
-                    "take_seconds": round(seg.take, 3),
-                    "fps": seg.fps,
-                    "frames": len(seg.jpegs),
-                    "bytes": sum(len(jpeg) for jpeg in seg.jpegs),
-                }
-                for seg in segments
-            ],
+            "segments": [_segment_report(seg) for seg in segments],
         }
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
                                encoding="utf-8")
@@ -856,6 +904,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="全部用 source.html 的完整片段（仅排查用，会超预算）")
     parser.add_argument("--board-range", action="append", default=[], metavar="NAME=START,END",
                         help="只对板端生效的取帧区间，可重复；不改 source.html")
+    parser.add_argument("--status-prefix", metavar="PREFIX",
+                        help="状态图文件名前缀，默认取角色名（gpt 的素材叫 gge）")
+    parser.add_argument("--status-dir", metavar="DIR",
+                        help="静态状态图目录，取 <角色>-offline.png 和 <角色>-error.png"
+                             " 各 1 帧、fps=1；不传就不打包状态图")
     parser.add_argument("--auto-idle-range", action="store_true",
                         help="在 idle 原片里重新搜索首尾最接的 2.0~3.0s 区间（较慢）")
     parser.add_argument("--seed", type=int, default=0,
@@ -866,7 +919,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="帧率下限；默认就是约定下限，调低等于放宽验收")
     parser.add_argument("--min-quality", type=int, default=MIN_QUALITY,
                         help="JPEG 质量下限；默认就是约定下限，调低等于放宽验收")
-    parser.add_argument("--budget-mib", type=float, default=7.0, help="总大小预算（MiB）")
+    parser.add_argument("--budget-mib", type=float, default=11.0,
+                        help="总大小预算（MiB），默认 11（assets 分区 12 MiB 留 1 MiB 余量）；"
+                             "8MB Flash 的板子用 7")
     parser.add_argument("--verify", action="store_true", help="打包后解包自检")
     parser.add_argument("--allow-over-budget", action="store_true",
                         help="仅排查用：超预算也写文件")
