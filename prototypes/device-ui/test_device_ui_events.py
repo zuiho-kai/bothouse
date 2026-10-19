@@ -244,12 +244,13 @@ def test_browser_voice_state_transitions():
         gemini_name = page.locator('.cn-primary-card .cn-role-name').first.inner_text()
         assert gemini_name == "大豆包", f"Expected '大豆包', got '{gemini_name}'"
         gemini_variants = page.evaluate("window.__conestDeviceUI.getIdleVariants()")
-        assert sorted(gemini_variants) == ["doze", "happy", "shy"], f"Expected ['doze', 'happy', 'shy'], got {gemini_variants}"
+        assert sorted(gemini_variants) == ["curious-lean", "doze-wake", "happy", "pout", "shy-blush", "yawn"], f"Expected ['curious-lean', 'doze-wake', 'happy', 'pout', 'shy-blush', 'yawn'], got {gemini_variants}"
 
         page.wait_for_function("""() => {
             const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
             return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/gemini/idle.mp4');
         }""")
+        page.locator('.cn-primary-card .cn-screen').screenshot(path=str(screenshots_dir / "10_gemini_idle_round_screen.png"))
 
         page.evaluate("window.__conestDeviceUI.triggerIdleVariant('happy')")
         assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") == "happy"
@@ -275,7 +276,39 @@ def test_browser_voice_state_transitions():
             return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/gemini/speaking.mp4');
         }""")
         page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'completed' })")
-        print("PASS: 17. Gemini character verified with 3 idle variants, dedicated speaking/thinking, and happy variant.")
+        print("PASS: 17. Gemini character verified with 6 idle variants, dedicated speaking/thinking, and round screen screenshot.")
+
+        # 17b. Verify Claude character switching, clips, and idle variants
+        page.evaluate("window.__conestDeviceUI.setCharacter('claude')")
+        ui_state = page.evaluate("window.__conestDeviceUI.getState()")
+        assert ui_state["character"] == "claude", f"Expected claude, got {ui_state['character']}"
+        claude_name = page.locator('.cn-primary-card .cn-role-name').first.inner_text()
+        assert claude_name == "Claude", f"Expected 'Claude', got '{claude_name}'"
+        claude_variants = page.evaluate("window.__conestDeviceUI.getIdleVariants()")
+        assert sorted(claude_variants) == ["curious", "doze", "happy", "pout", "shy", "yawn"], f"Expected ['curious', 'doze', 'happy', 'pout', 'shy', 'yawn'], got {claude_variants}"
+
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/claude/idle.mp4');
+        }""")
+        page.locator('.cn-primary-card .cn-screen').screenshot(path=str(screenshots_dir / "12_claude_idle_round_screen.png"))
+
+        page.evaluate("window.__conestDeviceUI.triggerIdleVariant('happy')")
+        assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") == "happy"
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/claude/happy.mp4');
+        }""")
+        page.evaluate("window.__conestDeviceUI.stopIdleVariant()")
+
+        # Verify Claude speaking clip
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'playing' })")
+        page.wait_for_function("""() => {
+            const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
+            return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/claude/speaking.mp4');
+        }""")
+        page.evaluate("window.__conestDeviceUI.handleVoiceEvent({ type: 'playback:state', state: 'completed' })")
+        print("PASS: 17b. Claude character verified with 6 idle variants, dedicated speaking/thinking, and round screen screenshot.")
 
         # 18. Verify Grok character switching, clips, and idle variants
         page.evaluate("window.__conestDeviceUI.setCharacter('grok')")
@@ -419,6 +452,8 @@ def test_device_app_e2e_browser():
     """Verify real device_app HTTP backend + same-origin /device/{id}/screen browser E2E."""
     import uvicorn
     from playwright.sync_api import sync_playwright
+    if str(REPO_ROOT / "companion") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "companion"))
     from voice.device_app import create_device_app
     from voice.devices import DeviceBinding, DeviceRegistry
     from voice.roles import Role

@@ -82,6 +82,13 @@ BOARD_PLANS = {
         "thinking": {"full": True},
         "speaking": {"full": True},
     },
+    "claude": {
+        # Claude 四段素材源片均为完整的 4 秒闭合循环，四个状态均取 4.0s 完整循环。
+        "idle": {"range": (0.0, 4.0)},
+        "listening": {"range": (0.0, 4.0)},
+        "thinking": {"range": (0.0, 4.0)},
+        "speaking": {"range": (0.0, 4.0)},
+    },
     "gemini": {
         # Gemini 四段素材源片均为完整的 4 秒闭合循环，idle 不需要截 2.5s，
         # 四个状态均取 4.0s 完整循环（丢弃末尾 0.04s 冗余帧）。
@@ -256,8 +263,8 @@ def load_web_clips(source_html: Path, character: str) -> dict[str, Clip]:
         section_text = _find_block(char_block, section)
         if section_text is None:
             continue
-        for match in re.finditer(r"(?<![\w$])([A-Za-z_][\w]*)\s*:\s*\{", section_text):
-            key = match.group(1)
+        for match in re.finditer(r"(?<![\w$])(?:['\"]([A-Za-z0-9_-]+)['\"]|([A-Za-z_][\w]*))\s*:\s*\{", section_text):
+            key = match.group(1) or match.group(2)
             body = _brace_block(section_text, match.end() - 1)
             src = re.search(r"\bsrc\s*:\s*'([^']+)'", body)
             scale = _number(body, "scale")
@@ -713,7 +720,7 @@ def print_table(segments: list[Segment]) -> None:
 
 def parse_board_range(text: str) -> tuple[str, float, float]:
     """解析 ``name=start,end``。"""
-    match = re.fullmatch(r"\s*([A-Za-z_][\w]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*,"
+    match = re.fullmatch(r"\s*([A-Za-z0-9_-]+)\s*=\s*(-?\d+(?:\.\d+)?)\s*,"
                          r"\s*(-?\d+(?:\.\d+)?)\s*", text)
     if not match:
         raise PackError(f"--board-range 格式应是 name=start,end，收到 {text!r}。")

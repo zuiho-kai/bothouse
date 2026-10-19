@@ -2,7 +2,7 @@
 
 本目录保存「共栖 · CoNest」实体圆屏设备的浏览器交互原型，供设计与研发审核、迭代。跟踪 [Issue #53](https://github.com/Zssan12/conest/issues/53)，当前草稿 PR 为 [#54](https://github.com/Zssan12/conest/pull/54)，硬件闭环仍看 [#42](https://github.com/Zssan12/conest/issues/42)。这是电脑浏览器里的独立交互模拟，不是固件或已接通的生产语音界面。
 
-**最新进展（2026-10-19）：除 G哥（`gpt`）已接入专用 `speaking.mp4` 与 6 段待机小动作外，大豆包（Gemini）与 Grok 两位新角色正式接入全套 7 段素材（`idle`、`listening`、`thinking`、`speaking` 及 `doze`、`happy`、`shy` 待机插播小动作），支持开发栏角色切换、顶部名字动态切换（「大豆包」/「Grok」）、待机小动作随机插播与动态下拉联动，逐角色精细校准，全量 31 项自动化测试通过。** 见[素材清单、视频与抽帧预览](assets/characters/README.md)与[高清素材交接](ASSET_BRIEF.md)。
+**最新进展（2026-10-19）：除 G哥（`gpt`）已接入专用 `speaking.mp4` 与 6 段待机小动作外，大豆包（Gemini）与 Claude 两位角色正式接入 V2 新形象与全套 10 段素材（基础 4 动作 + 6 段待机插播小动作），重新校准裁切参数（`scale: 1.02`、Claude `tx: -2.5%`, `ty: +2.5%`，Gemini `tx: 0`, `ty: +2.5%`），猫耳与菊花发饰完整保留在圆内，脸部居中；Claude 的 thinking 思考原片暂时占位；测试套件与落板打包均通过验证。** 见[素材清单、视频与抽帧预览](assets/characters/README.md)与[高清素材交接](ASSET_BRIEF.md)。
 
 ![466×466 实际尺寸与 1.35× 放大查看的浏览器实测截图](preview.png)
 
@@ -43,9 +43,10 @@ python3 -m http.server 58249 --bind 127.0.0.1 --directory prototypes/device-ui
 | **G哥 (`gpt`)** | `thinking` | `gpt/thinking-question.mp4` (`0.00s–3.96s`) | **默认含问号全循环** `1.03 / +2.2% / +6.2%`<br>无问号安静对照 `1.12 / 0% / +1.5%` | 用户 10-18 指定保留含问号原片全循环（中性起步 $\to$ 歪头浮现问号 $\to$ 复位中性），首尾 MAE 仅 10.84px 无跳变；开发栏可切至 `0.0s–1.18s` 无问号安静段对照 |
 | **G哥 (`gpt`)** | `speaking` | `gpt/speaking.mp4` (4.04s) | `1.18 / +1.8% / +1.5%` | **专用说话循环**：720×720，多次自然连续张闭嘴说话动作，首尾帧闭合，无缺失警告 |
 | **G哥 (`gpt`)** | `idleVariants`（待机插播小动作） | `gpt/curious.mp4` (v4), `doze.mp4`, `happy.mp4`, `pout.mp4`, `shy.mp4`, `yawn.mp4` | `1.18 / +1.8% / +1.5%` | 6 段 720×720 动作，首尾帧完全对齐待机参考图；待机每隔 20–45s 随机插播单次（绝不循环），播完回归待机；任意交互打断立即退出；同一动作不连播两次 |
-| **Claude (`claude`)** | `idle` / `listening` / `thinking` / `speaking` | `claude/idle.mp4`、`listening-nod.mp4`、`thinking-question.mp4`、`speaking.mp4` | 动作主体 `1.12 / 0~0.4% / +1.2%`<br>思考含问号全循环 `1.04 / +1.8% / +5.5%` | 5 段 `720×720` 动作齐全；思考默认采用含问号全循环（0.00s–3.96s，首尾中性复位 MAE 22.18px），下移完整露出问号；放大 1.12× 消除原片内嵌灰框，保留贝雷帽与白花 |
+| **Claude (`claude`)** | `idle` / `listening` / `thinking` / `speaking` / 6段小动作 | `claude/` 10 段 `720×720` mp4 (4.04s) | `1.02 / -2.5% / +2.5%`<br>底色 `#191f21` | V2 新形象：猫耳与菊花发饰完整保留在圆屏内，脸部居中；含 6 段待机小动作（`curious`, `doze`, `happy`, `pout`, `shy`, `yawn`）；思考原片临时占位待后续替换 |
 | **DeepSeek (`deepseek`)** | `idle` / `listening` / `thinking` / `speaking` | `deepseek/idle.mp4`、`listening-nod.mp4`、`thinking-question.mp4`、`speaking.mp4` | 动作主体 `1.09 / 0~0.4% / +1.5%`<br>思考含问号全循环 `1.02 / -3.5% / +6.5%` | 5 段动作齐全；思考默认采用含问号全循环（0.00s–3.96s，首尾中性复位 MAE 21.03px），单独校准 `scale 1.02 / tx -3.5% / ty +6.5%` 确保右上角问号与发饰完整不被圆边裁切，开发栏可切换无问号对照 |
-| **大豆包 · Gemini (`gemini`)** | `idle` / `listening` / `thinking` / `speaking` / `doze` / `happy` / `shy` | `gemini/` 全部 7 段 `720×720` mp4 (4.04s) | `1.10 / 0% / +1.5%` | 7 段动作齐全；浅黄短发小人，底色严格 `#1b2122`；放大 1.10× 将底部 y=699 横切线推至圆屏外（距圆心 373px > 360px 半径）消除硬切，头顶发饰保留约 82px 充足边距；含 3 段待机插播小动作（`doze`, `happy`, `shy`）与动态下拉联动；顶部名字与 aria-label 同步显示为「大豆包」 |
+| **大豆包 · Gemini (`gemini`)** | `idle` / `listening` / `thinking` / `speaking` / 6段小动作 | `gemini/` 10 段 `720×720` mp4 (4.04s) | `1.02 / 0% / +2.5%`<br>底色 `#191f21` | V2 新形象：双子星发饰完整保留在安全圆内，底色严格 `#191f21`；含 6 段待机插播小动作（`curious-lean`, `doze-wake`, `happy`, `pout`, `shy-blush`, `yawn`）；顶部名字与 aria-label 同步显示为「大豆包」 |
+| **Grok (`grok`)** | `idle` / `listening` / `thinking` / `speaking` / `doze` / `happy` / `shy` | `grok/` 全部 7 段 `720×720` mp4 (4.04s) | `1.10 / 0% / +1.5%` | 7 段动作齐全；黑发双马尾与呆毛安全居中，底色严格 `#1b2122`；放大 1.10× 隐藏底部横切线，胸口与发饰在安全区内；含 3 段待机插播小动作（`doze`, `happy`, `shy`）与动态下拉联动；顶部名字与 aria-label 同步显示为「Grok」 |
 | **Grok (`grok`)** | `idle` / `listening` / `thinking` / `speaking` / `doze` / `happy` / `shy` | `grok/` 全部 7 段 `720×720` mp4 (4.04s) | `1.10 / 0% / +1.5%` | 7 段动作齐全；黑发双马尾与呆毛安全居中，底色严格 `#1b2122`；放大 1.10× 隐藏底部横切线，胸口与发饰在安全区内；含 3 段待机插播小动作（`doze`, `happy`, `shy`）与动态下拉联动；顶部名字与 aria-label 同步显示为「Grok」 |
 
 ## 文件入口与构建检查
@@ -90,4 +91,5 @@ PYTHONPATH=companion python3 prototypes/device-ui/test_device_ui_events.py
 
 **尚未验证 / 诚实边界**：
 - 未在 Waveshare ESP32-S3-Touch-AMOLED-1.75 实体硬件上测试视频解码帧率、内存占用、圆屏物理触控手感或功耗；
-- Claude 与 DeepSeek 尚未配置待机插播小动作素材（当前 G哥拥有 6 段小动作，Gemini 与 Grok 各拥有 3 段小动作：doze, happy, shy）。
+- DeepSeek 尚未配置待机插播小动作素材（当前 G哥、Claude、Gemini 各拥有 6 段待机小动作，Grok 拥有 3 段待机小动作：doze, happy, shy）。
+- Claude 的思考（thinking）动作当前使用带问号原片全循环临时占位，待问号重绘优化后替换。

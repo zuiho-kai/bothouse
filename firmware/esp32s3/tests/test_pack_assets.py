@@ -153,7 +153,8 @@ class WebParityTests(unittest.TestCase):
         """
         expected = {
             "gpt": ["curious", "doze", "happy", "pout", "shy", "yawn"],
-            "gemini": ["doze", "happy", "shy"],
+            "claude": ["curious", "doze", "happy", "pout", "shy", "yawn"],
+            "gemini": ["curious-lean", "doze-wake", "happy", "pout", "shy-blush", "yawn"],
             "grok": ["doze", "happy", "shy"],
         }
         for character, variants in expected.items():
@@ -260,13 +261,24 @@ class WebParityTests(unittest.TestCase):
         self.assertEqual((idle.start, idle.end), (5.0, 7.5))
 
     def test_gemini_and_grok_board_plans(self):
+        claude_plan = pa.get_board_plan("claude")
         gemini_plan = pa.get_board_plan("gemini")
         grok_plan = pa.get_board_plan("grok")
-        for plan in (gemini_plan, grok_plan):
+        for plan in (claude_plan, gemini_plan, grok_plan):
             self.assertEqual(plan["idle"], {"range": (0.0, 4.0)})
             self.assertEqual(plan["listening"], {"range": (0.0, 4.0)})
             self.assertEqual(plan["thinking"], {"range": (0.0, 4.0)})
             self.assertEqual(plan["speaking"], {"range": (0.0, 4.0)})
+
+    def test_claude_select_segments(self):
+        clips = pa.load_web_clips(self.source, "claude")
+        chars = REPO_ROOT / "prototypes/device-ui/assets/characters/claude"
+        segs = pa.select_segments(clips, chars, "question", extras=0, seed=0, character="claude")
+        got = {seg.name: (seg.start, seg.end) for seg in segs}
+        self.assertEqual(got["idle"], (0.0, 4.0))
+        self.assertEqual(got["listening"], (0.0, 4.0))
+        self.assertEqual(got["thinking"], (0.0, 4.0))
+        self.assertEqual(got["speaking"], (0.0, 4.0))
 
     def test_gemini_select_segments(self):
         clips = pa.load_web_clips(self.source, "gemini")

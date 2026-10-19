@@ -1,6 +1,26 @@
 # 共栖当前交接
 
-## 2026-10-19：PR #71 失败保留与核验超时修复（未部署）
+## 2026-10-19：#53 Claude 与 Gemini（大豆包）V2 新形象接入网页圆屏 UI（分支 feat/53-v2-claude-gemini-ui）
+
+- **背景与目标**：大豆包（Gemini）负责将 C酱（Claude）与大豆包（Gemini）的 V2 新形象素材接入网页圆屏 `prototypes/device-ui`，素材源自 `assets/v2-claude-gemini` 分支的 `journal-v2/claude/`（10 个视频）和 `journal-v2/gemini/`（10 个视频），基于最新 `origin/main`（`45e4e961`）开新分支。
+- **详细改动**：
+  1. **素材入库与清理**：
+     - Claude：从 `journal-v2/claude/` 提取全部 10 段 720×720 mp4（`idle`, `listening`, `thinking`, `speaking`, `curious`, `doze`, `happy`, `pout`, `shy`, `yawn`），覆盖旧素材，并按单文件安全规则移除废弃的 `listening-nod.mp4` 与 `thinking-question.mp4`；
+     - Gemini：从 `journal-v2/gemini/` 提取全部 10 段 720×720 mp4（`idle`, `listening`, `thinking`, `speaking`, `curious-lean`, `doze-wake`, `happy`, `pout`, `shy-blush`, `yawn`），覆盖旧素材，并移除旧名废弃的 `doze.mp4` 与 `shy.mp4`；
+     - 清单同步：`prototypes/device-ui/assets/characters/manifest.json` 完整录入 20 段视频的准确 sha256、文件大小与规格。
+  2. **逐角色裁切与几何校准 (`source.html`)**：
+     - 底色统一：两个角色底色均为严格 `#191f21`；
+     - Claude：校准为 `scale: 1.02`, `tx: -2.5%`, `ty: +2.5%`，猫耳与右侧菊花发饰（及其流苏丝带）完整保留在 466×466 安全圆屏内，脸部水平居中（tx -2.5% 纠正偏右）；thinking 原片全循环临时占位；注册全套 6 段待机小动作（`curious`, `doze`, `happy`, `pout`, `shy`, `yawn`）；
+     - Gemini：校准为 `scale: 1.02`, `tx: 0%`, `ty: +2.5%`，双马尾、花形发饰及星形耳坠完整保留在圆内，微调下移消除顶部裁切；注册全套 6 段待机小动作（`curious-lean`, `doze-wake`, `happy`, `pout`, `shy-blush`, `yawn`）；
+     - 运行 `build.py` 重新生成 `index.html`、`screen.js` 与 `screen.css`，`build.py --check` 一致性通过。
+  3. **板端打包支持 (`pack_assets.py` & 测试)**：
+     - `firmware/esp32s3/tools/pack_assets.py`：`load_web_clips` 正则支持带引号与连字符的小动作名（如 `'doze-wake'`），`parse_board_range` 支持连字符，`BOARD_PLANS` 注册 `claude`（4.0s 完整循环）；
+     - `firmware/esp32s3/tests/test_pack_assets.py`：更新小动作名断言并覆盖 Claude；45 项测试全部通过。
+  4. **圆屏截图与自动化测试 (`test_device_ui_events.py`)**：
+     - 更新 `test_device_ui_events.py` 验证 Gemini 6 段小动作、Claude 6 段小动作、角色切换及发声测试；
+     - 在 `test-artifacts/` 输出圆屏高清截图：`10_gemini_idle_round_screen.png` 与 `12_claude_idle_round_screen.png`；
+     - `test_device_ui_events.py` 全量 31 项测试全部 PASS。
+- **边界与安全**：未启动子 Agent，未动 8796 服务；删除旧文件严格单文件确认执行。
 
 - G哥在原 PR head 2e69ca3e 上接手：当前轮命令 DONE 但 exitCode 非零时保留失败；额度/轨迹查询等待互斥锁也响应调用者的 context，核验重试共用原来的10秒预算。
 - 两条审核复现原样收进 review71_regression_test.go，修复前均失败、修复后通过；锁竞争复现从12.107秒超限变成10秒预算内返回（测试清理等待独立额度请求，整项用例仍约12秒）。另补取消与锁释放回归。
