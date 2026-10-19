@@ -74,8 +74,7 @@ func validateInputResume(id, home string) error {
 var codexInputQuiesceTimeout = 5 * time.Second
 
 func (cs *codexSession) PrepareResumed(expectedID string) error {
-	// Normal exec publishes its terminal event before subprocess teardown.
-	// Wait for that reader before touching its per-turn buffers.
+	// Wait for all reader cleanup before touching per-turn buffers.
 	cs.cmdMu.Lock()
 	done := cs.readerDone
 	cs.cmdMu.Unlock()
@@ -108,7 +107,7 @@ func (cs *codexSession) SendResumed(prompt, messageID string, images []core.Imag
 
 // Strict input must not publish success until the CLI both identifies the
 // original thread and exits successfully after a terminal turn.completed.
-// Normal Discord sends retain their existing streaming behavior.
+// Normal Discord sends also wait for exit, but do not require strict ID confirmation.
 func (cs *codexSession) readStrictLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, expectedID string) {
 	defer cs.wg.Done()
 	defer cs.removeCmd(cmd)

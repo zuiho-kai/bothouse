@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-19：#94 修复 Codex exec 提前交付终态、历史 stderr 串轮与重复写入者。独立工作区 conest-codex-writer；原 thread 保留，部署须检查实际写锁。实现与回归边界见 [CODEX_EXEC_LIFECYCLE.md](CODEX_EXEC_LIFECYCLE.md)。本条为源码记录，尚未部署。
+
 ## 2026-10-19：同步角色小家 38e754f 版与小智板子固件补丁（Issue #88，未部署）
 
 - 本线由用户侧 Claude 在临时克隆的 feat/88-role-household-sync（基线 main bf3ced27）只改 role-household/ 与本条记录；不改 bridge/、companion/、firmware/esp32s3/。

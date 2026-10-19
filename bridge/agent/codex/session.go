@@ -41,6 +41,7 @@ type codexSession struct {
 	wg             sync.WaitGroup
 	alive          atomic.Bool
 	closeOnce      sync.Once
+	sendMu         sync.Mutex // serialize launch and reader completion across turns
 	cmdMu          sync.Mutex
 	readerDone     chan struct{} // guarded by cmdMu; closed after all per-turn reader work
 	cmds           map[*exec.Cmd]struct{}
@@ -124,6 +125,18 @@ func (cs *codexSession) Send(prompt string, messageID string, images []core.Imag
 }
 
 func (cs *codexSession) send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, strictID string) error {
+	cs.sendMu.Lock()
+	defer cs.sendMu.Unlock()
+	cs.cmdMu.Lock()
+	previous := cs.readerDone
+	cs.cmdMu.Unlock()
+	if previous != nil {
+		select {
+		case <-previous:
+		case <-cs.ctx.Done():
+			return fmt.Errorf("session is closed")
+		}
+	}
 	if len(files) > 0 {
 		filePaths := core.SaveFilesToDisk(cs.workDir, messageID, files)
 		prompt = core.AppendFileRefs(prompt, filePaths)
@@ -311,50 +324,71 @@ func codexImageExt(mime string) string {
 
 func (cs *codexSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer) {
 	defer cs.wg.Done()
-	defer func() {
-		defer cs.removeCmd(cmd)
-		if err := cmd.Wait(); err != nil {
-			stderrMsg := strings.TrimSpace(stderrBuf.String())
-			if stderrMsg != "" {
-				slog.Error("codexSession: process failed", "error", err, "stderr", stderrMsg)
-				evt := core.Event{Type: core.EventError, Error: fmt.Errorf("%s", stderrMsg)}
-				select {
-				case cs.events <- evt:
-				case <-cs.ctx.Done():
-					return
-				}
-			}
-		}
-		if tid := cs.CurrentSessionID(); tid != "" {
-			patchSessionSource(tid, getenvFromList(cs.extraEnv, "CODEX_HOME"))
-		}
-	}()
-
-	if err := readJSONLines(stdout, func(line []byte) error {
-		lineText := string(line)
-		if lineText == "" {
+	defer cs.removeCmd(cmd)
+	// Streaming output remains immediate; only the terminal is withheld until
+	// Wait has reaped the writer. Otherwise queued input can reopen its thread.
+	var terminal map[string]any
+	cs.pendingMsgs = nil
+	readErr := readJSONLines(stdout, func(line []byte) error {
+		if len(bytes.TrimSpace(line)) == 0 {
 			return nil
 		}
-
-		slog.Debug("codexSession: raw", "line", truncate(lineText, 500))
-
 		var raw map[string]any
 		if err := json.Unmarshal(line, &raw); err != nil {
-			slog.Debug("codexSession: non-JSON line", "line", lineText)
+			slog.Debug("codexSession: non-JSON line", "line", truncate(string(line), 500))
 			return nil
 		}
-
+		kind, _ := raw["type"].(string)
+		if terminal != nil {
+			return fmt.Errorf("codex event after terminal turn")
+		}
+		if kind == "turn.completed" || kind == "turn.failed" {
+			terminal = raw
+			return nil
+		}
 		cs.handleEvent(raw)
 		return nil
-	}); err != nil {
-		slog.Error("codexSession: read stdout error", "error", err)
-		evt := core.Event{Type: core.EventError, Error: fmt.Errorf("read stdout: %w", err)}
-		select {
-		case cs.events <- evt:
-		case <-cs.ctx.Done():
-			return
-		}
+	})
+	if readErr != nil {
+		_ = forceKillAllCmds([]*exec.Cmd{cmd})
 	}
+	waitErr := cmd.Wait()
+	if tid := cs.CurrentSessionID(); tid != "" {
+		patchSessionSource(tid, getenvFromList(cs.extraEnv, "CODEX_HOME"))
+	}
+	if cs.ctx.Err() != nil {
+		return
+	}
+	// A structured failure is authoritative. Historical stderr must not become
+	// a second terminal event (possibly consumed as the next input's failure).
+	if terminal != nil && terminal["type"] == "turn.failed" {
+		cs.pendingMsgs = nil
+		cs.handleEvent(terminal)
+		return
+	}
+	var failure error
+	switch {
+	case readErr != nil:
+		failure = fmt.Errorf("codex read stdout: %w", readErr)
+	case waitErr != nil:
+		failure = fmt.Errorf("codex process: %w", waitErr)
+		if terminal == nil {
+			if detail := strings.TrimSpace(stderrBuf.String()); detail != "" {
+				failure = fmt.Errorf("%w: %s", failure, detail)
+			}
+		}
+	case terminal == nil:
+		failure = fmt.Errorf("codex process exited without a terminal turn")
+	}
+	if failure != nil {
+		cs.pendingMsgs = nil
+		select {
+		case cs.events <- core.Event{Type: core.EventError, Error: failure}:
+		case <-cs.ctx.Done():
+		}
+		return
+	}
+	cs.handleEvent(terminal)
 }
 
 func readJSONLines(r io.Reader, handle func([]byte) error) error {
@@ -914,6 +948,8 @@ func (cs *codexSession) refreshContextUsageFromRollout() {
 func (cs *codexSession) Close() error {
 	cs.alive.Store(false)
 	cs.cancel()
+	cs.sendMu.Lock()
+	cs.sendMu.Unlock() // all in-flight reader registrations precede wg.Wait
 	done := make(chan struct{})
 	go func() {
 		cs.wg.Wait()

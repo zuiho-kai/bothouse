@@ -963,14 +963,18 @@ func TestClose_ForceKillsAllTrackedProcessesAfterCmdOverwrite(t *testing.T) {
 	// Same reason as the test above: never leave the fake CLI's sleep running.
 	defer cs.Close()
 
-	if err := cs.Send("first", "", nil, nil); err != nil {
-		t.Fatalf("Send(first): %v", err)
-	}
-	waitForThreadID(t, cs, "thread-overlap", fakeTrace{path: startsFile})
-	waitForDoneResult(t, cs.Events())
-
-	if err := cs.Send("second", "", nil, nil); err != nil {
-		t.Fatalf("Send(second): %v", err)
+	// Inject multiple tracked processes directly: Send now serializes writers,
+	// while shutdown must still handle every process in its defensive registry.
+	for _, prompt := range []string{"first", "second"} {
+		cmd := exec.CommandContext(cs.ctx, scriptPath)
+		prepareCmdForKill(cmd)
+		cmd.Stdin = strings.NewReader(prompt)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		cs.addCmd(cmd)
+		cs.wg.Add(1)
+		go func() { defer cs.wg.Done(); defer cs.removeCmd(cmd); _ = cmd.Wait() }()
 	}
 	waitForFileLines(t, startsFile, 2)
 
