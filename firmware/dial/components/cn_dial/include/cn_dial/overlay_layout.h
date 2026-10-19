@@ -51,4 +51,42 @@ int NameTagY(const DialMetrics& m, const OverlaySizes& z, int w, int h);
 // Screen y of the status chip's top edge for a chip h px high.
 inline int ChipY(const DialMetrics& m, const OverlaySizes& z, int h) { return m.bottom_mid_y(z.chip_bottom, h); }
 
+// The font the pills and the bubble are drawn with, as the board measures it: glyph_w = advance of
+// one CJK glyph (e.g. lv_font_get_glyph_width(font, U'工', 0)), line_h = line height
+// (lv_font_get_line_height). Every text on the dial is CJK, so widths go in whole glyphs.
+struct PillFont {
+    int glyph_w, line_h;
+};
+
+// The name tag the layout is checked against: dot + 「等待主机」 (4 glyphs, the longest fixed name,
+// shown before the host speaks) + 「· 工作中」 (5 glyph widths). Status chip: 5 bars + 3 glyphs
+// (「我在听」「想一想」「被打断」, patch 0006 Update()).
+inline constexpr int kRefNameGlyphs = 4, kWorkGlyphs = 5, kChipGlyphs = 3;
+
+// Name pill height (pad + the taller of a text line and the dot) and width for a name and a work
+// label of the given pixel widths (work_w 0 = no work label).
+inline int NamePillH(const OverlaySizes& z, int line_h) { return 2 * z.pad_ver + (line_h > z.name_dot ? line_h : z.name_dot); }
+inline int NamePillW(const OverlaySizes& z, int name_w, int work_w) {
+    return 2 * z.pad_hor + z.name_dot + z.gap + name_w + (work_w > 0 ? z.gap + work_w : 0);
+}
+
+// The widest the name pill may get: as wide as the arc-avoid circle (see NameTagY) allows at the
+// height where the reference name tag sits. A wider pill would have to move further down over the
+// face (or cross the arc / leave the round screen), so the name is cut there instead.
+int NameTagMaxW(const DialMetrics& m, const OverlaySizes& z, PillFont f);
+// The widest the name label may get (the board cuts it with "..."): NameTagMaxW minus the dot,
+// the paddings, the gaps and a work label work_w px wide (room for it is always kept, so a name is
+// cut the same way whether the work status is shown or not). Never below one glyph.
+int NameLabelMaxW(const DialMetrics& m, const OverlaySizes& z, PillFont f, int work_w);
+
+// Everything the overlay draws fits: the reference name tag (with and without the work status), the
+// status chip and the speech bubble inside the safe circle, the name tag above the chip and above
+// the bubble. f: the board's pill font.
+bool OverlayFits(const DialMetrics& m, PillFont f);
+
+// True when the dial can be drawn on this screen with this font: the short side is at least
+// layout::kMinShortSide (the tight bound for the 16 px font, tests TestSmallScreens) and the
+// overlay fits with the board's own font (a bigger font needs a bigger screen; TestFontSizes).
+bool Supported(const DialMetrics& m, PillFont f);
+
 }  // namespace cn_dial

@@ -6,7 +6,7 @@
 namespace cn_dial::layout {
 
 inline constexpr int kCanvas = 466;
-// min_short_side: tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23；名牌、状态胶囊取 conest 0006 数值，名牌含「· 工作中」）：198 及以下名牌加工作状态后越出避让圆或压到下方胶囊/气泡；DialMetrics::Supported() 为假时不画表盘
+// min_short_side: tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23；名牌、状态胶囊取 conest 0006 数值，名牌含「· 工作中」）：198 及以下名牌加工作状态后越出避让圆或压到下方胶囊/气泡；cn_dial::Supported() 为假时不画表盘；字号更大时 Supported() 另按板上字体算（TestFontSizes）
 inline constexpr int kMinShortSide = 199;
 
 // battery_arc.diameter: DECOR:14 半径 228px；P0010:170 lv_obj_set_size(456, 456)

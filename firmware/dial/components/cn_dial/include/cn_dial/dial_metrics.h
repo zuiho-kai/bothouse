@@ -38,9 +38,8 @@ public:
     // round(canvas * frac)
     int px(layout::Frac f) const;
 
-    // True when the short side is at least layout::kMinShortSide: below it the pills leave the
-    // safe circle or overlap (tests/test_dial_metrics.cc TestSmallScreens); draw no dial there.
-    bool Supported() const { return canvas_ >= layout::kMinShortSide; }
+    // Whether the dial fits this screen depends on the board's font too: cn_dial::Supported()
+    // (overlay_layout.h).
 
     // A font size for this screen. Never below font_min_px:
     //   want = max(round(design_px * k), font_min_px);

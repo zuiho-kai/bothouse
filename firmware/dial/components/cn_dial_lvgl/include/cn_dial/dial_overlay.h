@@ -4,7 +4,9 @@
 // screen of any size). Look and numbers are conest's; sizes come only from cn_dial (DialMetrics /
 // OverlaySizes, layout/dial-layout.v1.json), never from constants here.
 //   - Name tag (conest patch 0006): pill on top with a link dot and the name; the work status
-//     「· 工作中 / · 空闲中」 inside it (DECOR.md 3), hidden until SetBusy() is first called.
+//     「· 工作中 / · 空闲中」 inside it (DECOR.md 3), hidden until SetBusy() is first called and
+//     again after ClearBusy(). A long name is cut with "..." at NameLabelMaxW (overlay_layout.h) so
+//     the tag never moves down over the face or out of the round screen.
 //   - Status chip (patch 0006): pill at the bottom, 「我在听 / 想一想 / 在说」; role-household adds
 //     speaking bars, thinking dots and the 「被打断」 stop square as its contents, a .25 s fade, and
 //     the live glow / idle breathing of the name dot.
@@ -43,6 +45,7 @@ public:
     void SetName(const char* name);
     void SetLink(bool connected);   // link dot: green + glow when connected, orange when not
     void SetBusy(bool busy);        // work status next to the name
+    void ClearBusy();               // work status unknown (stale / no link): hide it, no guessing
     void SetChip(Chip chip);        // leaving kSpeaking fades the speech bubble out
     // A sentence being spoken (tts sentence_start). Empty / nullptr: fade the bubble out. Text that
     // arrives before the chip is kSpeaking is kept and shown when it becomes kSpeaking.
@@ -55,13 +58,16 @@ public:
     void Tick(double t_ms, float dt_ms, float level);
 
     const OverlaySizes& sizes() const { return z_; }
+    // The pill font as cn_dial's layout needs it (one CJK glyph's width, line height); {0, 0} for
+    // nullptr. Boards pass it to cn_dial::Supported() before building a dial.
+    static PillFont MeasureFont(const lv_font_t* font);
     lv_obj_t* name_pill() const { return name_pill_; }
 
 private:
     void FitNameTag();
     void ShowSpeech(const char* text);
     void HideSpeech();
-    void SetBatteryBreathing(bool on, lv_opa_t steady, int low_opa, int high_opa);
+    void SetBatteryLook(bool charging, bool low);
     void LayoutBubble();
 
     static void ArcOpaAnim(void* var, int32_t value);
@@ -92,6 +98,7 @@ private:
     lv_obj_t* speech_label_ = nullptr;
 
     Chip chip_ = Chip::kNone;
+    int battery_look_ = -1;         // charging * 2 + low last applied; -1 = none (arc hidden)
     bool live_ = false;
     bool speech_visible_ = false;
     bool speech_hiding_ = false;

@@ -2,7 +2,7 @@
   "schema": "cn_dial.layout",
   "version": 1,
   "canvas": 466,
-  "min_short_side": {"px": 199, "src": "tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23；名牌、状态胶囊取 conest 0006 数值，名牌含「· 工作中」）：198 及以下名牌加工作状态后越出避让圆或压到下方胶囊/气泡；DialMetrics::Supported() 为假时不画表盘"},
+  "min_short_side": {"px": 199, "src": "tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23；名牌、状态胶囊取 conest 0006 数值，名牌含「· 工作中」）：198 及以下名牌加工作状态后越出避让圆或压到下方胶囊/气泡；cn_dial::Supported() 为假时不画表盘；字号更大时 Supported() 另按板上字体算（TestFontSizes）"},
   "rules": {
     "design": "px = max(min_px, max(1, round(design * k)))，k = 屏幕短边 / 466；min_px 缺省为 1",
     "fixed_px": "不缩放，任何屏都是这个像素数（只在 240 屏上目测定过，还没有 466 的值）",

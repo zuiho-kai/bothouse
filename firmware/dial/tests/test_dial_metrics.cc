@@ -36,15 +36,20 @@ static int g_fail = 0, g_pass = 0;
 
 // Line height of the xiaozhi Noto Sans fonts (managed_components/78__xiaozhi-fonts/src/
 // font_noto_sans_basic_<px>_*.c, `.line_height`): 14 -> 16, 16 -> 23, 20 -> 28, 30 -> 43.
+// xiaozhi has no 24 px font: 34 = round(24 * 43 / 30), the 30 px font's ratio (a test value only).
 static int LineH(int font_px) {
     switch (font_px) {
         case 14: return 16;
         case 16: return 23;
         case 20: return 28;
+        case 24: return 34;
         case 30: return 43;
     }
     return 0;
 }
+// The pill font as a board measures it: a CJK glyph is as wide as the font's pixel size.
+static PillFont FontOf(int font_px) { return PillFont{font_px, LineH(font_px)}; }
+static PillFont BoardFont(const DialMetrics& m) { return FontOf(m.font_px(L::kPillText)); }
 
 // The speech bubble as cn_dial_lvgl DialOverlay builds it (cn_dial::Bubble): text box =
 // max(design 40, lines * line height), bubble = max(design 58, text box + 18).
@@ -59,37 +64,51 @@ static Box Bubble(const DialMetrics& m) {
 // flex row, no border, pad_hor + contents + pad_hor wide, pad_ver + tallest child + pad_ver high,
 // fully rounded r = h/2). Name tag: dot + gap + name (+ gap + work status); status chip (widest
 // state): 5 bars + gap + text. Text is modelled as CJK glyphs as wide as the pill font
-// (pill.text, the theme font): the name as 4 ("等待主机", the longest fixed string), the work
-// status 「· 工作中」 as 5, the chip text as 3 (「我在听」「想一想」「被打断」, patch 0006 Update()).
-static constexpr int kNameGlyphs = 4, kWorkGlyphs = 5, kChipGlyphs = 3;
-static Box NamePill(const DialMetrics& m, bool work) {
+// (pill.text, the theme font): the name as `glyphs` glyphs, cut to NameLabelMaxW like the board
+// does (LV_LABEL_LONG_MODE_DOTS); the work status 「· 工作中」 as 5, the chip text as 3
+// (「我在听」「想一想」「被打断」, patch 0006 Update()).
+static int NameW(const DialMetrics& m, PillFont f, int glyphs) {
     const OverlaySizes z = MakeOverlaySizes(m);
-    const int f = m.font_px(L::kPillText);
-    int w = 2 * z.pad_hor + z.name_dot + z.gap + kNameGlyphs * f;
-    if (work) w += z.gap + kWorkGlyphs * f;
-    const int h = 2 * z.pad_ver + std::max(LineH(f), z.name_dot);
+    return std::min(glyphs * f.glyph_w, NameLabelMaxW(m, z, f, kWorkGlyphs * f.glyph_w));
+}
+static Box NamePill(const DialMetrics& m, PillFont f, bool work, int glyphs = kRefNameGlyphs) {
+    const OverlaySizes z = MakeOverlaySizes(m);
+    int w = 2 * z.pad_hor + z.name_dot + z.gap + NameW(m, f, glyphs);
+    if (work) w += z.gap + kWorkGlyphs * f.glyph_w;
+    const int h = 2 * z.pad_ver + std::max(f.line_h, z.name_dot);
     return {m.mid_x(w), NameTagY(m, z, w, h), w, h, h / 2};
 }
-static Box StatusPill(const DialMetrics& m) {
+static Box NamePill(const DialMetrics& m, bool work) { return NamePill(m, BoardFont(m), work); }
+static Box StatusPill(const DialMetrics& m, PillFont f) {
     const OverlaySizes z = MakeOverlaySizes(m);
-    const int f = m.font_px(L::kPillText);
-    const int w = 2 * z.pad_hor + z.bars_w() + z.gap + kChipGlyphs * f;
-    const int h = 2 * z.pad_ver + std::max({LineH(f), z.bar_h, z.dots_h(), z.stop});
+    const int w = 2 * z.pad_hor + z.bars_w() + z.gap + kChipGlyphs * f.glyph_w;
+    const int h = 2 * z.pad_ver + std::max({f.line_h, z.bar_h, z.dots_h(), z.stop});
     return {m.mid_x(w), ChipY(m, z, h), w, h, h / 2};
+}
+static Box BubbleFor(const DialMetrics& m, PillFont f) {
+    const BubbleBox b = cn_dial::Bubble(m, MakeOverlaySizes(m), f.line_h);
+    return {b.x, b.y, b.w, b.h, b.r};
 }
 static bool Inside(const DialMetrics& m, const Box& b) { return m.InSafeArea(b.x, b.y, b.w, b.h, b.r); }
 static bool Apart(const Box& top, const Box& bottom) { return top.y + top.h <= bottom.y; }
+// Name lengths every layout is checked with: 2 (「C酱」), the reference 4 (「等待主机」), long 6 and 10.
+static constexpr int kNameLengths[] = {2, kRefNameGlyphs, 6, 10};
 // Everything drawn on the dial fits: pills and bubble in the safe circle, the name tag (with and
-// without the work status) above the status chip and above the speech bubble.
-static bool LayoutFits(const DialMetrics& m) {
-    const Box s = StatusPill(m), bub = Bubble(m);
+// without the work status, any name length) above the status chip and above the speech bubble,
+// and a long name never pushes the tag below where the reference name tag sits (over the face).
+static bool LayoutFits(const DialMetrics& m, PillFont f) {
+    const Box s = StatusPill(m, f), bub = BubbleFor(m, f);
     if (!Inside(m, s) || !Inside(m, bub)) return false;
+    const int ref_y = NamePill(m, f, true, kRefNameGlyphs).y;
     for (bool work : {false, true}) {
-        const Box n = NamePill(m, work);
-        if (!Inside(m, n) || !Apart(n, s) || !Apart(n, bub)) return false;
+        for (int glyphs : kNameLengths) {
+            const Box n = NamePill(m, f, work, glyphs);
+            if (!Inside(m, n) || !Apart(n, s) || !Apart(n, bub) || n.y > ref_y) return false;
+        }
     }
     return true;
 }
+static bool LayoutFits(const DialMetrics& m) { return LayoutFits(m, BoardFont(m)); }
 
 // Things every screen must satisfy.
 static void CommonChecks(const DialMetrics& m, const char* name) {
@@ -107,7 +126,8 @@ static void CommonChecks(const DialMetrics& m, const char* name) {
     CHECK(m.top_mid_y(m.px(L::kNameTagTop)) >= m.canvas_y());
     CHECK(m.bottom_mid_y(m.px(L::kStatusChipBottom), 1) < m.canvas_y() + m.canvas());
     CHECK(m.profile().Valid());
-    CHECK(m.Supported());
+    CHECK(Supported(m, BoardFont(m)));
+    CHECK(OverlayFits(m, BoardFont(m)));
     CHECK(LayoutFits(m));
 }
 
@@ -348,7 +368,7 @@ static void TestSmallScreens() {
         DialMetrics m(ScreenProfile{W, W, Shape::kRound, 16, {16}, 1, kAssetRgb565Raw, Battery::kUnknown});
         const bool fits = LayoutFits(m);
         if (!fits) last_fail = W;
-        if (m.Supported()) {
+        if (Supported(m, BoardFont(m))) {
             if (!fits) std::printf("W=%d supported but does not fit\n", W);
             CHECK(fits);
         }
@@ -359,10 +379,85 @@ static void TestSmallScreens() {
     // Non-square screens go by the short side.
     DialMetrics r(ScreenProfile{L::kMinShortSide + 80, L::kMinShortSide, Shape::kRect, 16, {16}, 1, kAssetRgb565Raw,
                                 Battery::kNone});
-    CHECK(r.Supported() && LayoutFits(r));
+    CHECK(Supported(r, BoardFont(r)) && LayoutFits(r));
     DialMetrics r2(ScreenProfile{400, L::kMinShortSide - 1, Shape::kRect, 16, {16}, 1, kAssetRgb565Raw,
                                  Battery::kNone});
-    CHECK(!r2.Supported());
+    CHECK(!Supported(r2, BoardFont(r2)));
+}
+
+// Long names (6 and 10 CJK glyphs, 「· 工作中」 shown): the name label is cut with "..." at
+// NameLabelMaxW, the tag stays where the reference 「等待主机 · 工作中」 sits (not over the face) and
+// inside the arc-avoid circle; the reference name itself is never cut.
+static void TestLongNames() {
+    for (int W : {L::kMinShortSide, 240, 360, 466, 1024}) {
+        DialMetrics m(ScreenProfile{W, W, Shape::kRound, 14, {14, 16, 20, 30}, 4, kAssetRgb565Raw, Battery::kGauge});
+        const PillFont f = BoardFont(m);
+        const OverlaySizes z = MakeOverlaySizes(m);
+        const int work_w = kWorkGlyphs * f.glyph_w;
+        const int max_name = NameLabelMaxW(m, z, f, work_w);
+        CHECK(max_name >= kRefNameGlyphs * f.glyph_w);   // 「等待主机」 is never cut
+        CHECK(max_name < 10 * f.glyph_w);                // 10 glyphs always are
+        const Box ref = NamePill(m, f, true);
+        for (int glyphs : {6, 10}) {
+            const Box n = NamePill(m, f, true, glyphs);
+            std::printf("   W=%d font=%d name %d glyphs -> label %d px (max %d), pill %dx%d at y=%d (ref y=%d)\n", W,
+                        f.glyph_w, glyphs, NameW(m, f, glyphs), max_name, n.w, n.h, n.y, ref.y);
+            CHECK(n.w <= NameTagMaxW(m, z, f));
+            CHECK(n.y <= ref.y);
+            CHECK(Inside(m, n));
+        }
+        // The widest allowed tag stays clear of the battery arc's backing (DECOR.md 1: radius 228 - 8).
+        const int wmax = NameTagMaxW(m, z, f), h = NamePillH(z, f.line_h);
+        CHECK(NameTagY(m, z, wmax, h) <= ref.y);
+        const float fit_r = m.k() * (228 - 8), r = h / 2.0f;
+        const float ex = wmax / 2.0f - r, ey = m.center_y() - (NameTagY(m, z, wmax, h) + r);
+        CHECK(std::hypot(ex, ey) + r <= fit_r + 0.5f);
+        CHECK(LayoutFits(m, f));
+    }
+    // 466, conest's 14 px theme font: 「C酱」 (patch 0006 default) is not cut; 10 glyphs are.
+    DialMetrics m466(ScreenProfile{466, 466, Shape::kRound, 14, {14}, 1, kAssetRgb565Raw, Battery::kGauge});
+    CHECK_EQ(NameW(m466, FontOf(14), 2), 28);
+    CHECK(NameW(m466, FontOf(14), 10) < 140);
+    // 240 board (16 px): 6 glyphs are cut too, the label keeps at least the reference 4.
+    DialMetrics m240(ScreenProfile{240, 240, Shape::kRound, 16, {16}, 1, kAssetRgb565Raw, Battery::kUnknown});
+    CHECK(NameW(m240, FontOf(16), 6) < 6 * 16);
+    CHECK(NameW(m240, FontOf(16), 6) >= 4 * 16);
+}
+
+// Supported() takes the board's font into account: for each font size (14/16/20/24/30 px, one font
+// on the board) scan 16..1024. Where Supported() says yes everything fits (LayoutFits, all name
+// lengths); once supported, every bigger screen is too; a bigger font needs a bigger screen.
+static void TestFontSizes() {
+    int min_side_prev = 0;
+    for (int fpx : {14, 16, 20, 24, 30}) {
+        int min_side = 0;
+        bool monotone = true;
+        for (int W = 16; W <= 1024; W++) {
+            DialMetrics m(ScreenProfile{W, W, Shape::kRound, std::min(fpx, 14), {fpx}, 1, kAssetRgb565Raw, Battery::kNone});
+            const PillFont f = BoardFont(m);
+            if (f.glyph_w != fpx) std::printf("W=%d picked %d, want %d\n", W, f.glyph_w, fpx);
+            CHECK_EQ(f.glyph_w, fpx);
+            const bool ok = Supported(m, f);
+            if (ok) {
+                if (!LayoutFits(m, f)) std::printf("W=%d font %d supported but does not fit\n", W, fpx);
+                CHECK(LayoutFits(m, f));
+                if (!min_side) min_side = W;
+            } else if (min_side) {
+                monotone = false;
+            }
+        }
+        std::printf("-- font %d px (line %d): smallest supported short side %d\n", fpx, LineH(fpx), min_side);
+        CHECK(monotone);
+        CHECK(min_side > 0);
+        CHECK(min_side >= L::kMinShortSide);
+        CHECK(min_side >= min_side_prev);
+        min_side_prev = min_side;
+    }
+    // The size alone is not enough: a 240 screen with only a 30 px font cannot hold the overlay.
+    DialMetrics m(ScreenProfile{240, 240, Shape::kRound, 16, {30}, 1, kAssetRgb565Raw, Battery::kNone});
+    CHECK(m.canvas() >= L::kMinShortSide);
+    CHECK(!Supported(m, BoardFont(m)));
+    CHECK(!Supported(m, PillFont{0, 0}));   // no font measured: not supported
 }
 
 int main() {
@@ -376,6 +471,8 @@ int main() {
     TestValid();
     TestRingDepth();
     TestSmallScreens();
+    TestLongNames();
+    TestFontSizes();
     std::printf("%d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

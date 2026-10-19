@@ -205,8 +205,32 @@ void DialOverlay::SetFont(const lv_font_t* font) {
     FitNameTag();
 }
 
+PillFont DialOverlay::MeasureFont(const lv_font_t* font) {
+    if (font == nullptr) return PillFont{0, 0};
+    // U+5DE5 「工」: a full-width CJK glyph, in every CJK font (also in 「工作中」 on the tag).
+    return PillFont{(int)lv_font_get_glyph_width(font, 0x5DE5, 0), (int)lv_font_get_line_height(font)};
+}
+
+namespace {
+int TextW(const char* text, const lv_font_t* font) {
+    lv_point_t sz;
+    lv_text_get_size(&sz, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return sz.x;
+}
+}  // namespace
+
+// The name label is at most NameLabelMaxW wide (room for the wider work label is always kept) and
+// one line high; a longer name ends in "..." (LV_LABEL_LONG_MODE_DOTS). Then the tag is placed.
 void DialOverlay::FitNameTag() {
     if (!name_pill_) return;
+    const lv_font_t* font = lv_obj_get_style_text_font(name_label_, LV_PART_MAIN);
+    if (font) {
+        const int work_w = std::max(TextW("· 工作中", font), TextW("· 空闲中", font));
+        const int max_w = NameLabelMaxW(m_, z_, MeasureFont(font), work_w);
+        const int name_w = TextW(lv_label_get_text(name_label_), font);
+        lv_label_set_long_mode(name_label_, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_size(name_label_, std::min(name_w, max_w), lv_font_get_line_height(font));
+    }
     lv_obj_update_layout(name_pill_);
     const int y = NameTagY(m_, z_, lv_obj_get_width(name_pill_), lv_obj_get_height(name_pill_));
     lv_obj_align(name_pill_, LV_ALIGN_TOP_MID, 0, y);
@@ -224,6 +248,12 @@ void DialOverlay::SetBusy(bool busy) {
     if (!work_label_) return;
     lv_label_set_text(work_label_, busy ? "· 工作中" : "· 空闲中");
     Show(work_label_, true);
+    FitNameTag();
+}
+
+void DialOverlay::ClearBusy() {
+    if (!work_label_ || lv_obj_has_flag(work_label_, LV_OBJ_FLAG_HIDDEN)) return;
+    Show(work_label_, false);
     FitNameTag();
 }
 
@@ -327,27 +357,34 @@ void DialOverlay::UpdateBattery() {
     int level = 0;
     bool charging = false;
     if (!read_battery_ || !read_battery_(level, charging)) {
+        lv_anim_delete(battery_arc_, ArcOpaAnim);
+        battery_look_ = -1;
         Show(battery_arc_, false);
         Show(battery_halo_, false);
         return;
     }
     level = std::clamp(level, 0, 100);
-    const bool low = level < kLowBatteryPercent;
     Show(battery_arc_, true);
     Show(battery_halo_, true);
-    lv_obj_set_style_arc_color(battery_arc_, low ? lv_color_hex(kLowColor) : lv_color_white(), LV_PART_INDICATOR);
     lv_arc_set_value(battery_halo_, level);
     lv_arc_set_value(battery_arc_, level);
-    // DECOR.md 1: 正常 53% (135)，低电 86% (220)；充电呼吸 80↔210，低电 150↔255。
-    SetBatteryBreathing(charging, low ? 220 : 135, low ? 150 : 80, low ? 255 : 210);
+    SetBatteryLook(charging, level < kLowBatteryPercent);
 }
 
-void DialOverlay::SetBatteryBreathing(bool on, lv_opa_t steady, int low_opa, int high_opa) {
+// Colour and opacity / charging breath. Only on a change: restarting the breath on every 30 s
+// refresh made it jump back to its start.
+void DialOverlay::SetBatteryLook(bool charging, bool low) {
+    const int look = (charging ? 2 : 0) + (low ? 1 : 0);
+    if (look == battery_look_) return;
+    battery_look_ = look;
+    lv_obj_set_style_arc_color(battery_arc_, low ? lv_color_hex(kLowColor) : lv_color_white(), LV_PART_INDICATOR);
     lv_anim_delete(battery_arc_, ArcOpaAnim);
-    if (!on) {
-        lv_obj_set_style_arc_opa(battery_arc_, steady, LV_PART_INDICATOR);
+    // DECOR.md 1: 正常 53% (135)，低电 86% (220)；充电呼吸 80↔210，低电 150↔255。
+    if (!charging) {
+        lv_obj_set_style_arc_opa(battery_arc_, low ? 220 : 135, LV_PART_INDICATOR);
         return;
     }
+    const int low_opa = low ? 150 : 80, high_opa = low ? 255 : 210;
     lv_anim_t anim;
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, battery_arc_);
@@ -444,7 +481,10 @@ void DialOverlay::Tick(double t, float dt, float level) {
         Num(name_glow_, LV_STYLE_Y, a.y1 - z_.name_glow_extra / 2);
     }
     if (live_ != !lv_obj_has_flag(name_glow_, LV_OBJ_FLAG_HIDDEN)) {
-        lv_obj_move_to_index(name_glow_, lv_obj_get_index(name_pill_));  // just under the pill
+        // Just under the pill: moving the glow to the pill's index puts it right below the pill only
+        // when it is above it now (it is created before the pill, so normally nothing moves).
+        const int32_t pill = lv_obj_get_index(name_pill_);
+        if (lv_obj_get_index(name_glow_) > pill) lv_obj_move_to_index(name_glow_, pill);
         Show(name_glow_, live_);
     }
     float pulse = chip_ == Chip::kNone ? 1 - .55f * Wave(t, kBreatheIdleMs) : 1;
