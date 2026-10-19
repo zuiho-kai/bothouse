@@ -21,6 +21,44 @@
      - 生成真实无头 Chrome 截图证据：`test-artifacts/10_gemini_idle_variant_happy.png`（徽章显示「大豆包」）与 `11_grok_idle_variant_shy.png`（徽章显示「Grok」）。
 - **边界与安全**：未启动子 Agent，未修改或重启运行中的 8796 服务。基于最新 `origin/main`（`7e8473ae`）开新分支，单独提 PR。
 
+## 2026-10-19：#42 圆屏素材打包工具与 CNAS 板端格式（分支 feat/42-asset-pack，未合并）
+
+- **背景与目标**：C酱指派肥鱼做素材打包工具，把 G哥（`gpt`）的待机 / 倾听 / 思考 / 说话
+  四个状态片段打成板端可直接读的 `assets.bin`，供 G哥写读端。小动作这一版不进固件。
+- **交付**：
+  1. `firmware/esp32s3/tools/pack_assets.py`：读 `prototypes/device-ui/source.html` 的
+     `CHARACTER_CONFIG` 取 `scale`/`tx`/`ty`/`start`/`end`/`bg`，**不复制第二份数字**；
+     ffmpeg 只从 `--ffmpeg` / `FFMPEG_PATH` / `PATH` 找，没有写死第三方应用自带路径。
+  2. `firmware/esp32s3/ASSETS_FORMAT.md`：CNAS v1 完整格式（头部 / 片段表 / 帧索引表 /
+     JPEG 数据、C 结构体、读端必须做的边界检查、预算阶梯、与网页圆屏的换算推导）。
+  3. `firmware/esp32s3/README.md`：工具用法与参数表（注意 main 上原本没有这个目录，
+     IDF 骨架在 PR #72（`feat/42-idf-skeleton`）里，两边 README 需要合一次）。
+  4. `firmware/esp32s3/tests/test_pack_assets.py`：29 项，覆盖容器布局、解包越界、
+     网页同源裁切、几何对位、落板时长与逐段帧率、预算阶梯和端到端（真跑 ffmpeg 验
+     466×466 baseline YUV420，并断言四段帧数是 30/24/40/24、fps 是 12/12/10/12）。
+- **关键实现决定**：
+  - 取景框**不夹紧**。网页 `scale` 小于刚好铺满时露出的底色是片段 `bg`，夹紧会让整幅
+    画面位移（`thinking` 的 `ty=+6.2%` 顶部约 22px 底色），人物和问号就跟网页对不上。
+  - 渲染用**一次仿射重采样**（`Image.transform` + `fillcolor`），不是「整数裁切再贴回」；
+    后者会把取景框取整，实测让中心偏 10px。改完与逐像素逆映射的偏差从 14.35 级降到 6.79 级，
+    剩下的差只是重采样方式不同。几何用标记点核对：手算 241.01/239.61，渲染 241.0/239.5。
+  - 预算到最低档仍超就**退出码 2 且不写文件**，并打印逐段大小和「去掉 extras 后是多少」。
+- **C酱 拍板的落板口径（已实现）**：不再把整段塞进去，按 `docs/BOARD_ASSETS_PLAN.md` §3
+  截短——`idle` 2.5s、`listening` 2.0s、`speaking` 2.0s 循环、`thinking` 完整一圈
+  3.96s 且降到 10fps；起点仍取 `source.html`，画面与网页圆屏一致；小动作这一版不打包
+  （`--extras` 默认改为 0）。落在 `tools/pack_assets.py` 的 `BOARD_PLAN` 常量里，
+  `--full-length` 可关掉截断（仅排查用）。
+- **实测（本机，gpt，落板口径）**：合计 **6,048,774 B = 5.77 MiB / 118 帧**，占 7 MiB
+  预算 82.4%，**起始档 Q80/12fps 一次就装下**，没触发降级：
+  `idle` 2.50s/12fps/30 帧/1,428,034 B；`listening` 2.00s/12fps/24 帧/1,379,032 B；
+  `thinking` 3.96s/10fps/40 帧/2,104,447 B；`speaking` 2.00s/12fps/24 帧/1,136,217 B。
+  因为 `thinking` 10fps、其余 12fps，**片段表的 `fps` 是逐段的**，读端按每段自己那项计时。
+- **降级前的老数据（留作对照）**：整段不截时四个状态 `12fps/Q80` = 10.28 MiB，
+  `10fps/Q75`（约定下限）= 7.68 MiB，装不下 7 MiB——这就是要截短的原因。
+- **边界与安全**：未启动子 Agent；未动 8796 进程或配置；未推送 `feat/33-device-floor`。
+  分支基于 `origin/main`（`7e8473ae`）新建，单独提 PR。
+
+
 ## 2026-10-19：#53 G哥专用说话视频与 6 段待机小动作接入（分支 feat/53-round-screen-idle-variants，未合并）
 
 - **背景与目标**：落实 C酱在交接中的指示，为圆屏原型接入 G哥（`gpt`）的专用说话视频与待机插播小动作：
