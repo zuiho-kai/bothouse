@@ -30,6 +30,12 @@ struct ScreenProfile {
     uint8_t asset_formats = 0;       // AssetFormat bits
     Battery battery = Battery::kNone;
 
+    // False (and *why, if given, says which field) when the profile cannot describe a real
+    // screen: w/h not positive, font_min_px not positive, n_fonts outside 0..kMaxFonts, fonts_px
+    // not positive and strictly ascending, or unknown asset_formats bits. A board whose fonts are
+    // all below font_min_px is still valid; DialMetrics::pick_font() reports it.
+    bool Valid(const char** why = nullptr) const;
+
     // The hello "display" object, e.g.
     // {"w":240,"h":240,"shape":"round","font_min_px":16,"fonts_px":[16],"asset_formats":["rgb565raw"],"battery":"unknown"}
     std::string ToJson() const;

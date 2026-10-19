@@ -2,12 +2,13 @@
   "schema": "cn_dial.layout",
   "version": 1,
   "canvas": 466,
+  "min_short_side": {"px": 161, "src": "tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23）：160 及以下名牌胶囊越出安全圆；DialMetrics::Supported() 为假时不画表盘"},
   "rules": {
     "design": "px = max(min_px, max(1, round(design * k)))，k = 屏幕短边 / 466；min_px 缺省为 1",
     "fixed_px": "不缩放，任何屏都是这个像素数（只在 240 屏上目测定过，还没有 466 的值）",
     "frac": "px = round(画布边长 * frac)",
     "deg": "角度，不缩放",
-    "font": "目标 = round(design_px * k)；取板上已有字号里不小于 max(目标, font_min_px) 的最小一档，没有就取最大档"
+    "font": "want = max(round(design_px * k), font_min_px)；取板上已有字号里不小于 want 的最小一档；没有就取最大档，但最大档也小于 font_min_px 时取 font_min_px 并报告板上缺字（DialMetrics::pick_font）"
   },
   "sources": {
     "DECOR": "conest PR #110 分支 firmware/xiaozhi/DECOR.md（尺寸都按 466×466 圆屏算）",

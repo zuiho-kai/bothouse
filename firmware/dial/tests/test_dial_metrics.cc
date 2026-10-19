@@ -56,6 +56,41 @@ static Box Bubble(const DialMetrics& m) {
     return {m.mid_x(w), m.bottom_mid_y(m.px(L::kSpeechBubbleBottom), h), w, h, m.px(L::kSpeechBubbleRadius)};
 }
 
+// The role-household dial's two pills as rh_dial_display.cc (fw branch rh-dial-metrics, SetupUI)
+// builds them: flex row of border + pad_hor + contents + pad_hor + border, height border + pad_ver +
+// tallest child + pad_ver + border, fully rounded (r = h/2). Name pill: dot + gap + name; status
+// pill (widest state, speaking): 5 bars + gap + text. Text is modelled as 4 CJK glyphs of the pill
+// font ("等待主机" / "正在回答", the longest fixed strings; dial.html STATUS_TEXT), each as wide as
+// the font size. The pill font is the board font picked for the web's 17 px (RH:62 comment).
+static constexpr int kPillGlyphs = 4;
+static constexpr int kPillFontDesign = 17;
+static Box NamePill(const DialMetrics& m) {
+    const int f = m.font_px(kPillFontDesign);
+    const int b = m.px(L::kRhDialPillBorder), pv = m.px(L::kRhDialPillPadVer), ph = m.px(L::kRhDialPillPadHor);
+    const int dot = m.px(L::kRhDialNameDot);
+    const int w = 2 * b + 2 * ph + dot + m.px(L::kRhDialPillGap) + kPillGlyphs * f;
+    const int h = 2 * b + 2 * pv + std::max(LineH(f), dot);
+    return {m.mid_x(w), m.top_mid_y(m.px(L::kRhDialNameTagTop)), w, h, h / 2};
+}
+static Box StatusPill(const DialMetrics& m) {
+    const int f = m.font_px(kPillFontDesign);
+    const int b = m.px(L::kRhDialPillBorder), pv = m.px(L::kRhDialPillPadVer), ph = m.px(L::kRhDialPillPadHor);
+    const int bars = 5 * m.px(L::kRhDialBarWidth) + 4 * m.px(L::kRhDialBarGap);  // kBars = 5
+    const int w = 2 * b + 2 * ph + bars + m.px(L::kRhDialPillGap) + kPillGlyphs * f;
+    const int tallest = std::max({LineH(f), m.px(L::kRhDialBarHeight),
+                                  m.px(L::kRhDialDotSize) + m.px(L::kRhDialDotJump), m.px(L::kRhDialStopSize)});
+    const int h = 2 * b + 2 * pv + tallest;
+    return {m.mid_x(w), m.bottom_mid_y(m.px(L::kRhDialStatusChipBottom), h), w, h, h / 2};
+}
+static bool Inside(const DialMetrics& m, const Box& b) { return m.InSafeArea(b.x, b.y, b.w, b.h, b.r); }
+static bool Apart(const Box& top, const Box& bottom) { return top.y + top.h <= bottom.y; }
+// Everything drawn on the dial fits: pills and bubble in the safe circle, the name pill above
+// the status pill and above the speech bubble (conest_decor.cc overlays it on this dial).
+static bool LayoutFits(const DialMetrics& m) {
+    const Box n = NamePill(m), s = StatusPill(m), bub = Bubble(m);
+    return Inside(m, n) && Inside(m, s) && Inside(m, bub) && Apart(n, s) && Apart(n, bub);
+}
+
 // Things every screen must satisfy.
 static void CommonChecks(const DialMetrics& m, const char* name) {
     std::printf("-- %s: k=%.4f canvas=%d safe_r=%.1f\n", name, m.k(), m.canvas(), m.safe_radius());
@@ -71,6 +106,9 @@ static void CommonChecks(const DialMetrics& m, const char* name) {
     // name tag top edge below the canvas top, status chip above the canvas bottom
     CHECK(m.top_mid_y(m.px(L::kNameTagTop)) >= m.canvas_y());
     CHECK(m.bottom_mid_y(m.px(L::kStatusChipBottom), 1) < m.canvas_y() + m.canvas());
+    CHECK(m.profile().Valid());
+    CHECK(m.Supported());
+    CHECK(LayoutFits(m));
 }
 
 // W = 466: every conest DECOR.md / patch 0006 / 0010 number comes out unchanged.
@@ -209,6 +247,94 @@ static void TestFontRule() {
     CHECK_EQ(m.font_px(8), 14);   // never below font_min_px
 }
 
+// fonts_px={12}, font_min_px=16: no board font is readable -> font_min_px, reported.
+static void TestFontFloor() {
+    ScreenProfile p{240, 240, Shape::kRound, 16, {12}, 1, kAssetRgb565Raw, Battery::kNone};
+    CHECK(p.Valid());
+    DialMetrics m(p);
+    CHECK_EQ(m.font_px(14), 16);
+    CHECK_EQ(m.font_px(L::kSpeechBubbleText), 16);
+    CHECK(!m.pick_font(14).on_board);
+    CHECK_EQ(m.font_px(100), 16);  // even far above: never below font_min_px
+    // A readable size exists above the floor: take it.
+    DialMetrics m2(ScreenProfile{240, 240, Shape::kRound, 16, {12, 20}, 2, kAssetRgb565Raw, Battery::kNone});
+    CHECK_EQ(m2.font_px(14), 20);
+    CHECK(m2.pick_font(14).on_board);
+    // Target above every font, largest still >= floor: the largest.
+    DialMetrics m3(ScreenProfile{466, 466, Shape::kRound, 10, {12}, 1, kAssetRgb565Raw, Battery::kNone});
+    CHECK_EQ(m3.font_px(30), 12);
+    CHECK(m3.pick_font(30).on_board);
+    // No fonts listed: want.
+    DialMetrics m4(ScreenProfile{466, 466, Shape::kRound, 16, {}, 0, kAssetRgb565Raw, Battery::kNone});
+    CHECK_EQ(m4.font_px(30), 30);
+    for (int W = 16; W <= 1024; W++) {
+        for (int fmin : {8, 12, 14, 16, 20}) {
+            DialMetrics mw(ScreenProfile{W, W, Shape::kRound, fmin, {12}, 1, kAssetRgb565Raw, Battery::kNone});
+            for (int d : {1, 14, 17, 40}) CHECK(mw.font_px(d) >= fmin);
+        }
+    }
+}
+
+static void TestValid() {
+    const char* why = nullptr;
+    ScreenProfile ok{240, 240, Shape::kRound, 16, {16}, 1, kAssetRgb565Raw, Battery::kUnknown};
+    CHECK(ok.Valid(&why) && why == nullptr);
+    auto bad = [&](ScreenProfile p, const char* field) {
+        const char* w = nullptr;
+        CHECK(!p.Valid(&w));
+        CHECK(w != nullptr && std::strcmp(w, field) == 0);
+    };
+    ScreenProfile p = ok; p.w = 0; bad(p, "w/h");
+    p = ok; p.h = -1; bad(p, "w/h");
+    p = ok; p.font_min_px = 0; bad(p, "font_min_px");
+    p = ok; p.n_fonts = ScreenProfile::kMaxFonts + 1; bad(p, "n_fonts");
+    p = ok; p.n_fonts = -1; bad(p, "n_fonts");
+    p = ok; p.fonts_px[0] = 0; bad(p, "fonts_px");
+    p = ok; p.fonts_px[1] = 16; p.n_fonts = 2; bad(p, "fonts_px");  // not strictly ascending
+    p = ok; p.asset_formats = 0x80; bad(p, "asset_formats");
+}
+
+// rh_dial_display.cc BuildRing keeps each rim pixel's depth in 1/16 px (RingPx::d16) for depths
+// below ring_max = max(glow_max, halo_max, ring_w) + 1 (MakeSizes). As uint8_t it wrapped from
+// W = 1204 (ring_w = round(6 * 1204/466) = 16, ring_max 17, depth*16 up to 271); it is uint16_t now.
+static int RingMax(const DialMetrics& m) {
+    return std::max(m.px(L::kRhDialGlowMax), std::max(m.px(L::kRhDialHaloMax), m.px(L::kRhDialRingWidth))) + 1;
+}
+static void TestRingDepth() {
+    auto max_d16 = [](int W) {
+        DialMetrics m(ScreenProfile{W, W, Shape::kRound, 16, {16}, 1, kAssetRgb565Raw, Battery::kNone});
+        return RingMax(m) * 16 - 1;  // d < ring_max, (int)(d * 16) <= ring_max * 16 - 1
+    };
+    CHECK(max_d16(1203) <= 255);
+    CHECK(max_d16(1204) > 255);   // the old uint8_t overflow
+    for (int W = 16; W <= 8192; W++) CHECK(max_d16(W) <= 65535);
+}
+
+// 16..1024: where LayoutFits() fails the screen is below layout::kMinShortSide and Supported()
+// says so; at and above it everything fits. kMinShortSide is the tight bound (W - 1 fails).
+static void TestSmallScreens() {
+    int last_fail = 0;
+    for (int W = 16; W <= 1024; W++) {
+        DialMetrics m(ScreenProfile{W, W, Shape::kRound, 16, {16}, 1, kAssetRgb565Raw, Battery::kUnknown});
+        const bool fits = LayoutFits(m);
+        if (!fits) last_fail = W;
+        if (m.Supported()) {
+            if (!fits) std::printf("W=%d supported but does not fit\n", W);
+            CHECK(fits);
+        }
+    }
+    std::printf("-- small screens: last W that does not fit = %d, kMinShortSide = %d\n", last_fail,
+                L::kMinShortSide);
+    CHECK_EQ(L::kMinShortSide, last_fail + 1);
+    // Non-square screens go by the short side.
+    DialMetrics r(ScreenProfile{L::kMinShortSide + 80, L::kMinShortSide, Shape::kRect, 16, {16}, 1, kAssetRgb565Raw,
+                                Battery::kNone});
+    CHECK(r.Supported() && LayoutFits(r));
+    DialMetrics r2(ScreenProfile{400, L::kMinShortSide - 1, Shape::kRect, 16, {16}, 1, kAssetRgb565Raw,
+                                 Battery::kNone});
+    CHECK(!r2.Supported());
+}
+
 int main() {
     Test466();
     Test240();
@@ -216,6 +342,10 @@ int main() {
     Test360();
     TestRect320x240();
     TestFontRule();
+    TestFontFloor();
+    TestValid();
+    TestRingDepth();
+    TestSmallScreens();
     std::printf("%d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

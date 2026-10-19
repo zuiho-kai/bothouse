@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #127 按代码审查修 cn_dial：`font_px()` 不再低于 `font_min_px`（板上无合格档时取 font_min_px，`pick_font().on_board=false` 供固件打日志）；`ScreenProfile::Valid()`；dial-layout.v1.json 新增 `min_short_side`=161（16px 字时 160 及以下名牌越出安全圆），`DialMetrics::Supported()` 为假时不画表盘；单测补 fonts_px={12}/font_min_px=16、Valid、W=16..1024 胶囊在安全圆内且不重叠、环像素深度 d16 在 W≥1204 超出 uint8（固件改 uint16）。只改 firmware/dial/ 与本条。
+
 2026-10-20：Issue #124 表盘屏幕参数与尺寸换算抽成共用组件 `firmware/dial/components/cn_dial`（`ScreenProfile` + `DialMetrics`，纯 C++，不依赖 LVGL/ESP-IDF）。数值只在 `firmware/dial/layout/dial-layout.v1.json`（466 画布单位；conest 数值取自 #110 的 DECOR.md 与补丁 0006/0010，角色小家 240 屏现值作下限），`tools/gen_layout.py` 生成头文件，CI 新 job `dial-metrics` 检查一致并跑主机单测（466/240/360 圆屏、320×240 与 240×320 假屏）。角色小家固件用 `EXTRA_COMPONENT_DIRS` 引用本目录，表盘尺寸只经 `DialMetrics` 取，hello 多报 `display`（主机只记日志）。只改 firmware/dial/、CI 与本条；未刷板、未部署。下一步：角色小家把已移植的 conest 电量弧/气泡/工作状态放进本目录，不等 #110 合并。
 
 2026-10-20：Issue #120 修复 ACP 全轮私密输出被过滤后仍返回成功、显示 `(空响应)` 的缺口。整轮统计跨消息/工具保留，RPC边界取快照；只有显式过滤证据且无公开正文时发专用错误，保留会话、不自动重跑工具、不写成功历史。分支 fix/120-acp-no-public-answer；合成mock RPC旧版8例失败，验证见[公开回复边界](ACP_PRIVATE_OUTPUT.md)。本条为源码记录，部署另在统一交接记账，发布须保留Claude strict补丁20c79756。

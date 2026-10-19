@@ -6,6 +6,8 @@
 namespace cn_dial::layout {
 
 inline constexpr int kCanvas = 466;
+// min_short_side: tests/test_dial_metrics.cc TestSmallScreens 扫 16..1024（16px 字、行高 23）：160 及以下名牌胶囊越出安全圆；DialMetrics::Supported() 为假时不画表盘
+inline constexpr int kMinShortSide = 161;
 
 // battery_arc.diameter: DECOR:14 半径 228px；P0010:170 lv_obj_set_size(456, 456)
 inline constexpr Px kBatteryArcDiameter{456.0f, 1};

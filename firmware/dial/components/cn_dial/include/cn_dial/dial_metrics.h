@@ -6,6 +6,7 @@
 //   - the safe area is the circle inscribed in the canvas (round / arc components stay in it);
 //   - on a non-square screen the leftover strips along the long side are "bands";
 //   - fonts do not scale linearly: see font_px().
+#include "cn_dial/dial_layout_v1.h"
 #include "cn_dial/layout_types.h"
 #include "cn_dial/screen_profile.h"
 
@@ -37,9 +38,21 @@ public:
     // round(canvas * frac)
     int px(layout::Frac f) const;
 
-    // target = round(design_px * k); the smallest board font >= max(target, font_min_px),
-    // else the largest board font (no board fonts: max(target, font_min_px)).
-    int font_px(int design_px) const;
+    // True when the short side is at least layout::kMinShortSide: below it the pills leave the
+    // safe circle or overlap (tests/test_dial_metrics.cc TestSmallScreens); draw no dial there.
+    bool Supported() const { return canvas_ >= layout::kMinShortSide; }
+
+    // A font size for this screen. Never below font_min_px:
+    //   want = max(round(design_px * k), font_min_px);
+    //   the smallest board font >= want; else the largest board font if it is >= font_min_px;
+    //   else font_min_px with on_board = false (the board has no readable font: the caller
+    //   should log it). No board fonts listed: want.
+    struct FontPick {
+        int px;
+        bool on_board;
+    };
+    FontPick pick_font(int design_px) const;
+    int font_px(int design_px) const { return pick_font(design_px).px; }
     int font_px(layout::Font f) const { return font_px(f.design_px); }
 
     // Height of a text box designed `design_h` high that must hold f.lines lines of a font whose

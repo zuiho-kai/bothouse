@@ -36,6 +36,13 @@ def render(d: dict) -> str:
         "namespace cn_dial::layout {",
         "",
         f"inline constexpr int kCanvas = {int(d['canvas'])};",
+    ]
+    mss = d["min_short_side"]
+    if int(mss["px"]) <= 0 or not mss.get("src"):
+        raise SystemExit("min_short_side needs a positive px and a src")
+    lines += [
+        f"// min_short_side: {mss['src']}",
+        f"inline constexpr int kMinShortSide = {int(mss['px'])};",
         "",
     ]
     seen = set()

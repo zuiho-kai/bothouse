@@ -43,6 +43,24 @@ std::string ScreenProfile::ToJson() const {
     return out;
 }
 
+bool ScreenProfile::Valid(const char** why) const {
+    const char* bad = nullptr;
+    if (w <= 0 || h <= 0) bad = "w/h";
+    else if (font_min_px <= 0) bad = "font_min_px";
+    else if (n_fonts < 0 || n_fonts > kMaxFonts) bad = "n_fonts";
+    else if (asset_formats & ~(kAssetRgb565Raw | kAssetJpegBaseline | kAssetCnas1)) bad = "asset_formats";
+    else {
+        for (int i = 0; i < n_fonts; i++) {
+            if (fonts_px[i] <= 0 || (i > 0 && fonts_px[i] <= fonts_px[i - 1])) {
+                bad = "fonts_px";
+                break;
+            }
+        }
+    }
+    if (why) *why = bad;
+    return bad == nullptr;
+}
+
 DialMetrics::DialMetrics(const ScreenProfile& profile) : profile_(profile) {
     canvas_ = std::min(profile_.w, profile_.h);
     canvas_x_ = (profile_.w - canvas_) / 2;
@@ -57,10 +75,10 @@ int DialMetrics::px(layout::Px v) const {
 
 int DialMetrics::px(layout::Frac f) const { return (int)lroundf((float)canvas_ * f.v); }
 
-int DialMetrics::font_px(int design_px) const {
+DialMetrics::FontPick DialMetrics::pick_font(int design_px) const {
     const int want = std::max((int)lroundf(design_px * k_), profile_.font_min_px);
-    const int n = std::min(profile_.n_fonts, ScreenProfile::kMaxFonts);
-    if (n == 0) return want;
+    const int n = std::max(0, std::min(profile_.n_fonts, ScreenProfile::kMaxFonts));
+    if (n == 0) return {want, true};
     int largest = profile_.fonts_px[0];
     int best = 0;
     for (int i = 0; i < n; i++) {
@@ -68,7 +86,9 @@ int DialMetrics::font_px(int design_px) const {
         largest = std::max(largest, f);
         if (f >= want && (best == 0 || f < best)) best = f;
     }
-    return best ? best : largest;
+    if (best) return {best, true};
+    if (largest >= profile_.font_min_px) return {largest, true};
+    return {profile_.font_min_px, false};
 }
 
 int DialMetrics::text_box_h(layout::Px design_h, layout::Font f, int line_h_px) const {
