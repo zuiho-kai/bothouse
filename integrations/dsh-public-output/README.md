@@ -1,0 +1,46 @@
+# DSH 公开答复出口
+
+Issue #145。仅在需要阻止执行过程直接进入聊天正文的 ACP 部署上启用。使用 DSH 的 llm/stream 插件接口，不修改 node_modules，也不改模型身份或原会话。
+
+## 为什么需要这一层
+
+上游可能把思考放入普通 content；思考里还可能引用闭标签。因此“找到闭标签后放行剩余内容”没有可靠的公开边界。当前 DSH 0.1.5-rc.3 的 ACP 忠实地将 native text 转为普通正文，问题已经发生在它之前。
+
+- 有工具调用的模型步骤：保留工具 ID/名称/参数，将普通 text 归入 native reasoning；Discord 须关闭 thinking_messages 与 tool_messages。不改变工具调用次数。
+- 无工具的成功终态：原始草稿不公开。使用原对话和已发生的工具结果，额外发起一个无工具的答复请求；去掉 reasoning 和带私密标记的历史 assistant text，保留相关工具调用/结果。
+- 只有严格 JSON 对象的唯一 reply 字段通过非空、长度及私密标记检查后才进入 native text。原始 SSE 和补答的 reasoning 从不直接发布。已有精确 NO_REPLY 保持静默。
+- 最多两次格式尝试，共用60秒期限；网络/取消/非成功终态不重试。补答若返回工具请求会被丢弃，绝不交给工具执行器。失败有明确错误，不用旧草稿兜底。
+- 重写块后丢弃旧供应商 replay metadata；计入原请求和补答的 token 用量。每次流收集最多2MiB，超限失败。仅处理指定 provider 的 agent-loop 请求；压缩、标题和其他 provider 不经过该出口。
+
+## 启用
+
+将本目录两个源码文件（output.mjs、plugin.mjs）放到一个固定发布目录，在该 ACP 启动器的最后一层 patch 追加：
+
+~~~yaml
+- insert:
+    - id: conest-public-output
+      name: /absolute/release/path/plugin.mjs
+      config:
+        providers:
+          - your-provider-id
+~~~
+
+桥接对应项目应配置：
+
+~~~toml
+[projects.display]
+thinking_messages = false
+tool_messages = false
+~~~
+
+plugin.mjs 从实际运行的 DSH 安装解析 dsh-llm，确保使用同一个 loop-marker 实例。不支持的运行时或配置缺失会启动失败，不静默放行。升级 DSH 后必须重跑隔离真实 ACP 验收。源码/patch/二进制应作为一个发布单元备份、切换和回滚。
+
+## 验证与代价
+
+~~~sh
+node --test integrations/dsh-public-output/*.test.mjs
+~~~
+
+测试覆盖未标记过程文字、闭标签引用、纯思考、空输出、分片不先发、无工具补答、失败/取消、两次上限、原工具ID、上下文不变、用量和并发隔离。真实隔离模型验证另行记录，CI不访问供应商或Discord。
+
+正常完成多一次模型调用，有额外延迟/费用；不会重跑已执行工具。公开答复是模型依据证据重新生成的，仍需核对事实。JSON 是明确的发布边界，不是语义审查器；无法数学上保证模型永远不会把内部文字写进 reply 字段。桥接显式标签过滤继续作为第二层保护。模型或上游故障仍可能导致明确失败，不能承诺每次都有答案。

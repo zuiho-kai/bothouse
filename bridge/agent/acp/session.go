@@ -227,19 +227,25 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	}
 
 	wantResume := resumeSessionID != "" && resumeSessionID != core.ContinueSession
-	if s.strictResume && (!wantResume || !initOut.AgentCapabilities.LoadSession) {
-		return fmt.Errorf("acp: strict resume requires a concrete session and loadSession support")
+	resumeCapability := bytes.TrimSpace(initOut.AgentCapabilities.SessionCapabilities.Resume)
+	resumeSupported := len(resumeCapability) > 0 && resumeCapability[0] == '{'
+	resumeMethod := "session/load"
+	if resumeSupported {
+		resumeMethod = "session/resume"
 	}
-	if wantResume && initOut.AgentCapabilities.LoadSession {
+	if s.strictResume && (!wantResume || !(initOut.AgentCapabilities.LoadSession || resumeSupported)) {
+		return fmt.Errorf("acp: strict resume requires a concrete session and loadSession or resume support")
+	}
+	if wantResume && (initOut.AgentCapabilities.LoadSession || resumeSupported) {
 		loadParams := map[string]any{
 			"sessionId":  resumeSessionID,
 			"cwd":        s.workDir,
 			"mcpServers": []any{},
 		}
-		loadRes, err := s.tr.call(s.ctx, "session/load", loadParams)
+		loadRes, err := s.tr.call(s.ctx, resumeMethod, loadParams)
 		if err != nil {
-			if s.strictResume {
-				return fmt.Errorf("acp: strict session/load: %w", err)
+			if s.strictResume || resumeSupported {
+				return fmt.Errorf("acp: %s: %w", resumeMethod, err)
 			}
 			slog.Warn("acp: session/load failed, starting new session", "error", err)
 		} else {
@@ -250,12 +256,12 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 				ConfigOptions []acpConfigOption `json:"configOptions"`
 			}
 			parseErr := json.Unmarshal(loadRes, &lr)
-			if s.strictResume {
+			if s.strictResume || resumeSupported {
 				// ACP v1 LoadSessionResponse has no required sessionId: a successful
 				// object response acknowledges the requested ID. Reject a conflicting
 				// vendor extension, malformed result, or null; never create a session.
 				if parseErr != nil || len(bytes.TrimSpace(loadRes)) == 0 || bytes.TrimSpace(loadRes)[0] != '{' {
-					return fmt.Errorf("acp: invalid strict session/load response")
+					return fmt.Errorf("acp: invalid %s response", resumeMethod)
 				}
 				if lr.SessionID != "" && lr.SessionID != resumeSessionID {
 					return fmt.Errorf("acp: loaded session does not match original binding")
@@ -445,7 +451,6 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 				s.outputMessageID = id
 			}
 			ev.Content = s.outputFilter.feed(ev.Content)
-			s.outputTurn.suppressed = s.outputTurn.suppressed || s.outputFilter.suppressed
 			s.outputTurn.public = s.outputTurn.public || strings.TrimSpace(ev.Content) != ""
 			if ev.Content == "" {
 				continue
@@ -738,7 +743,13 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		return fmt.Errorf("acp: session/prompt: %w", err)
 	}
 	slog.Debug("acp: session/prompt response", "session_id", sid, "response_len", len(res))
-	if validResult && result.StopReason == "end_turn" && output.suppressed && !output.public {
+	if !validResult || result.StopReason != "end_turn" {
+		// The RPC returned but the turn did not succeed. Never invent an empty
+		// successful reply or echo an untrusted vendor stopReason.
+		s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: fmt.Errorf("acp: prompt did not complete successfully")})
+		return nil
+	}
+	if !output.public {
 		// The RPC completed; only the reply failed. Report one terminal event,
 		// not a competing Send error. Tools may have run: never replay this turn.
 		s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: core.ErrNoPublicAnswer})

@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #145 将肥鱼公开输出边界前移到 DSH llm/stream：中间 text 归入 reasoning；终态基于已有证据进行最多两次、无工具的结构化补答，只发布验证后的 reply。桥接所有无正文 end_turn 均报回复失败，并支持 DSH 宣告的 session/resume，避免重启另开会话。合成回归旧路径失败、新路径通过；真实隔离ACP、冷恢复、只读工具后补答通过；80步骤/117工具调用回放无原始正文。20项Node回归、Go全量、ACP竞态、vet和构建通过。首次全量出现会话删除卡片时序失败，单项与CUJ三次复跑及再次全量通过。详见[部署插件](../integrations/dsh-public-output/README.md)。本条为源码记录，生产发布另记统一交接；须保留Claude strict补丁20c79756。
+
 2026-10-20：Issue #136 按 #134 的代码审查修 cn_dial：名牌名字限宽加省略号（`NameLabelMaxW`：名牌最宽到参照「等待主机 · 工作中」所在高度的避让圆弦长，长名字不再把名牌压到脸上或越出圆屏），单测加 6/10 字名字；`DialMetrics::Supported()` 改为 `cn_dial::Supported(m, PillFont)`，按板上字体（字宽、行高）判定，单测扫 14/16/20/24/30px（最小短边 199/199/237/275/332）；光晕放回名牌下面；充电呼吸只在充电/低电变化时重开；新增 `DialOverlay::ClearBusy()`（工作状态未知或断线时隐藏）。只改 firmware/dial/ 与本条；未刷板、未部署。
 
 2026-10-20：Issue #133 / PR #134 表盘第二步：新 ESP-IDF 组件 `firmware/dial/components/cn_dial_lvgl`（`cn_dial::DialOverlay`，只依赖 LVGL 与 cn_dial），一个类画名牌（含 DECOR.md 3 工作状态）、状态胶囊、电量弧、字幕气泡；外观与数值取 #110 的补丁 0006/0010 与 DECOR.md，角色小家的音柱/跳点/停止方块/「被打断」作为胶囊内容。尺寸全走 `DialMetrics`，纯计算在 cn_dial `overlay_layout.{h,cc}`；JSON 删掉与 conest 重复的 `rh_dial` 名牌/胶囊数值（0006 设计值，240 屏现值作 `min_px` 下限），`min_short_side` 161→199（检查含「· 工作中」）；`battery` 不是 `gauge` 的屏不建电量弧。角色小家固件（xiaozhi-esp32 分支 rh-dial-step2）的 `RhDialDisplay` 只做接线。未做：全屏头像动画 CNAS（第三步：0005 写死 466、1.28 带宽待实测、240 素材在草稿 #123）。#110 合并后按它的版本对齐 DialOverlay。只改 firmware/dial/ 与本条；未刷板、未部署。

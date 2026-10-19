@@ -74,6 +74,7 @@ jobs:
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
+      - run: node --test ../integrations/dsh-public-output/*.test.mjs
       - run: go mod verify
       - run: go build -tags no_web ./...
       - run: go test -tags no_web -p 1 -count=1 ./...

@@ -228,7 +228,7 @@ func TestPrivateOutput_PromptCompletionAndErrors(t *testing.T) {
 							}
 						}
 					}
-					wantFailure := i == 0 && (ending != "cancelled" || strict)
+					wantFailure := i == 0
 					if successes+failures != 1 || (failures == 1) != wantFailure {
 						t.Fatalf("unexpected terminal: success=%d failure=%d", successes, failures)
 					}

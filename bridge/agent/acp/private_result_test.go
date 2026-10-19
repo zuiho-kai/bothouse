@@ -32,7 +32,8 @@ func TestPrivateOutput_NoPublicAnswerTerminal(t *testing.T) {
 			{"public_details", []chunk{{text: "<details><summary>标题</summary>正文</details>"}}, false},
 			{"code_example", []chunk{{text: "~~~xml\n<thinking>example</thinking>\n~~~"}}, false},
 			{"intentional_silence", []chunk{{text: "<thinking>PRIVATE</thinking>NO_REPLY"}}, false},
-			{"no_filter_evidence", nil, false},
+			{"empty_completion", nil, true},
+			{"native_reasoning_only", []chunk{{kind: "agent_thought_chunk", text: "PRIVATE native reasoning"}}, true},
 		} {
 			t.Run(fmt.Sprintf("strict=%v/%s", strict, tc.name), func(t *testing.T) {
 				s, responses, requests := newTestSession(t, nil)
@@ -170,5 +171,36 @@ func TestPrivateOutput_CompletionSnapshotExcludesLateNotification(t *testing.T) 
 				t.Fatalf("failures=%d", failures)
 			}
 		})
+	}
+}
+
+func TestPrivateOutput_NonSuccessNeverBecomesEmptySuccess(t *testing.T) {
+	for _, result := range []any{nil, map[string]any{}, map[string]any{"stopReason": "cancelled"}, map[string]any{"stopReason": "max_tokens"}, map[string]any{"stopReason": "PRIVATE_INVALID"}} {
+		s, w, r := newTestSession(t, nil)
+		go func() {
+			var req inputRPCRequest
+			if json.NewDecoder(r).Decode(&req) == nil {
+				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+			}
+		}()
+		if err := s.Send("test", "m", nil, nil); err != nil {
+			t.Fatal("completed RPC should report terminal through events only")
+		}
+		failures := 0
+		for len(s.events) > 0 {
+			ev := <-s.events
+			if ev.Type == core.EventResult {
+				t.Error("non-success reported success")
+			}
+			if ev.Type == core.EventError {
+				failures++
+				if strings.Contains(ev.Error.Error(), "PRIVATE") {
+					t.Error("untrusted stop reason leaked")
+				}
+			}
+		}
+		if failures != 1 {
+			t.Errorf("failure terminals=%d", failures)
+		}
 	}
 }

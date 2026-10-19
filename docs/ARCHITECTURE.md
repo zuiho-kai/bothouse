@@ -68,3 +68,5 @@ core 通过可选 NativeContextCompressor 能力管理会话锁、排队模型�
 ACP 的公开输出边界位于适配器通知入口：仅已知消息事件可生成正文，流式剔除显式私密区块后再交给前台/空闲消费者；裸summary隐藏，公开details内的summary与Markdown代码示例保留。不按模型或平台名分支。协议边界与无法识别无标记内部正文的限制见 [ACP_PRIVATE_OUTPUT.md](ACP_PRIVATE_OUTPUT.md)。
 
 正常 end_turn 若整轮只有被隐藏的显式私密区块，ACP 通过通用 ErrNoPublicAnswer 事件报告回复失败。整轮事实在 RPC 读取边界取快照；core 保留错误语义、原会话和待处理消息，不存成功答复、不自动重放工具。模型未提供的答案不能由过滤器补造。
+
+指定 DSH ACP 部署可通过 integrations/dsh-public-output 在 native LLM→session 边界建立结构化公开答复出口：执行步骤无正文、工具不重跑、无工具补答经验证后才进入 ACP text。通用 ACP 适配器负责空完成失败和宣告的 session/resume 冷恢复。费用/延迟、失败及语义限制见插件说明。
