@@ -155,7 +155,7 @@ class WebParityTests(unittest.TestCase):
             "gpt": ["curious", "doze", "happy", "pout", "shy", "yawn"],
             "claude": ["curious", "doze", "happy", "pout", "shy", "yawn"],
             "gemini": ["curious-lean", "doze-wake", "happy", "pout", "shy-blush", "yawn"],
-            "grok": ["doze", "happy", "shy"],
+            "grok": ["curious", "doze", "happy", "pout", "shy", "yawn"],
         }
         for character, variants in expected.items():
             char_dir = REPO_ROOT / "prototypes/device-ui/assets/characters" / character

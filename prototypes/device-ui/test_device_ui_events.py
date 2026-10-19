@@ -317,12 +317,13 @@ def test_browser_voice_state_transitions():
         grok_name = page.locator('.cn-primary-card .cn-role-name').first.inner_text()
         assert grok_name == "Grok", f"Expected 'Grok', got '{grok_name}'"
         grok_variants = page.evaluate("window.__conestDeviceUI.getIdleVariants()")
-        assert sorted(grok_variants) == ["doze", "happy", "shy"], f"Expected ['doze', 'happy', 'shy'], got {grok_variants}"
+        assert sorted(grok_variants) == ["curious", "doze", "happy", "pout", "shy", "yawn"], f"Expected 6 variants, got {grok_variants}"
 
         page.wait_for_function("""() => {
             const active = document.querySelector('.cn-primary-card .cn-video-layer.is-active');
             return active && active.dataset.logicalSrc && active.dataset.logicalSrc.includes('assets/characters/grok/idle.mp4');
         }""")
+        page.locator('.cn-primary-card .cn-screen').screenshot(path=str(screenshots_dir / "13_grok_idle_round_screen.png"))
 
         page.evaluate("window.__conestDeviceUI.triggerIdleVariant('shy')")
         assert page.evaluate("window.__conestDeviceUI.getState().idleVariant") == "shy"
