@@ -21,6 +21,15 @@ WebSocket 协议（JSON 文本帧）：
     主机   -> {"type":"device","event":"start"|"audio"|"stop",...}   start 时按角色挑设备并记住，后面同一 play_id 只发给它
     设备   -> {"type":"receipt","play_id":...,"result":...}          只认这次播放被发往的那个页面，转给主机
     服务端 -> 主机 {"type":"devices","roles":[有设备在线的角色]}（ready 帧里也带 devices）
+
+闭麦（用户 2026-10-19「我没有一个闭麦按钮，或者我希望可以语音闭麦」）：开关存在库里（hub 重启不丢），
+    网页按钮或主机（语音「闭麦」「开麦」）POST /api/mic {"on": bool}；hub 推给所有连接 {"type":"mic","on":...}，
+    ready 帧里也带 mic。主机收到 on=false 就停掉正在说的、不再收音（只认「开麦」）。
+板子音量（用户 2026-10-19「声音太小了，预期可以我通过语音让它调大，或者说我在这个网页端可以调大」）：
+    主机 -> {"type":"volumes","volumes":{角色: 0-100}}（在线板子的音量），hub 记下推给网页（ready 帧里也带 volumes）；
+    网页滑条 POST /api/volume {"role", "volume": 0-100}，hub 转给主机 {"type":"volume","role","volume"}，主机经 MCP 调板子。
+思考中：主机 -> {"type":"thinking","role": 角色 id 或 null}，hub 记下并推给网页（ready 帧里也带 thinking）。
+    角色可以不说话、叫了名字只有她回，网页不能再按轮流顺序猜谁在想。
 一个角色有多个页面都开了声音时，用最早开的那个（同 conest：重复页面不接管正在播的）；它断了才轮到下一个。
 """
 from __future__ import annotations
@@ -41,6 +50,8 @@ from .meeting import MAX_TEXT_CHARS, clean
 from .voice import SAMPLE_RATE
 
 STATIC = Path(__file__).resolve().parent / "static"
+# 头像图片（表盘页 /dial 用 avatars/dial/ 下的 466×466 头肩特写）。部署时 deploy.sh 一起同步，镜像里在 /app/avatars。
+AVATARS = Path(__file__).resolve().parent.parent / "avatars"
 KINDS = {"user", "role", "system"}
 STATUSES = {"user", "speaking", "done", "interrupted", "system"}
 DEFAULT_STATUS = {"user": "user", "role": "speaking", "system": "system"}
@@ -94,6 +105,7 @@ CREATE TABLE IF NOT EXISTS messages(
   updated_at REAL NOT NULL,
   client_key TEXT);            -- 发送方给的唯一 key，重试时去重；网页发的为 NULL
 CREATE INDEX IF NOT EXISTS messages_room ON messages(room_id, id);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- 开关，如 mic = on/off
 """
 # 旧库（没有 client_key 列）补列；唯一索引单独建（SQLite 的 ADD COLUMN 不能带 UNIQUE）。
 MIGRATE_KEY = "ALTER TABLE messages ADD COLUMN client_key TEXT"
@@ -167,6 +179,8 @@ class Hub:
         # 正在播的 play_id -> {"ws": 设备页面, "role": 角色}
         self.plays: dict[str, dict] = {}
         self.outs: dict[web.WebSocketResponse, DeviceOut] = {}   # 设备页面 -> 发给它的帧队列
+        self.thinking: str | None = None   # 主机说谁在想
+        self.volumes: dict[str, int] = {}   # 主机报的板子音量（只有在线的板子）
 
     def token_ok(self, token: object) -> bool:
         return isinstance(token, str) and hmac.compare_digest(token.encode(), self.token.encode())
@@ -285,6 +299,18 @@ class Hub:
         self.db.commit()
         return [self.message(i) for i in ids]
 
+    # ---------- 闭麦 ----------
+    def mic_on(self) -> bool:
+        r = self.db.execute("SELECT value FROM settings WHERE key='mic'").fetchone()
+        return r is None or r["value"] != "off"
+
+    def set_mic(self, body: object) -> bool:
+        if not (isinstance(body, dict) and isinstance(body.get("on"), bool)):
+            raise BadRequest("body must be {on: bool}")
+        self.db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('mic', ?)", ("on" if body["on"] else "off",))
+        self.db.commit()
+        return body["on"]
+
     # ---------- 设备 ----------
     def device_for(self, role: str) -> web.WebSocketResponse | None:
         for ws, roles in self.devices.items():
@@ -326,7 +352,28 @@ class Hub:
             await self.to_hosts({"type": "receipt", "play_id": pid, "role": play["role"], "result": result,
                                  "started": d.get("started") is True})
 
+    async def set_thinking(self, role: str | None) -> None:
+        if self.thinking != role:
+            self.thinking = role
+            await self.broadcast({"type": "thinking", "role": role})
+
+    async def set_volumes(self, vols: dict[str, int]) -> None:
+        if vols != self.volumes:
+            self.volumes = vols
+            await self.broadcast({"type": "volumes", "volumes": vols})
+
     async def from_host(self, raw: str, d: dict) -> None:
+        if d.get("type") == "volumes":
+            v = d.get("volumes")
+            if isinstance(v, dict):
+                await self.set_volumes({r: x for r, x in v.items() if isinstance(r, str) and 0 < len(r) <= MAX_NAME
+                                        and isinstance(x, int) and not isinstance(x, bool) and 0 <= x <= 100})
+            return
+        if d.get("type") == "thinking":
+            role = d.get("role")
+            if role is None or (isinstance(role, str) and 0 < len(role) <= MAX_NAME):
+                await self.set_thinking(role)
+            return
         if d.get("type") != "device" or d.get("event") not in DEVICE_EVENTS:
             return
         pid, role = d.get("play_id"), d.get("role")
@@ -355,7 +402,9 @@ class Hub:
         await self.notify_devices()
 
     async def host_gone(self) -> None:
-        """主机断了：设备上还在播的都停掉（主机那边讨论已停）。"""
+        """主机断了：设备上还在播的都停掉（主机那边讨论已停），也没人在想了。"""
+        await self.set_thinking(None)
+        await self.set_volumes({})   # 板子挂在主机上：主机不在就不知道音量
         plays, self.plays = self.plays, {}
         for pid, play in plays.items():
             self.out(play["ws"]).put(json.dumps({"type": "device", "event": "stop", "role": play["role"],
@@ -411,8 +460,14 @@ def make_app(hub: Hub) -> web.Application:
     async def player_js(request):
         return web.FileResponse(STATIC / "queue-player.js", headers={"Cache-Control": "no-store"})
 
+    async def client_js(request):
+        return web.FileResponse(STATIC / "rh-client.js", headers={"Cache-Control": "no-store"})
+
     async def index(request):
         return web.FileResponse(STATIC / "hub.html", headers={"Cache-Control": "no-store"})
+
+    async def dial(request):
+        return web.FileResponse(STATIC / "dial.html", headers={"Cache-Control": "no-store"})
 
     async def put_members(request):
         members = hub.set_members(await body_json(request, MAX_MEMBERS_BODY))
@@ -425,6 +480,23 @@ def make_app(hub: Hub) -> web.Application:
         if new:
             await hub.broadcast({"type": "message", "message": msg}, room_id)
         return web.json_response(msg)
+
+    async def post_mic(request):
+        on = hub.set_mic(await body_json(request))
+        await hub.broadcast({"type": "mic", "on": on})
+        return web.json_response({"on": on})
+
+    async def post_volume(request):
+        b = await body_json(request)
+        v = b.get("volume") if isinstance(b, dict) else None
+        if not (isinstance(b, dict) and isinstance(b.get("role"), str) and 0 < len(b["role"]) <= MAX_NAME
+                and isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100):
+            raise BadRequest("body must be {role: str, volume: 0-100}")
+        hosts = hub.hosts()
+        if not hosts:
+            raise web.HTTPServiceUnavailable(text="角色主机没连上")
+        await hub.to_hosts({"type": "volume", "role": b["role"], "volume": v})
+        return web.json_response({"role": b["role"], "volume": v})
 
     async def patch_message(request):
         try:
@@ -486,7 +558,8 @@ def make_app(hub: Hub) -> web.Application:
             await ws.send_str(json.dumps({
                 "type": "ready", "room": hub.room(room_id), "members": hub.members(),
                 "messages": hub.history(room_id, since), "last_id": hub.last_id(room_id),
-                "devices": hub.device_roles()}, ensure_ascii=False))
+                "devices": hub.device_roles(), "mic": hub.mic_on(), "thinking": hub.thinking,
+                "volumes": hub.volumes}, ensure_ascii=False))
             # 频道消息的写入都走 HTTP；WebSocket 上收的只有设备事件（开声音、回执、主机推给设备的音频）。
             async for frame in ws:
                 if frame.type != WSMsgType.TEXT:
@@ -521,10 +594,17 @@ def make_app(hub: Hub) -> web.Application:
         web.get("/ws", ws_handler),
         web.get("/ws/host", ws_host_handler),
         web.get("/queue-player.js", player_js),
+        web.get("/rh-client.js", client_js),
+        web.get("/dial", dial),
         web.put("/api/members", put_members),
         web.post("/api/rooms/{room}/messages", post_message),
         web.patch("/api/messages/{id}", patch_message),
+        web.post("/api/mic", post_mic),
+        web.post("/api/volume", post_volume),
     ])
+    if AVATARS.is_dir():
+        app.add_routes([web.static("/avatars", AVATARS)])
+
     async def close_all(app):  # 关服务时主动断开所有 WebSocket，否则 aiohttp 要等它们自己断
         for ws in list(hub.subs):
             await ws.close(code=WSCloseCode.GOING_AWAY, message=b"server shutdown")

@@ -6,6 +6,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DEST=/opt/role-household-hub
 ssh vps-arm "mkdir -p $DEST/data"
 rsync -a --delete --exclude __pycache__ "$ROOT/rh/" "vps-arm:$DEST/rh/"
+rsync -a --delete "$ROOT/avatars/" "vps-arm:$DEST/avatars/"   # 表盘页 /dial 的头像图
 rsync -a "$ROOT/deploy/hub/Dockerfile" "$ROOT/deploy/hub/compose.yaml" "vps-arm:$DEST/"
 # 第一次部署生成 token（32 字节随机，实现者定）；之后保留原 token。
 ssh vps-arm "cd $DEST && [ -f hub.env ] || (umask 077 && echo RH_HUB_TOKEN=\$(openssl rand -hex 32) > hub.env)"

@@ -1,0 +1,28 @@
+From b99772f19c793680a0ac81e07c6ab0dbfe62c29d Mon Sep 17 00:00:00 2001
+From: zuiho-kai <zuiho-kai@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 15:41:13 +0900
+Subject: [PATCH 3/7] rh: README build command and host-push note
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ README.md | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/README.md b/README.md
+index 425aa27..8e88dbc 100644
+--- a/README.md
++++ b/README.md
+@@ -5,8 +5,9 @@
+ >   A runtime override still works: NVS key `ota_url` (Wi-Fi config page at http://192.168.4.1, "advanced").
+ > - `CONFIG_RH_SILENT_LOCAL_SOUNDS=y` (default): no built-in boot / Wi-Fi config / activation / alert sounds. Only host-pushed audio plays.
+ > - `CONFIG_RH_DISABLE_MIC_UPLINK=y` (default): the board never enters Listening, never uploads microphone audio. Output only (speech + expression).
++> - `CONFIG_RH_HOST_PUSH=y` (default): open the audio channel after OTA, reopen `CONFIG_RH_REOPEN_DELAY_SEC` (5) s after close/failure/120 s timeout, flush buffered audio on `tts stop`. The host must send something at least every 120 s.
+ > - Wake word defaults to disabled. Role binding (which character a board is) lives in the host config, not in this firmware.
+-> - Build: `python scripts/build.py sp-esp32-s3-1.28-box --wake-word disabled` (ESP-IDF v6.1). Flashing: see `../FLASH.md`.
++> - Build: `python scripts/build.py spotpear/sp-esp32-s3-1.28-box --wake-word disabled` (ESP-IDF v6.1). Flashing: see `../FLASH.md`.
+ 
+ # An MCP-based Chatbot
+ 
+-- 
+2.54.0 (Apple Git-157)
+

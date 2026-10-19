@@ -1,0 +1,229 @@
+From b951562a1527d38c297ad781c10894aa91579846 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Mon, 19 Oct 2026 18:04:53 +0900
+Subject: [PATCH 7/7] =?UTF-8?q?rh:=20=E4=BB=A3=E7=A0=81=E5=AE=A1=E6=9F=A5?=
+ =?UTF-8?q?=E4=BF=AE=E6=AD=A3=EF=BC=9A=E4=B8=BB=E6=9C=BA=E5=8F=91=E6=9D=A5?=
+ =?UTF-8?q?=E7=AC=AC=E4=B8=80=E6=9D=A1=E8=A1=A8=E7=9B=98=E6=B6=88=E6=81=AF?=
+ =?UTF-8?q?=E5=90=8E=E6=89=8D=E7=A1=AE=E8=AE=A4=E6=96=B0=E5=9B=BA=E4=BB=B6?=
+ =?UTF-8?q?=E3=80=81=E6=80=9D=E8=80=83=E5=9B=BE=E4=B8=8D=E5=86=8D=E6=98=BE?=
+ =?UTF-8?q?=E7=A4=BA=E8=BF=87=E6=97=B6=E5=9B=BE=E3=80=81=E5=8A=A8=E7=94=BB?=
+ =?UTF-8?q?=E7=9B=B8=E4=BD=8D=E4=B8=8D=E5=86=8D=E6=AF=8F=E5=B0=8F=E6=97=B6?=
+ =?UTF-8?q?=E8=B7=B3?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+代码审查 2026-10-19（用户：「那个显示屏我感觉帧数很低，然后动画也很死板」；板子不得自己开口）。
+- 第 2 条：开机查 OTA 后不再马上 MarkCurrentVersionValid；WebSocket 连上且收到主机第一条 rh_dial
+  才标记有效（Ota::MarkCurrentVersionValid 改为 static，ota_ 那时已释放）。连上后才崩的新固件仍会回滚。
+- 第 6 条：思考图地址为空时不下载、隐藏并释放旧思考图；下载完成时核对地址仍是主机想要的，过时的丢掉。
+- 第 7 条：动画时间不再 now_ms % 3600000 取模，改为 double 毫秒、每个周期各自取模（Cyc/Ang/Wave），
+  每小时那一跳没了。
+- 第 1 条核实无需改：所有内置提示音（升级 OGG_UPGRADE、失败 OGG_EXCLAMATION、开机 OGG_SUCCESS 等）
+  都经 AudioService::PlaySound，CONFIG_RH_SILENT_LOCAL_SOUNDS=y 时开头直接 return。
+- 第 8 条核实无需改：build-fw.sh 走 scripts/build.py，会把板子 config.json 的 sdkconfig_append
+  （CONFIG_FREERTOS_HZ=1000）写进重新生成的 sdkconfig；build-fw.sh（仓库外）加了断言。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/application.cc             | 13 ++++++++
+ main/application.h              |  3 ++
+ main/display/rh_dial_display.cc | 53 +++++++++++++++++++++++++--------
+ main/display/rh_dial_display.h  |  1 +
+ main/ota.h                      |  2 +-
+ 5 files changed, 59 insertions(+), 13 deletions(-)
+
+diff --git a/main/application.cc b/main/application.cc
+index 4842c9b..81eca39 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -549,8 +549,15 @@ void Application::CheckNewVersion() {
+             // If upgrade failed, continue to normal operation
+         }
+ 
++#if CONFIG_RH_DIAL
++        // rh: do not mark the image valid yet. A new image that crashes after the WebSocket
++        // comes up must still roll back, so it is marked valid only when the host's first
++        // {"type":"rh_dial"} arrives over the WebSocket (see the rh_dial branch below).
++        // Source: code review 2026-10-19 item 2 (mark valid after WS handshake + first rh_dial).
++#else
+         // No new version, mark the current version as valid
+         ota_->MarkCurrentVersionValid();
++#endif
+         if (!ota_->HasActivationCode() && !ota_->HasActivationChallenge()) {
+             // Exit the loop if done checking new version
+             break;
+@@ -747,6 +754,12 @@ void Application::InitializeProtocol() {
+         } else if (strcmp(type->valuestring, "rh_dial") == 0) {
+             // rh: host says which role this board is and what it is doing (rh/dial.py on the host).
+             display->RhDial(root);
++            if (!rh_marked_valid_) {
++                // First rh_dial: WebSocket handshake done and host reachable -> this image works,
++                // cancel rollback now (deferred from the OTA check above).
++                rh_marked_valid_ = true;
++                Schedule([]() { Ota::MarkCurrentVersionValid(); });
++            }
+ #endif
+         } else if (strcmp(type->valuestring, "mcp") == 0) {
+             auto payload = cJSON_GetObjectItem(root, "payload");
+diff --git a/main/application.h b/main/application.h
+index 5975032..0505bc6 100644
+--- a/main/application.h
++++ b/main/application.h
+@@ -155,6 +155,9 @@ private:
+     // rh: when to (re)open the audio channel, esp_timer_get_time() microseconds; -1 = not scheduled.
+     // Used only with CONFIG_RH_HOST_PUSH (see RhTryOpenChannel in application.cc).
+     int64_t rh_reopen_at_us_ = -1;
++    // rh: set when the first host rh_dial arrived and the running image was marked valid
++    // (rollback cancelled). Written only from the protocol's incoming-JSON callback.
++    bool rh_marked_valid_ = false;
+     void RhScheduleOpenChannel(int delay_sec);
+     void RhTryOpenChannel();
+     TaskHandle_t activation_task_handle_ = nullptr;
+diff --git a/main/display/rh_dial_display.cc b/main/display/rh_dial_display.cc
+index 92382d9..bdd4b04 100644
+--- a/main/display/rh_dial_display.cc
++++ b/main/display/rh_dial_display.cc
+@@ -80,7 +80,11 @@ constexpr lv_opa_t kGlintPeak = 41;   // .16 * 255
+ float Clamp01(float v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+ float Smooth(float u) { u = Clamp01(u); return u * u * (3 - 2 * u); }  // ease-in-out
+ // 0 -> 1 -> 0 over one period, eased (CSS ease-in-out keyframes 0%,50%,100%).
+-float Wave(float t, float period) { return (1 - cosf(2 * (float)M_PI * fmodf(t, period) / period)) / 2; }
++// t is milliseconds since boot as a double (exact for centuries): each cycle is reduced by its own
++// period in double, so phases stay continuous (no hourly wrap jump) and keep float precision.
++float Cyc(double t, float period) { return (float)fmod(t, period); }  // [0, period)
++float Ang(double t, float div) { return (float)fmod(t / div, 2 * M_PI); }  // t/div as an angle, radians
++float Wave(double t, float period) { return (1 - cosf(2 * (float)M_PI * Cyc(t, period) / period)) / 2; }
+ // One-pole low-pass: moves towards target fast first, then slowly (ease-out), frame-rate independent.
+ float Follow(float cur, float target, float dt, float tau) { return cur + (target - cur) * (1 - expf(-dt / tau)); }
+ lv_color_t Mix(lv_color_t a, lv_color_t b, float t) {  // t=0 -> a, t=1 -> b
+@@ -496,7 +500,7 @@ void RhDialDisplay::Tick() {
+     const int W = width_, H = height_;
+     int64_t now_us = esp_timer_get_time();
+     int64_t now_ms = now_us / 1000;
+-    float t = (float)(now_ms % 3600000);  // ms, wrapped hourly to keep float precision
++    double t = (double)now_ms;  // ms; reduced per cycle by Cyc/Ang/Wave (see above)
+     float dt = (float)std::min<int64_t>(200, now_ms - last_ms_);
+     last_ms_ = now_ms;
+     stat_ticks_++;
+@@ -509,7 +513,7 @@ void RhDialDisplay::Tick() {
+             raw = g_rh_out_level.load() / 1000.0f;
+         } else {
+             float kk = role_.empty() ? 0 : (float)(unsigned char)role_[0];
+-            raw = .35f + .3f * fabsf(sinf(t / 110 + kk)) * (.6f + .4f * sinf(t / 370 + kk * 2));
++            raw = .35f + .3f * fabsf(sinf(Ang(t, 110) + kk)) * (.6f + .4f * sinf(Ang(t, 370) + kk * 2));
+         }
+     }
+     lvl_ = Follow(lvl_, raw, dt, raw > lvl_ ? kTauLevelUp : kTauLevelDown);
+@@ -578,7 +582,7 @@ void RhDialDisplay::Tick() {
+ 
+     // Glint: idle only, sweeps during 78%..92% of each 9 s cycle, eased.
+     {
+-        float u = fmodf(t, kGlintMs) / kGlintMs;
++        float u = Cyc(t, kGlintMs) / kGlintMs;
+         bool on = state_ == kIdle && u >= .78f && u <= .92f && glint_px_;
+         float cx = (-0.6f + 2.25f * Smooth((u - .78f) / .14f)) * W;  // band centre at mid height
+         int sh = H / kGlintStrips;
+@@ -595,7 +599,7 @@ void RhDialDisplay::Tick() {
+     if (state_ == kSpeaking) {
+         bool changed = false;
+         for (int i = 0; i < kBars; i++) {
+-            float target = std::max(.2f, std::min(1.0f, lvl_ * (.6f + .5f * fabsf(sinf(t / 90 + i * 1.7f)))));
++            float target = std::max(.2f, std::min(1.0f, lvl_ * (.6f + .5f * fabsf(sinf(Ang(t, 90) + i * 1.7f)))));
+             float nh = Follow(bar_h_[i], target, dt, kTauBar);
+             changed |= lroundf(nh * kBarH) != lroundf(bar_h_[i] * kBarH);
+             bar_h_[i] = nh;
+@@ -607,7 +611,7 @@ void RhDialDisplay::Tick() {
+     if (state_ == kThinking) {
+         bool changed = false;
+         for (int i = 0; i < kDots; i++) {
+-            float u = fmodf(t - i * 150 + kDotMs * 10, kDotMs) / kDotMs;
++            float u = Cyc(t - i * 150 + kDotMs * 10, kDotMs) / kDotMs;
+             float p = u < .4f ? Smooth(u / .4f) : (u < .8f ? Smooth((.8f - u) / .4f) : 0);
+             changed |= lroundf(p * kDotJump * 2) != lroundf(dot_p_[i] * kDotJump * 2);
+             dot_p_[i] = p;
+@@ -666,8 +670,7 @@ void RhDialDisplay::RhDial(const cJSON* msg) {
+         std::string think = avatar_think ? avatar_think : avatar;
+         if (think == avatar) {  // no separate thinking picture: no cross-fade (saves full repaints)
+             DisplayLockGuard lock(this);
+-            think_face_ = false;
+-            Show(face_think_, false);
++            ClearThinkFace();
+             think = "";
+         }
+         RequestAvatars(avatar, think);
+@@ -729,16 +732,42 @@ void RhDialDisplay::DownloadTask(void* arg) {
+             break;
+         }
+         xSemaphoreGive(self->dl_mutex_);
++        if (url.empty()) {  // host dropped this picture: nothing to fetch, free the old one
++            if (think) {
++                DisplayLockGuard lock(self);
++                self->ClearThinkFace();
++            }
++            continue;
++        }
+         auto image = self->Download(url);
+-        if (image) {
+-            DisplayLockGuard lock(self);
+-            if (think) self->SetFace(self->face_think_, self->img_think_, std::move(image));
+-            else self->SetFace(self->face_base_, self->img_base_, std::move(image));
++        if (!image) continue;
++        // The host may have asked for another picture while this one downloaded: only show it
++        // if it is still the wanted one (else the loop fetches the new one / clears it).
++        xSemaphoreTake(self->dl_mutex_, portMAX_DELAY);
++        bool still = (think ? self->want_think_url_ : self->want_base_url_) == url;
++        xSemaphoreGive(self->dl_mutex_);
++        if (!still) {
++            ESP_LOGI(TAG, "rh dial: %s picture changed during download, dropped", think ? "thinking" : "base");
++            continue;
+         }
++        DisplayLockGuard lock(self);
++        if (think) self->SetFace(self->face_think_, self->img_think_, std::move(image));
++        else self->SetFace(self->face_base_, self->img_base_, std::move(image));
+     }
+     vTaskDelete(nullptr);
+ }
+ 
++// No separate thinking picture any more: hide it and free its pixels (display lock held).
++void RhDialDisplay::ClearThinkFace() {
++    think_face_ = false;
++    Show(face_think_, false);
++    if (img_think_) {
++        lv_image_set_src(face_think_, nullptr);
++        lv_image_cache_drop(img_think_->image_dsc());
++        img_think_.reset();
++    }
++}
++
+ void RhDialDisplay::SetFace(lv_obj_t* img, std::unique_ptr<LvglImage>& slot, std::unique_ptr<LvglImage> image) {
+     lv_image_set_src(img, image->image_dsc());
+     if (img == face_think_) {
+diff --git a/main/display/rh_dial_display.h b/main/display/rh_dial_display.h
+index 77ec2a4..d2170df 100644
+--- a/main/display/rh_dial_display.h
++++ b/main/display/rh_dial_display.h
+@@ -121,6 +121,7 @@ private:
+     void InvalidateEdge(int width, float lo, float hi);
+     void BuildGlint();
+     void SetFace(lv_obj_t* img, std::unique_ptr<LvglImage>& slot, std::unique_ptr<LvglImage> image);
++    void ClearThinkFace();
+     void RequestAvatars(const std::string& base, const std::string& think);
+     static void DownloadTask(void* arg);
+     std::unique_ptr<LvglImage> Download(const std::string& url);
+diff --git a/main/ota.h b/main/ota.h
+index eda3fd7..d931a8a 100644
+--- a/main/ota.h
++++ b/main/ota.h
+@@ -25,7 +25,7 @@ public:
+     bool HasServerTime() { return has_server_time_; }
+     bool StartUpgrade(std::function<void(int progress, size_t speed)> callback);
+     static bool Upgrade(const std::string& firmware_url, std::function<void(int progress, size_t speed)> callback);
+-    void MarkCurrentVersionValid();
++    static void MarkCurrentVersionValid();  // rh: static, called after ota_ is released
+ 
+     const std::string& GetFirmwareVersion() const { return firmware_version_; }
+     const std::string& GetCurrentVersion() const { return current_version_; }
+-- 
+2.54.0 (Apple Git-157)
+

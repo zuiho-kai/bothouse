@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from rh.brain import Cancelled, ClaudeBrain
 from rh.config import Role
-from rh.meeting import MAX_TEXT_CHARS, Meeting
+from rh.meeting import MAX_TEXT_CHARS, Meeting, strip_own_prefix
 
 ROLES = [Role("a", "A", "p"), Role("b", "B", "p")]
 
@@ -155,8 +155,8 @@ class Fix5Unsaid(unittest.TestCase):
         self.assertIn(f"你上一句只说出了「{sp.text[:sp.spoken]}」就被用户打断", prompts["a"][1])
         # B 的视角（B 还没读过这条）：A 只说了前半句
         view_b, _ = m._transcript_for("b")
-        self.assertIn(f"A：{sp.text[:sp.spoken]}……（话没说完就被用户打断了）", view_b)
-        self.assertNotIn(f"A：{sp.text}\n用户：插话", view_b)  # 被打断那句不以整句出现
+        self.assertIn(f"A说「{sp.text[:sp.spoken]}……」（话没说完就被用户打断了）", view_b)
+        self.assertNotIn(f"A说「{sp.text}」\n用户说「插话」", view_b)  # 被打断那句不以整句出现
         print("  B 看到：", view_b.splitlines()[2])
         m.user_say("收尾"); m.lock.interrupt()
 
@@ -313,6 +313,34 @@ class FixBCancelRace(FakeEnv):
 
         with mock.patch.object(subprocess.Popen, "communicate", comm):
             self.assertEqual(b.reply("hi"), "嗯。")
+
+
+class OwnNamePrefix(unittest.TestCase):
+    """22:24 真跑里彩虹猫的话以“彩虹猫发言：”“彩虹猫：”开头，频道显示、TTS 都念了。"""
+
+    def test_history_not_script_format(self):
+        from tests.test_meeting import FakeBrain
+        roles = [Role("ju", "橘", "p"), Role("mao", "彩虹猫", "p")]
+        brains = {r.id: FakeBrain(r.name) for r in roles}
+        prompts = []
+        orig = brains["mao"].reply
+        brains["mao"].reply = lambda msgs: (prompts.append(msgs), orig(msgs))[1]
+        m = Meeting(roles, brains, 2, 2000.0)
+        m.user_say("海边？")
+        m.wait_idle(5)
+        said = [x.text for x in m.messages if x.author in ("ju", "mao")]
+        self.assertEqual(said, ["我说两句话测试一下。"] * 2)  # FakeBrain 回的是“名字:…”，前缀被兜底剥掉
+        view = prompts[0]
+        self.assertIn("用户说「海边？」", view)
+        self.assertIn("橘说「我说两句话测试一下。」", view)
+        self.assertNotIn("橘：", view)
+
+    def test_strip_own_prefix(self):
+        for raw in ["彩虹猫发言：海边好", "彩虹猫：海边好", " 彩虹猫说: 海边好"]:
+            self.assertEqual(strip_own_prefix(raw, "彩虹猫"), "海边好", raw)
+        for keep in ["橘说得对，海边好", "彩虹猫觉得海边好", "鲸鱼娘：海边好"]:
+            self.assertEqual(strip_own_prefix(keep, "彩虹猫"), keep)
+        self.assertEqual(strip_own_prefix("彩虹猫：", "彩虹猫"), "彩虹猫：")  # 只有前缀时不剥成空串
 
 
 if __name__ == "__main__":

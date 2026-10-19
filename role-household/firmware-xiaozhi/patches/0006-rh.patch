@@ -1,0 +1,976 @@
+From 1ac6ef14e034484a3a4b7815313b95cbea1e806f Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Mon, 19 Oct 2026 17:52:31 +0900
+Subject: [PATCH 6/7] =?UTF-8?q?rh:=20=E8=A1=A8=E7=9B=98=E6=8F=90=E5=B8=A7?=
+ =?UTF-8?q?=E7=8E=87=E3=80=81=E5=8A=A8=E7=94=BB=E6=94=B9=E5=B9=B3=E6=BB=91?=
+ =?UTF-8?q?=EF=BC=9A=E5=A4=B4=E5=83=8F=E4=B8=8D=E5=8A=A8=EF=BC=8C=E5=8F=AA?=
+ =?UTF-8?q?=E9=87=8D=E7=94=BB=E5=9C=86=E8=BE=B9=E5=92=8C=E8=83=B6=E5=9B=8A?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+用户 2026-10-19「那个显示屏我感觉帧数很低，然后动画也很死板，你看看能不能改进一下」。
+板上实测（帧率经 MCP 通知报给主机）：改前 待机 18、思考 6.5、说话 7.7 帧/秒（每帧整图缩放、整屏重画）；
+改后 待机 25、思考 31.5、说话 25.6 帧/秒。
+- 头像整图不再缩放平移；待机改成圆边慢呼吸光晕，说话光带跟实际音量（快起慢落平滑），思考弧匀速转。
+- 圆边三层 A8 预计算图层（角色色/白/红），每帧只改圆边像素、只让圆边 16 块小矩形重画；
+  稳定思考时只重画弧扫过的那几块。波形、跳点自绘、只重画自身。名字绿点光晕换成静态圆，不再每帧算阴影。
+- 状态切换、淡入淡出用一阶平滑（ease-out），呼吸、反光、跳点用 ease-in-out。
+- 双缓冲（esp_lvgl_port，渲染下一条时 DMA 发上一条）；板子 CONFIG_FREERTOS_HZ=1000（同上游 esp-hi /
+  sensecap-watcher），LVGL 任务不再每帧多睡 10-20 毫秒；刷新周期 30 毫秒。LVGL 任务优先级仍为 1，低于音频。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../spotpear/sp-esp32-s3-1.28-box/config.json |   4 +-
+ main/display/lcd_display.cc                   |   6 +
+ main/display/rh_dial_display.cc               | 636 ++++++++++++------
+ main/display/rh_dial_display.h                |  72 +-
+ 4 files changed, 499 insertions(+), 219 deletions(-)
+
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-box/config.json b/main/boards/spotpear/sp-esp32-s3-1.28-box/config.json
+index c7e2fb5..8d64907 100644
+--- a/main/boards/spotpear/sp-esp32-s3-1.28-box/config.json
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-box/config.json
+@@ -5,7 +5,9 @@
+     "builds": [
+         {
+             "name": "sp-esp32-s3-1.28-box",
+-            "sdkconfig_append": []
++            "sdkconfig_append": [
++                "CONFIG_FREERTOS_HZ=1000"
++            ]
+         }
+     ]
+ }
+diff --git a/main/display/lcd_display.cc b/main/display/lcd_display.cc
+index 3462ac0..15614a7 100644
+--- a/main/display/lcd_display.cc
++++ b/main/display/lcd_display.cc
+@@ -178,7 +178,13 @@ SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
+         .panel_handle = panel_,
+         .control_handle = nullptr,
+         .buffer_size = static_cast<uint32_t>(width_ * 20),
++#if CONFIG_RH_DIAL
++        // rh dial: render the next strip while DMA sends the last one (esp_lvgl_port double
++        // buffering), +9.6 KB internal RAM at 240 px; the dial animates every frame.
++        .double_buffer = true,
++#else
+         .double_buffer = false,
++#endif
+         .trans_size = 0,
+         .hres = static_cast<uint32_t>(width_),
+         .vres = static_cast<uint32_t>(height_),
+diff --git a/main/display/rh_dial_display.cc b/main/display/rh_dial_display.cc
+index a6c7e9d..92382d9 100644
+--- a/main/display/rh_dial_display.cc
++++ b/main/display/rh_dial_display.cc
+@@ -4,6 +4,7 @@
+ 
+ #if CONFIG_RH_DIAL
+ 
++#include "application.h"
+ #include "board.h"
+ #include "device_state.h"
+ #include "rh_level.h"
+@@ -18,6 +19,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <cstring>
++#include <vector>
+ 
+ #define TAG "RhDial"
+ 
+@@ -38,15 +40,18 @@ constexpr uint32_t kUnknownRole = 0x9aa0a6;  // dial.html colour for a role it h
+ 
+ // Timings from dial.html (ms).
+ constexpr float kBreatheIdleMs = 4600;   // @keyframes breathe, idle
+-constexpr float kBreatheThinkMs = 3200;  // breathe, thinking
+ constexpr float kGlintMs = 9000;         // @keyframes glint
+-constexpr float kSpinMs = 1600;          // thinking ring spin
++constexpr float kSpinMs = 1600;          // thinking ring spin (linear, like the web)
+ constexpr float kDotMs = 1100;           // thinking dots
+-constexpr float kShakeMs = 400;          // interrupted shake
+-constexpr float kFaceFadeMs = 600;       // .face transition opacity .6s
+-constexpr float kPillFadeMs = 250;       // .pill.status transition .25s
+-constexpr float kRingFadeMs = 300;       // .ring transition .3s
+-constexpr float kFilterMs = 300;         // .face transition filter .3s
++// Animation timer and display refresh period. 30, not 33: an lv_timer that runs late restarts its
++// period from the late run, so 33 ms gave 25.7 runs/s on the board (2026-10-19, FreeRTOS 1000 Hz).
++constexpr uint32_t kFrameMs = 30;
++// Smoothing time constants (ms) of the one-pole "follow" filters below. Each is about a third of
++// the matching CSS transition so the move is ~95% done when the web one ends: .face opacity .6s,
++// .pill.status .25s, .ring .3s, .face filter .3s. Level attack/release: implementer's pick so
++// the glow follows syllables (60 ms Opus frames) without flicker.
++constexpr float kTauFace = 200, kTauPill = 85, kTauRing = 100, kTauGray = 100;
++constexpr float kTauLevelUp = 50, kTauLevelDown = 160, kTauBar = 60;
+ // Real audio level counts as "current" this long after the last played chunk; after that the
+ // synthetic wave of dial.html level() is used (between sentences, or before audio arrives).
+ // Source: implementer's pick, a few 60 ms frames.
+@@ -60,14 +65,24 @@ constexpr int kBarW = 3, kBarH = 15, kBarGap = 3;               // web 3 / 16 /
+ constexpr int kDotSize = 5, kDotGap = 4, kDotJump = 5;          // web 5 / 4 / 5
+ constexpr int kStopSize = 9;                                    // web 10
+ 
++// Edge ring widths (px at 240). Thinking/interrupted ring: web 6 px of 466. Idle halo and
++// speaking glow are new on the board (the web glows outside the bezel, which the board has not):
++// halo 3..5 px breathing, glow 3..8 px with the level (web spread 1+9*lvl of 466 = up to ~5 px here, plus blur). Source: implementer's pick, by eye on the
++// board 2026-10-19.
++constexpr int kHaloMin = 3, kHaloMax = 5, kGlowMin = 3, kGlowMax = 8;
++constexpr float kHaloOpaMin = .18f, kHaloOpaMax = .5f;
++
++// Glint: dial.html .glint = linear-gradient(115deg, transparent 38%, white .16 at 48%, transparent
++// 58%) over a 250% wide box, i.e. a band half a screen wide whose lines lean 25 deg (top to the right).
++constexpr float kGlintTan = 0.4663f;  // tan(25 deg)
++constexpr lv_opa_t kGlintPeak = 41;   // .16 * 255
++
+ float Clamp01(float v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+-float Smooth(float u) { return u * u * (3 - 2 * u); }
++float Smooth(float u) { u = Clamp01(u); return u * u * (3 - 2 * u); }  // ease-in-out
+ // 0 -> 1 -> 0 over one period, eased (CSS ease-in-out keyframes 0%,50%,100%).
+ float Wave(float t, float period) { return (1 - cosf(2 * (float)M_PI * fmodf(t, period) / period)) / 2; }
+-float Approach(float cur, float target, float dt, float dur) {
+-    float step = dt / dur;
+-    return cur < target ? std::min(target, cur + step) : std::max(target, cur - step);
+-}
++// One-pole low-pass: moves towards target fast first, then slowly (ease-out), frame-rate independent.
++float Follow(float cur, float target, float dt, float tau) { return cur + (target - cur) * (1 - expf(-dt / tau)); }
+ lv_color_t Mix(lv_color_t a, lv_color_t b, float t) {  // t=0 -> a, t=1 -> b
+     return lv_color_mix(b, a, (lv_opa_t)(Clamp01(t) * 255));
+ }
+@@ -124,19 +139,9 @@ lv_obj_t* Box(lv_obj_t* parent, int w, int h, uint32_t color, int radius) {
+     return o;
+ }
+ 
+-lv_obj_t* RingArc(lv_obj_t* parent, int size, int width) {
+-    lv_obj_t* a = lv_arc_create(parent);
+-    lv_obj_remove_style_all(a);
+-    lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
+-    lv_obj_set_size(a, size, size);
+-    lv_obj_center(a);
+-    lv_arc_set_bg_angles(a, 0, 0);
+-    lv_obj_set_style_arc_opa(a, LV_OPA_TRANSP, LV_PART_MAIN);
+-    lv_obj_set_style_arc_width(a, width, LV_PART_INDICATOR);
+-    lv_obj_set_style_arc_rounded(a, false, LV_PART_INDICATOR);
+-    lv_obj_set_style_arc_opa(a, LV_OPA_COVER, LV_PART_INDICATOR);
+-    lv_obj_add_flag(a, LV_OBJ_FLAG_HIDDEN);
+-    return a;
++void Show(lv_obj_t* o, bool on) {
++    if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
++    else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+ }
+ 
+ const char* StateName(int s) {
+@@ -156,13 +161,39 @@ RhDialDisplay::RhDialDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
+ 
+ RhDialDisplay::~RhDialDisplay() {
+     if (timer_) lv_timer_delete(timer_);
++    if (glint_px_) heap_caps_free(glint_px_);
++}
++
++// One strip of the tilted glint band (ARGB8888, straight alpha), reused for every strip.
++void RhDialDisplay::BuildGlint() {
++    const int W = width_, H = height_;
++    const int strip_h = H / kGlintStrips;
++    const float half = W / 4.0f;  // band half width
++    const int sw = (int)ceilf(2 * half + strip_h * kGlintTan) + 2;
++    glint_px_ = static_cast<uint8_t*>(heap_caps_malloc(sw * strip_h * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
++    if (glint_px_ == nullptr) return;
++    for (int y = 0; y < strip_h; y++) {
++        float cx = sw / 2.0f + (strip_h / 2.0f - y - 0.5f) * kGlintTan;
++        for (int x = 0; x < sw; x++) {
++            float a = 1 - fabsf(x + 0.5f - cx) / half;
++            uint8_t* p = glint_px_ + (y * sw + x) * 4;
++            p[0] = p[1] = p[2] = 0xff;
++            p[3] = (uint8_t)(a > 0 ? a * kGlintPeak : 0);
++        }
++    }
++    glint_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
++    glint_dsc_.header.cf = LV_COLOR_FORMAT_ARGB8888;
++    glint_dsc_.header.w = sw;
++    glint_dsc_.header.h = strip_h;
++    glint_dsc_.header.stride = sw * 4;
++    glint_dsc_.data_size = sw * strip_h * 4;
++    glint_dsc_.data = glint_px_;
+ }
+ 
+ void RhDialDisplay::SetupUI() {
+     SpiLcdDisplay::SetupUI();  // default UI stays underneath (shown only in Wi-Fi config mode)
+     DisplayLockGuard lock(this);
+     const int W = width_, H = height_;
+-    const float k = W / 466.0f;  // dial.html is 466 px
+ 
+     dial_ = lv_obj_create(lv_screen_active());
+     Plain(dial_);
+@@ -171,79 +202,55 @@ void RhDialDisplay::SetupUI() {
+     lv_obj_set_style_bg_opa(dial_, LV_OPA_COVER, 0);
+     lv_obj_set_style_text_color(dial_, lv_color_white(), 0);
+ 
+-    // Faces: base + thinking picture, cross-faded. Edge vignette is baked in by the host.
++    // Faces: still pictures. The thinking one only exists when the host sends a different picture.
+     for (lv_obj_t** f : {&face_base_, &face_think_}) {
+         *f = lv_image_create(dial_);
+         lv_obj_remove_flag(*f, LV_OBJ_FLAG_CLICKABLE);
+         lv_obj_set_size(*f, W, H);
+         lv_obj_center(*f);
+-        lv_image_set_pivot(*f, W / 2, H * 6 / 10);  // .face transform-origin 50% 60%
+-    }
+-    lv_obj_set_style_image_opa(face_think_, LV_OPA_TRANSP, 0);
+-
+-    // Glint: a soft white band (transparent 38% / white .16 at 48% / transparent 58% of a 250%
+-    // wide 115deg gradient = half the screen wide), tilted 25 deg, swept across now and then.
+-    glint_ = lv_obj_create(dial_);
+-    Plain(glint_);
+-    lv_obj_set_size(glint_, W / 2, H * 16 / 10);
+-    lv_obj_set_style_transform_pivot_x(glint_, W / 4, 0);
+-    lv_obj_set_style_transform_pivot_y(glint_, H * 8 / 10, 0);
+-    lv_obj_set_style_transform_rotation(glint_, 250, 0);
+-    for (int i = 0; i < 2; i++) {  // LV_GRADIENT_MAX_STOPS is 2: two halves
+-        lv_obj_t* h = lv_obj_create(glint_);
+-        Plain(h);
+-        lv_obj_set_size(h, W / 4, LV_PCT(100));
+-        lv_obj_set_pos(h, i * W / 4, 0);
+-        lv_obj_set_style_bg_opa(h, LV_OPA_COVER, 0);
+-        lv_obj_set_style_bg_color(h, lv_color_white(), 0);
+-        lv_obj_set_style_bg_grad_color(h, lv_color_white(), 0);
+-        lv_obj_set_style_bg_grad_dir(h, LV_GRAD_DIR_HOR, 0);
+-        lv_obj_set_style_bg_main_opa(h, i == 0 ? 0 : 41, 0);  // .16 * 255
+-        lv_obj_set_style_bg_grad_opa(h, i == 0 ? 41 : 0, 0);
+-    }
+-    lv_obj_add_flag(glint_, LV_OBJ_FLAG_HIDDEN);
+-
+-    // Rings: 6 px web ring at the very edge.
+-    const int ring_w = std::max(2, (int)lroundf(6 * k));
+-    for (auto& seg : ring_) seg = RingArc(dial_, W, ring_w);
+-    ring_full_ = RingArc(dial_, W, ring_w);
+-    lv_arc_set_angles(ring_full_, 0, 360);
+-    lv_obj_set_style_arc_color(ring_full_, lv_color_hex(kRed), LV_PART_INDICATOR);
+-
+-    // Speaking glow (web: glow around the bezel; here the screen edge is the bezel).
+-    glow_ = lv_obj_create(dial_);
+-    Plain(glow_);
+-    lv_obj_set_size(glow_, W, H);
+-    lv_obj_center(glow_);
+-    lv_obj_set_style_radius(glow_, LV_RADIUS_CIRCLE, 0);
+-    lv_obj_set_style_border_side(glow_, LV_BORDER_SIDE_FULL, 0);
+-    lv_obj_add_flag(glow_, LV_OBJ_FLAG_HIDDEN);
++    }
++    Show(face_think_, false);
++
++    BuildGlint();
++    for (int i = 0; i < kGlintStrips; i++) {
++        glint_[i] = lv_image_create(dial_);
++        lv_obj_remove_flag(glint_[i], LV_OBJ_FLAG_CLICKABLE);
++        if (glint_px_) lv_image_set_src(glint_[i], &glint_dsc_);
++        lv_obj_set_y(glint_[i], i * (H / kGlintStrips));
++        Show(glint_[i], false);
++    }
++
++    BuildRing();
++    edge_ = lv_obj_create(dial_);
++    Plain(edge_);
++    lv_obj_set_size(edge_, W, H);
++    lv_obj_center(edge_);
++    lv_obj_add_event_cb(edge_, EdgeDrawCb, LV_EVENT_DRAW_MAIN, this);
+ 
+     // Name pill (top 7%).
+     name_pill_ = Pill(dial_);
+     lv_obj_align(name_pill_, LV_ALIGN_TOP_MID, 0, (int)lroundf(H * 0.07f));
+     name_dot_ = Box(name_pill_, kNameDot, kNameDot, kDotIdle, LV_RADIUS_CIRCLE);
+-    lv_obj_set_style_shadow_color(name_dot_, lv_color_hex(kGreen), 0);
++    // .card.live .dot glow (box-shadow 0 0 6px): a soft disc behind the dot instead of an LVGL
++    // shadow, which is blurred again on every redraw (no shadow cache in this build).
++    name_glow_ = Box(dial_, kNameDot + 6, kNameDot + 6, kGreen, LV_RADIUS_CIRCLE);
++    lv_obj_add_flag(name_glow_, LV_OBJ_FLAG_IGNORE_LAYOUT);
++    lv_obj_set_style_bg_opa(name_glow_, 70, 0);
++    Show(name_glow_, false);
+     name_label_ = lv_label_create(name_pill_);
+     lv_label_set_text(name_label_, "等待主机");
+ 
+     // Status pill (bottom 13%): bars | dots | stop + text.
+     status_pill_ = Pill(dial_);
+     lv_obj_align(status_pill_, LV_ALIGN_BOTTOM_MID, 0, -(int)lroundf(H * 0.13f));
+-    bars_box_ = lv_obj_create(status_pill_);
+-    Plain(bars_box_);
+-    lv_obj_set_size(bars_box_, LV_SIZE_CONTENT, kBarH);
+-    lv_obj_set_flex_flow(bars_box_, LV_FLEX_FLOW_ROW);
+-    lv_obj_set_flex_align(bars_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+-    lv_obj_set_style_pad_column(bars_box_, kBarGap, 0);
+-    for (auto& b : bars_) b = Box(bars_box_, kBarW, kBarH, kGreen, 2);
+-    dots_box_ = lv_obj_create(status_pill_);
+-    Plain(dots_box_);
+-    lv_obj_set_size(dots_box_, LV_SIZE_CONTENT, kDotSize + kDotJump);
+-    lv_obj_set_flex_flow(dots_box_, LV_FLEX_FLOW_ROW);
+-    lv_obj_set_flex_align(dots_box_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+-    lv_obj_set_style_pad_column(dots_box_, kDotGap, 0);
+-    for (auto& d : dots_) d = Box(dots_box_, kDotSize, kDotSize, 0xffffff, LV_RADIUS_CIRCLE);
++    bars_ = lv_obj_create(status_pill_);
++    Plain(bars_);
++    lv_obj_set_size(bars_, kBars * kBarW + (kBars - 1) * kBarGap, kBarH);
++    lv_obj_add_event_cb(bars_, BarsDrawCb, LV_EVENT_DRAW_MAIN, this);
++    dots_ = lv_obj_create(status_pill_);
++    Plain(dots_);
++    lv_obj_set_size(dots_, kDots * kDotSize + (kDots - 1) * kDotGap, kDotSize + kDotJump);
++    lv_obj_add_event_cb(dots_, DotsDrawCb, LV_EVENT_DRAW_MAIN, this);
+     stop_ = Box(status_pill_, kStopSize, kStopSize, kRed, 2);
+     status_label_ = lv_label_create(status_pill_);
+     lv_label_set_text(status_label_, "");
+@@ -251,173 +258,379 @@ void RhDialDisplay::SetupUI() {
+ 
+     SetState(kIdle);
+     lv_obj_move_foreground(dial_);
+-    last_ms_ = ticks_since_ms_ = esp_timer_get_time() / 1000;
+-    timer_ = lv_timer_create(TickCb, 33, this);  // CONFIG_LV_DEF_REFR_PERIOD
++    last_ms_ = esp_timer_get_time() / 1000;
++    // The LVGL port task sleeps in whole FreeRTOS ticks plus one extra tick per loop. At the stock
++    // CONFIG_FREERTOS_HZ=100 that added 10-20 ms to every frame (measured 2026-10-19: 19-24 timer
++    // runs/s for a 33 ms period, frames/s capped at ~20 while speaking); the board's config.json
++    // now sets CONFIG_FREERTOS_HZ=1000 (as upstream esp-hi / sensecap-watcher do).
++    timer_ = lv_timer_create(TickCb, kFrameMs, this);
++    if (lv_timer_t* refr = lv_display_get_refr_timer(display_)) lv_timer_set_period(refr, kFrameMs);
++    stat_since_ms_ = last_ms_;
++    lv_display_add_event_cb(display_, RenderEventCb, LV_EVENT_RENDER_START, this);
++    lv_display_add_event_cb(display_, RenderEventCb, LV_EVENT_RENDER_READY, this);
+     ESP_LOGI(TAG, "rh dial: ready (%dx%d), waiting for host", W, H);
+ }
+ 
++void RhDialDisplay::RenderEventCb(lv_event_t* e) {
++    auto self = static_cast<RhDialDisplay*>(lv_event_get_user_data(e));
++    if (lv_event_get_code(e) == LV_EVENT_RENDER_START) {
++        self->stat_render_start_us_ = esp_timer_get_time();
++    } else if (self->stat_render_start_us_) {
++        self->stat_renders_++;
++        self->stat_render_us_ += esp_timer_get_time() - self->stat_render_start_us_;
++        self->stat_render_start_us_ = 0;
++    }
++}
++
++// LVGL task, lock held. Sends {"method":"notifications/rh_dial_stats"} for the time since the last
++// report (one state segment or 30 s), then resets the counters.
++void RhDialDisplay::ReportStats(int64_t now_ms, const char* why) {
++    int64_t span = now_ms - stat_since_ms_;
++    if (span >= 2000 && live_) {
++        char buf[256];
++        snprintf(buf, sizeof(buf),
++                 "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/rh_dial_stats\",\"params\":{\"state\":\"%s\","
++                 "\"why\":\"%s\",\"secs\":%.1f,\"fps\":%.1f,\"timer_hz\":%.1f,\"render_ms\":%.1f,\"heap_internal\":%u}}",
++                 StateName(state_), why, span / 1000.0f, stat_renders_ * 1000.0f / span, stat_ticks_ * 1000.0f / span,
++                 stat_renders_ ? stat_render_us_ / 1000.0f / stat_renders_ : 0.0f,
++                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
++        ESP_LOGI(TAG, "%s", buf);
++        Application::GetInstance().SendMcpMessage(buf);
++    }
++    stat_renders_ = stat_ticks_ = 0;
++    stat_render_us_ = 0;
++    stat_since_ms_ = now_ms;
++}
++
+ void RhDialDisplay::TickCb(lv_timer_t* t) { static_cast<RhDialDisplay*>(lv_timer_get_user_data(t))->Tick(); }
+ 
+ // Runs in the LVGL task (lock held).
+ void RhDialDisplay::SetState(State s) {
++    if (stat_since_ms_) ReportStats(esp_timer_get_time() / 1000, "state");
+     state_ = s;
+     state_since_ms_ = esp_timer_get_time() / 1000;
+     static const char* text[] = {"", "思考中", "正在回答", "被打断"};  // dial.html STATUS_TEXT
+-    lv_label_set_text(status_label_, text[s]);
+-    auto show = [](lv_obj_t* o, bool on) {
+-        if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+-        else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+-    };
+-    show(bars_box_, s == kSpeaking);
+-    show(dots_box_, s == kThinking);
+-    show(stop_, s == kInterrupted);
+-    show(ring_full_, s == kInterrupted);
+-    for (auto seg : ring_) show(seg, s == kThinking);
+-    show(glow_, s == kSpeaking);
+-    if (s != kIdle) lv_obj_add_flag(glint_, LV_OBJ_FLAG_HIDDEN);
+-    lv_obj_set_style_translate_x(face_base_, 0, 0);
++    // Keep the old content while the pill fades out to idle.
++    if (s != kIdle) {
++        lv_label_set_text(status_label_, text[s]);
++        Show(bars_, s == kSpeaking);
++        Show(dots_, s == kThinking);
++        Show(stop_, s == kInterrupted);
++    }
++    if (s != kIdle) {
++        for (auto g : glint_) Show(g, false);
++    }
++}
++
++// The edge ring area as kTiles small rectangles hugging the circle, `width` px thick.
++// lo..hi: only tiles overlapping this angle range (degrees, 0 = 3 o'clock, clockwise; may wrap).
++void RhDialDisplay::InvalidateEdge(int width, float lo, float hi) {
++    const int W = width_, H = height_;
++    if (width != tiles_w_) {
++        tiles_w_ = width;
++        const float R = W / 2.0f, cx = W / 2.0f, cy = H / 2.0f;
++        for (int i = 0; i < kTiles; i++) {
++            float x1 = 1e9f, y1 = 1e9f, x2 = -1e9f, y2 = -1e9f;
++            for (int s = 0; s <= 4; s++) {
++                float a = (i + s / 4.0f) * 2 * (float)M_PI / kTiles;
++                for (float r : {R, R - width}) {
++                    float x = cx + r * cosf(a), y = cy + r * sinf(a);
++                    x1 = std::min(x1, x); y1 = std::min(y1, y); x2 = std::max(x2, x); y2 = std::max(y2, y);
++                }
++            }
++            tiles_[i] = {std::max(0, (int)floorf(x1) - 2), std::max(0, (int)floorf(y1) - 2),
++                         std::min(W - 1, (int)ceilf(x2) + 2), std::min(H - 1, (int)ceilf(y2) + 2)};
++        }
++    }
++    const float step = 360.0f / kTiles;
++    for (int i = 0; i < kTiles; i++) {
++        if (hi - lo < 360) {
++            // tile i spans [i*step, (i+1)*step]; test overlap with [lo, hi] modulo 360
++            float a0 = fmodf(i * step - lo + 720, 360);
++            float a1 = a0 + step;
++            if (!(a0 <= hi - lo || a1 >= 360)) continue;
++        }
++        lv_obj_invalidate_area(edge_, &tiles_[i]);
++    }
++}
++
++// Precompute the pixels near the rim (distance < kRingMax px) with their angle and distance, and
++// three A8 (alpha-only) full-screen layers: role colour, white, red. Each frame only those ring
++// pixels are rewritten, and the layers are blended with LVGL's A8 fast path (colour + mask),
++// clipped to the edge tiles -- no arc / circle masks are computed while drawing.
++void RhDialDisplay::BuildRing() {
++    const int W = width_, H = height_;
++    const float R = W / 2.0f, cx = W / 2.0f, cy = H / 2.0f;
++    std::vector<RingPx> px;
++    for (int y = 0; y < H; y++) {
++        for (int x = 0; x < W; x++) {
++            float dx = x + .5f - cx, dy = y + .5f - cy;
++            float d = R - sqrtf(dx * dx + dy * dy);
++            if (d < 0 || d >= kRingMax) continue;
++            // clockwise from 12 o'clock, 0.1 deg
++            float a = atan2f(dx, -dy) * 180 / (float)M_PI;
++            if (a < 0) a += 360;
++            px.push_back({(uint32_t)(y * W + x), (uint16_t)(a * 10), (uint8_t)(d * 16)});
++        }
++    }
++    std::sort(px.begin(), px.end(), [](const RingPx& a, const RingPx& b) { return a.d16 < b.d16; });
++    ring_n_ = px.size();
++    for (int w = 0; w <= kRingMax; w++) {  // ring_upto_[w] = number of pixels closer than w px to the rim
++        ring_upto_[w] = std::lower_bound(px.begin(), px.end(), w * 16,
++                                         [](const RingPx& a, int v) { return a.d16 < v; }) - px.begin();
++    }
++    ring_px_ = static_cast<RingPx*>(heap_caps_malloc(ring_n_ * sizeof(RingPx), MALLOC_CAP_SPIRAM));
++    if (ring_px_) memcpy(ring_px_, px.data(), ring_n_ * sizeof(RingPx));
++    for (int l = 0; l < 3; l++) {
++        layer_px_[l] = static_cast<uint8_t*>(heap_caps_calloc(W * H, 1, MALLOC_CAP_SPIRAM));
++        auto& d = layer_dsc_[l];
++        d.header.magic = LV_IMAGE_HEADER_MAGIC;
++        d.header.cf = LV_COLOR_FORMAT_A8;
++        d.header.w = W;
++        d.header.h = H;
++        d.header.stride = W;
++        d.data_size = W * H;
++        d.data = layer_px_[l];
++    }
++}
++
++// Rewrite the ring pixels of the three layers from the current animation values.
++void RhDialDisplay::PaintRing(float halo_opa, float halo_w, float glow_opa, float glow_w, int upto) {
++    if (ring_px_ == nullptr || !layer_px_[0] || !layer_px_[1] || !layer_px_[2]) return;
++    const float k = width_ / 466.0f;
++    const float ring_w = std::max(2.0f, roundf(6 * k));  // web .ring: 6 px of 466
++    float band_o = std::max(halo_opa, glow_opa);
++    float band_w = glow_opa >= halo_opa ? glow_w : halo_w;
++    float rot10 = rot_ * 10;
++    const int n = ring_upto_[std::min(upto, (int)kRingMax)];
++    for (int i = 0; i < n; i++) {
++        const RingPx& p = ring_px_[i];
++        float d = p.d16 / 16.0f;
++        float col = 0, white = 0, red = 0;
++        // Glow band: strongest at the rim, fading inwards (smooth falloff), soft inner edge.
++        if (band_o > .004f && d < band_w) {
++            float u = 1 - d / band_w;
++            col = band_o * (.25f + .65f * u * u);
++        }
++        // Ring edge anti-aliasing for the 3 px rings.
++        float ring_a = Clamp01(ring_w - d);
++        if (spin_ > .004f && ring_a > 0) {
++            // conic-gradient(transparent 0 62%, colour 92%, #fff 100%), rotated by rot_
++            float th = fmodf(p.ang10 - rot10 + 7200, 3600) / 10;
++            if (th >= 223.2f) {
++                if (th < 331.2f) {
++                    col = std::max(col, spin_ * ring_a * (th - 223.2f) / 108);
++                } else {
++                    float m = (th - 331.2f) / 28.8f;
++                    col = std::max(col, spin_ * ring_a * (1 - m));
++                    white = spin_ * ring_a * m;
++                }
++            }
++        }
++        if (red_ > .004f) red = red_ * ring_a;
++        layer_px_[0][p.idx] = (uint8_t)(Clamp01(col) * 255);
++        layer_px_[1][p.idx] = (uint8_t)(Clamp01(white) * 255);
++        layer_px_[2][p.idx] = (uint8_t)(Clamp01(red) * 255);
++    }
++}
++
++void RhDialDisplay::EdgeDrawCb(lv_event_t* e) {
++    auto self = static_cast<RhDialDisplay*>(lv_event_get_user_data(e));
++    lv_layer_t* layer = lv_event_get_layer(e);
++    lv_area_t c;
++    lv_obj_get_coords(self->edge_, &c);
++    const lv_color_t colors[3] = {self->color_, lv_color_white(), lv_color_hex(kRed)};
++    for (int l = 0; l < 3; l++) {
++        if (!self->layer_on_[l] || !self->layer_px_[l]) continue;
++        lv_draw_image_dsc_t d;
++        lv_draw_image_dsc_init(&d);
++        d.src = &self->layer_dsc_[l];
++        d.recolor = colors[l];
++        d.recolor_opa = LV_OPA_COVER;
++        lv_draw_image(layer, &d, &c);
++    }
++}
++
++void RhDialDisplay::BarsDrawCb(lv_event_t* e) {
++    auto self = static_cast<RhDialDisplay*>(lv_event_get_user_data(e));
++    lv_layer_t* layer = lv_event_get_layer(e);
++    lv_area_t c;
++    lv_obj_get_coords(self->bars_, &c);
++    lv_draw_rect_dsc_t d;
++    lv_draw_rect_dsc_init(&d);
++    d.bg_color = lv_color_hex(kGreen);
++    d.radius = 2;
++    for (int i = 0; i < kBars; i++) {
++        int h = std::max(2, (int)lroundf(kBarH * self->bar_h_[i]));
++        lv_area_t a;
++        a.x1 = c.x1 + i * (kBarW + kBarGap);
++        a.x2 = a.x1 + kBarW - 1;
++        a.y1 = c.y1 + (kBarH - h) / 2;
++        a.y2 = a.y1 + h - 1;
++        lv_draw_rect(layer, &d, &a);
++    }
++}
++
++void RhDialDisplay::DotsDrawCb(lv_event_t* e) {
++    auto self = static_cast<RhDialDisplay*>(lv_event_get_user_data(e));
++    lv_layer_t* layer = lv_event_get_layer(e);
++    lv_area_t c;
++    lv_obj_get_coords(self->dots_, &c);
++    lv_draw_rect_dsc_t d;
++    lv_draw_rect_dsc_init(&d);
++    d.bg_color = lv_color_white();
++    d.radius = LV_RADIUS_CIRCLE;
++    for (int i = 0; i < kDots; i++) {
++        float p = self->dot_p_[i];
++        d.bg_opa = (lv_opa_t)(255 * (.5f + .5f * p));
++        lv_area_t a;
++        a.x1 = c.x1 + i * (kDotSize + kDotGap);
++        a.x2 = a.x1 + kDotSize - 1;
++        a.y1 = c.y1 + kDotJump - (int)lroundf(kDotJump * p);
++        a.y2 = a.y1 + kDotSize - 1;
++        lv_draw_rect(layer, &d, &a);
++    }
+ }
+ 
+ void RhDialDisplay::Tick() {
+     const int W = width_, H = height_;
+-    const float k = W / 466.0f;
+     int64_t now_us = esp_timer_get_time();
+-    float t = (float)((now_us / 1000) % 3600000);  // ms, wrapped hourly to keep float precision
+     int64_t now_ms = now_us / 1000;
++    float t = (float)(now_ms % 3600000);  // ms, wrapped hourly to keep float precision
+     float dt = (float)std::min<int64_t>(200, now_ms - last_ms_);
+     last_ms_ = now_ms;
+-    float since = (float)(now_ms - state_since_ms_);
+-
+-    // Opacity transitions.
+-    think_opa_ = Approach(think_opa_, state_ == kThinking ? 1 : 0, dt, kFaceFadeMs);
+-    status_opa_ = Approach(status_opa_, state_ == kIdle ? 0 : 1, dt, kPillFadeMs);
+-    ring_opa_ = Approach(ring_opa_, (state_ == kThinking || state_ == kInterrupted) ? 1 : 0, dt, kRingFadeMs);
+-    glow_opa_ = Approach(glow_opa_, state_ == kSpeaking ? 1 : 0, dt, kPillFadeMs);
+-    gray_ = Approach(gray_, state_ == kInterrupted ? 1 : 0, dt, kFilterMs);
+-    Num(face_think_, LV_STYLE_IMAGE_OPA, (lv_opa_t)(think_opa_ * 255));
+-    Num(status_pill_, LV_STYLE_OPA, (lv_opa_t)(status_opa_ * 255));
+-
+-    // Speaking level: real playback loudness, else the synthetic wave of dial.html level().
+-    float lvl = 0;
++    stat_ticks_++;
++
++    // Speaking level: real playback loudness, else the synthetic wave of dial.html level();
++    // then a fast-attack / slow-release filter so the glow follows syllables smoothly.
++    float raw = 0;
+     if (state_ == kSpeaking) {
+         if (now_us - g_rh_out_level_us.load() < kLevelFreshUs) {
+-            lvl = g_rh_out_level.load() / 1000.0f;
++            raw = g_rh_out_level.load() / 1000.0f;
+         } else {
+             float kk = role_.empty() ? 0 : (float)(unsigned char)role_[0];
+-            lvl = .35f + .3f * fabsf(sinf(t / 110 + kk)) * (.6f + .4f * sinf(t / 370 + kk * 2));
++            raw = .35f + .3f * fabsf(sinf(t / 110 + kk)) * (.6f + .4f * sinf(t / 370 + kk * 2));
+         }
+     }
++    lvl_ = Follow(lvl_, raw, dt, raw > lvl_ ? kTauLevelUp : kTauLevelDown);
+ 
+-    // Face: idle breathe (base), thinking breathe (think face), speaking follows the level.
+-    float scale = 1, ty = 0, tx = 0;
+-    if (state_ == kIdle) {
+-        float p = Wave(t, kBreatheIdleMs);
+-        scale = 1 + .018f * p;
+-        ty = -3 * k * p;
+-    } else if (state_ == kThinking) {
+-        float p = Wave(t, kBreatheThinkMs);
+-        scale = 1 + .018f * p;
+-        ty = -3 * k * p;
+-    } else if (state_ == kSpeaking) {
+-        scale = 1 + .02f * lvl;
+-        ty = -3 * k * lvl;
+-    } else if (state_ == kInterrupted && since < kShakeMs) {
+-        // @keyframes shake: 20% -6, 40% 5, 60% -3, 80% 2 (px)
+-        static const float keys[] = {0, -6, 5, -3, 2, 0};
+-        float u = since / kShakeMs * 5;
+-        int i = std::min(4, (int)u);
+-        tx = (keys[i] + (keys[i + 1] - keys[i]) * (u - i)) * k;
+-    }
+-    lv_obj_t* moving = state_ == kThinking ? face_think_ : face_base_;
+-    lv_obj_t* still = moving == face_base_ ? face_think_ : face_base_;
+-    lv_image_set_scale(moving, (uint32_t)lroundf(256 * scale));
+-    Num(moving, LV_STYLE_TRANSLATE_Y, (int32_t)lroundf(ty));
+-    Num(moving, LV_STYLE_TRANSLATE_X, (int32_t)lroundf(tx));
+-    lv_image_set_scale(still, 256);
+-    Num(still, LV_STYLE_TRANSLATE_Y, 0);
+-    Num(still, LV_STYLE_TRANSLATE_X, 0);
+-    // Interrupted: grayscale(.6) brightness(.75) -> blend towards dark grey.
+-    Col(face_base_, LV_STYLE_IMAGE_RECOLOR, lv_color_hex(0x3a3a3a));
+-    Num(face_base_, LV_STYLE_IMAGE_RECOLOR_OPA, (lv_opa_t)(gray_ * 115));
++    halo_ = Follow(halo_, state_ == kIdle ? 1 : 0, dt, kTauRing);
++    glow_ = Follow(glow_, state_ == kSpeaking ? 1 : 0, dt, kTauRing);
++    spin_ = Follow(spin_, state_ == kThinking ? 1 : 0, dt, kTauRing);
++    red_ = Follow(red_, state_ == kInterrupted ? 1 : 0, dt, kTauRing);
++    if (spin_ > .01f) rot_ = fmodf(rot_ + 360 * dt / kSpinMs, 360);
+ 
+-    // Glint: idle only, sweeps during 78%..92% of each 9 s cycle.
+-    if (state_ == kIdle) {
+-        float u = fmodf(t, kGlintMs) / kGlintMs;
+-        if (u >= .78f && u <= .92f) {
+-            float s = Smooth((u - .78f) / .14f);
+-            float cx = (-0.6f + 2.25f * s) * W;  // band centre, left -> right
+-            Num(glint_, LV_STYLE_X, (int32_t)(cx - W / 4));
+-            Num(glint_, LV_STYLE_Y, -(H * 3 / 10));
+-            lv_obj_remove_flag(glint_, LV_OBJ_FLAG_HIDDEN);
+-        } else if (!lv_obj_has_flag(glint_, LV_OBJ_FLAG_HIDDEN)) {
+-            lv_obj_add_flag(glint_, LV_OBJ_FLAG_HIDDEN);
++    // Edge: repaint the ring layers and invalidate the ring tiles only when something changes.
++    {
++        float b = Wave(t, kBreatheIdleMs);
++        float halo_opa = halo_ * (kHaloOpaMin + (kHaloOpaMax - kHaloOpaMin) * b);
++        float halo_w = kHaloMin + (kHaloMax - kHaloMin) * b;
++        float glow_opa = glow_ * (.4f + .6f * lvl_);
++        float glow_w = kGlowMin + (kGlowMax - kGlowMin) * lvl_;
++        // one A8 level of opacity, 1/8 px of width, 1/2 degree of rotation
++        int64_t key = (int64_t)(halo_opa * 255) + 256 * ((int64_t)(halo_w * 8) + 256 * ((int64_t)(glow_opa * 255) +
++                      256 * ((int64_t)(glow_w * 8) + 256 * ((int64_t)(red_ * 255) + 256 * ((int64_t)(spin_ * 255) +
++                      256 * (spin_ > .004f ? (int64_t)(rot_ * 2) : 0))))));
++        if (key != edge_key_) {
++            edge_key_ = key;
++            // Only as deep into the circle as anything is drawn now or was drawn last time.
++            const int ring_w = std::max(2, (int)lroundf(6 * W / 466.0f));
++            int need = 0;
++            if (halo_opa > .004f) need = (int)ceilf(halo_w);
++            if (glow_opa > .004f) need = std::max(need, (int)ceilf(glow_w));
++            if (spin_ > .004f || red_ > .004f) need = std::max(need, ring_w);
++            need = std::min((int)kRingMax, need + 1);
++            int depth = std::max(need, ring_depth_);
++            PaintRing(halo_opa, halo_w, glow_opa, glow_w, depth);
++            layer_on_[0] = halo_opa > .004f || glow_opa > .004f || spin_ > .004f;
++            layer_on_[1] = spin_ > .004f;
++            layer_on_[2] = red_ > .004f;
++            // Steady thinking: only the turning arc moves -> only tiles under its old and new span.
++            bool only_arc = state_ == kThinking && spin_ > .99f && halo_ < .004f && glow_ < .004f && red_ < .004f &&
++                            depth == ring_depth_;
++            if (only_arc) {
++                float lo = arc_drawn_rot_ + 223.2f - 90 - 2;   // conic 0 = 12 o'clock, tiles 0 = 3 o'clock
++                float hi = rot_ + 360 - 90 + 2;
++                if (hi < lo) hi += 360;
++                InvalidateEdge(depth, fmodf(lo + 360, 360), fmodf(lo + 360, 360) + std::min(360.0f, hi - lo));
++            } else {
++                InvalidateEdge(depth, 0, 360);
++            }
++            arc_drawn_rot_ = rot_;
++            ring_depth_ = need;
+         }
+     }
+ 
+-    // Thinking ring: conic-gradient(transparent 0 62%, colour 92%, #fff 100%) spinning in 1.6 s.
+-    if (state_ == kThinking) {
+-        float rot = 360 * fmodf(t, kSpinMs) / kSpinMs;
+-        const float a0 = 223.2f, a1 = 331.2f, a2 = 360;  // 62%, 92%, 100%
+-        const int fade = kRingSegments - 3;              // segments fading in, then 3 to white
+-        for (int i = 0; i < kRingSegments; i++) {
+-            float s0, s1;
+-            lv_color_t c;
+-            lv_opa_t o;
+-            if (i < fade) {
+-                s0 = a0 + (a1 - a0) * i / fade;
+-                s1 = a0 + (a1 - a0) * (i + 1) / fade;
+-                c = color_;
+-                o = (lv_opa_t)(255 * (i + 0.5f) / fade);
+-            } else {
+-                int j = i - fade;
+-                s0 = a1 + (a2 - a1) * j / 3;
+-                s1 = a1 + (a2 - a1) * (j + 1) / 3;
+-                c = Mix(color_, lv_color_white(), (j + 0.5f) / 3);
+-                o = 255;
++    // Thinking picture cross-fade (only when the host sent a different one) and the interrupted
++    // grey-out: both repaint the whole picture, so they move in a few coarse steps.
++    if (think_face_) {
++        think_opa_ = Follow(think_opa_, state_ == kThinking ? 1 : 0, dt, kTauFace);
++        Num(face_think_, LV_STYLE_IMAGE_OPA, (int32_t)lroundf(think_opa_ * 8) * 255 / 8);
++    }
++    gray_ = Follow(gray_, state_ == kInterrupted ? 1 : 0, dt, kTauGray);
++    // grayscale(.6) brightness(.75) -> blend towards dark grey
++    Col(face_base_, LV_STYLE_IMAGE_RECOLOR, lv_color_hex(0x3a3a3a));
++    Num(face_base_, LV_STYLE_IMAGE_RECOLOR_OPA, (int32_t)lroundf(gray_ * 6) * 115 / 6);
++
++    // Status pill fade (.25 s like the web), contents switch while it is visible.
++    status_opa_ = Follow(status_opa_, state_ == kIdle ? 0 : 1, dt, kTauPill);
++    Num(status_pill_, LV_STYLE_OPA, status_opa_ > .98f ? 255 : (int32_t)lroundf(status_opa_ * 16) * 255 / 16);
++
++    // Glint: idle only, sweeps during 78%..92% of each 9 s cycle, eased.
++    {
++        float u = fmodf(t, kGlintMs) / kGlintMs;
++        bool on = state_ == kIdle && u >= .78f && u <= .92f && glint_px_;
++        float cx = (-0.6f + 2.25f * Smooth((u - .78f) / .14f)) * W;  // band centre at mid height
++        int sh = H / kGlintStrips;
++        for (int i = 0; i < kGlintStrips; i++) {
++            if (on) {
++                float row = i * sh + sh / 2.0f;
++                Num(glint_[i], LV_STYLE_X, (int32_t)lroundf(cx - (row - H / 2.0f) * kGlintTan - glint_dsc_.header.w / 2.0f));
+             }
+-            // conic 0deg = 12 o'clock, LVGL arc 0 = 3 o'clock; both clockwise
+-            lv_arc_set_angles(ring_[i], fmodf(s0 + rot + 270, 360), fmodf(s1 + rot + 270 + 0.6f, 360));
+-            Col(ring_[i], LV_STYLE_ARC_COLOR, c, LV_PART_INDICATOR);
+-            Num(ring_[i], LV_STYLE_ARC_OPA, (lv_opa_t)(o * ring_opa_), LV_PART_INDICATOR);
++            if (on != !lv_obj_has_flag(glint_[i], LV_OBJ_FLAG_HIDDEN)) Show(glint_[i], on);
+         }
+     }
+-    Num(ring_full_, LV_STYLE_ARC_OPA, (lv_opa_t)(255 * ring_opa_), LV_PART_INDICATOR);
+ 
+-    // Speaking glow + bars.
++    // Speaking bars.
+     if (state_ == kSpeaking) {
+-        // web: box-shadow 0 0 (8+46*lvl)px (1+9*lvl)px outside the bezel; here an inner edge
+-        // band in the role colour whose width and strength follow the level.
+-        Col(glow_, LV_STYLE_BORDER_COLOR, color_);
+-        Num(glow_, LV_STYLE_BORDER_WIDTH, (int32_t)lroundf((2 + 10 * lvl) * k * 2));
+-        Num(glow_, LV_STYLE_BORDER_OPA, (lv_opa_t)(glow_opa_ * (90 + 165 * lvl)));
++        bool changed = false;
+         for (int i = 0; i < kBars; i++) {
+-            float sy = std::max(.2f, std::min(1.0f, lvl * (.6f + .5f * fabsf(sinf(t / 90 + i * 1.7f)))));
+-            Num(bars_[i], LV_STYLE_HEIGHT, std::max(2, (int)lroundf(kBarH * sy)));
++            float target = std::max(.2f, std::min(1.0f, lvl_ * (.6f + .5f * fabsf(sinf(t / 90 + i * 1.7f)))));
++            float nh = Follow(bar_h_[i], target, dt, kTauBar);
++            changed |= lroundf(nh * kBarH) != lroundf(bar_h_[i] * kBarH);
++            bar_h_[i] = nh;
+         }
++        if (changed) lv_obj_invalidate(bars_);
+     }
+ 
+-    // Thinking dots: 1.1 s bounce, .15 s apart (0,80,100%: y 0 opa .5; 40%: y -5 opa 1).
++    // Thinking dots: 1.1 s bounce, .15 s apart (0,80,100%: y 0 opa .5; 40%: y -5 opa 1), eased.
+     if (state_ == kThinking) {
++        bool changed = false;
+         for (int i = 0; i < kDots; i++) {
+             float u = fmodf(t - i * 150 + kDotMs * 10, kDotMs) / kDotMs;
+-            float p = u < .4f ? u / .4f : (u < .8f ? (.8f - u) / .4f : 0);
+-            Num(dots_[i], LV_STYLE_TRANSLATE_Y, (int32_t)lroundf(-kDotJump * p));
+-            Num(dots_[i], LV_STYLE_BG_OPA, (lv_opa_t)(255 * (.5f + .5f * p)));
++            float p = u < .4f ? Smooth(u / .4f) : (u < .8f ? Smooth((.8f - u) / .4f) : 0);
++            changed |= lroundf(p * kDotJump * 2) != lroundf(dot_p_[i] * kDotJump * 2);
++            dot_p_[i] = p;
+         }
++        if (changed) lv_obj_invalidate(dots_);
+     }
+ 
+     // Name dot: grey, green with glow when live; idle pulses with the breathe.
+     Col(name_dot_, LV_STYLE_BG_COLOR, lv_color_hex(live_ ? kGreen : kDotIdle));
+-    Num(name_dot_, LV_STYLE_SHADOW_WIDTH, live_ ? 6 : 0);
++    if (live_) {  // follow the dot (the pill re-centres when the name changes)
++        lv_area_t a;
++        lv_obj_get_coords(name_dot_, &a);
++        Num(name_glow_, LV_STYLE_X, a.x1 - 3);
++        Num(name_glow_, LV_STYLE_Y, a.y1 - 3);
++    }
++    if (live_ != !lv_obj_has_flag(name_glow_, LV_OBJ_FLAG_HIDDEN)) {
++        lv_obj_move_to_index(name_glow_, lv_obj_get_index(name_pill_));  // just under the pill
++        Show(name_glow_, live_);
++    }
+     float pulse = state_ == kIdle ? 1 - .55f * Wave(t, kBreatheIdleMs) : 1;
+-    Num(name_dot_, LV_STYLE_BG_OPA, (lv_opa_t)(255 * pulse));
++    Num(name_dot_, LV_STYLE_BG_OPA, (int32_t)lroundf(pulse * 32) * 255 / 32);
+ 
+-    if (++ticks_ && now_ms - ticks_since_ms_ >= 10000) {
+-        ESP_LOGI(TAG, "rh dial: role=%s state=%s live=%d frames/s=%.1f", role_.empty() ? "-" : role_.c_str(),
+-                 StateName(state_), live_, ticks_ * 1000.0f / (now_ms - ticks_since_ms_));
+-        ticks_ = 0;
+-        ticks_since_ms_ = now_ms;
+-    }
++    if (now_ms - stat_since_ms_ >= 30000) ReportStats(now_ms, "periodic");
+ }
+ 
+ void RhDialDisplay::RhDial(const cJSON* msg) {
+@@ -435,7 +648,7 @@ void RhDialDisplay::RhDial(const cJSON* msg) {
+     {
+         DisplayLockGuard lock(this);
+         if (dial_ == nullptr) return;
+-        if (role) { role_ = role; have_role_ = true; }
++        if (role) role_ = role;
+         if (name) lv_label_set_text(name_label_, name);
+         if (color && color[0] == '#' && strlen(color) == 7) color_ = lv_color_hex(strtoul(color + 1, nullptr, 16));
+         if (cJSON_IsBool(live)) live_ = cJSON_IsTrue(live);
+@@ -449,7 +662,16 @@ void RhDialDisplay::RhDial(const cJSON* msg) {
+     }
+     ESP_LOGI(TAG, "rh dial: host says role=%s name=%s state=%s", role ? role : "-", name ? name : "-",
+              state ? state : "-");
+-    if (avatar) RequestAvatars(avatar, avatar_think ? avatar_think : avatar);
++    if (avatar) {
++        std::string think = avatar_think ? avatar_think : avatar;
++        if (think == avatar) {  // no separate thinking picture: no cross-fade (saves full repaints)
++            DisplayLockGuard lock(this);
++            think_face_ = false;
++            Show(face_think_, false);
++            think = "";
++        }
++        RequestAvatars(avatar, think);
++    }
+ }
+ 
+ void RhDialDisplay::RhDeviceState(int state) {
+@@ -519,6 +741,12 @@ void RhDialDisplay::DownloadTask(void* arg) {
+ 
+ void RhDialDisplay::SetFace(lv_obj_t* img, std::unique_ptr<LvglImage>& slot, std::unique_ptr<LvglImage> image) {
+     lv_image_set_src(img, image->image_dsc());
++    if (img == face_think_) {
++        think_face_ = true;
++        think_opa_ = state_ == kThinking ? 1 : 0;
++        lv_obj_set_style_image_opa(face_think_, (lv_opa_t)(think_opa_ * 255), 0);
++        Show(face_think_, true);
++    }
+     if (slot) lv_image_cache_drop(slot->image_dsc());
+     slot = std::move(image);
+ }
+diff --git a/main/display/rh_dial_display.h b/main/display/rh_dial_display.h
+index c65682c..77ec2a4 100644
+--- a/main/display/rh_dial_display.h
++++ b/main/display/rh_dial_display.h
+@@ -4,6 +4,11 @@
+ // emoji / subtitle / status bar UI. Everything role-specific (id, name, colour, avatar
+ // pictures) and the current state come from the host in {"type":"rh_dial",...} messages
+ // (host side: rh/dial.py); the firmware is the same for every board.
++//
++// Frame rate: the avatar is a still full-screen picture and never moves; every animation only
++// touches small areas (the edge ring as a set of tiles, the pills, the glint strips), so a frame
++// redraws and sends a fraction of the 240x240 screen over SPI. Measured on the board 2026-10-19:
++// the first version (whole picture scaled every frame) ran at 6.5-18 frames/s.
+ #include <sdkconfig.h>
+ #if CONFIG_RH_DIAL
+ 
+@@ -30,40 +35,72 @@ public:
+ 
+ private:
+     enum State { kIdle = 0, kThinking, kSpeaking, kInterrupted };
+-    static constexpr int kRingSegments = 12;
+-    static constexpr int kBars = 5;   // dial.html BAR_N
++    static constexpr int kBars = 5;          // dial.html BAR_N
+     static constexpr int kDots = 3;
++    static constexpr int kTiles = 16;        // edge ring invalidated as this many small rectangles
++    static constexpr int kGlintStrips = 4;   // tilted glint band built from horizontal strips
++    // kTiles + 2 * kGlintStrips + a few pill areas must stay under LVGL's LV_INV_BUF_SIZE (32
++    // invalid areas per frame); past that LVGL redraws the whole screen.
+ 
+     lv_obj_t* dial_ = nullptr;
+     lv_obj_t* face_base_ = nullptr;
+     lv_obj_t* face_think_ = nullptr;
+-    lv_obj_t* glint_ = nullptr;
+-    lv_obj_t* ring_[kRingSegments] = {};
+-    lv_obj_t* ring_full_ = nullptr;
+-    lv_obj_t* glow_ = nullptr;
++    lv_obj_t* glint_[kGlintStrips] = {};
++    lv_obj_t* edge_ = nullptr;     // custom-drawn: glow band, thinking arc, interrupted ring
+     lv_obj_t* name_pill_ = nullptr;
+     lv_obj_t* name_dot_ = nullptr;
+     lv_obj_t* name_label_ = nullptr;
+     lv_obj_t* status_pill_ = nullptr;
+-    lv_obj_t* bars_box_ = nullptr;
+-    lv_obj_t* bars_[kBars] = {};
+-    lv_obj_t* dots_box_ = nullptr;
+-    lv_obj_t* dots_[kDots] = {};
++    lv_obj_t* bars_ = nullptr;     // custom-drawn
++    lv_obj_t* dots_ = nullptr;     // custom-drawn
+     lv_obj_t* stop_ = nullptr;
+     lv_obj_t* status_label_ = nullptr;
+     lv_timer_t* timer_ = nullptr;
++    lv_image_dsc_t glint_dsc_ = {};
++    uint8_t* glint_px_ = nullptr;
+ 
+     // Everything below is touched only with the LVGL lock held (Tick runs in the LVGL task).
+     State state_ = kIdle;
+     int64_t state_since_ms_ = 0;
+     bool live_ = false;        // audio channel to the host is open
+-    bool have_role_ = false;   // host has told us who we are
+     lv_color_t color_;
+     std::string role_;
+     int64_t last_ms_ = 0;
+-    float think_opa_ = 0, status_opa_ = 0, ring_opa_ = 0, glow_opa_ = 0, gray_ = 0;
+-    int ticks_ = 0;
+-    int64_t ticks_since_ms_ = 0;
++    bool think_face_ = false;  // a separate thinking picture is shown (host sent a different URL)
++
++    // Smoothed animation values (0..1 unless noted).
++    float think_opa_ = 0, status_opa_ = 0, gray_ = 0, lvl_ = 0;
++    float halo_ = 0;           // idle breathing halo strength
++    float glow_ = 0;           // speaking glow strength
++    float spin_ = 0;           // thinking arc strength
++    float red_ = 0;            // interrupted ring strength
++    float rot_ = 0;            // thinking arc rotation, degrees
++    float bar_h_[kBars] = {};  // bar heights 0..1
++    float dot_p_[kDots] = {};  // dot jump 0..1
++    // What the edge drew last frame, to invalidate only when it changes.
++    int64_t edge_key_ = -1;
++    // Ring layers (see BuildRing): pixels within kRingMax px of the rim, and three A8 layers.
++    static constexpr int kRingMax = 9;   // widest thing on the rim: kGlowMax (8) + 1 AA px
++    struct RingPx { uint32_t idx; uint16_t ang10; uint8_t d16; };
++    RingPx* ring_px_ = nullptr;
++    int ring_n_ = 0;
++    uint8_t* layer_px_[3] = {};
++    lv_image_dsc_t layer_dsc_[3] = {};
++    bool layer_on_[3] = {};
++    int ring_upto_[kRingMax + 1] = {};
++    int ring_depth_ = 0;           // how deep (px) the ring was drawn last frame
++    float arc_drawn_rot_ = 0;      // thinking arc rotation drawn last frame
++    lv_obj_t* name_glow_ = nullptr;
++    lv_area_t tiles_[kTiles] = {};
++    int tiles_w_ = -1;
++
++    // Frame stats, reported to the host as an MCP notification (rh/dial.py logs them): the USB
++    // serial console is not always reachable. Rendered frames = LV_EVENT_RENDER_READY count.
++    int stat_renders_ = 0, stat_ticks_ = 0;
++    int64_t stat_render_us_ = 0, stat_render_start_us_ = 0, stat_since_ms_ = 0;
++    static void RenderEventCb(lv_event_t* e);
++    void ReportStats(int64_t now_ms, const char* why);
++
+     std::unique_ptr<LvglImage> img_base_;
+     std::unique_ptr<LvglImage> img_think_;
+ 
+@@ -74,8 +111,15 @@ private:
+     bool dl_running_ = false;
+ 
+     static void TickCb(lv_timer_t* t);
++    static void EdgeDrawCb(lv_event_t* e);
++    void BuildRing();
++    void PaintRing(float halo_opa, float halo_w, float glow_opa, float glow_w, int upto);
++    static void BarsDrawCb(lv_event_t* e);
++    static void DotsDrawCb(lv_event_t* e);
+     void Tick();
+     void SetState(State s);
++    void InvalidateEdge(int width, float lo, float hi);
++    void BuildGlint();
+     void SetFace(lv_obj_t* img, std::unique_ptr<LvglImage>& slot, std::unique_ptr<LvglImage> image);
+     void RequestAvatars(const std::string& base, const std::string& think);
+     static void DownloadTask(void* arg);
+-- 
+2.54.0 (Apple Git-157)
+

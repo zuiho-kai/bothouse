@@ -62,11 +62,29 @@ class DeviceSpeaker:
         self.link: DeviceLink | None = None
         self._mu = threading.Lock()
         self._waiters: dict[str, tuple[threading.Event, list]] = {}
+        # 回执超时过的角色：它的设备收了音频却既不播也不回执（2026-10-19 logs/host-device-20261019-000124.log 每句都超时、
+        # Mac 上没声音）。之后直接在本机播，不再每句先空等“音频时长 + 余量”；hub 发来新的设备名单时清空，重新试设备。
+        # 小智板子的回执是主机自己的服务代发的，板子连着就一定会回（停下回 stopped、播完回 done）。所以板子那次超时后
+        # 只要对那次播放还有回执，就说明连接是好的、只是偶发慢了：清掉卡住标记，下一句照常推给板子（rh/xiaozhi.py）。
+        self._late: dict[str, str] = {}   # 回执超时的 play_id -> 角色
+        self._stuck: set[str] = set()
 
-    def on_receipt(self, play_id: str, result: str, started: bool | None = None) -> None:
-        """hub 转来的回执（主机事件循环线程里调用）。started：设备有没有真的开始播（failed 时用）。"""
+    def devices_changed(self) -> None:
+        """hub 发来设备名单（有页面开了/关了声音、重连）或小智板子连上/断开：之前卡住的设备重新试。"""
+        with self._mu:
+            self._stuck.clear()
+            self._late.clear()
+
+    def on_receipt(self, play_id: str, result: str, started: bool | None = None, board: bool = False) -> None:
+        """hub 或小智服务转来的回执（主机事件循环线程里调用）。started：设备有没有真的开始播（failed 时用）。
+        board：回执来自小智板子（见上面 _late 的说明）。"""
         with self._mu:
             w = self._waiters.get(play_id)
+            # 只认板子的：网页设备停下时也可能回 stopped，但它卡住是“收了音频不播”，不能因此重新用它
+            role = self._late.pop(play_id, None) if board and result in ("done", "stopped") else None
+            if role is not None and role in self._stuck:
+                self._stuck.discard(role)
+                self.log(f"[device] {role} 的板子对超时那次有回执 {result}（连接正常），下一句起照常推给板子")
         if w is not None:
             w[1].append((result, started))
             w[0].set()
@@ -74,15 +92,18 @@ class DeviceSpeaker:
     def close(self) -> None:
         if self.local is not None and hasattr(self.local, "close"):
             self.local.close()
+        if hasattr(self.synth, "close"):   # Qwen 常驻合成进程
+            self.synth.close()
 
     def _local(self, text: str, voice: str, cancel: threading.Event, role: str) -> bool:
         if self.local is None:
             return True
+        self.log(f"[device] {role} 在本机喇叭播放（{len(text)} 字）")
         return self.local.speak(text, voice, cancel, role=role)
 
     def speak(self, text: str, voice: str, cancel: threading.Event, role: str = "") -> bool:
         link = self.link
-        if link is None or not link.device_online(role):
+        if link is None or not link.device_online(role) or role in self._stuck:
             return self._local(text, voice, cancel, role)
         play_id = uuid.uuid4().hex
         base = {"type": "device", "role": role, "play_id": play_id}
@@ -142,10 +163,17 @@ class DeviceSpeaker:
                     self.log(f"[device] {role} 被打断，给设备发 stop play={play_id[:8]}")
                     return False
                 if time.monotonic() > deadline:
+                    with self._mu:
+                        self._late[play_id] = role
                     stop()
-                    self.log(f"[device] {role} 回执超时（音频 {duration:.1f} 秒 + {self.grace:g} 秒），发 stop 并交棒"
+                    # 一个回执都没有：主机看不到它播没播，按没播出来处理（用户在 Mac 前听不到声音），
+                    # 同“failed 且 started=false”改用本机喇叭，不静默交棒；这个角色之后也先用本机，直到设备名单变了。
+                    with self._mu:
+                        if play_id in self._late:   # 发 stop 期间板子已回了执就不标卡住
+                            self._stuck.add(role)
+                    self.log(f"[device] {role} 回执超时（音频 {duration:.1f} 秒 + {self.grace:g} 秒），发 stop，改用本机播放"
                              f" play={play_id[:8]}")
-                    return True
+                    return self._local(text, voice, cancel, role)
             result, started = box[0]
             if result == "no_device":
                 self.log(f"[device] {role} 设备刚下线，改用本机播放")

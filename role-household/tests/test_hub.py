@@ -320,6 +320,46 @@ class HubWeb(HubBase):
         self.assertEqual(await self.page.locator("[data-pwn]").count(), 0)
         self.assertEqual(await self.page.locator(".head").count(), 1)
 
+    async def test_discord_layout_groups_and_member_states(self):
+        """Discord 布局：服务器栏、频道列表、消息流、成员栏都在；同一人连续消息合并；用户和角色消息同一种样式；
+        成员栏里正在说的人排在“正在说”下面并高亮，主机说谁在想就显示她思考中。"""
+        self.hub.set_members([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}, {"id": "c", "name": "C"}])
+        self.hub.create(1, {"text": "话题"})
+        self.hub.create(1, {"text": "补一句"})
+        await self.open()
+        for sel in ("#servers .srv.on", "#channels .ch.on", "#log", "#members", "#f #in", "#me #sound"):
+            self.assertEqual(await self.page.locator(sel).count(), 1, sel)
+        self.assertEqual(await self.page.locator(".msg.cont").count(), 1)   # 第二条用户消息并进第一组
+        # 网页不再猜谁在想：主机没报就都是待机；主机报 A 在想，A 显示思考中
+        self.assertEqual(await self.page.text_content("#head-a .state"), "待机")
+        host = await self.web_client(kind="host"); await self.recv(host)
+        await host.send_json({"type": "thinking", "role": "a"})
+        await self.page.wait_for_function("document.querySelector('#head-a .state').textContent === '思考中…'", timeout=5000)
+        await self.http.post(self.url + "/api/rooms/1/messages", headers=AUTH,
+                             json={"text": "B 也说", "author_kind": "role", "author": "b", "name": "B"})
+        await self.page.wait_for_selector("#head-b.speaking", timeout=5000)
+        self.assertEqual(await self.page.text_content("#members .cat"), "正在说 — 1")
+        self.assertEqual(await self.page.locator("#members .head.speaking").count(), 1)
+        self.assertEqual(await self.page.text_content("#head-b .state"), "正在说")
+        self.assertEqual(await self.page.text_content("#head-c .state"), "待机")
+        # 用户消息和角色消息同一种结构：头像 + 名字 + 时间 + 正文
+        for cls in ("user", "speaking"):
+            self.assertEqual(await self.page.locator(f".msg.{cls}:not(.cont) > .av").count() >= 1, True, cls)
+            self.assertEqual(await self.page.locator(f".msg.{cls}:not(.cont) .hdr .t").count() >= 1, True, cls)
+
+    async def test_interrupt_shows_in_member_list(self):
+        """插话打断：在说的那条变“被打断”，成员栏短暂显示被打断。"""
+        self.hub.set_members([{"id": "a", "name": "A"}])
+        await self.open()
+        async with self.http.post(self.url + "/api/rooms/1/messages", headers=AUTH,
+                                  json={"text": "说到一半", "author_kind": "role", "author": "a", "name": "A"}) as r:
+            mid = (await r.json())["id"]
+        await self.page.wait_for_selector("#head-a.speaking", timeout=5000)
+        await self.http.patch(f"{self.url}/api/messages/{mid}", headers=AUTH, json={"status": "interrupted", "spoken": 2})
+        await self.page.wait_for_selector("#head-a.interrupted", timeout=5000)
+        self.assertEqual(await self.page.text_content(".msg.interrupted .text"), "说到……")   # 后面红字“（被打断）”是 CSS
+        self.assertEqual(await self.page.text_content("#head-a .state"), "被打断")
+
     async def test_relogin_while_reconnect_pending_one_connection(self):
         """L4：断线重连还在等时重新登录，只留一条连接。"""
         await self.open()
@@ -329,6 +369,70 @@ class HubWeb(HubBase):
             document.getElementById('login').dispatchEvent(new Event('submit', {cancelable: true})); }""" % json.dumps(TOKEN))
         await asyncio.sleep(1.5)   # 网页首次重连等 1 秒（hub.html 的 RETRY_MIN），等它过去
         self.assertEqual(len(self.web_conns()), 1)
+
+
+@unittest.skipIf(async_playwright is None, "没装 playwright（uv sync 的 dev 组）")
+class DialWeb(HubBase):
+    """圆屏表盘页 /dial：四个表盘渲染；真数据下正在说的那个亮；龙娘标未加入频道；?role= 单个；?demo=1 自己演示。"""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.pw = await async_playwright().start()
+        self.browser = await self.pw.chromium.launch()
+        self.page = await self.browser.new_page()
+
+    async def asyncTearDown(self):
+        await self.browser.close()
+        await self.pw.stop()
+        await super().asyncTearDown()
+
+    MEMBERS = [{"id": "ju", "name": "橘"}, {"id": "jing", "name": "鲸鱼娘"}, {"id": "mao", "name": "彩虹猫"}]
+
+    async def state(self, rid):
+        return await self.page.get_attribute(f"#dial-{rid}", "data-state")
+
+    async def test_four_dials_render_with_images(self):
+        await self.page.goto(f"{self.url}/dial?demo=1")
+        self.assertEqual(await self.page.locator(".card").count(), 4)
+        for rid in ("ju", "jing", "mao", "long"):
+            await self.page.wait_for_function(
+                f"document.querySelector('#dial-{rid} img.base').naturalWidth === 466", timeout=5000)
+            box = await self.page.locator(f"#dial-{rid} .screen").bounding_box()
+            self.assertEqual((round(box["width"]), round(box["height"])), (466, 466))
+        self.assertIn("未加入频道", await self.page.text_content("#dial-long .sub"))
+
+    async def test_demo_cycles_states(self):
+        await self.page.goto(f"{self.url}/dial?demo=1")
+        seen = set()
+        for _ in range(60):   # 演示一圈约 26 秒；看到思考和回答就够
+            seen.update(await self.page.eval_on_selector_all(".card", "els => els.map(e => e.dataset.state)"))
+            if {"idle", "thinking", "speaking"} <= seen:
+                break
+            await self.page.wait_for_timeout(250)
+        self.assertLessEqual({"idle", "thinking", "speaking"}, seen)
+
+    async def test_live_speaker_lights_up(self):
+        self.hub.set_members(self.MEMBERS)
+        await self.page.goto(f"{self.url}/dial#token={TOKEN}")
+        await self.page.wait_for_function("document.getElementById('meta').textContent === '已连接'", timeout=5000)
+        self.assertEqual(await self.page.locator(".card.live").count(), 3)
+        self.assertEqual(await self.page.get_attribute("#dial-long", "class"), "card demo")   # 龙娘不在频道
+        for rid in ("ju", "jing", "mao"):
+            self.assertEqual(await self.state(rid), "idle")
+        await self.http.post(self.url + "/api/rooms/1/messages", headers=AUTH,
+                             json={"text": "海边好晒", "author_kind": "role", "author": "jing", "name": "鲸鱼娘"})
+        await self.page.wait_for_function("document.querySelector('#dial-jing').dataset.state === 'speaking'", timeout=5000)
+        self.assertEqual(await self.state("ju"), "idle")
+        self.assertEqual(await self.state("mao"), "idle")
+        self.assertEqual(await self.page.text_content("#dial-jing .pill.status .txt"), "正在回答")
+
+    async def test_single_role_page(self):
+        self.hub.set_members(self.MEMBERS)
+        await self.page.goto(f"{self.url}/dial?role=mao#token={TOKEN}")
+        await self.page.wait_for_function("document.getElementById('meta').textContent === '已连接'", timeout=5000)
+        self.assertEqual(await self.page.locator(".card").count(), 1)
+        self.assertEqual(await self.page.locator("#dial-mao.live").count(), 1)
+        self.assertEqual(await self.page.evaluate("rhHooks.deviceRoles()"), ["mao"])
 
 
 class HostClient(HubBase):
@@ -429,7 +533,7 @@ class HostClient(HubBase):
         host, task, m = await self.start_host()
         state = self.dir / "host-state.json"
         seen = []
-        m.user_say = lambda text: seen.append(json.loads(state.read_text())["cursor"])
+        m.user_say = lambda text, only=None: seen.append(json.loads(state.read_text())["cursor"])
         _, um = await self.post("话题一")
         await wait_for(lambda: seen, what="交给 meeting")
         self.assertLess(seen[0], um["id"])

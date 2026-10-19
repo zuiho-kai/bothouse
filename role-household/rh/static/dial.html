@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>圆屏表盘 · 角色小家</title>
+<style>
+  /* 圆屏表盘模拟：照同事做的圆屏页（1:1 硬件 466×466 px、头肩大头特写、待机隐藏多余状态框、边缘柔化无矩形硬边）。
+     /dial 一页并排四个；/dial?role=ju 只显示一个（以后真圆屏设备加载这一页）；?demo=1 或没连上 hub 时自己演示。 */
+  :root { --size:466px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#eef0ee; color:#2b2d31; font:14px/1.5 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; }
+  header { display:flex; align-items:center; gap:14px; padding:14px 24px; background:#fff; border-bottom:1px solid #e3e5e3; position:sticky; top:0; z-index:5; }
+  header h1 { margin:0; font-size:17px; }
+  header a { color:#5865f2; text-decoration:none; font-size:13px; }
+  #meta { color:#80848e; font-size:13px; }
+  #sound { margin-left:auto; border:none; border-radius:999px; padding:7px 16px; background:#2b2d31; color:#fff; font:inherit; font-size:13px; cursor:pointer; }
+  #sound:disabled { background:#e3f3e8; color:#1f8a4c; cursor:default; }
+  #sound[hidden] { display:none; }
+  #dials { display:flex; flex-wrap:wrap; justify-content:center; gap:24px; padding:24px; }
+  .card { background:#fff; border:1px solid #e3e5e3; border-radius:22px; padding:18px 26px 18px; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .spec { font-weight:600; font-size:13px; padding:3px 14px; border-radius:999px; background:#eef1ef; border:1px solid #dde2de; }
+  .sub { color:#6d7178; font-size:13px; }
+  .sub .warn { color:#c0392b; font-weight:600; }
+  .cap { color:#6d7178; font-size:13px; margin-top:6px; }
+
+  /* ---- 圆屏 ---- */
+  .bezel { width:calc(var(--size) + 20px); height:calc(var(--size) + 20px); border-radius:50%; padding:10px; margin:14px 0 8px; position:relative;
+           background:linear-gradient(145deg,#e9eee9,#cfd8d1); box-shadow:0 18px 40px rgba(0,0,0,.18), inset 0 1px 2px rgba(255,255,255,.8); }
+  .bezel::after { content:""; position:absolute; inset:4px; border-radius:50%; pointer-events:none; opacity:0; transition:opacity .25s;
+                  box-shadow:0 0 calc(8px + 46px * var(--lvl, 0)) calc(1px + 9px * var(--lvl, 0)) var(--c); }
+  .screen { width:var(--size); height:var(--size); border-radius:50%; overflow:hidden; position:relative; background:#1b1d21; isolation:isolate; }
+  .face { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform-origin:50% 60%; transition:opacity .6s, filter .3s; }
+  .face.think { opacity:0; }
+  /* 边缘柔化已做进头像图（黑底、圆边渐隐，四张同一模板裁）；这里只在最外一圈压一点暗，免得盖住龙角、猫耳这些靠边的发饰 */
+  .vignette { position:absolute; inset:0; border-radius:50%; pointer-events:none; z-index:2;
+              background:radial-gradient(circle, transparent 90%, rgba(0,0,0,.5) 100%); }
+  /* 玻璃反光：待机时偶尔扫过一道 */
+  .glint { position:absolute; inset:0; z-index:3; pointer-events:none; border-radius:50%;
+           background:linear-gradient(115deg, transparent 38%, rgba(255,255,255,.16) 48%, transparent 58%); background-size:250% 100%; background-position:120% 0; }
+  .ring { position:absolute; inset:0; z-index:3; border-radius:50%; pointer-events:none; opacity:0; transition:opacity .3s;
+          -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+                  mask:radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px)); }
+  .pill { position:absolute; left:50%; transform:translateX(-50%); z-index:4; display:flex; align-items:center; gap:8px; white-space:nowrap;
+          color:#fff; background:rgba(28,30,34,.62); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
+          border:1px solid rgba(255,255,255,.14); border-radius:999px; font-size:17px; letter-spacing:.02em; }
+  .pill.name { top:7%; padding:5px 18px; }
+  .pill.name .dot { width:9px; height:9px; border-radius:50%; background:#8a8f98; }
+  .card.live .pill.name .dot { background:#3ecf8e; box-shadow:0 0 6px #3ecf8e; }
+  .pill.status { bottom:13%; padding:6px 18px; opacity:0; transition:opacity .25s; }
+  .pill.tap { bottom:13%; padding:6px 18px; font-size:15px; cursor:pointer; display:none; }
+  body.single .card.live:not(.sound) .pill.tap { display:flex; }
+  body.single .card.live:not(.sound):not([data-state="idle"]) .pill.tap { display:none; }
+  .bars { display:flex; align-items:center; gap:3px; height:16px; }
+  .bars i { width:3px; height:100%; border-radius:2px; background:#3ecf8e; transform:scaleY(.3); }
+  .dots { display:none; gap:4px; }
+  .dots i { width:5px; height:5px; border-radius:50%; background:#fff; animation:dot 1.1s infinite ease-in-out; }
+  .dots i:nth-child(2) { animation-delay:.15s; } .dots i:nth-child(3) { animation-delay:.3s; }
+  .stop { display:none; width:10px; height:10px; border-radius:2px; background:#f05454; }
+
+  /* ---- 状态 ---- */
+  /* 待机：只留名字胶囊；轻微呼吸 + 偶尔的玻璃反光 */
+  .card[data-state="idle"] .face.base { animation:breathe 4.6s ease-in-out infinite; }
+  .card[data-state="idle"] .glint { animation:glint 9s ease-in-out infinite; }
+  .card[data-state="idle"] .pill.name .dot { animation:pulse 4.6s ease-in-out infinite; }
+  /* 思考中：-thinking 图（暂时和待机同一张，同画风的思考表情还没画），靠呼吸动效和边上转一圈弧光区分 */
+  .card[data-state="thinking"] .face.think { opacity:1; animation:breathe 3.2s ease-in-out infinite; }
+  .card[data-state="thinking"] .ring { opacity:1; background:conic-gradient(from 0deg, transparent 0 62%, var(--c) 92%, #fff 100%); animation:spin 1.6s linear infinite; }
+  .card[data-state="thinking"] .pill.status { opacity:1; }
+  .card[data-state="thinking"] .dots { display:flex; }
+  /* 正在回答：外圈光环和胶囊里的波形跟着音量动，头像随音量轻轻起伏 */
+  .card[data-state="speaking"] .face.base { transform:scale(calc(1 + .02 * var(--lvl, 0))) translateY(calc(-3px * var(--lvl, 0))); }
+  .card[data-state="speaking"] .bezel::after { opacity:1; }
+  .card[data-state="speaking"] .pill.status { opacity:1; }
+  /* 被打断：红点、画面一抖、短暂变灰 */
+  .card[data-state="interrupted"] .face.base { filter:grayscale(.6) brightness(.75); animation:shake .4s ease-in-out 1; }
+  .card[data-state="interrupted"] .pill.status { opacity:1; }
+  .card[data-state="interrupted"] .stop { display:block; }
+  .card[data-state="interrupted"] .bars, .card[data-state="thinking"] .bars { display:none; }
+  .card[data-state="interrupted"] .ring { opacity:1; background:#f05454; }
+  @keyframes breathe { 0%,100% { transform:scale(1) translateY(0); } 50% { transform:scale(1.018) translateY(-3px); } }
+  @keyframes glint { 0%,78% { background-position:120% 0; } 92%,100% { background-position:-30% 0; } }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes dot { 0%,80%,100% { transform:translateY(0); opacity:.5; } 40% { transform:translateY(-5px); opacity:1; } }
+  @keyframes shake { 20% { transform:translateX(-6px); } 40% { transform:translateX(5px); } 60% { transform:translateX(-3px); } 80% { transform:translateX(2px); } }
+
+  /* ---- 单个表盘（真圆屏设备加载这一页）：黑底，只有圆屏 ---- */
+  body.single { background:#000; height:100vh; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+  body.single { --size:min(466px, 100vmin); }
+  body.single header, body.single .spec, body.single .sub, body.single .cap { display:none; }
+  body.single #dials { padding:0; }
+  body.single .card { background:none; border:none; padding:0; }
+  body.single .bezel { width:var(--size); height:var(--size); padding:0; margin:0; background:none; box-shadow:none; }
+</style>
+</head>
+<body>
+<header><h1>圆屏表盘模拟</h1><a href="/">← 回频道</a><span id="meta">连接中…</span>
+  <button id="sound" hidden title="浏览器要点一下才允许出声；开了以后这些角色的声音在这个网页里播">开声音</button></header>
+<div id="dials"></div>
+<script>
+const params = new URLSearchParams(location.search);
+const DEMO_ONLY = params.get("demo") === "1";
+// 四个表盘。龙娘（GPT）不在 roles.toml 里：只做静态 + 演示动画，标“未加入频道”。
+const DIALS = [
+  {id: "ju", name: "橘", model: "Claude", color: "#f0a020"},
+  {id: "jing", name: "鲸鱼娘", model: "DeepSeek", color: "#4aa8ff"},
+  {id: "mao", name: "彩虹猫", model: "Gemini", color: "#c67bff"},
+  {id: "long", name: "龙娘", model: "GPT", color: "#b7c4e6"},
+];
+const ONLY = params.get("role");
+// ?role= 给的不是上面四个（以后新加的角色）：名字和头像等连上 hub 后从成员表里取。
+const SHOWN = !ONLY ? DIALS : DIALS.filter(d => d.id === ONLY).length ? DIALS.filter(d => d.id === ONLY)
+  : [{id: ONLY, name: ONLY, model: "", color: "#9aa0a6", extra: true}];
+let live = false;   // 连上 hub 并收到 ready
+const inChannel = (id) => live && members.some(m => m.kind === "role" && m.id === id);
+window.rhHooks = {
+  render: () => { live = true; applyStates(); },
+  status: (text) => { $("meta").textContent = text; },
+  needToken: (why) => { live = false; $("meta").textContent = "未连接 hub（" + why + "，用 #token= 打开），演示中"; applyStates(); },
+  deviceRoles: () => SHOWN.filter(d => inChannel(d.id)).map(d => d.id),
+  onConnectFail: () => { live = false; applyStates(); },
+};
+</script>
+<script src="/queue-player.js"></script>
+<script src="/rh-client.js"></script>
+<script>
+const STATUS_TEXT = {thinking: "思考中", speaking: "正在回答", interrupted: "被打断"};
+// 演示循环：每个角色轮到时 思考 THINK_MS → 回答 SPEAK_MS，其余时间待机；四个依次轮流。来源：实现者定，看得清每个状态。
+const THINK_MS = 2200, SPEAK_MS = 4200;
+const BAR_N = 5;  // 波形条数。来源：实现者定，照截图胶囊里的小波形。
+
+if (ONLY) document.body.classList.add("single");
+$("dials").innerHTML = SHOWN.map(d => `
+  <div class="card" id="dial-${esc(d.id)}" data-state="idle" style="--c:${d.color}">
+    <div class="spec">1:1 硬件实际尺寸 · 466×466 px</div>
+    <div class="sub"></div>
+    <div class="bezel"><div class="screen">
+      <img class="face base" alt="" src="/avatars/dial/${encodeURIComponent(d.id)}.jpg">
+      <img class="face think" alt="" src="/avatars/dial/${encodeURIComponent(d.id)}-thinking.jpg" onerror="this.remove()">
+      <div class="vignette"></div><div class="glint"></div><div class="ring"></div>
+      <div class="pill name"><i class="dot"></i><span>${esc(d.name)}</span></div>
+      <div class="pill status"><span class="bars">${"<i></i>".repeat(BAR_N)}</span><span class="dots"><i></i><i></i><i></i></span><span class="stop"></span><span class="txt"></span></div>
+      <div class="pill tap">轻点开声音</div>
+    </div></div>
+    <div class="cap">${esc(d.name)}${d.model ? " · " + esc(d.model) : ""}</div>
+  </div>`).join("") || `<p style="color:#fff">没有这个角色：${esc(ONLY)}（可用：${DIALS.map(d => d.id).join(" / ")}）</p>`;
+
+function setState(d, state) {
+  const el = $("dial-" + d.id); if (!el) return;
+  if (el.dataset.state !== state) {
+    el.dataset.state = state;
+    el.querySelector(".pill.status .txt").textContent = STATUS_TEXT[state] || "";
+  }
+}
+function demoState(d, now) {
+  const i = DIALS.indexOf(d), turn = THINK_MS + SPEAK_MS, cycle = turn * DIALS.length;
+  const t = (now % cycle) - i * turn;
+  return t < 0 || t >= turn ? "idle" : t < THINK_MS ? "thinking" : "speaking";
+}
+function applyStates() {
+  const now = Date.now(), states = live ? roleStates() : {};
+  for (const d of SHOWN) {
+    const el = $("dial-" + d.id); if (!el) continue;
+    const real = !DEMO_ONLY && inChannel(d.id);
+    if (d.extra && real) {   // 不在四个预设里的角色：用成员表里的名字和头像
+      const m = members.find(x => x.id === d.id);
+      el.querySelector(".pill.name span").textContent = m.name;
+      if (m.avatar && m.avatar.startsWith("data:image/") && el.querySelector(".face.base").src !== m.avatar) el.querySelector(".face.base").src = m.avatar;
+    }
+    el.classList.toggle("live", real);
+    el.classList.toggle("demo", !real);
+    el.querySelector(".sub").innerHTML = real ? `频道角色 · 真数据${soundOn ? " · 已开声音（本页登记为设备）" : ""}`
+      : d.id === "long" ? `<span class="warn">未加入频道</span> · 演示动画` : "演示模式（没连 hub）";
+    setState(d, real ? (states[d.id] || {state: "idle"}).state : demoState(d, now));
+  }
+}
+
+// ---------- 音量：本页是设备且正在播时用真音频的音量，否则用合成的起伏 ----------
+// 只“旁听”音频（audio.captureStream() 接分析器），不把 <audio> 接进 AudioContext：接进去以后声音只从 AudioContext 出，
+// AudioContext 一被挂起（系统换输出设备、睡眠后等），<audio> 报 playing 但时间不走、没声音、播不完也不回执
+// （2026-10-19 Mac 上三个角色每句回执超时、听不到声音；playwright 复现：挂起 actx 后 currentTime 停在 0、没有回执）。
+// 没有 captureStream（iOS Safari）或 AudioContext 没在跑时用合成的起伏，播放本身不受影响。
+let actx = null;
+function attachAnalysers() {
+  if (actx) return;
+  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  Promise.resolve(actx.resume()).catch(() => {});
+  for (const id of rhHooks.deviceRoles()) {
+    const p = deviceFor(id);
+    if (p.analyser || !p.audio.captureStream) continue;
+    try {
+      p.stream = p.audio.captureStream();
+      p.analyser = actx.createAnalyser(); p.analyser.fftSize = 512; p.buf = new Uint8Array(p.analyser.fftSize);
+    } catch (e) { p.analyser = null; /* 接不上就用合成的起伏 */ }
+  }
+}
+function analyserOf(p) {   // 换了音频块（src 变了）captureStream 的音轨会换新的，跟着接上
+  if (!p.analyser || !actx || actx.state !== "running") return null;
+  const tr = p.stream.getAudioTracks()[0];
+  if (!tr) return null;
+  if (p.track !== tr) {
+    if (p.src) p.src.disconnect();
+    p.src = actx.createMediaStreamSource(new MediaStream([tr])); p.src.connect(p.analyser); p.track = tr;
+  }
+  return p.analyser;
+}
+function level(d, t) {
+  const p = players.get(d.id);
+  const an = p && p.playing ? analyserOf(p) : null;
+  if (an) {
+    an.getByteTimeDomainData(p.buf);
+    let s = 0; for (const v of p.buf) s += (v - 128) * (v - 128);
+    return Math.min(1, Math.sqrt(s / p.buf.length) / 40);
+  }
+  const k = d.id.charCodeAt(0);
+  return .35 + .3 * Math.abs(Math.sin(t / 110 + k)) * (.6 + .4 * Math.sin(t / 370 + k * 2));
+}
+function frame(t) {
+  for (const d of SHOWN) {
+    const el = $("dial-" + d.id); if (!el) continue;
+    if (el.dataset.state !== "speaking") { if (el.style.getPropertyValue("--lvl")) el.style.removeProperty("--lvl"); continue; }
+    const lv = level(d, t);
+    el.style.setProperty("--lvl", lv.toFixed(3));
+    el.querySelectorAll(".bars i").forEach((b, i) => {
+      b.style.transform = `scaleY(${Math.max(.2, Math.min(1, lv * (.6 + .5 * Math.abs(Math.sin(t / 90 + i * 1.7)))))})`;
+    });
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+// 演示状态按时间切换；真数据里的“思考中”“被打断”也按时间过期。来源：实现者定（每 200 毫秒看一次）。
+setInterval(applyStates, 200);
+
+function turnOnSound() {
+  if (!live || soundOn) return;
+  enableSound(); attachAnalysers();
+  $("sound").disabled = true; $("sound").textContent = "声音已开（本页是设备）";
+  document.querySelectorAll(".card.live").forEach(c => c.classList.add("sound"));
+  applyStates();
+}
+$("sound").onclick = turnOnSound;
+document.querySelectorAll(".pill.tap").forEach(p => p.onclick = turnOnSound);
+const origRender = rhHooks.render;
+rhHooks.render = () => { origRender(); $("sound").hidden = !rhHooks.deviceRoles().length; };
+
+applyStates();
+if (DEMO_ONLY) { $("meta").textContent = "演示模式（?demo=1）"; }
+else connect();
+</script>
+</body>
+</html>

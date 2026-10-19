@@ -1,0 +1,46 @@
+From da445371babe9b08f9ec8b120f1e919df62a53b3 Mon Sep 17 00:00:00 2001
+From: zuiho-kai <zuiho-kai@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 15:44:25 +0900
+Subject: [PATCH 4/7] rh: default OTA URL to Mac LAN IP 192.168.31.111 (mDNS on
+ ESP32 unverified)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ README.md              | 2 +-
+ main/Kconfig.projbuild | 8 ++++++--
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/README.md b/README.md
+index 8e88dbc..4fbda4d 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ > **Role Household fork (branch `rh`, based on v2.5.2)**
+ >
+-> - Default OTA URL: `http://zuihomac-studio.local:8791/xiaozhi/ota/` (Kconfig `CONFIG_OTA_URL`, menu "Xiaozhi Assistant").
++> - Default OTA URL: `http://192.168.31.111:8791/xiaozhi/ota/` (Kconfig `CONFIG_OTA_URL`, menu "Xiaozhi Assistant"); the Mac's en0 LAN IP. If that IP changes, set NVS `ota_url` or rebuild.
+ >   Port 8791 is shared with the host-side service in `~/code/role-household`. The device gets the websocket/mqtt address from that OTA JSON.
+ >   A runtime override still works: NVS key `ota_url` (Wi-Fi config page at http://192.168.4.1, "advanced").
+ > - `CONFIG_RH_SILENT_LOCAL_SOUNDS=y` (default): no built-in boot / Wi-Fi config / activation / alert sounds. Only host-pushed audio plays.
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 46e5535..8a8e798 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -5,8 +5,12 @@ config OTA_URL
+     # rh: point to the role-household host on the Mac instead of xiaozhi.me cloud.
+     # Source: user 2026-10-19 "三个硬件都有了，我预计你可以重新写入，不关注原来的"; port 8791 is the
+     # placeholder chosen by the orchestrator, the host-side service uses the same port.
+-    # Upstream default was https://api.tenclass.net/xiaozhi/ota/ . NVS key "ota_url" still overrides at runtime.
+-    default "http://zuihomac-studio.local:8791/xiaozhi/ota/"
++    # Host = Mac en0 LAN IP 192.168.31.111 (~/wiki/hopover/hopover/hopover.md, since 2026-10-13;
++    # `ipconfig getifaddr en0` 2026-10-19). A raw IP is used because .local (mDNS) resolution by the
++    # ESP32 HTTP client is unverified. If the Mac IP changes: set NVS key "ota_url" (Wi-Fi config
++    # page http://192.168.4.1, advanced) or rebuild with a new default.
++    # Upstream default was https://api.tenclass.net/xiaozhi/ota/ .
++    default "http://192.168.31.111:8791/xiaozhi/ota/"
+     help
+         The application will access this URL to check for new firmwares and server address.
+ 
+-- 
+2.54.0 (Apple Git-157)
+

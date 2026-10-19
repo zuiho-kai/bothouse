@@ -1,0 +1,146 @@
+From 3e1c3990688129440063985814c51443cd1437a6 Mon Sep 17 00:00:00 2001
+From: zuiho-kai <zuiho-kai@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 15:41:04 +0900
+Subject: [PATCH 2/7] rh: keep audio channel open for host push (open after
+ OTA, reopen on close/timeout, flush on tts stop)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/Kconfig.projbuild | 19 +++++++++++++++
+ main/application.cc    | 52 ++++++++++++++++++++++++++++++++++++++++++
+ main/application.h     |  5 ++++
+ 3 files changed, 76 insertions(+)
+
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index c0ffe72..46e5535 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -32,6 +32,25 @@ config RH_DISABLE_MIC_UPLINK
+         so the host can push tts/llm-emotion.
+         Source: review ~/.claude/reviews/rh-fw-xiaozhi.md item 1.
+ 
++config RH_HOST_PUSH
++    bool "Keep the audio channel open so the host can push speech any time"
++    default y
++    help
++        rh: (1) open the audio channel right after activation/OTA, (2) reopen it
++        RH_REOPEN_DELAY_SEC after it closes, fails, or times out, (3) on tts stop
++        drop whatever is still in the decode/playback queues so a host-side pause
++        is silent at once. Idle + tts start -> Speaking is upstream behaviour.
++        Source: host side ~/code/role-household c3bba51 rh/xiaozhi.py, requested
++        by the orchestrator 2026-10-19.
++
++config RH_REOPEN_DELAY_SEC
++    int "Seconds to wait before reopening the audio channel"
++    default 5
++    range 1 600
++    depends on RH_HOST_PUSH
++    help
++        Source: orchestrator 2026-10-19 "隔几秒再 OpenAudioChannel()"; 5 is my pick of "a few".
++
+ endmenu
+ 
+ choice
+diff --git a/main/application.cc b/main/application.cc
+index 1207744..3074e1a 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -287,6 +287,18 @@ void Application::Run() {
+             auto display = Board::GetInstance().GetDisplay();
+             display->UpdateStatusBar();
+ 
++#if CONFIG_RH_HOST_PUSH
++            // rh: idle with no usable channel (closed, failed, or 120 s protocol timeout) ->
++            // make sure a reopen is scheduled; run it when due. Runs in the main task.
++            if (protocol_ && GetDeviceState() == kDeviceStateIdle &&
++                !protocol_->IsAudioChannelOpened() && rh_reopen_at_us_ < 0) {
++                RhScheduleOpenChannel(CONFIG_RH_REOPEN_DELAY_SEC);
++            }
++            if (rh_reopen_at_us_ >= 0 && esp_timer_get_time() >= rh_reopen_at_us_) {
++                RhTryOpenChannel();
++            }
++#endif
++
+             // Print debug info every 10 seconds
+             if (clock_ticks_ % 10 == 0) {
+                 SystemInfo::PrintHeapStats();
+@@ -371,6 +383,35 @@ void Application::HandleActivationDoneEvent() {
+             audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
+         });
+     }
++
++#if CONFIG_RH_HOST_PUSH
++    // rh (a): network + OTA done -> open the audio channel now, without waiting for a
++    // button press, so the host can push tts at any time. Source: host side c3bba51
++    // rh/xiaozhi.py, orchestrator 2026-10-19.
++    RhScheduleOpenChannel(0);
++#endif
++}
++
++void Application::RhScheduleOpenChannel(int delay_sec) {
++    rh_reopen_at_us_ = esp_timer_get_time() + (int64_t)delay_sec * 1000000;
++}
++
++void Application::RhTryOpenChannel() {
++    // rh: main task only. Opens the channel when idle; otherwise (or on failure) retries later.
++    rh_reopen_at_us_ = -1;
++    if (!protocol_ || protocol_->IsAudioChannelOpened()) {
++        return;
++    }
++    if (GetDeviceState() != kDeviceStateIdle) {
++        RhScheduleOpenChannel(CONFIG_RH_REOPEN_DELAY_SEC);
++        return;
++    }
++    ESP_LOGI(TAG, "rh: opening audio channel for host push");
++    if (protocol_->OpenAudioChannel()) {
++        DismissAlert();  // clear a "server not connected" error left by an earlier failed try
++    } else {
++        RhScheduleOpenChannel(CONFIG_RH_REOPEN_DELAY_SEC);
++    }
+ }
+ 
+ void Application::ActivationTask() {
+@@ -584,6 +625,11 @@ void Application::InitializeProtocol() {
+             auto display = Board::GetInstance().GetDisplay();
+             display->SetChatMessage("system", "");
+             SetDeviceState(kDeviceStateIdle);
++#if CONFIG_RH_HOST_PUSH
++            // rh (b): channel dropped -> reopen after a few seconds (disconnect auto-reconnect).
++            // Source: orchestrator 2026-10-19, host side c3bba51 rh/xiaozhi.py.
++            RhScheduleOpenChannel(CONFIG_RH_REOPEN_DELAY_SEC);
++#endif
+         });
+     });
+ 
+@@ -640,6 +686,12 @@ void Application::InitializeProtocol() {
+             } else if (strcmp(state->valuestring, "stop") == 0) {
+                 Schedule([this]() {
+                     if (GetDeviceState() == kDeviceStateSpeaking) {
++#if CONFIG_RH_HOST_PUSH
++                        // rh (c): host sends tts stop both after it has paced out the last frame and
++                        // to pause at once; drop the ~0.3 s still buffered so a pause is silent now.
++                        // Source: orchestrator 2026-10-19 / host side c3bba51 rh/xiaozhi.py _stop().
++                        audio_service_.ResetDecoder();
++#endif
+                         if (listening_mode_ == kListeningModeManualStop) {
+                             SetDeviceState(kDeviceStateIdle);
+                         } else {
+diff --git a/main/application.h b/main/application.h
+index f2b9a00..5975032 100644
+--- a/main/application.h
++++ b/main/application.h
+@@ -152,6 +152,11 @@ private:
+     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
+     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
+     int clock_ticks_ = 0;
++    // rh: when to (re)open the audio channel, esp_timer_get_time() microseconds; -1 = not scheduled.
++    // Used only with CONFIG_RH_HOST_PUSH (see RhTryOpenChannel in application.cc).
++    int64_t rh_reopen_at_us_ = -1;
++    void RhScheduleOpenChannel(int delay_sec);
++    void RhTryOpenChannel();
+     TaskHandle_t activation_task_handle_ = nullptr;
+ 
+ 
+-- 
+2.54.0 (Apple Git-157)
+

@@ -49,7 +49,7 @@ uv run python -m rh.host         # 本机角色主机，读 .env 里的 RH_HUB_U
 
 `rh.host` 默认开语音：从系统默认输入设备（现在是 USB 耳麦）常开收音，不用按键；按停顿切句，送本机 ai-gateway
 （`http://127.0.0.1:8787/v1/audio/transcriptions`，key 读 `~/ai-gateway/state/config.json`）转文字，作为用户消息发进云端频道，
-和网页发的一样会打断正在说的角色。角色发言用 `roles.toml` 的 `voice`（macOS `say` 音色）合成，播到哪见下一节。
+和网页发的一样会打断正在说的角色。角色发言默认用本机 Qwen3-TTS 合成（`roles.toml` 的 `[voice]` 段和每个角色的 `qwen_speaker`/`qwen_instruct`；模型在一个常驻子进程里只加载一次），某句出错就改用该角色的 `voice`（macOS `say` 音色）；把 `[voice] backend` 改成 `"say"` 并重启主机即切回 say。播到哪见下一节。
 
 ```sh
 uv run python -m rh.host                       # 语音开
@@ -63,7 +63,7 @@ FFMPEG=~/.local/bin/ffmpeg uv run python -m rh.host --feed-audio topic.aiff   # 
 网页右上角点“开声音”（浏览器要求点一下才允许出声），这个网页就成了三个角色的设备。
 
 ```
- 主机 rh.host：轮到橘 → say -o 合成（一句一块）──start/audio──▶ hub ──▶ 网页里橘的头播放
+ 主机 rh.host：轮到橘 → Qwen3-TTS 合成（一句一块）──start/audio──▶ hub ──▶ 网页里橘的头播放
                 ◀──────────────── 回执 done / stopped / failed ──────── hub ◀──┘
                 收到回执才把发言锁交给下一个；用户插话 = 给设备发 stop
 ```
@@ -76,6 +76,79 @@ FFMPEG=~/.local/bin/ffmpeg uv run python -m rh.host --feed-audio topic.aiff   # 
 
 ASR、TTS 各是 `rh/voice.py` 里的一个小接口（`transcribe(wav)`、`speak(text, voice, cancel)`），换实现时频道和发言锁不动。
 切句阈值等参数在 `rh/voice.py` 顶部；收音日志行以 `[voice]` 开头（听到什么、丢掉了什么）。
+
+## 小智板子（ESP32 圆屏当角色的躯体）
+
+三块 Spotpear ESP32-S3 圆屏板刷改过的小智固件（固件在 `~/code/role-household-fw`，默认 OTA 地址
+`http://zuihomac-studio.local:8791/xiaozhi/ota/`）。主机 `rh.host` 里跑一个小智协议服务（`rh/xiaozhi.py`），板子就是“该角色的设备”，
+和网页虚拟头走同一套规则：轮到她、而且是 Mac 那一路本来就会出声的内容才推（被叫到名字后的回应），播完才交棒，板子没连上就用 Mac 喇叭。
+
+```
+ 板子 ──POST /xiaozhi/ota/──▶ rh.host:8791 回 ws 地址（用板子连进来的那个本机 IP）
+ 板子 ──WS /xiaozhi/v1/ hello──▶ 回 hello，之后每 30 秒一条保活，别的什么都不推
+ 轮到橘 → DeviceSpeaker → 橘的板子：tts start、llm 表情、字幕、Opus 16k/60ms 按节奏推、tts stop → 回执 done → 交棒
+```
+
+- 起服务：`roles.toml` 里有 `[xiaozhi]` 段（`port = 8791`）且开着语音，`uv run python -m rh.host` 就会一起起来；删掉这一段就不起。
+  日志里 `[xiaozhi]` 开头的行是板子的事（OTA、连上、断开、开始播、播完、停下）。
+- 绑定板子：先让板子连一次，日志里会有「未绑定的板子 90:70:69:f5:89:e4 连上了」。在 `roles.toml` 加
+  ```toml
+  [[xiaozhi.boards]]
+  device = "90:70:69:f5:89:e4"   # 板子的 Device-Id（MAC）
+  role = "ju"                     # 角色 id
+  ```
+  重启主机生效。一块板子一个角色；同一角色绑两块板子时只用先连上的那块（同一块板子重连会顶掉它自己的旧连接）。没绑定的板子能连上，但什么都不播。
+- 不出声的规则：板子连上、重连、开机时主机不推任何问候或提示音；「暂停」让所有板子一起停；闭麦只管不听用户，不改板子播放；
+  板子不收音，板子上传的音频直接丢掉，listen 等消息只记日志。
+- 可选 token：环境变量（或 `.env`）`RH_XIAOZHI_TOKEN`。设了就随 OTA 发给板子，WebSocket 不带对的拒绝；不设就不查（只在家里局域网用）。
+- 编码用 ffmpeg 的 libopus（`FFMPEG` 环境变量 > PATH > `~/.local/bin/ffmpeg`）。
+- 不接板子先试：`uv run python tools/fake_xiaozhi.py http://127.0.0.1:8791/xiaozhi/ota/ --device 90:70:69:f5:89:e4`
+  假装一块板子，打印主机推来的每条消息和每帧音频的字节数（不出声）。
+- 表盘（`rh/dial.py`，固件 `CONFIG_RH_DIAL`）：板子屏幕上画的是和网页表盘页（`/dial`）同一套圆形表盘和动画，
+  不是小智默认的表情、字幕、状态栏。板子连上时主机发一条 `{"type":"rh_dial"}` 告诉它是哪个角色（名字、颜色、头像地址），
+  之后谁在想、谁在说、被打断也发给该角色的板子（规则同网页）；固件里不写死角色，换绑定只改 `roles.toml`。
+  头像用 `avatars/dial/<角色>.jpg`，板子按屏幕边长取 `/xiaozhi/dial/<角色>.rgb565?size=240`（主机用 ffmpeg 缩成 RGB565）。
+  日志里 `[dial]` 开头的行是发给板子的表盘状态。
+- 固件要配合的一点：原版小智固件 WebSocket 只在要说话时才连（`main/protocols/websocket_protocol.cc` 的 `Start()` 不连），
+  主机推不进去。固件要在联网、OTA 完成后主动 `OpenAudioChannel()`，`OnAudioChannelClosed` 后隔几秒重连；
+  还要在空闲态收到 `tts start` 时照常进 Speaking（原版就是这样）。
+
+## 形态 B：Discord 里 bot 的回应在板子上念
+
+板子也可以当现有平台（我们的 Discord）里 bot 的躯体（`rh/discord_body.py`）。gate（`~/im-bridge/gate/rhbody.py`）
+复用它已收到的消息：主人 @ 某个 bot、开头点名她、或回复她的消息之后，她的下一条回复就是“回应主人的话”，
+gate 把正文 POST 到主机 `http://127.0.0.1:8791/rh/discord/say`（只收本机请求）。bot 之间互相说话不转。
+
+```
+ 主人在 Discord 叫鲸鱼娘 ─▶ gate 记下「在等鲸鱼娘回应」
+ 下一条消息来时 gate 看到她的上一条回复 ─▶ POST {bot_id, text} ─▶ 主机按 [[discord.bots]] 找角色 ─▶ 她的音色、她的板子
+```
+
+- 映射：`roles.toml` 的 `[[discord.bots]]`（`bot_id`、`name`、`role`），别人 team 里的 bot 同样加一条。
+- 真板播放开关 `[discord] play`，默认 `false`：只记日志（`[discord]` 开头的行），不出声。用户在场时改成 `true` 并重启主机。
+- 只推板子：板子不在线就不念，不走 Mac 喇叭和网页。和小家讨论共用发言锁，不叠音；「暂停」「闭麦」、用户插话都会停下并作废排队的。
+- 限制：gate 只在频道里来下一条消息时才看得到 bot 的回复，所以要等主人下一次发话才念；回复长于 600 字时只念结尾那段
+  （cc-connect 只给 gate 结尾 600 字）。gate 的转发记录在 `~/im-bridge/logs/gate-rhbody.jsonl`。
+
+## 本地唤醒模型
+
+除了“整句转文字再按拼音比名字”，主机还用一个本地关键词检测小模型（sherpa-onnx KWS，`rh/kws.py`）一直听系统回声消除之后的声音，
+找各角色的语音唤醒词（`roles.toml` 里有 `wake` 用 `wake`，否则 name+aliases）、产品名、暂停、闭麦、开麦。词表从 `roles.toml` 生成。
+
+- 两边任一认出即生效。转文字漏了名字、唤醒模型听到了，就只让唤醒模型听到的那位回答。
+- 唤醒模型听到「暂停」「闭麦」当场停住正在说的，不等转文字。闭麦期间切出的句子不转文字、不存音频、不进频道，只有唤醒模型听「开麦」。
+- 日志：`[kws]` 行是唤醒模型听到的词；`[wake]` 行末尾写「认出：kws / asr / 都有」。每句切出的音频存在 `logs/utter-<启动时间>/<时分秒-毫秒>.wav`（闭麦期间不存），`[voice]` 行里写了文件名。
+
+模型不进 git。下载到 `roles.toml` `[wake] kws_model` 指的目录（默认和 Qwen3-TTS 模型同放 `~/ai-voice/models/`）：
+
+```sh
+mkdir -p ~/ai-voice/models && cd ~/ai-voice/models
+curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2
+tar xjf sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2 && rm sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2
+```
+
+配了 `kws_model` 但模型缺文件时主机直接报错退出；删掉 `kws_model` 那一行 = 只靠转文字。阈值在 `rh/kws.py` 顶部；
+某个词在真人声音上叫不醒时，只给这个词填 `rh/kws.py` 的 `WORD_TUNE`（`{"鲸鱼娘": (score, threshold)}`），别的词不动。
 
 ## 测试与验收工具
 

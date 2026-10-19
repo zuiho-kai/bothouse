@@ -149,6 +149,22 @@ class SpeakerUnit(unittest.TestCase):
         self.assertLess(dt, 1.0)
         self.assertEqual(link.events(), ["start", "audio", "stop"])   # 超时也给设备发 stop
 
+    def test_receipt_timeout_falls_back_to_local_and_skips_stuck_device(self):
+        """设备收了音频却不播也不回执（2026-10-19 Mac 上没声音）：改用本机喇叭；之后直接本机，设备名单变了再试设备。"""
+        link, local = FakeLink(), FakeLocal()
+        sp = speaker_with(link, local, grace=0.1, synth=FakeSynth(0.05))
+        self.assertTrue(sp.speak("你好。", "v", threading.Event(), role="a"))
+        self.assertEqual(local.played, ["a"])
+        n = len(link.frames)
+        t0 = time.monotonic()
+        self.assertTrue(sp.speak("再说一句。", "v", threading.Event(), role="a"))
+        self.assertLess(time.monotonic() - t0, 0.1)   # 不再空等超时
+        self.assertEqual((len(link.frames), local.played), (n, ["a", "a"]))
+        sp.devices_changed()
+        link.on_frames = receipt_later(sp, "done", 0.0)
+        self.assertTrue(sp.speak("第三句。", "v", threading.Event(), role="a"))
+        self.assertEqual(local.played, ["a", "a"])   # 设备好了就回到设备
+
     def test_device_stopped_or_lost_still_hands_off(self):
         for result in ("stopped", "failed", "lost"):
             link = FakeLink()
@@ -272,6 +288,8 @@ class DeviceThroughHub(DeviceBase):
         self.assertEqual([e for _, e, r, _ in got if r == "a"], ["start", "audio", "stop"])
         self.assertEqual([r["status"] for r in self.rows(author_kind="role")], ["done", "done"])
         self.assertLess(time.monotonic() - t0, 3.0)
+        # a 超时后改本机；b 同样超时改本机（各自第一次才等）
+        self.assertEqual(self.local.played, ["a", "b"])
         self.assertEqual(sum("回执超时" in x for x in self.log), 2)
 
     async def test_receipt_from_other_page_ignored(self):
@@ -314,6 +332,45 @@ class WebPageAsDevice(DeviceBase):
         order = [x["role"] for x in log if x["ev"] == "receipt:done"]
         self.assertEqual(order, ["a", "b", "c"])
         self.assertEqual(sum("回执 done" in x for x in self.log), 3)
+
+    async def test_dial_page_is_device_for_its_role(self):
+        """表盘页 /dial?role=b 轻点开声音后只当 b 的设备：b 的话在表盘里播、回执，表盘这时亮“正在回答”。"""
+        await self.start_host(synth_secs=0.3)
+        async with async_playwright() as p:
+            b = await p.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
+            page = await b.new_page()
+            await page.goto(f"{self.url}/dial?role=b#token={TOKEN}")
+            await page.wait_for_function("document.getElementById('meta').textContent === '已连接'", timeout=5000)
+            await page.click("#dial-b .pill.tap")
+            await wait_for(lambda: self.host.device_roles == {"b"}, what="表盘登记成 b 的设备")
+            await self.post("话题")
+            await page.wait_for_function("document.querySelector('#dial-b').dataset.state === 'speaking'", timeout=10000)
+            await wait_for(lambda: any(r["author_kind"] == "system" for r in self.rows()), timeout=15,
+                           what="讨论结束")
+            log = await page.evaluate("window.rhAudioLog")
+            await b.close()
+        self.assertEqual([x["ev"] for x in log if x["ev"].startswith("receipt:")], ["receipt:done"])
+        self.assertEqual({x["role"] for x in log}, {"b"})
+
+    async def test_dial_plays_even_if_audiocontext_suspended(self):
+        """表盘页的 AudioContext 被挂起时照样出声、回执 done（2026-10-19：以前 <audio> 接进 AudioContext，
+        挂起后时间不走、没声音、不回执，三个角色每句回执超时）。"""
+        await self.start_host(max_turns=1, synth_secs=0.3)
+        async with async_playwright() as p:
+            b = await p.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
+            page = await b.new_page()
+            await page.goto(f"{self.url}/dial?role=a#token={TOKEN}")
+            await page.wait_for_function("document.getElementById('meta').textContent === '已连接'", timeout=5000)
+            await page.click("#dial-a .pill.tap")
+            await wait_for(lambda: self.host.device_roles == {"a"}, what="表盘登记成 a 的设备")
+            await page.wait_for_function("actx && actx.state === 'running'", timeout=5000)
+            await page.evaluate("actx.suspend()")
+            await self.post("话题")
+            await wait_for(lambda: any(r["author_kind"] == "system" for r in self.rows()), timeout=15, what="讨论结束")
+            log = await page.evaluate("window.rhAudioLog")
+            await b.close()
+        self.assertEqual([x["ev"] for x in log if x["ev"].startswith("receipt:")], ["receipt:done"])
+        self.assertEqual(self.local.played, [])
 
     async def test_3_audio_unlocked_on_click_and_6_log_capped(self):
         """点“开声音”时就给每个角色建好 Audio 并解锁（iOS 要求在点击里先播一次）；播放记录有上限。"""

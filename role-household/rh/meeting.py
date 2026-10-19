@@ -3,6 +3,8 @@
 - 同一时刻最多一个角色在说（SpeakingLock）。
 - 用户发言立即打断在说的角色、释放锁、作废旧话题里还在生成的回复，开新一轮。
 - 每个话题最多 max_turns_per_topic 轮角色发言，到了就停。
+- 用户叫了某几个角色（only）：只有她们按顺序各回一句，别人不出声。
+- 角色轮到时可以不说话（大脑只输出 PASS）：不发消息、不出声；除了最后说话的人，其余都不说话了就算话题结束。
 - 有 TTS 且角色配了音色时，“在说”时长 = 真实播放时长（TTS.speak 阻塞到播完）；否则按字数估算。
 """
 from __future__ import annotations
@@ -16,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from .lock import SpeakingLock
-from .brain import Cancelled
+from .brain import PASS, Cancelled
 from .config import Role
 from .voice import TTS
 
@@ -43,6 +45,13 @@ USER, SYSTEM = "user", "system"
 # 用户单条消息最多多少字，超出截断。来源：橘定，防止一条超长消息撑爆每个角色的 prompt、反复耗额度。
 MAX_TEXT_CHARS = 2000
 _CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_PUNCT = re.compile(r"[\s\W_]+", re.UNICODE)
+
+
+def is_pass(text: str) -> bool:
+    """角色这一轮不说话：输出里有 PASS 标记（或只写了“跳过”），或者什么都没写。"""
+    bare = _PUNCT.sub("", text)
+    return PASS in text or bare in ("", "跳过")
 
 
 def clean(text: str) -> str:
@@ -50,6 +59,13 @@ def clean(text: str) -> str:
     # 落单代理字符（如 JSON 里的 "\ud800"）编码不了 UTF-8，会让日志、/api/state、stdin 全崩，替换成 "?"。
     text = text.encode("utf-8", "replace").decode("utf-8")
     return _CTRL.sub("", text).strip()[:MAX_TEXT_CHARS]
+
+
+def strip_own_prefix(text: str, name: str) -> str:
+    """兜底：去掉开头的“本角色名字：”“名字发言：”“名字说：”，不然频道里显示、TTS 也会念出来。
+    只认本角色自己的名字，别人的名字开头（如“橘说得对”）是正常的话，不动。"""
+    m = re.match(rf"\s*{re.escape(name)}\s*(?:发言|说)?\s*[：:]\s*", text)
+    return text[m.end():] if m and text[m.end():] else text
 
 
 class Meeting:
@@ -81,6 +97,8 @@ class Meeting:
         # 角色/系统消息出现或状态变化时回调 (事件, 消息副本)：start / end / system。
         # 在 self._mu 里调用，回调不能阻塞（rh.host 只把它丢进队列）。
         self.on_event = on_event
+        # 谁在想（生成中）：角色 id，没人在想为 None。不能阻塞（rh.host 推给网页显示“思考中”）。
+        self.on_think: Callable[[str | None], None] | None = None
 
     # ---------- 日志 ----------
     def _log(self, **ev) -> None:
@@ -94,18 +112,19 @@ class Meeting:
             self.on_event(event, replace(msg))
 
     # ---------- 对外 ----------
-    def user_say(self, text: str) -> None:
-        self.user_say_many([text])
+    def user_say(self, text: str, only: list[str] | None = None) -> None:
+        self.user_say_many([text], only)
 
-    def user_say_many(self, texts: list[str]) -> None:
-        """几条用户消息一起进频道，只开一轮讨论（角色主机断线重连后补话题用）。"""
+    def user_say_many(self, texts: list[str], only: list[str] | None = None) -> None:
+        """几条用户消息一起进频道，只开一轮讨论（角色主机断线重连后补话题用）。
+        only：用户叫了名字的角色 id，只有她们回；None = 大家轮流。"""
         texts = [t for t in (clean(x) for x in texts) if t]
         if not texts:
             return
         with self._say_mu:
-            self._user_say(texts)
+            self._user_say(texts, only)
 
-    def _user_say(self, texts: list[str]) -> None:
+    def _user_say(self, texts: list[str], only: list[str] | None = None) -> None:
         with self._mu:
             self._interrupt_locked()
             self._epoch += 1
@@ -121,7 +140,7 @@ class Meeting:
             for b in self.brains.values():
                 b.cancel()
             old.join(0.05)
-        t = threading.Thread(target=self._run_topic, args=(epoch,), daemon=True)
+        t = threading.Thread(target=self._run_topic, args=(epoch, only), daemon=True)
         self._thread = t
         t.start()
 
@@ -132,6 +151,8 @@ class Meeting:
             self._epoch += 1
         for b in self.brains.values():
             b.cancel()
+        if self.on_think:
+            self.on_think(None)
 
     def speaking(self) -> Message | None:
         with self._mu:
@@ -139,6 +160,12 @@ class Meeting:
                 if m.status == "speaking":
                     return m
         return None
+
+    def spoken_between(self, t0: float, t1: float) -> list[str]:
+        """t0-t1（time.time()）这段时间里角色在说的话（含正在说的）：收音线程拿它判断麦克风收到的是不是角色的回声。"""
+        with self._mu:
+            return [m.text for m in self.messages if m.author not in (USER, SYSTEM)
+                    and m.start <= t1 and (m.end is None or m.end >= t0)]
 
     def snapshot(self) -> dict:
         with self._mu:
@@ -189,21 +216,40 @@ class Meeting:
                     lines.append(f"（你上一句只说出了「{m.text[:m.spoken]}」就被用户打断了，后面的大家没听到。）")
                 continue
             if m.status == "interrupted":
-                lines.append(f"{m.name}：{m.text[:m.spoken]}……（话没说完就被用户打断了）")
+                lines.append(f"{m.name}说「{m.text[:m.spoken]}……」（话没说完就被用户打断了）")
             else:
-                lines.append(f"{m.name}：{m.text}")
+                # 写成“谁说「…」”而不是“谁：…”：后者是剧本行格式，模型会照着在自己的话前面加“名字：”。
+                lines.append(f"{m.name}说「{m.text}」")
         return "[频道新消息]\n" + ("\n".join(lines) if lines else "（没有新消息）"), upto
 
-    def _run_topic(self, epoch: int) -> None:
-        n = len(self.roles)
-        for turn in range(self.max_turns):
-            role = self.roles[turn % n]
+    def _think(self, epoch: int, role_id: str | None) -> None:
+        with self._mu:
+            if epoch != self._epoch:
+                return
+        if self.on_think:
+            self.on_think(role_id)
+
+    def _run_topic(self, epoch: int, only: list[str] | None = None) -> None:
+        try:
+            self._run_turns(epoch, only)
+        finally:
+            self._think(epoch, None)
+
+    def _run_turns(self, epoch: int, only: list[str] | None) -> None:
+        roles = self.roles if only is None else [r for r in self.roles if r.id in only] or self.roles
+        n = len(roles)
+        # 叫了名字：她们各回一句就完；没叫（产品名、网页打字）：轮流到上限。
+        turns = self.max_turns if only is None else n
+        passes, spoke = 0, False
+        for turn in range(turns):
+            role = roles[turn % n]
             with self._mu:
                 if epoch != self._epoch:
                     return
+            self._think(epoch, role.id)
             transcript, upto = self._transcript_for(role.id)
             try:
-                text = clean(self.brains[role.id].reply(transcript))
+                text = strip_own_prefix(clean(self.brains[role.id].reply(transcript)), role.name)
             except Cancelled:
                 return
             except Exception as e:  # 生成失败：停掉这个话题，告诉用户
@@ -214,6 +260,19 @@ class Meeting:
             with self._mu:
                 self._seen[role.id] = upto
                 self._unsaid.pop(role.id, None)
+                if epoch == self._epoch and is_pass(text):
+                    self._log(event="pass", role=role.id, t=time.time(), text=text)
+            if is_pass(text):
+                passes += 1
+                # 最后说话的那个人之后没有新消息，不用再问她；还没人说过就要全员都不说。
+                if passes >= n - (1 if spoke else 0):
+                    with self._mu:
+                        if epoch == self._epoch:
+                            self._log(event="topic_end", t=time.time(), reason="all_pass")
+                    return
+                continue
+            passes, spoke = 0, True
+            self._think(epoch, None)
             got = self._acquire(epoch, role, text, turn + 1)
             if got is None:
                 # 话题已换：这句已进了角色的 claude 会话，但没说出去，下次告诉它。
@@ -232,7 +291,8 @@ class Meeting:
                     self._emit("end", msg)
                 else:
                     return
-        self._system(epoch, f"本话题已到上限 {self.max_turns} 轮，讨论停止。发新消息开始下一轮。")
+        if only is None:
+            self._system(epoch, f"本话题已到上限 {self.max_turns} 轮，讨论停止。发新消息开始下一轮。")
 
     def _play(self, role: Role, text: str, cancel: threading.Event) -> bool:
         """持锁期间“说”这句：True 说完，False 被打断。"""

@@ -16,6 +16,11 @@ class Cancelled(Exception):
     pass
 
 
+# 角色这一轮不说话时只输出它：主机不发消息、不出声（rh/meeting.py）。
+# 来源：用户 2026-10-19「首先就是重复的太多了」；橘裁决“每个角色轮到时可以选择不说话”，标记是实现者定的。
+PASS = "【跳过】"
+
+
 class ClaudeBrain:
     def __init__(self, role: Role, others: list[str], model: str, timeout: float, workdir: Path):
         self.role = role
@@ -36,10 +41,14 @@ class ClaudeBrain:
             f"你在「角色小家」的内置频道里，和{('、'.join(self.others))}还有用户一起聊用户给的话题。"
             "你说的每句话都会由你的小机器人念出来，所以要像口语聊天：一到三句，不用列表、不用表情符号、"
             "不写动作旁白，不加自己名字前缀。可以接别人的话、反驳或补充，别重复别人说过的。"
+            f"轮到你时如果没有新东西可说——别人已经说过差不多的意思，或者话题已经收尾（用户说了没事了、"
+            f"已经有人道过晚安或再见）——就只输出{PASS}，这一轮你不出声，不要再跟着说一遍晚安、再见或客套话。"
         )
 
     def reply(self, new_messages: str) -> str:
-        prompt = f"{new_messages}\n\n轮到你（{self.role.name}）发言了，直接说你要说的话。"
+        # 不写“轮到你（名字）发言了”：和历史里的说话人格式凑在一起，模型会回“名字发言：……”。
+        prompt = (f"{new_messages}\n\n轮到你了。只输出你要说的话本身，开头不要带你的名字、冒号或引号；"
+                  f"没有新东西可说就只输出{PASS}。")
         cmd = ["claude", "-p", "--safe-mode", "--model", self.model, "--tools", "",
                "--strict-mcp-config", "--output-format", "json"]
         if self._started:

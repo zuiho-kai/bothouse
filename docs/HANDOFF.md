@@ -1,5 +1,12 @@
 # 共栖当前交接
 
+## 2026-10-19：同步角色小家 38e754f 版与小智板子固件补丁（Issue #88，未部署）
+
+- 本线由用户侧 Claude 在临时克隆的 feat/88-role-household-sync（基线 main bf3ced27）只改 role-household/ 与本条记录；不改 bridge/、companion/、firmware/esp32s3/。
+- role-household/ 内容等于角色小家本地仓库 38e754f 的 git archive（替换 #67 的 85795de 版），仍去掉 docs/evidence、docs/screenshots。新增：唤醒词「小橘」与本地唤醒模型（sherpa-onnx KWS）、n/l 与前后鼻音放宽、语音口令（暂停/闭麦/开麦）、macOS 系统回声消除、小智板子协议服务（OTA + WebSocket）、圆屏表盘、音量、板子 Wi-Fi 升级、Discord bot 回应转到板子念（真板开关默认关）。
+- 新增 role-household/firmware-xiaozhi/：上游 78/xiaozhi-esp32 v2.5.2 之上的 7 个补丁（format-patch v2.5.2..rh，b951562），在 v2.5.2 上 git am 后与 rh 分支 git diff 为空；附 FLASH.md、RESEARCH.md、scripts/。不含整片备份与固件二进制；补丁 0004 的 OTA 默认地址是作者家里的局域网地址。
+- 检查：无公网 IP、token、.env、logs/、模型或 wav。本仓库 CI 不跑 role-household/。未部署。
+
 ## 2026-10-19：#53 Claude 与 Gemini（大豆包）V2 新形象接入网页圆屏 UI（分支 feat/53-v2-claude-gemini-ui）
 
 - **背景与目标**：大豆包（Gemini）负责将 C酱（Claude）与大豆包（Gemini）的 V2 新形象素材接入网页圆屏 `prototypes/device-ui`，素材源自 `assets/v2-claude-gemini` 分支的 `journal-v2/claude/`（10 个视频）和 `journal-v2/gemini/`（10 个视频），基于最新 `origin/main`（`45e4e961`）开新分支。

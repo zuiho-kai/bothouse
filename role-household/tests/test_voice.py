@@ -84,6 +84,153 @@ class SegmentAndDrop(unittest.TestCase):
         self.assertEqual(asr.calls, [])
 
 
+def tone(level: int) -> bytes:
+    """一帧方波，帧 RMS = level。"""
+    return array.array("h", [level, -level] * (voice.FRAME_SAMPLES // 2)).tobytes()
+
+
+class AdaptiveVoiceDetect(unittest.TestCase):
+    """说话检测按底噪自适应：远场轻声（帧 RMS 约 40，实测用户桌前说话）过得了线；持续的嗡嗡声几秒后不再当说话。"""
+
+    def test_quiet_far_voice_detected(self):
+        # 底噪 6、说话 40：实测数据量级；旧的固定阈值 300 下这句会被当成静音。
+        asr = FakeASR("今天聊聊周末去哪")
+        got = run_listener(asr, [(tone(6), 3000), (tone(40), 1500), (tone(6), 1000)])
+        self.assertEqual(got, ["今天聊聊周末去哪"])
+
+    def test_floor_noise_and_blips_not_sent(self):
+        asr = FakeASR("不该出现")
+        self.assertEqual(run_listener(asr, [(tone(6), 5000), (tone(15), 2000), (tone(6), 1000)]), [])
+        self.assertEqual(asr.calls, [])
+
+    def test_floor_follows_steady_hum(self):
+        # 突然来一段持续 10 秒、RMS 60 的嗡嗡声：底噪跟上之前最多切出一句，跟上之后不再切；之后高出它 4 倍的话照样听得到。
+        seg = voice.Segmenter()
+        cuts = [seg.feed(f) for f in frames([(tone(6), 2000), (tone(60), 10000)])]
+        self.assertLessEqual(sum(c is not None for c in cuts), 1)
+        self.assertGreater(seg.noise.value, 40)
+        cuts = [seg.feed(f) for f in frames([(tone(300), 1000), (tone(60), 1000)])]
+        self.assertEqual(sum(c is not None for c in cuts), 1)
+
+    def test_digital_silence_does_not_make_everything_voice(self):
+        seg = voice.Segmenter()
+        cuts = [seg.feed(f) for f in frames([(SILENT, 12000), (tone(5), 2000), (SILENT, 1000)])]
+        self.assertEqual([c for c in cuts if c is not None], [])
+        self.assertGreaterEqual(seg.noise.value, voice.NOISE_MIN)
+
+
+class GainNormalize(unittest.TestCase):
+    def test_quiet_sentence_boosted_loud_kept(self):
+        quiet = array.array("h", [150, -300, 20] * 100).tobytes()
+        out = array.array("h", voice.normalize(quiet))
+        self.assertEqual(max(abs(x) for x in out), voice.NORM_PEAK)
+        self.assertEqual(out[0], round(150 * voice.NORM_PEAK / 300))
+        loud = array.array("h", [30000, -20000] * 50).tobytes()
+        self.assertEqual(voice.normalize(loud), loud)
+        self.assertEqual(voice.normalize(SILENT), SILENT)
+
+    def test_listener_sends_normalized_audio(self):
+        import io, wave
+        asr = FakeASR("一句话")
+        run_listener(asr, [(tone(6), 2000), (tone(40), 900), (tone(6), 900)])
+        with wave.open(io.BytesIO(asr.calls[0])) as w:
+            pcm = array.array("h", w.readframes(w.getnframes()))
+        self.assertEqual(max(abs(x) for x in pcm), voice.NORM_PEAK)
+
+
+class ConfidenceFilter(unittest.TestCase):
+    """gateway 返回置信度：噪声幻听（实测「Siri」0.535）丢掉，真人句（实测最低 0.597）照收；没有置信度时照旧。"""
+
+    def test_low_confidence_dropped_high_kept(self):
+        pat = [(LOUD, 900), (SILENT, 900)]
+        self.assertEqual(run_listener(FakeASR(("Siri", 0.535)), pat), [])
+        self.assertEqual(run_listener(FakeASR(("回家回家回家我家我家", 0.3)), pat), [])
+        self.assertEqual(run_listener(FakeASR(("今天晚上我们聊聊回家的路上看到了什么", 0.597)), pat),
+                         ["今天晚上我们聊聊回家的路上看到了什么"])
+        self.assertEqual(run_listener(FakeASR(("聊聊猫", None)), pat), ["聊聊猫"])
+        self.assertEqual(run_listener(FakeASR("聊聊猫"), pat), ["聊聊猫"])
+
+    def test_gateway_asr_reads_confidence_and_old_format(self):
+        import http.server, json as _json
+        replies = [{"text": "你好呀", "language": "zh_CN", "confidence": 0.91}, {"text": "旧版", "language": "zh_CN"}]
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                body = _json.dumps(replies.pop(0)).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            asr = voice.GatewayASR(f"http://127.0.0.1:{srv.server_port}/v1", "k")
+            self.assertEqual(asr.transcribe(voice.to_wav(SILENT)), ("你好呀", 0.91))
+            self.assertEqual(asr.transcribe(voice.to_wav(SILENT)), ("旧版", None))
+        finally:
+            srv.shutdown()
+
+
+class EchoReject(unittest.TestCase):
+    """角色在播时麦克风收到的是她自己的声音：转出的字像正在念的话就丢掉；不像的是用户插话，照常进频道。"""
+    SPOKEN = ["哼，回家这种事情我才不急呢，反正路上的风景我都看腻了。", "你们说得都对，那我们今天先聊到这里吧。"]
+
+    def test_scores_on_measured_samples(self):
+        # 实测回声转写（2026-10-18 喇叭放 Qwen、耳麦隔空收）
+        for heard in ["回家这种事情我才不急呢 ，反正路上的风景我都看腻了。", "你们说的都对。", "那我们今天先聊到这里吧"]:
+            self.assertTrue(voice.is_echo(heard, self.SPOKEN), heard)
+        for heard in ["等一下", "你们先别聊了", "我们聊聊别的吧", "不对我觉得应该去山里"]:
+            self.assertFalse(voice.is_echo(heard, self.SPOKEN), heard)
+        self.assertFalse(voice.is_echo("你们说的都对", []))   # 没人在播：不当回声
+
+    def _listen(self, text, spoken):
+        got, asked = [], []
+
+        def playing(t0, t1):
+            asked.append((t0, t1))
+            return spoken
+        voice.Listener(FakeASR(text), got.append, lambda stop: [frames([(LOUD, 900), (SILENT, 900)])],
+                       log=lambda s: None, playing=playing).run()
+        return got, asked
+
+    def test_listener_drops_echo_keeps_interjection(self):
+        got, asked = self._listen("那我们今天先聊到这里吧", self.SPOKEN)
+        self.assertEqual(got, [])
+        t0, t1 = asked[0]
+        self.assertAlmostEqual(t1 - t0, 1.5, delta=0.5)   # 一句的起止时间：900 毫秒有声 + 700 毫秒静音收尾 ≈ 1.5 秒
+        self.assertEqual(self._listen("等一下，我想说两句", self.SPOKEN)[0], ["等一下，我想说两句"])
+
+    def test_meeting_reports_what_is_being_said(self):
+        tts = FakeTTS({"va": 5.0, "vb": 5.0})
+        m = Meeting(ROLES_V, {r.id: FakeBrain(r.name) for r in ROLES_V}, 1, 1e6, tts=tts)
+        m.user_say("话题一")
+        end = time.time() + 2
+        while m.speaking() is None and time.time() < end:
+            time.sleep(0.01)
+        now = time.time()
+        said = m.spoken_between(now - 1, now)
+        self.assertEqual(said, [m.speaking().text])
+        self.assertEqual(m.spoken_between(now - 100, now - 50), [])   # 那时候没人在说
+        # 回声不打断；用户插话打断
+        lst = voice.Listener(FakeASR(said[0]), m.user_say, lambda stop: [frames([(LOUD, 900), (SILENT, 900)])],
+                             log=lambda s: None, playing=m.spoken_between)
+        lst.run()
+        self.assertEqual(m.speaking().status, "speaking")
+        self.assertEqual(tts.cancelled, [])
+        lst = voice.Listener(FakeASR("等一下我想说两句"), m.user_say,
+                             lambda stop: [frames([(LOUD, 900), (SILENT, 900)])],
+                             log=lambda s: None, playing=m.spoken_between)
+        lst.run()
+        self.assertEqual(tts.cancelled, ["va"])
+        m.stop()
+        m.wait_idle(6)
+
+
 class ReadWhileTranscribing(unittest.TestCase):
     def test_slow_asr_does_not_block_reading(self):
         # 第一句转写卡住，直到音源把后面的帧（含第二句）全部读完才放行；读麦被转写卡住的话这里会超时。
