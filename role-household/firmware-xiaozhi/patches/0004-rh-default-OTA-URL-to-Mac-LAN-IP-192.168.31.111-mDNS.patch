@@ -1,8 +1,8 @@
 From da445371babe9b08f9ec8b120f1e919df62a53b3 Mon Sep 17 00:00:00 2001
-From: zuiho-kai <zuiho-kai@users.noreply.github.com>
+From: zuiho <qq2324465096@gmail.com>
 Date: Mon, 19 Oct 2026 15:44:25 +0900
-Subject: [PATCH 4/7] rh: default OTA URL to Mac LAN IP 192.168.31.111 (mDNS on
- ESP32 unverified)
+Subject: [PATCH 04/14] rh: default OTA URL to Mac LAN IP 192.168.31.111 (mDNS
+ on ESP32 unverified)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---

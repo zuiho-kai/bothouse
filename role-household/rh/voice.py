@@ -722,8 +722,8 @@ class Listener:
         self._emit(text, t0, t1, hits)
 
     def _handle_muted(self, pcm: bytes, secs: float, t0: float | None, t1: float | None) -> None:
-        """闭麦中切出的一句：转文字只为认「开麦」。不存音频、不看置信度和长短（开麦两个字常被转得很短、置信度低），
-        像回声的丢掉；日志不记原文（闭麦中说的是私话）。交给主机时标 muted=True，由主机只认开麦。"""
+        """闭麦中切出的一句：转文字只为认口令（开麦、暂停、闭麦）。不存音频、不看置信度和长短（开麦两个字常被转得很短、置信度低），
+        像回声的丢掉；日志不记原文（闭麦中说的是私话）。交给主机时标 muted=True，由主机只认这几个口令。"""
         try:
             got = self.asr.transcribe(to_wav(normalize(pcm)))
         except Exception as e:
@@ -736,7 +736,7 @@ class Listener:
         if not text and not hits:
             self.log(f"[voice] 闭麦中，{secs:.1f} 秒音频没转出字，丢掉")
             return
-        self.log(f"[voice] 闭麦中，{secs:.1f} 秒音频只用来认开麦（不存音频、不进频道）")
+        self.log(f"[voice] 闭麦中，{secs:.1f} 秒音频只用来认开麦、暂停、闭麦（不存音频、不进频道）")
         if self.timed:
             self._emit(text, t0, t1, hits, muted=True)
         # 不带时间的 on_text 没法标闭麦：直接丢掉，免得私话进频道

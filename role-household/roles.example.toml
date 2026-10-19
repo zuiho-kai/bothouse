@@ -1,0 +1,94 @@
+# 角色小家配置的空白模板：复制成 roles.toml 再改。所有 ID、地址都是占位，换成你自己的。
+# 板子接 Discord 的说明见 docs/DISCORD_BODY.md。改完重启主机生效。
+
+[meeting]
+# 每个话题最多几轮角色发言，到了就停（防止无限讨论耗额度）。来源：沿用仓库 roles.toml 的值。
+max_turns_per_topic = 6
+# 没有音色的角色按字数估“在说”时长：秒 = 字数 / chars_per_sec。来源：沿用仓库 roles.toml（中文朗读约每秒 5 字）。
+chars_per_sec = 5.0
+
+[brain]
+# 每个角色的大脑是一份 Claude Code 会话（claude -p）。
+model = "haiku"
+# 单次生成超时（秒）。来源：沿用仓库 roles.toml 的值。
+timeout_sec = 120
+
+[voice]
+# "say" = macOS say；"qwen" = 本机 Qwen3-TTS（要配 qwen_python、qwen_model）。
+backend = "say"
+
+[[roles]]
+id = "a"
+name = "角色甲"
+persona = "你是角色甲。"
+voice = "Tingting"
+
+[[roles]]
+id = "b"
+name = "角色乙"
+persona = "你是角色乙。"
+voice = "Meijia"
+
+# 小智板子（ESP32）：主机在这个端口提供 OTA 和 WebSocket。删掉这一段 = 不起板子服务。
+# 端口来源：固件默认 OTA 地址的端口（rh/config.py XIAOZHI_PORT），两边要一致。
+[xiaozhi]
+port = 8791
+
+[[xiaozhi.boards]]
+device = "00:00:00:00:00:01"   # 占位：板子的 MAC（主机日志「未绑定的板子 … 连上了」里能看到）
+role = "a"
+
+# ---- 板子当 Discord 里 bot 的躯体（rh/discord_body.py，docs/DISCORD_BODY.md）----
+[discord]
+# 真板播放开关：关着只记日志、不出声（用户不在、睡觉时关）。
+play = false
+# 板子听到叫映射了 bot 的角色时，这句以 webhook 身份发进 Discord。
+relay = false
+# 默认频道 ID（占位）：没判出别的频道时发到这里。relay = true 时必填。
+channel = "000000000000000001"
+
+# 以下全是可选；一项都不写 = 只进默认频道、念 bot 回话的全文、不建频道。
+# 服务器 ID：按意思选频道、新建频道要用。要用时去掉 # 换成你的服务器 ID（不打开 = 不列频道，只进默认频道）。
+# guild = "000000000000000000"
+# webhook 发言显示的名字，也是主机新建 webhook 的名字。默认「板子」。
+username = "板子"
+# bot token 的环境变量名（不在这里写值）：列频道、建频道、建 webhook 用；bot 要有「管理 Webhook」「管理频道」权限。
+token_env = "DISCORD_BOT_TOKEN"
+# 环境变量里没有 token 时，再到这个 dotenv 文件里找（可空）。
+# token_file = "~/.cc-connect/secrets.env"
+# 默认频道已有 webhook 的地址放在哪个环境变量（.env）；没有就由主机按需建。
+webhook_env = "RH_DISCORD_WEBHOOK"
+# 主机建的 webhook 存在这里（相对本文件；里面有 webhook token，不要进 git）。
+webhooks_file = "data/discord-webhooks.json"
+# 主机建了 webhook 就把 ID 追加进这个文件；用 cc-connect 的话把它的 allow_bots_file 指向这里。可空 = 不写。
+allow_bots_file = "data/discord-allow-bots.txt"
+# 判出「新建频道」时真的建。默认 false（进默认频道）。
+create_channels = false
+
+# 按意思选频道的模型：任何 OpenAI 兼容的 /chat/completions（本机小模型、便宜 API 都行），只答一个字母。
+# 要用时去掉下面整段的 #（还要打开上面的 guild、给 bot token）。不打开 = 只进默认频道。
+# [discord.router]
+# url = "http://127.0.0.1:1234/v1"   # 占位：base 地址，主机拼 /chat/completions
+# model = "your-model-name"
+# key_env = "RH_LLM_KEY"             # key 的环境变量名；或 key_file = "路径"（JSON 取 api_key，否则整份文字）
+# prefill = "<think>\n\n</think>\n\n"   # Qwen3 系列关不掉思考时预填空思考块；别的模型不写
+# timeout 不写 = 默认值（rh/discord_route.py ROUTER_TIMEOUT）；超时进默认频道
+# exclude_channels = ["000000000000000003"]   # 不当候选的频道 ID（如机器日志频道）；bot 看不到、不能发言的频道自动不列
+
+# 朗读摘要的模型（同一类接口）。要用时去掉下面整段的 #。不打开 = 念全文；打开了但失败、超时 = 只念第一句。
+# 频道里的文字不变。
+# [discord.summary]
+# url = "http://127.0.0.1:1234/v1"
+# model = "your-model-name"
+# key_env = "RH_LLM_KEY"
+# 摘要长度目标（字）。来源：沿用仓库 roles.toml（约 10 秒念完，中文实测约每秒 4.3 字）。
+# chars = 40
+# timeout 不写 = 默认值（rh/discord_route.py SUMMARY_TIMEOUT）；超时只念第一句
+
+# Discord bot ID → 角色：用这个角色的音色、在绑给这个角色的板子上念她回主人的话。
+# project = cc-connect 里这个 bot 的 project 名（message.sent 钩子的 project 字段）；不用 cc-connect 就填你回调里的名字。
+[[discord.bots]]
+bot_id = "000000000000000002"   # 占位
+name = "botA"
+role = "a"
+project = "bot-a"

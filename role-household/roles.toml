@@ -97,27 +97,84 @@ role = "ju"
 
 # 形态 B：板子当现有平台（我们的 Discord）里 bot 的躯体（rh/discord_body.py）。
 # 来源：用户 2026-10-19「一种就是进入现有的平台，别人现有的一个team下面，例如我们的discord」。
-# gate（~/im-bridge/gate/rhbody.py）只把「bot 回应板子主人」的话转过来（主人 @ 她、开头点名她、或回复她的消息之后，她的下一条回复）；
-# bot 之间互相说话不念（用户「你可能指定跟他们说他们才会应你，否则就当不存在」）。
+# 主人对板子叫到下面映射了 bot 的角色（「小橘」等），这句以 webhook 身份发进 channel 那个频道、@ 那个 bot，由群里有当前会话的她来答；
+# 她在这个频道的下一条回复（cc-connect message.sent 钩子 → /rh/discord/hook）在板子上念。
+# 后备：gate（~/im-bridge/gate/rhbody.py）也把「bot 回应板子主人」的话转过来（主人 @ 她、开头点名她、或回复她的消息之后，
+# 她的下一条回复），同一条只念一次。bot 之间互相说话不念（用户「你可能指定跟他们说他们才会应你，否则就当不存在」）。
 # 删掉 [[discord.bots]] = 不收 Discord 的话。改完重启主机生效。
 [discord]
-# 真板播放开关，默认关：关着只记日志、不出声。来源：用户不在、睡觉时不许出声；开关等用户在场点头再开（橘 2026-10-19 定）。
-play = false
+# 真板播放开关：关着只记日志、不出声（用户不在、睡觉时不许出声，主机没有别的半夜规则，靠这个开关）。
+# 2026-10-19 开着：用户在场正在测（「不太行啊，还没接进来，没有我们现在会话的东西」）；用户睡觉、不在时改回 false。
+play = true
+# 板子的话进 Discord（不再进自建频道）。来源：用户 2026-10-19「不太行啊，还没接进来，没有我们现在会话的东西」，用户在场正在测。
+# webhook 地址在 .env 的 RH_DISCORD_WEBHOOK（不进 git）；开了却没地址主机起不来。
+relay = true
+# 板子的话发进哪个频道、只念这个频道里的回复。来源：#创业 频道（用户一直在这个频道和橘聊板子的事，会话上下文在那），
+# 频道 ID 见 ~/wiki/projects/software/household/role-household-hw.md「关键事实」。
+channel = "1561249071144894544"
+
+# ---- 服务器相关（换服务器、换人只改这里，空白模板见 roles.example.toml，说明见 docs/DISCORD_BODY.md）----
+# 一项都不写 = 现状：只进上面的 channel、念 bot 回话的全文、不建频道。
+# 服务器 ID：列频道、建频道用。来源：~/.cc-connect/config.toml guild_id（我们的 Discord 服务器）。
+guild = "1183801673097957446"
+# webhook 发言显示的名字，也是主机新建 webhook 的名字。来源：方案定（审稿 rh-discord-relay「用户原话里没有」第 1 条）。
+username = "板子"
+# bot token：从环境变量 DISCORD_BOT_TOKEN 读，环境里没有就到 token_file（dotenv）里找。不在这里写值。
+# 来源：橘 bot 的 token 存在 cc-connect 的 secrets.env（管理员权限，能建频道和 webhook）。
+token_env = "DISCORD_BOT_TOKEN"
+token_file = "~/.cc-connect/secrets.env"
+# 默认频道已有的 webhook 地址在哪个环境变量（.env）；别的频道的 webhook 由主机按需建，存 webhooks_file（不进 git）。
+webhook_env = "RH_DISCORD_WEBHOOK"
+webhooks_file = "data/discord-webhooks.json"
+# 主机建了 webhook 就把 ID 追加进这个文件；cc-connect 四个 project 的 allow_bots_file 指向它（只放行主机自己建的 webhook，
+# 审稿 rh-voice-summary-router 第 3 条）。来源：橘定的位置（仓库 data/，不进 git）。
+allow_bots_file = "data/discord-allow-bots.txt"
+# 小模型判出「新建频道」时真的在服务器建。来源：用户 2026-10-19「可以说新建频道，或者说我们独立开一个频道啊，
+# 他专门在这个频道里面干活」，追问后「真的新建频道」。
+create_channels = true
+
+# 按意思选频道的小模型（OpenAI 兼容 /chat/completions，只答一个字母）。不写这一段 = 只进默认频道。
+# 来源：用户「有一个中间小模型，或者用一个便宜模型去做一个判断，类似jev」；本机只有 LM Studio 的 Qwen3.5-4B（= gate 用的同款 4B），
+# 走 ai-gateway，实测数字见 docs/DISCORD_BODY.md「本机实测」（只记在那一处）。
+[discord.router]
+url = "http://127.0.0.1:8787/v1"
+model = "qwen3.5-4b-mlx"
+key_file = "~/ai-gateway/state/config.json"   # ai-gateway 的 key（JSON 的 api_key），不在这里写值
+# Qwen3.5 在 LM Studio 上关不掉思考，预填空思考块才直接出答案（rh/config.py LLMEndpoint.prefill）
+prefill = "<think>\n\n</think>\n\n"
+# 不当候选的频道：量化日志（量化团队的机器日志子频道，bot 在那里开新会话没有原来的上下文，审查 rh-router-code 建议 2）。
+# 来源：~/.cc-connect/config.toml aux_channels = { 量化团队 1559487673729687685 = 量化日志 1561419538556260422 }。
+# bot 看不到、不能发言的频道不用写，主机按权限自动不列。
+exclude_channels = ["1561419538556260422"]
+
+# 朗读摘要的模型（同一类接口）。不写这一段 = 念全文；写了但失败、超时 = 只念第一句。
+# 来源：用户「文字版是一个，但是你给我朗读出来的又是另一个」；同上本机 4B，实测见 docs/DISCORD_BODY.md。
+[discord.summary]
+url = "http://127.0.0.1:8787/v1"
+model = "qwen3.5-4b-mlx"
+key_file = "~/ai-gateway/state/config.json"
+prefill = "<think>\n\n</think>\n\n"
+# 摘要长度目标（字）。来源：用户嫌整段念「太烦了，太笨了，太慢了」，橘定十秒内念完：按实测中文约每秒 4.3 字取 4 × 10 = 40。
+chars = 40
 
 # Discord bot ID → 角色：用这个角色的音色（qwen_speaker）、在绑给这个角色的板子（[[xiaozhi.boards]]）上念。
 # bot ID 来源：~/wiki/bots/chat-bots/discord/discord-roles.md 第 28 行。别人的 team 里的 bot 同样加一条（用户「预期后面用户也能自定义」）。
-# 龙娘没有对应的小家角色（没有音色和板子），先不映射；她的话只记一行「没映射，不念」。
+# project = cc-connect 里这个 bot 的 project 名（~/.cc-connect/config.toml 的 [[projects]]，钩子 message.sent 的 project 字段）。
+# 龙娘（project longniang）没有对应的小家角色（没有音色和板子），先不映射；她的话只记一行「没映射，不念」。
 [[discord.bots]]
 bot_id = "1468663018463301632"
 name = "Claude橘"
 role = "ju"
+project = "maomao"
 
 [[discord.bots]]
 bot_id = "1558553439942737962"
 name = "鲸鱼娘"
 role = "jing"
+project = "jingyu"
 
 [[discord.bots]]
 bot_id = "1558699335745536123"
 name = "彩虹猫"
 role = "mao"
+project = "caihongmao"

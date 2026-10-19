@@ -153,9 +153,16 @@ class Words:
         return self._pause.heard_in(text) or self._mute.heard_in(text)
 
     def classify(self, text: str, muted: bool) -> Heard:
-        """一句语音转写该怎么处理。闭麦时只认「开麦」；安全词、闭麦不用叫名字。"""
+        """一句语音转写该怎么处理。闭麦时只认「开麦」「暂停」「闭麦」（后两个停下正在念的，如 Discord 回应，
+        用户 2026-10-19「我暂停闭麦他都没有反应」）；别的话不认。安全词、闭麦不用叫名字。"""
         if muted:
-            return Heard(UNMUTE) if self._unmute.heard_in(text) else Heard(IGNORE, why="闭麦中")
+            if self._unmute.heard_in(text):
+                return Heard(UNMUTE)
+            if self._mute.heard_in(text):
+                return Heard(MUTE)
+            if self._pause.heard_in(text):
+                return Heard(PAUSE)
+            return Heard(IGNORE, why="闭麦中")
         if self._mute.heard_in(text):
             return Heard(MUTE)
         if self._pause.heard_in(text):

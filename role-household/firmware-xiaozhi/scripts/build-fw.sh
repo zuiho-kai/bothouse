@@ -12,7 +12,7 @@ echo "--- sdkconfig check"
 grep -E '^CONFIG_OTA_URL|RH_|^CONFIG_FREERTOS_HZ=|^CONFIG_FLASH_.*ASSETS=|^CONFIG_WAKE_WORD_DISABLED|^CONFIG_USE_.*WAKE_WORD|^CONFIG_BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX' sdkconfig
 # 板子 config.json sdkconfig_append 里的 CONFIG_FREERTOS_HZ=1000（提帧率，xiaozhi-esp32 1ac6ef1）必须进了这次构建
 grep -qx 'CONFIG_FREERTOS_HZ=1000' sdkconfig || { echo 'CONFIG_FREERTOS_HZ is not 1000'; exit 1; }
-OUT=~/code/role-household-fw/build-out
+OUT=${RH_FW_OUT:-~/code/role-household-fw/build-out}   # 另编一版时给别的目录，别覆盖主机 OTA 自动升级用的镜像
 mkdir -p $OUT
 cp build/merged-binary.bin $OUT/rh-sp-esp32-s3-1.28-box-merged.bin
 cp build/xiaozhi.bin build/ota_data_initial.bin build/flasher_args.json $OUT/ 2>/dev/null || true

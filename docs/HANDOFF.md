@@ -16,6 +16,13 @@
 
 2026-10-19：#94 修复 Codex exec 提前交付终态、历史 stderr 串轮与重复写入者。独立工作区 conest-codex-writer；原 thread 保留，部署须检查实际写锁。实现与回归边界见 [CODEX_EXEC_LIFECYCLE.md](CODEX_EXEC_LIFECYCLE.md)。本条为源码记录，尚未部署。
 
+## 2026-10-20：同步角色小家 4b30043 版与固件补丁 14 个（Issue #140，未部署）
+
+- 本线由用户侧 Claude 在 feat/140-rh-sync-4b30043（基线 main 472d06e）只改 role-household/ 与本条记录；不改 bridge/、companion/、firmware/。
+- role-household/ 内容等于角色小家本地仓库 4b30043 的 git archive（替换 #89 的 38e754f 版），仍去掉 docs/evidence、docs/screenshots。新增：网页圆屏 SSE（/rh/dial/events，给 device-ui 外部状态，#90/#91）、板子麦克风上行、板子的话按意思进 Discord 频道（可新建频道、只念摘要）、闭麦时口令可停朗读、hello 里的 display 记日志、表盘第二步主机侧（工作状态 busy、头像按画布边长）。
+- firmware-xiaozhi/patches 从 7 个更新到 14 个（format-patch v2.5.2..rh-dial-step2fix，d076dc4），表盘改用 firmware/dial 的 cn_dial / cn_dial_lvgl（锁 472d06e）；在 v2.5.2 上 git am 后与原分支 git diff 为空。已编译，未刷板。
+- 检查：无公网 IP、token、.env、logs/、模型或 wav；token 只写环境变量名和文件位置。未部署。
+
 ## 2026-10-19：同步角色小家 38e754f 版与小智板子固件补丁（Issue #88，未部署）
 
 - 本线由用户侧 Claude 在临时克隆的 feat/88-role-household-sync（基线 main bf3ced27）只改 role-household/ 与本条记录；不改 bridge/、companion/、firmware/esp32s3/。

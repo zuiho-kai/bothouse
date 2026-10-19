@@ -1,0 +1,276 @@
+From ad71f981a99423e69c6b4ff8bddb9627b7331bcb Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Tue, 20 Oct 2026 03:34:34 +0900
+Subject: [PATCH 10/14] =?UTF-8?q?rh:=20=E6=8C=89=E4=BB=A3=E7=A0=81?=
+ =?UTF-8?q?=E5=AE=A1=E6=9F=A5=E4=BF=AE=E8=A1=A8=E7=9B=98=20cn=5Fdial=20?=
+ =?UTF-8?q?=E6=8E=A5=E5=85=A5=EF=BC=9A=E9=94=81=20conest=20=E6=8F=90?=
+ =?UTF-8?q?=E4=BA=A4=E3=80=81=E5=8F=AA=E5=9C=A8=20RH=5FDIAL=20=E6=97=B6?=
+ =?UTF-8?q?=E4=BE=9D=E8=B5=96=E3=80=81=E9=9D=A2=E6=9D=BF=E5=B0=BA=E5=AF=B8?=
+ =?UTF-8?q?=E4=B8=BA=E5=87=86=E3=80=81d16=20=E6=94=B9=20uint16=E3=80=81?=
+ =?UTF-8?q?=E5=B0=8F=E5=B1=8F=E6=8B=92=E7=BB=9D?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- main/idf_component.yml: cn_dial 走 git 依赖，锁 conest main 7c3f37c（PR #128），
+  rules $CONFIG{RH_DIAL}；CMakeLists.txt: -D/cache CN_DIAL_COMPONENTS 优先、其次环境变量，
+  指本地 conest 时加进 EXTRA_COMPONENT_DIRS（优先于 managed_components）；默认不靠本机目录
+- RH_DIAL depends on spotpear sp-esp32-s3-1.28-box；cn_dial 只在 CONFIG_RH_DIAL 时进
+  PRIV_REQUIRES；protocol.cc 的 cn_dial include 与 display 上报包在 CONFIG_RH_DIAL 里
+- RhDialDisplay: profile 宽高与面板不一致时取面板尺寸（打日志）；profile 无效或短边
+  < kMinShortSide(161) 时不建表盘、留默认 UI；板上无可读字号时打警告
+- RingPx::d16 uint8_t -> uint16_t（W>=1204 溢出，conest TestRingDepth）
+未刷板。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                  | 27 ++++++++++++++++++---------
+ main/CMakeLists.txt             |  6 +++++-
+ main/Kconfig.projbuild          |  5 ++++-
+ main/display/rh_dial_display.cc | 29 +++++++++++++++++++++++++----
+ main/display/rh_dial_display.h  |  9 ++++++++-
+ main/idf_component.yml          | 13 +++++++++++++
+ main/protocols/protocol.cc      | 14 +++++++++++---
+ 7 files changed, 84 insertions(+), 19 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5e3b3a8..f9ca3cf 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -6,17 +6,26 @@ cmake_minimum_required(VERSION 3.16)
+ add_compile_options(-Wno-missing-field-initializers)
+ 
+ # rh: the dial's screen profile / size maths (cn_dial) lives in the shared conest repo
+-# (firmware/dial/components), so conest's dial changes are ours without copying. Default: the
+-# local conest checkout next to this repo; override with CN_DIAL_COMPONENTS.
+-if(DEFINED ENV{CN_DIAL_COMPONENTS})
+-    set(CN_DIAL_COMPONENTS $ENV{CN_DIAL_COMPONENTS})
+-else()
+-    get_filename_component(CN_DIAL_COMPONENTS "${CMAKE_CURRENT_LIST_DIR}/../../ref-conest/src/firmware/dial/components" ABSOLUTE)
++# (firmware/dial/components/cn_dial). By default main/idf_component.yml fetches it from conest at a
++# pinned commit, and only when CONFIG_RH_DIAL is on (other boards never fetch conest).
++# To build against a local conest checkout instead, point CN_DIAL_COMPONENTS at its
++# firmware/dial/components: -DCN_DIAL_COMPONENTS=... (cache variable, wins) or the environment
++# variable of the same name (used when no -D/cache value is set). EXTRA_COMPONENT_DIRS outranks
++# managed_components (ESP-IDF build-system.rst "Multiple Components with the Same Name").
++set(_rh_cn_dial_dir "")
++if(DEFINED CACHE{CN_DIAL_COMPONENTS} AND NOT "$CACHE{CN_DIAL_COMPONENTS}" STREQUAL "")
++    set(_rh_cn_dial_dir "$CACHE{CN_DIAL_COMPONENTS}")
++elseif(NOT "$ENV{CN_DIAL_COMPONENTS}" STREQUAL "")
++    set(_rh_cn_dial_dir "$ENV{CN_DIAL_COMPONENTS}")   # not cached: unset it and the pin is back
+ endif()
+-if(NOT EXISTS "${CN_DIAL_COMPONENTS}/cn_dial/CMakeLists.txt")
+-    message(FATAL_ERROR "cn_dial not found in ${CN_DIAL_COMPONENTS}: check out conest (firmware/dial) or set CN_DIAL_COMPONENTS")
++if(_rh_cn_dial_dir)
++    get_filename_component(_rh_cn_dial_dir "${_rh_cn_dial_dir}" ABSOLUTE)
++    if(NOT EXISTS "${_rh_cn_dial_dir}/cn_dial/CMakeLists.txt")
++        message(FATAL_ERROR "CN_DIAL_COMPONENTS=${_rh_cn_dial_dir} has no cn_dial/CMakeLists.txt")
++    endif()
++    message(STATUS "rh: cn_dial from ${_rh_cn_dial_dir} (not the pinned conest commit)")
++    list(APPEND EXTRA_COMPONENT_DIRS "${_rh_cn_dial_dir}")
+ endif()
+-list(APPEND EXTRA_COMPONENT_DIRS "${CN_DIAL_COMPONENTS}")
+ 
+ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+ # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index 332f10f..35ea2cf 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -1114,6 +1114,11 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT AND IDF_VERSION_MAJOR LESS 6)
+         espressif__touch_button_sensor
+     )
+ endif()
++# rh: the role dial's screen profile / size maths (cn_dial, conest firmware/dial; fetched by
++# main/idf_component.yml only when CONFIG_RH_DIAL). Other boards do not need conest.
++if(CONFIG_RH_DIAL)
++    list(APPEND MAIN_PRIV_REQUIRES_EXTRA cn_dial)
++endif()
+ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
+     list(APPEND MAIN_PRIV_REQUIRES_EXTRA
+         esp_driver_sdmmc
+@@ -1147,7 +1152,6 @@ idf_component_register(SRCS ${SOURCES}
+                         bt
+                         fatfs
+                         xiaozhi-fonts
+-                        cn_dial
+                         ${MAIN_PRIV_REQUIRES_EXTRA}
+                     )
+ 
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 54ccf2a..0f99bfc 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -61,13 +61,16 @@ config RH_REOPEN_DELAY_SEC
+ config RH_DIAL
+     bool "Show the role dial (same look as the hub web dial page) instead of the xiaozhi UI"
+     default y
++    depends on BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX
+     help
+         rh: draw the round dial of ~/code/role-household rh/static/dial.html with LVGL
+         (avatar, name pill, idle breathe + glint, thinking spinner, speaking glow + bars,
+         interrupted red ring) on top of the default emoji / subtitle / status bar UI,
+         which stays hidden except in Wi-Fi config mode. Which role, name, colour, avatar
+         and state come from the host ({"type":"rh_dial"} over the WebSocket); nothing
+-        role-specific is compiled in. Only wired into spotpear sp-esp32-s3-1.28-box.
++        role-specific is compiled in. Only wired into spotpear sp-esp32-s3-1.28-box,
++        so only that board can turn it on (other boards then neither fetch conest's cn_dial
++        nor wait for the host's rh_dial before marking a new OTA image valid).
+         Source: user 2026-10-19 「那个圆形表盘的那个动画啊，你给它放上去，而不是用现在默认傻逼小智的那个」;
+         review ~/.claude/reviews/rh-board-dial.md (role pushed by host, not fixed in firmware).
+ 
+diff --git a/main/display/rh_dial_display.cc b/main/display/rh_dial_display.cc
+index 558980c..0d7ad5e 100644
+--- a/main/display/rh_dial_display.cc
++++ b/main/display/rh_dial_display.cc
+@@ -154,16 +154,36 @@ RhDialDisplay::RhDialDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
+                              int width, int height, int offset_x, int offset_y, bool mirror_x,
+                              bool mirror_y, bool swap_xy, const cn_dial::ScreenProfile& screen)
+     : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy),
+-      metrics_(screen),
++      metrics_(PanelProfile(screen, width, height)),
+       sz_(MakeSizes(metrics_)),
++      usable_(metrics_.profile().Valid() && metrics_.Supported()),
+       ring_upto_(sz_.ring_max + 1, 0) {
+-    if (screen.w != width || screen.h != height) {
+-        ESP_LOGE(TAG, "rh dial: screen profile %dx%d but panel %dx%d", screen.w, screen.h, width, height);
++    const char* why = nullptr;
++    if (!metrics_.profile().Valid(&why)) {
++        ESP_LOGE(TAG, "rh dial: screen profile invalid (%s), no dial", why);
++    } else if (!metrics_.Supported()) {
++        ESP_LOGE(TAG, "rh dial: short side %d px is below cn_dial's minimum %d px, no dial", metrics_.canvas(),
++                 cn_dial::layout::kMinShortSide);
++    }
++    // Pill text uses the board's theme font; the web pill font is 17 px (see the sizes note above).
++    if (!metrics_.pick_font(17).on_board) {
++        ESP_LOGW(TAG, "rh dial: the board has no font >= %d px (font_min_px); text may be too small",
++                 metrics_.profile().font_min_px);
+     }
+     color_ = lv_color_hex(kUnknownRole);
+     dl_mutex_ = xSemaphoreCreateMutex();
+ }
+ 
++cn_dial::ScreenProfile RhDialDisplay::PanelProfile(cn_dial::ScreenProfile p, int width, int height) {
++    if (p.w != width || p.h != height) {
++        ESP_LOGE(TAG, "rh dial: screen profile %dx%d but panel %dx%d, using the panel size", p.w, p.h, width,
++                 height);
++        p.w = width;
++        p.h = height;
++    }
++    return p;
++}
++
+ RhDialDisplay::Sizes RhDialDisplay::MakeSizes(const cn_dial::DialMetrics& m) {
+     namespace L = cn_dial::layout;
+     Sizes z{};
+@@ -226,6 +246,7 @@ void RhDialDisplay::BuildGlint() {
+ 
+ void RhDialDisplay::SetupUI() {
+     SpiLcdDisplay::SetupUI();  // default UI stays underneath (shown only in Wi-Fi config mode)
++    if (!usable_) return;      // logged in the constructor; dial_ stays nullptr, every entry point checks it
+     DisplayLockGuard lock(this);
+     const int W = width_, H = height_;
+ 
+@@ -405,7 +426,7 @@ void RhDialDisplay::BuildRing() {
+             // clockwise from 12 o'clock, 0.1 deg
+             float a = atan2f(dx, -dy) * 180 / (float)M_PI;
+             if (a < 0) a += 360;
+-            px.push_back({(uint32_t)(y * W + x), (uint16_t)(a * 10), (uint8_t)(d * 16)});
++            px.push_back({(uint32_t)(y * W + x), (uint16_t)(a * 10), (uint16_t)(d * 16)});
+         }
+     }
+     std::sort(px.begin(), px.end(), [](const RingPx& a, const RingPx& b) { return a.d16 < b.d16; });
+diff --git a/main/display/rh_dial_display.h b/main/display/rh_dial_display.h
+index 6d407c6..36d98cd 100644
+--- a/main/display/rh_dial_display.h
++++ b/main/display/rh_dial_display.h
+@@ -60,8 +60,13 @@ private:
+         int ring_max;                                // widest thing on the rim (glow_max) + 1 AA px
+     };
+     static Sizes MakeSizes(const cn_dial::DialMetrics& m);
++    // The board's profile with w/h taken from the panel (the panel size wins; a mismatch is logged).
++    static cn_dial::ScreenProfile PanelProfile(cn_dial::ScreenProfile p, int width, int height);
+     const cn_dial::DialMetrics metrics_;
+     const Sizes sz_;
++    // False when the profile is invalid or the screen is below cn_dial's smallest supported short
++    // side (layout min_short_side): then no dial is built and the default UI stays.
++    const bool usable_;
+ 
+     lv_obj_t* dial_ = nullptr;
+     lv_obj_t* face_base_ = nullptr;
+@@ -101,7 +106,9 @@ private:
+     // What the edge drew last frame, to invalidate only when it changes.
+     int64_t edge_key_ = -1;
+     // Ring layers (see BuildRing): pixels within sz_.ring_max px of the rim, and three A8 layers.
+-    struct RingPx { uint32_t idx; uint16_t ang10; uint8_t d16; };
++    // d16: depth below the rim in 1/16 px, < sz_.ring_max * 16. uint16_t: as uint8_t it wrapped
++    // from W = 1204 (ring_w 16, ring_max 17; conest firmware/dial TestRingDepth). Same 8 bytes.
++    struct RingPx { uint32_t idx; uint16_t ang10; uint16_t d16; };
+     RingPx* ring_px_ = nullptr;
+     int ring_n_ = 0;
+     uint8_t* layer_px_[3] = {};
+diff --git a/main/idf_component.yml b/main/idf_component.yml
+index 2c85820..9d271a8 100644
+--- a/main/idf_component.yml
++++ b/main/idf_component.yml
+@@ -162,3 +162,16 @@ dependencies:
+   m5stack/m5pm1: ^1.0.7
+ 
+   cube32esp/xpowerslib: ^0.3.3
++
++  # rh: the role dial's screen profile / size maths, from the shared conest repo
++  # (Zssan12/conest firmware/dial, private: needs git credentials for github.com). Pinned to a
++  # main commit so a build does not change when conest moves; bump it by hand after a conest
++  # dial PR merges. Only fetched when CONFIG_RH_DIAL (spotpear sp-esp32-s3-1.28-box only).
++  # Local checkout instead: CN_DIAL_COMPONENTS (top-level CMakeLists.txt).
++  # Pin: conest main 7c3f37c = PR #128 (Issue #127) squash merge, 2026-10-20.
++  cn_dial:
++    git: https://github.com/Zssan12/conest.git
++    path: firmware/dial/components/cn_dial
++    version: 7c3f37c09abe344c5dc2727c1fb83973a31b7ee8
++    rules:
++    - if: "$CONFIG{RH_DIAL} == True"
+diff --git a/main/protocols/protocol.cc b/main/protocols/protocol.cc
+index cc612b9..68026d5 100644
+--- a/main/protocols/protocol.cc
++++ b/main/protocols/protocol.cc
+@@ -1,11 +1,15 @@
+ #include "protocol.h"
+ #include "assets.h"
++
++#include <sdkconfig.h>
++#include <esp_log.h>
++
++#if CONFIG_RH_DIAL
+ #include "board.h"
+ #include "display.h"
+ 
+-#include <cn_dial/screen_profile.h>
+-
+-#include <esp_log.h>
++#include <cn_dial/screen_profile.h>   // conest firmware/dial; only the rh dial build has it
++#endif
+ 
+ #define TAG "Protocol"
+ 
+@@ -28,6 +32,7 @@ void Protocol::AddTextFontCapabilities(cJSON* root) {
+ }
+ 
+ void Protocol::AddDisplayProfile(cJSON* root) {
++#if CONFIG_RH_DIAL
+     auto display = Board::GetInstance().GetDisplay();
+     const cn_dial::ScreenProfile* screen = display ? display->GetScreenProfile() : nullptr;
+     if (screen == nullptr) {
+@@ -37,6 +42,9 @@ void Protocol::AddDisplayProfile(cJSON* root) {
+     if (obj != nullptr) {
+         cJSON_AddItemToObject(root, "display", obj);
+     }
++#else
++    (void)root;  // no cn_dial in this build: hello carries no "display"
++#endif
+ }
+ 
+ void Protocol::OnIncomingJson(std::function<void(const cJSON* root)> callback) {
+-- 
+2.54.0 (Apple Git-157)
+

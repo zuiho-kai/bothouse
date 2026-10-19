@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from rh import discord_body as dbody
+from rh import kws
 from rh import wake as wakemod
 from rh import xiaozhi as xz
 from rh.config import DiscordBot
@@ -34,7 +35,8 @@ from tests.test_meeting import FakeBrain
 from tests.test_xiaozhi import DEV_A, XiaozhiBase, fake_encoder
 
 BOT_A, BOT_B, BOT_LONG = "111", "222", "999"   # BOT_LONG 不映射
-BOTS = [DiscordBot(BOT_A, "botA", "a"), DiscordBot(BOT_B, "botB", "b")]
+BOTS = [DiscordBot(BOT_A, "botA", "a", "pa"), DiscordBot(BOT_B, "botB", "b", "pb")]
+CHANNEL = "123456"   # 测试用的板子频道 ID
 
 
 def tone_wav(secs: float, hz: float = 440.0, rate: int = 16000) -> bytes:
@@ -62,7 +64,8 @@ class ToneSynth:
 
 
 class DiscordBase(XiaozhiBase):
-    async def start_body(self, play=True, synth=None, encoder=fake_encoder, max_turns=1, synth_secs=0.3, grace=5.0):
+    async def start_body(self, play=True, synth=None, encoder=fake_encoder, max_turns=1, synth_secs=0.3, grace=5.0,
+                         relay=False, webhook="", channel=CHANNEL, **body_kw):
         brains = {r.id: FakeBrain(r.name) for r in ROLES}
         self.local = FakeLocal()
         self.speaker = DeviceSpeaker(FakeSynth(synth_secs), self.local, log=self.log.append, grace=grace)
@@ -75,9 +78,10 @@ class DiscordBase(XiaozhiBase):
         self.host.dial = Dial(self.xz, ROLES, self.dir, log=self.log.append)
         self.synth = synth or FakeSynth(synth_secs)
         self.body = dbody.DiscordBody(BOTS, ROLES, self.xz, self.synth, self.m.lock, play=play, log=self.log.append,
-                                      on_event=self.host.dial.event, grace=grace)
+                                      on_event=self.host.dial.event, grace=grace, relay=relay, webhook=webhook,
+                                      channel=channel, **body_kw)
         self.host.discord = self.body
-        self.xz.routes.append(self.body.route())
+        self.xz.routes.extend(self.body.routes())
         self.task = asyncio.create_task(self.host.run())
         await wait_for(self.host.connected.is_set, what="角色主机连上")
         self.ota = f"http://127.0.0.1:{self.xz.port}{xz.OTA_PATH}"
@@ -133,7 +137,7 @@ class Switch(DiscordBase):
 
     async def test_only_loopback(self):
         await self.start_body(play=True)
-        req = type("R", (), {"remote": "192.168.1.5"})()
+        req = type("R", (), {"remote": "fe80::1"})()
         with self.assertRaises(dbody.web.HTTPForbidden):
             await self.body._http(req)
 
@@ -161,6 +165,27 @@ class Rules(DiscordBase):
         await asyncio.get_running_loop().run_in_executor(None, self.host.on_voice, "闭麦")
         await wait_for(lambda: a.jsons(type="tts", state="stop"), what="闭麦后板子停下")
         self.assertFalse(self.host.mic_on)
+
+    async def test_pause_and_mute_while_muted_stop_discord(self):
+        """闭麦中 Discord 回应照样在板子上念；这时说「暂停」（唤醒模型或转文字）、「闭麦」都要停下正在念的
+        （用户 2026-10-19「我暂停闭麦他都没有反应」）。"""
+        await self.start_body(play=True, synth_secs=3.0)
+        a = await self.board(DEV_A)
+        await asyncio.get_running_loop().run_in_executor(None, self.host.on_voice, "闭麦")
+        self.assertFalse(self.host.mic_on)
+        run = asyncio.get_running_loop().run_in_executor
+        hit = lambda label, action: kws.Hit(label, action, None, time.time(), wakemod.Term(label))
+        for say in (lambda: self.host.on_kws(hit("暂停", wakemod.PAUSE)),
+                    lambda: self.host.on_voice("暂停", time.time() - 1, time.time(), muted=True),
+                    lambda: self.host.on_kws(hit("闭麦", wakemod.MUTE))):
+            n = len(a.jsons(type="tts", state="stop"))
+            await self.say(BOT_A, "很长的一句。")
+            await wait_for(lambda: len(a.jsons(type="tts", state="start")) > n, what="闭麦中板子开始念")
+            t0 = time.monotonic()
+            await run(None, say)
+            await wait_for(lambda: len(a.jsons(type="tts", state="stop")) > n, what="闭麦中说暂停/闭麦后板子停下")
+            self.assertLess(time.monotonic() - t0, 1.0)
+            self.assertFalse(self.host.mic_on)
 
     async def test_waits_for_household_speaker(self):
         """小家讨论里有人在说（拿着发言锁）：Discord 的话等她说完再念，不叠音。"""
@@ -220,11 +245,16 @@ class Config(unittest.TestCase):
         with self.assertRaises(ValueError):
             load('[discord]\nplay = "yes"')
 
-    def test_repo_config_default_off(self):
+    def test_repo_config(self):
+        """仓库里的 roles.toml：三个 bot 映射到三个角色、各有 cc-connect project；relay 开着就要有频道。
+        play、relay 2026-10-19 都开着（用户在场正在测）。"""
         from rh import config
         c = config.load(ROOT / "roles.toml")
-        self.assertFalse(c.discord_play)
         self.assertEqual({b.role for b in c.discord_bots}, {"ju", "jing", "mao"})
+        self.assertEqual({b.project: b.role for b in c.discord_bots}, {"maomao": "ju", "jingyu": "jing", "caihongmao": "mao"})
+        self.assertTrue(c.discord_play)
+        self.assertTrue(c.discord_relay)
+        self.assertEqual(c.discord_channel, "1561249071144894544")
 
 
 if __name__ == "__main__":

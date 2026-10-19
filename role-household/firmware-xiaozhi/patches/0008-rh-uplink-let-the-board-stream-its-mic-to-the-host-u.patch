@@ -1,0 +1,69 @@
+From 37d22120decb32236a4f6a675bd52fe94914ec2e Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Mon, 19 Oct 2026 19:03:24 +0900
+Subject: [PATCH 08/14] rh-uplink: let the board stream its mic to the host
+ (uplink on, always listen when idle); built, not flashed
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/Kconfig.projbuild | 16 +++++++++++++++-
+ main/application.cc    |  9 +++++++++
+ 2 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 273925d..54ccf2a 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -28,7 +28,10 @@ config RH_SILENT_LOCAL_SOUNDS
+ 
+ config RH_DISABLE_MIC_UPLINK
+     bool "Disable on-board listening (no microphone upload)"
+-    default y
++    # rh-uplink: default n -- the host now decodes the board's microphone (role-household rh/board_mic.py)
++    # and runs it through the same wake word / pause / mute / ASR chain as the Mac mic.
++    # Source: orchestrator 2026-10-19 "必做「板子收音」…固件放开上行的改动编好但不刷".
++    default n
+     help
+         rh: step one is output-only (speak + facial expression). Any transition
+         to the Listening state is redirected to Idle, so the device never sends
+@@ -68,6 +71,17 @@ config RH_DIAL
+         Source: user 2026-10-19 「那个圆形表盘的那个动画啊，你给它放上去，而不是用现在默认傻逼小智的那个」;
+         review ~/.claude/reviews/rh-board-dial.md (role pushed by host, not fixed in firmware).
+ 
++config RH_ALWAYS_LISTEN
++    bool "Listen whenever idle once the host audio channel is open"
++    depends on RH_HOST_PUSH && !RH_DISABLE_MIC_UPLINK
++    default y
++    help
++        rh: there is no on-board wake word; the host spots the wake words (rh/kws.py) and
++        decides who answers, so the board must stream its microphone without a button press.
++        After the audio channel opens and the board is idle, enter Listening with the default
++        mode (auto stop when AEC is off: no upload while speaking, back to Listening after tts stop).
++        The host drops all board audio while muted (闭麦). Source: same as RH_DISABLE_MIC_UPLINK.
++
+ endmenu
+ 
+ choice
+diff --git a/main/application.cc b/main/application.cc
+index 81eca39..820b570 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -409,6 +409,15 @@ void Application::RhTryOpenChannel() {
+     ESP_LOGI(TAG, "rh: opening audio channel for host push");
+     if (protocol_->OpenAudioChannel()) {
+         DismissAlert();  // clear a "server not connected" error left by an earlier failed try
++#if CONFIG_RH_ALWAYS_LISTEN
++        // rh: stream the mic to the host right away (host-side wake word, see Kconfig RH_ALWAYS_LISTEN).
++        Schedule([this]() {
++            if (GetDeviceState() == kDeviceStateIdle && protocol_->IsAudioChannelOpened()) {
++                ESP_LOGI(TAG, "rh: always listen -> listening");
++                SetListeningMode(GetDefaultListeningMode());
++            }
++        });
++#endif
+     } else {
+         RhScheduleOpenChannel(CONFIG_RH_REOPEN_DELAY_SEC);
+     }
+-- 
+2.54.0 (Apple Git-157)
+

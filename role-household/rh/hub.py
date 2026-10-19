@@ -24,7 +24,7 @@ WebSocket 协议（JSON 文本帧）：
 
 闭麦（用户 2026-10-19「我没有一个闭麦按钮，或者我希望可以语音闭麦」）：开关存在库里（hub 重启不丢），
     网页按钮或主机（语音「闭麦」「开麦」）POST /api/mic {"on": bool}；hub 推给所有连接 {"type":"mic","on":...}，
-    ready 帧里也带 mic。主机收到 on=false 就停掉正在说的、不再收音（只认「开麦」）。
+    ready 帧里也带 mic。主机收到 on=false 就停掉正在说的、不再收音（只认「开麦」「暂停」「闭麦」）。
 板子音量（用户 2026-10-19「声音太小了，预期可以我通过语音让它调大，或者说我在这个网页端可以调大」）：
     主机 -> {"type":"volumes","volumes":{角色: 0-100}}（在线板子的音量），hub 记下推给网页（ready 帧里也带 volumes）；
     网页滑条 POST /api/volume {"role", "volume": 0-100}，hub 转给主机 {"type":"volume","role","volume"}，主机经 MCP 调板子。

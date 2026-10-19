@@ -1,0 +1,978 @@
+From 01336814aac47204a68b7cc33423198894662c51 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Tue, 20 Oct 2026 04:14:41 +0900
+Subject: [PATCH 11/14] =?UTF-8?q?rh:=20=E8=A1=A8=E7=9B=98=E7=AC=AC?=
+ =?UTF-8?q?=E4=BA=8C=E6=AD=A5=EF=BC=9A=E5=8F=A0=E5=8A=A0=E5=B1=82=E6=8D=A2?=
+ =?UTF-8?q?=E6=88=90=20conest=20=E5=85=B1=E7=94=A8=E7=BB=84=E4=BB=B6=20cn?=
+ =?UTF-8?q?=5Fdial=5Flvgl=EF=BC=88DialOverlay=EF=BC=89=EF=BC=8C=E5=A4=B4?=
+ =?UTF-8?q?=E5=83=8F=E6=8C=89=E7=94=BB=E5=B8=83=E8=BE=B9=E9=95=BF=EF=BC=8C?=
+ =?UTF-8?q?=E5=B8=A6=E4=B8=8A=E7=86=84=E5=B1=8F?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 名牌、状态胶囊（音柱/跳点/停止方块/被打断）、电量弧、字幕气泡、工作状态都由 conest firmware/dial
+  cn_dial_lvgl 的 DialOverlay 画（conest 0006/0010 的位置与数值）；RhDialDisplay 只接线：主机 rh_dial 的
+  name/live/state/conest_status.busy、tts 句子 -> 气泡；自己只剩头像、高光、圆边环
+- 1.28 板 battery=unknown：不建电量弧
+- 头像按 DialMetrics::canvas() 要图（?size=短边）、放在画布位置，长方屏边带是表盘背景色；高光扫画布
+- 熄屏（来自 24afeb5，conest 0011）：空闲 120 秒背光淡出 400ms 后关屏、停动画；触摸/BOOT/说话/字幕唤醒，
+  唤醒那一下不切对话；常听时 Listening 算空闲；不自动关机（分不清电池/USB）
+- main/idf_component.yml：cn_dial 与 cn_dial_lvgl 都锁 conest main a9f7ae8（PR #134）；
+  RH_DIAL 的依赖要靠 manifest 进 main（CMake 里按 CONFIG_RH_DIAL 加不进去）
+- CMakeLists.txt 注释：CN_DIAL_COMPONENTS 本地覆盖实测不生效（manifest 里的 managed 副本优先）
+未刷板。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                                |   4 +
+ main/CMakeLists.txt                           |   8 +-
+ main/application.cc                           |  25 ++
+ .../sp-esp32-s3-1.28-box.cc                   |  88 ++++-
+ main/display/display.h                        |   1 +
+ main/display/rh_dial_display.cc               | 316 ++++++------------
+ main/display/rh_dial_display.h                |  45 ++-
+ main/idf_component.yml                        |  22 +-
+ 8 files changed, 245 insertions(+), 264 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f9ca3cf..a439328 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -12,6 +12,10 @@ add_compile_options(-Wno-missing-field-initializers)
+ # firmware/dial/components: -DCN_DIAL_COMPONENTS=... (cache variable, wins) or the environment
+ # variable of the same name (used when no -D/cache value is set). EXTRA_COMPONENT_DIRS outranks
+ # managed_components (ESP-IDF build-system.rst "Multiple Components with the Same Name").
++# Not true in practice (2026-10-20, IDF v6.1, branch rh-dial-step2): with CN_DIAL_COMPONENTS set the
++# build still used managed_components/cn_dial (build/project_description.json), because
++# main/idf_component.yml lists it; to try an unmerged conest change, pin both git deps there to the
++# pushed branch commit instead.
+ set(_rh_cn_dial_dir "")
+ if(DEFINED CACHE{CN_DIAL_COMPONENTS} AND NOT "$CACHE{CN_DIAL_COMPONENTS}" STREQUAL "")
+     set(_rh_cn_dial_dir "$CACHE{CN_DIAL_COMPONENTS}")
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index 35ea2cf..93716ed 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -1114,10 +1114,12 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT AND IDF_VERSION_MAJOR LESS 6)
+         espressif__touch_button_sensor
+     )
+ endif()
+-# rh: the role dial's screen profile / size maths (cn_dial, conest firmware/dial; fetched by
+-# main/idf_component.yml only when CONFIG_RH_DIAL). Other boards do not need conest.
++# rh: the role dial's screen profile / size maths (cn_dial) and the overlay drawn over the
++# character (cn_dial_lvgl: name tag, status chip, battery arc, speech bubble), both from conest
++# firmware/dial; fetched by main/idf_component.yml only when CONFIG_RH_DIAL. Other boards do not
++# need conest.
+ if(CONFIG_RH_DIAL)
+-    list(APPEND MAIN_PRIV_REQUIRES_EXTRA cn_dial)
++    list(APPEND MAIN_PRIV_REQUIRES_EXTRA cn_dial cn_dial_lvgl)
+ endif()
+ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
+     list(APPEND MAIN_PRIV_REQUIRES_EXTRA
+diff --git a/main/application.cc b/main/application.cc
+index 820b570..db07a85 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -1397,17 +1397,42 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
+ }
+ 
+ bool Application::CanEnterSleepMode() {
++#if CONFIG_RH_ALWAYS_LISTEN
++    // rh: the board rests in Listening (it streams the mic to the host whenever idle), so resting
++    // Listening counts as idle here; the dial below says whether the role is doing anything.
++    if (GetDeviceState() != kDeviceStateIdle && GetDeviceState() != kDeviceStateListening) {
++        return false;
++    }
++#else
+     if (GetDeviceState() != kDeviceStateIdle) {
+         return false;
+     }
++#endif
+ 
++#if !CONFIG_RH_HOST_PUSH
++    // conest patch 0011: with host push the audio channel stays open all the time.
+     if (protocol_ && protocol_->IsAudioChannelOpened()) {
+         return false;
+     }
++#endif
+ 
++#if CONFIG_RH_ALWAYS_LISTEN
++    // Streaming mic packets pass through the encode queue all the time; only playback matters.
++    if (!audio_service_.IsPlaybackIdle()) {
++        return false;
++    }
++#else
+     if (!audio_service_.IsIdle()) {
+         return false;
+     }
++#endif
++
++#if CONFIG_RH_DIAL
++    // rh: the role is thinking / speaking / was just interrupted (host-pushed dial state).
++    if (!Board::GetInstance().GetDisplay()->RhDialIdle()) {
++        return false;
++    }
++#endif
+ 
+     // Now it is safe to enter sleep mode
+     return true;
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc b/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
+index 21fe2fb..0288029 100644
+--- a/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
+@@ -28,6 +28,8 @@
+ #include "freertos/task.h"
+ #include "power_manager.h"
+ 
++#include <atomic>
++
+ #define TAG "Spotpear_ESP32_S3_1_28_BOX"
+ 
+ LV_FONT_DECLARE(font_noto_sans_basic_16_4);
+@@ -156,18 +158,63 @@ private:
+     PowerSaveTimer* power_save_timer_ = nullptr;
+     esp_lcd_panel_handle_t panel_ = nullptr;
+     PowerManager* power_manager_ = nullptr;
++    // conest patch 0011: screen fade-out timer and sleep flag.
++    esp_timer_handle_t sleep_fade_timer_ = nullptr;
++    std::atomic<bool> is_sleeping_{false};
++    // rh: a touch / BOOT press that only lit the dark screen does not also toggle the chat.
++    bool boot_wake_only_ = false;
++
++    // conest patch 0011 OnUserActivity(): touch or BOOT lights the screen within a second.
++    void OnUserActivity() {
++        // The touch timer starts before the power save timer exists (constructor order).
++        Application::GetInstance().Schedule([this]() {
++            if (power_save_timer_) power_save_timer_->WakeUp();
++        });
++    }
+ 
++    // Screen off after 120 s idle (conest patch 0011: PowerSaveTimer(-1, 120, 600), fade the
++    // backlight to 0, 400 ms later switch the panel off and stop the animation). Idle = the dial
++    // shows idle and nothing is playing (Application::CanEnterSleepMode); it now also works on USB
++    // power, as in 0011 (the timer is no longer switched off while charging).
++    // No auto power-off (0011's 600 s on battery): this board only has a charge-status pin and a
++    // battery ADC (power_manager.h IsDischarging(): "没有区分充电和放电"), so "on battery" cannot be
++    // told from "on USB, battery full"; the old shutdown here is a deep sleep with no wake-up
++    // source, which would take a USB-powered board off the host until someone resets it.
+     void InitializePowerSaveTimer() {
+         rtc_gpio_init(GPIO_NUM_3);
+         rtc_gpio_set_direction(GPIO_NUM_3, RTC_GPIO_MODE_OUTPUT_ONLY);
+         rtc_gpio_set_level(GPIO_NUM_3, 1);
+ 
+-        power_save_timer_ = new PowerSaveTimer(-1, 60, 290);
++        power_save_timer_ = new PowerSaveTimer(-1, 120, -1);
+         power_save_timer_->OnEnterSleepMode([this]() {
+-            GetDisplay()->SetPowerSaveMode(true);
+-            GetBacklight()->SetBrightness(1);
++            ESP_LOGI(TAG, "Entering sleep mode: fading out screen");
++            is_sleeping_ = true;
++            GetBacklight()->SetBrightness(0);
++            if (sleep_fade_timer_ == nullptr) {
++                esp_timer_create_args_t timer_args = {
++                    .callback = [](void* arg) {
++                        auto self = static_cast<Spotpear_ESP32_S3_1_28_BOX*>(arg);
++                        Application::GetInstance().Schedule([self]() {
++                            if (self->is_sleeping_) {
++                                self->GetDisplay()->SetPowerSaveMode(true);
++                            }
++                        });
++                    },
++                    .arg = this,
++                    .dispatch_method = ESP_TIMER_TASK,
++                    .name = "sleep_fade",
++                    .skip_unhandled_events = true,
++                };
++                ESP_ERROR_CHECK(esp_timer_create(&timer_args, &sleep_fade_timer_));
++            }
++            esp_timer_start_once(sleep_fade_timer_, 400000);  // conest 0011: 400 ms 淡出后关屏
+         });
+         power_save_timer_->OnExitSleepMode([this]() {
++            ESP_LOGI(TAG, "Exiting sleep mode: restoring screen");
++            is_sleeping_ = false;
++            if (sleep_fade_timer_ != nullptr) {
++                esp_timer_stop(sleep_fade_timer_);
++            }
+             GetDisplay()->SetPowerSaveMode(false);
+             GetBacklight()->RestoreBrightness();
+         });
+@@ -190,13 +237,8 @@ private:
+ 
+     void InitializePowerManager() {
+         power_manager_ = new PowerManager(BATTERY_CHARGING_PIN, ADC_CHANNEL_0);
+-        power_manager_->OnChargingStatusChanged([this](bool is_charging) {
+-            if (is_charging) {
+-                power_save_timer_->SetEnabled(false);
+-            } else {
+-                power_save_timer_->SetEnabled(true);
+-            }
+-        });
++        // conest patch 0011: the screen also sleeps on USB power, so charging no longer turns the
++        // power save timer off (it was the only switch; GetBatteryLevel() below did the same).
+     }
+ 
+     void InitializeCodecI2c() {
+@@ -248,15 +290,23 @@ private:
+         board->cst816d_->UpdateTouchPoint();
+         auto touch_point = board->cst816d_->GetTouchPoint();
+ 
++        static bool wake_only = false;
++
+         // 检测触摸开始
+         if (touch_point.num > 0 && !was_touched) {
+             was_touched = true;
+             touch_start_time = esp_timer_get_time() / 1000; // 转换为毫秒
++            wake_only = board->is_sleeping_;
++            board->OnUserActivity();
+         }
+         // 检测触摸释放
+         else if (touch_point.num == 0 && was_touched) {
+             was_touched = false;
+             int64_t touch_duration = (esp_timer_get_time() / 1000) - touch_start_time;
++            if (wake_only) {  // this tap only lit the screen
++                wake_only = false;
++                return;
++            }
+ 
+             // 只有短触才触发
+             if (touch_duration < TOUCH_THRESHOLD_MS) {
+@@ -384,7 +434,15 @@ private:
+     }
+ 
+     void InitializeButtons() {
++        boot_button_.OnPressDown([this]() {
++            boot_wake_only_ = is_sleeping_;
++            OnUserActivity();
++        });
+         boot_button_.OnClick([this]() {
++            if (boot_wake_only_) {  // this press only lit the screen
++                boot_wake_only_ = false;
++                return;
++            }
+             auto& app = Application::GetInstance();
+             // During startup (before connected), pressing BOOT button enters Wi-Fi config mode without reboot
+             if (app.GetDeviceState() == kDeviceStateStarting) {
+@@ -418,6 +476,11 @@ public:
+     }
+ 
+     ~Spotpear_ESP32_S3_1_28_BOX() {
++        if (sleep_fade_timer_ != nullptr) {
++            esp_timer_stop(sleep_fade_timer_);
++            esp_timer_delete(sleep_fade_timer_);
++            sleep_fade_timer_ = nullptr;
++        }
+         if (touchpad_timer_) {
+             esp_timer_stop(touchpad_timer_);
+             esp_timer_delete(touchpad_timer_);
+@@ -483,13 +546,8 @@ public:
+             return false;
+         }
+         
+-        static bool last_discharging = false;
+         charging = power_manager_->IsCharging();
+         discharging = power_manager_->IsDischarging();
+-        if (discharging != last_discharging) {
+-            power_save_timer_->SetEnabled(discharging);
+-            last_discharging = discharging;
+-        }
+         level = power_manager_->GetBatteryLevel();
+         return true;
+     }
+diff --git a/main/display/display.h b/main/display/display.h
+index 1d14a2c..b46db63 100644
+--- a/main/display/display.h
++++ b/main/display/display.h
+@@ -96,6 +96,7 @@ public:
+     // What this screen is (size, shape, fonts, ...), sent to the host in hello as "display".
+     // nullptr: the display has no profile and hello carries no "display".
+     virtual const cn_dial::ScreenProfile* GetScreenProfile() const { return nullptr; }
++    virtual bool RhDialIdle() { return true; }                  // dial shows idle (sleep allowed)
+ 
+     inline int width() const { return width_; }
+     inline int height() const { return height_; }
+diff --git a/main/display/rh_dial_display.cc b/main/display/rh_dial_display.cc
+index 0d7ad5e..a80c176 100644
+--- a/main/display/rh_dial_display.cc
++++ b/main/display/rh_dial_display.cc
+@@ -1,5 +1,6 @@
+-// rh dial: see rh_dial_display.h. Look and timing follow ~/code/role-household rh/static/dial.html
+-// (the hub's 466x466 web dial); pixel sizes there go through cn_dial (DialMetrics, canvas/466).
++// rh dial: see rh_dial_display.h. Avatar, glint and edge ring follow ~/code/role-household
++// rh/static/dial.html (the hub's 466x466 web dial); pixel sizes go through cn_dial (DialMetrics,
++// canvas/466). Everything over the character is cn_dial::DialOverlay (conest firmware/dial).
+ #include "rh_dial_display.h"
+ 
+ #if CONFIG_RH_DIAL
+@@ -13,6 +14,7 @@
+ #include <cn_dial/dial_layout_v1.h>
+ #include <src/misc/cache/instance/lv_image_cache.h>  // lv_image_cache_drop (not exported by lvgl.h)
+ #include <esp_heap_caps.h>
++#include <esp_lcd_panel_ops.h>
+ #include <esp_log.h>
+ #include <esp_timer.h>
+ #include <freertos/task.h>
+@@ -30,41 +32,33 @@ std::atomic<int64_t> g_rh_out_level_us{0};
+ namespace {
+ 
+ // Colours from dial.html.
++// kScreenBg also fills the bands of a non-square screen around the canvas (design doc 5.1 rule 3).
+ constexpr uint32_t kScreenBg = 0x1b1d21;   // .screen background
+-constexpr uint32_t kPillBg = 0x1c1e22;     // .pill rgba(28,30,34,.62)
+-constexpr lv_opa_t kPillBgOpa = 158;       //   .62 * 255
+-constexpr lv_opa_t kPillBorderOpa = 36;    // .pill border rgba(255,255,255,.14)
+-constexpr uint32_t kDotIdle = 0x8a8f98;    // .pill.name .dot
+-constexpr uint32_t kGreen = 0x3ecf8e;      // live dot, speaking bars
+-constexpr uint32_t kRed = 0xf05454;        // interrupted ring, stop square
++constexpr uint32_t kRed = 0xf05454;        // interrupted ring
+ constexpr uint32_t kUnknownRole = 0x9aa0a6;  // dial.html colour for a role it has no preset for
+ 
+ // Timings from dial.html (ms).
+ constexpr float kBreatheIdleMs = 4600;   // @keyframes breathe, idle
+ constexpr float kGlintMs = 9000;         // @keyframes glint
+ constexpr float kSpinMs = 1600;          // thinking ring spin (linear, like the web)
+-constexpr float kDotMs = 1100;           // thinking dots
+ // Animation timer and display refresh period. 30, not 33: an lv_timer that runs late restarts its
+ // period from the late run, so 33 ms gave 25.7 runs/s on the board (2026-10-19, FreeRTOS 1000 Hz).
+ constexpr uint32_t kFrameMs = 30;
+ // Smoothing time constants (ms) of the one-pole "follow" filters below. Each is about a third of
+ // the matching CSS transition so the move is ~95% done when the web one ends: .face opacity .6s,
+-// .pill.status .25s, .ring .3s, .face filter .3s. Level attack/release: implementer's pick so
+-// the glow follows syllables (60 ms Opus frames) without flicker.
+-constexpr float kTauFace = 200, kTauPill = 85, kTauRing = 100, kTauGray = 100;
+-constexpr float kTauLevelUp = 50, kTauLevelDown = 160, kTauBar = 60;
++// .ring .3s, .face filter .3s. Level attack/release: implementer's pick so the glow follows
++// syllables (60 ms Opus frames) without flicker.
++constexpr float kTauFace = 200, kTauRing = 100, kTauGray = 100;
++constexpr float kTauLevelUp = 50, kTauLevelDown = 160;
+ // Real audio level counts as "current" this long after the last played chunk; after that the
+ // synthetic wave of dial.html level() is used (between sentences, or before audio arrives).
+ // Source: implementer's pick, a few 60 ms frames.
+ constexpr int64_t kLevelFreshUs = 300 * 1000;
+ 
+-// Sizes (pills, bars, dots, ring widths) are not here: they come from cn_dial (conest
+-// firmware/dial/layout/dial-layout.v1.json, rh_dial.* items), see RhDialDisplay::MakeSizes. Pills:
+-// the board's smallest CJK font is 16 px (web 17 px), so pill contents keep the web's px sizes
+-// (x16/17) as their 240 px floor (min_px), not the width/466 scale -- at 240 px the web text would
+-// be 9 px. Idle halo and speaking glow are new on the board (the web glows outside the bezel,
+-// which the board has not); their widths were picked by eye on the 240 board 2026-10-19 and do not
+-// scale yet (fixed_px).
++// Ring sizes are not here: they come from cn_dial (conest firmware/dial/layout/dial-layout.v1.json,
++// rh_dial.* items), see RhDialDisplay::MakeSizes. Idle halo and speaking glow are new on the board
++// (the web glows outside the bezel, which the board has not); their widths were picked by eye on
++// the 240 board 2026-10-19 and do not scale yet (fixed_px).
+ constexpr float kHaloOpaMin = .18f, kHaloOpaMax = .5f;
+ 
+ // Glint: dial.html .glint = linear-gradient(115deg, transparent 38%, white .16 at 48%, transparent
+@@ -74,7 +68,6 @@ constexpr lv_opa_t kGlintPeak = 41;   // .16 * 255
+ 
+ float Clamp01(float v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+ float Smooth(float u) { u = Clamp01(u); return u * u * (3 - 2 * u); }  // ease-in-out
+-// 0 -> 1 -> 0 over one period, eased (CSS ease-in-out keyframes 0%,50%,100%).
+ // t is milliseconds since boot as a double (exact for centuries): each cycle is reduced by its own
+ // period in double, so phases stay continuous (no hourly wrap jump) and keep float precision.
+ float Cyc(double t, float period) { return (float)fmod(t, period); }  // [0, period)
+@@ -82,9 +75,6 @@ float Ang(double t, float div) { return (float)fmod(t / div, 2 * M_PI); }  // t/
+ float Wave(double t, float period) { return (1 - cosf(2 * (float)M_PI * Cyc(t, period) / period)) / 2; }
+ // One-pole low-pass: moves towards target fast first, then slowly (ease-out), frame-rate independent.
+ float Follow(float cur, float target, float dt, float tau) { return cur + (target - cur) * (1 - expf(-dt / tau)); }
+-lv_color_t Mix(lv_color_t a, lv_color_t b, float t) {  // t=0 -> a, t=1 -> b
+-    return lv_color_mix(b, a, (lv_opa_t)(Clamp01(t) * 255));
+-}
+ 
+ // Set a local style property only when it changes: setting one always invalidates the object,
+ // and the timer runs every frame.
+@@ -109,35 +99,6 @@ void Plain(lv_obj_t* o) {
+     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+ }
+ 
+-lv_obj_t* Pill(lv_obj_t* parent, int pad_ver, int pad_hor, int gap, int border) {
+-    lv_obj_t* p = lv_obj_create(parent);
+-    Plain(p);
+-    lv_obj_set_size(p, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+-    lv_obj_set_style_radius(p, LV_RADIUS_CIRCLE, 0);
+-    lv_obj_set_style_bg_color(p, lv_color_hex(kPillBg), 0);
+-    lv_obj_set_style_bg_opa(p, kPillBgOpa, 0);
+-    lv_obj_set_style_border_color(p, lv_color_white(), 0);
+-    lv_obj_set_style_border_opa(p, kPillBorderOpa, 0);
+-    lv_obj_set_style_border_width(p, border, 0);
+-    lv_obj_set_style_pad_ver(p, pad_ver, 0);
+-    lv_obj_set_style_pad_hor(p, pad_hor, 0);
+-    lv_obj_set_style_text_color(p, lv_color_white(), 0);
+-    lv_obj_set_flex_flow(p, LV_FLEX_FLOW_ROW);
+-    lv_obj_set_flex_align(p, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+-    lv_obj_set_style_pad_column(p, gap, 0);
+-    return p;
+-}
+-
+-lv_obj_t* Box(lv_obj_t* parent, int w, int h, uint32_t color, int radius) {
+-    lv_obj_t* o = lv_obj_create(parent);
+-    Plain(o);
+-    lv_obj_set_size(o, w, h);
+-    lv_obj_set_style_radius(o, radius, 0);
+-    lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
+-    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+-    return o;
+-}
+-
+ void Show(lv_obj_t* o, bool on) {
+     if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+     else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+@@ -157,6 +118,7 @@ RhDialDisplay::RhDialDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
+       metrics_(PanelProfile(screen, width, height)),
+       sz_(MakeSizes(metrics_)),
+       usable_(metrics_.profile().Valid() && metrics_.Supported()),
++      overlay_(metrics_),
+       ring_upto_(sz_.ring_max + 1, 0) {
+     const char* why = nullptr;
+     if (!metrics_.profile().Valid(&why)) {
+@@ -165,8 +127,8 @@ RhDialDisplay::RhDialDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
+         ESP_LOGE(TAG, "rh dial: short side %d px is below cn_dial's minimum %d px, no dial", metrics_.canvas(),
+                  cn_dial::layout::kMinShortSide);
+     }
+-    // Pill text uses the board's theme font; the web pill font is 17 px (see the sizes note above).
+-    if (!metrics_.pick_font(17).on_board) {
++    // Overlay text uses the board's theme font (cn_dial layout pill.text, conest's 14 px design).
++    if (!metrics_.pick_font(cn_dial::layout::kPillText.design_px).on_board) {
+         ESP_LOGW(TAG, "rh dial: the board has no font >= %d px (font_min_px); text may be too small",
+                  metrics_.profile().font_min_px);
+     }
+@@ -187,23 +149,6 @@ cn_dial::ScreenProfile RhDialDisplay::PanelProfile(cn_dial::ScreenProfile p, int
+ RhDialDisplay::Sizes RhDialDisplay::MakeSizes(const cn_dial::DialMetrics& m) {
+     namespace L = cn_dial::layout;
+     Sizes z{};
+-    z.name_top = m.px(L::kRhDialNameTagTop);
+-    z.status_bottom = m.px(L::kRhDialStatusChipBottom);
+-    z.pad_ver = m.px(L::kRhDialPillPadVer);
+-    z.pad_hor = m.px(L::kRhDialPillPadHor);
+-    z.gap = m.px(L::kRhDialPillGap);
+-    z.border = m.px(L::kRhDialPillBorder);
+-    z.name_dot = m.px(L::kRhDialNameDot);
+-    z.name_glow_extra = m.px(L::kRhDialNameGlowExtra);
+-    z.bar_w = m.px(L::kRhDialBarWidth);
+-    z.bar_h = m.px(L::kRhDialBarHeight);
+-    z.bar_gap = m.px(L::kRhDialBarGap);
+-    z.bar_r = m.px(L::kRhDialBarRadius);
+-    z.dot = m.px(L::kRhDialDotSize);
+-    z.dot_gap = m.px(L::kRhDialDotGap);
+-    z.dot_jump = m.px(L::kRhDialDotJump);
+-    z.stop = m.px(L::kRhDialStopSize);
+-    z.stop_r = m.px(L::kRhDialStopRadius);
+     z.ring_w = m.px(L::kRhDialRingWidth);
+     z.halo_min = m.px(L::kRhDialHaloMin);
+     z.halo_max = m.px(L::kRhDialHaloMax);
+@@ -218,11 +163,12 @@ RhDialDisplay::~RhDialDisplay() {
+     if (glint_px_) heap_caps_free(glint_px_);
+ }
+ 
+-// One strip of the tilted glint band (ARGB8888, straight alpha), reused for every strip.
++// One strip of the tilted glint band (ARGB8888, straight alpha), reused for every strip. The band
++// sweeps the canvas (the avatar), not the bands of a non-square screen.
+ void RhDialDisplay::BuildGlint() {
+-    const int W = width_, H = height_;
+-    const int strip_h = H / kGlintStrips;
+-    const float half = W / 4.0f;  // band half width
++    const int C = metrics_.canvas();
++    const int strip_h = C / kGlintStrips;
++    const float half = C / 4.0f;  // band half width
+     const int sw = (int)ceilf(2 * half + strip_h * kGlintTan) + 2;
+     glint_px_ = static_cast<uint8_t*>(heap_caps_malloc(sw * strip_h * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+     if (glint_px_ == nullptr) return;
+@@ -249,6 +195,7 @@ void RhDialDisplay::SetupUI() {
+     if (!usable_) return;      // logged in the constructor; dial_ stays nullptr, every entry point checks it
+     DisplayLockGuard lock(this);
+     const int W = width_, H = height_;
++    const int C = metrics_.canvas();
+ 
+     dial_ = lv_obj_create(lv_screen_active());
+     Plain(dial_);
+@@ -257,12 +204,14 @@ void RhDialDisplay::SetupUI() {
+     lv_obj_set_style_bg_opa(dial_, LV_OPA_COVER, 0);
+     lv_obj_set_style_text_color(dial_, lv_color_white(), 0);
+ 
+-    // Faces: still pictures. The thinking one only exists when the host sends a different picture.
++    // Faces: still pictures, canvas-sized (short side) on the canvas; on a non-square screen the
++    // bands around it show the dial background. The thinking one only exists when the host sends
++    // a different picture.
+     for (lv_obj_t** f : {&face_base_, &face_think_}) {
+         *f = lv_image_create(dial_);
+         lv_obj_remove_flag(*f, LV_OBJ_FLAG_CLICKABLE);
+-        lv_obj_set_size(*f, W, H);
+-        lv_obj_center(*f);
++        lv_obj_set_size(*f, C, C);
++        lv_obj_set_pos(*f, metrics_.canvas_x(), metrics_.canvas_y());
+     }
+     Show(face_think_, false);
+ 
+@@ -271,7 +220,7 @@ void RhDialDisplay::SetupUI() {
+         glint_[i] = lv_image_create(dial_);
+         lv_obj_remove_flag(glint_[i], LV_OBJ_FLAG_CLICKABLE);
+         if (glint_px_) lv_image_set_src(glint_[i], &glint_dsc_);
+-        lv_obj_set_y(glint_[i], i * (H / kGlintStrips));
++        lv_obj_set_y(glint_[i], metrics_.canvas_y() + i * (C / kGlintStrips));
+         Show(glint_[i], false);
+     }
+ 
+@@ -282,35 +231,12 @@ void RhDialDisplay::SetupUI() {
+     lv_obj_center(edge_);
+     lv_obj_add_event_cb(edge_, EdgeDrawCb, LV_EVENT_DRAW_MAIN, this);
+ 
+-    // Name pill (top 7% of the canvas).
+-    name_pill_ = Pill(dial_, sz_.pad_ver, sz_.pad_hor, sz_.gap, sz_.border);
+-    lv_obj_align(name_pill_, LV_ALIGN_TOP_MID, 0, metrics_.top_mid_y(sz_.name_top));
+-    name_dot_ = Box(name_pill_, sz_.name_dot, sz_.name_dot, kDotIdle, LV_RADIUS_CIRCLE);
+-    // .card.live .dot glow (box-shadow 0 0 6px): a soft disc behind the dot instead of an LVGL
+-    // shadow, which is blurred again on every redraw (no shadow cache in this build).
+-    name_glow_ = Box(dial_, sz_.name_dot + sz_.name_glow_extra, sz_.name_dot + sz_.name_glow_extra, kGreen,
+-                     LV_RADIUS_CIRCLE);
+-    lv_obj_add_flag(name_glow_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+-    lv_obj_set_style_bg_opa(name_glow_, 70, 0);
+-    Show(name_glow_, false);
+-    name_label_ = lv_label_create(name_pill_);
+-    lv_label_set_text(name_label_, "等待主机");
+-
+-    // Status pill (bottom 13% of the canvas): bars | dots | stop + text.
+-    status_pill_ = Pill(dial_, sz_.pad_ver, sz_.pad_hor, sz_.gap, sz_.border);
+-    lv_obj_align(status_pill_, LV_ALIGN_BOTTOM_MID, 0, -(metrics_.band_bottom() + sz_.status_bottom));
+-    bars_ = lv_obj_create(status_pill_);
+-    Plain(bars_);
+-    lv_obj_set_size(bars_, kBars * sz_.bar_w + (kBars - 1) * sz_.bar_gap, sz_.bar_h);
+-    lv_obj_add_event_cb(bars_, BarsDrawCb, LV_EVENT_DRAW_MAIN, this);
+-    dots_ = lv_obj_create(status_pill_);
+-    Plain(dots_);
+-    lv_obj_set_size(dots_, kDots * sz_.dot + (kDots - 1) * sz_.dot_gap, sz_.dot + sz_.dot_jump);
+-    lv_obj_add_event_cb(dots_, DotsDrawCb, LV_EVENT_DRAW_MAIN, this);
+-    stop_ = Box(status_pill_, sz_.stop, sz_.stop, kRed, sz_.stop_r);
+-    status_label_ = lv_label_create(status_pill_);
+-    lv_label_set_text(status_label_, "");
+-    lv_obj_set_style_opa(status_pill_, LV_OPA_TRANSP, 0);
++    // Name tag, status chip, battery arc (only with a battery gauge), speech bubble, work status.
++    overlay_.Create(dial_, [](int& level, bool& charging) {
++        bool discharging = false;
++        return Board::GetInstance().GetBatteryLevel(level, charging, discharging);
++    });
++    overlay_.SetName("等待主机");
+ 
+     SetState(kIdle);
+     lv_obj_move_foreground(dial_);
+@@ -364,15 +290,11 @@ void RhDialDisplay::TickCb(lv_timer_t* t) { static_cast<RhDialDisplay*>(lv_timer
+ void RhDialDisplay::SetState(State s) {
+     if (stat_since_ms_) ReportStats(esp_timer_get_time() / 1000, "state");
+     state_ = s;
++    dial_idle_.store(s == kIdle);
+     state_since_ms_ = esp_timer_get_time() / 1000;
+-    static const char* text[] = {"", "思考中", "正在回答", "被打断"};  // dial.html STATUS_TEXT
+-    // Keep the old content while the pill fades out to idle.
+-    if (s != kIdle) {
+-        lv_label_set_text(status_label_, text[s]);
+-        Show(bars_, s == kSpeaking);
+-        Show(dots_, s == kThinking);
+-        Show(stop_, s == kInterrupted);
+-    }
++    using Chip = cn_dial::DialOverlay::Chip;
++    static const Chip chip[] = {Chip::kNone, Chip::kThinking, Chip::kSpeaking, Chip::kInterrupted};
++    overlay_.SetChip(chip[s]);
+     if (s != kIdle) {
+         for (auto g : glint_) Show(g, false);
+     }
+@@ -506,51 +428,8 @@ void RhDialDisplay::EdgeDrawCb(lv_event_t* e) {
+     }
+ }
+ 
+-void RhDialDisplay::BarsDrawCb(lv_event_t* e) {
+-    auto self = static_cast<RhDialDisplay*>(lv_event_get_user_data(e));
+-    lv_layer_t* layer = lv_event_get_layer(e);
+-    lv_area_t c;
+-    lv_obj_get_coords(self->bars_, &c);
+-    lv_draw_rect_dsc_t d;
+-    lv_draw_rect_dsc_init(&d);
+-    d.bg_color = lv_color_hex(kGreen);
+-    const Sizes& z = self->sz_;
+-    d.radius = z.bar_r;
+-    for (int i = 0; i < kBars; i++) {
+-        int h = std::max(2, (int)lroundf(z.bar_h * self->bar_h_[i]));
+-        lv_area_t a;
+-        a.x1 = c.x1 + i * (z.bar_w + z.bar_gap);
+-        a.x2 = a.x1 + z.bar_w - 1;
+-        a.y1 = c.y1 + (z.bar_h - h) / 2;
+-        a.y2 = a.y1 + h - 1;
+-        lv_draw_rect(layer, &d, &a);
+-    }
+-}
+-
+-void RhDialDisplay::DotsDrawCb(lv_event_t* e) {
+-    auto self = static_cast<RhDialDisplay*>(lv_event_get_user_data(e));
+-    lv_layer_t* layer = lv_event_get_layer(e);
+-    lv_area_t c;
+-    lv_obj_get_coords(self->dots_, &c);
+-    lv_draw_rect_dsc_t d;
+-    lv_draw_rect_dsc_init(&d);
+-    d.bg_color = lv_color_white();
+-    d.radius = LV_RADIUS_CIRCLE;
+-    const Sizes& z = self->sz_;
+-    for (int i = 0; i < kDots; i++) {
+-        float p = self->dot_p_[i];
+-        d.bg_opa = (lv_opa_t)(255 * (.5f + .5f * p));
+-        lv_area_t a;
+-        a.x1 = c.x1 + i * (z.dot + z.dot_gap);
+-        a.x2 = a.x1 + z.dot - 1;
+-        a.y1 = c.y1 + z.dot_jump - (int)lroundf(z.dot_jump * p);
+-        a.y2 = a.y1 + z.dot - 1;
+-        lv_draw_rect(layer, &d, &a);
+-    }
+-}
+-
+ void RhDialDisplay::Tick() {
+-    const int W = width_, H = height_;
++    const int C = metrics_.canvas();
+     int64_t now_us = esp_timer_get_time();
+     int64_t now_ms = now_us / 1000;
+     double t = (double)now_ms;  // ms; reduced per cycle by Cyc/Ang/Wave (see above)
+@@ -629,63 +508,24 @@ void RhDialDisplay::Tick() {
+     Col(face_base_, LV_STYLE_IMAGE_RECOLOR, lv_color_hex(0x3a3a3a));
+     Num(face_base_, LV_STYLE_IMAGE_RECOLOR_OPA, (int32_t)lroundf(gray_ * 6) * 115 / 6);
+ 
+-    // Status pill fade (.25 s like the web), contents switch while it is visible.
+-    status_opa_ = Follow(status_opa_, state_ == kIdle ? 0 : 1, dt, kTauPill);
+-    Num(status_pill_, LV_STYLE_OPA, status_opa_ > .98f ? 255 : (int32_t)lroundf(status_opa_ * 16) * 255 / 16);
+-
+     // Glint: idle only, sweeps during 78%..92% of each 9 s cycle, eased.
+     {
+         float u = Cyc(t, kGlintMs) / kGlintMs;
+         bool on = state_ == kIdle && u >= .78f && u <= .92f && glint_px_;
+-        float cx = (-0.6f + 2.25f * Smooth((u - .78f) / .14f)) * W;  // band centre at mid height
+-        int sh = H / kGlintStrips;
++        // band centre at mid height, across the canvas
++        float cx = metrics_.canvas_x() + (-0.6f + 2.25f * Smooth((u - .78f) / .14f)) * C;
++        int sh = C / kGlintStrips;
+         for (int i = 0; i < kGlintStrips; i++) {
+             if (on) {
+                 float row = i * sh + sh / 2.0f;
+-                Num(glint_[i], LV_STYLE_X, (int32_t)lroundf(cx - (row - H / 2.0f) * kGlintTan - glint_dsc_.header.w / 2.0f));
++                Num(glint_[i], LV_STYLE_X, (int32_t)lroundf(cx - (row - C / 2.0f) * kGlintTan - glint_dsc_.header.w / 2.0f));
+             }
+             if (on != !lv_obj_has_flag(glint_[i], LV_OBJ_FLAG_HIDDEN)) Show(glint_[i], on);
+         }
+     }
+ 
+-    // Speaking bars.
+-    if (state_ == kSpeaking) {
+-        bool changed = false;
+-        for (int i = 0; i < kBars; i++) {
+-            float target = std::max(.2f, std::min(1.0f, lvl_ * (.6f + .5f * fabsf(sinf(Ang(t, 90) + i * 1.7f)))));
+-            float nh = Follow(bar_h_[i], target, dt, kTauBar);
+-            changed |= lroundf(nh * sz_.bar_h) != lroundf(bar_h_[i] * sz_.bar_h);
+-            bar_h_[i] = nh;
+-        }
+-        if (changed) lv_obj_invalidate(bars_);
+-    }
+-
+-    // Thinking dots: 1.1 s bounce, .15 s apart (0,80,100%: y 0 opa .5; 40%: y -5 opa 1), eased.
+-    if (state_ == kThinking) {
+-        bool changed = false;
+-        for (int i = 0; i < kDots; i++) {
+-            float u = Cyc(t - i * 150 + kDotMs * 10, kDotMs) / kDotMs;
+-            float p = u < .4f ? Smooth(u / .4f) : (u < .8f ? Smooth((.8f - u) / .4f) : 0);
+-            changed |= lroundf(p * sz_.dot_jump * 2) != lroundf(dot_p_[i] * sz_.dot_jump * 2);
+-            dot_p_[i] = p;
+-        }
+-        if (changed) lv_obj_invalidate(dots_);
+-    }
+-
+-    // Name dot: grey, green with glow when live; idle pulses with the breathe.
+-    Col(name_dot_, LV_STYLE_BG_COLOR, lv_color_hex(live_ ? kGreen : kDotIdle));
+-    if (live_) {  // follow the dot (the pill re-centres when the name changes)
+-        lv_area_t a;
+-        lv_obj_get_coords(name_dot_, &a);
+-        Num(name_glow_, LV_STYLE_X, a.x1 - sz_.name_glow_extra / 2);
+-        Num(name_glow_, LV_STYLE_Y, a.y1 - sz_.name_glow_extra / 2);
+-    }
+-    if (live_ != !lv_obj_has_flag(name_glow_, LV_OBJ_FLAG_HIDDEN)) {
+-        lv_obj_move_to_index(name_glow_, lv_obj_get_index(name_pill_));  // just under the pill
+-        Show(name_glow_, live_);
+-    }
+-    float pulse = state_ == kIdle ? 1 - .55f * Wave(t, kBreatheIdleMs) : 1;
+-    Num(name_dot_, LV_STYLE_BG_OPA, (int32_t)lroundf(pulse * 32) * 255 / 32);
++    // Name tag, status chip (bars, dots, fade), bubble.
++    overlay_.Tick(t, dt, lvl_);
+ 
+     if (now_ms - stat_since_ms_ >= 30000) ReportStats(now_ms, "periodic");
+ }
+@@ -702,13 +542,22 @@ void RhDialDisplay::RhDial(const cJSON* msg) {
+     const char* avatar = str("avatar");
+     const char* avatar_think = str("avatar_think");
+     auto live = cJSON_GetObjectItem(msg, "live");
++    // conest DECOR.md 3: {"conest_status":{"busy":bool}}, the role's agent is working on a turn.
++    auto status = cJSON_GetObjectItem(msg, "conest_status");
++    auto busy = cJSON_IsObject(status) ? cJSON_GetObjectItem(status, "busy") : nullptr;
++    // conest patch 0011: anything the role does (thinking, speaking, interrupted) lights the screen.
++    if (state && strcmp(state, "idle") != 0) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+     {
+         DisplayLockGuard lock(this);
+         if (dial_ == nullptr) return;
+         if (role) role_ = role;
+-        if (name) lv_label_set_text(name_label_, name);
++        if (name) overlay_.SetName(name);
++        if (cJSON_IsBool(busy)) overlay_.SetBusy(cJSON_IsTrue(busy));
+         if (color && color[0] == '#' && strlen(color) == 7) color_ = lv_color_hex(strtoul(color + 1, nullptr, 16));
+-        if (cJSON_IsBool(live)) live_ = cJSON_IsTrue(live);
++        if (cJSON_IsBool(live)) {
++            live_ = cJSON_IsTrue(live);
++            overlay_.SetLink(live_);
++        }
+         if (state) {
+             State s = strcmp(state, "thinking") == 0      ? kThinking
+                       : strcmp(state, "speaking") == 0    ? kSpeaking
+@@ -731,6 +580,13 @@ void RhDialDisplay::RhDial(const cJSON* msg) {
+ }
+ 
+ void RhDialDisplay::RhDeviceState(int state) {
++    // conest patch 0011: leaving idle lights the screen. With RH_ALWAYS_LISTEN the board rests in
++    // Listening (it streams the mic to the host all the time), so Listening alone does not count.
++    bool active = state != kDeviceStateIdle;
++#if CONFIG_RH_ALWAYS_LISTEN
++    if (state == kDeviceStateListening) active = false;
++#endif
++    if (active) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+     DisplayLockGuard lock(this);
+     if (dial_ == nullptr) return;
+     // Wi-Fi config mode needs the default screen (hotspot name / address instructions).
+@@ -743,7 +599,9 @@ void RhDialDisplay::RhDialLink(bool connected) {
+         DisplayLockGuard lock(this);
+         if (dial_ == nullptr) return;
+         live_ = connected;
++        overlay_.SetLink(connected);
+         if (!connected && state_ != kIdle) SetState(kIdle);
++        if (!connected) overlay_.SetSpeech(nullptr);
+     }
+     if (!connected) {  // fetch the pictures again after reconnecting (the host may have new ones)
+         xSemaphoreTake(dl_mutex_, portMAX_DELAY);
+@@ -753,6 +611,36 @@ void RhDialDisplay::RhDialLink(bool connected) {
+     }
+ }
+ 
++bool RhDialDisplay::RhDialIdle() { return dial_idle_.load(); }
++
++// application.cc delivers each tts "sentence_start" text through SetChatMessage() (main task).
++// Keep the base (hidden) subtitle in sync and mirror the sentence into the bubble (conest 0010).
++void RhDialDisplay::SetChatMessage(const char* role, const char* content) {
++    SpiLcdDisplay::SetChatMessage(role, content);
++    if (role == nullptr || strcmp(role, "assistant") != 0) return;
++    const bool text = content != nullptr && content[0] != '\0';
++    if (text) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);  // conest 0011
++    DisplayLockGuard lock(this);
++    if (dial_ == nullptr) return;
++    overlay_.SetSpeech(text ? content : nullptr);
++}
++
++// conest patch 0011 SetPowerSaveMode: pause the animation (the CNAS player there, the dial timer
++// here) and switch the panel off; on wake resume and redraw everything once.
++void RhDialDisplay::SetPowerSaveMode(bool on) {
++    DisplayLockGuard lock(this);
++    if (timer_) {
++        if (on) {
++            lv_timer_pause(timer_);
++        } else {
++            last_ms_ = esp_timer_get_time() / 1000;  // no jump in the smoothing after the pause
++            lv_timer_resume(timer_);
++        }
++    }
++    if (panel_) esp_lcd_panel_disp_on_off(panel_, !on);
++    if (!on) lv_obj_invalidate(lv_screen_active());
++}
++
+ void RhDialDisplay::RequestAvatars(const std::string& base, const std::string& think) {
+     xSemaphoreTake(dl_mutex_, portMAX_DELAY);
+     want_base_url_ = base;
+@@ -833,12 +721,12 @@ void RhDialDisplay::SetFace(lv_obj_t* img, std::unique_ptr<LvglImage>& slot, std
+     slot = std::move(image);
+ }
+ 
+-// Host serves the picture already sized for this screen as raw little-endian RGB565
+-// (rh/dial.py): no decoder needed on the board.
++// Host serves the picture already sized for the canvas (short side x short side) as raw
++// little-endian RGB565 (rh/dial.py): no decoder needed on the board.
+ std::unique_ptr<LvglImage> RhDialDisplay::Download(const std::string& base_url) {
+-    const int W = width_, H = height_;
+-    const size_t want = (size_t)W * H * 2;
+-    std::string url = base_url + (base_url.find('?') == std::string::npos ? "?" : "&") + "size=" + std::to_string(W);
++    const int C = metrics_.canvas();
++    const size_t want = (size_t)C * C * 2;
++    std::string url = base_url + (base_url.find('?') == std::string::npos ? "?" : "&") + "size=" + std::to_string(C);
+     auto http = Board::GetInstance().GetNetwork()->CreateHttp(3);
+     if (auto opened = http->Open("GET", url); !opened) {
+         ESP_LOGE(TAG, "rh dial: cannot open %s", url.c_str());
+@@ -870,7 +758,7 @@ std::unique_ptr<LvglImage> RhDialDisplay::Download(const std::string& base_url)
+         return nullptr;
+     }
+     ESP_LOGI(TAG, "rh dial: avatar %s (%u bytes)", url.c_str(), (unsigned)got);
+-    return std::make_unique<LvglAllocatedImage>(data, want, W, H, W * 2, LV_COLOR_FORMAT_RGB565);
++    return std::make_unique<LvglAllocatedImage>(data, want, C, C, C * 2, LV_COLOR_FORMAT_RGB565);
+ }
+ 
+ #endif  // CONFIG_RH_DIAL
+diff --git a/main/display/rh_dial_display.h b/main/display/rh_dial_display.h
+index 36d98cd..375b380 100644
+--- a/main/display/rh_dial_display.h
++++ b/main/display/rh_dial_display.h
+@@ -5,6 +5,12 @@
+ // pictures) and the current state come from the host in {"type":"rh_dial",...} messages
+ // (host side: rh/dial.py); the firmware is the same for every board.
+ //
++// What is drawn over the character -- name tag, status chip (with the speaking bars, thinking dots,
++// interrupted stop square), battery arc, speech bubble, work status -- is cn_dial::DialOverlay from
++// the shared conest repo (firmware/dial/components/cn_dial_lvgl, conest's look and numbers). This
++// class only wires it to the host messages and draws what is still role-household's own: the
++// avatar, the glint and the edge ring.
++//
+ // Frame rate: the avatar is a still full-screen picture and never moves; every animation only
+ // touches small areas (the edge ring as a set of tiles, the pills, the glint strips), so a frame
+ // redraws and sends a fraction of the 240x240 screen over SPI. Measured on the board 2026-10-19:
+@@ -16,10 +22,12 @@
+ #include "lvgl_image.h"
+ 
+ #include <cn_dial/dial_metrics.h>   // conest firmware/dial: screen profile + canvas units -> px
++#include <cn_dial/dial_overlay.h>   // conest firmware/dial: name tag, status chip, arc, bubble
+ 
+ #include <freertos/FreeRTOS.h>
+ #include <freertos/semphr.h>
+ 
++#include <atomic>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -36,25 +44,23 @@ public:
+     void RhDeviceState(int state) override;
+     void RhDialLink(bool connected) override;
+     const cn_dial::ScreenProfile* GetScreenProfile() const override { return &metrics_.profile(); }
++    bool RhDialIdle() override;
++    // tts sentence_start text -> speech bubble (conest DECOR.md 2).
++    void SetChatMessage(const char* role, const char* content) override;
++    // Screen off while sleeping (conest patch 0011 SetPowerSaveMode): stop the dial animation and
++    // turn the panel off; the board fades the backlight out first.
++    void SetPowerSaveMode(bool on) override;
+ 
+ private:
+     enum State { kIdle = 0, kThinking, kSpeaking, kInterrupted };
+-    static constexpr int kBars = 5;          // dial.html BAR_N
+-    static constexpr int kDots = 3;
+     static constexpr int kTiles = 16;        // edge ring invalidated as this many small rectangles
+     static constexpr int kGlintStrips = 4;   // tilted glint band built from horizontal strips
+-    // kTiles + 2 * kGlintStrips + a few pill areas must stay under LVGL's LV_INV_BUF_SIZE (32
++    // kTiles + 2 * kGlintStrips + a few overlay areas must stay under LVGL's LV_INV_BUF_SIZE (32
+     // invalid areas per frame); past that LVGL redraws the whole screen.
+ 
+-    // Every size comes from here (cn_dial layout dial-layout.v1.json, rh_dial.* items), not from
+-    // constants in this file.
++    // Ring sizes come from here (cn_dial layout dial-layout.v1.json, rh_dial.* items), not from
++    // constants in this file; the overlay's come from cn_dial::OverlaySizes.
+     struct Sizes {
+-        int name_top, status_bottom;                 // pill offsets from the canvas top / bottom
+-        int pad_ver, pad_hor, gap, border;           // pills
+-        int name_dot, name_glow_extra;
+-        int bar_w, bar_h, bar_gap, bar_r;
+-        int dot, dot_gap, dot_jump;
+-        int stop, stop_r;
+         int ring_w;                                  // thinking / interrupted ring
+         int halo_min, halo_max, glow_min, glow_max;  // idle halo, speaking glow
+         int ring_max;                                // widest thing on the rim (glow_max) + 1 AA px
+@@ -67,26 +73,20 @@ private:
+     // False when the profile is invalid or the screen is below cn_dial's smallest supported short
+     // side (layout min_short_side): then no dial is built and the default UI stays.
+     const bool usable_;
++    cn_dial::DialOverlay overlay_;
+ 
+     lv_obj_t* dial_ = nullptr;
+     lv_obj_t* face_base_ = nullptr;
+     lv_obj_t* face_think_ = nullptr;
+     lv_obj_t* glint_[kGlintStrips] = {};
+     lv_obj_t* edge_ = nullptr;     // custom-drawn: glow band, thinking arc, interrupted ring
+-    lv_obj_t* name_pill_ = nullptr;
+-    lv_obj_t* name_dot_ = nullptr;
+-    lv_obj_t* name_label_ = nullptr;
+-    lv_obj_t* status_pill_ = nullptr;
+-    lv_obj_t* bars_ = nullptr;     // custom-drawn
+-    lv_obj_t* dots_ = nullptr;     // custom-drawn
+-    lv_obj_t* stop_ = nullptr;
+-    lv_obj_t* status_label_ = nullptr;
+     lv_timer_t* timer_ = nullptr;
+     lv_image_dsc_t glint_dsc_ = {};
+     uint8_t* glint_px_ = nullptr;
+ 
+     // Everything below is touched only with the LVGL lock held (Tick runs in the LVGL task).
+     State state_ = kIdle;
++    std::atomic<bool> dial_idle_{true};  // state_ == kIdle, read by the power save timer task
+     int64_t state_since_ms_ = 0;
+     bool live_ = false;        // audio channel to the host is open
+     lv_color_t color_;
+@@ -95,14 +95,12 @@ private:
+     bool think_face_ = false;  // a separate thinking picture is shown (host sent a different URL)
+ 
+     // Smoothed animation values (0..1 unless noted).
+-    float think_opa_ = 0, status_opa_ = 0, gray_ = 0, lvl_ = 0;
++    float think_opa_ = 0, gray_ = 0, lvl_ = 0;
+     float halo_ = 0;           // idle breathing halo strength
+     float glow_ = 0;           // speaking glow strength
+     float spin_ = 0;           // thinking arc strength
+     float red_ = 0;            // interrupted ring strength
+     float rot_ = 0;            // thinking arc rotation, degrees
+-    float bar_h_[kBars] = {};  // bar heights 0..1
+-    float dot_p_[kDots] = {};  // dot jump 0..1
+     // What the edge drew last frame, to invalidate only when it changes.
+     int64_t edge_key_ = -1;
+     // Ring layers (see BuildRing): pixels within sz_.ring_max px of the rim, and three A8 layers.
+@@ -117,7 +115,6 @@ private:
+     std::vector<int> ring_upto_;   // sz_.ring_max + 1 entries
+     int ring_depth_ = 0;           // how deep (px) the ring was drawn last frame
+     float arc_drawn_rot_ = 0;      // thinking arc rotation drawn last frame
+-    lv_obj_t* name_glow_ = nullptr;
+     lv_area_t tiles_[kTiles] = {};
+     int tiles_w_ = -1;
+ 
+@@ -141,8 +138,6 @@ private:
+     static void EdgeDrawCb(lv_event_t* e);
+     void BuildRing();
+     void PaintRing(float halo_opa, float halo_w, float glow_opa, float glow_w, int upto);
+-    static void BarsDrawCb(lv_event_t* e);
+-    static void DotsDrawCb(lv_event_t* e);
+     void Tick();
+     void SetState(State s);
+     void InvalidateEdge(int width, float lo, float hi);
+diff --git a/main/idf_component.yml b/main/idf_component.yml
+index 9d271a8..0593f78 100644
+--- a/main/idf_component.yml
++++ b/main/idf_component.yml
+@@ -163,15 +163,23 @@ dependencies:
+ 
+   cube32esp/xpowerslib: ^0.3.3
+ 
+-  # rh: the role dial's screen profile / size maths, from the shared conest repo
+-  # (Zssan12/conest firmware/dial, private: needs git credentials for github.com). Pinned to a
+-  # main commit so a build does not change when conest moves; bump it by hand after a conest
+-  # dial PR merges. Only fetched when CONFIG_RH_DIAL (spotpear sp-esp32-s3-1.28-box only).
+-  # Local checkout instead: CN_DIAL_COMPONENTS (top-level CMakeLists.txt).
+-  # Pin: conest main 7c3f37c = PR #128 (Issue #127) squash merge, 2026-10-20.
++  # rh: the role dial's screen profile / size maths (cn_dial) and the overlay drawn over the
++  # character (cn_dial_lvgl: name tag, status chip, battery arc, speech bubble), from the shared
++  # conest repo (Zssan12/conest firmware/dial, private: needs git credentials for github.com).
++  # Both pinned to the same commit so a build does not change when conest moves; bump them by hand
++  # after a conest dial PR merges. Only fetched when CONFIG_RH_DIAL (spotpear sp-esp32-s3-1.28-box
++  # only). The component manager also adds them to main's requirements (main/CMakeLists.txt's
++  # CONFIG_RH_DIAL branch alone is not enough: sdkconfig is not known when requirements expand).
++  # Pin: conest main a9f7ae8 = PR #134 (Issue #133) squash merge, 2026-10-20
+   cn_dial:
+     git: https://github.com/Zssan12/conest.git
+     path: firmware/dial/components/cn_dial
+-    version: 7c3f37c09abe344c5dc2727c1fb83973a31b7ee8
++    version: a9f7ae84fda91281f971a4a1dfc5dccd192740c2
++    rules:
++    - if: "$CONFIG{RH_DIAL} == True"
++  cn_dial_lvgl:
++    git: https://github.com/Zssan12/conest.git
++    path: firmware/dial/components/cn_dial_lvgl
++    version: a9f7ae84fda91281f971a4a1dfc5dccd192740c2
+     rules:
+     - if: "$CONFIG{RH_DIAL} == True"
+-- 
+2.54.0 (Apple Git-157)
+

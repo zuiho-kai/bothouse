@@ -6,7 +6,7 @@
 
 协议同 rh/xiaozhi.py 文件头（出处 78/xiaozhi-esp32 docs/websocket.md）：先 POST OTA（头 Device-Id、Client-Id，
 body 带 application.version），按回包里的 websocket.url / token 连 WebSocket（头 Authorization、Protocol-Version、
-Device-Id、Client-Id），发 hello，等主机回 hello。之后只收不发（和真板子第一步一样不收音）；
+Device-Id、Client-Id），发 hello，等主机回 hello。之后只收（要模拟板子收音调 speak_into_mic）；
 只回主机的 MCP 请求：self.get_device_status 报当前音量，self.audio_speaker.set_volume 改音量（同固件 main/mcp_server.cc）。
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 import aiohttp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # 直接 python tools/fake_xiaozhi.py 时也找得到 rh
-from rh.xiaozhi import FRAME_MS, SAMPLE_RATE
+from rh.xiaozhi import FRAME_MS, SAMPLE_RATE, frame
 
 
 class FakeXiaozhi:
@@ -41,6 +41,7 @@ class FakeXiaozhi:
         self.mcp_answer = True   # False：不回 MCP（模拟老固件 / 没回包）
         self.elf_sha256 = "00" * 32   # self.get_system_info 报的固件 elf_sha256
         self.upgrades: list[str] = []   # 主机让它 self.upgrade_firmware 的地址
+        self.display: dict | None = None   # hello 里的 "display"（新固件才有，conest firmware/dial 的 ScreenProfile）
 
     async def ota(self) -> dict:
         self.http = self.http or aiohttp.ClientSession()
@@ -62,8 +63,11 @@ class FakeXiaozhi:
         self.ws = await self.http.ws_connect(ws_cfg["url"], headers=headers, autoping=autoping)
         # 板子的 hello（固件 websocket_protocol.cc 第 200-217 行）
         params = {"format": "opus", "sample_rate": SAMPLE_RATE, "channels": 1, "frame_duration": FRAME_MS}
-        await self.ws.send_json({"type": "hello", "version": self.version, "features": {"mcp": True},
-                                 "transport": "websocket", "audio_params": params})
+        hello = {"type": "hello", "version": self.version, "features": {"mcp": True},
+                 "transport": "websocket", "audio_params": params}
+        if self.display is not None:
+            hello["display"] = self.display
+        await self.ws.send_json(hello)
         msg = await self.ws.receive(timeout=timeout)
         self.hello = json.loads(msg.data)
         self._task = asyncio.create_task(self._loop())
@@ -117,8 +121,17 @@ class FakeXiaozhi:
                 if d["payload"].get("method") == "tools/call" and (name is None or d["payload"]["params"].get("name") == name)]
 
     async def upload_audio(self, data: bytes) -> None:
-        """模拟板子上传一帧麦克风音频（主机应丢掉）。"""
+        """模拟板子上传一帧原样的二进制数据（不加协议头）。"""
         await self.ws.send_bytes(data)
+
+    async def speak_into_mic(self, packets: list[bytes], pace: float = FRAME_MS / 1000) -> None:
+        """模拟板子收音：listen start，按协议版本加头、一帧 60 毫秒的节奏上传 Opus 包，listen stop
+        （固件 main/protocols/protocol.cc SendStartListening / SendStopListening，websocket_protocol.cc SendAudio）。"""
+        await self.ws.send_json({"session_id": "", "type": "listen", "state": "start", "mode": "auto"})
+        for pk in packets:
+            await self.ws.send_bytes(frame(pk, self.version))
+            await asyncio.sleep(pace)
+        await self.ws.send_json({"session_id": "", "type": "listen", "state": "stop"})
 
     def jsons(self, **match) -> list[dict]:
         return [d for _, k, d in self.got if k == "json" and all(d.get(a) == b for a, b in match.items())]

@@ -3,7 +3,8 @@
 板子只是又一种“该角色的设备”，和网页虚拟头走同一套接口和交棒规则（rh/device.py）：
 DeviceSpeaker 发来 start / audio / stop 三种事件，这里翻成小智协议推给板子，再按播放进度代发回执（done / stopped / lost /
 no_device），DeviceSpeaker 收到回执才交棒；板子没连上就由它回落 Mac 喇叭。板子不会自己开口：这里只转发 DeviceSpeaker
-给的内容，连上、重连、开机时不推任何问候或提示音。板子第一步不收音：板子上传的音频直接丢掉，listen/abort 等消息只记日志。
+给的内容，连上、重连、开机时不推任何问候或提示音。板子收音：绑定了角色的板子上传的麦克风 Opus 交给 on_mic
+（主机接 rh/board_mic.py，进和 Mac 麦克风同一条收音链路）；没绑定的板子上传的丢掉；listen/abort 等消息只记日志。
 
 协议出处（~/code/role-household-fw/RESEARCH.md 第 3 节）：78/xiaozhi-esp32 docs/websocket.md；
 固件实现 main/protocols/websocket_protocol.cc、main/application.cc（tts/llm 消息处理）、main/ota.cc（OTA 回包解析）；
@@ -114,6 +115,22 @@ def frame(packet: bytes, version: int) -> bytes:
     return packet
 
 
+def unframe(data: bytes, version: int) -> bytes:
+    """板子上传的一帧去掉协议头，得到 Opus 包（frame() 的反过程；协议头格式同上，固件 main/protocols/protocol.h）。
+    v2、v3 的帧类型不是音频（type != 0）或长度不对时返回空。"""
+    if version == 2:
+        if len(data) < 16:
+            return b""
+        _, typ, _, _, n = struct.unpack(">HHIII", data[:16])
+        return data[16:16 + n] if typ == 0 and len(data) >= 16 + n else b""
+    if version == 3:
+        if len(data) < 4:
+            return b""
+        typ, _, n = struct.unpack(">BBH", data[:4])
+        return data[4:4 + n] if typ == 0 and len(data) >= 4 + n else b""
+    return data
+
+
 def app_desc(image: bytes) -> tuple[str, str]:
     """ESP-IDF 应用镜像里的 esp_app_desc_t：(版本, app_elf_sha256 十六进制)。位置：镜像头 24 字节 + 段头 8 字节之后，
     magic 0xABCD5432；version 在描述符第 16 字节起 32 字节，app_elf_sha256 在第 144 字节起 32 字节
@@ -144,6 +161,9 @@ class Board:
         self.volume: int | None = None                # 板子报上来的音量（0-100）；还没问到是 None
         self.mcp_id = 0
         self.mcp_wait: dict[int, asyncio.Future] = {}  # MCP 请求 id -> 等板子回包
+        # 板子 hello 里报的屏幕（新固件才有，字段见 conest firmware/dial ScreenProfile::ToJson）；
+        # 现在只记下来写日志，不据此改行为。老固件没有，是 None。
+        self.display: dict | None = None
 
 
 class XiaozhiServer:
@@ -176,6 +196,9 @@ class XiaozhiServer:
         self.on_board: Callable[[str, str], None] = lambda role, base: None
         # 板子主动发来的 MCP 通知（没有 id 的 JSON-RPC，比如表盘帧率 notifications/rh_dial_stats）：on_notify(角色, payload)。
         self.on_notify: Callable[[str | None, dict], None] = lambda role, payload: None
+        # 板子收音（rh/board_mic.py）：on_mic(角色, Opus 包) 在事件循环里调，不能阻塞；on_mic_end(角色) 板子断开时调。
+        self.on_mic: Callable[[str, bytes], None] | None = None
+        self.on_mic_end: Callable[[str], None] = lambda role: None
         # 板子固件经 Wi-Fi 升级（main 里读环境变量 RH_XIAOZHI_FIRMWARE，指向编好的 xiaozhi.bin；None = 不管固件）。
         # 板子连上时用 MCP self.get_system_info 读它的 elf_sha256，和这个文件不一样就发 self.upgrade_firmware，
         # 板子自己下载、写另一个 OTA 分区、重启（不碰 nvs；新固件起不来 bootloader 会回滚）。同一块板子对同一个文件只发一次。
@@ -597,7 +620,12 @@ class XiaozhiServer:
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.BINARY:
-                    continue   # 板子第一步不收音：上传的音频直接丢掉
+                    # 板子收音：只收绑了角色、而且是这个角色当前那块板子的；没接 on_mic 时丢掉
+                    if self.on_mic is not None and role is not None and self.by_role.get(role) is b:
+                        pk = unframe(msg.data, version)
+                        if pk:
+                            self.on_mic(role, pk)
+                    continue
                 if msg.type != WSMsgType.TEXT:
                     break
                 try:
@@ -613,6 +641,9 @@ class XiaozhiServer:
                     continue
                 if tasks:
                     continue   # 重复的 hello
+                if isinstance(d.get("display"), dict):
+                    b.display = d["display"]
+                    self.log(f"[xiaozhi] 板子 {dev} 的屏幕：{json.dumps(b.display, ensure_ascii=False)}")
                 await ws.send_json({"type": "hello", "transport": "websocket", "session_id": b.session,
                                     "audio_params": {"format": "opus", "sample_rate": SAMPLE_RATE, "channels": 1,
                                                      "frame_duration": FRAME_MS}})
@@ -642,6 +673,7 @@ class XiaozhiServer:
                 t.cancel()
             if role is not None and self.by_role.get(role) is b:
                 del self.by_role[role]
+                self.on_mic_end(role)
                 self.log(f"[xiaozhi] {role} 的板子 {dev} 断开")
                 self.on_change()
                 self.on_volume()

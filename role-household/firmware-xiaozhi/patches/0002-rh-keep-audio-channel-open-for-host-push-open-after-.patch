@@ -1,7 +1,7 @@
 From 3e1c3990688129440063985814c51443cd1437a6 Mon Sep 17 00:00:00 2001
-From: zuiho-kai <zuiho-kai@users.noreply.github.com>
+From: zuiho <qq2324465096@gmail.com>
 Date: Mon, 19 Oct 2026 15:41:04 +0900
-Subject: [PATCH 2/7] rh: keep audio channel open for host push (open after
+Subject: [PATCH 02/14] rh: keep audio channel open for host push (open after
  OTA, reopen on close/timeout, flush on tts stop)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

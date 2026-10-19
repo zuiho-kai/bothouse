@@ -1,0 +1,68 @@
+From 724deacf6837d9da2690c6bccd05954024cf4d52 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Tue, 20 Oct 2026 04:19:28 +0900
+Subject: [PATCH 12/14] =?UTF-8?q?rh:=20cn=5Fdial=20=E8=A7=84=E5=88=99?=
+ =?UTF-8?q?=E6=94=B9=E7=9C=8B=E9=9A=90=E8=97=8F=E7=9A=84=20RH=5FDIAL=5FDEP?=
+ =?UTF-8?q?S=EF=BC=880/1=20=E6=81=92=E5=9C=A8=20sdkconfig.json=EF=BC=89?=
+ =?UTF-8?q?=EF=BC=8C=E9=9D=9E=20Spotpear=20=E6=9D=BF=E5=9E=8B=E9=85=8D?=
+ =?UTF-8?q?=E7=BD=AE=E4=B8=8D=E5=86=8D=E6=8A=A5=20RH=5FDIAL=20not=20found?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/Kconfig.projbuild | 10 ++++++++++
+ main/idf_component.yml |  6 +++---
+ 2 files changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 0f99bfc..ff7d126 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -74,6 +74,16 @@ config RH_DIAL
+         Source: user 2026-10-19 「那个圆形表盘的那个动画啊，你给它放上去，而不是用现在默认傻逼小智的那个」;
+         review ~/.claude/reviews/rh-board-dial.md (role pushed by host, not fixed in firmware).
+ 
++config RH_DIAL_DEPS
++    int
++    # Hidden 0/1 mirror of RH_DIAL for main/idf_component.yml's cn_dial rules only. A bool that is
++    # off because its "depends on" fails is left out of sdkconfig.json, and the component manager
++    # then stops with "RH_DIAL ... not found in any Kconfig file" on every other board
++    # (waveshare esp32-s3-touch-amoled-1.75, 2026-10-20). An int with a plain default is always
++    # written, so the rule can be evaluated on every board/target. 1 = fetch cn_dial, 0 = do not.
++    default 1 if RH_DIAL
++    default 0
++
+ config RH_ALWAYS_LISTEN
+     bool "Listen whenever idle once the host audio channel is open"
+     depends on RH_HOST_PUSH && !RH_DISABLE_MIC_UPLINK
+diff --git a/main/idf_component.yml b/main/idf_component.yml
+index 0593f78..f6239d2 100644
+--- a/main/idf_component.yml
++++ b/main/idf_component.yml
+@@ -167,7 +167,7 @@ dependencies:
+   # character (cn_dial_lvgl: name tag, status chip, battery arc, speech bubble), from the shared
+   # conest repo (Zssan12/conest firmware/dial, private: needs git credentials for github.com).
+   # Both pinned to the same commit so a build does not change when conest moves; bump them by hand
+-  # after a conest dial PR merges. Only fetched when CONFIG_RH_DIAL (spotpear sp-esp32-s3-1.28-box
++  # after a conest dial PR merges. Only fetched when CONFIG_RH_DIAL, via CONFIG_RH_DIAL_DEPS (spotpear sp-esp32-s3-1.28-box
+   # only). The component manager also adds them to main's requirements (main/CMakeLists.txt's
+   # CONFIG_RH_DIAL branch alone is not enough: sdkconfig is not known when requirements expand).
+   # Pin: conest main a9f7ae8 = PR #134 (Issue #133) squash merge, 2026-10-20
+@@ -176,10 +176,10 @@ dependencies:
+     path: firmware/dial/components/cn_dial
+     version: a9f7ae84fda91281f971a4a1dfc5dccd192740c2
+     rules:
+-    - if: "$CONFIG{RH_DIAL} == True"
++    - if: "$CONFIG{RH_DIAL_DEPS} == 1"
+   cn_dial_lvgl:
+     git: https://github.com/Zssan12/conest.git
+     path: firmware/dial/components/cn_dial_lvgl
+     version: a9f7ae84fda91281f971a4a1dfc5dccd192740c2
+     rules:
+-    - if: "$CONFIG{RH_DIAL} == True"
++    - if: "$CONFIG{RH_DIAL_DEPS} == 1"
+-- 
+2.54.0 (Apple Git-157)
+

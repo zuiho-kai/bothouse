@@ -1,0 +1,316 @@
+From 4a87516dc0b667abc35debb42e9265f440a041b3 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Tue, 20 Oct 2026 04:38:36 +0900
+Subject: [PATCH 13/14] =?UTF-8?q?rh:=20=E6=8C=89=E8=A1=A8=E7=9B=98?=
+ =?UTF-8?q?=E7=AC=AC=E4=BA=8C=E6=AD=A5=E4=BB=A3=E7=A0=81=E5=AE=A1=E6=9F=A5?=
+ =?UTF-8?q?=E4=BF=AE=E5=9B=BA=E4=BB=B6=EF=BC=9A=E7=9D=A1=E7=9C=A0=E6=94=BE?=
+ =?UTF-8?q?=E5=AE=BD=E5=8F=AA=E5=9C=A8=20RH=5FDIAL=E3=80=81=E6=94=AF?=
+ =?UTF-8?q?=E6=8C=81=E5=88=A4=E5=AE=9A=E7=9C=8B=E5=AD=97=E5=8F=B7=E3=80=81?=
+ =?UTF-8?q?=E5=B7=A5=E4=BD=9C=E7=8A=B6=E6=80=81=E6=9C=AA=E7=9F=A5/?=
+ =?UTF-8?q?=E6=96=AD=E7=BA=BF=E9=9A=90=E8=97=8F=E3=80=81=E6=94=B9=E5=90=8D?=
+ =?UTF-8?q?=E6=8D=A2=E5=9B=BE=E4=B8=8E=E7=94=A8=E6=88=B7=E5=BC=80=E5=8F=A3?=
+ =?UTF-8?q?=E4=BA=AE=E5=B1=8F=E3=80=81BOOT=20=E9=95=BF=E6=8C=89=E6=B8=85?=
+ =?UTF-8?q?=E5=94=A4=E9=86=92=E6=A0=87=E8=AE=B0=E3=80=81in=5Fsleep=5Fmode?=
+ =?UTF-8?q?=5F=20=E5=8E=9F=E5=AD=90?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- CanEnterSleepMode 的 Listening 算空闲、音频通道/编码队列不挡睡眠只在 CONFIG_RH_DIAL 下生效
+- cn_dial 锁 conest 472d06e（PR #137）：cn_dial::Supported(metrics, 主题字体)，名牌名字限宽省略
+- 主机推 busy:null 或断线时 DialOverlay::ClearBusy()
+- 改名、换头像地址、VAD 听到人声、stt 用户文本点亮屏幕；工作状态变化不点亮（随 Discord 每轮翻转）
+- BOOT 长按清掉唤醒标记；PowerSaveTimer::in_sleep_mode_ 改 std::atomic + exchange
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/application.cc                           | 18 ++++++--
+ main/boards/common/power_save_timer.cc        |  6 +--
+ main/boards/common/power_save_timer.h         |  8 +++-
+ .../sp-esp32-s3-1.28-box.cc                   |  6 ++-
+ main/display/rh_dial_display.cc               | 45 ++++++++++++++++---
+ main/display/rh_dial_display.h                |  5 ++-
+ main/idf_component.yml                        |  6 +--
+ 7 files changed, 74 insertions(+), 20 deletions(-)
+
+diff --git a/main/application.cc b/main/application.cc
+index db07a85..031324b 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -267,6 +267,13 @@ void Application::Run() {
+         }
+ 
+         if (bits & MAIN_EVENT_VAD_CHANGE) {
++#if CONFIG_RH_DIAL
++            // rh: the user starts talking (the board hears a voice): light the screen. With
++            // RH_ALWAYS_LISTEN the board rests in Listening, so the state change alone says nothing.
++            if (audio_service_.IsVoiceDetected()) {
++                Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
++            }
++#endif
+             if (GetDeviceState() == kDeviceStateListening) {
+                 auto led = Board::GetInstance().GetLed();
+                 led->OnStateChanged();
+@@ -1397,7 +1404,12 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
+ }
+ 
+ bool Application::CanEnterSleepMode() {
+-#if CONFIG_RH_ALWAYS_LISTEN
++    // rh: the relaxations below only hold with the role dial (CONFIG_RH_DIAL), whose screen-off
++    // sleep keeps the mic and the audio channel running (spotpear 1.28 PowerSaveTimer(-1, ...): no
++    // CPU down-clocking, no mic off, no shutdown) and whose dial state says whether the role is busy.
++    // Other boards' PowerSaveTimer turns the mic off / down-clocks / powers off on sleep (e.g.
++    // genjutech-s3-1.54tft, magiclick), so for them the stock checks stay.
++#if CONFIG_RH_ALWAYS_LISTEN && CONFIG_RH_DIAL
+     // rh: the board rests in Listening (it streams the mic to the host whenever idle), so resting
+     // Listening counts as idle here; the dial below says whether the role is doing anything.
+     if (GetDeviceState() != kDeviceStateIdle && GetDeviceState() != kDeviceStateListening) {
+@@ -1409,14 +1421,14 @@ bool Application::CanEnterSleepMode() {
+     }
+ #endif
+ 
+-#if !CONFIG_RH_HOST_PUSH
++#if !(CONFIG_RH_HOST_PUSH && CONFIG_RH_DIAL)
+     // conest patch 0011: with host push the audio channel stays open all the time.
+     if (protocol_ && protocol_->IsAudioChannelOpened()) {
+         return false;
+     }
+ #endif
+ 
+-#if CONFIG_RH_ALWAYS_LISTEN
++#if CONFIG_RH_ALWAYS_LISTEN && CONFIG_RH_DIAL
+     // Streaming mic packets pass through the encode queue all the time; only playback matters.
+     if (!audio_service_.IsPlaybackIdle()) {
+         return false;
+diff --git a/main/boards/common/power_save_timer.cc b/main/boards/common/power_save_timer.cc
+index 522e64c..47cf348 100644
+--- a/main/boards/common/power_save_timer.cc
++++ b/main/boards/common/power_save_timer.cc
+@@ -68,9 +68,8 @@ void PowerSaveTimer::PowerSaveCheck() {
+ 
+     ticks_++;
+     if (seconds_to_sleep_ != -1 && ticks_ >= seconds_to_sleep_) {
+-        if (!in_sleep_mode_) {
++        if (!in_sleep_mode_.exchange(true)) {
+             ESP_LOGI(TAG, "Enabling power save mode");
+-            in_sleep_mode_ = true;
+             if (on_enter_sleep_mode_) {
+                 on_enter_sleep_mode_();
+             }
+@@ -105,9 +104,8 @@ void PowerSaveTimer::PowerSaveCheck() {
+ 
+ void PowerSaveTimer::WakeUp() {
+     ticks_ = 0;
+-    if (in_sleep_mode_) {
++    if (in_sleep_mode_.exchange(false)) {
+         ESP_LOGI(TAG, "Exiting power save mode");
+-        in_sleep_mode_ = false;
+ 
+         if (cpu_max_freq_ != -1) {
+             esp_pm_config_t pm_config = {
+diff --git a/main/boards/common/power_save_timer.h b/main/boards/common/power_save_timer.h
+index 4c95671..e281508 100644
+--- a/main/boards/common/power_save_timer.h
++++ b/main/boards/common/power_save_timer.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <atomic>
+ #include <functional>
+ 
+ #include <esp_timer.h>
+@@ -21,7 +22,12 @@ private:
+ 
+     esp_timer_handle_t power_save_timer_ = nullptr;
+     bool enabled_ = false;
+-    bool in_sleep_mode_ = false;
++    // Atomic: PowerSaveCheck runs in the esp_timer task, WakeUp in whichever task calls it (main
++    // task, touch / button callbacks, network task via SetPowerSaveLevel). exchange() makes each
++    // enter / exit happen once per transition. The two callbacks can still overlap (a wake-up during
++    // the enter callback); see design-dial-abstraction.md 11.2 (a lock would hold every board's
++    // callbacks, some of which take the display lock).
++    std::atomic<bool> in_sleep_mode_{false};
+     bool is_wake_word_running_ = false;
+     int ticks_ = 0;
+     int cpu_max_freq_;
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc b/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
+index 0288029..6b3b502 100644
+--- a/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
+@@ -162,7 +162,7 @@ private:
+     esp_timer_handle_t sleep_fade_timer_ = nullptr;
+     std::atomic<bool> is_sleeping_{false};
+     // rh: a touch / BOOT press that only lit the dark screen does not also toggle the chat.
+-    bool boot_wake_only_ = false;
++    std::atomic<bool> boot_wake_only_{false};
+ 
+     // conest patch 0011 OnUserActivity(): touch or BOOT lights the screen within a second.
+     void OnUserActivity() {
+@@ -434,10 +434,14 @@ private:
+     }
+ 
+     void InitializeButtons() {
++        // The wake-only mark belongs to one press: set on press-down, used up by that press's click.
++        // A long press has no click (iot_button: LONG_PRESS_START, then PRESS_UP / PRESS_END, no
++        // SINGLE_CLICK), so it clears the mark itself instead of leaving it for the next press.
+         boot_button_.OnPressDown([this]() {
+             boot_wake_only_ = is_sleeping_;
+             OnUserActivity();
+         });
++        boot_button_.OnLongPress([this]() { boot_wake_only_ = false; });
+         boot_button_.OnClick([this]() {
+             if (boot_wake_only_) {  // this press only lit the screen
+                 boot_wake_only_ = false;
+diff --git a/main/display/rh_dial_display.cc b/main/display/rh_dial_display.cc
+index a80c176..f150d4a 100644
+--- a/main/display/rh_dial_display.cc
++++ b/main/display/rh_dial_display.cc
+@@ -117,15 +117,12 @@ RhDialDisplay::RhDialDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
+     : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy),
+       metrics_(PanelProfile(screen, width, height)),
+       sz_(MakeSizes(metrics_)),
+-      usable_(metrics_.profile().Valid() && metrics_.Supported()),
++      usable_(metrics_.profile().Valid()),
+       overlay_(metrics_),
+       ring_upto_(sz_.ring_max + 1, 0) {
+     const char* why = nullptr;
+     if (!metrics_.profile().Valid(&why)) {
+         ESP_LOGE(TAG, "rh dial: screen profile invalid (%s), no dial", why);
+-    } else if (!metrics_.Supported()) {
+-        ESP_LOGE(TAG, "rh dial: short side %d px is below cn_dial's minimum %d px, no dial", metrics_.canvas(),
+-                 cn_dial::layout::kMinShortSide);
+     }
+     // Overlay text uses the board's theme font (cn_dial layout pill.text, conest's 14 px design).
+     if (!metrics_.pick_font(cn_dial::layout::kPillText.design_px).on_board) {
+@@ -194,6 +191,16 @@ void RhDialDisplay::SetupUI() {
+     SpiLcdDisplay::SetupUI();  // default UI stays underneath (shown only in Wi-Fi config mode)
+     if (!usable_) return;      // logged in the constructor; dial_ stays nullptr, every entry point checks it
+     DisplayLockGuard lock(this);
++    // Does the overlay fit this screen with the font it is drawn in (the theme font the dial
++    // inherits from the screen)? cn_dial::Supported: short side >= min_short_side and the name tag,
++    // status chip and bubble fit with this font's glyph width and line height.
++    const cn_dial::PillFont font =
++        cn_dial::DialOverlay::MeasureFont(lv_obj_get_style_text_font(lv_screen_active(), LV_PART_MAIN));
++    if (!cn_dial::Supported(metrics_, font)) {
++        ESP_LOGE(TAG, "rh dial: %dx%d with a %d px glyph / %d px line font does not fit (min short side %d), no dial",
++                 width_, height_, font.glyph_w, font.line_h, cn_dial::layout::kMinShortSide);
++        return;
++    }
+     const int W = width_, H = height_;
+     const int C = metrics_.canvas();
+ 
+@@ -546,13 +553,24 @@ void RhDialDisplay::RhDial(const cJSON* msg) {
+     auto status = cJSON_GetObjectItem(msg, "conest_status");
+     auto busy = cJSON_IsObject(status) ? cJSON_GetObjectItem(status, "busy") : nullptr;
+     // conest patch 0011: anything the role does (thinking, speaking, interrupted) lights the screen.
++    // rh: so does a new name or a new picture (rare, someone changed the role). The work status does
++    // not: it flips with every Discord turn of the role's agent, which would keep the screen on most
++    // of the time (0011 lights it only for what the role does on the board); it is shown when the
++    // screen next lights.
+     if (state && strcmp(state, "idle") != 0) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
++    bool wake = false;
+     {
+         DisplayLockGuard lock(this);
+         if (dial_ == nullptr) return;
+         if (role) role_ = role;
+-        if (name) overlay_.SetName(name);
++        if (name && name_ != name) {
++            wake |= !name_.empty();   // the first name after boot is not a change
++            name_ = name;
++            overlay_.SetName(name);
++        }
++        // DECOR.md 3 / rh/dial.py: busy true/false shows the status; null = unknown (stale), hide it.
+         if (cJSON_IsBool(busy)) overlay_.SetBusy(cJSON_IsTrue(busy));
++        else if (cJSON_IsNull(busy)) overlay_.ClearBusy();
+         if (color && color[0] == '#' && strlen(color) == 7) color_ = lv_color_hex(strtoul(color + 1, nullptr, 16));
+         if (cJSON_IsBool(live)) {
+             live_ = cJSON_IsTrue(live);
+@@ -568,6 +586,14 @@ void RhDialDisplay::RhDial(const cJSON* msg) {
+     }
+     ESP_LOGI(TAG, "rh dial: host says role=%s name=%s state=%s", role ? role : "-", name ? name : "-",
+              state ? state : "-");
++    if (avatar) {
++        // A different picture URL than last asked for (not cleared on disconnect, so a reconnect
++        // that re-sends the same one does not count; the first one after boot does not either).
++        xSemaphoreTake(dl_mutex_, portMAX_DELAY);
++        wake |= !want_base_url_.empty() && want_base_url_ != avatar;
++        xSemaphoreGive(dl_mutex_);
++    }
++    if (wake) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+     if (avatar) {
+         std::string think = avatar_think ? avatar_think : avatar;
+         if (think == avatar) {  // no separate thinking picture: no cross-fade (saves full repaints)
+@@ -602,6 +628,7 @@ void RhDialDisplay::RhDialLink(bool connected) {
+         overlay_.SetLink(connected);
+         if (!connected && state_ != kIdle) SetState(kIdle);
+         if (!connected) overlay_.SetSpeech(nullptr);
++        if (!connected) overlay_.ClearBusy();   // no host, no work status: hidden until it says again
+     }
+     if (!connected) {  // fetch the pictures again after reconnecting (the host may have new ones)
+         xSemaphoreTake(dl_mutex_, portMAX_DELAY);
+@@ -617,8 +644,14 @@ bool RhDialDisplay::RhDialIdle() { return dial_idle_.load(); }
+ // Keep the base (hidden) subtitle in sync and mirror the sentence into the bubble (conest 0010).
+ void RhDialDisplay::SetChatMessage(const char* role, const char* content) {
+     SpiLcdDisplay::SetChatMessage(role, content);
+-    if (role == nullptr || strcmp(role, "assistant") != 0) return;
+     const bool text = content != nullptr && content[0] != '\0';
++    // rh: the host heard the user (stt text): light the screen, like the board's own VAD does
++    // (application.cc MAIN_EVENT_VAD_CHANGE).
++    if (role != nullptr && strcmp(role, "user") == 0 && text) {
++        Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
++        return;
++    }
++    if (role == nullptr || strcmp(role, "assistant") != 0) return;
+     if (text) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);  // conest 0011
+     DisplayLockGuard lock(this);
+     if (dial_ == nullptr) return;
+diff --git a/main/display/rh_dial_display.h b/main/display/rh_dial_display.h
+index 375b380..27d309c 100644
+--- a/main/display/rh_dial_display.h
++++ b/main/display/rh_dial_display.h
+@@ -70,8 +70,8 @@ private:
+     static cn_dial::ScreenProfile PanelProfile(cn_dial::ScreenProfile p, int width, int height);
+     const cn_dial::DialMetrics metrics_;
+     const Sizes sz_;
+-    // False when the profile is invalid or the screen is below cn_dial's smallest supported short
+-    // side (layout min_short_side): then no dial is built and the default UI stays.
++    // False when the profile is invalid: then no dial is built and the default UI stays. SetupUI
++    // also builds none when cn_dial::Supported() says the overlay does not fit with the theme font.
+     const bool usable_;
+     cn_dial::DialOverlay overlay_;
+ 
+@@ -91,6 +91,7 @@ private:
+     bool live_ = false;        // audio channel to the host is open
+     lv_color_t color_;
+     std::string role_;
++    std::string name_;         // name last shown (a change from the host lights the screen)
+     int64_t last_ms_ = 0;
+     bool think_face_ = false;  // a separate thinking picture is shown (host sent a different URL)
+ 
+diff --git a/main/idf_component.yml b/main/idf_component.yml
+index f6239d2..8fce298 100644
+--- a/main/idf_component.yml
++++ b/main/idf_component.yml
+@@ -170,16 +170,16 @@ dependencies:
+   # after a conest dial PR merges. Only fetched when CONFIG_RH_DIAL, via CONFIG_RH_DIAL_DEPS (spotpear sp-esp32-s3-1.28-box
+   # only). The component manager also adds them to main's requirements (main/CMakeLists.txt's
+   # CONFIG_RH_DIAL branch alone is not enough: sdkconfig is not known when requirements expand).
+-  # Pin: conest main a9f7ae8 = PR #134 (Issue #133) squash merge, 2026-10-20
++  # Pin: conest main 472d06e = PR #137 (Issue #136) squash merge, 2026-10-20
+   cn_dial:
+     git: https://github.com/Zssan12/conest.git
+     path: firmware/dial/components/cn_dial
+-    version: a9f7ae84fda91281f971a4a1dfc5dccd192740c2
++    version: 472d06ed1e757b8adfc77ad058775384c15a997d
+     rules:
+     - if: "$CONFIG{RH_DIAL_DEPS} == 1"
+   cn_dial_lvgl:
+     git: https://github.com/Zssan12/conest.git
+     path: firmware/dial/components/cn_dial_lvgl
+-    version: a9f7ae84fda91281f971a4a1dfc5dccd192740c2
++    version: 472d06ed1e757b8adfc77ad058775384c15a997d
+     rules:
+     - if: "$CONFIG{RH_DIAL_DEPS} == 1"
+-- 
+2.54.0 (Apple Git-157)
+

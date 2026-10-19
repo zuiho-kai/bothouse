@@ -10,7 +10,7 @@ AI 是 `claude -p`，用用户自己的订阅，不能放云端；云端只做�
     uv run python -m rh.host [--hub http://...] [--config roles.toml] [--no-voice] [--feed-audio FILE]
 
 语音默认开：麦克风（系统默认输入设备）常开收音，按停顿切句、转文字；叫了角色名或产品名的才作为用户消息发到云端频道
-（叫了谁只有她回），「暂停」立刻停下，「闭麦」停下并不再收音、只认「开麦」（rh/wake.py，roles.toml [wake]）；
+（叫了谁只有她回），「暂停」立刻停下，「闭麦」停下并不再收音、只认「开麦」「暂停」「闭麦」（rh/wake.py，roles.toml [wake]）；
 角色发言用 roles.toml 里的 voice 合成：该角色有设备在线（网页点了“开声音”）就经 hub 推给设备播放，设备回执才交棒；
 没有设备在线就用本机 Mac 喇叭播放，播完才交棒（rh/device.py）。--no-voice 关掉收音和播放（纯文字）。
 --feed-audio 先把一段音频文件当麦克风输入喂一次（端到端自测用），再照常收麦克风。
@@ -46,6 +46,7 @@ from . import kws as kwsmod
 from . import xiaozhi as xiaozhimod
 from . import dial as dialmod
 from . import discord_body as discordmod
+from . import board_mic as board_micmod
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -60,6 +61,13 @@ FOLLOW_SEC = 1.5
 # 语音「大声点」「小声点」一次调多少（板子音量 0-100）。来源：固件板子上音量键一次 ±10
 # （~/code/role-household-fw/xiaozhi-esp32 main/boards/doit-s3-aibox/doit_s3_aibox.cc 第 74、89 行等）。
 VOLUME_STEP = 10
+# 板子麦克风和 Mac 麦克风都听见同一句：另一路这么多秒内听到的同一句（或同一个口令）算重复，只按先到的那路处理。
+# 来源：实现者定，同 FOLLOW_SEC（一句话被停顿切开的间隔）一个量级；两路切句的结束时刻差在一两帧到几百毫秒。
+DUP_SEC = 1.5
+# 两路收音的去重记录保留多久（秒）：按墙钟清理，不按和当前句的时间差（一路转写慢了，另一路后面的句子会把它那条清掉，
+# 慢的那路转完就查不到、发第二遍；代码审查 ~/.claude/reviews/rh-board-mic-code.md 必须修 3）。
+# 一条要活到慢的那路把同一句转完：单次转写最多 rh/voice.py ASR_TIMEOUT，再加 DUP_SEC。来源：实现者定。
+HEARD_KEEP_SEC = voicemod.ASR_TIMEOUT + DUP_SEC
 
 
 def build_tts(cfg: cfgmod.Config, log=lambda s: print(s, flush=True), vpio=None) -> DeviceSpeaker:
@@ -122,7 +130,7 @@ class Host:
         # 语音口令；None = 不要唤醒词，听到的都进频道（旧行为，测试用）。
         self.words = words
         self.log = log
-        self.mic_on = True   # 云端的闭麦开关（ready 帧、mic 推送）；False 时语音只认「开麦」
+        self.mic_on = True   # 云端的闭麦开关（ready 帧、mic 推送）；False 时语音只认「开麦」「暂停」「闭麦」
         self._voice_targets: dict[str, list[str] | None] = {}   # 语音消息的 client_key -> 叫了谁（None = 轮流）
         self._woken: tuple[float, list[str] | None] | None = None   # 上一句叫了名字的语音：(结束时刻, 叫了谁)
         # 语音口令两路进来：唤醒模型在读麦线程（on_kws），转文字在转写线程（on_voice），改 mic_on 等要排队。
@@ -168,6 +176,57 @@ class Host:
         self._gen = 0   # 连接代数：每次断线加 1，上一代没发出去的发言作废
         self._http: aiohttp.ClientSession | None = None
         self._said = 0   # 语音转出的用户消息序号，拼进 client_key
+        # 最近几路收音处理过的 (哪一路, 时刻, 标准写法的文字, 口令动作或 None)，两路去重用（voice_from）
+        self._heard: list[tuple[str, float, str, str | None]] = []
+        self._spotted: list[tuple[str, float, str]] = []   # 最近几路唤醒模型听到的 (哪一路, 时刻, 词)
+
+    # ---------- 多路收音（Mac 麦克风 + 板子麦克风，rh/board_mic.py） ----------
+    def voice_from(self, source: str):
+        """给一路收音用的 (on_voice, on_kws)：和 on_voice / on_kws 一样，只是另一路 DUP_SEC 内已处理过的同一句、
+        同一个口令不再处理第二遍（用户说一句，Mac 和板子都听见）。
+        同一句：先按 Words.correct 换成标准写法再比（两路 ASR 常转成不同的同音字：「鲸鱼娘在吗」「金玉良在吗」）；
+        口令（暂停、闭麦、开麦）按动作比，不看文字（「暂停」和「暂停一下」）；唤醒模型当场执行的也记进去。"""
+        def remember(t: float, text: str, action: str | None) -> None:
+            now = time.time()
+            self._heard = [x for x in self._heard if now - x[1] <= HEARD_KEEP_SEC] + [(source, t, text, action)]
+
+        def dup_of(t: float, text: str, action: str | None) -> str | None:
+            for src, t2, other, act in self._heard:
+                if src == source or abs(t - t2) > DUP_SEC:
+                    continue
+                if action is not None and action == act:
+                    return "口令"
+                if text and other and (text == other or voicemod.echo_score(text, other) >= voicemod.ECHO_MATCH):
+                    return "这句"
+            return None
+
+        def on_kws(hit) -> None:
+            with self._wake_mu:
+                now = getattr(hit, "t", time.time())
+                self._spotted = [x for x in self._spotted if now - x[1] <= DUP_SEC]
+                if any(src != source and lab == hit.label for src, _, lab in self._spotted):
+                    if hit.action in (wakemod.PAUSE, wakemod.MUTE, wakemod.UNMUTE):
+                        hit.done = hit.action   # 另一路已当场执行过：这句转完文字后也不再执行
+                    return self.log(f"[wake] {source} 的唤醒模型也听到「{hit.label}」，另一路已处理，不重复")
+                self._spotted.append((source, now, hit.label))
+                self.on_kws(hit)
+                if hit.done:   # 当场执行了暂停/闭麦/开麦：另一路转文字认出同一个口令时不再执行
+                    remember(now, "", hit.done)
+
+        def on_voice(text: str, t0: float | None = None, t1: float | None = None, kws=None, muted: bool = False) -> None:
+            with self._wake_mu:
+                end = time.time() if t1 is None else t1
+                norm, action = text, None
+                if self.words is not None:
+                    norm = self.words.correct(text)
+                    act = self.words.classify(norm, muted=muted or not self.mic_on).action
+                    action = act if act in (wakemod.PAUSE, wakemod.MUTE, wakemod.UNMUTE) else None
+                why = dup_of(end, norm, action)
+                if why:
+                    return self.log(f"[voice] {source} 也听到{why}，另一路已处理，不重复（{len(text)} 字）")
+                remember(end, norm, action)
+                self.on_voice(text, t0, t1, kws=kws, muted=muted)
+        return on_voice, on_kws
 
     def _board_receipt(self, pid: str, result: str, started: bool | None = None) -> None:
         """板子的回执：会议的播放和 Discord 的播放各有一个 DeviceSpeaker，各自只认自己的 play_id。"""
@@ -190,14 +249,15 @@ class Host:
     # ---------- 语音输入 -> 云端 ----------
     def on_kws(self, hit) -> None:
         """读麦线程里调用：本地唤醒模型（rh/kws.py）听到一个词。暂停、闭麦当场执行（不等转文字，停住正在说的，
-        和转文字认出口令走同一条路）；闭麦中只认开麦。名字不在这里处理，等这句转完文字和 on_voice 一起定谁回答。"""
+        和转文字认出口令走同一条路）；闭麦中只认开麦、暂停、闭麦（闭麦时 Discord 回应照样会念，暂停、闭麦要能停下它，
+        用户 2026-10-19「我暂停闭麦他都没有反应」）。名字不在这里处理，等这句转完文字和 on_voice 一起定谁回答。"""
         if self.words is None:
             return
         with self._wake_mu:
             if not self.mic_on:
-                if hit.action == wakemod.UNMUTE:
-                    hit.done = wakemod.UNMUTE
-                    self._act(wakemod.Heard(wakemod.UNMUTE), hit.label, "kws")
+                if hit.action in (wakemod.UNMUTE, wakemod.PAUSE, wakemod.MUTE):
+                    hit.done = hit.action
+                    self._act(wakemod.Heard(hit.action), hit.label, "kws")
                 else:
                     self.log(f"[wake] 闭麦中，唤醒模型听到「{hit.label}」不理")
             elif hit.action in (wakemod.PAUSE, wakemod.MUTE):
@@ -210,7 +270,7 @@ class Host:
         （紧接在叫了名字的一句后面、FOLLOW_SEC 内开始的除外：那是同一句话被停顿切开的后半句）。
         kws：本地唤醒模型在这句里听到的词（rh/kws.py Hit）。和转文字并联，任一认出即生效：
         转文字漏了名字、唤醒模型听到了，就由它听到的名字决定谁回答（只让被叫到的回答，不是大家一起回）。
-        muted：这句是闭麦中切出的（rh/voice.py Listener._stamp）。这时就算已经开麦了，也只拿它认「开麦」。"""
+        muted：这句是闭麦中切出的（rh/voice.py Listener._stamp）。这时就算已经开麦了，也只拿它认开麦、暂停、闭麦。"""
         if self.words is None:
             if not muted:
                 self.say_as_user(text)
@@ -242,7 +302,7 @@ class Host:
             named = [rid for rid, _ in self.words.roles if rid in (h.targets or []) or rid in kws_names]
             return self._act(wakemod.Heard(h.action, named or None), text, "asr")
         if muted:
-            # 闭麦中（唤醒模型那边已在 on_kws 处理开麦）：别的话丢掉，日志不记原文（私话）
+            # 闭麦中（口令上面已处理）：别的话丢掉，日志不记原文（私话）
             return self.log(f"[wake] 闭麦中，这句不进频道（{len(text)} 字，原文不记）")
         asr_names = h.targets if h.action == wakemod.SAY and h.targets else []
         asr_any = h.action == wakemod.SAY
@@ -363,10 +423,21 @@ class Host:
 
     def say_as_user(self, text: str, targets: list[str] | None = None) -> None:
         """收音线程里调用：把转出的文字作为用户消息发到云端频道（作者是用户）。
-        和网页发的一样，云端推回来后由 _handle_message 交给 meeting，按发言锁规则打断在说的角色。"""
+        和网页发的一样，云端推回来后由 _handle_message 交给 meeting，按发言锁规则打断在说的角色。
+        叫的是映射了 Discord bot 的角色（rh/discord_body.py，[discord] relay 开着）：这句改发进 Discord，由群里那个
+        有当前会话的 bot 来答（用户 2026-10-19「不太行啊，还没接进来，没有我们现在会话的东西」）；没映射的角色照旧进自建频道。"""
         loop = self._loop
         if loop is None or self._stop.is_set():
             return
+        if targets and self.discord is not None:
+            bots = self.discord.bots_for(targets)
+            if bots:
+                if not self.mic_on:   # 闭麦时不发（收音那边已挡住，这里再守一道）
+                    return self.log(f"[discord] 闭麦中，这句不发进 Discord（{len(text)} 字）")
+                asyncio.run_coroutine_threadsafe(self.discord.relay_user(text, bots), loop)
+                targets = [t for t in targets if t not in {b.role for b in bots}]
+                if not targets:
+                    return
         self._said += 1
         key = f"{self._boot}:voice:{self._said}"
         self._voice_targets[key] = targets
@@ -704,18 +775,21 @@ def main() -> None:
     host = Host(meeting, a.hub, token, state, config_dir=Path(a.config).resolve().parent, speaker=tts, words=words,
                 boards=boards)
     if boards is not None:
-        host.dial = dialmod.Dial(boards, cfg.roles, Path(a.config).resolve().parent)
+        # 名牌里的工作状态：按 [[discord.bots]] 的 project 读 ~/im-bridge/team/<project>.json（rh/dial.py read_busy）
+        host.dial = dialmod.Dial(boards, cfg.roles, Path(a.config).resolve().parent, bots=cfg.discord_bots)
         # 板子固件经 Wi-Fi 升级（rh/xiaozhi.py XiaozhiServer.firmware）：设了 RH_XIAOZHI_FIRMWARE 才管
         if env.get("RH_XIAOZHI_FIRMWARE"):
             boards.firmware = Path(env["RH_XIAOZHI_FIRMWARE"]).expanduser()
             boards.fw_asked_file = ROOT / "logs" / "xiaozhi-fw-asked.txt"   # 已让升过的 (MAC, 固件 sha)，重启后也不再重升
-    # 形态 B：Discord 里 bot 回应主人的话（gate 转来）在板子上念。要有板子服务和 [[discord.bots]] 映射；
+    # 形态 B：Discord 里 bot 回应主人的话（cc-connect 钩子 / gate 转来）在板子上念。要有板子服务和 [[discord.bots]] 映射；
     # 真板播放开关 [discord] play 默认关，关着只记日志（rh/discord_body.py）。
+    # [discord] relay 开着：板子听到叫 bot 对应的角色，把这句以 webhook 身份发进 Discord；发到哪个频道、念摘要、新建频道
+    # 都按 roles.toml [discord] 配（rh/discord_body.py build，没配的退回现状）。地址和 token 只从环境变量 / .env 读，不打日志；
+    # 开了 relay 却既没默认频道 webhook 也没 bot token 直接报错退出，不悄悄退回自建频道（同 vpio、唤醒模型）。
     if boards is not None and cfg.discord_bots:
-        host.discord = discordmod.DiscordBody(cfg.discord_bots, cfg.roles, boards, tts.synth, meeting.lock,
-                                              play=cfg.discord_play, on_event=host.dial.event)
-        boards.routes.append(host.discord.route())
-    listener = None
+        host.discord = discordmod.build(cfg, env, boards, tts.synth, meeting.lock, on_event=host.dial.event)
+        boards.routes.extend(host.discord.routes())
+    listener = board_listener = None
     asr = None if a.no_voice else voicemod.gateway_asr(a.asr_url, print)
     if asr is not None:
         def sources(stop):
@@ -730,10 +804,23 @@ def main() -> None:
             except Exception as e:
                 raise SystemExit(f"本地唤醒模型加载失败：{e}") from e
         stamp = time.strftime('%Y%m%d-%H%M%S')
-        listener = voicemod.Listener(asr, host.on_voice, sources, playing=host.spoken_between,
+        mac_voice, mac_kws = host.voice_from("mac")
+        listener = voicemod.Listener(asr, mac_voice, sources, playing=host.spoken_between,
                                      urgent=words.stop_word, timed=True,
-                                     kws=spotter, on_kws=host.on_kws, muted=lambda: not host.mic_on,
+                                     kws=spotter, on_kws=mac_kws, muted=lambda: not host.mic_on,
                                      save_dir=ROOT / "logs" / f"utter-{stamp}")
+        # 板子收音（rh/board_mic.py）：板子上传的麦克风进同一条链路（叫名字才应、暂停、闭麦、开麦），自己一个唤醒模型实例。
+        # 现在板子上的固件不上传（role-household-fw 分支 rh 禁了上行），这一路就一直空着。
+        if boards is not None:
+            mic = board_micmod.BoardMic()
+            boards.on_mic, boards.on_mic_end = mic.on_packet, mic.on_end
+            board_spotter = kwsmod.Spotter(words, cfg.wake_kws_model) if spotter is not None else None
+            board_voice, board_kws = host.voice_from("board")
+            board_listener = voicemod.Listener(asr, board_voice, lambda stop: [mic.frames(stop)], playing=host.spoken_between,
+                                               urgent=words.stop_word, timed=True, kws=board_spotter, on_kws=board_kws,
+                                               muted=lambda: not host.mic_on, save_dir=ROOT / "logs" / f"utter-board-{stamp}",
+                                               log=lambda s: print(s.replace("[voice]", "[voice/板子]", 1)
+                                                                    .replace("[kws]", "[kws/板子]", 1), flush=True))
         print(f"唤醒模型={'关' if spotter is None else '、'.join(spotter.labels)}  每句音频存 logs/utter-{stamp}/", flush=True)
     voices = "关" if a.no_voice else "、".join(
         f"{r.name}={(r.qwen_speaker if cfg.voice_backend == 'qwen' and r.qwen_speaker else r.voice) or '无'}"
@@ -742,7 +829,8 @@ def main() -> None:
           f"  本机播放和收音={'系统语音处理（回声消除）' if vpio is not None else '直接（afplay/say + 麦克风）'}"
           f"  发言日志={a.log}  唤醒词={'、'.join(n for _, ns in words.roles for n in ns)}、{'、'.join(words.product)}"
           f"  安全词={words.pause}  闭麦={words.mute}/{words.unmute}"
-          f"  Discord 回应={'未配' if host.discord is None else ('板子念' if cfg.discord_play else '只记日志')}", flush=True)
+          f"  Discord 回应={'未配' if host.discord is None else ('板子念' if cfg.discord_play else '只记日志')}"
+          f"  板子的话进 Discord={'开' if host.discord is not None and cfg.discord_relay else '关'}", flush=True)
 
     async def runner():
         loop = asyncio.get_running_loop()
@@ -750,13 +838,15 @@ def main() -> None:
             loop.add_signal_handler(sig, host.stop)
         task = asyncio.create_task(host.run())   # stop() 后 run 自己收尾退出（会等路上的请求回来）
         await asyncio.sleep(0)   # 让 run 先记下事件循环，收音线程才能往里投消息
-        if listener:
-            listener.start()
+        for li in (listener, board_listener):
+            if li:
+                li.start()
         try:
             await task
         finally:
-            if listener:
-                listener.stop()
+            for li in (listener, board_listener):
+                if li:
+                    li.stop()
 
     try:
         asyncio.run(runner())

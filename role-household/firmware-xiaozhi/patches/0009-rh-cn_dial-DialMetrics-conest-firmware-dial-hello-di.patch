@@ -1,0 +1,586 @@
+From d329dc3e98b07dfd5945b0a29fc1d6547277e531 Mon Sep 17 00:00:00 2001
+From: zuiho-kai <zuiho-kai@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 03:13:46 +0900
+Subject: [PATCH 09/14] =?UTF-8?q?rh:=20=E8=A1=A8=E7=9B=98=E5=B0=BA?=
+ =?UTF-8?q?=E5=AF=B8=E5=8F=AA=E7=BB=8F=20cn=5Fdial=20DialMetrics=20?=
+ =?UTF-8?q?=E5=8F=96=EF=BC=88conest=20firmware/dial=EF=BC=89=EF=BC=8Chello?=
+ =?UTF-8?q?=20=E6=8A=A5=20display=EF=BC=9B240=20=E5=B1=8F=E7=94=BB?=
+ =?UTF-8?q?=E9=9D=A2=E4=B8=8D=E5=8F=98?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- CMakeLists: EXTRA_COMPONENT_DIRS 引 conest firmware/dial/components（默认 ../../ref-conest/src，可用 CN_DIAL_COMPONENTS 覆盖）
+- RhDialDisplay: 去掉胶囊/音柱/跳点/环宽等常量，改读 dial-layout.v1.json 的 rh_dial.* 项；环/圆心/半径用画布
+- 板级文件: 构造 ScreenProfile（240 圆、16px、rgb565raw、电池 unknown）
+- hello 加 display 对象（ScreenProfile::ToJson）
+已编译（RH_FW_OUT 另放），未刷板。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                                |  13 ++
+ main/CMakeLists.txt                           |   1 +
+ .../sp-esp32-s3-1.28-box.cc                   |   8 +-
+ main/display/display.h                        |   5 +
+ main/display/rh_dial_display.cc               | 146 +++++++++++-------
+ main/display/rh_dial_display.h                |  28 +++-
+ main/protocols/mqtt_protocol.cc               |   1 +
+ main/protocols/protocol.cc                    |  16 ++
+ main/protocols/protocol.h                     |   2 +
+ main/protocols/websocket_protocol.cc          |   1 +
+ 10 files changed, 159 insertions(+), 62 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 39da62d..5e3b3a8 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -5,6 +5,19 @@ cmake_minimum_required(VERSION 3.16)
+ # Add this line to disable the specific warning
+ add_compile_options(-Wno-missing-field-initializers)
+ 
++# rh: the dial's screen profile / size maths (cn_dial) lives in the shared conest repo
++# (firmware/dial/components), so conest's dial changes are ours without copying. Default: the
++# local conest checkout next to this repo; override with CN_DIAL_COMPONENTS.
++if(DEFINED ENV{CN_DIAL_COMPONENTS})
++    set(CN_DIAL_COMPONENTS $ENV{CN_DIAL_COMPONENTS})
++else()
++    get_filename_component(CN_DIAL_COMPONENTS "${CMAKE_CURRENT_LIST_DIR}/../../ref-conest/src/firmware/dial/components" ABSOLUTE)
++endif()
++if(NOT EXISTS "${CN_DIAL_COMPONENTS}/cn_dial/CMakeLists.txt")
++    message(FATAL_ERROR "cn_dial not found in ${CN_DIAL_COMPONENTS}: check out conest (firmware/dial) or set CN_DIAL_COMPONENTS")
++endif()
++list(APPEND EXTRA_COMPONENT_DIRS "${CN_DIAL_COMPONENTS}")
++
+ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+ # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
+ idf_build_set_property(MINIMAL_BUILD ON)
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index d313c1d..332f10f 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -1147,6 +1147,7 @@ idf_component_register(SRCS ${SOURCES}
+                         bt
+                         fatfs
+                         xiaozhi-fonts
++                        cn_dial
+                         ${MAIN_PRIV_REQUIRES_EXTRA}
+                     )
+ 
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc b/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
+index 2f37295..21fe2fb 100644
+--- a/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc
+@@ -108,8 +108,14 @@ private:
+ // rh: the role dial (display/rh_dial_display.cc) is drawn over the default UI, which is still
+ // used in Wi-Fi config mode.
+ using CustomLcdDisplayBase = RhDialDisplay;
++// This screen for cn_dial (conest firmware/dial): 240 round, 16 px font (BUILTIN_TEXT_FONT
++// font_noto_sans_basic_16_4, main/CMakeLists.txt), raw RGB565 avatars, battery vs USB unknown
++// (power_manager.h IsDischarging()).
++static constexpr cn_dial::ScreenProfile kRhScreen{DISPLAY_WIDTH, DISPLAY_HEIGHT, cn_dial::Shape::kRound, 16, {16}, 1, cn_dial::kAssetRgb565Raw, cn_dial::Battery::kUnknown};
++#define RH_SCREEN_ARG , kRhScreen
+ #else
+ using CustomLcdDisplayBase = SpiLcdDisplay;
++#define RH_SCREEN_ARG
+ #endif
+ class CustomLcdDisplay : public CustomLcdDisplayBase {
+ public:
+@@ -122,7 +128,7 @@ public:
+                     bool mirror_x,
+                     bool mirror_y,
+                     bool swap_xy)
+-        : CustomLcdDisplayBase(io_handle, panel_handle, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy) {
++        : CustomLcdDisplayBase(io_handle, panel_handle, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy RH_SCREEN_ARG) {
+         // Note: UI customization should be done in SetupUI(), not in constructor
+         // to ensure lvgl objects are created before accessing them
+     }
+diff --git a/main/display/display.h b/main/display/display.h
+index 93c4c53..1d14a2c 100644
+--- a/main/display/display.h
++++ b/main/display/display.h
+@@ -18,6 +18,8 @@
+ #include <cstdint>
+ #include <memory>
+ #include <string>
++
++namespace cn_dial { struct ScreenProfile; }  // conest firmware/dial (cn_dial/screen_profile.h)
+ #include <vector>
+ 
+ class LvglFont;
+@@ -91,6 +93,9 @@ public:
+     virtual void RhDial(const cJSON* msg) { (void)msg; }        // {"type":"rh_dial",...} from host
+     virtual void RhDeviceState(int state) { (void)state; }      // DeviceState after each change
+     virtual void RhDialLink(bool connected) { (void)connected; } // audio channel opened / closed
++    // What this screen is (size, shape, fonts, ...), sent to the host in hello as "display".
++    // nullptr: the display has no profile and hello carries no "display".
++    virtual const cn_dial::ScreenProfile* GetScreenProfile() const { return nullptr; }
+ 
+     inline int width() const { return width_; }
+     inline int height() const { return height_; }
+diff --git a/main/display/rh_dial_display.cc b/main/display/rh_dial_display.cc
+index bdd4b04..558980c 100644
+--- a/main/display/rh_dial_display.cc
++++ b/main/display/rh_dial_display.cc
+@@ -1,5 +1,5 @@
+ // rh dial: see rh_dial_display.h. Look and timing follow ~/code/role-household rh/static/dial.html
+-// (the hub's 466x466 web dial); pixel sizes there are scaled by width/466 here unless noted.
++// (the hub's 466x466 web dial); pixel sizes there go through cn_dial (DialMetrics, canvas/466).
+ #include "rh_dial_display.h"
+ 
+ #if CONFIG_RH_DIAL
+@@ -10,6 +10,7 @@
+ #include "rh_level.h"
+ 
+ #include <cJSON.h>
++#include <cn_dial/dial_layout_v1.h>
+ #include <src/misc/cache/instance/lv_image_cache.h>  // lv_image_cache_drop (not exported by lvgl.h)
+ #include <esp_heap_caps.h>
+ #include <esp_log.h>
+@@ -57,19 +58,13 @@ constexpr float kTauLevelUp = 50, kTauLevelDown = 160, kTauBar = 60;
+ // Source: implementer's pick, a few 60 ms frames.
+ constexpr int64_t kLevelFreshUs = 300 * 1000;
+ 
+-// Pills: the board's smallest CJK font is 16 px (web 17 px), so pill contents keep the web's
+-// px sizes (x16/17), not the width/466 scale -- at 240 px the web text would be 9 px.
+-constexpr int kPillPadVer = 4, kPillPadHor = 12, kPillGap = 6;  // web 5/18/8, trimmed to fit the circle
+-constexpr int kNameDot = 7;                                     // web 9
+-constexpr int kBarW = 3, kBarH = 15, kBarGap = 3;               // web 3 / 16 / 3
+-constexpr int kDotSize = 5, kDotGap = 4, kDotJump = 5;          // web 5 / 4 / 5
+-constexpr int kStopSize = 9;                                    // web 10
+-
+-// Edge ring widths (px at 240). Thinking/interrupted ring: web 6 px of 466. Idle halo and
+-// speaking glow are new on the board (the web glows outside the bezel, which the board has not):
+-// halo 3..5 px breathing, glow 3..8 px with the level (web spread 1+9*lvl of 466 = up to ~5 px here, plus blur). Source: implementer's pick, by eye on the
+-// board 2026-10-19.
+-constexpr int kHaloMin = 3, kHaloMax = 5, kGlowMin = 3, kGlowMax = 8;
++// Sizes (pills, bars, dots, ring widths) are not here: they come from cn_dial (conest
++// firmware/dial/layout/dial-layout.v1.json, rh_dial.* items), see RhDialDisplay::MakeSizes. Pills:
++// the board's smallest CJK font is 16 px (web 17 px), so pill contents keep the web's px sizes
++// (x16/17) as their 240 px floor (min_px), not the width/466 scale -- at 240 px the web text would
++// be 9 px. Idle halo and speaking glow are new on the board (the web glows outside the bezel,
++// which the board has not); their widths were picked by eye on the 240 board 2026-10-19 and do not
++// scale yet (fixed_px).
+ constexpr float kHaloOpaMin = .18f, kHaloOpaMax = .5f;
+ 
+ // Glint: dial.html .glint = linear-gradient(115deg, transparent 38%, white .16 at 48%, transparent
+@@ -114,7 +109,7 @@ void Plain(lv_obj_t* o) {
+     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+ }
+ 
+-lv_obj_t* Pill(lv_obj_t* parent) {
++lv_obj_t* Pill(lv_obj_t* parent, int pad_ver, int pad_hor, int gap, int border) {
+     lv_obj_t* p = lv_obj_create(parent);
+     Plain(p);
+     lv_obj_set_size(p, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+@@ -123,13 +118,13 @@ lv_obj_t* Pill(lv_obj_t* parent) {
+     lv_obj_set_style_bg_opa(p, kPillBgOpa, 0);
+     lv_obj_set_style_border_color(p, lv_color_white(), 0);
+     lv_obj_set_style_border_opa(p, kPillBorderOpa, 0);
+-    lv_obj_set_style_border_width(p, 1, 0);
+-    lv_obj_set_style_pad_ver(p, kPillPadVer, 0);
+-    lv_obj_set_style_pad_hor(p, kPillPadHor, 0);
++    lv_obj_set_style_border_width(p, border, 0);
++    lv_obj_set_style_pad_ver(p, pad_ver, 0);
++    lv_obj_set_style_pad_hor(p, pad_hor, 0);
+     lv_obj_set_style_text_color(p, lv_color_white(), 0);
+     lv_obj_set_flex_flow(p, LV_FLEX_FLOW_ROW);
+     lv_obj_set_flex_align(p, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+-    lv_obj_set_style_pad_column(p, kPillGap, 0);
++    lv_obj_set_style_pad_column(p, gap, 0);
+     return p;
+ }
+ 
+@@ -157,12 +152,47 @@ const char* StateName(int s) {
+ 
+ RhDialDisplay::RhDialDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
+                              int width, int height, int offset_x, int offset_y, bool mirror_x,
+-                             bool mirror_y, bool swap_xy)
+-    : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy) {
++                             bool mirror_y, bool swap_xy, const cn_dial::ScreenProfile& screen)
++    : SpiLcdDisplay(panel_io, panel, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy),
++      metrics_(screen),
++      sz_(MakeSizes(metrics_)),
++      ring_upto_(sz_.ring_max + 1, 0) {
++    if (screen.w != width || screen.h != height) {
++        ESP_LOGE(TAG, "rh dial: screen profile %dx%d but panel %dx%d", screen.w, screen.h, width, height);
++    }
+     color_ = lv_color_hex(kUnknownRole);
+     dl_mutex_ = xSemaphoreCreateMutex();
+ }
+ 
++RhDialDisplay::Sizes RhDialDisplay::MakeSizes(const cn_dial::DialMetrics& m) {
++    namespace L = cn_dial::layout;
++    Sizes z{};
++    z.name_top = m.px(L::kRhDialNameTagTop);
++    z.status_bottom = m.px(L::kRhDialStatusChipBottom);
++    z.pad_ver = m.px(L::kRhDialPillPadVer);
++    z.pad_hor = m.px(L::kRhDialPillPadHor);
++    z.gap = m.px(L::kRhDialPillGap);
++    z.border = m.px(L::kRhDialPillBorder);
++    z.name_dot = m.px(L::kRhDialNameDot);
++    z.name_glow_extra = m.px(L::kRhDialNameGlowExtra);
++    z.bar_w = m.px(L::kRhDialBarWidth);
++    z.bar_h = m.px(L::kRhDialBarHeight);
++    z.bar_gap = m.px(L::kRhDialBarGap);
++    z.bar_r = m.px(L::kRhDialBarRadius);
++    z.dot = m.px(L::kRhDialDotSize);
++    z.dot_gap = m.px(L::kRhDialDotGap);
++    z.dot_jump = m.px(L::kRhDialDotJump);
++    z.stop = m.px(L::kRhDialStopSize);
++    z.stop_r = m.px(L::kRhDialStopRadius);
++    z.ring_w = m.px(L::kRhDialRingWidth);
++    z.halo_min = m.px(L::kRhDialHaloMin);
++    z.halo_max = m.px(L::kRhDialHaloMax);
++    z.glow_min = m.px(L::kRhDialGlowMin);
++    z.glow_max = m.px(L::kRhDialGlowMax);
++    z.ring_max = std::max(z.glow_max, std::max(z.halo_max, z.ring_w)) + 1;
++    return z;
++}
++
+ RhDialDisplay::~RhDialDisplay() {
+     if (timer_) lv_timer_delete(timer_);
+     if (glint_px_) heap_caps_free(glint_px_);
+@@ -231,31 +261,32 @@ void RhDialDisplay::SetupUI() {
+     lv_obj_center(edge_);
+     lv_obj_add_event_cb(edge_, EdgeDrawCb, LV_EVENT_DRAW_MAIN, this);
+ 
+-    // Name pill (top 7%).
+-    name_pill_ = Pill(dial_);
+-    lv_obj_align(name_pill_, LV_ALIGN_TOP_MID, 0, (int)lroundf(H * 0.07f));
+-    name_dot_ = Box(name_pill_, kNameDot, kNameDot, kDotIdle, LV_RADIUS_CIRCLE);
++    // Name pill (top 7% of the canvas).
++    name_pill_ = Pill(dial_, sz_.pad_ver, sz_.pad_hor, sz_.gap, sz_.border);
++    lv_obj_align(name_pill_, LV_ALIGN_TOP_MID, 0, metrics_.top_mid_y(sz_.name_top));
++    name_dot_ = Box(name_pill_, sz_.name_dot, sz_.name_dot, kDotIdle, LV_RADIUS_CIRCLE);
+     // .card.live .dot glow (box-shadow 0 0 6px): a soft disc behind the dot instead of an LVGL
+     // shadow, which is blurred again on every redraw (no shadow cache in this build).
+-    name_glow_ = Box(dial_, kNameDot + 6, kNameDot + 6, kGreen, LV_RADIUS_CIRCLE);
++    name_glow_ = Box(dial_, sz_.name_dot + sz_.name_glow_extra, sz_.name_dot + sz_.name_glow_extra, kGreen,
++                     LV_RADIUS_CIRCLE);
+     lv_obj_add_flag(name_glow_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+     lv_obj_set_style_bg_opa(name_glow_, 70, 0);
+     Show(name_glow_, false);
+     name_label_ = lv_label_create(name_pill_);
+     lv_label_set_text(name_label_, "等待主机");
+ 
+-    // Status pill (bottom 13%): bars | dots | stop + text.
+-    status_pill_ = Pill(dial_);
+-    lv_obj_align(status_pill_, LV_ALIGN_BOTTOM_MID, 0, -(int)lroundf(H * 0.13f));
++    // Status pill (bottom 13% of the canvas): bars | dots | stop + text.
++    status_pill_ = Pill(dial_, sz_.pad_ver, sz_.pad_hor, sz_.gap, sz_.border);
++    lv_obj_align(status_pill_, LV_ALIGN_BOTTOM_MID, 0, -(metrics_.band_bottom() + sz_.status_bottom));
+     bars_ = lv_obj_create(status_pill_);
+     Plain(bars_);
+-    lv_obj_set_size(bars_, kBars * kBarW + (kBars - 1) * kBarGap, kBarH);
++    lv_obj_set_size(bars_, kBars * sz_.bar_w + (kBars - 1) * sz_.bar_gap, sz_.bar_h);
+     lv_obj_add_event_cb(bars_, BarsDrawCb, LV_EVENT_DRAW_MAIN, this);
+     dots_ = lv_obj_create(status_pill_);
+     Plain(dots_);
+-    lv_obj_set_size(dots_, kDots * kDotSize + (kDots - 1) * kDotGap, kDotSize + kDotJump);
++    lv_obj_set_size(dots_, kDots * sz_.dot + (kDots - 1) * sz_.dot_gap, sz_.dot + sz_.dot_jump);
+     lv_obj_add_event_cb(dots_, DotsDrawCb, LV_EVENT_DRAW_MAIN, this);
+-    stop_ = Box(status_pill_, kStopSize, kStopSize, kRed, 2);
++    stop_ = Box(status_pill_, sz_.stop, sz_.stop, kRed, sz_.stop_r);
+     status_label_ = lv_label_create(status_pill_);
+     lv_label_set_text(status_label_, "");
+     lv_obj_set_style_opa(status_pill_, LV_OPA_TRANSP, 0);
+@@ -332,7 +363,7 @@ void RhDialDisplay::InvalidateEdge(int width, float lo, float hi) {
+     const int W = width_, H = height_;
+     if (width != tiles_w_) {
+         tiles_w_ = width;
+-        const float R = W / 2.0f, cx = W / 2.0f, cy = H / 2.0f;
++        const float R = metrics_.safe_radius(), cx = metrics_.center_x(), cy = metrics_.center_y();
+         for (int i = 0; i < kTiles; i++) {
+             float x1 = 1e9f, y1 = 1e9f, x2 = -1e9f, y2 = -1e9f;
+             for (int s = 0; s <= 4; s++) {
+@@ -358,19 +389,19 @@ void RhDialDisplay::InvalidateEdge(int width, float lo, float hi) {
+     }
+ }
+ 
+-// Precompute the pixels near the rim (distance < kRingMax px) with their angle and distance, and
++// Precompute the pixels near the rim (distance < sz_.ring_max px) with their angle and distance, and
+ // three A8 (alpha-only) full-screen layers: role colour, white, red. Each frame only those ring
+ // pixels are rewritten, and the layers are blended with LVGL's A8 fast path (colour + mask),
+ // clipped to the edge tiles -- no arc / circle masks are computed while drawing.
+ void RhDialDisplay::BuildRing() {
+     const int W = width_, H = height_;
+-    const float R = W / 2.0f, cx = W / 2.0f, cy = H / 2.0f;
++    const float R = metrics_.safe_radius(), cx = metrics_.center_x(), cy = metrics_.center_y();
+     std::vector<RingPx> px;
+     for (int y = 0; y < H; y++) {
+         for (int x = 0; x < W; x++) {
+             float dx = x + .5f - cx, dy = y + .5f - cy;
+             float d = R - sqrtf(dx * dx + dy * dy);
+-            if (d < 0 || d >= kRingMax) continue;
++            if (d < 0 || d >= sz_.ring_max) continue;
+             // clockwise from 12 o'clock, 0.1 deg
+             float a = atan2f(dx, -dy) * 180 / (float)M_PI;
+             if (a < 0) a += 360;
+@@ -379,7 +410,7 @@ void RhDialDisplay::BuildRing() {
+     }
+     std::sort(px.begin(), px.end(), [](const RingPx& a, const RingPx& b) { return a.d16 < b.d16; });
+     ring_n_ = px.size();
+-    for (int w = 0; w <= kRingMax; w++) {  // ring_upto_[w] = number of pixels closer than w px to the rim
++    for (int w = 0; w <= sz_.ring_max; w++) {  // ring_upto_[w] = number of pixels closer than w px to the rim
+         ring_upto_[w] = std::lower_bound(px.begin(), px.end(), w * 16,
+                                          [](const RingPx& a, int v) { return a.d16 < v; }) - px.begin();
+     }
+@@ -401,12 +432,11 @@ void RhDialDisplay::BuildRing() {
+ // Rewrite the ring pixels of the three layers from the current animation values.
+ void RhDialDisplay::PaintRing(float halo_opa, float halo_w, float glow_opa, float glow_w, int upto) {
+     if (ring_px_ == nullptr || !layer_px_[0] || !layer_px_[1] || !layer_px_[2]) return;
+-    const float k = width_ / 466.0f;
+-    const float ring_w = std::max(2.0f, roundf(6 * k));  // web .ring: 6 px of 466
++    const float ring_w = sz_.ring_w;  // web .ring: 6 px of 466
+     float band_o = std::max(halo_opa, glow_opa);
+     float band_w = glow_opa >= halo_opa ? glow_w : halo_w;
+     float rot10 = rot_ * 10;
+-    const int n = ring_upto_[std::min(upto, (int)kRingMax)];
++    const int n = ring_upto_[std::min(upto, sz_.ring_max)];
+     for (int i = 0; i < n; i++) {
+         const RingPx& p = ring_px_[i];
+         float d = p.d16 / 16.0f;
+@@ -463,13 +493,14 @@ void RhDialDisplay::BarsDrawCb(lv_event_t* e) {
+     lv_draw_rect_dsc_t d;
+     lv_draw_rect_dsc_init(&d);
+     d.bg_color = lv_color_hex(kGreen);
+-    d.radius = 2;
++    const Sizes& z = self->sz_;
++    d.radius = z.bar_r;
+     for (int i = 0; i < kBars; i++) {
+-        int h = std::max(2, (int)lroundf(kBarH * self->bar_h_[i]));
++        int h = std::max(2, (int)lroundf(z.bar_h * self->bar_h_[i]));
+         lv_area_t a;
+-        a.x1 = c.x1 + i * (kBarW + kBarGap);
+-        a.x2 = a.x1 + kBarW - 1;
+-        a.y1 = c.y1 + (kBarH - h) / 2;
++        a.x1 = c.x1 + i * (z.bar_w + z.bar_gap);
++        a.x2 = a.x1 + z.bar_w - 1;
++        a.y1 = c.y1 + (z.bar_h - h) / 2;
+         a.y2 = a.y1 + h - 1;
+         lv_draw_rect(layer, &d, &a);
+     }
+@@ -484,14 +515,15 @@ void RhDialDisplay::DotsDrawCb(lv_event_t* e) {
+     lv_draw_rect_dsc_init(&d);
+     d.bg_color = lv_color_white();
+     d.radius = LV_RADIUS_CIRCLE;
++    const Sizes& z = self->sz_;
+     for (int i = 0; i < kDots; i++) {
+         float p = self->dot_p_[i];
+         d.bg_opa = (lv_opa_t)(255 * (.5f + .5f * p));
+         lv_area_t a;
+-        a.x1 = c.x1 + i * (kDotSize + kDotGap);
+-        a.x2 = a.x1 + kDotSize - 1;
+-        a.y1 = c.y1 + kDotJump - (int)lroundf(kDotJump * p);
+-        a.y2 = a.y1 + kDotSize - 1;
++        a.x1 = c.x1 + i * (z.dot + z.dot_gap);
++        a.x2 = a.x1 + z.dot - 1;
++        a.y1 = c.y1 + z.dot_jump - (int)lroundf(z.dot_jump * p);
++        a.y2 = a.y1 + z.dot - 1;
+         lv_draw_rect(layer, &d, &a);
+     }
+ }
+@@ -528,9 +560,9 @@ void RhDialDisplay::Tick() {
+     {
+         float b = Wave(t, kBreatheIdleMs);
+         float halo_opa = halo_ * (kHaloOpaMin + (kHaloOpaMax - kHaloOpaMin) * b);
+-        float halo_w = kHaloMin + (kHaloMax - kHaloMin) * b;
++        float halo_w = sz_.halo_min + (sz_.halo_max - sz_.halo_min) * b;
+         float glow_opa = glow_ * (.4f + .6f * lvl_);
+-        float glow_w = kGlowMin + (kGlowMax - kGlowMin) * lvl_;
++        float glow_w = sz_.glow_min + (sz_.glow_max - sz_.glow_min) * lvl_;
+         // one A8 level of opacity, 1/8 px of width, 1/2 degree of rotation
+         int64_t key = (int64_t)(halo_opa * 255) + 256 * ((int64_t)(halo_w * 8) + 256 * ((int64_t)(glow_opa * 255) +
+                       256 * ((int64_t)(glow_w * 8) + 256 * ((int64_t)(red_ * 255) + 256 * ((int64_t)(spin_ * 255) +
+@@ -538,12 +570,12 @@ void RhDialDisplay::Tick() {
+         if (key != edge_key_) {
+             edge_key_ = key;
+             // Only as deep into the circle as anything is drawn now or was drawn last time.
+-            const int ring_w = std::max(2, (int)lroundf(6 * W / 466.0f));
++            const int ring_w = sz_.ring_w;
+             int need = 0;
+             if (halo_opa > .004f) need = (int)ceilf(halo_w);
+             if (glow_opa > .004f) need = std::max(need, (int)ceilf(glow_w));
+             if (spin_ > .004f || red_ > .004f) need = std::max(need, ring_w);
+-            need = std::min((int)kRingMax, need + 1);
++            need = std::min(sz_.ring_max, need + 1);
+             int depth = std::max(need, ring_depth_);
+             PaintRing(halo_opa, halo_w, glow_opa, glow_w, depth);
+             layer_on_[0] = halo_opa > .004f || glow_opa > .004f || spin_ > .004f;
+@@ -601,7 +633,7 @@ void RhDialDisplay::Tick() {
+         for (int i = 0; i < kBars; i++) {
+             float target = std::max(.2f, std::min(1.0f, lvl_ * (.6f + .5f * fabsf(sinf(Ang(t, 90) + i * 1.7f)))));
+             float nh = Follow(bar_h_[i], target, dt, kTauBar);
+-            changed |= lroundf(nh * kBarH) != lroundf(bar_h_[i] * kBarH);
++            changed |= lroundf(nh * sz_.bar_h) != lroundf(bar_h_[i] * sz_.bar_h);
+             bar_h_[i] = nh;
+         }
+         if (changed) lv_obj_invalidate(bars_);
+@@ -613,7 +645,7 @@ void RhDialDisplay::Tick() {
+         for (int i = 0; i < kDots; i++) {
+             float u = Cyc(t - i * 150 + kDotMs * 10, kDotMs) / kDotMs;
+             float p = u < .4f ? Smooth(u / .4f) : (u < .8f ? Smooth((.8f - u) / .4f) : 0);
+-            changed |= lroundf(p * kDotJump * 2) != lroundf(dot_p_[i] * kDotJump * 2);
++            changed |= lroundf(p * sz_.dot_jump * 2) != lroundf(dot_p_[i] * sz_.dot_jump * 2);
+             dot_p_[i] = p;
+         }
+         if (changed) lv_obj_invalidate(dots_);
+@@ -624,8 +656,8 @@ void RhDialDisplay::Tick() {
+     if (live_) {  // follow the dot (the pill re-centres when the name changes)
+         lv_area_t a;
+         lv_obj_get_coords(name_dot_, &a);
+-        Num(name_glow_, LV_STYLE_X, a.x1 - 3);
+-        Num(name_glow_, LV_STYLE_Y, a.y1 - 3);
++        Num(name_glow_, LV_STYLE_X, a.x1 - sz_.name_glow_extra / 2);
++        Num(name_glow_, LV_STYLE_Y, a.y1 - sz_.name_glow_extra / 2);
+     }
+     if (live_ != !lv_obj_has_flag(name_glow_, LV_OBJ_FLAG_HIDDEN)) {
+         lv_obj_move_to_index(name_glow_, lv_obj_get_index(name_pill_));  // just under the pill
+diff --git a/main/display/rh_dial_display.h b/main/display/rh_dial_display.h
+index d2170df..6d407c6 100644
+--- a/main/display/rh_dial_display.h
++++ b/main/display/rh_dial_display.h
+@@ -15,23 +15,27 @@
+ #include "lcd_display.h"
+ #include "lvgl_image.h"
+ 
++#include <cn_dial/dial_metrics.h>   // conest firmware/dial: screen profile + canvas units -> px
++
+ #include <freertos/FreeRTOS.h>
+ #include <freertos/semphr.h>
+ 
+ #include <memory>
+ #include <string>
++#include <vector>
+ 
+ class RhDialDisplay : public SpiLcdDisplay {
+ public:
+     RhDialDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel, int width,
+                   int height, int offset_x, int offset_y, bool mirror_x, bool mirror_y,
+-                  bool swap_xy);
++                  bool swap_xy, const cn_dial::ScreenProfile& screen);
+     ~RhDialDisplay();
+ 
+     void SetupUI() override;
+     void RhDial(const cJSON* msg) override;
+     void RhDeviceState(int state) override;
+     void RhDialLink(bool connected) override;
++    const cn_dial::ScreenProfile* GetScreenProfile() const override { return &metrics_.profile(); }
+ 
+ private:
+     enum State { kIdle = 0, kThinking, kSpeaking, kInterrupted };
+@@ -42,6 +46,23 @@ private:
+     // kTiles + 2 * kGlintStrips + a few pill areas must stay under LVGL's LV_INV_BUF_SIZE (32
+     // invalid areas per frame); past that LVGL redraws the whole screen.
+ 
++    // Every size comes from here (cn_dial layout dial-layout.v1.json, rh_dial.* items), not from
++    // constants in this file.
++    struct Sizes {
++        int name_top, status_bottom;                 // pill offsets from the canvas top / bottom
++        int pad_ver, pad_hor, gap, border;           // pills
++        int name_dot, name_glow_extra;
++        int bar_w, bar_h, bar_gap, bar_r;
++        int dot, dot_gap, dot_jump;
++        int stop, stop_r;
++        int ring_w;                                  // thinking / interrupted ring
++        int halo_min, halo_max, glow_min, glow_max;  // idle halo, speaking glow
++        int ring_max;                                // widest thing on the rim (glow_max) + 1 AA px
++    };
++    static Sizes MakeSizes(const cn_dial::DialMetrics& m);
++    const cn_dial::DialMetrics metrics_;
++    const Sizes sz_;
++
+     lv_obj_t* dial_ = nullptr;
+     lv_obj_t* face_base_ = nullptr;
+     lv_obj_t* face_think_ = nullptr;
+@@ -79,15 +100,14 @@ private:
+     float dot_p_[kDots] = {};  // dot jump 0..1
+     // What the edge drew last frame, to invalidate only when it changes.
+     int64_t edge_key_ = -1;
+-    // Ring layers (see BuildRing): pixels within kRingMax px of the rim, and three A8 layers.
+-    static constexpr int kRingMax = 9;   // widest thing on the rim: kGlowMax (8) + 1 AA px
++    // Ring layers (see BuildRing): pixels within sz_.ring_max px of the rim, and three A8 layers.
+     struct RingPx { uint32_t idx; uint16_t ang10; uint8_t d16; };
+     RingPx* ring_px_ = nullptr;
+     int ring_n_ = 0;
+     uint8_t* layer_px_[3] = {};
+     lv_image_dsc_t layer_dsc_[3] = {};
+     bool layer_on_[3] = {};
+-    int ring_upto_[kRingMax + 1] = {};
++    std::vector<int> ring_upto_;   // sz_.ring_max + 1 entries
+     int ring_depth_ = 0;           // how deep (px) the ring was drawn last frame
+     float arc_drawn_rot_ = 0;      // thinking arc rotation drawn last frame
+     lv_obj_t* name_glow_ = nullptr;
+diff --git a/main/protocols/mqtt_protocol.cc b/main/protocols/mqtt_protocol.cc
+index 75c4209..9f53bc3 100644
+--- a/main/protocols/mqtt_protocol.cc
++++ b/main/protocols/mqtt_protocol.cc
+@@ -397,6 +397,7 @@ std::string MqttProtocol::GetHelloMessage() {
+     cJSON_AddBoolToObject(features, "mcp", true);
+     cJSON_AddItemToObject(root, "features", features);
+     AddTextFontCapabilities(root);
++    AddDisplayProfile(root);
+     cJSON* audio_params = cJSON_CreateObject();
+     cJSON_AddStringToObject(audio_params, "format", "opus");
+     cJSON_AddNumberToObject(audio_params, "sample_rate", 16000);
+diff --git a/main/protocols/protocol.cc b/main/protocols/protocol.cc
+index ac591b5..cc612b9 100644
+--- a/main/protocols/protocol.cc
++++ b/main/protocols/protocol.cc
+@@ -1,5 +1,9 @@
+ #include "protocol.h"
+ #include "assets.h"
++#include "board.h"
++#include "display.h"
++
++#include <cn_dial/screen_profile.h>
+ 
+ #include <esp_log.h>
+ 
+@@ -23,6 +27,18 @@ void Protocol::AddTextFontCapabilities(cJSON* root) {
+     cJSON_AddItemToObject(root, "text_font", font);
+ }
+ 
++void Protocol::AddDisplayProfile(cJSON* root) {
++    auto display = Board::GetInstance().GetDisplay();
++    const cn_dial::ScreenProfile* screen = display ? display->GetScreenProfile() : nullptr;
++    if (screen == nullptr) {
++        return;
++    }
++    cJSON* obj = cJSON_Parse(screen->ToJson().c_str());
++    if (obj != nullptr) {
++        cJSON_AddItemToObject(root, "display", obj);
++    }
++}
++
+ void Protocol::OnIncomingJson(std::function<void(const cJSON* root)> callback) {
+     on_incoming_json_ = callback;
+ }
+diff --git a/main/protocols/protocol.h b/main/protocols/protocol.h
+index cfa0dd2..73d053e 100644
+--- a/main/protocols/protocol.h
++++ b/main/protocols/protocol.h
+@@ -87,6 +87,8 @@ protected:
+     void SetError(const std::string& message, const std::string& detail);
+     virtual bool IsTimeout() const;
+     static void AddTextFontCapabilities(cJSON* root);
++    // hello "display": the screen profile of the board's display (cn_dial), if it has one.
++    static void AddDisplayProfile(cJSON* root);
+ };
+ 
+ #endif  // PROTOCOL_H
+diff --git a/main/protocols/websocket_protocol.cc b/main/protocols/websocket_protocol.cc
+index e0e3df9..55f2559 100644
+--- a/main/protocols/websocket_protocol.cc
++++ b/main/protocols/websocket_protocol.cc
+@@ -208,6 +208,7 @@ std::string WebsocketProtocol::GetHelloMessage() {
+     cJSON_AddBoolToObject(features, "mcp", true);
+     cJSON_AddItemToObject(root, "features", features);
+     AddTextFontCapabilities(root);
++    AddDisplayProfile(root);
+     cJSON_AddStringToObject(root, "transport", "websocket");
+     cJSON* audio_params = cJSON_CreateObject();
+     cJSON_AddStringToObject(audio_params, "format", "opus");
+-- 
+2.54.0 (Apple Git-157)
+

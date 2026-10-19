@@ -247,13 +247,14 @@ class HostKWS(HubBase):
         await self.said("闭麦", "闭麦")
         await wait_for(lambda: not any(r["status"] == "speaking" for r in self.rows()), what="停下")
         await wait_for(lambda: not self.hub.mic_on(), what="云端闭麦")
-        n = len(self.rows())
+        n = len(self.rows(author_kind="user")) + len(self.rows(author_kind="role"))
         await self.said("鲸鱼娘在吗", "鲸鱼娘")
-        await self.said("暂停", "暂停")
+        await self.said("暂停", "暂停")   # 闭麦中暂停照样生效（只停下、发系统消息），仍闭麦
         await self.said("小家你好", "小家")
         await asyncio.sleep(0.3)
-        self.assertEqual(len(self.rows()), n)
+        self.assertEqual(len(self.rows(author_kind="user")) + len(self.rows(author_kind="role")), n)
         self.assertFalse(self.host.mic_on)
+        self.assertFalse(self.hub.mic_on())
         await self.call(self.host.on_kws, hit("开麦"))
         await wait_for(self.hub.mic_on, what="云端开麦")
         await self.said("鲸鱼娘在吗", "鲸鱼娘")
@@ -274,6 +275,29 @@ class HostKWS(HubBase):
         await wait_for(lambda: not self.hub.mic_on(), what="云端闭麦")
         await self.call(self.host.on_voice, "开麦", t - 2, t, kws=[], muted=True)
         await wait_for(self.hub.mic_on, what="转文字认出开麦")
+
+
+    async def test_voice_unmute_persists_to_hub(self):
+        """语音闭麦、开麦都写回 hub：主机重启后 ready 帧带回的是最后一次语音的开关（唤醒模型和转文字两路都算）。"""
+        await self.start({r.id: ScriptBrain("一句") for r in ROLES})
+        await self.said("闭麦", "闭麦")
+        await wait_for(lambda: not self.hub.mic_on(), what="语音闭麦写回 hub")
+        await self.said("开麦", "开麦")
+        await wait_for(self.hub.mic_on, what="唤醒模型开麦写回 hub")
+        await self.said("闭麦")
+        await wait_for(lambda: not self.hub.mic_on(), what="转文字闭麦写回 hub")
+        t = time.time()
+        await self.call(self.host.on_voice, "开麦", t - 2, t, kws=[], muted=True)
+        await wait_for(self.hub.mic_on, what="转文字开麦写回 hub")
+        # 重启主机：从 hub 的 ready 帧读回开麦
+        self.host.stop()
+        await asyncio.wait_for(self.task, 5)
+        self.host = Host(self.m, self.url, TOKEN, self.dir / "s.json", reconnect_min=0.05, reconnect_max=0.2,
+                         words=WORDS, log=self.logs.append)
+        self.host.mic_on = False
+        self.task = asyncio.create_task(self.host.run())
+        await wait_for(self.host.connected.is_set, what="重启后连上")
+        self.assertTrue(self.host.mic_on)
 
 
 class RealModel(unittest.TestCase):

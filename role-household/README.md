@@ -109,26 +109,34 @@ ASR、TTS 各是 `rh/voice.py` 里的一个小接口（`transcribe(wav)`、`spea
   之后谁在想、谁在说、被打断也发给该角色的板子（规则同网页）；固件里不写死角色，换绑定只改 `roles.toml`。
   头像用 `avatars/dial/<角色>.jpg`，板子按屏幕边长取 `/xiaozhi/dial/<角色>.rgb565?size=240`（主机用 ffmpeg 缩成 RGB565）。
   日志里 `[dial]` 开头的行是发给板子的表盘状态。
+- 网页圆屏（conest `prototypes/device-ui` 的外部状态输入，conest Issue #90 / PR #91）：主机 `GET /rh/dial/events` 是 SSE，
+  先给每个角色一条全量（名字、颜色、头像原图 `/xiaozhi/dial/<角色>.jpg`、状态），之后状态变了再推，开始说时带表情 `emotion`。
+  打开 conest 预览页时加 `?rh=http://<主机>:8791/rh/dial/events&rh_role=ju`，圆屏就跟着橘的四态和表情动（没有视频素材时用表盘降级）。
 - 固件要配合的一点：原版小智固件 WebSocket 只在要说话时才连（`main/protocols/websocket_protocol.cc` 的 `Start()` 不连），
   主机推不进去。固件要在联网、OTA 完成后主动 `OpenAudioChannel()`，`OnAudioChannelClosed` 后隔几秒重连；
   还要在空闲态收到 `tts start` 时照常进 Speaking（原版就是这样）。
 
-## 形态 B：Discord 里 bot 的回应在板子上念
+## 形态 B：板子接进 Discord
 
-板子也可以当现有平台（我们的 Discord）里 bot 的躯体（`rh/discord_body.py`）。gate（`~/im-bridge/gate/rhbody.py`）
-复用它已收到的消息：主人 @ 某个 bot、开头点名她、或回复她的消息之后，她的下一条回复就是“回应主人的话”，
-gate 把正文 POST 到主机 `http://127.0.0.1:8791/rh/discord/say`（只收本机请求）。bot 之间互相说话不转。
+板子也可以当现有平台（我们的 Discord）里 bot 的躯体（`rh/discord_body.py`）：主人对板子叫某个角色，这句进 Discord，
+由群里那个有当前会话的 bot 来答，她的回复在板子上念。
 
 ```
- 主人在 Discord 叫鲸鱼娘 ─▶ gate 记下「在等鲸鱼娘回应」
- 下一条消息来时 gate 看到她的上一条回复 ─▶ POST {bot_id, text} ─▶ 主机按 [[discord.bots]] 找角色 ─▶ 她的音色、她的板子
+ 主人对板子说「小橘，…」 ─▶ 主机认出叫的是映射了 bot 的角色 ─▶ 以 webhook 身份（名字「板子」）发进 [discord] channel：
+     「<@橘的 bot ID> （主人对着板子说的，语音转文字）…」，记下「在等橘回」
+ 橘在这个频道发了下一条 ─▶ cc-connect 钩子 message.sent POST /rh/discord/hook {project, session_key, content}
+     ─▶ 是在等的那个 bot、是这个频道 ─▶ 按 [[discord.bots]] 找角色 ─▶ 她的音色、她的板子
+ （后备）gate 看到她回主人的话 ─▶ POST /rh/discord/say {bot_id, text} ─▶ 同一条只念一次
 ```
 
-- 映射：`roles.toml` 的 `[[discord.bots]]`（`bot_id`、`name`、`role`），别人 team 里的 bot 同样加一条。
-- 真板播放开关 `[discord] play`，默认 `false`：只记日志（`[discord]` 开头的行），不出声。用户在场时改成 `true` 并重启主机。
+- 映射：`roles.toml` 的 `[[discord.bots]]`（`bot_id`、`name`、`role`、`project` = cc-connect 的 project 名），别人 team 里的 bot 同样加一条。
+- `[discord] relay`（默认 `false`）：开着才把板子的话发进 Discord，要在 `.env` 配 `RH_DISCORD_WEBHOOK`（频道的 webhook 地址，不进 git）；
+  `channel` 是发进哪个频道、只念哪个频道的回复。没映射的角色、叫「小家」、没叫名字的话照旧走自建频道；闭麦时不发。
+- 真板播放开关 `[discord] play`，默认 `false`：只记日志（`[discord]` 开头的行），不出声（用户不在、睡觉时）。用户在场时改成 `true` 并重启主机。
+- 只念回板子的话：钩子那条路只念「在等她回」时她的第一条；她在群里和别人说话不念。两个入口都只收本机请求。
 - 只推板子：板子不在线就不念，不走 Mac 喇叭和网页。和小家讨论共用发言锁，不叠音；「暂停」「闭麦」、用户插话都会停下并作废排队的。
-- 限制：gate 只在频道里来下一条消息时才看得到 bot 的回复，所以要等主人下一次发话才念；回复长于 600 字时只念结尾那段
-  （cc-connect 只给 gate 结尾 600 字）。gate 的转发记录在 `~/im-bridge/logs/gate-rhbody.jsonl`。
+- gate 那条路（`~/im-bridge/gate/rhbody.py`）的限制：它只在频道里来下一条消息时才看得到 bot 的回复，所以可能晚很久才送来；
+  回复长于 600 字时只有结尾那段（cc-connect 只给 gate 结尾 600 字）。转发记录在 `~/im-bridge/logs/gate-rhbody.jsonl`。
 
 ## 本地唤醒模型
 

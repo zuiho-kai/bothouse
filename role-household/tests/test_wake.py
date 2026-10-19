@@ -109,10 +109,12 @@ class WordsTest(unittest.TestCase):
             self.assertEqual(WORDS.classify(t, muted=False).action, wake.PAUSE, t)
         for t in ("闭麦", "必卖。", "碧麦", "必卖吧。"):
             self.assertEqual(WORDS.classify(t, muted=False).action, wake.MUTE, t)
-        # 闭麦期间只认开麦：叫名字、暂停都不算
+        # 闭麦期间只认开麦、暂停、闭麦（后两个停下正在念的 Discord 回应）：叫名字不算
         for t in ("开麦。", "开买", "开卖吧"):
             self.assertEqual(WORDS.classify(t, muted=True).action, wake.UNMUTE, t)
-        for t in ("彩虹猫讲个笑话", "暂停", "小家你好"):
+        self.assertEqual(WORDS.classify("暂停", muted=True).action, wake.PAUSE)
+        self.assertEqual(WORDS.classify("闭麦", muted=True).action, wake.MUTE)
+        for t in ("彩虹猫讲个笑话", "小家你好"):
             self.assertEqual(WORDS.classify(t, muted=True).action, wake.IGNORE, t)
         # 调音量（用户 2026-10-19「我通过语音让它调大」）：不用叫名字；叫了名字只调她的；闭麦中不认
         for t in ("大声点", "声音大一点", "大点声"):
@@ -327,11 +329,13 @@ class HostVoice(HubBase):
         await self.voice("必卖")                               # ASR 把闭麦转成必卖
         await wait_for(lambda: not any(r["status"] == "speaking" for r in self.rows()), what="停下")
         await wait_for(lambda: not self.hub.mic_on(), what="云端闭麦")
-        n = len(self.rows())
+        talk = lambda: [r for r in self.rows() if r["author_kind"] != "system"]
+        n = len(talk())
         for t in ("彩虹猫讲个笑话", "暂停", "小家你好"):
             await self.voice(t)
         await asyncio.sleep(0.3)
-        self.assertEqual(len(self.rows()), n)                  # 闭麦期间什么都不进频道
+        self.assertEqual(len(talk()), n)                       # 闭麦期间说的话不进频道（暂停照样生效，只发系统消息）
+        self.assertFalse(self.host.mic_on)                     # 暂停不开麦
         await self.voice("开卖")
         await wait_for(self.hub.mic_on, what="云端开麦")
         self.assertTrue(self.host.mic_on)

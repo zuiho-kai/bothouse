@@ -45,9 +45,9 @@ class XiaozhiBase(DeviceBase):
         w = wakemod.Words([(r.id, [r.name]) for r in ROLES]) if words else None
         self.host = Host(self.m, self.url, TOKEN_, self.dir / "s.json", reconnect_min=0.05, reconnect_max=0.2,
                          speaker=self.speaker, boards=self.xz, words=w, log=self.log.append)
-        if dial:   # 板子表盘（rh/dial.py），tests/test_dial.py 用；头像目录用临时目录
+        if dial:   # 板子表盘（rh/dial.py），tests/test_dial.py 用；头像目录用临时目录；dial 给 dict 时当 Dial 的额外参数
             from rh.dial import Dial
-            self.host.dial = Dial(self.xz, ROLES, self.dir, log=self.log.append)
+            self.host.dial = Dial(self.xz, ROLES, self.dir, log=self.log.append, **(dial if isinstance(dial, dict) else {}))
         self.task = asyncio.create_task(self.host.run())
         await wait_for(self.host.connected.is_set, what="角色主机连上")
         self.ota = f"http://127.0.0.1:{self.xz.port}{xz.OTA_PATH}"
@@ -63,6 +63,9 @@ class XiaozhiBase(DeviceBase):
         return b
 
     async def asyncTearDown(self):
+        d = getattr(getattr(self, "host", None), "dial", None)
+        if d is not None:
+            d.close()   # 停读队友状态的线程
         for b in getattr(self, "boards_", []):
             await b.close()
         await super().asyncTearDown()
@@ -99,6 +102,22 @@ class OtaAndHandshake(XiaozhiBase):
         self.assertTrue(b.hello["session_id"])
         self.assertTrue(self.host.device_online("a"))
         self.assertFalse(self.host.device_online("c"))
+
+    async def test_hello_display_logged(self):
+        # 新固件 hello 带 "display"（conest firmware/dial ScreenProfile::ToJson）：主机只记录、写日志；老固件不带也照常
+        await self.start_host()
+        disp = {"w": 240, "h": 240, "shape": "round", "font_min_px": 16, "fonts_px": [16],
+                "asset_formats": ["rgb565raw"], "battery": "unknown"}
+        b = FakeXiaozhi(self.ota, DEV_A)
+        b.display = disp
+        await b.connect()
+        self.boards_.append(b)
+        await wait_for(lambda: self.xz.online("a"), what="a 的板子在线")
+        self.assertEqual(self.xz.by_role["a"].display, disp)
+        self.assertTrue(any(f"板子 {DEV_A} 的屏幕" in line and '"w": 240' in line for line in self.log))
+        old = await self.board(DEV_B)   # 不带 display
+        self.assertTrue(old.hello["session_id"])
+        self.assertIsNone(self.xz.by_role["b"].display)
 
     async def test_token_checked_when_set(self):
         await self.start_host()
