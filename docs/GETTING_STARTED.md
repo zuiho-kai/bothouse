@@ -4,16 +4,50 @@ CoNest 本体 = **ccm + wiki**：一群 AI 伙伴在聊天软件里一起说话�
 加上一份它们共用、会自己长的记忆（wiki，[llm-wiki](https://github.com/zuiho-kai/llm-wiki)）。
 硬件（每位伙伴一块小屏板子）是可选的一层。
 
-**没有硬件，走完线 1 和线 2 就能完整用。** 第一次运行 `cc-connect` 会直接打开安装向导：选平台、接机器人、每个角色选本机 CLI、人设、兜底角色、jev，其余全用默认值。 线 3 只在你手上有板子时才需要。
+**没有硬件，走完线 1 和线 2 就能完整用。** 线 3 只在你手上有板子时才需要。
 
-## 先选路线
+## 三步用起来：装 → 向导 → 确认上线
+
+只有这一条路。macOS 和 Linux（Apple 芯片 / Intel / arm64 / x86_64）；Windows 暂不支持。不用装 Go，也不用装 Node。
+
+**1. 装。** 下载预编译的 `cc-connect`（带网页向导），放进 `~/.local/bin`：
+
+```sh
+# 仓库公开后：
+curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | sh
+# 仓库还是私有时（要先装 GitHub CLI 并 gh auth login，账号要能看到这个仓库）：
+gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+```
+
+装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。
+
+**2. 配。** 二选一，写的是同一份配置（`~/.cc-connect/config.toml`）：
+
+- 人：运行 `cc-connect`。第一次运行会自动在浏览器打开安装向导（打不开就把带口令的链接打印出来，复制到浏览器）。
+  按页面点：选平台 → 填机器人 token → 选服务器和频道 → 每个角色选本机 CLI → 人设 → 兜底角色 → jev（可跳过）→ 保存 → 「重启生效」。
+- AI：对 Claude Code / Codex 说「帮我把 cc-connect 配好接上 Discord」。它按 [AGENTS.md](../AGENTS.md) 一次问齐要的东西，跑 `cc-connect setup apply`。
+
+要你准备的只有：每个角色一个 Discord 机器人 token（开发者后台 → Bot → Reset Token，并打开 **Message Content Intent**），和本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）。
+服务器和频道在向导里点选；谁能指挥机器人（`allow_from`）默认就是建机器人的你。jev 和 gate 都可以不要。
+
+**3. 确认上线。** 保存后向导最后一页（或 `setup apply` 输出的 JSON）会列出还要你做的事：
+
+- **Message Content Intent 没开（或没查到）**：机器人读不到消息。点链接到开发者后台打开 / 确认。
+- **没查到机器人的所有者**：为了安全机器人先谁都不听，按提示填上你自己的 Discord 用户 ID。
+- **机器人还没进服务器**：点邀请链接把它拉进去。
+- 都没有就是好了。日志里出现 `discord: connected` 就是上线，去频道里 @ 机器人说一句试试。
+- 想关掉终端也一直在线：`cc-connect daemon install`（装成后台服务）。
+
+**gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：第一次要装 Python 依赖、下载约 3GB 模型，要几十分钟。
+
+## 上面三步之后，按需再加
 
 ```
-             你                                    想要什么                         走哪几条
+             你                                    想要什么                         再看哪篇
  ───────────────────────────────    ─────────────────────────────────    ─────────────
- 只想在 Discord/飞书里有一群 AI      一主多 sub、会记事的 AI 群            线 1 → 线 2
- 已经有 cc-connect 在跑              加上一主多 sub、wiki 记忆              线 1（跳过安装）
- 手上有一块小智板子                  对板子说话，Discord 里的 AI 回、板子念    线 1 → 线 2 → 线 3
+ 只想在 Discord/飞书里有一群 AI      一主多 sub 的 AI 群                    上面三步就够
+ 还想要会记事、自己判断谁回           wiki 记忆、gate                        线 1 第 3–4 步
+ 手上有一块小智板子                  对板子说话，Discord 里的 AI 回、板子念    线 3
 ```
 
 ## 各部分怎么连
@@ -47,8 +81,8 @@ CoNest 本体 = **ccm + wiki**：一群 AI 伙伴在聊天软件里一起说话�
 
 | 线 | 文档 | 做完会看到什么 |
 |---|---|---|
-| 1. 配 ccm 和 wiki | [ccm-and-wiki.md](ccm-and-wiki.md) | 本机 cc-connect 跑着一主多 sub；gate 在 9930 端口；bot 回话前收到「可能相关的 wiki 页」；会话结束后 wiki 多了记录 |
-| 2. 接进 Discord 或飞书（安装向导：网页点几下，或让 AI 跑一条命令） | [connect-discord-feishu.md](connect-discord-feishu.md) | Discord 里几个 bot 按 gate 的判断接话、互相交接；飞书里一个 bot 能对话；（有板子时）默认发言频道和自动选频道配好 |
+| 1. 配 ccm 和 wiki（gate、wiki 都可选） | [ccm-and-wiki.md](ccm-and-wiki.md) | 本机 cc-connect 跑着一主多 sub；（装了 gate）gate 在 9930 端口；bot 回话前收到「可能相关的 wiki 页」；会话结束后 wiki 多了记录 |
+| 2. 接进 Discord 或飞书（就是上面第 2 步的向导：网页点几下，或让 AI 跑一条命令） | [connect-discord-feishu.md](connect-discord-feishu.md) | Discord 里几个 bot 接话、互相交接；飞书里一个 bot 能对话；（有板子时）默认发言频道和自动选频道配好 |
 | 3. 接硬件（可选） | [hardware.md](hardware.md) | 板子屏幕显示角色表盘；叫她的名字，这句进 Discord，她的回答在板子上念出来 |
 
 ## 升级须知：role-household/roles.toml 不再进 git（2026-10-20）

@@ -39,7 +39,11 @@ type WizardRequest struct {
 	FallbackRole  string        `json:"fallback_role,omitempty"`   // project name; default = first role
 	FallbackBotID string        `json:"fallback_bot_id,omitempty"` // or the Discord bot ID (wins; the web wizard sends this)
 	Jev           *WizardJev    `json:"jev,omitempty"`
-	DryRun        bool          `json:"dry_run,omitempty"`
+	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
+	// Not given = the owner of each bot's Discord application (looked up with the token).
+	// Written to new bots and to existing bots whose allow_from is still empty; a non-empty one is kept.
+	AllowFrom *string `json:"allow_from,omitempty"`
+	DryRun    bool    `json:"dry_run,omitempty"`
 }
 
 type WizardFeishu struct {
@@ -99,8 +103,29 @@ type WizardRoleResult struct {
 	PersonaWritten bool   `json:"persona_written"` // false = an existing bot's persona file was left alone
 }
 
+// WizardWarning is something the user still has to do (or should know) after apply.
+// Blocking ones mean the bot will not work until it is done, so the result is not ok.
+type WizardWarning struct {
+	Code     string `json:"code"` // message_content_intent_off | message_content_intent_unknown | bot_not_in_guild | allow_from_unknown | allow_from_everyone | gate_not_running
+	Project  string `json:"project,omitempty"`
+	Blocking bool   `json:"blocking"`
+	Message  string `json:"message"`
+	Fix      string `json:"fix"`
+	URL      string `json:"url,omitempty"` // invite link / Developer Portal page to open
+}
+
 type WizardResult struct {
+	// OK: nothing failed and nothing blocking is left for the user. A saved config with a
+	// blocking warning (intent off, bot not in the server) is saved=true, ok=false.
 	OK              bool               `json:"ok"`
+	Saved           bool               `json:"saved"`
+	NeedsUserAction bool               `json:"needs_user_action"`
+	Warnings        []WizardWarning    `json:"warnings"`
+	InviteURLs      []string           `json:"invite_urls,omitempty"` // bots not in the server yet: open each link to add it
+	AllowFrom       string             `json:"allow_from,omitempty"`  // who the new bots take orders from
+	GateRunning     *bool              `json:"gate_running,omitempty"`
+	GateHint        string             `json:"gate_hint,omitempty"`
+	NextSteps       []string           `json:"next_steps,omitempty"` // how to start / restart (filled by the caller that knows)
 	DryRun          bool               `json:"dry_run"`
 	Steps           []WizardStep       `json:"steps"`
 	Roles           []WizardRoleResult `json:"roles"`
@@ -542,11 +567,13 @@ type wizardPlan struct {
 	fallbackBot  string
 	note         string
 	writes       []WizardProjectWrite
+	// bots whose allow_from was set to AllowFromUnset (nobody known to allow)
+	allowFromUnset []string
 }
 
 // ApplyWizard validates, fills defaults and (unless DryRun) writes everything.
 func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardResult {
-	res := &WizardResult{DryRun: req.DryRun, Roles: []WizardRoleResult{}, Steps: []WizardStep{}}
+	res := &WizardResult{DryRun: req.DryRun, Roles: []WizardRoleResult{}, Steps: []WizardStep{}, Warnings: []WizardWarning{}}
 	fail := func(step string, err error) *WizardResult {
 		addStep(res, step, err, "")
 		res.Error = err.Error()
@@ -603,6 +630,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 
 	// 1. who each bot is (network checks happen here, outside the config lock)
 	ids := make([]wizardIdentity, 0, len(req.Roles))
+	var owners []string // owners of the bots' Discord applications: the default allow_from
 	for i, r := range req.Roles {
 		w := wizardIdentity{WizardRole: r, reuse: r.ReuseProject}
 		step := fmt.Sprintf("role %d", i+1)
@@ -643,10 +671,20 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			rr.InGuild = &in
 			if !in {
 				rr.InviteURL = DiscordInviteURL(info.ApplicationID, guildID)
+				res.InviteURLs = append(res.InviteURLs, rr.InviteURL)
+				res.Warnings = append(res.Warnings, warnNotInGuild(req.Language, info.Username, rr.InviteURL))
+			}
+			if info.OwnerID != "" {
+				owners = appendUnique(owners, info.OwnerID)
 			}
 			detail := "bot " + info.Username
-			if !info.MessageContent {
+			switch {
+			case !info.IntentKnown: // the application lookup failed: can't tell, so don't call it fine
+				detail += "; Message Content Intent 没查到 / could not be checked"
+				res.Warnings = append(res.Warnings, warnIntentUnknown(req.Language, info.Username, info.ApplicationID))
+			case !info.MessageContent:
 				detail += "; Message Content Intent 未开启 / not enabled (Developer Portal → Bot)"
+				res.Warnings = append(res.Warnings, warnIntentOff(req.Language, info.Username, info.ApplicationID))
 			}
 			addStep(res, step+" discord", nil, detail)
 			res.Roles = append(res.Roles, rr)
@@ -662,11 +700,28 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		ids = append(ids, w)
 	}
 
+	// allow_from: what the user gave, else the bots' owners. Nothing known (owner lookup failed,
+	// or an empty value given) fails closed: an empty allow_from would let anyone in the server
+	// command this computer, so the bots get AllowFromUnset (matches no one) and a blocking warning.
+	allowFrom := strings.Join(owners, ",")
+	if req.AllowFrom != nil {
+		allowFrom = strings.Join(csvSet(*req.AllowFrom), ",")
+	}
+	if req.Platform == "discord" {
+		res.AllowFrom = allowFrom
+		if allowFrom == "" {
+			allowFrom = AllowFromUnset
+		}
+		if allowFrom == "*" { // the user's explicit choice: allowed, but say what it means
+			res.Warnings = append(res.Warnings, warnAllowFromEveryone(req.Language))
+		}
+	}
+
 	state := LoadSetupState(env.DataDir)
 	// 2. plan against a config snapshot: names, work dirs, team merge. It runs again
 	//    inside the lock against the config as it is then (H3.4).
 	plan := func(s WizardSnapshot) (*wizardPlan, error) {
-		return planWizard(s, ids, req, state, env.DataDir, defaultAgent, clis, guildID, env.AlwaysWriteCmd)
+		return planWizard(s, ids, req, state, env.DataDir, defaultAgent, clis, guildID, channelID, allowFrom, env.AlwaysWriteCmd)
 	}
 	pl, err := plan(snap)
 	if err != nil {
@@ -688,7 +743,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 		}
 		res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
-		res.OK = true
+		finishWizardResult(res, req, pl)
 		return res
 	}
 
@@ -774,7 +829,8 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		return fail("state", err)
 	}
 	res.RestartRequired = true
-	res.OK = true
+	res.Saved = true
+	finishWizardResult(res, req, pl)
 	return res
 }
 
@@ -804,7 +860,7 @@ func fillRoleResults(res *WizardResult, pl *wizardPlan) {
 // planWizard fixes project names against the snapshot, fills defaults and builds
 // the config writes, merging the team wiring with what each project already has.
 func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state SetupState, dataDir, defaultAgent string,
-	clis []LocalCLI, guildID string, alwaysCmd bool) (*wizardPlan, error) {
+	clis []LocalCLI, guildID, channelID, allowFrom string, alwaysCmd bool) (*wizardPlan, error) {
 	pl := &wizardPlan{}
 	byProject := map[string]WizardExistingBot{}
 	byBotID := map[string]string{}
@@ -968,6 +1024,20 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			// an existing bot keeps the server it already has (H3.3)
 			if cur, _ := byProject[r.project].Options["guild_id"].(string); guildID != "" && cur == "" {
 				pw.Options["guild_id"] = guildID
+			}
+			// allow_from: new bots, existing ones that still let anyone in, and ones a failed run
+			// closed with AllowFromUnset (so a rerun with the user's ID takes); a real list is kept
+			if cur, _ := byProject[r.project].Options["allow_from"].(string); allowFrom != "" &&
+				(strings.TrimSpace(cur) == "" || strings.TrimSpace(cur) == AllowFromUnset) {
+				pw.Options["allow_from"] = allowFrom
+				if allowFrom == AllowFromUnset {
+					pl.allowFromUnset = append(pl.allowFromUnset, r.Name)
+				}
+			}
+			// the wizard's default chat channel: listening without an @ stays in it (platform/discord
+			// group_reply_all_channels); an existing value is kept
+			if cur, _ := byProject[r.project].Options["group_reply_all_channels"].(string); channelID != "" && strings.TrimSpace(cur) == "" {
+				pw.Options["group_reply_all_channels"] = channelID
 			}
 		} else {
 			f := req.Feishu
@@ -1341,7 +1411,7 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 	}
 	res := ApplyWizard(r.Context(), WizardEnv{Store: m.wizardStore, DataDir: m.wizardDataDir}, req)
 	status := http.StatusOK
-	if !res.OK {
+	if !res.OK && !res.Saved { // saved with warnings is still a 200: the config was written
 		status = http.StatusBadRequest
 	}
 	w.Header().Set("Content-Type", "application/json")

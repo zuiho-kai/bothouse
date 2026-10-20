@@ -1806,3 +1806,39 @@ func TestCleanBotTextAndNotices(t *testing.T) {
 		t.Error("chat is not a notice")
 	}
 }
+
+// conest: group_reply_all_channels limits listening without @ to the wizard's default channel.
+func TestReplyAllHere_ChannelScope(t *testing.T) {
+	p := &Platform{groupReplyAllGuilds: []string{"*"}}
+	if !p.replyAllHere("G", "C-any", "") {
+		t.Fatal("no channel list: every channel of the guild")
+	}
+	p.groupReplyAllChannels = []string{"C-home"}
+	if !p.replyAllHere("G", "C-home", "") || !p.replyAllHere("G", "T-1", "C-home") {
+		t.Fatal("default channel and its threads listen without @")
+	}
+	if p.replyAllHere("G", "C-other", "") {
+		t.Fatal("other channels need an @")
+	}
+	p.groupReplyAllGuilds = nil
+	if p.replyAllHere("G", "C-home", "") {
+		t.Fatal("group_reply_all off: channel list alone does nothing")
+	}
+}
+
+func TestNewParsesGroupReplyAllChannels(t *testing.T) {
+	pl, err := New(map[string]any{"token": "x", "group_reply_all": true, "group_reply_all_channels": " 1, 2 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dp *Platform
+	switch v := pl.(type) {
+	case *Platform:
+		dp = v
+	case *progressPlatform:
+		dp = v.Platform
+	}
+	if got := dp.groupReplyAllChannels; len(got) != 2 || got[0] != "1" || got[1] != "2" {
+		t.Fatalf("channels = %v", got)
+	}
+}

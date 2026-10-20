@@ -322,25 +322,16 @@ func main() {
 	}
 	slog.Info("acquired instance lock", "path", instanceLock.Path())
 
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		// conest: first run writes a minimal config with the web admin on and opens the setup wizard
-		// (below: no projects → setup-only mode) instead of asking the user to edit TOML.
-		if err := bootstrapSetupConfig(configPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating config: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Created %s\n", configPath)
+	// conest: no config, or one without any bot ([[projects]]) — e.g. the [log]-only file an older
+	// `setup apply --dry-run` left behind → serve the setup wizard instead of asking for TOML.
+	// Same test as `cc-connect web` (needsSetup).
+	if needsSetup(configPath) {
+		startSetupWizard(configPath, instanceLock.Release)
+		return
 	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		// conest: fresh install (no projects yet) with the web admin enabled → serve only the setup wizard.
-		if pc, perr := config.LoadForSetup(configPath); perr == nil && len(pc.Projects) == 0 &&
-			pc.Management.Enabled != nil && *pc.Management.Enabled {
-			config.ConfigPath = configPath
-			runSetupOnly(pc, configPath, instanceLock.Release)
-			return
-		}
 		fmt.Fprintf(os.Stderr, "Error loading config (%s): %v\n", configPath, err)
 		os.Exit(1)
 	}
@@ -1590,8 +1581,8 @@ func printUsage() {
   Supports: Claude Code, Codex, Cursor, Gemini CLI, Qoder CLI, OpenCode
   Platforms: Feishu, TuiTui, Telegram, Slack, DingTalk, Discord, LINE, WeChat Work, Weixin, QQ, QQ Bot
 
-  GitHub:  https://github.com/chenhg5/cc-connect
-  Docs:    https://github.com/chenhg5/cc-connect/blob/main/INSTALL.md
+  conest:  https://github.com/Zssan12/conest (docs/GETTING_STARTED.md)
+  Upstream: https://github.com/chenhg5/cc-connect
 
 Usage:
   cc-connect [flags]
@@ -1604,6 +1595,14 @@ Flags:
   --help             Show this help message
 
 Commands:
+  setup              Configure bots (conest setup wizard; first run opens it in the browser)
+    apply            One-shot config from JSON (for AI agents): setup apply -h lists every field
+    clis             Local CLIs and whether they are logged in
+    matrix           Third-party API providers × CLIs
+    personas         Example personas
+
+  web                Open the web admin (with no bots configured yet: the setup wizard)
+
   daemon             Manage cc-connect as a background service (systemd/launchd/schtasks)
     install          Install and start the daemon service
     uninstall        Remove the daemon service
@@ -1663,7 +1662,8 @@ Commands:
   config-example     (deprecated: use 'config example' instead)
 
 Examples:
-  cc-connect                          Start with default config
+  cc-connect                          Start (no config yet: opens the setup wizard)
+  cc-connect setup apply --json r.json  Configure bots from a JSON request
   cc-connect --config /path/to.toml   Start with a specific config file
   cc-connect daemon install           Install as a system service
   cc-connect daemon logs -f           Follow daemon logs

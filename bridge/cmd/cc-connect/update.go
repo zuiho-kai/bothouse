@@ -15,14 +15,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
+// conest: updates come from conest's own releases (.github/workflows/release.yml), not upstream
+// chenhg5/cc-connect — upstream binaries have no setup wizard / gate. There is no gitee mirror,
+// so the "gitee" lookup asks GitHub too.
 const (
-	githubRepo   = "chenhg5/cc-connect"
+	githubRepo   = "Zssan12/conest"
 	githubAPI    = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
 	githubAllAPI = "https://api.github.com/repos/" + githubRepo + "/releases"
 	downloadBase = "https://github.com/" + githubRepo + "/releases/download"
-	giteeAPI     = "https://gitee.com/api/v5/repos/cg33/cc-connect/releases/latest"
+	giteeAPI     = githubAPI
 )
 
 // cachedLatestVersion 缓存最新版本信息，避免频繁请求API
@@ -45,7 +50,13 @@ type githubRelease struct {
 // 优先使用Gitee，如果失败则回退到GitHub
 func fetchLatestStableReleaseAsync() {
 	go func() {
-		release, err := fetchLatestStableFromGitee()
+		var release *githubRelease
+		var err error
+		if isPrereleaseVersion(version) {
+			release, err = fetchLatestPreRelease()
+		} else {
+			release, err = fetchLatestStableFromGitee()
+		}
 		if err != nil || release == nil || release.TagName == "" {
 			// Gitee失败，尝试GitHub
 			release, err = fetchLatestStableRelease()
@@ -97,6 +108,30 @@ func checkUpdateAsync() {
 	fetchLatestStableReleaseAsync()
 }
 
+// isPrereleaseVersion: v0.1.0-rc1 style (semver pre-release suffix). "dev" builds are not.
+func isPrereleaseVersion(v string) bool {
+	_, pre, ok := strings.Cut(strings.TrimPrefix(v, "v"), "-")
+	return ok && pre != "" && !strings.HasPrefix(v, "dev")
+}
+
+// verifyDownloaded checks a downloaded release file against the release's checksums.txt.
+func verifyDownloaded(path, checksumsURL, name string) error {
+	sumsFile, err := downloadToTemp(checksumsURL)
+	if err != nil {
+		return fmt.Errorf("download checksums.txt: %w", err)
+	}
+	defer os.Remove(sumsFile)
+	sums, err := os.ReadFile(sumsFile)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return core.VerifyReleaseChecksum(data, sums, name)
+}
+
 // getUpdateHintIfAvailable returns an update hint only from cache (never blocks on network).
 // Call checkUpdateAsync() early to populate the cache in the background.
 func getUpdateHintIfAvailable() string {
@@ -122,7 +157,8 @@ func getUpdateHintIfAvailable() string {
 }
 
 func runUpdate() {
-	pre := false
+	// a pre-release build (v0.1.0-rc1) follows pre-releases: there may be no stable release at all
+	pre := isPrereleaseVersion(version)
 	for _, arg := range os.Args[2:] {
 		if arg == "--pre" || arg == "--beta" {
 			pre = true
@@ -174,6 +210,17 @@ func runUpdate() {
 			fmt.Fprintf(os.Stderr, "Download failed: %v\n", err)
 			os.Exit(1)
 		}
+	}
+
+	// conest: verify against the release's checksums.txt before touching the installed binary.
+	assetName := archiveAsset
+	if !needExtract {
+		assetName = binaryAssetName(latest)
+	}
+	if err := verifyDownloaded(tmpFile, fmt.Sprintf("%s/%s/checksums.txt", downloadBase, latest), assetName); err != nil {
+		os.Remove(tmpFile)
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+		os.Exit(1)
 	}
 
 	if needExtract {
@@ -475,7 +522,8 @@ func copyFile(src, dst string) error {
 }
 
 func checkUpdate() {
-	pre := false
+	// a pre-release build (v0.1.0-rc1) follows pre-releases: there may be no stable release at all
+	pre := isPrereleaseVersion(version)
 	for _, arg := range os.Args[2:] {
 		if arg == "--pre" || arg == "--beta" {
 			pre = true

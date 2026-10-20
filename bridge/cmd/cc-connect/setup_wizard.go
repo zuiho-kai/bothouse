@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/chenhg5/cc-connect/config"
@@ -107,14 +108,14 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv.SetSetupFeishuSave(saveFeishuSetup)
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
 	srv.Start()
-	// The sign-in link carries the token, so it goes into a file only you can read, not into the terminal/logs.
-	linkFile := filepath.Join(filepath.Dir(configPath), "setup-link.txt")
-	link := fmt.Sprintf("http://localhost:%d/login?token=%s&next=/setup\n", port, token)
-	if err := os.WriteFile(linkFile, []byte(link), 0o600); err != nil {
+	// The sign-in link carries the token: it goes into a file only you can read and into the
+	// browser; the terminal only shows it when no browser could be opened.
+	linkFile := setupLinkFile(configPath)
+	link := fmt.Sprintf("http://localhost:%d/login?token=%s&next=/setup", port, token)
+	if err := os.WriteFile(linkFile, []byte(link+"\n"), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "cannot write %s: %v\n", linkFile, err)
 	}
-	fmt.Printf("No projects yet — setup wizard on http://localhost:%d/setup (this machine only).\n", port)
-	fmt.Printf("Sign-in link (with token): open the link in %s\n", linkFile)
+	announceSetupWizard(link, linkFile, port, os.Getenv("CC_LOG_FILE") == "" && !overSSH())
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	select {
@@ -135,16 +136,145 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	}
 }
 
+func setupLinkFile(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "setup-link.txt")
+}
+
+// openBrowserFn is swapped in tests.
+var openBrowserFn = openBrowser
+
+// overSSH: this terminal is an SSH session, so a browser would open on the remote desktop (or nowhere).
+func overSSH() bool { return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" }
+
+// announceSetupWizard opens the wizard in the browser (unless running as a service or over SSH)
+// and always prints the link: a browser that "opened" may be on another screen or none at all.
+// Over SSH it adds the port-forward command, since the wizard only listens on 127.0.0.1.
+func announceSetupWizard(link, linkFile string, port int, tryBrowser bool) {
+	zh := core.SystemLanguage() == "zh"
+	opened := tryBrowser && openBrowserFn(link) == nil
+	switch {
+	case opened && zh:
+		fmt.Print("还没有配置机器人：已尝试在浏览器打开安装向导（只有这台电脑能访问）。没看到的话，把下面这个链接复制到浏览器（含登录口令，别发给别人）：\n")
+	case opened:
+		fmt.Print("No bots configured yet: tried to open the setup wizard in your browser (this computer only). Not there? Paste this link into a browser (it contains a sign-in token, keep it private):\n")
+	case zh:
+		fmt.Print("还没有配置机器人。请把下面这个链接复制到浏览器打开安装向导（含登录口令，别发给别人）：\n")
+	default:
+		fmt.Print("No bots configured yet. Paste this link into a browser to open the setup wizard (it contains a sign-in token, keep it private):\n")
+	}
+	fmt.Printf("\n  %s\n\n", link)
+	if overSSH() {
+		if zh {
+			fmt.Printf("你是通过 SSH 连进来的：向导只听这台机器的 127.0.0.1。在你自己的电脑上另开一个终端运行\n  ssh -L %d:127.0.0.1:%d <用户名>@<这台机器的地址>\n保持它开着，再在你自己电脑的浏览器里打开上面的链接。也可以不用网页：让 AI 跑 cc-connect setup apply。\n", port, port)
+		} else {
+			fmt.Printf("You are on SSH: the wizard only listens on this machine's 127.0.0.1. On your own computer run\n  ssh -L %d:127.0.0.1:%d <user>@<this machine>\nkeep it open, then open the link above in your own browser. Or skip the web page: have an AI run cc-connect setup apply.\n", port, port)
+		}
+	}
+	if zh {
+		fmt.Printf("链接也存在 %s\n", linkFile)
+	} else {
+		fmt.Printf("The link is also in %s\n", linkFile)
+	}
+}
+
+// startSetupWizard serves only the setup wizard for a config without projects
+// (writing the first-run config when there is none). lock is already held.
+func startSetupWizard(configPath string, release func()) {
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if err := bootstrapSetupConfig(configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating config: %v\n", err)
+			release()
+			os.Exit(1)
+		}
+		fmt.Printf("Created %s\n", configPath)
+	}
+	pc, err := config.LoadForSetup(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config (%s): %v\n", configPath, err)
+		release()
+		os.Exit(1)
+	}
+	config.ConfigPath = configPath
+	runSetupOnly(pc, configPath, release)
+}
+
+// needsSetup: no config yet, or a config without any [[projects]].
+func needsSetup(configPath string) bool {
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return true
+	}
+	pc, err := config.LoadForSetup(configPath)
+	return err == nil && len(pc.Projects) == 0
+}
+
+// instanceRunning reports whether a cc-connect process holds the lock for this config.
+func instanceRunning(configPath string) bool {
+	l, err := AcquireInstanceLock(configPath)
+	if err != nil {
+		return true
+	}
+	l.Release()
+	return false
+}
+
+// setupNextSteps tells the user (or AI) how to get the new config running.
+func setupNextSteps(lang, configFlag string, running, needsAction bool) []string {
+	cmd := "cc-connect"
+	if configFlag != "" {
+		cmd += " --config " + configFlag
+	}
+	zh := strings.HasPrefix(strings.ToLower(lang), "zh")
+	var out []string
+	if needsAction {
+		if zh {
+			out = append(out, "先处理 warnings 里 blocking=true 的每一项（打开它的 url 照 fix 做），不做机器人不会回话")
+		} else {
+			out = append(out, "First do every warning with blocking=true (open its url, follow fix); until then the bot will not answer")
+		}
+	}
+	switch {
+	case running && zh:
+		out = append(out, "cc-connect 正在运行，重启后新配置才生效：在向导网页点「重启生效」；装成后台服务的运行 cc-connect daemon restart；前台跑的按 Ctrl+C 后再运行 "+cmd)
+	case running:
+		out = append(out, "cc-connect is running; restart it to use the new config: click \"Restart to apply\" in the wizard, or cc-connect daemon restart for the service, or Ctrl+C and run "+cmd+" again")
+	case zh:
+		out = append(out, "后台启动并常驻（推荐，AI 也用这个，不要在前台跑 "+cmd+"，会一直占住终端）："+daemonCmd(configFlag)+"；看日志 cc-connect daemon logs -f，出现 \"discord: connected\" 就是上线了，去频道里 @ 机器人说一句试试",
+			"只想先临时试一下：nohup "+cmd+" > ~/.cc-connect/run.log 2>&1 &（日志在 ~/.cc-connect/run.log）")
+	default:
+		out = append(out, "Start in the background as a service (recommended, also for AI agents — do not run "+cmd+" in the foreground, it holds the terminal): "+daemonCmd(configFlag)+"; follow the log with cc-connect daemon logs -f, \"discord: connected\" means it is online — @ the bot in the channel to try",
+			"Just a quick try: nohup "+cmd+" > ~/.cc-connect/run.log 2>&1 & (log in ~/.cc-connect/run.log)")
+	}
+	return out
+}
+
+func daemonCmd(configFlag string) string {
+	if configFlag != "" {
+		return "cc-connect daemon install --config " + configFlag
+	}
+	return "cc-connect daemon install"
+}
+
 // runSetup: `cc-connect setup apply --json <file|->` (one-shot config for AI
 // agents), `cc-connect setup clis`, `cc-connect setup matrix`, `cc-connect setup personas`.
 // Output is JSON on stdout.
 func runSetup(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: cc-connect setup apply --json <file|-> [--config path] [--dry-run]\n       cc-connect setup clis | matrix | personas [--lang zh|en]")
+		fmt.Fprint(os.Stderr, setupUsage)
 		os.Exit(2)
 	}
 	sub := args[0]
+	if sub == "-h" || sub == "--help" || sub == "help" {
+		fmt.Print(setupUsage)
+		return
+	}
 	fs := flag.NewFlagSet("setup "+sub, flag.ExitOnError)
+	if sub == "apply" {
+		fs.Usage = func() {
+			fmt.Fprint(fs.Output(), "Usage: cc-connect setup apply --json <file|-> [--config path] [--dry-run]\n\nFlags:\n")
+			fs.PrintDefaults()
+			fmt.Fprint(fs.Output(), setupApplyFields)
+		}
+	}
 	configFile := fs.String("config", "", "path to config file")
 	jsonPath := fs.String("json", "", "wizard request JSON file, or - for stdin")
 	dryRun := fs.Bool("dry-run", false, "validate and print the plan without writing")
@@ -165,19 +295,8 @@ func runSetup(args []string) {
 		_ = enc.Encode(core.PersonaPresets(l))
 	case "apply":
 		initConfigPath(*configFile)
-		if _, err := os.Stat(config.ConfigPath); os.IsNotExist(err) {
-			if err := os.MkdirAll(filepath.Dir(config.ConfigPath), 0o755); err != nil {
-				fail(err)
-			}
-			if err := os.WriteFile(config.ConfigPath, []byte("[log]\nlevel = \"info\"\n"), 0o600); err != nil {
-				fail(err)
-			}
-		}
-		cfg, err := config.LoadForSetup(config.ConfigPath)
-		if err != nil {
-			fail(err)
-		}
 		var raw []byte
+		var err error
 		switch *jsonPath {
 		case "":
 			fail(fmt.Errorf("--json <file|-> required"))
@@ -196,7 +315,34 @@ func runSetup(args []string) {
 		if *dryRun {
 			req.DryRun = true
 		}
-		res := core.ApplyWizard(context.Background(), core.WizardEnv{Store: configWizardStore{}, DataDir: cfg.DataDir, AlwaysWriteCmd: true}, req)
+		// A dry run writes nothing, not even the first-run config: plan against an empty one.
+		var store core.WizardStore = configWizardStore{}
+		dataDir := ""
+		_, statErr := os.Stat(config.ConfigPath)
+		switch {
+		case os.IsNotExist(statErr) && req.DryRun:
+			store, dataDir = emptyWizardStore{}, defaultDataDir()
+		case os.IsNotExist(statErr):
+			// same first-run config as `cc-connect` writes (web admin on, this machine only)
+			if err := bootstrapSetupConfig(config.ConfigPath); err != nil {
+				fail(err)
+			}
+		}
+		if dataDir == "" {
+			cfg, err := config.LoadForSetup(config.ConfigPath)
+			if err != nil {
+				fail(err)
+			}
+			dataDir = cfg.DataDir
+		}
+		res := core.ApplyWizard(context.Background(), core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true}, req)
+		if res.Saved {
+			lang := req.Language
+			if lang == "" {
+				lang = core.SystemLanguage()
+			}
+			res.NextSteps = setupNextSteps(lang, *configFile, instanceRunning(config.ConfigPath), res.NeedsUserAction)
+		}
 		_ = enc.Encode(res)
 		if !res.OK {
 			os.Exit(1)
@@ -204,6 +350,22 @@ func runSetup(args []string) {
 	default:
 		fail(fmt.Errorf("unknown setup subcommand %q", sub))
 	}
+}
+
+// emptyWizardStore is a config with no projects, for a dry run before any config exists.
+type emptyWizardStore struct{}
+
+func (emptyWizardStore) Snapshot() (core.WizardSnapshot, error) { return core.WizardSnapshot{}, nil }
+func (emptyWizardStore) ApplyProjects(func(core.WizardSnapshot) ([]core.WizardProjectWrite, error)) (string, error) {
+	return "", fmt.Errorf("dry run: nothing is written")
+}
+
+// defaultDataDir is config.load's default data_dir (no data_dir in the config).
+func defaultDataDir() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".cc-connect")
+	}
+	return ".cc-connect"
 }
 
 func fail(err error) {
@@ -229,4 +391,13 @@ port = 9820 # 来源：沿用 cc-connect 管理接口默认端口
 token = %q
 `, core.GenerateToken(16))
 	return os.WriteFile(path, []byte(content), 0o600)
+}
+
+// setupPortFromLink reads the port out of a setup link ("http://localhost:9820/login?…").
+func setupPortFromLink(link string) int {
+	var port int
+	if i := strings.Index(link, "localhost:"); i >= 0 {
+		fmt.Sscanf(link[i+len("localhost:"):], "%d", &port)
+	}
+	return port
 }

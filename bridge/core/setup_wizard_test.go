@@ -37,11 +37,23 @@ func fakeDiscord(t *testing.T, bots map[string]string) *httptest.Server { // tok
 		case "/users/@me":
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "username": name, "bot": true})
 		case "/oauth2/applications/@me":
+			if name == "noapp" { // Discord's application lookup failing (5xx / 429)
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
 			flags := 1 << 18
 			if name == "nointent" {
 				flags = 0
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "flags": flags})
+			app := map[string]any{"id": id, "flags": flags, "owner": map[string]any{"id": "777"}}
+			if name == "noowner" {
+				delete(app, "owner")
+			}
+			if name == "teamapp" { // team-owned: "owner" is the team's pseudo-user, the person is team.owner_user_id
+				app["owner"] = map[string]any{"id": "team-pseudo"}
+				app["team"] = map[string]any{"owner_user_id": "888"}
+			}
+			_ = json.NewEncoder(w).Encode(app)
 		case "/users/@me/guilds":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "900", "name": "Home"}})
 		case "/guilds/900/channels":
@@ -215,7 +227,9 @@ var testCLIs = []LocalCLI{{AgentType: "codex", Supported: true, Login: "not_logg
 func noHardware(t *testing.T) {
 	old := roleHouseholdAddr
 	roleHouseholdAddr = "127.0.0.1:1" // nothing listens on port 1
-	t.Cleanup(func() { roleHouseholdAddr = old })
+	oldGate := gateAddr
+	gateAddr = "127.0.0.1:1" // no gate either, whatever runs on this machine's 9930
+	t.Cleanup(func() { roleHouseholdAddr = old; gateAddr = oldGate })
 }
 
 // ── tests ──────────────────────────────────────────────────────

@@ -10,6 +10,13 @@
 
 **想自己用起来：** 从 [从零用起 CoNest](docs/GETTING_STARTED.md) 开始。没有硬件，走「配 ccm 和 wiki」「接进 Discord 或飞书」两条线就能完整用；有板子再看「接硬件」。
 
+装 → 向导 → 确认上线（macOS / Linux；Windows 暂不支持；不用装 Go 和 Node）：
+
+~~~sh
+curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | sh   # 仓库私有时见入门文档第 1 步
+cc-connect      # 第一次运行自动在浏览器打开安装向导；或让 AI 跑 cc-connect setup apply（见 AGENTS.md）
+~~~
+
 执行任务时的公开进展、Discord 任务卡及简短语音回执见[公开进展说明](docs/PUBLIC_PROGRESS.md)。可由主 bot 的置顶团队状态栏汇总本频道“进行中／待你处理”的任务卡链接，结束后移出入口并保留历史。同一任务可显式跨轮续卡；本地 task list/show 查询、task accept 记录真人明确验收，验收后保留完成状态。按项目启用，默认关闭；源码验证与生产验收分别记录。
 
 ## 我们要交付什么
@@ -116,7 +123,7 @@ go test -tags no_web ./...
 
 实际语音识别和合成另需 [语音依赖](companion/requirements-voice.txt)、[TTS 依赖](companion/requirements-tts.txt) 及本地模型；基础测试不下载模型。no_web 不包含上游网页控制台。历史 Go 测试问题及修复证据见 [基线记录](docs/GO_TEST_BASELINE.md)。
 
-主分支已通过 [#2](https://github.com/Zssan12/conest/issues/2) 移除旧实例的隐式绑定，语音与活动需要明确配置角色、频道／会话、桥接和数据目录。按 [独立实例指南](docs/INSTANCE_SETUP.md) 准备配置与依赖，再按交接核对现有服务；拉取源码不会升级正在运行的实例。仓库尚不是克隆即用的一键安装包。
+主分支已通过 [#2](https://github.com/Zssan12/conest/issues/2) 移除旧实例的隐式绑定，语音与活动需要明确配置角色、频道／会话、桥接和数据目录。按 [独立实例指南](docs/INSTANCE_SETUP.md) 准备配置与依赖，再按交接核对现有服务；拉取源码不会升级正在运行的实例。这一段只说语音与活动（companion）；只用 Discord／飞书里的 AI 伙伴，按上面的一行安装和向导即可。
 
 ## Codex 手动压缩
 

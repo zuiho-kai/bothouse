@@ -5,6 +5,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,11 +21,12 @@ import (
 	"time"
 )
 
+// conest: same as cmd/cc-connect/update.go — conest's own releases; no gitee mirror, so both point at GitHub.
 const (
-	githubReleasesAPI = "https://api.github.com/repos/chenhg5/cc-connect/releases"
-	giteeReleasesAPI  = "https://gitee.com/api/v5/repos/cg33/cc-connect/releases"
-	githubDownload    = "https://github.com/chenhg5/cc-connect/releases/download"
-	giteeDownload     = "https://gitee.com/cg33/cc-connect/releases/download"
+	githubReleasesAPI = "https://api.github.com/repos/Zssan12/conest/releases"
+	giteeReleasesAPI  = githubReleasesAPI
+	githubDownload    = "https://github.com/Zssan12/conest/releases/download"
+	giteeDownload     = githubDownload
 )
 
 type ReleaseInfo struct {
@@ -143,10 +146,12 @@ func SelfUpdate(tag string, preferGitee bool) error {
 
 	var data []byte
 	var lastErr error
+	var from string
 	for _, u := range urls {
 		slog.Info("updater: downloading", "url", u)
 		data, lastErr = downloadFile(u)
 		if lastErr == nil {
+			from = u
 			break
 		}
 		slog.Debug("updater: download failed, trying next", "error", lastErr)
@@ -154,9 +159,17 @@ func SelfUpdate(tag string, preferGitee bool) error {
 	if lastErr != nil && data == nil {
 		return fmt.Errorf("download failed from all sources: %w", lastErr)
 	}
+	// conest: the release workflow publishes checksums.txt next to the archives; refuse to
+	// install anything that is not listed there with the same SHA-256.
+	sums, err := downloadFile(strings.TrimSuffix(from, filename) + "checksums.txt")
+	if err != nil {
+		return fmt.Errorf("download checksums.txt: %w", err)
+	}
+	if err := VerifyReleaseChecksum(data, sums, filename); err != nil {
+		return err
+	}
 
 	var binary []byte
-	var err error
 	if goos == "windows" {
 		binary, err = extractBinaryFromZip(data)
 	} else {
@@ -363,4 +376,24 @@ func semverCompare(a, b string) int {
 		}
 	}
 	return 0
+}
+
+// VerifyReleaseChecksum checks data against the "<sha256>  <name>" line for name in a
+// checksums.txt (sha256sum format, as .github/workflows/release.yml writes it).
+func VerifyReleaseChecksum(data, checksums []byte, name string) error {
+	want := ""
+	for _, line := range strings.Split(string(checksums), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && strings.TrimPrefix(f[1], "*") == name {
+			want = strings.ToLower(f[0])
+		}
+	}
+	if want == "" {
+		return fmt.Errorf("checksum: %s is not listed in checksums.txt; not installing it", name)
+	}
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); got != want {
+		return fmt.Errorf("checksum mismatch for %s (got %s, want %s); not installing it", name, got, want)
+	}
+	return nil
 }

@@ -58,6 +58,8 @@ type DiscordBotInfo struct {
 	Username       string         `json:"username"`
 	ApplicationID  string         `json:"application_id"`
 	MessageContent bool           `json:"message_content_intent"` // Message Content Intent enabled
+	IntentKnown    bool           `json:"intent_known"`           // the application lookup worked, so MessageContent is a real answer
+	OwnerID        string         `json:"owner_id,omitempty"`     // Discord user who owns the bot's application (team owner for team apps)
 	Guilds         []DiscordGuild `json:"guilds"`
 	InviteURL      string         `json:"invite_url"`
 }
@@ -128,6 +130,12 @@ func CheckDiscordBot(ctx context.Context, token string) (*DiscordBotInfo, error)
 	var app struct {
 		ID    string `json:"id"`
 		Flags int64  `json:"flags"`
+		Owner *struct {
+			ID string `json:"id"`
+		} `json:"owner"`
+		Team *struct {
+			OwnerUserID string `json:"owner_user_id"`
+		} `json:"team"`
 	}
 	if err := discordGet(ctx, token, "/oauth2/applications/@me", &app); err == nil {
 		if app.ID != "" {
@@ -135,6 +143,14 @@ func CheckDiscordBot(ctx context.Context, token string) (*DiscordBotInfo, error)
 		}
 		// Discord application flags GATEWAY_MESSAGE_CONTENT (1<<18) / _LIMITED (1<<19).
 		info.MessageContent = app.Flags&(1<<18|1<<19) != 0
+		info.IntentKnown = true
+		// Team-owned applications report the team as a pseudo-user in "owner"; the person is team.owner_user_id.
+		switch {
+		case app.Team != nil && app.Team.OwnerUserID != "":
+			info.OwnerID = app.Team.OwnerUserID
+		case app.Owner != nil:
+			info.OwnerID = app.Owner.ID
+		}
 	}
 	if err := discordGet(ctx, token, "/users/@me/guilds", &info.Guilds); err != nil {
 		return nil, err

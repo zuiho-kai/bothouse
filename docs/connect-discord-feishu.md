@@ -1,10 +1,11 @@
 # 线 2：接进 Discord 或飞书
 
 **用安装向导，几分钟配完。** 向导在 cc-connect 自带的网页里，人点界面；AI 用一条命令或一个 HTTP 接口，参数一次给全。
-两条路写的是同一份配置。命令行手动配的老办法放在文末附录。ccm 和 gate 怎么起见[线 1](ccm-and-wiki.md)。
+两条路写的是同一份配置。命令行手动配的老办法放在文末附录。还没装 `cc-connect` 的先看[从零用起](GETTING_STARTED.md)第 1 步（一行命令，不用 Go 和 Node）。
+gate 可以不装，见下面第 2 节第 7 步。
 
 ```
- 选平台 ─▶ 接机器人 ─▶ 每个角色选本机 CLI ─▶ 人设 ─▶ 兜底角色 ─▶ jev ─▶ 保存，重启生效
+ 选平台 ─▶ 接机器人 ─▶ 每个角色选本机 CLI ─▶ 人设 ─▶ 兜底角色 ─▶ jev ─▶ 保存，看还要做什么 ─▶ 重启生效
  Discord：选已有机器人或填 token，选服务器、默认频道        （可选：挂第三方 API）
  飞书：扫码，选默认群
 ```
@@ -12,12 +13,11 @@
 ## 1. 打开向导
 
 ```sh
-cd conest/bridge && make build      # 带网页的完整版（要 node）
-./cc-connect                        # 第一次运行：建好配置，只起向导（只听本机 127.0.0.1）
-# 带 token 的登录链接写在配置旁边的 setup-link.txt（只有你能读），打开它就是向导；终端里不打印 token
+cc-connect          # 第一次运行（还没配机器人）：建好配置，只起向导（只听本机 127.0.0.1），并自动在浏览器打开
 ```
 
-已经在跑的 cc-connect：网页「项目」页右上角「添加项目」就是向导。
+打不开浏览器（例如远程 SSH）时终端会打印带登录口令的链接，复制到浏览器打开；链接也写在配置旁边的 `setup-link.txt`（只有你能读）。
+`cc-connect web` 在还没配机器人时也是打开这个向导。已经在跑的 cc-connect：网页「项目」页右上角「添加项目」就是向导。
 
 ## 2. 向导每一步
 
@@ -27,13 +27,14 @@ cd conest/bridge && make build      # 带网页的完整版（要 node）
 2. **机器人**
    - Discord：先列出本机配置里已有的机器人，点一下直接用（沿用它原来的 project 名、work_dir 和人设，人设只有你勾了「改」才会写）；没有就按提示去[开发者后台](https://discord.com/developers/applications)
      建应用 → Bot → Reset Token，打开 **Message Content Intent**，把 token 填进来。向导校验 token（没开 intent 会提醒），
-     列出机器人所在的服务器让你选，再列出频道选默认聊天频道。机器人还没进这个服务器时给邀请链接。
+     列出机器人所在的服务器让你选，再列出频道选默认聊天频道（多个机器人组队时，不 @ 也听只在这个频道里；@ 机器人和私聊在哪都照常，写进配置的 `group_reply_all_channels`）。机器人还没进这个服务器时给邀请链接。
      一个机器人 = 一个角色，「再加一个机器人」加下一个。
    - 飞书：扫码，自动建应用；扫完列出机器人所在的群，选默认聊天群（还没进群就先跳过，私聊照样能用）。
 3. **本机 CLI**：只列出这台机器上装了的（claude、codex、gemini、opencode 等），带版本和登录状态。默认用 CLI 自己的本地登录。
    想用第三方 API，勾「改用第三方 API」，选服务商、填 key（下面「第三方 API × 本机 CLI」）。
    「复制提示词」会生成一段话，交给本地 CLI 让它自己配。
-4. **人设**：点一个默认人设（橘、鲸鱼娘、龙娘、彩虹猫、渡鸦）填进去再改，或者自己写。默认人设按网页语言给中文或英文版。
+4. **人设**：点一个默认人设（橘、鲸鱼娘、龙娘、彩虹猫、渡鸦）填进去再改，或者自己写，或者留空。
+   默认人设是本项目作者自己团队的几个角色，只是示例，用不用都行；留空就是 CLI 本来的样子，只多一行回答语言。默认人设按网页语言给中文或英文版。
    「回答语言」默认等于网页语言，可改，写进人设文件，机器人按它回答。
    装完以后改人设有三种办法，改的是同一个文件（`<work_dir>/CLAUDE.md`、`AGENTS.md`、`GEMINI.md`……，按 CLI 定）：
    网页「项目」→ 角色 →「人设」；在聊天里叫机器人改；直接改文件夹里的文件。
@@ -41,16 +42,26 @@ cd conest/bridge && make build      # 带网页的完整版（要 node）
 6. **jev**：三个框（Base URL、Key、模型），填一个能返回概率的模型。填完自动测一次（和 gate 一样问一道 A/B/C 选择题，看前 20 个候选里有没有选项字母），测的时候不写盘；
    能用就点下一步存下。不给概率或连不上就不存，换一个或跳过 jev（跳过会删掉原来的 jev.json，等于不填）。
    已经有能用的 jev 时框里预先填好，原样点下一步就是继续用它；新填的没通过时提示「仍在用旧的 …」，旧的不动。见下面「jev 和兜底角色」。
-7. **保存**：写进本机配置，点「重启生效」。
+7. **确认**：最后一页有一栏「谁能指挥这些机器人」（`allow_from`），默认填好了机器人的所有者，也就是建机器人的你；
+   想让别人也能用就加上他的 Discord 用户 ID，`*` = 服务器里所有人（机器人能在你电脑上跑命令，别随便放开）。已有机器人原来设了 `allow_from` 的不动。
+8. **保存**：写进本机配置。最后一页先列出还要你做的事，不做机器人不会回话：
+   - Message Content Intent 没开，或者没查到开没开 → 点链接到开发者后台 Bot 页打开 / 确认；
+   - 机器人还没进服务器 → 点邀请链接拉进去。
+   这两件做完不用重新跑向导，点「重启生效」就行。多个机器人时还会写 gate 的情况：**gate 可以不装**，没装时被 @ 的角色照常回，其余消息都由兜底角色回；
+   想让 AI 自己判断谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步，第一次要几十分钟、下载约 3GB）。
 
 ## 3. 让你的 AI 帮你配
 
-把下面这段和你的 token、key 一起交给 Claude Code / Codex 等本地 CLI：
+在仓库目录里对 Claude Code / Codex 说一句「帮我把 cc-connect 配好接上 Discord」就行：仓库根的 `AGENTS.md` / `CLAUDE.md` 告诉它用哪个命令、一次问你哪几项。
+它要问你的只有：每个机器人的 token、服务器 ID（和默认频道 ID，可选）、每个角色用哪个本机 CLI（不说就用已登录的那个）。
+人设、兜底角色、jev、`allow_from` 都有默认值，不用问。`cc-connect setup apply -h` 列出了每个字段。
+
+也可以把下面这段和你的 token、key 一起交给它：
 
 > 帮我用 cc-connect 的安装向导接口配好 Discord 机器人。先运行 `cc-connect setup clis` 看本机有哪些 CLI，
 > `cc-connect setup matrix` 看第三方 API 挂到哪个 CLI 是原生还是转换，`cc-connect setup personas` 看默认人设。
-> 然后按下面的格式写一个 JSON，先 `cc-connect setup apply --json <文件> --dry-run` 检查，没问题再去掉 `--dry-run` 跑一次。
-> token 和 key 不要打印、不要写进日志。做完把输出 JSON 里的 `steps` 和 `jev_hint` 告诉我。
+> 然后按下面的格式写一个 JSON，先 `cc-connect setup apply --json <文件> --dry-run` 检查（不写任何文件），没问题再去掉 `--dry-run` 跑一次。
+> token 和 key 不要打印、不要写进日志。做完把输出 JSON 里的 `warnings`（每条的 `fix` 和 `url`）和 `next_steps` 告诉我。
 
 ```json
 {
@@ -63,11 +74,17 @@ cd conest/bridge && make build      # 带网页的完整版（要 node）
      "provider": {"vendor": "deepseek", "api_key": "<key>"}}
   ],
   "fallback_role": "<兜底角色的 project 名，不写 = 第一个>",
+  "allow_from": "<谁能指挥机器人：Discord 用户 ID，逗号分隔；不写 = 机器人的所有者>",
   "jev": {"base_url": "https://api.siliconflow.cn/v1", "api_key": "<key>", "model": "<模型>"}
 }
 ```
 
-- `reuse_project` 的机器人保留原 project 名、CLI、work_dir、服务器；只有这一项带了 `persona` 才会改它的人设文件。
+- 只有 `discord.guild_id` 和每个角色的 `token`（或 `reuse_project`）是必填的，最小请求：`{"discord": {"guild_id": "<服务器 ID>"}, "roles": [{"token": "<token>"}]}`。
+- 返回：`ok` = 存好了且没有要你做的事；`saved` = 配置已写入；`needs_user_action` 为 true 时看 `warnings` 里 `blocking: true` 的项
+  （`message_content_intent_off`：去开发者后台打开 intent；`bot_not_in_guild`：打开 `url` / `invite_urls` 里的邀请链接），不做机器人不会回话；
+  `next_steps` 写了怎么启动或重启。`ok` 为 false 时退出码是 1（存好了但还要你做事也是 1）。`gate_not_running` 只是提示，gate 可以不装。
+- `allow_from` 不写时，默认是每个机器人所属 Discord 应用的所有者（用 token 查）；写进新机器人，和原来 `allow_from` 为空的已有机器人，已有非空的不动。查不到所有者（Discord 应用接口没回）时不会放开：写成 `allow_from = "set-your-discord-user-id"`（谁都不听），返回阻塞的 `allow_from_unknown`，要用户给自己的 Discord 用户 ID 再跑一次。只有显式写 `"*"` 才是服务器里所有人（会附一条不阻断的 `allow_from_everyone` 提醒）。照提示带上真实 ID 重跑时，占位值会被换掉。
+- `reuse_project` 的机器人保留原 project 名、CLI、work_dir、服务器；它的人设文件只有同时带了 `persona` 和 `"edit_persona": true` 才会改。
   新机器人的名字和配置里已有的项目撞了：是同一个机器人（bot ID 一样）就更新那个项目，不是就加 -2、-3。
   兜底角色可以用 `fallback_bot_id`（机器人 ID）指定，网页就这样传。
   CLI 在 PATH 之外（如 `~/.local/bin`）找到时，把绝对路径写进该项目的 `cmd`，重启后也找得到。
@@ -108,7 +125,7 @@ key 只留在 cc-connect 里。所以任何 OpenAI 兼容接口都能挂到这�
   请求里带 `chat_template_kwargs: {"enable_thinking": false}`（Qwen3 一类模型默认先出 `<think>`）；服务在 400 里说明 top_logprobs 上限（如 mlx_lm.server 最多 11）或不认这个字段时自动调整重试，找到的参数存进 `jev.json`，gate 照用。回一个字超过 2.5 秒（gate 的等待上限）判为太慢。
   实测（2026-10-20）：mlx_lm.server + Qwen3-0.6B-4bit 能通过并能打分；LM Studio（MLX 引擎）回 `logprobs: null`，当不了 jev。
   能用才写 `jev.json`；不能用就不写，原来能用的旧 jev 保留并在原因里写「仍在用旧的 …」——新填错一次不该悄悄把选角色关掉。
-  一键命令和接口同样：`jev` 不给 = 不动；`"jev": {"base_url": ""}` = 删掉；没存时返回 `"jev_ok": false`、`jev_reason`，`jev_in_use` 是现在生效的那个。
+  一键命令和接口同样：`jev` 不给 = 不动；`"jev": {"base_url": ""}` 也是不动；`"jev": {"remove": true}` = 删掉；没存时返回 `"jev_ok": false`、`jev_reason`，`jev_in_use` 是现在生效的那个。
 - **没有可用的 jev**（没填、测试没过）：gate 改用本机 mlx 的 Qwen（只有 Apple 芯片 Mac）；也没有就只按规则判，
   被 @、被点名的角色照常回，规则判不了的由兜底角色回。**gate 没在运行**时：被 @ 的角色照常回，其他消息由兜底角色回
   （cc-connect 的 `gate_fallback`：兜底角色 `reply`，其他 `context`；被 @ 时一律 `reply`，见 `bridge/core/gate.go`）。
@@ -141,9 +158,10 @@ key 只留在 cc-connect 里。所以任何 OpenAI 兼容接口都能挂到这�
 
 ### A2. 拿 ID
 
-Discord 设置 → 高级 → 打开**开发者模式**。之后右键就能「复制 ID」：
+向导里服务器和频道是点选的，`allow_from` 默认就是你，一般用不到这一节。要手动填 ID 时（例如让 AI 跑 `setup apply`）：
+Discord 设置 → 高级 → 打开**开发者模式**。之后右键就能「复制 ID」（右键服务器图标 → 复制服务器 ID；右键频道 → 复制频道 ID）：
 
-- 你自己的用户 ID → `allow_from`（只听你的话）。
+- 你自己的用户 ID → `allow_from`（只听你的话；向导默认已填）。
 - 每个 bot 的用户 ID → 别的 bot 的 `allow_bots`、所有 bot 的 `team_lead_bot`（填主 bot 的）。
 - 服务器 ID、频道 ID → 角色小家的 `roles.toml`（下面「默认发言频道」）。
 
@@ -166,12 +184,11 @@ Discord 设置 → 高级 → 打开**开发者模式**。之后右键就能「�
 ### 1. 扫码接入一个 bot
 
 ```sh
-cd conest/bridge
-./cc-connect feishu setup --project <你的 project 名>
+cc-connect feishu setup --project <你的 project 名>
 ```
 
 终端里出二维码，用飞书手机 App 扫码，会自动建企业自建应用、开机器人能力、配权限和事件订阅，并把 App ID、App Secret
-写回配置。不想扫码、已有应用时：`./cc-connect feishu setup --project <名> --app cli_xxx:sec_xxx`。
+写回配置。不想扫码、已有应用时：`cc-connect feishu setup --project <名> --app cli_xxx:sec_xxx`。
 手动建应用的完整步骤见 [bridge/docs/feishu.md](../bridge/docs/feishu.md)。飞书用长连接，不需要公网 IP。
 
 ### 2. 飞书上目前没有的

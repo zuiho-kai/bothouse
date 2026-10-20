@@ -1,5 +1,14 @@
 # 共栖当前交接
 
+2026-10-21：PR #198 易用性（分支 feat/onboarding-ux）。新人和 AI 的装、配、上线现在只有一条路：
+- 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 暂不支持。
+- 配：没有配置时运行 `cc-connect`，会自动打开向导并在终端打印链接；SSH 下给出 `ssh -L` 命令。AI 用 `cc-connect setup apply`，见 AGENTS.md 文末一节。
+- 确认上线：以下情况 setup apply 不再报成功，返回 `ok:false`，带阻塞 warnings 和链接——Message Content Intent 没开或查不到、机器人不在服务器、查不到所有者。查不到所有者时 allow_from 写成 `set-your-discord-user-id`，谁的话都不听；带上真实 ID 重跑后会被替换。显式写 `*` 时给一条不阻断的提示。
+- 向导填的默认频道写进 `group_reply_all_channels`；`cc-connect update` 按 checksums.txt 校验。
+
+验证：Go 单测覆盖以上各条，CI 全绿。v0.1.0-rc1 和 rc2 用 install.sh 在隔离 HOME（无 go/node）真装过；用假 Discord 走完了网页向导和 CLI，截图在 PR 评论。真机器人实测见 PR 讨论。
+未部署：线上实例不受影响（已有配置不进向导，已有非空 allow_from 不改）。实习生试用和公开仓库另做。
+
 2026-10-21：PR #194（Refs #113 / #159）在 #193 置顶任务入口上接入显式跨轮同卡、task list/show 和真人验收记录。修复四处生命周期缺陷：验收被回合结束覆盖、非法续接污染历史、验收落盘失败后重试虚假成功、验收旧卡误清新卡候选；四条回归在原 PR 上失败，修后通过。生命周期变更先校验、落盘成功再转移续接归属，验收成为不可回退的终态；累计序号与每轮64条预算分开。新 CUJ 覆盖开任务→续接同卡→真人验收及状态栏移除，编译CLI→隔离Unix socket→Engine→假平台的查询和验收通过。Go沙箱全量46包、目标race、全CUJ、vet与全包构建通过；最终CI结论见PR。无子Agent，本次修复由同一Codex自查；未部署、未发真实Discord消息。--by只记录本地调用者声明的验收人，不是身份认证。语音查询、真实频道验收和自动事实关联仍待后续，不关闭相关Issue。详见[公开进展说明](PUBLIC_PROGRESS.md)。
 
 **Discord 回复目标路由（2026-10-21，Issue #195）**：真人回复其他 bot 时，主 bot 的 group_reply_all 原先仍将消息交给 gate；关闭回复 ping 时目标 sub 还会漏收。平台入口现先按新正文显式用户/角色提及，再按结构化回复作者决定收件人；别人的 bot 回复在命令、附件、gate/队列处理前退出。引用正文不参与收件人判断；缺失/删除引用须显式 @，不猜默认主 bot。普通消息、DM、转发、真人互相回复及 bot handoff 维持既有策略。

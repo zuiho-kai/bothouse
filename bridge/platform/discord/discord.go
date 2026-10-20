@@ -83,6 +83,7 @@ type Platform struct {
 	cardLineLen                int
 	cardHideThinking           bool
 	groupReplyAllGuilds        []string // guild IDs where groupReplyAll is active; "*" = all guilds
+	groupReplyAllChannels      []string // conest: when set, groupReplyAll only applies in these channels (and their threads)
 	shareSessionInChannel      bool
 	threadIsolation            bool
 	respondToAtEveryoneAndHere bool
@@ -132,6 +133,16 @@ func New(opts map[string]any) (core.Platform, error) {
 		}
 	} else if all, _ := opts["group_reply_all"].(bool); all {
 		groupReplyAllGuilds = []string{"*"}
+	}
+	// conest: group_reply_all_channels = the wizard's default chat channel. Listening without
+	// an @ is limited to it; @mentions and DMs work everywhere as before.
+	var groupReplyAllChannels []string
+	if chs, _ := opts["group_reply_all_channels"].(string); chs != "" {
+		for _, c := range strings.Split(chs, ",") {
+			if c = strings.TrimSpace(c); c != "" {
+				groupReplyAllChannels = append(groupReplyAllChannels, c)
+			}
+		}
 	}
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
 	threadIsolation, _ := opts["thread_isolation"].(bool)
@@ -195,6 +206,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		cardHideThinking:           cardHideThinking,
 		auxChannels:                auxChannels,
 		groupReplyAllGuilds:        groupReplyAllGuilds,
+		groupReplyAllChannels:      groupReplyAllChannels,
 		shareSessionInChannel:      shareSessionInChannel,
 		readyCh:                    make(chan struct{}),
 		threadIsolation:            threadIsolation,
@@ -271,6 +283,34 @@ func (p *Platform) isGroupReplyAllGuild(guildID string) bool {
 		}
 	}
 	return false
+}
+
+// replyAllHere: group_reply_all is on for this guild and, when group_reply_all_channels is
+// set, the message is in one of those channels or in a thread under one (parentID).
+func (p *Platform) replyAllHere(guildID, channelID, parentID string) bool {
+	if !p.isGroupReplyAllGuild(guildID) {
+		return false
+	}
+	if len(p.groupReplyAllChannels) == 0 {
+		return true
+	}
+	for _, c := range p.groupReplyAllChannels {
+		if c == channelID || (parentID != "" && c == parentID) {
+			return true
+		}
+	}
+	return false
+}
+
+// channelParent returns a thread's parent channel from the session state ("" if unknown).
+func channelParent(s *discordgo.Session, channelID string) string {
+	if s == nil || s.State == nil {
+		return ""
+	}
+	if ch, err := s.State.Channel(channelID); err == nil && ch != nil {
+		return ch.ParentID
+	}
+	return ""
 }
 
 func (p *Platform) makeSessionKey(channelID string, userID string) string {
@@ -747,10 +787,18 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		m.ReferencedMessage = nil // its quote is already in the channel history
 	}
 	m.Content = teamRoleMentions(m.Content, m.GuildID, p.botID) // maomao fork: <@&teammate role> → <@teammate>
-	if mentioned && m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
+	replyAll := false
+	if m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
+		parent := ""
+		if len(p.groupReplyAllChannels) > 0 {
+			parent = channelParent(s, m.ChannelID)
+		}
+		replyAll = p.replyAllHere(m.GuildID, m.ChannelID, parent)
+	}
+	if mentioned && replyAll {
 		m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
 	}
-	if m.GuildID != "" && !p.isGroupReplyAllGuild(m.GuildID) {
+	if m.GuildID != "" && !replyAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
 			return

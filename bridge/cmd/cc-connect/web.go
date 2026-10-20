@@ -14,9 +14,20 @@ import (
 
 func runWeb(args []string) {
 	configPath := resolveConfigPath("")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Config file not found: %s\nRun cc-connect first to create a default config.\n", configPath)
-		os.Exit(1)
+	// conest: no bots configured yet → the setup wizard, same as a first `cc-connect`.
+	if needsSetup(configPath) {
+		lock, err := AcquireInstanceLock(configPath)
+		if err != nil { // already serving (most likely the wizard itself): open its link
+			link, rerr := os.ReadFile(setupLinkFile(configPath))
+			if rerr != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			announceSetupWizard(strings.TrimSpace(string(link)), setupLinkFile(configPath), setupPortFromLink(string(link)), !overSSH())
+			return
+		}
+		startSetupWizard(configPath, lock.Release)
+		return
 	}
 
 	// Use LoadPermissive so `cc-connect web` works even before any platforms

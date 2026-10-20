@@ -362,6 +362,8 @@ That's it — send a message to your bot and cc-connect will relay it to your lo
 
 ## 🚀 Quick Start
 
+> **conest:** install and configure this fork with [INSTALL.md](INSTALL.md) (prebuilt binary + setup wizard). The npm / brew / upstream instructions below install upstream cc-connect, which has no setup wizard.
+
 ### 🤖 Install & Configure via AI Agent (Recommended)
 
 > **The easiest way** — Send this to Claude Code or any AI coding agent, and it will handle the entire installation and configuration for you:

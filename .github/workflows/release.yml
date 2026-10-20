@@ -1,0 +1,108 @@
+name: Release cc-connect
+
+# 打 tag（v*）时编 cc-connect 预编译包（带网页安装向导）发到 GitHub Release，
+# 装法见仓库根目录 install.sh。Windows 暂不支持（docs/GETTING_STARTED.md）。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的 tag（重新编并上传这个 tag 的包）
+        required: true
+
+# Build runs with read-only rights; only the publish job (no checkout, no third-party code) can write.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Build web wizard
+        working-directory: bridge/web
+        # Locked dependencies only, and no install scripts (esbuild's postinstall is only a check;
+        # its platform binary comes from the @esbuild/* optional package). pnpm 10: the
+        # pnpm-workspace.yaml here has no packages field, which pnpm 9 rejects.
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.7 --activate
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run build
+      - name: Build binaries
+        working-directory: bridge
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+          commit=$(git rev-parse --short HEAD)
+          built=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          # 包名和 cmd/cc-connect/update.go 的 archiveAssetName 一致，`cc-connect update` 能直接用。
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            name="cc-connect-${TAG}-${os}-${arch}"
+            mkdir -p "build/${name}"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
+              -ldflags "-s -w -X main.version=${TAG} -X main.commit=${commit} -X main.buildTime=${built}" \
+              -o "build/${name}/cc-connect" ./cmd/cc-connect
+            tar -C "build/${name}" -czf "../dist/${name}.tar.gz" cc-connect
+          done
+          cd ../dist && sha256sum *.tar.gz > checksums.txt && cat checksums.txt
+      - name: Smoke test (linux/amd64)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/smoke && tar -C /tmp/smoke -xzf "dist/cc-connect-${TAG}-linux-amd64.tar.gz"
+          /tmp/smoke/cc-connect --version
+          /tmp/smoke/cc-connect setup --help | grep -q 'setup apply'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-dist
+          path: dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pre=()
+          case "$TAG" in *-*) pre=(--prerelease) ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* "${pre[@]}" --title "$TAG" \
+              --notes "安装：见仓库根目录 install.sh 和 docs/GETTING_STARTED.md。macOS / Linux（arm64、amd64）；Windows 暂不支持。"
+          fi

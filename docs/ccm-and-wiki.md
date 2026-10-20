@@ -1,33 +1,111 @@
 # 线 1：配 ccm 和 wiki
 
-做完这篇：本机跑着 ccm（cc-connect maomao 分支），一个主 bot 加几个 sub；gate 判断谁回话；
+做完这篇：本机跑着 ccm（cc-connect maomao 分支），一个主 bot 加几个 sub；（装了 gate 的话）gate 判断谁回话；
 每轮回话前 bot 会收到「可能相关的 wiki 页」；会话结束后 wiki 自动多出记录。
-聊天平台怎么接（Discord 建 bot、飞书扫码）见[线 2](connect-discord-feishu.md)，这篇只用到它的结果（bot token、频道）。
+装和配机器人只有一条路：[从零用起](GETTING_STARTED.md)的「装 → 向导 → 确认上线」。这篇讲之后可以加的 gate 和 wiki，都可选。
 
 ## 0. 要准备的
 
-- macOS（Apple 芯片）。gate 的本地模型用 mlx，只在 Apple 芯片上跑；别的机器见第 3 步末尾。
-- Go 1.22+（编 ccm）、[uv](https://docs.astral.sh/uv/)（跑 gate）、Python 3.9+ 和 git（wiki）。
+- macOS 或 Linux。gate 的本地模型用 mlx，只在 Apple 芯片上跑；别的机器见第 3 步末尾。
+- 装 ccm 不用 Go，也不用 Node：用预编译包（第 1 步）。gate 要 [uv](https://docs.astral.sh/uv/)；wiki 要 Python 3.9+ 和 git。
 - 已登录的 `claude` CLI（也可以是 codex 等 cc-connect 支持的 agent）。
 - 每个 bot 一个聊天平台的 bot 账号（线 2 第 1 步）。
 
-## 1. 编 ccm
+## 1. 装 ccm
 
-```sh
-git clone https://github.com/Zssan12/conest.git && cd conest/bridge
-go build -tags no_web -o cc-connect ./cmd/cc-connect   # no_web：不编网页管理界面（那个要 node）
-```
-
-它和上游 cc-connect 用同一种配置文件，上游的安装说明见 [bridge/INSTALL.md](../bridge/INSTALL.md)。
+照[从零用起](GETTING_STARTED.md)第 1 步，一行命令装预编译包（带网页向导）。
+不要用 npm / brew 装：那是上游 cc-connect，没有安装向导、gate 和一主多 sub。想自己从源码编见文末附录 B。
 maomao 多出来的功能说明见 [bridge/MAOMAO.md](../bridge/MAOMAO.md)。
 
-## 2. 最小配置：一个主 bot + 一个 sub
+## 2. 配机器人：用向导
+
+运行 `cc-connect`，浏览器里的向导会写好一主多 sub 的全部配置（每个机器人一个 `[[projects]]`，以及 `allow_from`、`allow_bots`、
+`team_lead_bot`、`gate_url`、`gate-team.json`），见[线 2](connect-discord-feishu.md)。也可以让 AI 跑 `cc-connect setup apply`。
+已经用向导配过的直接跳到第 3 步。手写 TOML 的老办法放在文末附录 A。
+
+## 3. 起 gate（可选）
+
+**可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回；向导配出来的配置不装 gate 也能用。
+装 gate 是为了让 AI 自己判断一句话该谁回：第一次运行要装 Python 依赖、下载约 3GB 的本地模型，要几十分钟（国内网络更久）。
+
+下面的命令都在 conest 仓库根目录运行（没 clone 过的先 `git clone https://github.com/Zssan12/conest.git && cd conest`）。
 
 ```sh
-mkdir -p ~/.cc-connect && cp config.example.toml ~/.cc-connect/config.toml
+GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
+# → gate on 127.0.0.1:9930  team=主管+码农、笔杆  wiki=/Users/you/wiki
 ```
 
-把 `[[projects]]` 改成下面这样（每个 bot 一个 project；`config.example.toml` 里 `# ---- maomao fork` 那段有每一项的说明）：
+- 用过向导的话，团队文件向导已经写好了（`~/.cc-connect/gate-team.json`，lead = 向导里选的兜底角色），gate 默认读它。
+  没用向导时自己写一份：`cp bridge/contrib/gate/team.example.json ~/.cc-connect/gate-team.json` 再改成你的角色
+  （名字是群里叫她的叫法，`subs` 的 key 就是 `gate_url` 里 `?bot=` 后面那个）。两样都没有才用 `team.example.json` 里的占位名字。
+  格式：
+
+  ```json
+  {"lead": {"name": "主管", "aliases": ["Claude"]},
+   "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
+  ```
+
+- gate 用哪个模型打分，按这个顺序：向导填的 jev（`~/.cc-connect/jev.json`，测出给概率的才用）→ 本机 mlx 的 Qwen3.5-4B
+  （第一次运行会下载，约 3GB；换模型设 `GATE_MODEL`）→ 都没有就只按规则判，规则判不了的交给 lead（兜底角色）回。
+  启动时打印的 `scorer=jev|local|rules` 就是用的哪一种。
+- 判断日志在 `GATE_LOG`（默认 `~/.cc-connect/gate.jsonl`），用来调规则。
+- 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
+- 不是 Apple 芯片：`bridge/contrib/gate/scorer_torch.py` 是 PyTorch 版打分（有 NVIDIA 显卡的机器），`gate_switch.py`
+  演示了把 gate 放在另一台机器上、连不上时退回规则。这两样按你的机器改，不在这篇的范围内。
+
+## 4. 装 wiki 并接到 gate
+
+wiki 用公开的 [llm-wiki](https://github.com/zuiho-kai/llm-wiki)，照它 README 的「安装」做（中文见 README.zh-CN.md）：
+
+```sh
+git clone https://github.com/zuiho-kai/llm-wiki ~/wiki && cd ~/wiki
+git remote rename origin upstream          # wiki 里是你的个人数据，绝不 push 到公开仓库
+cp config.example.json config.json         # 中文：设 "language": "zh"，再 cp schema/CLAUDE.zh-CN.md CLAUDE.md
+```
+
+然后按它的第 4–6 步：在 `~/.claude/settings.json` 里设 `autoMemoryDirectory` 和 SessionEnd hook、把记忆指令追加进
+`~/.claude/CLAUDE.md`、`launchd/install.sh` 装定时整理。**第一次运行会把所有历史会话整理一遍，可能跑几个小时、花不少额度**，
+先 `python3 bin/ingest.py --status` 看有多少。
+
+接到 gate：gate 的 `POST /context` 每轮按这条消息在 wiki 里逐行检索（BM25，不用模型），把最相关的 3 页和命中的行交给 ccm，
+ccm 拼在消息前面：
+
+```
+（可能相关的 wiki 页，需要时去读）
+- ~/wiki/infra/vps.md — VPS 一览 | 6: - 代理端口 7890
+```
+
+- wiki 目录用 `GATE_WIKI` 指（默认 `~/wiki`）；设成 `off` 或空就不推。目录不存在也不推，不报错。
+- 同一页同一个会话只推一次（ccm 记着）。wiki 改了最迟 5 分钟后检索得到。
+- 只有 `MEMORY.md` → 域目录（有 `README.md`）→ 主题页这样的页会被检索；根目录的 `MEMORY.md`、`log.md`、各 `README.md` 不算。
+
+## 5. 起 ccm
+
+```sh
+cc-connect                  # 读 ~/.cc-connect/config.toml；或 --config <路径>
+cc-connect daemon install   # 想关掉终端也一直在线：装成后台服务
+```
+
+## 6. 怎么验证
+
+1. ccm 上线：日志里有 `discord: connected`；频道里 @ 机器人说一句，它回话。
+2. gate 活着（装了的话）：
+   ```sh
+   curl -s 127.0.0.1:9930/decide -d '{"content":"你好","busy":false}'          # → {"action": ..., "reason": ...}
+   curl -s 127.0.0.1:9930/context -d '{"key":"t","text":"<wiki 里有的一个词>"}'   # → {"wiki": [...]}
+   ```
+3. 不加载模型的单元测试（仓库根目录）：
+   ```sh
+   python3 -I bridge/contrib/gate/test_ctxsvc.py && python3 -I bridge/contrib/gate/test_gate_context.py
+   ```
+4. 群里发一句跟 wiki 有关的话，主 bot 的回答里能看出读过那页；ccm 日志里没有 `gate: context fetch failed`。
+5. 叫 sub 的名字（「码农，看下这个」），只有她回；不叫她，她不开口。
+6. 结束一个 Claude Code 会话，过一会儿 `cd ~/wiki && git log -1` 能看到整理进来的提交。
+
+## 附录 A：手写 TOML（不用向导时）
+
+向导写的就是下面这些。只有不想用向导时才手写：先跑一次 `cc-connect` 让它生成 `~/.cc-connect/config.toml`（Ctrl+C 退出向导），
+再往里加 `[[projects]]`（每个 bot 一个 project；完整示例 `cc-connect config example`，`# ---- maomao fork` 那段有每一项的说明）：
 
 ```toml
 [[projects]]
@@ -71,78 +149,16 @@ allow_bots = "<主 bot 的用户 ID>"
 team_lead_bot = "<主 bot 的用户 ID>"
 ```
 
-token 不要提交进任何仓库。`~/.cc-connect/config.toml` 只放在本机。
+token 不要提交进任何仓库。`~/.cc-connect/config.toml` 只放在本机。ID 怎么拿见[线 2 附录 A2](connect-discord-feishu.md#a2-拿-id)。
 
-## 3. 起 gate
+## 附录 B：从源码编（开发用）
 
-团队文件写你自己的角色（名字是群里叫她的叫法，`subs` 的 key 就是上面 `?bot=` 后面那个）：
-
-```sh
-cp bridge/contrib/gate/team.example.json ~/.cc-connect/gate-team.json   # 改成你的角色
-GATE_TEAM=~/.cc-connect/gate-team.json GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
-# → gate on 127.0.0.1:9930  team=主管+码农、笔杆  wiki=/Users/you/wiki
-```
-
-`team.example.json` 的格式：
-
-```json
-{"lead": {"name": "主管", "aliases": ["Claude"]},
- "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
-```
-
-- 用过[安装向导](connect-discord-feishu.md)的话，团队文件向导已经写好了（`~/.cc-connect/gate-team.json`，lead = 向导里选的兜底角色），
-  不设 `GATE_TEAM` 也会读它；两样都没有才用 `team.example.json` 里的占位名字（群里叫不到你的角色，记得换）。
-- gate 用哪个模型打分，按这个顺序：向导填的 jev（`~/.cc-connect/jev.json`，测出给概率的才用）→ 本机 mlx 的 Qwen3.5-4B
-  （第一次运行会下载，约 3GB；换模型设 `GATE_MODEL`）→ 都没有就只按规则判，规则判不了的交给 lead（兜底角色）回。
-  启动时打印的 `scorer=jev|local|rules` 就是用的哪一种。
-- 判断日志在 `GATE_LOG`（默认 `~/.cc-connect/gate.jsonl`），用来调规则。
-- 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
-- 不是 Apple 芯片：`bridge/contrib/gate/scorer_torch.py` 是 PyTorch 版打分（有 NVIDIA 显卡的机器），`gate_switch.py`
-  演示了把 gate 放在另一台机器上、连不上时退回规则。这两样按你的机器改，不在这篇的范围内。
-
-## 4. 装 wiki 并接到 gate
-
-wiki 用公开的 [llm-wiki](https://github.com/zuiho-kai/llm-wiki)，照它 README 的「安装」做（中文见 README.zh-CN.md）：
+要 Go 1.25（版本见 `bridge/go.mod`）；带网页向导还要 Node。在仓库根目录：
 
 ```sh
-git clone https://github.com/zuiho-kai/llm-wiki ~/wiki && cd ~/wiki
-git remote rename origin upstream          # wiki 里是你的个人数据，绝不 push 到公开仓库
-cp config.example.json config.json         # 中文：设 "language": "zh"，再 cp schema/CLAUDE.zh-CN.md CLAUDE.md
+cd bridge
+make build          # 带网页向导的完整版，约 3–5 分钟；npm 和 go 打印的一堆警告、downloading 行可以忽略
+make build-noweb    # 不要网页时（不用 Node）；setup apply 命令照样能用
 ```
 
-然后按它的第 4–6 步：在 `~/.claude/settings.json` 里设 `autoMemoryDirectory` 和 SessionEnd hook、把记忆指令追加进
-`~/.claude/CLAUDE.md`、`launchd/install.sh` 装定时整理。**第一次运行会把所有历史会话整理一遍，可能跑几个小时、花不少额度**，
-先 `python3 bin/ingest.py --status` 看有多少。
-
-接到 gate：gate 的 `POST /context` 每轮按这条消息在 wiki 里逐行检索（BM25，不用模型），把最相关的 3 页和命中的行交给 ccm，
-ccm 拼在消息前面：
-
-```
-（可能相关的 wiki 页，需要时去读）
-- ~/wiki/infra/vps.md — VPS 一览 | 6: - 代理端口 7890
-```
-
-- wiki 目录用 `GATE_WIKI` 指（默认 `~/wiki`）；设成 `off` 或空就不推。目录不存在也不推，不报错。
-- 同一页同一个会话只推一次（ccm 记着）。wiki 改了最迟 5 分钟后检索得到。
-- 只有 `MEMORY.md` → 域目录（有 `README.md`）→ 主题页这样的页会被检索；根目录的 `MEMORY.md`、`log.md`、各 `README.md` 不算。
-
-## 5. 起 ccm
-
-```sh
-cd conest/bridge && ./cc-connect          # 读 ~/.cc-connect/config.toml；或 -config <路径>
-```
-
-## 6. 怎么验证
-
-1. gate 活着：
-   ```sh
-   curl -s 127.0.0.1:9930/decide -d '{"content":"你好","busy":false}'          # → {"action": ..., "reason": ...}
-   curl -s 127.0.0.1:9930/context -d '{"key":"t","text":"<wiki 里有的一个词>"}'   # → {"wiki": [...]}
-   ```
-2. 不加载模型的单元测试：
-   ```sh
-   python3 -I bridge/contrib/gate/test_ctxsvc.py && python3 -I bridge/contrib/gate/test_gate_context.py
-   ```
-3. 群里发一句跟 wiki 有关的话，主 bot 的回答里能看出读过那页；ccm 日志里没有 `gate: context fetch failed`。
-4. 叫 sub 的名字（「码农，看下这个」），只有她回；不叫她，她不开口。
-5. 结束一个 Claude Code 会话，过一会儿 `cd ~/wiki && git log -1` 能看到整理进来的提交。
+编出来的是 `bridge/cc-connect`。

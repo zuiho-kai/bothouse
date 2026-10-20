@@ -85,6 +85,8 @@ export default function SetupWizard() {
   const [saving, setSaving] = useState(false);
   const [restarted, setRestarted] = useState(false);
   const [copied, setCopied] = useState('');
+  // allow_from: defaults to the bots' owners (from the token check) until the user edits it
+  const [allowFrom, setAllowFrom] = useState<string | null>(null);
 
   useEffect(() => {
     getSetupState(lang).then(setState).catch(() => {});
@@ -223,6 +225,9 @@ export default function SetupWizard() {
     }
   };
 
+  const ownerDefault = Array.from(new Set(roles.map((r) => r.info?.owner_id).filter(Boolean))).join(',');
+  const allowFromValue = allowFrom ?? ownerDefault;
+
   // ── request ──
   const buildRequest = (maskSecrets = false): WizardRequest => {
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
@@ -241,7 +246,10 @@ export default function SetupWizard() {
       fallback_role: platform === 'discord' ? fallback : undefined,
       fallback_bot_id: platform === 'discord' ? roles.find((r) => projectOf(r) === fallback)?.info?.bot_id : undefined,
     };
-    if (platform === 'discord') req.discord = { guild_id: guildID, channel_id: channelID };
+    if (platform === 'discord') {
+      req.discord = { guild_id: guildID, channel_id: channelID };
+      if (allowFromValue.trim()) req.allow_from = allowFromValue.trim();
+    }
     if (platform === 'feishu' && feishu) req.feishu = { ...feishu, app_secret: mask(feishu.app_secret, '<APP_SECRET>'), chat_id: chatID };
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     return req;
@@ -379,7 +387,9 @@ export default function SetupWizard() {
                 {r.info && (
                   <div className="text-xs space-y-1">
                     <p className="text-emerald-600 flex items-center gap-1"><CheckCircle2 size={12} />{r.info.username} ({r.info.bot_id})</p>
-                    {!r.info.message_content_intent && <p className="text-amber-600">{T.intentOff}</p>}
+                    {r.info.intent_known === false
+                      ? <p className="text-amber-600">{T.intentUnknown}</p>
+                      : !r.info.message_content_intent && <p className="text-amber-600">{T.intentOff}</p>}
                     {guildID && !r.info.guilds.some((g) => g.id === guildID) && (
                       <p className="text-amber-600">{T.notInGuild} <a className="text-accent underline" target="_blank" rel="noreferrer"
                         href={`${r.info.invite_url}&guild_id=${guildID}`}>{T.invite}</a></p>
@@ -489,6 +499,7 @@ export default function SetupWizard() {
         {step === 3 && (
           <div className="space-y-4">
             <p className="text-sm text-gray-700 dark:text-gray-300">{T.personaQ}</p>
+            <p className="text-xs text-gray-500" data-testid="persona-about">{T.personaAbout}</p>
             {roles.map((r, idx) => (
               <div key={r.key} className="space-y-2 p-3 rounded-xl border border-gray-200 dark:border-gray-700" data-testid={`persona-role-${idx}`}>
                 {roles.length > 1 && <p className="text-sm font-medium">{nameOf(r)}</p>}
@@ -593,23 +604,47 @@ export default function SetupWizard() {
                   {platform === 'discord' && <li>• {guilds.find((g) => g.id === guildID)?.name} / #{channels.find((c) => c.id === channelID)?.name}</li>}
                   {(jevSave.saved || jevUnchanged) && <li>• jev: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
                 </ul>
+                {platform === 'discord' && (
+                  <div className="space-y-1">
+                    <Input label={T.allowFromLabel} value={allowFromValue} data-testid="allow-from" onChange={(e) => setAllowFrom(e.target.value)} />
+                    <p className="text-xs text-gray-500">{T.allowFromNote}</p>
+                    {!allowFromValue.trim() && <p className="text-xs text-red-500" data-testid="allow-from-missing">{T.allowFromMissing}</p>}
+                    {allowFromValue.split(',').some((v) => v.trim() === '*') && <p className="text-xs text-amber-600" data-testid="allow-from-everyone">{T.allowFromEveryone}</p>}
+                  </div>
+                )}
               </>
             )}
-            {result && result.ok && (
+            {result && (result.ok || result.saved) && (
               <div className="space-y-2">
-                <p className="text-emerald-600 font-medium flex items-center gap-1"><CheckCircle2 size={16} />{T.done} {T.doneRestart}</p>
+                {result.ok
+                  ? <p className="text-emerald-600 font-medium flex items-center gap-1"><CheckCircle2 size={16} />{T.done} {T.doneRestart}</p>
+                  : <p className="text-amber-600 font-medium" data-testid="needs-action">{T.savedNeedsAction}</p>}
+                {(result.warnings || []).filter((w) => w.blocking).map((w, i) => (
+                  <div key={`b${i}`} className="text-sm rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-2.5" data-testid={`warning-${w.code}`}>
+                    <p className="font-medium text-amber-700 dark:text-amber-400">{w.message}</p>
+                    <p className="text-xs text-gray-700 dark:text-gray-300">{w.fix}{w.url && <> <a className="text-accent underline" href={w.url} target="_blank" rel="noreferrer">{T.openLink}</a></>}</p>
+                  </div>
+                ))}
+                {(result.warnings || []).some((w) => !w.blocking && w.code !== 'gate_not_running') && <p className="text-xs text-gray-500">{T.alsoKnow}</p>}
+                {(result.warnings || []).filter((w) => !w.blocking && w.code !== 'gate_not_running').map((w, i) => (
+                  <p key={`n${i}`} className="text-xs text-amber-600" data-testid={`warning-${w.code}`}>{w.message} {w.fix}</p>
+                ))}
+                {!result.ok && <p className="text-xs text-gray-500">{T.doneRestart}</p>}
                 <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
                   {result.steps.map((s, i) => <li key={i}>{s.ok ? '✓' : '✗'} {s.step}{s.detail ? ` — ${s.detail}` : ''}</li>)}
                 </ul>
-                {result.roles.filter((r) => r.invite_url).map((r) => (
-                  <p key={r.project} className="text-xs text-amber-600">{r.name}: {T.notInGuild} <a className="text-accent underline" href={r.invite_url} target="_blank" rel="noreferrer">{T.invite}</a></p>
-                ))}
+                {result.allow_from && <p className="text-xs text-gray-600 dark:text-gray-400" data-testid="allow-from-saved">{T.allowFromSaved}<code>{result.allow_from}</code></p>}
+                {result.gate_hint && (
+                  <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5" data-testid="gate-hint">
+                    <p className="font-medium">{T.gateTitle}</p><p>{result.gate_hint}</p>
+                  </div>
+                )}
                 {result.config_backup && <p className="text-xs text-gray-500">{T.backupNote} <code>{result.config_backup}</code></p>}
                 <p className="text-xs text-gray-500 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5">{result.jev_hint}</p>
                 <Button onClick={async () => { await restartSystem().catch(() => {}); setRestarted(true); }} disabled={restarted}>{restarted ? T.restarted : T.restart}</Button>
               </div>
             )}
-            {result && !result.ok && <p className="text-red-500 text-sm">{T.failed}{result.error}</p>}
+            {result && !result.ok && !result.saved && <p className="text-red-500 text-sm">{T.failed}{result.error}</p>}
             <details className="text-xs">
               <summary className="cursor-pointer text-gray-500">{T.forAI}</summary>
               <pre className="mt-2 p-2 rounded bg-gray-50 dark:bg-black/40 text-gray-700 dark:text-gray-300 overflow-auto max-h-64" data-testid="ai-command">{`cc-connect setup apply --json - <<'EOF'\n${JSON.stringify(buildRequest(true), null, 2)}\nEOF`}</pre>
@@ -620,11 +655,11 @@ export default function SetupWizard() {
 
         {/* nav */}
         <div className="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
-          <Button variant="secondary" onClick={() => go(-1)} disabled={pos === 0 || !!result?.ok} data-testid="back">{T.back}</Button>
+          <Button variant="secondary" onClick={() => go(-1)} disabled={pos === 0 || !!result?.ok || !!result?.saved} data-testid="back">{T.back}</Button>
           {step === 5 && existingJev && <Button variant="danger" size="sm" data-testid="jev-remove" onClick={() => jevNext('remove')}>{T.jevRemove}</Button>}
           {step === 5 && jevTest.usable !== false && <Button variant="ghost" data-testid="jev-skip-nav" onClick={() => jevNext('skip')}>{T.jevSkip}</Button>}
           {step < 6 && <Button onClick={() => (step === 5 ? jevNext() : go(1))} disabled={!stepOK[step]} data-testid="next">{T.next}</Button>}
-          {step === 6 && !result?.ok && <Button onClick={save} disabled={saving} data-testid="save">{saving ? T.saving : T.save}</Button>}
+          {step === 6 && !result?.ok && !result?.saved && <Button onClick={save} disabled={saving || (platform === 'discord' && !allowFromValue.trim())} data-testid="save">{saving ? T.saving : T.save}</Button>}
         </div>
       </Card>
     </div>

@@ -361,6 +361,8 @@ Web admin:  http://localhost:9820
 
 ## 🚀 快速开始
 
+> **conest：** 这个分支的安装和配置看 [INSTALL.md](INSTALL.md)（预编译包 + 安装向导）。下面的 npm / brew / 上游说明装的是上游 cc-connect，没有安装向导。
+
 ### 🤖 通过 AI Agent 安装配置（推荐）
 
 > **最简单的方式** — 把这段话发给 Claude Code 或其他 AI 编码 Agent，它会帮你完成整个安装和配置过程：
