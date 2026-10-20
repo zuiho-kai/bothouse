@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #159 公开进展，独立分支 feat/159-public-progress。复用 #116 的任务模型/卡片布局，接入真人初始、排队、语音续轮的显式 progress CLI 与本地 API；不从 Thinking/工具文本提取进展。run+项目+会话+递增序号防串轮，落盘后异步更新卡片和关键讨论串；网络响应丢失先按自身消息标记核对，重启将未结束运行记为中断。结果显示“已有结果 · 待验收”；语音取公开短回执，长摘要只播查看卡片提示。已验证本地 socket→卡片、安静模式队列CUJ、语音、重启/重复/停止/落盘失败/丢回执与三后端提示入口；本机沙箱Go全量、CUJ、五包目标race、vet、全包构建及编译CLI真实socket验收均通过，CI结果见PR。默认关闭，未部署、未发真实频道消息；跨轮同卡、任务查询、主人验收仍属于 #113，不关闭该Issue。#155已合并的插件也没有在本轮部署。用法与边界见[公开进展说明](PUBLIC_PROGRESS.md)。
+
 2026-10-20：Issue #155 肥鱼公开答复失败。用户授权一名子 Agent 实现，父 Agent 审查并合并；独立分支 fix/155-deepseek-public-reply。修复 DSH 流收集器误用 block-end 顺序及漏收 delta-only 文本，合法 reply 现在按运行时的首次出现顺序组装；取消后不再派发迟到工具，补答共用60秒期限由收集器自行执行。失败诊断只记阶段、尝试次数和固定原因枚举。父 Agent 复核修前4项回归均失败、修后含真实 DSH 离线契约共37项通过，bridge 沙箱串行 Go 全量通过。隔离真实 ACP 读取一次合成文件后精确回答通过；13:14 失败前108条消息经只读投影重建补答，真实同模型返回严格 reply、零工具调用，也通过。12:54及13:14生产记录只保留改写后终态，无法确认这两次的具体触发条件，不把合成复现冒充现场根因；Issue 保持开放跟踪现场验证。详见[验证记录](DSH_PUBLIC_REPLY_155.md)及[插件边界](../integrations/dsh-public-output/README.md)。尚未部署，未重跑原任务、修改原会话或发送 Discord 消息。
 
 2026-10-20：Issue #148 安装向导（分支 feat/setup-wizard，基于 docs/onboarding）。cc-connect 网页新增 /setup：选平台 → 机器人（复用已有或填 token；校验、列服务器/频道、邀请链接；飞书扫码后选默认群）→ 每个角色选本机 CLI（只列装了的，带版本和登录状态；可挂第三方 API）→ 人设（默认人设中英两版、回答语言）→ 兜底角色 → jev（填完自动测概率，不拦保存）。同一逻辑给 AI：`cc-connect setup apply --json`、`POST /api/v1/setup/apply`。第三方 API 对不上 CLI 协议时由 `core/protoconv.go` 本机转换成 /chat/completions（provider `api_format = "openai_chat"`）。首次运行没有项目时只起向导。gate 读向导写的 `jev.json`（给概率才用）和 `gate-team.json`（lead = 兜底角色），没有模型时只按规则判、判不了交给兜底角色。只在隔离实例（临时配置、临时端口、假 Discord/模型）验证；未部署，未同步回 maomao 分支。

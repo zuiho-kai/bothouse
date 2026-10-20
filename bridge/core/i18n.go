@@ -658,7 +658,204 @@ const (
 	MsgBackgroundAutoDenied     MsgKey = "background_auto_denied"
 )
 
+const (
+	MsgPublicInterrupted MsgKey = "MsgPublicInterrupted"
+	MsgPublicEnded       MsgKey = "MsgPublicEnded"
+	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
+	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
+)
+
+const (
+	MsgPublicVoiceResult  MsgKey = "MsgPublicVoiceResult"
+	MsgPublicVoiceWaiting MsgKey = "MsgPublicVoiceWaiting"
+)
+
 var messages = map[MsgKey]map[Language]string{
+	MsgPublicVoiceResult: {
+		LangEnglish:            "Results and remaining work are in the task card.",
+		LangChinese:            "本轮结果和未完成事项已记录，请查看任务卡。",
+		LangTraditionalChinese: "本輪結果和未完成事項已記錄，請查看任務卡。",
+		LangJapanese:           "結果と残作業はタスクカードを確認してください。",
+		LangSpanish:            "Consulte los resultados y pendientes en la tarjeta.",
+	},
+	MsgPublicVoiceWaiting: {
+		LangEnglish:            "Your decision is needed. Please check the task card.",
+		LangChinese:            "需要你决定下一步，具体问题请看任务卡。",
+		LangTraditionalChinese: "需要你決定下一步，具體問題請看任務卡。",
+		LangJapanese:           "判断が必要です。タスクカードを確認してください。",
+		LangSpanish:            "Se necesita su decisión. Consulte la tarjeta.",
+	},
+
+	"task_executor": {
+		LangEnglish:            "Executor",
+		LangChinese:            "执行者",
+		LangTraditionalChinese: "執行者",
+		LangJapanese:           "担当",
+		LangSpanish:            "Responsable",
+	},
+	"task_status": {
+		LangEnglish:            "Status",
+		LangChinese:            "当前状态",
+		LangTraditionalChinese: "目前狀態",
+		LangJapanese:           "状態",
+		LangSpanish:            "Estado",
+	},
+	"task_required_summary": {
+		LangEnglish:            "Requirements",
+		LangChinese:            "要求摘要",
+		LangTraditionalChinese: "要求摘要",
+		LangJapanese:           "要件",
+		LangSpanish:            "Requisitos",
+	},
+	"task_latest_progress": {
+		LangEnglish:            "Latest progress",
+		LangChinese:            "最新进展",
+		LangTraditionalChinese: "最新進展",
+		LangJapanese:           "最新の進捗",
+		LangSpanish:            "Último avance",
+	},
+	"task_result_summary": {
+		LangEnglish:            "Result summary",
+		LangChinese:            "结果摘要",
+		LangTraditionalChinese: "結果摘要",
+		LangJapanese:           "結果",
+		LangSpanish:            "Resumen",
+	},
+	"task_verification": {
+		LangEnglish:            "Validation",
+		LangChinese:            "验证结果",
+		LangTraditionalChinese: "驗證結果",
+		LangJapanese:           "検証",
+		LangSpanish:            "Validación",
+	},
+	"task_deliverable": {
+		LangEnglish:            "Deliverable",
+		LangChinese:            "交付成果",
+		LangTraditionalChinese: "交付成果",
+		LangJapanese:           "成果物",
+		LangSpanish:            "Entrega",
+	},
+	"task_next_steps": {
+		LangEnglish:            "Remaining work / next steps",
+		LangChinese:            "未完成项 / 下一步",
+		LangTraditionalChinese: "未完成項 / 下一步",
+		LangJapanese:           "残作業・次の手順",
+		LangSpanish:            "Pendiente / siguiente paso",
+	},
+	"task_received": {
+		LangEnglish:            "Received",
+		LangChinese:            "已接收",
+		LangTraditionalChinese: "已接收",
+		LangJapanese:           "受信済み",
+		LangSpanish:            "Recibido",
+	},
+	"task_in_progress": {
+		LangEnglish:            "In progress",
+		LangChinese:            "进行中",
+		LangTraditionalChinese: "進行中",
+		LangJapanese:           "実行中",
+		LangSpanish:            "En curso",
+	},
+	"task_waiting_user": {
+		LangEnglish:            "Waiting for you",
+		LangChinese:            "等你确认",
+		LangTraditionalChinese: "等你確認",
+		LangJapanese:           "確認待ち",
+		LangSpanish:            "Esperando confirmación",
+	},
+	"task_failed": {
+		LangEnglish:            "Failed",
+		LangChinese:            "失败",
+		LangTraditionalChinese: "失敗",
+		LangJapanese:           "失敗",
+		LangSpanish:            "Fallido",
+	},
+	"task_cancelled": {
+		LangEnglish:            "Cancelled",
+		LangChinese:            "已取消",
+		LangTraditionalChinese: "已取消",
+		LangJapanese:           "取消済み",
+		LangSpanish:            "Cancelado",
+	},
+	"task_completed": {
+		LangEnglish:            "Completed",
+		LangChinese:            "已完成",
+		LangTraditionalChinese: "已完成",
+		LangJapanese:           "完了",
+		LangSpanish:            "Completado",
+	},
+	"task_code_modified": {
+		LangEnglish:            "Code modified",
+		LangChinese:            "代码已改",
+		LangTraditionalChinese: "程式碼已改",
+		LangJapanese:           "コード変更済み",
+		LangSpanish:            "Código modificado",
+	},
+	"task_pr_opened": {
+		LangEnglish:            "PR opened",
+		LangChinese:            "PR已提交",
+		LangTraditionalChinese: "PR已提交",
+		LangJapanese:           "PR作成済み",
+		LangSpanish:            "PR abierto",
+	},
+	"task_ci_passed": {
+		LangEnglish:            "CI passed",
+		LangChinese:            "CI通过",
+		LangTraditionalChinese: "CI通過",
+		LangJapanese:           "CI成功",
+		LangSpanish:            "CI aprobado",
+	},
+	"task_merged": {
+		LangEnglish:            "Merged · deployment pending",
+		LangChinese:            "已合并 · 待部署",
+		LangTraditionalChinese: "已合併 · 待部署",
+		LangJapanese:           "マージ済み・未配備",
+		LangSpanish:            "Integrado · despliegue pendiente",
+	},
+	"task_deployed": {
+		LangEnglish:            "Deployed · verification pending",
+		LangChinese:            "已部署 · 待验收",
+		LangTraditionalChinese: "已部署 · 待驗收",
+		LangJapanese:           "配備済み・検収待ち",
+		LangSpanish:            "Desplegado · verificación pendiente",
+	},
+	"task_verified": {
+		LangEnglish:            "Human verified",
+		LangChinese:            "主人已验收",
+		LangTraditionalChinese: "主人已驗收",
+		LangJapanese:           "ユーザー検収済み",
+		LangSpanish:            "Verificado por el usuario",
+	},
+
+	MsgPublicInterrupted: {
+		LangEnglish:            "Turn interrupted; check recorded results before retrying.",
+		LangChinese:            "本轮中断；重试前请先核对已记录的成果。",
+		LangTraditionalChinese: "本輪中斷；重試前請先核對已記錄的成果。",
+		LangJapanese:           "処理が中断しました。再試行前に記録済みの成果を確認してください。",
+		LangSpanish:            "Turno interrumpido; revise los resultados antes de reintentar.",
+	},
+	MsgPublicEnded: {
+		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",
+		LangChinese:            "本轮已结束，结果见最终答复；验收尚未确认。",
+		LangTraditionalChinese: "本輪已結束，結果見最終答覆；驗收尚未確認。",
+		LangJapanese:           "ターンは終了しました。最終回答を確認してください。検収は未確認です。",
+		LangSpanish:            "Turno terminado; consulte la respuesta final. Aceptación pendiente.",
+	},
+	MsgTaskKeyFact: {
+		LangEnglish:            "Key update",
+		LangChinese:            "关键留痕",
+		LangTraditionalChinese: "關鍵留痕",
+		LangJapanese:           "重要な進捗",
+		LangSpanish:            "Actualización clave",
+	},
+	MsgTaskResultReady: {
+		LangEnglish:            "Result ready · acceptance pending",
+		LangChinese:            "已有结果 · 待验收",
+		LangTraditionalChinese: "已有結果 · 待驗收",
+		LangJapanese:           "結果あり・検収待ち",
+		LangSpanish:            "Resultado listo · aceptación pendiente",
+	},
+
 	MsgStarting: {
 		LangEnglish:            "⏳ Processing...",
 		LangChinese:            "⏳ 处理中...",

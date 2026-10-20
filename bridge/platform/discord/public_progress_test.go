@@ -1,0 +1,147 @@
+package discord
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/chenhg5/cc-connect/core"
+)
+
+type progressREST struct {
+	messages    map[string][]*discordgo.Message
+	thread      bool
+	loseACK     bool
+	failHistory bool
+	sends       int
+}
+
+func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := req.Context().Err(); err != nil {
+		return nil, err
+	}
+	path := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
+	channel := ""
+	for i, v := range path {
+		if v == "channels" && i+1 < len(path) {
+			channel = path[i+1]
+		}
+	}
+	code := 200
+	var body any = map[string]any{}
+	switch {
+	case req.Method == "GET" && strings.HasSuffix(req.URL.Path, "/messages"):
+		if r.failHistory {
+			return nil, errors.New("history unavailable")
+		}
+		body = r.messages[channel]
+		if body == nil {
+			body = []any{}
+		}
+	case req.Method == "POST" && strings.HasSuffix(req.URL.Path, "/messages"):
+		var data discordgo.MessageSend
+		if err := json.NewDecoder(req.Body).Decode(&data); err != nil {
+			return nil, err
+		}
+		if data.AllowedMentions == nil || len(data.AllowedMentions.Parse) > 0 || len(data.AllowedMentions.Users) > 0 {
+			return nil, errors.New("mentions not suppressed")
+		}
+		r.sends++
+		m := &discordgo.Message{ID: fmt.Sprint(r.sends + 100), ChannelID: channel, Author: &discordgo.User{ID: "bot"}, Embeds: data.Embeds, Timestamp: time.Now()}
+		r.messages[channel] = append([]*discordgo.Message{m}, r.messages[channel]...)
+		body = m
+		if r.loseACK {
+			r.loseACK = false
+			return nil, errors.New("lost successful POST response")
+		}
+	case req.Method == "PATCH":
+		body = &discordgo.Message{ID: "101", ChannelID: channel}
+	case strings.HasSuffix(req.URL.Path, "/threads"):
+		r.thread = true
+		body = &discordgo.Channel{ID: "101", Type: discordgo.ChannelTypeGuildPublicThread}
+	case req.Method == "GET":
+		if channel == "101" && !r.thread {
+			code = 404
+			body = map[string]any{"code": 10003, "message": "Unknown Channel"}
+		} else {
+			body = &discordgo.Channel{ID: channel, Type: discordgo.ChannelTypeGuildText}
+		}
+	default:
+		return nil, fmt.Errorf("unexpected API request %s %s", req.Method, req.URL.Path)
+	}
+	b, _ := json.Marshal(body)
+	return &http.Response{StatusCode: code, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(b))), Request: req}, nil
+}
+
+func TestPublicTaskCardLostACKReconciliation(t *testing.T) {
+	transport := &progressREST{messages: map[string][]*discordgo.Message{}, loseACK: true}
+	session, _ := discordgo.New("Bot fixture")
+	session.Client = &http.Client{Transport: transport}
+	session.MaxRestRetries = 0
+	p := &Platform{session: session, botID: "bot"}
+	task := &core.Task{ID: "task-test", Title: "检查绑定", Agent: "fish", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now(), State: core.TaskStateInProgress, LatestProgress: "@everyone 公开进展"}
+	if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err == nil {
+		t.Fatal("lost ACK not reported")
+	}
+	if task.MessageID != "" {
+		t.Fatal("pretended to have ACK")
+	}
+	if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err != nil {
+		t.Fatal(err)
+	}
+	if transport.sends != 1 || task.MessageID != "101" || task.ThreadID != "101" {
+		t.Fatalf("duplicate card or missing mapping: sends=%d %+v", transport.sends, task)
+	}
+	ev := core.TaskEvent{ID: "task-test:1", Summary: "关键结果", Timestamp: time.Now(), IsKeyFact: true}
+	transport.loseACK = true
+	if err := p.PublishTaskFact(context.Background(), task, ev, core.LangChinese); err == nil {
+		t.Fatal("lost fact ACK not reported")
+	}
+	// New Platform/manager mimics restart with no in-memory dedup map.
+	p = &Platform{session: session, botID: "bot"}
+	if err := p.PublishTaskFact(context.Background(), task, ev, core.LangChinese); err != nil {
+		t.Fatal(err)
+	}
+	if transport.sends != 2 {
+		t.Fatal("duplicate fact after restart")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err == nil {
+		t.Fatal("ignored context")
+	}
+}
+
+func TestPublicTaskCardCannotEstablishAbsence(t *testing.T) {
+	transport := &progressREST{messages: map[string][]*discordgo.Message{}, failHistory: true}
+	session, _ := discordgo.New("Bot fixture")
+	session.Client = &http.Client{Transport: transport}
+	session.MaxRestRetries = 0
+	p := &Platform{session: session, botID: "bot"}
+	task := &core.Task{ID: "task-test", Title: "test", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := p.EnsureTaskCard(context.Background(), task, core.LangEnglish); err == nil || transport.sends != 0 {
+		t.Fatal("created blindly after history failure")
+	}
+}
+
+func TestPublicTaskResultDoesNotClaimAcceptance(t *testing.T) {
+	for _, lang := range []core.Language{core.LangEnglish, core.LangChinese, core.LangTraditionalChinese, core.LangJapanese, core.LangSpanish} {
+		task := &core.Task{ID: "t", Title: "task", Agent: "fish", State: core.TaskStateResultReady, ResultSummary: "result"}
+		embed := RenderTaskCardEmbed(task, string(lang))
+		if embed.Fields[1].Value != core.NewI18n(lang).T(core.MsgTaskResultReady) {
+			t.Fatalf("wrong state %s", lang)
+		}
+		for _, f := range embed.Fields {
+			if strings.HasPrefix(f.Name, "task_") {
+				t.Fatal("missing translation", lang, f.Name)
+			}
+		}
+	}
+}

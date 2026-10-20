@@ -22,3 +22,14 @@ func TestPreparePromptIncludesTaskLifecycleGuidance(t *testing.T) {
 		}
 	}
 }
+
+func TestPreparePromptPreservesPublicProgress(t *testing.T) {
+	s := &antigravitySession{workDir: t.TempDir()}
+	for _, run := range []string{"fresh", "renewed"} {
+		input := "[Public progress channel] cc-connect progress --run " + run + " --seq 1 --kind start\n检查绑定"
+		got, _ := s.preparePrompt(input, nil, nil)
+		if !strings.HasSuffix(got, input) {
+			t.Fatal("public progress instructions lost by stream/print prompt preparation")
+		}
+	}
+}

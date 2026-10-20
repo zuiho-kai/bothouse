@@ -1,0 +1,108 @@
+package core
+
+import "time"
+
+// TaskState represents the execution lifecycle state of a task.
+type TaskState string
+
+const (
+	TaskStateReceived    TaskState = "received"     // 已接收
+	TaskStateInProgress  TaskState = "in_progress"  // 进行中
+	TaskStateWaitingUser TaskState = "waiting_user" // 等你确认 / 等待用户
+	TaskStateFailed      TaskState = "failed"       // 失败
+	TaskStateCancelled   TaskState = "cancelled"    // 已取消
+	TaskStateResultReady TaskState = "result_ready" // turn result, not project acceptance
+	TaskStateCompleted   TaskState = "completed"    // 完成
+)
+
+// FactStage represents verifiable delivery progress facts.
+// Strict separation: code modified != merged != deployed != verified.
+type FactStage string
+
+const (
+	FactStageReceived     FactStage = "received"      // 任务已接纳
+	FactStageCodeModified FactStage = "code_modified" // 代码已改
+	FactStagePROpened     FactStage = "pr_opened"     // PR已提交
+	FactStageCIPassed     FactStage = "ci_passed"     // CI自动测试通过
+	FactStageMerged       FactStage = "merged"        // 已合并
+	FactStageDeployed     FactStage = "deployed"      // 已部署
+	FactStageVerified     FactStage = "verified"      // 真人已验收
+)
+
+// TaskEventKind categorizes task lifecycle events.
+type TaskEventKind string
+
+const (
+	TaskEventCreated            TaskEventKind = "created"
+	TaskEventRequirementChanged TaskEventKind = "requirement_changed"
+	TaskEventProgress           TaskEventKind = "progress"
+	TaskEventFactUpdated        TaskEventKind = "fact_updated"
+	TaskEventWaitingUser        TaskEventKind = "waiting_user"
+	TaskEventBlocked            TaskEventKind = "blocked"
+	TaskEventFailed             TaskEventKind = "failed"
+	TaskEventResultReady        TaskEventKind = "result_ready"
+	TaskEventCompleted          TaskEventKind = "completed"
+)
+
+// TaskEvent records an audit entry for key task events.
+type TaskEvent struct {
+	ID        string        `json:"id"`
+	TaskID    string        `json:"task_id"`
+	Seq       int64         `json:"seq"`
+	Kind      TaskEventKind `json:"kind"`
+	State     TaskState     `json:"state"`
+	FactStage FactStage     `json:"fact_stage"`
+	Summary   string        `json:"summary"`
+	Detail    string        `json:"detail,omitempty"`
+	IsKeyFact bool          `json:"is_key_fact"`
+	Timestamp time.Time     `json:"timestamp"`
+}
+
+// Task represents a persistent, trackable task unit with Discord card and thread bindings.
+type Task struct {
+	ID                 string      `json:"id"`
+	Title              string      `json:"title"`
+	Agent              string      `json:"agent"`
+	Origin             string      `json:"origin"` // "voice" / "discord"
+	SessionKey         string      `json:"session_key"`
+	State              TaskState   `json:"state"`
+	FactStage          FactStage   `json:"fact_stage"`
+	RequiredSummary    string      `json:"required_summary,omitempty"`
+	LatestProgress     string      `json:"latest_progress,omitempty"`
+	ResultSummary      string      `json:"result_summary,omitempty"`
+	VerificationResult string      `json:"verification_result,omitempty"`
+	DeliverableURL     string      `json:"deliverable_url,omitempty"`
+	NextSteps          string      `json:"next_steps,omitempty"`
+	ChannelID          string      `json:"channel_id,omitempty"`
+	MessageID          string      `json:"message_id,omitempty"`
+	ThreadID           string      `json:"thread_id,omitempty"`
+	Seq                int64       `json:"seq"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
+	CompletedAt        *time.Time  `json:"completed_at,omitempty"`
+	FinalNotified      bool        `json:"final_notified"`
+	Events             []TaskEvent `json:"events,omitempty"`
+}
+
+// Clone creates a deep copy of the task.
+func (t *Task) Clone() *Task {
+	if t == nil {
+		return nil
+	}
+	cp := *t
+	if t.CompletedAt != nil {
+		tComplete := *t.CompletedAt
+		cp.CompletedAt = &tComplete
+	}
+	if len(t.Events) > 0 {
+		cp.Events = make([]TaskEvent, len(t.Events))
+		copy(cp.Events, t.Events)
+	}
+	return &cp
+}
+
+// IsTerminalState reports a verified completion, failure or cancellation.
+// ResultReady is deliberately distinct from project acceptance.
+func IsTerminalState(state TaskState) bool {
+	return state == TaskStateCompleted || state == TaskStateFailed || state == TaskStateCancelled
+}

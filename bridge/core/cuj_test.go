@@ -30,6 +30,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -2595,5 +2596,60 @@ func TestCUJ_H4_FeishuTopicsKeepWorkspaceBindingsIsolated(t *testing.T) {
 	sendTopicCommand("om_root_b", "/workspace")
 	if got := lastReply(); !strings.Contains(got, normalizeWorkspacePath(workspaceB)) {
 		t.Fatalf("topic B changed after topic A unbind: %q", got)
+	}
+}
+
+func TestCUJ_Progress1_QuietQueueAndFailure(t *testing.T) {
+	_, e, a, _, s := inputFixture(t)
+	p := newProgressPlatform()
+	e.platforms = []Platform{p}
+	e.SetDataDir(t.TempDir())
+	e.SetDisplayConfig(DisplayCfg{ThinkingMessages: false, ToolMessages: false})
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	send := func(id, text string) {
+		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: text, Mentioned: true})
+	}
+	report := func(token string) string {
+		id, err := e.publicProgress.Report(PublicProgressRequest{Project: "gge", SessionKey: inputTestKey, Run: token, Seq: 1, Kind: "start", Title: "公开任务", Summary: "公开进展：正在检查"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	send("one", "检查绑定")
+	first := progressToken(t, inputPrompt(t, a))
+	id1 := report(first)
+	a.session.events <- Event{Type: EventThinking, Content: "PRIVATE_SENTINEL"}
+	send("two", "第二个任务")
+	inputDone(a, "第一个结果")
+	second := progressToken(t, inputPrompt(t, a))
+	id2 := report(second)
+	if first == second {
+		t.Fatal("queued turn reused token")
+	}
+	if _, err := e.publicProgress.Report(PublicProgressRequest{Project: "gge", SessionKey: inputTestKey, Run: first, Seq: 2, Kind: "update", Summary: "stale"}); err == nil {
+		t.Fatal("old task updated queued card")
+	}
+	a.session.events <- Event{Type: EventError, Error: errors.New("failure")}
+	inputWait(t, func() bool { return !s.Busy() })
+	send("three", "你好")
+	inputPrompt(t, a)
+	inputDone(a, "你好！")
+	inputWait(t, func() bool { return !s.Busy() })
+	e.publicProgress.Flush(context.Background())
+	if len(p.snapshots) != 2 {
+		t.Fatal("casual chat created card")
+	}
+	if p.task(id1).State != TaskStateResultReady || p.task(id2).State != TaskStateFailed {
+		t.Fatal("wrong user-visible lifecycle")
+	}
+	text, _ := json.Marshal(p.snapshots)
+	if strings.Contains(string(text)+strings.Join(p.getSent(), ""), "PRIVATE_SENTINEL") {
+		t.Fatal("thinking leaked into public channel")
+	}
+	if !strings.Contains(string(text), "公开进展") {
+		t.Fatal("quiet mode suppressed public progress")
 	}
 }

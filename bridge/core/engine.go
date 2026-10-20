@@ -521,7 +521,8 @@ type Engine struct {
 	webStatusFunc func() (url string)
 
 	// Data directory for socket path injection
-	dataDir string
+	dataDir        string
+	publicProgress *PublicProgress
 }
 
 // workspaceInitFlow tracks a channel that is being onboarded to a workspace.
@@ -556,6 +557,7 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
+	publicProgressRun        string
 	agentSession             AgentSession
 	platform                 Platform
 	replyCtx                 any
@@ -2381,6 +2383,7 @@ func (e *Engine) Start() error {
 		return startErrs[0] // Return first error
 	}
 
+	e.startPublicProgress()
 	e.startObserver()
 	return nil
 }
@@ -3918,6 +3921,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	promptContent := e.buildSenderPrompt(msg.Content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 	promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
 	promptContent = withSubagentPolicy(promptContent, msg.UserID, msg.FromBot)
+	promptContent = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
 
 	sendStart := time.Now()
 	state.mu.Lock()
@@ -4951,6 +4955,13 @@ var agentErrorHandlers = []agentErrorHandler{
 }
 
 func (e *Engine) processInteractiveEvents(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string, msgID string, turnStart time.Time, stopTypingFn func(), sendDone <-chan error, replyCtx any, inputs ...*inputTurn) {
+	defer func() {
+		outcome := "failed"
+		if state.isStopped() {
+			outcome = "cancelled"
+		}
+		e.finishPublicProgress(state, outcome)
+	}()
 	var input *inputTurn
 	if len(inputs) > 0 {
 		input = inputs[0]
@@ -6112,7 +6123,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				mode := e.tts.GetTTSMode()
 				slog.Debug("tts: checking conditions", "mode", mode, "fromVoice", fromVoice, "will_send", mode == "always" || (mode == "voice_only" && fromVoice))
 				if mode == "always" || (mode == "voice_only" && fromVoice) {
-					go e.sendTTSReply(p, replyCtx, fullResponse)
+					go e.sendTTSReply(p, replyCtx, e.publicVoiceReceipt(state, fullResponse))
 				}
 			} else {
 				slog.Debug("tts: not enabled", "tts_nil", e.tts == nil, "enabled", e.tts != nil && e.tts.Enabled, "tts_obj_nil", e.tts == nil || e.tts.TTS == nil)
@@ -6127,12 +6138,27 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 					pendingSend = nil
 				}
-				input.finish(inputTurnResult{text: baseResponse, silent: isSilent})
+				input.finish(inputTurnResult{text: e.publicVoiceReceipt(state, baseResponse), silent: isSilent})
 				input = nil
 				state.mu.Lock()
 				state.localInputOnly = nil
 				state.mu.Unlock()
 			}
+
+			progressOutcome := "result"
+			if event.Error != nil {
+				progressOutcome = "failed"
+			}
+			if e.publicProgress != nil && pendingSend != nil {
+				if err := <-pendingSend; err != nil {
+					progressOutcome = "failed"
+				}
+				pendingSend = nil
+			}
+			if state.isStopped() {
+				progressOutcome = "cancelled"
+			}
+			e.finishPublicProgress(state, progressOutcome)
 
 			// Auto-compress after finishing a turn, before sending any queued messages.
 			if triggerAutoCompress {
@@ -6216,6 +6242,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
 				queuedPrompt = withSubagentPolicy(queuedPrompt, queued.userID, queued.fromBot)
+				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
 				as := state.agentSession // capture under lock to avoid race with cleanup
@@ -6623,6 +6650,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		}
 
 		drainEvents(as.Events())
+		prompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 		session.AddHistory("user", queued.content)
 

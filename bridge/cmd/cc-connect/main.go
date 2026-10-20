@@ -215,6 +215,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	},
 	"provider":  runProviderCommand,
 	"send":      runSend,
+	"progress":  runProgress,
 	"cron":      runCron,
 	"model":     runModel,
 	"timer":     runTimer,
@@ -444,6 +445,12 @@ func main() {
 		engine.SetBaseWorkDir(workDir)
 		engine.SetProjectStateStore(projectState)
 		engine.SetDataDir(cfg.DataDir)
+		if proj.PublicProgress {
+			if err := engine.EnablePublicProgress(); err != nil {
+				slog.Error("public progress initialization failed", "error", err)
+				os.Exit(1)
+			}
+		}
 
 		// Wire multi-workspace mode
 		if proj.Mode == "multi-workspace" {
