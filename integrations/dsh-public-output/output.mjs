@@ -148,6 +148,33 @@ function* emit(blocks, usage, reason) {
 
 const unavailable = {kind:'error',failure:{code:'PUBLIC_ANSWER_UNAVAILABLE',message:'公开答复生成失败；工具操作可能已完成，请核对成果后再要求补充结论。'}};
 const aborted = {kind:'aborted',failure:{code:'ABORTED',message:'Public reply cancelled'}};
+// Recovery routes on code, never on message. Scrubbing the entire failure
+// would disable DSH's bounded retry and context-overflow compaction hooks.
+// Only known adapter classifications and validated numeric facts may cross
+// this boundary; provider prose, request IDs and arbitrary metadata cannot.
+const providerMessages = new Map(Object.entries({
+  CONTEXT_WINDOW_EXCEEDED:'上下文超出模型容量',
+  EMPTY_RESPONSE:'上游未返回内容',
+  RATE_LIMIT:'上游限流',
+  SERVER:'上游服务异常',
+  TIMEOUT:'上游请求超时',
+  TRANSPORT:'上游连接中断',
+  STREAM_CLOSED:'上游响应流提前关闭',
+  AUTH:'上游认证失败',
+  QUOTA:'上游额度不足',
+  INVALID_REQUEST:'上游拒绝请求参数',
+  INVALID_CREDENTIAL:'上游凭据无效',
+  PI_AI_ERROR:'上游模型请求失败',
+  ABORTED:'上游请求已取消',
+}));
+function safeProviderFailure(value) {
+  const code = providerMessages.has(value?.code) ? value.code : 'PROVIDER_REQUEST_FAILED';
+  const failure = {code,message:'原模型请求失败：'+(providerMessages.get(code) ?? '上游未提供可识别的错误类型')+'；已完成的工具操作可能已生效，请先核对成果。'};
+  if (Number.isInteger(value?.status) && value.status >= 100 && value.status <= 599) failure.status = value.status;
+  if (typeof value?.providerRetryAfterMs === 'number' && Number.isFinite(value.providerRetryAfterMs) && value.providerRetryAfterMs > 0) failure.providerRetryAfterMs = value.providerRetryAfterMs;
+  return failure;
+}
+const invalidStream = {kind:'error',failure:{code:'PUBLIC_STREAM_INVALID',message:'原模型响应流不完整或格式异常；本步未派发工具，请核对先前已完成的操作。'}};
 function terminalCause(kind) {
   switch (kind) {
     case 'error': return 'provider_error';
@@ -160,16 +187,17 @@ function terminalCause(kind) {
 /** One agent model step. Tool execution remains in DSH, outside this function. */
 export async function* guard(options, next, complete, onDiagnostic = ()=>{}) {
   // Only module-owned enums and counters reach diagnostics. Never include
-  // exception messages, provider codes/bodies, requests, blocks, or identifiers.
-  const report = (stage, attempt, cause) => {
-    try { onDiagnostic(Object.freeze({stage,attempt,cause})); } catch {}
+  // exception messages, unknown provider codes/bodies, requests or identifiers.
+  const report = (stage, attempt, cause, failure) => {
+    try { onDiagnostic(Object.freeze({stage,attempt,cause,...(failure ? {providerCode:failure.code} : {})})); } catch {}
   };
   const caughtCause = error => error instanceof PublicStreamError ? error.code : 'transport';
   let original;
   try { checkCancellation(options.signal); original = await collect(next(),options.signal); }
   catch (error) {
-    report('original',0,options.signal?.aborted ? 'cancelled' : caughtCause(error));
-    yield* emit([],undefined,options.signal?.aborted ? aborted : unavailable);
+    const reason = options.signal?.aborted ? aborted : error instanceof PublicStreamError ? invalidStream : {kind:'error',failure:safeProviderFailure(error?.failure ?? error)};
+    report('original',0,options.signal?.aborted ? 'cancelled' : caughtCause(error),reason.kind === 'error' && !(error instanceof PublicStreamError) ? reason.failure : undefined);
+    yield* emit([],undefined,reason);
     return;
   }
   let usage = original.usage;
@@ -180,11 +208,9 @@ export async function* guard(options, next, complete, onDiagnostic = ()=>{}) {
   }
   const kind = original.finish.reason.kind;
   if (kind !== 'stop' && kind !== 'tool-calls') {
-    // Provider failure details can contain response bodies or internal text.
-    // Keep only known terminal kinds and a fixed public-safe explanation.
-    const reason = ['error','aborted','max-tokens'].includes(kind) ? kind : 'error';
-    report('original',0,terminalCause(kind));
-    yield* emit([], usage, {...unavailable, kind:reason});
+    const reason = kind === 'aborted' ? aborted : kind === 'max-tokens' ? {kind:'max-tokens'} : kind === 'error' ? {kind:'error',failure:safeProviderFailure(original.finish.reason.failure)} : invalidStream;
+    report('original',0,terminalCause(kind),kind === 'error' ? reason.failure : undefined);
+    yield* emit([], usage, reason);
     return;
   }
   if (original.blocks.some(b => b.type === 'tool-call')) {

@@ -9,7 +9,7 @@ Issue #145。仅在需要阻止执行过程直接进入聊天正文的 ACP 部�
 - 有工具调用的模型步骤：保留工具 ID/名称/参数，将普通 text 归入 native reasoning；Discord 须关闭 thinking_messages 与 tool_messages。不改变工具调用次数。
 - 无工具的成功终态：原始草稿不公开。使用原对话和已发生的工具结果，额外发起一个无工具的答复请求；去掉 reasoning 和带私密标记的历史 assistant text，保留相关工具调用/结果。
 - 只有严格 JSON 对象的唯一 reply 字段通过非空、长度及私密标记检查后才进入 native text。原始 SSE 和补答的 reasoning 从不直接发布。已有精确 NO_REPLY 保持静默。
-- 最多两次格式尝试，共用60秒期限；网络/取消/非成功终态不重试。补答若返回工具请求会被丢弃，绝不交给工具执行器。失败有明确错误，不用旧草稿兜底。
+- 补答最多两次格式尝试，共用60秒期限；补答的网络/取消/非成功终态不重试。原请求失败交回 DSH 既有的有限恢复策略（见 #189）。补答若返回工具请求会被丢弃，绝不交给工具执行器。失败有明确错误，不用旧草稿兜底。
 - 收集按块索引的首次出现顺序组装，支持 text/reasoning 的 delta-only 流；工具须有完整 block-end，重复块结束或重复工具 ID 整步失败，不重复派发。终态仍必须显式 finish，finish 后出现任何事件仍失败。
 - collector 自身响应取消与补答期限，不依赖供应商再返回一个 chunk。原始步骤取消后不派发迟到工具、不启动补答；对未结束迭代器请求 return()，不等待可能永久阻塞的清理，丢弃迟到结果。
 - 重写块后丢弃旧供应商 replay metadata；计入原请求和补答的 token 用量。每次流收集最多2MiB，超限失败。仅处理指定 provider 的 agent-loop 请求；压缩、标题和其他 provider 不经过该出口。
@@ -52,7 +52,7 @@ DSH_CONTRACT_ENTRY=/absolute/path/to/@deepseek-ai/dsh/lib/bin.js \
   node --test integrations/dsh-public-output/*.test.mjs
 ~~~
 
-未设置该变量时只跳过这一项本机运行时验证；其他回归照常执行。
+未设置该变量时跳过本机 DSH 运行时契约项；其他回归照常执行。
 
 ## Issue #155：证据与修复边界
 
@@ -69,7 +69,7 @@ DSH_CONTRACT_ENTRY=/absolute/path/to/@deepseek-ai/dsh/lib/bin.js \
 
 ## 安全诊断
 
-v2 在失败分支写一条 `conest-public-output` 警告，只含 `stage`、`attempt`、`cause`。`stage` 为 original/finalize；原始步骤 attempt=0，已发起补答为1或2，发起前取消可为0。无请求正文、会话 ID、工具参数、补答文本、供应商错误消息或错误码。公开失败文案保持原义，日志异常不改变 guard 结果。
+v2 在失败分支写一条 `conest-public-output` 警告，只含 `stage`、`attempt`、`cause`。`stage` 为 original/finalize；原始步骤 attempt=0，已发起补答为1或2，发起前取消可为0。无请求正文、会话 ID、工具参数、补答文本或供应商错误消息。v3 对原请求失败另加白名单内 providerCode（见 #189），并使用原请求专属错误提示；日志异常不改变 guard 结果。
 
 | cause | 能证明什么 |
 | --- | --- |
@@ -87,3 +87,13 @@ v2 在失败分支写一条 `conest-public-output` 警告，只含 `stage`、`at
 失败的固定阶段、尝试次数、原因枚举同时写入 stderr（前缀 `[conest-public-output]`），供桥接日志保存。不能仅依赖 Cordis logger：ACP 没有可靠的持久化导出，默认缓冲还可能过滤 warn。诊断不包含正文、工具参数、原始异常或会话标识。补齐诊断不等于已定位此前统一错误的实际原因。
 
 Issue #172：补答明确 JSON 字符串转义并给出合法示例；格式不合格时第二次请求增加固定纠正反馈，不回传坏答复或私密草稿。仍最多两次、共享60秒、严格校验、工具不重跑。15:59历史的隔离无工具验证修前5次失败3次，修后3次通过；详细证据及有限样本边界见 docs/DSH_PUBLIC_REPLY_155.md。
+
+## Issue #189：恢复原模型请求的错误路由
+
+2026-10-21 00:00:36 的生产诊断是 `original / provider_error`，没有进入补答。v2 为了隐藏供应商正文，把原请求的所有错误替换成 `PUBLIC_ANSWER_UNAVAILABLE`。这同时抹掉了 DSH 有限重试和上下文溢出恢复依赖的 `failure.code`。历史原始错误码已经丢失，无法断言本次是限流、网络还是上下文溢出；以下确定性验证证明的是该错误处理缺陷。
+
+v3 保留固定白名单内的机器分类、合法 HTTP status 和正有限 `providerRetryAfterMs`，错误描述统一由本模块生成；原始错误消息、请求 ID、body、cause、replayState 均不复制。未知分类折叠为 `PROVIDER_REQUEST_FAILED`，本地流契约失败为 `PUBLIC_STREAM_INVALID`，均不被误报为补答失败。诊断只增加经过同一白名单处理的 providerCode。
+
+重试次数、退避与上下文恢复仍由 DSH 决定，插件不自行重跑整个任务；认证、余额、参数错误不加入可重试分类。原步骤取消、部分工具块和未知终态不派发工具。补答失败仍是 `PUBLIC_ANSWER_UNAVAILABLE`，不交回原步骤恢复，避免越过补答的两次/60秒边界。
+
+验证：新增19项回归在旧实现上17失败，包含真实已安装 DSH 的 retry 和 context-overflow handler 不返回 retry；修后模块全量58项通过、0跳过，bridge 沙箱 Go 全量通过。上下文恢复契约使用真实注册处理器，昂贵的压缩操作是 fixture，并不代表线上长历史压缩已验收。隔离真实 ACP 两进程接续同一合成会话，每轮注入一次 RATE_LIMIT，都由运行时恢复后正确回答（391、392）；第一轮还遇到一次真实 TRANSPORT，亦恢复成功。两轮工具0、无私密标记、未发送 Discord 消息。生产部署另记统一交接，真人原频道验收仍待完成。

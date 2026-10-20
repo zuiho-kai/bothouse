@@ -13,7 +13,7 @@ export async function apply(ctx, config) {
   const require = createRequire(realpathSync(process.argv[1]));
   const { isAgentLoopRequest } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
   if (typeof isAgentLoopRequest !== 'function') throw Error('conest-public-output: unsupported DSH runtime');
-  ctx.logger.info('conest-public-output: structured public replies enabled (v2)');
+  ctx.logger.info('conest-public-output: structured public replies enabled (v3, provider recovery)');
   ctx.on('llm/stream', (options,next) => {
     if (!config.providers.includes(options.provider) || !isAgentLoopRequest(options)) return next();
     return guard(options,next,request=>ctx.llm.stream(request),diagnostic=>{

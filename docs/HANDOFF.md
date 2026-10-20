@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-21：Issue #189 原模型请求的安全错误分类恢复。00:00生产诊断 original/provider_error，v2抹掉机器错误码导致DSH有限重试/上下文恢复失效，原始具体分类无法还原。v3保留白名单分类及数值退避信息，错误正文仍不可公开；不重复工具或放宽补答边界。19项新回归旧红17、新版全量58通过；Go沙箱全量通过；真实隔离ACP两进程同会话、注入限流和实遇TRANSPORT均恢复，工具0。无子Agent、未代发Discord、当前尚未部署。详见[插件说明](../integrations/dsh-public-output/README.md)。
+
 2026-10-21：Issue #187 同步角色小家 c507674 快照到 role-household/（分支 feat/187-rh-sync-c507674，基线 main 1034014f）。内容等于角色小家本地仓库 c507674 的 git archive（替换 #141 的 4b30043 版，51 个提交），仍去掉 docs/evidence、docs/screenshots；roles.toml 不进 git，只带 roles.example.toml；tests/test_cloudweb.py、tests/test_push.py 里的真实 Discord ID 换成虚构 ID。新增：hub 的 cloud_web 网关（cc-connect bot 经 /cloud-web/ws 进频道，配套 #170/#175/#177）、多频道与归档、历史翻页/搜索/未读、手机布局、Web Push 与添加到主屏幕、子进程表、事件通道（出错红圈）、大厅不再刷「做完了」、成员栏一个角色一行、频道网页按 Discord 对齐的显示修复、进度卡片行内 Markdown、手机视角巡检 tools/smoke_phone.py（含 --co-mention）、自动选频道 jev 后端；云端 hub 改经 nginx https，nginx 配置里公网 IP 用占位符。firmware-xiaozhi/ 不动。只改 role-household/ 与本条；本仓库 CI 不跑 role-household/。未部署。
 
 2026-10-20：Issue #177 cloud_web 团队协作三项对齐 Discord（分支 feat/177-cloudweb-team，合并三条已审分支）：频道补发（实现 ChannelHistoryReader / AgentReplyMarker，读 hub `GET /api/rooms/{room}/messages`，agent 回复帧带 `agent=true`）；副角色干完队长派的活最终回复自动加 `<@队长>`，队友状态显示 #频道名；子 agent 表（SubTaskTablePayloadSupport、2 秒 ProgressUpdateThrottler，只发给声明 `subtask_table` 的网关）。冲突两边都留：Reply 帧内容走 returnToLead、再按 Agent 加 agent 标记（新增合并回归测试），replyContext 同时带 MsgID/lead/final 与 Agent，测试里重复的发送记录 transport 合成一个。cloud-web 包单测通过，CI 结果见 PR。配套网关改动在角色小家 hub。本条为源码记录，未部署。

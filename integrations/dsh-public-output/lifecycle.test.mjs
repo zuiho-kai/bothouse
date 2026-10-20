@@ -146,6 +146,6 @@ test('provider failure with a partial tool retains the original terminal kind',a
       yield {type:'finish',reason:{kind,failure:{code:'PRIVATE',message:'PRIVATE'}}};
     },()=>{throw Error('must not finalize');},d=>diagnostics.push(d)));
     assert.equal(finish(chunks).reason.kind,kind);assert.equal(toolBlocks(chunks).length,0);
-    assert.deepEqual(diagnostics,[{stage:'original',attempt:0,cause}]);
+    assert.deepEqual(diagnostics,[{stage:'original',attempt:0,cause,...(kind==='error'?{providerCode:'PROVIDER_REQUEST_FAILED'}:{})}]);
   }
 });
