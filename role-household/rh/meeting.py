@@ -54,11 +54,12 @@ def is_pass(text: str) -> bool:
     return PASS in text or bare in ("", "跳过")
 
 
-def clean(text: str) -> str:
-    """去掉控制字符（保留换行、制表）并限制长度：坏消息不能进频道、不能卡住后面的话题。"""
+def clean(text: str, limit: int = MAX_TEXT_CHARS) -> str:
+    """去掉控制字符（保留换行、制表）并限制长度：坏消息不能进频道、不能卡住后面的话题。
+    limit：cc-connect 的 bot 回复另有上限（rh/cloudweb.py MAX_BOT_CHARS）。"""
     # 落单代理字符（如 JSON 里的 "\ud800"）编码不了 UTF-8，会让日志、/api/state、stdin 全崩，替换成 "?"。
     text = text.encode("utf-8", "replace").decode("utf-8")
-    return _CTRL.sub("", text).strip()[:MAX_TEXT_CHARS]
+    return _CTRL.sub("", text).strip()[:limit]
 
 
 def strip_own_prefix(text: str, name: str) -> str:

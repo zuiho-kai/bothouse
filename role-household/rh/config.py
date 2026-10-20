@@ -68,6 +68,11 @@ class LLMEndpoint:
     # 2026-10-19 实测 0.85 秒只出思考、正文为空），预填空的思考块才直接出正文（0.23–0.30 秒）。别的模型留空。
     prefill: str = ""
     timeout: float = 0.0   # 秒；0 = 用调用方的默认值
+    # 下面两项只从 cc-connect 安装向导写的 jev.json 读（向导测出这个模型怎么问才答得出选项，见 _wizard_router）：
+    # top_logprobs > 0 = 只要 1 个 token、按 top_logprobs 里选项字母的概率选；0 = 照旧读回复文字。
+    top_logprobs: int = 0
+    # true = 请求带 chat_template_kwargs {"enable_thinking": false}（Qwen3 类模板否则先出 <think>，第一个 token 不是选项）
+    no_thinking: bool = False
 
 
 @dataclass
@@ -82,13 +87,31 @@ class DiscordSettings:
     webhooks_file: str = "data/discord-webhooks.json"   # 主机建的 webhook（频道 → ID、地址）缓存，相对 roles.toml；不进 git
     allow_bots_file: str = ""  # 主机建了 webhook 就把 ID 追加进这个文件（cc-connect allow_bots_file 读它）；空 = 不写
     create_channels: bool = False   # 判出「新建频道」时真的建；关着就进默认频道
-    router: LLMEndpoint = field(default_factory=LLMEndpoint)    # 按意思选频道；没配 = 只进默认频道
+    # 自动选频道总开关（[discord] auto_channel）。不写 = 配了 [discord.router] 的模型就开（改动前的行为，老配置不用改）；
+    # 写 false = 只进默认频道；写 true 但没配模型 = 只按频道名/别名的读音匹配（rh/discord_route.py NameMatcher）。
+    auto_channel: bool | None = None
+    router: LLMEndpoint = field(default_factory=LLMEndpoint)    # 按意思选频道的模型；没配 = 只按名字读音匹配
+    # 选频道的模型是哪一种（[discord.router] backend）："llm" = OpenAI 兼容 /chat/completions；
+    # "jev" = jev 的 System One 接口（POST <url><endpoint>，choice 题）。见 rh/discord_route.py
+    router_backend: str = "llm"
+    # jev 接口路径。来源：openJiuwen agent-core JevSystemOneClient 的默认 endpoint_path（/v1/systemone）
+    router_endpoint: str = "/v1/systemone"
+    # 读配置时要告诉用户的一句话（如 backend 被 jev.json 改了），build 时打进日志；空 = 没有
+    router_note: str = ""
     # 选频道时不列进候选的频道 ID（[discord.router] exclude_channels），例如机器日志子频道
     exclude_channels: list[str] = field(default_factory=list)
+    # 频道别名（[discord.router] aliases = {"<频道 ID>" = ["量化", ...]}）：按读音匹配时除了频道名还认这些叫法
+    channel_aliases: dict[str, list[str]] = field(default_factory=dict)
     summary: LLMEndpoint = field(default_factory=LLMEndpoint)   # 朗读摘要；没配 = 念全文（和没有摘要功能时一样）
     # 摘要长度目标（字）。来源：用户嫌整段念「太烦了，太笨了，太慢了」，橘定十秒内念完；按 rh/hub.py 记的
     # 2026-10-18 实测中文约每秒 4.3 字，取 4 字/秒 × 10 秒 = 40 字。
     summary_chars: int = 40
+
+    @property
+    def auto(self) -> bool:
+        """自动选频道开没开：写了 auto_channel 按它；没写 = 配了选频道模型或 guild 就开
+        （只有 guild 时是读音匹配，还要有 bot token 才列得了频道，见 discord_body.build）。"""
+        return self.auto_channel if self.auto_channel is not None else bool(self.router.url or self.guild)
 
 
 @dataclass
@@ -178,6 +201,46 @@ def load(path: str | Path = "roles.toml") -> Config:
     )
 
 
+# 向导文件没写 top_logprobs 时用的数。来源：conest contrib/gate/scorer_remote.py TOP_LOGPROBS = 20（OpenAI 接口上限）。
+WIZARD_TOP_LOGPROBS = 20
+
+
+def _read_wizard(key_file: str) -> dict | None:
+    """key_file 是 cc-connect 安装向导写的 jev.json（JSON 里有 url）就返回它；普通 key 文件（只有 api_key）返回 None。"""
+    import json
+    try:
+        j = json.loads(Path(key_file).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return j if isinstance(j, dict) and j.get("url") else None
+
+
+def _wizard_router(e: LLMEndpoint, backend: str, explicit_backend: bool) -> tuple[str, str]:
+    """[discord.router] 的 key_file 指向向导 jev.json 时，按文件补全 e，→ (backend, 要告诉用户的话)。
+    - roles.toml 没写 url：url / model 从文件取；向导测出不给概率（logprobs = false）就不用，选频道退到读音匹配。
+    - roles.toml 写了 url 但和文件里的不一样：拒绝加载。文件里的 key 是给文件里那个地址的，发到别的地址等于泄露；
+      只用 roles.toml 自己的 key 也不行（key_file 已经占了 key 的位置，悄悄不带 key 只会在运行时变成看不懂的 401）。
+    - backend 以文件为准（向导只写 "llm"：OpenAI 兼容接口 + 概率）；roles.toml 写了别的就改用文件的，并说一句。
+    - top_logprobs、no_thinking 照文件（和 conest gate 的 scorer_remote.py 同样问法）。"""
+    j = _read_wizard(e.key_file)
+    if j is None:
+        return backend, ""
+    wurl = str(j["url"]).rstrip("/")
+    if e.url and e.url != wurl:
+        raise ValueError(f"roles.toml: [discord.router] url = {e.url!r} 和 key_file（{e.key_file}，安装向导写的）里的 url 不一样："
+                         f"向导的 key 只发给向导测过的地址。要用 roles.toml 的地址就把 key 换成 key_env，要用向导的就删掉 url")
+    if j.get("logprobs", True) is False:
+        return backend, f"{e.key_file} 里的模型向导测出不给概率，不用它选频道，退到读音匹配"
+    e.url, e.model = wurl, e.model or str(j.get("model", "") or "")
+    e.top_logprobs = int(j.get("top_logprobs") or WIZARD_TOP_LOGPROBS)
+    e.no_thinking = bool(j.get("no_thinking", True))   # 缺省 true：同 scorer_remote.py RemoteScorer
+    wb = str(j.get("backend") or "llm")
+    note = ""
+    if explicit_backend and backend != wb:
+        note = f"[discord.router] backend = {backend!r}，但 key_file 指向安装向导的 jev.json（backend = {wb!r}），按 {wb} 用"
+    return wb, note
+
+
 def _endpoint(d, where: str) -> LLMEndpoint:
     if not isinstance(d, dict):
         raise ValueError(f"roles.toml: [{where}] 要是一张表，现在是 {d!r}")
@@ -188,7 +251,7 @@ def _endpoint(d, where: str) -> LLMEndpoint:
                     key_env=str(d.get("key_env", "") or ""),
                     key_file=str(Path(d["key_file"]).expanduser()) if d.get("key_file") else "",
                     prefill=str(d.get("prefill", "") or ""), timeout=float(d.get("timeout", 0) or 0))
-    if e.url and not e.model:
+    if e.url and not e.model and not (where == "discord.router" and e.key_file and _read_wizard(e.key_file)):
         raise ValueError(f"roles.toml: [{where}] 配了 url 要配 model")
     if e.timeout < 0:
         raise ValueError(f"roles.toml: [{where}] timeout 不能是负数")
@@ -197,7 +260,8 @@ def _endpoint(d, where: str) -> LLMEndpoint:
 
 # [discord] 段认识的键（DiscordSettings 的项 + play/relay/channel/bots）。多出来的报错，免得写错的键悄悄当成默认值。
 DISCORD_KEYS = {"play", "relay", "channel", "bots", "api", "guild", "username", "token_env", "token_file", "webhook_env",
-                "webhooks_file", "allow_bots_file", "create_channels", "router", "summary"}
+                "webhooks_file", "allow_bots_file", "create_channels", "auto_channel", "router", "summary"}
+ROUTER_BACKENDS = ("llm", "jev")
 
 
 def _discord_settings(dc: dict, base: Path) -> DiscordSettings:
@@ -208,8 +272,11 @@ def _discord_settings(dc: dict, base: Path) -> DiscordSettings:
     guild = str(dc.get("guild", "") or "").strip()
     if guild and not guild.isdigit():
         raise ValueError(f"roles.toml: [discord] guild 要是数字服务器 ID，现在是 {guild!r}")
-    if not isinstance(dc.get("create_channels", False), bool):
-        raise ValueError(f"roles.toml: [discord] create_channels 只能是 true 或 false，现在是 {dc.get('create_channels')!r}")
+    for k in ("create_channels", "auto_channel"):
+        if not isinstance(dc.get(k, False), bool):
+            raise ValueError(f"roles.toml: [discord] {k} 只能是 true 或 false，现在是 {dc.get(k)!r}")
+    if dc.get("auto_channel") and not guild:
+        raise ValueError("roles.toml: [discord] auto_channel = true 要配 guild（从哪个服务器列频道）")
     if dc.get("create_channels") and not guild:
         raise ValueError("roles.toml: [discord] create_channels = true 要配 guild（在哪个服务器建）")
     chars = dc.get("summary", {}).get("chars", d.summary_chars) if isinstance(dc.get("summary"), dict) else d.summary_chars
@@ -226,6 +293,22 @@ def _discord_settings(dc: dict, base: Path) -> DiscordSettings:
     exclude = router.pop("exclude_channels", []) if isinstance(router, dict) else []
     if not isinstance(exclude, list) or not all(isinstance(x, str) and x.strip().isdigit() for x in exclude):
         raise ValueError(f"roles.toml: [discord.router] exclude_channels 要是数字频道 ID 的列表，现在是 {exclude!r}")
+    aliases = router.pop("aliases", {}) if isinstance(router, dict) else {}
+    if not isinstance(aliases, dict) or not all(
+            str(k).strip().isdigit() and isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v)
+            for k, v in aliases.items()):
+        raise ValueError(f"roles.toml: [discord.router] aliases 要是 {{\"<频道 ID>\" = [\"叫法\", ...]}}，现在是 {aliases!r}")
+    explicit_backend = isinstance(router, dict) and "backend" in router
+    backend = str(router.pop("backend", "llm") if isinstance(router, dict) else "llm")
+    if backend not in ROUTER_BACKENDS:
+        raise ValueError(f"roles.toml: [discord.router] backend 只能是 {' 或 '.join(ROUTER_BACKENDS)}，现在是 {backend!r}")
+    endpoint = str(router.pop("endpoint", d.router_endpoint) if isinstance(router, dict) else d.router_endpoint)
+    if not endpoint.startswith("/"):
+        raise ValueError(f"roles.toml: [discord.router] endpoint 要以 / 开头，现在是 {endpoint!r}")
+    router_ep = _endpoint(router, "discord.router")
+    backend, note = _wizard_router(router_ep, backend, explicit_backend) if router_ep.key_file else (backend, "")
+    if backend == "jev" and isinstance(router, dict) and router.get("prefill"):
+        raise ValueError("roles.toml: [discord.router] prefill 只给 backend = \"llm\" 用，jev 不认")
     return DiscordSettings(
         api=str(dc.get("api", d.api)).rstrip("/"),
         guild=guild,
@@ -236,8 +319,13 @@ def _discord_settings(dc: dict, base: Path) -> DiscordSettings:
         webhooks_file=path_of(str(dc.get("webhooks_file", d.webhooks_file))),
         allow_bots_file=path_of(str(dc["allow_bots_file"])) if dc.get("allow_bots_file") else "",
         create_channels=bool(dc.get("create_channels", False)),
-        router=_endpoint(router, "discord.router"),
+        auto_channel=dc["auto_channel"] if "auto_channel" in dc else None,
+        router=router_ep,
+        router_backend=backend,
+        router_note=note,
+        router_endpoint=endpoint,
         exclude_channels=[x.strip() for x in exclude],
+        channel_aliases={str(k).strip(): [x.strip() for x in v] for k, v in aliases.items()},
         summary=_endpoint(summary, "discord.summary"),
         summary_chars=chars,
     )

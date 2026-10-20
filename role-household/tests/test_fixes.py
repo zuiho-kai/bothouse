@@ -210,6 +210,7 @@ class Fix7Sigterm(FakeEnv):
         try:
             self.wait_http(url)
             host = subprocess.Popen([sys.executable, "-m", "rh.host", "--hub", url, "--no-voice",
+                                     "--config", str(ROOT / "roles.example.toml"),   # 不依赖本地 roles.toml
                                      "--state", str(Path(self.dir) / "state.json"),
                                      "--log", str(Path(self.dir) / "s.jsonl")], cwd=ROOT,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

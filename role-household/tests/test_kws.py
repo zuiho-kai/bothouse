@@ -58,14 +58,16 @@ class CountASR:
 class EntriesTest(unittest.TestCase):
     def test_from_roles_toml(self):
         """词表从 roles.toml 来：橘用 wake「小橘」，别的角色用名字，加产品名和三个口令；单字「橘」不在里面。"""
-        got = kws.entries(wake.Words.from_config(load(ROOT / "roles.toml")))
+        from tests.local_config import need_local
+        got = kws.entries(wake.Words.from_config(load(need_local(self))))
         self.assertEqual(got, [("小橘", "say", "ju"), ("鲸鱼娘", "say", "jing"), ("彩虹猫", "say", "mao"),
                                ("小家", "say", None), ("暂停", "pause", None), ("闭麦", "mute", None),
                                ("开麦", "unmute", None)])
 
     def test_keyword_lines(self):
         """关键词行和离线评估用的 /tmp/kws/scripts/kw.txt 写法一样；单个词另调时加 :score #threshold。"""
-        model = load(ROOT / "roles.toml").wake_kws_model
+        from tests.local_config import need_local
+        model = load(need_local(self)).wake_kws_model
         tokens = Path(model) / "tokens.txt"
         if not tokens.is_file():
             self.skipTest("没下载本地唤醒模型（README「本地唤醒模型」）")
@@ -303,7 +305,8 @@ class HostKWS(HubBase):
 class RealModel(unittest.TestCase):
     def test_loads_roles_toml_words(self):
         """真模型按 roles.toml 生成词表能加载，喂静音不报词。"""
-        cfg = load(ROOT / "roles.toml")
+        from tests.local_config import need_local
+        cfg = load(need_local(self))
         if not cfg.wake_kws_model or not Path(cfg.wake_kws_model, "tokens.txt").is_file():
             self.skipTest("没下载本地唤醒模型（README「本地唤醒模型」）")
         sp = kws.Spotter(wake.Words.from_config(cfg), cfg.wake_kws_model)

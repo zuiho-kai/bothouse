@@ -2,7 +2,12 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#313338">
+<!-- 添加到主屏幕、手机通知：manifest + 图标 + service worker（rh-push.js、sw.js） -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="角色小家">
 <title>角色小家</title>
 <style>
   /* 配色照 Discord 深色主题。 */
@@ -12,7 +17,8 @@
   * { box-sizing:border-box; }
   html, body { height:100%; }
   body { margin:0; background:var(--chat); color:var(--text); font:15px/1.375 "gg sans","Noto Sans",-apple-system,"PingFang SC","Helvetica Neue",sans-serif;
-         display:flex; height:100vh; overflow:hidden; }
+         display:flex; height:100vh; height:100dvh; overflow:hidden;   /* dvh：手机地址栏收起/展开时跟着变，输入框不被压住 */
+         padding:0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
   button { font:inherit; }
   /* ---- 服务器栏 ---- */
   #servers { width:72px; flex:none; background:var(--server); display:flex; flex-direction:column; align-items:center; gap:8px; padding:12px 0; }
@@ -33,6 +39,22 @@
   .ch .hash { font-size:20px; line-height:1; color:var(--faint); width:20px; text-align:center; }
   .ch.on { background:var(--sel); color:var(--head); }
   .ch:not(.on):hover { background:var(--hover); color:var(--text); }
+  /* ---- 多频道：左栏切换、新建、改名、删除（归档）---- */
+  .cat.row { display:flex; align-items:center; justify-content:space-between; padding-right:4px; }
+  .cat.row button { border:none; background:none; color:var(--muted); font-size:18px; line-height:1; cursor:pointer; padding:0 4px; }
+  .cat.row button:hover { color:var(--head); }
+  .cat.gap { margin-top:16px; }
+  .ch { cursor:pointer; }
+  .ch .nm { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ch .acts { display:none; gap:2px; }
+  .ch:hover .acts, .ch.on .acts { display:flex; }
+  .ch .acts button { border:none; background:none; color:var(--muted); cursor:pointer; padding:0 3px; font-size:14px; }
+  .ch .acts button:hover { color:var(--head); }
+  .ch.archived { opacity:.6; }
+  .ch input, #roomname { flex:1; min-width:0; background:var(--server); color:var(--text); border:none; border-radius:3px;
+                         padding:3px 6px; font:inherit; outline:1px solid var(--blurple); }
+  #newrow { display:none; padding:4px 8px 6px; }
+  #newrow.open { display:flex; }
   #me { height:52px; background:var(--panel); padding:0 8px; display:flex; align-items:center; gap:8px; }
   #me .info { flex:1; min-width:0; line-height:1.2; }
   #me .nm { color:var(--head); font-weight:600; font-size:14px; }
@@ -69,7 +91,7 @@
   .hdr { display:flex; align-items:baseline; gap:8px; }
   .who { font-weight:500; color:var(--head); }
   .t { font-size:12px; color:var(--faint); }
-  .text { white-space:pre-wrap; word-wrap:break-word; color:var(--text); }
+  .text { word-wrap:break-word; overflow-wrap:anywhere; color:var(--text); }
   .msg.speaking { background:rgba(240,160,32,.08); }
   .msg.speaking::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--accent); }
   .msg.speaking .hdr::after, .msg.speaking.cont .text::after { content:"正在说"; font-size:10px; font-weight:600; color:#1e1f22; background:var(--accent);
@@ -79,14 +101,17 @@
   .msg.system { margin-top:8px; color:var(--muted); align-items:center; }
   .msg.system .av { width:40px; height:16px; color:var(--green); font-size:16px; background:none !important; }
   .msg.system .who { display:none; }
-  .msg.system .text { color:var(--muted); font-size:14px; }
+  .msg.system .text { color:var(--muted); font-size:14px; white-space:pre-wrap; }
   .msg.system .hdr { display:none; }
   .msg.system .t2 { font-size:12px; color:var(--faint); margin-left:8px; }
   #err { color:var(--red); padding:0 16px; font-size:13px; }
   #err:not(:empty) { padding-top:4px; }
   form#f { padding:0 16px 24px; flex:none; }
-  form#f .box { display:flex; align-items:center; background:var(--input); border-radius:8px; padding:0 8px 0 16px; }
-  #in { flex:1; padding:11px 0; border:none; outline:none; background:transparent; color:var(--text); font:inherit; }
+  form#f .box { display:flex; align-items:flex-end; background:var(--input); border-radius:8px; padding:0 8px 0 16px; }
+  #in { flex:1; min-width:0; padding:11px 0; border:none; outline:none; background:transparent; color:var(--text); font:inherit;
+        font-size:16px;   /* 不小于 16px：iOS 聚焦小于 16px 的输入框会自动放大页面 */
+        resize:none; height:44px; max-height:40vh; overflow-y:auto; display:block; }
+  form#f .box button { margin-bottom:6px; }
   #in::placeholder { color:var(--faint); }
   form#f button { border:none; background:transparent; color:var(--muted); padding:6px 10px; border-radius:4px; cursor:pointer; font-weight:600; }
   form#f button:hover { color:var(--head); background:#4e5058; }
@@ -111,16 +136,165 @@
   .head.speaking .state { color:var(--green); }
   .head.thinking .state { color:var(--head); }
   .head.interrupted .state { color:var(--red); }
+  /* cc-connect 的 bot（rh/cloudweb.py）：离线同 Discord 灰点、变淡；名字后的 BOT 标同 Discord 的应用标签 */
+  .member.bot.off .dot { background:#80848e; }
+  .member.bot.off { opacity:.45; }
+  .member.bot.thinking .state { color:var(--head); }
+  .tag { display:inline-block; margin-left:4px; padding:0 4px; border-radius:3px; background:var(--blurple); color:#fff;
+         font-size:10px; font-weight:600; line-height:15px; vertical-align:1px; }
+  /* 进度卡片（照 Discord 的 embed：左边一道状态色，标题 + 最近几步） */
+  /* bot 回复末尾的尾注（cc-connect 的「*模型 · 用量\n目录*」）：淡色小号斜体，不露星号（验收清单第 5 条） */
+  .text .foot { font-style:italic; font-size:12px; line-height:1.4; color:var(--faint); margin-top:4px; overflow-wrap:anywhere; }
+  /* 跨天的日期分隔线（照 Discord：一道细线中间写日期） */
+  .daydiv { flex:none; display:flex; align-items:center; gap:8px; margin:24px 16px 8px; color:var(--faint); font-size:12px; font-weight:600; }
+  .daydiv::before, .daydiv::after { content:""; flex:1; height:1px; background:#3f4147; }
+  .daydiv + .msg, .daydiv + .newdiv { margin-top:0; }
+  .pcard { margin-top:4px; max-width:520px; border-left:4px solid var(--blurple); background:var(--side); border-radius:4px;
+           padding:8px 12px 10px; }
+  .pcard.completed { border-left-color:var(--green); }
+  .pcard.failed { border-left-color:var(--red); }
+  .pcard .pt { font-weight:600; color:var(--head); font-size:14px; margin-bottom:4px; }
+  .pcard .pb { font-size:13px; color:var(--text); white-space:pre-wrap; word-break:break-word; line-height:1.45; }
   /* ---- 登录 ---- */
   #login { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); align-items:center; justify-content:center; z-index:9; }
   #login .card { background:var(--chat); border-radius:8px; padding:28px 32px; width:420px; max-width:92vw; text-align:center; }
   #login h2 { margin:0 0 6px; color:var(--head); font-size:22px; }
   #login p { margin:0 0 18px; color:var(--muted); font-size:14px; }
   #login .tip { color:var(--red); }
-  #tok { width:100%; padding:10px; border:none; border-radius:4px; background:var(--server); color:var(--text); font:inherit; outline:none; margin-bottom:16px; }
+  #login .where { margin:-4px 0 16px; text-align:left; font-size:13px; line-height:1.5; color:var(--muted); }
+  #login .where code { background:var(--server); border-radius:3px; padding:0 4px; font-size:12px; word-break:break-all; }
+  #tok { width:100%; padding:10px; border:none; border-radius:4px; background:var(--server); color:var(--text); font:inherit; font-size:16px; outline:none; margin-bottom:16px; }
   #login button { width:100%; border:none; border-radius:4px; padding:10px; background:var(--blurple); color:#fff; font-weight:600; cursor:pointer; }
   body.need-token #login { display:flex; }
-  @media (max-width: 900px) { #channels, #members { display:none; } }
+  /* ---- 断线横幅、顶栏按钮、发送中/没发出去 ---- */
+  #banner { flex:none; background:var(--red); color:#fff; font-size:13px; font-weight:600; text-align:center; padding:6px 12px; }
+  #banner[hidden] { display:none; }
+  #topctl, #open-left { display:none; }
+  .tb { border:none; background:transparent; color:var(--muted); width:36px; height:36px; border-radius:4px; cursor:pointer;
+        display:flex; align-items:center; justify-content:center; font-size:20px; flex:none; padding:0; }
+  .tb:hover { color:var(--head); background:var(--hover); }
+  #conn { width:10px; height:10px; border-radius:50%; background:#f0b232; flex:none; margin:0 4px; }
+  body.conn-open #conn { background:var(--green); }
+  body.conn-lost #conn { background:var(--red); }
+  #scrim { display:none; }
+  .msg.pending .text { color:var(--faint); }
+  .msg.failed .text { color:var(--red); }
+  .sendst { font-size:12px; color:var(--faint); }
+  .msg.failed .sendst { color:var(--red); }
+  .sendst button { border:none; background:none; color:#00a8fc; padding:0 2px; cursor:pointer; font-size:12px; }
+  .sendst button:hover { text-decoration:underline; }
+  /* ---- 手机（窄屏）：服务器栏+频道栏做成左抽屉，成员栏做成右抽屉；闭麦、开声音、连接状态在顶栏 ---- */
+  @media (max-width: 900px) {
+    #servers, #channels, #members { position:fixed; top:0; bottom:0; z-index:20; transition:transform .25s ease; }
+    #servers { left:0; transform:translateX(-100%); padding-top:max(12px, env(safe-area-inset-top)); }
+    #channels { left:72px; width:min(240px, calc(100vw - 120px)); transform:translateX(calc(-100% - 72px));
+                padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom); }
+    #members { right:0; width:min(280px, 85vw); transform:translateX(100%);
+               padding-top:max(16px, env(safe-area-inset-top)); padding-bottom:env(safe-area-inset-bottom); }
+    body.open-left #servers, body.open-left #channels, body.open-right #members { transform:none; }
+    #scrim { display:block; position:fixed; inset:0; z-index:15; background:rgba(0,0,0,.55); opacity:0; pointer-events:none; transition:opacity .25s; }
+    body.open-left #scrim, body.open-right #scrim { opacity:1; pointer-events:auto; }
+    /* 顶栏照 Discord 手机版：☰ #频道名 …… 搜索 成员。闭麦、开声音留在左抽屉底下（#me），连接状态看 #me 的字和断线横幅 */
+    #main .top { height:calc(48px + env(safe-area-inset-top)); padding:env(safe-area-inset-top) 4px 0 4px; gap:4px; }
+    #main .top .topic, #conn { display:none; }
+    #room { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #open-left, #topctl { display:flex; }
+    #topctl { align-items:center; gap:2px; flex:none; }
+    #me { height:auto; min-height:52px; flex-wrap:wrap; padding:8px; }
+    .msg { padding-right:12px; }
+    form#f { padding:0 8px max(8px, env(safe-area-inset-bottom)); }
+  }
+  /* ---- 历史与未读（rh-history.js） ---- */
+  #main { position:relative; }
+  #log { overflow-anchor:none; }   /* 往上加载时由 rh-history.js 自己保持视野，浏览器别再挪一次 */
+  /* 上面留出新消息浮条（约 25px 高）的位置，“频道的开头”不被它盖住；高度固定，出字、清字时下面的消息不跳 */
+  #logtop { flex:none; text-align:center; color:var(--faint); font-size:12px; padding:32px 16px 0; height:52px;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .newdiv { flex:none; display:flex; align-items:center; gap:4px; margin:16px 16px 0; color:var(--red); font-size:12px; font-weight:600; }
+  .newdiv::before { content:""; flex:1; height:1px; background:var(--red); }
+  .newdiv span { background:var(--red); color:#fff; border-radius:4px; padding:0 4px; line-height:16px; }
+  .newdiv + .msg { margin-top:4px; }
+  .msg.flash { background:rgba(88,101,242,.2); }
+  #newbar { position:absolute; top:48px; left:16px; right:16px; z-index:4; display:flex; justify-content:space-between; gap:12px;
+            background:var(--blurple); color:#fff; font-size:13px; padding:4px 12px; border-radius:0 0 8px 8px; cursor:pointer; }
+  #newbar[hidden] { display:none; }
+  #q { margin-left:auto; flex:none; width:180px; padding:4px 8px; border:none; border-radius:4px; background:var(--server);
+       color:var(--text); font:inherit; font-size:13px; outline:none; }
+  #results { position:absolute; top:48px; right:0; bottom:0; width:min(420px, 100%); z-index:5; background:var(--side);
+             display:flex; flex-direction:column; box-shadow:-2px 0 8px rgba(0,0,0,.3); }
+  #results[hidden] { display:none; }
+  #results .rhead { display:flex; align-items:center; padding:12px 16px; color:var(--head); font-weight:600; }
+  #results .rhead .sum { flex:1; }
+  #results button { border:none; background:transparent; color:var(--muted); cursor:pointer; font:inherit; }
+  #results .list { flex:1; overflow-y:auto; padding:0 8px; }
+  #results .hit { background:var(--chat); border-radius:6px; padding:8px 12px; margin-bottom:8px; cursor:pointer; }
+  #results .hit:hover { background:var(--hover); }
+  #results .hit .text { white-space:pre-wrap; word-wrap:break-word; }
+  #results mark { background:#f0b232; color:#1e1f22; border-radius:2px; }
+  #results .more { margin:0 auto 12px; display:block; padding:6px 12px; }
+  #results .more[hidden] { display:none; }
+  /* 手机：频道栏、成员栏是抽屉（上面的手机段），这里只把搜索框收窄 */
+  /* 手机顶栏挤：搜索框平时只留「搜索」两个字宽，点进去或有字时再展开，频道名不被挤成「空…」 */
+  /* 手机：顶栏只放搜索图标，点了在顶栏下面出一整行搜索框，频道名不被挤（验收清单第 7 条） */
+  #open-search { display:none; }
+  @media (max-width: 900px) {
+    #open-search { display:flex; }
+    #q { display:none; position:absolute; z-index:6; left:8px; right:8px; width:auto; margin:0;
+         top:calc(56px + env(safe-area-inset-top)); padding:8px 10px; font-size:16px;   /* 16px：iOS 聚焦小于 16px 的输入框会放大页面 */
+         box-shadow:0 0 0 8px var(--side); }   /* 底色铺满顶栏和结果面板之间，不露出后面的消息 */
+    body.searching #q { display:block; }
+    body.searching #open-search { color:var(--head); background:var(--hover); }
+  }
+  /* 空频道、第一次连接中/连不上：消息区里说一句，不是一片空白（贴底，同 Discord 的「欢迎来到 #频道」） */
+  #empty { flex:none; margin:0 16px 8px; padding:16px; color:var(--muted); font-size:14px; }
+  #empty .big { color:var(--head); font-size:20px; font-weight:700; margin-bottom:4px; }
+  #empty[hidden] { display:none; }
+  #log.is-empty #logtop { display:none; }   /* #empty 放在 #logtop 前面：消息接在 #logtop 后面，#log .msg:last-of-type 仍是最后一条 */
+  /* ---- 消息正文（rh-md.js 渲染的 Markdown 子集）、提及、编辑删除复制（.acts 限定在 .msg 里：频道栏 .ch 也有 .acts） ---- */
+  .text .p { white-space:pre-wrap; }
+  .text .p + .p, .text .p + pre, .text pre + .p, .text blockquote, .text ul, .text ol { margin-top:4px; }
+  .text .h { font-weight:700; color:var(--head); margin:8px 0 4px; line-height:1.25; }
+  .text .h1 { font-size:1.5em; } .text .h2 { font-size:1.25em; } .text .h3 { font-size:1.1em; }
+  .text ul, .text ol { margin:4px 0; padding-left:24px; }
+  .text blockquote { margin:4px 0; padding:0 0 0 12px; border-left:4px solid #4e5058; }
+  .text hr { border:none; border-top:1px solid #3f4147; margin:8px 0; }
+  .text code { background:#2b2d31; border-radius:4px; padding:.1em .3em; font:0.875em/1.4 Consolas,"SF Mono",Menlo,monospace; }
+  .text pre { background:#2b2d31; border:1px solid #1e1f22; border-radius:4px; padding:8px; margin:4px 0; overflow-x:auto; max-width:100%; }
+  .text pre code { background:none; padding:0; white-space:pre; display:block; }
+  .text a { color:#00a8fc; text-decoration:none; } .text a:hover { text-decoration:underline; }
+  .mention { background:rgba(88,101,242,.3); color:#c9cdfb; border-radius:3px; padding:0 2px; font-weight:500; }
+  /* 别人 @ 到我（@你）：照 Discord 提到自己，整条淡金底、左边一道金线（颜色取 Discord 深色主题的提及高亮） */
+  .msg.mentioned, .msg.mentioned:hover { background:rgba(250,168,26,.1); border-left:2px solid #f0b232; padding-left:14px; }
+  .msg.interrupted .text > .p:last-child, .msg.speaking.cont .text > .p:last-child { display:inline; }
+  .msg.edited .text > :last-child::after { content:"（已编辑）"; font-size:10px; color:var(--faint); margin-left:4px; white-space:normal; }
+  .msg .acts { display:none; position:absolute; right:16px; top:-14px; background:var(--chat); border:1px solid #26272b; border-radius:6px;
+          box-shadow:0 2px 6px rgba(0,0,0,.3); z-index:2; }
+  .msg:hover .acts { display:flex; }
+  .msg .acts button, #msgmenu button { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:12px; padding:4px 8px; }
+  .msg .acts button:hover { color:var(--head); background:var(--hover); }
+  .msg .acts button[data-act=delete]:hover { color:var(--red); }
+  #mention-pop { position:absolute; left:16px; right:16px; bottom:100%; margin-bottom:8px; background:var(--side); border-radius:8px;
+                 padding:8px 0; box-shadow:0 8px 16px rgba(0,0,0,.24); max-height:40vh; overflow-y:auto; z-index:3; }
+  #mention-pop .ttl { font-size:12px; font-weight:600; color:var(--muted); padding:0 12px 4px; }
+  #mention-pop [role=option] { display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; color:var(--text); }
+  #mention-pop [role=option][aria-selected=true] { background:var(--sel); color:var(--head); }
+  form#f { position:relative; }
+  #editing { font-size:12px; color:var(--muted); padding:0 20px 6px; flex:none; }
+  #editing button { border:none; background:none; color:#00a8fc; cursor:pointer; padding:0 4px; font-size:12px; }
+  #msgmenu { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:8; align-items:flex-end; justify-content:center; }
+  #msgmenu.on { display:flex; }
+  #msgmenu .sheet { background:var(--side); width:100%; max-width:480px; border-radius:12px 12px 0 0; padding:8px 8px calc(8px + env(safe-area-inset-bottom)); }
+  #msgmenu button { display:block; width:100%; text-align:left; font-size:16px; padding:14px 12px; color:var(--text); border-radius:8px; }
+  #msgmenu button[data-act=delete] { color:var(--red); }
+  #toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%); background:#111214; color:var(--head); padding:6px 12px;
+           border-radius:6px; font-size:13px; z-index:9; pointer-events:none; }
+  #toast:empty { display:none; }
+  @media (pointer: coarse) {
+    #editing .esc { display:none; }   /* 手机没有 Esc 键 */
+    .msg:hover .acts { display:none; }
+    .msg { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }   /* 长按出菜单，不去选字 */
+    .msg:hover { background:none; }
+  }
 </style>
 </head>
 <body>
@@ -132,8 +306,9 @@
 <aside id="channels">
   <div class="top">角色小家</div>
   <div id="chlist">
-    <div class="cat">文字频道</div>
-    <a class="ch on" href="/"><span class="hash">#</span><span id="chname">频道</span></a>
+    <div class="cat row">文字频道<button id="newroom" title="新建频道">＋</button></div>
+    <div id="newrow"><input id="roomname" placeholder="新频道名，回车建好" maxlength="64" autocomplete="off"></div>
+    <div id="roomlist"></div>
   </div>
   <div id="me">
     <div class="av sm" style="background:var(--blurple)">你</div>
@@ -143,26 +318,63 @@
   </div>
 </aside>
 <div id="main">
-  <div class="top"><span class="hash">#</span><span id="room">频道</span><span class="topic">发一个话题，角色们轮流接话；随时插话就能打断</span></div>
-  <div id="log"></div>
+  <div class="top"><button class="tb" id="open-left" type="button" aria-label="频道">☰</button><span class="hash">#</span><span id="room">频道</span><span class="topic">@ 谁就叫谁回话</span>
+    <input id="q" type="search" placeholder="搜索" aria-label="搜索消息" autocomplete="off">
+    <span id="topctl"><span id="conn" title="连接中…"></span><button class="tb" id="open-search" type="button" aria-label="搜索">🔍</button><button class="tb" id="open-right" type="button" aria-label="成员">👥</button></span></div>
+  <div id="banner" role="status" hidden></div>
+  <div id="newbar" hidden><b></b><span>跳到最新 ↓</span></div>
+  <div id="results" hidden><div class="rhead"><span class="sum"></span><button class="close" title="关闭">✕</button></div>
+    <div class="list"></div><button class="more" hidden>更早的结果</button></div>
+  <div id="log"><div id="empty" role="status"></div><div id="logtop"></div></div>
   <div id="err"></div>
-  <form id="f"><div class="box"><input id="in" placeholder="发一个话题，或随时插话打断" autocomplete="off"><button>发送</button></div></form>
+  <div id="editing" hidden>正在编辑消息<span class="esc"> · Esc</span><button type="button" id="editcancel">取消</button></div>
+  <form id="f"><div id="mention-pop" role="listbox" hidden></div>
+    <div class="box"><textarea id="in" rows="1" placeholder="给 #频道 发消息，@ 谁就叫谁回话" autocomplete="off"></textarea><button>发送</button></div></form>
 </div>
 <aside id="members"></aside>
+<div id="scrim"></div>
+<div id="msgmenu"><div class="sheet"></div></div>
+<div id="toast"></div>
 <form id="login"><div class="card"><h2>欢迎回来</h2><p id="loginwhy">输入访问 token 进入频道</p>
+  <div class="where">token 在 <code>.env</code> 的 <code>RH_HUB_TOKEN=</code> 那行（等号后面整串）。
+    也可以打开 <code>地址/#token=你的token</code> 这样的链接，自动登录、记在这个浏览器里。</div>
   <input id="tok" type="password" placeholder="输入访问 token" autocomplete="off"><button>进入</button></div></form>
 <script>
 window.rhHooks = {
-  render: () => { renderMembers(); renderLog(); },
-  status: (text) => { $("meta").textContent = text; if (text === "已连接") document.body.classList.remove("need-token"); },
+  multiRoom: true,
+  render: () => { renderRooms(); renderMembers(); renderLog(); },
+  status: (text) => {
+    $("meta").textContent = text; $("conn").title = text; renderEmpty();
+    if (text === "已连接") document.body.classList.remove("need-token");
+    const n = text.match(/(\d+) 秒后/);
+    $("banner").textContent = navigator.onLine === false ? "网络断了，恢复后自动重连"
+      : "连接断开，正在重新连接…" + (n ? `（${n[1]} 秒后重试）` : "");
+  },
+  onConn: (state) => {
+    for (const s of ["connecting", "open", "lost"]) document.body.classList.toggle("conn-" + s, s === state);
+    $("banner").hidden = state !== "lost";
+    renderEmpty();
+    updateUnread();   // rh-history.js：横幅出没会挪动消息列表，新消息浮条跟着挪
+  },
   needToken: (why) => { document.body.classList.add("need-token"); $("meta").textContent = why;
                         $("loginwhy").textContent = why; $("loginwhy").classList.toggle("tip", why !== "需要 token"); },
   deviceRoles: () => members.filter(x => x.kind === "role").map(x => x.id),
+  onReady: (d, merged) => {
+    if (!merged) document.body.classList.remove("searching");   // 换了频道：rh-history.js 清掉了搜索，手机的搜索行也收起
+    // 换了频道（或整表重取）：正在编辑的那条不在这个频道了，退出编辑、还原草稿
+    if (!merged && editing && !msgs.has(editing.id)) stopEdit();
+    historyReady(d, merged);   // rh-history.js
+  },
+  onRead: () => historyRead(),
+  onDeleted: (id) => { if (editing && editing.id === id) { stopEdit(); toast("这条已被删除"); } },
   onMic: (on) => { const b = $("mic"); b.classList.toggle("off", !on); b.textContent = on ? "闭麦" : "已闭麦，点此开麦"; },
 };
 </script>
+<script src="/rh-push.js"></script>
 <script src="/queue-player.js"></script>
 <script src="/rh-client.js"></script>
+<script src="/rh-history.js"></script>
+<script src="/rh-md.js"></script>
 <script>
 // 网页是云端的投影：WebSocket 收推送、HTTP 发消息（连接和设备代码在 rh-client.js）。token 存在本机浏览器 localStorage，
 // 也可以用 地址#token=... 打开一次（# 后面的部分不会发给服务器）。
@@ -171,68 +383,223 @@ const COLORS = ["#f0a020", "#4aa8ff", "#c67bff", "#3ecf8e", "#ff6b8a"];
 const GROUP_SEC = 7 * 60;
 const STATE_TEXT = {speaking: "正在说", thinking: "思考中…", interrupted: "被打断", idle: "待机"};
 const hhmm = (t) => new Date(t*1000).toLocaleTimeString("zh-CN", {hour12:false, hour:"2-digit", minute:"2-digit"});
-const fmt = (t) => {
+const fmt = (t) => {   // 带日期的完整时间：搜索结果（没有日期线）、悬停提示用
   const d = new Date(t*1000), today = new Date();
   return (d.toDateString() === today.toDateString() ? "今天 " : d.toLocaleDateString("zh-CN") + " ") + hhmm(t);
 };
-const colorOf = () => Object.fromEntries(members.map((r, i) => [r.id, COLORS[i%COLORS.length]]));
+// 消息头上的时间：消息区有日期分隔线（rh-history.js placeDays），照 Discord 今天写「今天」、昨天写「昨天」，更早的只写时刻
+const dayKey = (t) => new Date(t*1000).toDateString();
+const dayLabel = (t) => { const d = new Date(t*1000); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; };
+const shortTime = (t) => {
+  const k = dayKey(t), now = Date.now();
+  return (k === dayKey(now / 1000) ? "今天 " : k === dayKey(now / 1000 - 86400) ? "昨天 " : "") + hhmm(t);
+};
+// 我自己的名字：库里用户消息的 name 是「用户」（rh/hub.py USER_ALIASES，bot 照它 @ 我、弹通知，不能改），
+// 页面上统一显示「你」，和成员栏、左下角、头像上的字一致（验收清单第 8 条）
+const shownName = (x) => x.author_kind === "user" ? "你" : x.name;
+// 正文里别人 @ 我：库里写的是 @用户（或 @user，同 rh/hub.py USER_ALIASES），显示成 @你、照 Discord 提到自己那样高亮（rh-md.js inline）
+const ME = {aliases: ["用户", "user"], shown: "你"};
+const isBot = (id) => bots.some(b => b.id === id);
+// 同一个人：bot 和同名角色算一个人（头像、颜色已经跟 twinOf 走），连发照 Discord 合并
+const personOf = (x) => { const t = twinOf(x.author); return t ? t.id : x.author; };
+// cc-connect 的 bot 回复的尾注，抽出来单独画（淡色小号斜体）。写法照 conest bridge/core/engine.go：
+//   appendReplyFooter：正文去掉结尾换行后 + "\n\n*" + footer + "*"；正文为空时只有 "*" + footer + "*"
+//   footer 每行是下面一种（buildClaudeStatusLineFooter / buildReplyFooter / composeRichStatusFooter）：
+//     ⏱ 用时 …（富卡片第一行）；工作目录（关掉上下文指示后可能只剩这一行，没有「·」）；
+//     用「 · 」连起来的几段，至少有一段是用量、上下文或额度（模型名、effort 是任意字，单靠它们不算）。
+// 只认 bot 发的；对不上这些行的结尾斜体段（正文碰巧斜体、整条都是斜体）照常当正文。
+const FOOT_RE = /(?:^|\n\n)\*([^*\s](?:[^*]*[^*\s])?)\*$/;
+const FOOT_DIR = /^(?:~|\/|[A-Za-z]:[\\/])\S/;   // replyFooterWorkDir：绝对路径（家目录写成 ~）
+const FOOT_STAT = new RegExp("^(?:" + [
+  "(?:out|in|cw|cr) \\d[\\d.]*[kM]?(?: (?:in|cw|cr) \\d[\\d.]*[kM]?)*",   // out 90 / in 2 cw 16.9k cr 12.2k
+  "ctx \\d+%", "\\[ctx: ~\\d+%\\]",                                     // ctx 15% / [ctx: ~40%]
+  "剩余 \\d+%", "\\d+% left",                                               // MsgReplyFooterRemaining
+  "额度剩余 \\d+%", "额度暂不可查询", "额度暂无数据", "额度查询中", "额度查询失败",   // MsgQuota*（中文）
+  "quota: \\d+% left", "quota unavailable for this backend", "quota: no data", "quota: checking", "quota lookup failed",
+].join("|") + ")$");
+function footLine(line) {
+  if (/^⏱ (?:用时|Elapsed) \S/.test(line) || FOOT_DIR.test(line)) return true;
+  const segs = line.split(" · ");
+  if (!segs.some(p => FOOT_STAT.test(p))) return false;
+  // 其余段：模型名、effort（不带空格的一段字），旧版一行的最后一段可以是工作目录
+  return segs.every((p, i) => FOOT_STAT.test(p) || /^\S+$/.test(p) || (i === segs.length - 1 && FOOT_DIR.test(p)));
+}
+function splitFoot(x, raw) {
+  const m = x.author_kind === "role" && isBot(x.author) ? raw.match(FOOT_RE) : null;
+  return m && m[1].split("\n").every(footLine) ? [raw.slice(0, m.index), m[1]] : [raw, null];
+}
+// bot 和同名的角色同色、同头像（橘、鲸鱼娘、彩虹猫在主机上也是角色）；没有同名角色的接着往下排颜色
+const twinOf = (id) => { const b = bots.find(x => x.id === id); return b && members.find(m => m.kind === "role" && m.name === b.name); };
+const colorOf = () => {
+  const c = Object.fromEntries(members.map((r, i) => [r.id, COLORS[i%COLORS.length]]));
+  let n = members.length;
+  for (const b of bots) { const t = twinOf(b.id); c[b.id] = t ? c[t.id] : COLORS[n++ % COLORS.length]; }
+  return c;
+};
 const okAvatar = (a) => a && a.startsWith("data:image/");
 
 function avatarHTML(id, name, color, small) {
-  const m = members.find(x => x.id === id);
+  const m = members.find(x => x.id === id) || twinOf(id);
   if (m && okAvatar(m.avatar)) return `<div class="av${small ? " sm" : ""}"><img class="face" alt="" src="${esc(m.avatar)}"></div>`;
   if (id === "user") return `<div class="av${small ? " sm" : ""}" style="background:var(--blurple)">你</div>`;
   return `<div class="av${small ? " sm" : ""}" style="background:${color || "#5c5e66"}">${esc((name || "?")[0])}</div>`;
 }
 
 let volDragging = false;   // 正在拖音量滑条时不重画成员栏（重画会把拖着的滑条换掉）
+// 成员栏照 Discord 一个角色一行（用户 2026-10-20「你这什么狗屎……这叫对齐么」：橘、鲸鱼娘、彩虹猫原来主机角色一行、bot 一行）。
+// 有同名 bot 的（twinOf）只画 bot 这一行：状态按 bot（在线/思考中/离线），主机角色在说/想/被打断时这几个状态优先（语音那边真在动）；
+// 她的小智板子在线时音量滑条并在这一行。没 bot 的主机角色照旧一行。
 function renderMembers() {
   if (volDragging) return;
   const states = roleStates(), color = colorOf();
   const roles = members.filter(x => x.kind === "role");
-  const row = (r) => {
-    const st = states[r.id].state, v = volumes[r.id], has = typeof v === "number";
-    // 音量滑条：调的是这个角色的小智板子（用户 2026-10-19「我在这个网页端可以调大」）；没板子在线就灰掉
-    const vol = `<div class="vol" title="${has ? "她的小智板子音量；也可以说「大声点」「小声点」" : "她没有小智板子在线"}">
-      音量<input type="range" min="0" max="100" step="1" value="${has ? v : 0}" data-role="${esc(r.id)}"${has ? "" : " disabled"}>
-      <span>${has ? v : "—"}</span></div>`;
-    return `<div class="member head ${st}" id="head-${esc(r.id)}">
-      <div class="wrap">${avatarHTML(r.id, r.name, color[r.id], true)}<span class="dot"></span></div>
-      <div style="min-width:0"><div class="nm" style="color:${color[r.id]}">${esc(r.name)}</div>
-      <div class="state">${STATE_TEXT[st]}</div>${vol}</div></div>`;
+  const twinRole = new Set(bots.map(b => twinOf(b.id)).filter(Boolean).map(r => r.id));
+  const ROLE_TEXT = {...STATE_TEXT, off: "离线", on: "在线"};
+  // 一行：r 是主机角色（可空），b 是 bot（可空）；两个都有就是同一个人
+  const entry = (r, b) => {
+    const rs = r ? states[r.id].state : "idle";
+    // bot 断了但她的小智板子在线：语音那边还能找她，按主机角色算待机，不进「离线」
+    const board = r && typeof volumes[r.id] === "number";
+    const bs = !b ? null : !b.online ? (board ? null : "off") : botThinking.includes(b.id) ? "thinking" : "on";
+    const st = rs !== "idle" || !bs ? rs : bs;
+    return {r, b, st, online: st !== "off"};
   };
-  const talking = roles.filter(r => states[r.id].state === "speaking");
-  const rest = roles.filter(r => states[r.id].state !== "speaking");
+  const list = [...roles.filter(r => !twinRole.has(r.id)).map(r => entry(r, null)),
+                ...bots.map(b => entry(twinOf(b.id), b))];
+  const row = ({r, b, st}) => {
+    const id = b ? b.id : r.id, name = b ? b.name : r.name, v = r ? volumes[r.id] : undefined;
+    // 音量滑条：调的是这个角色的小智板子（用户 2026-10-19「我在这个网页端可以调大」）；板子不在线就不画
+    const vol = typeof v !== "number" ? "" : `<div class="vol" title="她的小智板子音量；也可以说「大声点」「小声点」">
+      音量<input type="range" min="0" max="100" step="1" value="${v}" data-role="${esc(r.id)}"><span>${v}</span></div>`;
+    return `<div class="member${r ? " head" : ""}${b ? " bot" : ""} ${st}" id="${b ? "bot" : "head"}-${esc(id)}">
+      <div class="wrap">${avatarHTML(id, name, color[id], true)}<span class="dot"></span></div>
+      <div style="min-width:0"><div class="nm" style="color:${color[id]}">${esc(name)}${b ? '<span class="tag">BOT</span>' : ""}</div>
+      <div class="state">${ROLE_TEXT[st]}</div>${vol}</div></div>`;
+  };
+  const talking = list.filter(e => e.st === "speaking");
+  const rest = list.filter(e => e.st !== "speaking" && e.online), down = list.filter(e => !e.online);
   $("members").innerHTML =
     (talking.length ? `<div class="cat">正在说 — ${talking.length}</div>` + talking.map(row).join("") : "") +
     `<div class="cat">在线 — ${rest.length + 1}</div>` +
     `<div class="member"><div class="wrap">${avatarHTML("user", "你", "", true)}<span class="dot"></span></div>
       <div><div class="nm" style="color:var(--head)">你</div><div class="state">在线</div></div></div>` +
-    rest.map(row).join("");
+    rest.map(row).join("") +
+    (down.length ? `<div class="cat">离线 — ${down.length}</div>` + down.map(row).join("") : "");
 }
 
+// ---- 左栏频道列表（rh/hub.py「多频道」）。默认频道（id 最小）不能删；删除 = 归档，进「已归档」，能打开看、能恢复。
+// 频道名最长 64 字：来源 rh/hub.py MAX_NAME（hub 按它拒收，输入框 maxlength 同它）。
+let renaming = null;   // 正在改名的频道 id：改名时不重画列表（重画会把输入框换掉）
+// 当前频道归档了没有：归档的只读（不能发、改、删）
+const roomArchived = () => { const me = rooms.find(r => r.id === room); return !!(me && me.archived_at != null); };
+function renderRooms() {
+  if (renaming != null) return;
+  const first = Math.min(...rooms.map(r => r.id));
+  const row = (r) => {
+    const acts = r.archived_at != null ? `<button class="restore" title="恢复频道">↺</button>`
+      : `<button class="rename" title="改名">✎</button>` + (r.id === first ? "" : `<button class="archive" title="删除频道（消息留着，可恢复）">×</button>`);
+    return `<div class="ch${r.id === room ? " on" : ""}${r.archived_at != null ? " archived" : ""}" data-id="${r.id}">
+      <span class="hash">#</span><span class="nm">${esc(r.name)}</span><span class="acts">${acts}</span></div>`;
+  };
+  const live = rooms.filter(r => r.archived_at == null), gone = rooms.filter(r => r.archived_at != null);
+  $("roomlist").innerHTML = live.map(row).join("") +
+    (gone.length ? `<div class="cat gap">已归档</div>` + gone.map(row).join("") : "");
+  const archived = roomArchived();
+  if (archived && editing) stopEdit();   // 正在改的那条所在频道被归档了
+  $("in").disabled = archived;
+  $("in").placeholder = archived ? "频道已归档，点左边 ↺ 恢复后才能发消息" : inputHint(roomName);
+}
+// 输入框占位。上面 <textarea id="in"> 里写死的是还没连上时（没有频道名）的这句，首屏不闪旧文案
+function inputHint(name) { return `给 #${name || "频道"} 发消息，@ 谁就叫谁回话`; }
+$("newroom").onclick = () => { $("newrow").classList.toggle("open"); $("roomname").focus(); };
+$("roomname").onkeydown = async (e) => {
+  if (e.key === "Escape") { $("newrow").classList.remove("open"); return; }
+  if (e.key !== "Enter" || e.isComposing) return;
+  const name = $("roomname").value.trim(); if (!name) return;
+  const {err, room: made} = await createRoom(name);
+  $("err").textContent = err;
+  if (err) return;
+  $("roomname").value = ""; $("newrow").classList.remove("open");
+  joinRoom(made.id); drawer(null);
+};
+$("roomlist").addEventListener("click", async (e) => {
+  const ch = e.target.closest(".ch"); if (!ch || e.target.matches("input")) return;
+  const id = Number(ch.dataset.id), r = rooms.find(x => x.id === id);
+  if (e.target.matches(".rename")) {
+    renaming = id;
+    const nm = ch.querySelector(".nm"), input = document.createElement("input");
+    input.value = r.name; input.maxLength = 64; nm.replaceWith(input); ch.querySelector(".acts").remove();
+    input.focus(); input.select();
+    const done = async (save) => {
+      if (renaming !== id) return;
+      renaming = null;
+      if (save && input.value.trim() && input.value.trim() !== r.name) $("err").textContent = (await renameRoom(id, input.value.trim())).err;
+      renderRooms();
+    };
+    input.onkeydown = (k) => { if (k.key === "Enter" && !k.isComposing) done(true); else if (k.key === "Escape") done(false); };
+    input.onblur = () => done(false);
+  } else if (e.target.matches(".archive")) {
+    if (confirm(`删除频道「${r.name}」？消息都留着，可以在「已归档」里恢复。`)) $("err").textContent = (await archiveRoom(id)).err;
+  } else if (e.target.matches(".restore")) {
+    $("err").textContent = (await restoreRoom(id)).err;
+  } else {
+    joinRoom(id);
+    drawer(null);   // 手机：选了频道就收起左抽屉，回到消息
+  }
+});
+
 function renderLog() {
-  $("room").textContent = roomName || "频道"; $("chname").textContent = roomName || "频道";
-  const list = [...msgs.values()].sort((a, b) => a.id - b.id);
-  const color = colorOf();
-  const atBottom = $("log").scrollTop + $("log").clientHeight >= $("log").scrollHeight - 30;
-  let prev = null;
-  $("log").innerHTML = list.map(x => {
-    const text = esc(x.status === "interrupted" && x.spoken != null ? x.text.slice(0, x.spoken) + "……" : x.text);
+  $("room").textContent = roomName || "频道";
+  syncLog();   // rh-history.js：只追加新的、只换变了的那条（选中的字不被冲掉）；发送中/没发出去的排在最后
+  renderEmpty();
+}
+// 消息区没东西可看时说一句：还没连上（room 还是 null）说连接状态，连上了是空频道就说怎么开始
+function renderEmpty() {
+  const e = $("empty"), none = room == null || (msgs.size === 0 && ![...pending.values()].some(p => p.room === room));
+  e.hidden = !none; $("log").classList.toggle("is-empty", none);
+  if (!none) return;
+  const st = $("meta").textContent;
+  e.innerHTML = room == null
+    ? (/断开/.test(st) ? `<div class="big">连不上云端</div>${esc(st.replace(/^断开了，?/, ""))}（页面开着就会一直重试）` : `<div class="big">正在连接云端…</div>`)
+    : `<div class="big">#${esc(roomName || "频道")} 还没有消息</div>在下面发一条，@ 谁就叫谁回话。`;
+}
+// 一条消息的 HTML；prev 是它前一条（同一人 7 分钟内合并成一组）。x.local 是本页还没发成的那条（rh-client.js pending）。
+// 正文：用户、角色消息按 Markdown 子集渲染（rh-md.js，提及高亮），系统消息原样转义。
+function msgHTML(x, prev, color) {
+    const raw = x.status === "interrupted" && x.spoken != null ? x.text.slice(0, x.spoken) + "……" : x.text;
+    let card = null;   // bot 的进度卡片、子进程表（rh/cloudweb.py card_from / subtask_table_from）；坏数据当普通消息画。
+                       // 正文照 Discord：cc-connect 把这几行原样放进 embed 的 description（conest bridge/platform/discord/progress.go
+                       // buildDiscordProgressList），Discord 按 Markdown 画（thinking 里的 **标题** 是粗体），这里走 rh-md.js 的行内渲染；
+                       // embed 里写的「@名字」只是普通字，所以不画提及、不认「提到我」。表里「开始于 <t:秒:R>」是 Discord 的时间写法，这里画成本地时刻
+    try { card = x.card ? JSON.parse(x.card) : null; } catch (e) { card = null; }
+    const [main, foot] = card ? [raw, null] : splitFoot(x, raw);
+    const me = x.author_kind === "user" ? null : ME;   // 自己发的 @用户 不算别人提到我
+    const text = x.author_kind === "system" ? esc(raw) : card
+      ? `<div class="pcard ${esc(card.state)}"><div class="pt">${esc(card.title)}</div><div class="pb">${renderMarkdownInline(raw, [], null).replace(/&lt;t:(\d+):R&gt;/g, (_, t) => hhmm(+t))}</div></div>`
+      : renderMarkdown(main, roleNames(), me) + (foot ? `<div class="foot">${esc(foot).replace(/\n/g, "<br>")}</div>` : "");
     if (x.author_kind === "system") {
-      prev = x;
-      return `<div class="msg system"><div class="av">→</div><div class="body"><span class="who">${esc(x.name)}</span><span class="text">${text}</span><span class="t2">${fmt(x.created_at)}</span></div></div>`;
+      return `<div class="msg system"><div class="av">→</div><div class="body"><span class="who">${esc(x.name)}</span><span class="text">${text}</span><span class="t2" title="${fmt(x.created_at)}">${shortTime(x.created_at)}</span></div></div>`;
     }
-    const cont = prev && prev.author_kind !== "system" && prev.author === x.author && x.created_at - prev.created_at <= GROUP_SEC;
-    prev = x;
-    return `<div class="msg ${x.status}${cont ? " cont" : ""}">${avatarHTML(x.author, x.name, color[x.author])}<div class="gut">${hhmm(x.created_at)}</div>
-      <div class="body"><div class="hdr"><span class="who" style="color:${color[x.author] || "var(--head)"}">${esc(x.name)}</span><span class="t">${fmt(x.created_at)}</span></div>
-      <div class="text">${text}</div></div></div>`;
-  }).join("");
-  if (atBottom) $("log").scrollTop = $("log").scrollHeight;
+    // 同一个人（bot 和同名角色算一个）7 分钟内、同一天的连发合并成一组；隔天的有日期线，重新带头像
+    const cont = prev && prev.author_kind !== "system" && personOf(prev) === personOf(x) && x.created_at - prev.created_at <= GROUP_SEC
+      && dayKey(prev.created_at) === dayKey(x.created_at);
+    const st = !x.local ? "" : x.local.state === "sending" ? `<div class="sendst">发送中…</div>`
+      : `<div class="sendst">没发出去 · <button class="retry" type="button" data-key="${esc(x.local.key)}">重试</button>`
+        + ` · <button class="drop" type="button" data-key="${esc(x.local.key)}">删除</button></div>`;
+    // 复制 / 编辑 / 删除：没发成的那行没有（它有自己的重试、删除）；归档的频道只读，只留复制
+    const mine = x.author_kind === "user" && !x.local && !roomArchived();
+    const acts = x.local ? "" : `<div class="acts"><button type="button" data-act="copy">复制</button>${mine ?
+      `<button type="button" data-act="edit">编辑</button><button type="button" data-act="delete">删除</button>` : ""}</div>`;
+    const edited = x.author_kind === "user" && !x.local && x.updated_at > x.created_at ? " edited" : "";   // 用户消息只有改正文才动 updated_at（rh/hub.py update）
+    const mentioned = text.includes('<span class="mention me">') ? " mentioned" : "";
+    return `<div class="msg ${x.status}${cont ? " cont" : ""}${mentioned}${edited}${x.local ? " " + (x.local.state === "sending" ? "pending" : "failed") : ""}">${avatarHTML(x.author, x.name, color[x.author])}<div class="gut">${hhmm(x.created_at)}</div>
+      <div class="body"><div class="hdr"><span class="who" style="color:${color[x.author] || "var(--head)"}">${esc(shownName(x))}</span>${isBot(x.author) ? `<span class="tag">BOT</span>` : ""}<span class="t" title="${fmt(x.created_at)}">${shortTime(x.created_at)}</span></div>
+      <div class="text">${text}</div>${st}</div>${acts}</div>`;
 }
 // “思考中”按时间过期，隔几秒重画一次成员栏。来源：实现者定。
-setInterval(renderMembers, 5000);
+// 同一个定时器顺带看日期：过了午夜，消息头上的「今天/昨天」要跟着变（rh-history.js msgSig 带着它，只重画变了的）
+let shownDay = dayKey(Date.now() / 1000);
+setInterval(() => { renderMembers(); const d = dayKey(Date.now() / 1000); if (d !== shownDay) { shownDay = d; renderLog(); } }, 5000);
 
 // 音量滑条：拖动时只改旁边的数字，松手才发给主机（一次拖动只调一次板子）
 $("members").addEventListener("pointerdown", (e) => { if (e.target.matches(".vol input")) volDragging = true; });
@@ -261,12 +628,192 @@ $("login").onsubmit = (e) => {
 };
 $("f").onsubmit = async (e) => {
   e.preventDefault();
-  const text = $("in").value.trim(); if (!text || room == null) return;
-  const err = await postMessage(text);
-  $("err").textContent = err;           // 失败时保留输入框内容，成功才清空
-  if (!err && $("in").value.trim() === text) $("in").value = "";
+  const text = $("in").value.trim(); if (!text) return;
+  if (room == null) { $("err").textContent = "还没连上云端，连上后再发（字留在输入框里）"; return; }
+  if (editing) {   // 编辑模式：改那条（rh-md 分支），失败保留输入框
+    const ed = editing, err = await editMessage(ed.id, text);
+    $("err").textContent = err;
+    if (!err && editing === ed && $("in").value.trim() === text) stopEdit();
+    return;
+  }
+  $("in").value = ""; fitInput(); $("err").textContent = "";
+  // 连不上：这条留在消息里显示“没发出去·重试”。太长、格式不对（重试也没用）：文字放回输入框，上方提示。
+  const res = postMessage(text);   // 同步画出“发送中”那条
+  jumpToLatest();                  // 发了话跳到最新（同 Discord）
+  sent(text, await res);
 };
+function sent(text, {err, keep}) {
+  if (err && !keep) { if (!$("in").value) { $("in").value = text; fitInput(); } $("err").textContent = err; }
+}
+$("log").addEventListener("click", async (e) => {
+  const b = e.target.closest(".sendst button"); if (!b) return;
+  const p = pending.get(b.dataset.key); if (!p) return;
+  if (b.classList.contains("drop")) dropPending(p.key); else sent(p.text, await postMessage(p.text, p.key));
+});
+// ---- 手机：抽屉开关、搜索行；闭麦、开声音手机上也在左抽屉底下（同 Discord，顶栏只放 ☰ 频道名 搜索 成员） ----
+const narrow = matchMedia("(max-width: 900px)");
+const drawer = (side) => {
+  document.body.classList.toggle("open-left", side === "left");
+  document.body.classList.toggle("open-right", side === "right");
+};
+$("open-left").onclick = () => drawer("left");
+$("open-right").onclick = () => drawer("right");
+$("scrim").onclick = () => drawer(null);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") drawer(null); });
+narrow.addEventListener("change", () => { if (!narrow.matches) { drawer(null); document.body.classList.remove("searching"); } });
+const closeSearchRow = () => document.body.classList.remove("searching");
+$("open-search").onclick = () => {
+  if (document.body.classList.toggle("searching")) $("q").focus();
+  else { $("q").value = ""; $("results").hidden = true; }
+};
+$("q").addEventListener("keydown", (e) => { if (e.key === "Escape") closeSearchRow(); });
+$("results").querySelector(".close").addEventListener("click", closeSearchRow);
+$("results").querySelector(".list").addEventListener("click", (e) => { if (narrow.matches && e.target.closest(".hit")) closeSearchRow(); });
+// ---------- 输入框：多行、@ 补全；消息的复制 / 编辑 / 删除（桌面悬停栏，手机长按） ----------
+const roleNames = () => [...new Set([...members.filter(m => m.kind === "role").map(m => m.name), ...bots.map(b => b.name)])];
+// 手机（粗指针）没有 Shift：回车换行、点发送按钮发，同 Discord 手机版；电脑上 Enter 发、Shift+Enter 换行。
+const coarse = matchMedia("(pointer: coarse)");
+function fitInput() {
+  const t = $("in"); t.style.height = "auto"; t.style.height = Math.max(44, t.scrollHeight) + "px";
+}
+let pop = null;   // @ 补全：{start, items, sel}
+function mentionQuery() {
+  const t = $("in"), before = t.value.slice(0, t.selectionStart);
+  const m = before.match(/@([^\s@]*)$/);
+  return m ? {start: before.length - m[0].length, q: m[1].toLowerCase()} : null;
+}
+function updatePop() {
+  const mq = mentionQuery();
+  // 能 @ 的：主机上的角色 + 接进来的 bot（龙娘只有 bot），同名只列一次（验收清单第 12 条）。打 id 开头也能筛，但不显示 id
+  const all = [], seen = new Set();
+  for (const m of [...members.filter(m => m.kind === "role"), ...bots])
+    if (!/\s/.test(m.name) && !seen.has(m.name)) { seen.add(m.name); all.push(m); }
+  const items = mq ? all.filter(m => m.name.toLowerCase().includes(mq.q) || m.id.toLowerCase().startsWith(mq.q)) : [];
+  if (!items.length) return closePop();
+  pop = {start: mq.start, items, sel: pop ? Math.min(pop.sel, items.length - 1) : 0};
+  const color = colorOf();
+  $("mention-pop").innerHTML = `<div class="ttl">成员</div>` + items.map((m, i) =>
+    `<div role="option" data-i="${i}" aria-selected="${i === pop.sel}">${avatarHTML(m.id, m.name, color[m.id], true)}
+      <span class="nm">${esc(m.name)}</span></div>`).join("");
+  $("mention-pop").hidden = false;
+}
+function closePop() { pop = null; $("mention-pop").hidden = true; }
+function pickMention(i) {
+  const t = $("in"), m = pop.items[i], end = t.selectionStart;
+  const ins = "@" + m.name + " ";
+  t.value = t.value.slice(0, pop.start) + ins + t.value.slice(end);
+  t.selectionStart = t.selectionEnd = pop.start + ins.length;
+  closePop(); fitInput(); t.focus();
+}
+$("in").addEventListener("input", () => { fitInput(); updatePop(); });
+$("in").addEventListener("blur", () => setTimeout(closePop, 150));
+$("in").addEventListener("keydown", (e) => {
+  if (e.isComposing || e.keyCode === 229) return;   // 中文输入法选字时的回车不算
+  if (pop) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      pop.sel = (pop.sel + (e.key === "ArrowDown" ? 1 : -1) + pop.items.length) % pop.items.length;
+      $("mention-pop").querySelectorAll("[role=option]").forEach((o, i) => o.setAttribute("aria-selected", i === pop.sel));
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); return pickMention(pop.sel); }
+    if (e.key === "Escape") { e.preventDefault(); return closePop(); }
+  }
+  if (e.key === "Escape" && editing) { e.preventDefault(); return stopEdit(); }
+  if (e.key === "Enter" && !e.shiftKey && !coarse.matches) { e.preventDefault(); $("f").requestSubmit(); }
+});
+$("mention-pop").addEventListener("mousedown", (e) => e.preventDefault());   // 点选时不让输入框失焦
+$("mention-pop").addEventListener("click", (e) => {
+  const o = e.target.closest("[role=option]"); if (o && pop) pickMention(Number(o.dataset.i));
+});
+
+let editing = null;   // {id, draft}：编辑时借用输入框，草稿先存起来，保存或取消后还原
+function startEdit(id) {
+  const x = msgs.get(id); if (!x) return;
+  if (!editing) editing = {id, draft: $("in").value}; else editing.id = id;
+  $("in").value = x.text; $("editing").hidden = false; fitInput(); $("in").focus();
+  // 编辑条和变高的输入框把消息区挤矮了：把正在改的那条滚进视野（停在别处时也滚过去）
+  const el = $("log").querySelector(`.msg[data-id="${id}"]`);
+  if (el) el.scrollIntoView({block: "nearest"});
+}
+function stopEdit() {
+  if (!editing) return;
+  $("in").value = editing.draft; editing = null; $("editing").hidden = true; fitInput();
+}
+$("editcancel").onclick = stopEdit;
+
+let toastTimer = null;
+function toast(t) { $("toast").textContent = t; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("toast").textContent = ""; }, 1500); }
+async function copyText(t) {
+  // 云端是 http，navigator.clipboard 只在 https/localhost 可用，不行就退回老办法
+  try { if (navigator.clipboard && isSecureContext) { await navigator.clipboard.writeText(t); return true; } } catch (e) {}
+  const a = document.createElement("textarea");
+  a.value = t; a.style.position = "fixed"; a.style.opacity = "0"; document.body.appendChild(a); a.select();
+  let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+  a.remove(); return ok;
+}
+async function act(id, what) {
+  closeMenu();
+  const x = msgs.get(id); if (!x) return;
+  if (what === "copy") toast(await copyText(x.text) ? "已复制" : "没复制成");
+  else if (what === "edit") startEdit(id);
+  else if (what === "delete" && confirm("删除这条消息？（角色已经接的话不会撤回）")) {
+    const err = await deleteMessage(id);
+    $("err").textContent = err;
+    if (!err && editing && editing.id === id) stopEdit();
+  }
+}
+$("log").addEventListener("click", (e) => {
+  const b = e.target.closest(".acts [data-act]"); if (!b) return;
+  act(Number(b.closest(".msg").dataset.id), b.dataset.act);
+});
+function openMenu(id) {
+  const x = msgs.get(id); if (!x || x.author_kind === "system") return;
+  const mine = x.author_kind === "user" && !roomArchived();   // 归档频道只读，同桌面悬停栏
+  $("msgmenu").firstElementChild.innerHTML = `<button data-act="copy">复制文字</button>` +
+    (mine ? `<button data-act="edit">编辑消息</button><button data-act="delete">删除消息</button>` : "") + `<button data-act="">取消</button>`;
+  $("msgmenu").dataset.id = id; $("msgmenu").classList.add("on");
+}
+function closeMenu() { $("msgmenu").classList.remove("on"); }
+$("msgmenu").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]");
+  if (b && b.dataset.act) act(Number($("msgmenu").dataset.id), b.dataset.act); else closeMenu();
+});
+// 长按（触屏）出菜单：按住不动这么多毫秒。来源：实现者定，接近 iOS/Android 系统长按约 500ms。
+const LONG_PRESS_MS = 500;
+let press = null;
+$("log").addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
+  const m = e.target.closest(".msg[data-id]"); if (!m || e.target.closest("a")) return;
+  const id = Number(m.dataset.id);
+  press = {x: e.clientX, y: e.clientY, timer: setTimeout(() => { press = null; swallow = true; openMenu(id); }, LONG_PRESS_MS)};
+});
+// 长按出菜单后，松手那一下浏览器还会补一个 click，会点到刚弹出的菜单背景把它关掉：吞掉这一个。
+let swallow = false;
+document.addEventListener("click", (e) => { if (swallow) { swallow = false; e.stopPropagation(); e.preventDefault(); } }, true);
+const cancelPress = (e) => {
+  if (press) { clearTimeout(press.timer); press = null; }
+  if (swallow && e && e.type === "pointercancel") swallow = false;   // 手势被系统接管：不会再补 click，直接复位
+  if (swallow && e && e.type === "pointerup") setTimeout(() => { swallow = false; }, 400);   // 没补 click 的浏览器别一直吞。400ms 来源：实现者定，补的 click 一般几毫秒内到
+};
+$("log").addEventListener("pointermove", (e) => {   // 手指挪了 10px 以上是在滚动。来源：实现者定。
+  if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancelPress();
+});
+["pointerup", "pointercancel"].forEach(t => $("log").addEventListener(t, cancelPress));
+$("log").addEventListener("contextmenu", (e) => { if (coarse.matches && e.target.closest(".msg")) e.preventDefault(); });
+
+// 消息区变矮（输入框打多行、编辑条出来、手机键盘弹出）时，原来在底部的继续贴底，最后一条不被压到输入框后面
+// 滚动事件晚一帧才到，那时消息区可能已经变矮：按变矮之前的高度 lastH 判断刚才在不在底部（变高时按现在的高度）
+let stuck = true, lastH = $("log").clientHeight;
+$("log").addEventListener("scroll", () => {
+  const l = $("log"); stuck = l.scrollTop + Math.max(lastH, l.clientHeight) >= l.scrollHeight - BOTTOM_PX;
+}, {passive: true});
+new ResizeObserver(() => {
+  const l = $("log"); if (stuck) l.scrollTop = l.scrollHeight; lastH = l.clientHeight;
+}).observe($("log"));
+
 renderMembers();
+renderEmpty();
 connect();
 </script>
 </body>

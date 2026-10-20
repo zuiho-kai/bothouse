@@ -1,4 +1,9 @@
-"""角色大脑：每个角色一份 Claude Code 会话（claude -p + --session-id/--resume）。"""
+"""角色大脑：每个角色一份 Claude Code 会话（claude -p + --session-id/--resume）。
+
+会话 id 存在会话目录的 session.json（6 周清单第⑥项「会话 id 落盘到 data/，重启 --resume」）：
+主机重启、频道恢复后新建的大脑读到它就用 --resume 接着同一个会话。一个频道一个会话目录
+（rh/host.py room_session_dir），所以频道之间不共用会话。首次调用成功才写；存着的会话在 claude 那边
+已经没了（No conversation found）就开一个新会话再答一次。"""
 from __future__ import annotations
 
 import json
@@ -19,6 +24,7 @@ class Cancelled(Exception):
 # 角色这一轮不说话时只输出它：主机不发消息、不出声（rh/meeting.py）。
 # 来源：用户 2026-10-19「首先就是重复的太多了」；橘裁决“每个角色轮到时可以选择不说话”，标记是实现者定的。
 PASS = "【跳过】"
+SESSION_FILE = "session.json"   # 会话目录里存会话 id 的文件。来源：实现者定。
 
 
 class ClaudeBrain:
@@ -31,6 +37,9 @@ class ClaudeBrain:
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.session_id = str(uuid.uuid4())
         self._started = False
+        saved = self._load_session()
+        if saved:
+            self.session_id, self._started = saved, True
         self._proc: subprocess.Popen | None = None
         self._cancelled = False  # 只有 cancel() 杀的才算打断
         self._mu = threading.Lock()
@@ -45,7 +54,33 @@ class ClaudeBrain:
             f"已经有人道过晚安或再见）——就只输出{PASS}，这一轮你不出声，不要再跟着说一遍晚安、再见或客套话。"
         )
 
+    @property
+    def session_file(self) -> Path:
+        return self.workdir / SESSION_FILE
+
+    def _load_session(self) -> str | None:
+        try:
+            sid = json.loads(self.session_file.read_text())["session_id"]
+            return str(uuid.UUID(sid))
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _save_session(self) -> None:
+        tmp = self.session_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"session_id": self.session_id}))
+        tmp.replace(self.session_file)
+
     def reply(self, new_messages: str) -> str:
+        try:
+            return self._reply(new_messages)
+        except RuntimeError as e:
+            if not (self._started and "No conversation found" in str(e)):
+                raise
+        # 存着的会话在 claude 那边没了：开新会话，再答一次。
+        self.session_id, self._started = str(uuid.uuid4()), False
+        return self._reply(new_messages)
+
+    def _reply(self, new_messages: str) -> str:
         # 不写“轮到你（名字）发言了”：和历史里的说话人格式凑在一起，模型会回“名字发言：……”。
         prompt = (f"{new_messages}\n\n轮到你了。只输出你要说的话本身，开头不要带你的名字、冒号或引号；"
                   f"没有新东西可说就只输出{PASS}。")
@@ -63,7 +98,9 @@ class ClaudeBrain:
                 # 再用同一个 --session-id 会报 "already in use"；换新 id 下次重新开。
                 self.session_id = str(uuid.uuid4())
             raise
-        self._started = True
+        if not self._started:
+            self._started = True
+            self._save_session()
         return text
 
     def _run(self, cmd: list[str], prompt: str) -> str:

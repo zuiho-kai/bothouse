@@ -10,13 +10,20 @@
 
 ```sh
 uv sync
+cp roles.example.toml roles.toml                        # 你自己的配置（不进 git，拉新代码不会覆盖）
+cp .env.example .env                                    # 密钥和地址（不进 git），按里面的注释填
 export RH_HUB_TOKEN=$(openssl rand -hex 32)            # 本机 hub 的访问 token，自己定
 uv run python -m rh.hub &                               # 频道服务，默认 http://127.0.0.1:8790 ，库在 data/hub.sqlite3
 RH_HUB_URL=http://127.0.0.1:8790 uv run python -m rh.host   # 角色主机（环境变量优先于 .env）
 open "http://127.0.0.1:8790/#token=$RH_HUB_TOKEN"       # 打开网页，在底部输入框发话题
 ```
 
-角色、模型、每话题轮数上限、“在说”时长估算、头像、音色都在 `roles.toml`。发言日志写在 `logs/`。
+角色、模型、每话题轮数上限、“在说”时长估算、头像、音色都在 `roles.toml`（模板 `roles.example.toml`，每项有注释）。发言日志写在 `logs/`。
+
+`roles.toml` 从 2026-10-20 起不进 git。之前从仓库拉过它的人：拉这次更新前先 `cp roles.toml roles.toml.mine`，
+拉完 `mv roles.toml.mine roles.toml`（这次更新把它从 git 里删掉，没改过的副本会跟着被删）；
+忘了备份就从删它的那次提交的上一版取回：`git show $(git log -1 --diff-filter=D --format=%h -- roles.toml)^:./roles.toml > roles.toml`
+（在本目录下执行；conest 仓库里同样在 `role-household/` 下执行）。
 主机的已读位置按 hub 地址分文件（`data/host-state-<地址>.json`），本机 hub 和云端 hub 来回切换不会补错话题。
 
 ## 云端频道 + 本地角色主机

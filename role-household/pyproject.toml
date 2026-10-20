@@ -5,6 +5,7 @@ description = "角色小家：主机端（内置频道 + 会议发言锁 + 网�
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9",
+    "cryptography>=50.0.2",
     "pypinyin>=0.55.0",
     "sherpa-onnx==1.13.8",
     "sherpa-onnx-core==1.13.8",

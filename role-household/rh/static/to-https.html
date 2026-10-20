@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>角色小家：换到 https</title>
+<style>body { margin:0; background:#313338; color:#dbdee1; font:15px/1.5 -apple-system,"PingFang SC",sans-serif; padding:40px 24px; text-align:center; }
+a { color:#00a8fc; }</style>
+</head>
+<body>
+<p>正在换到 https 地址…</p>
+<p><a id="go" href="/">没有自动跳转就点这里</a></p>
+<script>
+// 旧地址 http://IP:8790 的 / 和 /dial 由 vps-arm 的 nginx 反代到这页（deploy/hub/nginx-rh-hub.conf）。
+// https 是另一个源，读不到旧地址浏览器里存的 token：这里把它放到 https 地址的 # 后面带过去
+// （# 后面的部分不发给服务器，rh-client.js 读到后存进新地址的 localStorage），旧地址里那份删掉。
+// 地址里本来带着 #token=（别人发的链接）就原样带过去。
+(() => {
+  if (location.protocol === "https:") { location.replace("/"); return; }   // 直接在 https 上打开这页：回首页，不绕圈
+  let hash = /(^|[#&])token=/.test(location.hash) ? location.hash : "";
+  let saved = null;
+  try { saved = localStorage.getItem("rh_token"); localStorage.removeItem("rh_token"); } catch (e) {}
+  if (!hash && saved) hash = "#token=" + encodeURIComponent(saved);
+  const url = "https://" + location.hostname + location.pathname + location.search + hash;
+  document.getElementById("go").href = url;
+  location.replace(url);
+})();
+</script>
+</body>
+</html>

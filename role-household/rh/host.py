@@ -16,6 +16,11 @@ AI 是 `claude -p`，用用户自己的订阅，不能放云端；云端只做�
 --feed-audio 先把一段音频文件当麦克风输入喂一次（端到端自测用），再照常收麦克风。
 
 云端地址和 token 从环境变量 RH_HUB_URL / RH_HUB_TOKEN 读，没有就读仓库根目录的 .env（不进 git）。
+
+多频道（rh/hub.py 模块说明「多频道」）：一个频道一个会话。主机订全部频道，每个频道一份 Meeting（自己的对话记录）
+和一套角色大脑（自己的 claude 会话，目录 data/sessions/<session_key(频道 id)>/<角色>），切频道不串上下文。
+默认频道用传进来的 meeting（语音收音、播放、板子表盘都在它上面）；别的频道纯文字，第一次有消息时用 room_meeting 建。
+线上（main）不给 room_meeting：主机只管默认频道，别的频道由 cc-connect 接进来的 bot 回（见 main 里的注释）。
 """
 from __future__ import annotations
 
@@ -30,6 +35,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -37,7 +43,7 @@ import aiohttp
 from . import config as cfgmod
 from .brain import ClaudeBrain
 from .meeting import Meeting, Message
-from .hub import WS_REPLACED
+from .hub import WS_REPLACED, session_key
 from . import voice as voicemod
 from . import vpio as vpiomod
 from .device import DeviceSpeaker
@@ -94,11 +100,26 @@ def build_tts(cfg: cfgmod.Config, log=lambda s: print(s, flush=True), vpio=None)
     return DeviceSpeaker(synth, local)
 
 
-def build(cfg: cfgmod.Config, log_path: Path, tts=None) -> Meeting:
+def brief_error(e: BaseException) -> str:
+    """异常写进日志用的短说明：类型 + 状态码/原因。不用 repr(e)：aiohttp 的 ClientResponseError
+    （含握手失败 WSServerHandshakeError、ContentTypeError）repr 里带请求头，会把 Authorization: Bearer <token> 打进日志。"""
+    if isinstance(e, aiohttp.ClientResponseError):
+        return f"{type(e).__name__} HTTP {e.status} {e.message}"[:300]
+    return f"{type(e).__name__}: {e}"[:300]
+
+
+def room_session_dir(root: Path, room_id: int, role_id: str) -> Path:
+    """一个频道里一个角色的会话目录：会话键只由频道 id 定（rh/hub.py session_key）。"""
+    return root / "data" / "sessions" / session_key(room_id) / role_id
+
+
+def build(cfg: cfgmod.Config, log_path: Path, tts=None, room_id: int | None = None) -> Meeting:
+    """room_id=None：默认频道（旧的会话目录 data/sessions/<角色>）；否则那个频道自己的会话目录。"""
     brains = {}
     for r in cfg.roles:
         others = [o.name for o in cfg.roles if o.id != r.id]
-        brains[r.id] = ClaudeBrain(r, others, cfg.model, cfg.timeout_sec, ROOT / "data" / "sessions" / r.id)
+        workdir = ROOT / "data" / "sessions" / r.id if room_id is None else room_session_dir(ROOT, room_id, r.id)
+        brains[r.id] = ClaudeBrain(r, others, cfg.model, cfg.timeout_sec, workdir)
     return Meeting(cfg.roles, brains, cfg.max_turns_per_topic, cfg.chars_per_sec, log_path=log_path,
                    tts=tts)
 
@@ -125,8 +146,15 @@ class Host:
                  reconnect_min: float = RECONNECT_MIN, reconnect_max: float = RECONNECT_MAX,
                  config_dir: Path = ROOT, speaker: DeviceSpeaker | None = None,
                  words: wakemod.Words | None = None, log=lambda s: print(s, flush=True),
-                 boards: xiaozhimod.XiaozhiServer | None = None):
-        self.meeting = meeting
+                 boards: xiaozhimod.XiaozhiServer | None = None,
+                 room_meeting: Callable[[int], Meeting] | None = None):
+        self.meeting = meeting   # 默认频道的（语音在这里）
+        # 别的频道：频道 id -> 建一份新 Meeting（纯文字）。None = 只管默认频道（旧用法），别的频道不订。
+        self.room_meeting = room_meeting
+        self.meetings: dict[int, Meeting] = {}   # 频道 id -> 它的会话；默认频道在 ready 后登记为 self.meeting
+        self._execs: dict[int, ThreadPoolExecutor] = {}   # 每个频道一条，频道之间不互相等
+        self._archived: set[int] = set()   # 云端说已归档的频道：不建会话、不补漏（补了会真的调 claude 花钱）
+        self._room_stamps: dict[int, float] = {}   # 频道 id -> 建频道时刻：对不上说明云端库换过
         # 语音口令；None = 不要唤醒词，听到的都进频道（旧行为，测试用）。
         self.words = words
         self.log = log
@@ -166,7 +194,7 @@ class Host:
         self._exec = ThreadPoolExecutor(max_workers=1)  # 用户消息按顺序交给 meeting（user_say 会阻塞）
         self._queue: asyncio.Queue | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._hub_ids: dict[int, int] = {}   # 本地 meeting 消息序号 -> 云端消息 id
+        self._hub_ids: dict[tuple[int | None, int], int] = {}   # (频道 id, 本地 meeting 消息序号) -> 云端消息 id
         # 本进程的 id：和 meeting 消息序号拼成 client_key，重试同一条时云端去重（序号每次启动从 0 开始，所以要带进程 id）。
         self._boot = uuid.uuid4().hex
         self._stop = asyncio.Event()
@@ -403,10 +431,21 @@ class Host:
             return
         asyncio.run_coroutine_threadsafe(coro, loop)
 
-    async def _post_system(self, text: str) -> None:
+    async def _post_system(self, text: str, tag: str = "wake", notify: bool = False) -> None:
         self._said += 1
-        body = {"author_kind": "system", "text": text, "client_key": f"{self._boot}:wake:{self._said}"}
+        body = {"author_kind": "system", "text": text, "client_key": f"{self._boot}:{tag}:{self._said}"}
+        if notify:
+            body["notify"] = True   # hub 给登记过的手机弹通知（rh/hub.py「手机通知」）
         await self._retry(lambda: self._req(self._http, "POST", f"/api/rooms/{self.room}/messages", body))
+
+    def agent_event(self, role: str, project: str, state: str | None, text: str | None, notify: bool = False) -> None:
+        """事件通道（rh/discord_body.py on_agent_event）：Discord 里这个角色出错 / 等批准 / 做完 / 会话关掉。
+        做完、会话关掉、已报过的又一条出错 text 是 None：只改表盘，不往大厅发、不弹通知。
+        表盘：这个 project 停在 state（None = 清掉）；网页复用 hub 现有消息列表，有 text 就发一条系统消息（手机打开同一网页就能看）。"""
+        if self.dial is not None:
+            self.dial.hold(role, project, state)
+        if text:
+            self._post_soon(self._post_system(text, tag="event", notify=notify))
 
     async def _post_mic(self, on: bool) -> None:
         await self._retry(lambda: self._req(self._http, "POST", "/api/mic", {"on": on}))
@@ -498,7 +537,7 @@ class Host:
             await ws.send_json(f)
             return True
         except (aiohttp.ClientError, ConnectionError, RuntimeError) as e:
-            print(f"[device] 发给 hub 失败：{e!r}", flush=True)
+            print(f"[device] 发给 hub 失败：{brief_error(e)}", flush=True)
             return False
 
     # ---------- 已读位置 ----------
@@ -515,9 +554,9 @@ class Host:
         tmp.replace(self.state_path)
 
     # ---------- meeting -> 云端 ----------
-    def _on_think(self, role: str | None) -> None:
-        """meeting 线程里调用：谁在想，推给云端（网页显示“思考中”）和板子表盘。"""
-        if self.dial is not None:
+    def _on_think(self, role: str | None, room: int | None = None) -> None:
+        """meeting 线程里调用：谁在想，推给云端（网页显示“思考中”）和板子表盘。room=None：默认频道。"""
+        if self.dial is not None and room is None:
             self.dial.think(role)
         loop = self._loop
         if loop is None:
@@ -525,7 +564,8 @@ class Host:
         def send():
             ws = self._ws
             if ws is not None and not ws.closed and self.connected.is_set():
-                asyncio.ensure_future(self._send_one(ws, {"type": "thinking", "role": role}))
+                asyncio.ensure_future(self._send_one(ws, {"type": "thinking", "role": role,
+                                                          "room": self.room if room is None else room}))
         loop.call_soon_threadsafe(send)
 
     def _targets(self, m: dict) -> list[str] | None:
@@ -535,12 +575,12 @@ class Host:
             return self._voice_targets.pop(key)
         return self.words.typed_targets(m["text"]) if self.words is not None else None
 
-    def _on_event(self, event: str, msg: Message) -> None:
-        """meeting 线程里调用（持有 meeting 的锁），只丢进队列，不阻塞。"""
-        if event == "start" and msg.author not in ("user", "system"):
+    def _on_event(self, event: str, msg: Message, room: int | None = None) -> None:
+        """meeting 线程里调用（持有 meeting 的锁），只丢进队列，不阻塞。room=None：默认频道（语音、表盘只跟它）。"""
+        if room is None and event == "start" and msg.author not in ("user", "system"):
             self._last_speaker = msg.author
-        self._loop.call_soon_threadsafe(self._queue.put_nowait, (self._gen, event, msg))
-        if self.dial is not None:
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, (self._gen, room, event, msg))
+        if self.dial is not None and room is None:
             self.dial.event(event, msg)
 
     async def _sender(self, http: aiohttp.ClientSession) -> None:
@@ -549,34 +589,38 @@ class Host:
                    for r in self.meeting.roles]
         await self._retry(lambda: self._req(http, "PUT", "/api/members", members))
         while True:
-            gen, event, msg = await self._queue.get()
-            await self._retry(lambda: self._push(http, event, msg, gen), gen)
+            gen, room, event, msg = await self._queue.get()
+            await self._retry(lambda: self._push(http, event, msg, gen, room), gen)
 
-    async def _push(self, http: aiohttp.ClientSession, event: str, msg: Message, gen: int | None = None) -> None:
+    async def _push(self, http: aiohttp.ClientSession, event: str, msg: Message, gen: int | None = None,
+                    room: int | None = None) -> None:
+        """room=None：默认频道。"""
+        path = f"/api/rooms/{self.room if room is None else room}/messages"
         if event == "start":
             body = {"author_kind": "role", "author": msg.author, "name": msg.name,
-                    "text": msg.text, "status": "speaking", "client_key": self._key(msg)}
-            got = await self._req(http, "POST", f"/api/rooms/{self.room}/messages", body)
+                    "text": msg.text, "status": "speaking", "client_key": self._key(msg, room)}
+            got = await self._req(http, "POST", path, body)
             if gen is not None and gen != self._gen:
                 # 发出去时还是这一代，回来时已断线过（或被新主机踢了）：讨论已停，它的“说完”事件已作废，
                 # 云端可能在清过“在说”之后才收到这条。马上改成被打断，否则它会一直亮着。
                 try:
                     await self._req(http, "PATCH", f"/api/messages/{got['id']}", {"status": "interrupted"})
                 except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError) as e:
-                    print(f"[host] 补发“被打断”失败（云端下次主机连上时会清掉）：{e!r}", flush=True)
+                    print(f"[host] 补发“被打断”失败（云端下次主机连上时会清掉）：{brief_error(e)}", flush=True)
                 return
-            self._hub_ids[msg.id] = got["id"]
+            self._hub_ids[(room, msg.id)] = got["id"]
         elif event == "end":
-            hub_id = self._hub_ids.pop(msg.id, None)
+            hub_id = self._hub_ids.pop((room, msg.id), None)
             if hub_id is not None:
                 await self._req(http, "PATCH", f"/api/messages/{hub_id}",
                                 {"status": msg.status, "spoken": msg.spoken})
         elif event == "system":
-            await self._req(http, "POST", f"/api/rooms/{self.room}/messages",
-                            {"author_kind": "system", "text": msg.text, "client_key": self._key(msg)})
+            await self._req(http, "POST", path,
+                            {"author_kind": "system", "text": msg.text, "client_key": self._key(msg, room)})
 
-    def _key(self, msg: Message) -> str:
-        return f"{self._boot}:{msg.id}"
+    def _key(self, msg: Message, room: int | None = None) -> str:
+        # 每个频道的 meeting 消息序号各从 0 数，别的频道要带上频道 id，否则云端按 client_key 去重会吞掉。
+        return f"{self._boot}:{msg.id}" if room is None else f"{self._boot}:r{room}:{msg.id}"
 
     async def _req(self, http: aiohttp.ClientSession, method: str, path: str, body) -> dict:
         async with http.request(method, self.hub + path, json=body) as r:
@@ -600,18 +644,66 @@ class Host:
                 print(f"[host] 云端拒收，跳过：{e}", flush=True)
                 return
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
-                print(f"[host] 发到云端失败，{delay:.0f} 秒后重试：{e!r}", flush=True)
+                print(f"[host] 发到云端失败，{delay:.0f} 秒后重试：{brief_error(e)}", flush=True)
             finally:
                 self._idle.set()
             await asyncio.sleep(delay)   # 只有网络失败会走到这里
             delay = min(delay * 2, self.reconnect_max)
 
     # ---------- 云端 -> meeting ----------
+    # ---------- 多频道：每个频道一个会话 ----------
+    def _meeting_for(self, room_id: int | None) -> tuple[int | None, Meeting | None]:
+        """这条消息所在频道的 (会话键, 会话)：默认频道是 (None, self.meeting)；别的频道没有就建，不管别的频道时为 None。"""
+        if room_id is None or room_id == self.room:
+            return None, self.meeting
+        if room_id in self._archived:
+            return room_id, None
+        m = self.meetings.get(room_id)
+        if m is None and self.room_meeting is not None:
+            m = self.room_meeting(room_id)
+            m.on_event = lambda event, msg, r=room_id: self._on_event(event, msg, r)
+            m.on_think = lambda role, r=room_id: self._on_think(role, r)
+            self.meetings[room_id] = m
+            self._execs[room_id] = ThreadPoolExecutor(max_workers=1)   # 同一频道的用户消息按顺序交给它
+            print(f"[host] 频道 {room_id} 开了自己的会话（{session_key(room_id)}）", flush=True)
+        return room_id, m
+
+    def _exec_for(self, key: int | None) -> ThreadPoolExecutor:
+        return self._exec if key is None else self._execs[key]
+
+    def _drop_meeting(self, room_id: int) -> None:
+        m = self.meetings.pop(room_id)
+        m.stop()
+        self._execs.pop(room_id).shutdown(wait=False)
+
+    def _rooms_changed(self, rooms: list[dict]) -> None:
+        """云端推来全部频道（含归档的）。归档的停掉会话；会话目录和里面存的会话 id 留着
+        （rh/brain.py），恢复后再有消息会新建 Meeting，角色大脑用 --resume 接着原来的 claude 会话。"""
+        self._archived = {r["id"] for r in rooms if r.get("archived_at") is not None}
+        self._room_stamps = {r["id"]: r.get("created_at") for r in rooms}
+        for room_id in self._archived & self.meetings.keys() - {self.room}:
+            self._drop_meeting(room_id)
+            print(f"[host] 频道 {room_id} 已归档，停掉它的会话", flush=True)
+
     async def _handle_ready(self, ready: dict) -> None:
         self.room = ready["room"]["id"]
-        self.device_roles = set(ready.get("devices", []))
+        for k in [k for k, v in self.meetings.items() if v is self.meeting]:   # 换了云端：默认频道 id 可能变
+            del self.meetings[k]
+        self.meetings[self.room] = self.meeting
+        rooms = ready.get("rooms", [])
         msgs = ready["messages"]
         last = ready.get("last_id", 0)
+        stamps = {r["id"]: r.get("created_at") for r in rooms}
+        others = self.meetings.keys() - {self.room}
+        if (self.cursor is not None and self.cursor > last) or any(
+                k not in stamps or stamps[k] != self._room_stamps.get(k) for k in others):
+            # 云端库换过（清空、换机器）：同一个 id 可能已是另一个频道，旧会话的上下文不能接上去。
+            for k in list(others):
+                self._drop_meeting(k)
+            if others:
+                print(f"[host] 云端频道对不上（库换过？），扔掉旧的频道会话 {sorted(others)}", flush=True)
+        self._rooms_changed(rooms)
+        self.device_roles = set(ready.get("devices", []))
         if self.cursor is not None and self.cursor > last:
             # 云端库被清空或换了：id 从头开始，旧的已读位置会让新消息全被当成“已处理过”。
             print(f"[host] 已读位置 {self.cursor} 比云端最新消息 {last} 还大（云端库被清空过？），重置为 {last}", flush=True)
@@ -623,13 +715,19 @@ class Host:
             self._save_cursor()
             return
         self.mic_on = ready.get("mic", True) is not False
-        missed_msgs = [m for m in msgs if m["id"] > self.cursor and m["author_kind"] == "user"]
-        missed = [m["text"] for m in missed_msgs]
-        if missed:
-            print(f"[host] 补上断线期间的 {len(missed)} 条用户消息", flush=True)
+        missed_all = [m for m in msgs if m["id"] > self.cursor and m["author_kind"] == "user"]
+        by_room: dict[int | None, list[dict]] = {}
+        for m in missed_all:   # 按频道分开补，每个频道只进它自己的会话
+            by_room.setdefault(m.get("room_id"), []).append(m)
+        for room_id, missed_msgs in by_room.items():
+            key, meeting = self._meeting_for(room_id)
+            if meeting is None:   # 已归档的频道、或本主机不管的频道：跳过，不建会话
+                continue
+            missed = [m["text"] for m in missed_msgs]
+            print(f"[host] 补上断线期间的 {len(missed)} 条用户消息（频道 {room_id}）", flush=True)
             ts = [self._targets(m) for m in missed_msgs]
             only = None if any(t is None for t in ts) else sorted({r for t in ts for r in t})
-            await self._loop.run_in_executor(self._exec, self.meeting.user_say_many, missed, only)
+            await self._loop.run_in_executor(self._exec_for(key), meeting.user_say_many, missed, only)
         # 交给 meeting 之后才落盘：中间被杀的话，下次启动还会补这几条，不会丢。
         self.cursor = max(self.cursor, top)
         self._save_cursor()
@@ -638,14 +736,19 @@ class Host:
         if self.cursor is not None and m["id"] <= self.cursor:
             return   # 状态更新（多半是自己发的）或已处理过
         if m["author_kind"] == "user":
-            await self._loop.run_in_executor(self._exec, self.meeting.user_say, m["text"], self._targets(m))
+            key, meeting = self._meeting_for(m.get("room_id"))
+            if meeting is not None:   # 不管别的频道（没给 room_meeting）时跳过，不塞进默认频道的会话
+                await self._loop.run_in_executor(self._exec_for(key), meeting.user_say, m["text"], self._targets(m))
         self.cursor = m["id"]   # 交给 meeting 之后才落盘，同上
         self._save_cursor()
 
     async def _session(self, http: aiohttp.ClientSession) -> None:
         ws_url = "ws" + self.hub[len("http"):] + "/ws/host"   # 主机专用入口（大帧上限，握手带 token 头）
         async with http.ws_connect(ws_url, heartbeat=HEARTBEAT) as ws:
-            await ws.send_json({"type": "hello", "token": self.token, "kind": "host", "since": self.cursor})
+            hello = {"type": "hello", "token": self.token, "kind": "host", "since": self.cursor}
+            if self.room_meeting is not None:
+                hello["rooms"] = "all"   # 订全部频道（rh/hub.py「多频道」）；旧 hub 不认这个字段，照旧只给默认频道
+            await ws.send_json(hello)
             first = await ws.receive(timeout=self.ready_timeout)   # 云端不回 ready 就算连接失败，重连
             if first.type != aiohttp.WSMsgType.TEXT:
                 raise ConnectionError(f"云端拒绝连接：{first.type} {ws.close_code}")
@@ -661,6 +764,8 @@ class Host:
                 data = json.loads(frame.data)
                 if data.get("type") == "message":
                     await self._handle_message(data["message"])
+                elif data.get("type") == "rooms":
+                    self._rooms_changed(data.get("rooms") or [])
                 elif data.get("type") == "mic":
                     self._set_mic(data.get("on") is not False)
                 elif data.get("type") == "volume":
@@ -684,6 +789,10 @@ class Host:
         self._ws_lock = asyncio.Lock()
         self.meeting.on_event = self._on_event
         self.meeting.on_think = self._on_think
+        if self.discord is not None:
+            self.discord.on_notice = self.agent_event   # 事件通道：Discord 里出错 / 等批准 → 网页和表盘；做完只回表盘
+            if self.dial is not None:   # 队友状态文件里忙变闲 = 一轮结束：没出错的那几个 project 清「出错已报」记号（红圈 Dial 自己清）
+                self.dial.on_idle = self.discord.role_idle
         if self.boards is not None:
             try:
                 await self.boards.start()
@@ -715,12 +824,13 @@ class Host:
                         if not self._stop.is_set():
                             raise
                     except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ConnectionError) as e:
-                        print(f"[host] 连接云端失败：{e!r}", flush=True)
+                        print(f"[host] 连接云端失败：{brief_error(e)}", flush=True)
                     self.connected.clear()
                     self._ws = None
                     self.device_roles = set()
                     # 断线就停讲。先停 meeting 再加代数：停的时候发出的“被打断”事件也算上一代，一起丢掉。
-                    self.meeting.stop()
+                    for m in {id(x): x for x in [self.meeting, *self.meetings.values()]}.values():
+                        m.stop()
                     self._gen += 1
                     self._hub_ids.clear()
                     if self._stop.is_set():
@@ -772,8 +882,12 @@ def main() -> None:
     boards = None
     if tts is not None and cfg.xiaozhi_port is not None:
         boards = xiaozhimod.XiaozhiServer(cfg.xiaozhi_boards, token=env.get("RH_XIAOZHI_TOKEN", ""), port=cfg.xiaozhi_port)
+    # 别的频道（非默认频道）主机不建会话、不回话（room_meeting=None，hello 也不订别的频道），让 cc-connect 经 cloud_web
+    # 接进来的 bot（能干活、有记忆）回。来源：2026-10-20 现场，room 2「@橘 …」收到两条回复——hub 消息 229 作者 ju
+    # （主机的 claude -p 角色）和 230 作者 maomao（cc-connect 的橘），同一个角色回了两遍。默认频道（大厅，语音和板子）不变。
+    # Host 仍支持 room_meeting（tests/test_rooms.py），要主机自己管别的频道时在这里传工厂（build(..., room_id=)）。
     host = Host(meeting, a.hub, token, state, config_dir=Path(a.config).resolve().parent, speaker=tts, words=words,
-                boards=boards)
+                boards=boards, room_meeting=None)
     if boards is not None:
         # 名牌里的工作状态：按 [[discord.bots]] 的 project 读 ~/im-bridge/team/<project>.json（rh/dial.py read_busy）
         host.dial = dialmod.Dial(boards, cfg.roles, Path(a.config).resolve().parent, bots=cfg.discord_bots)
@@ -789,6 +903,17 @@ def main() -> None:
     if boards is not None and cfg.discord_bots:
         host.discord = discordmod.build(cfg, env, boards, tts.synth, meeting.lock, on_event=host.dial.event)
         boards.routes.extend(host.discord.routes())
+        # 启动自检（rh/discord_body.py selfcheck）：token、默认频道、webhook 配错就在这里报清楚怎么改并退出，
+        # 不等第一句话才悄悄失败；连不上 Discord 只警告、照常启动。
+        if cfg.discord_relay:
+            bad, warn = asyncio.run(host.discord.selfcheck())
+            for w in warn:
+                print(f"[discord] 自检：{w}", flush=True)
+            if bad:
+                host.discord.close()
+                raise SystemExit("roles.toml / .env 的 Discord 配置不对：\n- " + "\n- ".join(bad))
+            print("[discord] 自检通过" if not warn else "[discord] 自检有项没核成，见上", flush=True)
+        host.discord.warm()   # 开机预热选频道模型（后台），免得第一句等冷启动超时进默认频道
     listener = board_listener = None
     asr = None if a.no_voice else voicemod.gateway_asr(a.asr_url, print)
     if asr is not None:

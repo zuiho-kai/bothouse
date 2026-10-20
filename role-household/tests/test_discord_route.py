@@ -62,13 +62,31 @@ class FakeDiscord:
         self.channels = [dict(c) for c in CHANNELS]
         self.next_id = 900
         self.create_delay = 0.0
+        self.status_for: dict[str, int] = {}
+        self.delay = 0.0
+        self.webhook_channels = {"100": CHANNEL}   # webhook ID → 所属频道（自检查 webhook 用）
 
     async def _any(self, req: web.Request):
         body = await req.json() if req.can_read_body else None
         path = req.path.removeprefix("/api/v10")
         self.calls.append((req.method, path, body))
+        if self.delay:   # 模拟 Discord 慢（启动自检并行）
+            await asyncio.sleep(self.delay)
+        for prefix, status in self.status_for.items():   # 模拟限流、服务端出错
+            if path.startswith(prefix):
+                return web.Response(status=status)
         if not path.startswith("/webhooks/") and req.headers.get("Authorization") != "Bot tok":
             return web.Response(status=401)
+        if req.method == "GET" and path.startswith("/webhooks/"):   # 查 webhook（启动自检）：100 是默认频道的
+            wid = path.split("/")[2]
+            if wid not in self.webhook_channels:
+                return web.Response(status=404)
+            return web.json_response({"id": wid, "channel_id": self.webhook_channels[wid], "guild_id": GUILD})
+        if req.method == "GET" and path == "/users/@me":
+            return web.json_response({"id": "1", "username": "botA"})
+        if req.method == "GET" and path.startswith("/channels/"):
+            c = next((c for c in self.channels if c["id"] == path.split("/")[2]), None)
+            return web.json_response({**c, "guild_id": GUILD}) if c else web.Response(status=404)
         if req.method == "GET" and path == f"/guilds/{GUILD}/channels":
             return web.json_response(self.channels)
         if req.method == "GET" and path == f"/guilds/{GUILD}/roles":
@@ -125,7 +143,7 @@ class FakeLLM:
         self.calls: list[tuple[str, str]] = []
         self.systems: list[tuple[str, str]] = []
 
-    def complete(self, system, user, max_tokens):
+    def complete(self, system, user, max_tokens, timeout=None):
         kind = "route" if "只答一个字母" in system else "name" if "频道名" in system else "summary"
         self.calls.append((kind, user))
         self.systems.append((system, user))
@@ -137,7 +155,8 @@ class FakeLLM:
 
 
 class RouteBase(RelayBase):
-    async def start_route(self, answers=(), create=True, summary_llm=None, default_webhook=True, exclude=(QLOG,), **kw):
+    async def start_route(self, answers=(), create=True, summary_llm=None, default_webhook=True, exclude=(QLOG,),
+                          router=None, **kw):
         self.dc = await FakeDiscord().start()
         self.tmp = Path(tempfile.mkdtemp())
         self.settings = DiscordSettings(api=self.dc.base, guild=GUILD, webhooks_file=str(self.tmp / "hooks.json"),
@@ -147,7 +166,7 @@ class RouteBase(RelayBase):
         api = route.DiscordAPI(self.dc.base, "tok", 5.0)
         default = f"{self.dc.base}/webhooks/100/defaulttok" if default_webhook else ""
         await self.start_body(relay=True, webhook=default, settings=self.settings, api=api,
-                              router=route.Router(self.llm),
+                              router=router or route.Router(self.llm),
                               summarizer=route.Summarizer(summary_llm, self.settings.summary_chars, dbody.speakable), **kw)
         self.host.words = WORDS
 
@@ -455,11 +474,11 @@ class ConfigCheck(unittest.TestCase):
             body.close()
 
     def test_repo_config_loads(self):
-        c = cfgmod.load(ROOT / "roles.toml")
+        from tests.local_config import need_local
+        c = cfgmod.load(need_local(self))
         self.assertTrue(c.discord.router.url)
-        # 本机 roles.toml 配了日志子频道不进候选；只查形状，不在仓库里写真实频道 ID
+        # 日志子频道不进候选（本机配置：~/.cc-connect/config.toml aux_channels 量化团队 → 量化日志；ID 不写进仓库）
         self.assertTrue(c.discord.exclude_channels)
-        self.assertTrue(all(x.isdigit() for x in c.discord.exclude_channels))
         self.assertEqual(c.discord.router.prefill, "<think>\n\n</think>\n\n")
 
     def write(self, discord: str) -> cfgmod.Config:

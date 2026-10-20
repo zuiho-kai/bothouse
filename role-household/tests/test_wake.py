@@ -133,7 +133,8 @@ class WordsTest(unittest.TestCase):
         self.assertIsNone(WORDS.typed_targets("小家你好"))
 
     def test_config(self):
-        cfg = load(ROOT / "roles.toml")
+        from tests.local_config import need_local
+        cfg = load(need_local(self))
         w = wake.Words.from_config(cfg)
         self.assertEqual((cfg.wake_product, w.pause, w.mute, w.unmute), (["小家"], "暂停", "闭麦", "开麦"))
         self.assertEqual(w.classify("金鱼娘你好", muted=False).targets, ["jing"])

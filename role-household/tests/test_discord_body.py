@@ -65,7 +65,7 @@ class ToneSynth:
 
 class DiscordBase(XiaozhiBase):
     async def start_body(self, play=True, synth=None, encoder=fake_encoder, max_turns=1, synth_secs=0.3, grace=5.0,
-                         relay=False, webhook="", channel=CHANNEL, **body_kw):
+                         relay=False, webhook="", channel=CHANNEL, bots=BOTS, dial_kw=None, **body_kw):
         brains = {r.id: FakeBrain(r.name) for r in ROLES}
         self.local = FakeLocal()
         self.speaker = DeviceSpeaker(FakeSynth(synth_secs), self.local, log=self.log.append, grace=grace)
@@ -75,9 +75,9 @@ class DiscordBase(XiaozhiBase):
         self.host = Host(self.m, self.url, TOKEN, self.dir / "s.json", reconnect_min=0.05, reconnect_max=0.2,
                          speaker=self.speaker, boards=self.xz, words=w, log=self.log.append)
         from rh.dial import Dial
-        self.host.dial = Dial(self.xz, ROLES, self.dir, log=self.log.append)
+        self.host.dial = Dial(self.xz, ROLES, self.dir, log=self.log.append, **(dial_kw or {}))
         self.synth = synth or FakeSynth(synth_secs)
-        self.body = dbody.DiscordBody(BOTS, ROLES, self.xz, self.synth, self.m.lock, play=play, log=self.log.append,
+        self.body = dbody.DiscordBody(bots, ROLES, self.xz, self.synth, self.m.lock, play=play, log=self.log.append,
                                       on_event=self.host.dial.event, grace=grace, relay=relay, webhook=webhook,
                                       channel=channel, **body_kw)
         self.host.discord = self.body
@@ -220,7 +220,7 @@ class RealOpusOnFakeBoard(DiscordBase):
 
 class Speakable(unittest.TestCase):
     def test_strips_code_links_mentions_marks(self):
-        t = "**结论**：好了 <@100000000000000013>\n```py\nprint(1)\n```\n看 https://x.y/z 。`a` | b"
+        t = "**结论**：好了 <@1234567890123>\n```py\nprint(1)\n```\n看 https://x.y/z 。`a` | b"
         self.assertEqual(dbody.speakable(t), "结论 ：好了\n看 。 a b")
 
     def test_truncated_drops_first_half_sentence(self):
@@ -249,12 +249,13 @@ class Config(unittest.TestCase):
         """仓库里的 roles.toml：三个 bot 映射到三个角色、各有 cc-connect project；relay 开着就要有频道。
         play、relay 2026-10-19 都开着（用户在场正在测）。"""
         from rh import config
-        c = config.load(ROOT / "roles.toml")
+        from tests.local_config import need_local
+        c = config.load(need_local(self))
         self.assertEqual({b.role for b in c.discord_bots}, {"ju", "jing", "mao"})
         self.assertEqual({b.project: b.role for b in c.discord_bots}, {"maomao": "ju", "jingyu": "jing", "caihongmao": "mao"})
         self.assertTrue(c.discord_play)
         self.assertTrue(c.discord_relay)
-        self.assertEqual(c.discord_channel, "1561249071144894544")
+        self.assertTrue(c.discord_channel.isdigit())   # 本机默认频道（ID 不写进仓库）
 
 
 if __name__ == "__main__":

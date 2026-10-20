@@ -76,11 +76,41 @@ class RoleStates:
         self.thinking: str | None = None
         self.speaking: str | None = None
         self.interrupted_until: dict[str, float] = {}
+        # Discord 里这个角色的 bot 出了事、等批准（事件通道，rh/discord_body.py on_agent_event）：停在一个现有状态。
+        # 只用现有的 interrupted / thinking，不新设计状态种类（派活要求）。按 cc-connect project 分开记（一个角色可绑几个
+        # project；permission.requested 不带 session_key，分不到会话），表盘取最严重的（出错 > 等批准，代码审查裁决 2）。
+        # 角色 -> {project: (状态, 记下的时刻)}
+        self.held: dict[str, dict[str, tuple[str, float]]] = {}
+        # 角色 -> 上一次从忙变闲的时刻（队友状态文件，read_busy）。不用「看到忙」的时刻：轮询要晚几秒才看到忙，
+        # 这一轮开头就到的出错会被当成上一轮的（复审 2026-10-20）。
+        self.idle_since: dict[str, float] = {}
         self._mu = threading.Lock()
 
     def think(self, role: str | None) -> None:
         with self._mu:
             self.thinking = role
+
+    def hold(self, role: str, project: str, state: str | None) -> None:
+        """事件通道：role 的 project 停在 state（interrupted / thinking），None = 清掉这个 project 的。"""
+        if role not in self.roles:
+            return
+        with self._mu:
+            if state is None:
+                self.held.get(role, {}).pop(project, None)
+            else:
+                self.held.setdefault(role, {})[project] = (state, self.clock())
+
+    def went_idle(self, role: str) -> None:
+        """队友状态文件里这个角色从忙变闲（这一轮结束，含静默结束 NO_REPLY、出错后没有 message.sent，代码审查裁决 1）：
+        等批准一定不再等了，清掉；出错只清上一次忙变闲之前记下的（上一轮留下的）——出错本身会让这一轮结束，这时就清，
+        红圈只亮两秒（一次队友状态轮询），人不在电脑前看不到；留到下一轮结束再清。"""
+        with self._mu:
+            now = self.clock()
+            since = self.idle_since.get(role, float("-inf"))
+            held = self.held.get(role, {})
+            for p in [p for p, (st, at) in held.items() if st == "thinking" or at < since]:
+                del held[p]
+            self.idle_since[role] = now
 
     def event(self, event: str, msg: Message) -> None:
         if msg.author not in self.roles:
@@ -101,6 +131,9 @@ class RoleStates:
             for r in self.roles:
                 if self.interrupted_until.get(r, 0) > now:
                     out[r] = "interrupted"
+                elif self.held.get(r):
+                    kinds = {st for st, _ in self.held[r].values()}
+                    out[r] = "interrupted" if "interrupted" in kinds else "thinking"
             if self.speaking in out:
                 out[self.speaking] = "speaking"
                 return out
@@ -196,6 +229,7 @@ class Dial:
         self._busy: dict[str, bool] = {}        # 角色 -> 最近读到的忙闲（读不到的不在里面）
         self._busy_sent: dict[str, bool] = {}   # 角色 -> 上次发给板子的忙闲
         self._stop = threading.Event()
+        self.on_idle: Callable[[str], None] | None = None   # 角色忙变闲时调（Host.run 接到 DiscordBody.role_idle）
         if self._projects:
             self.refresh_busy()
             if busy_poll:
@@ -208,6 +242,11 @@ class Dial:
     # ---------- 状态 ----------
     def think(self, role: str | None) -> None:
         self.st.think(role)
+        self._push_changes()
+
+    def hold(self, role: str, project: str, state: str | None) -> None:
+        """事件通道（Host.agent_event 调）：出错停在红圈、等批准停在思考中，做完 / 会话关掉清掉这个 project 的（state=None）。"""
+        self.st.hold(role, project, state)
         self._push_changes()
 
     def event(self, event: str, msg: Message) -> None:
@@ -254,6 +293,7 @@ class Dial:
         从已知变成未知（文件没了、读不懂、过期）推 busy: null，板子隐藏工作状态。"""
         now = read_busy(self.team_dir, self._projects)
         with self._mu:   # 同 _push_changes：记 _busy_sent 和排队推送在锁里，顺序一致
+            went_idle = [r for r, b in now.items() if b is False and self._busy.get(r) is True]
             self._busy = now
             changed = {r: now.get(r) for r in set(self._projects.values())
                        if r in self._base and self._busy_sent.get(r) != now.get(r)}
@@ -265,6 +305,15 @@ class Dial:
                 self.server.push(r, {"type": MSG_TYPE, "role": r, "conest_status": {"busy": b}})
         for r, b in changed.items():
             self.log(f"[dial] {r} 的板子工作状态 → {'未知（隐藏）' if b is None else '工作中' if b else '空闲中'}")
+        for r in went_idle:   # 事件通道：这一轮结束，清掉停住的状态，并告诉 Discord 那边（出错只报一次的记号清掉）
+            self.st.went_idle(r)
+            if self.on_idle is not None:
+                try:
+                    self.on_idle(r)
+                except Exception as e:
+                    self.log(f"[dial] 忙变闲没通知到事件通道：{e!r}")
+        if went_idle:
+            self._push_changes()
 
     def message(self, role: str, base: str) -> dict:
         """板子连上时发的全量：身份、颜色、头像地址、当前状态；读得到忙闲时带上工作状态。"""

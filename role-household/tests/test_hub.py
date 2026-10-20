@@ -118,10 +118,18 @@ class HubAuth(HubBase):
 
 
     async def test_no_extra_get_api(self):
-        """简易版：历史只走 WebSocket ready 帧，不留没人用的 GET 接口。"""
-        for path in ("/api/rooms", "/api/members", "/api/rooms/1/messages"):
+        """不留没人用的 GET 接口（列频道 GET /api/rooms 是多频道要的，见 test_rooms；
+        往前翻历史和搜索的 GET /api/rooms/{room}/messages 见 test_hub_history.py）。"""
+        for path in ("/api/members",):
             async with self.http.get(self.url + path, headers=AUTH) as r:
                 self.assertIn(r.status, (404, 405), path)
+
+
+    async def test_web_ping_pong(self):
+        """网页回到前台时发 ping 探连接，hub 回 pong。"""
+        ws = await self.web_client(); await self.recv(ws)
+        await ws.send_json({"type": "ping"})
+        self.assertEqual(await self.recv(ws), {"type": "pong"})
 
 
 class HubMessages(HubBase):

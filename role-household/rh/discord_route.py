@@ -16,6 +16,16 @@
 
 两个模型都是可替换的接口：任何 OpenAI 兼容的 /chat/completions 都行；什么都没配 = 现状（只进默认频道、念全文）。
 选频道的候选不含 [discord.router] exclude_channels（如机器日志子频道），也不含被叫到的 bot 看不到或不能发言的频道。
+
+选频道的后端（用户 2026-10-20：「jev开关，写上允许llm模型或者jev模型，没有就按完全匹配允许口音，本身我们现在有的jev也是llm冒充的」）：
+    [discord.router] backend = "llm" → ChatLLM（OpenAI 兼容，模型只答一个字母）
+    [discord.router] backend = "jev" → JevClient（jev 的 System One 接口，choice 题，按 openJiuwen agent-core
+                                        JevSystemOneClient 的请求格式；本机 tools/jev_local.py 是用 Qwen 读选项 logits
+                                        冒充这个接口的示例实现，不是 jev 本身）
+    没配模型、模型出错/超时/答非选项 → NameMatcher：这句话里有没有频道名或别名（按读音比，允许口音，规则同 rh/wake.py
+                                        唤醒词），只认一个频道；匹配不上或同时像两个频道 → 默认频道。
+启动时 Router.warm 先调一次模型（后台线程）：模型冷启动 6.3 秒（下面 SUMMARY_TIMEOUT 的实测）超过选频道的 2 秒超时，
+不预热的话开机后第一句必然超时进默认频道。
 """
 from __future__ import annotations
 
@@ -33,6 +43,7 @@ from typing import Callable
 import aiohttp
 
 from .config import LLMEndpoint
+from .wake import Term
 
 # 摘要接口超时（秒）。来源：2026-10-19 本机 ai-gateway → LM Studio Qwen3.5-4B 实测热的时候 0.23–0.30 秒，
 # 冷启动（模型没加载）6.3 秒；超过 3 秒就不等了，退回第一句（用户嫌「太慢」）。
@@ -53,6 +64,10 @@ CHANNELS_TTL = 300.0
 TOPIC_CHARS = 80
 # 选项是单个大写字母（模型只答一个字母）：A 默认、B 新建，频道最多 24 个，再多按 Discord 里的排序取前 24 个。
 LETTERS = string.ascii_uppercase
+# 按回复文字选频道时最多生成几个 token。来源：沿用改动前 Router.choose 的 4（只要一个字母，留一点余量）。
+ROUTE_MAX_TOKENS = 4
+# 预热请求的超时（秒）。来源：冷启动实测 6.3 秒（见 SUMMARY_TIMEOUT 注释），取约 5 倍余量，后台跑不挡主人的话。
+WARM_TIMEOUT = 30.0
 DEFAULT, NEW = "default", "new"
 TEXT_CHANNEL = 0   # Discord 频道类型：文字频道
 
@@ -92,18 +107,68 @@ class ChatLLM:
         self.ep, self.key = ep, key
         self.timeout = ep.timeout or default_timeout
 
-    def complete(self, system: str, user: str, max_tokens: int) -> str:
+    def complete(self, system: str, user: str, max_tokens: int, timeout: float | None = None) -> str:
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         if self.ep.prefill:
             msgs.append({"role": "assistant", "content": self.ep.prefill})
         body = {"model": self.ep.model, "messages": msgs, "max_tokens": max_tokens, "temperature": 0}
+        return str(self._post(body, timeout)["choices"][0]["message"].get("content") or "").strip()
+
+    def _post(self, body: dict, timeout: float | None) -> dict:
+        if self.ep.no_thinking:   # 安装向导测出要这样问（rh/config.py LLMEndpoint.no_thinking）
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         headers = {"Content-Type": "application/json"}
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"
         req = urllib.request.Request(self.ep.url + "/chat/completions", json.dumps(body).encode(), headers)
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
+            return json.loads(r.read())
+
+    def pick(self, system: str, user: str, letters: str, timeout: float | None = None) -> str:
+        """选择题 → 选中的大写字母（可能不在 letters 里，调用方校验）。
+        配了 top_logprobs（向导 jev.json）：只要 1 个 token，在它的 top_logprobs 里取概率最高的选项字母
+        （同 conest gate scorer_remote.py），一个都没有再看回复文字；没配：读回复文字的第一个字（改动前的做法）。"""
+        if not self.ep.top_logprobs:
+            return self.complete(system, user, ROUTE_MAX_TOKENS, timeout)[:1].upper()
+        msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        if self.ep.prefill:
+            msgs.append({"role": "assistant", "content": self.ep.prefill})
+        body = {"model": self.ep.model, "messages": msgs, "max_tokens": 1, "temperature": 0,
+                "logprobs": True, "top_logprobs": self.ep.top_logprobs}
+        c = self._post(body, timeout)["choices"][0]
+        best: dict[str, float] = {}
+        for t in ((c.get("logprobs") or {}).get("content") or [{}])[0].get("top_logprobs") or []:
+            tok = str(t.get("token", "")).strip().upper()
+            if len(tok) == 1 and tok in letters:
+                best[tok] = max(best.get(tok, -1e9), float(t.get("logprob", -1e9)))
+        if best:
+            return max(best, key=best.get)
+        return str((c.get("message") or {}).get("content") or "").strip()[:1].upper()
+
+
+class JevClient:
+    """jev 的 System One 接口的最小客户端（同步，调用方放到线程里）：只问一道 choice 题。不打日志、不记 key。
+    请求/回复格式照 openJiuwen agent-core openjiuwen/core/foundation/llm/system_one/{client,schema}.py：
+        POST <url><endpoint>  {"state": ..., "model": ..., "questions": {"<名>": {"type": "choice", "instructions": ...,
+                                                                               "criteria": {"<选项>": "<说明>", ...}}}}
+        → {"model": ..., "answers": {"<名>": {"type": "choice", "choice": "<选项>", "confidence": ..., "probabilities": {...}}}}
+    真 jev（TypeSafe 托管，url = https://api.typesafe.ai）和本机冒充它的 tools/jev_local.py 都走这个。"""
+
+    def __init__(self, ep: LLMEndpoint, key: str = "", endpoint: str = "/v1/systemone",
+                 default_timeout: float = ROUTER_TIMEOUT):
+        self.ep, self.key, self.endpoint = ep, key, endpoint
+        self.timeout = ep.timeout or default_timeout
+
+    def choose(self, state: str, instructions: str, criteria: dict[str, str], timeout: float | None = None) -> str:
+        body = {"state": state, "model": self.ep.model,
+                "questions": {"channel": {"type": "choice", "instructions": instructions, "criteria": criteria}}}
+        headers = {"Content-Type": "application/json"}
+        if self.key:
+            headers["Authorization"] = f"Bearer {self.key}"
+        req = urllib.request.Request(self.ep.url + self.endpoint, json.dumps(body, ensure_ascii=False).encode(), headers)
+        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
             d = json.loads(r.read())
-        return str(d["choices"][0]["message"].get("content") or "").strip()
+        return str(d["answers"]["channel"]["choice"])
 
 
 SUMMARY_PROMPT = ("下面是一个 AI 助手在群聊里回主人的一段话。把它压成念给主人听的口语摘要：一两句中文，{chars} 字以内，"
@@ -139,43 +204,127 @@ NAME_PROMPT = ("主人要新开一个 Discord 频道，从他这句话里取频�
                "不要「频道」两个字、不要标点。只输出名字。")
 
 
+JEV_INSTRUCTIONS = ("主人对着语音助手说了一句话（state），要把这句话发到 Discord 的某个频道让 AI 去做。"
+                    "按这句话说的是哪摊事选频道：说到某个频道管的事就选那个频道；开头叫的名字只是在叫人，不算选频道的依据。")
+
+
+class NameMatcher:
+    """没配模型、模型失败时的退路：这句话里有没有某个频道的名字或别名，按读音比（允许口音）。
+    比法直接用 rh/wake.py 的 Term（唤醒词那套：同音字、两字以上不看声调、前后鼻音和 n/l 不分），不另设阈值。
+    只命中一个频道才算；同时像两个频道时取命中字数最长的那个，一样长就算没匹配上（进默认频道，不猜）。"""
+
+    def __init__(self, aliases: dict[str, list[str]] | None = None):
+        self.aliases = aliases or {}
+
+    def match(self, text: str, channels: list[dict]) -> tuple[str, str] | None:
+        """→ (频道 ID, 命中的叫法) 或 None。"""
+        best: list[tuple[int, str, str]] = []
+        for c in channels:
+            for word in [c.get("name", ""), *self.aliases.get(c["id"], [])]:
+                spoken = _NAME_BAD.sub("", word)
+                if spoken and Term(spoken).heard_in(text):
+                    best.append((len(spoken), c["id"], word))
+        if not best:
+            return None
+        top = max(n for n, _, _ in best)
+        ids = {cid for n, cid, _ in best if n == top}
+        if len(ids) != 1:
+            return None
+        return next((cid, w) for n, cid, w in best if n == top)
+
+
 class Router:
-    """按意思选频道（审稿第 1 条：小模型做主判断）。候选 = A 默认 + B 新建 + 服务器里的文字频道（名字和说明）。"""
+    """按意思选频道。候选 = A 默认 + B 新建 + 服务器里的文字频道（名字和说明）。
+    llm（OpenAI 兼容）和 jev（System One）二选一，由 [discord.router] backend 定；都没配或出错 → NameMatcher 读音匹配。"""
 
-    def __init__(self, llm: ChatLLM):
-        self.llm = llm
+    def __init__(self, llm: ChatLLM | None = None, jev: JevClient | None = None, matcher: NameMatcher | None = None):
+        self.llm, self.jev = llm, jev
+        self.matcher = matcher or NameMatcher()
 
-    def options(self, channels: list[dict], default_id: str) -> tuple[str, list[str]]:
-        """→ (选项说明, 每个字母对应什么：DEFAULT / NEW / 频道 ID)。默认频道不单列，就是 A。"""
+    @property
+    def backend(self) -> str:
+        """日志里怎么写这个后端。"""
+        if self.llm is not None:
+            return f"llm {getattr(getattr(self.llm, 'ep', None), 'model', '')}".strip()
+        if self.jev is not None:
+            return f"jev {getattr(getattr(self.jev, 'ep', None), 'model', '')}".strip()
+        return "读音匹配"
+
+    def _items(self, channels: list[dict], default_id: str) -> list[tuple[str, str]]:
+        """→ [(选项说明, DEFAULT / NEW / 频道 ID)]，按字母顺序。默认频道不单列，就是 A。"""
         here = next((f"（#{c['name']}" + (f"：{_topic(c)}" if _topic(c) else "") + "）"
                      for c in channels if c["id"] == default_id), "")
-        lines = [f"A 原地：就在主人平常和她说话的频道{here}。闲聊、问候、没指明哪个频道或哪摊事的，都选 A",
-                 "B 新建频道：主人明确说要新建/新开/独立开一个频道来做这件事"]
-        keys = [DEFAULT, NEW]
+        items = [(f"原地：就在主人平常和她说话的频道{here}。闲聊、问候、没指明哪个频道或哪摊事的，都选 A", DEFAULT),
+                 ("新建频道：主人明确说要新建/新开/独立开一个频道来做这件事", NEW)]
         for c in [c for c in channels if c["id"] != default_id][:len(LETTERS) - 2]:
             topic = _topic(c)
-            lines.append(f"{LETTERS[len(keys)]} #{c['name']}" + (f"：{topic}" if topic else ""))
-            keys.append(c["id"])
-        return "\n".join(lines), keys
+            items.append((f"#{c['name']}" + (f"：{topic}" if topic else ""), c["id"]))
+        return items
+
+    def options(self, channels: list[dict], default_id: str) -> tuple[str, list[str]]:
+        """→ (选项说明, 每个字母对应什么：DEFAULT / NEW / 频道 ID)。"""
+        items = self._items(channels, default_id)
+        lines = [f"{LETTERS[i]} {desc}" for i, (desc, _) in enumerate(items)]
+        return "\n".join(lines), [k for _, k in items]
+
+    def _ask(self, text: str, channels: list[dict], default_id: str, timeout: float | None = None) -> str:
+        """问模型，→ 答的字母（大写，没校验）。没配模型抛 LookupError。"""
+        if self.llm is not None:
+            opts, keys = self.options(channels, default_id)
+            system, user = ROUTE_PROMPT.format(options=opts), f"主人说：「{text}」"
+            if hasattr(self.llm, "pick"):
+                return self.llm.pick(system, user, LETTERS[:len(keys)], timeout)
+            return self.llm.complete(system, user, ROUTE_MAX_TOKENS, timeout)[:1].upper()
+        if self.jev is not None:
+            items = self._items(channels, default_id)
+            crit = {LETTERS[i]: desc for i, (desc, _) in enumerate(items)}
+            return self.jev.choose(f"主人说：「{text}」", JEV_INSTRUCTIONS, crit, timeout).strip()[:1].upper()
+        raise LookupError("没配模型")
 
     def choose(self, text: str, channels: list[dict], default_id: str) -> tuple[str, str]:
-        """→ (DEFAULT / NEW / 频道 ID, 模型答的字母或出错原因)。出错、答的不是选项 → DEFAULT。"""
-        opts, keys = self.options(channels, default_id)
+        """→ (DEFAULT / NEW / 频道 ID, 依据)。模型答了合法选项就用它（包括答「原地」）；
+        没配模型、出错、答的不是选项 → 按频道名/别名的读音匹配；还不行 → DEFAULT。"""
+        _, keys = self.options(channels, default_id)
+        why = ""
+        if self.llm is not None or self.jev is not None:
+            try:
+                letter = self._ask(text, channels, default_id)
+            except Exception as e:
+                why = f"模型出错 {type(e).__name__}"
+            else:
+                if letter and letter in LETTERS[:len(keys)]:
+                    return keys[LETTERS.index(letter)], letter
+                why = f"答的不是选项 {letter[:10]!r}"
+        hit = self.matcher.match(text, [c for c in channels if c["id"] != default_id])
+        if hit is not None:
+            return hit[0], (f"{why}，" if why else "") + f"读音匹配「{hit[1]}」"
+        return DEFAULT, (f"{why}，" if why else "") + "读音没匹配上"
+
+    def warm(self, log: Callable[[str], None] = lambda s: None) -> None:
+        """开机预热：用一句闲聊调一次模型，让本机模型先加载（冷启动比选频道超时长，见文件头）。没配模型什么都不做。"""
+        if self.llm is None and self.jev is None:
+            return
+        t0 = time.monotonic()
         try:
-            a = self.llm.complete(ROUTE_PROMPT.format(options=opts), f"主人说：「{text}」", 4)
+            letter = self._ask("你好", [], "", WARM_TIMEOUT)
         except Exception as e:
-            return DEFAULT, f"出错 {type(e).__name__}"
-        letter = a[:1].upper()
-        if letter not in LETTERS[:len(keys)]:
-            return DEFAULT, f"答的不是选项 {a[:10]!r}"
-        return keys[LETTERS.index(letter)], letter
+            log(f"[discord] 选频道模型预热失败（{type(e).__name__}，{time.monotonic() - t0:.1f} 秒）："
+                f"模型连不上时每句话都会退到读音匹配，请检查 [discord.router] url / model")
+            return
+        if letter not in LETTERS[:2]:   # 预热只有 A 原地、B 新建两个选项
+            log(f"[discord] 选频道模型预热失败（没答出选项，答的是 {letter[:10]!r}，{time.monotonic() - t0:.1f} 秒）："
+                f"这样问它每句话都会退到读音匹配，请换模型或检查 [discord.router] 的 prefill / 向导测试")
+            return
+        log(f"[discord] 选频道模型预热好了（{self.backend}，{time.monotonic() - t0:.1f} 秒）")
 
     def name(self, text: str) -> str:
-        """新频道的名字：先让模型从这句话里取，不行再按「专门做 X」取 X，再不行用 NAME_FALLBACK。"""
-        try:
-            n = clean_name(self.llm.complete(NAME_PROMPT.format(n=NAME_MAX_CHARS), text, NAME_MAX_TOKENS))
-        except Exception:
-            n = ""
+        """新频道的名字：llm 先让模型从这句话里取（jev 只做选择题，不生成），不行再按「专门做 X」取 X，再不行用 NAME_FALLBACK。"""
+        n = ""
+        if self.llm is not None:
+            try:
+                n = clean_name(self.llm.complete(NAME_PROMPT.format(n=NAME_MAX_CHARS), text, NAME_MAX_TOKENS))
+            except Exception:
+                n = ""
         return n or rule_name(text) or NAME_FALLBACK
 
 
@@ -225,6 +374,14 @@ def can_post(channel: dict, guild: str, roles: dict[str, int], member_roles: lis
     return perm & (VIEW_CHANNEL | SEND_MESSAGES) == VIEW_CHANNEL | SEND_MESSAGES
 
 
+class DiscordHTTPError(RuntimeError):
+    """Discord 回了非 2xx。status 给启动自检分辨「配错了」（401/403/404）和「网络问题」。"""
+
+    def __init__(self, msg: str, status: int):
+        super().__init__(msg)
+        self.status = status
+
+
 class DiscordAPI:
     """bot token 调 Discord REST：列频道、读身份组和成员、建文字频道、建 webhook。token 不进日志、不进错误信息。"""
 
@@ -236,7 +393,22 @@ class DiscordAPI:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as s:
             async with s.request(method, self.base + path, json=body, headers=headers) as r:
                 if r.status // 100 != 2:
-                    raise RuntimeError(f"Discord {method} {path.split('/')[1]} HTTP {r.status}")
+                    raise DiscordHTTPError(f"Discord {method} {path.split('/')[1]} HTTP {r.status}", r.status)
+                return await r.json()
+
+    async def me(self) -> dict:
+        """token 对应的 bot 自己（启动自检核 token 用）。"""
+        return await self._req("GET", "/users/@me")
+
+    async def channel(self, channel: str) -> dict:
+        return await self._req("GET", f"/channels/{channel}")
+
+    async def webhook_info(self, url: str) -> dict:
+        """webhook 地址本身就能查（不用 bot token）：回 id、channel_id、guild_id。错误信息里不带地址（有 token）。"""
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as s:
+            async with s.get(url, headers={"User-Agent": "DiscordBot (role-household, 1)"}) as r:
+                if r.status // 100 != 2:
+                    raise DiscordHTTPError(f"Discord GET webhook HTTP {r.status}", r.status)
                 return await r.json()
 
     async def text_channels(self, guild: str) -> list[dict]:

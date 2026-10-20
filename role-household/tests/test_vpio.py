@@ -199,7 +199,7 @@ class VPIOPlayTTSTest(unittest.TestCase):
 class BuildTTSTest(unittest.TestCase):
     def test_say_backend_uses_vpio_for_local(self):
         from rh.host import build_tts
-        cfg = cfgmod.load(ROOT / "roles.toml")
+        cfg = cfgmod.load(ROOT / "roles.example.toml")   # 只看 player 怎么搭，不依赖本地 roles.toml
         cfg.voice_backend = "say"
         v = vpio.VPIO(FAKE)
         tts = build_tts(cfg, vpio=v)
@@ -213,7 +213,7 @@ class ConfigTest(unittest.TestCase):
     def test_player_option(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "roles.toml"
-            base = (ROOT / "roles.toml").read_text()
+            base = (ROOT / "roles.example.toml").read_text().replace('backend = "say"', 'backend = "say"\nplayer = "vpio"', 1)
             p.write_text(base)
             self.assertEqual(cfgmod.load(p).voice_player, "vpio")
             p.write_text(base.replace('player = "vpio"', 'player = "afplay"'))

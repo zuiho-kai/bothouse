@@ -1,4 +1,6 @@
-# 角色小家配置的空白模板：复制成 roles.toml 再改。所有 ID、地址都是占位，换成你自己的。
+# 角色小家配置的空白模板：复制成 roles.toml 再改（cp roles.example.toml roles.toml）。所有 ID、地址都是占位，换成你自己的。
+# roles.toml 是你自己的本地文件，不进 git（.gitignore），拉新代码不会覆盖它；模板有新项时对照这份补。
+# 密钥（bot token、webhook 地址、模型 key）不写在这里，写进 .env（模板 .env.example）。
 # 板子接 Discord 的说明见 docs/DISCORD_BODY.md。改完重启主机生效。
 
 [meeting]
@@ -39,43 +41,64 @@ device = "00:00:00:00:00:01"   # 占位：板子的 MAC（主机日志「未绑�
 role = "a"
 
 # ---- 板子当 Discord 里 bot 的躯体（rh/discord_body.py，docs/DISCORD_BODY.md）----
+# 下面每一项都能改；改完重启主机生效。开了 relay 的话，主机启动时会自检 token、默认频道、webhook 是不是这个频道的，
+# 配错直接报错退出并说怎么改（连不上 Discord 只警告）。
 [discord]
-# 真板播放开关：关着只记日志、不出声（用户不在、睡觉时关）。
+# 真板播放开关：关着只记日志、不出声（用户不在、睡觉时关）。默认 false。
 play = false
-# 板子听到叫映射了 bot 的角色时，这句以 webhook 身份发进 Discord。
+# 板子听到叫映射了 bot 的角色时，这句以 webhook 身份发进 Discord。默认 false。
 relay = false
-# 默认频道 ID（占位）：没判出别的频道时发到这里。relay = true 时必填。
+# 默认发言频道 ID（占位）：没开自动选频道、或者选不出别的频道时，板子的话都发到这里。relay = true 时必填。
+# 在 Discord 里打开「开发者模式」，右键频道「复制频道 ID」。
 channel = "000000000000000001"
 
 # 以下全是可选；一项都不写 = 只进默认频道、念 bot 回话的全文、不建频道。
-# 服务器 ID：按意思选频道、新建频道要用。要用时去掉 # 换成你的服务器 ID（不打开 = 不列频道，只进默认频道）。
+# 服务器 ID：自动选频道、新建频道要用（右键服务器图标「复制服务器 ID」）。
 # guild = "000000000000000000"
+# 自动选频道总开关（不写就行）：不写 = 配了 guild（还要有 bot token，主机要列频道）或 [discord.router] 的模型就开，
+# 没配模型时按频道名读音匹配；写 auto_channel = false = 全进默认频道。
+# auto_channel = false
 # webhook 发言显示的名字，也是主机新建 webhook 的名字。默认「板子」。
 username = "板子"
-# bot token 的环境变量名（不在这里写值）：列频道、建频道、建 webhook 用；bot 要有「管理 Webhook」「管理频道」权限。
+# bot token 的环境变量名（不在这里写值，写进仓库根目录 .env，模板见 .env.example）：列频道、建频道、建 webhook 用；
+# bot 要有「管理 Webhook」「管理频道」权限。
 token_env = "DISCORD_BOT_TOKEN"
 # 环境变量里没有 token 时，再到这个 dotenv 文件里找（可空）。
 # token_file = "~/.cc-connect/secrets.env"
-# 默认频道已有 webhook 的地址放在哪个环境变量（.env）；没有就由主机按需建。
+# 默认频道已有 webhook 的地址放在哪个环境变量（.env）；没有就由主机用 bot token 按需建。
 webhook_env = "RH_DISCORD_WEBHOOK"
 # 主机建的 webhook 存在这里（相对本文件；里面有 webhook token，不要进 git）。
 webhooks_file = "data/discord-webhooks.json"
 # 主机建了 webhook 就把 ID 追加进这个文件；用 cc-connect 的话把它的 allow_bots_file 指向这里。可空 = 不写。
 allow_bots_file = "data/discord-allow-bots.txt"
-# 判出「新建频道」时真的建。默认 false（进默认频道）。
+# 选到「新建频道」时真的建（名字从这句话里取）。默认 false = 进默认频道。只有配了模型才会选到「新建」。
 create_channels = false
 
-# 按意思选频道的模型：任何 OpenAI 兼容的 /chat/completions（本机小模型、便宜 API 都行），只答一个字母。
-# 要用时去掉下面整段的 #（还要打开上面的 guild、给 bot token）。不打开 = 只进默认频道。
+# 自动选频道用什么判断（自动选频道开着才用）。三种，去掉对应几行的 # 就行：
+#   1. 不写 url（这一段整个不写也行）= 不用模型，只做「完全匹配，允许口音」：这句话里出现了某个频道的名字或别名
+#      （按读音比：同音字、声调、前后鼻音、n/l 不分，规则同语音唤醒词 rh/wake.py）就进那个频道；
+#      匹配不上、或同时像两个频道 → 默认频道。
+#   2. backend = "llm"：任何 OpenAI 兼容的 /chat/completions（本机 LM Studio、便宜 API 都行），模型只答一个字母。
+#   3. backend = "jev"：jev 的 System One 接口（POST <url><endpoint>，choice 题）。真 jev 是 TypeSafe 托管的
+#      （url = "https://api.typesafe.ai"，model = "jev-latest"，key 找 TypeSafe 要）。
+#      没有 jev 账号可以用本机冒充它的 tools/jev_local.py（Qwen 读选项 logits，不是 jev 本身，只能在 Apple 芯片 Mac 上跑）：
+#      url = "http://127.0.0.1:9931"，model 随便填。
+# 配了模型但它出错、超时、答的不是选项 → 退到第 1 种读音匹配，再不行进默认频道。
+# 主机启动时会在后台先调一次模型预热（本机模型冷启动比选频道超时长，不预热第一句必然进默认频道）。
 # [discord.router]
-# url = "http://127.0.0.1:1234/v1"   # 占位：base 地址，主机拼 /chat/completions
+# backend = "llm"                    # "llm" 或 "jev"；不写 = "llm"
+# url = "http://127.0.0.1:1234/v1"   # 占位。llm：base 地址，主机拼 /chat/completions；jev：服务地址，主机拼 endpoint
 # model = "your-model-name"
 # key_env = "RH_LLM_KEY"             # key 的环境变量名；或 key_file = "路径"（JSON 取 api_key，否则整份文字）
-# prefill = "<think>\n\n</think>\n\n"   # Qwen3 系列关不掉思考时预填空思考块；别的模型不写
-# timeout 不写 = 默认值（rh/discord_route.py ROUTER_TIMEOUT）；超时进默认频道
+# key_file = "~/.cc-connect/jev.json"   # 用 cc-connect 安装向导填的 jev：只写这一行，url/model 也从这个文件取；
+#                                      # 向导测出不给概率的模型不用，退到读音匹配
+# prefill = "<think>\n\n</think>\n\n"   # 只给 llm：Qwen3 系列关不掉思考时预填空思考块；别的模型不写
+# endpoint = "/v1/systemone"         # 只给 jev：接口路径，不写就是这个
+# timeout 不写 = 默认值（rh/discord_route.py ROUTER_TIMEOUT）；超时退到读音匹配
 # exclude_channels = ["000000000000000003"]   # 不当候选的频道 ID（如机器日志频道）；bot 看不到、不能发言的频道自动不列
+# aliases = { "000000000000000004" = ["量化", "模拟盘"] }   # 频道别名：读音匹配时除了频道名还认这些叫法
 
-# 朗读摘要的模型（同一类接口）。要用时去掉下面整段的 #。不打开 = 念全文；打开了但失败、超时 = 只念第一句。
+# 朗读摘要的模型（OpenAI 兼容接口）。要用时去掉下面整段的 #。不打开 = 念全文；打开了但失败、超时 = 只念第一句。
 # 频道里的文字不变。
 # [discord.summary]
 # url = "http://127.0.0.1:1234/v1"

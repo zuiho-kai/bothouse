@@ -5,3 +5,5 @@ data/
 logs/
 .env
 rh/vpio/build/
+# 本地配置：模板是 roles.example.toml（2026-10-20 起不进 git，见 README）
+roles.toml

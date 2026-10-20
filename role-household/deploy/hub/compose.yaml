@@ -1,4 +1,6 @@
 # vps-arm 上放在 /opt/role-household-hub；token 在同目录 hub.env（RH_HUB_TOKEN=...，不进 git）。
+# 手机通知的 VAPID 私钥：第一次启动自动生成在 ./data/vapid_private.pem（权限 600，不进 git）；丢了要每台手机重新点「开通知」。
+# hub.env 里可选 RH_USER_MENTION_ID=<我的 Discord 用户 ID>：bot 写 <@它> 也算 @ 我。
 services:
   hub:
     build:
