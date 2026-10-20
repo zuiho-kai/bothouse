@@ -12,6 +12,8 @@ import (
 
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func skipIfNoConfig(t *testing.T) *config.Config {
@@ -262,7 +264,7 @@ func TestIntegration_Codex_ProviderConfig_WrittenCorrectly(t *testing.T) {
 
 func TestIntegration_Codex_ProviderSwitch_SendMessage(t *testing.T) {
 	cfg := skipIfNoConfig(t)
-	if _, err := exec.LookPath("codex"); err != nil {
+	if _, err := testutil.LookPathReal("codex"); err != nil {
 		t.Skip("codex CLI not in PATH")
 	}
 

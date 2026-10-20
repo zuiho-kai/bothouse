@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 // skipUnlessBinaryAvailable skips if the agent binary is not in PATH.
@@ -24,7 +26,7 @@ func skipUnlessBinaryAvailable(t *testing.T, agentType string) {
 	if err != nil {
 		t.Skipf("skip %s: %v", agentType, err)
 	}
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := testutil.LookPathReal(bin); err != nil {
 		t.Skipf("skip %s: binary %q not in PATH", agentType, bin)
 	}
 }

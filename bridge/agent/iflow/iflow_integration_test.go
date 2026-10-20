@@ -4,19 +4,20 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func TestIFlowSessionIntegration(t *testing.T) {
 	if os.Getenv("IFLOW_INTEGRATION") == "" {
 		t.Skip("set IFLOW_INTEGRATION=1 to run")
 	}
-	if _, err := exec.LookPath("iflow"); err != nil {
+	if _, err := testutil.LookPathReal("iflow"); err != nil {
 		t.Skip("iflow CLI not found in PATH")
 	}
 

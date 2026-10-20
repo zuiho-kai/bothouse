@@ -3,19 +3,20 @@ package copilot
 import (
 	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func TestIntegration_CopilotFlow(t *testing.T) {
 	if os.Getenv("COPILOT_INTEGRATION") != "1" {
 		t.Skip("set COPILOT_INTEGRATION=1 to run")
 	}
-	if _, err := exec.LookPath("copilot"); err != nil {
+	if _, err := testutil.LookPathReal("copilot"); err != nil {
 		t.Skip("copilot CLI not in PATH, skipping")
 	}
 

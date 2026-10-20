@@ -1,0 +1,102 @@
+name: UI preview
+
+# 改了前端（bridge/web）的 PR：用 PR 的代码构建前端和 cc-connect，在临时 HOME 里起一个
+# 隔离实例（临时配置、不连任何平台和模型），无头浏览器截图，挂成 artifact；同仓库 PR
+# 再在评论里贴一份结果。脚本在 .github/ui-preview/。思路参考 yetone/magpie 的
+# ui-preview.yml，但这里不用任何密钥。
+#
+# 安全：用 pull_request（不是 pull_request_target）。fork 来的 PR 在这个事件下只有只读
+# token、拿不到 secrets；跑 PR 代码的 shoot job 只有 contents: read。写评论的 comment
+# job 不 checkout、不执行 PR 代码，只读 shoot 产出的 pages.json，并且只对同仓库 PR 运行。
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'bridge/web/**'
+      - '.github/ui-preview/**'
+      - '.github/workflows/ui-preview.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ui-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shoot:
+    runs-on: ubuntu-latest
+    # 沿用 ci.yml 里 bridge job 的上限。
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: lts/*
+      - name: pnpm 与 Chromium
+        run: |
+          # bridge/web/pnpm-workspace.yaml 只写了 onlyBuiltDependencies，要 pnpm 10
+          # （本机实测 pnpm 9 报 "packages field missing or empty"）。
+          npm install -g pnpm@10
+          cd .github/ui-preview
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+      - name: 构建、隔离启动、截图
+        run: .github/ui-preview/run.sh . ui-preview-out
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ui-preview
+          path: ui-preview-out
+          if-no-files-found: ignore
+
+  comment:
+    needs: shoot
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: ui-preview
+          path: out
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RESULT: ${{ needs.shoot.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker='<!-- conest-ui-preview -->'
+          {
+            echo "$marker"
+            echo "### UI 截图（提交 $SHA，结果：$RESULT）"
+            echo
+            if [ -f out/pages.json ]; then
+              echo '| 页面 | 主题 | HTTP | 最终路径 | 前端异常 | 结论 |'
+              echo '| --- | --- | --- | --- | --- | --- |'
+              jq -r '.[] | "| \(.page) | \(.theme) | \(.status) | \(.finalPath) | \(.errors|length) | \(if .ok then "ok" else "FAIL" end) |"' out/pages.json
+            else
+              echo '没有生成 pages.json，看运行日志。'
+            fi
+            echo
+            echo "截图在 [这次运行]($RUN_URL) 的 artifact \`ui-preview\` 里。隔离实例，不连真实平台和模型；不代替真实入口验证。"
+          } > body.md
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@body.md > /dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@body.md > /dev/null
+          fi

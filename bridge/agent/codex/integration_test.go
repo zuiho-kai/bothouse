@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 // TestIntegration_CodexProviderFlow verifies the full provider config flow:
@@ -21,7 +23,7 @@ func TestIntegration_CodexProviderFlow(t *testing.T) {
 	if apiKey == "" {
 		t.Skip("SHENGSUANYUN_API_KEY not set, skipping integration test")
 	}
-	if _, err := exec.LookPath("codex"); err != nil {
+	if _, err := testutil.LookPathReal("codex"); err != nil {
 		t.Skip("codex CLI not in PATH, skipping integration test")
 	}
 

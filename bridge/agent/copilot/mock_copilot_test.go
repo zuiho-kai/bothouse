@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 // TestMain intercepts test binary re-executions used as a fake copilot process.
@@ -21,7 +23,8 @@ func TestMain(m *testing.M) {
 		runMockCopilot(handleDeleteSession)
 		os.Exit(0)
 	default:
-		os.Exit(m.Run())
+		// 测试本身跑在临时 HOME 里，见 tests/testutil/sandbox.go。
+		os.Exit(testutil.RunSandboxed(m))
 	}
 }
 

@@ -8,5 +8,5 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testutil.RunLocalHTTPTests(m))
+	os.Exit(testutil.Sandboxed(func() int { return testutil.RunLocalHTTPTests(m) }))
 }

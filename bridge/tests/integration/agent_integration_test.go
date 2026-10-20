@@ -19,6 +19,8 @@ import (
 	"github.com/chenhg5/cc-connect/agent/gemini"
 	"github.com/chenhg5/cc-connect/agent/opencode"
 	"github.com/chenhg5/cc-connect/core"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 // skipUnlessAgentReady skips the test when the agent CLI binary is not
@@ -29,7 +31,7 @@ func skipUnlessAgentReady(t *testing.T, agentType string) {
 	if err != nil {
 		t.Skipf("skip %s: %v", agentType, err)
 	}
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := testutil.LookPathReal(bin); err != nil {
 		t.Skipf("skip %s: binary %q not in PATH", agentType, bin)
 	}
 	switch agentType {
@@ -70,15 +72,15 @@ type mockPlatform struct {
 }
 
 type mockMessage struct {
-	Content string
+	Content  string
 	ReplyCtx any
-	Images  []core.ImageAttachment
-	Audio   []core.FileAttachment
+	Images   []core.ImageAttachment
+	Audio    []core.FileAttachment
 }
 
-func (m *mockPlatform) Name() string                          { return "mock" }
-func (m *mockPlatform) Start(h core.MessageHandler) error    { return nil }
-func (m *mockPlatform) Stop() error                           { return nil }
+func (m *mockPlatform) Name() string                      { return "mock" }
+func (m *mockPlatform) Start(h core.MessageHandler) error { return nil }
+func (m *mockPlatform) Stop() error                       { return nil }
 func (m *mockPlatform) Send(ctx context.Context, replyCtx any, content string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

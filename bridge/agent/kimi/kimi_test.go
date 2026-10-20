@@ -3,7 +3,6 @@ package kimi
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,11 +10,13 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func skipUnlessKimiAvailable(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("kimi"); err != nil {
+	if _, err := testutil.LookPathReal("kimi"); err != nil {
 		t.Skipf("kimi CLI not in PATH, skipping: %v", err)
 	}
 }

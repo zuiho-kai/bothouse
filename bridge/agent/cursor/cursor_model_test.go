@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func shortTestContext(t *testing.T) (context.Context, context.CancelFunc) {
@@ -31,7 +33,7 @@ func requireWorkingAgentCLI(t *testing.T) {
 	if os.Getenv("SKIP_REAL_AGENT_CLI") != "" {
 		t.Skip("skipping real agent CLI test (SKIP_REAL_AGENT_CLI is set)")
 	}
-	if _, err := exec.LookPath("agent"); err != nil {
+	if _, err := testutil.LookPathReal("agent"); err != nil {
 		t.Skip("agent CLI not in PATH")
 	}
 	ctx, cancel := shortTestContext(t)

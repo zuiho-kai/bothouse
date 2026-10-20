@@ -3,13 +3,14 @@ package claudecode
 import (
 	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 // These integration tests use real provider credentials from ~/.cc-connect/config.toml.
@@ -148,7 +149,7 @@ func TestIntegration_ProviderSwitch_SessionStartModel(t *testing.T) {
 		workDir = "/tmp"
 	}
 
-	cliBin, err := exec.LookPath("claude")
+	cliBin, err := testutil.LookPathReal("claude")
 	if err != nil {
 		t.Skipf("claude CLI not found: %v", err)
 	}
@@ -160,7 +161,7 @@ func TestIntegration_ProviderSwitch_SessionStartModel(t *testing.T) {
 				providers: providers,
 				activeIdx: -1,
 				workDir:   workDir,
-				cmd:    cliBin,
+				cmd:       cliBin,
 			}
 			a.SetActiveProvider(prov.Name)
 

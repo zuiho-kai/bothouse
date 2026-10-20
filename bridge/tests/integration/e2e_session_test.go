@@ -13,6 +13,8 @@ import (
 
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 // testConfigPath returns the path to config.test.toml co-located with this
@@ -58,7 +60,7 @@ func setupE2E(t *testing.T, projectName string) (*core.Engine, *mockPlatform, fu
 	if err != nil {
 		t.Skipf("skip: %v", err)
 	}
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := testutil.LookPathReal(bin); err != nil {
 		t.Skipf("skip: %s binary not in PATH", bin)
 	}
 
@@ -356,7 +358,7 @@ func runE2E_SessionPersistence(t *testing.T, project string) {
 
 	agentType := proj.Agent.Type
 	bin, _ := findAgentBin(agentType)
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := testutil.LookPathReal(bin); err != nil {
 		t.Skipf("skip: %s not in PATH", bin)
 	}
 
