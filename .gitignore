@@ -21,6 +21,8 @@ bin/
 models/
 runtime/
 
+# 角色小家的本地配置：模板是 role-household/roles.example.toml（2026-10-20 起不进 git，见 docs/GETTING_STARTED.md「升级须知」）
+role-household/roles.toml
 # CI 截图脚本的依赖（.github/workflows/ui-preview.yml 里 npm install）
 .github/ui-preview/node_modules/
 .github/ui-preview/package-lock.json

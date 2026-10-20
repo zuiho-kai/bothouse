@@ -482,6 +482,9 @@ type ProviderConfig struct {
 	// Codex-specific provider config (maps to Codex model_providers.<name>)
 	CodexWireAPI     string            // wire API format (e.g. "responses")
 	CodexHTTPHeaders map[string]string // custom HTTP headers
+	// APIFormat = "openai_chat": the upstream only speaks Chat Completions;
+	// agents reach it through the local converter (ForProtocol, protoconv.go).
+	APIFormat string
 }
 
 // ProviderSwitcher is an optional interface for agents that support multiple API providers.

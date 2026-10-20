@@ -716,6 +716,28 @@ level = "info" # debug, info, warn, error
 
 [[projects]]
 name = "my-backend"
+#
+# ---- maomao fork: gate / main + subs / team status (see MAOMAO.md, docs/ccm-and-wiki.md) ----
+# ---- maomao 分支：快脑闸门、一主多 sub、队友状态（说明见 MAOMAO.md 和仓库根目录 docs/ccm-and-wiki.md）----
+# All optional; leave them out = upstream behaviour. / 全部可选，不写 = 和上游一样。
+# gate_url = "http://127.0.0.1:9930/decide"   # Main bot: ask the gate (contrib/gate/gate.py) for every user message.
+#                                             # 主 bot：每条用户消息先问闸门；同一个闸门的 /context 还负责每轮推 wiki 页。
+# gate_url = "http://127.0.0.1:9930/decide?bot=coder"   # A sub: ?bot=<key in GATE_TEAM subs>. / sub：?bot=<团队文件 subs 里的 key>
+# gate_timeout_ms = 3000           # Gate error/timeout → gate_fallback. / 闸门出错或超时按 gate_fallback 处理。
+# gate_fallback = "reply"          # Main: "reply" (default). Subs: "context" (listen only, never all subs at once).
+#                                  # 主 bot 用默认 reply；sub 用 context（闸门挂了只听不说，不会几个 sub 一起开口）。
+# chat_model = ""                  # With task_model: the gate's chat/task tag picks the model per idle turn.
+# task_model = ""                  # 两个都填时，闸门判「聊天/干活」，空闲时每轮按它换模型。
+# team_status_dir = "~/.cc-connect/team"   # Every bot: write busy/idle per channel to <dir>/<project>.json.
+#                                          # 每个 bot：把各频道忙/闲写到 <dir>/<project>.json，队友互相看得到。
+# team_name = "主管"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
+# team_status_inject = true        # Main bot only: start each turn with the teammates' status.
+#                                  # 只给主 bot：每轮开头附上队友状态。
+# Discord options for main + subs go under [projects.platforms.options]:
+# 一主多 sub 的 Discord 选项写在 [projects.platforms.options]：
+#   allow_bots = "<the other bots' user IDs, comma-separated>"   # 队友 bot 的用户 ID：@ 我 → 开一轮；没 @ → 只当上下文
+#   team_lead_bot = "<main bot user ID>"                          # 两个 sub 互相 @ 超过 3 轮交给主 bot
+#   share_session_in_channel = true                               # 一个频道一份会话，上下文进同一个会话
 # gate_burst_window_ms = 300        # With gate_url: idle text coalescing, default 1500ms.
 #                                  # Shorter windows reduce waiting but split slower bursts.
 #                                  # 收消息合并等待；附件仍保留原有等待。<=0 使用默认值。

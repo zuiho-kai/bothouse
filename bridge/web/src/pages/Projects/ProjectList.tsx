@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Server, Heart, ArrowRight, FolderKanban, Plus, Smartphone, Settings2 } from 'lucide-react';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { listProjects, type ProjectSummary } from '@/api/projects';
@@ -52,6 +52,7 @@ export default function ProjectList() {
   const [newWorkDir, setNewWorkDir] = useState('');
   const [newAgentType, setNewAgentType] = useState('claudecode');
   const [selectedPlat, setSelectedPlat] = useState('');
+  const [params] = useSearchParams();
 
   const fetch = useCallback(async () => {
     try {
@@ -62,6 +63,15 @@ export default function ProjectList() {
       setLoading(false);
     }
   }, []);
+
+  // conest: adding a project goes through the setup wizard; ?manual=1 keeps the old per-platform form.
+  useEffect(() => {
+    if (params.get('manual') === '1') openWizard();
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!loading && projects.length === 0 && params.get('manual') !== '1') navigate('/setup', { replace: true });
+  }, [loading, projects.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch();
@@ -116,9 +126,14 @@ export default function ProjectList() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-900 dark:text-white">{t('projects.title')}</h2>
-        <Button size="sm" onClick={openWizard}>
-          <Plus size={14} /> {t('setup.addProject', 'Add project')}
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={openWizard}>
+            <Settings2 size={14} /> {t('setup.manualSetup', 'Manual setup')}
+          </Button>
+          <Button size="sm" onClick={() => navigate('/setup')} data-testid="open-setup-wizard">
+            <Plus size={14} /> {t('setup.addProject', 'Add project')}
+          </Button>
+        </div>
       </div>
 
       {projects.length === 0 ? (

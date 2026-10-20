@@ -1,41 +1,42 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["mlx-lm"]
+# dependencies = ["mlx-lm; sys_platform == 'darwin' and platform_machine == 'arm64'"]  # mlx 只有 Apple 芯片；别的机器不装，gate 用 jev 或只按规则
 # ///
-"""橘的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent。
+"""主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent。
 
 先走确定性规则，规则定不了再让本地 Qwen3.5-4B 读 A/B/C 三个选项的概率（约 30ms，见 scorer.py）。
 每次判断写进 GATE_LOG（默认 ~/.cc-connect/gate.jsonl），用来调规则或以后做微调。
 POST /decide  {content, mentioned, busy, has_images, has_files, buffered[]} → {action, reason}
+POST /context {key, text} → 每轮相关的 wiki 页（ctxsvc.py；wiki 目录 GATE_WIKI，默认 ~/wiki）
 
-主 + sub：橘（主，/decide）按下面的规则和 4B 决定回/插入/不回，要别人开口就 @ 她们。
-sub（/decide?bot=longniang 等）听群里每句话，但只在被 @ 时回；没 @ 时空闲就记作增量（context，
+主 + sub：主 bot（/decide）按下面的规则和 4B 决定回/插入/不回，要别人开口就 @ 她们。
+sub（/decide?bot=<key>）听群里每句话，但只在被 @ 时回；没 @ 时空闲就记作增量（context，
 下次开口一起带上），忙时由 4B 判断这句和她手上的活有没有关系：有就插入，没有就记作增量。
 """
 import json, os, re, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from scorer import Scorer
+import ctxsvc
+from scorer_remote import NullScorer, RemoteScorer, load_jev
 
 PORT = 9930
 MODEL = os.environ.get("GATE_MODEL", "mlx-community/Qwen3.5-4B-MLX-4bit")
 LOG = Path(os.environ.get("GATE_LOG", Path.home() / ".cc-connect/gate.jsonl"))
 
-# 团队成员：默认是橘 + 龙娘/鲸鱼娘/彩虹猫；设 GATE_TEAM=<json 文件> 可换成别的团队，格式：
+# 安装向导（cc-connect 网页 / cc-connect setup apply）把 jev.json、gate-team.json 写在 cc-connect 的数据目录。
+SETUP_DIR = Path(os.environ.get("GATE_SETUP_DIR") or Path.home() / ".cc-connect").expanduser()
+# 团队成员：GATE_TEAM=<json 文件>；不设就用向导写的 <SETUP_DIR>/gate-team.json（lead = 向导里选的兜底角色），
+# 再没有就用同目录的 team.example.json（占位名字，复制一份改成你自己的角色）。格式：
 # {"lead": {"name": "C酱", "aliases": ["Claude"]}, "subs": {"gge": {"name": "G哥", "aliases": ["Codex"]}}}
 # subs 的 key 就是 cc-connect 里 gate_url 的 ?bot=<key>。
-if os.environ.get("GATE_TEAM"):
-    _team = json.loads(Path(os.environ["GATE_TEAM"]).expanduser().read_text(encoding="utf-8"))
-    LEAD = _team["lead"]["name"]
-    LEAD_NAMES = [LEAD, *_team["lead"].get("aliases", [])]
-    SUBS = {k: v["name"] for k, v in _team["subs"].items()}
-    NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _team["subs"].items()}
-else:
-    LEAD = "橘"
-    LEAD_NAMES = ["橘", "猫猫"]
-    SUBS = {"longniang": "龙娘", "jingyu": "鲸鱼娘", "caihongmao": "彩虹猫"}
-    NAMES = {"longniang": ["龙娘"], "jingyu": ["鲸鱼娘", "鲸鱼", "大肥鱼"], "caihongmao": ["彩虹猫"]}
+_team_file = os.environ.get("GATE_TEAM") or (SETUP_DIR / "gate-team.json" if (SETUP_DIR / "gate-team.json").exists()
+                                              else Path(__file__).with_name("team.example.json"))
+_team = json.loads(Path(_team_file).expanduser().read_text(encoding="utf-8"))
+LEAD = _team["lead"]["name"]
+LEAD_NAMES = [LEAD, *_team["lead"].get("aliases", [])]
+SUBS = {k: v["name"] for k, v in _team["subs"].items()}
+NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _team["subs"].items()}
 NAMES[""] = LEAD_NAMES
 SUB_LIST = "、".join(SUBS.values())
 
@@ -66,7 +67,19 @@ PROMPT = _team_text(PROMPT)
 SUFFIX = LEAD + "{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复）："  # 末尾重提选项：不加的话偏向 A
 
 ACTIONS = ["silent", "insert", "reply"]
-scorer = Scorer(MODEL)
+def make_scorer():
+    """jev.json（拿得到概率）→ 本机 mlx Qwen → 只按规则（NullScorer：模型那步按出错走，主 bot 回 = 兜底角色回）。"""
+    jev = load_jev(os.environ.get("GATE_JEV") or SETUP_DIR / "jev.json")
+    if jev:
+        return RemoteScorer(jev), "jev"
+    try:
+        from scorer import Scorer
+    except ImportError:  # 没装 mlx（非 Apple 芯片、Linux、Windows）
+        return NullScorer(), "rules"
+    return Scorer(MODEL), "local"
+
+
+scorer, SCORER_KIND = make_scorer()
 task = scorer.prepare(PROMPT, options=["A", "B", "C"], prefill="答案：")
 
 # sub：忙时这句要不要打断她
@@ -224,6 +237,12 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
         bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
+        if url.path == "/context":  # 每轮相关的 wiki 页（ctxsvc.py）
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            body = json.dumps(ctxsvc.context(req), ensure_ascii=False).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
         if url.path != "/decide" or (bot and bot not in SUBS):
             self.send_error(404); return
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -261,6 +280,9 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    judge("你好", False, [])  # warm up (first forward compiles kernels)
-    print(f"gate on 127.0.0.1:{PORT}", flush=True)
+    try:
+        judge("你好", False, [])  # warm up (first forward compiles kernels / first remote call)
+    except ValueError as e:
+        print(f"warm-up: {e}", flush=True)
+    print(f"gate on 127.0.0.1:{PORT}  team={LEAD}+{SUB_LIST}  scorer={SCORER_KIND}  wiki={ctxsvc.WIKI or 'off'}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

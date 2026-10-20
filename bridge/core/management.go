@@ -36,6 +36,7 @@ type ProjectSettingsUpdate struct {
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
 	port        int
+	host        string // "" = all interfaces
 	token       string
 	corsOrigins []string
 	server      *http.Server
@@ -70,6 +71,10 @@ type ManagementServer struct {
 
 	// cc-switch migration callback
 	listCCSwitchProviders func() ([]CCSwitchProviderInfo, error)
+
+	// setup wizard (setup_wizard.go)
+	wizardStore   WizardStore
+	wizardDataDir string
 }
 
 // NewManagementServer creates a new management API server.
@@ -82,6 +87,9 @@ func NewManagementServer(port int, token string, corsOrigins []string) *Manageme
 		startedAt:   time.Now(),
 	}
 }
+
+// SetHost sets the listen address ("" = all interfaces, "127.0.0.1" = this machine only).
+func (m *ManagementServer) SetHost(host string) { m.host = host }
 
 func (m *ManagementServer) RegisterEngine(name string, e *Engine) {
 	m.mu.Lock()
@@ -200,7 +208,7 @@ func (m *ManagementServer) Start() {
 	handler := m.buildHandler(mux)
 
 	m.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", m.port),
+		Addr:    fmt.Sprintf("%s:%d", m.host, m.port),
 		Handler: handler,
 	}
 	go func() {
@@ -239,6 +247,20 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/weixin/begin", m.wrap(m.handleSetupWeixinBegin))
 	mux.HandleFunc(prefix+"/setup/weixin/poll", m.wrap(m.handleSetupWeixinPoll))
 	mux.HandleFunc(prefix+"/setup/weixin/save", m.wrap(m.handleSetupWeixinSave))
+
+	// Setup wizard (conest): local CLIs, API×CLI matrix, Discord/Feishu pickers, jev test, one-shot apply
+	mux.HandleFunc(prefix+"/setup/state", m.wrap(m.handleSetupState))
+	mux.HandleFunc(prefix+"/setup/clis", m.wrap(m.handleSetupCLIs))
+	mux.HandleFunc(prefix+"/setup/matrix", m.wrap(m.handleSetupMatrix))
+	mux.HandleFunc(prefix+"/setup/personas", m.wrap(m.handleSetupPersonas))
+	mux.HandleFunc(prefix+"/setup/persona", m.wrap(m.handleSetupPersona))
+	mux.HandleFunc(prefix+"/setup/discord/bots", m.wrap(m.handleSetupDiscordBots))
+	mux.HandleFunc(prefix+"/setup/discord/check", m.wrap(m.handleSetupDiscordCheck))
+	mux.HandleFunc(prefix+"/setup/discord/channels", m.wrap(m.handleSetupDiscordChannels))
+	mux.HandleFunc(prefix+"/setup/feishu/chats", m.wrap(m.handleSetupFeishuChats))
+	mux.HandleFunc(prefix+"/setup/jev/test", m.wrap(m.handleSetupJevTest))
+	mux.HandleFunc(prefix+"/setup/jev/save", m.wrap(m.handleSetupJevSave))
+	mux.HandleFunc(prefix+"/setup/apply", m.wrap(m.handleSetupApply))
 
 	// Global Providers
 	mux.HandleFunc(prefix+"/providers", m.wrap(m.handleGlobalProviders))
@@ -631,6 +653,8 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 		m.handleProjectHeartbeat(w, r, projName, rest)
 	case "users":
 		m.handleProjectUsers(w, r, engine)
+	case "persona":
+		m.handleProjectPersona(w, r, engine)
 	default:
 		mgmtError(w, http.StatusNotFound, "not found")
 	}

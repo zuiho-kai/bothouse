@@ -56,7 +56,8 @@
       "overview": "Overview",
       "providers": "Providers",
       "heartbeat": "Heartbeat",
-      "settings": "Settings"
+      "settings": "Settings",
+      "persona": "Persona"
     }
   },
   "sessions": {

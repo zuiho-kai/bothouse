@@ -493,7 +493,7 @@ func (a *Agent) startSession(ctx context.Context, sessionID string, forceExec bo
 		if m := a.providers[a.activeIdx].Model; m != "" {
 			model = m
 		}
-		baseURL = a.providers[a.activeIdx].BaseURL
+		baseURL = a.providers[a.activeIdx].ForProtocol(core.ProtocolResponses).BaseURL
 	}
 	provName, provAPIKey, provWireAPI, provHeaders := a.activeProviderCodexConfig()
 	a.mu.Unlock()
@@ -760,7 +760,7 @@ func (a *Agent) providerEnvLocked() []string {
 	if a.activeIdx < 0 || a.activeIdx >= len(a.providers) {
 		return nil
 	}
-	p := a.providers[a.activeIdx]
+	p := a.providers[a.activeIdx].ForProtocol(core.ProtocolResponses)
 	var env []string
 	if p.APIKey != "" {
 		env = append(env, "OPENAI_API_KEY="+p.APIKey)
@@ -781,7 +781,7 @@ func (a *Agent) activeProviderCodexConfig() (name string, apiKey string, wireAPI
 	if a.activeIdx < 0 || a.activeIdx >= len(a.providers) {
 		return
 	}
-	p := a.providers[a.activeIdx]
+	p := a.providers[a.activeIdx].ForProtocol(core.ProtocolResponses)
 	hasCodexConfig := p.CodexWireAPI != "" || len(p.CodexHTTPHeaders) > 0
 	isThirdParty := p.BaseURL != "" && p.APIKey != ""
 	if !hasCodexConfig && !isThirdParty {

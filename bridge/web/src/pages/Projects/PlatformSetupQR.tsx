@@ -19,9 +19,11 @@ interface Props {
   agentType?: string;
   onComplete: () => void;
   onCancel: () => void;
+  /** Setup wizard: receive the scanned Feishu credentials instead of saving here. */
+  onCredentials?: (c: { app_id: string; app_secret: string; platform_type: string; owner_open_id?: string }) => void;
 }
 
-export default function PlatformSetupQR({ platformType, projectName, workDir, agentType, onComplete, onCancel }: Props) {
+export default function PlatformSetupQR({ platformType, projectName, workDir, agentType, onComplete, onCancel, onCredentials }: Props) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('idle');
   const [qrUrl, setQrUrl] = useState('');
@@ -75,6 +77,11 @@ export default function PlatformSetupQR({ platformType, projectName, workDir, ag
 
           switch (res.status) {
             case 'completed':
+              if (onCredentials) {
+                pollingRef.current = false;
+                onCredentials({ app_id: res.app_id!, app_secret: res.app_secret!, platform_type: res.platform || 'feishu', owner_open_id: res.owner_open_id });
+                return;
+              }
               setPhase('saving');
               await setupFeishuSave({
                 project: projectName,
@@ -114,7 +121,7 @@ export default function PlatformSetupQR({ platformType, projectName, workDir, ag
       pollingRef.current = false;
     };
     poll();
-  }, [projectName]);
+  }, [projectName, onCredentials]);
 
   const startWeixinFlow = useCallback(async () => {
     setPhase('loading');

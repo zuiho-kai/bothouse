@@ -1180,7 +1180,7 @@ func (a *Agent) providerEnvLocked() []string {
 		a.stopProviderProxyLocked()
 		return nil
 	}
-	p := a.providers[a.activeIdx]
+	p := a.providers[a.activeIdx].ForProtocol(core.ProtocolAnthropic)
 	var env []string
 
 	if p.BaseURL != "" {

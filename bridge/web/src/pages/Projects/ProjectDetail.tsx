@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play,
-  Trash2, Plus, Check, Clock, ExternalLink, Link2,
+  Trash2, Plus, Check, Clock, ExternalLink, Link2, UserRound,
 } from 'lucide-react';
+import PersonaPanel from './PersonaPanel';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { getProject, updateProject, deleteProject, listAgentTypes, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
@@ -57,7 +58,7 @@ const MODE_OPTIONS_BY_AGENT: Record<string, { value: string; label: string }[]> 
 
 const isQRPlatform = (type: string) => type === 'feishu' || type === 'lark' || type === 'weixin';
 
-type Tab = 'overview' | 'providers' | 'heartbeat' | 'settings';
+type Tab = 'overview' | 'persona' | 'providers' | 'heartbeat' | 'settings';
 
 export default function ProjectDetail() {
   const { t } = useTranslation();
@@ -251,6 +252,7 @@ export default function ProjectDetail() {
 
   const tabs: { key: Tab; icon: React.ElementType }[] = [
     { key: 'overview', icon: Layers },
+    { key: 'persona', icon: UserRound },
     { key: 'providers', icon: Zap },
     { key: 'heartbeat', icon: Heart },
     { key: 'settings', icon: Settings },
@@ -291,6 +293,7 @@ export default function ProjectDetail() {
       </div>
 
       {/* Tab content */}
+      {tab === 'persona' && name && <PersonaPanel project={name} />}
       {tab === 'overview' && project && (
         <div className="space-y-4">
           <Card>

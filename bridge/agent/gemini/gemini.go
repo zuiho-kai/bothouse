@@ -389,10 +389,14 @@ func (a *Agent) providerEnvLocked() []string {
 	if a.activeIdx < 0 || a.activeIdx >= len(a.providers) {
 		return nil
 	}
-	p := a.providers[a.activeIdx]
+	p := a.providers[a.activeIdx].ForProtocol(core.ProtocolGemini)
 	var env []string
 	if p.APIKey != "" {
 		env = append(env, "GEMINI_API_KEY="+p.APIKey)
+	}
+	if p.BaseURL != "" {
+		// Gemini CLI (@google/genai) honours this for API-key auth.
+		env = append(env, "GOOGLE_GEMINI_BASE_URL="+p.BaseURL)
 	}
 	for k, v := range p.Env {
 		env = append(env, k+"="+v)

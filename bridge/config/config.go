@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/BurntSushi/toml"
 )
@@ -78,7 +77,7 @@ func validateRunAsUser(prefix, name string) error {
 }
 
 // configMu serializes read-modify-write cycles to prevent lost updates.
-var configMu sync.Mutex
+var configMu configLock
 
 // ConfigPath stores the path to the config file for saving
 var ConfigPath string
@@ -179,6 +178,7 @@ type HookConfig struct {
 type ManagementConfig struct {
 	Enabled     *bool    `toml:"enabled"`                // default false
 	Port        int      `toml:"port,omitempty"`         // listen port; default 9820
+	Host        string   `toml:"host,omitempty"`         // listen address; "" = all interfaces (upstream default), "127.0.0.1" = this machine only
 	Token       string   `toml:"token,omitempty"`        // shared secret for authentication; required
 	CORSOrigins []string `toml:"cors_origins,omitempty"` // allowed CORS origins; empty = no CORS
 }
@@ -621,6 +621,7 @@ type ProviderConfig struct {
 	AgentModels     map[string]string                `toml:"agent_models,omitempty"`      // per-agent-type default model (e.g. codex = "openai/gpt-5.3-codex")
 	AgentModelLists map[string][]ProviderModelConfig `toml:"agent_model_lists,omitempty"` // per-agent-type model lists (overrides Models when matched)
 	Codex           *CodexProviderConfig             `toml:"codex,omitempty"`             // Codex-specific provider settings
+	APIFormat       string                           `toml:"api_format,omitempty"`        // "openai_chat" = upstream only speaks /chat/completions; converted locally for claude/codex/gemini
 }
 
 // CodexProviderConfig holds Codex CLI-specific provider fields
@@ -1582,7 +1583,9 @@ func loadLocked() (*Config, error) {
 	return cfg, nil
 }
 
-func saveConfig(cfg *Config) error {
+// saveConfig encodes cfg (a *Config, or the raw map[string]any document the
+// setup wizard edits) and atomically replaces config.toml.
+func saveConfig(cfg any) error {
 	dir := filepath.Dir(ConfigPath)
 	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {

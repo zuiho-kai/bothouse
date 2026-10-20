@@ -229,6 +229,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"yuanbao":   runYuanbao,
 	"doctor":    runDoctor,
 	"web":       runWeb,
+	"setup":     runSetup,
 }
 
 func main() {
@@ -320,17 +321,24 @@ func main() {
 	slog.Info("acquired instance lock", "path", instanceLock.Path())
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := bootstrapConfig(configPath); err != nil {
+		// conest: first run writes a minimal config with the web admin on and opens the setup wizard
+		// (below: no projects → setup-only mode) instead of asking the user to edit TOML.
+		if err := bootstrapSetupConfig(configPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating config: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Created default config at %s\n", configPath)
-		fmt.Println("Please edit this file to add your agent and platform credentials, then run cc-connect again.")
-		os.Exit(0)
+		fmt.Printf("Created %s\n", configPath)
 	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
+		// conest: fresh install (no projects yet) with the web admin enabled → serve only the setup wizard.
+		if pc, perr := config.LoadForSetup(configPath); perr == nil && len(pc.Projects) == 0 &&
+			pc.Management.Enabled != nil && *pc.Management.Enabled {
+			config.ConfigPath = configPath
+			runSetupOnly(pc, configPath, instanceLock.Release)
+			return
+		}
 		fmt.Fprintf(os.Stderr, "Error loading config (%s): %v\n", configPath, err)
 		os.Exit(1)
 	}
@@ -1105,6 +1113,7 @@ func main() {
 			port = 9820
 		}
 		mgmtSrv = core.NewManagementServer(port, cfg.Management.Token, cfg.Management.CORSOrigins)
+		mgmtSrv.SetHost(cfg.Management.Host)
 		for i, e := range engines {
 			mgmtSrv.RegisterEngine(cfg.Projects[i].Name, e)
 		}
@@ -1118,30 +1127,8 @@ func main() {
 		if bridgeSrv != nil {
 			mgmtSrv.SetBridgeServer(bridgeSrv)
 		}
-		mgmtSrv.SetSetupFeishuSave(func(req core.FeishuSetupSaveRequest) error {
-			platType := req.PlatformType
-			if platType == "" {
-				platType = "feishu"
-			}
-			_, err := config.EnsureProjectWithFeishuPlatform(config.EnsureProjectWithFeishuOptions{
-				ProjectName:  req.ProjectName,
-				PlatformType: platType,
-				WorkDir:      req.WorkDir,
-				AgentType:    req.AgentType,
-			})
-			if err != nil {
-				return fmt.Errorf("ensure project: %w", err)
-			}
-			_, err = config.SaveFeishuPlatformCredentials(config.FeishuCredentialUpdateOptions{
-				ProjectName:       req.ProjectName,
-				PlatformType:      platType,
-				AppID:             req.AppID,
-				AppSecret:         req.AppSecret,
-				OwnerOpenID:       req.OwnerOpenID,
-				SetAllowFromEmpty: true,
-			})
-			return err
-		})
+		mgmtSrv.SetSetupFeishuSave(saveFeishuSetup)
+		mgmtSrv.SetWizard(configWizardStore{}, cfg.DataDir)
 		mgmtSrv.SetSetupWeixinSave(func(req core.WeixinSetupSaveRequest) error {
 			_, err := config.EnsureProjectWithWeixinPlatform(config.EnsureProjectWithWeixinOptions{
 				ProjectName: req.ProjectName,
@@ -1563,44 +1550,6 @@ func resolveConfigPath(explicit string) string {
 	return "config.toml"
 }
 
-func bootstrapConfig(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	const tmpl = `# cc-connect configuration
-# Docs: https://github.com/chenhg5/cc-connect
-
-[log]
-level = "info"
-
-[[projects]]
-name = "my-project"
-
-[projects.agent]
-type = "claudecode"   # "claudecode", "codex", "cursor", "gemini", "qoder", "opencode", or "iflow"
-
-[projects.agent.options]
-work_dir = "/path/to/your/project"
-mode = "default"
-# model = "claude-sonnet-4-20250514"
-
-# --- Choose at least one platform below ---
-
-# Feishu / Lark (WebSocket, no public IP needed)
-[[projects.platforms]]
-type = "feishu"
-
-[projects.platforms.options]
-app_id = "your-feishu-app-id"
-app_secret = "your-feishu-app-secret"
-
-# For more platforms (DingTalk, Telegram, Slack, Discord, LINE, WeChat Work)
-# see: https://github.com/chenhg5/cc-connect/blob/main/config.example.toml
-`
-	return os.WriteFile(path, []byte(tmpl), 0o644)
-}
-
 func printUsage() {
 	v := version
 	if v == "" || v == "dev" {
@@ -1923,7 +1872,7 @@ func configProviderToCore(p config.ProviderConfig) core.ProviderConfig {
 	c := core.ProviderConfig{
 		Name: p.Name, APIKey: p.APIKey, BaseURL: p.BaseURL,
 		Model: p.Model, Models: convertProviderModels(p.Models),
-		Thinking: p.Thinking, Env: p.Env,
+		Thinking: p.Thinking, Env: p.Env, APIFormat: p.APIFormat,
 	}
 	if p.Codex != nil {
 		c.CodexWireAPI = p.Codex.WireAPI

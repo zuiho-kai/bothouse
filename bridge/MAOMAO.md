@@ -64,7 +64,16 @@ reads the probabilities of three options (~30 ms on M5 Max). Every decision is l
 full-vocabulary probability lands on A/B/C — ~0.9 normally, low means the prompt is off) and raw `logprobs`.
 Model: `GATE_MODEL` (HF repo id or local path). Sub mode: `/decide?bot=<name>` — @ or called by name at the
 start of the message → reply; name mid-sentence → the 4B judges "mentioned vs. called" (≥ 0.7 to reply);
-otherwise idle → context, busy → the 4B decides context vs. mid-turn insert. Edit `SUBS`/`NAMES` for your bots.
+otherwise idle → context, busy → the 4B decides context vs. mid-turn insert. Your team (main bot name, sub keys and
+names) comes from the JSON file in `GATE_TEAM`; without it the gate uses the placeholder `contrib/gate/team.example.json`
+— copy it and put your own bots in.
+
+The same process serves `POST /context {key, text}` → `{wiki: [{path, desc}]}`: cc-connect asks it at the start of
+every turn and puts "possibly relevant wiki pages" in front of the message (each page once per session). It searches
+an [llm-wiki](https://github.com/zuiho-kai/llm-wiki)-style wiki line by line (BM25, no model; `contrib/gate/ctxsvc.py`,
+`wiki_search.py`). Wiki directory: `GATE_WIKI` (default `~/wiki`; empty or `off` = no wiki pages). Tests without a
+model: `python3 -I contrib/gate/test_ctxsvc.py`, `python3 -I contrib/gate/test_gate_context.py`. Step-by-step setup
+(Chinese): `docs/ccm-and-wiki.md` at the repository root.
 
 The model part lives in `contrib/gate/scorer.py`: a fixed prefix + variable input, one forward pass, read
 single-token options. The prefix's KV / linear-attention state is computed once and copied per call, so

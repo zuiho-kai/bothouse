@@ -11,7 +11,8 @@ package core
 //               sub agents that hear every message but only speak when @-ed (main + subs setup).
 //   - "reply":  the user wants an answer. Busy → also injected into the running turn, whose
 //               final reply then covers it. Idle → normal turn.
-// Any gate error or timeout falls back to gate_fallback (default "reply", so the bot never goes deaf).
+// Any gate error or timeout falls back to gate_fallback (default "reply", so the bot never goes deaf);
+// a bot that was @-mentioned replies regardless.
 
 import (
 	"bytes"
@@ -144,29 +145,39 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 	return g.textBurstWindow
 }
 
+// fallbackFor is the action when the gate can't answer: a bot that was @-mentioned
+// still replies (being named directly needs no judgement); otherwise gate_fallback
+// applies (the fallback role "reply", other roles "context").
+func (g *gateState) fallbackFor(req gateRequest) string {
+	if req.Mentioned {
+		return "reply"
+	}
+	return g.fallback
+}
+
 func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 	body, _ := json.Marshal(req)
 	ctx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.url, bytes.NewReader(body))
 	if err != nil {
-		return gateResponse{Action: g.fallback, Reason: "gate request: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error()}
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(hreq)
 	if err != nil {
-		return gateResponse{Action: g.fallback, Reason: "gate unreachable: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error()}
 	}
 	defer resp.Body.Close()
 	var out gateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != http.StatusOK {
-		return gateResponse{Action: g.fallback, Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
+		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
 	}
 	switch out.Action {
 	case "reply", "insert", "silent", "context":
 		return out
 	}
-	return gateResponse{Action: g.fallback, Reason: "gate unknown action " + out.Action}
+	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action}
 }
 
 // applyGate runs the gate for msg. It returns true when the message has been fully handled

@@ -8,6 +8,8 @@
 
 项目基于 [cc-connect](https://github.com/zuiho-kai/cc-connect) 的 maomao 分支扩展。源码与许可情况见 [来源说明](SOURCE_ORIGINS.md)。
 
+**想自己用起来：** 从 [从零用起 CoNest](docs/GETTING_STARTED.md) 开始。没有硬件，走「配 ccm 和 wiki」「接进 Discord 或飞书」两条线就能完整用；有板子再看「接硬件」。
+
 ## 我们要交付什么
 
 面向希望长期与多位 AI 交流、共事的个人用户，第一版要完成一场可重复的双设备演示：

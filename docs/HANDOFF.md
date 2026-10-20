@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #148 安装向导（分支 feat/setup-wizard，基于 docs/onboarding）。cc-connect 网页新增 /setup：选平台 → 机器人（复用已有或填 token；校验、列服务器/频道、邀请链接；飞书扫码后选默认群）→ 每个角色选本机 CLI（只列装了的，带版本和登录状态；可挂第三方 API）→ 人设（默认人设中英两版、回答语言）→ 兜底角色 → jev（填完自动测概率，不拦保存）。同一逻辑给 AI：`cc-connect setup apply --json`、`POST /api/v1/setup/apply`。第三方 API 对不上 CLI 协议时由 `core/protoconv.go` 本机转换成 /chat/completions（provider `api_format = "openai_chat"`）。首次运行没有项目时只起向导。gate 读向导写的 `jev.json`（给概率才用）和 `gate-team.json`（lead = 兜底角色），没有模型时只按规则判、判不了交给兜底角色。只在隔离实例（临时配置、临时端口、假 Discord/模型）验证；未部署，未同步回 maomao 分支。
+
 2026-10-20：Issue #145 将肥鱼公开输出边界前移到 DSH llm/stream：中间 text 归入 reasoning；终态基于已有证据进行最多两次、无工具的结构化补答，只发布验证后的 reply。桥接所有无正文 end_turn 均报回复失败，并支持 DSH 宣告的 session/resume，避免重启另开会话。合成回归旧路径失败、新路径通过；真实隔离ACP、冷恢复、只读工具后补答通过；80步骤/117工具调用回放无原始正文。20项Node回归、Go全量、ACP竞态、vet和构建通过。首次全量出现会话删除卡片时序失败，单项与CUJ三次复跑及再次全量通过。详见[部署插件](../integrations/dsh-public-output/README.md)。本条为源码记录，生产发布另记统一交接；须保留Claude strict补丁20c79756。
 
 2026-10-20：Issue #136 按 #134 的代码审查修 cn_dial：名牌名字限宽加省略号（`NameLabelMaxW`：名牌最宽到参照「等待主机 · 工作中」所在高度的避让圆弦长，长名字不再把名牌压到脸上或越出圆屏），单测加 6/10 字名字；`DialMetrics::Supported()` 改为 `cn_dial::Supported(m, PillFont)`，按板上字体（字宽、行高）判定，单测扫 14/16/20/24/30px（最小短边 199/199/237/275/332）；光晕放回名牌下面；充电呼吸只在充电/低电变化时重开；新增 `DialOverlay::ClearBusy()`（工作状态未知或断线时隐藏）。只改 firmware/dial/ 与本条；未刷板、未部署。

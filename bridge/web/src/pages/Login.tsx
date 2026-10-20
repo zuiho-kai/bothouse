@@ -41,7 +41,7 @@ export default function Login() {
         api.setToken(qToken);
         await getStatus();
         loginStore(qToken);
-        navigate('/', { replace: true });
+        // App's /login route sends an authenticated user on to ?next= (AfterLogin).
       } catch {
         setToken(qToken);
         setError(t('login.invalidToken'));
