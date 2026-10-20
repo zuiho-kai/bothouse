@@ -1,7 +1,7 @@
 From d076dc49ee50fbee6d453da0f10284f3cee9d3f6 Mon Sep 17 00:00:00 2001
 From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
 Date: Tue, 20 Oct 2026 04:40:28 +0900
-Subject: [PATCH 14/14] =?UTF-8?q?rh:=20BOOT=20=E5=94=A4=E9=86=92=E6=A0=87?=
+Subject: [PATCH 14/17] =?UTF-8?q?rh:=20BOOT=20=E5=94=A4=E9=86=92=E6=A0=87?=
  =?UTF-8?q?=E8=AE=B0=E8=B5=8B=E5=80=BC=E7=94=A8=20is=5Fsleeping=5F.load()?=
  =?UTF-8?q?=EF=BC=88atomic=20=E4=B8=8D=E8=83=BD=E6=8B=B7=E8=B4=9D=E8=B5=8B?=
  =?UTF-8?q?=E5=80=BC=EF=BC=8C=E7=BC=96=E8=AF=91=E5=A4=B1=E8=B4=A5=EF=BC=89?=
