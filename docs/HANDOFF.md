@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #177 cloud_web 团队协作三项对齐 Discord（分支 feat/177-cloudweb-team，合并三条已审分支）：频道补发（实现 ChannelHistoryReader / AgentReplyMarker，读 hub `GET /api/rooms/{room}/messages`，agent 回复帧带 `agent=true`）；副角色干完队长派的活最终回复自动加 `<@队长>`，队友状态显示 #频道名；子 agent 表（SubTaskTablePayloadSupport、2 秒 ProgressUpdateThrottler，只发给声明 `subtask_table` 的网关）。冲突两边都留：Reply 帧内容走 returnToLead、再按 Agent 加 agent 标记（新增合并回归测试），replyContext 同时带 MsgID/lead/final 与 Agent，测试里重复的发送记录 transport 合成一个。cloud-web 包单测通过，CI 结果见 PR。配套网关改动在角色小家 hub。本条为源码记录，未部署。
+
 2026-10-20：#172 / PR #173整合：肥鱼用15:59历史无工具补答精确复现非法JSON（未转义控制字符），修前5次3失败，补编码示例与格式纠正重试后3次通过，工具0；DSH39项真实安装契约通过。大豆包子Agent已核实四轮有实际非零命令，添加安全步骤/退出码诊断，保留失败而非隐藏；身份与重复授权修复同时保留。桥接整合全量通过，最终race/CUJ与发布候选验证另记录。肥鱼子Agent因429未能启动，实际修复由父Agent完成。当前源码待最终审核合并，生产尚未切换，原任务未重跑、无Discord测试消息。
 
 2026-10-20：Issue #172，分支 fix/172-identity-permission。针对大豆包自称 C酱，实际投递时按 team 配置注入自身名称，并为队友缓冲保留作者；首次/续接/排队/语音/插入均覆盖，模型实际遵守仍待真人验收。重复授权在平台回执阻塞窗口可精确复现 unknown permission request；核心先原子认领请求，避免再次消费同一个 pending。肥鱼诊断改为安全枚举直写 ACP stderr；15:59 的具体生成失败类别仍不可追溯，不能宣称已修好。目标回归先红后绿、20次race、CUJ/核心全量、目标vet、DSH37项真实安装离线契约通过；首次桥接全量仅核心的旧无作者断言失败，更新作者和原文断言后核心补测通过。大豆包后续 stream ERROR 已按真人新授权交一名子Agent在独立worktree定位，整合/最终全量/部署另记。详情见 [现场与边界](BRIDGE_IDENTITY_AND_PERMISSION_172.md)。当前未改生产配置/会话、未重跑原任务、未发Discord消息。

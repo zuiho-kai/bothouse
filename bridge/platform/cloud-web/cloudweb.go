@@ -44,8 +44,15 @@ type Platform struct {
 	tp    transport
 	dedup core.MessageDedup
 
+	// maomao fork: channel backfill reads the hub over HTTP (history.go).
+	historyBase string // hub http(s) origin
+	selfID      string // this bot's id on the hub
+
 	replyCtxMu sync.RWMutex
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
+
+	teamLead     string   // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
+	leadReturned sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
 }
 
 // Compile-time interface checks.
@@ -67,6 +74,9 @@ var (
 	_ core.ProgressStyleProvider      = (*Platform)(nil)
 	_ core.ProgressCardPayloadSupport = (*Platform)(nil)
 	_ core.ProgressCardSizer          = (*Platform)(nil)
+	_ core.FinalReplyMarker           = (*Platform)(nil)
+	_ core.SubTaskTablePayloadSupport = (*Platform)(nil)
+	_ core.ProgressUpdateThrottler    = (*Platform)(nil)
 )
 
 // Progress card defaults (maomao fork). Source: the user's Discord settings in
@@ -134,6 +144,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		cardLineLen = defaultCardLineLen
 	}
 	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
+	teamLead, _ := opts["team_lead_bot"].(string)
 
 	var tp transport
 	switch transportKind {
@@ -175,6 +186,9 @@ func New(opts map[string]any) (core.Platform, error) {
 		cardHideThinking: cardHideThinking,
 		tp:               tp,
 		replyCtxs:        make(map[string]string),
+		historyBase:      historyBaseURL(baseURL, wsURL),
+		selfID:           hubBotID(wsURL, project),
+		teamLead:         strings.TrimSpace(teamLead),
 	}, nil
 }
 
@@ -211,6 +225,20 @@ func (p *Platform) ProgressStyle() string {
 // SupportsProgressCardPayload: card style sends the structured payload
 // (core.ProgressCardPayloadPrefix + JSON); the gateway renders it, like Discord's embed.
 func (p *Platform) SupportsProgressCardPayload() bool { return p.ProgressStyle() == "card" }
+
+// SupportsSubTaskTablePayload implements core.SubTaskTablePayloadSupport (maomao fork):
+// the sub-agent table rides on the same edit-in-place preview as the card-style
+// progress, like Discord (platform/discord/subtasks.go); the gateway renders it.
+// Only when the gateway declares subtask_table: an older one would show the raw payload.
+func (p *Platform) SupportsSubTaskTablePayload() bool {
+	return p.ProgressStyle() == "card" && p.hasCap(capSubTaskTable)
+}
+
+// ProgressUpdateInterval implements core.ProgressUpdateThrottler (maomao fork): the gap
+// between edits of the progress card and the sub-agent table, and the refresh of the
+// card's "等子 agent" line (core/engine.go subWaitTick needs it > 0). Source: Discord
+// uses 2s (platform/discord/discord.go progressPlatform.ProgressUpdateInterval).
+func (p *Platform) ProgressUpdateInterval() time.Duration { return 2 * time.Second }
 
 func (p *Platform) ProgressCardEntries() int       { return p.cardEntries }
 func (p *Platform) ProgressCardLineLen() int       { return p.cardLineLen }
@@ -372,12 +400,16 @@ func (p *Platform) handleMessage(raw []byte) {
 	}
 	p.storeReplyCtx(sessionKey, replyCtx)
 
-	rc := replyContext{SessionKey: sessionKey, ReplyCtx: replyCtx}
+	rc := replyContext{SessionKey: sessionKey, ReplyCtx: replyCtx, MsgID: msgID}
+	if m.FromBot && m.Mentioned != nil && *m.Mentioned && p.teamLead != "" && m.UserMentionID == p.teamLead {
+		rc.lead = p.teamLead // maomao fork: the lead dispatched this turn (lead_return.go)
+	}
 	msg := &core.Message{
 		SessionKey: sessionKey,
 		Platform:   p.name,
 		MessageID:  msgID,
 		ChannelID:  m.ChatID,
+		ChatName:   m.ChatName, // maomao fork: team status shows the channel name (core/team.go)
 		UserID:     m.UserID,
 		UserName:   firstNonEmpty(m.UserName, m.UserID),
 		Content:    m.Content,
@@ -532,13 +564,17 @@ func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) erro
 	if err != nil {
 		return err
 	}
-	return p.sendWire(ctx, map[string]any{
+	frame := map[string]any{
 		"type":        "reply",
 		"session_key": rc.SessionKey,
 		"reply_ctx":   rc.ReplyCtx,
-		"content":     content,
+		"content":     p.returnToLead(rc, content),
 		"format":      "text",
-	})
+	}
+	if rc.Agent { // maomao fork: agent output (MarkAgentReply, history.go)
+		frame["agent"] = true
+	}
+	return p.sendWire(ctx, frame)
 }
 
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {
@@ -622,12 +658,12 @@ func (p *Platform) SendPreviewStart(ctx context.Context, replyCtx any, content s
 	if !p.hasCap(capPreview) || !p.hasCap(capUpdateMessage) {
 		return nil, core.ErrNotSupported
 	}
-	// maomao fork: preview messages carry the progress card only. A streaming text preview
+	// maomao fork: preview messages carry the progress card and the sub-agent table only. A streaming text preview
 	// would be frozen into an interim "preview" in the gateway when a tool call starts
 	// (core/engine.go sp.freeze + detachPreview): cut at stream_preview max_chars and never
 	// relayed to teammates, so an <@teammate> hand-off written before a tool call is lost.
 	// ErrNotSupported makes core degrade the stream preview and send each segment as a reply.
-	if !strings.HasPrefix(content, core.ProgressCardPayloadPrefix) {
+	if !strings.HasPrefix(content, core.ProgressCardPayloadPrefix) && !strings.HasPrefix(content, core.SubTaskTablePayloadPrefix) {
 		return nil, core.ErrNotSupported
 	}
 	refID := fmt.Sprintf("prev-%d", time.Now().UnixNano())

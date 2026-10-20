@@ -78,6 +78,8 @@ Gateway responds:
 
 Capabilities match [Bridge Protocol capabilities](./bridge-protocol.md#capabilities). Undeclared capabilities are automatically degraded by cc-connect.
 
+maomao fork: `subtask_table` means the gateway renders the sub-agent table (`__cc_connect_subtask_table_v1__:` payload, sent with `preview_start` / `update_message`). Without it cc-connect sends no table.
+
 ---
 
 ## Endpoints (defaults)
@@ -114,6 +116,7 @@ POST /cloud-web/v1/register
   "chat_type": "group",
   "mentioned": true,
   "from_bot": false,
+  "chat_name": "大厅",
   "images": [],
   "files": [],
   "audio": null
@@ -125,6 +128,8 @@ POST /cloud-web/v1/register
 - `chat_type`: `direct` | `group` | `channel` — with `group_reply_all = false`, non-`mentioned` group messages are ignored
 - `mentioned`: this bot was @-mentioned; copied to `Message.Mentioned` (the gate always lets a mentioned bot reply)
 - `from_bot`: sent by a teammate bot (maomao fork). Copied to `Message.FromBot`; without `mentioned` it is listen-only context and never starts a turn, as on Discord. `allow_from` does not apply to it — the gateway vouches for its bots
+- `chat_name`: the channel's display name (maomao fork). Copied to `Message.ChatName`, so the team status block names the channel a teammate is busy in, as on Discord
+- `user_mention_id`: for `from_bot` messages, the sending bot's `<@id>` (maomao fork). When it equals `team_lead_bot` and `mentioned` is true, the turn was dispatched by the team lead: its final answer gets `<@team_lead_bot>` prepended unless it already mentions the lead (same as Discord `lead_return`)
 
 ### `card_action`
 
@@ -162,6 +167,7 @@ See [Bridge Protocol — cc-connect → Adapter](./bridge-protocol.md) for full 
 | `allow_from` | no | User whitelist (`*` = all) |
 | `share_session_in_channel` | no | Shared group session |
 | `group_reply_all` | no | Reply to all group messages without @mention |
+| `team_lead_bot` | no | The team lead's `<@id>` (maomao fork; same value as the Discord platform's). A sub's final answer to the lead's @ is routed back to it |
 
 ---
 

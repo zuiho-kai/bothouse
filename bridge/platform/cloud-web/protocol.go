@@ -32,11 +32,14 @@ const (
 	capPreview          = "preview"
 	capDeleteMessage    = "delete_message"
 	capReconstructReply = "reconstruct_reply"
+	// maomao fork: the gateway renders the sub-agent table payload
+	// (core.SubTaskTablePayloadPrefix). Without it the table is not sent.
+	capSubTaskTable = "subtask_table"
 )
 
 var allCapabilities = []string{
 	capText, capImage, capFile, capAudio, capCard, capButtons,
-	capTyping, capUpdateMessage, capPreview, capDeleteMessage, capReconstructReply,
+	capTyping, capUpdateMessage, capPreview, capDeleteMessage, capReconstructReply, capSubTaskTable,
 }
 
 func capabilitySet(list []string) map[string]bool {
@@ -131,6 +134,11 @@ type wireInboundMessage struct {
 	// FromBot (maomao fork): sent by a teammate bot. Like Discord, the gate only lets it start
 	// a turn when Mentioned; otherwise it is listen-only context (core/gate.go applyGate).
 	FromBot bool `json:"from_bot,omitempty"`
+	// ChatName (maomao fork): the channel's display name, for the team status block (core/team.go).
+	ChatName string `json:"chat_name,omitempty"`
+	// UserMentionID (maomao fork): the sending bot's <@id>; matched against team_lead_bot to know the
+	// lead dispatched this turn (lead_return.go), as Discord matches the author ID.
+	UserMentionID string `json:"user_mention_id,omitempty"`
 }
 
 type wireCardAction struct {
@@ -160,6 +168,12 @@ type wireCapabilitiesChanged struct {
 type replyContext struct {
 	SessionKey string
 	ReplyCtx   string
+	Agent      bool // maomao fork: carries agent output (core.AgentReplyMarker, history.go)
+	// maomao fork (lead_return.go, same as platform/discord replyContext): the trigger message,
+	// the team lead that @-ed this sub to start the turn, and whether this send is the final answer.
+	MsgID string
+	lead  string
+	final bool
 }
 
 func authHTTP(req *http.Request, token string) {
