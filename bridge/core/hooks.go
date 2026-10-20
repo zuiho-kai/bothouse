@@ -270,6 +270,9 @@ func eventToEnv(e HookEvent) []string {
 	if id, ok := e.Extra["agent_session_id"].(string); ok && id != "" {
 		env = append(env, "CC_HOOK_AGENT_SESSION_ID="+id)
 	}
+	if a, ok := e.Extra["agent"].(string); ok && a != "" { // maomao fork: which runtime (agentHookExtra)
+		env = append(env, "CC_HOOK_AGENT="+a)
+	}
 	return env
 }
 

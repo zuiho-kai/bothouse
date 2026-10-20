@@ -1524,6 +1524,36 @@ func (e *Engine) SkillDirs() []string {
 	return e.skills.Dirs()
 }
 
+// agentHookExtra (maomao fork) names the runtime ("agent": claudecode, codex, …) and its session
+// ("agent_session_id", when known) on message.received / message.sent, so a hook can keep one record of
+// every conversation whatever runtime runs it (sessionlog; user 2026-10-20 「万一别人不用了claude code，他这个
+// 就有个能力缺口」). extra is kept (trigger_message_ids); nil is fine.
+func (e *Engine) agentHookExtra(agentSessionID string, extra map[string]any) map[string]any {
+	out := make(map[string]any, len(extra)+2)
+	for k, v := range extra {
+		out[k] = v
+	}
+	if e.agent != nil {
+		out["agent"] = e.agent.Name()
+	}
+	if agentSessionID != "" {
+		out["agent_session_id"] = agentSessionID
+	}
+	return out
+}
+
+// activeAgentSessionID is the agent session of sessionKey's active session without creating one ("" when there is
+// none yet, e.g. a channel's first message, or in multi-workspace mode where sessions live per workspace).
+func (e *Engine) activeAgentSessionID(sessionKey string) string {
+	if e.sessions == nil {
+		return ""
+	}
+	if s := e.sessions.FindByID(e.sessions.ActiveSessionID(sessionKey)); s != nil {
+		return s.GetAgentSessionID()
+	}
+	return ""
+}
+
 // AgentTypeName returns the agent type name (e.g. "claudecode", "codex").
 func (e *Engine) AgentTypeName() string {
 	if e.agent != nil {
@@ -3058,6 +3088,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		UserID:     msg.UserID,
 		UserName:   msg.UserName,
 		Content:    msg.Content,
+		Extra:      e.agentHookExtra(e.activeAgentSessionID(msg.SessionKey), nil),
 	})
 
 	// Voice message: transcribe to text first
@@ -6264,7 +6295,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					SessionKey: sessionKey,
 					Platform:   p.Name(),
 					Content:    baseResponse,
-					Extra:      triggerExtra(msgID),
+					Extra:      e.agentHookExtra(session.GetAgentSessionID(), triggerExtra(msgID)),
 				})
 			}
 
@@ -6890,7 +6921,7 @@ channelClosed:
 				SessionKey: sessionKey,
 				Platform:   p.Name(),
 				Content:    fullResponse,
-				Extra:      triggerExtra(msgID),
+				Extra:      e.agentHookExtra(session.GetAgentSessionID(), triggerExtra(msgID)),
 			})
 		}
 

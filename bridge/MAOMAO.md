@@ -90,3 +90,36 @@ only the ~40-token suffix is recomputed (Qwen3.5's linear-attention state can't 
 ```sh
 go build -tags no_web -o cc-connect ./cmd/cc-connect   # no_web: skip the web UI (needs node)
 ```
+
+## Hooks name the runtime and its session (unified session record)
+
+`message.received` and `message.sent` carry `extra.agent` (the agent type: `claudecode`, `codex`, …) and, when the
+session has one, `extra.agent_session_id`; command hooks see them as `CC_HOOK_AGENT` / `CC_HOOK_AGENT_SESSION_ID`.
+This lets a hook keep one record of every conversation whatever runtime runs it — the bridge path of `sessionlog.py`
+(the llm-wiki's `bin/sessionlog.py`; record format and store in its docstring):
+
+```toml
+[[hooks]]
+event = "message.received"
+type = "command"
+command = "/usr/bin/python3 -I ~/wiki/bin/sessionlog.py hook"
+
+[[hooks]]
+event = "message.sent"
+type = "command"
+command = "/usr/bin/python3 -I ~/wiki/bin/sessionlog.py hook"
+```
+
+Whose conversation a project is (role) comes from the store's `sources.json` `"bridge": {"<project>": {"role": …,
+"runtime": …}}`; a build without `CC_HOOK_AGENT` falls back to that `runtime`. A channel's first message has no
+agent session yet (no `agent_session_id`); multi-workspace projects do not report it on `message.received`.
+
+Tests — run all of them; the end-to-end one needs the record writer and **skips** without `SESSIONLOG_PY`, so a
+change to these hooks is only checked when it is set:
+
+```sh
+SESSIONLOG_PY=~/wiki/bin/sessionlog.py go test ./core -count=1 -v \
+  -run 'TestMessageSentHook|TestMessageReceivedHook|TestEventToEnv|TestSessionlogHook'
+```
+
+`TestSessionlogHook_EndToEnd` must report PASS, not SKIP.
