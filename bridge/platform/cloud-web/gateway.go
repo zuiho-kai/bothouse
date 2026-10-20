@@ -299,25 +299,34 @@ func (t *gatewayTransport) Send(ctx context.Context, msg map[string]any) error {
 	return nil
 }
 
-func (t *gatewayTransport) waitPreviewAck(refID string, timeout time.Duration) (string, error) {
-	ch := make(chan string, 1)
-	t.previewMu.Lock()
-	t.previewRequests[refID] = ch
-	t.previewMu.Unlock()
-	defer func() {
-		t.previewMu.Lock()
-		delete(t.previewRequests, refID)
-		t.previewMu.Unlock()
-	}()
-	select {
-	case handle := <-ch:
-		return handle, nil
-	case <-time.After(timeout):
-		return "", fmt.Errorf("cloud_web: preview_ack timeout")
-	}
+func (t *gatewayTransport) expectPreviewAck(refID string) func(time.Duration) (string, error) {
+	return expectAck(&t.previewMu, t.previewRequests, refID)
 }
 
 // previewWaiter is implemented by transports that support async preview_ack.
+// expectPreviewAck registers refID now; the returned func waits for the ack
+// (maomao fork: registering before preview_start is sent, so an ack that comes
+// back before Send returns is not dropped).
 type previewWaiter interface {
-	waitPreviewAck(refID string, timeout time.Duration) (string, error)
+	expectPreviewAck(refID string) func(timeout time.Duration) (string, error)
+}
+
+func expectAck(mu *sync.Mutex, requests map[string]chan string, refID string) func(time.Duration) (string, error) {
+	ch := make(chan string, 1)
+	mu.Lock()
+	requests[refID] = ch
+	mu.Unlock()
+	return func(timeout time.Duration) (string, error) {
+		defer func() {
+			mu.Lock()
+			delete(requests, refID)
+			mu.Unlock()
+		}()
+		select {
+		case handle := <-ch:
+			return handle, nil
+		case <-time.After(timeout):
+			return "", fmt.Errorf("cloud_web: preview_ack timeout")
+		}
+	}
 }

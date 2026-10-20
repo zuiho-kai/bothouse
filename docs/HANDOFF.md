@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #175 cloud_web 进度展示对齐 Discord（分支 feat/175-cloudweb-botux）：实现进度卡片，选项名同 discord（`progress_style` / `progress_card_entries` / `progress_line_len` / `progress_hide_thinking`），默认 card、最近 6 步、每行 200 字、做完保留；网关没声明 preview + update_message 时退回每步一条。文字流式预览不走 cloud_web preview（避免工具调用时冻成截断的中途预览），改为每段发正式回复；`preview_start` 先登记 ref_id 再发，`preview_ack` handle 为空算失败。cloud-web 包单测覆盖，CI 结果见 PR。配套网关改动在角色小家 hub（feat/plat-botux）。本条为源码记录；线上换版另记。
+
 2026-10-20：Issue #169 `message.received` / `message.sent` 钩子的 extra 多带 `agent`（运行时类型）和 `agent_session_id`（会话已有时），命令钩子多 `CC_HOOK_AGENT` / `CC_HOOK_AGENT_SESSION_ID`（分支 feat/169-hook-agent），外部 sessionlog 可按运行时统一记录对话。单测与设了 `SESSIONLOG_PY` 的端到端测试本机通过；CI 里端到端测试按设计 SKIP。用法与测试命令在 bridge/MAOMAO.md。本条为源码记录，未部署。
 
 2026-10-20：Issue #168 cloud_web 把网关给的 `mentioned` / `from_bot` 带进 `core.Message`（分支 feat/168-cloudweb-mention），gate 能判断谁被 @、队友 bot 没 @ 自己时只当上下文；`from_bot` 的消息不受 `allow_from` 限制（网关为自己的 bot 作保，同 Discord allow_bots）。5 种组合单测通过，字段说明在 bridge/docs/cloud-web.md。本条为源码记录，未部署。

@@ -22,10 +22,17 @@ type Platform struct {
 	project string
 	token   string
 
-	transportKind string
-	allowFrom     string
+	transportKind  string
+	allowFrom      string
 	shareInChannel bool
 	groupReplyAll  bool
+
+	// maomao fork: progress card, same options and meaning as the Discord platform
+	// (platform/discord/discord.go progress_style / progress_card_entries / ...).
+	progressStyle    string
+	cardEntries      int
+	cardLineLen      int
+	cardHideThinking bool
 
 	mu               sync.RWMutex
 	handler          core.MessageHandler
@@ -43,20 +50,34 @@ type Platform struct {
 
 // Compile-time interface checks.
 var (
-	_ core.Platform                  = (*Platform)(nil)
-	_ core.ReplyContextReconstructor = (*Platform)(nil)
-	_ core.ImageSender               = (*Platform)(nil)
-	_ core.FileSender                = (*Platform)(nil)
-	_ core.AudioSender               = (*Platform)(nil)
-	_ core.InlineButtonSender        = (*Platform)(nil)
-	_ core.CardSender                = (*Platform)(nil)
-	_ core.CardNavigable             = (*Platform)(nil)
-	_ core.CardRefresher             = (*Platform)(nil)
-	_ core.TypingIndicator           = (*Platform)(nil)
-	_ core.MessageUpdater            = (*Platform)(nil)
-	_ core.PreviewStarter            = (*Platform)(nil)
-	_ core.PreviewCleaner            = (*Platform)(nil)
-	_ core.AsyncRecoverablePlatform  = (*Platform)(nil)
+	_ core.Platform                   = (*Platform)(nil)
+	_ core.ReplyContextReconstructor  = (*Platform)(nil)
+	_ core.ImageSender                = (*Platform)(nil)
+	_ core.FileSender                 = (*Platform)(nil)
+	_ core.AudioSender                = (*Platform)(nil)
+	_ core.InlineButtonSender         = (*Platform)(nil)
+	_ core.CardSender                 = (*Platform)(nil)
+	_ core.CardNavigable              = (*Platform)(nil)
+	_ core.CardRefresher              = (*Platform)(nil)
+	_ core.TypingIndicator            = (*Platform)(nil)
+	_ core.MessageUpdater             = (*Platform)(nil)
+	_ core.PreviewStarter             = (*Platform)(nil)
+	_ core.PreviewCleaner             = (*Platform)(nil)
+	_ core.AsyncRecoverablePlatform   = (*Platform)(nil)
+	_ core.ProgressStyleProvider      = (*Platform)(nil)
+	_ core.ProgressCardPayloadSupport = (*Platform)(nil)
+	_ core.ProgressCardSizer          = (*Platform)(nil)
+)
+
+// Progress card defaults (maomao fork). Source: the user's Discord settings in
+// ~/.cc-connect/config.toml, 2026-10-14「卡片留最近 6 步、每行 200 字，结束后不清空」.
+// The gateway shows the same card as Discord without extra config; a gateway that
+// does not declare preview + update_message falls back to per-step messages
+// (SendPreviewStart returns ErrNotSupported, core/progress_compact.go push).
+const (
+	defaultProgressStyle = "card"
+	defaultCardEntries   = 6
+	defaultCardLineLen   = 200
 )
 
 func New(opts map[string]any) (core.Platform, error) {
@@ -95,6 +116,25 @@ func New(opts map[string]any) (core.Platform, error) {
 	shareInChannel, _ := opts["share_session_in_channel"].(bool)
 	groupReplyAll, _ := opts["group_reply_all"].(bool)
 
+	progressStyle := defaultProgressStyle
+	if v, ok := opts["progress_style"].(string); ok && strings.TrimSpace(v) != "" {
+		switch v = strings.ToLower(strings.TrimSpace(v)); v {
+		case "legacy", "compact", "card":
+			progressStyle = v
+		default:
+			return nil, fmt.Errorf("cloud_web: invalid progress_style %q (want legacy, compact, or card)", v)
+		}
+	}
+	cardEntries := pickInt(opts["progress_card_entries"])
+	if cardEntries <= 0 {
+		cardEntries = defaultCardEntries
+	}
+	cardLineLen := pickInt(opts["progress_line_len"])
+	if cardLineLen <= 0 {
+		cardLineLen = defaultCardLineLen
+	}
+	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
+
 	var tp transport
 	switch transportKind {
 	case "websocket":
@@ -122,15 +162,19 @@ func New(opts map[string]any) (core.Platform, error) {
 	}
 
 	return &Platform{
-		name:           name,
-		project:        project,
-		token:          token,
-		transportKind:  transportKind,
-		allowFrom:      allowFrom,
-		shareInChannel: shareInChannel,
-		groupReplyAll:  groupReplyAll,
-		tp:             tp,
-		replyCtxs:      make(map[string]string),
+		name:             name,
+		project:          project,
+		token:            token,
+		transportKind:    transportKind,
+		allowFrom:        allowFrom,
+		shareInChannel:   shareInChannel,
+		groupReplyAll:    groupReplyAll,
+		progressStyle:    progressStyle,
+		cardEntries:      cardEntries,
+		cardLineLen:      cardLineLen,
+		cardHideThinking: cardHideThinking,
+		tp:               tp,
+		replyCtxs:        make(map[string]string),
 	}, nil
 }
 
@@ -155,6 +199,22 @@ func pickInt(v any) int {
 }
 
 func (p *Platform) Name() string { return p.name }
+
+// ProgressStyle implements core.ProgressStyleProvider (maomao fork).
+func (p *Platform) ProgressStyle() string {
+	if p.progressStyle == "" {
+		return "legacy"
+	}
+	return p.progressStyle
+}
+
+// SupportsProgressCardPayload: card style sends the structured payload
+// (core.ProgressCardPayloadPrefix + JSON); the gateway renders it, like Discord's embed.
+func (p *Platform) SupportsProgressCardPayload() bool { return p.ProgressStyle() == "card" }
+
+func (p *Platform) ProgressCardEntries() int       { return p.cardEntries }
+func (p *Platform) ProgressCardLineLen() int       { return p.cardLineLen }
+func (p *Platform) ProgressCardHideThinking() bool { return p.cardHideThinking }
 
 func (p *Platform) SetLifecycleHandler(h core.PlatformLifecycleHandler) {
 	p.lifecycleHandler = h
@@ -562,7 +622,21 @@ func (p *Platform) SendPreviewStart(ctx context.Context, replyCtx any, content s
 	if !p.hasCap(capPreview) || !p.hasCap(capUpdateMessage) {
 		return nil, core.ErrNotSupported
 	}
+	// maomao fork: preview messages carry the progress card only. A streaming text preview
+	// would be frozen into an interim "preview" in the gateway when a tool call starts
+	// (core/engine.go sp.freeze + detachPreview): cut at stream_preview max_chars and never
+	// relayed to teammates, so an <@teammate> hand-off written before a tool call is lost.
+	// ErrNotSupported makes core degrade the stream preview and send each segment as a reply.
+	if !strings.HasPrefix(content, core.ProgressCardPayloadPrefix) {
+		return nil, core.ErrNotSupported
+	}
 	refID := fmt.Sprintf("prev-%d", time.Now().UnixNano())
+	waiter, ok := p.tp.(previewWaiter)
+	if !ok {
+		return nil, fmt.Errorf("cloud_web: transport does not support preview_ack")
+	}
+	// Register before sending: a fast gateway can ack before Send returns (maomao fork).
+	wait := waiter.expectPreviewAck(refID)
 	if err := p.sendWire(ctx, map[string]any{
 		"type":        "preview_start",
 		"ref_id":      refID,
@@ -570,15 +644,15 @@ func (p *Platform) SendPreviewStart(ctx context.Context, replyCtx any, content s
 		"reply_ctx":   rc.ReplyCtx,
 		"content":     content,
 	}); err != nil {
+		_, _ = wait(0) // drop the waiter
 		return nil, err
 	}
-	waiter, ok := p.tp.(previewWaiter)
-	if !ok {
-		return nil, fmt.Errorf("cloud_web: transport does not support preview_ack")
-	}
-	handle, err := waiter.waitPreviewAck(refID, 10*time.Second)
+	handle, err := wait(10 * time.Second)
 	if err != nil {
 		return nil, err
+	}
+	if handle == "" { // the gateway did not create it (e.g. archived room)
+		return nil, fmt.Errorf("cloud_web: gateway rejected preview")
 	}
 	return replyContext{SessionKey: rc.SessionKey, ReplyCtx: handle}, nil
 }

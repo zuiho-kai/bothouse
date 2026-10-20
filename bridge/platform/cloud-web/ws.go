@@ -276,22 +276,8 @@ func (t *wsTransport) Send(ctx context.Context, msg map[string]any) error {
 	return conn.WriteJSON(msg)
 }
 
-func (t *wsTransport) waitPreviewAck(refID string, timeout time.Duration) (string, error) {
-	ch := make(chan string, 1)
-	t.previewMu.Lock()
-	t.previewRequests[refID] = ch
-	t.previewMu.Unlock()
-	defer func() {
-		t.previewMu.Lock()
-		delete(t.previewRequests, refID)
-		t.previewMu.Unlock()
-	}()
-	select {
-	case handle := <-ch:
-		return handle, nil
-	case <-time.After(timeout):
-		return "", fmt.Errorf("cloud_web: preview_ack timeout")
-	}
+func (t *wsTransport) expectPreviewAck(refID string) func(time.Duration) (string, error) {
+	return expectAck(&t.previewMu, t.previewRequests, refID)
 }
 
 func resolveWSURL(baseURL, wsURL string) string {
