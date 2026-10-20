@@ -729,6 +729,7 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 			}
 			m.ReferencedMessage = nil // its quote is already in the channel history
 		}
+		m.Content = teamRoleMentions(m.Content, m.GuildID, p.botID) // maomao fork: <@&teammate role> → <@teammate>
 		if mentioned && m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
 			m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
 		}

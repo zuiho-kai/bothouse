@@ -392,9 +392,10 @@ type Message struct {
 	// ("" = the whole first window); freshContextImages adds the images from before it.
 	BackfillFrom string
 	BackfillRan  bool
-	mediaDone    bool   // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
-	userText     string // maomao fork: Content before media notes were appended — the gate's input
-	userTextSet  bool   // maomao fork: userText is set (see userTextOf)
+	mediaDone    bool       // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
+	userText     string     // maomao fork: Content before media notes were appended — the gate's input
+	userTextSet  bool       // maomao fork: userText is set (see userTextOf)
+	gateParts    []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.

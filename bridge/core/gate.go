@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -82,10 +83,22 @@ type gateRequest struct {
 	// and a sub together (the sub answers, the lead waits for its @) from the sub's answer @-ing the
 	// lead (issue #182).
 	FromBot bool `json:"from_bot,omitempty"`
+	// Parts (maomao fork): the messages an idle burst folded into this one, each as it was sent; nil
+	// for a single message. Content mixes them, so the gate judges "@-ed the lead and a sub together"
+	// on each part (issue #184).
+	Parts []gatePart `json:"parts,omitempty"`
 	// LastReply is the tail of this bot's last answer in the session, so the gate can tell
 	// "可以" answering its question from idle chatter. LastReplyAge is seconds since then.
 	LastReply    string `json:"last_reply,omitempty"`
 	LastReplyAge int    `json:"last_reply_age_s,omitempty"`
+}
+
+// gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
+// whether a teammate bot sent it.
+type gatePart struct {
+	Content   string `json:"content"`
+	Mentioned bool   `json:"mentioned"`
+	FromBot   bool   `json:"from_bot,omitempty"`
 }
 
 const lastReplyMaxRunes = 600
@@ -228,6 +241,16 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		delete(g.released, msg) // the burst's timer handed it back: process normally
 	} else if h := g.held[interactiveKey]; h != nil {
 		// Same burst: fold this message into the held one and wait a bit longer.
+		// Each part is kept as it was for the gate (issue #184: "@sub do X" then "@lead watch it"
+		// merged read as one message @-ing both), and the reply context keeps what any part says
+		// about its trigger, as for a message injected into a running turn.
+		if h.msg.gateParts == nil {
+			h.msg.gateParts = []gatePart{{Content: userTextOf(h.msg), Mentioned: h.msg.Mentioned, FromBot: h.msg.FromBot}}
+		}
+		h.msg.gateParts = append(h.msg.gateParts, gatePart{Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot})
+		if m, ok := p.(InjectedReplyMerger); ok {
+			h.msg.ReplyCtx = m.MergeInjectedReply(h.msg.ReplyCtx, msg.ReplyCtx)
+		}
 		if h.msg.userTextSet || msg.userTextSet {
 			h.msg.userText, h.msg.userTextSet = strings.TrimSpace(userTextOf(h.msg)+"\n"+userTextOf(msg)), true
 		}
@@ -259,7 +282,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 
 	last, lastAge := lastReply(session)
 	dec := g.decide(e.ctx, gateRequest{
-		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Busy: busy,
+		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge,
 	})
@@ -452,10 +475,15 @@ func (e *Engine) turnIdleFor(interactiveKey string) time.Duration {
 	return time.Since(time.Unix(0, last))
 }
 
+// botErrorLine matches a cc-connect error line (❌/⚠️) opening the text or opening a teammate's
+// post. A teammate's message reaches core as "【name】text" (discord holdBotMessage, rh/cloudweb.py
+// on_new), and a Discord burst of its posts is joined with blank lines, each with its own prefix
+// (issue #184: the bare prefix check never matched, so no error ever reached the lead).
+var botErrorLine = regexp.MustCompile(`^\s*(?:❌|⚠️)|(?m)^\s*【[^】\n]*】\s*(?:❌|⚠️)`)
+
 // isBotErrorNotice reports whether a teammate message is an error report.
 func isBotErrorNotice(text string) bool {
-	t := strings.TrimSpace(text)
-	return strings.HasPrefix(t, "❌") || strings.HasPrefix(t, "⚠️")
+	return botErrorLine.MatchString(text)
 }
 
 // ---- maomao fork: middle and long context layers (served by the gate process) ----

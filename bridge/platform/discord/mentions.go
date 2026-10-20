@@ -127,3 +127,27 @@ func nameCalled(text, botName string) bool {
 	}
 	return false
 }
+
+// teamRoleMentions turns a teammate bot's managed-role mention (<@&roleID>, which Discord offers
+// next to the bot itself when a person types @) into its user mention <@id> (maomao fork, issue
+// #184). Everything after this (the gate's sub check, dispatchedBy's lead check, the agent's own
+// reading) knows bots by <@id> only. The role IDs are the ones each bot of this process cached for
+// itself (botRoleIDForGuild); this bot's own role is left to stripDiscordMentionWithRole and
+// markSelfMention.
+func teamRoleMentions(content, guildID, selfID string) string {
+	if guildID == "" || !strings.Contains(content, "<@&") {
+		return content
+	}
+	teamPlatforms.Range(func(k, v any) bool {
+		id, _ := k.(string)
+		p, _ := v.(*Platform)
+		if id == "" || id == selfID || p == nil {
+			return true
+		}
+		if role := p.botRoleIDForGuild(guildID); role != "" {
+			content = strings.ReplaceAll(content, "<@&"+role+">", "<@"+id+">")
+		}
+		return true
+	})
+	return content
+}

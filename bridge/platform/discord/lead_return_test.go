@@ -111,3 +111,31 @@ func TestDispatchedBy(t *testing.T) {
 		t.Errorf("the lead itself never returns to itself: %q", got)
 	}
 }
+
+// Issue #184: Discord lets a person @ a bot through its managed role (<@&roleID>, gate.jsonl
+// 2026-10-13/16). A teammate's role mention reads as its user mention, so "@ the lead and this sub
+// together" is recognised either way (and the gate sees <@id> too).
+func TestDispatchedBy_LeadRoleMention(t *testing.T) {
+	lead := &Platform{botID: "L"}
+	lead.botRoleIDs.Store("g", "RL")
+	sub := &Platform{botID: "S", teamLead: "L"}
+	sub.botRoleIDs.Store("g", "RS")
+	teamPlatforms.Store("L", lead)
+	teamPlatforms.Store("S", sub)
+	t.Cleanup(func() { teamPlatforms.Delete("L"); teamPlatforms.Delete("S") })
+
+	content := teamRoleMentions("<@&RL> 帮我算 17×23，龙娘算，橘核对", "g", "S")
+	if content != "<@L> 帮我算 17×23，龙娘算，橘核对" {
+		t.Fatalf("lead's role mention not turned into its user mention: %q", content)
+	}
+	if got := sub.dispatchedBy(false, true, "user", content); got != "L" {
+		t.Fatalf("dispatchedBy = %q, want L", got)
+	}
+	// its own role is left to the existing strip / markSelfMention; other guilds and plain text untouched
+	if got := teamRoleMentions("<@&RS> <@&RL>", "g", "S"); got != "<@&RS> <@L>" {
+		t.Fatalf("got %q", got)
+	}
+	if got := teamRoleMentions("<@&RL> hi", "other", "S"); got != "<@&RL> hi" {
+		t.Fatalf("other guild: %q", got)
+	}
+}
