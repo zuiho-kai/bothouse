@@ -81,3 +81,33 @@ func TestMergeInjectedReplyKeepsLead(t *testing.T) {
 		t.Fatalf("a later person's insert dropped the lead: %+v", again)
 	}
 }
+
+// Which turns are the lead's to get back: the lead @-ing this sub, and (issue #182) a person's
+// message that @-s this sub and the lead together — the sub answers, the lead checks when @-ed back.
+func TestDispatchedBy(t *testing.T) {
+	p := &Platform{botID: "S", teamLead: "L"}
+	cases := []struct {
+		name               string
+		fromBot, mentioned bool
+		author, content    string
+		want               string
+	}{
+		{"lead @ sub", true, true, "L", "你来写", "L"},
+		{"lead not @ sub", true, false, "L", "我看看", ""},
+		{"other bot @ sub", true, true, "J", "你来", ""},
+		{"person @ sub", false, true, "U", "你来", ""},
+		{"person @ sub and lead", false, true, "U", "<@L> 帮我算 17×23，龙娘算，橘核对", "L"},
+		{"person @ sub and lead (nick form)", false, true, "U", "<@!L> 帮我算", "L"},
+		{"person @ lead only", false, false, "U", "<@L> 你看看", ""},
+		{"other bot @ sub and lead", true, true, "J", "<@L> 你来", ""},
+	}
+	for _, c := range cases {
+		if got := p.dispatchedBy(c.fromBot, c.mentioned, c.author, c.content); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+	lead := &Platform{botID: "L", teamLead: "L"}
+	if got := lead.dispatchedBy(false, true, "U", "<@L> <@S> 你们看看"); got != "" {
+		t.Errorf("the lead itself never returns to itself: %q", got)
+	}
+}

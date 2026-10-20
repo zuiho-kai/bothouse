@@ -401,9 +401,7 @@ func (p *Platform) handleMessage(raw []byte) {
 	p.storeReplyCtx(sessionKey, replyCtx)
 
 	rc := replyContext{SessionKey: sessionKey, ReplyCtx: replyCtx, MsgID: msgID}
-	if m.FromBot && m.Mentioned != nil && *m.Mentioned && p.teamLead != "" && m.UserMentionID == p.teamLead {
-		rc.lead = p.teamLead // maomao fork: the lead dispatched this turn (lead_return.go)
-	}
+	rc.lead = p.dispatchedBy(m) // maomao fork: the lead's turn to hand back (lead_return.go)
 	msg := &core.Message{
 		SessionKey: sessionKey,
 		Platform:   p.name,

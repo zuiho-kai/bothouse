@@ -38,6 +38,10 @@ func TestHandleMessage_LeadDispatch(t *testing.T) {
 		{"lead not @ sub", `{"type":"message","msg_id":"l2","chat_id":"room-1","user_id":"maomao","user_mention_id":"L","content":"【橘】我看看","chat_type":"group","from_bot":true}`, ""},
 		{"other bot @ sub", `{"type":"message","msg_id":"l3","chat_id":"room-1","user_id":"jingyu","user_mention_id":"J","content":"【鲸鱼娘】你来","chat_type":"group","mentioned":true,"from_bot":true}`, ""},
 		{"person @ sub", `{"type":"message","msg_id":"l4","chat_id":"room-1","user_id":"user","content":"你来","chat_type":"group","mentioned":true}`, ""},
+		// issue #182: the user @-s the lead and this sub in one message → the sub's answer goes back to the lead.
+		{"person @ sub and lead", `{"type":"message","msg_id":"l5","chat_id":"room-1","user_id":"user","content":"@龙娘(你) <@L> 帮我算 17×23，龙娘算，橘核对","chat_type":"group","mentioned":true}`, "L"},
+		{"person @ lead only", `{"type":"message","msg_id":"l6","chat_id":"room-1","user_id":"user","content":"<@L> 你看看","chat_type":"group"}`, ""},
+		{"bot @ sub and lead", `{"type":"message","msg_id":"l7","chat_id":"room-1","user_id":"jingyu","user_mention_id":"J","content":"【鲸鱼娘】<@L> 你来","chat_type":"group","mentioned":true,"from_bot":true}`, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

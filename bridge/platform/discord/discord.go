@@ -765,9 +765,7 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 			}
 		}
 
-		if fromBot && mentioned && p.teamLead != "" && p.teamLead != p.botID && m.Author.ID == p.teamLead {
-			rctx.lead = p.teamLead
-		}
+		rctx.lead = p.dispatchedBy(fromBot, mentioned, m.Author.ID, m.Content)
 
 		images, files, audio := classifyAttachments(m.Attachments, downloadURL)
 

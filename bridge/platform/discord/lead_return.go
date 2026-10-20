@@ -17,6 +17,27 @@ import (
 
 const leadReturnTTL = 24 * time.Hour
 
+// dispatchedBy is the team lead whose turn this is to hand back ("" = none): the lead @-ing this sub,
+// or a person's message that @-s this sub and the lead together (issue #182, 2026-10-20「龙娘算，橘核对」:
+// both bots answered at once and 橘 "checked" an 80-minute-old message). The sub answers, its final
+// answer @-s the lead, and the lead (whose gate keeps it quiet on that message) checks the answer then.
+// content is the text after this bot's own @ was removed or marked.
+func (p *Platform) dispatchedBy(fromBot, mentioned bool, authorID, content string) string {
+	if !mentioned || p.teamLead == "" || p.teamLead == p.botID {
+		return ""
+	}
+	if fromBot {
+		if authorID == p.teamLead {
+			return p.teamLead
+		}
+		return ""
+	}
+	if strings.Contains(content, "<@"+p.teamLead+">") || strings.Contains(content, "<@!"+p.teamLead+">") {
+		return p.teamLead
+	}
+	return ""
+}
+
 func (p *Platform) returnToLead(rc replyContext, content string) string {
 	if !rc.final || rc.lead == "" || rc.messageID == "" || strings.TrimSpace(content) == "" {
 		return content

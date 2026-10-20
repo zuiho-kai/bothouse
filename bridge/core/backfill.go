@@ -200,6 +200,7 @@ func (e *Engine) channelBackfillBefore(p Platform, channelID, beforeID string, s
 		newest = msgs[len(msgs)-1].ID
 	}
 	lastSeen := session.GetLastSeenMsgID()
+	now := time.Now()
 	var lines []string
 	var shown []ChannelHistoryMessage // the message behind each line
 	truncated := len(msgs) == backfillFetchLimit
@@ -227,7 +228,7 @@ func (e *Engine) channelBackfillBefore(p Platform, channelID, beforeID string, s
 			text = string(r[:backfillMaxMsgRunes]) + "…"
 		}
 		text += e.mediaNoteFor(m.ID) // maomao fork: a parsed video link carries its result path
-		lines = append(lines, historyPrefix(m)+text)
+		lines = append(lines, historyPrefix(m, now)+text)
 		shown = append(shown, m)
 	}
 	if len(lines) == 0 {
@@ -250,15 +251,18 @@ func (e *Engine) channelBackfillBefore(p Platform, channelID, beforeID string, s
 	for i, n := range notes {
 		lines[start+i] += n
 	}
-	head := "（频道里你上次看到之后的消息，按时间顺序；这是真实记录，先读它再回答）"
+	// The head and each line's age say these all came before the current message (issue #182:
+	// 橘 took 龙娘's「391」from 80 minutes earlier for her answer to the message that had just @-ed them).
+	head := "（频道里你上次看到之后的消息，按时间顺序，都是本条消息之前的旧消息；这是真实记录，先读它再回答）"
 	if truncated {
-		head = "（频道里你上次看到之后的消息，按时间顺序；更早的还有，没列出来，需要时去翻）"
+		head = "（频道里你上次看到之后的消息，按时间顺序，都是本条消息之前的旧消息；更早的还有，没列出来，需要时去翻）"
 	}
 	return head + "\n" + strings.Join(lines[start:], "\n"), images, newest, true
 }
 
-// historyPrefix is the "[15:04] who: " head of a backfilled message.
-func historyPrefix(m ChannelHistoryMessage) string {
+// historyPrefix is the "[15:04，N 分钟前] who: " head of a backfilled message; the age is counted
+// from now, the time the backfill is read (issue #182: the clock time alone hid how old a message was).
+func historyPrefix(m ChannelHistoryMessage, now time.Time) string {
 	who := m.Author
 	switch {
 	case m.IsSelf:
@@ -266,7 +270,11 @@ func historyPrefix(m ChannelHistoryMessage) string {
 	case m.IsBot:
 		who += "（bot）"
 	}
-	return fmt.Sprintf("[%s] %s: ", m.Time.Local().Format("15:04"), who)
+	age := "不到 1 分钟前"
+	if mins := int(now.Sub(m.Time) / time.Minute); mins >= 1 {
+		age = fmt.Sprintf("%d 分钟前", mins)
+	}
+	return fmt.Sprintf("[%s，%s] %s: ", m.Time.Local().Format("15:04"), age, who)
 }
 
 // backfillDownload fetches one attachment of a backfilled message (maomao fork). A variable so
@@ -513,7 +521,7 @@ func (e *Engine) freshContextImages(p Platform, session *Session, msg *Message, 
 		failed += len(pk.failed)
 		if len(pk.images) > 0 {
 			images = append(images, pk.images...)
-			where = append(where, fmt.Sprintf("%s%d 张", historyPrefix(cand[i]), len(pk.images)))
+			where = append(where, fmt.Sprintf("%s%d 张", historyPrefix(cand[i], time.Now()), len(pk.images)))
 		}
 	}
 	if len(images) == 0 && failed == 0 {

@@ -209,3 +209,33 @@ func TestGateContextWiki(t *testing.T) {
 		t.Fatalf("after switch:\n%s", c)
 	}
 }
+
+// A backfilled message says how long before this turn it was posted, and the head says these all
+// came before the current message (2026-10-20: 橘 took 龙娘's「391」from 80 minutes earlier, shown
+// only as [19:18], for 龙娘's answer to the message that had just @-ed them both).
+func TestChannelBackfill_MarksAgeOfOldMessages(t *testing.T) {
+	now := time.Now()
+	p := &historyPlatform{history: []ChannelHistoryMessage{
+		{ID: "100", Author: "zuiho", Content: "看过了", Time: now.Add(-2 * time.Hour)},
+		{ID: "101", Author: "龙娘", IsBot: true, Content: "391", Time: now.Add(-81 * time.Minute)},
+		{ID: "102", Author: "zuiho", Content: "刚发的", Time: now.Add(-10 * time.Second)},
+	}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+	session := e.sessions.GetOrCreateActive("discord:c1")
+	session.SetLastSeenMsgID("100")
+	got, _, ok := e.channelBackfill(p, &Message{ChannelID: "c1", MessageID: "103"}, session)
+	if !ok {
+		t.Fatal("backfill should succeed")
+	}
+	old := now.Add(-81 * time.Minute).Local().Format("15:04")
+	if !strings.Contains(got, "["+old+"，81 分钟前] 龙娘（bot）: 391") {
+		t.Fatalf("old message must say how long ago it was posted:\n%s", got)
+	}
+	if !strings.Contains(got, "，不到 1 分钟前] zuiho: 刚发的") {
+		t.Fatalf("a message under a minute old:\n%s", got)
+	}
+	if !strings.HasPrefix(got, "（频道里你上次看到之后的消息") || !strings.Contains(strings.SplitN(got, "\n", 2)[0], "都是本条消息之前的旧消息") {
+		t.Fatalf("head must say these came before the current message:\n%s", got)
+	}
+}

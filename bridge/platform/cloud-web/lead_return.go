@@ -19,6 +19,26 @@ import (
 
 const leadReturnTTL = 24 * time.Hour // same as platform/discord/lead_return.go
 
+// dispatchedBy is the team lead whose turn this is to hand back ("" = none), the same rule as
+// platform/discord dispatchedBy: the lead @-ing this sub, or a person's message that @-s this sub and
+// the lead together (issue #182). The gateway writes the lead's @ as <@team_lead_bot> for every bot
+// but the lead (rh/cloudweb.py for_bot).
+func (p *Platform) dispatchedBy(m wireInboundMessage) string {
+	if m.Mentioned == nil || !*m.Mentioned || p.teamLead == "" {
+		return ""
+	}
+	if m.FromBot {
+		if m.UserMentionID == p.teamLead {
+			return p.teamLead
+		}
+		return ""
+	}
+	if strings.Contains(m.Content, "<@"+p.teamLead+">") || strings.Contains(m.Content, "<@!"+p.teamLead+">") {
+		return p.teamLead
+	}
+	return ""
+}
+
 func (p *Platform) returnToLead(rc replyContext, content string) string {
 	if !rc.final || rc.lead == "" || rc.MsgID == "" || strings.TrimSpace(content) == "" {
 		return content

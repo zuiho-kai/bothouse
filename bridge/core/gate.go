@@ -78,6 +78,10 @@ type gateRequest struct {
 	HasImages  bool     `json:"has_images"`
 	HasFiles   bool     `json:"has_files"`
 	Buffered   []string `json:"buffered"`
+	// FromBot (maomao fork): sent by a teammate bot. The gate tells a user's message that @-s the lead
+	// and a sub together (the sub answers, the lead waits for its @) from the sub's answer @-ing the
+	// lead (issue #182).
+	FromBot bool `json:"from_bot,omitempty"`
 	// LastReply is the tail of this bot's last answer in the session, so the gate can tell
 	// "可以" answering its question from idle chatter. LastReplyAge is seconds since then.
 	LastReply    string `json:"last_reply,omitempty"`
@@ -255,7 +259,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 
 	last, lastAge := lastReply(session)
 	dec := g.decide(e.ctx, gateRequest{
-		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, Busy: busy,
+		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge,
 	})
