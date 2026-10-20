@@ -13,6 +13,6 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 
 上游的 README、贡献者说明和文件内归属保留在 bridge/。Go module 路径和 CLI 名称 cc-connect 暂时保留，避免为了品牌重命名破坏导入和运行兼容性。
 
-桥接快照的 README 声明 MIT，但此次快照没有独立 LICENSE 文件；本项目未臆造版权人、年份或统一许可。公开发布前需补齐可核实的许可文本与项目新增部分的授权。见 [Issue #9](https://github.com/Zssan12/conest/issues/9)。
+桥接快照的 README 声明 MIT，但此次快照没有独立 LICENSE 文件。2026-10-21 复核：上游 chenhg5/cc-connect 与 zuiho-kai/cc-connect 的 License API 均返回 404、根目录无 LICENSE，npm 包 cc-connect 1.5.0 只含 install.js、run.js、package.json、README.md。同日在用户自己的 fork zuiho-kai/cc-connect 补上 MIT LICENSE（[zuiho-kai/cc-connect#1](https://github.com/zuiho-kai/cc-connect/pull/1)，版权行 `Copyright (c) chenhg5 and cc-connect contributors`），`bridge/LICENSE-MIT-upstream` 为其原样副本。chenhg5/cc-connect 仍无 LICENSE 文件。项目新增部分的授权见 [LICENSING.md](LICENSING.md)。见 [Issue #9](https://github.com/Zssan12/conest/issues/9)。
 
 本仓库不包含实际 Discord token、CLI 登录态、会话正文、语音录音、模型权重和运行配置。历史部署仍在原工作目录；源码整合不等于运行迁移。

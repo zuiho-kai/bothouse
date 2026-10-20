@@ -24,6 +24,16 @@ export default function Footer() {
       >
         GitHub
       </a>
+      <span className="mx-1.5">·</span>
+      {/* AGPLv3 第 7(b) 条署名，见仓库根目录 NOTICE；修改版须保留 */}
+      <a
+        href="https://github.com/Zssan12/conest"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="hover:text-accent transition-colors"
+      >
+        Built on CoNest
+      </a>
     </footer>
   );
 }

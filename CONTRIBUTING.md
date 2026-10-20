@@ -42,6 +42,16 @@ CI 在 Ubuntu 上构建并执行 Go 全量测试（-p 1降低跨包并发干扰�
 
 2026-10-16，Issue #3 的修复已通过本机 macOS Go 全量（默认包并发）、关键生命周期竞态/CUJ检查，以及 Ubuntu 云端 Go 全量与 Python 检查。原始失败和修复证据见 docs/GO_TEST_BASELINE.md；后续变更须核对其最新提交的检查。平台门禁和真实入口验收分开，测试通过不等于已经部署。
 
+## 贡献签署（DCO）
+
+本项目使用 [Developer Certificate of Origin 1.1](DCO)。每个提交都要带签署行，表示你确认有权按该文件所属目录的许可（见 [LICENSING.md](LICENSING.md)）提交这段内容：
+
+~~~text
+Signed-off-by: 你的名字 <你的邮箱>
+~~~
+
+用 `git commit -s` 自动加上；忘了加，用 `git commit --amend -s`（多个提交用 `git rebase --signoff origin/main`）补上后再推送。名字和邮箱要与提交作者一致。Agent 代用户提交时，用该用户的身份签署。
+
 ## 数据与来源
 
-仅提交代码、脱敏示例和必要测试 fixture。运行日志、对话、录音、模型、令牌、个人 CLI 配置留在 Git 外；不要输出它们来证明自己做过检查。代码来源和许可缺口见 SOURCE_ORIGINS.md。上游历史配置文件可能仍在 Git 历史中，当前仅做过有限模式扫描，不声称完成全面历史审计。
+仅提交代码、脱敏示例和必要测试 fixture。运行日志、对话、录音、模型、令牌、个人 CLI 配置留在 Git 外；不要输出它们来证明自己做过检查。代码来源见 SOURCE_ORIGINS.md，各目录许可见 LICENSING.md。上游历史配置文件可能仍在 Git 历史中，当前仅做过有限模式扫描，不声称完成全面历史审计。

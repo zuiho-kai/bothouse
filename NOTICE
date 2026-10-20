@@ -1,0 +1,51 @@
+CoNest Notices
+
+CoNest
+Copyright (c) zuiho-kai and CoNest contributors.
+
+The platform layer of this project is licensed under the GNU Affero General
+Public License v3.0. See LICENSE for the full project license terms.
+The adapter layer is licensed under the Apache License 2.0
+(LICENSES/Apache-2.0.txt). See LICENSING.md for which directories belong to
+which layer and for material that is not licensed by this project.
+
+==== Additional Terms under AGPLv3 Section 7 ====
+
+Pursuant to Section 7(b) of the GNU Affero General Public License version 3,
+the following reasonable legal notice and author attribution must be preserved
+by modified versions in the Appropriate Legal Notices and in any prominent
+about, legal, footer, or attribution location presented by the user interface:
+
+"Built on CoNest"
+
+Modified versions that present a user interface must also preserve a visible
+link to the original project in a prominent about, legal, footer, or
+attribution location:
+
+https://github.com/Zssan12/conest
+
+Modified versions must not misrepresent the origin of the software and must
+mark their changes in accordance with AGPLv3 Section 7(c).
+
+==== Upstream Notices ====
+
+bridge/ is developed based on cc-connect (https://github.com/chenhg5/cc-connect),
+licensed under the MIT License. The MIT license text and copyright notice are
+in bridge/LICENSE-MIT-upstream and must be preserved.
+
+role-household/firmware-xiaozhi/ contains patches to xiaozhi-esp32
+(https://github.com/78/xiaozhi-esp32, v2.5.2), licensed under the MIT License,
+Copyright (c) 2025 Shenzhen Xinzhi Future Technology Co., Ltd. and
+Copyright (c) 2025 Project Contributors.
+
+==== Third-Party Notices ====
+
+This product includes third-party open source software. License terms for
+direct third-party dependencies are listed in THIRD-PARTY-LICENSES.md.
+No Apache-2.0 NOTICE files were found in the direct dependencies listed there.
+
+Art assets under prototypes/device-ui/assets/ are derived from
+fywdy/chatgpt-chibi-pets and are licensed under CC BY-NC 4.0, not under the
+licenses of this project. See prototypes/device-ui/UPSTREAM-NOTICE.md.
+
+==== End of Notices ====

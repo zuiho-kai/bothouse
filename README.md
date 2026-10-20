@@ -6,7 +6,7 @@
 
 **首个完整展示：G哥和 Cursor 各一台独立设备，由一台电脑提供后台能力。当前已跑通电脑原型，真实双设备尚未交付。**
 
-项目基于 [cc-connect](https://github.com/zuiho-kai/cc-connect) 的 maomao 分支扩展。源码与许可情况见 [来源说明](SOURCE_ORIGINS.md)。
+项目基于 [cc-connect](https://github.com/zuiho-kai/cc-connect) 的 maomao 分支扩展。源码来源见 [来源说明](SOURCE_ORIGINS.md)。平台层为 AGPL-3.0 与商业授权双许可，适配器层为 Apache-2.0，详见 [许可说明](LICENSING.md)。
 
 **想自己用起来：** 从 [从零用起 CoNest](docs/GETTING_STARTED.md) 开始。没有硬件，走「配 ccm 和 wiki」「接进 Discord 或飞书」两条线就能完整用；有板子再看「接硬件」。
 
@@ -121,3 +121,15 @@ go test -tags no_web ./...
 ## Codex 手动压缩
 
 Codex 已有会话可用 /compact 或 /compress 调用原生压缩接口，普通聊天后端无需迁移。支持 /stop 取消，忙碌时拒绝并发操作；容量不足时先 /model 选择可用模型。见 [原生压缩说明](docs/CODEX_COMPACT.md)。此源码功能尚未部署到旧实例。
+
+## 许可
+
+平台层按 [GNU Affero General Public License v3.0（AGPLv3）](LICENSE) 授权；适配器层按 [Apache-2.0](LICENSES/Apache-2.0.txt) 授权；各目录归属见 [许可说明](LICENSING.md)。
+
+按 AGPLv3 第 7 条附加条款：修改版须在适当的法律声明中，以及界面上显眼的关于、法律、页脚或署名位置，保留署名 `Built on CoNest` 和原项目链接 <https://github.com/Zssan12/conest>，并按第 7(c) 条标出改动。
+
+`bridge/` 基于 [cc-connect](https://github.com/chenhg5/cc-connect)（MIT）开发，MIT 许可正文见 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)。
+
+如果你所在组织的政策不允许使用 AGPLv3 软件，或者想免除 AGPLv3 的开源义务，可以取得商业授权：请发邮件到 [2324465096@qq.com](mailto:2324465096@qq.com)。
+
+署名与依赖声明见 [NOTICE](NOTICE) 和 [第三方许可](THIRD-PARTY-LICENSES.md)。
