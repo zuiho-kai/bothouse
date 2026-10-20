@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #168 cloud_web 把网关给的 `mentioned` / `from_bot` 带进 `core.Message`（分支 feat/168-cloudweb-mention），gate 能判断谁被 @、队友 bot 没 @ 自己时只当上下文；`from_bot` 的消息不受 `allow_from` 限制（网关为自己的 bot 作保，同 Discord allow_bots）。5 种组合单测通过，字段说明在 bridge/docs/cloud-web.md。本条为源码记录，未部署。
+
 2026-10-20：Issue #160 把线上 cc-connect maomao 在快照基点 8b27736e 之后的 49 个提交（到 6dbb2d73）搬进 bridge/，只传快照不带历史；冲突按用户「他那边新功能就是我们新功能」「我们这边功能要定期给他同步过去」两边都留，逐条裁决写在 PR 描述。要点：antigravity 原生额度（stream_json）与云端额度（经典模式）并存；轮次主流程合入满载重试/prompt 过长重跑/补图/cron 排队，语音输入严格续接轮次不进这三条；尾注额度会话缓存优先、单窗口"额度剩余 N%"、双窗口"5h 剩 N% · 周 M%"；bot 接力熔断按用户 2026-10-18 原话整体去掉（删 handoff_quiet_test.go）。测试里的真实 Discord ID 已换假 ID。bridge 沙箱串行 Go 全量通过。maomao 分支此后冻结，线上改动直接进 conest。本条为源码记录，未部署；线上换版另记。
 
 2026-10-20：Issue #159 公开进展，独立分支 feat/159-public-progress。复用 #116 的任务模型/卡片布局，接入真人初始、排队、语音续轮的显式 progress CLI 与本地 API；不从 Thinking/工具文本提取进展。run+项目+会话+递增序号防串轮，落盘后异步更新卡片和关键讨论串；网络响应丢失先按自身消息标记核对，重启将未结束运行记为中断。结果显示“已有结果 · 待验收”；语音取公开短回执，长摘要只播查看卡片提示。已验证本地 socket→卡片、安静模式队列CUJ、语音、重启/重复/停止/落盘失败/丢回执与三后端提示入口；本机沙箱Go全量、CUJ、五包目标race、vet、全包构建及编译CLI真实socket验收均通过，CI结果见PR。默认关闭，未部署、未发真实频道消息；跨轮同卡、任务查询、主人验收仍属于 #113，不关闭该Issue。#155已合并的插件也没有在本轮部署。用法与边界见[公开进展说明](PUBLIC_PROGRESS.md)。

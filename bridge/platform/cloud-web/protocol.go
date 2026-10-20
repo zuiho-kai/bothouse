@@ -128,6 +128,9 @@ type wireInboundMessage struct {
 	Images     []wireImage `json:"images,omitempty"`
 	Files      []wireFile  `json:"files,omitempty"`
 	Audio      *wireAudio  `json:"audio,omitempty"`
+	// FromBot (maomao fork): sent by a teammate bot. Like Discord, the gate only lets it start
+	// a turn when Mentioned; otherwise it is listen-only context (core/gate.go applyGate).
+	FromBot bool `json:"from_bot,omitempty"`
 }
 
 type wireCardAction struct {

@@ -113,6 +113,7 @@ POST /cloud-web/v1/register
   "reply_ctx": "opaque-context-for-replies",
   "chat_type": "group",
   "mentioned": true,
+  "from_bot": false,
   "images": [],
   "files": [],
   "audio": null
@@ -122,6 +123,8 @@ POST /cloud-web/v1/register
 - `session_key`: `{platform}:{chat_id}:{user_id}` (or `{platform}:{chat_id}` when `share_session_in_channel = true`)
 - `reply_ctx`: opaque string/json echoed on every outbound message
 - `chat_type`: `direct` | `group` | `channel` — with `group_reply_all = false`, non-`mentioned` group messages are ignored
+- `mentioned`: this bot was @-mentioned; copied to `Message.Mentioned` (the gate always lets a mentioned bot reply)
+- `from_bot`: sent by a teammate bot (maomao fork). Copied to `Message.FromBot`; without `mentioned` it is listen-only context and never starts a turn, as on Discord. `allow_from` does not apply to it — the gateway vouches for its bots
 
 ### `card_action`
 

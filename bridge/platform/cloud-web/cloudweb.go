@@ -278,7 +278,9 @@ func (p *Platform) handleMessage(raw []byte) {
 	if m.UserID == "" {
 		return
 	}
-	if !core.AllowList(p.allowFrom, m.UserID) {
+	// maomao fork: teammate bots are vouched for by the gateway (same as Discord's allow_bots path),
+	// so allow_from only restricts people.
+	if !m.FromBot && !core.AllowList(p.allowFrom, m.UserID) {
 		slog.Debug("cloud_web: unauthorized user", "user", m.UserID)
 		return
 	}
@@ -323,6 +325,9 @@ func (p *Platform) handleMessage(raw []byte) {
 		Files:      decodeFiles(m.Files),
 		Audio:      decodeAudio(m.Audio),
 		ReplyCtx:   rc,
+		// maomao fork: the gate decides who answers from these (core/gate.go).
+		Mentioned: m.Mentioned != nil && *m.Mentioned,
+		FromBot:   m.FromBot,
 	}
 
 	p.mu.RLock()
