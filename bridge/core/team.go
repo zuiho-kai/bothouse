@@ -34,6 +34,7 @@ type teamState struct {
 	dir    string
 	name   string // display name, e.g. 龙娘
 	inject bool
+	board  bool // post a live "who is doing what" message per channel (lead only)
 	mu     sync.Mutex
 	seen   map[string]*teamSession // sessionKey → state
 }
@@ -43,6 +44,7 @@ type teamSession struct {
 	chat    string
 	task    string
 	busy    bool
+	worked  bool // this turn used a tool, so it is real work rather than a chat reply
 	since   time.Time
 	doneAt  time.Time
 }
@@ -52,15 +54,17 @@ type teamEntry struct {
 	Chat   string    `json:"chat,omitempty"`
 	Task   string    `json:"task,omitempty"`
 	Busy   bool      `json:"busy"`
+	Worked bool      `json:"worked,omitempty"`
 	Since  time.Time `json:"since,omitzero"`
 	DoneAt time.Time `json:"done_at,omitzero"`
 }
 
 type teamFile struct {
-	Project  string      `json:"project"`
-	Name     string      `json:"name"`
-	Updated  time.Time   `json:"updated"`
-	Sessions []teamEntry `json:"sessions"`
+	Project  string         `json:"project"`
+	Name     string         `json:"name"`
+	Updated  time.Time      `json:"updated"`
+	Sessions []teamEntry    `json:"sessions"`
+	Tasks    []teamTaskLink `json:"tasks,omitempty"`
 	// CoolingUntil (maomao fork): the bot's model is cooling down after "at
 	// capacity" until then; schedulers (outing-tick) hold off.
 	CoolingUntil time.Time `json:"cooling_until,omitzero"`
@@ -89,6 +93,7 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 	if old != nil { // config reload: keep what we know
 		old.mu.Lock()
 		t.seen = old.seen
+		t.board = old.board
 		old.mu.Unlock()
 	}
 	e.team = t
@@ -115,11 +120,27 @@ func (e *Engine) teamNoteTurn(msg *Message, session *Session) {
 		ts = &teamSession{}
 		t.seen[msg.SessionKey] = ts
 	}
+	if session != nil && !session.Busy() { // a fresh turn, not one folded into a running turn
+		ts.worked = false
+	}
 	ts.session = session
 	ts.chat = msg.ChatName
 	if task != "" {
 		ts.task = task
 	}
+}
+
+// teamNoteWork marks the current turn of sessionKey as real work (it used a tool).
+func (e *Engine) teamNoteWork(sessionKey string) {
+	t := e.team
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	if ts := t.seen[sessionKey]; ts != nil {
+		ts.worked = true
+	}
+	t.mu.Unlock()
 }
 
 func (e *Engine) runTeamWriter() {
@@ -152,7 +173,9 @@ func (e *Engine) runTeamWriter() {
 			if !busy && (ts.doneAt.IsZero() || now.Sub(ts.doneAt) > teamRecentDone) {
 				continue
 			}
-			en := teamEntry{Key: key, Chat: ts.chat, Task: ts.task, Busy: busy}
+			// A turn that runs long without tools (deep reasoning) also counts as work.
+			worked := ts.worked || (busy && now.Sub(ts.since) > teamBoardWorkAfter)
+			en := teamEntry{Key: key, Chat: ts.chat, Task: ts.task, Busy: busy, Worked: worked}
 			if busy {
 				en.Since = ts.since
 			} else {
@@ -161,12 +184,16 @@ func (e *Engine) runTeamWriter() {
 			f.Sessions = append(f.Sessions, en)
 		}
 		t.mu.Unlock()
+		if e.publicProgress != nil {
+			f.Tasks = e.publicProgress.taskLinks()
+		}
 		sort.Slice(f.Sessions, func(i, j int) bool { return f.Sessions[i].Key < f.Sessions[j].Key })
 		f.CoolingUntil = e.capacityCoolingUntil().Truncate(time.Second) // whole seconds: outing-tick parses it with Python fromisoformat
 		body, _ := json.Marshal(struct {
 			S []teamEntry
 			C time.Time
-		}{f.Sessions, f.CoolingUntil})
+			T []teamTaskLink
+		}{f.Sessions, f.CoolingUntil, f.Tasks})
 		if string(body) == string(last) && now.Sub(lastWrite) < teamHeartbeat {
 			continue
 		}

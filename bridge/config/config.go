@@ -550,6 +550,8 @@ type ProjectConfig struct {
 	// MemoryIndex (maomao fork): the bot's own wiki MEMORY.md, put before the first turn of every fresh agent
 	// context (Claude Code loads its auto-memory itself; Codex/Antigravity bots need this). Empty disables it.
 	MemoryIndex string `toml:"memory_index,omitempty"`
+	// TeamBoard (lead only) keeps one live "who is doing what" message per channel, edited in place.
+	TeamBoard bool `toml:"team_board,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who

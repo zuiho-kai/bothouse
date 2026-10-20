@@ -74,12 +74,20 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	if err != nil {
 		return err
 	}
-	if task.ThreadID != "" {
+	if task.ThreadID != "" && task.CardURL != "" {
 		return nil
 	}
 	ch, err := p.session.Channel(task.ChannelID, discordgo.WithContext(ctx))
 	if err != nil {
 		return err
+	}
+	guild := ch.GuildID
+	if guild == "" {
+		guild = "@me"
+	}
+	task.CardURL = fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, task.ChannelID, task.MessageID)
+	if task.ThreadID != "" {
+		return nil
 	}
 	if ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread || ch.Type == discordgo.ChannelTypeGuildNewsThread {
 		task.ThreadID = task.ChannelID

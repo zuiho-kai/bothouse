@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-21：#113 置顶团队状态栏任务入口已实现，独立 PR #193，分支 feat/113-pinned-task-index（main 92855315 起）。从发布分支引入状态栏 ae2d2fa8/a99b375b 及已验证的清理测试修正，不带 #174 的语音改动。公开任务投影经共享 team 心跳汇总本频道卡片链接；waiting 优先，result_ready/失败/取消移出入口，历史保留。正常结束的 waiting 可重启恢复，未结束轮次仍按原协议中断；跨轮等待事项的关联/解决仍属于 #113 后续范围。网络编辑失败不重发，置顶失败保存消息ID并重试原卡。无子Agent、未部署、未向真实Discord发消息。46包Go沙箱全量、目标race、CUJ、vet、构建通过；编译CLI→Unix socket→真实Engine/团队心跳/状态栏→假平台通过。状态栏网络/置顶恢复及关闭/失去主bot身份后发布循环退出的回归在旧版失败、新版通过。详见[公开进展说明](PUBLIC_PROGRESS.md)；源码合并与生产部署分开记录。
+
 2026-10-21：Issue #189 原模型请求的安全错误分类恢复。00:00生产诊断 original/provider_error，v2抹掉机器错误码导致DSH有限重试/上下文恢复失效，原始具体分类无法还原。v3保留白名单分类及数值退避信息，错误正文仍不可公开；不重复工具或放宽补答边界。19项新回归旧红17、新版全量58通过；Go沙箱全量通过；真实隔离ACP两进程同会话、注入限流和实遇TRANSPORT均恢复，工具0。无子Agent、未代发Discord、当前尚未部署。详见[插件说明](../integrations/dsh-public-output/README.md)。
 
 2026-10-21：Issue #187 同步角色小家 c507674 快照到 role-household/（分支 feat/187-rh-sync-c507674，基线 main 1034014f）。内容等于角色小家本地仓库 c507674 的 git archive（替换 #141 的 4b30043 版，51 个提交），仍去掉 docs/evidence、docs/screenshots；roles.toml 不进 git，只带 roles.example.toml；tests/test_cloudweb.py、tests/test_push.py 里的真实 Discord ID 换成虚构 ID。新增：hub 的 cloud_web 网关（cc-connect bot 经 /cloud-web/ws 进频道，配套 #170/#175/#177）、多频道与归档、历史翻页/搜索/未读、手机布局、Web Push 与添加到主屏幕、子进程表、事件通道（出错红圈）、大厅不再刷「做完了」、成员栏一个角色一行、频道网页按 Discord 对齐的显示修复、进度卡片行内 Markdown、手机视角巡检 tools/smoke_phone.py（含 --co-mention）、自动选频道 jev 后端；云端 hub 改经 nginx https，nginx 配置里公网 IP 用占位符。firmware-xiaozhi/ 不动。只改 role-household/ 与本条；本仓库 CI 不跑 role-household/。未部署。

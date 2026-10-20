@@ -325,6 +325,22 @@ type MessageUpdater interface {
 	UpdateMessage(ctx context.Context, replyCtx any, content string) error
 }
 
+// BoardPoster is an optional interface for platforms that can keep one live
+// message per chat and edit it in place (used by the team "who is doing what"
+// board). messageID is the board's previous message ("" = none yet); the
+// returned ID is where the board now lives. Implementations post a new message
+// when the previous one cannot be edited (e.g. it was deleted).
+type BoardPoster interface {
+	UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error)
+}
+
+// BoardRemover deletes a board message this bot posted earlier, so a bot that
+// is no longer the lead does not leave a stale board behind. A message that is
+// already gone counts as removed.
+type BoardRemover interface {
+	RemoveBoard(ctx context.Context, sessionKey, messageID string) error
+}
+
 // StatusFooterSender is an optional Platform extension for sending a reply
 // with a structured per-turn status footer rendered using platform-specific
 // dim/small styling (e.g. Lark `text_size: "notation"`). Platforms that do

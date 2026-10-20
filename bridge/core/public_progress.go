@@ -86,6 +86,7 @@ type PublicProgress struct {
 	project string
 	runs    map[string]*publicRun
 	pending map[string]*publicRun
+	listed  map[string]*publicRun // live tasks and durable requests awaiting a human
 }
 
 func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicProgress, error) {
@@ -98,7 +99,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		return nil, fmt.Errorf("public progress data directory: %w", err)
 	}
 	hash := sha256.Sum256([]byte(project))
-	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, runs: map[string]*publicRun{}, pending: map[string]*publicRun{}}
+	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, runs: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
 	if err := os.MkdirAll(p.dir, 0700); err != nil {
 		return nil, err
 	}
@@ -134,6 +135,13 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			p.appendEvent(r, TaskEventFailed, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
 			if err := p.save(r); err != nil {
 				return nil, err
+			}
+		}
+		if r.record.Task.State == TaskStateWaitingUser {
+			p.listed[r.record.Task.ID] = r
+			// Upgrade existing journals through the publisher; do not invent URLs.
+			if r.record.Task.CardURL == "" {
+				r.record.CardSeq = 0
 			}
 		}
 		if r.record.CardSeq < r.record.Task.Seq || r.record.FactSeq < r.record.Task.Seq {
@@ -249,6 +257,7 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	p.mu.Lock()
 	p.pending[t.ID] = r
+	p.indexRun(r)
 	p.mu.Unlock()
 	return t.ID, nil
 }
@@ -287,6 +296,7 @@ func (p *PublicProgress) finish(token, outcome string) {
 	}
 	p.mu.Lock()
 	p.pending[t.ID] = r
+	p.indexRun(r)
 	p.mu.Unlock()
 }
 
@@ -337,6 +347,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 		// Only transport bindings/checkpoints are written back. Newer state and
 		// summaries may have arrived while the HTTP request was in flight.
 		r.record.Task.MessageID, r.record.Task.ThreadID = task.MessageID, task.ThreadID
+		r.record.Task.CardURL = task.CardURL
 		if deliveryErr == nil {
 			r.record.CardSeq = task.Seq
 		}

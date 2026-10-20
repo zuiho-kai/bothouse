@@ -35,6 +35,7 @@ func (p *progressTestPlatform) EnsureTaskCard(_ context.Context, task *Task, _ L
 		return errors.New("offline")
 	}
 	task.MessageID = task.ID
+	task.CardURL = "https://example.test/cards/" + task.ID
 	task.ThreadID = "thread-" + task.ID
 	p.snapshots[task.ID] = task.Clone()
 	return nil

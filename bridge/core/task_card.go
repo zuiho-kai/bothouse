@@ -75,6 +75,7 @@ type Task struct {
 	NextSteps          string      `json:"next_steps,omitempty"`
 	ChannelID          string      `json:"channel_id,omitempty"`
 	MessageID          string      `json:"message_id,omitempty"`
+	CardURL            string      `json:"card_url,omitempty"` // platform-generated permalink, never supplied by a progress report
 	ThreadID           string      `json:"thread_id,omitempty"`
 	Seq                int64       `json:"seq"`
 	CreatedAt          time.Time   `json:"created_at"`

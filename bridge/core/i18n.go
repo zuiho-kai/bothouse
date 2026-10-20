@@ -659,6 +659,9 @@ const (
 )
 
 const (
+	MsgBoardTasksRunning MsgKey = "board_tasks_running"
+	MsgBoardTasksWaiting MsgKey = "board_tasks_waiting"
+	MsgBoardTasksMore    MsgKey = "board_tasks_more"
 	MsgPublicInterrupted MsgKey = "MsgPublicInterrupted"
 	MsgPublicEnded       MsgKey = "MsgPublicEnded"
 	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
@@ -671,6 +674,19 @@ const (
 )
 
 var messages = map[MsgKey]map[Language]string{
+	MsgBoardTasksRunning: {
+		LangEnglish: "In progress", LangChinese: "进行中", LangTraditionalChinese: "進行中", LangJapanese: "進行中", LangSpanish: "En curso",
+	},
+	MsgBoardTasksWaiting: {
+		LangEnglish: "Needs your input", LangChinese: "待你处理", LangTraditionalChinese: "待你處理", LangJapanese: "確認が必要", LangSpanish: "Requiere su atención",
+	},
+	MsgBoardTasksMore: {
+		LangEnglish:            "%d more tasks; see their cards in this channel.",
+		LangChinese:            "另有 %d 项任务，请查看本频道的任务卡。",
+		LangTraditionalChinese: "另有 %d 項任務，請查看本頻道的任務卡。",
+		LangJapanese:           "ほかに %d 件あります。このチャンネルのカードを確認してください。",
+		LangSpanish:            "Hay %d tareas más; consulte sus tarjetas en este canal.",
+	},
 	MsgPublicVoiceResult: {
 		LangEnglish:            "Results and remaining work are in the task card.",
 		LangChinese:            "本轮结果和未完成事项已记录，请查看任务卡。",

@@ -732,6 +732,7 @@ func main() {
 		engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
 		engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
 		engine.SetMemoryIndex(proj.MemoryIndex)
+		engine.SetTeamBoard(proj.TeamBoard)
 		resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 		engine.SetResetOnIdle(resetIdle)
 		if defaulted {
@@ -1774,6 +1775,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
 	engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
 	engine.SetMemoryIndex(proj.MemoryIndex)
+	engine.SetTeamBoard(proj.TeamBoard)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 	engine.SetResetOnIdle(resetIdle)
 	if defaulted {

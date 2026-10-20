@@ -21,6 +21,8 @@ type progressREST struct {
 	loseACK     bool
 	failHistory bool
 	sends       int
+	guild       string
+	channelType discordgo.ChannelType
 }
 
 func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -71,7 +73,7 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 			code = 404
 			body = map[string]any{"code": 10003, "message": "Unknown Channel"}
 		} else {
-			body = &discordgo.Channel{ID: channel, Type: discordgo.ChannelTypeGuildText}
+			body = &discordgo.Channel{ID: channel, Type: r.channelType, GuildID: r.guild}
 		}
 	default:
 		return nil, fmt.Errorf("unexpected API request %s %s", req.Method, req.URL.Path)
@@ -116,6 +118,34 @@ func TestPublicTaskCardLostACKReconciliation(t *testing.T) {
 	cancel()
 	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err == nil {
 		t.Fatal("ignored context")
+	}
+}
+
+func TestPublicTaskPermalinkUsesActualChannel(t *testing.T) {
+	for _, tc := range []struct {
+		name, guild, wantGuild string
+		kind                   discordgo.ChannelType
+	}{
+		{"guild", "999", "999", discordgo.ChannelTypeGuildText},
+		{"private-thread", "999", "999", discordgo.ChannelTypeGuildPrivateThread},
+		{"dm", "", "@me", discordgo.ChannelTypeDM},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &progressREST{messages: map[string][]*discordgo.Message{}, guild: tc.guild, channelType: tc.kind}
+			session, _ := discordgo.New("Bot fixture")
+			session.Client = &http.Client{Transport: transport}
+			session.MaxRestRetries = 0
+			p := &Platform{session: session, botID: "bot"}
+			// Existing message/thread with no URL exercises old journal upgrades.
+			task := &core.Task{ID: "task-old", ChannelID: "111", MessageID: "222", ThreadID: "333", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+			if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err != nil {
+				t.Fatal(err)
+			}
+			want := "https://discord.com/channels/" + tc.wantGuild + "/111/222"
+			if task.CardURL != want || transport.sends != 0 {
+				t.Fatalf("wrong permalink or duplicate: %+v sends=%d", task, transport.sends)
+			}
+		})
 	}
 }
 

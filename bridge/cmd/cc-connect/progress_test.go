@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -35,7 +36,18 @@ func (a *progressCLIAgent) StartSession(context.Context, string) (core.AgentSess
 	return a.session, nil
 }
 
-type progressCLIPlatform struct{ delivered chan *core.Task }
+type progressCLIPlatform struct {
+	delivered chan *core.Task
+	boards    chan string
+}
+
+func (p *progressCLIPlatform) UpsertBoard(_ context.Context, _, id, text string) (string, error) {
+	p.boards <- text
+	if id == "" {
+		id = "board"
+	}
+	return id, nil
+}
 
 func (*progressCLIPlatform) Name() string                                 { return "test" }
 func (*progressCLIPlatform) Start(core.MessageHandler) error              { return nil }
@@ -46,6 +58,7 @@ func (*progressCLIPlatform) TaskCardDestination(s string) (string, error) { retu
 func (p *progressCLIPlatform) EnsureTaskCard(_ context.Context, t *core.Task, _ core.Language) error {
 	t.MessageID = "m"
 	t.ThreadID = "thread"
+	t.CardURL = "https://example.test/cards/m"
 	p.delivered <- t.Clone()
 	return nil
 }
@@ -56,13 +69,15 @@ func (*progressCLIPlatform) PublishTaskFact(context.Context, *core.Task, core.Ta
 func TestProgressCLI(t *testing.T) {
 	// Short test name/path keeps the Unix socket within macOS sockaddr_un limits.
 	dir := t.TempDir()
-	p := &progressCLIPlatform{delivered: make(chan *core.Task, 10)}
+	p := &progressCLIPlatform{delivered: make(chan *core.Task, 10), boards: make(chan string, 10)}
 	a := &progressCLIAgent{session: &progressCLISession{events: make(chan core.Event, 10), prompts: make(chan string, 2)}}
 	e := core.NewEngine("fish", a, []core.Platform{p}, "", core.LangEnglish)
 	e.SetDataDir(dir)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
+	e.SetTeam(filepath.Join(dir, "team"), "Fish", true)
+	e.SetTeamBoard(true)
 	if err := e.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +124,14 @@ func TestProgressCLI(t *testing.T) {
 		}
 	case <-time.After(4 * time.Second):
 		t.Fatal("CLI progress never reached card")
+	}
+	select {
+	case board := <-p.boards:
+		if !strings.Contains(board, "[Check](https://example.test/cards/m)") || !strings.Contains(board, "In progress") {
+			t.Fatal("CLI report did not reach pinned index", board)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("CLI report never reached team board")
 	}
 	a.session.events <- core.Event{Type: core.EventResult, Content: "checked", Done: true}
 }

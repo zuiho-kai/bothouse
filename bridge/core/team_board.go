@@ -1,0 +1,286 @@
+package core
+
+// maomao fork: live "who is doing what" board.
+//
+// The team lead reads every project's status file (see team.go) and keeps one message per
+// channel that lists each teammate on one line, edited in place, so the channel shows who is
+// working on what without new messages piling up. Only real work appears: a turn that used a
+// tool or ran longer than teamBoardWorkAfter. Plain chat replies leave the board unchanged.
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+const (
+	teamBoardInterval  = 10 * time.Second
+	teamBoardWorkAfter = time.Minute
+	teamBoardTaskRunes = 40
+	teamBoardFileExt   = ".board"
+)
+
+// boardChat is what the lead remembers about one channel's board.
+type boardChat struct {
+	SessionKey string `json:"session_key"`
+	MessageID  string `json:"message_id"`
+	Content    string `json:"content"`
+}
+
+// SetTeamBoard turns the live board on or off. It only runs on the team lead; a
+// project that is no longer the lead removes the boards it posted before.
+func (e *Engine) SetTeamBoard(on bool) {
+	t := e.team
+	if t == nil {
+		return
+	}
+	if !on || !t.inject {
+		t.mu.Lock()
+		t.board = false
+		t.mu.Unlock()
+		if _, err := os.Stat(filepath.Join(t.dir, e.name+teamBoardFileExt)); err == nil {
+			go e.retireTeamBoards()
+		}
+		return
+	}
+	t.mu.Lock()
+	start := on && !t.board
+	t.board = on
+	t.mu.Unlock()
+	if start {
+		go e.runTeamBoard()
+	}
+}
+
+func (e *Engine) runTeamBoard() {
+	tick := time.NewTicker(teamBoardInterval)
+	defer tick.Stop()
+	t := e.team
+	statePath := filepath.Join(t.dir, e.name+teamBoardFileExt)
+	boards := map[string]*boardChat{}
+	if raw, err := os.ReadFile(statePath); err == nil {
+		if err := json.Unmarshal(raw, &boards); err != nil {
+			slog.Warn("team board: bad state file", "path", statePath, "error", err)
+		}
+	}
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-tick.C:
+		}
+		t = e.team
+		if t == nil {
+			return
+		}
+		t.mu.Lock()
+		on := t.board
+		t.mu.Unlock()
+		if !on {
+			return
+		}
+		files := readTeamFiles(t.dir, time.Now())
+		if e.updateTeamBoards(files, boards) {
+			if out, err := json.MarshalIndent(boards, "", "  "); err == nil {
+				if err := AtomicWriteFile(statePath, out, 0o600); err != nil {
+					slog.Warn("team board: save state failed", "error", err)
+				}
+			}
+		}
+	}
+}
+
+// teamBoardRetireTries bounds how long a former lead keeps trying to delete its
+// old boards (platforms may still be connecting right after start).
+var (
+	teamBoardRetireTries = 30
+	teamBoardRetireEvery = teamBoardInterval
+)
+
+// retireTeamBoards deletes this project's old boards (e.g. after the lead moved
+// to another bot), then the state file. Boards that fail stay in the file so
+// the next start tries again.
+func (e *Engine) retireTeamBoards() {
+	statePath := filepath.Join(e.team.dir, e.name+teamBoardFileExt)
+	tick := time.NewTicker(teamBoardRetireEvery)
+	defer tick.Stop()
+	for try := 0; try < teamBoardRetireTries; try++ {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-tick.C:
+		}
+		raw, err := os.ReadFile(statePath)
+		if err != nil {
+			return
+		}
+		boards := map[string]*boardChat{}
+		if err := json.Unmarshal(raw, &boards); err != nil {
+			slog.Warn("team board: bad state file", "path", statePath, "error", err)
+			return
+		}
+		for chat, b := range boards {
+			platform, _, _ := strings.Cut(chat, ":")
+			remover, ok := e.platformForName(platform).(BoardRemover)
+			if !ok {
+				continue
+			}
+			if b.MessageID != "" {
+				ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+				err := remover.RemoveBoard(ctx, b.SessionKey, b.MessageID)
+				cancel()
+				if err != nil {
+					slog.Warn("team board: remove old board failed", "chat", chat, "error", err)
+					continue
+				}
+			}
+			slog.Info("team board: removed old board (no longer lead)", "chat", chat)
+			delete(boards, chat)
+		}
+		if len(boards) == 0 {
+			if err := os.Remove(statePath); err != nil {
+				slog.Warn("team board: remove state failed", "error", err)
+			}
+			return
+		}
+		if out, err := json.MarshalIndent(boards, "", "  "); err == nil {
+			if err := AtomicWriteFile(statePath, out, 0o600); err != nil {
+				slog.Warn("team board: save retirement state failed", "error", err)
+			}
+		}
+	}
+}
+
+// updateTeamBoards posts or edits each channel's board; it reports whether boards changed.
+func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat) bool {
+	// A channel gets a board once real work shows up there; after that it stays and is kept current.
+	for _, f := range files {
+		for _, task := range f.Tasks {
+			if !listedTaskState(task.State) || !safeTaskURL(task.URL) || task.SessionKey == "" {
+				continue
+			}
+			chat := chatOf(task.SessionKey)
+			if boards[chat] == nil {
+				boards[chat] = &boardChat{SessionKey: task.SessionKey}
+			}
+		}
+		for _, s := range f.Sessions {
+			if !s.Worked || s.Chat == "" {
+				continue
+			}
+			if _, ok := boards[chatOf(s.Key)]; !ok {
+				boards[chatOf(s.Key)] = &boardChat{SessionKey: s.Key}
+			}
+		}
+	}
+	changed := false
+	for chat, b := range boards {
+		content := renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang())
+		if content == b.Content {
+			continue
+		}
+		platform, _, _ := strings.Cut(chat, ":")
+		poster, ok := e.platformForName(platform).(BoardPoster)
+		if !ok {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+		id, err := poster.UpsertBoard(ctx, b.SessionKey, b.MessageID, content)
+		cancel()
+		// A successful send can be followed by a failed pin. Persist its ID
+		// before retrying so recovery edits/pins the same board.
+		if id != "" && id != b.MessageID {
+			b.MessageID = id
+			changed = true
+		}
+		if err != nil {
+			slog.Warn("team board: update failed", "chat", chat, "error", err)
+			continue
+		}
+		b.MessageID, b.Content = id, content
+		changed = true
+	}
+	return changed
+}
+
+// readTeamFiles loads every fresh status file in dir, sorted by project.
+func readTeamFiles(dir string, now time.Time) []teamFile {
+	paths, _ := filepath.Glob(filepath.Join(dir, "*"+teamStatusFileExt))
+	var files []teamFile
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var f teamFile
+		if json.Unmarshal(raw, &f) != nil || now.Sub(f.Updated) > teamStaleAfter {
+			continue
+		}
+		files = append(files, f)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Project < files[j].Project })
+	return files
+}
+
+// renderTeamBoard renders one line per teammate for the board in chat. Times are wall-clock
+// ("10:42 起") rather than elapsed, so the text only changes when someone's state changes.
+// Task text from another channel is never shown here; only that the teammate is busy elsewhere.
+func renderTeamBoard(files []teamFile, chat string) string {
+	lines := []string{"**谁在干啥**"}
+	for _, f := range files {
+		var best *teamEntry
+		rank := 0
+		for i := range f.Sessions {
+			s := &f.Sessions[i]
+			if !s.Worked {
+				continue
+			}
+			r := 1 // recently done elsewhere: not worth showing
+			switch {
+			case s.Busy && chatOf(s.Key) == chat:
+				r = 4
+			case s.Busy:
+				r = 3
+			case chatOf(s.Key) == chat:
+				r = 2
+			}
+			if r > rank {
+				best, rank = s, r
+			}
+		}
+		line := "💤 空闲"
+		if best != nil {
+			task := boardTask(best.Task)
+			switch rank {
+			case 4:
+				line = fmt.Sprintf("🔧 %s（%s 起）", task, best.Since.Local().Format("15:04"))
+			case 3:
+				where := "别的频道"
+				if best.Chat != "" {
+					where = "#" + best.Chat
+				}
+				line = fmt.Sprintf("🔧 在%s忙（%s 起）", where, best.Since.Local().Format("15:04"))
+			case 2:
+				line = fmt.Sprintf("✅ 做完：%s（%s）", task, best.DoneAt.Local().Format("15:04"))
+			}
+		}
+		lines = append(lines, fmt.Sprintf("**%s**　%s", f.Name, line))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func boardTask(task string) string {
+	if task == "" {
+		return "处理中"
+	}
+	if r := []rune(task); len(r) > teamBoardTaskRunes {
+		return string(r[:teamBoardTaskRunes]) + "…"
+	}
+	return task
+}
