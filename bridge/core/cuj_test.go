@@ -2653,3 +2653,88 @@ func TestCUJ_Progress1_QuietQueueAndFailure(t *testing.T) {
 		t.Fatal("quiet mode suppressed public progress")
 	}
 }
+
+// The owner starts work, continues the same card, and explicitly accepts it.
+// Assertions cover the card, its fact thread and the shared board together.
+func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
+	_, e, a, _, session := inputFixture(t)
+	p := &indexedProgressPlatform{progressTestPlatform: newProgressPlatform()}
+	e.platforms = []Platform{p}
+	e.SetDataDir(t.TempDir())
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	e.SetTeam(dir, "G哥", true)
+	boards := map[string]*boardChat{}
+	send := func(id, text string) string {
+		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: text, Mentioned: true})
+		return inputPrompt(t, a)
+	}
+	report := func(token string, seq int64, kind string) string {
+		id, err := e.publicProgress.Report(PublicProgressRequest{Project: "gge", SessionKey: inputTestKey, Run: token, Seq: seq, Kind: kind, Title: "修复语音", Summary: "公开进展"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.publicProgress.Flush(context.Background())
+		return id
+	}
+	refresh := func(want TaskState, count int) string {
+		var files []teamFile
+		inputWait(t, func() bool {
+			files = readTeamFiles(dir, time.Now())
+			return len(files) == 1 && len(files[0].Tasks) == count && (count == 0 || files[0].Tasks[0].State == want)
+		})
+		e.updateTeamBoards(files, boards)
+		return p.board.content[inputTestKey]
+	}
+	token := progressToken(t, send("one", "检查语音绑定"))
+	id := report(token, 1, "start")
+	report(token, 2, "waiting")
+	inputDone(a, "请确认绑定")
+	inputWait(t, func() bool { return !session.Busy() })
+	if text := refresh(TaskStateWaitingUser, 1); !strings.Contains(text, "Needs your input") {
+		t.Fatal(text)
+	}
+	first := p.task(id)
+	boardID := boards[inputTestKey].MessageID
+
+	prompt := send("two", "继续调整同一个绑定")
+	if !strings.Contains(prompt, id) || !strings.Contains(prompt, "--seq 3 --kind update") {
+		t.Fatal("continuation instructions missing")
+	}
+	token = progressToken(t, prompt)
+	if next := report(token, 3, "update"); next != id {
+		t.Fatal("continuation created another card")
+	}
+	if text := refresh(TaskStateInProgress, 1); !strings.Contains(text, "In progress") {
+		t.Fatal(text)
+	}
+	report(token, 4, "waiting")
+	inputDone(a, "调整完成，请验收")
+	inputWait(t, func() bool { return !session.Busy() })
+	refresh(TaskStateWaitingUser, 1)
+
+	send("three", "我已确认效果，验收通过")
+	// This fixture stands in for the agent executing task accept after that
+	// explicit instruction. TestTaskCLI covers the actual Unix socket command.
+	if _, err := e.publicProgress.Accept(id, "human"); err != nil {
+		t.Fatal(err)
+	}
+	inputDone(a, "验收已记录")
+	inputWait(t, func() bool { return !session.Busy() })
+	e.publicProgress.Flush(context.Background())
+	if text := refresh("", 0); strings.Contains(text, "https://example.test/cards/") {
+		t.Fatal("accepted task still indexed", text)
+	}
+	card := p.task(id)
+	if card.State != TaskStateCompleted || card.FactStage != FactStageVerified || card.MessageID != first.MessageID || card.ThreadID != first.ThreadID {
+		t.Fatalf("acceptance changed identity or lost state: %+v", card)
+	}
+	p.pm.Lock()
+	defer p.pm.Unlock()
+	last := card.Events[len(card.Events)-1]
+	if len(p.snapshots) != 1 || p.facts[last.ID].Kind != TaskEventCompleted || boards[inputTestKey].MessageID != boardID {
+		t.Fatal("card, acceptance fact, or board identity lost")
+	}
+}

@@ -23,6 +23,8 @@ Discord 消息 → platform/discord → core/engine.go → agent 适配器 → �
 
 可选的公开进展独立于上述 Thinking/工具事件：Engine 向真人任务轮次注入临时报告命令 → agent 调用 progress CLI → 本地 /progress 校验项目、会话、run、序号 → PublicProgress 先落盘，再通过 TaskCardPublisher 投递。Discord 适配器负责卡片/讨论串及丢失回执后的标记核对；core 不依赖具体平台。投递期间不持有报告锁，网络延迟不会阻塞新报告或语音结果。语音可使用同一份公开 result/waiting 摘要，原始正文仍只回到本地输入接口。接口和恢复边界见[公开进展说明](PUBLIC_PROGRESS.md)；result_ready 不等于项目验收完成。
 
+PublicProgress 的生命周期锁串行化 begin、首条续接、报告、结束和验收；每卡锁保护记录和投递检查点。续接先校验当前 run/会话/序号，再落盘，成功才转移 run 对卡片的所有权；报告和验收落盘失败恢复原状态。投递网络调用不持有生命周期锁或每卡锁。验收是终态，后续结束不能覆盖；会话候选仅在仍指向该卡时清除。GET /task 提供项目内公开记录，POST /task/accept 接受可信本地调用者记录的真人验收，actor 只是归属字段，不是身份认证。
+
 失败回合可通过EventError.Content携带已有回答，Error只携带诊断；核心将两者分开展示，仍保留失败终态、错误钩子和队列恢复。回答不进入成功历史，本地/input不将其作为可播放的成功text。Antigravity只用自身CLI的认证当前轨迹分类安全原因，详见[失败回合说明](ANTIGRAVITY_TURN_FAILURE.md)。
 
 语音录音 → voice/static → voice/app.py 的 /api/transcribe → speech.py 本机识别 → /api/turn → voice/bridge.py 本地 API → 所选伙伴原会话 → 回答正文 → 本机 TTS/浏览器播放。单伙伴入口默认 G哥；voice.multi 需要显式名单，同一频道、一次一轮。

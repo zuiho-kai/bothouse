@@ -671,6 +671,7 @@ const (
 const (
 	MsgPublicVoiceResult  MsgKey = "MsgPublicVoiceResult"
 	MsgPublicVoiceWaiting MsgKey = "MsgPublicVoiceWaiting"
+	MsgPublicAccepted     MsgKey = "MsgPublicAccepted"
 )
 
 var messages = map[MsgKey]map[Language]string{
@@ -693,6 +694,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "本輪結果和未完成事項已記錄，請查看任務卡。",
 		LangJapanese:           "結果と残作業はタスクカードを確認してください。",
 		LangSpanish:            "Consulte los resultados y pendientes en la tarjeta.",
+	},
+	MsgPublicAccepted: {
+		LangEnglish:            "Accepted by %s",
+		LangChinese:            "%s 已验收",
+		LangTraditionalChinese: "%s 已驗收",
+		LangJapanese:           "%s が検収しました",
+		LangSpanish:            "Aceptado por %s",
 	},
 	MsgPublicVoiceWaiting: {
 		LangEnglish:            "Your decision is needed. Please check the task card.",

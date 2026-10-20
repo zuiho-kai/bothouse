@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,8 +39,8 @@ type PublicProgressRequest struct {
 }
 
 func (r PublicProgressRequest) Validate() error {
-	if r.Project == "" || r.SessionKey == "" || len(r.Run) != 64 || r.Seq < 1 || r.Seq > 64 {
-		return errors.New("project, session, current run and seq (1..64) required")
+	if r.Project == "" || r.SessionKey == "" || len(r.Run) != 64 || r.Seq < 1 {
+		return errors.New("project, session, current run and positive seq required")
 	}
 	if _, err := hex.DecodeString(r.Run); err != nil {
 		return errors.New("invalid run")
@@ -63,6 +64,7 @@ type progressRecord struct {
 	Platform string           `json:"platform"`
 	Lang     Language         `json:"lang"`
 	Closed   bool             `json:"closed"`
+	Accepted bool             `json:"accepted,omitempty"`
 	Reports  map[int64]string `json:"reports"`
 	LastSeq  int64            `json:"last_seq"`
 	CardSeq  int64            `json:"card_seq"`
@@ -75,16 +77,30 @@ type publicRun struct {
 	record     progressRecord
 	publisher  TaskCardPublisher
 	stopped    func() bool
+	// candidate is the card still open for this session. A turn adopts it only
+	// when its first report continues the numbering instead of starting anew;
+	// a fresh request always opens its own card.
+	candidate  *publicRun
+	reportBase int64 // sequence at this turn's adoption; budget is per turn, not per card
 }
 
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
-	mu      sync.Mutex
-	dir     string
-	dataDir string
-	project string
-	runs    map[string]*publicRun
+	// Lifecycle operations serialize run ownership and durable state transitions.
+	// Delivery never takes this lock; network requests remain independent.
+	transitionMu sync.Mutex
+	mu           sync.Mutex
+	dir          string
+	dataDir      string
+	project      string
+	runs         map[string]*publicRun
+	// records indexes every task this project has ever journalled, so a task can
+	// be queried or accepted by id without walking the journal directory.
+	records map[string]*publicRun
+	// open maps a session to the card a later turn should continue instead of
+	// opening a second card for the same work.
+	open    map[string]*publicRun
 	pending map[string]*publicRun
 	listed  map[string]*publicRun // live tasks and durable requests awaiting a human
 }
@@ -99,7 +115,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		return nil, fmt.Errorf("public progress data directory: %w", err)
 	}
 	hash := sha256.Sum256([]byte(project))
-	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, runs: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
 	if err := os.MkdirAll(p.dir, 0700); err != nil {
 		return nil, err
 	}
@@ -137,6 +153,12 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 				return nil, err
 			}
 		}
+		p.records[r.record.Task.ID] = r
+		if resumableTask(r.record.Task, r.record.Accepted, time.Now()) {
+			if prev := p.open[r.record.Task.SessionKey]; prev == nil || prev.record.Task.UpdatedAt.Before(r.record.Task.UpdatedAt) {
+				p.open[r.record.Task.SessionKey] = r
+			}
+		}
 		if r.record.Task.State == TaskStateWaitingUser {
 			p.listed[r.record.Task.ID] = r
 			// Upgrade existing journals through the publisher; do not invent URLs.
@@ -160,6 +182,8 @@ func randomProgressID(n int) string {
 }
 
 func (p *PublicProgress) begin(platform Platform, session string, lang Language, stopped func() bool) string {
+	p.transitionMu.Lock()
+	defer p.transitionMu.Unlock()
 	sink, ok := platform.(TaskCardPublisher)
 	if !ok {
 		return ""
@@ -169,7 +193,10 @@ func (p *PublicProgress) begin(platform Platform, session string, lang Language,
 		return ""
 	}
 	token := randomProgressID(32)
-	r := &publicRun{publisher: sink, stopped: stopped, record: progressRecord{Platform: platform.Name(), Lang: lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: session, ChannelID: channel, Origin: platform.Name()}}}
+	p.mu.Lock()
+	candidate := p.open[session]
+	p.mu.Unlock()
+	r := &publicRun{publisher: sink, stopped: stopped, candidate: candidate, record: progressRecord{Platform: platform.Name(), Lang: lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: session, ChannelID: channel, Origin: platform.Name()}}}
 	p.mu.Lock()
 	p.runs[token] = r
 	p.mu.Unlock()
@@ -181,7 +208,7 @@ func (p *PublicProgress) appendEvent(r *publicRun, kind TaskEventKind, summary s
 	t.Seq++
 	t.UpdatedAt = time.Now().UTC()
 	t.LatestProgress = summary
-	t.Events = append(t.Events, TaskEvent{ID: fmt.Sprintf("%s:%d", t.ID, t.Seq), TaskID: t.ID, Seq: t.Seq, Kind: kind, State: t.State, Summary: summary, IsKeyFact: key, Timestamp: t.UpdatedAt})
+	t.Events = append(t.Events, TaskEvent{ID: fmt.Sprintf("%s:%d", t.ID, t.Seq), TaskID: t.ID, Seq: t.Seq, Kind: kind, State: t.State, FactStage: t.FactStage, Summary: summary, IsKeyFact: key, Timestamp: t.UpdatedAt})
 }
 
 func (p *PublicProgress) save(r *publicRun) error {
@@ -195,6 +222,8 @@ func (p *PublicProgress) save(r *publicRun) error {
 // Report commits before ACK. Delivery runs independently, so a Discord outage
 // never makes the agent repeat tools or block while publishing progress.
 func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
+	p.transitionMu.Lock()
+	defer p.transitionMu.Unlock()
 	if req.Project != p.project {
 		return "", errors.New("run is not active for this project")
 	}
@@ -207,11 +236,12 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if r == nil {
 		return "", errors.New("run is not active")
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.record.Closed || (r.stopped != nil && r.stopped()) || r.record.Task.SessionKey != req.SessionKey {
-		return "", errors.New("run is not active for this session")
+	source := r
+	r, err := p.lockReportRun(source, req)
+	if err != nil {
+		return "", err
 	}
+	defer r.mu.Unlock()
 	b, _ := json.Marshal(req)
 	hash := fmt.Sprintf("%x", sha256.Sum256(b))
 	if old, ok := r.record.Reports[req.Seq]; ok {
@@ -226,8 +256,16 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if (r.record.LastSeq == 0) != (req.Kind == "start") {
 		return "", errors.New("first report must be start; do not start twice")
 	}
+	base := r.reportBase
+	if r != source {
+		base = r.record.LastSeq
+	}
+	if req.Seq-base > 64 {
+		return "", errors.New("at most 64 public reports per turn")
+	}
 	old := r.record
 	old.Task = r.record.Task.Clone()
+	r.record.Closed = false
 	t := r.record.Task
 	kind, key := TaskEventProgress, false
 	t.State = TaskStateInProgress
@@ -255,14 +293,26 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		r.record = old
 		return "", err
 	}
+	if r != source {
+		r.stopped = source.stopped
+		r.reportBase = base
+	}
 	p.mu.Lock()
+	p.runs[req.Run] = r // publish adoption only after the first continued report is durable
+	p.records[t.ID] = r
 	p.pending[t.ID] = r
+	if req.Kind == "start" {
+		// The newest card is what a later turn may continue.
+		p.open[t.SessionKey] = r
+	}
 	p.indexRun(r)
 	p.mu.Unlock()
 	return t.ID, nil
 }
 
 func (p *PublicProgress) finish(token, outcome string) {
+	p.transitionMu.Lock()
+	defer p.transitionMu.Unlock()
 	p.mu.Lock()
 	r := p.runs[token]
 	delete(p.runs, token)
@@ -272,6 +322,9 @@ func (p *PublicProgress) finish(token, outcome string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.record.Accepted {
+		return // acceptance is durable and terminal, even if this turn later fails/stops
+	}
 	r.record.Closed = true
 	if r.record.LastSeq == 0 {
 		return
@@ -295,6 +348,9 @@ func (p *PublicProgress) finish(token, outcome string) {
 		slog.Error("public progress terminal persistence failed", "error", err)
 	}
 	p.mu.Lock()
+	if p.open[t.SessionKey] == r && !resumableTask(t, r.record.Accepted, time.Now()) {
+		delete(p.open, t.SessionKey)
+	}
 	p.pending[t.ID] = r
 	p.indexRun(r)
 	p.mu.Unlock()
@@ -417,10 +473,18 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	}
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 	prefix := quote(command) + " progress --project " + quote(e.name) + " --session " + quote(session) + " --data-dir " + quote(e.publicProgress.dataDir)
-	return strings.NewReplacer("COMMAND", prefix, "RUN_TOKEN", token).Replace(publicProgressPrompt) + prompt
+	resumeNote := ""
+	if taskID, resumeSeq, ok := e.publicProgress.runStart(token); ok {
+		resumeNote = " If this turn continues the work on the card opened earlier (" + taskID + "), do not start again: use --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update and keep that title. New work still starts its own card at --seq 1."
+	}
+	return strings.NewReplacer(
+		"COMMAND", prefix,
+		"RUN_TOKEN", token,
+		"RESUME_NOTE", resumeNote,
+	).Replace(publicProgressPrompt) + prompt
 }
 
-const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'. Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history.\n[/Public progress channel]\n\n"
+const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'.RESUME_NOTE Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history.\n[/Public progress channel]\n\n"
 
 func (e *Engine) finishPublicProgress(state *interactiveState, outcome string) {
 	if e.publicProgress == nil {
