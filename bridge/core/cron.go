@@ -48,8 +48,9 @@ func (j *CronJob) IsShellJob() bool {
 const defaultCronJobTimeout = 30 * time.Minute
 
 var (
-	ErrCronJobNotFound     = errors.New("cron job not found")
-	ErrCronProjectNotFound = errors.New("cron project not found")
+	ErrCronJobNotFound      = errors.New("cron job not found")
+	ErrCronProjectNotFound  = errors.New("cron project not found")
+	ErrCronSchedulerStopped = errors.New("cron scheduler stopped")
 )
 
 // ExecutionTimeout returns how long the scheduler waits for the job goroutine to finish.
@@ -418,6 +419,14 @@ type CronScheduler struct {
 	entries            map[string]cron.EntryID // job ID → cron entry
 	defaultSilent      bool                    // global default for suppressing cron start notifications
 	defaultSessionMode string                  // global default session mode; "" = reuse, "new_per_run" = fresh session each run
+
+	// Manual runs (RunJobNow) execute outside robfig/cron, so Stop tracks them
+	// here to avoid returning while a run can still persist its result.
+	runMu    sync.Mutex
+	stopped  bool
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	runs     sync.WaitGroup
 }
 
 func NewCronScheduler(store *CronStore) *CronScheduler {
@@ -426,6 +435,7 @@ func NewCronScheduler(store *CronStore) *CronScheduler {
 		cron:    cron.New(),
 		engines: make(map[string]*Engine),
 		entries: make(map[string]cron.EntryID),
+		stopCh:  make(chan struct{}),
 	}
 }
 
@@ -474,8 +484,19 @@ func (cs *CronScheduler) Start() error {
 	return nil
 }
 
+// Stop stops scheduling and returns only after every run started by the
+// scheduler (scheduled or RunJobNow) has stopped touching the store. Runs still
+// waiting on the agent are abandoned without recording a result, so Stop does
+// not wait for long agent turns.
 func (cs *CronScheduler) Stop() {
-	cs.cron.Stop()
+	cs.stopOnce.Do(func() {
+		cs.runMu.Lock()
+		cs.stopped = true
+		close(cs.stopCh)
+		cs.runMu.Unlock()
+	})
+	<-cs.cron.Stop().Done()
+	cs.runs.Wait()
 }
 
 func (cs *CronScheduler) AddJob(job *CronJob) error {
@@ -673,7 +694,17 @@ func (cs *CronScheduler) RunJobNow(id string) error {
 		return fmt.Errorf("%w: %q", ErrCronProjectNotFound, job.Project)
 	}
 	snapshot := *job
-	go cs.runJob(&snapshot, true)
+	cs.runMu.Lock()
+	if cs.stopped {
+		cs.runMu.Unlock()
+		return ErrCronSchedulerStopped
+	}
+	cs.runs.Add(1)
+	cs.runMu.Unlock()
+	go func() {
+		defer cs.runs.Done()
+		cs.runJob(&snapshot, true)
+	}()
 	return nil
 }
 
@@ -705,15 +736,19 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 	}()
 
 	var err error
-	timeout := job.ExecutionTimeout()
-	if timeout > 0 {
-		select {
-		case err = <-done:
-		case <-time.After(timeout):
-			err = fmt.Errorf("job timed out after %v", timeout)
-		}
-	} else {
-		err = <-done
+	var timeoutC <-chan time.Time
+	if timeout := job.ExecutionTimeout(); timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		timeoutC = timer.C
+	}
+	select {
+	case err = <-done:
+	case <-timeoutC:
+		err = fmt.Errorf("job timed out after %v", job.ExecutionTimeout())
+	case <-cs.stopCh:
+		slog.Info("cron: scheduler stopped before job finished; result not recorded", "id", job.ID, "manual", manual)
+		return
 	}
 
 	cs.store.MarkRun(job.ID, err)
@@ -734,7 +769,6 @@ type mutePlatform struct {
 
 func (m *mutePlatform) Reply(_ context.Context, _ any, _ string) error { return nil }
 func (m *mutePlatform) Send(_ context.Context, _ any, _ string) error  { return nil }
-
 
 func GenerateCronID() string {
 	b := make([]byte, 4)

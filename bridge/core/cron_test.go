@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -113,7 +115,6 @@ func TestMutePlatform_DiscardMessages(t *testing.T) {
 		t.Errorf("mutePlatform should delegate Name(), got %q", mp.Name())
 	}
 }
-
 
 func TestCronJob_MuteField(t *testing.T) {
 	job := &CronJob{ID: "m1", Mute: false}
@@ -375,6 +376,7 @@ func TestCronScheduler_RunJobNow_DisabledJobStillRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	scheduler := NewCronScheduler(store)
+	t.Cleanup(scheduler.Stop) // #154: no cron writes after the test returns
 
 	platform := &stubCronReplyTargetPlatform{
 		stubPlatformEngine: stubPlatformEngine{n: "discord"},
@@ -480,6 +482,7 @@ func TestCronScheduler_RunJobNow_UsesSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	scheduler := NewCronScheduler(store)
+	t.Cleanup(scheduler.Stop) // #154: no cron writes after the test returns
 
 	platform := &stubCronReplyTargetPlatform{
 		stubPlatformEngine: stubPlatformEngine{n: "discord"},
@@ -838,4 +841,136 @@ func TestCronScheduler_UpdateJob_EnabledNonBoolPreservesSchedule(t *testing.T) {
 	if stored == nil || !stored.Enabled {
 		t.Fatalf("stored job state should be unchanged on validation error, got %+v", stored)
 	}
+}
+
+// blockingAgentSession holds the cron run inside the agent until release is closed.
+type blockingAgentSession struct {
+	events  chan Event
+	sent    chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingAgentSession() *blockingAgentSession {
+	return &blockingAgentSession{
+		events:  make(chan Event, 1),
+		sent:    make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (s *blockingAgentSession) Send(string, string, []ImageAttachment, []FileAttachment) error {
+	s.once.Do(func() {
+		close(s.sent)
+		go func() {
+			<-s.release
+			s.events <- Event{Type: EventResult, Content: "released", Done: true}
+		}()
+	})
+	return nil
+}
+func (s *blockingAgentSession) RespondPermission(string, PermissionResult) error { return nil }
+func (s *blockingAgentSession) Events() <-chan Event                             { return s.events }
+func (s *blockingAgentSession) CurrentSessionID() string                         { return "blocking-session" }
+func (s *blockingAgentSession) Alive() bool                                      { return true }
+func (s *blockingAgentSession) Close() error                                     { return nil }
+
+func newManualRunScheduler(t *testing.T, dir string, session AgentSession) (*CronScheduler, *CronStore, *stubCronReplyTargetPlatform) {
+	t.Helper()
+	store, err := NewCronStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler := NewCronScheduler(store)
+	platform := &stubCronReplyTargetPlatform{
+		stubPlatformEngine: stubPlatformEngine{n: "discord"},
+	}
+	e := NewEngine("test", &resultAgent{session: session}, []Platform{platform}, "", LangEnglish)
+	t.Cleanup(e.cancel)
+	e.cronScheduler = scheduler
+	scheduler.RegisterEngine("test", e)
+	job := &CronJob{
+		ID:         "inflight1",
+		Project:    "test",
+		SessionKey: "discord:channel-1:user-1",
+		CronExpr:   "0 6 * * *",
+		Prompt:     "hello",
+		Enabled:    false,
+		CreatedAt:  time.Now(),
+	}
+	if err := store.Add(job); err != nil {
+		t.Fatal(err)
+	}
+	return scheduler, store, platform
+}
+
+// Issue #154: a manual run persisted its result (crons/.tmp-* then jobs.json)
+// after the caller had already seen the reply and stopped the scheduler, racing
+// with removal of the data directory. After Stop returns nothing may write there.
+func TestCronScheduler_StopWaitsForManualRunPersistence(t *testing.T) {
+	dir, err := os.MkdirTemp("", "cron-stop-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler, _, platform := newManualRunScheduler(t, dir, newResultAgentSession("done"))
+
+	if err := scheduler.RunJobNow("inflight1"); err != nil {
+		t.Fatalf("RunJobNow() error = %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(platform.getSent()) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for run output, sent=%v", platform.getSent())
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	scheduler.Stop()
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("RemoveAll after Stop: %v", err)
+	}
+}
+
+// Stop must not wait for a long agent turn, and must not let that turn record a
+// result afterwards; runs requested after Stop are refused.
+func TestCronScheduler_StopAbandonsBlockedManualRun(t *testing.T) {
+	session := newBlockingAgentSession()
+	scheduler, store, platform := newManualRunScheduler(t, t.TempDir(), session)
+
+	if err := scheduler.RunJobNow("inflight1"); err != nil {
+		t.Fatalf("RunJobNow() error = %v", err)
+	}
+	select {
+	case <-session.sent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for agent Send")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		scheduler.Stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop blocked on an in-flight agent turn")
+	}
+
+	if err := scheduler.RunJobNow("inflight1"); !errors.Is(err, ErrCronSchedulerStopped) {
+		t.Fatalf("RunJobNow after Stop error = %v, want ErrCronSchedulerStopped", err)
+	}
+
+	close(session.release)
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(strings.Join(platform.getSent(), "\n"), "released") {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for released reply, sent=%v", platform.getSent())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, lastRunSet, _ := cronJobRunStatus(store, "inflight1"); lastRunSet {
+		t.Fatal("LastRun recorded after Stop returned")
+	}
+	scheduler.Stop() // idempotent
 }

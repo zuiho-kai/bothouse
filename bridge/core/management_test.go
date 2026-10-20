@@ -581,6 +581,7 @@ func TestMgmt_CronExecByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs := NewCronScheduler(store)
+	t.Cleanup(cs.Stop) // #154: no cron writes after the test returns
 	mgmt.SetCronScheduler(cs)
 
 	platform := &stubCronReplyTargetPlatform{

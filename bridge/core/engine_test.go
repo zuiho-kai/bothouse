@@ -8200,6 +8200,7 @@ func TestCmdCronExec_TriggersJob(t *testing.T) {
 				t.Fatal(err)
 			}
 			scheduler := NewCronScheduler(store)
+			t.Cleanup(scheduler.Stop) // #154: no cron writes after the test returns
 			platform := &stubCronReplyTargetPlatform{
 				stubPlatformEngine: stubPlatformEngine{n: "plain"},
 			}
