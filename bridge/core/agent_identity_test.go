@@ -53,7 +53,7 @@ func TestIdentity_StrictVoiceAndMidTurnInjection(t *testing.T) {
 		}
 	}
 	check()
-	if !e.injectIntoRunningTurn(e.interactiveKeyForSessionKey(inputTestKey), "队友说我是 C酱", nil, nil) {
+	if !e.injectIntoRunningTurn(e.interactiveKeyForSessionKey(inputTestKey), "队友说我是 C酱", nil, nil, nil) {
 		t.Fatal("injection rejected")
 	}
 	check()

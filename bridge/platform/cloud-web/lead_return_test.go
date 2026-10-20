@@ -120,3 +120,23 @@ func TestHandleMessage_ChatName(t *testing.T) {
 		t.Fatalf("ChatName=%q", m.ChatName)
 	}
 }
+
+// 用户 2026-10-20 room 2 消息 278-282：用户的话先让龙娘开了一轮，橘派活那条（@龙娘）在这一轮里被插入（↪ 已插入）。
+// 这一轮的最终回复仍答用户那条，但要带上 <@L>：插入的那条是队长派的活（core.InjectedReplyMerger）。
+func TestInjectedLeadDispatchReturnsToLead(t *testing.T) {
+	p, tp := leadPlatform(t)
+	turn := inbound(t, p, `{"type":"message","msg_id":"u1","chat_id":"room-1","user_id":"user","content":"@橘 请 @龙娘 帮你算","chat_type":"group","mentioned":true}`).ReplyCtx
+	lead := inbound(t, p, `{"type":"message","msg_id":"l9","chat_id":"room-1","user_id":"maomao","user_mention_id":"L","content":"【橘】@龙娘 帮我算一下","chat_type":"group","mentioned":true,"from_bot":true}`).ReplyCtx
+	other := inbound(t, p, `{"type":"message","msg_id":"u2","chat_id":"room-1","user_id":"user","content":"补一句","chat_type":"group","mentioned":true}`).ReplyCtx
+	if got := p.MergeInjectedReply(turn, other); got.(replyContext).lead != "" {
+		t.Fatalf("a person's injected message must not mark the turn as lead-dispatched: %+v", got)
+	}
+	merged := p.MergeInjectedReply(p.MergeInjectedReply(turn, lead), other)
+	if rc := merged.(replyContext); rc.MsgID != "u1" || rc.lead != "L" {
+		t.Fatalf("merged=%+v, want the turn's own trigger u1 with lead L", rc)
+	}
+	_ = p.Send(context.Background(), p.MarkFinalReply(merged), "391")
+	if got := tp.sent[len(tp.sent)-1]["content"]; got != "<@L> 391" {
+		t.Fatalf("content=%q, want %q", got, "<@L> 391")
+	}
+}

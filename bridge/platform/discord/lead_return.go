@@ -3,6 +3,8 @@ package discord
 import (
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // maomao fork: when the team lead @-s a sub to hand it work, the sub's answer must reach the
@@ -47,3 +49,11 @@ func keepLead(prev, next any) any {
 	}
 	return n
 }
+
+// MergeInjectedReply implements core.InjectedReplyMerger: a lead's @ injected into a running turn
+// marks that turn as lead-dispatched, the same rule keepLead applies to a merged burst.
+func (p *Platform) MergeInjectedReply(turnCtx, injectedCtx any) any {
+	return keepLead(injectedCtx, turnCtx)
+}
+
+var _ core.InjectedReplyMerger = (*Platform)(nil)

@@ -65,6 +65,28 @@ type FinalReplyMarker interface {
 	MarkFinalReply(replyCtx any) any
 }
 
+// InjectedReplyMerger is implemented by platforms whose reply context carries facts about the
+// trigger that must survive a message being injected into a running turn (maomao fork: the
+// lead-dispatched mark behind lead_return.go). The turn keeps answering its own trigger; the
+// platform folds in what the injected message's context says (Discord's keepLead does the same
+// for a burst of the lead's messages merged into one turn).
+type InjectedReplyMerger interface {
+	MergeInjectedReply(turnCtx, injectedCtx any) any
+}
+
+// mergeInjectedReplies folds the reply contexts of messages injected into the running turn into
+// that turn's reply context, oldest first, when p supports it.
+func mergeInjectedReplies(p Platform, replyCtx any, injected []*injectedReply) any {
+	m, ok := p.(InjectedReplyMerger)
+	if !ok {
+		return replyCtx
+	}
+	for _, in := range injected {
+		replyCtx = m.MergeInjectedReply(replyCtx, in.ctx)
+	}
+	return replyCtx
+}
+
 // markFinalReply marks replyCtx as carrying the turn's final answer (and agent output).
 func markFinalReply(p Platform, replyCtx any) any {
 	replyCtx = markAgentReply(p, replyCtx)

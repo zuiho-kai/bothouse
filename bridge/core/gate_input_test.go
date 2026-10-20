@@ -12,11 +12,11 @@ func TestInjectIntoRunningTurnSkipsLocalInputTurn(t *testing.T) {
 	e.interactiveMu.Unlock()
 
 	state.localInputOnly = &inputTurn{expectedID: "thread-1"}
-	if e.injectIntoRunningTurn("k", "hi", nil, nil) || as.hasSentID {
+	if e.injectIntoRunningTurn("k", "hi", nil, nil, nil) || as.hasSentID {
 		t.Fatal("injected into a local input turn")
 	}
 	state.localInputOnly = nil
-	if !e.injectIntoRunningTurn("k", "hi", nil, nil) || !as.hasSentID {
+	if !e.injectIntoRunningTurn("k", "hi", nil, nil, nil) || !as.hasSentID {
 		t.Fatal("ordinary turn no longer accepts injection")
 	}
 }

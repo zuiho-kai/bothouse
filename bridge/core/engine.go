@@ -598,6 +598,7 @@ type interactiveState struct {
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
 	platform                 Platform
 	replyCtx                 any
+	injectedReplyCtxs        []*injectedReply // maomao fork: reply contexts of messages injected into the running turn (gate.go); guarded by mu
 	currentMessageID         string
 	lastRecallProbeMessageID string
 	lastRecallProbeAt        time.Time
@@ -4119,6 +4120,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	}
 	state.platform = p
 	state.replyCtx = msg.ReplyCtx
+	state.injectedReplyCtxs = nil
 	state.currentMessageID = msg.MessageID
 	state.currentTurnUserMessageTimeMs = msg.UserMessageTimeMs
 	state.mu.Unlock()
@@ -6229,7 +6231,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Mark clean exit so unsolicited reader preserves buffered events.
 			state.mu.Lock()
 			state.eventsNeedResync = false
+			injected := state.injectedReplyCtxs // maomao fork: messages injected mid-turn (gate.go)
+			state.injectedReplyCtxs = nil
 			state.mu.Unlock()
+			replyCtx = mergeInjectedReplies(p, replyCtx, injected)
 
 			fullResponse := event.Content
 			if e.display.HideAgentFooter {
@@ -6628,6 +6633,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				remainingQueue := len(state.pendingMessages)
 				state.platform = queued.platform
 				state.replyCtx = queued.replyCtx
+				state.injectedReplyCtxs = nil
 				state.currentMessageID = queued.messageID
 				state.fromVoice = queued.fromVoice
 				state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
@@ -7072,6 +7078,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.pendingMessages = state.pendingMessages[1:]
 		state.platform = queued.platform
 		state.replyCtx = queued.replyCtx
+		state.injectedReplyCtxs = nil
 		state.currentMessageID = queued.messageID
 		state.fromVoice = queued.fromVoice
 		state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs

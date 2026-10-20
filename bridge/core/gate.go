@@ -306,7 +306,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if strings.TrimSpace(inject) == "" {
 		inject = "（补充附件，和刚才的消息是一起发的）"
 	}
-	if busy && g.inject && e.injectIntoRunningTurn(interactiveKey, inject, msg.Images, msg.Files) {
+	if busy && g.inject && e.injectIntoRunningTurn(interactiveKey, inject, msg.ReplyCtx, msg.Images, msg.Files) {
 		g.mu.Lock()
 		g.dropBuffered(interactiveKey, len(buffered))
 		g.mu.Unlock()
@@ -387,7 +387,7 @@ func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
 // injectIntoRunningTurn writes text (and any attachments) to the live agent's stdin while a
 // turn is in flight; covers "text first, image 300ms later" splits too.
 // Claude Code folds it into the current turn (one result), exactly like typing mid-turn.
-func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, images []ImageAttachment, files []FileAttachment) bool {
+func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, replyCtx any, images []ImageAttachment, files []FileAttachment) bool {
 	e.interactiveMu.Lock()
 	state := e.interactiveStates[interactiveKey]
 	e.interactiveMu.Unlock()
@@ -402,13 +402,32 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, images []
 	if as == nil || !as.Alive() || localInput {
 		return false
 	}
+	// The injected message becomes part of this turn's input, so the turn's final answer must also
+	// carry what its reply context says about the trigger (InjectedReplyMerger, e.g. the lead
+	// dispatched it). Recorded before Send: the agent may finish the turn as soon as it reads it.
+	rec := &injectedReply{ctx: replyCtx}
+	state.mu.Lock()
+	state.injectedReplyCtxs = append(state.injectedReplyCtxs, rec)
+	state.mu.Unlock()
 	if err := as.Send(e.withAgentIdentity(content), "", images, files); err != nil {
 		slog.Warn("gate: mid-turn inject failed", "error", err)
+		state.mu.Lock()
+		for i, r := range state.injectedReplyCtxs {
+			if r == rec {
+				state.injectedReplyCtxs = append(state.injectedReplyCtxs[:i:i], state.injectedReplyCtxs[i+1:]...)
+				break
+			}
+		}
+		state.mu.Unlock()
 		return false
 	}
 	slog.Info("gate: injected into running turn", "interactive_key", interactiveKey, "len", len(content))
 	return true
 }
+
+// injectedReply is one message injected into the running turn (interactiveState.injectedReplyCtxs);
+// a pointer so a failed Send removes exactly its own entry.
+type injectedReply struct{ ctx any }
 
 // deadTurnAfter is how long a running turn may go without agent events before
 // mid-turn inserts are refused (matches the stuck-turn watchdog).

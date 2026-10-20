@@ -3,6 +3,8 @@ package cloudweb
 import (
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // maomao fork, ported from platform/discord/lead_return.go (user 2026-10-20「你可以去修一下自建平台…
@@ -52,3 +54,32 @@ func (p *Platform) MarkFinalReply(replyCtx any) any {
 	}
 	return replyCtx
 }
+
+// MergeInjectedReply implements core.InjectedReplyMerger (same rule as platform/discord): when the
+// lead's @ is injected into a turn already running (user 2026-10-20, room 2: the user's message had
+// started the turn, 橘's dispatch arrived mid-turn as "↪ 已插入"), the turn keeps answering its own
+// trigger but its final answer returns to the lead.
+func (p *Platform) MergeInjectedReply(turnCtx, injectedCtx any) any {
+	in, ok := injectedCtx.(replyContext)
+	if !ok || in.lead == "" {
+		return turnCtx
+	}
+	switch rc := turnCtx.(type) {
+	case replyContext:
+		if rc.lead == "" {
+			rc.lead = in.lead
+		}
+		return rc
+	case *replyContext:
+		if rc != nil {
+			c := *rc
+			if c.lead == "" {
+				c.lead = in.lead
+			}
+			return c
+		}
+	}
+	return turnCtx
+}
+
+var _ core.InjectedReplyMerger = (*Platform)(nil)

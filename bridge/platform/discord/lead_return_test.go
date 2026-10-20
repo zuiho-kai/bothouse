@@ -64,3 +64,20 @@ func TestMarkFinalReply(t *testing.T) {
 		t.Fatalf("final not routed: %q", got)
 	}
 }
+
+// A lead's @ injected into a sub's running turn (core.InjectedReplyMerger): the turn keeps answering
+// its own trigger, but its final answer now returns to the lead.
+func TestMergeInjectedReplyKeepsLead(t *testing.T) {
+	p := &Platform{}
+	turn := replyContext{channelID: "c", messageID: "u1"}
+	got, _ := p.MergeInjectedReply(turn, replyContext{channelID: "c", messageID: "l1", lead: "L"}).(replyContext)
+	if got.messageID != "u1" || got.lead != "L" {
+		t.Fatalf("merged=%+v, want trigger u1 with lead L", got)
+	}
+	if got, _ := p.MergeInjectedReply(turn, replyContext{channelID: "c", messageID: "u2"}).(replyContext); got.lead != "" {
+		t.Fatalf("lead invented: %+v", got)
+	}
+	if again, _ := p.MergeInjectedReply(got, replyContext{channelID: "c", messageID: "u3"}).(replyContext); again.lead != "L" {
+		t.Fatalf("a later person's insert dropped the lead: %+v", again)
+	}
+}
