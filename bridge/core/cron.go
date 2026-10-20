@@ -510,13 +510,26 @@ func (cs *CronScheduler) AddJob(job *CronJob) error {
 	if err := cs.store.Add(job); err != nil {
 		return err
 	}
+	defer cs.boardTouch(job) // maomao fork: channel task board
 	if job.Enabled {
 		return cs.scheduleJob(job)
 	}
 	return nil
 }
 
+// boardTouch (maomao fork) refreshes the channel task board of the job's channel.
+func (cs *CronScheduler) boardTouch(job *CronJob) {
+	if job == nil {
+		return
+	}
+	cs.mu.RLock()
+	e := cs.engines[job.Project]
+	cs.mu.RUnlock()
+	boardTouchJob(e, job.SessionKey)
+}
+
 func (cs *CronScheduler) RemoveJob(id string) bool {
+	defer cs.boardTouch(cs.store.Get(id)) // maomao fork: channel task board
 	cs.mu.Lock()
 	if entryID, ok := cs.entries[id]; ok {
 		cs.cron.Remove(entryID)
@@ -527,6 +540,7 @@ func (cs *CronScheduler) RemoveJob(id string) bool {
 }
 
 func (cs *CronScheduler) EnableJob(id string) error {
+	defer cs.boardTouch(cs.store.Get(id)) // maomao fork: channel task board
 	if !cs.store.SetEnabled(id, true) {
 		return fmt.Errorf("job %q not found", id)
 	}
@@ -538,6 +552,7 @@ func (cs *CronScheduler) EnableJob(id string) error {
 }
 
 func (cs *CronScheduler) DisableJob(id string) error {
+	defer cs.boardTouch(cs.store.Get(id)) // maomao fork: channel task board
 	if !cs.store.SetEnabled(id, false) {
 		return fmt.Errorf("job %q not found", id)
 	}
@@ -557,6 +572,7 @@ func (cs *CronScheduler) UpdateJob(id string, field string, value any) error {
 	if job == nil {
 		return fmt.Errorf("job %q not found", id)
 	}
+	defer cs.boardTouch(job) // maomao fork: channel task board
 
 	// Validate cron expression if updating cron_expr
 	if field == "cron_expr" {
@@ -752,6 +768,7 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 	}
 
 	cs.store.MarkRun(job.ID, err)
+	boardTouchJob(engine, job.SessionKey) // maomao fork: next run on the channel task board
 
 	if err != nil {
 		slog.Error("cron: job failed", "id", job.ID, "manual", manual, "error", err)

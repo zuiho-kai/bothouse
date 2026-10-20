@@ -9,6 +9,8 @@
 验证：Go 单测覆盖以上各条，CI 全绿。v0.1.0-rc1 和 rc2 用 install.sh 在隔离 HOME（无 go/node）真装过；用假 Discord 走完了网页向导和 CLI，截图在 PR 评论。真机器人实测见 PR 讨论。
 未部署：线上实例不受影响（已有配置不进向导，已有非空 allow_from 不改）。实习生试用和公开仓库另做。
 
+2026-10-21：Issue #199 频道任务看板移植进 bridge/（分支 feat/199-channel-board，基线 main 56db4bfb）。来源是线上 maomao 分支已审过的两个提交（cc-connect 69f8380b、1a86b360）：项目配置 channel_board = true 时，一个进程里四个 bot 共用每个 Discord 频道一条置顶「频道任务看板」，原地编辑，列在做的（每 bot 一行、子 agent 子行）、排着队的（排队消息、定时任务、计时器）、今天做完的（最近 5 条）；消息 ID 存 data_dir/channel_board.json，重启后改同一条，丢失时按页脚标记找回。默认关闭；与 #193 team_board、#159 任务卡共存，不改它们（team_board 线上未开，两者都开会出现两条置顶）。移植只在 engine.go 合了三处冲突（Engine 字段、排队项 fromBot、EventError 分支与 input.finish 并存）。go test ./core/... ./platform/discord/... 通过；未向真实 Discord 试发。
+
 2026-10-21：PR #194（Refs #113 / #159）在 #193 置顶任务入口上接入显式跨轮同卡、task list/show 和真人验收记录。修复四处生命周期缺陷：验收被回合结束覆盖、非法续接污染历史、验收落盘失败后重试虚假成功、验收旧卡误清新卡候选；四条回归在原 PR 上失败，修后通过。生命周期变更先校验、落盘成功再转移续接归属，验收成为不可回退的终态；累计序号与每轮64条预算分开。新 CUJ 覆盖开任务→续接同卡→真人验收及状态栏移除，编译CLI→隔离Unix socket→Engine→假平台的查询和验收通过。Go沙箱全量46包、目标race、全CUJ、vet与全包构建通过；最终CI结论见PR。无子Agent，本次修复由同一Codex自查；未部署、未发真实Discord消息。--by只记录本地调用者声明的验收人，不是身份认证。语音查询、真实频道验收和自动事实关联仍待后续，不关闭相关Issue。详见[公开进展说明](PUBLIC_PROGRESS.md)。
 
 **Discord 回复目标路由（2026-10-21，Issue #195）**：真人回复其他 bot 时，主 bot 的 group_reply_all 原先仍将消息交给 gate；关闭回复 ping 时目标 sub 还会漏收。平台入口现先按新正文显式用户/角色提及，再按结构化回复作者决定收件人；别人的 bot 回复在命令、附件、gate/队列处理前退出。引用正文不参与收件人判断；缺失/删除引用须显式 @，不猜默认主 bot。普通消息、DM、转发、真人互相回复及 bot handoff 维持既有策略。

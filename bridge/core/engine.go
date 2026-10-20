@@ -435,6 +435,7 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	team                         *teamState                    // maomao fork: team status board (nil = off)
+	board                        *channelBoardHub              // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
@@ -586,6 +587,8 @@ type queuedMessage struct {
 	scheduledFrom Platform
 	// maomao fork: the backfill is already in content (a capacity re-delivery must not redo it).
 	scheduledBackfilled bool
+	// maomao fork: the channel task board's text for this message (boardDescOf).
+	boardDesc string
 }
 
 // interactiveState tracks a running interactive agent session and its permission state.
@@ -629,6 +632,11 @@ type interactiveState struct {
 
 	// maomao fork: agent session whose sub-agent table updater is running.
 	subTableFor AgentSession
+	// maomao fork: channel task board — the next/current turn's short text, and
+	// the Discord channel its board row is in (channel_board.go).
+	turnDesc     string
+	boardChannel string
+	boardKey     string // interactive key of the board row
 
 	// agentSessionIdleCancel 取消当前会话的 idle 关闭计时器。
 	agentSessionIdleCancel context.CancelFunc
@@ -844,6 +852,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		references:            DefaultReferenceRenderCfg(),
 		eventIdleTimeout:      defaultEventIdleTimeout,
 		maxQueuedMessages:     defaultMaxQueuedMessages,
+		board:                 defaultChannelBoard,
 		showContextIndicator:  true,
 		showWorkdirIndicator:  true,
 		shell:                 defaultShell(),
@@ -861,6 +870,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 	if sp, ok := ag.(SkillProvider); ok {
 		e.skills.SetDirs(sp.SkillDirs())
 	}
+	e.board.addSource(e) // maomao fork: report to the process's channel task board
 
 	return e
 }
@@ -1704,6 +1714,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		// maomao fork: a routine turn also gets the summary/wiki/team blocks.
 		TurnCtx:      true,
 		TurnCtxQuery: content,
+		boardLabel:   "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
 	}
 
 	// Resolve workspace-specific agent and sessions for multi-workspace mode.
@@ -1927,6 +1938,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		Content:      content,
 		ReplyCtx:     replyCtx,
 		ModeOverride: job.Mode,
+		boardLabel:   "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
 	}
 
 	agent := e.agent
@@ -2601,6 +2613,13 @@ func (e *Engine) Stop() error {
 
 	// Cancel first so late lifecycle callbacks observe shutdown immediately.
 	e.cancel()
+
+	// maomao fork: the channel board's last edit (running turns → stopped) goes
+	// out before the platforms close.
+	if e.board != nil {
+		e.board.shutdown(e)
+		e.board.removeSource(e)
+	}
 
 	if e.observeCancel != nil {
 		e.observeCancel()
@@ -3501,8 +3520,12 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		channelKey:          msg.ChannelKey,
 		userMessageTimeMs:   msg.UserMessageTimeMs,
 		fromBot:             msg.FromBot,
+		boardDesc:           boardDescOf(msg),
 	})
 	runMessageAccepted(msg)
+	if e.board != nil {
+		e.board.touchKey(interactiveKey) // maomao fork: "排着队的" on the channel board
+	}
 	queueDepth := len(state.pendingMessages)
 
 	slog.Debug("user message accepted into queue",
@@ -4222,6 +4245,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.currentMessageID = msg.MessageID
 		state.fromVoice = msg.FromVoice
 		state.sideText = ""
+		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.mu.Unlock()
 
 		// Run Send concurrently with processInteractiveEvents. Some agents block inside
@@ -5428,6 +5452,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	cp := newCompactProgressWriter(e.ctx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	state.mu.Unlock()
 
+	// maomao fork: this turn's row on the channel task board; the card's steps
+	// feed it. A turn that leaves this loop without a result was stopped.
+	board := e.boardBegin(state, sessionKey)
+	cp.onStep = board.step
+	defer func() { board.finish(state, BoardDoneStopped) }()
+
 	// Send instant confirmation reply if enabled and no streaming card is active.
 	// Streaming cards provide their own "processing" indicator, so instant reply
 	// is only needed when the platform doesn't support cards or card creation failed.
@@ -5523,6 +5553,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			slog.Error("agent session idle timeout: no events for too long, killing session",
 				"session_key", sessionKey, "timeout", e.eventIdleTimeout, "elapsed", time.Since(turnStart))
 			cp.Finalize(ProgressCardStateFailed)
+			board.finish(state, BoardDoneFailed)
 			sp.discard()
 			state.mu.Lock()
 			state.eventsNeedResync = true
@@ -5537,6 +5568,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			slog.Warn("agent turn exceeded max_turn_time: sending stop signal, will force-kill if needed",
 				"session_key", sessionKey, "max_turn_time", e.maxTurnTime, "elapsed", elapsed)
 			cp.Finalize(ProgressCardStateFailed)
+			board.finish(state, BoardDoneFailed)
 			sp.discard()
 			state.mu.Lock()
 			p := inputOutputPlatform(state.platform, input)
@@ -6355,6 +6387,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			fullResponse = cleanResponse
 
+			// maomao fork: the board row moves to "今天做完的" (a NO_REPLY turn just leaves).
+			if isSilent {
+				board.finish(state, boardDoneSilent)
+			} else {
+				board.finish(state, BoardDoneCompleted)
+			}
 			turnDuration := time.Since(turnStart)
 			slog.Info("turn complete",
 				"session", session.ID,
@@ -6615,11 +6653,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// for the next turn instead of returning.
 			state.mu.Lock()
 			droppedStale := 0
+			var staleDescs []string // maomao fork: channel task board
 			for len(state.pendingMessages) > 0 && e.isQueuedUserMessageStaleForDrainLocked(state, state.pendingMessages[0].userMessageTimeMs) {
+				staleDescs = append(staleDescs, state.pendingMessages[0].boardDesc)
 				state.pendingMessages = state.pendingMessages[1:]
 				droppedStale++
 			}
 			if droppedStale > 0 {
+				e.boardDropped(sessionKey, staleDescs)
 				slog.Info("dropped stale queued user messages after completed turn",
 					"session", sessionKey,
 					"dropped", droppedStale,
@@ -6638,6 +6679,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.currentMessageID = queued.messageID
 				state.fromVoice = queued.fromVoice
 				state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+				state.turnDesc = queued.boardDesc // maomao fork: channel task board
 				state.mu.Unlock()
 
 				// Stop the previous turn's typing indicator
@@ -6725,6 +6767,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.ctx, queuedRenderer)
 				cp = newCompactProgressWriter(e.ctx, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
+				board = e.boardBegin(state, sessionKey) // maomao fork: the queued turn's board row
+				cp.onStep = board.step
 
 				// Reset streaming card state for the next turn
 				streamCard = nil
@@ -6791,6 +6835,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			cp.Finalize(ProgressCardStateFailed)
+			if event.Error != nil && isModelCapacityError(event.Error.Error()) {
+				board.hold() // maomao fork: re-sent by the capacity retry; one board row, no failure
+			} else {
+				board.finish(state, BoardDoneFailed)
+			}
 			inputErr := event.Error
 			if inputErr == nil {
 				inputErr = fmt.Errorf("agent error without details")
@@ -6908,6 +6957,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 channelClosed:
 	// Channel closed - process exited unexpectedly
 	slog.Warn("agent process exited", "session_key", sessionKey)
+	if e.ctx.Err() == nil {
+		board.finish(state, BoardDoneFailed) // maomao fork: channel task board
+	}
 	state.mu.Lock()
 	state.eventsNeedResync = true
 	state.mu.Unlock()
@@ -7028,7 +7080,15 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 	state.mu.Lock()
 	remaining := state.pendingMessages
 	state.pendingMessages = nil
+	boardKey := state.boardKey
 	state.mu.Unlock()
+	if len(remaining) > 0 && boardKey != "" { // maomao fork: channel task board
+		descs := make([]string, 0, len(remaining))
+		for _, q := range remaining {
+			descs = append(descs, q.boardDesc)
+		}
+		e.boardDropped(boardKey, descs)
+	}
 	for _, q := range remaining {
 		e.send(q.platform, q.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), reason))
 	}
@@ -7045,11 +7105,14 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
 		droppedStale := 0
+		var staleDescs []string // maomao fork: channel task board
 		for len(state.pendingMessages) > 0 && e.isQueuedUserMessageStaleForDrainLocked(state, state.pendingMessages[0].userMessageTimeMs) {
+			staleDescs = append(staleDescs, state.pendingMessages[0].boardDesc)
 			state.pendingMessages = state.pendingMessages[1:]
 			droppedStale++
 		}
 		if droppedStale > 0 {
+			e.boardDropped(sessionKey, staleDescs)
 			slog.Info("dropped stale queued user messages while draining",
 				"session", sessionKey,
 				"dropped", droppedStale,
@@ -7083,6 +7146,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.currentMessageID = queued.messageID
 		state.fromVoice = queued.fromVoice
 		state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+		state.turnDesc = queued.boardDesc // maomao fork: channel task board
 		state.mu.Unlock()
 
 		e.i18n.DetectAndSet(queued.content)
