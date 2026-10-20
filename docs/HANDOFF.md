@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-20：Issue #155 肥鱼公开答复失败。用户授权一名子 Agent 实现，父 Agent 审查并合并；独立分支 fix/155-deepseek-public-reply。修复 DSH 流收集器误用 block-end 顺序及漏收 delta-only 文本，合法 reply 现在按运行时的首次出现顺序组装；取消后不再派发迟到工具，补答共用60秒期限由收集器自行执行。失败诊断只记阶段、尝试次数和固定原因枚举。父 Agent 复核修前4项回归均失败、修后含真实 DSH 离线契约共37项通过，bridge 沙箱串行 Go 全量通过。隔离真实 ACP 读取一次合成文件后精确回答通过；13:14 失败前108条消息经只读投影重建补答，真实同模型返回严格 reply、零工具调用，也通过。12:54及13:14生产记录只保留改写后终态，无法确认这两次的具体触发条件，不把合成复现冒充现场根因；Issue 保持开放跟踪现场验证。详见[验证记录](DSH_PUBLIC_REPLY_155.md)及[插件边界](../integrations/dsh-public-output/README.md)。尚未部署，未重跑原任务、修改原会话或发送 Discord 消息。
+
 2026-10-20：Issue #148 安装向导（分支 feat/setup-wizard，基于 docs/onboarding）。cc-connect 网页新增 /setup：选平台 → 机器人（复用已有或填 token；校验、列服务器/频道、邀请链接；飞书扫码后选默认群）→ 每个角色选本机 CLI（只列装了的，带版本和登录状态；可挂第三方 API）→ 人设（默认人设中英两版、回答语言）→ 兜底角色 → jev（填完自动测概率，不拦保存）。同一逻辑给 AI：`cc-connect setup apply --json`、`POST /api/v1/setup/apply`。第三方 API 对不上 CLI 协议时由 `core/protoconv.go` 本机转换成 /chat/completions（provider `api_format = "openai_chat"`）。首次运行没有项目时只起向导。gate 读向导写的 `jev.json`（给概率才用）和 `gate-team.json`（lead = 兜底角色），没有模型时只按规则判、判不了交给兜底角色。只在隔离实例（临时配置、临时端口、假 Discord/模型）验证；未部署，未同步回 maomao 分支。
 
 2026-10-20：Issue #145 将肥鱼公开输出边界前移到 DSH llm/stream：中间 text 归入 reasoning；终态基于已有证据进行最多两次、无工具的结构化补答，只发布验证后的 reply。桥接所有无正文 end_turn 均报回复失败，并支持 DSH 宣告的 session/resume，避免重启另开会话。合成回归旧路径失败、新路径通过；真实隔离ACP、冷恢复、只读工具后补答通过；80步骤/117工具调用回放无原始正文。20项Node回归、Go全量、ACP竞态、vet和构建通过。首次全量出现会话删除卡片时序失败，单项与CUJ三次复跑及再次全量通过。详见[部署插件](../integrations/dsh-public-output/README.md)。本条为源码记录，生产发布另记统一交接；须保留Claude strict补丁20c79756。

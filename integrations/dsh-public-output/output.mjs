@@ -36,19 +36,85 @@ export function finalRequest(options, signal = options.signal) {
   };
 }
 
-async function collect(stream) {
-  const blocks = [];
-  let finish, usage, bytes = 0;
-  for await (const chunk of stream) {
-    if (finish) throw Error('PUBLIC_STREAM_AFTER_FINISH');
-    bytes += Buffer.byteLength(JSON.stringify(chunk));
-    if (bytes > MAX_STREAM_BYTES) throw Error('PUBLIC_STREAM_LIMIT');
-    if (chunk.type === 'block-end') blocks.push(chunk.block);
-    else if (chunk.type === 'usage') usage = chunk.usage;
-    else if (chunk.type === 'finish') finish = chunk;
+class PublicStreamError extends Error {
+  constructor(code) { super(code); this.code = code; }
+}
+
+function checkCancellation(signal) {
+  if (signal?.aborted) throw new PublicStreamError('cancelled');
+}
+
+async function collect(stream, signal) {
+  // DSH indexes correlate interleaved blocks; block-end order is not content
+  // order. Text/reasoning may also be delta-only (BlockAssembler contract).
+  const indexed = new Map();
+  let finish, usage, bytes = 0, ended = false;
+  checkCancellation(signal);
+  const iterator = stream[Symbol.asyncIterator]();
+  let onAbort;
+  const cancelled = signal && new Promise((_, reject) => {
+    onAbort = () => reject(new PublicStreamError('cancelled'));
+    signal.addEventListener('abort', onAbort, {once:true});
+  });
+  try {
+    while (true) {
+      checkCancellation(signal);
+      const step = await (cancelled ? Promise.race([iterator.next(), cancelled]) : iterator.next());
+      checkCancellation(signal);
+      if (step.done) { ended = true; break; }
+      const chunk = step.value;
+      if (finish) throw new PublicStreamError('stream_after_finish');
+      bytes += Buffer.byteLength(JSON.stringify(chunk));
+      if (bytes > MAX_STREAM_BYTES) throw new PublicStreamError('stream_limit');
+      if (chunk.type === 'usage') { usage = chunk.usage; continue; }
+      if (chunk.type === 'finish') {
+        if (typeof chunk.reason?.kind !== 'string') throw new PublicStreamError('stream_contract');
+        finish = chunk; continue;
+      }
+      if (!['block-start','block-end','text-delta','reasoning-delta','tool-call-delta'].includes(chunk.type) ||
+          !Number.isInteger(chunk.index) || chunk.index < 0) throw new PublicStreamError('stream_contract');
+      let state = indexed.get(chunk.index);
+      if (!state) { state = {type:undefined, text:''}; indexed.set(chunk.index,state); }
+      // Duplicate block ends must never dispatch the same side effect twice.
+      if (state.block) throw new PublicStreamError('stream_contract');
+      const type = chunk.type === 'block-start' ? chunk.blockType : chunk.type === 'block-end' ? chunk.block?.type : chunk.type.slice(0,-6);
+      if (typeof type !== 'string' || (state.type && state.type !== type)) throw new PublicStreamError('stream_contract');
+      state.type = type;
+      if (chunk.type === 'block-end') {
+        if (['text','reasoning'].includes(type) && typeof chunk.block.text !== 'string') throw new PublicStreamError('stream_contract');
+        state.block = chunk.block;
+      } else if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') {
+        if (typeof chunk.text !== 'string') throw new PublicStreamError('stream_contract');
+        state.text += chunk.text;
+      }
+    }
+    if (!finish) throw new PublicStreamError('stream_incomplete');
+    // An explicit failure can interrupt an unfinished tool block. Preserve
+    // that terminal reason; no partial content is eligible for publication.
+    if (finish.reason.kind !== 'stop' && finish.reason.kind !== 'tool-calls') return {blocks:[],finish,usage};
+    const toolIds = new Set();
+    const blocks = [...indexed.values()].map(state => {
+      if (state.block) {
+        if (state.block.type === 'tool-call') {
+          const {id,name,arguments:args} = state.block;
+          if (typeof id !== 'string' || !id || typeof name !== 'string' || !name || typeof args !== 'string' || toolIds.has(id)) throw new PublicStreamError('stream_contract');
+          toolIds.add(id);
+        }
+        return state.block;
+      }
+      if (state.type === 'text' || state.type === 'reasoning') return {type:state.type,text:state.text};
+      // Unlike text, a partial tool call is never safe to dispatch.
+      throw new PublicStreamError('stream_incomplete');
+    });
+    return {blocks, finish, usage};
+  } finally {
+    if (onAbort) signal.removeEventListener('abort',onAbort);
+    if (!ended) {
+      // An async generator can queue return() behind a stuck next(). Request
+      // cleanup, but do not let it defeat the deadline. Late rejection is held.
+      try { Promise.resolve(iterator.return?.()).catch(()=>{}); } catch {}
+    }
   }
-  if (!finish) throw Error('PUBLIC_STREAM_INCOMPLETE');
-  return {blocks, finish, usage};
 }
 
 function addUsage(a, b) {
@@ -75,21 +141,43 @@ function* emit(blocks, usage, reason) {
 }
 
 const unavailable = {kind:'error',failure:{code:'PUBLIC_ANSWER_UNAVAILABLE',message:'公开答复生成失败；工具操作可能已完成，请核对成果后再要求补充结论。'}};
+const aborted = {kind:'aborted',failure:{code:'ABORTED',message:'Public reply cancelled'}};
+function terminalCause(kind) {
+  switch (kind) {
+    case 'error': return 'provider_error';
+    case 'aborted': return 'provider_aborted';
+    case 'max-tokens': return 'max_tokens';
+    default: return 'unexpected_finish';
+  }
+}
 
 /** One agent model step. Tool execution remains in DSH, outside this function. */
-export async function* guard(options, next, complete) {
+export async function* guard(options, next, complete, onDiagnostic = ()=>{}) {
+  // Only module-owned enums and counters reach diagnostics. Never include
+  // exception messages, provider codes/bodies, requests, blocks, or identifiers.
+  const report = (stage, attempt, cause) => {
+    try { onDiagnostic(Object.freeze({stage,attempt,cause})); } catch {}
+  };
+  const caughtCause = error => error instanceof PublicStreamError ? error.code : 'transport';
   let original;
-  try { original = await collect(next()); }
-  catch {
-    yield* emit([],undefined,unavailable);
+  try { checkCancellation(options.signal); original = await collect(next(),options.signal); }
+  catch (error) {
+    report('original',0,options.signal?.aborted ? 'cancelled' : caughtCause(error));
+    yield* emit([],undefined,options.signal?.aborted ? aborted : unavailable);
     return;
   }
   let usage = original.usage;
+  if (options.signal?.aborted) {
+    report('original',0,'cancelled');
+    yield* emit([],usage,aborted);
+    return;
+  }
   const kind = original.finish.reason.kind;
   if (kind !== 'stop' && kind !== 'tool-calls') {
     // Provider failure details can contain response bodies or internal text.
     // Keep only known terminal kinds and a fixed public-safe explanation.
     const reason = ['error','aborted','max-tokens'].includes(kind) ? kind : 'error';
+    report('original',0,terminalCause(kind));
     yield* emit([], usage, {...unavailable, kind:reason});
     return;
   }
@@ -110,19 +198,23 @@ export async function* guard(options, next, complete) {
   const deadline = AbortSignal.timeout(60000);
   const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
   for (let attempt = 0; attempt < 2; attempt++) {
-    if (signal.aborted) break;
+    if (signal.aborted) { report('finalize',attempt,options.signal?.aborted ? 'cancelled' : 'timeout'); break; }
     let result;
-    try { result = await collect(complete(finalRequest(options,signal))); }
-    catch { break; } // Transport errors do not justify blind model retries.
+    try { result = await collect(complete(finalRequest(options,signal)),signal); }
+    catch (error) {
+      report('finalize',attempt+1,signal.aborted ? (options.signal?.aborted ? 'cancelled' : 'timeout') : caughtCause(error));
+      break; // Transport errors do not justify blind model retries.
+    }
     usage = addUsage(usage,result.usage);
-    if (signal.aborted) break; // Some providers return success after cancellation.
-    if (result.finish.reason.kind !== 'stop') break;
-    if (result.blocks.some(b=>b.type!=='text' && b.type!=='reasoning')) continue;
+    if (signal.aborted) { report('finalize',attempt+1,options.signal?.aborted ? 'cancelled' : 'timeout'); break; }
+    if (result.finish.reason.kind !== 'stop') { report('finalize',attempt+1,terminalCause(result.finish.reason.kind)); break; }
+    if (result.blocks.some(b=>b.type!=='text' && b.type!=='reasoning')) { report('finalize',attempt+1,'unexpected_block'); continue; }
     const reply = parseReply(result.blocks.filter(b=>b.type==='text').map(b=>b.text).join(''));
     if (reply !== null) {
       yield* emit([{type:'text',text:reply}],usage,{kind:'stop'});
       return;
     }
+    report('finalize',attempt+1,'invalid_reply');
   }
-  yield* emit([],usage,options.signal?.aborted ? {kind:'aborted',failure:{code:'ABORTED',message:'Public reply cancelled'}} : unavailable);
+  yield* emit([],usage,options.signal?.aborted ? aborted : unavailable);
 }
