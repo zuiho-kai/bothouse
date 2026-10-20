@@ -220,7 +220,7 @@ class RealOpusOnFakeBoard(DiscordBase):
 
 class Speakable(unittest.TestCase):
     def test_strips_code_links_mentions_marks(self):
-        t = "**结论**：好了 <@1558553439942737962>\n```py\nprint(1)\n```\n看 https://x.y/z 。`a` | b"
+        t = "**结论**：好了 <@100000000000000013>\n```py\nprint(1)\n```\n看 https://x.y/z 。`a` | b"
         self.assertEqual(dbody.speakable(t), "结论 ：好了\n看 。 a b")
 
     def test_truncated_drops_first_half_sentence(self):

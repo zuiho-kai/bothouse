@@ -457,8 +457,9 @@ class ConfigCheck(unittest.TestCase):
     def test_repo_config_loads(self):
         c = cfgmod.load(ROOT / "roles.toml")
         self.assertTrue(c.discord.router.url)
-        # 日志子频道不进候选。来源：~/.cc-connect/config.toml aux_channels 量化团队 → 量化日志
-        self.assertIn("1561419538556260422", c.discord.exclude_channels)
+        # 本机 roles.toml 配了日志子频道不进候选；只查形状，不在仓库里写真实频道 ID
+        self.assertTrue(c.discord.exclude_channels)
+        self.assertTrue(all(x.isdigit() for x in c.discord.exclude_channels))
         self.assertEqual(c.discord.router.prefill, "<think>\n\n</think>\n\n")
 
     def write(self, discord: str) -> cfgmod.Config:
