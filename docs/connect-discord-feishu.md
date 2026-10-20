@@ -196,7 +196,7 @@ cd conest/bridge
 | 想要的 | 配置项 | 默认 |
 |---|---|---|
 | 默认发言频道 | `channel = "<频道 ID>"` | relay 开着必填 |
-| 自动选频道开关 | `auto_channel = true / false` | 模板写 `false`；不写时，配了 `[discord.router] url` 就开 |
+| 自动选频道开关 | `auto_channel = true / false` | 默认不写；不写时，配了模型（`url` 或向导的 `key_file`）或 `guild` 就开，都没配模型时按频道名和读音匹配 |
 | 选频道用什么判断 | `[discord.router] backend = "llm"` 或 `"jev"`，加 `url`、`model` | 不写 url = 按频道名读音匹配 |
 | 用向导填的 jev | `[discord.router] key_file = "~/.cc-connect/jev.json"`（只写这一行，url/model 从文件取） | 向导测出不给概率 → 读音匹配 |
 | 频道别名 | `[discord.router] aliases = {"<频道 ID>" = ["量化"]}` | 只认频道名 |
