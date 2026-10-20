@@ -1,6 +1,9 @@
 package core
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +63,37 @@ func TestFreshOnColdCache(t *testing.T) {
 	}
 }
 
+func TestFreshOnImageBloat(t *testing.T) {
+	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
+		// recent and small in tokens: the cold-cache rule keeps it, the image rule must not
+		"heavy": {Path: "/x/heavy.jsonl", LastActivity: time.Now().Add(-time.Minute), ContextTokens: 60000, ImageBytes: 8_300_000},
+		"light": {LastActivity: time.Now().Add(-time.Minute), ContextTokens: 60000, ImageBytes: 1_000_000},
+	}}
+	e := NewEngine("test", a, []Platform{&stubPlatformEngine{n: "x"}}, "", LangEnglish)
+	defer e.Stop()
+	e.SetColdCacheFresh(true, time.Hour, 80000)
+
+	s := &Session{AgentSessionID: "heavy"}
+	if n := e.freshOnImageBloat(a, s); n != "" || s.GetAgentSessionID() != "heavy" {
+		t.Fatalf("disabled but got %q", n)
+	}
+	e.SetImageFresh(true, 3_000_000)
+	light := &Session{AgentSessionID: "light"}
+	if n := e.freshOnImageBloat(a, light); n != "" || light.GetAgentSessionID() != "light" {
+		t.Fatalf("light: should resume, got %q", n)
+	}
+	n := e.freshOnImageBloat(a, s)
+	if !strings.Contains(n, "8.3 MB") {
+		t.Fatalf("notice = %q", n)
+	}
+	if s.GetAgentSessionID() != "" || s.HandoffFrom != "heavy" {
+		t.Fatalf("agent id %q handoff %q", s.GetAgentSessionID(), s.HandoffFrom)
+	}
+	if b := e.handoffBlock(s); !strings.Contains(b, "/x/heavy.jsonl") || !strings.Contains(b, "图片") {
+		t.Fatalf("handoff block:\n%s", b)
+	}
+}
+
 func TestFormatHandoffKeepsNewestWithinBudget(t *testing.T) {
 	h := &SessionHandoff{Path: "/p.jsonl", CompactSummary: "压缩摘要"}
 	for i := 0; i < 20; i++ {
@@ -100,17 +134,61 @@ func TestCmdNewHandsOffOldSession(t *testing.T) {
 		t.Fatalf("fresh session should backfill its own window, last seen = %q", s.GetLastSeenMsgID())
 	}
 	// A send that fails puts the handoff back for the next turn.
-	if c := e.withTurnBlocks(s, "discord:c1", "x", "你好"); !strings.Contains(c, "] 修 gate") {
+	if c := e.withTurnBlocks(s, "discord:c1", "x", "你好", true); !strings.Contains(c, "] 修 gate") {
 		t.Fatalf("first turn:\n%s", c)
 	}
 	s.SettleHandoff(false)
-	if c := e.withTurnBlocks(s, "discord:c1", "x", "你好"); !strings.Contains(c, "] 修 gate") || !strings.HasSuffix(c, "你好") {
+	if c := e.withTurnBlocks(s, "discord:c1", "x", "你好", true); !strings.Contains(c, "] 修 gate") || !strings.HasSuffix(c, "你好") {
 		t.Fatalf("retried turn:\n%s", c)
 	}
 	s.SettleHandoff(true)
 	s.SettleHandoff(false) // a later failure must not resend it
-	if c := e.withTurnBlocks(s, "discord:c1", "x", "你好"); c != "你好" {
+	if c := e.withTurnBlocks(s, "discord:c1", "x", "你好", true); c != "你好" {
 		t.Fatalf("after delivery:\n%s", c)
+	}
+}
+
+// A timer message (TurnCtx unset) that opens the fresh context still carries
+// the handoff, but not the teammate status or wiki pages.
+func TestHandoffWithoutTurnCtx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := json.Marshal(map[string]any{"wiki": []map[string]string{{"path": "~/wiki/bots/im-bridge.md", "desc": "cc-connect"}}})
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
+		"old": {Path: "/x/old.jsonl", Tail: []HistoryEntry{{Role: "user", Content: "修 gate"}}},
+	}}
+	e := NewEngine("test", a, []Platform{&stubPlatformEngine{n: "x"}}, "", LangEnglish)
+	defer e.Stop()
+	e.SetGate(srv.URL+"/decide?bot=maomao", 1000, "reply")
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, name: "橘", inject: true, seen: map[string]*teamSession{}}
+	writeTeamFile(t, dir, teamFile{Project: "longniang", Name: "龙娘", Updated: time.Now(), Sessions: []teamEntry{
+		{Key: "discord:111", Chat: "general", Task: "修 bug", Busy: true, Since: time.Now()},
+	}})
+
+	s := &Session{}
+	s.SetHandoffFrom("old", "缓存已过期")
+	noBlocks := func(c string) bool {
+		return !strings.Contains(c, "im-bridge.md") && !strings.Contains(c, "龙娘")
+	}
+	c := e.withTurnBlocks(s, "discord:111", "", "定时提醒", false)
+	if !strings.Contains(c, "] 修 gate") || !strings.HasSuffix(c, "定时提醒") || !noBlocks(c) {
+		t.Fatalf("timer turn:\n%s", c)
+	}
+	// Send failed: the next turn, timer or not, carries it again.
+	s.SettleHandoff(false)
+	if c := e.withTurnBlocks(s, "discord:111", "", "定时提醒", false); !strings.Contains(c, "] 修 gate") || !noBlocks(c) {
+		t.Fatalf("retried timer turn:\n%s", c)
+	}
+	s.SettleHandoff(true)
+	if c := e.withTurnBlocks(s, "discord:111", "", "定时提醒", false); c != "定时提醒" {
+		t.Fatalf("after delivery:\n%s", c)
+	}
+	// The timer turns marked no wiki page or board as sent.
+	if c := e.withTurnBlocks(s, "discord:111", "x", "你好", true); strings.Contains(c, "] 修 gate") || noBlocks(c) {
+		t.Fatalf("first turnCtx turn:\n%s", c)
 	}
 }
 
@@ -135,5 +213,135 @@ func TestFormatHandoffDropsStaleBlocks(t *testing.T) {
 		formatHandoff("older", "x", &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: "很旧的话"}}}) + "\n\n真正的问题"
 	if got := strings.TrimSpace(stripStaleBlocks(old)); got != "真正的问题" {
 		t.Fatalf("stripped = %q", got)
+	}
+}
+
+// A turn that keeps viewing images is interrupted after the tool result that
+// takes the context past the image_fresh limit (maomao fork).
+func TestImageBloatMidTurnInterrupts(t *testing.T) {
+	run := func(t *testing.T, enabled bool, imageBytes int) (*Engine, *stubPlatformEngine, *Session, *controllableAgentSession) {
+		a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
+			"s1": {Path: "/x/s1.jsonl", ImageBytes: imageBytes},
+		}}
+		p := &stubPlatformEngine{n: "x"}
+		e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+		t.Cleanup(func() { _ = e.Stop() })
+		e.SetImageFresh(enabled, 2_000_000)
+		key := "x:c1"
+		session := e.sessions.GetOrCreateActive(key)
+		session.SetAgentSessionID("s1", a.Name())
+		as := newControllableSession("s1")
+		state := &interactiveState{agentSession: as, platform: p, replyCtx: "ctx", agent: a}
+		e.interactiveStates[key] = state
+		as.events <- Event{Type: EventToolUse, ToolName: "ViewImage", ToolInput: "/tmp/a.png"}
+		as.events <- Event{Type: EventToolResult, ToolName: "ViewImage", ToolResult: "/tmp/a.png"}
+		as.events <- Event{Type: EventResult, Content: "看完了", Done: true}
+		e.processInteractiveEvents(state, session, e.sessions, key, "m1", time.Now(), nil, nil, "ctx")
+		return e, p, session, as
+	}
+
+	t.Run("over limit", func(t *testing.T) {
+		e, p, s, as := run(t, true, 2_900_000)
+		select {
+		case <-as.closed: // the turn was interrupted: its agent session is closed
+		default:
+			t.Fatal("agent session not closed")
+		}
+		if _, ok := e.interactiveStates["x:c1"]; ok {
+			t.Fatal("interactive state kept")
+		}
+		if s.GetAgentSessionID() != "" || s.HandoffFrom != "s1" {
+			t.Fatalf("agent id %q handoff %q", s.GetAgentSessionID(), s.HandoffFrom)
+		}
+		want := "♻️ 这一轮图片累计约 2.9 MB，超过上限，已打断并换新会话（不带图）。接着说就行"
+		sent := p.getSent()
+		if len(sent) == 0 || sent[len(sent)-1] != want {
+			t.Fatalf("sent = %#v", sent)
+		}
+		// Not re-run: the turn's final reply was never read and nothing new started.
+		if strings.Contains(strings.Join(sent, "\n"), "看完了") || len(e.interactiveStates) != 0 {
+			t.Fatalf("turn continued or re-ran: sent %#v states %d", sent, len(e.interactiveStates))
+		}
+		if b := e.handoffBlock(s); !strings.Contains(b, "/x/s1.jsonl") || !strings.Contains(b, "已打断") {
+			t.Fatalf("handoff block:\n%s", b)
+		}
+	})
+	for _, c := range []struct {
+		name       string
+		enabled    bool
+		imageBytes int
+	}{{"under limit", true, 1_000_000}, {"image_fresh off", false, 9_000_000}} {
+		t.Run(c.name, func(t *testing.T) {
+			e, p, s, as := run(t, c.enabled, c.imageBytes)
+			select {
+			case <-as.closed:
+				t.Fatal("agent session closed")
+			default:
+			}
+			if s.GetAgentSessionID() != "s1" || s.HandoffFrom != "" {
+				t.Fatalf("agent id %q handoff %q", s.GetAgentSessionID(), s.HandoffFrom)
+			}
+			if _, ok := e.interactiveStates["x:c1"]; !ok {
+				t.Fatal("interactive state dropped")
+			}
+			if got := strings.Join(p.getSent(), "\n"); !strings.Contains(got, "看完了") || strings.Contains(got, "♻️") {
+				t.Fatalf("sent = %q", got)
+			}
+		})
+	}
+}
+
+// A strict voice-input turn (input != nil) must resume the bound thread to the
+// end: images piling up mid-turn do not close it or drop its agent ID, the same
+// rule the turn-start image check follows (input == nil only).
+func TestImageBloatMidTurn_StrictInputTurnNotInterrupted(t *testing.T) {
+	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
+		"s1": {Path: "/x/s1.jsonl", ImageBytes: 2_900_000},
+	}}
+	p := &stubPlatformEngine{n: "x"}
+	e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.SetImageFresh(true, 2_000_000)
+	key := "x:c1"
+	session := e.sessions.GetOrCreateActive(key)
+	session.SetAgentSessionID("s1", a.Name())
+	as := newControllableSession("s1")
+	state := &interactiveState{agentSession: as, platform: p, replyCtx: "ctx", agent: a}
+	e.interactiveStates[key] = state
+	var got inputTurnResult
+	input := &inputTurn{expectedID: "s1", complete: func(r inputTurnResult) { got = r }}
+	as.events <- Event{Type: EventToolUse, ToolName: "ViewImage", ToolInput: "/tmp/a.png"}
+	as.events <- Event{Type: EventToolResult, ToolName: "ViewImage", ToolResult: "/tmp/a.png"}
+	as.events <- Event{Type: EventResult, Content: "看完了", Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, key, "m1", time.Now(), nil, nil, "ctx", input)
+
+	select {
+	case <-as.closed:
+		t.Fatal("strict input turn interrupted: agent session closed")
+	default:
+	}
+	if session.GetAgentSessionID() != "s1" || session.HandoffFrom != "" {
+		t.Fatalf("agent id %q handoff %q, want the bound thread kept", session.GetAgentSessionID(), session.HandoffFrom)
+	}
+	if got.err != nil || got.text != "看完了" {
+		t.Fatalf("input turn result = %+v, want the reply", got)
+	}
+	if s := strings.Join(p.getSent(), "\n"); strings.Contains(s, "♻️") {
+		t.Fatalf("sent = %q, want no fresh-context notice", s)
+	}
+}
+
+// Adapters without a system prompt (antigravity) put the model-control
+// instructions and the task-lifecycle note before the user's words every turn;
+// a handoff carries the words only.
+func TestStripStaleBlocks_ModelSwitchAndTaskLifecycle(t *testing.T) {
+	lifecycle := "[Task lifecycle]\nBefore manage_task actions, check the latest task status.\n\n"
+	old := PrependModelSwitchInstructions(lifecycle + "真正的问题")
+	if got := strings.TrimSpace(stripStaleBlocks(old)); got != "真正的问题" {
+		t.Fatalf("stripped = %q", got)
+	}
+	b := formatHandoff("old", "x", &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: old}}})
+	if strings.Contains(b, "model-control") || strings.Contains(b, "Task lifecycle") || !strings.Contains(b, "真正的问题") {
+		t.Fatalf("handoff:\n%s", b)
 	}
 }

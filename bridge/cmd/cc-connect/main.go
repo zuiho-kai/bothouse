@@ -439,6 +439,8 @@ func main() {
 		}
 		engine.SetShowWorkdirIndicator(showWorkdir)
 		engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
+		engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
+		engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
 		engine.SetReplyFooterEnabled(showFooter)
 		engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
 		engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
@@ -722,10 +724,14 @@ func main() {
 			engine.SetAutoCompressConfig(true, maxTokens, minGap)
 		}
 		wireColdCacheFresh(engine, proj)
+		wireImageFresh(engine, proj)
+		engine.SetSessionModels(proj.SessionModels)
+		engine.SetSessionInstructions(proj.SessionInstructions)
 		engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
 		engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 		engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
 		engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
+		engine.SetMemoryIndex(proj.MemoryIndex)
 		resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 		engine.SetResetOnIdle(resetIdle)
 		if defaulted {
@@ -1035,6 +1041,11 @@ func main() {
 			heartbeatSched.Register(proj.Name, hbCfg, engines[i], effectiveWorkDirs[i])
 		}
 		engines[i].SetHeartbeatScheduler(heartbeatSched)
+	}
+
+	// maomao fork: video links → watchvid once, attachments → NAS media library (off if the scripts are missing).
+	if home, err := os.UserHomeDir(); err == nil {
+		core.EnableMediaLibrary(home)
 	}
 
 	var startErrors []error
@@ -1736,6 +1747,8 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 	}
 	engine.SetShowWorkdirIndicator(showWorkdir)
 	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
+	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
+	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
 	engine.SetReplyFooterEnabled(showFooter)
 
 	// Reload auto-compress settings
@@ -1753,10 +1766,14 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 		engine.SetAutoCompressConfig(false, 0, 0)
 	}
 	wireColdCacheFresh(engine, *proj)
+	wireImageFresh(engine, *proj)
+	engine.SetSessionModels(proj.SessionModels)
+	engine.SetSessionInstructions(proj.SessionInstructions)
 	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
 	engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
+	engine.SetMemoryIndex(proj.MemoryIndex)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 	engine.SetResetOnIdle(resetIdle)
 	if defaulted {
@@ -2054,6 +2071,20 @@ func derefInt(v *int) int {
 		return 0
 	}
 	return *v
+}
+
+// wireImageFresh applies [projects.image_fresh] (maomao fork).
+func wireImageFresh(engine *core.Engine, proj config.ProjectConfig) {
+	c := proj.ImageFresh
+	if c.Enabled == nil || !*c.Enabled {
+		engine.SetImageFresh(false, 0)
+		return
+	}
+	mb := core.DefaultImageFreshMB // source: see its comment in core/backfill.go
+	if c.MaxMB != nil && *c.MaxMB > 0 {
+		mb = *c.MaxMB
+	}
+	engine.SetImageFresh(true, int(mb*1e6))
 }
 
 // wireColdCacheFresh applies [projects.cold_cache_fresh] (maomao fork).

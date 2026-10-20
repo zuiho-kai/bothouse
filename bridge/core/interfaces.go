@@ -77,6 +77,23 @@ type SessionEnvInjector interface {
 	SetSessionEnv(env []string)
 }
 
+// SessionModelInjector is an optional interface for agents that can start a
+// session on a model other than the agent-wide default. The engine calls it
+// right before every StartSession with the model mapped to that session key in
+// [projects.session_models], or "" for the agent default (maomao fork).
+type SessionModelInjector interface {
+	SetSessionModel(model string)
+}
+
+// SessionInstructionsInjector is an optional interface for agents whose
+// built-in base instructions can be replaced per session. The engine calls it
+// right before every StartSession with the file mapped to that session key in
+// [projects.session_instructions] and its text (read at config load), or ""
+// for both to keep the built-in prompt (maomao fork).
+type SessionInstructionsInjector interface {
+	SetSessionInstructions(path, text string)
+}
+
 // FormattingInstructionProvider is an optional interface for platforms that
 // provide platform-specific formatting instructions for the agent system prompt
 // (e.g., Slack mrkdwn vs standard Markdown).
@@ -545,6 +562,14 @@ type UsageCapability interface {
 	SupportsUsageReporting() bool
 }
 
+// CachedUsageReporter is an optional interface for running agent sessions
+// that already receive quota snapshots as part of normal turns (e.g. Codex
+// app-server rate-limit notifications). CachedUsage must not do I/O; the
+// reply footer appends it next to the context line on every reply.
+type CachedUsageReporter interface {
+	CachedUsage() *UsageReport
+}
+
 // UsageReport is a provider-neutral quota snapshot returned by UsageReporter.
 type UsageReport struct {
 	Provider  string
@@ -558,6 +583,9 @@ type UsageReport struct {
 
 // UsageBucket groups one logical quota, such as standard requests or code review.
 type UsageBucket struct {
+	// ID is the provider's stable bucket id (e.g. Codex limitId), used to
+	// merge updates; Name is for display and may be absent in some updates.
+	ID           string
 	Name         string
 	Allowed      bool
 	LimitReached bool
@@ -618,6 +646,21 @@ type ContextCompressor interface {
 // The engine owns the session lock and closes any idle live reader first.
 type NativeContextCompressor interface {
 	CompactSession(ctx context.Context, sessionID string) error
+}
+
+// SessionScopedCompressor is NativeContextCompressor with the compacted
+// session's own per-session settings ([projects.session_models] /
+// [projects.session_instructions]) passed in, so compaction never writes them
+// onto an agent other sessions share (maomao fork).
+type SessionScopedCompressor interface {
+	CompactSessionWith(ctx context.Context, sessionID string, settings SessionSettings) error
+}
+
+// SessionSettings are a session's per-session overrides; "" = agent default.
+type SessionSettings struct {
+	Model            string
+	InstructionsPath string
+	InstructionsText string
 }
 
 // AgentSessionCanceller is an optional interface for agent sessions that support
@@ -690,6 +733,15 @@ type ModeSwitcher interface {
 // run_as propagation may still be handled separately by the engine.
 type WorkspaceAgentOptionSnapshotter interface {
 	WorkspaceAgentOptions() map[string]any
+}
+
+// BackgroundTaskReporter is an optional interface for agent sessions that can
+// run background tasks inside the agent process (maomao fork). running is the
+// number still running; lastEndedAt is when the count last dropped to zero
+// (zero time if it never did). The agent-session idle close is deferred while
+// running > 0 and restarts its full timeout from lastEndedAt.
+type BackgroundTaskReporter interface {
+	BackgroundTasks() (running int, lastEndedAt time.Time)
 }
 
 // LiveModeSwitcher is an optional interface for running agent sessions that can

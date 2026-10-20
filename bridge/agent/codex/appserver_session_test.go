@@ -500,3 +500,100 @@ func TestAppServerSession_FailedTurnCompletedEmitsError(t *testing.T) {
 		t.Fatalf("event = %+v", ev)
 	}
 }
+
+func TestAppServerSession_IgnoresOtherThreads(t *testing.T) {
+	s := &appServerSession{events: make(chan core.Event, 4), currentTurn: "turn-1"}
+	s.threadID.Store("own")
+	// codex's memory consolidation thread in the same process: its message and idle are not ours.
+	s.handleNotification("item/completed", json.RawMessage(`{"threadId":"memory","turnId":"m1","item":{"type":"agentMessage","id":"x","text":"Raw memories/rollouts map to these durable groups"}}`))
+	s.handleNotification("thread/status/changed", json.RawMessage(`{"threadId":"memory","status":{"type":"idle"}}`))
+	if len(s.events) != 0 || s.currentTurn != "turn-1" {
+		t.Fatalf("foreign thread leaked: %d events, currentTurn=%q", len(s.events), s.currentTurn)
+	}
+	// Our own thread still completes the turn.
+	s.handleNotification("thread/status/changed", json.RawMessage(`{"threadId":"own","status":{"type":"idle"}}`))
+	if s.currentTurn != "" {
+		t.Fatalf("own idle did not complete the turn: currentTurn=%q", s.currentTurn)
+	}
+}
+
+func TestAppServerSession_NoThreadYetPassesAll(t *testing.T) {
+	s := &appServerSession{events: make(chan core.Event, 4), currentTurn: "turn-1"}
+	s.handleNotification("thread/status/changed", json.RawMessage(`{"threadId":"any","status":{"type":"idle"}}`))
+	if s.currentTurn != "" {
+		t.Fatalf("before our thread id is known nothing should be dropped: currentTurn=%q", s.currentTurn)
+	}
+}
+
+// Notifications below are trimmed from a real codex 0.163.0-alpha.10.2 app-server
+// run (2026-10-19): code mode exec cell -> exec_command (interactive python),
+// write_stdin, empty write_stdin poll, view_image. Each must reach the engine as
+// an event, or its idle watchdog kills a session that is busy in a long REPL.
+func TestAppServerSession_CodeModeToolsEmitEvents(t *testing.T) {
+	s := &appServerSession{events: make(chan core.Event, 16), currentTurn: "turn-1"}
+	s.threadID.Store("th")
+	notes := []struct{ method, params string }{
+		{"item/started", `{"threadId":"th","turnId":"turn-1","item":{"type":"commandExecution","id":"exec-1","command":"/bin/zsh -lc 'python3 -i -q'","processId":"22711","source":"unifiedExecStartup","status":"inProgress"}}`},
+		{"item/commandExecution/terminalInteraction", `{"threadId":"th","turnId":"turn-1","itemId":"exec-1","processId":"22711","stdin":"print(6*7)\n"}`},
+		{"item/commandExecution/terminalInteraction", `{"threadId":"th","turnId":"turn-1","itemId":"exec-1","processId":"22711","stdin":""}`},
+		{"item/started", `{"threadId":"th","turnId":"turn-1","item":{"type":"imageView","id":"exec-2","path":"/private/tmp/cxcap/wd/a.png"}}`},
+		{"item/completed", `{"threadId":"th","turnId":"turn-1","item":{"type":"imageView","id":"exec-2","path":"/private/tmp/cxcap/wd/a.png"}}`},
+		{"item/completed", `{"threadId":"th","turnId":"turn-1","item":{"type":"commandExecution","id":"exec-1","command":"/bin/zsh -lc 'python3 -i -q'","processId":"22711","status":"completed","exitCode":0,"aggregatedOutput":"42\n"}}`},
+		{"item/commandExecution/terminalInteraction", `{"threadId":"th","turnId":"turn-1","itemId":"exec-9","processId":"777","stdin":""}`},
+	}
+	for _, n := range notes {
+		s.handleNotification(n.method, json.RawMessage(n.params))
+	}
+	want := []struct {
+		typ   core.EventType
+		tool  string
+		input string
+	}{
+		{core.EventToolUse, "Bash", "/bin/zsh -lc 'python3 -i -q'"},
+		{core.EventToolUse, "WriteStdin", "print(6*7)\n# -> /bin/zsh -lc 'python3 -i -q'"},
+		{core.EventToolUse, "WriteStdin", "(poll) /bin/zsh -lc 'python3 -i -q'"},
+		{core.EventToolUse, "ViewImage", "/private/tmp/cxcap/wd/a.png"},
+		{core.EventToolResult, "ViewImage", ""},
+		{core.EventToolResult, "Bash", "/bin/zsh -lc 'python3 -i -q'"},
+		{core.EventToolUse, "WriteStdin", "(poll) process 777"},
+	}
+	if len(s.events) != len(want) {
+		t.Fatalf("emitted %d events, want %d", len(s.events), len(want))
+	}
+	for i, w := range want {
+		ev := <-s.events
+		if ev.Type != w.typ || ev.ToolName != w.tool || ev.ToolInput != w.input {
+			t.Fatalf("event %d = {%v %q %q}, want {%v %q %q}", i, ev.Type, ev.ToolName, ev.ToolInput, w.typ, w.tool, w.input)
+		}
+	}
+	if len(s.execCommands) != 0 {
+		t.Fatalf("completed command not forgotten: %v", s.execCommands)
+	}
+}
+
+func TestAppServerSession_OtherToolItemsEmitEvents(t *testing.T) {
+	s := &appServerSession{events: make(chan core.Event, 16), currentTurn: "turn-1"}
+	s.handleItemStarted(map[string]any{"type": "sleep", "id": "s1", "durationMs": float64(30000)})
+	s.handleItemStarted(map[string]any{"type": "collabAgentToolCall", "id": "c1", "tool": "wait_agent", "prompt": ""})
+	s.handleItemCompleted(map[string]any{"type": "collabAgentToolCall", "id": "c1", "tool": "wait_agent", "status": "completed"})
+	s.handleItemStarted(map[string]any{"type": "imageGeneration", "id": "g1", "revisedPrompt": "a cat"})
+	s.handleItemCompleted(map[string]any{"type": "imageGeneration", "id": "g1", "status": "completed", "savedPath": "/tmp/cat.png"})
+	want := []struct {
+		typ  core.EventType
+		tool string
+	}{
+		{core.EventToolUse, "Sleep"},
+		{core.EventToolUse, "Agent:wait_agent"},
+		{core.EventToolResult, "Agent:wait_agent"},
+		{core.EventToolUse, "ImageGen"},
+		{core.EventToolResult, "ImageGen"},
+	}
+	if len(s.events) != len(want) {
+		t.Fatalf("emitted %d events, want %d", len(s.events), len(want))
+	}
+	for i, w := range want {
+		if ev := <-s.events; ev.Type != w.typ || ev.ToolName != w.tool {
+			t.Fatalf("event %d = {%v %q}, want {%v %q}", i, ev.Type, ev.ToolName, w.typ, w.tool)
+		}
+	}
+}

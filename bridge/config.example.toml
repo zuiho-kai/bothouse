@@ -750,6 +750,10 @@ name = "my-backend"
 #                                   # 隐藏 footer 第二行：工作区目录（默认 true 显示）
 # show_quota_indicator = false     # Drop the account quota from the status line and stop probing it (default: true)
 #                                   # 状态行不显示账号额度，也不再查询额度（默认 true 显示）
+# show_quota_status = false        # Without a measured quota, show nothing instead of "unavailable / no data / querying / failed" (default: true)
+#                                   # 查不到额度时不显示「暂不可查询/暂无数据/查询中/查询失败」，什么都不显示（默认 true 显示）
+# inject_subagent_policy = false   # Stop prefixing each turn with the bridge delegation policy (default: true = prefix)
+#                                   # 不再在每轮请求前加「子 agent 委派策略」（默认 true 加）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
 #                                                     # 禁用该项目的指定命令
 #
@@ -1332,6 +1336,10 @@ app_secret = "your-feishu-app-secret"
 #                           # 设为 true 时，cc-connect 会在支持 thread 的 Discord 频道内按 thread 隔离会话
 # progress_style = "legacy"  # Progress rendering: legacy | compact | card / 进度展示方式：legacy | compact | card
 #                            # card = one editable Discord embed progress card / card = 单条可编辑的 Discord 嵌入式进度卡
+# aux_channels = { "123456789012345678" = "234567890123456789" }  # maomao fork: main channel ID → log channel ID / 主频道 ID → 日志频道 ID
+#                            # The progress card, the sub-agent table and cc-connect notices (♻️ new session, ⏰ cron start, ⏳ capacity cooldown)
+#                            # posted for a listed main channel go to its log channel; replies and cron/timer results stay. Unlisted channels are unchanged.
+#                            # 列出的主频道：进度卡片、子进程表、♻️/⏰/⏳ 通知进日志频道，正文和结果留在主频道；没列的频道照旧
 # reply_hud = false  # If true, append final-reply HUD line (model/context/tokens) in Discord only
 #                    # 设为 true 时，仅在 Discord 最终回复末尾附加 HUD（模型/上下文/tokens）
 # respond_to_at_everyone_and_here = false  # If true, treat @everyone/@here as a direct mention so the bot responds

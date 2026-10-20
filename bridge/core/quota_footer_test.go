@@ -59,7 +59,13 @@ func TestQuotaFooterWeeklyOnlyAndExhaustedWeekly(t *testing.T) {
 		{{UsedPercent: 10, WindowSeconds: 18000}, {UsedPercent: 100, WindowSeconds: 604800}},
 	} {
 		report := &UsageReport{Buckets: []UsageBucket{{Windows: windows}}}
-		if got := formatReplyFooterUsage(report, i18n); got != "额度剩余 0%" {
+		// One window shows unlabelled; with two, each is labelled (maomao
+		// footer) and the exhausted weekly one must still be visible.
+		want := "额度剩余 0%"
+		if len(windows) > 1 {
+			want = "5h 剩 90% · 周 0%"
+		}
+		if got := formatReplyFooterUsage(report, i18n); got != want {
 			t.Fatalf("weekly limit hidden: %s", got)
 		}
 	}

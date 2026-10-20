@@ -23,6 +23,7 @@ type SessionHandoff struct {
 	CompactSummary string         // newest compaction summary ("" when never compacted)
 	CompactedAt    time.Time      // when that summary was written
 	Tail           []HistoryEntry // user/assistant text after that summary, oldest first
+	ImageBytes     int            // base64 bytes of the images still in the context (re-sent every request)
 }
 
 // SessionHandoffReader is implemented by agents whose transcripts can be read.
@@ -69,6 +70,150 @@ func (e *Engine) freshOnColdCache(agent Agent, session *Session) string {
 	session.SetAgentSessionID("", agent.Name())
 	session.SetHandoffFrom(id, reason)
 	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
+}
+
+// SetImageFresh configures starting a fresh session (with a handoff) once the
+// images in a session's context add up to maxBytes of base64.
+func (e *Engine) SetImageFresh(enabled bool, maxBytes int) {
+	e.imageFreshEnabled = enabled
+	e.imageFreshMaxBytes = maxBytes
+}
+
+// freshOnImageBloat clears the session's agent ID when the images in its
+// context have grown past the limit: the provider re-reads all of them on
+// every step, so each step gets slow. Records the old session as the handoff
+// source. Returns the notice for the channel ("" when nothing changes).
+func (e *Engine) freshOnImageBloat(agent Agent, session *Session) string {
+	id, imageBytes := e.imageBloat(agent, session)
+	if id == "" {
+		return ""
+	}
+	reason := fmt.Sprintf("上下文里的图片累计约 %.1f MB，每一步都要重发", float64(imageBytes)/1e6)
+	slog.Info("image bloat: starting fresh with handoff", "old_agent_session", id, "image_bytes", imageBytes)
+	session.SetAgentSessionID("", agent.Name())
+	session.SetHandoffFrom(id, reason)
+	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话（不带图）"
+}
+
+// freshOnImageBloatMidTurn is freshOnImageBloat for a running turn, checked
+// after each tool result (maomao fork): one turn that keeps viewing images can
+// pass the provider's prompt limit before the next turn's check runs (jingyu,
+// 2026-10-19: "prompt is too long: 1309618 tokens > 1048576 maximum"). Same
+// limit, same count. Clears the agent ID and records the handoff source; the
+// caller interrupts the turn and does not re-run it. Returns the notice for the
+// channel ("" when nothing changes).
+func (e *Engine) freshOnImageBloatMidTurn(agent Agent, session *Session) string {
+	id, imageBytes := e.imageBloat(agent, session)
+	if id == "" {
+		return ""
+	}
+	mb := float64(imageBytes) / 1e6
+	slog.Info("image bloat mid-turn: interrupting, starting fresh with handoff", "old_agent_session", id, "image_bytes", imageBytes)
+	session.SetAgentSessionID("", agent.Name())
+	session.SetHandoffFrom(id, fmt.Sprintf("这一轮图片累计约 %.1f MB，超过上限，已打断", mb))
+	return fmt.Sprintf("♻️ 这一轮图片累计约 %.1f MB，超过上限，已打断并换新会话（不带图）。接着说就行", mb)
+}
+
+// imageBloat returns the session's agent ID and the base64 bytes of the images
+// in its context when they have reached the image_fresh limit ("" otherwise).
+func (e *Engine) imageBloat(agent Agent, session *Session) (string, int) {
+	if !e.imageFreshEnabled || e.imageFreshMaxBytes <= 0 {
+		return "", 0
+	}
+	id := session.GetAgentSessionID()
+	r, ok := agent.(SessionHandoffReader)
+	if id == "" || id == ContinueSession || !ok {
+		return "", 0
+	}
+	h, err := r.ReadSessionHandoff(id)
+	if err != nil || h.ImageBytes < e.imageFreshMaxBytes {
+		return "", 0
+	}
+	return id, h.ImageBytes
+}
+
+// isPromptTooLongError matches the provider's context-overflow turn failure, e.g.
+// new-api/DeepSeek's 400 {"code":11115,"msg":"prompt is too long: 1227574 tokens > 1048576 maximum"}
+// (jingyu, 2026-10-19). Resuming that session can only fail the same way.
+func isPromptTooLongError(msg string) bool {
+	return strings.Contains(msg, "prompt is too long")
+}
+
+// freshOnPromptTooLong clears the session's agent ID after the provider refused
+// its prompt as too long, and records the old session as the handoff source.
+// Returns the notice for the channel ("" when there is no session to replace).
+func (e *Engine) freshOnPromptTooLong(agent Agent, session *Session) string {
+	id := session.GetAgentSessionID()
+	if id == "" || id == ContinueSession {
+		return ""
+	}
+	reason := "上下文超过模型上限（prompt is too long）"
+	slog.Info("prompt too long: starting fresh with handoff", "old_agent_session", id)
+	session.SetAgentSessionID("", agent.Name())
+	if _, ok := agent.(SessionHandoffReader); !ok {
+		return "♻️ " + reason + "：开新会话重跑这条，之前的上下文靠频道记录补回"
+	}
+	session.SetHandoffFrom(id, reason)
+	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话（不带图），重跑这条"
+}
+
+// retryFreshOnPromptTooLong handles a turn that failed with errMsg because the
+// prompt was too long: it starts a fresh session with a handoff and runs msg
+// again on it, once. The queue waiting behind the turn moves to the new
+// session. Must be called with the session locked; returns true when the
+// re-run took over the lock (the caller must not unlock or drain). A re-run
+// that fails again, or a session that cannot be replaced, gets the usual error.
+func (e *Engine) retryFreshOnPromptTooLong(p Platform, msg Message, errMsg string, old *interactiveState, session *Session, sessions *SessionManager, agent Agent, interactiveKey, workspaceDir, ccSessionKey string) bool {
+	notice := ""
+	if !msg.freshRetried {
+		notice = e.freshOnPromptTooLong(agent, session)
+	}
+	if notice == "" {
+		e.send(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgError), errMsg))
+		return false
+	}
+	sessions.Save()
+	e.send(p, markSystemNotice(p, msg.ReplyCtx), notice)
+
+	var agentOverride Agent
+	if agent != e.agent {
+		agentOverride = agent
+	}
+	if testHookBeforePromptTooLongRecycle != nil {
+		testHookBeforePromptTooLongRecycle()
+	}
+	// The cleared agent session ID makes this recycle the old agent process.
+	state := e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, sessions, agentOverride, ccSessionKey)
+	if state != old {
+		// The old state is out of the map now, so nothing more can queue into it
+		// (enqueueForBusySession looks it up under interactiveMu); move its queue.
+		old.mu.Lock()
+		queued := old.pendingMessages
+		old.pendingMessages = nil
+		old.mu.Unlock()
+		state.mu.Lock()
+		state.pendingMessages = append(queued, state.pendingMessages...)
+		state.mu.Unlock()
+	}
+
+	msg.freshRetried = true
+	e.processInteractiveMessageWith(p, &msg, session, agent, sessions, interactiveKey, workspaceDir, ccSessionKey)
+	return true
+}
+
+// testHookBeforePromptTooLongRecycle, when set by a test, runs just before the
+// old state is recycled (to queue a message into it at that moment).
+var testHookBeforePromptTooLongRecycle func()
+
+// takePromptTooLong returns and clears the last turn's prompt-too-long error
+// ("" = none) and, when the failed turn was a queued message chained into the
+// event loop, that message.
+func (s *interactiveState) takePromptTooLong() (string, *queuedMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	errMsg, q := s.promptTooLong, s.promptTooLongQueued
+	s.promptTooLong, s.promptTooLongQueued = "", nil
+	return errMsg, q
 }
 
 // handoffBlock renders the handoff a fresh context gets on its first turn.
@@ -150,8 +295,12 @@ func stamp(t time.Time) string {
 var staleBlocks = []struct{ head, end string }{
 	{"（队友状态", "\n\n"},
 	{"（可能相关的 wiki 页", "\n\n"},
+	{memoryIndexHead, "\n\n"}, // a fresh context's MEMORY.md (memoryBlock)
 	{handoffHead, handoffEnd}, // an earlier handoff
 	{"（本频道进展总结", ""},          // removed 2026-10-14; still in older transcripts
+	// Per-turn notes of adapters without a system prompt (antigravity).
+	{modelControlHead, modelControlEnd}, // PrependModelSwitchInstructions
+	{"[Task lifecycle]", "\n\n"},        // antigravity taskLifecycleInstructions
 }
 
 // stripStaleBlocks drops the stale blocks from a user turn, keeping the
@@ -243,4 +392,46 @@ func (s *Session) SettleHandoff(delivered bool) {
 		s.HandoffFrom, s.HandoffReason = s.handoffTaken[0], s.handoffTaken[1]
 	}
 	s.handoffTaken = [2]string{}
+	if !delivered && s.freshTaken {
+		s.freshCtx = true // maomao fork: the fresh-context images too (freshContextImages)
+	}
+	if !delivered && s.memTaken {
+		s.memCtx = true // maomao fork: and the MEMORY.md block (memoryBlock)
+	}
+	s.memTaken = false
+	if delivered && s.freshDonePending != "" {
+		s.freshDoneUpTo = s.freshDonePending
+	}
+	s.freshTaken, s.freshDonePending = false, ""
+}
+
+// freshImagesDoneUpTo returns the newest post whose images an earlier fresh context already
+// got back, and records upTo to take its place once this turn is sent (SettleHandoff).
+func (s *Session) freshImagesDoneUpTo(upTo string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.freshDonePending = upTo
+	return s.freshDoneUpTo
+}
+
+// MarkFreshContext records that the agent process was started without resuming, so the next
+// turn's context holds none of the channel's earlier images (maomao fork, freshContextImages).
+func (s *Session) MarkFreshContext() {
+	s.mu.Lock()
+	s.freshCtx = true
+	s.memCtx = true // and its MEMORY.md (memoryBlock; only when memory_index is set)
+	s.mu.Unlock()
+}
+
+// TakeFreshContext returns and clears the fresh-context mark; SettleHandoff puts it back when
+// the turn carrying it was not sent.
+func (s *Session) TakeFreshContext() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f := s.freshCtx
+	s.freshCtx = false
+	if f {
+		s.freshTaken = true
+	}
+	return f
 }

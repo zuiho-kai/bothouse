@@ -40,15 +40,21 @@ type Agent struct {
 	backend         string // "exec" | "app_server"
 	appServerURL    string
 	codexHome       string
-	systemPrompt    string
-	appendPrompt    string
-	cmd             string   // CLI binary name, default "codex"
-	cliExtraArgs    []string // extra args parsed from cmd after the binary
-	providers       []core.ProviderConfig
-	activeIdx       int      // -1 = no provider set
-	configEnv       []string // env vars from [projects.agent.options.env] — persists across SetSessionEnv calls
-	sessionEnv      []string
-	mu              sync.RWMutex
+	// permissionProfile names a [permissions.<name>] profile in codex config;
+	// app_server backend only. "" keeps the mode → sandbox mapping.
+	permissionProfile string
+	systemPrompt      string
+	appendPrompt      string
+	cmd               string   // CLI binary name, default "codex"
+	cliExtraArgs      []string // extra args parsed from cmd after the binary
+	providers         []core.ProviderConfig
+	activeIdx         int      // -1 = no provider set
+	configEnv         []string // env vars from [projects.agent.options.env] — persists across SetSessionEnv calls
+	sessionEnv        []string
+	sessionModel      string // per-session override from [projects.session_models]; "" = default
+	sessionInstr      string // per-session base-instructions file from [projects.session_instructions]; "" = built-in
+	sessionInstrText  string // that file's text, read at config load
+	mu                sync.RWMutex
 }
 
 func New(opts map[string]any) (core.Agent, error) {
@@ -62,6 +68,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	backend, _ := opts["backend"].(string)
 	appServerURL, _ := opts["app_server_url"].(string)
 	codexHome, _ := opts["codex_home"].(string)
+	permissionProfile, _ := opts["permission_profile"].(string)
 	systemPrompt, _ := opts["system_prompt"].(string)
 	appendPrompt, _ := opts["append_system_prompt"].(string)
 	mode = normalizeMode(mode)
@@ -92,19 +99,20 @@ func New(opts map[string]any) (core.Agent, error) {
 	}
 
 	return &Agent{
-		workDir:         workDir,
-		model:           model,
-		reasoningEffort: normalizeReasoningEffort(reasoningEffort),
-		mode:            mode,
-		backend:         backend,
-		appServerURL:    appServerURL,
-		codexHome:       strings.TrimSpace(codexHome),
-		systemPrompt:    strings.TrimSpace(systemPrompt),
-		appendPrompt:    strings.TrimSpace(appendPrompt),
-		cmd:             cmd,
-		cliExtraArgs:    cliExtraArgs,
-		configEnv:       configEnv,
-		activeIdx:       -1,
+		workDir:           workDir,
+		model:             model,
+		reasoningEffort:   normalizeReasoningEffort(reasoningEffort),
+		mode:              mode,
+		backend:           backend,
+		appServerURL:      appServerURL,
+		codexHome:         strings.TrimSpace(codexHome),
+		permissionProfile: strings.TrimSpace(permissionProfile),
+		systemPrompt:      strings.TrimSpace(systemPrompt),
+		appendPrompt:      strings.TrimSpace(appendPrompt),
+		cmd:               cmd,
+		cliExtraArgs:      cliExtraArgs,
+		configEnv:         configEnv,
+		activeIdx:         -1,
 	}, nil
 }
 
@@ -462,6 +470,24 @@ func (a *Agent) SetSessionEnv(env []string) {
 	a.sessionEnv = env
 }
 
+// SetSessionModel sets the model the next StartSession uses instead of the
+// agent model ("" = agent model). The engine calls it before each start.
+func (a *Agent) SetSessionModel(model string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sessionModel = strings.TrimSpace(model)
+}
+
+// SetSessionInstructions sets the instructions that replace codex's built-in
+// base instructions for the next StartSession ("" = built-in). app-server
+// sends the text; exec passes the path to codex.
+func (a *Agent) SetSessionInstructions(path, text string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sessionInstr = strings.TrimSpace(path)
+	a.sessionInstrText = strings.TrimSpace(text)
+}
+
 func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentSession, error) {
 	return a.startSession(ctx, sessionID, false)
 }
@@ -469,6 +495,12 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 // forceExec snapshots the same model/provider/environment without opening a live
 // app-server chat session. Native compaction uses this configuration snapshot.
 func (a *Agent) startSession(ctx context.Context, sessionID string, forceExec bool) (core.AgentSession, error) {
+	return a.startSessionWith(ctx, sessionID, forceExec, nil)
+}
+
+// startSessionWith is startSession with per-session settings passed in
+// (settings != nil) instead of read from SetSessionModel/SetSessionInstructions.
+func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExec bool, settings *core.SessionSettings) (core.AgentSession, error) {
 	a.mu.Lock()
 	mode := a.mode
 	model := a.model
@@ -476,6 +508,7 @@ func (a *Agent) startSession(ctx context.Context, sessionID string, forceExec bo
 	backend := a.backend
 	appServerURL := a.appServerURL
 	codexHome := a.codexHome
+	permissionProfile := a.permissionProfile
 	systemPrompt := a.systemPrompt
 	appendPrompt := a.appendPrompt
 	cliBin := a.cmd
@@ -495,6 +528,14 @@ func (a *Agent) startSession(ctx context.Context, sessionID string, forceExec bo
 		}
 		baseURL = a.providers[a.activeIdx].ForProtocol(core.ProtocolResponses).BaseURL
 	}
+	sessionModel, instrFile, instrText := a.sessionModel, a.sessionInstr, a.sessionInstrText
+	if settings != nil {
+		sessionModel = strings.TrimSpace(settings.Model)
+		instrFile, instrText = strings.TrimSpace(settings.InstructionsPath), strings.TrimSpace(settings.InstructionsText)
+	}
+	if sessionModel != "" {
+		model = sessionModel
+	}
 	provName, provAPIKey, provWireAPI, provHeaders := a.activeProviderCodexConfig()
 	a.mu.Unlock()
 
@@ -508,13 +549,23 @@ func (a *Agent) startSession(ctx context.Context, sessionID string, forceExec bo
 	}
 
 	if backend == "app_server" && !forceExec {
-		return newAppServerSession(ctx, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, extraEnv, codexHome, systemPrompt, appendPrompt)
+		return newAppServerSession(ctx, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, extraEnv, codexHome, permissionProfile, systemPrompt, appendPrompt, instrText)
 	}
 	if codexHome != "" {
 		extraEnv = append(extraEnv, "CODEX_HOME="+codexHome)
 	}
 
-	return newCodexSession(ctx, cliBin, cliExtraArgs, workDir, model, reasoningEffort, mode, sessionID, baseURL, extraEnv, provName, systemPrompt, appendPrompt)
+	cs, err := newCodexSession(ctx, cliBin, cliExtraArgs, workDir, model, reasoningEffort, mode, sessionID, baseURL, extraEnv, provName, systemPrompt, appendPrompt)
+	if err == nil {
+		cs.instructionsFile = instrFile
+		if forceExec {
+			cs.compactInstructions = instrText
+			if backend == "app_server" {
+				cs.compactPermissionProfile = permissionProfile
+			}
+		}
+	}
+	return cs, err
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {
@@ -578,6 +629,9 @@ func (a *Agent) WorkspaceAgentOptions() map[string]any {
 	}
 	if a.codexHome != "" {
 		opts["codex_home"] = a.codexHome
+	}
+	if a.permissionProfile != "" {
+		opts["permission_profile"] = a.permissionProfile
 	}
 	return opts
 }

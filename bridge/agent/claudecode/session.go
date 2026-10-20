@@ -51,6 +51,13 @@ type claudeSession struct {
 	sawInit       atomic.Bool
 	startupNotice atomic.Bool
 
+	// maomao fork: background tasks still running (see bgtasks.go).
+	bgTasks        atomic.Int32
+	bgTasksEndedAt atomic.Int64 // unix nanos when the count last dropped to 0
+
+	// maomao fork: sub-agent table (see subtasks.go).
+	subTasks subTaskTable
+
 	// activeModel stores the model id reported by the CLI's init event (e.g.
 	// "claude-opus-4-7[1m]"). It may be empty if the init event hasn't
 	// carried a model field yet; callers should fall back to the Agent's
@@ -553,6 +560,7 @@ func (cs *claudeSession) finishReadLoop(waitErrCh <-chan error, stderrBuf *bytes
 		cs.apiErrTimer = nil
 	}
 	cs.apiErrMu.Unlock()
+	cs.closeSubTasks()
 	close(cs.events)
 	close(cs.done)
 }
@@ -643,6 +651,11 @@ func (cs *claudeSession) handleSystem(raw map[string]any) {
 		if !cs.sawInit.Load() {
 			cs.startupNotice.Store(true)
 		}
+		cs.handleSubTaskEvent(sub, raw)
+	case "task_started", "task_progress", "task_updated":
+		cs.handleSubTaskEvent(sub, raw)
+	case "background_tasks_changed":
+		cs.handleBackgroundTasksChanged(raw)
 	case "compact_boundary":
 		evt := core.Event{Type: core.EventText, Metadata: map[string]any{core.MetaContextCompacted: true}}
 		select {
@@ -741,7 +754,20 @@ func (cs *claudeSession) takeAPIErrorFallback() (alreadyFired bool) {
 	return alreadyFired
 }
 
+// isSubAgentMessage reports whether an assistant/user event belongs to a
+// sub-agent rather than the main agent (maomao fork). claude 2.1.302 streams the
+// sub-agents' own messages with parent_tool_use_id set to the Agent call
+// (testdata/subagents_fg_bg.jsonl); their progress reaches the channel through
+// the sub-agent table (task_progress), not as main-agent events.
+func isSubAgentMessage(raw map[string]any) bool {
+	id, _ := raw["parent_tool_use_id"].(string)
+	return id != ""
+}
+
 func (cs *claudeSession) handleAssistant(raw map[string]any) {
+	if isSubAgentMessage(raw) {
+		return
+	}
 	msg, ok := raw["message"].(map[string]any)
 	if !ok {
 		return
@@ -835,6 +861,9 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 }
 
 func (cs *claudeSession) handleUser(raw map[string]any) {
+	if isSubAgentMessage(raw) {
+		return
+	}
 	msg, ok := raw["message"].(map[string]any)
 	if !ok {
 		return
@@ -1100,6 +1129,8 @@ func (cs *claudeSession) Send(prompt string, messageID string, images []core.Ima
 			},
 		})
 	}
+
+	core.ArchiveAttachments(savedPaths) // maomao fork: straight to the NAS media library
 
 	// Save files to disk so Claude Code can read them
 	filePaths := core.SaveFilesToDisk(cs.workDir, messageID, files)

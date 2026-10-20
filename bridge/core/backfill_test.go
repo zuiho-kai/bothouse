@@ -21,7 +21,7 @@ func (p *historyPlatform) ChannelHistory(_, beforeID string, limit int) ([]Chann
 	}
 	var out []ChannelHistoryMessage
 	for _, m := range p.history {
-		if snowflakeAfter(beforeID, m.ID) {
+		if beforeID == "" || snowflakeAfter(beforeID, m.ID) {
 			out = append(out, m)
 		}
 	}
@@ -56,7 +56,7 @@ func TestChannelBackfill_ShowsMissedMessagesInOrder(t *testing.T) {
 	session.SetLastSeenMsgID("100")
 
 	msg := &Message{ChannelID: "c1", MessageID: "106", Content: "你看看"}
-	got, ok := e.channelBackfill(p, msg, session)
+	got, _, ok := e.channelBackfill(p, msg, session)
 	if !ok {
 		t.Fatal("backfill should succeed")
 	}
@@ -85,6 +85,33 @@ func TestChannelBackfill_ShowsMissedMessagesInOrder(t *testing.T) {
 	}
 }
 
+func TestCronChannelBackfill_ReadsUpToNewestAndMarksSeen(t *testing.T) {
+	now := time.Now()
+	p := &historyPlatform{history: []ChannelHistoryMessage{
+		{ID: "100", Author: "zuiho", Content: "看过了", Time: now},
+		{ID: "101", Author: "鲸鱼娘", IsBot: true, Content: "示例：任务做完了", Time: now},
+	}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+	session := e.sessions.GetOrCreateActive("discord:c1")
+	session.SetLastSeenMsgID("100")
+
+	cm := &Message{Content: "定时"}
+	e.cronChannelBackfill(p, "discord:c1", session, cm)
+	got := cm.Content
+	if strings.Contains(got, "看过了") || !strings.Contains(got, "鲸鱼娘（bot）: 示例：任务做完了") {
+		t.Fatalf("cron turn should see what was said since last seen:\n%s", got)
+	}
+	if session.GetLastSeenMsgID() != "101" {
+		t.Fatalf("last seen = %q, want 101", session.GetLastSeenMsgID())
+	}
+	again := &Message{Content: "定时"}
+	e.cronChannelBackfill(p, "discord:c1", session, again)
+	if again.Content != "定时" {
+		t.Fatalf("nothing new, want empty, got:\n%s", again.Content)
+	}
+}
+
 func TestChannelBackfill_FirstTurnUsesRecentWindow(t *testing.T) {
 	p := &historyPlatform{history: []ChannelHistoryMessage{
 		{ID: "100", Author: "zuiho", Content: "昨天的", Time: time.Now().Add(-24 * time.Hour)},
@@ -93,7 +120,7 @@ func TestChannelBackfill_FirstTurnUsesRecentWindow(t *testing.T) {
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
 	defer e.Stop()
 	session := e.sessions.GetOrCreateActive("discord:c1")
-	got, ok := e.channelBackfill(p, &Message{ChannelID: "c1", MessageID: "102"}, session)
+	got, _, ok := e.channelBackfill(p, &Message{ChannelID: "c1", MessageID: "102"}, session)
 	if !ok || strings.Contains(got, "昨天的") || !strings.Contains(got, "刚才的") {
 		t.Fatalf("ok=%v got:\n%s", ok, got)
 	}
@@ -104,7 +131,7 @@ func TestChannelBackfill_UnsupportedPlatformFallsBack(t *testing.T) {
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
 	defer e.Stop()
 	session := e.sessions.GetOrCreateActive("x:c1")
-	if _, ok := e.channelBackfill(p, &Message{ChannelID: "c1", MessageID: "1"}, session); ok {
+	if _, _, ok := e.channelBackfill(p, &Message{ChannelID: "c1", MessageID: "1"}, session); ok {
 		t.Fatal("platform without history must report ok=false")
 	}
 }

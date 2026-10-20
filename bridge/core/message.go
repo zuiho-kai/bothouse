@@ -212,6 +212,7 @@ func SaveFilesToDisk(workDir, messageID string, files []FileAttachment) []string
 		paths = append(paths, fpath)
 		slog.Debug("SaveFilesToDisk: file saved", "path", fpath, "name", f.FileName, "mime", f.MimeType, "size", len(f.Data))
 	}
+	ArchiveAttachments(paths) // maomao fork: straight to the NAS media library
 	return paths
 }
 
@@ -387,8 +388,16 @@ type Message struct {
 	Mentioned        bool   // maomao fork: user explicitly @-mentioned the bot (input to the gate)
 	FromBot          bool   // maomao fork: sent by a teammate bot; without Mentioned it is context only
 	SeenUpToID       string // maomao fork: newest message folded into this one (gate burst), for channel backfill
-	// maomao fork: the gate asks for the per-turn context blocks; they are added
-	// right before the send, once the agent process for this turn is known.
+	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom
+	// ("" = the whole first window); freshContextImages adds the images from before it.
+	BackfillFrom string
+	BackfillRan  bool
+	mediaDone    bool   // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
+	userText     string // maomao fork: Content before media notes were appended — the gate's input
+	userTextSet  bool   // maomao fork: userText is set (see userTextOf)
+	// maomao fork: the gate asks for the per-turn context blocks (teammate
+	// status, wiki pages); they are added right before the send, once the agent
+	// process for this turn is known. A pending handoff goes either way.
 	TurnCtx      bool
 	TurnCtxQuery string // the user's own words, for wiki matching
 	ModeOverride string // if set, temporarily override agent permission mode for this message
@@ -407,6 +416,15 @@ type Message struct {
 	// drop late redeliveries that reuse a new message_id but an older create_time
 	// than a message already processed. Zero means unset (no ordering hint).
 	UserMessageTimeMs int64
+
+	// maomao fork: set on a cron/timer turn to its unmuted platform, so a capacity re-delivery
+	// stays a scheduled turn (team note; backfill unless scheduledBackfilled). See
+	// Engine.startScheduledTurn.
+	scheduledFrom       Platform
+	scheduledBackfilled bool
+	// maomao fork: this is the one re-run of a turn the provider refused as too long, on a
+	// fresh session (retryFreshOnPromptTooLong); its user entry is already in the history.
+	freshRetried bool
 }
 
 // EventType distinguishes different kinds of agent output.

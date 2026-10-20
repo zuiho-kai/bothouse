@@ -17,10 +17,14 @@ import (
 // It resumes exactly the persisted thread; no user prompt or replacement thread
 // is created. The engine must hold the conversation lock and close idle readers.
 func (a *Agent) CompactSession(ctx context.Context, id string) error {
+	return a.compact(ctx, id, nil)
+}
+
+func (a *Agent) compact(ctx context.Context, id string, settings *core.SessionSettings) error {
 	if id == "" || id == core.ContinueSession {
 		return fmt.Errorf("codex compact requires an existing thread")
 	}
-	snapshot, err := a.startSession(ctx, id, true)
+	snapshot, err := a.startSessionWith(ctx, id, true, settings)
 	if err != nil {
 		return err
 	}
@@ -137,12 +141,25 @@ func (cs *codexSession) compactNative(ctx context.Context) error {
 					if cs.model != "" {
 						params["model"] = cs.model
 					}
+					cfg := map[string]any{}
 					if cs.effort != "" {
-						params["config"] = map[string]any{"model_reasoning_effort": cs.effort}
+						cfg["model_reasoning_effort"] = cs.effort
+					}
+					if cs.compactInstructions != "" {
+						params["baseInstructions"] = cs.compactInstructions
 					}
 					approval, sandbox := appServerModeSettings(cs.mode)
 					params["approvalPolicy"] = approval
-					params["sandbox"] = sandbox
+					// Same rule as appServerSession.threadRequestParams: an explicit
+					// sandbox would override the permission profile.
+					if cs.compactPermissionProfile != "" {
+						cfg["default_permissions"] = cs.compactPermissionProfile
+					} else {
+						params["sandbox"] = sandbox
+					}
+					if len(cfg) > 0 {
+						params["config"] = cfg
+					}
 					if err = write(2, "thread/resume", params); err != nil {
 						return err
 					}
@@ -246,4 +263,11 @@ func (p *compactProgress) notification(method string, raw json.RawMessage) error
 		}
 	}
 	return nil
+}
+
+// CompactSessionWith implements core.SessionScopedCompressor: the compacted
+// session's model and base instructions come in as arguments and are never
+// written to the agent other sessions share.
+func (a *Agent) CompactSessionWith(ctx context.Context, id string, s core.SessionSettings) error {
+	return a.compact(ctx, id, &s)
 }

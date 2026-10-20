@@ -198,7 +198,7 @@ func TestNativeCompactUsesWorkspaceAgent(t *testing.T) {
 	sessions := NewSessionManager(t.TempDir() + "/sessions.json")
 	s := sessions.GetOrCreateActive("test:compact")
 	s.SetAgentSessionID("workspace-thread", "stub")
-	e.cmdNativeCompact(workspace, workspace, sessions, "workspace:test:compact", p, compactMessage("/compact"))
+	e.cmdNativeCompact(workspace, workspace, sessions, "workspace:test:compact", "", p, compactMessage("/compact"))
 	select {
 	case got := <-workspace.called:
 		if got != "workspace-thread:workspace-model" {

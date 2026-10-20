@@ -461,6 +461,14 @@ type ColdCacheFreshConfig struct {
 	MinTokens *int  `toml:"min_tokens,omitempty"` // context size worth leaving (default 80000)
 }
 
+// ImageFreshConfig (maomao fork): once the images in a session's context add
+// up to max_mb of base64, start a fresh agent session on the next message and
+// hand over the old transcript's text (no images). Off unless enabled.
+type ImageFreshConfig struct {
+	Enabled *bool    `toml:"enabled,omitempty"` // default false
+	MaxMB   *float64 `toml:"max_mb,omitempty"`  // base64 MB of images in the context (default 3)
+}
+
 // ObserveConfig controls forwarding of native terminal Claude Code sessions to a messaging platform.
 type ObserveConfig struct {
 	Enabled bool   `toml:"enabled"`
@@ -493,6 +501,18 @@ type ProjectConfig struct {
 	Heartbeat                    HeartbeatConfig      `toml:"heartbeat"`
 	AutoCompress                 AutoCompressConfig   `toml:"auto_compress"`
 	ColdCacheFresh               ColdCacheFreshConfig `toml:"cold_cache_fresh"`
+	ImageFresh                   ImageFreshConfig     `toml:"image_fresh"`
+	// SessionModels (maomao fork) maps a cc-connect session key (e.g.
+	// "discord:<channel id>") to the model that session runs on; sessions not
+	// listed use the agent's model. Only agents implementing
+	// core.SessionModelInjector (codex) honor it.
+	SessionModels map[string]string `toml:"session_models,omitempty"`
+	// SessionInstructions (maomao fork) maps a session key to a file whose
+	// text replaces the agent's built-in base instructions for that session
+	// (codex: model_instructions_file / thread baseInstructions). Sessions not
+	// listed keep the built-in prompt. Only core.SessionInstructionsInjector
+	// agents (codex) honor it.
+	SessionInstructions map[string]string `toml:"session_instructions,omitempty"`
 	// ResetOnIdleMins automatically rotates to a new cc-connect session after
 	// the current session has been inactive for the specified number of minutes.
 	// 0 or nil disables the behavior.
@@ -527,6 +547,9 @@ type ProjectConfig struct {
 	TeamName string `toml:"team_name,omitempty"`
 	// TeamStatusInject prepends the other projects' status to each turn (for the main bot).
 	TeamStatusInject bool `toml:"team_status_inject,omitempty"`
+	// MemoryIndex (maomao fork): the bot's own wiki MEMORY.md, put before the first turn of every fresh agent
+	// context (Claude Code loads its auto-memory itself; Codex/Antigravity bots need this). Empty disables it.
+	MemoryIndex string `toml:"memory_index,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who
@@ -551,6 +574,13 @@ type ProjectConfig struct {
 	// ShowQuotaIndicator: nil/true = append the account quota to the status
 	// line; false = never query or show it. Subordinate to ShowContextIndicator.
 	ShowQuotaIndicator *bool `toml:"show_quota_indicator,omitempty"`
+	// ShowQuotaStatus: nil/true = without a measured quota, show its status
+	// (unavailable / no data / querying / query failed); false = show nothing.
+	ShowQuotaStatus *bool `toml:"show_quota_status,omitempty"`
+	// InjectSubagentPolicy: nil/true = prefix every agent turn with the bridge
+	// delegation policy (start subagents only on explicit human consent);
+	// false = send the request as is.
+	InjectSubagentPolicy *bool `toml:"inject_subagent_policy,omitempty"`
 	// ReplyFooter: nil/true = render the reply footer; false = disable it
 	// entirely (the per-line indicator flags above become no-ops).
 	ReplyFooter      *bool        `toml:"reply_footer,omitempty"`
@@ -1110,6 +1140,32 @@ func (c *Config) validateInternal(permissive bool) error {
 		if err := validateDisplayConfig(prefix+".display", proj.Display); err != nil {
 			return err
 		}
+		for key, path := range proj.SessionInstructions {
+			if err := validateSessionInstructionsFile(path); err != nil {
+				return fmt.Errorf("config: %s.session_instructions[%q]: %w", prefix, key, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validateSessionInstructionsFile rejects a session_instructions entry whose
+// file is not an absolute path to a readable, non-empty file, so a bad entry
+// fails the load instead of failing (and unbinding) sessions at start time.
+func validateSessionInstructionsFile(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("must be an absolute path, got %q", path)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(b)) == "" {
+		return fmt.Errorf("%s is empty", path)
 	}
 	return nil
 }

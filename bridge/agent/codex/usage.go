@@ -58,11 +58,37 @@ func (a *Agent) GetUsage(ctx context.Context) (*core.UsageReport, error) {
 	return a.fetchUsage(ctx, http.DefaultClient, tokens)
 }
 
+// SupportsUsageReporting implements core.UsageCapability: the account quota
+// exists only when this agent's CODEX_HOME holds a ChatGPT login. A relay or
+// API-key home has none, and the process's own ~/.codex may be another
+// account, so the footer must not fall back to it.
+func (a *Agent) SupportsUsageReporting() bool {
+	_, err := a.readOAuthTokens(os.ReadFile)
+	return err == nil
+}
+
+// usageCodexHome is the CODEX_HOME this agent's sessions run with: the
+// codex_home option, else CODEX_HOME in the agent env, else the process's.
+func (a *Agent) usageCodexHome() (string, error) {
+	a.mu.RLock()
+	home := a.codexHome
+	env := append(append([]string(nil), a.configEnv...), a.sessionEnv...)
+	a.mu.RUnlock()
+	if home != "" {
+		return home, nil
+	}
+	return resolveCodexHome(env)
+}
+
 func (a *Agent) readOAuthTokens(readFile func(string) ([]byte, error)) (codexOAuthTokens, error) {
-	path, err := codexAuthPath()
+	home, err := a.usageCodexHome()
 	if err != nil {
 		return codexOAuthTokens{}, err
 	}
+	return readCodexOAuthTokens(readFile, filepath.Join(home, "auth.json"))
+}
+
+func readCodexOAuthTokens(readFile func(string) ([]byte, error), path string) (codexOAuthTokens, error) {
 	data, err := readFile(path)
 	if err != nil {
 		return codexOAuthTokens{}, fmt.Errorf("read %s: %w", path, err)
@@ -182,14 +208,18 @@ func mapCodexUsageWindows(bucket *codexUsageBucket) []core.UsageWindow {
 	return windows
 }
 
-func codexAuthPath() (string, error) {
-	codexHome := os.Getenv("CODEX_HOME")
-	if codexHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve home directory: %w", err)
+// SupportsUsageReporting implements core.UsageCapability for an app-server
+// session (always a local codex process on this CODEX_HOME): account/rateLimits
+// only answers for a ChatGPT login, so a relay/API-key home skips the
+// per-reply probe instead of waiting on it.
+func (s *appServerSession) SupportsUsageReporting() bool {
+	home := s.codexHome
+	if home == "" {
+		var err error
+		if home, err = resolveCodexHome(s.extraEnv); err != nil {
+			return false
 		}
-		codexHome = filepath.Join(home, ".codex")
 	}
-	return filepath.Join(codexHome, "auth.json"), nil
+	_, err := readCodexOAuthTokens(os.ReadFile, filepath.Join(home, "auth.json"))
+	return err == nil
 }

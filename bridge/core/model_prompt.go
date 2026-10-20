@@ -29,6 +29,12 @@ func modelSwitchPromptForPath(exe string) string {
 // native system-prompt injection. Send on each turn so resumed CLI sessions and
 // workspace changes do not depend on instruction-file discovery or old history.
 func PrependModelSwitchInstructions(prompt string) string {
-	return "[cc-connect model-control instructions]\n" + modelSwitchPromptForExe() +
-		"\n[/cc-connect model-control instructions]\n\n" + prompt
+	return modelControlHead + "\n" + modelSwitchPromptForExe() +
+		"\n" + modelControlEnd + "\n\n" + prompt
 }
+
+// Markers of the block above; handoffs strip it from old user turns.
+const (
+	modelControlHead = "[cc-connect model-control instructions]"
+	modelControlEnd  = "[/cc-connect model-control instructions]"
+)

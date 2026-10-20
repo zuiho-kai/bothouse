@@ -435,9 +435,16 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	team                         *teamState                    // maomao fork: team status board (nil = off)
+	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
 	projectState                 *ProjectStateStore
+
+	// maomao fork: media library (media.go) — notes of recent video messages for channel
+	// backfill (capped at mediaNoteKeep).
+	mediaNoteMu  sync.Mutex
+	mediaNotes   map[string]string
+	mediaNoteIDs []string
 
 	// Auto-compress settings
 	autoCompressEnabled   bool
@@ -447,7 +454,21 @@ type Engine struct {
 	coldFreshEnabled   bool
 	coldFreshIdle      time.Duration
 	coldFreshMinTokens int
+	// Image-bloat fresh start (maomao fork, see handoff.go)
+	imageFreshEnabled  bool
+	imageFreshMaxBytes int
 	resetOnIdle        time.Duration
+	// Per-session model overrides (maomao fork, see session_models.go)
+	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
+	capMu           sync.Mutex
+	capUntil        time.Time
+	capRound        int
+	capPending      []func() // messages to re-deliver when the cooldown ends, in order
+	capArmed        bool     // a flush timer is pending
+	sessionModelsMu sync.RWMutex
+	sessionModels   map[string]string
+	// Per-session base-instruction files (maomao fork, see session_models.go)
+	sessionInstructions map[string]sessionInstructions
 
 	// Reply footer composition flags. The footer renders up to two lines:
 	//   line 1 — model · [effort ·] out/in/cw/cr · ctx%   (gated by showContextIndicator)
@@ -459,6 +480,12 @@ type Engine struct {
 	// hideQuotaIndicator drops the quota segment of the status line and stops
 	// the quota probe (for Claude that spawns a CLI each time). Zero value shows it.
 	hideQuotaIndicator atomic.Bool
+	// hideQuotaStatus drops the quota status texts when there is no measured
+	// quota (project option show_quota_status = false). Default false = show.
+	hideQuotaStatus atomic.Bool
+	// skipSubagentPolicy drops the per-turn delegation policy block
+	// (project option inject_subagent_policy = false). Default false = inject.
+	skipSubagentPolicy atomic.Bool
 	replyFooterEnabled bool
 
 	// When true, /list etc. only show sessions tracked by cc-connect,
@@ -553,12 +580,22 @@ type queuedMessage struct {
 	turnCtx           bool   // maomao fork: see Message.TurnCtx
 	turnCtxQuery      string
 	fromBot           bool
+	modeOverride      string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
+	// maomao fork: set for a queued cron/timer turn to its unmuted platform. When the turn starts
+	// it gets the same team note and channel backfill as a cron/timer turn run directly.
+	scheduledFrom Platform
+	// maomao fork: the backfill is already in content (a capacity re-delivery must not redo it).
+	scheduledBackfilled bool
 }
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
 	publicProgressRun        string
 	agentSession             AgentSession
+	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
+	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
+	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
+	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
 	platform                 Platform
 	replyCtx                 any
 	currentMessageID         string
@@ -589,6 +626,9 @@ type interactiveState struct {
 	unsolicitedCancel context.CancelFunc // nil when no reader is running
 	unsolicitedDone   chan struct{}      // closed when the reader goroutine exits
 
+	// maomao fork: agent session whose sub-agent table updater is running.
+	subTableFor AgentSession
+
 	// agentSessionIdleCancel 取消当前会话的 idle 关闭计时器。
 	agentSessionIdleCancel context.CancelFunc
 	agentSessionIdleToken  uint64
@@ -597,6 +637,11 @@ type interactiveState struct {
 	// the next turn (e.g. after an abnormal exit). Defaults to true (safe);
 	// cleared to false only after a clean EventResult.
 	eventsNeedResync bool
+
+	// queuedBehindCompact: messages queued here while a native /compact held the
+	// session (enqueueForBusySession). Only then may a placeholder state with no
+	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
+	queuedBehindCompact bool
 
 	// maomao fork: why the agent session failed to start (shown to the user),
 	// and when the running turn last received an agent event (dead-turn check).
@@ -1022,6 +1067,19 @@ func (e *Engine) SetShowWorkdirIndicator(show bool) {
 // quota. When false the quota is never queried; model and context stay.
 func (e *Engine) SetShowQuotaIndicator(show bool) {
 	e.hideQuotaIndicator.Store(!show)
+}
+
+// SetShowQuotaStatus controls the quota status texts (unavailable, no data,
+// querying, query failed). false = without a measured quota the footer says
+// nothing about quota. Default true.
+func (e *Engine) SetShowQuotaStatus(show bool) {
+	e.hideQuotaStatus.Store(!show)
+}
+
+// SetSubagentPolicyEnabled controls whether each agent turn is prefixed with
+// the delegation policy (core/subagent.go). Default on.
+func (e *Engine) SetSubagentPolicyEnabled(on bool) {
+	e.skipSubagentPolicy.Store(!on)
 }
 
 // SetReplyFooterEnabled is the master toggle for the per-turn reply footer.
@@ -1584,7 +1642,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 					desc = truncateStr(job.Prompt, 40)
 				}
 			}
-			e.send(targetPlatform, replyCtx, fmt.Sprintf("⏰ %s", desc))
+			e.send(targetPlatform, markSystemNotice(targetPlatform, replyCtx), fmt.Sprintf("⏰ %s", desc)) // maomao fork: a notice, not the result
 		}
 	}
 
@@ -1662,6 +1720,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		if !session.TryLock() {
 			return fmt.Errorf("session %q is busy", runSessionKey)
 		}
+		// maomao fork: scheduled turns show on the team status board too; a side session gets its own
+		// key so it does not replace the main session's entry.
+		teamMsg := *msg
+		teamMsg.SessionKey = runSessionKey + "#cron:" + session.ID
+		e.teamNoteTurn(&teamMsg, session)
 		iKey := fmt.Sprintf("%s#cron:%s", runSessionKey, session.ID)
 		if workspaceDir != "" {
 			iKey = workspaceDir + ":" + iKey
@@ -1681,14 +1744,29 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	}
 
 	session := sessions.GetOrCreateActive(sessionKey)
-	if !session.TryLock() {
-		return fmt.Errorf("session %q is busy", sessionKey)
-	}
-
 	iKey := sessionKey
 	if workspaceDir != "" {
 		iKey = workspaceDir + ":" + sessionKey
 	}
+	if !session.TryLock() {
+		// maomao fork: a job that fires while the channel's turn is running waits in the same
+		// queue as a user message and runs when that turn ends, instead of being dropped
+		// (2026-10-19: 13 of 54 scheduled runs were dropped as "is busy"; user: "我这没看到").
+		// Its reply goes to the channel through the queued turn; the job counts as run from here,
+		// so the empty-response check below does not apply to it.
+		switch e.queueScheduledTurn(effectivePlatform, targetPlatform, msg, session, sessions, iKey, agent, workspaceDir) {
+		case queueAccepted:
+			slog.Info("cron: session busy, job queued after current turn", "id", job.ID, "session", sessionKey)
+			return nil
+		case queueRejected:
+			return fmt.Errorf("session %q is busy and its queue is full", sessionKey)
+		}
+		return fmt.Errorf("session %q is busy", sessionKey)
+	}
+	// maomao fork: scheduled turns show on the team status board too, and see the channel.
+	msg.scheduledFrom = targetPlatform
+	e.startScheduledTurn(msg, session)
+
 	prevHistLen := session.HistoryLen()
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
 	// Same empty-response detection as the useNewSession path above.
@@ -1790,7 +1868,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 					desc = truncateStr(job.Prompt, 40)
 				}
 			}
-			e.send(targetPlatform, replyCtx, fmt.Sprintf("⏰ %s", desc))
+			e.send(targetPlatform, markSystemNotice(targetPlatform, replyCtx), fmt.Sprintf("⏰ %s", desc)) // maomao fork: a notice, not the result
 		}
 	}
 
@@ -1863,6 +1941,11 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		if !session.TryLock() {
 			return fmt.Errorf("session %q is busy", runSessionKey)
 		}
+		// maomao fork: scheduled turns show on the team status board too; a side session gets its own
+		// key so it does not replace the main session's entry.
+		teamMsg := *msg
+		teamMsg.SessionKey = runSessionKey + "#timer:" + session.ID
+		e.teamNoteTurn(&teamMsg, session)
 		iKey := fmt.Sprintf("%s#timer:%s", runSessionKey, session.ID)
 		if workspaceDir != "" {
 			iKey = workspaceDir + ":" + iKey
@@ -1873,16 +1956,108 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	session := sessions.GetOrCreateActive(sessionKey)
-	if !session.TryLock() {
-		return fmt.Errorf("session %q is busy", sessionKey)
-	}
-
 	iKey := sessionKey
 	if workspaceDir != "" {
 		iKey = workspaceDir + ":" + sessionKey
 	}
+	if !session.TryLock() {
+		// maomao fork: queued behind the running turn like a cron job (see ExecuteCronJob).
+		switch e.queueScheduledTurn(effectivePlatform, targetPlatform, msg, session, sessions, iKey, agent, workspaceDir) {
+		case queueAccepted:
+			slog.Info("timer: session busy, job queued after current turn", "id", job.ID, "session", sessionKey)
+			return nil
+		case queueRejected:
+			return fmt.Errorf("session %q is busy and its queue is full", sessionKey)
+		}
+		return fmt.Errorf("session %q is busy", sessionKey)
+	}
+	// maomao fork: scheduled turns show on the team status board too, and see the channel.
+	msg.scheduledFrom = targetPlatform
+	e.startScheduledTurn(msg, session)
+
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
 	return nil
+}
+
+// queueScheduledTurn queues a cron/timer turn whose session is busy behind the running turn,
+// through the same queue a user message uses. The new_per_run paths never get here: each run
+// takes a fresh side session (NewSideSession), which no one else holds, so its TryLock succeeds.
+// p is where replies go (muted for a muted job); target is the real platform, for the backfill.
+func (e *Engine) queueScheduledTurn(p, target Platform, msg *Message, session *Session, sessions *SessionManager, iKey string, agent Agent, workspaceDir string) queueOutcome {
+	// Same as the user-message path: a turn that is still starting has no state to queue into yet.
+	e.ensureInteractiveStateForQueueing(iKey, p, msg.ReplyCtx)
+	return e.queueForBusySession(p, msg, session, sessions, iKey, agent, workspaceDir, target)
+}
+
+// startScheduledQueuedTurn gives a queued cron/timer turn, as it starts, what ExecuteCronJob /
+// ExecuteTimerJob give one they run directly: the team status note, and the channel posts it
+// has not seen with the "（定时任务，回这条）" marker (cronChannelBackfill; 2026-10-17: bots are
+// to keep seeing the recent channel messages). A no-op for a user message.
+func (e *Engine) startScheduledQueuedTurn(q *queuedMessage, session *Session) {
+	if q.scheduledFrom == nil {
+		return
+	}
+	m := queuedToMessage(*q)
+	e.startScheduledTurn(&m, session)
+	q.content, q.images, q.scheduledBackfilled = m.Content, m.Images, m.scheduledBackfilled
+}
+
+// startScheduledTurn is startScheduledQueuedTurn for a Message (a cron/timer turn re-delivered
+// after a capacity cooldown). The backfill runs once per job run: after it the posts are marked
+// seen and live in msg.Content, which every re-delivery carries, as gate.go does for user messages.
+func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
+	if msg.scheduledFrom == nil {
+		return
+	}
+	e.teamNoteTurn(msg, session)
+	if !msg.scheduledBackfilled {
+		e.cronChannelBackfill(msg.scheduledFrom, msg.SessionKey, session, msg)
+		msg.scheduledBackfilled = true
+	}
+}
+
+// setTurnMode ends the previous turn's mode override, if any, and applies mode for the turn
+// about to start (maomao fork: a cron/timer job's mode must not carry over to the queued
+// messages chained after it).
+func (e *Engine) setTurnMode(state *interactiveState, as AgentSession, mode string) {
+	e.restoreTurnMode(state)
+	if restore := e.applyLiveModeOverride(as, mode); restore != nil {
+		state.mu.Lock()
+		state.modeRestore = restore
+		state.mu.Unlock()
+	}
+}
+
+// restoreTurnMode switches back to the default mode if a turn's override is still on.
+func (e *Engine) restoreTurnMode(state *interactiveState) {
+	state.mu.Lock()
+	restore := state.modeRestore
+	state.modeRestore = nil
+	state.mu.Unlock()
+	if restore != nil {
+		restore()
+	}
+}
+
+// applyLiveModeOverride switches the live agent session to mode and returns the function that
+// switches it back to the agent's default; nil when mode is empty or the switch did not happen.
+func (e *Engine) applyLiveModeOverride(as AgentSession, mode string) (restore func()) {
+	if mode == "" || as == nil {
+		return nil
+	}
+	switcher, ok := as.(LiveModeSwitcher)
+	if !ok || !switcher.SetLiveMode(mode) {
+		return nil
+	}
+	return func() {
+		defaultMode := "default"
+		if ma, ok := e.agent.(interface{ GetMode() string }); ok {
+			if m := ma.GetMode(); m != "" {
+				defaultMode = m
+			}
+		}
+		switcher.SetLiveMode(defaultMode)
+	}
 }
 
 func timerRunTitle(job *TimerJob) string {
@@ -1898,6 +2073,15 @@ func timerRunTitle(job *TimerJob) string {
 	return truncateStr(job.Prompt, 40)
 }
 
+// scheduledShellContext returns the context for a cron/timer exec job.
+// timeout comes from CronJob/TimerJob.ExecutionTimeout(): 0 means no limit.
+func scheduledShellContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
 // executeTimerShell runs a shell command for a timer job and sends the output.
 func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) error {
 	workDir := job.WorkDir
@@ -1910,14 +2094,9 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		workDir, _ = os.Getwd()
 	}
 
-	timeout := job.ExecutionTimeout()
-	if timeout <= 0 {
-		timeout = 60 * time.Second
-	}
-
 	cmdLabel := truncateStr(job.Exec, 60)
 
-	ctx, cancel := context.WithTimeout(e.ctx, timeout)
+	ctx, cancel := scheduledShellContext(e.ctx, job.ExecutionTimeout())
 	defer cancel()
 
 	var shellCmd *exec.Cmd
@@ -2088,14 +2267,9 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		workDir, _ = os.Getwd()
 	}
 
-	timeout := job.ExecutionTimeout()
-	if timeout <= 0 {
-		timeout = 60 * time.Second
-	}
-
 	cmdLabel := truncateStr(job.Exec, 60)
 
-	ctx, cancel := context.WithTimeout(e.ctx, timeout)
+	ctx, cancel := scheduledShellContext(e.ctx, job.ExecutionTimeout())
 	defer cancel()
 
 	shellCmd := shellExecCommand(ctx, e.shell, e.shellFlag, e.shellProfile, job.Exec)
@@ -3075,6 +3249,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
+	// maomao fork: video links → watchvid once, result paths appended (media library).
+	e.prepareMedia(msg)
+
 	session := sessions.GetOrCreateActive(msg.SessionKey)
 	sessions.UpdateUserMeta(msg.SessionKey, msg.UserName, msg.ChatName)
 	if e.applyGate(p, msg, session, interactiveKey) {
@@ -3099,16 +3276,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		}
 		// Session is busy — try to queue the message for the running turn
 		// so the agent processes it immediately after the current turn ends.
-		if e.queueMessageForBusySession(p, msg, interactiveKey) {
-			// Race guard: the drain loop in processInteractiveMessageWith may
-			// have just finished (session unlocked) between our TryLock failure
-			// and the queue append. Re-try TryLock — if it succeeds, no one is
-			// draining the queue so we must start a processor ourselves.
-			if session.TryLock() {
-				if !e.startMessageWorker(func() { e.drainOrphanedQueue(session, sessions, interactiveKey, agent, resolvedWorkspace) }) {
-					session.Unlock()
-				}
-			}
+		if e.queueForBusySession(p, msg, session, sessions, interactiveKey, agent, resolvedWorkspace, nil) != queueUnavailable {
 			return
 		}
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
@@ -3220,15 +3388,34 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 // the event loop sends it after the current turn's EventResult is received.
 // Returns true if the message was successfully queued, false otherwise.
 func (e *Engine) queueMessageForBusySession(p Platform, msg *Message, interactiveKey string) bool {
-	e.interactiveMu.Lock()
-	if e.nativeCompactions[interactiveKey] != nil {
-		e.interactiveMu.Unlock()
-		return false
+	return e.enqueueForBusySession(p, msg, interactiveKey, nil) != queueUnavailable
+}
+
+// queueOutcome is what enqueueForBusySession did with a message (maomao fork).
+type queueOutcome int
+
+const (
+	queueUnavailable queueOutcome = iota // no live state to queue into; the caller handles the message
+	queueAccepted                        // appended to the queue
+	queueRejected                        // handled but not queued: stale, or the queue is full (user was told)
+)
+
+// enqueueForBusySession is queueMessageForBusySession with the outcome spelled out, so a
+// cron/timer job can tell "queued" from "turned away" (maomao fork). scheduledFrom is set for a
+// cron/timer turn (see queuedMessage.scheduledFrom).
+func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey string, scheduledFrom Platform) queueOutcome {
+	if scheduledFrom == nil {
+		scheduledFrom = msg.scheduledFrom // a re-delivered cron/timer turn (deferForCapacity)
 	}
+	e.interactiveMu.Lock()
+	// A running native /compact holds the session lock; what queues here runs
+	// when it ends (drainQueuedAfterNativeCompact). New user messages are
+	// turned away before this (nativeCompactRunning in handleMessage).
+	behindCompact := e.nativeCompactions[interactiveKey] != nil
 	state, hasState := e.interactiveStates[interactiveKey]
 	if !hasState || state == nil {
 		e.interactiveMu.Unlock()
-		return false
+		return queueUnavailable
 	}
 	// Keep interactiveMu until state.mu is held. Otherwise a starting session can
 	// replace a placeholder state between lookup and queue append, losing the
@@ -3240,7 +3427,7 @@ func (e *Engine) queueMessageForBusySession(p Platform, msg *Message, interactiv
 	// Allow queueing when agentSession is nil (session is starting up,
 	// issue #565). Only reject if the session was established and died.
 	if state.agentSession != nil && !state.agentSession.Alive() {
-		return false
+		return queueUnavailable
 	}
 
 	// Only queue metadata — do NOT send to agent stdin yet.
@@ -3251,30 +3438,36 @@ func (e *Engine) queueMessageForBusySession(p Platform, msg *Message, interactiv
 	if e.isStaleUserMessageLocked(state, msg.UserMessageTimeMs) {
 		snap := userMessageWatermarkSnapshotLocked(state)
 		e.logStaleUserMessageDropped("reject_before_queue", msg, interactiveKey, snap)
-		return true
+		return queueRejected
 	}
 	if len(state.pendingMessages) >= e.maxQueuedMessages {
 		depth := len(state.pendingMessages)
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
-		return true // handled: queue-full reply sent
+		return queueRejected // handled: queue-full reply sent
+	}
+	if behindCompact {
+		state.queuedBehindCompact = true
 	}
 	state.pendingMessages = append(state.pendingMessages, queuedMessage{
-		messageID:         msg.MessageID,
-		platform:          p,
-		replyCtx:          msg.ReplyCtx,
-		content:           msg.Content,
-		images:            msg.Images,
-		files:             msg.Files,
-		fromVoice:         msg.FromVoice,
-		userID:            msg.UserID,
-		userName:          msg.UserName,
-		turnCtx:           msg.TurnCtx,
-		turnCtxQuery:      msg.TurnCtxQuery,
-		fromBot:           msg.FromBot,
-		msgPlatform:       msg.Platform,
-		msgSessionKey:     msg.SessionKey,
-		channelKey:        msg.ChannelKey,
-		userMessageTimeMs: msg.UserMessageTimeMs,
+		messageID:           msg.MessageID,
+		platform:            p,
+		replyCtx:            msg.ReplyCtx,
+		content:             msg.Content,
+		images:              msg.Images,
+		files:               msg.Files,
+		fromVoice:           msg.FromVoice,
+		userID:              msg.UserID,
+		userName:            msg.UserName,
+		turnCtx:             msg.TurnCtx,
+		turnCtxQuery:        msg.TurnCtxQuery,
+		modeOverride:        msg.ModeOverride,
+		scheduledFrom:       scheduledFrom,
+		scheduledBackfilled: msg.scheduledBackfilled,
+		msgPlatform:         msg.Platform,
+		msgSessionKey:       msg.SessionKey,
+		channelKey:          msg.ChannelKey,
+		userMessageTimeMs:   msg.UserMessageTimeMs,
+		fromBot:             msg.FromBot,
 	})
 	runMessageAccepted(msg)
 	queueDepth := len(state.pendingMessages)
@@ -3293,7 +3486,28 @@ func (e *Engine) queueMessageForBusySession(p Platform, msg *Message, interactiv
 		"queue_depth", queueDepth,
 	)
 	e.reply(p, msg.ReplyCtx, e.i18n.T(MsgMessageQueued))
-	return true
+	return queueAccepted
+}
+
+// queueForBusySession queues msg behind the turn running on session (see
+// enqueueForBusySession) and makes sure someone drains it.
+func (e *Engine) queueForBusySession(p Platform, msg *Message, session *Session, sessions *SessionManager, interactiveKey string, agent Agent, workspaceDir string, scheduledFrom Platform) queueOutcome {
+	outcome := e.enqueueForBusySession(p, msg, interactiveKey, scheduledFrom)
+	if outcome == queueUnavailable {
+		return outcome
+	}
+	// Race guard: the drain loop in processInteractiveMessageWith may
+	// have just finished (session unlocked) between our TryLock failure
+	// and the queue append. Re-try TryLock — if it succeeds, no one is
+	// draining the queue so we must start a processor ourselves.
+	if session.TryLock() {
+		// conest #14: register the drain with messageWorkers so Stop waits for
+		// it; a stopping engine refuses it and the lock is handed back.
+		if !e.startMessageWorker(func() { e.drainOrphanedQueue(session, sessions, interactiveKey, agent, workspaceDir) }) {
+			session.Unlock()
+		}
+	}
+	return outcome
 }
 
 // ensureInteractiveStateForQueueing creates a placeholder interactiveState
@@ -3329,6 +3543,28 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 	state, hasState := e.interactiveStates[interactiveKey]
 	e.interactiveMu.Unlock()
 
+	if hasState && state != nil {
+		// A placeholder (no agent session yet) whose queue formed while a native
+		// /compact held the session has nothing to drain into. Start a turn with
+		// the first queued message; it adopts the rest and drains them. Any other
+		// placeholder (its session failed to start) keeps the drop below.
+		state.mu.Lock()
+		placeholder := state.queuedBehindCompact && state.agentSession == nil && !state.stopped && len(state.pendingMessages) > 0
+		state.queuedBehindCompact = false
+		var first queuedMessage
+		if placeholder {
+			first = state.pendingMessages[0]
+			state.pendingMessages = state.pendingMessages[1:]
+		}
+		state.mu.Unlock()
+		if placeholder {
+			msg := queuedToMessage(first)
+			e.startScheduledTurn(&msg, session) // a queued cron/timer turn, as when run directly
+			unlocked = true                     // processInteractiveMessageWith releases the session
+			e.processInteractiveMessageWith(first.platform, &msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
+			return
+		}
+	}
 	if !hasState || state == nil || state.agentSession == nil || !state.agentSession.Alive() {
 		if hasState && state != nil {
 			e.notifyDroppedQueuedMessages(state, fmt.Errorf("agent session ended"))
@@ -3788,9 +4024,12 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	}
 
 	turnStart := time.Now()
+	origMsg := *msg // maomao fork: re-delivered as-is after a capacity cooldown
 
 	e.i18n.DetectAndSet(msg.Content)
-	session.AddHistory("user", msg.Content)
+	if !msg.freshRetried { // maomao fork: a prompt-too-long re-run is already in the history
+		session.AddHistory("user", msg.Content)
+	}
 	// Persist user message immediately so crashes between user input and
 	// assistant reply don't lose it (the assistant-side Save below depends
 	// on the turn completing without a process crash).
@@ -3857,22 +4096,11 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	}
 
 	// Apply per-message permission mode override (e.g. cron jobs with mode = "bypassPermissions").
-	// Defer restores only when SetLiveMode succeeds for the override.
-	if msg.ModeOverride != "" {
-		if switcher, ok := state.agentSession.(LiveModeSwitcher); ok {
-			if switcher.SetLiveMode(msg.ModeOverride) {
-				defer func() {
-					defaultMode := "default"
-					if ma, ok := e.agent.(interface{ GetMode() string }); ok {
-						if m := ma.GetMode(); m != "" {
-							defaultMode = m
-						}
-					}
-					switcher.SetLiveMode(defaultMode)
-				}()
-			}
-		}
-	}
+	// maomao fork: it lasts for this message's turn only; a queued message chained after it gets
+	// its own mode (setTurnMode in processInteractiveEvents), and the deferred restore is the
+	// fallback for an early return.
+	e.setTurnMode(state, state.agentSession, msg.ModeOverride)
+	defer e.restoreTurnMode(state)
 
 	// Start typing indicator if platform supports it.
 	// Ownership is transferred to processInteractiveEvents which manages
@@ -3915,62 +4143,91 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		drainEvents(state.agentSession.Events())
 	}
 
-	if msg.TurnCtx {
-		msg.Content = e.withTurnBlocks(session, msg.SessionKey, msg.TurnCtxQuery, msg.Content)
-	}
-	promptContent := e.buildSenderPrompt(msg.Content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
-	promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-	promptContent = withSubagentPolicy(promptContent, msg.UserID, msg.FromBot)
-	promptContent = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
-
-	sendStart := time.Now()
-	state.mu.Lock()
-	state.currentMessageID = msg.MessageID
-	state.fromVoice = msg.FromVoice
-	state.sideText = ""
-	as := state.agentSession // capture under lock to avoid race with cleanup
-	state.mu.Unlock()
-
-	// Run Send concurrently with processInteractiveEvents. Some agents block inside
-	// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
-	// EventPermissionRequest while blocked — the event loop must run in parallel.
-	sendDone := make(chan error, 1)
-	e.messageWorkers.Add(1) // child of the registered foreground turn
-	go func() {
-		defer e.messageWorkers.Done()
-		if as == nil {
-			session.SettleHandoff(false)
-			sendDone <- fmt.Errorf("agent session became nil")
-			return
+	// maomao fork: while the model cools down after "at capacity", the message waits
+	// for the cooldown instead of reaching the agent. Checked before withTurnBlocks so
+	// nothing (wiki pages, team status, handoff) is marked sent for an unsent message.
+	// A local input turn (msg.inputTurn) is never deferred: its caller waits on it.
+	if wait := e.capacityWait(); wait > 0 && msg.inputTurn == nil {
+		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, true)
+	} else {
+		// Local copy, not msg.Content: the caller may still read *msg (data race).
+		content := msg.Content
+		images := msg.Images
+		if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
+			// maomao fork: first turn of a fresh context gets the recent channel images back.
+			content = note + "\n\n" + content
+			images = append(imgs, images...)
 		}
-		var err error
-		if msg.inputTurn != nil {
-			if strict, ok := as.(StrictResumeSession); ok {
-				err = strict.SendResumed(promptContent, msg.MessageID, msg.Images, msg.Files, msg.inputTurn.expectedID)
-			} else {
-				err = fmt.Errorf("live session does not support strict resume")
-			}
-		} else {
-			err = as.Send(promptContent, msg.MessageID, msg.Images, msg.Files)
-		}
-		session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
-		sendDone <- err
-	}()
+		content = e.withTurnBlocks(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx)
+		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
+		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
+		promptContent = e.withSubagentPolicy(promptContent, msg.UserID, msg.FromBot)
+		// The public-progress run is minted per attempt (beginAttempt): a capacity
+		// retry's earlier attempt closed its run when its event loop ended.
+		var attemptPrompt string
 
-	e.processInteractiveEvents(state, session, sessions, interactiveKey, msg.MessageID, turnStart, stopTyping, sendDone, msg.ReplyCtx, msg.inputTurn)
-	// Failed local turns can leave queued ordinary messages for the outer
-	// drain. Release only this turn's outbound guard before handing them off.
-	if msg.inputTurn != nil {
+		sendStart := time.Now()
 		state.mu.Lock()
-		if state.localInputOnly == msg.inputTurn {
-			state.localInputOnly = nil
-		}
+		state.currentMessageID = msg.MessageID
+		state.fromVoice = msg.FromVoice
+		state.sideText = ""
 		state.mu.Unlock()
+
+		// Run Send concurrently with processInteractiveEvents. Some agents block inside
+		// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
+		// EventPermissionRequest while blocked — the event loop must run in parallel.
+		// The agent session is captured under lock per attempt inside runTurnWithCapacityRetry.
+		e.runTurnWithCapacityRetry(state, session, sessions, interactiveKey, msg.MessageID, turnStart, stopTyping, msg.ReplyCtx, msg.inputTurn,
+			func() {
+				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
+			},
+			func(as AgentSession) error {
+				if as == nil {
+					session.SettleHandoff(false)
+					return fmt.Errorf("agent session became nil")
+				}
+				var err error
+				promptContent := attemptPrompt
+				if msg.inputTurn != nil {
+					if strict, ok := as.(StrictResumeSession); ok {
+						err = strict.SendResumed(promptContent, msg.MessageID, images, msg.Files, msg.inputTurn.expectedID)
+					} else {
+						err = fmt.Errorf("live session does not support strict resume")
+					}
+				} else {
+					err = as.Send(promptContent, msg.MessageID, images, msg.Files)
+				}
+				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
+				return err
+			},
+			func(wait time.Duration) {
+				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, false)
+			})
+		// Failed local turns can leave queued ordinary messages for the outer
+		// drain. Release only this turn's outbound guard before handing them off.
+		if msg.inputTurn != nil {
+			state.mu.Lock()
+			if state.localInputOnly == msg.inputTurn {
+				state.localInputOnly = nil
+			}
+			state.mu.Unlock()
+		}
+		if elapsed := time.Since(sendStart); elapsed >= slowAgentSend {
+			slog.Warn("slow agent send", "elapsed", elapsed, "session", msg.SessionKey, "content_len", len(content))
+		}
+		stopTyping = nil // ownership transferred; prevent defer from double-stopping
+		// maomao fork: the provider refused the prompt as too long; re-run on a fresh session.
+		if errMsg, q := state.takePromptTooLong(); errMsg != "" {
+			retryP, retry := p, origMsg
+			if q != nil {
+				retryP, retry = q.platform, queuedToMessage(*q)
+			}
+			if e.retryFreshOnPromptTooLong(retryP, retry, errMsg, state, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey) {
+				unlocked = true
+				return
+			}
+		}
 	}
-	if elapsed := time.Since(sendStart); elapsed >= slowAgentSend {
-		slog.Warn("slow agent send", "elapsed", elapsed, "session", msg.SessionKey, "content_len", len(msg.Content))
-	}
-	stopTyping = nil // ownership transferred; prevent defer from double-stopping
 
 	// Guard against a narrow race: a message may have been queued between
 	// processInteractiveEvents observing an empty queue and returning here
@@ -4153,6 +4410,19 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 				return &interactiveState{startErr: "live session cannot strictly resume the original binding"}
 			}
 		}
+		if input == nil && !needRecycle && currentID != "" && currentID == wantID {
+			// maomao fork: the live process has piled up images; recycle it
+			// into a fresh context with a handoff.
+			agent := e.agent
+			if agentOverride != nil {
+				agent = agentOverride
+			}
+			if notice := e.freshOnImageBloat(agent, session); notice != "" {
+				sessions.Save()
+				go e.send(p, markSystemNotice(p, replyCtx), notice)
+				wantID, needRecycle = "", true
+			}
+		}
 		if !needRecycle {
 			return state
 		}
@@ -4201,6 +4471,8 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		}
 		inj.SetSessionEnv(envVars)
 	}
+	e.applySessionModel(agent, ccKey)
+	e.applySessionInstructions(agent, ccKey)
 
 	// Inject platform-specific formatting instructions into the agent's system prompt.
 	// Clear the prompt first so instructions from a previous platform don't leak
@@ -4235,7 +4507,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if input == nil {
 		if notice := e.freshOnColdCache(agent, session); notice != "" {
 			sessions.Save()
-			go e.send(p, replyCtx, notice)
+			go e.send(p, markSystemNotice(p, replyCtx), notice)
+		}
+		if notice := e.freshOnImageBloat(agent, session); notice != "" {
+			sessions.Save()
+			go e.send(p, markSystemNotice(p, replyCtx), notice)
 		}
 	}
 
@@ -4261,6 +4537,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		}
 	}
 	isResume := startSessionID != ""
+	startedFresh := !isResume // maomao fork: see MarkFreshContext below
 	startAt := time.Now()
 	var agentSession AgentSession
 	var err error
@@ -4291,6 +4568,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			startAt = time.Now()
 			agentSession, err = agent.StartSession(e.ctx, "")
 			startElapsed = time.Since(startAt)
+			startedFresh = true
 			if err == nil {
 				slog.Info("fresh session started after resume failure",
 					"session_key", sessionKey, "elapsed", startElapsed)
@@ -4357,6 +4635,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		}
 	}
 
+	if startedFresh {
+		// maomao fork: the new context holds none of the channel's earlier images;
+		// the first turn re-attaches the recent ones (freshContextImages).
+		session.MarkFreshContext()
+	}
 	newState := &interactiveState{
 		agentSession:     agentSession,
 		platform:         p,
@@ -4498,12 +4781,18 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 		cancel()
 		return
 	}
+	e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, token, timeout, timeout)
+	state.mu.Unlock()
+}
+
+// armAgentSessionIdleTimerLocked stores cancel/token on state and starts the
+// timer goroutine. Caller holds state.mu.
+func (e *Engine) armAgentSessionIdleTimerLocked(sessionKey string, state *interactiveState, ctx context.Context, cancel context.CancelFunc, token uint64, wait, timeout time.Duration) {
 	state.agentSessionIdleCancel = cancel
 	state.agentSessionIdleToken = token
-	state.mu.Unlock()
 
 	go func() {
-		timer := time.NewTimer(timeout)
+		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {
 		case <-ctx.Done():
@@ -4513,6 +4802,27 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 
 		e.cleanupInteractiveStateForIdleToken(sessionKey, state, token, timeout)
 	}()
+}
+
+// agentSessionIdleDeferral reports how much longer the idle close must wait
+// because of background tasks inside the agent process (maomao fork): a full
+// timeout while any is running (re-checked then), or the rest of the timeout
+// counted from when the last one ended. 0 means close now.
+func agentSessionIdleDeferral(agentSession AgentSession, timeout time.Duration) (time.Duration, int) {
+	r, ok := agentSession.(BackgroundTaskReporter)
+	if !ok {
+		return 0, 0
+	}
+	running, lastEndedAt := r.BackgroundTasks()
+	if running > 0 {
+		return timeout, running
+	}
+	if !lastEndedAt.IsZero() {
+		if left := timeout - time.Since(lastEndedAt); left > 0 {
+			return left, 0
+		}
+	}
+	return 0, 0
 }
 
 func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected *interactiveState, token uint64, timeout time.Duration) {
@@ -4534,6 +4844,22 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
 		e.interactiveMu.Unlock()
+		return
+	}
+	if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
+		// maomao fork: closing now would kill a background task and lose its
+		// completion notification. Re-arm under the same lock so a turn that
+		// starts afterwards cancels the new timer like any other.
+		oldCancel := state.agentSessionIdleCancel
+		ctx, cancel := context.WithCancel(e.ctx)
+		e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, e.agentSessionIdleSeq.Add(1), wait, timeout)
+		state.mu.Unlock()
+		e.interactiveMu.Unlock()
+		if oldCancel != nil {
+			oldCancel()
+		}
+		slog.Info("agent session idle timeout: deferred for background tasks",
+			"session_key", sessionKey, "running", running, "wait", wait)
 		return
 	}
 	agentSession = state.agentSession
@@ -4588,6 +4914,11 @@ func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession Ag
 
 	slog.Debug("cleanupInteractiveState: closing agent session", "session", sessionKey)
 	closeStart := time.Now()
+	agentID := agentSession.CurrentSessionID()
+	// maomao fork: tell hooks once the process is gone (sub bots export + ingest their wiki here, like 橘's
+	// SessionEnd hook; user 2026-10-20 「让他们和你一样的待遇，不要区分」)
+	defer e.hooks.Emit(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
+		Extra: map[string]any{"agent_session_id": agentID}})
 
 	done := make(chan struct{})
 	go func() {
@@ -4969,6 +5300,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	defer func() {
 		input.finish(inputTurnResult{err: fmt.Errorf("turn stopped, stream closed, or reply delivery failed before completion")})
 	}()
+	var chainedQueued *queuedMessage // maomao fork: queued message chained into this loop, if any
 	if msgID != "" {
 		state.mu.Lock()
 		state.currentMessageID = msgID
@@ -5076,6 +5408,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 	events := state.agentSession.Events()
 	stopCh := state.stopSignal()
+
+	// maomao fork: sub-agent table, and the progress card kept alive while the
+	// turn waits for a foreground sub-agent (refreshed at the card's own edit
+	// interval).
+	e.ensureSubTaskTable(state)
+	var subWaitTick <-chan time.Time
+	subReporter, hasSubReporter := state.agentSession.(SubTaskReporter)
+	if hasSubReporter && cp.Active() && cp.minUpdateInterval > 0 {
+		t := time.NewTicker(cp.minUpdateInterval)
+		defer t.Stop()
+		subWaitTick = t.C
+	}
+
 	var handlingSince atomic.Int64 // maomao fork: when the current event's handling began; 0 = waiting
 	watchDone := make(chan struct{})
 	defer close(watchDone)
@@ -5094,6 +5439,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				goto channelClosed
 			}
 			state.lastEventAt.Store(time.Now().UnixNano())
+		case <-subWaitTick:
+			if t, ok := foregroundSubTask(subReporter); ok {
+				cp.ShowSubAgentWait(subAgentWaitText(e.i18n.IsZhLike(), t))
+			} else {
+				cp.ClearSubAgentWait()
+			}
+			continue
 		case err := <-pendingSend:
 			pendingSend = nil
 			if err != nil {
@@ -5484,6 +5836,21 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 		case EventToolResult:
+			// maomao fork: images piled up inside this turn; interrupt it the way an
+			// idle timeout does (close the agent session) and leave a fresh session
+			// with a handoff for the next message. The turn is not re-run.
+			// A strict voice-input turn (input != nil) must finish on its bound
+			// thread, as at turn start.
+			if input == nil {
+				if notice := e.freshOnImageBloatMidTurn(replyAgent, session); notice != "" {
+					sessions.Save()
+					cp.Finalize(ProgressCardStateFailed)
+					sp.discard()
+					e.send(p, markSystemNotice(p, replyCtx), notice)
+					e.cleanupInteractiveState(sessionKey, state)
+					return
+				}
+			}
 			if e.display.ToolMessages {
 				result := strings.TrimSpace(event.ToolResult)
 				if result == "" {
@@ -5897,6 +6264,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					SessionKey: sessionKey,
 					Platform:   p.Name(),
 					Content:    baseResponse,
+					Extra:      triggerExtra(msgID),
 				})
 			}
 
@@ -6202,8 +6570,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					"dropped", droppedStale,
 				)
 			}
-			if len(state.pendingMessages) > 0 {
+			// maomao fork: during a capacity cooldown leave the queue to the drain loop, which defers it.
+			if len(state.pendingMessages) > 0 && e.capacityWait() == 0 {
 				queued := state.pendingMessages[0]
+				raw := queued // maomao fork: raw copy (content not yet expanded), put back if this turn hits capacity
+				chainedQueued = &raw
 				state.pendingMessages = state.pendingMessages[1:]
 				remainingQueue := len(state.pendingMessages)
 				state.platform = queued.platform
@@ -6236,17 +6607,21 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				}
 
-				if queued.turnCtx {
-					queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content)
-				}
+				e.startScheduledQueuedTurn(&queued, session)
+				// maomao fork: a capacity retry re-sends it with this backfill, not before it
+				// (the backfill already marked those posts seen).
+				*chainedQueued = queued
+				queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
-				queuedPrompt = withSubagentPolicy(queuedPrompt, queued.userID, queued.fromBot)
+				queuedPrompt = e.withSubagentPolicy(queuedPrompt, queued.userID, queued.fromBot)
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
 				as := state.agentSession // capture under lock to avoid race with cleanup
 				state.mu.Unlock()
+				// The previous turn's mode ends with that turn; this one runs in its own.
+				e.setTurnMode(state, as, queued.modeOverride)
 
 				nextSend := make(chan error, 1)
 				go func() {
@@ -6405,40 +6780,64 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					Platform:   p.Name(),
 					Error:      event.Error.Error(),
 				})
-				detail := errMsg
-				if errors.Is(event.Error, ErrTaskAlreadyCompleted) {
-					detail = e.i18n.T(MsgTaskAlreadyCompleted)
-				}
-				userMsg := fmt.Sprintf(e.i18n.T(MsgError), detail)
-				if errors.Is(event.Error, ErrEmptyAgentResponse) {
-					userMsg = e.i18n.T(MsgEmptyAgentResponse)
-				}
-				if errors.Is(event.Error, ErrNoPublicAnswer) {
-					userMsg = e.i18n.T(MsgNoPublicAnswer)
-				}
-				for _, h := range agentErrorHandlers {
-					if strings.Contains(errMsg, h.contains) {
-						userMsg = e.i18n.T(h.msgKey)
-						break
+				if input == nil && isModelCapacityError(errMsg) {
+					// maomao fork: retried / cooled down by runTurnWithCapacityRetry, which tells the user.
+					// A queued message chained into this loop goes back to the queue head,
+					// so the drain loop retries it (not the turn this loop started with).
+					// A local input turn reports the error to its caller instead.
+					state.mu.Lock()
+					if chainedQueued != nil {
+						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)
+					} else {
+						state.capacityFailed = true
 					}
-				}
-				if errorAnswer != "" {
-					if !errorAnswerDelivered {
-						sendChunksWithStatusFooter(e.ctx, p, replyCtx, errorAnswer, "", sendWorkspaceWithError)
+					state.mu.Unlock()
+				} else if input == nil && isPromptTooLongError(errMsg) {
+					// maomao fork: the caller of runTurnWithCapacityRetry re-runs it on a fresh
+					// session (retryFreshOnPromptTooLong), or reports the error if it cannot.
+					state.mu.Lock()
+					state.promptTooLong, state.promptTooLongQueued = errMsg, nil
+					if chainedQueued != nil {
+						q := *chainedQueued
+						state.promptTooLongQueued = &q
 					}
-					userMsg = e.i18n.Tf(MsgAnswerWithFailure, detail)
-				}
-				// Quota describes the account/model, not whether this turn succeeded.
-				// Keep failures on the error path while showing the same measured
-				// status (or explicit query failure) as a successful reply.
-				var statusFooter string
-				if !errorFooterDelivered {
-					statusFooter = e.buildClaudeStatusLineFooter(replyAgent, state.agentSession, workspaceDir)
-					if statusFooter == "" {
-						statusFooter = e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, "")
+					state.mu.Unlock()
+				} else {
+					detail := errMsg
+					if errors.Is(event.Error, ErrTaskAlreadyCompleted) {
+						detail = e.i18n.T(MsgTaskAlreadyCompleted)
 					}
+					userMsg := fmt.Sprintf(e.i18n.T(MsgError), detail)
+					if errors.Is(event.Error, ErrEmptyAgentResponse) {
+						userMsg = e.i18n.T(MsgEmptyAgentResponse)
+					}
+					if errors.Is(event.Error, ErrNoPublicAnswer) {
+						userMsg = e.i18n.T(MsgNoPublicAnswer)
+					}
+					for _, h := range agentErrorHandlers {
+						if strings.Contains(errMsg, h.contains) {
+							userMsg = e.i18n.T(h.msgKey)
+							break
+						}
+					}
+					if errorAnswer != "" {
+						if !errorAnswerDelivered {
+							sendChunksWithStatusFooter(e.ctx, p, replyCtx, errorAnswer, "", sendWorkspaceWithError)
+						}
+						userMsg = e.i18n.Tf(MsgAnswerWithFailure, detail)
+					}
+					// Quota describes the account/model, not whether this turn succeeded.
+					// Keep failures on the error path while showing the same measured
+					// status (or explicit query failure) as a successful reply.
+					var statusFooter string
+					if !errorFooterDelivered {
+						statusFooter = e.buildClaudeStatusLineFooter(replyAgent, state.agentSession, workspaceDir)
+						if statusFooter == "" {
+							statusFooter = e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, "")
+						}
+					}
+					sendChunksWithStatusFooter(e.ctx, p, replyCtx, userMsg, statusFooter, e.sendWithError)
 				}
-				sendChunksWithStatusFooter(e.ctx, p, replyCtx, userMsg, statusFooter, e.sendWithError)
 			}
 			// Only drop queued messages if the agent session is dead.
 			// Some agents (e.g. Codex) emit EventError for per-turn failures
@@ -6491,6 +6890,7 @@ channelClosed:
 				SessionKey: sessionKey,
 				Platform:   p.Name(),
 				Content:    fullResponse,
+				Extra:      triggerExtra(msgID),
 			})
 		}
 
@@ -6629,15 +7029,21 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.mu.Unlock()
 
 		e.i18n.DetectAndSet(queued.content)
-		if queued.turnCtx {
-			queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content)
+		rawQueued := queued // maomao fork: re-delivered as-is after a capacity cooldown
+		if wait := e.capacityWait(); wait > 0 {
+			// Before withTurnBlocks: an unsent message must not mark anything sent.
+			e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, true)
+			continue
 		}
+		e.startScheduledQueuedTurn(&queued, session)
+		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
+		queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
 		prompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
 		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = withSubagentPolicy(prompt, queued.userID, queued.fromBot)
+		prompt = e.withSubagentPolicy(prompt, queued.userID, queued.fromBot)
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -6650,23 +7056,8 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		}
 
 		drainEvents(as.Events())
-		prompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 		session.AddHistory("user", queued.content)
-
-		sendDone := make(chan error, 1)
-		e.messageWorkers.Add(1) // child of the registered queue drain
-		go func() {
-			defer e.messageWorkers.Done()
-			if as == nil {
-				session.SettleHandoff(false)
-				sendDone <- fmt.Errorf("agent session became nil")
-				return
-			}
-			err := as.Send(prompt, queued.messageID, queued.images, queued.files)
-			session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
-			sendDone <- err
-		}()
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {
@@ -6674,7 +7065,33 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		}
 
 		slog.Info("processing queued message", "session", sessionKey)
-		e.processInteractiveEvents(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, sendDone, queued.replyCtx)
+		e.setTurnMode(state, as, queued.modeOverride) // restored when runTurnWithCapacityRetry returns
+		var attemptPrompt string
+		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
+			func() { // per attempt, like the direct turn: a capacity retry needs a live run
+				attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+			},
+			func(as AgentSession) error {
+				if as == nil {
+					session.SettleHandoff(false)
+					return fmt.Errorf("agent session became nil")
+				}
+				err := as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
+				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
+				return err
+			},
+			func(wait time.Duration) {
+				e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, false)
+			})
+		// maomao fork: the provider refused the prompt as too long; re-run on a fresh session.
+		if errMsg, q := state.takePromptTooLong(); errMsg != "" {
+			if q != nil {
+				rawQueued = *q
+			}
+			if e.retryFreshOnPromptTooLong(rawQueued.platform, queuedToMessage(rawQueued), errMsg, state, session, sessions, state.agent, sessionKey, state.workspaceDir, rawQueued.msgSessionKey) {
+				return true
+			}
+		}
 	}
 }
 
@@ -6756,7 +7173,7 @@ func (e *Engine) cmdPs(p Platform, msg *Message, args []string) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsNoSession))
 		return
 	}
-	if err := state.agentSession.Send(withSubagentPolicy(text, msg.UserID, msg.FromBot), "", nil, nil); err != nil {
+	if err := state.agentSession.Send(e.withSubagentPolicy(text, msg.UserID, msg.FromBot), "", nil, nil); err != nil {
 		slog.Error("ps: send failed", "error", err)
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsSendFailed))
 		return
@@ -7818,8 +8235,20 @@ func (e *Engine) replyFooterUsageText(session AgentSession, agent Agent) string 
 // The boolean distinguishes a measured quota from an availability message, so
 // an unknown quota alone does not resurrect a workdir-only footer.
 func (e *Engine) replyFooterUsageStatus(session AgentSession, agent Agent) (string, bool) {
+	text, measured := e.replyFooterQuota(session, agent)
+	if !measured && e.hideQuotaStatus.Load() {
+		return "", false
+	}
+	return text, measured
+}
+
+func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bool) {
 	if e.hideQuotaIndicator.Load() {
 		return "", false
+	}
+	// maomao fork: quota the session already holds (CachedUsageReporter, no I/O) wins.
+	if text := replyFooterCachedQuotaText(session, e.i18n); text != "" {
+		return text, true
 	}
 	if !supportsUsageReporting(session, agent) {
 		return e.i18n.T(MsgQuotaUnsupported), false
@@ -7962,27 +8391,95 @@ func usageReporterAvailable(v any) bool {
 	return ok
 }
 
+// replyFooterCachedQuotaText formats the quota a session already holds
+// (CachedUsageReporter). It never does I/O, so it is safe to call on every
+// reply. Returns "" when the session has no such data.
+func replyFooterCachedQuotaText(session AgentSession, i18n *I18n) string {
+	if session == nil {
+		return ""
+	}
+	reporter, ok := session.(CachedUsageReporter)
+	if !ok {
+		return ""
+	}
+	return formatReplyFooterUsage(reporter.CachedUsage(), i18n)
+}
+
+// formatReplyFooterUsage renders the quota segment of the reply footer:
+//
+//	zh: "5h 剩 94% · 周 92%"   en: "5h 94% left · wk 92%"
+//
+// The first window carries the "left" wording; a following window (weekly)
+// shows only its label and percent. Returns "" without a usable window.
 func formatReplyFooterUsage(report *UsageReport, i18n *I18n) string {
 	if report == nil || i18n == nil {
 		return ""
 	}
-	window, secondary := selectUsageWindows(report)
-	// Both short and weekly limits can stop the next request. Report the most
-	// constrained window, including accounts that only have a weekly limit.
-	if secondary != nil && (window == nil || secondary.UsedPercent > window.UsedPercent) {
-		window = secondary
+	primary, secondary := selectUsageWindows(report)
+	var windows []*UsageWindow
+	for _, w := range []*UsageWindow{primary, secondary} {
+		if w != nil {
+			windows = append(windows, w)
+		}
 	}
-	if window == nil {
+	if len(windows) == 0 {
 		return ""
 	}
-	remaining := 100 - window.UsedPercent
-	if remaining < 0 {
-		remaining = 0
+	if len(windows) == 1 {
+		// One window: no label needed ("额度剩余 83%"); two: each labelled
+		// ("5h 剩 94% · 周 92%") so neither limit is hidden.
+		remaining := min(max(100-windows[0].UsedPercent, 0), 100) // percent scale
+		return i18n.Tf(MsgQuotaRemaining, remaining)
 	}
-	if remaining > 100 {
-		remaining = 100
+	lang := i18n.CurrentLang()
+	parts := make([]string, 0, len(windows))
+	for i, w := range windows {
+		remaining := 100 - w.UsedPercent // percent scale
+		if remaining < 0 {
+			remaining = 0
+		}
+		if remaining > 100 { // percent scale
+			remaining = 100 // percent scale
+		}
+		label := usageWindowShortLabel(lang, w.WindowSeconds)
+		switch {
+		case label == "":
+			parts = append(parts, i18n.Tf(MsgQuotaRemaining, remaining))
+		case i == 0:
+			parts = append(parts, i18n.Tf(MsgReplyFooterQuotaRemaining, label, remaining))
+		default:
+			parts = append(parts, fmt.Sprintf("%s %d%%", label, remaining))
+		}
 	}
-	return i18n.Tf(MsgQuotaRemaining, remaining)
+	return strings.Join(parts, " · ")
+}
+
+// usageWindowShortLabel is the compact footer label for a quota window
+// ("5h", "周"/"wk", or "<n>h"/"<n>d" for other whole-hour windows).
+func usageWindowShortLabel(lang Language, seconds int) string {
+	const hour = 3600     // seconds per hour
+	const day = 24 * hour // seconds per day
+	const week = 7 * day  // seconds per week (604800, same as selectUsageWindows)
+	switch {
+	case seconds <= 0:
+		return ""
+	case seconds == week:
+		switch lang {
+		case LangChinese:
+			return "周"
+		case LangTraditionalChinese, LangJapanese:
+			return "週"
+		case LangSpanish:
+			return "sem"
+		default:
+			return "wk"
+		}
+	case seconds%day == 0:
+		return fmt.Sprintf("%dd", seconds/day)
+	case seconds%hour == 0:
+		return fmt.Sprintf("%dh", seconds/hour)
+	}
+	return ""
 }
 
 func replyFooterSessionContextUsage(session AgentSession) *ContextUsage {
@@ -10733,14 +11230,14 @@ normalCleanup:
 }
 
 func (e *Engine) cmdCompress(p Platform, msg *Message) {
-	agent, sessions, iKey, err := e.commandContext(p, msg)
+	agent, sessions, iKey, workspaceDir, err := e.commandContextWithWorkspace(p, msg)
 	if err != nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgWsResolutionError, err))
 		return
 	}
 
 	if native, ok := agent.(NativeContextCompressor); ok {
-		e.cmdNativeCompact(agent, native, sessions, iKey, p, msg)
+		e.cmdNativeCompact(agent, native, sessions, iKey, workspaceDir, p, msg)
 		return
 	}
 
@@ -16306,6 +16803,8 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 		}
 		inj.SetSessionEnv(envVars)
 	}
+	e.applySessionModel(agent, relaySessionKey)
+	e.applySessionInstructions(agent, relaySessionKey)
 
 	// Use the engine context (not the relay timeout context) so that the
 	// agent process is not killed when the relay deadline fires. The relay
@@ -16349,7 +16848,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 
 	saveRelaySessionID(agentSession.CurrentSessionID(), false)
 
-	if err := agentSession.Send(withSubagentPolicy(message, "", true), "", nil, nil); err != nil {
+	if err := agentSession.Send(e.withSubagentPolicy(message, "", true), "", nil, nil); err != nil {
 		agentSession.Close()
 		return "", fmt.Errorf("send relay message: %w", err)
 	}

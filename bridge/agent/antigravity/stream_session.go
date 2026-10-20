@@ -80,7 +80,8 @@ func newStreamSession(ctx context.Context, cmd string, extraArgs []string, workD
 	}
 	args := base.buildAntigravityArgs(base.CurrentSessionID(), base.CurrentSessionID() != "", mode, configDir, "")
 	// Stream input supplies each prompt; no -p argument and no EOF between turns.
-	args = append(args[:len(args)-2], "--input-format", "stream-json", "--output-format", "stream-json")
+	// buildAntigravityArgs already asks for stream-json output (classic transport reads it too).
+	args = append(args[:len(args)-2], "--input-format", "stream-json")
 	args = append(args, "--csrf_token="+s.quota.csrf)
 	proc := exec.CommandContext(processCtx, cmd, args...)
 	proc.WaitDelay = time.Second

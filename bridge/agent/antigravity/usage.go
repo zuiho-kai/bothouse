@@ -263,16 +263,37 @@ func (s *streamSession) GetUsage(ctx context.Context) (*core.UsageReport, error)
 
 func (s *streamSession) GetModel() string { return s.model }
 
+// GetUsage implements core.UsageReporter: the native quota of a stream_json
+// session when one is up, else the account quota from the cloud endpoint
+// (usage_cloud.go, classic transport).
 func (a *Agent) GetUsage(ctx context.Context) (*core.UsageReport, error) {
-	return a.GetUsageForModel(ctx, a.GetModel())
-}
-
-func (a *Agent) GetUsageForModel(ctx context.Context, model string) (*core.UsageReport, error) {
 	a.mu.RLock()
 	q := a.quota
 	a.mu.RUnlock()
 	if q == nil {
-		return nil, nil
+		return a.cloudUsage(ctx, "")
+	}
+	return q.get(ctx, a.GetModel())
+}
+
+func (a *Agent) GetUsageForModel(ctx context.Context, model string) (*core.UsageReport, error) {
+	model = a.usageModel(model)
+	a.mu.RLock()
+	q := a.quota
+	a.mu.RUnlock()
+	if q == nil {
+		return a.cloudUsage(ctx, model)
 	}
 	return q.get(ctx, model)
+}
+
+// usageModel is the model whose quota applies: a model pinned in cmd runs
+// whatever the bridge was asked to show, so its quota group is the pinned one.
+func (a *Agent) usageModel(model string) string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if m := modelFromArgs(a.cliExtraArgs); m != "" {
+		return m
+	}
+	return model
 }

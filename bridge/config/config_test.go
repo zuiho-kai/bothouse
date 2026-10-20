@@ -3491,3 +3491,40 @@ func TestRemoveGlobalProvider_CleansUpProviderRefs(t *testing.T) {
 		t.Errorf("proj2 provider_refs: want [], got %v", refs2)
 	}
 }
+
+func TestLoad_ParsesSessionModels(t *testing.T) {
+	configPath := writeConfigFixture(t, projectWithResetOnIdleFixture+`
+[projects.session_models]
+"discord:100000000000000201" = "gpt-6-luna"
+`)
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	got := cfg.Projects[0].SessionModels
+	if len(got) != 1 || got["discord:100000000000000201"] != "gpt-6-luna" {
+		t.Fatalf("session_models = %#v", got)
+	}
+}
+
+func TestValidateSessionInstructionsFile(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "persona.md")
+	empty := filepath.Join(dir, "empty.md")
+	_ = os.WriteFile(good, []byte("你是龙娘。"), 0o644)
+	_ = os.WriteFile(empty, []byte(" \n"), 0o644)
+	for _, c := range []struct {
+		path string
+		ok   bool
+	}{
+		{good, true},
+		{"", true},
+		{"persona.md", false},
+		{filepath.Join(dir, "missing.md"), false},
+		{empty, false},
+	} {
+		if err := validateSessionInstructionsFile(c.path); (err == nil) != c.ok {
+			t.Errorf("validateSessionInstructionsFile(%q) err=%v, want ok=%v", c.path, err, c.ok)
+		}
+	}
+}

@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +36,7 @@ type antigravitySession struct {
 	wg               sync.WaitGroup
 	alive            atomic.Bool
 	permissionBridge *agyPermissionBridge
+	cachedUsage      func() *core.UsageReport // account quota view from the Agent (maomao fork)
 }
 
 func newAntigravitySession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration) (*antigravitySession, error) {
@@ -77,30 +77,71 @@ func (as *antigravitySession) Send(prompt string, messageID string, images []cor
 		return fmt.Errorf("session is closed")
 	}
 
-	// Capture existing chat logs so we can identify a new session on first turn
-	preEntries := make(map[string]bool)
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		slug := antigravityProjectSlug(as.workDir)
-		chatsDir := filepath.Join(homeDir, ".gemini", "tmp", slug, "chats")
-		if entries, err := os.ReadDir(chatsDir); err == nil {
-			for _, entry := range entries {
-				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
-					preEntries[entry.Name()] = true
-				}
-			}
+	fullPrompt, tempFiles := as.preparePrompt(prompt, images, files)
+	core.ArchiveAttachments(append([]string(nil), tempFiles...)) // maomao fork: NAS media library
+	return as.launch(agyTurn{fullPrompt: fullPrompt, tempFiles: tempFiles})
+}
+
+// agyTurn is one user turn, kept so the turn can be launched a second time.
+type agyTurn struct {
+	fullPrompt string   // prompt with attachment references, as first sent
+	tempFiles  []string // attachments; removed when the turn is over, not per process
+	retried    bool     // this launch is the one auth retry
+	// continueConv: the failed launch got agy's "init", so the conversation
+	// holds this turn's message and the retry asks agy to go on with it.
+	continueConv bool
+}
+
+// agyAuthRetryPrompt continues a turn that agy dropped because its login
+// token expired mid-turn (agy 1.4.0 does not refresh it in a running process,
+// google-antigravity/antigravity-cli#1091; a new process does).
+const agyAuthRetryPrompt = "上一步因为登录令牌过期被中断了（不是你的问题），请接着把刚才没做完的事做完。"
+
+// isAgyAuthExpired reports whether agy's stderr names an expired login token:
+// a line `AGY_ERROR: {..., "status":"UNAUTHENTICATED", "error_code":401, ...}`
+// (cc-connect.log 2026-10-18 16:00).
+func isAgyAuthExpired(stderr string) bool {
+	for _, line := range strings.Split(stderr, "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "AGY_ERROR:")
+		if !ok {
+			continue
+		}
+		var e struct {
+			Status string `json:"status"`
+		}
+		if json.Unmarshal([]byte(strings.TrimSpace(rest)), &e) == nil && e.Status == "UNAUTHENTICATED" {
+			return true
 		}
 	}
+	return false
+}
 
-	fullPrompt, tempFiles := as.preparePrompt(prompt, images, files)
+// agyStatusError is readLoop's message for a result with a non-SUCCESS status.
+func agyStatusError(status string) string {
+	return "agy turn ended with status " + status
+}
+
+// launch starts one agy process for the turn and hands it to readLoop, which
+// finishes the turn (or launches the retry). On error nothing was started.
+func (as *antigravitySession) launch(t agyTurn) error {
 	chatID := as.CurrentSessionID()
 	isResume := chatID != ""
+	prompt := t.fullPrompt
+	if t.retried && t.continueConv && isResume {
+		// The conversation already holds the user's message and whatever
+		// agy did before the 401, so ask it to go on instead of sending the
+		// message a second time. If the failed process never reported
+		// "init", agy did not take the turn in, so the original prompt is
+		// resent (its attachments are still on disk), into the same
+		// conversation when there is one.
+		prompt = agyAuthRetryPrompt
+	}
 
 	agyConfigDir := ""
 	if as.permissionBridge != nil {
 		agyConfigDir = as.permissionBridge.AgyConfigDir()
 	}
-	args := as.buildAntigravityArgs(chatID, isResume, as.mode, agyConfigDir, fullPrompt)
+	args := as.buildAntigravityArgs(chatID, isResume, as.mode, agyConfigDir, prompt)
 
 	var ctx context.Context
 	var cancel context.CancelFunc
@@ -117,7 +158,7 @@ func (as *antigravitySession) Send(prompt string, messageID string, images []cor
 		}
 	}()
 
-	slog.Debug("antigravitySession: launching", "resume", isResume, "args", core.RedactArgs(args))
+	slog.Debug("antigravitySession: launching", "resume", isResume, "retry", t.retried, "args", core.RedactArgs(args))
 	cmd := exec.CommandContext(ctx, as.cmd, args...)
 	cmd.WaitDelay = 1 * time.Second
 	cmd.Dir = as.workDir
@@ -148,7 +189,7 @@ func (as *antigravitySession) Send(prompt string, messageID string, images []cor
 	as.wg.Add(1)
 	go func() {
 		defer cancel()
-		as.readLoop(ctx, cmd, stdout, &stderrBuf, tempFiles, preEntries, time.Now())
+		as.readLoop(ctx, cmd, stdout, &stderrBuf, t)
 	}()
 
 	return nil
@@ -165,68 +206,112 @@ func (as *antigravitySession) buildAntigravityArgs(chatID string, isResume bool,
 	if isResume {
 		args = append(args, "--conversation", chatID)
 	}
+	// stream-json carries the conversation id agy assigned to this very
+	// process, so a new session learns its id without scanning shared state.
+	args = append(args, "--output-format", "stream-json")
 	switch mode {
 	case "yolo":
 		args = append(args, "--dangerously-skip-permissions")
 	case "plan":
 		args = append(args, "--sandbox")
 	}
-	// maomao fork: agy now accepts --model (e.g. gemini-4-argon-medium); without it the
-	// configured model, /model and model tiers were silently ignored.
-	if m := strings.TrimSpace(as.model); m != "" {
+	// agy now accepts --model (e.g. gemini-4-argon-medium); without it the
+	// configured model, /model and model tiers were silently ignored. A cmd
+	// that already carries --model (e.g. "agy --model x") keeps its own.
+	if m := strings.TrimSpace(as.model); m != "" && !hasModelFlag(as.extraArgs) {
 		args = append(args, "--model", m)
 	}
 	args = append(args, "-p", fullPrompt)
 	return args
 }
 
-func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, tempFiles []string, preEntries map[string]bool, sendStartedAt time.Time) {
-	defer as.wg.Done()
-	defer func() {
-		for _, f := range tempFiles {
-			_ = os.Remove(f)
+// hasModelFlag reports whether the cmd's extra args already pick a model.
+// It accepts the same forms as modelFromArgs.
+func hasModelFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--model" || a == "-m" || strings.HasPrefix(a, "--model=") || strings.HasPrefix(a, "-m=") {
+			return true
 		}
+	}
+	return false
+}
 
+func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, t agyTurn) {
+	// Runs last, so a retry launched below is counted before this one is done.
+	defer as.wg.Done()
+	resultErr := ""
+	sawInit := false    // this process reported "init"
+	replied := false    // the turn already streamed reply text
+	readFailed := false // a read error was already reported to core
+	defer func() {
 		err := cmd.Wait()
+		failed := false // the turn ended with EventError
 
-		// Detect conversation ID if this was the first turn of a fresh session.
-		// agy may flush the chat file only while the process is exiting, so wait
-		// for process reaping before scanning the chat directory.
-		if as.CurrentSessionID() == "" {
-			var sid string
-			for attempt := 0; attempt < 15; attempt++ {
-				sid = as.detectNewSessionID(preEntries, sendStartedAt)
-				if sid != "" {
-					break
-				}
-				time.Sleep(20 * time.Millisecond)
+		if err != nil || resultErr != "" {
+			// A failed result names the status; stderr says why.
+			stderr := strings.TrimSpace(stderrBuf.String())
+			msg := stderr
+			if resultErr != "" && msg != "" {
+				msg = resultErr + ": " + msg
+			} else if resultErr != "" {
+				msg = resultErr
 			}
-			if sid != "" {
-				as.chatID.Store(sid)
-				slog.Debug("antigravitySession: detected session ID", "session_id", sid)
-				// Emit an EventText carrying the session ID back to core.
+			if msg == "" && err != nil {
+				// A failed process must reach core as an error even when
+				// agy wrote nothing to stderr (exit status alone).
+				msg = fmt.Sprintf("antigravity process: %v", err)
+			}
+			switch {
+			case msg == "":
+			case resultErr == agyStatusError("ERROR") && replied && err == nil && stderr == "":
+				// agy keeps the last failed step of a conversation and
+				// reports status ERROR (exit 0, nothing on stderr) on every
+				// later turn of it, though the turn itself succeeded:
+				// cc-connect.log 2026-10-17 17:30-19:09, result lines carry
+				// the earlier 401 with a cumulative duration_seconds, and
+				// the agy cli log shows only "step 211 ... CANCELED" again.
+				slog.Warn("antigravitySession: ignoring stale failed status after a reply", "status", resultErr)
+			case !replied && !t.retried && !readFailed && ctx.Err() == nil && as.ctx.Err() == nil && isAgyAuthExpired(stderr):
+				// The login token expired mid-turn; a new agy process
+				// refreshes it. Retry once in place of the error and leave
+				// the attachments and the turn's EventResult to the retry.
+				slog.Warn("antigravitySession: login token expired mid-turn, retrying once", "error", err, "stderr", msg, "session_id", as.CurrentSessionID())
+				next := t
+				next.retried = true
+				next.continueConv = sawInit
+				lerr := as.launch(next)
+				if lerr == nil {
+					return
+				}
+				msg += "\n(retry failed to start: " + lerr.Error() + ")"
+				fallthrough
+			default:
+				slog.Error("antigravitySession: process failed", "error", err, "stderr", msg, "retried", t.retried)
+				// core drops a turn's text on EventError, so once agy has
+				// written the reply, deliver it and put the error under it.
+				ev := core.Event{Type: core.EventError, Error: fmt.Errorf("%s", msg)}
+				if replied {
+					ev = core.Event{Type: core.EventText, Content: "\n\n⚠️ " + msg}
+				}
 				select {
-				case as.events <- core.Event{Type: core.EventText, SessionID: sid}:
+				case as.events <- ev:
 				case <-as.ctx.Done():
 				}
+				failed = ev.Type == core.EventError
 			}
 		}
 
-		sid := as.CurrentSessionID()
-		if err != nil {
-			processErr := fmt.Errorf("antigravity process: %w", err)
-			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
-				processErr = fmt.Errorf("%s: %w", stderrMsg, err)
-			}
-			slog.Error("antigravitySession: process failed", "error", processErr)
-			select {
-			case as.events <- core.Event{Type: core.EventError, Error: processErr}:
-			case <-as.ctx.Done():
-			}
+		for _, f := range t.tempFiles {
+			_ = os.Remove(f)
+		}
+		if failed {
+			// A failed turn ends on its EventError; a success result after it
+			// could complete the next turn (conest #14, GO_TEST_BASELINE.md).
 			return
 		}
 
 		// Finalize turn.
+		sid := as.CurrentSessionID()
 		select {
 		case as.events <- core.Event{Type: core.EventResult, SessionID: sid, Done: true}:
 		case <-as.ctx.Done():
@@ -239,21 +324,36 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 	}()
 
 	reader := bufio.NewReader(stdout)
-	buf := make([]byte, 1024)
-
 	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			text := string(buf[:n])
-			select {
-			case as.events <- core.Event{Type: core.EventText, Content: text}:
-			case <-as.ctx.Done():
-				return
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			if !sawInit {
+				// parseStreamLine passes "init" on only for a new id, so
+				// look at the event name here; "init" is the first line.
+				var head struct {
+					Event string `json:"event"`
+				}
+				sawInit = json.Unmarshal(bytes.TrimSpace(line), &head) == nil && head.Event == "init"
+			}
+			ev, ok := as.parseStreamLine(line)
+			if ok && ev.Type == core.EventError {
+				resultErr = ev.Error.Error()
+				slog.Warn("antigravitySession: failed result", "line", string(bytes.TrimSpace(line)))
+			} else if ok {
+				if ev.Content != "" {
+					replied = true
+				}
+				select {
+				case as.events <- ev:
+				case <-as.ctx.Done():
+					return
+				}
 			}
 		}
 		if err != nil {
 			if err != io.EOF && !strings.Contains(err.Error(), "file already closed") {
 				slog.Error("antigravitySession: read error", "error", err)
+				readFailed = true
 				select {
 				case as.events <- core.Event{Type: core.EventError, Error: fmt.Errorf("read stdout: %w", err)}:
 				case <-as.ctx.Done():
@@ -264,80 +364,78 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 	}
 }
 
-func (as *antigravitySession) detectNewSessionID(preEntries map[string]bool, sendStartedAt time.Time) string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	slug := antigravityProjectSlug(as.workDir)
-	chatsDir := filepath.Join(homeDir, ".gemini", "tmp", slug, "chats")
+// agyStreamLine is one line of agy --output-format stream-json (agy 1.3.5,
+// checked again on 1.4.0): "init" first, then "step_update" per step, then
+// "result". A tool step comes twice with the same step_index: "ACTIVE" with
+// its parameters, then "DONE" with its output as well.
+type agyStreamLine struct {
+	Event          string `json:"event"`
+	ConversationID string `json:"conversation_id"`
+	StepUpdate     *struct {
+		StepType  string `json:"step_type"`
+		State     string `json:"state"`
+		TextDelta string `json:"text_delta"`
+		ToolName  string `json:"tool_name"`
+		ToolInfo  *struct {
+			Parameters json.RawMessage `json:"parameters"`
+		} `json:"tool_info"`
+	} `json:"step_update"`
+	Result *struct {
+		ConversationID string `json:"conversation_id"`
+		Status         string `json:"status"`
+	} `json:"result"`
+}
 
-	entries, err := os.ReadDir(chatsDir)
-	if err != nil {
-		return ""
+// parseStreamLine turns one stdout line into the event core sees. Reply text
+// is what text mode prints: every agent_response delta. Each tool step is
+// passed on once, when it starts, as EventToolUse; besides showing progress
+// this keeps core's idle timer from killing a turn that runs tools for longer
+// than idle_timeout_mins without writing text. A line not starting
+// with "{" is passed on as text; a "{" line that does not parse (the last,
+// cut-off line of a killed process) is dropped. A failed result comes back
+// as EventError for readLoop to report after the process exits.
+func (as *antigravitySession) parseStreamLine(line []byte) (core.Event, bool) {
+	trimmed := bytes.TrimSpace(line)
+	if !bytes.HasPrefix(trimmed, []byte("{")) {
+		return core.Event{Type: core.EventText, Content: string(line)}, true
 	}
-
-	type candidate struct {
-		sessionID string
-		modTime   time.Time
-		diff      time.Duration
+	var l agyStreamLine
+	if err := json.Unmarshal(trimmed, &l); err != nil {
+		slog.Warn("antigravitySession: dropping unparsable stream-json line", "error", err, "bytes", len(trimmed))
+		return core.Event{}, false
 	}
-	var candidates []candidate
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
+	switch l.Event {
+	case "init":
+		// agy starts a new conversation when --conversation names one it
+		// does not have, so always adopt the id it reports.
+		if id := l.ConversationID; id != "" && id != as.CurrentSessionID() {
+			as.chatID.Store(id)
+			slog.Debug("antigravitySession: conversation id", "session_id", id)
+			return core.Event{Type: core.EventText, SessionID: id}, true
 		}
-		if preEntries[entry.Name()] {
-			continue
+	case "step_update":
+		u := l.StepUpdate
+		if u == nil {
+			break
 		}
-		info, err := entry.Info()
-		if err != nil {
-			continue
+		if u.StepType == "agent_response" && u.TextDelta != "" {
+			return core.Event{Type: core.EventText, Content: u.TextDelta}, true
 		}
-		mod := info.ModTime()
-		if !sendStartedAt.IsZero() && mod.Before(sendStartedAt.Add(-2*time.Second)) {
-			continue
-		}
-
-		fpath := filepath.Join(chatsDir, entry.Name())
-		file, err := os.Open(fpath)
-		if err != nil {
-			continue
-		}
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-		if scanner.Scan() {
-			var sf struct {
-				SessionID string `json:"sessionId"`
+		// The DONE line repeats the step; reporting it too would show the
+		// tool twice.
+		if u.StepType == "tool" && u.State == "ACTIVE" {
+			input := ""
+			if u.ToolInfo != nil && len(u.ToolInfo.Parameters) > 0 {
+				input = string(u.ToolInfo.Parameters)
 			}
-			if json.Unmarshal([]byte(scanner.Text()), &sf) == nil && sf.SessionID != "" {
-				diff := time.Duration(0)
-				if !sendStartedAt.IsZero() {
-					if mod.After(sendStartedAt) {
-						diff = mod.Sub(sendStartedAt)
-					} else {
-						diff = sendStartedAt.Sub(mod)
-					}
-				}
-				candidates = append(candidates, candidate{
-					sessionID: sf.SessionID,
-					modTime:   mod,
-					diff:      diff,
-				})
-			}
+			return core.Event{Type: core.EventToolUse, ToolName: u.ToolName, ToolInput: input}, true
 		}
-		_ = file.Close()
-	}
-	if len(candidates) == 0 {
-		return ""
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].diff == candidates[j].diff {
-			return candidates[i].modTime.After(candidates[j].modTime)
+	case "result":
+		if r := l.Result; r != nil && r.Status != "" && r.Status != "SUCCESS" {
+			return core.Event{Type: core.EventError, Error: fmt.Errorf("%s", agyStatusError(r.Status))}, true
 		}
-		return candidates[i].diff < candidates[j].diff
-	})
-	return candidates[0].sessionID
+	}
+	return core.Event{}, false
 }
 
 func (as *antigravitySession) RespondPermission(requestID string, result core.PermissionResult) error {
@@ -383,6 +481,16 @@ func (as *antigravitySession) Close() error {
 		slog.Warn("antigravitySession: close timed out")
 	}
 	return nil
+}
+
+// CachedUsage implements core.CachedUsageReporter (maomao fork). It never
+// waits on the network: it returns the Agent's last quota snapshot and lets
+// the Agent refresh it in the background.
+func (s *antigravitySession) CachedUsage() *core.UsageReport {
+	if s.cachedUsage == nil {
+		return nil
+	}
+	return s.cachedUsage()
 }
 
 func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string) {
@@ -436,7 +544,13 @@ func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAt
 		}
 		fullPrompt += "\n\n[Attached files saved at: " + strings.Join(fileRefs, ", ") + "]"
 	}
-	return core.PrependModelSwitchInstructions(taskLifecycleInstructions + fullPrompt), append(imageRefs, fileRefs...)
+	fullPrompt = taskLifecycleInstructions + fullPrompt
+	// A model pinned in cmd cannot be switched from the bridge; do not tell the
+	// model it can.
+	if !hasModelFlag(as.extraArgs) {
+		fullPrompt = core.PrependModelSwitchInstructions(fullPrompt)
+	}
+	return fullPrompt, append(imageRefs, fileRefs...)
 }
 
 // Guidance complements native task validation; it is not a permission rule.

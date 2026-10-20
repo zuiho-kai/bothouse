@@ -24,29 +24,35 @@ import (
 // codexSession manages a multi-turn Codex conversation.
 // First Send() uses `codex exec`, subsequent ones use `codex exec resume <threadID>`.
 type codexSession struct {
-	workDir        string
-	model          string
-	effort         string
-	mode           string
-	baseURL        string   // provider base URL; passed as -c openai_base_url=<url>
-	modelProvider  string   // Codex model_provider name; passed as -c model_provider=<name>
-	cmd            string   // CLI binary, default "codex"
-	cliExtraArgs   []string // extra args from cmd, prepended before exec args
-	extraEnv       []string
-	promptPreamble string
-	events         chan core.Event
-	threadID       atomic.Value // stores string — Codex thread_id
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	alive          atomic.Bool
-	closeOnce      sync.Once
-	sendMu         sync.Mutex // serialize launch and reader completion across turns
-	cmdMu          sync.Mutex
-	readerDone     chan struct{} // guarded by cmdMu; closed after all per-turn reader work
-	cmds           map[*exec.Cmd]struct{}
+	workDir          string
+	model            string
+	effort           string
+	mode             string
+	baseURL          string   // provider base URL; passed as -c openai_base_url=<url>
+	modelProvider    string   // Codex model_provider name; passed as -c model_provider=<name>
+	cmd              string   // CLI binary, default "codex"
+	cliExtraArgs     []string // extra args from cmd, prepended before exec args
+	extraEnv         []string
+	promptPreamble   string
+	instructionsFile string // replaces built-in base instructions (-c model_instructions_file); "" = built-in
+	events           chan core.Event
+	threadID         atomic.Value // stores string — Codex thread_id
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	alive            atomic.Bool
+	closeOnce        sync.Once
+	sendMu           sync.Mutex // serialize launch and reader completion across turns
+	cmdMu            sync.Mutex
+	readerDone       chan struct{} // guarded by cmdMu; closed after all per-turn reader work
+	cmds             map[*exec.Cmd]struct{}
 
 	pendingMsgs []string // buffered agent_message texts awaiting classification
+
+	// Native compaction only (CompactSession snapshot): the same session's
+	// base-instructions text and, on the app_server backend, permission_profile.
+	compactInstructions      string
+	compactPermissionProfile string
 
 	runtimeCfgMu       sync.Mutex
 	runtimeCfgModel    string
@@ -221,6 +227,7 @@ func (cs *codexSession) stageImages(prompt string, images []core.ImageAttachment
 		}
 		imagePaths = append(imagePaths, fpath)
 	}
+	core.ArchiveAttachments(imagePaths) // maomao fork: straight to the NAS media library
 
 	if strings.TrimSpace(prompt) == "" {
 		prompt = "Please analyze the attached image(s)."
@@ -290,6 +297,9 @@ func (cs *codexSession) buildExecArgs(prompt string, imagePaths []string) []stri
 	}
 	if cs.effort != "" {
 		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", cs.effort))
+	}
+	if cs.instructionsFile != "" {
+		args = append(args, "-c", fmt.Sprintf("model_instructions_file=%q", cs.instructionsFile))
 	}
 
 	if isResume {

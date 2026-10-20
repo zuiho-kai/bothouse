@@ -159,16 +159,24 @@ type appServerRequestUserInputAnswer struct {
 }
 
 type appServerSession struct {
-	url            string
-	workDir        string
-	model          string
-	effort         string
-	mode           string
-	baseURL        string
-	modelProvider  string
-	extraEnv       []string
-	codexHome      string
-	promptPreamble string
+	url           string
+	workDir       string
+	model         string
+	effort        string
+	mode          string
+	baseURL       string
+	modelProvider string
+	extraEnv      []string
+	codexHome     string
+	// permissionProfile, when set, is sent as config.default_permissions on
+	// thread/start and thread/resume instead of the mode's sandbox, because an
+	// explicit sandbox overrides the profile (2026-10-18 test: with
+	// sandbox=workspace-write the jingyu profile's denied secrets.env was readable).
+	permissionProfile string
+	promptPreamble    string
+	// baseInstructions replaces codex's built-in base instructions on
+	// thread/start and thread/resume; "" keeps the built-in prompt.
+	baseInstructions string
 
 	events chan core.Event
 
@@ -199,6 +207,9 @@ type appServerSession struct {
 	currentTurn  string
 	preambleSent bool
 	strict       *appServerStrictTurn // local input turn; never steered into
+	// maomao fork: command line of each running commandExecution item, so a
+	// write_stdin (terminalInteraction) can say which process it talks to.
+	execCommands map[string]string
 
 	runtimeMu sync.RWMutex
 	usage     *core.UsageReport
@@ -210,25 +221,27 @@ const (
 	appServerUsageRefreshTimeout = 1500 * time.Millisecond
 )
 
-func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, systemPrompt string, appendPrompt string) (*appServerSession, error) {
+func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, permissionProfile string, systemPrompt string, appendPrompt string, baseInstructions string) (*appServerSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	s := &appServerSession{
-		url:              url,
-		workDir:          workDir,
-		model:            model,
-		effort:           effort,
-		mode:             mode,
-		baseURL:          baseURL,
-		modelProvider:    modelProvider,
-		extraEnv:         append([]string(nil), extraEnv...),
-		codexHome:        strings.TrimSpace(codexHome),
-		promptPreamble:   buildCodexPromptPreamble(systemPrompt, appendPrompt),
-		events:           make(chan core.Event, 128),
-		ctx:              sessionCtx,
-		cancel:           cancel,
-		pending:          make(map[int64]chan rpcResponseEnvelope),
-		pendingApprovals: make(map[string]chan core.PermissionResult),
-		preambleSent:     resumeID != "" && resumeID != core.ContinueSession,
+		url:               url,
+		workDir:           workDir,
+		model:             model,
+		effort:            effort,
+		mode:              mode,
+		baseURL:           baseURL,
+		modelProvider:     modelProvider,
+		extraEnv:          append([]string(nil), extraEnv...),
+		codexHome:         strings.TrimSpace(codexHome),
+		permissionProfile: strings.TrimSpace(permissionProfile),
+		promptPreamble:    buildCodexPromptPreamble(systemPrompt, appendPrompt),
+		baseInstructions:  baseInstructions,
+		events:            make(chan core.Event, 128),
+		ctx:               sessionCtx,
+		cancel:            cancel,
+		pending:           make(map[int64]chan rpcResponseEnvelope),
+		pendingApprovals:  make(map[string]chan core.PermissionResult),
+		preambleSent:      resumeID != "" && resumeID != core.ContinueSession,
 	}
 	s.alive.Store(true)
 
@@ -383,11 +396,17 @@ func (s *appServerSession) threadRequestParams() map[string]any {
 	if model := s.GetModel(); model != "" {
 		params["model"] = model
 	}
+	if s.baseInstructions != "" {
+		params["baseInstructions"] = s.baseInstructions
+	}
 	if approval, sandbox := appServerModeSettings(s.mode); approval != "" {
 		params["approvalPolicy"] = approval
-		if sandbox != "" {
+		if sandbox != "" && s.permissionProfile == "" {
 			params["sandbox"] = sandbox
 		}
+	}
+	if s.permissionProfile != "" {
+		params["config"] = map[string]any{"default_permissions": s.permissionProfile}
 	}
 	return params
 }
@@ -588,6 +607,7 @@ func (s *appServerSession) stageImages(prompt string, images []core.ImageAttachm
 		}
 		imagePaths = append(imagePaths, fpath)
 	}
+	core.ArchiveAttachments(imagePaths) // maomao fork: straight to the NAS media library
 
 	if strings.TrimSpace(prompt) == "" {
 		prompt = "Please analyze the attached image(s)."
@@ -1161,6 +1181,24 @@ func (s *appServerSession) handleResponse(resp rpcResponseEnvelope) {
 }
 
 func (s *appServerSession) handleNotification(method string, paramsRaw json.RawMessage) {
+	// maomao fork: one app-server process can run more than our thread — codex's memory
+	// consolidation runs as its own thread in the same process. Its items used to be relayed
+	// as this bot's reply, and its idle status ended our turn early (2026-10-16 龙娘 posted
+	// her memory summary in 后宅 after an empty reply).
+	var scope struct {
+		ThreadID string `json:"threadId"`
+	}
+	if json.Unmarshal(paramsRaw, &scope) == nil && scope.ThreadID != "" {
+		s.stateMu.Lock()
+		strict := s.strict != nil
+		s.stateMu.Unlock()
+		// A strict local-input turn stays fail-closed on a foreign thread
+		// (strictNotification); only ordinary turns drop it.
+		if own := s.CurrentSessionID(); !strict && own != "" && scope.ThreadID != own {
+			slog.Debug("codex app-server: ignoring another thread's notification", "method", method, "thread_id", scope.ThreadID)
+			return
+		}
+	}
 	switch method {
 	case "turn/started":
 		var notif turnNotification
@@ -1185,6 +1223,20 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 		var notif itemNotification
 		if err := json.Unmarshal(paramsRaw, &notif); err == nil && !s.strictItemMismatch(notif) {
 			s.handleItemCompleted(notif.Item)
+		}
+
+	case "item/commandExecution/terminalInteraction":
+		// maomao fork: write_stdin (incl. an empty poll) into a running process
+		// sends only this, no item/started. Without an event here a long
+		// interactive session (python -i, a browser REPL) looked idle to the
+		// engine's watchdog and got killed (2026-10-19 外出 15:49/16:08/16:43).
+		var notif struct {
+			ItemID    string `json:"itemId"`
+			ProcessID string `json:"processId"`
+			Stdin     string `json:"stdin"`
+		}
+		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
+			s.handleTerminalInteraction(notif.ItemID, notif.ProcessID, notif.Stdin)
 		}
 
 	case "turn/completed":
@@ -1217,7 +1269,7 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 	case "account/rateLimits/updated":
 		var notif appServerRateLimitsResponse
 		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
-			s.storeUsage(mapAppServerRateLimits(notif))
+			s.mergeUsage(mapAppServerRateLimits(notif))
 		}
 
 	case "thread/tokenUsage/updated":
@@ -1260,6 +1312,14 @@ func (s *appServerSession) handleItemStarted(item map[string]any) {
 	switch itemType {
 	case "commandExecution":
 		command, _ := item["command"].(string)
+		if id, _ := item["id"].(string); id != "" {
+			s.stateMu.Lock()
+			if s.execCommands == nil {
+				s.execCommands = make(map[string]string)
+			}
+			s.execCommands[id] = command
+			s.stateMu.Unlock()
+		}
 		s.emit(core.Event{Type: core.EventToolUse, ToolName: "Bash", ToolInput: command})
 
 	case "mcpToolCall":
@@ -1278,7 +1338,45 @@ func (s *appServerSession) handleItemStarted(item map[string]any) {
 
 	case "fileChange":
 		s.emit(core.Event{Type: core.EventToolUse, ToolName: "Patch", ToolInput: appServerJSON(item["changes"])})
+
+	// maomao fork: tool items that used to be dropped silently; each is
+	// activity the engine's idle watchdog must see.
+	case "imageView":
+		path, _ := item["path"].(string)
+		s.emit(core.Event{Type: core.EventToolUse, ToolName: "ViewImage", ToolInput: path})
+
+	case "imageGeneration":
+		prompt, _ := item["revisedPrompt"].(string)
+		s.emit(core.Event{Type: core.EventToolUse, ToolName: "ImageGen", ToolInput: prompt})
+
+	case "sleep":
+		ms, _ := toInt(item["durationMs"])
+		s.emit(core.Event{Type: core.EventToolUse, ToolName: "Sleep", ToolInput: (time.Duration(ms) * time.Millisecond).String()})
+
+	case "collabAgentToolCall":
+		tool, _ := item["tool"].(string)
+		prompt, _ := item["prompt"].(string)
+		s.emit(core.Event{Type: core.EventToolUse, ToolName: strings.TrimSuffix("Agent:"+tool, ":"), ToolInput: prompt})
 	}
+}
+
+// handleTerminalInteraction reports a write_stdin into a running command. An
+// empty stdin is a poll for more output.
+func (s *appServerSession) handleTerminalInteraction(itemID, processID, stdin string) {
+	s.flushPendingAsThinking()
+	s.stateMu.Lock()
+	command := s.execCommands[itemID]
+	s.stateMu.Unlock()
+	if command == "" {
+		command = "process " + processID
+	}
+	input := strings.TrimRight(stdin, "\r\n")
+	if input == "" {
+		input = "(poll) " + command
+	} else {
+		input += "\n# -> " + command
+	}
+	s.emit(core.Event{Type: core.EventToolUse, ToolName: "WriteStdin", ToolInput: input})
 }
 
 func (s *appServerSession) handleItemCompleted(item map[string]any) {
@@ -1308,6 +1406,11 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 
 	case "commandExecution":
 		command, _ := item["command"].(string)
+		if id, _ := item["id"].(string); id != "" {
+			s.stateMu.Lock()
+			delete(s.execCommands, id)
+			s.stateMu.Unlock()
+		}
 		status, _ := item["status"].(string)
 		output, _ := item["aggregatedOutput"].(string)
 		exitCode, hasExitCode := toInt(item["exitCode"])
@@ -1362,6 +1465,26 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 			ToolStatus:  strings.TrimSpace(status),
 			ToolSuccess: &success,
 		})
+
+	case "imageView":
+		path, _ := item["path"].(string)
+		success := true
+		s.emit(core.Event{Type: core.EventToolResult, ToolName: "ViewImage", ToolResult: path, ToolSuccess: &success})
+
+	case "imageGeneration":
+		status, _ := item["status"].(string)
+		result, _ := item["savedPath"].(string)
+		if failure := appServerJSON(item["failure"]); result == "" && strings.TrimSpace(failure) != "" {
+			result = failure
+		}
+		success := appServerToolSuccess(status, nil)
+		s.emit(core.Event{Type: core.EventToolResult, ToolName: "ImageGen", ToolResult: truncate(strings.TrimSpace(result), 500), ToolStatus: strings.TrimSpace(status), ToolSuccess: &success})
+
+	case "collabAgentToolCall":
+		tool, _ := item["tool"].(string)
+		status, _ := item["status"].(string)
+		success := appServerToolSuccess(status, nil)
+		s.emit(core.Event{Type: core.EventToolResult, ToolName: strings.TrimSuffix("Agent:"+tool, ":"), ToolStatus: strings.TrimSpace(status), ToolSuccess: &success})
 	}
 }
 
@@ -1426,7 +1549,11 @@ func mapAppServerRateLimits(payload appServerRateLimitsResponse) *core.UsageRepo
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			snapshots = append(snapshots, payload.RateLimitsByLimitID[key])
+			snapshot := payload.RateLimitsByLimitID[key]
+			if strings.TrimSpace(snapshot.LimitID) == "" {
+				snapshot.LimitID = key
+			}
+			snapshots = append(snapshots, snapshot)
 		}
 	} else if payload.RateLimits.LimitID != "" || payload.RateLimits.Primary != nil || payload.RateLimits.Secondary != nil || payload.RateLimits.Credits != nil {
 		snapshots = append(snapshots, payload.RateLimits)
@@ -1459,6 +1586,7 @@ func mapAppServerRateLimits(payload appServerRateLimitsResponse) *core.UsageRepo
 		}
 
 		report.Buckets = append(report.Buckets, core.UsageBucket{
+			ID:           strings.TrimSpace(snapshot.LimitID),
 			Name:         appServerBucketName(snapshot),
 			Allowed:      !limitReached,
 			LimitReached: limitReached,

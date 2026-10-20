@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ type gateState struct {
 	buf             map[string][]string // interactiveKey → silent messages not yet delivered
 	held            map[string]*heldMsg // interactiveKey → burst being collected while idle
 	released        map[*Message]bool   // bursts handed back to handleMessage by their timer
+	gbuf            map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
 }
 
 // Discord (and most IM clients) split "image + caption" into two messages, in either order,
@@ -52,6 +54,16 @@ const (
 	burstWindow    = 1500 * time.Millisecond
 	attachmentHold = 3 * time.Second
 )
+
+// holdWindow is how long an idle message is held for its burst: attachments without text wait
+// attachmentHold, the rest burstDelay. Judged on what the user wrote, so a media note (e.g. NAS
+// not mounted) doesn't shorten it.
+func (g *gateState) holdWindow(msg *Message) time.Duration {
+	if strings.TrimSpace(userTextOf(msg)) == "" && (len(msg.Images) > 0 || len(msg.Files) > 0) {
+		return attachmentHold
+	}
+	return g.burstDelay(msg)
+}
 
 type heldMsg struct {
 	msg   *Message
@@ -212,6 +224,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		delete(g.released, msg) // the burst's timer handed it back: process normally
 	} else if h := g.held[interactiveKey]; h != nil {
 		// Same burst: fold this message into the held one and wait a bit longer.
+		if h.msg.userTextSet || msg.userTextSet {
+			h.msg.userText, h.msg.userTextSet = strings.TrimSpace(userTextOf(h.msg)+"\n"+userTextOf(msg)), true
+		}
 		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + msg.Content)
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
@@ -221,10 +236,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		g.mu.Unlock()
 		return true
 	} else if !busy {
-		window := g.burstDelay(msg)
-		if strings.TrimSpace(msg.Content) == "" && (len(msg.Images) > 0 || len(msg.Files) > 0) {
-			window = attachmentHold
-		}
+		window := g.holdWindow(msg)
 		h := &heldMsg{msg: msg}
 		h.timer = time.AfterFunc(window, func() {
 			g.mu.Lock()
@@ -238,12 +250,13 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	buffered := append([]string(nil), g.buf[interactiveKey]...)
+	gateBuffered := append([]string(nil), g.gbuf[interactiveKey]...)
 	g.mu.Unlock()
 
 	last, lastAge := lastReply(session)
 	dec := g.decide(e.ctx, gateRequest{
-		SessionKey: msg.SessionKey, Content: msg.Content, Mentioned: msg.Mentioned, Busy: busy,
-		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: buffered,
+		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, Busy: busy,
+		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge,
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
@@ -258,7 +271,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	if dec.Action == "silent" {
-		g.buffer(interactiveKey, msg.Content)
+		g.buffer(interactiveKey, msg.Content, userTextOf(msg))
 		return true
 	}
 	e.teamNoteTurn(msg, session)
@@ -273,16 +286,21 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		}
 	}
 	content := msg.Content
-	if back, ok := e.channelBackfill(p, msg, session); ok {
+	session.backfillMu.Lock() // maomao fork: read and mark seen as one step (Session.backfillMu)
+	if back, images, ok := e.channelBackfill(p, msg, session); ok {
 		// The channel itself is the record: it covers the gate buffer and also
 		// what the buffer never saw (downtime, restarts, dropped messages).
 		if back != "" {
 			content = back + "\n\n（最新，回这条）\n" + content
 		}
+		// maomao fork: the images of those posts go first, in channel order, before this
+		// message's own (for a new turn and for mid-turn injection alike).
+		msg.Images = append(images, msg.Images...)
 	} else if len(buffered) > 0 {
 		content = "（之前没回复的消息，按时间顺序）\n" + strings.Join(buffered, "\n") + "\n\n（最新）\n" + content
 	}
 	markSeen(session, msg)
+	session.backfillMu.Unlock()
 
 	inject := content
 	if strings.TrimSpace(inject) == "" {
@@ -290,14 +308,14 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	if busy && g.inject && e.injectIntoRunningTurn(interactiveKey, inject, msg.Images, msg.Files) {
 		g.mu.Lock()
-		g.buf[interactiveKey] = g.buf[interactiveKey][len(buffered):]
+		g.dropBuffered(interactiveKey, len(buffered))
 		g.mu.Unlock()
 		e.reply(p, msg.ReplyCtx, "↪ 已插入")
 		return true
 	}
 
 	g.mu.Lock()
-	g.buf[interactiveKey] = g.buf[interactiveKey][len(buffered):]
+	g.dropBuffered(interactiveKey, len(buffered))
 	g.mu.Unlock()
 	if dec.Action == "insert" {
 		content = insertNote + "\n" + content
@@ -306,30 +324,47 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		e.applyPendingSwitch(interactiveKey, msg.SessionKey) // the agent asked to switch during its last turn
 		e.applyModelTier(p, msg, dec.Tier)
 	}
-	msg.TurnCtx, msg.TurnCtxQuery = true, msg.Content
+	msg.TurnCtx, msg.TurnCtxQuery = true, userTextOf(msg)
 	msg.Content = content
 	return false
 }
 
-// buffer keeps text for the next turn of interactiveKey (capped at maxBuffered).
-func (g *gateState) buffer(interactiveKey, text string) {
+// buffer keeps text for the next turn of interactiveKey (capped at maxBuffered); gateText is the
+// same message as the user wrote it, which is what the gate sees in Buffered.
+func (g *gateState) buffer(interactiveKey, text, gateText string) {
 	g.mu.Lock()
+	if g.gbuf == nil {
+		g.gbuf = map[string][]string{}
+	}
 	b := append(g.buf[interactiveKey], text)
+	gb := append(g.gbuf[interactiveKey], gateText)
 	if len(b) > maxBuffered {
 		b = b[len(b)-maxBuffered:]
 	}
-	g.buf[interactiveKey] = b
+	if len(gb) > maxBuffered {
+		gb = gb[len(gb)-maxBuffered:]
+	}
+	g.buf[interactiveKey], g.gbuf[interactiveKey] = b, gb
 	g.mu.Unlock()
+}
+
+// dropBuffered removes the first n buffered messages (delivered with this turn). Caller holds g.mu.
+func (g *gateState) dropBuffered(interactiveKey string, n int) {
+	g.buf[interactiveKey] = g.buf[interactiveKey][min(n, len(g.buf[interactiveKey])):]
+	if g.gbuf != nil {
+		g.gbuf[interactiveKey] = g.gbuf[interactiveKey][min(n, len(g.gbuf[interactiveKey])):]
+	}
 }
 
 // bufferContext buffers msg as listen-only context; attachments become a note.
 func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
-	text := msg.Content
+	text, gateText := msg.Content, userTextOf(msg)
 	if n := len(msg.Images) + len(msg.Files); n > 0 {
-		text = strings.TrimSpace(text + fmt.Sprintf("（附了 %d 个图片/文件）", n))
+		note := fmt.Sprintf("（附了 %d 个图片/文件）", n)
+		text, gateText = strings.TrimSpace(text+note), strings.TrimSpace(gateText+note)
 	}
 	if text != "" {
-		g.buffer(interactiveKey, text)
+		g.buffer(interactiveKey, text, gateText)
 	}
 }
 
@@ -393,6 +428,14 @@ type gateContextResponse struct {
 	} `json:"wiki"`
 }
 
+// bot returns the gate URL's ?bot= value ("" for the main bot).
+func (g *gateState) bot() string {
+	if u, err := url.Parse(g.url); err == nil {
+		return u.Query().Get("bot")
+	}
+	return ""
+}
+
 // endpoint returns the gate URL with its path replaced (query dropped).
 func (g *gateState) endpoint(path string) string {
 	base := g.url
@@ -437,7 +480,8 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 	ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
 	defer cancel()
 	var out gateContextResponse
-	if err := g.post(ctx, "/context", map[string]string{"key": sessionKey, "text": text}, &out); err != nil {
+	// bot: the gate_url's ?bot= (a sub); ctxsvc then searches her own wiki first (maomao fork, 2026-10-20)
+	if err := g.post(ctx, "/context", map[string]string{"key": sessionKey, "text": text, "bot": g.bot()}, &out); err != nil {
 		slog.Warn("gate: context fetch failed", "session", sessionKey, "error", err)
 		return ""
 	}
@@ -457,11 +501,20 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 }
 
 // withTurnBlocks puts the teammate status, wiki pages and handoff the
-// agent's context does not hold yet before content. Called right before the
-// send, so a message that never reaches the agent marks nothing as sent.
-func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string) string {
+// agent's context does not hold yet before content. Called right before every
+// send of a turn, so a message that never reaches the agent marks nothing as
+// sent. The handoff goes with whatever turn comes first after a fresh start
+// (user, cron, timer or queued); teammate status and wiki pages only with
+// turnCtx messages.
+func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
 	if c := e.handoffBlock(session); c != "" {
 		content = c + "\n\n" + content
+	}
+	if c := e.memoryBlock(session); c != "" { // before the handoff: the index, then what the old context did
+		content = c + "\n\n" + content
+	}
+	if !turnCtx {
+		return content
 	}
 	if c := e.turnContext(session, sessionKey, query); c != "" {
 		content = c + "\n\n" + content

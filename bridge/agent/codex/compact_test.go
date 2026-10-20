@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // The test binary acts as the native stdio server. No real model, credentials or
@@ -40,6 +43,10 @@ func TestCompactHelperProcess(t *testing.T) {
 			reply(map[string]any{})
 		case "initialized":
 		case "thread/resume":
+			if path := os.Getenv("CONEST_COMPACT_RECORD"); path != "" {
+				b, _ := json.Marshal(req.Params)
+				_ = os.WriteFile(path, b, 0o600)
+			}
 			if req.Params["threadId"] != "thread-original" || req.Params["model"] != "new-model" || req.Params["excludeTurns"] != true {
 				os.Exit(4)
 			}
@@ -156,6 +163,56 @@ func TestAgentNativeCompactBothBackends(t *testing.T) {
 			}
 			if err := a.CompactSession(ctx, ""); err == nil {
 				t.Fatal("allowed new thread")
+			}
+		})
+	}
+}
+
+// Compaction resumes the thread with the settings its chat sessions use: the
+// per-session base instructions and, on the app_server backend (the only one
+// that applies it to chats), the permission_profile sent as
+// config.default_permissions with no explicit sandbox that would override it.
+func TestAgentNativeCompactUsesSessionInstructionsAndPermissionProfile(t *testing.T) {
+	for _, backend := range []string{"exec", "app_server"} {
+		t.Run(backend, func(t *testing.T) {
+			record := filepath.Join(t.TempDir(), "resume.json")
+			a := &Agent{workDir: t.TempDir(), model: "new-model", reasoningEffort: "high", mode: "full-auto", backend: backend, cmd: os.Args[0], cliExtraArgs: []string{"-test.run=^TestCompactHelperProcess$", "--"}, activeIdx: -1, configEnv: []string{"CONEST_COMPACT_HELPER=ok", "CONEST_COMPACT_RECORD=" + record}, codexHome: t.TempDir(), permissionProfile: "chat-only"}
+			// Another channel's session start left its settings on the shared agent.
+			a.SetSessionModel("other-channel-model")
+			a.SetSessionInstructions("/x/other.md", "other channel prompt")
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := a.CompactSessionWith(ctx, "thread-original", core.SessionSettings{Model: "new-model", InstructionsPath: "/x/chat.md", InstructionsText: "chat channel prompt"}); err != nil {
+				t.Fatal(err)
+			}
+			a.mu.RLock()
+			shared := a.sessionModel + "|" + a.sessionInstr
+			a.mu.RUnlock()
+			if shared != "other-channel-model|/x/other.md" {
+				t.Errorf("compaction changed the shared agent settings to %q", shared)
+			}
+			b, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var params map[string]any
+			if err := json.Unmarshal(b, &params); err != nil {
+				t.Fatal(err)
+			}
+			if params["baseInstructions"] != "chat channel prompt" {
+				t.Errorf("baseInstructions = %v, want the session's instructions", params["baseInstructions"])
+			}
+			cfg, _ := params["config"].(map[string]any)
+			if cfg["model_reasoning_effort"] != "high" {
+				t.Errorf("config = %v, want the effort", params["config"])
+			}
+			_, hasSandbox := params["sandbox"]
+			if backend == "app_server" {
+				if cfg["default_permissions"] != "chat-only" || hasSandbox {
+					t.Errorf("config = %v sandbox = %v, want default_permissions and no sandbox", params["config"], params["sandbox"])
+				}
+			} else if cfg["default_permissions"] != nil || params["sandbox"] != "workspace-write" {
+				t.Errorf("exec backend: config = %v sandbox = %v, want the mode's sandbox as its chats use", params["config"], params["sandbox"])
 			}
 		})
 	}

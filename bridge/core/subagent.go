@@ -1,5 +1,14 @@
 package core
 
+// withSubagentPolicy applies the policy below unless the project turned it off
+// (inject_subagent_policy = false).
+func (e *Engine) withSubagentPolicy(prompt, userID string, fromBot bool) string {
+	if e.skipSubagentPolicy.Load() {
+		return prompt
+	}
+	return withSubagentPolicy(prompt, userID, fromBot)
+}
+
 // withSubagentPolicy supplies behavioral authorization, not a security sandbox.
 // Keep it per-turn so resumed sessions and queued requests see current policy.
 // The model interprets the human's meaning; we do not classify authorization

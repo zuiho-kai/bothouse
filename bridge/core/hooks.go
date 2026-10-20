@@ -21,6 +21,9 @@ const (
 	HookEventMessageSent        HookEventType = "message.sent"
 	HookEventSessionStarted     HookEventType = "session.started"
 	HookEventSessionEnded       HookEventType = "session.ended"
+	// HookEventAgentClosed (maomao fork): the agent process of a session was closed (idle close, /new, renewal,
+	// shutdown) — what Claude Code's own SessionEnd hook sees; env CC_HOOK_AGENT_SESSION_ID names the agent session.
+	HookEventAgentClosed        HookEventType = "agent.closed"
 	HookEventCronTriggered      HookEventType = "cron.triggered"
 	HookEventTimerTriggered     HookEventType = "timer.triggered"
 	HookEventPermissionRequested HookEventType = "permission.requested"
@@ -264,6 +267,9 @@ func eventToEnv(e HookEvent) []string {
 	if e.Error != "" {
 		env = append(env, "CC_HOOK_ERROR="+e.Error)
 	}
+	if id, ok := e.Extra["agent_session_id"].(string); ok && id != "" {
+		env = append(env, "CC_HOOK_AGENT_SESSION_ID="+id)
+	}
 	return env
 }
 
@@ -277,4 +283,17 @@ func (hm *HookManager) Hooks() []HookConfig {
 	out := make([]HookConfig, len(hm.hooks))
 	copy(out, hm.hooks)
 	return out
+}
+
+// triggerExtra is the message.sent Extra naming the platform message(s) that started this
+// reply's turn (maomao fork). A hook receiver that posted a message itself (e.g. a webhook
+// with ?wait=true) can match the reply to it exactly instead of guessing by channel.
+// Each turn runs exactly one user message (queued messages run as their own turns), so
+// the list has one ID; it is a list so a future merged turn can name all of them.
+// Empty msgID (cron, heartbeat, relay) → nil, the field is omitted.
+func triggerExtra(msgID string) map[string]any {
+	if msgID == "" {
+		return nil
+	}
+	return map[string]any{"trigger_message_ids": []string{msgID}}
 }

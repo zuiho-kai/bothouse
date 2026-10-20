@@ -44,6 +44,7 @@ type Agent struct {
 	mu           sync.RWMutex
 	quota        *nativeQuota
 	modelCatalog cliModelCatalog // protected by mu; successful discovery only
+	cloudQuota   quotaState      // classic transport's account quota cache, see usage_cloud.go
 }
 
 func New(opts map[string]any) (core.Agent, error) {
@@ -141,9 +142,15 @@ func (a *Agent) SetModel(model string) {
 	slog.Info("antigravity: model changed", "model", model)
 }
 
+// GetModel reports the model agy actually runs: a model pinned in cmd
+// ("agy --model x") wins over the configured, switched or provider model,
+// because buildAntigravityArgs then adds no --model of its own.
 func (a *Agent) GetModel() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if m := modelFromArgs(a.cliExtraArgs); m != "" {
+		return m
+	}
 	return core.GetProviderModel(a.providers, a.activeIdx, a.model)
 }
 
@@ -184,6 +191,9 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 			model = m
 		}
 	}
+	if m := modelFromArgs(extraArgs); m != "" {
+		model = m // the session reports the model that runs (see GetModel)
+	}
 	a.mu.Unlock()
 
 	if streamJSON {
@@ -195,7 +205,14 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		}
 		return s, err
 	}
-	return newAntigravitySession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
+	s, err := newAntigravitySession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
+	if err != nil {
+		return nil, err
+	}
+	// The reply footer reads quota from the session (CachedUsage); agy's
+	// account quota lives on the Agent, so hand the session a view of it.
+	s.cachedUsage = a.CachedUsage
+	return s, nil
 }
 
 func (a *Agent) ListSessions(_ context.Context) ([]core.AgentSessionInfo, error) {
