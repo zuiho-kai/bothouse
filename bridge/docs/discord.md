@@ -2,6 +2,21 @@
 
 This guide walks you through connecting **cc-connect** to Discord, so you can chat with your local Claude Code via a Discord bot.
 
+## Replies in a multi-bot channel
+
+A human reply to a bot is addressed to that bot, even when Discord's reply ping
+is turned off. Other bots do not dispatch it to their engines, including a main
+bot with `group_reply_all` enabled. The decision uses the reply author's ID before
+quoted text or attachments are added, so it also prevents commands or mid-turn
+input from reaching the wrong bot.
+
+Explicit user/role mentions in the new message take precedence over the reply
+target and its automatic ping. Mentioning multiple bots keeps the existing team
+gate policy for those recipients. `@everyone`/`@here` count only when enabled.
+If a reply's original message or author is unavailable, explicitly @ the intended
+bot; the main bot will not guess. Forwarded messages, direct messages, human-to-
+human replies, and bot-to-bot handoffs retain their existing policies.
+
 ## Prerequisites
 
 - A Discord account

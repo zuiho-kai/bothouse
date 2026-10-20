@@ -685,135 +685,145 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 		p.cacheBotRoleIDForGuild(s, g.ID, g.Roles)
 	})
 
-	session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		// Deduplicate: Discord gateway may deliver the same event twice
-		if !rememberDedupID(&p.seenMsgs, m.ID) {
-			slog.Debug("discord: ignoring duplicate message", "msg_id", m.ID)
-			return
-		}
-
-		if m.Author.ID == p.botID {
-			return
-		}
-		// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
-		// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
-		fromBot := m.Author.Bot
-		if fromBot && !p.botAllowed(m.Author.ID) {
-			return
-		}
-		if core.IsOldMessage(m.Timestamp) {
-			slog.Debug("discord: ignoring old message after restart", "timestamp", m.Timestamp)
-			return
-		}
-		if !fromBot && !core.AllowList(p.allowFrom, m.Author.ID) {
-			slog.Debug("discord: message from unauthorized user", "user", m.Author.ID)
-			return
-		}
-
-		// In guild channels, only respond when the bot is @mentioned (unless group_reply_all).
-		// Check both user mentions and role mentions (Discord auto-creates a managed role
-		// for each bot; users may @ the role instead of the user).
-		botRoleID := p.botRoleIDForGuild(m.GuildID)
-		if botRoleID == "" && m.GuildID != "" {
-			p.cacheBotRoleIDForGuild(s, m.GuildID, nil)
-			botRoleID = p.botRoleIDForGuild(m.GuildID)
-		}
-		mentioned := isDiscordBotMention(m, p.botID, botRoleID, p.respondToAtEveryoneAndHere)
-		if fromBot {
-			// Only an explicit <@me> in the text counts; reply pings ("↪ 已插入" quoting a message)
-			// and role/everyone mentions from bots are ignored. Everything else a teammate says
-			// arrives as listen-only context (core never starts a turn from it).
-			mentioned = strings.Contains(m.Content, "<@"+p.botID+">") || strings.Contains(m.Content, "<@!"+p.botID+">")
-			if isBotNotice(m.Content) {
-				return
-			}
-			m.ReferencedMessage = nil // its quote is already in the channel history
-		}
-		m.Content = teamRoleMentions(m.Content, m.GuildID, p.botID) // maomao fork: <@&teammate role> → <@teammate>
-		if mentioned && m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
-			m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
-		}
-		if m.GuildID != "" && !p.isGroupReplyAllGuild(m.GuildID) {
-			if !mentioned {
-				slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
-				return
-			}
-			m.Content = stripDiscordMentionWithRole(m.Content, p.botID, botRoleID)
-			if m.MentionEveryone {
-				m.Content = stripEveryoneHere(m.Content)
-			}
-		}
-
-		slog.Debug("discord: message received", "user", m.Author.Username, "channel", m.ChannelID)
-
-		sessionKey := p.makeSessionKey(m.ChannelID, m.Author.ID)
-		rctx := replyContext{channelID: m.ChannelID, messageID: m.ID}
-		// channelKey pins workspace binding to the parent channel even when
-		// thread_isolation rewrites SessionKey to a thread ID. Without it,
-		// effectiveChannelID() would extract the thread ID from SessionKey
-		// and multi-workspace auto-bind would try to match `<base_dir>/<thread-name>`,
-		// which never exists. Empty value falls back to SessionKey extraction
-		// (the historical, non-isolated behavior).
-		channelKey := ""
-		if p.threadIsolation && m.GuildID != "" {
-			threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.botID, sessionThreadOps{session: p.session})
-			if err != nil {
-				slog.Warn("discord: thread isolation setup failed, falling back", "message", m.ID, "channel", m.ChannelID, "error", err)
-			} else {
-				sessionKey = threadSessionKey
-				rctx = threadCtx
-				channelKey = parentChannelID
-			}
-		}
-
-		rctx.lead = p.dispatchedBy(fromBot, mentioned, m.Author.ID, m.Content)
-
-		images, files, audio := classifyAttachments(m.Attachments, downloadURL)
-
-		if m.Content == "" && len(images) == 0 && len(files) == 0 && audio == nil && m.ReferencedMessage == nil {
-			if !mentioned || fromBot {
-				return
-			}
-			// maomao fork: a bare @ means "look at what's going on" — keep it so the
-			// turn starts and the channel backfill shows the context.
-			m.Content = "（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）"
-		}
-
-		// Prepend the replied-to message's content and images so the agent has context.
-		if m.ReferencedMessage != nil {
-			m.Content, images = applyReferencedMessage(m.ReferencedMessage, m.Content, images, downloadURL)
-		}
-
-		msg := &core.Message{
-			SessionKey: sessionKey, ChannelKey: channelKey, Platform: "discord",
-			ChannelID: m.ChannelID,
-			MessageID: m.ID,
-			UserID:    m.Author.ID, UserName: m.Author.Username,
-			Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
-			Mentioned: mentioned, FromBot: fromBot,
-		}
-		msg.ChatName, _ = p.ResolveChannelName(m.ChannelID)
-		if fromBot {
-			text := cleanBotText(m.Content, m.Mentions)
-			if text == "" && len(images) == 0 && len(files) == 0 {
-				return // e.g. a footer-only chunk of a long reply
-			}
-			// maomao fork: a teammate calling this bot by name ("行了橘，…") counts like an @, so
-			// chat between bots can go on. No hop/round cap (user 2026-10-18「去掉模型聊天限制，
-			// 模型可以持续对话，没有限制」).
-			msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName)
-			msg.Content = "【" + discordDisplayName(m) + "】" + text
-			p.holdBotMessage(s, m, msg, downloadURL)
-			return
-		}
-		p.dispatchMessage(msg)
-	})
+	session.AddHandler(p.handleMessageCreate)
 
 	session.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		p.handleInteraction(s, i)
 	})
 
 	return session, nil
+}
+
+// handleMessageCreate is the gateway message entrypoint.
+func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// Deduplicate: Discord gateway may deliver the same event twice
+	if !rememberDedupID(&p.seenMsgs, m.ID) {
+		slog.Debug("discord: ignoring duplicate message", "msg_id", m.ID)
+		return
+	}
+
+	if m.Author.ID == p.botID {
+		return
+	}
+	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
+	// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
+	fromBot := m.Author.Bot
+	if fromBot && !p.botAllowed(m.Author.ID) {
+		return
+	}
+	if core.IsOldMessage(m.Timestamp) {
+		slog.Debug("discord: ignoring old message after restart", "timestamp", m.Timestamp)
+		return
+	}
+	if !fromBot && !core.AllowList(p.allowFrom, m.Author.ID) {
+		slog.Debug("discord: message from unauthorized user", "user", m.Author.ID)
+		return
+	}
+
+	// In guild channels, only respond when the bot is @mentioned (unless group_reply_all).
+	// Check both user mentions and role mentions (Discord auto-creates a managed role
+	// for each bot; users may @ the role instead of the user).
+	botRoleID := p.botRoleIDForGuild(m.GuildID)
+	if botRoleID == "" && m.GuildID != "" {
+		p.cacheBotRoleIDForGuild(s, m.GuildID, nil)
+		botRoleID = p.botRoleIDForGuild(m.GuildID)
+	}
+	mentioned := isDiscordBotMention(m, p.botID, botRoleID, p.respondToAtEveryoneAndHere)
+	if !fromBot {
+		var accept bool
+		mentioned, accept = p.humanReplyRoute(m, botRoleID, mentioned)
+		if !accept {
+			return
+		}
+	}
+	if fromBot {
+		// Only an explicit <@me> in the text counts; reply pings ("↪ 已插入" quoting a message)
+		// and role/everyone mentions from bots are ignored. Everything else a teammate says
+		// arrives as listen-only context (core never starts a turn from it).
+		mentioned = strings.Contains(m.Content, "<@"+p.botID+">") || strings.Contains(m.Content, "<@!"+p.botID+">")
+		if isBotNotice(m.Content) {
+			return
+		}
+		m.ReferencedMessage = nil // its quote is already in the channel history
+	}
+	m.Content = teamRoleMentions(m.Content, m.GuildID, p.botID) // maomao fork: <@&teammate role> → <@teammate>
+	if mentioned && m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
+		m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
+	}
+	if m.GuildID != "" && !p.isGroupReplyAllGuild(m.GuildID) {
+		if !mentioned {
+			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
+			return
+		}
+		m.Content = stripDiscordMentionWithRole(m.Content, p.botID, botRoleID)
+		if m.MentionEveryone {
+			m.Content = stripEveryoneHere(m.Content)
+		}
+	}
+
+	slog.Debug("discord: message received", "user", m.Author.Username, "channel", m.ChannelID)
+
+	sessionKey := p.makeSessionKey(m.ChannelID, m.Author.ID)
+	rctx := replyContext{channelID: m.ChannelID, messageID: m.ID}
+	// channelKey pins workspace binding to the parent channel even when
+	// thread_isolation rewrites SessionKey to a thread ID. Without it,
+	// effectiveChannelID() would extract the thread ID from SessionKey
+	// and multi-workspace auto-bind would try to match `<base_dir>/<thread-name>`,
+	// which never exists. Empty value falls back to SessionKey extraction
+	// (the historical, non-isolated behavior).
+	channelKey := ""
+	if p.threadIsolation && m.GuildID != "" {
+		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.botID, sessionThreadOps{session: p.session})
+		if err != nil {
+			slog.Warn("discord: thread isolation setup failed, falling back", "message", m.ID, "channel", m.ChannelID, "error", err)
+		} else {
+			sessionKey = threadSessionKey
+			rctx = threadCtx
+			channelKey = parentChannelID
+		}
+	}
+
+	rctx.lead = p.dispatchedBy(fromBot, mentioned, m.Author.ID, m.Content)
+
+	images, files, audio := classifyAttachments(m.Attachments, downloadURL)
+
+	if m.Content == "" && len(images) == 0 && len(files) == 0 && audio == nil && m.ReferencedMessage == nil {
+		if !mentioned || fromBot {
+			return
+		}
+		// maomao fork: a bare @ means "look at what's going on" — keep it so the
+		// turn starts and the channel backfill shows the context.
+		m.Content = "（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）"
+	}
+
+	// Prepend the replied-to message's content and images so the agent has context.
+	if m.ReferencedMessage != nil {
+		m.Content, images = applyReferencedMessage(m.ReferencedMessage, m.Content, images, downloadURL)
+	}
+
+	msg := &core.Message{
+		SessionKey: sessionKey, ChannelKey: channelKey, Platform: "discord",
+		ChannelID: m.ChannelID,
+		MessageID: m.ID,
+		UserID:    m.Author.ID, UserName: m.Author.Username,
+		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
+		Mentioned: mentioned, FromBot: fromBot,
+	}
+	msg.ChatName, _ = p.ResolveChannelName(m.ChannelID)
+	if fromBot {
+		text := cleanBotText(m.Content, m.Mentions)
+		if text == "" && len(images) == 0 && len(files) == 0 {
+			return // e.g. a footer-only chunk of a long reply
+		}
+		// maomao fork: a teammate calling this bot by name ("行了橘，…") counts like an @, so
+		// chat between bots can go on. No hop/round cap (user 2026-10-18「去掉模型聊天限制，
+		// 模型可以持续对话，没有限制」).
+		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName)
+		msg.Content = "【" + discordDisplayName(m) + "】" + text
+		p.holdBotMessage(s, m, msg, downloadURL)
+		return
+	}
+	p.dispatchMessage(msg)
 }
 
 // connectLoop drives the Discord gateway connection with exponential-backoff
