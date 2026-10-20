@@ -18,7 +18,9 @@ export function parseReply(raw) {
   } catch { return null; }
 }
 
-export function finalRequest(options, signal = options.signal) {
+const jsonEncoding = '输出必须能被 JSON.parse 直接解析。JSON 字符串中的换行、双引号、反斜线必须转义；不要把实际换行写进字符串。编码示例（仅说明格式，不是任务结果）：' + JSON.stringify({reply:'第一行\n第二行含"引号"与反斜线\\。'});
+
+export function finalRequest(options, signal = options.signal, retry = false) {
   const messages = options.messages.filter(m => m.role !== 'system').flatMap(m => {
     const content = m.content.filter(b => b.type !== 'reasoning' && !(m.role === 'assistant' && b.type === 'text' && privateMarker.test(b.text)));
     if (!content.length) return [];
@@ -26,11 +28,15 @@ export function finalRequest(options, signal = options.signal) {
     const { replayState, ...source } = m.source;
     return [{...m, id: randomUUID(), source, content}];
   });
-  messages.push({id: randomUUID(), role:'user', source:{kind:'plugin',plugin:'conest-public-output'}, content:[{type:'text',text:'执行阶段已结束。请依据以上已发生的事实生成公开答复；不得再次调用工具。仅输出 {"reply":"..."}。'}]});
+  // The second attempt must repair the protocol, not repeat an identical
+  // request. Feedback is fixed text: rejected prose and private drafts are
+  // never fed back as evidence or published. The original task is not rerun.
+  const correction = retry ? '上一次输出未通过公开答复格式校验，尚未发布。请依据同一份事实重新生成，不要重复执行任务。只输出单个 JSON 对象，仅含非空 reply 字符串，不得包含私密推理或其他字段。尤其检查字符串转义。\n' + jsonEncoding + '\n' : '';
+  messages.push({id: randomUUID(), role:'user', source:{kind:'plugin',plugin:'conest-public-output'}, content:[{type:'text',text:correction+'执行阶段已结束。请依据以上已发生的事实生成公开答复；不得再次调用工具。仅输出 {"reply":"..."}。'}]});
   return {
     provider: options.provider, model: options.model, sessionId: options.sessionId,
     ...(options.reasoningEffort === undefined ? {} : {reasoningEffort:options.reasoningEffort}),
-    messages, system, signal, maxTokens:8192,
+    messages, system:system+'\n'+jsonEncoding, signal, maxTokens:8192,
     // Deliberately no tools, stop, or loop request marker. This call cannot
     // execute actions and will not re-enter the agent-loop middleware.
   };
@@ -200,7 +206,7 @@ export async function* guard(options, next, complete, onDiagnostic = ()=>{}) {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal.aborted) { report('finalize',attempt,options.signal?.aborted ? 'cancelled' : 'timeout'); break; }
     let result;
-    try { result = await collect(complete(finalRequest(options,signal)),signal); }
+    try { result = await collect(complete(finalRequest(options,signal,attempt > 0)),signal); }
     catch (error) {
       report('finalize',attempt+1,signal.aborted ? (options.signal?.aborted ? 'cancelled' : 'timeout') : caughtCause(error));
       break; // Transport errors do not justify blind model retries.

@@ -99,7 +99,7 @@ test('finalRequest retains typed tool evidence and replaces loop-only settings',
   assert.equal(request.messages.find(m=>m.role==='assistant').content[0].id,'once');
 });
 
-test('installed DSH assembler and actual plugin middleware agree offline', {skip:!process.env.DSH_CONTRACT_ENTRY && 'set DSH_CONTRACT_ENTRY to an installed dsh bin.js'}, async()=>{
+test('installed DSH assembler and actual plugin middleware agree offline', {skip:!process.env.DSH_CONTRACT_ENTRY && 'set DSH_CONTRACT_ENTRY to an installed dsh bin.js'}, async t=>{
   // Import only the pure LLM vocabulary; never launch DSH or a provider.
   const entry=realpathSync(process.env.DSH_CONTRACT_ENTRY);
   const require=createRequire(entry);
@@ -130,9 +130,13 @@ test('installed DSH assembler and actual plugin middleware agree offline', {skip
   const passthrough=empty();
   assert.equal(handler({...options,purpose:'session-title'},()=>passthrough),passthrough);
   assert.equal(handler(markAgentLoopRequest({...options,provider:'other'}),()=>passthrough),passthrough);
+  const stderr=[];
+  t.mock.method(process.stderr,'write',chunk=>{stderr.push(String(chunk));return true;});
   ctx.llm.stream=async function*(){throw Error('PRIVATE provider response');};
   const failed=await collect(handler(markAgentLoopRequest({...options}),empty));
   assert.equal(terminal(failed).kind,'error');
   assert.deepEqual(JSON.parse(warnings[0][1]),{stage:'finalize',attempt:1,cause:'transport'});
-  assert.equal(JSON.stringify({failed,warnings}).includes('PRIVATE'),false);
+  assert.equal(stderr.length,1,'ACP diagnostics must reach stderr without a Cordis exporter');
+  assert.deepEqual(JSON.parse(stderr[0].replace('[conest-public-output] ','')),{stage:'finalize',attempt:1,cause:'transport'});
+  assert.equal(JSON.stringify({failed,warnings,stderr}).includes('PRIVATE'),false);
 });

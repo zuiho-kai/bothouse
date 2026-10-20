@@ -122,12 +122,16 @@ func TestApplyGateBotContextNeverStartsTurn(t *testing.T) {
 	e.gate = &gateState{url: "http://127.0.0.1:1/never", timeout: time.Millisecond, fallback: "reply",
 		buf: map[string][]string{}, held: map[string]*heldMsg{}, released: map[*Message]bool{}}
 	s := &Session{}
-	msg := &Message{SessionKey: "discord:1", Content: "【龙娘】做完了", FromBot: true}
+	msg := &Message{SessionKey: "discord:1", UserName: "龙娘", Content: "【龙娘】做完了", FromBot: true}
 	if !e.applyGate(nil, msg, s, "k") {
 		t.Fatal("bot context must be consumed")
 	}
-	if got := e.gate.buf["k"]; len(got) != 1 || got[0] != "【龙娘】做完了" {
+	if got := e.gate.buf["k"]; len(got) != 1 || !strings.HasPrefix(got[0], "[Quoted teammate message]\n") {
 		t.Fatalf("buffer = %v", got)
+	}
+	var quoted struct{ Author, Content string }
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(e.gate.buf["k"][0], "[Quoted teammate message]\n")), &quoted); err != nil || quoted.Author != msg.UserName || quoted.Content != msg.Content {
+		t.Fatalf("quoted teammate = %+v, error = %v", quoted, err)
 	}
 	e.gate = nil
 	if !e.applyGate(nil, &Message{Content: "x", FromBot: true}, s, "k") {

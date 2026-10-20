@@ -781,6 +781,7 @@ type pendingPermission struct {
 	CurrentQuestion int            // index of the question currently being asked
 	Resolved        chan struct{}  // closed when user responds
 	resolveOnce     sync.Once
+	handling        atomic.Bool // only one response may consume this request at a time
 }
 
 func (s *interactiveState) stopSignal() <-chan struct{} {
@@ -3705,16 +3706,34 @@ func (e *Engine) handlePendingPermission(p Platform, msg *Message, content strin
 	}
 found:
 
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if len(pending.Questions) == 0 && !isApproveAllResponse(lower) && !isAllowResponse(lower) && !isDenyResponse(lower) {
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionHint))
+		return true
+	}
+	if len(pending.Questions) > 0 && lower == "" {
+		// Delivery/read receipts must not become empty AskUserQuestion answers.
+		return false
+	}
+
+	// Claim before calling the adapter or sending a platform acknowledgement.
+	// The adapter can consume the request while a slow platform reply leaves
+	// state.pending visible to another callback. Keep that callback from
+	// submitting the already-consumed permission a second time.
+	if !pending.handling.CompareAndSwap(false, true) {
+		return true
+	}
+	defer pending.handling.Store(false)
+	state.mu.Lock()
+	current := state.pending == pending
+	as := state.agentSession
+	state.mu.Unlock()
+	if !current || as == nil {
+		return true
+	}
+
 	// AskUserQuestion: interpret user response as an answer, not a permission decision
 	if len(pending.Questions) > 0 {
-		// Reject empty or whitespace-only content: some platforms echo delivery
-		// receipts or read-notifications as zero-length messages, and they must
-		// not be accepted as answers — otherwise the tool gets empty answers
-		// within ~500ms before the user has a chance to respond (#1086).
-		if strings.TrimSpace(content) == "" {
-			return false
-		}
-
 		curIdx := pending.CurrentQuestion
 		q := pending.Questions[curIdx]
 		answer := e.resolveAskQuestionAnswer(q, content)
@@ -3735,7 +3754,7 @@ found:
 		// All questions answered — build response and resolve
 		updatedInput := buildAskQuestionResponse(pending.ToolInput, pending.Questions, pending.Answers)
 
-		if err := state.agentSession.RespondPermission(pending.RequestID, PermissionResult{
+		if err := as.RespondPermission(pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: updatedInput,
 		}); err != nil {
@@ -3746,20 +3765,20 @@ found:
 		}
 
 		state.mu.Lock()
-		state.pending = nil
+		if state.pending == pending {
+			state.pending = nil
+		}
 		state.mu.Unlock()
 		pending.resolve()
 		return true
 	}
-
-	lower := strings.ToLower(strings.TrimSpace(content))
 
 	if isApproveAllResponse(lower) {
 		state.mu.Lock()
 		state.approveAll = true
 		state.mu.Unlock()
 
-		if err := state.agentSession.RespondPermission(pending.RequestID, PermissionResult{
+		if err := as.RespondPermission(pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: pending.ToolInput,
 		}); err != nil {
@@ -3769,7 +3788,7 @@ found:
 			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionApproveAll))
 		}
 	} else if isAllowResponse(lower) {
-		if err := state.agentSession.RespondPermission(pending.RequestID, PermissionResult{
+		if err := as.RespondPermission(pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: pending.ToolInput,
 		}); err != nil {
@@ -3779,20 +3798,19 @@ found:
 			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionAllowed))
 		}
 	} else if isDenyResponse(lower) {
-		if err := state.agentSession.RespondPermission(pending.RequestID, PermissionResult{
+		if err := as.RespondPermission(pending.RequestID, PermissionResult{
 			Behavior: "deny",
 			Message:  "User denied this tool use.",
 		}); err != nil {
 			slog.Error("failed to send deny response", "error", err)
 		}
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionDenied))
-	} else {
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionHint))
-		return true
 	}
 
 	state.mu.Lock()
-	state.pending = nil
+	if state.pending == pending {
+		state.pending = nil
+	}
 	state.mu.Unlock()
 	pending.resolve()
 
@@ -4192,7 +4210,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		content = e.withTurnBlocks(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-		promptContent = e.withSubagentPolicy(promptContent, msg.UserID, msg.FromBot)
+		promptContent = e.withAgentInstructions(promptContent, msg.UserID, msg.FromBot)
 		// The public-progress run is minted per attempt (beginAttempt): a capacity
 		// retry's earlier attempt closed its run when its event loop ended.
 		var attemptPrompt string
@@ -6645,7 +6663,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
-				queuedPrompt = e.withSubagentPolicy(queuedPrompt, queued.userID, queued.fromBot)
+				queuedPrompt = e.withAgentInstructions(queuedPrompt, queued.userID, queued.fromBot)
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
@@ -7074,7 +7092,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
 		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = e.withSubagentPolicy(prompt, queued.userID, queued.fromBot)
+		prompt = e.withAgentInstructions(prompt, queued.userID, queued.fromBot)
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -7204,7 +7222,7 @@ func (e *Engine) cmdPs(p Platform, msg *Message, args []string) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsNoSession))
 		return
 	}
-	if err := state.agentSession.Send(e.withSubagentPolicy(text, msg.UserID, msg.FromBot), "", nil, nil); err != nil {
+	if err := state.agentSession.Send(e.withAgentInstructions(text, msg.UserID, msg.FromBot), "", nil, nil); err != nil {
 		slog.Error("ps: send failed", "error", err)
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsSendFailed))
 		return
@@ -16879,7 +16897,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 
 	saveRelaySessionID(agentSession.CurrentSessionID(), false)
 
-	if err := agentSession.Send(e.withSubagentPolicy(message, "", true), "", nil, nil); err != nil {
+	if err := agentSession.Send(e.withAgentInstructions(message, "", true), "", nil, nil); err != nil {
 		agentSession.Close()
 		return "", fmt.Errorf("send relay message: %w", err)
 	}

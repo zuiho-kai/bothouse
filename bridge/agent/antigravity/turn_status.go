@@ -68,7 +68,10 @@ type nativeTrajectory struct {
 				} `json:"toolCall"`
 			} `json:"metadata"`
 			RunCommand struct {
-				ExitCode *int `json:"exitCode"`
+				CommandLine string `json:"commandLine"`
+				Cwd         string `json:"cwd"`
+				ShellName   string `json:"shellName"`
+				ExitCode    *int   `json:"exitCode"`
 			} `json:"runCommand"`
 			ErrorMessage *struct {
 				Error struct {
@@ -135,6 +138,11 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 	if reason == "" {
 		return true, nil
 	}
+	if outcomes := trajectory.commandOutcomes(t, r.Response); outcomes.count > 0 {
+		failure = outcomes.failure(status)
+		outcomes.log(t)
+		return reject(reason)
+	}
 	if trajectory.confirmsCompletedTaskStop(t, r.Response) {
 		return false, fmt.Errorf("antigravity: manage_task: %w", core.ErrTaskAlreadyCompleted)
 	}
@@ -175,6 +183,28 @@ func (n *nativeTrajectory) settled(t streamTurnEvidence) bool {
 // turn completed cleanly and produced exactly this response; otherwise a
 // content-free reason code.
 func (n *nativeTrajectory) currentTurnRejection(t streamTurnEvidence, response string) string {
+	if reason := n.currentTurnEnvelopeRejection(t, response); reason != "" {
+		return reason
+	}
+	for i, step := range n.Trajectory.Steps[t.start:] {
+		switch {
+		case step.Type == "" || (i > 0 && step.Type == "CORTEX_STEP_TYPE_USER_INPUT"):
+			return "trajectory-unexpected-step"
+		case step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" || step.ErrorMessage != nil:
+			return "trajectory-error-step"
+		case step.Status != "CORTEX_STEP_STATUS_DONE" || (len(step.Error) > 0 && string(step.Error) != "null"):
+			return "trajectory-step-not-done"
+		case step.RunCommand.ExitCode != nil && *step.RunCommand.ExitCode != 0:
+			// DONE means the command exited, not that it succeeded.
+			return "trajectory-command-failed"
+		}
+	}
+	return ""
+}
+
+// Identity, completeness and answer binding must pass before attributing any
+// command diagnostic to this turn, even when an earlier command failed.
+func (n *nativeTrajectory) currentTurnEnvelopeRejection(t streamTurnEvidence, response string) string {
 	steps := n.Trajectory.Steps
 	switch {
 	case n.Status != "CASCADE_RUN_STATUS_IDLE":
@@ -188,21 +218,9 @@ func (n *nativeTrajectory) currentTurnRejection(t streamTurnEvidence, response s
 	case steps[t.start].Type != "CORTEX_STEP_TYPE_USER_INPUT":
 		return "trajectory-boundary"
 	}
-	for i, step := range steps[t.start:] {
-		switch {
-		case step.Type == "" || (i > 0 && step.Type == "CORTEX_STEP_TYPE_USER_INPUT"):
-			return "trajectory-unexpected-step"
-		case step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" || step.ErrorMessage != nil:
-			return "trajectory-error-step"
-		case step.Status != "CORTEX_STEP_STATUS_DONE" || (len(step.Error) > 0 && string(step.Error) != "null"):
-			return "trajectory-step-not-done"
-		case step.RunCommand.ExitCode != nil && *step.RunCommand.ExitCode != 0:
-			// DONE means the command exited, not that it succeeded.
-			return "trajectory-command-failed"
-		}
-	}
 	last := steps[t.last]
-	if last.Type != "CORTEX_STEP_TYPE_PLANNER_RESPONSE" || last.PlannerResponse.StopReason != "STOP_REASON_STOP_PATTERN" {
+	if last.Type != "CORTEX_STEP_TYPE_PLANNER_RESPONSE" || last.Status != "CORTEX_STEP_STATUS_DONE" ||
+		(len(last.Error) > 0 && string(last.Error) != "null") || last.PlannerResponse.StopReason != "STOP_REASON_STOP_PATTERN" {
 		return "trajectory-no-final-answer"
 	}
 	// The CLI result adds a trailing newline to the native response. Compare

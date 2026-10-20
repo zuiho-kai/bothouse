@@ -17,6 +17,9 @@ export async function apply(ctx, config) {
   ctx.on('llm/stream', (options,next) => {
     if (!config.providers.includes(options.provider) || !isAgentLoopRequest(options)) return next();
     return guard(options,next,request=>ctx.llm.stream(request),diagnostic=>{
+      // ACP owns stdout and does not install a durable Cordis log exporter.
+      // guard supplies only module-owned enums/counters, never provider text.
+      process.stderr.write(`[conest-public-output] ${JSON.stringify(diagnostic)}\n`);
       ctx.logger.warn('conest-public-output: %s',JSON.stringify(diagnostic));
     });
   });

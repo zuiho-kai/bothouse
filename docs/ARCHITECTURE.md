@@ -17,6 +17,8 @@
 
 Discord 消息 → platform/discord → core/engine.go → agent 适配器 → 原生 CLI → 事件过滤与输出 → Discord。
 
+配置了团队的项目在实际投递时注入自己的伙伴名称；队友缓冲保留作者作为引用，避免把队友第一人称接成自己的身份或成果。身份不改变真实模型/供应商，严格语音与普通文字共用该输入边界。权限响应在核心先原子认领 pending，再调用后端和回复平台，防止慢回执窗口内重复消费授权。证据与限制见[身份与授权修复](BRIDGE_IDENTITY_AND_PERMISSION_172.md)。
+
 可选的公开进展独立于上述 Thinking/工具事件：Engine 向真人任务轮次注入临时报告命令 → agent 调用 progress CLI → 本地 /progress 校验项目、会话、run、序号 → PublicProgress 先落盘，再通过 TaskCardPublisher 投递。Discord 适配器负责卡片/讨论串及丢失回执后的标记核对；core 不依赖具体平台。投递期间不持有报告锁，网络延迟不会阻塞新报告或语音结果。语音可使用同一份公开 result/waiting 摘要，原始正文仍只回到本地输入接口。接口和恢复边界见[公开进展说明](PUBLIC_PROGRESS.md)；result_ready 不等于项目验收完成。
 
 失败回合可通过EventError.Content携带已有回答，Error只携带诊断；核心将两者分开展示，仍保留失败终态、错误钩子和队列恢复。回答不进入成功历史，本地/input不将其作为可播放的成功text。Antigravity只用自身CLI的认证当前轨迹分类安全原因，详见[失败回合说明](ANTIGRAVITY_TURN_FAILURE.md)。

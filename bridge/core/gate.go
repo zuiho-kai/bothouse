@@ -364,6 +364,22 @@ func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
 		text, gateText = strings.TrimSpace(text+note), strings.TrimSpace(gateText+note)
 	}
 	if text != "" {
+		if msg.FromBot {
+			// Keep authorship even when sender-header injection is disabled. JSON
+			// quoting prevents embedded newlines from looking like new metadata.
+			author := msg.UserName
+			if author == "" {
+				author = msg.UserID
+			}
+			if author == "" {
+				author = "unidentified teammate"
+			}
+			quoted, _ := json.Marshal(struct {
+				Author  string `json:"author"`
+				Content string `json:"content"`
+			}{Author: author, Content: text})
+			text = "[Quoted teammate message]\n" + string(quoted)
+		}
 		g.buffer(interactiveKey, text, gateText)
 	}
 }
@@ -386,7 +402,7 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, images []
 	if as == nil || !as.Alive() || localInput {
 		return false
 	}
-	if err := as.Send(content, "", images, files); err != nil {
+	if err := as.Send(e.withAgentIdentity(content), "", images, files); err != nil {
 		slog.Warn("gate: mid-turn inject failed", "error", err)
 		return false
 	}
