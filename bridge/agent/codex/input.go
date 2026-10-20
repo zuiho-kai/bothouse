@@ -15,15 +15,17 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
+// Both exec and app_server can resume an exact thread without falling back:
+// app_server's thread/resume errors instead of starting a new thread.
 func (a *Agent) SupportsStrictResume() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.backend == "exec" || a.backend == ""
+	return a.backend == "exec" || a.backend == "" || a.backend == "app_server"
 }
 
 func (a *Agent) StartSessionStrict(ctx context.Context, id string) (core.AgentSession, error) {
 	if !a.SupportsStrictResume() {
-		return nil, fmt.Errorf("strict input requires codex exec backend")
+		return nil, fmt.Errorf("strict input requires codex exec or app_server backend")
 	}
 	a.mu.RLock()
 	home := a.codexHome
@@ -37,7 +39,15 @@ func (a *Agent) StartSessionStrict(ctx context.Context, id string) (core.AgentSe
 	if err := validateInputResume(id, home); err != nil {
 		return nil, err
 	}
-	return a.StartSession(ctx, id)
+	as, err := a.StartSession(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if got := as.CurrentSessionID(); got != id {
+		_ = as.Close()
+		return nil, fmt.Errorf("codex resumed thread %q, want %q", got, id)
+	}
+	return as, nil
 }
 
 // Check the saved rollout's actual metadata, not just a filename substring.

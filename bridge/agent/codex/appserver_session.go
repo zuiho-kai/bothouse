@@ -198,6 +198,7 @@ type appServerSession struct {
 	pendingMsgs  []string
 	currentTurn  string
 	preambleSent bool
+	strict       *appServerStrictTurn // local input turn; never steered into
 
 	runtimeMu sync.RWMutex
 	usage     *core.UsageReport
@@ -344,6 +345,9 @@ func (s *appServerSession) ensureThread(resumeID string) error {
 		params := s.threadRequestParams()
 		params["threadId"] = resumeID
 		params["persistExtendedHistory"] = true
+		// Metadata only: a long thread's turns make the response one line of
+		// hundreds of MB (G哥 2026-10-20: 273MB rollout overflowed the reader).
+		params["excludeTurns"] = true
 
 		var resp threadResumeResponse
 		if err := s.request("thread/resume", params, &resp); err != nil {
@@ -460,44 +464,18 @@ func (s *appServerSession) storeContextUsage(usage *core.ContextUsage) {
 }
 
 func (s *appServerSession) Send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
-	if !s.alive.Load() {
-		return fmt.Errorf("session is closed")
+	// A strict local-input turn is never joined; the gate then queues instead.
+	s.stateMu.Lock()
+	strictBusy := s.strict != nil
+	s.stateMu.Unlock()
+	if strictBusy {
+		return fmt.Errorf("codex app-server: local input turn in progress")
 	}
-
-	if len(files) > 0 {
-		filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
-		prompt = core.AppendFileRefs(prompt, filePaths)
-	}
-
-	prompt, imagePaths, err := s.stageImages(prompt, images)
+	input, err := s.buildTurnInput(prompt, messageID, images, files)
 	if err != nil {
 		return err
 	}
-
-	s.stateMu.Lock()
-	if !s.preambleSent {
-		prompt = prependCodexPromptPreamble(prompt, s.promptPreamble)
-		s.preambleSent = true
-	}
-	s.stateMu.Unlock()
-
 	threadID := s.CurrentSessionID()
-	if threadID == "" {
-		return fmt.Errorf("codex app-server thread id is empty")
-	}
-
-	input := make([]map[string]any, 0, 1+len(imagePaths))
-	input = append(input, map[string]any{
-		"type":          "text",
-		"text":          prompt,
-		"text_elements": []any{},
-	})
-	for _, path := range imagePaths {
-		input = append(input, map[string]any{
-			"type": "localImage",
-			"path": path,
-		})
-	}
 
 	// maomao fork: a turn is in flight → fold the input into it (turn/steer) instead of
 	// starting a second turn, like typing while Codex works. Falls back to turn/start when
@@ -515,6 +493,65 @@ func (s *appServerSession) Send(prompt string, messageID string, images []core.I
 		}
 	}
 
+	var resp turnStartResponse
+	if err := s.request("turn/start", s.turnStartParams(threadID, input), &resp); err != nil {
+		return fmt.Errorf("codex app-server turn/start: %w", err)
+	}
+	if resp.Turn.ID == "" {
+		return fmt.Errorf("codex app-server turn/start returned empty turn id")
+	}
+
+	s.stateMu.Lock()
+	s.currentTurn = resp.Turn.ID
+	s.pendingMsgs = s.pendingMsgs[:0]
+	s.stateMu.Unlock()
+
+	return nil
+}
+
+// buildTurnInput stages attachments and prepends the one-time preamble.
+func (s *appServerSession) buildTurnInput(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) ([]map[string]any, error) {
+	if !s.alive.Load() {
+		return nil, fmt.Errorf("session is closed")
+	}
+
+	if len(files) > 0 {
+		filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
+		prompt = core.AppendFileRefs(prompt, filePaths)
+	}
+
+	prompt, imagePaths, err := s.stageImages(prompt, images)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.CurrentSessionID() == "" {
+		return nil, fmt.Errorf("codex app-server thread id is empty")
+	}
+
+	s.stateMu.Lock()
+	if !s.preambleSent {
+		prompt = prependCodexPromptPreamble(prompt, s.promptPreamble)
+		s.preambleSent = true
+	}
+	s.stateMu.Unlock()
+
+	input := make([]map[string]any, 0, 1+len(imagePaths))
+	input = append(input, map[string]any{
+		"type":          "text",
+		"text":          prompt,
+		"text_elements": []any{},
+	})
+	for _, path := range imagePaths {
+		input = append(input, map[string]any{
+			"type": "localImage",
+			"path": path,
+		})
+	}
+	return input, nil
+}
+
+func (s *appServerSession) turnStartParams(threadID string, input []map[string]any) map[string]any {
 	params := map[string]any{
 		"threadId": threadID,
 		"input":    input,
@@ -528,21 +565,7 @@ func (s *appServerSession) Send(prompt string, messageID string, images []core.I
 	if approval, _ := appServerModeSettings(s.mode); approval != "" {
 		params["approvalPolicy"] = approval
 	}
-
-	var resp turnStartResponse
-	if err := s.request("turn/start", params, &resp); err != nil {
-		return fmt.Errorf("codex app-server turn/start: %w", err)
-	}
-	if resp.Turn.ID == "" {
-		return fmt.Errorf("codex app-server turn/start returned empty turn id")
-	}
-
-	s.stateMu.Lock()
-	s.currentTurn = resp.Turn.ID
-	s.pendingMsgs = s.pendingMsgs[:0]
-	s.stateMu.Unlock()
-
-	return nil
+	return params
 }
 
 func (s *appServerSession) stageImages(prompt string, images []core.ImageAttachment) (string, []string, error) {
@@ -1142,6 +1165,9 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 	case "turn/started":
 		var notif turnNotification
 		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
+			if s.strictNotification(method, notif) {
+				return
+			}
 			s.stateMu.Lock()
 			s.currentTurn = notif.Turn.ID
 			s.pendingMsgs = s.pendingMsgs[:0]
@@ -1151,19 +1177,22 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 
 	case "item/started":
 		var notif itemNotification
-		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
+		if err := json.Unmarshal(paramsRaw, &notif); err == nil && !s.strictItemMismatch(notif) {
 			s.handleItemStarted(notif.Item)
 		}
 
 	case "item/completed":
 		var notif itemNotification
-		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
+		if err := json.Unmarshal(paramsRaw, &notif); err == nil && !s.strictItemMismatch(notif) {
 			s.handleItemCompleted(notif.Item)
 		}
 
 	case "turn/completed":
 		var notif turnNotification
 		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
+			if s.strictNotification(method, notif) {
+				return
+			}
 			// maomao fork: a failed turn (e.g. usage_limit_exceeded) used to end
 			// as an empty reply; surface its error instead.
 			if notif.Turn.Status == "failed" && notif.Turn.Error != nil && strings.TrimSpace(notif.Turn.Error.Message) != "" {
@@ -1568,7 +1597,8 @@ func rpcIDToInt64(v any) (int64, bool) {
 
 func (s *appServerSession) completeTurn() {
 	s.stateMu.Lock()
-	if s.currentTurn == "" {
+	// A strict turn ends only on its own turn/completed, never on thread idle.
+	if s.currentTurn == "" || s.strict != nil {
 		s.stateMu.Unlock()
 		return
 	}
@@ -1616,6 +1646,11 @@ func (s *appServerSession) emit(event core.Event) {
 // so a turn that reports its error twice (error + failed turn/completed) emits once.
 func (s *appServerSession) failRunningTurn(reason string) {
 	s.stateMu.Lock()
+	if st := s.strict; st != nil {
+		s.stateMu.Unlock()
+		s.failStrict(st, reason)
+		return
+	}
 	running := s.currentTurn != ""
 	s.currentTurn = ""
 	s.stateMu.Unlock()

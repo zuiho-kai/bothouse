@@ -345,8 +345,10 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, images []
 	}
 	state.mu.Lock()
 	as := state.agentSession
+	localInput := state.localInputOnly != nil
 	state.mu.Unlock()
-	if as == nil || !as.Alive() {
+	// A local voice turn answers only its own input; queue the message instead.
+	if as == nil || !as.Alive() || localInput {
 		return false
 	}
 	if err := as.Send(content, "", images, files); err != nil {

@@ -140,7 +140,7 @@ func TestLocalInputCodexMissingAndUnsupported(t *testing.T) {
 			t.Fatalf("accepted %q", id)
 		}
 	}
-	for _, backend := range []string{"app_server", "acp"} {
+	for _, backend := range []string{"acp"} {
 		a.backend = backend
 		if a.SupportsStrictResume() {
 			t.Fatal("unsupported capability")
