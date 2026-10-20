@@ -13,7 +13,7 @@ func TestParseHandoff(t *testing.T) {
 		`{"type":"system","subtype":"compact_boundary","timestamp":"2026-10-14T02:00:00Z","compactMetadata":{"postTokens":3600,"preservedMessages":{"uuids":["u1"]}}}`,
 		`{"type":"user","isCompactSummary":true,"timestamp":"2026-10-14T02:00:01Z","message":{"content":"This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. 在修 gate\n\nIf you need specific details from before compaction, read the full transcript at: /x.jsonl\nContinue the conversation from where it left off without asking the user any further questions."}}`,
 		`{"type":"user","isMeta":true,"message":{"content":"meta"}}`,
-		`{"type":"user","uuid":"u2","timestamp":"2026-10-14T02:01:00Z","message":{"content":"<@1468663018463301632> 你看看"}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-10-14T02:01:00Z","message":{"content":"<@100000000000000011> 你看看"}}`,
 		`{"type":"assistant","uuid":"a1","timestamp":"2026-10-14T02:01:03Z","message":{"content":[{"type":"text","text":"Now I'll check."}],"usage":{"input_tokens":2,"cache_read_input_tokens":50000,"cache_creation_input_tokens":200}}}`,
 		`{"type":"assistant","uuid":"a2","timestamp":"2026-10-14T02:01:05Z","message":{"content":[{"type":"tool_use","name":"Bash","input":{}}],"usage":{"input_tokens":2,"cache_read_input_tokens":50000,"cache_creation_input_tokens":300}}}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}`,
@@ -44,7 +44,7 @@ func TestParseHandoff(t *testing.T) {
 	}
 	want := []string{
 		"user:压缩时保留的话",
-		"user:<@1468663018463301632> 你看看",
+		"user:<@100000000000000011> 你看看",
 		"assistant:Now I'll check.", // an inserted message splits the turn; order stays true
 		"user:别自己干，派出去",
 		"user:看这张图",

@@ -1840,8 +1840,8 @@ func TestHandoffPolicy(t *testing.T) {
 }
 
 func TestCleanBotTextAndNotices(t *testing.T) {
-	in := "好了 <@1472561359660253256> 你来\n\n*gpt-6.1-sol · high · 剩余 99% · ~/im-bridge/longniang*"
-	got := cleanBotText(in, []*discordgo.User{{ID: "1472561359660253256", Username: "龙娘"}})
+	in := "好了 <@100000000000000012> 你来\n\n*gpt-6.1-sol · high · 剩余 99% · ~/im-bridge/longniang*"
+	got := cleanBotText(in, []*discordgo.User{{ID: "100000000000000012", Username: "龙娘"}})
 	if got != "好了 @龙娘 你来" {
 		t.Fatalf("got %q", got)
 	}
