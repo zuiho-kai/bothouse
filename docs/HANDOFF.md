@@ -46,6 +46,8 @@
 
 2026-10-21：Issue #189 原模型请求的安全错误分类恢复。00:00生产诊断 original/provider_error，v2抹掉机器错误码导致DSH有限重试/上下文恢复失效，原始具体分类无法还原。v3保留白名单分类及数值退避信息，错误正文仍不可公开；不重复工具或放宽补答边界。19项新回归旧红17、新版全量58通过；Go沙箱全量通过；真实隔离ACP两进程同会话、注入限流和实遇TRANSPORT均恢复，工具0。无子Agent、未代发Discord、当前尚未部署。详见[插件说明](../integrations/dsh-public-output/README.md)。
 
+2026-10-22：Issue #201 例行同步：PR #202 合入 main 0d332d3f 后再提交。角色小家主机 main 与 role-household/ 一致（差异只有 #210 在 conest 副本里去掉的私有路径与作者 ID，按设计保留，本地不跟）；固件 rh 仍是 42ed5fa，无新补丁。docs/code-standards.md 教训段补 2026-10-21 复盘 5 条，reviewed-through 改为 0d332d3f。未刷板。
+
 2026-10-21：Issue #201 追加角色小家固件两个提交（同一 PR #202，分支 feat/201-fw-sleepfix）：补丁改由 `git format-patch v2.5.2..rh` 重新生成（本地主线 rh 已快进到 rh-dial-fontfix 42ed5fa），17→19 个；0001–0017 只有序号分母变化。新增板型 spotpear sp-esp32-s3-1.28-cam-low（斑梨 1.28 摄像头版 GC0308，引脚取斑梨 xiaozhi-esp32-2.1.0 源码并对原理图，开表盘，0018）；表盘字体判定改在主题字体换上之后做，修复开机时用内置英文字体判定不合适就放弃表盘、表盘不显示（0019）。在 v2.5.2 上 git am 后 tree 与 42ed5fa 一致（e457d281）。已刷三块板（两块 1.28-box、一块 1.28-cam-low），串口均见 `theme font 16 px glyph / 25 px line fits, dial shown`。只改 role-household/firmware-xiaozhi/ 与本条。
 
 2026-10-21：Issue #201 同步角色小家固件 rh-dial-sleepfix（31cfb3c）补丁到 role-household/firmware-xiaozhi/（分支 feat/201-fw-sleepfix，基线 main 62aec4e3）。补丁由 `git format-patch v2.5.2..rh-dial-sleepfix` 重新生成，14→17 个：熄屏检查与唤醒串行进主任务（0015）、背光渐变按目标判重（0016）、build.py 换板型时作废派生 sdkconfig.json（0017）；在 v2.5.2 上 git am 后与该分支逐字节一致。主机 role-household/ 与本地 HEAD 一致，不动。已编译、未刷板。
