@@ -1,149 +1,83 @@
-# 共栖 · CoNest
+# bothouse
 
-**一位 AI，一台实体设备。能陪伴，也能一起做事。**
+English | [中文](README.zh-CN.md)
 
-共栖的目标是让多位 AI 伙伴拥有各自可辨认的实体入口：你可以和它们聊天、接着上次的约定聊、召集讨论，也可以交代一个真实任务并查看成果。电脑运行 AI、处理语音、保存记忆和执行工作；Discord 延续文字交流，GitHub 承载项目交付。
+**Soon everyone will work with several AIs at once. bothouse wants to be the first to turn them into one team: they split the work, hand it off, and remember.**
 
-**首个完整展示：G哥和 Cursor 各一台独立设备，由一台电脑提供后台能力。当前已跑通电脑原型，真实双设备尚未交付。**
+Install this plugin and your Claude Code / Codex / Gemini / DSH become a team with personalities, right inside Discord, Feishu, or your own self-hosted channel (DSH web coming soon). Install, click through the wizard, and you are done.
 
-项目基于 [cc-connect](https://github.com/zuiho-kai/cc-connect) 的 maomao 分支扩展。源码来源见 [来源说明](SOURCE_ORIGINS.md)。平台层为 AGPL-3.0 与商业授权双许可，适配器层为 Apache-2.0，详见 [许可说明](LICENSING.md)。
+![bothouse in 15 seconds: a few clicks in the setup wizard, then call a teammate by name, the lead hands off work, the teammate reports back, and both share one memory](docs/launch/media/bothouse-15s.gif)
 
-**想自己用起来：** 从 [从零用起 CoNest](docs/GETTING_STARTED.md) 开始。没有硬件，走「配 ccm 和 wiki」「接进 Discord 或飞书」两条线就能完整用；有板子再看「接硬件」。
+```sh
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && cc-connect
+```
 
-装 → 向导 → 确认上线（macOS / Linux / Windows；不用装 Go 和 Node）：
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; cc-connect
+```
 
-~~~sh
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/conest/main/install.sh | sh   # macOS / Linux；仓库私有时见入门文档第 1 步
-cc-connect      # 第一次运行自动在浏览器打开安装向导；或让 AI 跑 cc-connect setup apply（见 AGENTS.md）
-~~~
+The first `cc-connect` run opens the setup wizard in your browser. No Go or Node needed.
 
-Windows 在 PowerShell 里：`irm https://raw.githubusercontent.com/zuiho-kai/conest/main/install.ps1 | iex`，再运行 `cc-connect`。
+**If bothouse is useful to you, a ⭐ helps others find it.**
 
-执行任务时的公开进展、Discord 任务卡及简短语音回执见[公开进展说明](docs/PUBLIC_PROGRESS.md)。可由主 bot 的置顶团队状态栏汇总本频道“进行中／待你处理”的任务卡链接，结束后移出入口并保留历史。同一任务可显式跨轮续卡；本地 task list/show 查询、task accept 记录真人明确验收，验收后保留完成状态。按项目启用，默认关闭；源码验证与生产验收分别记录。
+## Why
 
-执行任务时的公开进展、Discord 任务卡及简短语音回执见[公开进展说明](docs/PUBLIC_PROGRESS.md)。按项目启用，默认关闭；源码验证与生产验收分别记录。
+Today every AI works alone. One window, one model. Open a new window and it forgets what you just said. Put a few AIs in one group chat and they all talk at once.
 
-## 我们要交付什么
+We think the missing piece is not a smarter model. It is what a team has: who answers, who does the work, who gets the result, and one memory they all share. That should not be locked inside one vendor's app. So bothouse is a plugin: it connects the AIs you already use to the chat platforms you already use.
 
-指定伙伴代批所有类型工具权限的配置与留痕见[代批说明](docs/DELEGATED_PERMISSIONS.md)。默认关闭，按 bot 用户 ID 授权、按单次请求批准。
+We want to be the first to define what an "AI team" is, in the open. What works today is step one: one group, several AIs, one shared memory.
 
-面向希望长期与多位 AI 交流、共事的个人用户，第一版要完成一场可重复的双设备演示：
+## Teamwork
 
-1. **聊得起来**：对 G哥的设备说话，由 G哥回答；对 Cursor 的设备说话，由 Cursor 回答。身份、声音和收音／等待／发声／离线状态可辨认。
-2. **记得住约定**：同一伙伴在 Discord 与语音之间接着聊；另一位需要背景时，读取有来源的共享记录。
-3. **一起聊也不吵**：平时只由目标伙伴回应；用户明确召集后才轮流讨论，同时只有一位发声，随时可以停止后续发言。
-4. **能交代实际工作**：给一位伙伴一个目标明确的小任务，电脑实际执行；语音能查询进度，Discord／GitHub 能查看文件、测试或 PR。
-5. **别人也能复现**：交付设备、固件、电脑侧源码、绑定配置、接线与恢复说明，以及真实演示记录。
+- **Speaks only when called**: one lead answers by default. The other roles hear every message but speak only when you @ them or call them by name. Several AIs in one group do not all answer at once.
+- **The lead hands off, the teammate reports back**: the lead @s a teammate with a task. The teammate's final answer @s the lead automatically, and the lead wraps up.
+- **Bounded relays**: two teammates who @ each other for more than 3 rounds are handed to the lead. With no human in between, a channel stops after 20 bot-to-bot handoffs.
+- **Teammate status** (optional): when it is on, the lead starts every turn knowing who is busy in which channel.
+- **Interrupt while it works**: add a message while an AI is working and it joins the turn in progress. No need to wait.
 
-首版允许按键说话、明确选择伙伴和有轮次上限的讨论。2026-10-18 用户已订购一块带喇叭的 Waveshare ESP32-S3-Touch-AMOLED-1.75；先验证单板，再推进双设备展示，供电与外壳仍需确认。完整产品验收以 [Issue #8](https://github.com/Zssan12/conest/issues/8) 为准。
+## Memory
 
-## 从输入、输出和反馈理解系统
+- **Shared wiki memory**: before every reply the plugin searches one shared wiki ([llm-wiki](https://github.com/zuiho-kai/llm-wiki)) for that message and hands the relevant pages to the role. When a session ends, it is distilled into the wiki. A role on a different model reads the same memory.
+- **Sessions continue**: one session per channel, and it continues after a restart. Messages posted while a role was offline are handed to it before it answers.
 
-| 部分 | 输入与职责 | 用户应当看到的输出与反馈 |
-| --- | --- | --- |
-| 每位伙伴的实体设备（待接入） | 收音，把输入交给电脑；播放属于该伙伴的声音 | 能判断在和谁说话，以及它在听、等待、回答还是离线 |
-| 电脑后台 | 语音识别 → 原伙伴会话 → 回答 → 语音合成；协调发言、记忆和实际任务 | 回答归属正确；任务有进度、成果和明确失败原因 |
-| Discord／GitHub | 文字交流、项目需求、成果查看与审核 | 能继续对话，也能检查代码、文档、测试和 PR |
-| 共享记录与每日手记 | 保存真实发生过的交流、活动及其来源 | 其他伙伴按需查阅；用户能回看做过什么、发现什么、哪里失败 |
+## Where it plugs in
 
-语音正文不自动重复刷到 Discord。同一伙伴沿用自己的原会话；共享记录用于了解他人的交流，不把所有伙伴合成一个身份。
-
-## 目前做到哪里
-
-以下是 **2026-10-17 的能力快照**，用于区分可用基础和产品目标；详细证据见 [状态表](docs/STATUS.md)，推进状态看各 Issue／PR。
-
-| 能力 | 已有结果 | 还缺什么 |
-| --- | --- | --- |
-| Discord 多伙伴交流 | 六个 bot 已运行，具备各自的 CLI／会话入口 | 自动认领任务、可靠协同交付仍需验收 |
-| 电脑语音与讨论 | 可选择一位伙伴；G哥与 Cursor 已通过真实 CLI 两轮讨论及总结测试 | 运行中的讨论仍按固定顺序。发言权规则已有[离线模块](docs/FLOOR_CONTROL.md)，尚未接入服务；口头点名的识别和自由接话未实现 |
-| 跨入口记忆 | 同伙伴 Discord ↔ 语音接续、Cursor 按需读取 G哥共享记录的真实样例通过 | 长期使用、重启和更多异常场景仍需验收 |
-| 语音播放体验 | 本机 Qwen3-TTS 已支持边合成边播放；用户认为当前样例自然、停顿可接受 | AI 回答等待仍存在；当前版本真人麦克风完整闭环待补验收 |
-| 活动与每日记录 | 已有定时活动、采集、归档和日报实现及运行记录 | 持续运行与失败场景按 #7 验收；不据此宣称已产生“涌现” |
-| 设备身份与路由 | 已有[独立路由模块](docs/DEVICE_ROUTING.md)及[固定设备页面](docs/DESKTOP_DEVICES.md)，假桥接双浏览器验证归属、播放占位和停止 | 新设备入口未部署，真实 CLI、麦克风、硬件和两设备联调尚未验收 |
-| 独立实例配置 | #48 已合并：显式配置与实例隔离已有实现和回归验证 | 旧服务未因此自动升级；新机器仍须准备模型、CLI 登录态及原会话 |
-| 语音指挥真实项目 | 已有 CLI 和 Issue → PR 工作流基础 | 设备下达任务 → 执行 → 查询进度 → 查看成果的完整闭环待实现 |
-
-电脑测试用于验证会话、记忆、发言顺序、停止和延迟，为实体接入提供基础。**电脑演示通过，不等于双设备产品已经完成。** 当前试听反馈与样例边界见 [Issue #4](https://github.com/Zssan12/conest/issues/4)。
-
-### 现有电脑演示
-
-在已配置的演示电脑上：
-
-- [单伙伴对话](http://127.0.0.1:8793/)：按住说话或打字，确认后发送，可切换伙伴。
-- [两伙伴讨论](http://127.0.0.1:8793/discussion)：输入话题，邀请 G哥与 Cursor，按两轮及总结依次发言。
-
-这些是该电脑的本地地址；克隆仓库不会自动获得正在运行的服务、模型、CLI 登录态或会话。版本与恢复方法见 [部署记录](docs/VOICE_STREAMING_DEPLOYMENT.md)；具体行为见 [多伙伴语音](docs/MULTI_VOICE.md)、[语音讨论](docs/VOICE_DISCUSSION.md) 和 [分块播放](docs/VOICE_STREAMING.md)。
-
-[电脑固定设备入口](docs/DESKTOP_DEVICES.md)可独立启动，让 G哥、Cursor 各有固定页面；同一进程中从接纳到播放结束只允许一轮，忙时不自动排队，停止后不续播迟到音频。此入口尚未部署到现有演示，不与 8793 同时安排播放。
-
-## 接下来如何推进
-
-| 阶段 | 要证明什么 | 对应任务 |
-| --- | --- | --- |
-| 电脑模拟两个设备 | 固定设备对应固定伙伴，输入和音频不串；原会话不变；停止后不恢复旧播放 | [#43 设备身份与路由](https://github.com/Zssan12/conest/issues/43)、[#2 独立配置](https://github.com/Zssan12/conest/issues/2) |
-| 接入两台真实终端 | 逐台跑通收音、上传、回答播放和状态反馈，再验证两台同时在线 | [#42 硬件与音频接口](https://github.com/Zssan12/conest/issues/42) |
-| 完成陪伴与工作演示 | 两位受控轮流、可停止；语音下达一个小任务并看到真实成果 | [#33 发言协调](https://github.com/Zssan12/conest/issues/33)、[#44 语音指挥工作](https://github.com/Zssan12/conest/issues/44) |
-| 按交付步骤复现 | 完成双设备真人场景，记录等待、身份辨认、吵闹程度和失败恢复 | [#8 产品验收](https://github.com/Zssan12/conest/issues/8) |
-
-自动补充发言、更长期的记忆和同伴共学可逐项迭代；首个展示不以无限扩展角色、讨论轮数或音色优化为前置。
-
-## 协作与边界
-
-- 普通聊天默认由目标伙伴处理；讨论不自动授予修改项目或派工权限。
-- 子 Agent 默认关闭，仅在本次真人明确授权后使用，由父 Agent 验收结果。
-- 项目工作按 **Issue → 独立分支 → PR → 验证／审核 → 合并** 推进；合并和部署分别记录。
-- 明确区分已实现、已部署、真人已验收；保留失败与限制，不用模型自述证明能力。
-- 生产凭据、完整对话、录音、模型权重与 CLI 登录态保留在本机，不提交到仓库。
-
-协作细则见 [CONTRIBUTING.md](CONTRIBUTING.md)；Agent 接手先读 [AGENTS.md](AGENTS.md) 和 [当前交接](docs/HANDOFF.md)。
-
-## 源码与开发入口
-
-[圆屏 UI 设计原型](prototypes/device-ui/README.md)：G哥“大头特写 / 全身铺满”及状态动画，可独立预览；包含素材来源、已确认设计约束和供其他 AI 审核重构的接手清单。此目录只模拟界面，未连接真实设备或语音服务。
-
-| 目录／文档 | 内容 |
+| Platform | What works today |
 | --- | --- |
-| [bridge/](bridge/) | Go 桥接、Discord 接入、会话、队列与 CLI 适配；保留 cc-connect 命令和 Go module 名称 |
-| [companion/](companion/) | Python 语音、共享记录、自主活动、日报和阅读页 |
-| [skills/](skills/) | 项目协作技能；模型切换技能随桥接嵌入 |
-| [目标与验收](docs/GOALS.md) | 产品定义、可观察的完成标准与阶段边界 |
-| [当前架构](docs/ARCHITECTURE.md) | 模块职责、实际数据流和已有约束 |
-| [能力状态](docs/STATUS.md) | 验证证据、部署状态及未完成项 |
-| [发言权](docs/FLOOR_CONTROL.md) | 默认单人回应、点名与一次补充的离线规则；尚未接入设备房间 |
-| [独立实例配置](docs/INSTANCE_SETUP.md) | 显式配置、实例隔离、旧部署兼容与恢复边界 |
+| Discord | The full team: call by name, handoffs, teammate status |
+| Self-hosted channel | A Discord-like web channel you can start on your own machine; several roles, call by name, handoffs |
+| Feishu (Lark) | One role chatting, for now |
+| DSH web | Coming soon |
 
-### 本地开发验证
+On the AI side: Claude Code, Codex, Gemini CLI, OpenCode and other CLIs you are already logged into work directly; agents that speak ACP, such as DSH, connect over ACP. You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek, MiniMax, a local model, any OpenAI-compatible endpoint); see the [matrix](docs/connect-discord-feishu.md#4-第三方-api--本机-cli) (Chinese).
 
-需要 Go（版本见 [go.mod](bridge/go.mod)）、Python 3.11+、uv 和支持 node:test 的 Node.js。以下命令验证源码，不启动生产服务，也不需要 Discord 凭据：
+## Three steps
 
-~~~sh
-mkdir -p .local
-cd companion
-uv sync --locked
-uv run python -m pytest -q
-node --test tests/test_voice_player.cjs
-cd ../bridge
-go build -tags no_web -o ../.local/cc-connect ./cmd/cc-connect
-go test -tags no_web ./...
-~~~
+1. **Install**: run the one-liner above.
+2. **Configure**: run `cc-connect`. In the wizard: pick a platform → connect the bots → pick a local CLI per role → persona → save. Or tell your Claude Code / Codex "set up cc-connect and connect it to Discord"; it asks for everything once and runs `cc-connect setup apply`.
+3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
 
-实际语音识别和合成另需 [语音依赖](companion/requirements-voice.txt)、[TTS 依赖](companion/requirements-tts.txt) 及本地模型；基础测试不下载模型。no_web 不包含上游网页控制台。历史 Go 测试问题及修复证据见 [基线记录](docs/GO_TEST_BASELINE.md)。
+To let an AI decide who should answer, and to add the shared wiki memory, add the gate and the wiki: see [ccm and wiki](docs/ccm-and-wiki.md) (Chinese). The full walkthrough is in [Getting started](docs/GETTING_STARTED.md) (Chinese).
 
-主分支已通过 [#2](https://github.com/Zssan12/conest/issues/2) 移除旧实例的隐式绑定，语音与活动需要明确配置角色、频道／会话、桥接和数据目录。按 [独立实例指南](docs/INSTANCE_SETUP.md) 准备配置与依赖，再按交接核对现有服务；拉取源码不会升级正在运行的实例。这一段只说语音与活动（companion）；只用 Discord／飞书里的 AI 伙伴，按上面的一行安装和向导即可。
+## Docs
 
-## Codex 手动压缩
+| Doc | What is in it |
+| --- | --- |
+| [Getting started](docs/GETTING_STARTED.md) | Install, wizard, check it is online (Chinese) |
+| [Connect Discord or Feishu](docs/connect-discord-feishu.md) | Every wizard step, let an AI configure it, third-party APIs (Chinese) |
+| [ccm and wiki](docs/ccm-and-wiki.md) | The gate (who answers) and the shared wiki memory (Chinese) |
+| [Teamwork details](bridge/MAOMAO.md) | Lead and subs, handoff rules, gate protocol |
+| [Self-hosted channel protocol](bridge/docs/cloud-web.md) | The interface between the channel and the plugin |
+| [Architecture](docs/ARCHITECTURE.md) | Modules and data flow (Chinese) |
+| [Development history](docs/archive/README-2026-10-21.md) | Pre-launch progress tables and milestones, archived (Chinese) |
 
-Codex 已有会话可用 /compact 或 /compress 调用原生压缩接口，普通聊天后端无需迁移。支持 /stop 取消，忙碌时拒绝并发操作；容量不足时先 /model 选择可用模型。见 [原生压缩说明](docs/CODEX_COMPACT.md)。此源码功能尚未部署到旧实例。
+Contributors: start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
-## 许可
+## License
 
-平台层按 [GNU Affero General Public License v3.0（AGPLv3）](LICENSE) 授权；适配器层按 [Apache-2.0](LICENSES/Apache-2.0.txt) 授权；各目录归属见 [许可说明](LICENSING.md)。
+bothouse is licensed under [MIT](LICENSE). See [LICENSING.md](LICENSING.md) (Chinese) for details.
 
-按 AGPLv3 第 7 条附加条款：修改版须在适当的法律声明中，以及界面上显眼的关于、法律、页脚或署名位置，保留署名 `Built on CoNest` 和原项目链接 <https://github.com/Zssan12/conest>，并按第 7(c) 条标出改动。
-
-`bridge/` 基于 [cc-connect](https://github.com/chenhg5/cc-connect)（MIT）开发，MIT 许可正文见 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)。
-
-如果你所在组织的政策不允许使用 AGPLv3 软件，或者想免除 AGPLv3 的开源义务，可以取得商业授权：请发邮件到 [2324465096@qq.com](mailto:2324465096@qq.com)。
-
-署名与依赖声明见 [NOTICE](NOTICE) 和 [第三方许可](THIRD-PARTY-LICENSES.md)。
-语音延迟排查与豆包专用合成模式见 [2026-10-21 核验](docs/VOICE_LATENCY_20261021.md)。配置 tts_backend=volc、tts_volc_credentials 与有效的默认 tts_voice；此模式不会加载或回退到本地 Qwen，各角色覆盖音色也必须是豆包音色。
+bothouse is a plugin for platforms such as [cc-connect](https://github.com/chenhg5/cc-connect) and DSH. For a one-command install, `bridge/` ships a copy of cc-connect; its MIT notice is kept in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to the cc-connect authors and contributors. Third-party dependency licenses are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).

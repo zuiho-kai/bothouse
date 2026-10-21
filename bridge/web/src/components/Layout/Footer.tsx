@@ -27,12 +27,12 @@ export default function Footer() {
       <span className="mx-1.5">·</span>
       {/* 项目署名 */}
       <a
-        href="https://github.com/zuiho-kai/conest"
+        href="https://github.com/zuiho-kai/bothouse"
         target="_blank"
         rel="noopener noreferrer"
         className="hover:text-accent transition-colors"
       >
-        Built on CoNest
+        Built on bothouse
       </a>
     </footer>
   );

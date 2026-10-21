@@ -1,16 +1,16 @@
-CoNest Notices
+bothouse Notices
 
-CoNest
-Copyright (c) 2026 zuiho-kai and CoNest contributors.
+bothouse
+Copyright (c) 2026 zuiho-kai and bothouse contributors.
 
-CoNest is licensed under the MIT License. See LICENSE for the full text and
+bothouse is licensed under the MIT License. See LICENSE for the full text and
 LICENSING.md for material that is not licensed by this project.
 
 ==== Upstream Notices ====
 
-CoNest is a plugin for platforms such as cc-connect and DSH. For a one-command
+bothouse is a plugin for platforms such as cc-connect and DSH. For a one-command
 install, bridge/ ships a copy of cc-connect (https://github.com/chenhg5/cc-connect),
-licensed under the MIT License, together with CoNest's plugin code. The MIT
+licensed under the MIT License, together with bothouse's plugin code. The MIT
 license text and copyright notice are in bridge/LICENSE-MIT-upstream and must
 be preserved.
 
