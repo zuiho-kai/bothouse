@@ -1,11 +1,122 @@
 package discord
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+func TestBoardBeforeConnectionAndAfterStop(t *testing.T) {
+	for _, stopped := range []bool{false, true} {
+		for _, operation := range []string{"remove", "upsert"} {
+			t.Run(fmt.Sprintf("stopped=%t/%s", stopped, operation), func(t *testing.T) {
+				p := &Platform{}
+				if stopped {
+					if err := p.Stop(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var err error
+				if operation == "remove" {
+					err = p.RemoveBoard(context.Background(), "discord:123:456", "789")
+				} else {
+					_, err = p.UpsertBoard(context.Background(), "discord:123:456", "789", "status")
+				}
+				if err == nil || !strings.Contains(err.Error(), "not connected") {
+					t.Fatalf("want retryable not-connected error, got %v", err)
+				}
+			})
+		}
+	}
+}
+
+// Exercise the real platform entry points and discordgo without network I/O.
+type boardREST struct {
+	calls atomic.Int64
+}
+
+func (r *boardREST) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.calls.Add(1)
+	if req.URL.Path != "/api/v9/channels/123/messages/789" {
+		return nil, fmt.Errorf("unexpected board request: %s %s", req.Method, req.URL.Path)
+	}
+	status, body := http.StatusOK, `{"id":"789","pinned":true}`
+	switch req.Method {
+	case http.MethodDelete:
+		status, body = http.StatusNoContent, ""
+	case http.MethodPatch:
+	default:
+		return nil, fmt.Errorf("unexpected board method: %s", req.Method)
+	}
+	return &http.Response{StatusCode: status, Header: make(http.Header),
+		Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+func TestBoardRetryAfterConnection(t *testing.T) {
+	p := &Platform{}
+	ctx := context.Background()
+	if err := p.RemoveBoard(ctx, "discord:123:456", "789"); err == nil {
+		t.Fatal("disconnected removal must remain retryable")
+	}
+	if _, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status"); err == nil {
+		t.Fatal("disconnected update must remain retryable")
+	}
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &boardREST{}
+	session.Client = &http.Client{Transport: transport}
+	p.mu.Lock()
+	p.session = session
+	p.mu.Unlock()
+	if err := p.RemoveBoard(ctx, "discord:123:456", "789"); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status"); err != nil || id != "789" {
+		t.Fatalf("connected update = (%q, %v)", id, err)
+	}
+	// Concurrent maintenance and shutdown must not race on p.session or panic.
+	var workers sync.WaitGroup
+	for range 2 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for range 100 {
+				err := p.RemoveBoard(ctx, "discord:123:456", "789")
+				if err != nil && !strings.Contains(err.Error(), "not connected") {
+					t.Errorf("remove during stop: %v", err)
+				}
+				_, err = p.UpsertBoard(ctx, "discord:123:456", "789", "status")
+				if err != nil && !strings.Contains(err.Error(), "not connected") {
+					t.Errorf("upsert during stop: %v", err)
+				}
+			}
+		}()
+	}
+	if err := p.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	workers.Wait()
+	calls := transport.calls.Load()
+	if err := p.RemoveBoard(ctx, "discord:123:456", "789"); err == nil {
+		t.Fatal("removal after stop must fail")
+	}
+	if _, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status"); err == nil {
+		t.Fatal("update after stop must fail")
+	}
+	if transport.calls.Load() != calls {
+		t.Fatal("stopped platform must not issue REST requests")
+	}
+}
 
 type stubBoardAPI struct {
 	editErr  error

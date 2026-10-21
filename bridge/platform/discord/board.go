@@ -32,7 +32,13 @@ func (p *Platform) RemoveBoard(ctx context.Context, sessionKey, messageID string
 	if err != nil {
 		return err
 	}
-	return removeBoard(p.session, rc.(replyContext).targetChannelID(), messageID, discordgo.WithContext(ctx))
+	// Maintenance can run before gateway readiness; check before converting
+	// the session to boardAPI, where a typed nil is a non-nil interface.
+	session := p.boardSession()
+	if session == nil {
+		return errors.New("discord: board: not connected")
+	}
+	return removeBoard(session, rc.(replyContext).targetChannelID(), messageID, discordgo.WithContext(ctx))
 }
 
 func removeBoard(api boardAPI, channelID, messageID string, options ...discordgo.RequestOption) error {
@@ -51,7 +57,11 @@ func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, conte
 	if err != nil {
 		return "", err
 	}
-	return upsertBoard(p.session, rc.(replyContext).targetChannelID(), messageID, content, discordgo.WithContext(ctx))
+	session := p.boardSession()
+	if session == nil {
+		return "", errors.New("discord: board: not connected")
+	}
+	return upsertBoard(session, rc.(replyContext).targetChannelID(), messageID, content, discordgo.WithContext(ctx))
 }
 
 func upsertBoard(api boardAPI, channelID, messageID, content string, options ...discordgo.RequestOption) (string, error) {

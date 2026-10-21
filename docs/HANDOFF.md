@@ -1,5 +1,13 @@
 # 共栖当前交接
 
+## 2026-10-22：Issue #13，Discord 连接未就绪时看板维护崩溃
+
+本机部署 main `c96c2ac` 时，Gateway 首次连接 EOF 后重试；十秒后的旧看板清理把 nil `*discordgo.Session` 转成非 nil 的 `boardAPI` 接口，在 discordgo REST 调用里崩溃。已自动回滚原二进制并核验五个桥接心跳及配置、会话、定时任务连续性。
+
+`RemoveBoard` / `UpsertBoard` 复用现有带锁 `boardSession()` 快照，并在接口转换前检查 nil；未连接时返回错误，核心保留原有重试和看板状态。没有禁用看板或增加 panic recover。回归 `TestBoardBeforeConnectionAndAfterStop` 在旧实现报 `panic: runtime error: invalid memory address or nil pointer dereference`，修后通过；另覆盖连接恢复后的真实 Platform→discordgo REST 路径和并发停止（HTTP transport 隔离，不发真实频道消息）。Discord 整包 race、核心 CUJ、目标 vet 和 no_web 全包构建已通过。本机 Go 沙箱全量唯一失败为 `TestSetupCLIsHint`（macOS 固定路径探测到真实 Claude CLI）；用 Go overlay 恢复未修改的生产源码后，单项同样失败。保留原始失败，未改向导、删测或放宽断言；最终 Ubuntu 全量与 CI 结果见 PR。
+
+同一 Codex 实现及自查，没有独立审核。此条只记录源码修复，部署须等待合入 main 后从 main 构建；本机切换结果、备份和真实模型验证边界写入 `/Users/zhaixinyang/yijiazi/docs/HANDOFF.md`。
+
 ## 2026-10-21 22:14 JST：龙娘接续 bothouse 软件仓库准备
 
 本分支关联 bothouse #1，同步 conest #8/#9 的自建平台组队修复，并补旧队长点名 ID 改动后的已有队员交回回归。MIT、中英首页、X/B 站脚本草稿转入软件仓库；未带回旧首页存档和不存在的视频，目标／状态／架构按软件定位整理。旧代码里的 3 轮／20 次接力限制早已移除，对外文案已纠正。
