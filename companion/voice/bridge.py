@@ -7,9 +7,10 @@ import socket
 
 
 class BridgeError(RuntimeError):
-    def __init__(self, message: str, status: int = 503):
+    def __init__(self, message: str, status: int = 503, *, not_sent: bool = False):
         super().__init__(message)
         self.status = status
+        self.not_sent = not_sent
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -36,6 +37,16 @@ class Bridge:
             response = connection.getresponse()
             raw = response.read(2_000_000)
             if response.status >= 400:
+                # Only the explicit private-relay admission contract proves
+                # non-submission. A generic 503 or lost response does not.
+                if (path == '/relay/send' and body is not None
+                        and body.get('mode') == 'voice' and response.status == 503):
+                    try:
+                        rejection = json.loads(raw)
+                    except (ValueError, UnicodeError):
+                        rejection = None
+                    if isinstance(rejection, dict) and rejection.get('submission') == 'not_sent':
+                        raise BridgeError('语音转发暂时无法接纳，本轮未发送。', 503, not_sent=True)
                 messages = {
                     404: '桥接没有此接口或会话。请核对部署与会话绑定。',
                     409: '原会话正忙或请求冲突；这条话没有被重新发送。',

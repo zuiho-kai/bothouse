@@ -8,6 +8,7 @@
 - 新工作使用 CONTRIBUTING.md 的 Issue→分支→PR→验证流程。桥接实现还须读 bridge/AGENTS.md；新项目流程以根目录规范为准，上游历史说明保留在 bridge/。
 - 默认自己完成任务。仅当前真人明确授权时按 skills/project-subagents/SKILL.md 派工；同一文件同一时间一名写者。使用独立 worktree 隔离并行写入，保护未提交工作。
 - 当前生产仍在旧目录。开发构建不是部署；操作运行配置、进程或真实频道前核对用户授权与唯一操作人，凭据和完整对话不得入库。
+- **发布只从 main 出**：部署的二进制必须由 main 上某个提交构建（版本号写该提交）。修复先走 PR 合进 main 再部署；不要在旧线上基线上单独回移补丁另开 release 分支，否则主线和线上会再次分叉（2026-10-21 曾分叉 29 个提交，靠整支合并才对齐）。紧急热修也先合 main，部署后在 HANDOFF 写明所用 main 提交。
 - 验收要求、测试沙箱和每晚追加的教训见 [docs/code-standards.md](docs/code-standards.md)，提交 PR 前按它自查。
 - 修复行为须有能复现原问题的回归验证；如实报告失败/跳过。初始导入的已知 Go 基线失败见 docs/GO_TEST_BASELINE.md，不据此放宽后续变更的验收。
 - 实质进展后更新 docs/HANDOFF.md；能力证据更新 docs/STATUS.md，用法更新 README，边界变化更新架构。任务进度以 Issue/PR 为准，不复制多份待办。

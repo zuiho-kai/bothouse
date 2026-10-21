@@ -22,6 +22,7 @@ from .bridge import BridgeError
 from .devices import DeviceRegistry, RoutingError
 from .floor import FloorControl, FloorError, HumanUtterance
 from .roles import voice_label
+from .recognition import prewarm, transcribe_request
 
 
 DEFAULT_LEASE_SECONDS = 30.0
@@ -332,11 +333,14 @@ class DeviceRoom:
                 self._release_slot(device_id, identifier)
 
     async def binding(self, device):
-        binding = await self.service.binding(device.project)
+        if self.service.roles[device.project].relay_project:
+            binding = await self.service.binding(device.project, device.device_id)
+        else:
+            binding = await self.service.binding(device.project)
         # setdefault occurs after I/O without another yield: simultaneous first
         # reads cannot both establish conflicting pins.
         pinned = self.bindings.setdefault(device.device_id, dict(binding))
-        if any(binding[k] != pinned[k] for k in ('session_id', 'agent_session_id')):
+        if any(binding[k] != pinned.get(k) for k in (('relay_key',) if 'relay_key' in binding else ('session_id', 'agent_session_id'))):
             raise BridgeError('原会话已变更，请核对后重启独立设备入口；不会自动改绑。', 409)
         return binding
 
@@ -585,6 +589,7 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
 
     @asynccontextmanager
     async def lifespan(app):
+        await prewarm(service.speech, settings.asr_prewarm)
         yield
         for record in room.records.values():
             record['stop_requested'] = True
@@ -630,11 +635,13 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
                     return JSONResponse({'detail': '页面已过期，请刷新。'}, 403)
             limit = 1_000_000 if request.url.path.endswith('/transcribe') else 32_000
             body = bytearray()
+            upload_started = time.monotonic()
             async for part in request.stream():
                 body.extend(part)
                 if len(body) > limit:
                     return JSONResponse({'detail': '输入过长；录音最多30秒。'}, 413)
             request._body = bytes(body)
+            request.state.upload_ms = round((time.monotonic() - upload_started) * 1000)
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -738,10 +745,8 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
             if service.transcribing:
                 raise HTTPException(409, '另一台设备正在识别，请稍后再录。')
             service.transcribing = True
-        started = time.monotonic()
         try:
-            text = await asyncio.to_thread(service.speech.transcribe, await request.body())
-            return {'text': text, 'elapsed_ms': round((time.monotonic() - started) * 1000)}
+            return await transcribe_request(service.speech, request)
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(422, str(exc)) from None
         finally:

@@ -19,6 +19,8 @@ cc-connect      # 第一次运行自动在浏览器打开安装向导；或让 A
 
 执行任务时的公开进展、Discord 任务卡及简短语音回执见[公开进展说明](docs/PUBLIC_PROGRESS.md)。可由主 bot 的置顶团队状态栏汇总本频道“进行中／待你处理”的任务卡链接，结束后移出入口并保留历史。同一任务可显式跨轮续卡；本地 task list/show 查询、task accept 记录真人明确验收，验收后保留完成状态。按项目启用，默认关闭；源码验证与生产验收分别记录。
 
+执行任务时的公开进展、Discord 任务卡及简短语音回执见[公开进展说明](docs/PUBLIC_PROGRESS.md)。按项目启用，默认关闭；源码验证与生产验收分别记录。
+
 ## 我们要交付什么
 
 指定伙伴代批所有类型工具权限的配置与留痕见[代批说明](docs/DELEGATED_PERMISSIONS.md)。默认关闭，按 bot 用户 ID 授权、按单次请求批准。
@@ -142,3 +144,4 @@ Codex 已有会话可用 /compact 或 /compress 调用原生压缩接口，普�
 如果你所在组织的政策不允许使用 AGPLv3 软件，或者想免除 AGPLv3 的开源义务，可以取得商业授权：请发邮件到 [2324465096@qq.com](mailto:2324465096@qq.com)。
 
 署名与依赖声明见 [NOTICE](NOTICE) 和 [第三方许可](THIRD-PARTY-LICENSES.md)。
+语音延迟排查与豆包专用合成模式见 [2026-10-21 核验](docs/VOICE_LATENCY_20261021.md)。配置 tts_backend=volc、tts_volc_credentials 与有效的默认 tts_voice；此模式不会加载或回退到本地 Qwen，各角色覆盖音色也必须是豆包音色。

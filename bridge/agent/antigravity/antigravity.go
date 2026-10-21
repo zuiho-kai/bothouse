@@ -174,6 +174,38 @@ func (a *Agent) SetSessionEnv(env []string) {
 }
 
 func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentSession, error) {
+	return a.startSessionWithEnv(ctx, sessionID, nil)
+}
+
+func (a *Agent) StartVoiceRelay(ctx context.Context, id string, env []string) (core.AgentSession, error) {
+	a.mu.Lock()
+	structured := a.streamJSON
+	a.mu.Unlock()
+	if !structured || id == core.ContinueSession {
+		return nil, fmt.Errorf("antigravity: voice relay requires structured transport and concrete identity")
+	}
+	s, err := a.startSessionWithEnv(ctx, id, env)
+	if err != nil {
+		return nil, err
+	}
+	// Do not send a prompt until native init acknowledges the conversation.
+	// CurrentSessionID initially contains the requested ID, not an acknowledgement.
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	select {
+	case event, open := <-s.Events():
+		if open && event.Type == core.EventText && event.Content == "" &&
+			event.SessionID != "" && (id == "" || event.SessionID == id) {
+			return s, nil
+		}
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	_ = s.Close()
+	return nil, fmt.Errorf("antigravity: voice conversation init not acknowledged; prompt not sent")
+}
+
+func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, sessionEnv []string) (core.AgentSession, error) {
 	a.mu.Lock()
 	model := a.model
 	mode := a.mode
@@ -185,7 +217,10 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	streamJSON := a.streamJSON
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
-	extraEnv = append(extraEnv, a.sessionEnv...)
+	if sessionEnv == nil {
+		sessionEnv = a.sessionEnv
+	}
+	extraEnv = append(extraEnv, sessionEnv...)
 	if a.activeIdx >= 0 && a.activeIdx < len(a.providers) {
 		if m := a.providers[a.activeIdx].Model; m != "" {
 			model = m

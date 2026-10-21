@@ -27,6 +27,7 @@ type StrictResumeSession interface {
 }
 
 type InputRequest struct {
+	Stream                 bool    `json:"stream,omitempty"`
 	RequestID              string  `json:"request_id"`
 	Project                string  `json:"project"`
 	SessionKey             string  `json:"session_key"`
@@ -37,7 +38,7 @@ type InputRequest struct {
 
 // Compare optional IDs by value: each HTTP retry decodes fresh pointers.
 func (r InputRequest) sameInput(other InputRequest) bool {
-	return r.RequestID == other.RequestID && r.Project == other.Project &&
+	return r.Stream == other.Stream && r.RequestID == other.RequestID && r.Project == other.Project &&
 		r.SessionKey == other.SessionKey && r.Text == other.Text &&
 		sameInputID(r.ExpectedSessionID, other.ExpectedSessionID) &&
 		sameInputID(r.ExpectedAgentSessionID, other.ExpectedAgentSessionID)
@@ -51,6 +52,7 @@ func sameInputID(a, b *string) bool {
 }
 
 type InputResult struct {
+	SpeechText     string `json:"speech_text,omitempty"`
 	RequestID      string `json:"request_id"`
 	Status         string `json:"status"`
 	Text           string `json:"text"`
@@ -81,9 +83,10 @@ type inputTurnResult struct {
 }
 
 type inputTurn struct {
-	expectedID string
-	once       sync.Once
-	complete   func(inputTurnResult)
+	expectedID   string
+	once         sync.Once
+	complete     func(inputTurnResult)
+	appendSpeech func(string)
 }
 
 func (t *inputTurn) finish(r inputTurnResult) {
@@ -245,6 +248,17 @@ func (s *APIServer) handleInput(w http.ResponseWriter, r *http.Request) {
 	}
 	s.inputs.entries[req.RequestID] = entry
 	turn := &inputTurn{expectedID: entry.result.AgentSessionID}
+	if req.Stream {
+		turn.appendSpeech = func(text string) {
+			s.inputs.mu.Lock()
+			defer s.inputs.mu.Unlock()
+			// Bound retained output, never evict/replay it. The consumer falls
+			// back to the terminal answer if no supported source emits deltas.
+			if entry.result.Status == "running" && len(entry.result.SpeechText)+len(text) <= 16384 {
+				entry.result.SpeechText += text
+			}
+		}
+	}
 	turn.complete = func(result inputTurnResult) {
 		s.inputs.mu.Lock()
 		defer s.inputs.mu.Unlock()

@@ -43,12 +43,13 @@ type acpSession struct {
 	outputMessageID string
 	outputTurn      privateOutputTurn
 
-	sendMu       sync.Mutex
-	inputMu      sync.Mutex
-	inputGuard   bool // suppress replay and notifications outside a strict prompt
-	inputActive  bool
-	inputErr     error
-	strictResume bool // immutable: cold start must never fall back to session/new
+	sendMu         sync.Mutex
+	inputMu        sync.Mutex
+	inputGuard     bool // suppress replay and notifications outside a strict prompt
+	inputActive    bool
+	inputErr       error
+	requireEndTurn bool // set before publishing a voice session; immutable thereafter
+	strictResume   bool // immutable: cold start must never fall back to session/new
 
 	permMu   sync.Mutex
 	permByID map[string]permState
@@ -734,9 +735,9 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 			err = s.inputErr
 		}
 		s.inputMu.Unlock()
-		if err == nil && (!validResult || result.StopReason != "end_turn") {
-			err = fmt.Errorf("acp: strict prompt did not complete successfully (%s)", result.StopReason)
-		}
+	}
+	if (strict || s.requireEndTurn) && err == nil && (!validResult || result.StopReason != "end_turn") {
+		err = fmt.Errorf("acp: prompt did not complete successfully (%s)", result.StopReason)
 	}
 	if err != nil {
 		s.emit(core.Event{Type: core.EventError, Error: err})

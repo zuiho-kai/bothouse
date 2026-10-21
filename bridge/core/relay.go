@@ -35,6 +35,7 @@ type RelayManager struct {
 	storePath  string                   // empty = no persistence
 	timeout    time.Duration
 	visibility string
+	voice      voiceRelayStore
 }
 
 func NewRelayManager(dataDir string) *RelayManager {
@@ -48,6 +49,7 @@ func NewRelayManager(dataDir string) *RelayManager {
 		rm.storePath = filepath.Join(dataDir, "relay_bindings.json")
 		rm.load()
 	}
+	rm.initVoiceRelay(dataDir)
 	return rm
 }
 
@@ -190,6 +192,9 @@ func (rm *RelayManager) ListBoundBots(chatID, selfProject string) map[string]str
 
 // RelayRequest is the payload for a relay send.
 type RelayRequest struct {
+	Mode       string `json:"mode,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+	Scope      string `json:"scope,omitempty"`
 	From       string `json:"from"`        // source project name
 	To         string `json:"to"`          // target project name
 	SessionKey string `json:"session_key"` // source session key (contains platform + chatID)

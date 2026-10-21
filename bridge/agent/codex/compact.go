@@ -24,7 +24,7 @@ func (a *Agent) compact(ctx context.Context, id string, settings *core.SessionSe
 	if id == "" || id == core.ContinueSession {
 		return fmt.Errorf("codex compact requires an existing thread")
 	}
-	snapshot, err := a.startSessionWith(ctx, id, true, settings)
+	snapshot, err := a.startSessionWith(ctx, id, true, settings, nil)
 	if err != nil {
 		return err
 	}

@@ -196,8 +196,9 @@ type appServerSession struct {
 	approvalsMu      sync.Mutex
 	pendingApprovals map[string]chan core.PermissionResult
 
-	threadID atomic.Value
-	alive    atomic.Bool
+	threadID   atomic.Value
+	alive      atomic.Bool
+	voiceFresh atomic.Bool // fresh voice thread may not have a rollout until its first turn
 
 	closeOnce sync.Once
 	wg        sync.WaitGroup

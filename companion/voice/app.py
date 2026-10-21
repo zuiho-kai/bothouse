@@ -27,6 +27,7 @@ from .memory import SharedMemory
 from .roles import Role, validate_roles, voice_label
 from .discussion import Discussions, DiscussionInput, AdvanceInput
 from .speech import _pcm_samples
+from .recognition import prewarm, transcribe_request
 
 
 class TurnInput(BaseModel):
@@ -58,7 +59,9 @@ class VoiceService:
     def __init__(self, settings: Settings, speech, bridge=None, roles=None):
         self.settings = settings
         self.check_bindings = roles is not None
-        roster = validate_roles(roles if roles is not None else [Role(settings.project, settings.role_name)], settings)
+        roster = validate_roles(roles if roles is not None else [Role(
+            settings.project, settings.role_name,
+            relay_project=settings.project if settings.require_isolated_voice else '')], settings)
         self.roles = {role.project: role for role in roster}
         self.submit_lock = asyncio.Lock()
         self.speech = speech
@@ -115,7 +118,10 @@ class VoiceService:
         async with self.submit_lock:
             return await self._submit(data)
 
-    async def binding(self, project: str) -> dict:
+    async def binding(self, project: str, scope: str = "desktop") -> dict:
+        if self.roles[project].relay_project:
+            from .relay import relay_binding
+            return await relay_binding(self, project, scope)
         query = urlencode({'project': project, 'session_key': self.settings.session_key})
         result = await asyncio.to_thread(self.bridge.call, '/input/bindings?' + query)
         if (result.get('project') != project or result.get('session_key') != self.settings.session_key
@@ -126,12 +132,14 @@ class VoiceService:
 
     async def role_status(self, role: Role) -> dict:
         result = {'id': role.project, 'name': role.name, 'voice_label': voice_label(self.settings, role)}
-        if self.check_bindings:
+        if self.check_bindings or role.relay_project:
             try:
                 binding = await self.binding(role.project)
                 result.update(available=not binding['busy'],
                               status='busy' if binding['busy'] else 'bound',
-                              detail='原会话正忙，请刷新状态。' if binding['busy'] else '已找到原会话；发送时严格核验续接。')
+                              detail=('独立语音会话正忙。' if binding['busy'] else '将使用独立语音会话。')
+                              if role.relay_project else
+                              ('原会话正忙，请刷新状态。' if binding['busy'] else '已找到原会话；发送时严格核验续接。'))
             except BridgeError as exc:
                 result.update(available=False, status='unavailable', detail=str(exc))
         return result
@@ -161,15 +169,18 @@ class VoiceService:
         if self.active or self.transcribing:
             raise HTTPException(409, '上一条消息仍在处理，请先等它结束。停止播放不会取消任务。')
         binding = None
-        if self.check_bindings:
+        if self.check_bindings or self.roles[data.project].relay_project:
             try:
-                binding = await self.binding(data.project)
+                if self.roles[data.project].relay_project:
+                    binding = await self.binding(data.project, device["device_id"] if device else "desktop")
+                else:
+                    binding = await self.binding(data.project)
             except BridgeError as exc:
                 raise HTTPException(422, '本轮未发送。' + str(exc)) from None
             if binding['busy']:
                 raise HTTPException(409, '这位伙伴的原会话正忙；本轮未发送，也不会排队。')
-            if expected_binding and any(binding[k] != expected_binding[k]
-                                        for k in ('session_id', 'agent_session_id')):
+            if expected_binding and any(binding[k] != expected_binding.get(k)
+                                        for k in (('relay_key',) if 'relay_key' in binding else ('session_id', 'agent_session_id'))):
                 raise HTTPException(409, '伙伴会话已变更，讨论停止；本轮尚未发送。')
         if discussion and self.discussions.get(discussion['discussion_id'])['stop_requested']:
             raise HTTPException(409, '已停止讨论，本轮尚未发送。')
@@ -212,15 +223,18 @@ class VoiceService:
     def output_stopped(self, turn: dict) -> bool:
         return self.discussion_stopped(turn) or bool(turn.get('_device', {}).get('stop_requested'))
 
-    async def synthesize_stream(self, turn: dict, options: dict) -> bytes:
+    async def synthesize_stream(self, turn: dict, options: dict, *, text=None, append=False) -> bytes:
         """Publish immutable chunks on the event loop while the worker continues."""
         loop = asyncio.get_running_loop()
         accepting = threading.Event()
         accepting.set()
         received: list[tuple[bytes, int]] = []
         total_bytes, total_frames = 0, 0
-        turn.update(audio_chunks=[], audio_complete=False)
-        self.audio_chunks[turn['id']] = []
+        if not append or 'audio_chunks' not in turn:
+            turn.update(audio_chunks=[], audio_complete=False)
+            self.audio_chunks[turn['id']] = []
+        base_index = len(turn['audio_chunks'])
+        existing_frames = sum(round(c['duration_seconds'] * 24000) for c in turn['audio_chunks'])
 
         def publish(index, audio, frames):
             if (not accepting.is_set() or turn['status'] != 'synthesizing'
@@ -233,6 +247,8 @@ class VoiceService:
                 'index': index, 'audio_url': f"/api/turn/{turn['id']}/audio/chunks/{index}",
                 'duration_seconds': frames / 24000,
             })
+            if text is not None and index == base_index:
+                turn['audio_chunks'][-1]['text'] = text
             if index == 0:
                 turn['timings']['tts_first_chunk_ms'] = round((time.monotonic() - turn['_tts_started']) * 1000)
 
@@ -243,20 +259,20 @@ class VoiceService:
             frames = len(_pcm_samples(audio, rate=24000, max_bytes=15_000_000, max_seconds=300))
             total_bytes += len(audio)
             total_frames += frames
-            if len(received) >= 512 or total_bytes > 15_000_000 or total_frames > 24000 * 300:
+            if base_index + len(received) >= 512 or total_bytes > 15_000_000 or existing_frames + total_frames > 24000 * 300:
                 raise ValueError('stream exceeds bounds')
-            index = len(received)
+            index = base_index + len(received)
             received.append((audio, frames))
             loop.call_soon_threadsafe(publish, index, audio, frames)
 
         try:
-            audio = await asyncio.to_thread(self.speech.synthesize_stream, turn['spoken_text'], receive, **options)
+            audio = await asyncio.to_thread(self.speech.synthesize_stream, turn['spoken_text'] if text is None else text, receive, **options)
             frames = len(_pcm_samples(audio, rate=24000, max_bytes=15_000_000, max_seconds=300))
             if not received or frames != total_frames:
                 raise ValueError('incomplete stream')
             # Drain any already-delivered callbacks before exposing completion.
-            for index in range(len(turn['audio_chunks']), len(received)):
-                publish(index, *received[index])
+            for index in range(len(turn['audio_chunks']) - base_index, len(received)):
+                publish(base_index + index, *received[index])
             return audio
         finally:
             # A cancelled task cannot publish late worker data into a new turn.
@@ -264,6 +280,7 @@ class VoiceService:
 
     async def run(self, turn: dict):
         request_id = 'voice-' + turn['id']
+        sentences = None
         try:
             if turn.get('_device', {}).get('stop_requested'):
                 turn.update(status='stopped')
@@ -271,37 +288,50 @@ class VoiceService:
             if turn.get('discussion_id') and self.discussions.get(turn['discussion_id'])['stop_requested']:
                 turn.update(status='error', error='已停止讨论，本轮尚未发送。')
                 return
-            body = {
-                'request_id': request_id, 'project': turn['project'],
-                'session_key': self.settings.session_key, 'text': turn['prompt'],
-            }
-            if expected := turn.get('_binding'):
-                body.update(expected_session_id=expected['session_id'],
-                            expected_agent_session_id=expected['agent_session_id'])
-            try:
-                await asyncio.to_thread(self.bridge.call, '/input', body)
-            except BridgeError as exc:
-                if exc.status < 500:
-                    raise
-                turn['notice'] = str(exc)
-            while True:
+            if self.roles[turn['project']].relay_project:
+                from .relay import relay_turn
+                result = await relay_turn(self, turn, request_id)
+            else:
+                body = {
+                    'request_id': request_id, 'project': turn['project'],
+                    'session_key': self.settings.session_key, 'text': turn['prompt'],
+                }
+                if expected := turn.get('_binding'):
+                    body.update(expected_session_id=expected['session_id'],
+                                expected_agent_session_id=expected['agent_session_id'])
+                if (self.settings.sentence_stream and expected and
+                        callable(getattr(self.speech, 'synthesize_stream', None))):
+                    from .sentence_stream import SentenceSpeech
+                    role = self.roles[turn['project']]
+                    options = {'voice': role.tts_voice} if role.tts_voice is not None else {}
+                    sentences = SentenceSpeech(self, turn, request_id, options)
+                    body['stream'] = True
                 try:
-                    result = await asyncio.to_thread(self.bridge.call, '/input/' + request_id)
+                    await asyncio.to_thread(self.bridge.call, '/input', body)
                 except BridgeError as exc:
-                    if exc.status == 404:
-                        raise BridgeError('桥接没有保存这条请求的回执。执行结果未知，请先在 Discord 核对，勿盲目重发。', 404) from None
-                    turn['notice'] = '与桥接暂时断开，仍在等待原请求回执；不会重复投递。'
-                    await asyncio.sleep(2)
-                    continue
-                if result.get('status') in {'completed', 'silent', 'failed', 'rejected'}:
-                    break
-                await asyncio.sleep(0.4)
+                    if exc.status < 500:
+                        raise
+                    turn['notice'] = str(exc)
+                while True:
+                    try:
+                        result = await asyncio.to_thread(self.bridge.call, '/input/' + request_id)
+                    except BridgeError as exc:
+                        if exc.status == 404:
+                            raise BridgeError('桥接没有保存这条请求的回执。执行结果未知，请先在 Discord 核对，勿盲目重发。', 404) from None
+                        turn['notice'] = '与桥接暂时断开，仍在等待原请求回执；不会重复投递。'
+                        await asyncio.sleep(2)
+                        continue
+                    if result.get('status') in {'completed', 'silent', 'failed', 'rejected'}:
+                        break
+                    if sentences:
+                        await sentences.feed(result)
+                    await asyncio.sleep(0.4)
             turn.pop('notice', None)
             turn['timings']['agent_ms'] = round((time.monotonic() - turn['started']) * 1000)
             turn['session_id'] = result.get('session_id', '')
             turn['agent_session_id'] = result.get('agent_session_id', '')
             expected = turn.get('_binding')
-            if expected and (result.get('request_id') != request_id
+            if expected and 'relay_key' not in expected and (result.get('request_id') != request_id
                              or result.get('session_id') != expected['session_id']
                              or result.get('agent_session_id') != expected['agent_session_id']):
                 raise BridgeError('原会话或回执编号发生变化；本轮不播放，请核对伙伴会话后再继续。', 422)
@@ -313,6 +343,20 @@ class VoiceService:
             if turn.get('_device', {}).get('stop_requested'):
                 turn.update(status='stopped')
                 return
+            if sentences:
+                await sentences.feed(result, final=True)
+                audio = await sentences.finish()
+                if sentences.blocked:
+                    turn['speech_truncated'] = True
+                    if audio is None:
+                        raise BridgeError('回答包含不适合逐句朗读的内容，请查看文字结果。', 422)
+                if audio is not None:
+                    self.audio[turn['id']] = audio
+                    turn.update(audio_url='/api/turn/' + turn['id'] + '/audio',
+                                status='stopped' if self.output_stopped(turn) else 'ready',
+                                audio_complete=not self.output_stopped(turn))
+                    turn['timings']['tts_ms'] = round((time.monotonic()-turn['_tts_started'])*1000)
+                    return
             turn['spoken_text'] = spoken_answer(turn['text'])
             turn['status'] = 'synthesizing'
             tts_start = time.monotonic()
@@ -345,6 +389,8 @@ class VoiceService:
             turn['status'] = 'error'
             turn['error'] = '语音入口遇到错误；原任务可能已送达，请先核对 Discord。'
         finally:
+            if sentences:
+                await sentences.close()
             turn['timings']['total_ms'] = round((time.monotonic() - turn['started']) * 1000)
             self.active = None
             self.last_turn[turn['project']] = turn['id']
@@ -399,6 +445,12 @@ def build_service(settings: Settings, speech=None, bridge=None, roles=None) -> V
         if settings.tts_backend == 'qwen3':
             from .neural_tts import NeuralTTS
             tts = NeuralTTS(settings.tts_python, settings.tts_model_path, settings.tts_voice)
+        if settings.tts_backend == 'volc':
+            from .volc_tts import VolcTTS
+            tts = VolcTTS(settings.tts_volc_credentials, default_voice=settings.tts_voice)
+        elif settings.tts_volc_credentials:
+            from .volc_tts import HybridTTS, VolcTTS
+            tts = HybridTTS(tts, VolcTTS(settings.tts_volc_credentials))
         speech = Speech(settings.model_path, settings.voice, tts=tts)
     return VoiceService(settings, speech, bridge, roles)
 
@@ -409,6 +461,7 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
 
     @asynccontextmanager
     async def lifespan(app):
+        await prewarm(speech, settings.asr_prewarm)
         yield
         for task in list(service.tasks):
             task.cancel()
@@ -431,11 +484,13 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
                 return JSONResponse({'detail': '页面已过期，请刷新后重试。'}, 403)
             limit = 1_000_000 if request.url.path == '/api/transcribe' else 32_000
             body = bytearray()
+            upload_started = time.monotonic()
             async for part in request.stream():
                 body.extend(part)
                 if len(body) > limit:
                     return JSONResponse({'detail': '输入过长；录音最多30秒。'}, 413)
             request._body = bytes(body)
+            request.state.upload_ms = round((time.monotonic() - upload_started) * 1000)
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -459,11 +514,8 @@ def create_app(settings: Settings, speech=None, bridge=None, roles=None) -> Fast
             if service.transcribing or service.active or service.discussions.active:
                 raise HTTPException(409, '上一条消息仍在处理，请稍后录音。')
             service.transcribing = True
-        started = time.monotonic()
         try:
-            body = await request.body()
-            text = await asyncio.to_thread(service.speech.transcribe, body)
-            return {'text': text, 'elapsed_ms': round((time.monotonic() - started) * 1000)}
+            return await transcribe_request(service.speech, request)
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(422, str(exc)) from None
         except Exception:

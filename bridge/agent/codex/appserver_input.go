@@ -54,6 +54,9 @@ func (s *appServerSession) PrepareResumed(expectedID string) error {
 	if expectedID == "" || s.CurrentSessionID() != expectedID {
 		return fmt.Errorf("codex live session binding changed")
 	}
+	if s.voiceFresh.Load() {
+		return nil // exact thread/start acknowledgement, never a resume fallback
+	}
 	return validateInputResume(expectedID, s.inputCodexHome())
 }
 
@@ -73,6 +76,7 @@ func (s *appServerSession) SendResumed(prompt, messageID string, images []core.I
 		return fmt.Errorf("codex turn already running; strict input refused")
 	}
 	st := &appServerStrictTurn{thread: expectedID}
+	s.voiceFresh.Store(false)
 	s.strict = st
 	s.pendingMsgs = s.pendingMsgs[:0]
 	s.stateMu.Unlock()

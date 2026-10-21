@@ -116,6 +116,31 @@ def test_reject_duplicate_chunks(engine):
             engine.transcribe(replace_u32(duplicate, 4, len(duplicate) - 8))
 
 
+def test_startup_warmup_reuses_model_without_changing_recognition(engine, backend):
+    first = engine.warmup()
+    assert first["cached"] is False
+    samples = backend.transcribe.call_args.args[0]
+    assert samples.shape == (16000,) and not samples.any()
+    assert backend.transcribe.call_args.kwargs["sample_len"] == 1
+    assert engine.warmup()["cached"] is True
+    assert backend.transcribe.call_count == 1
+    assert engine.transcribe(wav()) == "你好，世界。"
+    backend.importer.assert_called_once()
+    assert "sample_len" not in backend.transcribe.call_args.kwargs
+    assert "temperature" not in backend.transcribe.call_args.kwargs
+
+
+def test_failed_warmup_can_retry_and_concurrent_warmups_run_once(engine, backend):
+    backend.transcribe.side_effect = RuntimeError("private backend error")
+    with pytest.raises(RuntimeError):
+        engine.warmup()
+    backend.transcribe.side_effect = None
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: engine.warmup(), range(4)))
+    assert sum(not result["cached"] for result in results) == 1
+    assert backend.transcribe.call_count == 2
+
+
 def test_accept_unknown_padded_chunk(engine):
     original = wav()
     extended = original[:12] + b"JUNK\x01\x00\x00\x00x\x00" + original[12:]
@@ -353,3 +378,12 @@ def test_real_local_say_and_whisper(monkeypatch):
         "cache_directory": str(speech._cache_directory()),
     }, ensure_ascii=False))
     assert "语音测试" in recognized and "读书" in recognized
+
+
+def test_asr_timings_are_per_request_without_changing_inference(engine, backend):
+    text, timings = engine.transcribe_timed(wav())
+    assert text == '你好，世界。'
+    assert timings['audio_ms'] == 200
+    assert set(timings) == {'audio_ms', 'validation_ms', 'queue_ms', 'setup_ms', 'inference_ms', 'total_ms'}
+    assert all(isinstance(v, int) and v >= 0 for v in timings.values())
+    assert backend.transcribe.call_count == 1

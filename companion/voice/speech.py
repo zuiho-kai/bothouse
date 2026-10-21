@@ -22,6 +22,7 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
 
 import numpy as np
 
@@ -135,6 +136,7 @@ class Speech:
             raise ValueError("音色名称无效，请使用已安装的系统音色，例如 Tingting。")
         self.voice = voice
         self._transcribe_fn = None
+        self._asr_warmed = False
         self.tts = tts
 
     def close(self):
@@ -142,6 +144,33 @@ class Speech:
             self.tts.close()
 
     def transcribe(self, wav_bytes: bytes) -> str:
+        return self.transcribe_timed(wav_bytes)[0]
+
+    def warmup(self) -> dict:
+        """Initialize local ASR before serving; discard all synthetic output.
+
+        Use the same process-wide lock and model cache as real recognition.
+        One silent second runs the encoder/decoder without a microphone, TTS,
+        bridge request, or temperature fallback. Normal decoding is unchanged.
+        """
+        started = time.monotonic()
+        with _ASR_LOCK:
+            path = str(_resolve_model_path(self.model_path))
+            if self._asr_warmed:
+                return {"cached": True, "total_ms": 0}
+            if self._transcribe_fn is None:
+                self._transcribe_fn = importlib.import_module("mlx_whisper").transcribe
+            self._transcribe_fn(
+                np.zeros(16000, dtype=np.float32), path_or_hf_repo=path,
+                language="zh", task="transcribe", verbose=None,
+                condition_on_previous_text=False, temperature=0.0, sample_len=1,
+            )
+            self._asr_warmed = True
+        return {"cached": False, "total_ms": round((time.monotonic() - started) * 1000)}
+
+    def transcribe_timed(self, wav_bytes: bytes) -> tuple[str, dict]:
+        # Per-call timings, never a shared "last result" which races requests.
+        started = time.monotonic()
         samples = _pcm_samples(wav_bytes, rate=16000, max_bytes=MAX_WAV_BYTES,
                                max_seconds=MAX_AUDIO_SECONDS)
         # Remove DC for the energy test. A constant offset is not audible speech.
@@ -150,12 +179,15 @@ class Speech:
         active_samples = int(np.count_nonzero(np.abs(centered) >= 0.003))
         if rms < 0.001 or active_samples < 160:  # -60 dBFS / 10 ms activity floor
             raise ValueError("音频为空、静音或音量过低，请靠近麦克风后重试。")
+        queued = time.monotonic()
         with _ASR_LOCK:
+            acquired = time.monotonic()
             # Recheck even after warm-up: upstream downloads when a path is missing.
             path = str(_resolve_model_path(self.model_path))
             try:
                 if self._transcribe_fn is None:
                     self._transcribe_fn = importlib.import_module("mlx_whisper").transcribe
+                infer_started = time.monotonic()
                 result = self._transcribe_fn(
                     samples, path_or_hf_repo=path, language="zh", task="transcribe",
                     verbose=None, condition_on_previous_text=False,
@@ -170,7 +202,15 @@ class Speech:
                 raise RuntimeError("本地语音识别失败，请重试或检查本地模型。") from exc
         if not text.strip():
             raise ValueError("未识别到可用语音，请重新录音。")
-        return text.strip()
+        ended = time.monotonic()
+        return text.strip(), {
+            'audio_ms': round(len(samples) / 16),
+            'validation_ms': round((queued-started)*1000),
+            'queue_ms': round((acquired-queued)*1000),
+            'setup_ms': round((infer_started-acquired)*1000),
+            'inference_ms': round((ended-infer_started)*1000),
+            'total_ms': round((ended-started)*1000),
+        }
 
     def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
         encoded = _validate_tts_text(text)

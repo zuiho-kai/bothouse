@@ -5696,6 +5696,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 
 		switch event.Type {
+		case EventSpeechText:
+			// Never present these again in platform text/history: the ordinary
+			// EventText/Result stream owns those. Require concrete source ID.
+			if input != nil && input.appendSpeech != nil && event.SessionID == input.expectedID {
+				if state.agentSession.CurrentSessionID() != input.expectedID {
+					input.finish(inputTurnResult{err: fmt.Errorf("speech source binding changed")})
+					return
+				}
+				input.appendSpeech(event.Content)
+			}
+
 		case EventThinking:
 			if isEllipsisOnly(event.Content) {
 				break
@@ -6211,7 +6222,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 			handlingSince.Store(0) // waiting on the user is not a stuck handler
-			<-pending.Resolved
+			// Engine.Stop joins event workers after cancelling the engine.
+			// A user may never answer this prompt, and closing the agent
+			// cannot wake a goroutine waiting on a different channel.
+			select {
+			case <-pending.Resolved:
+			case <-stopCh:
+				return
+			case <-e.ctx.Done():
+				return
+			}
+			if e.ctx.Err() != nil || state.isStopped() {
+				return
+			}
 			handlingSince.Store(time.Now().UnixNano())
 			slog.Info("permission resolved", "request_id", event.RequestID)
 

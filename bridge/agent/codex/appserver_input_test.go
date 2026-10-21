@@ -54,6 +54,9 @@ func TestHelperFakeAppServer(t *testing.T) {
 		}
 		reply := func(result any) { send(map[string]any{"id": req.ID, "result": result}) }
 		switch req.Method {
+		case "thread/start":
+			thread = "voice-fresh-thread"
+			reply(map[string]any{"thread": map[string]any{"id": thread}, "model": "m"})
 		case "thread/resume":
 			if req.Params["excludeTurns"] != true {
 				send(map[string]any{"id": req.ID, "error": map[string]any{"code": -32602, "message": "resume must exclude turns"}})
@@ -79,7 +82,7 @@ func TestHelperFakeAppServer(t *testing.T) {
 			reply(map[string]any{"turn": map[string]any{"id": turn}})
 			notify("turn/started", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn}})
 			switch scenario {
-			case "hang", "steer":
+			case "hang", "steer", "steer-child":
 				continue // stays running until steered
 			case "idle-only":
 				notify("thread/status/changed", map[string]any{"threadId": thread, "status": map[string]any{"type": "idle"}})
@@ -101,6 +104,14 @@ func TestHelperFakeAppServer(t *testing.T) {
 			notify("thread/status/changed", map[string]any{"threadId": thread, "status": map[string]any{"type": "idle"}})
 		case "turn/steer":
 			reply(map[string]any{})
+			if scenario == "steer-child" {
+				// A child is created while the parent handles the inserted input.
+				notify("thread/status/changed", map[string]any{"threadId": "child", "status": map[string]any{"type": "idle"}})
+				notify("turn/started", map[string]any{"threadId": "child", "turn": map[string]any{"id": "child-turn"}})
+				notify("item/completed", map[string]any{"threadId": "child", "turnId": "child-turn", "item": map[string]any{"type": "agentMessage", "text": "child-only result"}})
+				completed("child", "child-turn", "completed")
+			}
+
 			turn, _ := req.Params["expectedTurnId"].(string)
 			notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "agentMessage", "text": "steered"}})
 			completed(thread, turn, "completed")
@@ -256,6 +267,28 @@ func TestLocalInputAppServerBusyTurnRefused(t *testing.T) {
 
 func TestAppServerSendStillSteersMidTurn(t *testing.T) {
 	a, log := fakeAppServerAgent(t, "steer")
+	as, err := a.StartSession(context.Background(), inputThreadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer as.Close()
+	if err := as.Send("first", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := as.Send("more", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	ev, text := inputReadTerminal(t, as)
+	if ev.Type != core.EventResult || text != "steered" {
+		t.Fatalf("event=%+v text=%q", ev, text)
+	}
+	if data, _ := os.ReadFile(log); strings.Count(string(data), "turn/steer\n") != 1 || strings.Count(string(data), "turn/start\n") != 1 {
+		t.Fatalf("rpc log: %s", data)
+	}
+}
+
+func TestAppServerSendSteersWithChildLifecycle(t *testing.T) {
+	a, log := fakeAppServerAgent(t, "steer-child")
 	as, err := a.StartSession(context.Background(), inputThreadID)
 	if err != nil {
 		t.Fatal(err)

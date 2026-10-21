@@ -33,6 +33,8 @@ PublicProgress 的生命周期锁串行化 begin、首条续接、报告、结�
 
 roles.py 定义允许接入的项目与音色，VoiceService按project保存上一轮播放反馈并在提交/回执处核对绑定。TTS共用worker，音色作为每次合成参数传递。ACP适配器新增严格续接接口，冷恢复失败不new、加载回放不输出、错会话更新和非end_turn不成功；RPC读取边界关闭本轮事件窗口。具体协议与验证见[MULTI_VOICE.md](MULTI_VOICE.md)。core仍只依赖能力接口，不按厂商名路由。
 
+显式 roles[].relay_project 可以选择独立语音会话，复用 /relay/send 的 mode=voice、持久化回执与现有TTS。空字段保留严格接续；不是422自动回退。独立上下文按来源/目标/完整频道键/设备隔离，恢复失败不new，见[独立语音转发](VOICE_PRIVATE_RELAY.md)。
+
 语音轮次写入 voice/memory.py 管理的共享记录。同一伙伴接续原会话；其他伙伴按需查阅。语音使用隔离的输出通道，正文不再次作为 Discord 消息发送。没有会话恢复证据时应报告失败，而不是悄悄开一个新角色替代。
 
 voice/discussion.py在单轮VoiceService之上管理有界讨论：开始时冻结全部伙伴绑定，两轮及总结，每段播放完成/明确跳过才派发下一轮；共同的提交锁和讨论占位排斥单人输入。停止不取消已送达CLI任务，需等待原回执再释放占位。前文以带作者的资料传给下一位，事件带discussion_id与阶段；完整合同见[语音讨论](VOICE_DISCUSSION.md)。

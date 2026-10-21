@@ -112,6 +112,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/cron/exec", s.handleCronExec)
 	s.mux.HandleFunc("/cron/run", s.handleCronExec)
 	s.mux.HandleFunc("/relay/send", s.handleRelaySend)
+	s.mux.HandleFunc("/relay/voice/", s.handleVoiceRelay)
 	s.mux.HandleFunc("/relay/bind", s.handleRelayBind)
 	s.mux.HandleFunc("/relay/binding", s.handleRelayBinding)
 
@@ -777,8 +778,28 @@ func (s *APIServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req RelayRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxInputBodyBytes)).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Mode == "voice" {
+		result, code, err := s.relay.submitVoice(req)
+		if err != nil {
+			// Admission 503s occur before the worker is launched. Transport errors
+			// carry no such proof and clients must still resolve them by receipt.
+			var notSent *voiceNotSubmittedError
+			if code == http.StatusServiceUnavailable && errors.As(err, &notSent) {
+				apiJSON(w, code, map[string]any{"error": err.Error(), "submission": "not_sent"})
+				return
+			}
+			inputHTTPError(w, code, err)
+			return
+		}
+		apiJSON(w, code, result)
+		return
+	}
+	if req.Mode != "" {
+		inputHTTPError(w, 400, fmt.Errorf("unknown relay mode"))
 		return
 	}
 	if req.To == "" || req.Message == "" || req.SessionKey == "" {

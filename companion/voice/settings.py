@@ -45,14 +45,22 @@ class Settings:
     model_path: str = ''
     voice: str = 'Tingting'
     tts_backend: str = 'say'
+    asr_prewarm: bool = False
+    require_isolated_voice: bool = False
     tts_python: str = ''
     tts_model_path: str = ''
     tts_voice: str = 'uncle_fu'
+    tts_volc_credentials: str = ''  # 私密 JSON；角色音色是火山音色 ID 时走云端合成
+    sentence_stream: bool = False
     port: int = 8787
     data_dir: str = ''
     shared_memory_dir: str = ''
 
     def validate(self) -> 'Settings':
+        if not isinstance(self.asr_prewarm, bool):
+            raise ValueError('asr_prewarm 必须为布尔值')
+        if not isinstance(self.require_isolated_voice, bool):
+            raise ValueError('require_isolated_voice 必须为布尔值')
         missing = [
             f'{field}（{desc}）'
             for field, desc in REQUIRED_BINDINGS
@@ -60,7 +68,8 @@ class Settings:
         ]
         if missing:
             raise ValueError('语音实例缺少显式配置绑定：' + '、'.join(missing) + '。请核对配置文件，不会回退到旧实例。')
-        for field in ('session_label', 'voice', 'tts_backend', 'tts_python', 'tts_model_path', 'tts_voice'):
+        for field in ('session_label', 'voice', 'tts_backend', 'tts_python', 'tts_model_path', 'tts_voice',
+                      'tts_volc_credentials'):
             if not isinstance(getattr(self, field, None), str):
                 raise ValueError(f'{field} 必须为字符串')
         for field in ('session_label', 'voice', 'tts_voice'):
@@ -68,8 +77,14 @@ class Settings:
                 raise ValueError(f'{field} 必须为非空字符串')
         if isinstance(self.port, bool) or not isinstance(self.port, int) or not 1024 <= self.port <= 65535:
             raise ValueError('port 必须在 1024—65535 之间')
-        if self.tts_backend not in {'say', 'qwen3'}:
-            raise ValueError('tts_backend 必须为 say 或 qwen3。')
+        if not isinstance(self.sentence_stream, bool):
+            raise ValueError('sentence_stream 必须为布尔值')
+        if self.tts_backend not in {'say', 'qwen3', 'volc'}:
+            raise ValueError('tts_backend 必须为 say、qwen3 或 volc。')
+        if self.tts_backend == 'volc':
+            from .roles import VOLC_VOICE
+            if not self.tts_volc_credentials.strip() or not VOLC_VOICE.fullmatch(self.tts_voice):
+                raise ValueError('豆包专用模式需要凭据路径和豆包默认音色，禁止回落本地合成。')
         return self
 
     @classmethod

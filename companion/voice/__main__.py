@@ -33,6 +33,9 @@ def main():
         if settings.tts_backend == 'qwen3':
             from .neural_tts import NeuralTTS
             tts = NeuralTTS(settings.tts_python, settings.tts_model_path, args.speaker or settings.tts_voice)
+        elif settings.tts_backend == 'volc':
+            from .volc_tts import VolcTTS
+            tts = VolcTTS(settings.tts_volc_credentials, default_voice=args.speaker or settings.tts_voice)
         speech = Speech(settings.model_path, settings.voice, tts=tts)
         started = time.monotonic()
         try:
