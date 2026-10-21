@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
+import { color, PALETTE } from './theme.ts'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -22,14 +23,6 @@ export interface ChannelsInjected extends ChannelActions {
 export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS>
 
 type T = TranslateNS<typeof NS>
-
-const PALETTE = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22']
-
-function color(id: string): string {
-  let h = 7
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return PALETTE[h % PALETTE.length] as string
-}
 
 function Avatar({ id, name, small }: { id: string; name: string; small?: boolean }) {
   return (

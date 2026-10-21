@@ -123,7 +123,7 @@
   height: 36px;
   border-radius: 50%;
   corner-shape: round;
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted));
   font-weight: 700;
 }
 
@@ -155,7 +155,7 @@
 .tag {
   padding: 0 4px;
   border-radius: var(--dsw-radius-xs);
-  color: var(--dsw-alias-label-primary-inverted);
+  color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted));
   background: var(--dsw-alias-state-business-primary);
   font-size: 10px;
   font-weight: 600;
@@ -348,7 +348,7 @@
   border: 2px solid var(--dsw-alias-bg-layer-2);
   border-radius: 50%;
   corner-shape: round;
-  background: #23a55a;
+  background: var(--dsw-alias-state-success-primary);
 }
 
 .offline .presence {
@@ -512,7 +512,7 @@
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgb(0 0 0 / 0.45);
+  background: var(--dsw-alias-overlay-backdrop, rgb(0 0 0 / 0.45));
 }
 
 .dialog {
@@ -562,7 +562,7 @@
 
 .primaryButton {
   border: 0;
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted));
   background: var(--dsw-alias-state-business-primary);
 }
 
