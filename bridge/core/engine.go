@@ -370,7 +370,7 @@ func (c TaskCardCfg) withDefaults() TaskCardCfg {
 }
 
 // TaskCardCfg — when a turn gets a task card and how the gateway keeps it alive.
-// Zero value = defaults (see defaultTaskCardCfg); set a field negative to turn it off.
+// Zero value = defaults (see TaskCardCfg.withDefaults); set a field negative to turn it off.
 type TaskCardCfg struct {
 	OpenAfter  time.Duration // opt-in: also open a card once a turn runs this long (default off; tool calls always open one)
 	Heartbeat  time.Duration // refresh the running card this often, with no model cooperation
@@ -6007,6 +6007,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// with a handoff for the next message. The turn is not re-run.
 			// A strict voice-input turn (input != nil) must finish on its bound
 			// thread, as at turn start.
+			// The tool is no longer in flight. This is outside the tool_messages branch on
+			// purpose: with tool_messages = false the result is not appended, but the card
+			// must still stop naming the tool it was showing while it ran.
+			cp.ToolDone()
 			if input == nil {
 				if notice := e.freshOnImageBloatMidTurn(replyAgent, session); notice != "" {
 					sessions.Save()

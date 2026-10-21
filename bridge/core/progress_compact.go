@@ -353,6 +353,7 @@ func SuppressStandaloneToolResultEvent(p Platform) bool {
 }
 
 // progressClock is the card's clock (tests speed it up to simulate long silent calls).
+// It is package state, not per-writer, so tests that swap it must not run in parallel.
 var progressClock = time.Now
 
 // progressCardMaxEntries — maomao fork: the card shows one refreshed line, like a progress bar (upstream 10).
@@ -791,6 +792,19 @@ func (w *compactProgressWriter) Heartbeat(openAfter time.Duration) bool {
 
 // Opened reports whether the card message exists.
 func (w *compactProgressWriter) Opened() bool { return w != nil && w.handle != nil }
+
+// ToolDone clears the tool in flight. Called on every tool result, whether or not
+// tool_messages shows the result: with tool_messages = false the result never reaches
+// AppendStructured, so without this the card kept naming a tool that had already returned.
+func (w *compactProgressWriter) ToolDone() {
+	if w == nil || w.current == "" {
+		return
+	}
+	w.current = ""
+	if w.live.heartbeat {
+		w.live = w.liveState()
+	}
+}
 
 // Active reports whether this writer renders progress in place (maomao fork).
 func (w *compactProgressWriter) Active() bool {

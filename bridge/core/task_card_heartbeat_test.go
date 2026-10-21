@@ -225,3 +225,43 @@ func TestTaskCardHeartbeat_BashGetsCardAtOnce(t *testing.T) {
 		t.Fatalf("step line = %q", got)
 	}
 }
+
+// A tool that has already returned must not stay "current" when tool_messages = false:
+// the result is not appended in that mode, so the card has to clear the name itself.
+func TestTaskCardHeartbeat_CurrentClearedWhenToolMessagesHidden(t *testing.T) {
+	key := "discord:cleared"
+	e, p, as, state := newHeartbeatTestEngine(t, key)
+	e.display.ToolMessages = false
+	e.display.TaskCard = TaskCardCfg{OpenAfter: 20 * time.Millisecond, Heartbeat: 20 * time.Millisecond, StallAfter: time.Hour}
+	session := e.sessions.GetOrCreateActive(key)
+	go func() {
+		as.events <- Event{Type: EventToolUse, ToolName: "Bash", ToolInput: "sleep 1"}
+		time.Sleep(120 * time.Millisecond)
+		as.events <- Event{Type: EventToolResult, ToolName: "Bash", Content: "ok"}
+		time.Sleep(1300 * time.Millisecond) // tool done, turn still running
+		as.events <- Event{Type: EventText, Content: "好了"}
+		as.events <- Event{Type: EventResult, Content: "好了", Done: true}
+	}()
+	e.processInteractiveEvents(state, session, e.sessions, key, "m13", time.Now(), nil, nil, state.replyCtx)
+
+	var sawTool, leaked bool
+	for _, pl := range heartbeatPayloads(p) {
+		if !pl.Heartbeat || pl.State != ProgressCardStateRunning {
+			continue
+		}
+		if pl.Current == "Bash" {
+			sawTool = true
+		}
+		// a beat after the tool returned: idle >= 1s means the tool result already arrived
+		if pl.IdleSec >= 1 && pl.Current != "" {
+			leaked = true
+			t.Errorf("heartbeat still names %q after the tool returned (idle %ds)", pl.Current, pl.IdleSec)
+		}
+	}
+	if !sawTool {
+		t.Fatalf("no heartbeat ever named the running tool; payloads = %+v", heartbeatPayloads(p))
+	}
+	if leaked {
+		t.Fatalf("stale current leaked past the tool result")
+	}
+}
