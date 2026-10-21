@@ -72,6 +72,7 @@ type Platform struct {
 	leadReturned               sync.Map    // maomao fork: trigger message ID → time the reply was routed back to the lead
 	token                      string
 	allowFrom                  string
+	permissionApprovers        []string
 	allowBots                  string            // maomao fork: bot user IDs whose @-mentions of this bot are accepted
 	allowBotsFile              *allowBotsFile    // maomao fork: more allowed bot/webhook IDs, one per line; see allow_bots_file.go
 	teamLead                   string            // maomao fork: bot ID of the team lead; a reply to its @ is routed back to it (lead_return.go)
@@ -123,6 +124,10 @@ func New(opts map[string]any) (core.Platform, error) {
 	allowBotsFilePath, _ := opts["allow_bots_file"].(string)
 	teamLead, _ := opts["team_lead_bot"].(string)
 	core.CheckAllowFrom("discord", allowFrom)
+	approvers, err := parsePermissionApprovers(opts["permission_approvers"])
+	if err != nil {
+		return nil, err
+	}
 	guildID, _ := opts["guild_id"].(string)
 	var groupReplyAllGuilds []string
 	if guilds, _ := opts["group_reply_all_guilds"].(string); guilds != "" {
@@ -145,6 +150,9 @@ func New(opts map[string]any) (core.Platform, error) {
 		}
 	}
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
+	if len(approvers) > 0 && !shareSessionInChannel {
+		return nil, fmt.Errorf("discord: permission_approvers requires share_session_in_channel=true")
+	}
 	threadIsolation, _ := opts["thread_isolation"].(bool)
 	respondToAtEveryoneAndHere, _ := opts["respond_to_at_everyone_and_here"].(bool)
 	// Default to "compact" so streaming edits work out of the box (Discord
@@ -196,6 +204,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	base := &Platform{
 		token:                      token,
 		allowFrom:                  allowFrom,
+		permissionApprovers:        approvers,
 		allowBots:                  allowBots,
 		allowBotsFile:              newAllowBotsFile(allowBotsFilePath),
 		teamLead:                   teamLead,
@@ -748,7 +757,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
 	// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
 	fromBot := m.Author.Bot
-	if fromBot && !p.botAllowed(m.Author.ID) {
+	if fromBot && !p.botAllowed(m.Author.ID) && !p.CanApprovePermission(m.Author.ID) {
 		return
 	}
 	if core.IsOldMessage(m.Timestamp) {
@@ -786,6 +795,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 		m.ReferencedMessage = nil // its quote is already in the channel history
 	}
+	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.botID))
 	m.Content = teamRoleMentions(m.Content, m.GuildID, p.botID) // maomao fork: <@&teammate role> → <@teammate>
 	replyAll := false
 	if m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
@@ -856,6 +866,16 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		UserID:    m.Author.ID, UserName: m.Author.Username,
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
 		Mentioned: mentioned, FromBot: fromBot,
+	}
+	// Consume explicit approvals before bot labels, batching or the gate.
+	if fromBot && strings.HasPrefix(approvalContent, "/permit") {
+		if m.WebhookID == "" && mentioned && p.CanApprovePermission(m.Author.ID) {
+			if key, decision, ok := parsePermissionDecision(approvalContent); ok {
+				msg.Content, msg.PermissionApprovalID, msg.IsPermissionResponse = decision, key, true
+				p.dispatchMessage(msg)
+			}
+		}
+		return
 	}
 	msg.ChatName, _ = p.ResolveChannelName(m.ChannelID)
 	if fromBot {

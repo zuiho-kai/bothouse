@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-21 Issue #204：指定 bot 按具体请求代批所有类型工具权限。单一 Codex 实现/自查，无独立 reviewer。Discord 配置 permission_approvers，需共享频道会话；名单与可信授权说明来自操作者配置。随机请求编号隔离后端重复 ID，跨频道/过期/并发/多个 cron/适配器失败均受控，真人按钮保留；不代答偏好问答。回归含真实 Gateway 入口和核心 ReceiveMessage CUJ，目标 race/vet 通过。全量 Go 首轮只有向导中文断言受宿主 LC_ALL 覆盖 LANG 失败；清除 LC_ALL/LC_MESSAGES 后 cmd 包全部通过，未修改向导源码或测试。源码未部署，发布及真实验证看统一运行交接。详见 DELEGATED_PERMISSIONS.md。
+
 2026-10-21：PR #198 易用性（分支 feat/onboarding-ux）。新人和 AI 的装、配、上线现在只有一条路：
 - 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 暂不支持。
 - 配：没有配置时运行 `cc-connect`，会自动打开向导并在终端打印链接；SSH 下给出 `ssh -L` 命令。AI 用 `cc-connect setup apply`，见 AGENTS.md 文末一节。

@@ -781,6 +781,7 @@ type modelSwitchState struct {
 
 // pendingPermission represents a permission request waiting for user response.
 type pendingPermission struct {
+	ApprovalID      string // random per-request key; never reuse backend request IDs
 	RequestID       string
 	ToolName        string
 	ToolInput       map[string]any
@@ -3686,6 +3687,13 @@ func (e *Engine) handlePendingPermission(p Platform, msg *Message, content strin
 	if iKey == "" {
 		iKey = e.interactiveKeyForSessionKey(msg.SessionKey)
 	}
+	if msg.FromBot && msg.PermissionApprovalID != "" {
+		state, pending := e.lookupDelegatedPending(iKey, msg.PermissionApprovalID)
+		if pending == nil {
+			return true
+		}
+		return e.handleDelegatedPermission(p, msg, state, pending, content)
+	}
 
 	state, pending := e.lookupPending(iKey)
 
@@ -3729,6 +3737,10 @@ func (e *Engine) handlePendingPermission(p Platform, msg *Message, content strin
 		return false
 	}
 found:
+
+	if msg.FromBot {
+		return e.handleDelegatedPermission(p, msg, state, pending, content)
+	}
 
 	lower := strings.ToLower(strings.TrimSpace(content))
 	if len(pending.Questions) == 0 && !isApproveAllResponse(lower) && !isAllowResponse(lower) && !isDenyResponse(lower) {
@@ -6164,6 +6176,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			)
 
 			pending := &pendingPermission{
+				ApprovalID:   newPermissionApprovalID(),
 				RequestID:    event.RequestID,
 				ToolName:     event.ToolName,
 				ToolInput:    event.ToolInputRaw,
@@ -6187,7 +6200,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				toolInput := truncateIf(event.ToolInput, permLimit)
 				prompt := fmt.Sprintf(e.i18n.T(MsgPermissionPrompt), event.ToolName, toolInput)
-				e.sendPermissionPrompt(permissionPlatform, replyCtx, prompt, event.ToolName, toolInput)
+				e.sendPermissionPrompt(permissionPlatform, replyCtx, e.delegatedPermissionPrompt(permissionPlatform, pending, prompt), event.ToolName, toolInput)
 			}
 
 			// Stop idle timer while waiting for user permission response;

@@ -735,6 +735,7 @@ name = "my-backend"
 # team_status_inject = true        # Main bot only: start each turn with the teammates' status.
 #                                  # 只给主 bot：每轮开头附上队友状态。
 # Discord options for main + subs go under [projects.platforms.options]:
+#   permission_approvers = "111111111111111111,222222222222222222" # 所有工具类型的代批 bot ID；须共享频道会话，默认关闭
 # 一主多 sub 的 Discord 选项写在 [projects.platforms.options]：
 #   allow_bots = "<the other bots' user IDs, comma-separated>"   # 队友 bot 的用户 ID：@ 我 → 开一轮；没 @ → 只当上下文
 #   team_lead_bot = "<main bot user ID>"                          # 两个 sub 互相 @ 超过 3 轮交给主 bot
