@@ -2,9 +2,9 @@
 
 ## 2026-10-22：Issue #8，停止/继续后端草稿（G哥，未部署）
 
-分支 feat/8-room-stop-continue；仅实现 dsh/collab 后端，不改其他人的组件/数据源。新增 owner 登录保护的 stop/continue POST，保留 Web UI inbox、撤回频道输入、5 秒取消等待上限、已停止文案、持久房间暂停/接力预算、cloud_web 旧输出隔离。接口和暂停语义见 dsh/collab/README.md。schema 3→4 升级在事务中执行，旧版本回滚需要数据库备份。
+草稿 PR #20，分支 feat/8-room-stop-continue；后端实现提交 2fb951753a2871574dc4f7615c1b6c16e2afbc7d。仅实现 dsh/collab 后端，不改其他人的组件/数据源。新增 owner 登录保护的 stop/continue POST，保留 Web UI inbox、撤回频道输入、5 秒取消等待上限、已停止文案、持久房间暂停/接力预算、cloud_web 旧输出隔离。接口和暂停语义见 dsh/collab/README.md。schema 3→4 升级在事务中执行，旧版本回滚需要数据库备份。
 
-实际验证：Node v26.11.1 下后端 40/40（含本地 HTTP 入口、SQLite 重开、取消超时、迟到回复、外部 bot 接力）；现有前端数据源/提及 vitest 11/11。开发中回归先失败：已 claimed 未记 user/message 时 cancellation 次数 0≠1；重复 continue 将 relay_after 改成 3≠2，修后均通过。Go 全量检查仍在运行，结果补到 PR，不能视为已通过。
+实际验证：Node v26.11.1 下后端 40/40（含本地 HTTP 入口、SQLite 重开、取消超时、迟到回复、外部 bot 接力）；现有前端数据源/提及 vitest 11/11。开发中回归先失败：已 claimed 未记 user/message 时 cancellation 次数 0≠1；重复 continue 将 relay_after 改成 3≠2，修后均通过。Go 全量命令 go test -tags no_web -p 1 -count=1 ./... 已结束，退出码 1：46 包通过、cmd/cc-connect 1 包失败、6 包无测试；唯一失败 TestSetupCLIsHint，macOS 固定路径探测到真实 CLI，与下面 Issue #13 记录一致。相对基线 bridge/ 无差异，未修改或跳过该测试，不能记为全量通过。
 
 这是作者自查，没有独立审核。DSH Agent 和 WebSocket 使用测试替身，未在真实 DSH host/模型或浏览器验收。前端停止/继续按钮等待 #6 组件结构，在同一 PR 补齐；Issue #8 未完成。所有 PR 等 owner 审核，禁止合并、部署。
 
