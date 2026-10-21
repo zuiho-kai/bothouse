@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TAG: v0.1.0-rc14
-      TARGET: 0e61a31ed4facef59f15d17a7c542b152ac05f39
+      TAG: v0.1.0-rc15
+      TARGET: ec1e078d5b8840f009bc8479ed4838d3020dc46e
       GH_TOKEN: "${{ github.token }}"
       GH_REPO: "${{ github.repository }}"
     steps:
@@ -36,6 +36,10 @@ jobs:
         corepack prepare pnpm@10.34.7 --activate
         pnpm install --frozen-lockfile --ignore-scripts
         pnpm run build
+    - name: Bundle the self-hosted platform (hub) source
+      # 同 release.yml：向导「在本机启动」从二进制里起 hub（bridge/internal/rhhub）
+      working-directory: bridge
+      run: make hubsrc
     - name: Build binaries
       working-directory: bridge
       run: |
@@ -87,8 +91,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     env:
-      TAG: v0.1.0-rc14
-      TARGET: 0e61a31ed4facef59f15d17a7c542b152ac05f39
+      TAG: v0.1.0-rc15
+      TARGET: ec1e078d5b8840f009bc8479ed4838d3020dc46e
       GH_TOKEN: "${{ github.token }}"
     steps:
     - name: Download the release (instead of the artifact)
@@ -118,8 +122,8 @@ jobs:
     permissions:
       contents: read
     env:
-      TAG: v0.1.0-rc14
-      TARGET: 0e61a31ed4facef59f15d17a7c542b152ac05f39
+      TAG: v0.1.0-rc15
+      TARGET: ec1e078d5b8840f009bc8479ed4838d3020dc46e
       GH_TOKEN: "${{ github.token }}"
       CONEST_REPO: "${{ github.repository }}"
     steps:
