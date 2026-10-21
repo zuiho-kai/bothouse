@@ -325,6 +325,24 @@ type MessageUpdater interface {
 	UpdateMessage(ctx context.Context, replyCtx any, content string) error
 }
 
+// SelfMentioner is an optional interface for platforms whose bot can be addressed with a
+// mention (e.g. "<@id>"). Empty means the bot's identity is not known yet.
+type SelfMentioner interface {
+	SelfMention() string
+}
+
+// ChatPoster is an optional interface for platforms that can post a plain message into the chat
+// of sessionKey, honouring ctx, that pings only mentionUser (a SelfMention value). Used for voice
+// desk hand-offs, which must not be rerouted or decorated like ordinary replies.
+// An error wrapping ErrPostOutcomeUnknown means the message may have been delivered (e.g. the
+// connection broke after the request went out); callers must not resend it blindly.
+type ChatPoster interface {
+	PostToChat(ctx context.Context, sessionKey, content, mentionUser string) error
+}
+
+// ErrPostOutcomeUnknown marks a ChatPoster failure after the request may have reached the platform.
+var ErrPostOutcomeUnknown = errors.New("post outcome unknown")
+
 // BoardPoster is an optional interface for platforms that can keep one live
 // message per chat and edit it in place (used by the team "who is doing what"
 // board). messageID is the board's previous message ("" = none yet); the

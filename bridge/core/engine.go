@@ -434,6 +434,7 @@ type Engine struct {
 	tiers                        *modelTiers // maomao fork: gate-driven chat/task model switching (nil = off)
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
+	voiceDesk                    voiceDeskState                // maomao fork: voice desk (voice_desk.go)
 	team                         *teamState                    // maomao fork: team status board (nil = off)
 	board                        *channelBoardHub              // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)

@@ -285,7 +285,15 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 			return "", err
 		}
 	}
-	prompt := withSubagentPolicy(req.Message, "", true)
+	deskKey := voiceDeskKey(req)
+	// Taken before sending: a proposal is confirmed only by the very next message, and a failed
+	// or cancelled turn drops it rather than carrying it forward.
+	pending, confirmed := e.voiceDeskTake(deskKey, voiceUserText(req))
+	var toSend *voicePending
+	if confirmed {
+		toSend = &pending
+	}
+	prompt := withSubagentPolicy(e.withVoiceDesk(req.Message), "", true)
 	send := func() error { return session.Send(prompt, req.RequestID, nil, nil) }
 	if strict, ok := session.(StrictResumeSession); ok && session.CurrentSessionID() != "" {
 		id := session.CurrentSessionID()
@@ -354,7 +362,8 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 				if err := saveID(session.CurrentSessionID(), agent.Name()); err != nil {
 					return "", err
 				}
-				return answer, nil
+				// Hand-offs run only after a successful terminal answer; never on partial or failed turns.
+				return e.finishVoiceDesk(ctx, deskKey, answer, toSend), nil
 			case EventError:
 				return "", fmt.Errorf("relay backend failed")
 			case EventPermissionRequest:

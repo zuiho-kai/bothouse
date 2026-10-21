@@ -199,6 +199,8 @@ type RelayRequest struct {
 	To         string `json:"to"`          // target project name
 	SessionKey string `json:"session_key"` // source session key (contains platform + chatID)
 	Message    string `json:"message"`
+	// UserText (voice mode) is the speaker's own words without the entry prompt in Message.
+	UserText string `json:"user_text,omitempty"`
 }
 
 // RelayResponse is the result of a relay send.

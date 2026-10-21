@@ -556,6 +556,9 @@ type ProjectConfig struct {
 	MemoryIndex string `toml:"memory_index,omitempty"`
 	// TeamBoard (lead only) keeps one live "who is doing what" message per channel, edited in place.
 	TeamBoard bool `toml:"team_board,omitempty"`
+	// VoiceDesk (maomao fork): voice turns see every teammate's progress and may hand an explicitly
+	// confirmed instruction to a teammate in its channel (core/voice_desk.go). Default off.
+	VoiceDesk bool `toml:"voice_desk,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who
