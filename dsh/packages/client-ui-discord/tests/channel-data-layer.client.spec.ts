@@ -408,3 +408,107 @@ describe('channel data layer: reconciliation safety', () => {
     stop()
   })
 })
+
+describe('channel data layer: review fixes', () => {
+  /** Two rooms, and POST answers the test releases itself. */
+  function twoRoomHarness() {
+    const rooms = [{ id: 1, name: 'one' }, { id: 2, name: 'two' }]
+    const posts: { room: number; client_key?: string; text?: string }[] = []
+    const releases: ((body: unknown, status: number) => void)[] = []
+    const hub = new FakeEventSourceHub()
+    const transport: ChannelTransport = {
+      fetch: (input, init) => {
+        if (input.endsWith('collab/api/state')) return Promise.resolve(json(200, { rooms, members: [], thinking: {} }))
+        if (init?.method === 'POST') {
+          const room = Number(/rooms\/(\d+)\/messages/.exec(input)?.[1])
+          posts.push({ room, ...(JSON.parse(String(init.body)) as { client_key?: string; text?: string }) })
+          return new Promise<Response>(resolve => {
+            releases.push((body, status) => resolve(json(status, body)))
+          })
+        }
+        if (input.includes('/messages')) {
+          const query = new URL(input, 'http://host/').searchParams
+          const limit = Number(query.get('limit') ?? 100)
+          return Promise.resolve(json(200, { messages: Array.from({ length: 1 }, (_, i) => message(i + 1, 'm', 1)).slice(-limit) }))
+        }
+        return Promise.resolve(json(404, { error: 'unexpected' }))
+      },
+      openEvents: hub.openEvents,
+      url: path => `/${path}`,
+      delay: () => Promise.resolve(),
+      random: () => 1,
+    }
+    return { hub, transport, posts, releases }
+  }
+
+  it('tags each outbox message with its room and only shows it there', async () => {
+    const { hub, transport } = twoRoomHarness()
+    const { channel, stop } = await ready(transport, hub)
+
+    const sending = channel.actions.send('for room one')
+    await settle(2)
+    expect(channel.source.getSnapshot().outbox).toHaveLength(1)
+    expect(channel.source.getSnapshot().outbox[0]?.roomId).toBe(1)
+    const key = channel.source.getSnapshot().outbox[0]!.clientKey
+
+    // Room two must not show room one's pending message.
+    await channel.actions.selectRoom(2)
+    expect(channel.source.getSnapshot().outbox).toHaveLength(0)
+    // And a retry from the wrong room must not post to the wrong room.
+    await expect(channel.actions.retrySend(key)).rejects.toThrow()
+
+    await channel.actions.selectRoom(1)
+    expect(channel.source.getSnapshot().outbox).toHaveLength(1)
+    stop()
+    void sending.catch(() => undefined)
+  })
+
+  it('clears rows deleted while offline when the re-read page comes back empty', async () => {
+    const { rows, hub, transport } = harness([message(1, 'a'), message(2, 'b')])
+    const { channel, stop } = await ready(transport, hub)
+    expect(channel.source.getSnapshot().messages).toHaveLength(2)
+
+    // Everything the client held was deleted while it was offline.
+    rows.length = 0
+    hub.drop()
+    await settle()
+    expect(hub.open()).toBe(true)
+    await settle()
+
+    expect(channel.source.getSnapshot().messages).toHaveLength(0)
+    stop()
+  })
+
+  it('does not start a second page request while one is in flight', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => message(index + 51, `m${String(index + 51)}`))
+    const older = Array.from({ length: 50 }, (_, index) => message(index + 1, `m${String(index + 1)}`))
+    const base = harness([...older, ...firstPage])
+    let paged = 0
+    let release: (() => void) | undefined
+    const transport: ChannelTransport = {
+      ...base.transport,
+      fetch: (input, init) => {
+        if (input.includes('before=') ) {
+          paged += 1
+          if (paged === 1) {
+            return new Promise<Response>(resolve => {
+              release = () => resolve(json(200, { messages: older }))
+            })
+          }
+        }
+        return base.transport.fetch(input, init)
+      },
+    }
+    const { channel, stop } = await ready(transport, base.hub)
+
+    const first = channel.actions.loadOlder()
+    await settle(2)
+    const second = await channel.actions.loadOlder()
+
+    expect(second).toBe(0)
+    expect(paged).toBe(1)
+    release?.()
+    await first
+    stop()
+  })
+})

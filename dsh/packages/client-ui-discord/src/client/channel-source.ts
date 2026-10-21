@@ -67,6 +67,8 @@ export interface ChannelRoom {
 export interface OutboxMessage {
   /** Idempotency key sent as `client_key`; a retry reuses it so the service dedupes. */
   readonly clientKey: string
+  /** Room the message belongs to; it is shown and retried only in this room. */
+  readonly roomId: number
   readonly text: string
   readonly state: 'sending' | 'failed'
   /** Why the last attempt failed; set only when `state` is `failed`. */
@@ -86,7 +88,7 @@ export interface ChannelSnapshot {
   readonly messages: readonly ChannelMessage[]
   /** True while `loadOlder` can still page further back in the selected room. */
   readonly hasMoreOlder: boolean
-  /** Messages shown before the service confirmed them, newest last. */
+  /** The selected room's messages shown before the service confirmed them, newest last. */
   readonly outbox: readonly OutboxMessage[]
 }
 
@@ -197,10 +199,19 @@ export function createChannelSource(transport: ChannelTransport): {
   let attempt = 0
   /** Identifies the scheduled retry, so a stop() or a newer retry cancels it. */
   let reconnectToken: object | undefined
+  /** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
+  let outbox: OutboxMessage[] = []
+  /** One page-back request at a time, so repeated clicks cannot reorder history. */
+  let paging = false
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
     for (const listener of listeners) listener()
+  }
+
+  /** Re-publishes the outbox, narrowed to the selected room. */
+  const publishOutbox = (): void => {
+    set({ outbox: outbox.filter(entry => entry.roomId === snapshot.roomId) })
   }
 
   const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -292,12 +303,12 @@ export function createChannelSource(transport: ChannelTransport): {
             )
             if (!current()) return
             for (const row of known) merged.set(row.id, row)
-            const windowFrom = known[0]?.id
-            if (windowFrom !== undefined) {
-              const present = new Set(known.map(row => row.id))
-              for (const id of [...merged.keys()]) {
-                if (id >= windowFrom && id <= newest && !present.has(id)) merged.delete(id)
-              }
+            // An empty page is authoritative too: it means nothing exists below
+            // `newest`, so every held row was deleted while the client was offline.
+            const windowFrom = known.length === 0 ? Number.NEGATIVE_INFINITY : known[0]!.id
+            const present = new Set(known.map(row => row.id))
+            for (const id of [...merged.keys()]) {
+              if (id >= windowFrom && id <= newest && !present.has(id)) merged.delete(id)
             }
           }
           rows.push(...[...merged.values()].sort((a, b) => a.id - b.id))
@@ -326,6 +337,7 @@ export function createChannelSource(transport: ChannelTransport): {
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, messages: rows, hasMoreOlder,
+        outbox: outbox.filter(entry => entry.roomId === roomId),
       }
       for (const event of read.events) next = applyEvent(next, event)
       pending = undefined
@@ -337,8 +349,8 @@ export function createChannelSource(transport: ChannelTransport): {
     }
   }
 
-  const selectRoom = async (roomId: number): Promise<void> => {
-    set({ roomId, messages: [] })
+  const selectRoom = async (selected: number): Promise<void> => {
+    set({ roomId: selected, messages: [], outbox: outbox.filter(entry => entry.roomId === selected) })
     await refresh(false)
   }
 
@@ -416,6 +428,7 @@ export function createChannelSource(transport: ChannelTransport): {
     lifetime = undefined
     reconnectToken = undefined
     attempt = 0
+    paging = false
     pending?.controller.abort()
     pending = undefined
     if (stream !== undefined) {
@@ -429,7 +442,7 @@ export function createChannelSource(transport: ChannelTransport): {
 
   const source: ObservableSnapshot<ChannelSnapshot> = {
     getSnapshot: () => snapshot,
-    subscribe(listener) {
+    subscribe(listener: () => void) {
       listeners.add(listener)
       if (lifetime === undefined) {
         lifetime = {}
@@ -447,13 +460,14 @@ export function createChannelSource(transport: ChannelTransport): {
    * first (design §4.3). A retry reuses the key, so the service dedupes a
    * resend whose first attempt actually landed.
    */
-  const post = async (clientKey: string, text: string): Promise<void> => {
-    const roomId = snapshot.roomId
+  const post = async (roomId: number, clientKey: string, text: string): Promise<void> => {
     const owner = lifetime
-    if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
+    if (owner === undefined) throw new Error('No channel is open')
     const show = (state: OutboxMessage['state'], error?: string): void => {
-      const rest = snapshot.outbox.filter(entry => entry.clientKey !== clientKey)
-      set({ outbox: [...rest, { clientKey, text, state, ...(error === undefined ? {} : { error }) }] })
+      outbox = [...outbox.filter(entry => entry.clientKey !== clientKey), {
+        clientKey, roomId, text, state, ...(error === undefined ? {} : { error }),
+      }]
+      publishOutbox()
     }
     show('sending')
     try {
@@ -463,7 +477,8 @@ export function createChannelSource(transport: ChannelTransport): {
         body: JSON.stringify({ text, client_key: clientKey }),
       })
       if (lifetime !== owner) return
-      set({ outbox: snapshot.outbox.filter(entry => entry.clientKey !== clientKey) })
+      outbox = outbox.filter(entry => entry.clientKey !== clientKey)
+      publishOutbox()
       onEvent({ type: 'message', message })
     } catch (error) {
       if (lifetime === owner) show('failed', error instanceof Error ? error.message : String(error))
@@ -474,15 +489,22 @@ export function createChannelSource(transport: ChannelTransport): {
   const actions: ChannelActions = {
     selectRoom,
     async send(text) {
-      await post(crypto.randomUUID(), text)
+      const roomId = snapshot.roomId
+      if (roomId === undefined) throw new Error('No channel is open')
+      await post(roomId, crypto.randomUUID(), text)
     },
     async retrySend(clientKey) {
-      const entry = snapshot.outbox.find(row => row.clientKey === clientKey)
-      if (entry === undefined) return
-      await post(entry.clientKey, entry.text)
+      const roomId = snapshot.roomId
+      const entry = outbox.find(row => row.clientKey === clientKey)
+      // A message is retried only in the room it was written for, never elsewhere.
+      if (entry === undefined || roomId === undefined || entry.roomId !== roomId) {
+        throw new Error('That message does not belong to the selected channel')
+      }
+      await post(entry.roomId, entry.clientKey, entry.text)
     },
     dismissSend(clientKey) {
-      set({ outbox: snapshot.outbox.filter(entry => entry.clientKey !== clientKey) })
+      outbox = outbox.filter(entry => entry.clientKey !== clientKey)
+      publishOutbox()
     },
     async createRoom(name) {
       const { room } = await request<{ room: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
@@ -507,19 +529,26 @@ export function createChannelSource(transport: ChannelTransport): {
       const owner = lifetime
       const oldest = snapshot.messages[0]?.id
       if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
+      // One page at a time: a second overlapping read could interleave pages.
+      if (paging) return 0
       if (oldest === undefined || !snapshot.hasMoreOlder) return 0
-      const { messages } = await request<{ messages: ChannelMessage[] }>(
-        `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
-      )
-      if (lifetime !== owner) return 0
-      // Older rows and rows already on screen are one ordered set keyed by id.
-      const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
-      for (const row of messages) merged.set(row.id, row)
-      set({
-        messages: [...merged.values()].sort((a, b) => a.id - b.id),
-        hasMoreOlder: messages.length >= PAGE_SIZE,
-      })
-      return messages.length
+      paging = true
+      try {
+        const { messages } = await request<{ messages: ChannelMessage[] }>(
+          `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
+        )
+        if (lifetime !== owner) return 0
+        // Older rows and rows already on screen are one ordered set keyed by id.
+        const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
+        for (const row of messages) merged.set(row.id, row)
+        set({
+          messages: [...merged.values()].sort((a, b) => a.id - b.id),
+          hasMoreOlder: messages.length >= PAGE_SIZE,
+        })
+        return messages.length
+      } finally {
+        paging = false
+      }
     },
   }
 
