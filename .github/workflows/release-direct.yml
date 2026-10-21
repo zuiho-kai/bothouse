@@ -1,0 +1,310 @@
+# Branch ci/release-direct only: release.yml jobs re-wired without artifacts (this account's artifact
+# storage quota is used up), same as conest-ci-win's ci/win-accept. Builds and tags main at TARGET. Not for merging.
+---
+name: Release (direct publish, no artifacts)
+'on':
+  push:
+    branches:
+    - ci/release-direct
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TAG: v0.1.0-rc13
+      TARGET: e919c8176d4626e911315e2f225629886eb4c779
+      GH_TOKEN: "${{ github.token }}"
+      GH_REPO: "${{ github.repository }}"
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: false
+        ref: ${{ env.TARGET }}
+    - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+      with:
+        go-version-file: bridge/go.mod
+        cache-dependency-path: bridge/go.sum
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: '22'
+    - name: Build web wizard
+      working-directory: bridge/web
+      run: |
+        corepack enable
+        corepack prepare pnpm@10.34.7 --activate
+        pnpm install --frozen-lockfile --ignore-scripts
+        pnpm run build
+    - name: Build binaries
+      working-directory: bridge
+      run: |
+        set -euo pipefail
+        mkdir -p ../dist
+        commit=$(git rev-parse --short HEAD)
+        built=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+        # 包名和 cmd/cc-connect/update.go 的 archiveAssetName 一致，`cc-connect update` 能直接用。
+        # Windows: .zip with cc-connect.exe — the name `cc-connect update` (archiveAssetName) and install.ps1 expect.
+        for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+          os=${target%/*}; arch=${target#*/}
+          name="cc-connect-${TAG}-${os}-${arch}"
+          exe=cc-connect; [ "$os" = windows ] && exe=cc-connect.exe
+          mkdir -p "build/${name}"
+          CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
+            -ldflags "-s -w -X main.version=${TAG} -X main.commit=${commit} -X main.buildTime=${built}" \
+            -o "build/${name}/${exe}" ./cmd/cc-connect
+          if [ "$os" = windows ]; then
+            (cd "build/${name}" && zip -q -X "../../../dist/${name}.zip" "${exe}")
+          else
+            tar -C "build/${name}" -czf "../dist/${name}.tar.gz" "${exe}"
+          fi
+        done
+        cd ../dist && sha256sum *.tar.gz *.zip > checksums.txt && cat checksums.txt
+    - name: Smoke test (linux/amd64)
+      run: |
+        set -euo pipefail
+        mkdir -p /tmp/smoke && tar -C /tmp/smoke -xzf "dist/cc-connect-${TAG}-linux-amd64.tar.gz"
+        /tmp/smoke/cc-connect --version
+        /tmp/smoke/cc-connect setup --help | grep -q 'setup apply'
+    - name: 'Publish release (directly: artifact storage quota is used up on this
+        account)'
+      env:
+        GH_TOKEN: "${{ github.token }}"
+      run: |
+        set -euo pipefail
+        pre=()
+        case "$TAG" in *-*) pre=(--prerelease) ;; esac
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          gh release upload "$TAG" dist/* --clobber
+        else
+          gh release create "$TAG" dist/* --target "$TARGET" "${pre[@]}" --title "$TAG" \
+            --notes "安装：macOS / Linux 用仓库根目录 install.sh，Windows 用 install.ps1（arm64、amd64），见 docs/GETTING_STARTED.md。"
+        fi
+    permissions:
+      contents: write
+  smoke-windows:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      TAG: v0.1.0-rc13
+      TARGET: e919c8176d4626e911315e2f225629886eb4c779
+      GH_TOKEN: "${{ github.token }}"
+    steps:
+    - name: Download the release (instead of the artifact)
+      shell: powershell
+      run: gh release download $env:TAG -R $env:GITHUB_REPOSITORY -D dist
+    - name: Smoke test (windows/amd64)
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $asset = "cc-connect-$env:TAG-windows-amd64.zip"
+        $want = ((Get-Content dist/checksums.txt | Where-Object { $_ -match " $([regex]::Escape($asset))$" }) -split ' ')[0]
+        $got = (Get-FileHash -Algorithm SHA256 "dist/$asset").Hash.ToLower()
+        if ($want -ne $got) { throw "checksum mismatch: $want vs $got" }
+        Expand-Archive "dist/$asset" -DestinationPath smoke
+        ./smoke/cc-connect.exe --version
+        if ($LASTEXITCODE -ne 0) { throw "--version exit $LASTEXITCODE" }
+        $help = ./smoke/cc-connect.exe setup --help | Out-String
+        if ($help -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
+    permissions:
+      contents: read
+  verify-windows:
+    needs:
+    - build
+    - smoke-windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      TAG: v0.1.0-rc13
+      TARGET: e919c8176d4626e911315e2f225629886eb4c779
+      GH_TOKEN: "${{ github.token }}"
+      CONEST_REPO: "${{ github.repository }}"
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: false
+        ref: ${{ env.TARGET }}
+    - name: Install with the documented one-liner
+      shell: powershell
+      run: |
+        # docs/GETTING_STARTED.md (private repo form); ?ref= pins the install.ps1 of this tag
+        gh api "repos/$env:GITHUB_REPOSITORY/contents/install.ps1?ref=$env:TAG" -H "Accept: application/vnd.github.raw" | Out-String | iex
+    - name: Installed on the user PATH
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dir = Join-Path $HOME '.local\bin'
+        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+        Write-Host "user PATH: $userPath"
+        if (($userPath -split ';') -notcontains $dir) { throw "$dir is not on the user PATH" }
+        $v = & (Join-Path $dir 'cc-connect.exe') --version | Out-String
+        Write-Host $v
+        if ($v -notmatch [regex]::Escape($env:TAG)) { throw "installed version is not $env:TAG" }
+        # later steps start in a fresh process like a new terminal window: give them the user PATH
+        $dir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.11'
+    - name: First run, wizard page, restart, clean exit
+      shell: powershell
+      run: python .github/release-check/windows_firstrun.py
+    - name: setup apply with fake data fails with a fix and a non-zero exit
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $req = Join-Path $env:RUNNER_TEMP 'fake-setup.json'
+        '{"discord": {"guild_id": "123456789012345678"}, "roles": [{"token": "fake.token.for-ci"}]}' | Out-File -FilePath $req -Encoding ascii
+        $out = cc-connect setup apply --json $req | Out-String
+        $code = $LASTEXITCODE
+        Write-Host $out
+        Write-Host "exit code: $code"
+        $res = $out | ConvertFrom-Json
+        $fix = @($res.warnings | Where-Object { $_.blocking -and $_.fix })
+        if ($code -eq 0 -or $res.ok -or -not $res.error -or $fix.Count -eq 0) { throw "expected ok=false, an error, a blocking warning with a fix, and a non-zero exit" }
+        Write-Host "PASS: error=$($res.error) | fix=$($fix[0].fix) | url=$($fix[0].url) | exit=$code"
+        exit 0  # the step would otherwise end with cc-connect's (expected) exit code 1
+    - name: Background service (Task Scheduler, starts at logon), restart under it,
+        stop leaves nothing
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        cc-connect daemon install
+        if ($LASTEXITCODE -ne 0) { throw "daemon install exit $LASTEXITCODE" }
+        $task = Get-ScheduledTask -TaskName cc-connect
+        Write-Host "task triggers: $(($task.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ',')"
+        if (-not ($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' })) { throw "no logon trigger" }
+        $running = $false
+        for ($i = 0; $i -lt 30; $i++) {
+          $st = cc-connect daemon status | Out-String
+          if ($st -match 'Running') { $running = $true; break }
+          Start-Sleep -Seconds 1
+        }
+        Write-Host $st
+        if (-not $running) { throw "service not running" }
+        # the service has no bots yet, so it serves the wizard: same link file as a first run
+        $link = (Get-Content (Join-Path $HOME '.cc-connect\setup-link.txt') -Raw).Trim()
+        $token = ([regex]::Match($link, 'token=([0-9a-f]+)')).Groups[1].Value
+        $wait = { for ($i = 0; $i -lt 60; $i++) { try { if ((Invoke-WebRequest -UseBasicParsing $link).StatusCode -eq 200) { return $true } } catch { }; Start-Sleep -Milliseconds 500 }; return $false }
+        if (-not (& $wait)) { throw "service wizard not answering" }
+        $before = @(Get-Process cc-connect -ErrorAction SilentlyContinue).Count
+        $r = Invoke-RestMethod -Method Post -Uri 'http://localhost:9820/api/v1/restart' -Headers @{ Authorization = "Bearer $token" }
+        Write-Host "POST restart under the service: ok=$($r.ok)"
+        Start-Sleep -Seconds 3
+        if (-not (& $wait)) { throw "service wizard not back after restart" }
+        $after = @(Get-Process cc-connect -ErrorAction SilentlyContinue)
+        Write-Host "cc-connect processes under the service: before restart $before, after restart $($after.Count)"
+        if ($after.Count -ne 1) { throw "expected exactly one cc-connect after a restart under the service" }
+        # an agent the bot started runs `cc-connect daemon restart` (setup apply's next_steps):
+        # the command runs inside the service's own process tree and must still bring it back
+        $old = $after[0]
+        $exe = (Get-Command cc-connect).Source
+        $agentLog = Join-Path $env:RUNNER_TEMP 'agent-daemon-restart.log'
+        $agentPid = & .github/release-check/spawn_under.ps1 -ParentId $old.Id -CommandLine "cmd.exe /c `"`"$exe`" daemon restart > `"$agentLog`" 2>&1`""
+        $agentProc = Get-CimInstance Win32_Process -Filter "ProcessId = $agentPid"
+        Write-Host "agent stand-in pid $agentPid, parent $($agentProc.ParentProcessId) (service cc-connect pid $($old.Id))"
+        if ($agentProc.ParentProcessId -ne $old.Id) { throw "stand-in is not a child of the service's cc-connect" }
+        $back = $false
+        for ($i = 0; $i -lt 60; $i++) {
+          Start-Sleep -Milliseconds 500
+          $now = @(Get-Process cc-connect -ErrorAction SilentlyContinue)
+          $st = (Get-ScheduledTask -TaskName cc-connect).State
+          if ($st -eq 'Running' -and $now.Count -eq 1 -and $now[0].Id -ne $old.Id -and (& $wait)) { $back = $true; break }
+        }
+        if (Test-Path -LiteralPath $agentLog) { Write-Host "agent's daemon restart output: $((Get-Content -LiteralPath $agentLog -Raw))" }
+        $now = @(Get-Process cc-connect -ErrorAction SilentlyContinue)
+        Write-Host "after daemon restart from inside the service: task $((Get-ScheduledTask -TaskName cc-connect).State), cc-connect pids $($now.Id -join ',') (was $($old.Id))"
+        if (-not $back) { throw "service did not come back after daemon restart from inside its own process tree" }
+        cc-connect daemon stop
+        if ($LASTEXITCODE -ne 0) { throw "daemon stop exit $LASTEXITCODE" }
+        cc-connect daemon uninstall
+        if ($LASTEXITCODE -ne 0) { throw "daemon uninstall exit $LASTEXITCODE" }
+        $left = $null
+        for ($i = 0; $i -lt 20; $i++) { $left = @(Get-Process cc-connect -ErrorAction SilentlyContinue); if ($left.Count -eq 0) { break }; Start-Sleep -Milliseconds 500 }
+        if ($left.Count -ne 0) { throw "cc-connect still running after daemon stop/uninstall: $($left.Id -join ',')" }
+        Write-Host "PASS: daemon install / Running / restart keeps one process / stop+uninstall leaves no cc-connect"
+    - name: Reinstall twice while cc-connect runs and restarts (backup .exe names
+        must not collide)
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dir = Join-Path $HOME '.local\bin'
+        $p = Start-Process cc-connect -PassThru -WindowStyle Hidden
+        $link = $null
+        for ($i = 0; $i -lt 60 -and -not $link; $i++) { Start-Sleep -Milliseconds 500; try { $link = (Get-Content (Join-Path $HOME '.cc-connect\setup-link.txt') -Raw).Trim(); if ((Invoke-WebRequest -UseBasicParsing $link).StatusCode -ne 200) { $link = $null } } catch { $link = $null } }
+        if (-not $link) { throw "wizard did not come up" }
+        $token = ([regex]::Match($link, 'token=([0-9a-f]+)')).Groups[1].Value
+        $restart = {
+          Invoke-RestMethod -Method Post -Uri 'http://localhost:9820/api/v1/restart' -Headers @{ Authorization = "Bearer $token" } | Out-Null
+          for ($i = 0; $i -lt 60; $i++) { Start-Sleep -Milliseconds 500; try { if ((Invoke-WebRequest -UseBasicParsing $link).StatusCode -eq 200) { return } } catch { } }
+          throw "wizard not back after restart"
+        }
+        $install = { gh api "repos/$env:GITHUB_REPOSITORY/contents/install.ps1?ref=$env:TAG" -H "Accept: application/vnd.github.raw" | Out-String | iex }
+        for ($round = 1; $round -le 2; $round++) {
+          & $restart
+          & $install
+          $n = @(Get-Process cc-connect -ErrorAction SilentlyContinue).Count
+          $backups = @(Get-ChildItem -LiteralPath $dir -Filter 'cc-connect.exe.old*' | ForEach-Object Name)
+          Write-Host "round $($round): reinstall OK while running; cc-connect processes $n; backups: $($backups -join ', ')"
+          if ($n -gt 2) { throw "restarts stacked up parent processes: $n" }
+        }
+        & $restart
+        $n = @(Get-Process cc-connect -ErrorAction SilentlyContinue).Count
+        Write-Host "after another restart: cc-connect processes $n"
+        if ($n -gt 2) { throw "restarts stacked up parent processes: $n" }
+        & (Join-Path $dir 'cc-connect.exe') --version
+        if ($LASTEXITCODE -ne 0) { throw "installed exe does not run" }
+        Get-Process cc-connect -ErrorAction SilentlyContinue | Stop-Process -Force
+        Write-Host "PASS: reinstalled twice over a running, restarted cc-connect; at most one parent + one child"
+    - name: Quick-try command from setup apply, with spaces in the home and config
+        paths
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $spaceHome = Join-Path $env:RUNNER_TEMP 'Jane Doe'
+        $cfg = Join-Path $spaceHome 'my configs\config.toml'
+        New-Item -ItemType Directory -Force -Path (Split-Path $cfg) | Out-Null
+        # a stand-in agent CLI and a stand-in Discord API (no real token anywhere)
+        $bin = Join-Path $env:RUNNER_TEMP 'fakecli'
+        New-Item -ItemType Directory -Force -Path $bin | Out-Null
+        '@echo 1.0.0 (Claude Code)' | Out-File -FilePath (Join-Path $bin 'claude.cmd') -Encoding ascii
+        $env:Path = "$bin;$env:Path"
+        $fake = Start-Process python -ArgumentList '.github/release-check/fake_discord.py','18999' -PassThru -WindowStyle Hidden
+        Start-Sleep -Seconds 2
+        $env:CONEST_DISCORD_API_BASE = 'http://127.0.0.1:18999'
+        $req = Join-Path $env:RUNNER_TEMP 'ok-setup.json'
+        '{"discord": {"guild_id": "900", "channel_id": "1"}, "roles": [{"token": "MTEx.ci.fake"}]}' | Out-File -FilePath $req -Encoding ascii
+        # Go reads USERPROFILE; Windows PowerShell's $HOME is HOMEDRIVE + HOMEPATH
+        $env:USERPROFILE = $spaceHome
+        $env:HOMEDRIVE = Split-Path -Qualifier $spaceHome
+        $env:HOMEPATH = Split-Path -NoQualifier $spaceHome
+        $out = cc-connect setup apply --json $req --config $cfg | Out-String
+        $res = $out | ConvertFrom-Json
+        Write-Host "setup apply: saved=$($res.saved) warnings=$(($res.warnings | ForEach-Object code) -join ',')"
+        if (-not $res.saved) { throw "setup apply did not save: $out" }
+        $line = @($res.next_steps | Where-Object { $_ -like 'Just a quick try:*' })[0]
+        Write-Host "next_steps: $line"
+        $try = ([regex]::Match($line, '^Just a quick try: (.*) \(log in ')).Groups[1].Value
+        if (-not $try) { throw "no quick-try command in next_steps" }
+        # run it exactly as given, in a fresh PowerShell whose home has a space; then make sure it
+        # did not leave CC_LOG_FILE set in that window
+        # -EncodedCommand: Windows PowerShell drops the inner double quotes when it passes a
+        # plain -Command string to powershell.exe, which would test a different command
+        $text = $try + '; if ($env:CC_LOG_FILE) { Write-Host "CC_LOG_FILE left set"; exit 3 }'
+        powershell -NoProfile -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($text)))
+        if ($LASTEXITCODE -ne 0) { throw "quick-try command failed or left CC_LOG_FILE set (exit $LASTEXITCODE)" }
+        $proc = $null
+        for ($i = 0; $i -lt 20 -and -not $proc; $i++) { Start-Sleep -Milliseconds 500; $proc = Get-CimInstance Win32_Process -Filter "Name = 'cc-connect.exe'" | Select-Object -First 1 }
+        if (-not $proc) { throw "cc-connect did not start" }
+        Write-Host "running: $($proc.CommandLine)"
+        if ($proc.CommandLine -notlike "*--config `"$cfg`"*") { throw "--config path was split: $($proc.CommandLine)" }
+        $log = Join-Path $spaceHome '.cc-connect\run.log'
+        for ($i = 0; $i -lt 20 -and -not (Test-Path -LiteralPath $log); $i++) { Start-Sleep -Milliseconds 500 }
+        if (-not (Test-Path -LiteralPath $log)) { throw "no log at $log" }
+        Write-Host "log file: $log ($((Get-Item -LiteralPath $log).Length) bytes)"
+        Get-Content -LiteralPath $log -TotalCount 5
+        Get-Process cc-connect -ErrorAction SilentlyContinue | Stop-Process -Force
+        Stop-Process -Id $fake.Id -Force
+        Write-Host "PASS: quick-try with spaces in home and config path: one --config argument, log in the spaced home, CC_LOG_FILE not left set"
