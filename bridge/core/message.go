@@ -437,6 +437,7 @@ type Message struct {
 type EventType string
 
 const (
+	EventSpeechText        EventType = "speech_text"        // explicit user-visible text delta; local voice only
 	EventText              EventType = "text"               // intermediate or final text
 	EventToolUse           EventType = "tool_use"           // tool invocation info
 	EventToolResult        EventType = "tool_result"        // tool execution result

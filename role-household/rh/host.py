@@ -889,7 +889,7 @@ def main() -> None:
     host = Host(meeting, a.hub, token, state, config_dir=Path(a.config).resolve().parent, speaker=tts, words=words,
                 boards=boards, room_meeting=None)
     if boards is not None:
-        # 名牌里的工作状态：按 [[discord.bots]] 的 project 读 ~/im-bridge/team/<project>.json（rh/dial.py read_busy）
+        # 名牌里的工作状态：按 [[discord.bots]] 的 project 读 $RH_TEAM_DIR/<project>.json（rh/dial.py read_busy；没设就不读）
         host.dial = dialmod.Dial(boards, cfg.roles, Path(a.config).resolve().parent, bots=cfg.discord_bots)
         # 板子固件经 Wi-Fi 升级（rh/xiaozhi.py XiaozhiServer.firmware）：设了 RH_XIAOZHI_FIRMWARE 才管
         if env.get("RH_XIAOZHI_FIRMWARE"):

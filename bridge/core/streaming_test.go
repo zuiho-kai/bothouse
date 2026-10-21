@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -607,5 +608,60 @@ func TestStreamPreview_UnfreezeIdempotent(t *testing.T) {
 	}
 	if !sp.canPreview() {
 		t.Fatal("canPreview() = false after no-op unfreeze, want true")
+	}
+}
+
+type failedPreviewStart struct {
+	mockUpdaterPlatform
+	attempts int
+}
+
+func (p *failedPreviewStart) SendPreviewStart(context.Context, any, string) (any, error) {
+	p.attempts++
+	return nil, errors.New("transport unavailable")
+}
+
+func TestStreamPreview_UnfreezeDoesNotRetryTransportFailure(t *testing.T) {
+	p := &failedPreviewStart{}
+	sp := newStreamPreview(DefaultStreamPreviewCfg(), p, "ctx", context.Background(), nil)
+	sp.appendText("first") // Actual sender failure, not a synthetic degraded flag.
+	sp.freeze()
+	sp.detachPreview()
+	sp.unfreeze()
+	sp.appendText("second")
+	if p.attempts != 1 || sp.canPreview() {
+		t.Fatalf("failure retried: attempts=%d", p.attempts)
+	}
+}
+
+func TestStreamPreview_UnfreezePreservesActiveAndCommittedMessages(t *testing.T) {
+	p := &mockUpdaterPlatform{}
+	sp := newStreamPreview(StreamPreviewCfg{Enabled: true}, p, "ctx", context.Background(), nil)
+	sp.appendText("first ")
+	sp.unfreeze()
+	sp.appendText("second")
+	msgs := p.getMessages()
+	if msgs[len(msgs)-1] != "update:first second" {
+		t.Fatalf("active text reset: %v", msgs)
+	}
+	sp.freeze()
+	sp.unfreeze()
+	sp.appendText("must not overwrite")
+	if p.getMessages()[len(p.getMessages())-1] != "update:first second" {
+		t.Fatal("committed handle overwritten before detach")
+	}
+	sp.detachPreview()
+	sp.unfreeze()
+	sp.appendText("new reply")
+	msgs = p.getMessages()
+	if msgs[len(msgs)-1] != "start:new reply" {
+		t.Fatalf("new segment not started: %v", msgs)
+	}
+	sp.freeze()
+	sp.detachPreview()
+	sp.discard()
+	sp.unfreeze()
+	if sp.canPreview() {
+		t.Fatal("discarded preview revived")
 	}
 }

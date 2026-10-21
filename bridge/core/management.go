@@ -277,9 +277,17 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	return m.withStaticFallback(mux)
 }
 
+// Stop lets in-flight requests finish before closing: the setup wizard's "restart to apply"
+// (POST /restart) hands over to the restart and gets stopped right away, and Close() used to
+// drop its reply mid-write ("connection closed without response" in the browser / client).
+// Same 5-second Shutdown as BridgeServer.Stop and WebhookServer.Stop.
 func (m *ManagementServer) Stop() {
 	if m.server != nil {
-		m.server.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := m.server.Shutdown(ctx); err != nil {
+			m.server.Close()
+		}
 	}
 }
 

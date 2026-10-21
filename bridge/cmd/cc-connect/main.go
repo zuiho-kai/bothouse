@@ -726,6 +726,7 @@ func main() {
 		engine.SetChannelBoard(proj.ChannelBoard)
 		engine.SetMemoryIndex(proj.MemoryIndex)
 		engine.SetTeamBoard(proj.TeamBoard)
+		engine.SetVoiceDesk(proj.VoiceDesk)
 		resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 		engine.SetResetOnIdle(resetIdle)
 		if defaulted {
@@ -1037,10 +1038,10 @@ func main() {
 		engines[i].SetHeartbeatScheduler(heartbeatSched)
 	}
 
-	// maomao fork: video links → watchvid once, attachments → NAS media library (off if the scripts are missing).
-	if home, err := os.UserHomeDir(); err == nil {
-		core.EnableMediaLibrary(home)
-	}
+	// maomao fork: video links → watchvid once, attachments → NAS media library. Only when
+	// CONEST_MEDIA_BIN_DIR names the directory with watchvid and mediaarchive; off otherwise.
+	// CONEST_MEDIA_NAS_ROOT: the NAS share it lives on (unset = no NAS).
+	core.EnableMediaLibrary(os.Getenv("CONEST_MEDIA_BIN_DIR"), os.Getenv("CONEST_MEDIA_NAS_ROOT"))
 
 	var startErrors []error
 	for _, e := range engines {
@@ -1371,14 +1372,9 @@ func main() {
 			slog.Error("restart: cannot determine executable path", "error", err)
 			os.Exit(1)
 		}
-		// After self-update, os.Executable() may return the .old path on Linux.
-		// Strip the .old suffix to restart from the updated binary.
-		if strings.HasSuffix(execPath, ".old") {
-			newPath := strings.TrimSuffix(execPath, ".old")
-			if _, err := os.Stat(newPath); err == nil {
-				execPath = newPath
-			}
-		}
+		// After self-update, os.Executable() may return the backup path (.old / .old-<n>).
+		// Restart from the updated binary instead.
+		execPath = core.BinaryFromBackupPath(execPath)
 		slog.Info("restarting...", "path", execPath, "args", os.Args)
 		if err := restartProcess(execPath); err != nil {
 			slog.Error("restart: failed", "error", err)
@@ -1779,6 +1775,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoard)
+	engine.SetVoiceDesk(proj.VoiceDesk)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 	engine.SetResetOnIdle(resetIdle)
 	if defaulted {

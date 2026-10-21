@@ -8,6 +8,7 @@
 - 新工作使用 CONTRIBUTING.md 的 Issue→分支→PR→验证流程。桥接实现还须读 bridge/AGENTS.md；新项目流程以根目录规范为准，上游历史说明保留在 bridge/。
 - 默认自己完成任务。仅当前真人明确授权时按 skills/project-subagents/SKILL.md 派工；同一文件同一时间一名写者。使用独立 worktree 隔离并行写入，保护未提交工作。
 - 当前生产仍在旧目录。开发构建不是部署；操作运行配置、进程或真实频道前核对用户授权与唯一操作人，凭据和完整对话不得入库。
+- **发布只从 main 出**：部署的二进制必须由 main 上某个提交构建（版本号写该提交）。修复先走 PR 合进 main 再部署；不要在旧线上基线上单独回移补丁另开 release 分支，否则主线和线上会再次分叉（2026-10-21 曾分叉 29 个提交，靠整支合并才对齐）。紧急热修也先合 main，部署后在 HANDOFF 写明所用 main 提交。
 - 验收要求、测试沙箱和每晚追加的教训见 [docs/code-standards.md](docs/code-standards.md)，提交 PR 前按它自查。
 - 修复行为须有能复现原问题的回归验证；如实报告失败/跳过。初始导入的已知 Go 基线失败见 docs/GO_TEST_BASELINE.md，不据此放宽后续变更的验收。
 - 实质进展后更新 docs/HANDOFF.md；能力证据更新 docs/STATUS.md，用法更新 README，边界变化更新架构。任务进度以 Issue/PR 为准，不复制多份待办。
@@ -20,6 +21,8 @@
 1. **装**：`command -v cc-connect && cc-connect setup --help` 能出 `setup apply` 就跳过。否则
    `gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh`（仓库私有，要 gh 已登录；公开后用
    `curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | sh`），装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
+   Windows（PowerShell）用 `gh api repos/Zssan12/conest/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex`（私有）或
+   `irm https://raw.githubusercontent.com/Zssan12/conest/main/install.ps1 | iex`（公开后），装到 `%USERPROFILE%\.local\bin` 并加进用户 PATH；下面的命令在 PowerShell 里照样用。
 2. **一次问齐**（只问这几项，其余都有默认值）：
    - 每个机器人的 **token**（一个 token = 一个角色）。还没有就让用户去 <https://discord.com/developers/applications> → New Application → Bot → Reset Token，并在同一页打开 **Message Content Intent**。
    - **服务器 ID**，可选再给**默认频道 ID**。拿法：Discord 设置 → 高级 → 打开「开发者模式」，右键服务器图标「复制服务器 ID」、右键频道「复制频道 ID」。
@@ -36,8 +39,8 @@
 4. **确认上线**：看输出 JSON，不只看退出码。`ok: true` 才算好。`needs_user_action: true` 时把 `warnings` 里 `blocking: true` 每条的 `message`、`fix`、`url`
    原样告诉用户（Intent 没开 / 机器人没进服务器 / 没查到所有者要用户给自己的 Discord 用户 ID / CLI 没登录 / token 无效要重置，要用户点链接或回话），用户做完不用重跑，重启即可（token 无效时什么都没写，换新 token 重跑）。
    同一个 token 只能有一个 cc-connect 在线：这个机器人已经在别的电脑或别的进程上跑着时，两边会抢消息、各回一遍，先停掉旧的（向导查不出别的机器上有没有在跑）。
-   然后**在后台**启动：`cc-connect daemon install`（装成系统服务、开机自启；看日志 `cc-connect daemon logs -f`）。**不要在你的 shell 里前台跑 `cc-connect`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
-   只想临时试一下用 `nohup cc-connect > ~/.cc-connect/run.log 2>&1 &`。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句。
+   然后**在后台**启动：`cc-connect daemon install`（装成系统服务、开机自启，Windows 上是登录时启动的计划任务；看日志 `cc-connect daemon logs -f`）。**不要在你的 shell 里前台跑 `cc-connect`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
+   只想临时试一下用 `nohup cc-connect > ~/.cc-connect/run.log 2>&1 &`（Windows：`$env:CC_LOG_FILE="$HOME\.cc-connect\run.log"; Start-Process cc-connect -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`，日志在 `$HOME\.cc-connect\run.log`）。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句。
    不要动用户已在运行的 cc-connect 进程，除非用户同意。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 3 节；人用浏览器向导时直接运行 `cc-connect`。

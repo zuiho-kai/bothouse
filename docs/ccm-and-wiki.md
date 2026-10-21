@@ -51,7 +51,7 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
 - 判断日志在 `GATE_LOG`（默认 `~/.cc-connect/gate.jsonl`），用来调规则。
 - 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
 - 不是 Apple 芯片：`bridge/contrib/gate/scorer_torch.py` 是 PyTorch 版打分（有 NVIDIA 显卡的机器），`gate_switch.py`
-  演示了把 gate 放在另一台机器上、连不上时退回规则。这两样按你的机器改，不在这篇的范围内。
+  演示了把 gate 放在另一台机器上、连不上时退回规则（要先设 `SWITCH_HOST`、`SWITCH_TS_IP`；同步脚本 `sync_gate.sh` 另要 `SWITCH_WIN_HOME`）。这两样按你的机器改，不在这篇的范围内。
 
 ## 4. 装 wiki 并接到 gate
 

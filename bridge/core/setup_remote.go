@@ -106,25 +106,81 @@ var ErrDiscordTokenInvalid = errors.New("discord: token 无效（401），去 " 
 	" → 你的应用 → Bot → Reset Token，复制新 token 再填 / invalid token (401): open " + DiscordPortalURL +
 	" → your application → Bot → Reset Token and use the new token")
 
+// Discord rate limits (429): wait the retry_after Discord gives, then try again, within bounds.
+// 来源：2026-10-21 rc5 Linux 实测：setup apply 遇 Discord 429 连跑两次都失败；要求按 retry_after 重试、有上限。
+// 3 次和单次 10 秒是我定的：向导连查几个机器人时偶发的 429 一般要等不到 1 秒，3 次足够；
+// 单次要等超过 10 秒（全局限流、被封）就不在网页上干等，直接说明要等多久。
+var (
+	discordMaxRetries = 3
+	discordMaxWait    = 10 * time.Second
+	// discordSleep waits d or until ctx ends (var for tests).
+	discordSleep = func(ctx context.Context, d time.Duration) error {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			return nil
+		}
+	}
+)
+
+// ErrDiscordRateLimited: Discord kept answering 429 (or asked for a longer wait than discordMaxWait).
+type ErrDiscordRateLimited struct{ RetryAfter time.Duration }
+
+func (e *ErrDiscordRateLimited) Error() string {
+	return fmt.Sprintf("discord: rate limited (429), retry after %.1fs", e.RetryAfter.Seconds())
+}
+
+// discordRetryAfter reads how long Discord wants us to wait: the JSON body's retry_after
+// (seconds, may be fractional), else the Retry-After header; 1s when neither is readable.
+func discordRetryAfter(resp *http.Response, body []byte) time.Duration {
+	var rl struct {
+		RetryAfter float64 `json:"retry_after"`
+	}
+	if json.Unmarshal(body, &rl) == nil && rl.RetryAfter > 0 {
+		return time.Duration(rl.RetryAfter * float64(time.Second))
+	}
+	if v, err := strconv.ParseFloat(strings.TrimSpace(resp.Header.Get("Retry-After")), 64); err == nil && v > 0 {
+		return time.Duration(v * float64(time.Second))
+	}
+	return time.Second // 来源：我定的兜底值，Discord 没给等待时间时（实际总会给）先等 1 秒
+}
+
 func discordGet(ctx context.Context, token, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discordAPIBase+path, nil)
-	if err != nil {
-		return err
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, discordAPIBase+path, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bot "+strings.TrimPrefix(strings.TrimSpace(token), "Bot "))
+		resp, err := (&http.Client{Timeout: setupHTTPTimeout}).Do(req)
+		if err != nil {
+			return fmt.Errorf("discord: %w", err)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			wait := discordRetryAfter(resp, b)
+			if attempt >= discordMaxRetries || wait > discordMaxWait {
+				return &ErrDiscordRateLimited{RetryAfter: wait}
+			}
+			if err := discordSleep(ctx, wait); err != nil {
+				return fmt.Errorf("discord: %w", err)
+			}
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized {
+			return ErrDiscordTokenInvalid
+		}
+		if resp.StatusCode/100 != 2 {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			return fmt.Errorf("discord %s: %d %s", path, resp.StatusCode, strings.TrimSpace(string(b)))
+		}
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
-	req.Header.Set("Authorization", "Bot "+strings.TrimPrefix(strings.TrimSpace(token), "Bot "))
-	resp, err := (&http.Client{Timeout: setupHTTPTimeout}).Do(req)
-	if err != nil {
-		return fmt.Errorf("discord: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized {
-		return ErrDiscordTokenInvalid
-	}
-	if resp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("discord %s: %d %s", path, resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
 }
 
 // CheckDiscordBot validates a bot token and lists the servers the bot is in.
@@ -147,7 +203,12 @@ func CheckDiscordBot(ctx context.Context, token string) (*DiscordBotInfo, error)
 			OwnerUserID string `json:"owner_user_id"`
 		} `json:"team"`
 	}
-	if err := discordGet(ctx, token, "/oauth2/applications/@me", &app); err == nil {
+	appErr := discordGet(ctx, token, "/oauth2/applications/@me", &app)
+	var rl *ErrDiscordRateLimited
+	if errors.As(appErr, &rl) {
+		return nil, appErr // rate limited: say so, not "Message Content Intent could not be checked"
+	}
+	if appErr == nil {
 		if app.ID != "" {
 			info.ApplicationID = app.ID
 		}

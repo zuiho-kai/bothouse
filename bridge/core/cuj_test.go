@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2510,6 +2511,85 @@ func TestCUJ_STREAM1_StreamingResumesAfterPermissionPrompt(t *testing.T) {
 		if strings.Contains(m, postText) {
 			t.Fatalf("post-resolution text was bulk-sent via plain Send (regression: streaming broken after permission prompt). getSent=%#v", plat.getSent())
 		}
+	}
+}
+
+type cujInsertReplySession struct {
+	stubAgentSession
+	events chan Event
+	mu     sync.Mutex
+	sends  int
+}
+
+func (s *cujInsertReplySession) Events() <-chan Event { return s.events }
+func (s *cujInsertReplySession) Send(string, string, []ImageAttachment, []FileAttachment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sends++
+	switch s.sends {
+	case 1:
+		s.events <- Event{Type: EventText, Content: "Starting original task"}
+		s.events <- Event{Type: EventToolUse, ToolName: "long task"}
+	case 2:
+		s.events <- Event{Type: EventText, Content: "Received your inserted message"}
+	case 3:
+		s.events <- Event{Type: EventText, Content: "Task complete"}
+		s.events <- Event{Type: EventResult, Done: true}
+	}
+	return nil
+}
+
+type cujInsertReplyAgent struct{ resultAgent }
+
+func (*cujInsertReplyAgent) SupportsMidTurnInput() bool { return true }
+
+func TestCUJ_STREAM2_InsertRepliesWithoutEndingTask(t *testing.T) {
+	p := &cujStreamingPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}
+	s := &cujInsertReplySession{events: make(chan Event, 8)}
+	e := NewEngine("test", &cujInsertReplyAgent{resultAgent{session: s}}, []Platform{p}, t.TempDir()+"/sessions.json", LangChinese)
+	defer e.Stop()
+	e.SetDisplayConfig(DisplayCfg{Mode: "compact", ThinkingMessages: false, ToolMessages: false})
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/context") {
+			fmt.Fprint(w, "{}")
+			return
+		}
+		fmt.Fprint(w, "{\"action\":\"reply\"}")
+	}))
+	defer gate.Close()
+	e.SetGate(gate.URL+"/decide", 1000, "reply")
+	e.SetGateBurstWindow(1)
+	send := func(id, text string) {
+		e.ReceiveMessage(p, &Message{SessionKey: "test:room", Platform: "test", MessageID: id, UserID: "human", Content: text, Mentioned: true, ReplyCtx: id})
+	}
+	// Three human inputs: start work, insert a question, then ask to finish.
+	send("one", "start work")
+	inputWait(t, func() bool { return len(p.getPreviewOpens()) == 1 })
+	send("two", "please acknowledge this insertion")
+	inputWait(t, func() bool { return len(p.getPreviewOpens()) == 2 })
+	opens := p.getPreviewOpens()
+	if opens[0] != "Starting original task" || opens[1] != "Received your inserted message" {
+		t.Fatalf("public replies=%v", opens)
+	}
+	if !strings.Contains(strings.Join(p.getSent(), "\n"), "已插入") {
+		t.Fatal("missing insertion receipt")
+	}
+	send("three", "finish now")
+	inputWait(t, func() bool {
+		for _, update := range p.getPreviewUpdates() {
+			if strings.Contains(update.Content, "Task complete") {
+				return true
+			}
+		}
+		return false
+	})
+	if strings.Contains(strings.Join(p.getSent(), "\n"), "Received your inserted message") {
+		t.Fatal("already visible reply duplicated as a final plain message")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sends != 3 {
+		t.Fatalf("original task did not receive all three inputs: %d", s.sends)
 	}
 }
 

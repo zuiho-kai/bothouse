@@ -434,6 +434,7 @@ type Engine struct {
 	tiers                        *modelTiers // maomao fork: gate-driven chat/task model switching (nil = off)
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
+	voiceDesk                    voiceDeskState                // maomao fork: voice desk (voice_desk.go)
 	team                         *teamState                    // maomao fork: team status board (nil = off)
 	board                        *channelBoardHub              // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
@@ -5696,6 +5697,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 
 		switch event.Type {
+		case EventSpeechText:
+			// Never present these again in platform text/history: the ordinary
+			// EventText/Result stream owns those. Require concrete source ID.
+			if input != nil && input.appendSpeech != nil && event.SessionID == input.expectedID {
+				if state.agentSession.CurrentSessionID() != input.expectedID {
+					input.finish(inputTurnResult{err: fmt.Errorf("speech source binding changed")})
+					return
+				}
+				input.appendSpeech(event.Content)
+			}
+
 		case EventThinking:
 			if isEllipsisOnly(event.Content) {
 				break
@@ -5999,6 +6011,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				content = stripAgentFooterLines(content)
 			}
 			if content != "" && !isEllipsisOnly(content) {
+				// A tool/thinking boundary commits the previous preview. The
+				// next public text opens a new one, even before the next tool
+				// or final result (including an answer to a mid-turn insert).
+				sp.unfreeze()
 				// Pre-compute silentHold transition including this chunk so the
 				// rich-card path doesn't leak a preview that gets recalled at
 				// end-of-stream when the text resolves to bare NO_REPLY (Lark
@@ -6211,7 +6227,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 			handlingSince.Store(0) // waiting on the user is not a stuck handler
-			<-pending.Resolved
+			// Engine.Stop joins event workers after cancelling the engine.
+			// A user may never answer this prompt, and closing the agent
+			// cannot wake a goroutine waiting on a different channel.
+			select {
+			case <-pending.Resolved:
+			case <-stopCh:
+				return
+			case <-e.ctx.Done():
+				return
+			}
+			if e.ctx.Err() != nil || state.isStopped() {
+				return
+			}
 			handlingSince.Store(time.Now().UnixNano())
 			slog.Info("permission resolved", "request_id", event.RequestID)
 
@@ -6558,14 +6586,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// When tool calls happened and prior text was already surfaced in segments,
 				// only send the unsent remainder. When tool progress is hidden, tool events don't surface
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
-				sp.discard()
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
 					if unsent != "" {
-						if !sendChunksWithStatusFooter(e.ctx, p, markFinalReply(p, replyCtx), unsent, statusFooter, sendWorkspaceWithError) {
+						if !sp.finish(unsent, statusFooter) && !sendChunksWithStatusFooter(e.ctx, p, markFinalReply(p, replyCtx), unsent, statusFooter, sendWorkspaceWithError) {
 							return
 						}
 					}
+				} else {
+					sp.discard()
 				}
 			} else if suppressDuplicate {
 				sp.discard()

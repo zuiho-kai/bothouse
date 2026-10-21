@@ -1,11 +1,31 @@
 # 共栖当前交接
 
+2026-10-21：Issue #203 / PR #206 Windows 支持（分支 feat/windows-support）。
+- 装：Release 多出 windows/amd64、windows/arm64 两个 .zip（内含 cc-connect.exe，进 checksums.txt）；根目录 `install.ps1`，PowerShell 一行 `irm …/install.ps1 | iex`（私有仓库用 `gh api … | Out-String | iex`），校验 sha256、装到 `%USERPROFILE%\.local\bin`、加进用户 PATH。install.sh 在 Git Bash/MSYS 下指去 install.ps1。
+- 适配：向导链接在 Windows 用 rundll32 打开（`cmd /c start` 会在 `&next=` 处截断）；Windows 重启改为子进程+父进程等它退出（原来父进程直接退出，计划任务失去监管）；next_steps 在 Windows 给 PowerShell 的 Start-Process 而不是 nohup；系统语言在 Windows 读 GetUserDefaultLocaleName；CLI 探测补 `%APPDATA%\npm` 和 PATHEXT；后台服务沿用上游的「任务计划程序」登录时启动。
+- 顺手修（三端）：管理接口 Stop 改 5 秒 Shutdown，「重启生效」的回复不再被掐断（Windows 验收首跑暴露）；`cc-connect daemon install` 不带参数时用 `~/.cc-connect`，不再要求在该目录下运行（Windows 验收暴露）。
+- 验证：release.yml 新增 smoke-windows（发布前验包）和 verify-windows（发布后在干净 windows-latest 按文档命令装、首次运行、向导页、重启、Ctrl+Break 退出、setup apply 假数据、计划任务安装/卸载）；ci.yml 加 GOOS=windows build+vet。v0.1.0-rc4 是这个分支打的预发布。Windows 真机、真凭据配成功未测（Linux 真机另有人测）。
+
+2026-10-21 PR #210 同步 main 70d8febf（#227）：主线并行修复了同一视频截止时间竞态；合并统一沿用 deadlinePassed，移除重复辅助函数，保留 #227 的辅助函数回归和 #210 两条真实入口回归。此前 e5a17802 的四项核心 CI 已全部通过；同步后的提交须重新跑 CI，不沿用旧结果。未合并 PR、未部署。
+
+2026-10-21 Issue #226 / PR #210：修复视频消息预算截止后仍启动下一链接的竞态。消息预算和共享解析进程使用独立定时器，ctx.Err() 的取消通知可能晚于 Deadline；prepareMedia 和 parseVideo 的新任务入口现在同时检查主动取消与截止时刻，保留跨消息共享解析生命周期。新确定性回归在修改前两条入口均失败；修改后与原 TestVideoTimeout 连续100次通过，视频 race（三次）及核心 CUJ 通过，macOS Go 全量仅 cmd 包既有 TestAnnounceSetupWizardAlwaysPrintsLink、TestSetupCLIsHint 失败（用修改前 media.go overlay 对照复现），其余包通过。Linux CI 以最新提交运行结果为准，未合并、未部署。
+
+2026-10-21 PR #210 CI 优先重验（Refs #218）：同步 main 80843347 后，将 #219 的核心 CI 临时目录隔离同步到本 PR。双 Runner 使用独立账户，默认共用 /tmp 导致第二账户写 /tmp/agent-prompts 权限失败（main run 39551891537 和 #214 run 39552298763 已复现）；四项 job 在 checkout 后导出 TMPDIR=$RUNNER_TEMP，使测试临时目录随 Runner 隔离。只调整 CI 环境，不修改该 PR 的业务实现。此前 bd908224 的四项核心检查已通过，新提交仍须重新验证；UI preview 尚使用官方 runner，账单限制仍未解决，迁移另见 #219。未合并、未部署。
+
+2026-10-21：rc5 Linux 真机实测剩余问题（分支 fix/rc5-linux-followups，基线 main 9b880ec6）。重配已有机器人时，页头和确认页按人设文件实际写的回答语言显示（GET /setup/persona 和结果里的 reply_language 读 `<!-- conest:reply-language -->` 下一行），不勾「改现有人设」时写明沿用、怎么改；setup apply / token 校验遇 Discord 429 按 retry_after 重试（最多 3 次、单次不超过 10 秒，超了如实说要等多久）；jev 提示、jev 失败原因、保存页步骤行、token 无效、gate 提示、预设人设名补日文（步骤键名保持英文给脚本用，网页按语言翻）；setup apply 首次运行到写项目时才建 config.toml，token 无效不再留下空模板；媒体库不再默认找 ~/im-bridge/bin，只认 CONEST_MEDIA_BIN_DIR，NAS 根目录只认 CONEST_MEDIA_NAS_ROOT（没设就不用 NAS、不提示 NAS 没挂）；公开副本会带出的私有默认值改成必须给：contrib/gate 的 gate_switch.py / sync_gate.sh（SWITCH_HOST、SWITCH_TS_IP、SWITCH_WIN_HOME）、companion/tools/smoke_device.py（--instance-dir / --releases-dir 或 CONEST_DEVICE_*）、role-household 快照的 dial.py（RH_TEAM_DIR，没设不读忙闲）和 tools/smoke_phone.py（RH_CO_LEAD / RH_CO_SUB）；向导新建的项目写 show_quota_indicator = false、show_workdir_indicator = false，已有项目不动；install.sh 私有仓库不再打出 curl 404、装完的文档链接指向所装 tag，GETTING_STARTED 写了 CONEST_VERSION。未部署。
+
+2026-10-21 Issue #221：自主采集临时断连增加仅GET的有界重试；失败阶段及安全分类保留在实例diagnostics.json，最近20次且恢复不清除。发送/附件/活动提交和整个tick不重试。单一Codex实现与自查，无子Agent；真实CLI隔离故障→恢复通过，线上部署与自然分钟任务验收另记录。详见[重试与诊断](AUTONOMY_RELIABILITY.md)。
+
+2026-10-21 Issue #215 / PR #216：独立 WSL conest-ci 已运行两个专用账号的 runner，可并行两项 job；每路上限4个逻辑线程算力、6GiB内存，工作区和工具缓存独立。真实 Actions run 39546540674 的 bridge、companion、firmware-assets、dial-metrics 全过，原 Ubuntu GPU 闸门仍存活。最终文档提交的检查与合并状态以 PR 为准。登录后自启已配置，未做重启验收；插电不休眠，电池仍可能休眠。仅迁移核心 CI，release/ui-preview 仍在云端；未核对账单页面。详见 docs/SELF_HOSTED_CI.md。
+
+2026-10-21 Issue #208：G哥插话后公开回复延迟。已分别复现 Codex commentary 被缓冲，以及核心在工具边界冻结旧预览却不为新文字恢复；修复明确 phase 的普通公开文字分类、可恢复冻结状态与新段落收尾。严格语音、未知phase和内部推理边界保留；运输失败不因新文字恢复，旧消息不被覆盖。适配器回放、真实 Engine→gate→app-server→预览链路和三次真人输入的 STREAM2 CUJ 已通过；原版四条回归失败。全量/race/CI与部署状态见对应PR，真实频道待自然验收。详见[插话公开回复](CODEX_INSERT_PUBLIC_REPLY.md)。未接管他人PR清理或语音优化。
+
 2026-10-21：n150 Linux 真机实测问题修复（分支 fix/setup-n150-findings，基线 main 62aec4e3）。setup apply / 网页向导：回复语言为 角色 reply_language > 请求 language（--lang）> 本机 locale（不用 Discord 服务器 preferred_locale：默认 en-US，会把中文电脑配成英文），代码原样传（zh-TW、ko 不截断），结果里写 reply_language/reply_language_from，没指定时给不阻断的 reply_language_default；网页向导用顶栏右上角的语言作默认回复语言并显示「机器人回复语言：X」，向导文案中英日（用户 2026-10-21 定），其他语言界面回落英文，文案集中在 web/src/pages/Setup/texts.ts。网页和命令行首次运行都不再说备份了旧配置（store 判断配置仍是首次模板）。CLI 没登录给阻塞的 agent_not_logged_in（带登录步骤），token 401 给阻塞的 discord_token_invalid（带重置链接），dry-run 不再说“已保存”、persona_written 如实，首次运行不再说“previous config kept”，setup clis 为空或都没登录时 stderr 给提示，中文机器人名变 role-N 时 steps 说明原因（文档已改）。同一 token 多处在线查不出，只写进文档。Go 沙箱全量通过；隔离 HOME + 假 Discord 跑了 CLI 前后对比和网页向导全流程（PR 描述）。未部署。
 
 2026-10-21 Issue #204：指定 bot 按具体请求代批所有类型工具权限。单一 Codex 实现/自查，无独立 reviewer。Discord 配置 permission_approvers，需共享频道会话；名单与可信授权说明来自操作者配置。随机请求编号隔离后端重复 ID，跨频道/过期/并发/多个 cron/适配器失败均受控，真人按钮保留；不代答偏好问答。回归含真实 Gateway 入口和核心 ReceiveMessage CUJ，目标 race/vet 通过。全量 Go 首轮只有向导中文断言受宿主 LC_ALL 覆盖 LANG 失败；清除 LC_ALL/LC_MESSAGES 后 cmd 包全部通过，未修改向导源码或测试。源码未部署，发布及真实验证看统一运行交接。详见 DELEGATED_PERMISSIONS.md。
 
 2026-10-21：PR #198 易用性（分支 feat/onboarding-ux）。新人和 AI 的装、配、上线现在只有一条路：
-- 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 暂不支持。
+- 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 见下面 #203。
 - 配：没有配置时运行 `cc-connect`，会自动打开向导并在终端打印链接；SSH 下给出 `ssh -L` 命令。AI 用 `cc-connect setup apply`，见 AGENTS.md 文末一节。
 - 确认上线：以下情况 setup apply 不再报成功，返回 `ok:false`，带阻塞 warnings 和链接——Message Content Intent 没开或查不到、机器人不在服务器、查不到所有者。查不到所有者时 allow_from 写成 `set-your-discord-user-id`，谁的话都不听；带上真实 ID 重跑后会被替换。显式写 `*` 时给一条不阻断的提示。
 - 向导填的默认频道写进 `group_reply_all_channels`；`cc-connect update` 按 checksums.txt 校验。
@@ -34,6 +54,21 @@
 
 2026-10-20：Issue #177 cloud_web 团队协作三项对齐 Discord（分支 feat/177-cloudweb-team，合并三条已审分支）：频道补发（实现 ChannelHistoryReader / AgentReplyMarker，读 hub `GET /api/rooms/{room}/messages`，agent 回复帧带 `agent=true`）；副角色干完队长派的活最终回复自动加 `<@队长>`，队友状态显示 #频道名；子 agent 表（SubTaskTablePayloadSupport、2 秒 ProgressUpdateThrottler，只发给声明 `subtask_table` 的网关）。冲突两边都留：Reply 帧内容走 returnToLead、再按 Agent 加 agent 标记（新增合并回归测试），replyContext 同时带 MsgID/lead/final 与 Agent，测试里重复的发送记录 transport 合成一个。cloud-web 包单测通过，CI 结果见 PR。配套网关改动在角色小家 hub。本条为源码记录，未部署。
 
+## 2026-10-21：Codex插话后空响应，发布候选未部署
+
+确认生产发布基线遗漏主分支#161的子会话通知隔离；插话已送达，子Agent通知提前结束父轮次。已按真实适配器+假JSON-RPC复现空结果，最小回移后通过。证据和发布限制见 [CODEX_CHILD_NOTIFICATION_ISOLATION.md](CODEX_CHILD_NOTIFICATION_ISOLATION.md)。旧桥接可能误报空闲，重启前必须核对实际父会话结束；当前未动生产。
+2026-10-21 04:45：语音晨间候选基于现网4f085a26，移入口语提示及独立ASR分阶段诊断，未推送/部署。companion 488 passed/3 skipped；真实私有模型成功11.983秒、豆包首块0.486秒；空闲ASR本轮0.795/0.609秒，历史慢首轮根因仍未定。完整证据和独立网关/固件候选见 [晨间候选](VOICE_MORNING_CANDIDATE_20261021.md)。TF/EAF并发提示尚未接通，不能称全部人物素材25–30fps通过。无硬件操作。
+
+## 2026-10-21：#193/#194 任务卡本地发布候选
+
+用户已授权修复、合并并本地部署。#193 已合并，#194 经四项 CI 通过后合并为 38adde530395f45fae2b14212bd2eb7da367f015，审核 head 为 f2731f008bf403e4eabfad921f7f9865d086a461。此发布分支以实际生产源 2e019c3caf30148eb2334bee7ac4878e19bc6e84 为基底，仅加入上述任务卡生命周期及置顶状态栏索引；保留独立语音、Claude 严格续接、#197 回复路由等现有实现。
+
+续接先校验和落盘再转移归属；验收终态不被回合结束覆盖；保存失败回滚内存；验收旧卡不清除新候选。新增本地 task list/show/accept，--by 仅记录归属，不做身份认证。进行中和待处理卡片链接汇总到现有置顶状态栏，结果/验收完成后移除入口，历史保留。每会话最近候选 24 小时有效，每轮最多64条。
+
+发布核验与备份由 .local/deploy_card194.py 执行（私有文件不入库），只替换二进制，保留配置、模型、会话、调度和ACP插件；任务日志及状态栏绑定在停机后备份。实际运行版本及部署结果以 /Users/zhaixinyang/yijiazi/docs/HANDOFF.md 的现场记录为准。不能把候选构建或自动测试当作真人频道验收。
+
+2026-10-21：语音延迟复核发现PR #174未上线；原发布因缺失可选绑定文件中止，旧计划作废。用户改为全部角色用豆包API，新增volc专用后端，禁止本地音色回退；已有豆包音色三次真实短句首包0.451–0.660秒、总0.919–0.988秒，不播放。详见 VOICE_LATENCY_20261021.md；代码验证和实际部署分开记账。
+
 2026-10-20：#172 / PR #173整合：肥鱼用15:59历史无工具补答精确复现非法JSON（未转义控制字符），修前5次3失败，补编码示例与格式纠正重试后3次通过，工具0；DSH39项真实安装契约通过。大豆包子Agent已核实四轮有实际非零命令，添加安全步骤/退出码诊断，保留失败而非隐藏；身份与重复授权修复同时保留。桥接整合全量通过，最终race/CUJ与发布候选验证另记录。肥鱼子Agent因429未能启动，实际修复由父Agent完成。当前源码待最终审核合并，生产尚未切换，原任务未重跑、无Discord测试消息。
 
 2026-10-20：Issue #172，分支 fix/172-identity-permission。针对大豆包自称 C酱，实际投递时按 team 配置注入自身名称，并为队友缓冲保留作者；首次/续接/排队/语音/插入均覆盖，模型实际遵守仍待真人验收。重复授权在平台回执阻塞窗口可精确复现 unknown permission request；核心先原子认领请求，避免再次消费同一个 pending。肥鱼诊断改为安全枚举直写 ACP stderr；15:59 的具体生成失败类别仍不可追溯，不能宣称已修好。目标回归先红后绿、20次race、CUJ/核心全量、目标vet、DSH37项真实安装离线契约通过；首次桥接全量仅核心的旧无作者断言失败，更新作者和原文断言后核心补测通过。大豆包后续 stream ERROR 已按真人新授权交一名子Agent在独立worktree定位，整合/最终全量/部署另记。详情见 [现场与边界](BRIDGE_IDENTITY_AND_PERMISSION_172.md)。当前未改生产配置/会话、未重跑原任务、未发Discord消息。
@@ -45,12 +80,14 @@
 2026-10-20：Issue #168 cloud_web 把网关给的 `mentioned` / `from_bot` 带进 `core.Message`（分支 feat/168-cloudweb-mention），gate 能判断谁被 @、队友 bot 没 @ 自己时只当上下文；`from_bot` 的消息不受 `allow_from` 限制（网关为自己的 bot 作保，同 Discord allow_bots）。5 种组合单测通过，字段说明在 bridge/docs/cloud-web.md。本条为源码记录，未部署。
 
 2026-10-20：Issue #160 把线上 cc-connect maomao 在快照基点 8b27736e 之后的 49 个提交（到 6dbb2d73）搬进 bridge/，只传快照不带历史；冲突按用户「他那边新功能就是我们新功能」「我们这边功能要定期给他同步过去」两边都留，逐条裁决写在 PR 描述。要点：antigravity 原生额度（stream_json）与云端额度（经典模式）并存；轮次主流程合入满载重试/prompt 过长重跑/补图/cron 排队，语音输入严格续接轮次不进这三条；尾注额度会话缓存优先、单窗口"额度剩余 N%"、双窗口"5h 剩 N% · 周 M%"；bot 接力熔断按用户 2026-10-18 原话整体去掉（删 handoff_quiet_test.go）。测试里的真实 Discord ID 已换假 ID。bridge 沙箱串行 Go 全量通过。maomao 分支此后冻结，线上改动直接进 conest。本条为源码记录，未部署；线上换版另记。
+2026-10-20：生产发布整合 release/159-public-progress。以正在运行的 a99b375b 为基线，依次采用 #156（5228177f）与 #162（853f4330），保留此前状态栏跟随主 bot、app_server 严格续接及停机权限等待修复。README/config.example 冲突只采用公开进展说明，不引入其他分支的 setup 文档。补入 fab55cd3 的 bridge 测试沙箱（仅测试文件与 tests/testutil），避免测试调用真实 CLI。全量回归发现既有 TestFormerLeadRemovesOldBoards 固定 sleep 与异步 os.WriteFile 相撞：40 次重复可复现空读；改为同步执行有界清理后断言，100 次 race 重复通过，未改生产清理逻辑。发布验证日志在本工作区 .local/ 与 /tmp/conest-progress-release-*.log；实际生产切换、备份及真人验收结论以 /Users/zhaixinyang/yijiazi/docs/HANDOFF.md 为准。用户本轮明确授权部署 #156/#162，公开进展仅启用 cursor/gjiang/deep；不变更模型或语音服务。
 
 2026-10-20：Issue #159 公开进展，独立分支 feat/159-public-progress。复用 #116 的任务模型/卡片布局，接入真人初始、排队、语音续轮的显式 progress CLI 与本地 API；不从 Thinking/工具文本提取进展。run+项目+会话+递增序号防串轮，落盘后异步更新卡片和关键讨论串；网络响应丢失先按自身消息标记核对，重启将未结束运行记为中断。结果显示“已有结果 · 待验收”；语音取公开短回执，长摘要只播查看卡片提示。已验证本地 socket→卡片、安静模式队列CUJ、语音、重启/重复/停止/落盘失败/丢回执与三后端提示入口；本机沙箱Go全量、CUJ、五包目标race、vet、全包构建及编译CLI真实socket验收均通过，CI结果见PR。默认关闭，未部署、未发真实频道消息；跨轮同卡、任务查询、主人验收仍属于 #113，不关闭该Issue。#155已合并的插件也没有在本轮部署。用法与边界见[公开进展说明](PUBLIC_PROGRESS.md)。
 
 2026-10-20：Issue #155 肥鱼公开答复失败。用户授权一名子 Agent 实现，父 Agent 审查并合并；独立分支 fix/155-deepseek-public-reply。修复 DSH 流收集器误用 block-end 顺序及漏收 delta-only 文本，合法 reply 现在按运行时的首次出现顺序组装；取消后不再派发迟到工具，补答共用60秒期限由收集器自行执行。失败诊断只记阶段、尝试次数和固定原因枚举。父 Agent 复核修前4项回归均失败、修后含真实 DSH 离线契约共37项通过，bridge 沙箱串行 Go 全量通过。隔离真实 ACP 读取一次合成文件后精确回答通过；13:14 失败前108条消息经只读投影重建补答，真实同模型返回严格 reply、零工具调用，也通过。12:54及13:14生产记录只保留改写后终态，无法确认这两次的具体触发条件，不把合成复现冒充现场根因；Issue 保持开放跟踪现场验证。详见[验证记录](DSH_PUBLIC_REPLY_155.md)及[插件边界](../integrations/dsh-public-output/README.md)。尚未部署，未重跑原任务、修改原会话或发送 Discord 消息。
 
 2026-10-20：Issue #148 安装向导（分支 feat/setup-wizard，基于 docs/onboarding）。cc-connect 网页新增 /setup：选平台 → 机器人（复用已有或填 token；校验、列服务器/频道、邀请链接；飞书扫码后选默认群）→ 每个角色选本机 CLI（只列装了的，带版本和登录状态；可挂第三方 API）→ 人设（默认人设中英两版、回答语言）→ 兜底角色 → jev（填完自动测概率，不拦保存）。同一逻辑给 AI：`cc-connect setup apply --json`、`POST /api/v1/setup/apply`。第三方 API 对不上 CLI 协议时由 `core/protoconv.go` 本机转换成 /chat/completions（provider `api_format = "openai_chat"`）。首次运行没有项目时只起向导。gate 读向导写的 `jev.json`（给概率才用）和 `gate-team.json`（lead = 兜底角色），没有模型时只按规则判、判不了交给兜底角色。只在隔离实例（临时配置、临时端口、假 Discord/模型）验证；未部署，未同步回 maomao 分支。
+2026-10-20：修复共享桥接优雅停机等待权限答复时永久阻塞。09:00:33 的未答复权限请求在 10:54 停机前仍未 resolve；关闭 agent 的事件通道无法唤醒只等待 pending.Resolved 的事件协程，Engine.Stop 的 messageWorkers.Wait 因而无法完成。权限等待现在同时监听 engine context 和会话 stop，取消时直接返回，不批准权限、不继续工具执行。新增 TestEngine_StopUnblocksPendingPermission，原代码稳定失败、修复后通过；Go 全量 no_web、核心 CUJ 与权限/停机 race 通过。此条为源码记录，生产部署另见统一交接。
 
 2026-10-20：Issue #145 将肥鱼公开输出边界前移到 DSH llm/stream：中间 text 归入 reasoning；终态基于已有证据进行最多两次、无工具的结构化补答，只发布验证后的 reply。桥接所有无正文 end_turn 均报回复失败，并支持 DSH 宣告的 session/resume，避免重启另开会话。合成回归旧路径失败、新路径通过；真实隔离ACP、冷恢复、只读工具后补答通过；80步骤/117工具调用回放无原始正文。20项Node回归、Go全量、ACP竞态、vet和构建通过。首次全量出现会话删除卡片时序失败，单项与CUJ三次复跑及再次全量通过。详见[部署插件](../integrations/dsh-public-output/README.md)。本条为源码记录，生产发布另记统一交接；须保留Claude strict补丁20c79756。
 
@@ -61,6 +98,9 @@
 2026-10-20：Issue #127 按代码审查修 cn_dial：`font_px()` 不再低于 `font_min_px`（板上无合格档时取 font_min_px，`pick_font().on_board=false` 供固件打日志）；`ScreenProfile::Valid()`；dial-layout.v1.json 新增 `min_short_side`=161（16px 字时 160 及以下名牌越出安全圆），`DialMetrics::Supported()` 为假时不画表盘；单测补 fonts_px={12}/font_min_px=16、Valid、W=16..1024 胶囊在安全圆内且不重叠、环像素深度 d16 在 W≥1204 超出 uint8（固件改 uint16）。只改 firmware/dial/ 与本条。
 
 2026-10-20：Issue #124 表盘屏幕参数与尺寸换算抽成共用组件 `firmware/dial/components/cn_dial`（`ScreenProfile` + `DialMetrics`，纯 C++，不依赖 LVGL/ESP-IDF）。数值只在 `firmware/dial/layout/dial-layout.v1.json`（466 画布单位；conest 数值取自 #110 的 DECOR.md 与补丁 0006/0010，角色小家 240 屏现值作下限），`tools/gen_layout.py` 生成头文件，CI 新 job `dial-metrics` 检查一致并跑主机单测（466/240/360 圆屏、320×240 与 240×320 假屏）。角色小家固件用 `EXTRA_COMPONENT_DIRS` 引用本目录，表盘尺寸只经 `DialMetrics` 取，hello 多报 `display`（主机只记日志）。只改 firmware/dial/、CI 与本条；未刷板、未部署。下一步：角色小家把已移植的 conest 电量弧/气泡/工作状态放进本目录，不等 #110 合并。
+2026-10-20：#119 的独立语音转发在 feat/119-private-voice-relay 实现，基于 #135 d72bb66a。可信角色配置 relay_project 默认空；私有 relay 不复读到频道、不自动降级，原生身份验证、请求幂等和失败回执持久化。协议、限制与验收见 [VOICE_PRIVATE_RELAY.md](VOICE_PRIVATE_RELAY.md)。未部署、未重启服务、未刷板；#135 原交付包未修改。ASR合成样本首次4807ms、同句热态579–599ms，见[计时](ASR_BENCHMARK_20261020.md)，不能当作历史5.2秒的直接归因。
+
+2026-10-20：Issue #122 / fix/acp-strict-session-resume 补齐 ACP session/resume。DeepSeek 后端声明 resume={} 而非 loadSession，独立空会话跨进程恢复已通过（无模型调用）。严格失败不新建，load 后端保持优先，详见 [恢复契约](ACP_SESSION_RESUME.md)。未部署、未重启桥接/8796；真实语音仍待验收。
 
 2026-10-20：Issue #120 修复 ACP 全轮私密输出被过滤后仍返回成功、显示 `(空响应)` 的缺口。整轮统计跨消息/工具保留，RPC边界取快照；只有显式过滤证据且无公开正文时发专用错误，保留会话、不自动重跑工具、不写成功历史。分支 fix/120-acp-no-public-answer；合成mock RPC旧版8例失败，验证见[公开回复边界](ACP_PRIVATE_OUTPUT.md)。本条为源码记录，部署另在统一交接记账，发布须保留Claude strict补丁20c79756。
 
@@ -626,3 +666,34 @@ PR #10只补充工作流文档、PR模板及仓库设置，已合并；Issue #3�
 ## 交给下一个 Agent
 
 请先读 AGENTS.md、README.md、docs/HANDOFF.md；需要理解验收和边界时读 docs/GOALS.md、docs/STATUS.md、docs/ARCHITECTURE.md。核对当前分支、HEAD、未提交变化和实际Issue/PR，再继续一个有明确验收条件的任务。旧运行环境还在原目录，不把新仓库的构建视为已经部署；默认不启动子Agent，只有当前真人授权才派工。实质进展后更新本交接。
+
+## 2026-10-20 G哥：#130 按句播放候选
+- 独立 feat/voice-sentence-stream，叠在 #129；Claude voice_stream 和 companion sentence_stream 均默认 false。没有启用线上。
+- companion 453 passed /3 skipped；核心/Claude 针对性 race 与 CUJ 通过；默认全量 Go、vet、build 通过（真实web构建产物与#129相同），日志 /tmp/conest-stream-go-default.log。
+- 必须保留生产 #99/#101，再在隔离会话测真实首句延迟；ASR 只增加计时，不能报告五秒已解决。详见 docs/VOICE_SENTENCE_STREAM.md。
+
+## 2026-10-20 夜间整合候选（未部署）
+
+- 基于现场桥接 1cf4c0a1，保留 #99/#101/#120，并叠加 #129 ACP resume 和 #132 默认关闭的按句语音。网关沿用 7c3b33df；不把多频道 busy 聚合当成语音路由。
+- 固件 1788efc（01e8b20 + #125 + #131 + 生命周期/空闲降帧修复）已编译，app 3,011,168 字节；补丁树一致性验证通过。仅准备 app-only 交付，未刷板。
+- companion 460 passed/3 skipped；网关 46 passed；桥接全量 tests/vet/build 和 core/Claude race 通过。固件新增 ASan/UBSan 测试通过，全量主机测试仍有 1 项基线唤醒模型配置规范失败。
+- 仍待：真实帧率/温升/光圈/语音验收，Grok relay、ASR 实际提速、畸形私密标签过滤。未重启服务或修改生产配置。
+- 完整版本、资产校验、app-only 刷机与回退、现场验收步骤见 [OVERNIGHT_20261020.md](OVERNIGHT_20261020.md)。
+
+## 2026-10-20 #139 评审修正（未部署）
+
+- ACP 语音会话本身只认可 end_turn；覆盖新建/恢复、Send/SendResumed、截断/取消/拒绝/未知原因。澄清：转发器首轮此前已走严格发送，本轮复现的是语音会话普通 Send 的缺口，并补强该契约。
+- 启动失败时仅在确定未调用 Send 且无已保存 native ID 时解除占位；保留失败请求回执，不自动重投。既有身份、发送后未知结果、重启未知身份继续失败关闭。
+- 明确接纳失败的503带 submission=not_sent；companion 按此证据提示未发送，普通503/丢失确认仍只查回执。存储故障不能证明历史请求未发送，不带该标记。
+- ACP合成协议与启动失败测试先红后绿；竞态/CUJ通过，companion476通过/3跳过。Go全量/vet/build见PR最新验证记录。真实CLI、设备、频道未测试。
+- #135旧产物与校验和保留，#139依旧草稿；早上需重新构建匹配服务，夜间未部署、未重启、未刷板。
+
+## 语音协作复核与慢首轮复现（2026-10-21 09:38，本地未部署）
+
+G哥已实际通过桥接向肥鱼、大豆包发出任务，两者均返回；没有新建原生子Agent。肥鱼probe副本d9275e75的3项回放由父级复跑通过，约402ms轮询最坏相位、加假TTS首块0.5s后904ms。它未运行真实网关，0.4/0.3s轮询周期不是每次固定增加0.4–0.7s；模型8–13s完成时，“前3秒加快轮询”帮助有限，暂不采用。当前完整成功文本后进行流式合成，首块可在合成期间下发，不是等待整段音频生成完。
+
+大豆包独立报告五角色TF视频7组主机测试通过，父级另外复跑真实raw worker/DMA/取消/失败回归通过。候选仍0005683，固件及SHA未变；实际25–30fps、出声同步、温升、切换延迟仍待硬件。
+
+本轮8796 ASR-only复现同一3.007秒合成输入首轮14378.36ms、次轮816.63ms，推理14347/807ms，queue均0。未调用模型/TTS或播放。隔离无预热2009/612ms未复现14s；增加缓存查找与有界空闲诊断后，预热2146ms、首轮690ms、45秒空闲后1280ms，两轮模型缓存均命中且单次温度0解码。特征及编码593.287/1119.141ms、major faults7/85；不足以归因线上14s异常，未加保活或改识别参数。
+
+候选 .work/conest-voice-morning 的诊断工具与4项契约测试已更新、全部通过；首次根目录执行因tools导入路径失败，正确companion目录执行通过。仅本地诊断与文档改动，无生产服务/配置、CUJ、硬件、声音或新调度。详见docs/VOICE_MORNING_CANDIDATE_20261021.md；数值证据位于.local/asr-followup-20261021.jsonl、asr-followup-profile-20261021.jsonl、asr-idle-profile-20261021.jsonl。生产桥接已为他会话部署的dba1aca，禁止用旧候选整条覆盖或重跑旧计划。

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -3009,5 +3011,42 @@ func TestMgmt_SetupWeixinPoll_RejectsMalformedAPIURL(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("api_url=%q: status=%d, want %d (body=%s)", bad, w.Code, http.StatusBadRequest, w.Body.String())
 		}
+	}
+}
+
+// The wizard's "restart to apply": the restarting side stops the server as soon as it gets the
+// request; the client must still get the 200 reply (Stop used to Close() mid-write).
+func TestMgmt_RestartReplyNotDroppedByStop(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		l.Close()
+		m := NewManagementServer(port, "tok", nil)
+		m.SetHost("127.0.0.1")
+		m.Start()
+		url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/restart", port)
+		for j := 0; j < 50; j++ { // wait for the listener
+			if c, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port)); err == nil {
+				c.Close()
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		stopped := make(chan struct{})
+		go func() { <-RestartCh; m.Stop(); close(stopped) }()
+		req, _ := http.NewRequest(http.MethodPost, url, nil)
+		req.Header.Set("Authorization", "Bearer tok")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("round %d: restart reply dropped: %v", i, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("round %d: HTTP %d", i, resp.StatusCode)
+		}
+		<-stopped
 	}
 }

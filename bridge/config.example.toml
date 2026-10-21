@@ -2311,3 +2311,7 @@ app_secret = "your-feishu-app-secret"
 # wps_sid = "your-wps-sid"             # WPS登录凭证 (Cookie中的wps_sid)
 # device_name = "cc-connect"           # 设备名称（可选）
 # device_uuid = ""                     # 设备UUID（可选，留空自动生成）
+
+# Discord delegated approval (under projects.platforms.options):
+# share_session_in_channel = true
+# permission_approvers = "111111111111111111,222222222222222222"

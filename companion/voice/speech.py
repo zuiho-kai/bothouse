@@ -13,6 +13,7 @@ These methods block: web adapters should invoke them in a worker thread.
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Callable
 import os
 from pathlib import Path
@@ -22,6 +23,11 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
+
+from . import asr_diag
+
+logger = logging.getLogger("uvicorn.error")  # same sink as the other ASR logs (server.log)
 
 import numpy as np
 
@@ -128,20 +134,88 @@ def _cache_directory() -> Path:
     return path
 
 
+REMOTE_ASR_BACKOFF_SECONDS = 60
+
+
+def _remote_transcribe(url: str, wav_bytes: bytes, timeout: float) -> tuple[str, float | None]:
+    """POST the WAV to a remote recognizer; returns (text, remote inference ms). Never uses a proxy."""
+    import json
+    import urllib.request
+
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    request = urllib.request.Request(url, data=wav_bytes, headers={"Content-Type": "audio/wav"})
+    with opener.open(request, timeout=timeout) as response:
+        payload = json.loads(response.read(64 * 1024))
+    text = payload.get("text")
+    if not isinstance(text, str):
+        raise TypeError("远程识别没有返回文本")
+    inference = payload.get("inference_ms")
+    return text, float(inference) if isinstance(inference, (int, float)) else None
+
+
 class Speech:
-    def __init__(self, model_path: str, voice: str = "Tingting", tts=None):
+    def __init__(self, model_path: str, voice: str = "Tingting", tts=None, *,
+                 remote_url: str = "", remote_timeout: float = 3.0):
+        self.remote_url = remote_url
+        self.remote_timeout = remote_timeout
+        self._remote_down_until = 0.0
         self.model_path = str(_resolve_model_path(model_path))
         if not isinstance(voice, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]{0,79}", voice):
             raise ValueError("音色名称无效，请使用已安装的系统音色，例如 Tingting。")
         self.voice = voice
         self._transcribe_fn = None
+        self._asr_warmed = False
         self.tts = tts
 
     def close(self):
         if self.tts is not None:
             self.tts.close()
 
+    def _try_remote(self, wav_bytes: bytes) -> tuple[str, float | None] | None:
+        """Remote recognition, or None to fall back to local. A failure pauses remote tries
+        for a minute so each turn does not pay the timeout again."""
+        if time.monotonic() < self._remote_down_until:
+            return None
+        try:
+            text, inference = _remote_transcribe(self.remote_url, wav_bytes, self.remote_timeout)
+        except Exception as exc:
+            self._remote_down_until = time.monotonic() + REMOTE_ASR_BACKOFF_SECONDS
+            logger.warning("远程识别失败，%d 秒内改用本机识别：%s", REMOTE_ASR_BACKOFF_SECONDS, type(exc).__name__)
+            return None
+        if not text.strip():
+            return None  # let the local model decide; an empty remote result is not authoritative
+        return text, inference
+
     def transcribe(self, wav_bytes: bytes) -> str:
+        return self.transcribe_timed(wav_bytes)[0]
+
+    def warmup(self) -> dict:
+        """Initialize local ASR before serving; discard all synthetic output.
+
+        Use the same process-wide lock and model cache as real recognition.
+        One silent second runs the encoder/decoder without a microphone, TTS,
+        bridge request, or temperature fallback. Normal decoding is unchanged.
+        """
+        started = time.monotonic()
+        with _ASR_LOCK:
+            path = str(_resolve_model_path(self.model_path))
+            if self._asr_warmed:
+                return {"cached": True, "total_ms": 0}
+            if self._transcribe_fn is None:
+                self._transcribe_fn = importlib.import_module("mlx_whisper").transcribe
+            self._transcribe_fn(
+                np.zeros(16000, dtype=np.float32), path_or_hf_repo=path,
+                language="zh", task="transcribe", verbose=None,
+                condition_on_previous_text=False, temperature=0.0, sample_len=1,
+            )
+            self._asr_warmed = True
+        return {"cached": False, "total_ms": round((time.monotonic() - started) * 1000)}
+
+    def transcribe_timed(self, wav_bytes: bytes) -> tuple[str, dict]:
+        # Per-call timings, never a shared "last result" which races requests.
+        # 只记录诊断：默认关闭，VOICE_ASR_DIAG 指向文件时才采样，且绝不影响返回值。
+        diag_before, diag_idle = asr_diag.begin()
+        started = time.monotonic()
         samples = _pcm_samples(wav_bytes, rate=16000, max_bytes=MAX_WAV_BYTES,
                                max_seconds=MAX_AUDIO_SECONDS)
         # Remove DC for the energy test. A constant offset is not audible speech.
@@ -150,12 +224,32 @@ class Speech:
         active_samples = int(np.count_nonzero(np.abs(centered) >= 0.003))
         if rms < 0.001 or active_samples < 160:  # -60 dBFS / 10 ms activity floor
             raise ValueError("音频为空、静音或音量过低，请靠近麦克风后重试。")
+        queued = time.monotonic()
+        remote = self._try_remote(wav_bytes) if self.remote_url else None
+        if remote is not None:
+            text, remote_inference = remote
+            ended = time.monotonic()
+            timings = {
+                'audio_ms': round(len(samples) / 16),
+                'validation_ms': round((queued-started)*1000),
+                'queue_ms': 0,
+                'setup_ms': 0,
+                'inference_ms': round((ended-queued)*1000),
+                'total_ms': round((ended-started)*1000),
+                'remote_ms': round((ended-queued)*1000),
+            }
+            if remote_inference is not None:
+                timings['remote_inference_ms'] = round(remote_inference)
+            asr_diag.finish(timings, diag_before, diag_idle)
+            return text.strip(), timings
         with _ASR_LOCK:
+            acquired = time.monotonic()
             # Recheck even after warm-up: upstream downloads when a path is missing.
             path = str(_resolve_model_path(self.model_path))
             try:
                 if self._transcribe_fn is None:
                     self._transcribe_fn = importlib.import_module("mlx_whisper").transcribe
+                infer_started = time.monotonic()
                 result = self._transcribe_fn(
                     samples, path_or_hf_repo=path, language="zh", task="transcribe",
                     verbose=None, condition_on_previous_text=False,
@@ -170,7 +264,17 @@ class Speech:
                 raise RuntimeError("本地语音识别失败，请重试或检查本地模型。") from exc
         if not text.strip():
             raise ValueError("未识别到可用语音，请重新录音。")
-        return text.strip()
+        ended = time.monotonic()
+        timings = {
+            'audio_ms': round(len(samples) / 16),
+            'validation_ms': round((queued-started)*1000),
+            'queue_ms': round((acquired-queued)*1000),
+            'setup_ms': round((infer_started-acquired)*1000),
+            'inference_ms': round((ended-infer_started)*1000),
+            'total_ms': round((ended-started)*1000),
+        }
+        asr_diag.finish(timings, diag_before, diag_idle)
+        return text.strip(), timings
 
     def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
         encoded = _validate_tts_text(text)

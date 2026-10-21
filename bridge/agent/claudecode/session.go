@@ -42,6 +42,7 @@ type claudeSession struct {
 	cancel          context.CancelFunc
 	done            chan struct{}
 	alive           atomic.Bool
+	voiceOnly       atomic.Bool
 
 	// maomao fork: on --resume the CLI reports background tasks the previous
 	// process left behind (system/task_notification before the first init) and
@@ -95,6 +96,7 @@ type claudeSession struct {
 	// when the session reuses the shared file (the common 99% case)
 	// or when there is nothing to append.
 	promptFilePath string
+	speechBlocks   map[int]bool // scanner-owned; only explicit text blocks
 }
 
 // StartupWarning implements core.StartupWarner. Returns a non-empty string
@@ -239,7 +241,7 @@ func buildAppendSystemPrompt(agentPrompt, platformPrompt, userAppend string) str
 	return strings.Join(parts, "\n")
 }
 
-func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs []string, cmdArgsFlag string, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt string, allowedTools, disallowedTools []string, pluginDirs []string, extraEnv []string, platformPrompt string, disableVerbose bool, spawnOpts core.SpawnOptions, maxContextTokens int, ccDataDir string) (*claudeSession, error) {
+func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs []string, cmdArgsFlag string, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt string, allowedTools, disallowedTools []string, pluginDirs []string, extraEnv []string, platformPrompt string, disableVerbose bool, spawnOpts core.SpawnOptions, maxContextTokens int, ccDataDir string, voiceStream bool) (*claudeSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	// Claude Code rejects bypassPermissions when running as root.
@@ -259,6 +261,9 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 		"--input-format", "stream-json",
 		"--permission-prompt-tool", "stdio",
 		"--replay-user-messages",
+	}
+	if voiceStream {
+		innerArgs = append(innerArgs, "--include-partial-messages")
 	}
 	if !disableVerbose {
 		innerArgs = append(innerArgs, "--verbose")
@@ -604,6 +609,8 @@ func (cs *claudeSession) handleReadLoopLine(line string) {
 	switch eventType {
 	case "system":
 		cs.handleSystem(raw)
+	case "stream_event":
+		cs.handleSpeechDelta(raw)
 	case "assistant":
 		cs.handleAssistant(raw)
 	case "user":
@@ -702,6 +709,13 @@ var apiErrorResultGrace = 10 * time.Second
 
 // armAPIErrorFallback is called when an assistant event carries an API error.
 func (cs *claudeSession) armAPIErrorFallback(raw map[string]any) {
+	if cs.voiceOnly.Load() {
+		select {
+		case cs.events <- core.Event{Type: core.EventError, Content: "voice provider failed", SessionID: cs.CurrentSessionID()}:
+		case <-cs.ctx.Done():
+		}
+		return
+	}
 	var text string
 	if msg, ok := raw["message"].(map[string]any); ok {
 		if arr, ok := msg["content"].([]any); ok {
@@ -944,6 +958,17 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 	// Done=true would make the engine's processInteractiveEvents return
 	// early and drop the rest of the turn (issue #481).
 	isCompaction := isCompactionResult(raw)
+	if cs.voiceOnly.Load() && !isCompaction {
+		isError, _ := raw["is_error"].(bool)
+		stop, _ := raw["stop_reason"].(string)
+		if resultSubtype(raw) != "success" || isError || (stop != "" && stop != "end_turn") {
+			select {
+			case cs.events <- core.Event{Type: core.EventError, Content: "voice reply did not finish normally", SessionID: cs.CurrentSessionID()}:
+			case <-cs.ctx.Done():
+			}
+			return
+		}
+	}
 	if isCompaction {
 		slog.Info("claudeSession: mid-turn compaction event; continuing turn", "subtype", resultSubtype(raw))
 	}

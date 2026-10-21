@@ -495,12 +495,13 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 // forceExec snapshots the same model/provider/environment without opening a live
 // app-server chat session. Native compaction uses this configuration snapshot.
 func (a *Agent) startSession(ctx context.Context, sessionID string, forceExec bool) (core.AgentSession, error) {
-	return a.startSessionWith(ctx, sessionID, forceExec, nil)
+	return a.startSessionWith(ctx, sessionID, forceExec, nil, nil)
 }
 
 // startSessionWith is startSession with per-session settings passed in
-// (settings != nil) instead of read from SetSessionModel/SetSessionInstructions.
-func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExec bool, settings *core.SessionSettings) (core.AgentSession, error) {
+// (settings != nil) instead of read from SetSessionModel/SetSessionInstructions,
+// and extra environment for an isolated voice conversation (voiceEnv).
+func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExec bool, settings *core.SessionSettings, voiceEnv []string) (core.AgentSession, error) {
 	a.mu.Lock()
 	mode := a.mode
 	model := a.model
@@ -521,6 +522,7 @@ func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExe
 	extraEnv := append([]string(nil), a.configEnv...)
 	extraEnv = append(extraEnv, a.providerEnvLocked()...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
+	extraEnv = core.MergeEnv(extraEnv, voiceEnv)
 	var baseURL string
 	if a.activeIdx >= 0 && a.activeIdx < len(a.providers) {
 		if m := a.providers[a.activeIdx].Model; m != "" {

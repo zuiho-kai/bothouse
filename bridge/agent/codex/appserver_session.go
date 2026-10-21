@@ -196,8 +196,9 @@ type appServerSession struct {
 	approvalsMu      sync.Mutex
 	pendingApprovals map[string]chan core.PermissionResult
 
-	threadID atomic.Value
-	alive    atomic.Bool
+	threadID   atomic.Value
+	alive      atomic.Bool
+	voiceFresh atomic.Bool // fresh voice thread may not have a rollout until its first turn
 
 	closeOnce sync.Once
 	wg        sync.WaitGroup
@@ -1400,6 +1401,17 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 		text, _ := item["text"].(string)
 		if strings.TrimSpace(text) != "" {
 			s.stateMu.Lock()
+			phase, _ := item["phase"].(string)
+			publicReply := phase == "commentary" && s.strict == nil
+			if publicReply {
+				s.stateMu.Unlock()
+				// This is explicitly public mid-turn text, not reasoning. Deliver
+				// it like Claude's text blocks instead of waiting for the next
+				// tool to guess its meaning. Strict voice keeps its old boundary.
+				s.flushPendingAsThinking()
+				s.emit(core.Event{Type: core.EventText, Content: text})
+				return
+			}
 			s.pendingMsgs = append(s.pendingMsgs, text)
 			s.stateMu.Unlock()
 		}

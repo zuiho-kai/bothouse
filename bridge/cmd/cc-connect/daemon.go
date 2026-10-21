@@ -50,6 +50,9 @@ func daemonInstall(args []string) {
 		os.Exit(1)
 	}
 
+	if cfg.WorkDir == "" {
+		cfg.WorkDir = defaultDaemonWorkDir()
+	}
 	if err := daemon.Resolve(&cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -115,6 +118,19 @@ func daemonInstall(args []string) {
 			fmt.Printf("     sudo loginctl enable-linger %s\n", user)
 		}
 	}
+}
+
+// defaultDaemonWorkDir: without --config / --work-dir the service uses the config a plain
+// `cc-connect` would use (resolveConfigPath: ./config.toml, else ~/.cc-connect/config.toml).
+// It used to take the current directory only, so the `cc-connect daemon install` that setup
+// apply's next_steps and AGENTS.md give failed with "config.toml not found" unless run from
+// ~/.cc-connect.
+func defaultDaemonWorkDir() string {
+	p := resolveConfigPath("")
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	return filepath.Dir(p)
 }
 
 func parseDaemonInstallArgs(args []string) (daemon.Config, bool, error) {

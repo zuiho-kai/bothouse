@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import unittest
 
+import tools.smoke_phone as smoke_phone
 from tools.smoke_phone import judge_co_mention
+
+# 作者 id 不再写死在脚本里（.env RH_CO_LEAD / RH_CO_SUB）；下面造的消息用这两个
+smoke_phone.CO_LEAD, smoke_phone.CO_SUB = "maomao", "longniang"
 
 FOOT_J = "\n\n*claude-opus-5-5 · out 68 · in 2 cw 16.5k cr 1.2k · ctx 17%\n~/im-bridge/claude*"
 FOOT_L = "\n\n*gpt-6.1-sol · effort:high · out 22 · in 43.6k cw 0 cr 43.5k · ctx 17% · 额度剩余 0%\n~/im-bridge/longniang*"

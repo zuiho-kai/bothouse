@@ -5,8 +5,11 @@
 # 再部署到 Windows 的一个新目录（不覆盖旧目录），改脚本默认目录，最后启动切换器。
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-HOST="${SWITCH_HOST:-zxy@100.97.84.11}"
-TEAM="${GATE_TEAM_FILE:-$HOME/.cc-connect-maomao/gate-team.json}"
+# 必须给：GPU 机器的 SSH 目标、它的 Windows 用户目录在 WSL 里的路径（scp 传到 Windows 用户目录）
+HOST="${SWITCH_HOST:?先设 SWITCH_HOST=<user@GPU 机器>（SSH 目标）}"
+: "${SWITCH_TS_IP:?先设 SWITCH_TS_IP=<GPU 机器的 tailscale IP>（第 4 步启动的切换器要用）}"
+WIN_HOME="${SWITCH_WIN_HOME:?先设 SWITCH_WIN_HOME=<WSL 里看到的 Windows 用户目录，形如 /mnt/c/Users/<你的用户名>>}"
+TEAM="${GATE_TEAM_FILE:-$HOME/.cc-connect/gate-team.json}"  # 默认：向导写的团队文件
 PORT="${SWITCH_PORT:-9930}"
 NAME="gate-cuda-$(date +%Y%m%d-%H%M%S)"
 TMP="$(mktemp -d)"
@@ -34,7 +37,7 @@ cat > "$TMP/deploy.sh" <<EOF
 set -e
 D=\$HOME/work/$NAME
 [ -e "\$D" ] && { echo "\$D 已存在，不覆盖"; exit 1; }
-mkdir -p "\$D" && tar -xzf /mnt/c/Users/ASUS/$NAME.tgz -C "\$D" --strip-components=1 2>/dev/null
+mkdir -p "\$D" && tar -xzf $WIN_HOME/$NAME.tgz -C "\$D" --strip-components=1 2>/dev/null
 echo "已部署到 \$D：\$(ls "\$D" | tr '\n' ' ')"
 EOF
 ssh -o BatchMode=yes "$HOST" wsl bash -s < "$TMP/deploy.sh"
