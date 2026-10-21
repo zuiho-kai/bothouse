@@ -5,8 +5,9 @@
 - 不在同一个局域网（走 DERP 中继或连不上）→ 断开那条 SSH，本地按规则立即回答，
   效果等于没开闸门：主 bot 一律回复，sub 只在被 @ 时回复。
 - 转发出错或超时也立即按规则回答，不让 cc-connect 等满 gate_timeout_ms。
-- /context（每轮相关的 wiki 页）同样转给远端闸门；闸门关着或转发失败时回空结果 {"wiki": []}，
-  桥接当作没有相关页，不影响 /decide。
+- /context（每轮相关的 wiki 页）在本机用 ctxsvc 查本机的 wiki（GATE_WIKI，默认 ~/wiki），不转给远端：
+  检索是纯词法 BM25、不用模型；wiki 由本机的 llm-wiki 写在本机，远端 GPU 机器上通常没有。
+  所以闸门在不在线都能推 wiki 页，推出去的路径（~/wiki/...）本机的 agent 也直接能读。
 
 只用标准库：python3 contrib/gate/gate_switch.py
 配置用环境变量（见下面 CONFIG），日志写到 SWITCH_LOG。
@@ -39,8 +40,6 @@ CONFIG = {
                                   str(Path(__file__).with_name("stop_gate_wsl.sh"))),
     "check_every": float(os.environ.get("SWITCH_CHECK_EVERY", "10")),
     "forward_timeout": float(os.environ.get("SWITCH_FORWARD_TIMEOUT", "2.5")),
-    # 桥接最多等 /context 2 秒（bridge/core/gate.go turnContext），这里要先于它返回
-    "context_timeout": float(os.environ.get("SWITCH_CONTEXT_TIMEOUT", "1.5")),
     "log": Path(os.environ.get("SWITCH_LOG", Path.home() / ".cc-connect-gate-switch/switch.jsonl")),
 }
 TAILSCALE = os.environ.get("TAILSCALE", "tailscale")
@@ -95,6 +94,8 @@ try:
 except Exception as e:  # gate.py 读不了就只用最简单的兜底
     RULES = None
     print(f"gate.py 规则加载失败，off 模式只用简单兜底：{e!r}", flush=True)
+
+import ctxsvc  # noqa: E402  本机 wiki 检索（标准库 + wiki_search）；GATE_WIKI 在导入时读取
 
 state = {"mode": "off", "why": "starting", "tunnel": None, "upstream_ok": False, "since": time.time(),
          "tunnel_started": 0.0, "backoff": 0.0, "retry_at": 0.0, "remote_running": False}
@@ -329,17 +330,14 @@ class H(BaseHTTPRequestHandler):
         self._send(resp)
 
     def _context(self):
-        """wiki 页只在远端闸门上有：GPU 模式原样转发，否则回空结果。
-        /context 失败不改 upstream_ok——wiki 检索慢或出错不代表闸门断了，判断照常走 GPU。"""
+        """本机 wiki 检索（见文件头）。出错回空结果：这一轮没有 wiki 页，不影响 /decide 和闸门状态。"""
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}"
         t = time.time()
-        if state["upstream_ok"]:
-            try:
-                resp, route = forward(self.path, body, CONFIG["context_timeout"]), "gpu"
-            except Exception as e:
-                resp, route = {"wiki": []}, f"fallback: {type(e).__name__}"
-        else:
-            resp, route = {"wiki": []}, "off"
+        try:
+            resp, route = ctxsvc.context(json.loads(body)), "local"
+        except Exception as e:
+            resp, route = {"wiki": []}, f"error: {type(e).__name__}"
+            log(event="context_error", error=repr(e))
         log(event="context", route=route, pages=len(resp.get("wiki") or []), ms=round((time.time() - t) * 1000))
         self._send(resp)
 
