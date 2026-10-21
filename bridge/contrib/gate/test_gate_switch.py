@@ -1,4 +1,4 @@
-"""切换器的 /context 转发和 sync_gate.sh 的打包清单（不连 SSH、不加载模型）：python3 -I contrib/gate/test_gate_switch.py"""
+"""切换器在本机回答 /context，以及 sync_gate.sh 的打包清单（不连 SSH、不加载模型）：python3 -I contrib/gate/test_gate_switch.py"""
 import ast, importlib, json, os, re, sys, tempfile, threading, unittest, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -10,7 +10,15 @@ TMP = Path(tempfile.mkdtemp())
 os.environ["GATE_SETUP_DIR"] = str(TMP)  # 不读本机 ~/.cc-connect 里向导写的文件
 os.environ["GATE_TEAM"] = str(HERE / "team.example.json")
 os.environ["SWITCH_LOG"] = str(TMP / "switch.jsonl")
+# 本机 wiki（同 test_ctxsvc 的样例）：GATE_WIKI 在 ctxsvc 导入时读取
+WIKI = TMP / "wiki"
+(WIKI / "infra").mkdir(parents=True)
+(WIKI / "infra" / "README.md").write_text("x")
+(WIKI / "infra" / "vps.md").write_text("---\nname: vps\ndescription: VPS 一览\n---\n# T\n- 代理端口 7890\n")
+os.environ["GATE_WIKI"] = str(WIKI)
 switch = importlib.import_module("gate_switch")
+ctxsvc = sys.modules["ctxsvc"]
+PAGE = {"path": str(WIKI / "infra/vps.md"), "desc": "VPS 一览 | 6: - 代理端口 7890"}
 
 
 def local_imports(module, seen=None):
@@ -42,13 +50,12 @@ class SyncManifest(unittest.TestCase):
 
 
 class Upstream(BaseHTTPRequestHandler):
-    """假的远端闸门：/context 回一页 wiki，记下收到的请求。"""
+    """假的远端闸门：记下收到的请求（/context 不该到这里）。"""
     seen = []
 
     def do_POST(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        Upstream.seen.append((self.path, json.loads(body or b"{}")))
-        out = json.dumps({"wiki": [{"path": "notes/gate.md", "desc": "闸门说明"}]}).encode()
+        Upstream.seen.append(self.path)
+        out = b'{"wiki": [{"path": "remote.md", "desc": "remote"}]}'
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(out)))
@@ -88,26 +95,31 @@ class ContextRoute(unittest.TestCase):
         Upstream.seen.clear()
         switch.CONFIG["tunnel_port"] = self.upstream.server_address[1]
         switch.state["upstream_ok"] = True
+        ctxsvc.WIKI, ctxsvc._idx = WIKI, None
 
-    def test_gpu_mode_forwards_context_to_the_remote_gate(self):
-        req = {"key": "discord:1", "text": "闸门怎么配", "bot": "sub1"}
-        out = post(self.port, "/context?bot=sub1", req)
-        self.assertEqual(out, {"wiki": [{"path": "notes/gate.md", "desc": "闸门说明"}]})
-        self.assertEqual(Upstream.seen, [("/context?bot=sub1", req)])
+    def test_gpu_mode_answers_from_the_local_wiki_without_forwarding(self):
+        out = post(self.port, "/context?bot=sub1", {"key": "discord:1", "text": "代理端口多少", "bot": "sub1"})
+        self.assertEqual(out, {"wiki": [PAGE]})
+        self.assertEqual(Upstream.seen, [], "/context 不该转给远端闸门")
 
-    def test_gate_off_answers_no_pages(self):
+    def test_gate_off_still_answers_from_the_local_wiki(self):
         switch.state["upstream_ok"] = False
-        self.assertEqual(post(self.port, "/context", {"key": "k", "text": "t"}), {"wiki": []})
-        self.assertEqual(Upstream.seen, [])
+        self.assertEqual(post(self.port, "/context", {"key": "k", "text": "代理端口"}), {"wiki": [PAGE]})
 
-    def test_failed_forward_answers_no_pages_and_keeps_the_gate_up(self):
-        dead = serve(Upstream)
-        dead_port = dead.server_address[1]
-        dead.shutdown()
-        dead.server_close()
-        switch.CONFIG["tunnel_port"] = dead_port
-        self.assertEqual(post(self.port, "/context", {"key": "k", "text": "t"}), {"wiki": []})
-        self.assertTrue(switch.state["upstream_ok"], "/context 失败不应把闸门判成断开")
+    def test_missing_wiki_answers_no_pages(self):
+        ctxsvc.WIKI, ctxsvc._idx = TMP / "nope", None
+        self.assertEqual(post(self.port, "/context", {"key": "k", "text": "代理端口"}), {"wiki": []})
+
+    def test_lookup_error_answers_no_pages_and_keeps_the_gate_up(self):
+        original = ctxsvc.context
+        ctxsvc.context = lambda req: (_ for _ in ()).throw(OSError("disk"))
+        try:
+            self.assertEqual(post(self.port, "/context", {"key": "k", "text": "t"}), {"wiki": []})
+        finally:
+            ctxsvc.context = original
+        self.assertTrue(switch.state["upstream_ok"])
+        events = [json.loads(l) for l in Path(os.environ["SWITCH_LOG"]).read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([e["event"] for e in events[-2:]], ["context_error", "context"])
 
     def test_unknown_paths_are_still_404(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
@@ -115,10 +127,9 @@ class ContextRoute(unittest.TestCase):
         self.assertEqual(caught.exception.code, 404)
 
     def test_context_requests_are_logged_with_their_route(self):
-        switch.state["upstream_ok"] = False
-        post(self.port, "/context", {"key": "k", "text": "t"})
+        post(self.port, "/context", {"key": "k", "text": "代理端口"})
         last = json.loads(Path(os.environ["SWITCH_LOG"]).read_text(encoding="utf-8").splitlines()[-1])
-        self.assertEqual((last["event"], last["route"], last["pages"]), ("context", "off", 0))
+        self.assertEqual((last["event"], last["route"], last["pages"]), ("context", "local", 1))
 
 
 if __name__ == "__main__":
