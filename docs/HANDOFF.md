@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-21 Issue #215 / PR #216：独立 WSL conest-ci 已运行两个专用账号的 runner，可并行两项 job；每路上限4个逻辑线程算力、6GiB内存，工作区和工具缓存独立。真实 Actions run 39546540674 的 bridge、companion、firmware-assets、dial-metrics 全过，原 Ubuntu GPU 闸门仍存活。最终文档提交的检查与合并状态以 PR 为准。登录后自启已配置，未做重启验收；插电不休眠，电池仍可能休眠。仅迁移核心 CI，release/ui-preview 仍在云端；未核对账单页面。详见 docs/SELF_HOSTED_CI.md。
+
 2026-10-21 Issue #208：G哥插话后公开回复延迟。已分别复现 Codex commentary 被缓冲，以及核心在工具边界冻结旧预览却不为新文字恢复；修复明确 phase 的普通公开文字分类、可恢复冻结状态与新段落收尾。严格语音、未知phase和内部推理边界保留；运输失败不因新文字恢复，旧消息不被覆盖。适配器回放、真实 Engine→gate→app-server→预览链路和三次真人输入的 STREAM2 CUJ 已通过；原版四条回归失败。全量/race/CI与部署状态见对应PR，真实频道待自然验收。详见[插话公开回复](CODEX_INSERT_PUBLIC_REPLY.md)。未接管他人PR清理或语音优化。
 
 2026-10-21：n150 Linux 真机实测问题修复（分支 fix/setup-n150-findings，基线 main 62aec4e3）。setup apply / 网页向导：回复语言为 角色 reply_language > 请求 language（--lang）> 本机 locale（不用 Discord 服务器 preferred_locale：默认 en-US，会把中文电脑配成英文），代码原样传（zh-TW、ko 不截断），结果里写 reply_language/reply_language_from，没指定时给不阻断的 reply_language_default；网页向导用顶栏右上角的语言作默认回复语言并显示「机器人回复语言：X」，向导文案中英日（用户 2026-10-21 定），其他语言界面回落英文，文案集中在 web/src/pages/Setup/texts.ts。网页和命令行首次运行都不再说备份了旧配置（store 判断配置仍是首次模板）。CLI 没登录给阻塞的 agent_not_logged_in（带登录步骤），token 401 给阻塞的 discord_token_invalid（带重置链接），dry-run 不再说“已保存”、persona_written 如实，首次运行不再说“previous config kept”，setup clis 为空或都没登录时 stderr 给提示，中文机器人名变 role-N 时 steps 说明原因（文档已改）。同一 token 多处在线查不出，只写进文档。Go 沙箱全量通过；隔离 HOME + 假 Discord 跑了 CLI 前后对比和网页向导全流程（PR 描述）。未部署。

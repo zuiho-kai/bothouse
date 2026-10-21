@@ -10,13 +10,17 @@ on:
 permissions:
   contents: read
 
+# Dedicated Ubuntu WSL runner; leave capacity for the separate GPU gateway.
+env:
+  GOMAXPROCS: '4'
+
 concurrency:
   group: conest-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   companion:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, conest-ci]
     timeout-minutes: 10
     defaults:
       run:
@@ -29,14 +33,16 @@ jobs:
       - run: python -m pip install uv==0.11.16
       - run: uv sync --locked
       - run: uv run python -m pytest -q
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
       - run: node --version
       - run: node --test tests/test_voice_player.cjs
 
   # 素材打包工具是主机侧脚本，不需要 ESP-IDF，所以单独一个轻量 job。
-  # ubuntu-latest 不自带 ffmpeg（实测端到端用例被跳过），必须显式装，
-  # 否则这个 job 会「绿」着跳过真正跑打包的那几条。
+  # runner 预装 ffmpeg；缺依赖直接失败，不能跳过端到端用例后报绿。
   firmware-assets:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, conest-ci]
     timeout-minutes: 10
     defaults:
       run:
@@ -47,13 +53,13 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install pillow
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: command -v ffmpeg
       - run: ffmpeg -version | head -1
       - run: python -m unittest discover -s tests -p 'test_pack_assets.py' -v
 
   # 表盘尺寸换算（firmware/dial）是纯 C++，不需要 ESP-IDF：检查头文件与 JSON 一致，再编译跑主机单测。
   dial-metrics:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, conest-ci]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -63,7 +69,7 @@ jobs:
       - run: ctest --test-dir build/dial --output-on-failure
 
   bridge:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, conest-ci]
     timeout-minutes: 20
     defaults:
       run:
@@ -74,6 +80,9 @@ jobs:
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
       - run: node --test ../integrations/dsh-public-output/*.test.mjs
       - run: go mod verify
       - run: go build -tags no_web ./...
