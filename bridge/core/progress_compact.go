@@ -68,6 +68,13 @@ type ProgressCardPayload struct {
 	ElapsedSec int `json:"elapsed_sec,omitempty"`
 	// maomao fork: set when the bot is configured for a multi-line card (ProgressCardSizer).
 	LineLen int `json:"line_len,omitempty"`
+	// Gateway heartbeat (no model cooperation): seconds since the last agent event, the
+	// tool/command in flight, and whether the stall threshold has passed.
+	IdleSec int    `json:"idle_sec,omitempty"`
+	Current string `json:"current,omitempty"`
+	Stalled bool   `json:"stalled,omitempty"`
+	// Heartbeat is set when the card was refreshed by the gateway clock rather than an event.
+	Heartbeat bool `json:"heartbeat,omitempty"`
 }
 
 // BuildProgressCardPayload encodes progress entries into a transport string.
@@ -99,7 +106,19 @@ func BuildProgressCardPayloadV2(items []ProgressCardEntry, truncated bool, agent
 	return buildProgressCardPayload(items, truncated, agent, lang, state, 0, 0, 0)
 }
 
+// progressLive is the heartbeat part of a card payload.
+type progressLive struct {
+	idleSec   int
+	current   string
+	stalled   bool
+	heartbeat bool
+}
+
 func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen int) string {
+	return buildProgressCardPayloadLive(items, truncated, agent, lang, state, steps, elapsedSec, lineLen, progressLive{})
+}
+
+func buildProgressCardPayloadLive(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen int, live progressLive) string {
 	cleaned := make([]ProgressCardEntry, 0, len(items))
 	for _, item := range items {
 		text := strings.TrimSpace(item.Text)
@@ -119,13 +138,20 @@ func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent s
 			Success:  item.Success,
 		})
 	}
-	if len(cleaned) == 0 {
+	if len(cleaned) == 0 && !live.heartbeat {
 		return ""
 	}
 	if state == "" {
 		state = ProgressCardStateRunning
 	}
+	if state != ProgressCardStateRunning {
+		live = progressLive{} // a finished card shows no "still running" / stall mark
+	}
 	payload := ProgressCardPayload{
+		IdleSec:    live.idleSec,
+		Current:    live.current,
+		Stalled:    live.stalled,
+		Heartbeat:  live.heartbeat,
 		Version:    2,
 		Agent:      strings.TrimSpace(agent),
 		Lang:       string(lang),
@@ -181,7 +207,7 @@ func ParseProgressCardPayload(content string) (*ProgressCardPayload, bool) {
 			})
 		}
 	}
-	if len(items) == 0 && len(legacy) == 0 {
+	if len(items) == 0 && len(legacy) == 0 && !payload.Heartbeat {
 		return nil, false
 	}
 	if payload.State == "" {
@@ -247,8 +273,20 @@ type compactProgressWriter struct {
 	// board's "当前步骤"); nil = none.
 	onStep func(ProgressCardEntry)
 	// maomao fork: the "等子 agent" line currently in items/entries ("" = none).
-	waitText     string
+	waitText string
+	// Lazy open: the card is only sent once the turn is a task (a tool call, see
+	// noteToolForOpen); steps before that (thinking) are kept and shown when it opens.
+	wantOpen     bool
+	lazy         bool // set by the engine; off = open on the first step (direct writer users)
 	waitFallback string
+
+	// Gateway heartbeat: when the last agent event arrived, the tool in flight, the stall
+	// threshold, and whether the card is currently shown through the heartbeat.
+	lastEventAt time.Time
+	current     string
+	stallAfter  time.Duration
+	live        progressLive
+	now         func() time.Time
 
 	// Throttle message edits to avoid platform rate limits (e.g. Discord ~5 edits/5s).
 	minUpdateInterval time.Duration
@@ -314,8 +352,12 @@ func SuppressStandaloneToolResultEvent(p Platform) bool {
 	return progressStyleForPlatform(p) == progressStyleLegacy
 }
 
+// progressClock is the card's clock (tests speed it up to simulate long silent calls).
+// It is package state, not per-writer, so tests that swap it must not run in parallel.
+var progressClock = time.Now
+
 // progressCardMaxEntries — maomao fork: the card shows one refreshed line, like a progress bar (upstream 10).
-var progressCardMaxEntries = 1
+var progressCardMaxEntries = ProgressCardVisibleSteps
 
 func newCompactProgressWriter(ctx context.Context, p Platform, replyCtx any, agentName string, lang Language, transform func(string) string) *compactProgressWriter {
 	w := &compactProgressWriter{
@@ -328,8 +370,10 @@ func newCompactProgressWriter(ctx context.Context, p Platform, replyCtx any, age
 		agentName:  normalizeProgressAgentLabel(agentName),
 		lang:       lang,
 		maxEntries: progressCardMaxEntries,
-		startedAt:  time.Now(),
+		startedAt:  progressClock(),
+		now:        progressClock,
 	}
+	w.lastEventAt = w.startedAt
 	if throttler, ok := p.(ProgressUpdateThrottler); ok {
 		w.minUpdateInterval = throttler.ProgressUpdateInterval()
 	}
@@ -448,14 +492,34 @@ func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallbac
 	if w.onStep != nil {
 		w.onStep(item)
 	}
+	w.lastEventAt = w.now()
+	switch item.Kind {
+	case ProgressEntryToolUse:
+		w.current = item.Tool
+	case ProgressEntryToolResult, ProgressEntryError:
+		w.current = ""
+	}
+	if w.live.heartbeat {
+		w.live = w.liveState()
+	}
 
 	switch w.style {
 	case progressStyleCard:
 		if item.Kind == ProgressEntryToolUse {
 			w.steps++
+			w.noteToolForOpen(item.Tool)
+		}
+		// One short line per step; the full command/output goes to the log only.
+		slog.Debug("progress card step", "platform", w.platform.Name(), "kind", item.Kind, "tool", item.Tool, "detail", text)
+		summary := SummarizeProgressStep(item, string(w.lang))
+		if summary == "" { // successful tool result: no output text on the card
+			if w.handle == nil || !w.renderCard() {
+				return true
+			}
+			return w.push()
 		}
 		w.items = append(w.items, item)
-		w.entries = append(w.entries, fallback)
+		w.entries = append(w.entries, summary)
 		truncated := false
 		if w.maxEntries > 0 && len(w.items) > w.maxEntries {
 			w.items = w.items[len(w.items)-w.maxEntries:]
@@ -468,6 +532,9 @@ func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallbac
 			truncated = true
 		}
 		w.truncated = truncated
+		if w.handle == nil && w.lazy && !w.wantOpen {
+			return true // not a task (yet): keep the step, send nothing
+		}
 		if !w.renderCard() {
 			return false
 		}
@@ -494,6 +561,9 @@ func (w *compactProgressWriter) renderCard() bool {
 		return true
 	}
 	w.content = renderCardProgressMarkdownFallback(w.entries, w.truncated)
+	if w.live.heartbeat {
+		w.content = renderProgressLiveLine(w.lang, int(w.now().Sub(w.startedAt).Seconds()), w.live) + "\n" + w.content
+	}
 	w.content = trimCompactProgressText(w.content, compactProgressMaxChars)
 	return true
 }
@@ -609,6 +679,18 @@ func (w *compactProgressWriter) removeWaitLine() {
 // Finalize updates card progress state (running/completed/failed) without
 // appending a new progress entry.
 func (w *compactProgressWriter) Finalize(state ProgressCardState) bool {
+	if w.enabled && !w.failed && w.style == progressStyleCard && !w.usePayload && w.handle != nil && w.live.heartbeat {
+		// markdown card: drop the "still running" line so a finished card does not look alive
+		w.live = progressLive{}
+		if w.renderCard() && w.content != w.lastSent {
+			callCtx, cancel := w.withAPITimeout()
+			if err := w.updater.UpdateMessage(callCtx, w.handle, w.content); err == nil {
+				w.lastSent = w.content
+			}
+			cancel()
+		}
+		return false
+	}
 	if !w.enabled || w.failed || w.style != progressStyleCard || !w.usePayload || w.handle == nil {
 		return false
 	}
@@ -671,11 +753,129 @@ func trimCompactProgressText(s string, maxRunes int) string {
 }
 
 func (w *compactProgressWriter) payload() string {
-	return buildProgressCardPayload(w.items, w.truncated, w.agentName, w.lang, w.state,
-		w.steps, int(time.Since(w.startedAt).Seconds()), w.lineLen)
+	return buildProgressCardPayloadLive(w.items, w.truncated, w.agentName, w.lang, w.state,
+		w.steps, int(w.now().Sub(w.startedAt).Seconds()), w.lineLen, w.live)
+}
+
+func (w *compactProgressWriter) liveState() progressLive {
+	idle := w.now().Sub(w.lastEventAt)
+	return progressLive{
+		idleSec:   int(idle.Seconds()),
+		current:   w.current,
+		stalled:   w.stallAfter > 0 && idle >= w.stallAfter,
+		heartbeat: true,
+	}
+}
+
+// Heartbeat — gateway-side keep-alive, no model cooperation needed. Called on a timer while
+// the turn is in flight: opens the card once the turn has run openAfter (>0) without one
+// (a long turn is a task even with no tool call), then re-renders it with the elapsed time,
+// the time since the last agent event, the tool in flight and, past stallAfter, a stall mark.
+// Edits still go through push's throttle, so the platform's edit rate limit holds.
+func (w *compactProgressWriter) Heartbeat(openAfter time.Duration) bool {
+	if !w.enabled || w.failed || w.style != progressStyleCard {
+		return false
+	}
+	if w.handle == nil {
+		timeDue := openAfter > 0 && w.now().Sub(w.startedAt) >= openAfter // opt-in, default off
+		if !w.wantOpen && !timeDue {
+			return false
+		}
+		w.wantOpen = true
+	}
+	w.live = w.liveState()
+	if !w.renderCard() {
+		return false
+	}
+	return w.push()
+}
+
+// Opened reports whether the card message exists.
+func (w *compactProgressWriter) Opened() bool { return w != nil && w.handle != nil }
+
+// ToolDone clears the tool in flight. Called on every tool result, whether or not
+// tool_messages shows the result: with tool_messages = false the result never reaches
+// AppendStructured, so without this the card kept naming a tool that had already returned.
+func (w *compactProgressWriter) ToolDone() {
+	if w == nil || w.current == "" {
+		return
+	}
+	w.current = ""
+	if w.live.heartbeat {
+		w.live = w.liveState()
+	}
 }
 
 // Active reports whether this writer renders progress in place (maomao fork).
 func (w *compactProgressWriter) Active() bool {
 	return w != nil && w.enabled && !w.failed
 }
+
+// fmtProgressDuration renders seconds as "3分20秒" / "3m20s".
+func fmtProgressDuration(zh bool, sec int) string {
+	if sec < 0 {
+		sec = 0
+	}
+	if zh {
+		if sec >= 3600 {
+			return strconv.Itoa(sec/3600) + "小时" + strconv.Itoa(sec%3600/60) + "分"
+		}
+		if sec >= 60 {
+			return strconv.Itoa(sec/60) + "分" + strconv.Itoa(sec%60) + "秒"
+		}
+		return strconv.Itoa(sec) + "秒"
+	}
+	if sec >= 3600 {
+		return strconv.Itoa(sec/3600) + "h" + strconv.Itoa(sec%3600/60) + "m"
+	}
+	if sec >= 60 {
+		return strconv.Itoa(sec/60) + "m" + strconv.Itoa(sec%60) + "s"
+	}
+	return strconv.Itoa(sec) + "s"
+}
+
+// ProgressLiveLine renders the heartbeat status of a running card, e.g.
+// "⏳ 仍在运行 · 已 12分3秒 · 当前：Bash · 最近动静 10分前" or, past the threshold,
+// "⚠️ 疑似卡住 · …". Platforms that render the payload themselves can reuse it.
+func ProgressLiveLine(lang string, elapsedSec, idleSec int, current string, stalled bool) string {
+	zh := strings.HasPrefix(strings.ToLower(lang), "zh") || lang == ""
+	var b strings.Builder
+	switch {
+	case stalled && zh:
+		b.WriteString("⚠️ 疑似卡住")
+	case stalled:
+		b.WriteString("⚠️ possibly stalled")
+	case zh:
+		b.WriteString("⏳ 仍在运行")
+	default:
+		b.WriteString("⏳ still running")
+	}
+	if zh {
+		b.WriteString(" · 已 " + fmtProgressDuration(true, elapsedSec))
+	} else {
+		b.WriteString(" · " + fmtProgressDuration(false, elapsedSec))
+	}
+	if c := strings.TrimSpace(current); c != "" {
+		if zh {
+			b.WriteString(" · 当前：" + c)
+		} else {
+			b.WriteString(" · now: " + c)
+		}
+	}
+	if idleSec >= 5 {
+		if zh {
+			b.WriteString(" · 最近动静 " + fmtProgressDuration(true, idleSec) + "前")
+		} else {
+			b.WriteString(" · last event " + fmtProgressDuration(false, idleSec) + " ago")
+		}
+	}
+	return b.String()
+}
+
+func renderProgressLiveLine(lang Language, elapsedSec int, live progressLive) string {
+	return ProgressLiveLine(string(lang), elapsedSec, live.idleSec, live.current, live.stalled)
+}
+
+// noteToolForOpen applies the card-open rule: any tool call (lookups included) makes the turn
+// a task and opens the card now. A turn without tools never opens one here, however slow.
+func (w *compactProgressWriter) noteToolForOpen(string) { w.wantOpen = true }

@@ -39,7 +39,7 @@ func TestChannelBoardEmbed_Render(t *testing.T) {
 	want := []string{
 		"**在做的**",
 		fmt.Sprintf("🔄 橘 · 帮我看一下，现在感觉我们的任务有点乱 · 开始于 <t:%d:R>", start.Unix()),
-		"　└ 🔧 Bash — go test ./core/",
+		"　└ 🔧 运行命令 · go test ./core/",
 		"　🔄 后台 · 查 Discord 限流文档",
 		"🔄 龙娘 · 【橘】@龙娘 写 diff 审查",
 		"**排着队的**",

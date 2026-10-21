@@ -278,8 +278,8 @@ func TestCompactProgressWriter_ThrottlesRapidUpdates(t *testing.T) {
 	if payload.State != ProgressCardStateCompleted {
 		t.Fatalf("state = %q, want completed", payload.State)
 	}
-	if len(payload.Items) != 4 {
-		t.Fatalf("items = %d, want 4 (all buffered items)", len(payload.Items))
+	if len(payload.Items) != 3 { // the successful tool result is not kept on the card
+		t.Fatalf("items = %d, want 3 (buffered items without the successful result)", len(payload.Items))
 	}
 }
 
@@ -294,9 +294,11 @@ func TestCompactProgressWriter_DoesNotTransformToolResults(t *testing.T) {
 	})
 
 	raw := "/root/code/demo/src/app.ts:42"
+	failed := false // only a failed result stays on the card
 	if ok := w.AppendStructured(ProgressCardEntry{
-		Kind: ProgressEntryToolResult,
-		Text: raw,
+		Kind:    ProgressEntryToolResult,
+		Text:    raw,
+		Success: &failed,
 	}, raw); !ok {
 		t.Fatal("AppendStructured() = false, want true")
 	}

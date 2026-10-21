@@ -349,6 +349,32 @@ type DisplayCfg struct {
 	ToolMessages     bool
 	HistoryMaxLen    *int // max runes for /history entries; nil = default, 0 = no truncation
 	HideAgentFooter  bool // strip model/token footer lines emitted as agent text
+	TaskCard         TaskCardCfg
+}
+
+func (c TaskCardCfg) withDefaults() TaskCardCfg {
+	def := func(v, d time.Duration) time.Duration {
+		switch {
+		case v == 0:
+			return d
+		case v < 0:
+			return 0
+		}
+		return v
+	}
+	return TaskCardCfg{
+		OpenAfter:  def(c.OpenAfter, 0), // off: only tool calls open a card (reply latency is not a task signal)
+		Heartbeat:  def(c.Heartbeat, 10*time.Second),
+		StallAfter: def(c.StallAfter, 180*time.Second),
+	}
+}
+
+// TaskCardCfg — when a turn gets a task card and how the gateway keeps it alive.
+// Zero value = defaults (see TaskCardCfg.withDefaults); set a field negative to turn it off.
+type TaskCardCfg struct {
+	OpenAfter  time.Duration // opt-in: also open a card once a turn runs this long (default off; tool calls always open one)
+	Heartbeat  time.Duration // refresh the running card this often, with no model cooperation
+	StallAfter time.Duration // mark the card stalled after this long with no new agent event
 }
 
 // InstantReplyCfg controls the immediate confirmation reply sent when a message
@@ -5469,6 +5495,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	board := e.boardBegin(state, sessionKey)
 	cp.onStep = board.step
 	defer func() { board.finish(state, BoardDoneStopped) }()
+	// Covers cancellation and early exits without overwriting a completed card.
+	defer func() {
+		if cp.state == ProgressCardStateRunning {
+			cp.Finalize(ProgressCardStateFailed)
+		}
+	}()
 
 	// Send instant confirmation reply if enabled and no streaming card is active.
 	// Streaming cards provide their own "processing" indicator, so instant reply
@@ -5514,6 +5546,26 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		subWaitTick = t.C
 	}
 
+	// Task card heartbeat: open the card for a long turn and keep it alive (elapsed, tool in
+	// flight, time since the last event, stall mark) without any model cooperation.
+	tc := e.display.TaskCard.withDefaults()
+	cp.stallAfter = tc.StallAfter
+	cp.lazy = true // only a tool call (or opt-in OpenAfter) opens the card; chat never does
+	var heartbeatTick <-chan time.Time
+	if cp.Active() && cp.style == progressStyleCard && tc.Heartbeat > 0 {
+		iv := tc.Heartbeat
+		if tc.OpenAfter > 0 && tc.OpenAfter < iv {
+			iv = tc.OpenAfter // first tick opens the card on time
+		}
+		if cp.minUpdateInterval > iv {
+			iv = cp.minUpdateInterval
+		}
+		t := time.NewTicker(iv)
+		defer t.Stop()
+		heartbeatTick = t.C
+	}
+	var lastBeat time.Time
+
 	var handlingSince atomic.Int64 // maomao fork: when the current event's handling began; 0 = waiting
 	watchDone := make(chan struct{})
 	defer close(watchDone)
@@ -5532,6 +5584,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				goto channelClosed
 			}
 			state.lastEventAt.Store(time.Now().UnixNano())
+			cp.lastEventAt = cp.now() // every backend event, including text and hidden tool results
+		case now := <-heartbeatTick:
+			// the first tick may come early (OpenAfter); later refreshes keep to Heartbeat
+			if cp.Opened() && now.Sub(lastBeat) < tc.Heartbeat-tc.Heartbeat/10 {
+				continue
+			}
+			if cp.Heartbeat(tc.OpenAfter) {
+				lastBeat = now
+			}
+			continue
 		case <-subWaitTick:
 			if t, ok := foregroundSubTask(subReporter); ok {
 				cp.ShowSubAgentWait(subAgentWaitText(e.i18n.IsZhLike(), t))
@@ -5854,6 +5916,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				silentHold = false
 			}
+			if !e.display.ToolMessages && cp.Active() && cp.style == progressStyleCard {
+				// a tool call makes this turn a task: the card shows the tool name only
+				cp.AppendEvent(ProgressEntryToolUse, "", event.ToolName, event.ToolName)
+			}
 			if e.display.ToolMessages {
 				// --- StreamingCard path ---
 				if streamCard != nil && !streamCard.Failed() {
@@ -5948,6 +6014,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// with a handoff for the next message. The turn is not re-run.
 			// A strict voice-input turn (input != nil) must finish on its bound
 			// thread, as at turn start.
+			// The tool is no longer in flight. This is outside the tool_messages branch on
+			// purpose: with tool_messages = false the result is not appended, but the card
+			// must still stop naming the tool it was showing while it ran.
+			cp.ToolDone()
 			if input == nil {
 				if notice := e.freshOnImageBloatMidTurn(replyAgent, session); notice != "" {
 					sessions.Save()
@@ -6808,6 +6878,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.ctx, queuedRenderer)
 				cp = newCompactProgressWriter(e.ctx, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
+				cp.lazy = true
+				cp.stallAfter = tc.StallAfter
+				lastBeat = time.Time{}
 				board = e.boardBegin(state, sessionKey) // maomao fork: the queued turn's board row
 				cp.onStep = board.step
 

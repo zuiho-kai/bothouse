@@ -126,6 +126,9 @@ level = "info" # debug, info, warn, error
 # reply_footer = true            # Show Codex-like footer on assistant replies (default: true)
 #                                # 在助手回复底部显示类似 Codex 的状态行（默认 true 显示）
 # hide_agent_footer = false      # Strip standalone model/token footer lines emitted by agents (default: false)
+# task_card_after_secs = 0       # 任务卡片只在有工具调用时开；设 N>0 时没有工具但一轮超过 N 秒也开（默认 0 关：回复慢的闲聊不开卡）
+# task_card_heartbeat_secs = 10  # 一轮进行中由网关每 N 秒刷新卡片：仍在运行、当前工具、已用时、距最近动静（0 = 关）
+# task_card_stall_secs = 180     # 超过 N 秒没有任何新事件，卡片标记“疑似卡住”（0 = 不标）
 #                                # 过滤 agent 自己混入正文的模型/token 统计 footer 行（默认 false 不过滤）
 
 # Per-project override: each [[projects]] entry may have its own [projects.display]

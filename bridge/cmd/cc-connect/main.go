@@ -577,6 +577,7 @@ func main() {
 				ToolMessages:     tool,
 				HistoryMaxLen:    &historyMaxLen,
 				HideAgentFooter:  hideAgentFooter,
+				TaskCard:         taskCardCfg(cfg, &proj),
 			})
 		}
 
@@ -1738,6 +1739,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 		ToolMessages:     tool,
 		HistoryMaxLen:    &historyMaxLen,
 		HideAgentFooter:  hideAgentFooter,
+		TaskCard:         taskCardCfg(cfg, proj),
 	})
 	result.DisplayUpdated = true
 
@@ -2110,4 +2112,16 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 			"project", proj.Name, "idle_mins", idle, "agent_session_idle_timeout_mins", *t)
 	}
 	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
+}
+
+// taskCardCfg maps the [display] task_card_* settings onto the engine.
+func taskCardCfg(cfg *config.Config, proj *config.ProjectConfig) core.TaskCardCfg {
+	after, hb, stall := config.EffectiveTaskCard(cfg, proj)
+	secs := func(n int) time.Duration { // config 0 = off; engine zero value = default
+		if n <= 0 {
+			return -1
+		}
+		return time.Duration(n) * time.Second
+	}
+	return core.TaskCardCfg{OpenAfter: secs(after), Heartbeat: secs(hb), StallAfter: secs(stall)}
 }

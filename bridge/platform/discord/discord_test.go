@@ -895,7 +895,7 @@ func TestSendPreviewStart_ProgressPayloadUsesEmbed(t *testing.T) {
 	if !strings.Contains(desc, "💭 planning") {
 		t.Fatalf("embed description = %q, want thinking line", desc)
 	}
-	if !strings.Contains(desc, "🔧 Bash — pwd") {
+	if !strings.Contains(desc, "🔧 Run · pwd") {
 		t.Fatalf("embed description = %q, want tool line", desc)
 	}
 	if _, exists := payload["content"]; exists {
@@ -996,8 +996,8 @@ func TestUpdateMessage_ProgressPayloadUsesEmbed(t *testing.T) {
 		t.Fatalf("embed title = %#v, want Codex · Completed", embed["title"])
 	}
 	desc, _ := embed["description"].(string)
-	if !strings.Contains(desc, "🧾 Bash — completed · exit 0 · hi") {
-		t.Fatalf("embed description = %q, want completed tool result", desc)
+	if strings.Contains(desc, "hi") || strings.Contains(desc, "🧾") {
+		t.Fatalf("embed description = %q, a successful tool result must not show its output", desc)
 	}
 	footer, ok := embed["footer"].(map[string]any)
 	if !ok || footer["text"] == nil {
