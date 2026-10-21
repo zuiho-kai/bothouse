@@ -5,6 +5,8 @@
 - 不在同一个局域网（走 DERP 中继或连不上）→ 断开那条 SSH，本地按规则立即回答，
   效果等于没开闸门：主 bot 一律回复，sub 只在被 @ 时回复。
 - 转发出错或超时也立即按规则回答，不让 cc-connect 等满 gate_timeout_ms。
+- /context（每轮相关的 wiki 页）同样转给远端闸门；闸门关着或转发失败时回空结果 {"wiki": []}，
+  桥接当作没有相关页，不影响 /decide。
 
 只用标准库：python3 contrib/gate/gate_switch.py
 配置用环境变量（见下面 CONFIG），日志写到 SWITCH_LOG。
@@ -37,6 +39,8 @@ CONFIG = {
                                   str(Path(__file__).with_name("stop_gate_wsl.sh"))),
     "check_every": float(os.environ.get("SWITCH_CHECK_EVERY", "10")),
     "forward_timeout": float(os.environ.get("SWITCH_FORWARD_TIMEOUT", "2.5")),
+    # 桥接最多等 /context 2 秒（bridge/core/gate.go turnContext），这里要先于它返回
+    "context_timeout": float(os.environ.get("SWITCH_CONTEXT_TIMEOUT", "1.5")),
     "log": Path(os.environ.get("SWITCH_LOG", Path.home() / ".cc-connect-gate-switch/switch.jsonl")),
 }
 TAILSCALE = os.environ.get("TAILSCALE", "tailscale")
@@ -305,6 +309,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
+        if url.path == "/context":
+            self._context(); return
         if url.path != "/decide":
             self.send_error(404); return
         bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
@@ -325,6 +331,21 @@ class H(BaseHTTPRequestHandler):
         log(event="decide", bot=bot or "lead", route=route, action=resp.get("action"),
             tier=resp.get("tier"), tier_reason=resp.get("tier_reason"),
             content=(req.get("content") or "")[:120], ms=round((time.time() - t) * 1000))
+        self._send(resp)
+
+    def _context(self):
+        """wiki 页只在远端闸门上有：GPU 模式原样转发，否则回空结果。
+        /context 失败不改 upstream_ok——wiki 检索慢或出错不代表闸门断了，判断照常走 GPU。"""
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}"
+        t = time.time()
+        if state["upstream_ok"]:
+            try:
+                resp, route = forward(self.path, body, CONFIG["context_timeout"]), "gpu"
+            except Exception as e:
+                resp, route = {"wiki": []}, f"fallback: {type(e).__name__}"
+        else:
+            resp, route = {"wiki": []}, "off"
+        log(event="context", route=route, pages=len(resp.get("wiki") or []), ms=round((time.time() - t) * 1000))
         self._send(resp)
 
     def _send(self, obj):

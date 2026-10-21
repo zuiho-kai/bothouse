@@ -62,6 +62,7 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
 - 想在自己的显卡上跑大一点的本机模型：显式设 `GATE_MODEL=<本地模型目录>`，Apple 芯片用 `bridge/contrib/gate/scorer.py`（`uv run --with mlx-lm`），
   N 卡用 `scorer_torch.py`（PyTorch 版，放成 `scorer.py`）；`gate_switch.py`
   演示了把 gate 放在另一台机器上、连不上时退回规则（要先设 `SWITCH_HOST`、`SWITCH_TS_IP`；同步脚本 `sync_gate.sh` 另要 `SWITCH_WIN_HOME`）。这两样按你的机器改，不在这篇的范围内。
+  切换器同样转发 `/context`：远端闸门在线时原样转过去，连不上时回空结果 `{"wiki": []}`（不报错，这一轮就没有 wiki 页）。`sync_gate.sh` 会把 `gate.py` 用到的本地模块一起传过去（清单 `GATE_MODULES`，`test_gate_switch.py` 检查是否齐全）。
 
 ## 4. 装 wiki 并接到 gate
 
