@@ -55,3 +55,58 @@ func TestProgressCardShowsThreeShortSteps(t *testing.T) {
 		t.Fatalf("card =\n%s\nwant\n%s", got, want)
 	}
 }
+
+// ThinkLen carries the brief/full thinking budget: it must beat the default
+// 78-rune line cap and keep paragraph breaks; 0 keeps the old behavior.
+func TestProgressThinkingLineUsesThinkLen(t *testing.T) {
+	para := strings.Repeat("想", 200)
+	item := core.ProgressCardEntry{Kind: core.ProgressEntryThinking, Text: "第一段" + para + "\n第二段" + para}
+
+	payload := &core.ProgressCardPayload{
+		Lang: "zh", State: core.ProgressCardStateRunning, Steps: 1, ElapsedSec: 5,
+		ThinkLen: 400, MaxSteps: core.ProgressCardVisibleSteps,
+		Items: []core.ProgressCardEntry{item},
+	}
+	got := buildDiscordProgressDescription(payload)
+	if n := len([]rune(got)); n <= 78 {
+		t.Fatalf("thinking line cut at %d runes, want more than 78", n)
+	}
+	if n := len([]rune(got)); n > 400+40 {
+		t.Fatalf("thinking line = %d runes, want <= 440", n)
+	}
+	if !strings.Contains(got, "\n") {
+		t.Fatalf("thinking line lost its paragraph break: %q", got)
+	}
+
+	payload.ThinkLen = 0 // old payload: lineLen-2 and no line breaks
+	old := buildDiscordProgressDescription(payload)
+	if !strings.Contains(old, "💭 ") {
+		t.Fatalf("default thinking line missing: %q", old)
+	}
+	line := strings.TrimPrefix(strings.Split(old, "\n")[1], "💭 ")
+	if n := len([]rune(line)); n > maxDiscordProgressLineLen {
+		t.Fatalf("default thinking line = %d runes, want <= %d", n, maxDiscordProgressLineLen)
+	}
+	if strings.Count(old, "\n") != 1 {
+		t.Fatalf("default thinking line should stay one line: %q", old)
+	}
+}
+
+func TestProgressListUsesPayloadMaxSteps(t *testing.T) {
+	items := make([]core.ProgressCardEntry, 0, 8)
+	for i := 0; i < 8; i++ {
+		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "cmd" + string(rune('a'+i))})
+	}
+	payload := &core.ProgressCardPayload{
+		Lang: "zh", State: core.ProgressCardStateRunning, Steps: 8, ElapsedSec: 10,
+		MaxSteps: 8, Items: items,
+	}
+	desc := buildDiscordProgressDescription(payload)
+	if got := strings.Count(desc, "\n"); got != 8 {
+		t.Fatalf("card lines = %d, want header + 8 steps: %q", got, desc)
+	}
+	payload.MaxSteps = 0 // old payload: fall back to ProgressCardVisibleSteps
+	if got := strings.Count(buildDiscordProgressDescription(payload), "\n"); got != core.ProgressCardVisibleSteps {
+		t.Fatalf("legacy card lines = %d, want %d", got, core.ProgressCardVisibleSteps)
+	}
+}

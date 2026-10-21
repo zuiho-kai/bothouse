@@ -386,6 +386,11 @@ type ProgressCardSizer interface {
 	ProgressCardHideThinking() bool
 }
 
+// ProgressCardDetailProvider — 进度卡的详细程度："brief"（默认）或 "full"。
+type ProgressCardDetailProvider interface {
+	ProgressCardDetail() string
+}
+
 // ButtonOption represents a clickable inline button.
 type ButtonOption struct {
 	Text string // display text on the button

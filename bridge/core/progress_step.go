@@ -63,6 +63,14 @@ var (
 // A successful tool result returns "" (the card shows no tool output); a failed one returns
 // "⚠️ 失败 · …". The full command and output stay in the logs only.
 func SummarizeProgressStep(item ProgressCardEntry, lang string) string {
+	return SummarizeProgressStepDetail(item, lang, progressStepTargetMax, false)
+}
+
+// SummarizeProgressStepDetail 渲染一条卡片步骤；withOutput 为 true 时成功的工具结果也显示输出。
+func SummarizeProgressStepDetail(item ProgressCardEntry, lang string, targetMax int, withOutput bool) string {
+	if targetMax <= 0 {
+		targetMax = progressStepTargetMax
+	}
 	zh := progressLangZh(lang)
 	pick := func(v progressToolVerb) string {
 		if zh {
@@ -72,7 +80,7 @@ func SummarizeProgressStep(item ProgressCardEntry, lang string) string {
 	}
 	switch item.Kind {
 	case ProgressEntryToolUse:
-		verb, target := progressToolSummary(item.Tool, item.Text)
+		verb, target := progressToolSummaryN(item.Tool, item.Text, targetMax)
 		line := verb.icon + " " + pick(verb)
 		if target != "" {
 			line += " · " + target
@@ -80,23 +88,30 @@ func SummarizeProgressStep(item ProgressCardEntry, lang string) string {
 		return line
 	case ProgressEntryToolResult:
 		if !ProgressResultFailed(item) {
-			return ""
+			if !withOutput {
+				return ""
+			}
+			text := collapseProgressSpace(item.Text)
+			if text == "" {
+				return ""
+			}
+			return "🧾 输出 · " + truncateProgressRunes(text, targetMax*2)
 		}
 		line := "⚠️ 失败"
 		if !zh {
 			line = "⚠️ failed"
 		}
 		if strings.TrimSpace(item.Tool) != "" {
-			verb, _ := progressToolSummary(item.Tool, "")
+			verb, _ := progressToolSummaryN(item.Tool, "", targetMax)
 			line += " · " + pick(verb)
 		}
 		return line
 	case ProgressEntryError:
-		return "⚠️ " + truncateProgressRunes(collapseProgressSpace(item.Text), progressStepTargetMax)
+		return "⚠️ " + truncateProgressRunes(collapseProgressSpace(item.Text), targetMax)
 	case ProgressEntryThinking:
-		return "💭 " + truncateProgressRunes(collapseProgressSpace(item.Text), progressStepTargetMax)
+		return "💭 " + truncateProgressRunes(collapseProgressSpace(item.Text), targetMax)
 	default:
-		return "• " + truncateProgressRunes(collapseProgressSpace(item.Text), progressStepTargetMax+20)
+		return "• " + truncateProgressRunes(collapseProgressSpace(item.Text), targetMax+20)
 	}
 }
 
@@ -121,6 +136,13 @@ func progressLangZh(lang string) bool {
 }
 
 func progressToolSummary(tool, input string) (progressToolVerb, string) {
+	return progressToolSummaryN(tool, input, progressStepTargetMax)
+}
+
+func progressToolSummaryN(tool, input string, targetMax int) (progressToolVerb, string) {
+	if targetMax <= 0 {
+		targetMax = progressStepTargetMax
+	}
 	name := strings.TrimSpace(tool)
 	key := strings.ToLower(name)
 	if i := strings.LastIndex(key, "__"); i >= 0 && i < len(key)-2 { // mcp__fs__read_file
@@ -137,7 +159,7 @@ func progressToolSummary(tool, input string) (progressToolVerb, string) {
 			v = progressToolVerb{"🔧", "工具", "Tool"}
 		}
 		t := progressInputText(input, "command", "query", "file_path", "path", "pattern", "url")
-		return v, truncateProgressRunes(collapseProgressSpace(t), progressStepTargetMax)
+		return v, truncateProgressRunes(collapseProgressSpace(t), targetMax)
 	}
 	var target string
 	switch k.kind {
@@ -153,7 +175,7 @@ func progressToolSummary(tool, input string) (progressToolVerb, string) {
 	case "text":
 		target = progressInputText(input, "description", "query", "prompt")
 	}
-	return k.verb, truncateProgressRunes(collapseProgressSpace(target), progressStepTargetMax)
+	return k.verb, truncateProgressRunes(collapseProgressSpace(target), targetMax)
 }
 
 // progressInputText returns the first matching JSON string field of input, or input itself.

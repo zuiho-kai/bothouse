@@ -84,7 +84,7 @@ func buildDiscordProgressDescription(payload *core.ProgressCardPayload) string {
 		lines = append(lines, "ℹ️ "+discordProgressLatestOnlyText(payload.Lang))
 	}
 	for _, item := range items {
-		if line := buildDiscordProgressLine(item, payload.Lang); line != "" {
+		if line := buildDiscordProgressLineNL(item, payload.Lang, maxDiscordProgressLineLen, payload.ThinkLen, payload.ThinkLen > 400); line != "" {
 			lines = append(lines, line)
 		}
 	}
@@ -122,16 +122,26 @@ func buildDiscordProgressLine(item core.ProgressCardEntry, lang string) string {
 }
 
 func buildDiscordProgressLineN(item core.ProgressCardEntry, lang string, lineLen int) string {
-	text := compactDiscordProgressText(item.Text)
+	return buildDiscordProgressLineNL(item, lang, lineLen, 0, false)
+}
+
+// buildDiscordProgressLineNL renders one card step. thinkLen > 0 is the thinking
+// budget from the payload (brief 400 / full 1200); 0 keeps the old lineLen-2 cap.
+// Thinking keeps its line breaks so merged paragraphs stay visible.
+func buildDiscordProgressLineNL(item core.ProgressCardEntry, lang string, lineLen, thinkLen int, withOutput bool) string {
 	n := lineLen - 2
 	switch item.Kind {
 	case core.ProgressEntryThinking:
-		return "💭 " + trimDiscordRunes(text, n)
+		limit := n
+		if thinkLen > 0 {
+			limit = thinkLen
+		}
+		return "💭 " + trimDiscordThinkingRunes(item.Text, limit)
 	case core.ProgressEntryToolUse, core.ProgressEntryToolResult, core.ProgressEntryError:
-		// one short human-readable line; tool output never goes on the card
-		return trimDiscordRunes(core.SummarizeProgressStep(item, discordStepLang(lang)), n)
+		// one short human-readable line; tool output only in full detail
+		return trimDiscordRunes(core.SummarizeProgressStepDetail(item, discordStepLang(lang), n, withOutput), n)
 	default:
-		return "• " + trimDiscordRunes(text, n)
+		return "• " + trimDiscordRunes(compactDiscordProgressText(item.Text), n)
 	}
 }
 
@@ -147,14 +157,18 @@ func buildDiscordProgressList(payload *core.ProgressCardPayload, items []core.Pr
 	if lineLen <= 0 {
 		lineLen = maxDiscordProgressLineLen
 	}
+	maxSteps := payload.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = core.ProgressCardVisibleSteps
+	}
 	var steps []string
 	for _, item := range items {
-		if line := buildDiscordProgressLineN(item, payload.Lang, lineLen); line != "" {
+		if line := buildDiscordProgressLineNL(item, payload.Lang, lineLen, payload.ThinkLen, payload.ThinkLen > 400); line != "" {
 			steps = append(steps, line)
 		}
 	}
-	if len(steps) > core.ProgressCardVisibleSteps { // header + the most recent steps only
-		steps = steps[len(steps)-core.ProgressCardVisibleSteps:]
+	if len(steps) > maxSteps { // header + the most recent steps only
+		steps = steps[len(steps)-maxSteps:]
 	}
 	lines = append(lines, steps...)
 	desc := trimDiscordRunes(strings.Join(lines, "\n"), maxDiscordProgressDescLen)
@@ -403,6 +417,25 @@ func compactDiscordProgressText(s string) string {
 	s = strings.ReplaceAll(s, "\r", "\n")
 	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// trimDiscordThinkingRunes is trimDiscordRunes but keeps internal line breaks.
+func trimDiscordThinkingRunes(s string, maxRunes int) string {
+	s = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n"))
+	if s == "" {
+		return ""
+	}
+	if maxRunes <= 0 {
+		return s
+	}
+	rs := []rune(s)
+	if len(rs) <= maxRunes {
+		return s
+	}
+	if maxRunes == 1 {
+		return string(rs[:1])
+	}
+	return string(rs[:maxRunes-1]) + "…"
 }
 
 func trimDiscordRunes(s string, maxRunes int) string {

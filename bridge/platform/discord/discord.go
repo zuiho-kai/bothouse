@@ -83,6 +83,7 @@ type Platform struct {
 	cardEntries                int
 	cardLineLen                int
 	cardHideThinking           bool
+	cardDetail                 string
 	groupReplyAllGuilds        []string // guild IDs where groupReplyAll is active; "*" = all guilds
 	groupReplyAllChannels      []string // conest: when set, groupReplyAll only applies in these channels (and their threads)
 	shareSessionInChannel      bool
@@ -180,6 +181,10 @@ func New(opts map[string]any) (core.Platform, error) {
 		cardLineLen = maxDiscordProgressLineLen
 	}
 	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
+	cardDetail, _ := opts["progress_card_detail"].(string)
+	if strings.ToLower(strings.TrimSpace(cardDetail)) != "full" {
+		cardDetail = "brief"
+	}
 
 	// maomao fork: aux_channels moves progress cards, the sub-agent table and
 	// cc-connect notices out of the listed main channels (see aux_channels.go).
@@ -213,6 +218,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		cardEntries:                cardEntries,
 		cardLineLen:                cardLineLen,
 		cardHideThinking:           cardHideThinking,
+		cardDetail:                 cardDetail,
 		auxChannels:                auxChannels,
 		groupReplyAllGuilds:        groupReplyAllGuilds,
 		groupReplyAllChannels:      groupReplyAllChannels,
@@ -271,6 +277,7 @@ func (p *progressPlatform) SupportsProgressCardPayload() bool {
 func (p *progressPlatform) ProgressCardEntries() int       { return p.cardEntries }
 func (p *progressPlatform) ProgressCardLineLen() int       { return p.cardLineLen }
 func (p *progressPlatform) ProgressCardHideThinking() bool { return p.cardHideThinking }
+func (p *progressPlatform) ProgressCardDetail() string     { return p.cardDetail }
 
 // intOpt reads a TOML integer option (int64 from the decoder; int in tests).
 func intOpt(v any) int {

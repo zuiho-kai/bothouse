@@ -5854,7 +5854,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if previewActive {
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
-				preview := truncateIf(event.Content, e.display.ThinkingMaxLen)
+				thinkMax := e.display.ThinkingMaxLen
+				if dp, ok := p.(ProgressCardDetailProvider); ok && normalizeProgressCardDetail(dp.ProgressCardDetail()) == "full" {
+					if thinkMax > 0 && thinkMax < 1200 {
+						thinkMax = 1200
+					}
+				}
+				preview := truncateIf(event.Content, thinkMax)
 				thinkingMsg := fmt.Sprintf(e.i18n.T(MsgThinking), preview)
 				if !cp.AppendEvent(ProgressEntryThinking, preview, "", thinkingMsg) {
 					sendWorkspace(p, replyCtx, thinkingMsg)

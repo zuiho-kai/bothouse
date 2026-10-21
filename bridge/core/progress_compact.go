@@ -68,6 +68,10 @@ type ProgressCardPayload struct {
 	ElapsedSec int `json:"elapsed_sec,omitempty"`
 	// maomao fork: set when the bot is configured for a multi-line card (ProgressCardSizer).
 	LineLen int `json:"line_len,omitempty"`
+	// MaxSteps caps how many steps the card renders (brief: ProgressCardVisibleSteps, full: 8+).
+	MaxSteps int `json:"max_steps,omitempty"`
+	// ThinkLen is the rune budget for a thinking line on the card (brief 400, full 1200).
+	ThinkLen int `json:"think_len,omitempty"`
 	// Gateway heartbeat (no model cooperation): seconds since the last agent event, the
 	// tool/command in flight, and whether the stall threshold has passed.
 	IdleSec int    `json:"idle_sec,omitempty"`
@@ -103,7 +107,7 @@ func BuildProgressCardPayload(entries []string, truncated bool) string {
 
 // BuildProgressCardPayloadV2 encodes ordered typed progress events.
 func BuildProgressCardPayloadV2(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState) string {
-	return buildProgressCardPayload(items, truncated, agent, lang, state, 0, 0, 0)
+	return buildProgressCardPayload(items, truncated, agent, lang, state, 0, 0, 0, 0, 0)
 }
 
 // progressLive is the heartbeat part of a card payload.
@@ -114,11 +118,11 @@ type progressLive struct {
 	heartbeat bool
 }
 
-func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen int) string {
-	return buildProgressCardPayloadLive(items, truncated, agent, lang, state, steps, elapsedSec, lineLen, progressLive{})
+func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen, maxSteps, thinkLen int) string {
+	return buildProgressCardPayloadLive(items, truncated, agent, lang, state, steps, elapsedSec, lineLen, maxSteps, thinkLen, progressLive{})
 }
 
-func buildProgressCardPayloadLive(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen int, live progressLive) string {
+func buildProgressCardPayloadLive(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen, maxSteps, thinkLen int, live progressLive) string {
 	cleaned := make([]ProgressCardEntry, 0, len(items))
 	for _, item := range items {
 		text := strings.TrimSpace(item.Text)
@@ -161,6 +165,8 @@ func buildProgressCardPayloadLive(items []ProgressCardEntry, truncated bool, age
 		Steps:      steps,
 		ElapsedSec: elapsedSec,
 		LineLen:    lineLen,
+		MaxSteps:   maxSteps,
+		ThinkLen:   thinkLen,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -267,6 +273,7 @@ type compactProgressWriter struct {
 	maxEntries int
 	lineLen    int
 	hideThink  bool
+	detail     string
 	steps      int
 	startedAt  time.Time
 	// maomao fork: called with every item the card shows (the channel task
@@ -304,6 +311,59 @@ func normalizeProgressStyle(style string) string {
 	default:
 		return progressStyleLegacy
 	}
+}
+
+func normalizeProgressCardDetail(detail string) string {
+	if strings.EqualFold(strings.TrimSpace(detail), "full") {
+		return "full"
+	}
+	return "brief"
+}
+
+// thinkLen is the rune budget for thinking text kept on the card.
+func (w *compactProgressWriter) thinkLen() int {
+	if w.detail == "full" {
+		return 1200
+	}
+	return 400
+}
+
+// detailStepTargetMax is the per-step target budget: brief keeps the old 40, full 80.
+func (w *compactProgressWriter) detailStepTargetMax() int {
+	if w.detail == "full" {
+		return 80
+	}
+	return progressStepTargetMax
+}
+
+// maxSteps is how many steps the card renders: brief 3, full 8 unless the
+// user's progress_card_entries is larger.
+func (w *compactProgressWriter) maxSteps() int {
+	if w.detail != "full" {
+		return ProgressCardVisibleSteps
+	}
+	if w.maxEntries > 8 {
+		return w.maxEntries
+	}
+	return 8
+}
+
+// retainEntries is how many steps the writer keeps in the payload.
+func (w *compactProgressWriter) retainEntries() int {
+	if w.detail == "full" && w.maxEntries < 8 {
+		return 8
+	}
+	return w.maxEntries
+}
+
+// summarize renders one card step under the current detail level.
+func (w *compactProgressWriter) summarize(item ProgressCardEntry) string {
+	// Thinking keeps its paragraph breaks and the detail-level budget (400/1200),
+	// so the plain-text fallback reads like the payload card.
+	if item.Kind == ProgressEntryThinking {
+		return "💭 " + truncateProgressRunes(strings.TrimSpace(item.Text), w.thinkLen())
+	}
+	return SummarizeProgressStepDetail(item, string(w.lang), w.detailStepTargetMax(), w.detail == "full")
 }
 
 func progressStyleForPlatform(p Platform) string {
@@ -383,6 +443,9 @@ func newCompactProgressWriter(ctx context.Context, p Platform, replyCtx any, age
 			w.lineLen = sizer.ProgressCardLineLen()
 		}
 		w.hideThink = sizer.ProgressCardHideThinking()
+	}
+	if dp, ok := p.(ProgressCardDetailProvider); ok {
+		w.detail = normalizeProgressCardDetail(dp.ProgressCardDetail())
 	}
 	if w.style != progressStyleCompact && w.style != progressStyleCard {
 		slog.Debug("progress writer disabled: unsupported style", "platform", p.Name(), "style", w.style)
@@ -511,7 +574,27 @@ func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallbac
 		}
 		// One short line per step; the full command/output goes to the log only.
 		slog.Debug("progress card step", "platform", w.platform.Name(), "kind", item.Kind, "tool", item.Tool, "detail", text)
-		summary := SummarizeProgressStep(item, string(w.lang))
+		// Consecutive thinking events are one paragraph on the card, not one
+		// item each: merge into the previous thinking item and its fallback line.
+		if item.Kind == ProgressEntryThinking {
+			item.Text = truncateProgressRunes(item.Text, w.thinkLen())
+			if n := len(w.items); n > 0 && w.items[n-1].Kind == ProgressEntryThinking {
+				merged := w.items[n-1]
+				merged.Text = truncateProgressRunes(merged.Text+"\n"+item.Text, w.thinkLen())
+				w.items[n-1] = merged
+				if len(w.entries) > 0 {
+					w.entries[len(w.entries)-1] = w.summarize(merged)
+				}
+				if w.handle == nil && w.lazy && !w.wantOpen {
+					return true
+				}
+				if !w.renderCard() {
+					return false
+				}
+				return w.push()
+			}
+		}
+		summary := w.summarize(item)
 		if summary == "" { // successful tool result: no output text on the card
 			if w.handle == nil || !w.renderCard() {
 				return true
@@ -521,14 +604,14 @@ func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallbac
 		w.items = append(w.items, item)
 		w.entries = append(w.entries, summary)
 		truncated := false
-		if w.maxEntries > 0 && len(w.items) > w.maxEntries {
-			w.items = w.items[len(w.items)-w.maxEntries:]
-			if len(w.entries) > w.maxEntries {
-				w.entries = w.entries[len(w.entries)-w.maxEntries:]
+		if limit := w.retainEntries(); limit > 0 && len(w.items) > limit {
+			w.items = w.items[len(w.items)-limit:]
+			if len(w.entries) > limit {
+				w.entries = w.entries[len(w.entries)-limit:]
 			}
 			truncated = true
-		} else if w.maxEntries > 0 && len(w.entries) > w.maxEntries {
-			w.entries = w.entries[len(w.entries)-w.maxEntries:]
+		} else if limit := w.retainEntries(); limit > 0 && len(w.entries) > limit {
+			w.entries = w.entries[len(w.entries)-limit:]
 			truncated = true
 		}
 		w.truncated = truncated
@@ -754,7 +837,7 @@ func trimCompactProgressText(s string, maxRunes int) string {
 
 func (w *compactProgressWriter) payload() string {
 	return buildProgressCardPayloadLive(w.items, w.truncated, w.agentName, w.lang, w.state,
-		w.steps, int(w.now().Sub(w.startedAt).Seconds()), w.lineLen, w.live)
+		w.steps, int(w.now().Sub(w.startedAt).Seconds()), w.lineLen, w.maxSteps(), w.thinkLen(), w.live)
 }
 
 func (w *compactProgressWriter) liveState() progressLive {

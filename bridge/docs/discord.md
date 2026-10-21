@@ -126,6 +126,7 @@ type = "discord"
 token = "MTk4NjIyNDgzNDcOTY3NDUxMg.G8vKqh.xxx..."
 # thread_isolation = true  # Optional: isolate each agent session in its own Discord thread
 # progress_style = "legacy" # Optional: legacy | compact | card
+# progress_card_detail = "brief" # Optional: brief (default) | full — full shows more steps and truncated tool output
 ```
 
 > cc-connect automatically configures the required Intents (MESSAGE_CONTENT, GUILD_MESSAGES, DIRECT_MESSAGES).

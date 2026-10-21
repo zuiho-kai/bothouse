@@ -33,6 +33,7 @@ type Platform struct {
 	cardEntries      int
 	cardLineLen      int
 	cardHideThinking bool
+	cardDetail       string
 
 	mu               sync.RWMutex
 	handler          core.MessageHandler
@@ -144,6 +145,10 @@ func New(opts map[string]any) (core.Platform, error) {
 		cardLineLen = defaultCardLineLen
 	}
 	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
+	cardDetail, _ := opts["progress_card_detail"].(string)
+	if strings.ToLower(strings.TrimSpace(cardDetail)) != "full" {
+		cardDetail = "brief"
+	}
 	teamLead, _ := opts["team_lead_bot"].(string)
 
 	var tp transport
@@ -184,6 +189,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		cardEntries:      cardEntries,
 		cardLineLen:      cardLineLen,
 		cardHideThinking: cardHideThinking,
+		cardDetail:       cardDetail,
 		tp:               tp,
 		replyCtxs:        make(map[string]string),
 		historyBase:      historyBaseURL(baseURL, wsURL),
@@ -243,6 +249,7 @@ func (p *Platform) ProgressUpdateInterval() time.Duration { return 2 * time.Seco
 func (p *Platform) ProgressCardEntries() int       { return p.cardEntries }
 func (p *Platform) ProgressCardLineLen() int       { return p.cardLineLen }
 func (p *Platform) ProgressCardHideThinking() bool { return p.cardHideThinking }
+func (p *Platform) ProgressCardDetail() string     { return p.cardDetail }
 
 func (p *Platform) SetLifecycleHandler(h core.PlatformLifecycleHandler) {
 	p.lifecycleHandler = h
