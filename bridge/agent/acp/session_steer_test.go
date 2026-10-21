@@ -3,6 +3,7 @@ package acp
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -228,5 +229,19 @@ func TestToolResultUsesToolCallName(t *testing.T) {
 	}
 	if len(names) != 1 || names[0] != "bash" {
 		t.Fatalf("tool result labels = %q", names)
+	}
+}
+
+func TestToolNameCacheIsBounded(t *testing.T) {
+	s, _, _ := newTestSession(t, nil)
+	s.toolNameByID = make(map[string]string)
+	sid := s.CurrentSessionID()
+	for i := 0; i < toolInputCacheMaxEntries+10; i++ {
+		raw, _ := json.Marshal(map[string]any{"sessionId": sid, "update": map[string]any{
+			"sessionUpdate": "tool_call", "toolCallId": "call_" + strconv.Itoa(i), "title": "bash"}})
+		s.cacheToolCallInput(raw)
+	}
+	if n := len(s.toolNameByID); n > toolInputCacheMaxEntries {
+		t.Fatalf("tool name cache grew to %d (cap %d)", n, toolInputCacheMaxEntries)
 	}
 }
