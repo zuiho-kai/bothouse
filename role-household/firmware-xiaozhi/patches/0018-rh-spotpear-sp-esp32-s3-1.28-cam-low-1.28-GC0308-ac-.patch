@@ -1,0 +1,729 @@
+From 1c488ed2604aed5cae4332eb200d164cdc437eeb Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Wed, 21 Oct 2026 11:13:40 +0900
+Subject: [PATCH 18/19] =?UTF-8?q?rh:=20=E6=96=B0=E6=9D=BF=E5=9E=8B=20spotp?=
+ =?UTF-8?q?ear/sp-esp32-s3-1.28-cam-low=EF=BC=88=E6=96=91=E6=A2=A8=201.28?=
+ =?UTF-8?q?=20=E6=91=84=E5=83=8F=E5=A4=B4=E7=89=88=20GC0308=EF=BC=8C?=
+ =?UTF-8?q?=E6=9D=BF=20ac:a7:04:22:8c:f4=EF=BC=89=EF=BC=8C=E5=BC=80?=
+ =?UTF-8?q?=E8=A1=A8=E7=9B=98?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+引脚取自斑梨自家源码 xiaozhi-esp32-2.1.0 的 main/boards/sp-esp32-s3-1.28-cam-low/config.h（出厂固件即由该目录编出），
+并对照斑梨 1.28 AI-CAM 原理图网表。基于本仓 sp-esp32-s3-1.28-box（表盘、熄屏）复制，去掉 CST816D 触摸和 LED；
+屏复位无 GPIO（板上 RC）、功放无 GPIO、不发 0xC3/0xC4（同斑梨 cam-low）。摄像头暂不启用。
+RH_DIAL 的 depends 加上这个板型。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/CMakeLists.txt                           |   5 +
+ main/Kconfig.projbuild                        |   9 +-
+ .../sp-esp32-s3-1.28-cam-low/config.h         |  72 ++++
+ .../sp-esp32-s3-1.28-cam-low/config.json      |  13 +
+ .../sp-esp32-s3-1.28-cam-low/power_manager.h  | 188 ++++++++++
+ .../sp-esp32-s3-1.28-cam-low.cc               | 349 ++++++++++++++++++
+ 6 files changed, 633 insertions(+), 3 deletions(-)
+ create mode 100644 main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.h
+ create mode 100644 main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.json
+ create mode 100644 main/boards/spotpear/sp-esp32-s3-1.28-cam-low/power_manager.h
+ create mode 100644 main/boards/spotpear/sp-esp32-s3-1.28-cam-low/sp-esp32-s3-1.28-cam-low.cc
+
+diff --git a/main/CMakeLists.txt b/main/CMakeLists.txt
+index 93716ed..5bbf22c 100644
+--- a/main/CMakeLists.txt
++++ b/main/CMakeLists.txt
+@@ -811,6 +811,11 @@ elseif(CONFIG_BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX)
+     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
+     set(BUILTIN_ICON_FONT font_material_symbols_16_4)
+     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_64)
++elseif(CONFIG_BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_CAM_LOW)
++    set(BOARD_DIR "spotpear/sp-esp32-s3-1.28-cam-low")
++    set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
++    set(BUILTIN_ICON_FONT font_material_symbols_16_4)
++    set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_64)
+ elseif(CONFIG_BOARD_TYPE_OTTO_ROBOT)
+     set(BOARD_DIR "otto-robot")
+     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index ff7d126..f1daa8c 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -61,15 +61,15 @@ config RH_REOPEN_DELAY_SEC
+ config RH_DIAL
+     bool "Show the role dial (same look as the hub web dial page) instead of the xiaozhi UI"
+     default y
+-    depends on BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX
++    depends on BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX || BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_CAM_LOW
+     help
+         rh: draw the round dial of ~/code/role-household rh/static/dial.html with LVGL
+         (avatar, name pill, idle breathe + glint, thinking spinner, speaking glow + bars,
+         interrupted red ring) on top of the default emoji / subtitle / status bar UI,
+         which stays hidden except in Wi-Fi config mode. Which role, name, colour, avatar
+         and state come from the host ({"type":"rh_dial"} over the WebSocket); nothing
+-        role-specific is compiled in. Only wired into spotpear sp-esp32-s3-1.28-box,
+-        so only that board can turn it on (other boards then neither fetch conest's cn_dial
++        role-specific is compiled in. Only wired into spotpear sp-esp32-s3-1.28-box and
++        sp-esp32-s3-1.28-cam-low (same GC9A01 240 round screen), so only those boards can turn it on (other boards then neither fetch conest's cn_dial
+         nor wait for the host's rh_dial before marking a new OTA image valid).
+         Source: user 2026-10-19 「那个圆形表盘的那个动画啊，你给它放上去，而不是用现在默认傻逼小智的那个」;
+         review ~/.claude/reviews/rh-board-dial.md (role pushed by host, not fixed in firmware).
+@@ -531,6 +531,9 @@ choice BOARD_TYPE
+     config BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX
+         bool "Spotpear ESP32-S3 1.28 Box"
+         depends on IDF_TARGET_ESP32S3
++    config BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_CAM_LOW
++        bool "Spotpear ESP32-S3 1.28 CAM (GC0308)"
++        depends on IDF_TARGET_ESP32S3
+     config BOARD_TYPE_SPOTPEAR_ESP32_S3_1_54_MUMA
+         bool "Spotpear ESP32-S3 1.54 MUMA"
+         depends on IDF_TARGET_ESP32S3
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.h b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.h
+new file mode 100644
+index 0000000..fd0c2aa
+--- /dev/null
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.h
+@@ -0,0 +1,72 @@
++#ifndef _BOARD_CONFIG_H_
++#define _BOARD_CONFIG_H_
++
++// Spotpear ESP32-S3 1.28" CAM (low = GC0308 0.3MP camera), board ac:a7:04:22:8c:f4.
++// Pins from Spotpear's own board (xiaozhi-esp32-2.1.0 archive linked from
++// https://spotpear.com/index.php/wiki/ESP32-S3-1.28-inch-Camera-LCD-Display-Deepseek.html,
++// main/boards/sp-esp32-s3-1.28-cam-low/config.h; the factory image on this board was built from that
++// directory: backup/full-aca704228cf4.bin has ./main/boards/sp-esp32-s3-1.28-cam-low/*.cc) and
++// checked against vendor/zhengchen-share/spotpear_ESP32S3-1.28inch-AI-CAM.pdf netlist.
++// Differences from sp-esp32-s3-1.28-box: LCD reset is an RC on the board (net LCD_RST only C22/R6,
++// no GPIO; GPIO38 is camera D6 here), no PA GPIO (GPIO46 is camera HREF), no LED GPIO
++// (GPIO48 is camera D7), no CST816D touch (GPIO6/7/11/12 are camera D1/D2/D3/XCLK).
++
++#include <driver/gpio.h>
++
++#define AUDIO_INPUT_SAMPLE_RATE  24000
++#define AUDIO_OUTPUT_SAMPLE_RATE 24000
++
++#define AUDIO_I2S_GPIO_MCLK GPIO_NUM_16 //MCLK
++#define AUDIO_I2S_GPIO_WS GPIO_NUM_45  //LRCK
++#define AUDIO_I2S_GPIO_BCLK GPIO_NUM_9 //SCLK
++#define AUDIO_I2S_GPIO_DIN  GPIO_NUM_10 //DOUT
++#define AUDIO_I2S_GPIO_DOUT GPIO_NUM_8  //DIN
++
++#define AUDIO_CODEC_PA_PIN       GPIO_NUM_NC
++#define AUDIO_CODEC_I2C_SDA_PIN  GPIO_NUM_15
++#define AUDIO_CODEC_I2C_SCL_PIN  GPIO_NUM_14
++#define AUDIO_CODEC_ES8311_ADDR  ES8311_CODEC_DEFAULT_ADDR
++
++#define BOOT_BUTTON_GPIO        GPIO_NUM_0
++
++
++#define DISPLAY_WIDTH   240
++#define DISPLAY_HEIGHT  240
++#define DISPLAY_MIRROR_X true
++#define DISPLAY_MIRROR_Y false
++#define DISPLAY_SWAP_XY false
++
++#define DISPLAY_OFFSET_X  0
++#define DISPLAY_OFFSET_Y  0
++
++
++#define DISPLAY_BACKLIGHT_PIN GPIO_NUM_42
++#define DISPLAY_BACKLIGHT_OUTPUT_INVERT true
++
++#define DISPLAY_SPI_SCLK_PIN    GPIO_NUM_4
++#define DISPLAY_SPI_MOSI_PIN    GPIO_NUM_2
++#define DISPLAY_SPI_CS_PIN      GPIO_NUM_5
++#define DISPLAY_SPI_DC_PIN      GPIO_NUM_47
++#define DISPLAY_SPI_RESET_PIN   GPIO_NUM_NC
++
++#define DISPLAY_SPI_SCLK_HZ     (40 * 1000 * 1000)
++
++// Camera (GC0308 DVP) not enabled yet; pins kept for later (vendor config.h).
++#define CAM_PIN_VSYNC   GPIO_NUM_43
++#define CAM_PIN_HREF    GPIO_NUM_46
++#define CAM_PIN_PCLK    GPIO_NUM_44
++#define CAM_PIN_XCLK    GPIO_NUM_12
++#define CAM_PIN_D0      GPIO_NUM_3
++#define CAM_PIN_D1      GPIO_NUM_6
++#define CAM_PIN_D2      GPIO_NUM_7
++#define CAM_PIN_D3      GPIO_NUM_11
++#define CAM_PIN_D4      GPIO_NUM_40
++#define CAM_PIN_D5      GPIO_NUM_39
++#define CAM_PIN_D6      GPIO_NUM_38
++#define CAM_PIN_D7      GPIO_NUM_48
++
++// 电量检测相关引脚定义
++#define BATTERY_ADC_PIN         GPIO_NUM_1  // 电池电压检测ADC引脚
++#define BATTERY_CHARGING_PIN    GPIO_NUM_41 // 充电状态检测引脚
++
++#endif // _BOARD_CONFIG_H_
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.json b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.json
+new file mode 100644
+index 0000000..18eeecc
+--- /dev/null
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/config.json
+@@ -0,0 +1,13 @@
++{
++    "manufacturer": "spotpear",
++    "type": "sp-esp32-s3-1.28-cam-low",
++    "target": "esp32s3",
++    "builds": [
++        {
++            "name": "sp-esp32-s3-1.28-cam-low",
++            "sdkconfig_append": [
++                "CONFIG_FREERTOS_HZ=1000"
++            ]
++        }
++    ]
++}
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/power_manager.h b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/power_manager.h
+new file mode 100644
+index 0000000..871e46c
+--- /dev/null
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/power_manager.h
+@@ -0,0 +1,188 @@
++#pragma once
++#include <vector>
++#include <functional>
++
++#include <esp_timer.h>
++#include <driver/gpio.h>
++#include <esp_adc/adc_oneshot.h>
++#include <esp_log.h>
++
++class PowerManager {
++private:
++    esp_timer_handle_t timer_handle_;
++    std::function<void(bool)> on_charging_status_changed_;
++    std::function<void(bool)> on_low_battery_status_changed_;
++
++    gpio_num_t charging_pin_;
++    std::vector<uint16_t> adc_values_;
++    uint32_t battery_level_ = 0;
++    bool is_charging_ = false;
++    bool is_low_battery_ = false;
++    int ticks_ = 0;
++    const int kBatteryAdcInterval = 60;
++    const int kBatteryAdcDataCount = 3;
++    const int kLowBatteryLevel = 20;
++
++    adc_oneshot_unit_handle_t adc_handle_;
++    adc_channel_t adc_channel_;
++
++    void CheckBatteryStatus() {
++        // Get charging status
++        bool new_charging_status = gpio_get_level(charging_pin_) == 1;
++        if (new_charging_status != is_charging_) {
++            is_charging_ = new_charging_status;
++            if (on_charging_status_changed_) {
++                on_charging_status_changed_(is_charging_);
++            }
++            ReadBatteryAdcData();
++            return;
++        }
++
++        // 如果电池电量数据不足，则读取电池电量数据
++        if (adc_values_.size() < kBatteryAdcDataCount) {
++            ReadBatteryAdcData();
++            return;
++        }
++
++        // 如果电池电量数据充足，则每 kBatteryAdcInterval 个 tick 读取一次电池电量数据
++        ticks_++;
++        if (ticks_ % kBatteryAdcInterval == 0) {
++            ReadBatteryAdcData();
++        }
++    }
++
++    void ReadBatteryAdcData() {
++        int adc_value;
++        ESP_ERROR_CHECK(adc_oneshot_read(adc_handle_, adc_channel_, &adc_value));
++
++        // 将 ADC 值添加到队列中
++        adc_values_.push_back(adc_value);
++        if (adc_values_.size() > kBatteryAdcDataCount) {
++            adc_values_.erase(adc_values_.begin());
++        }
++        uint32_t average_adc = 0;
++        for (auto value : adc_values_) {
++            average_adc += value;
++        }
++        average_adc /= adc_values_.size();
++
++        // 定义电池电量区间 - 根据实际硬件调整这些值
++        const struct {
++            uint16_t adc;
++            uint8_t level;
++        } levels[] = {
++            {1980, 0},
++            {2081, 20},
++            {2163, 40},
++            {2250, 60},
++            {2340, 80},
++            {2480, 100}
++        };
++
++        // 低于最低值时
++        if (average_adc < levels[0].adc) {
++            battery_level_ = 0;
++        }
++        // 高于最高值时
++        else if (average_adc >= levels[5].adc) {
++            battery_level_ = 100;
++        } else {
++            // 线性插值计算中间值
++            for (int i = 0; i < 5; i++) {
++                if (average_adc >= levels[i].adc && average_adc < levels[i+1].adc) {
++                    float ratio = static_cast<float>(average_adc - levels[i].adc) / (levels[i+1].adc - levels[i].adc);
++                    battery_level_ = levels[i].level + ratio * (levels[i+1].level - levels[i].level);
++                    break;
++                }
++            }
++        }
++
++        // Check low battery status
++        if (adc_values_.size() >= kBatteryAdcDataCount) {
++            bool new_low_battery_status = battery_level_ <= kLowBatteryLevel;
++            if (new_low_battery_status != is_low_battery_) {
++                is_low_battery_ = new_low_battery_status;
++                if (on_low_battery_status_changed_) {
++                    on_low_battery_status_changed_(is_low_battery_);
++                }
++            }
++        }
++
++        ESP_LOGI("PowerManager", "ADC value: %d average: %ld level: %ld", adc_value, average_adc, battery_level_);
++    }
++
++public:
++    PowerManager(gpio_num_t charging_pin, adc_channel_t adc_channel) 
++        : charging_pin_(charging_pin), adc_channel_(adc_channel) {
++        // 初始化充电引脚
++        gpio_config_t io_conf = {};
++        io_conf.intr_type = GPIO_INTR_DISABLE;
++        io_conf.mode = GPIO_MODE_INPUT;
++        io_conf.pin_bit_mask = (1ULL << charging_pin_);
++        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
++        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
++        gpio_config(&io_conf);
++
++        // 创建电池电量检查定时器
++        esp_timer_create_args_t timer_args = {
++            .callback = [](void* arg) {
++                PowerManager* self = static_cast<PowerManager*>(arg);
++                self->CheckBatteryStatus();
++            },
++            .arg = this,
++            .dispatch_method = ESP_TIMER_TASK,
++            .name = "battery_check_timer",
++            .skip_unhandled_events = true,
++        };
++        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timer_handle_));
++        ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handle_, 100000));
++
++        // 初始化 ADC
++        adc_oneshot_unit_init_cfg_t init_config = {
++            .unit_id = ADC_UNIT_1,
++            .ulp_mode = ADC_ULP_MODE_DISABLE,
++        };
++        ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc_handle_));
++
++        adc_oneshot_chan_cfg_t chan_config = {
++            .atten = ADC_ATTEN_DB_12,
++            .bitwidth = ADC_BITWIDTH_12,
++        };
++        ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle_, adc_channel_, &chan_config));
++    }
++
++    ~PowerManager() {
++        if (timer_handle_) {
++            esp_timer_stop(timer_handle_);
++            esp_timer_delete(timer_handle_);
++        }
++        if (adc_handle_) {
++            adc_oneshot_del_unit(adc_handle_);
++        }
++    }
++
++    bool IsCharging() {
++        // 如果电量已经满了，则不再显示充电中
++        if (battery_level_ == 100) {
++            return false;
++        }
++        return is_charging_;
++    }
++
++    bool IsDischarging() {
++        // 没有区分充电和放电，所以直接返回相反状态
++        return !is_charging_;
++    }
++
++    uint8_t GetBatteryLevel() {
++        return battery_level_;
++    }
++
++    void OnLowBatteryStatusChanged(std::function<void(bool)> callback) {
++        on_low_battery_status_changed_ = callback;
++    }
++
++    void OnChargingStatusChanged(std::function<void(bool)> callback) {
++        on_charging_status_changed_ = callback;
++    }
++};
+diff --git a/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/sp-esp32-s3-1.28-cam-low.cc b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/sp-esp32-s3-1.28-cam-low.cc
+new file mode 100644
+index 0000000..7a3c350
+--- /dev/null
++++ b/main/boards/spotpear/sp-esp32-s3-1.28-cam-low/sp-esp32-s3-1.28-cam-low.cc
+@@ -0,0 +1,349 @@
++#include "wifi_board.h"
++#include "codecs/es8311_audio_codec.h"
++#include "display/lcd_display.h"
++#include "display/rh_dial_display.h"
++#include "application.h"
++#include "button.h"
++#include "config.h"
++#include "assets/lang_config.h"
++#include <esp_log.h>
++#include <esp_efuse_table.h>
++#include <driver/i2c_master.h>
++
++#include <esp_lcd_panel_io.h>
++#include <esp_lcd_panel_ops.h>
++#include <esp_lcd_gc9a01.h>
++#include "system_reset.h"
++#include "driver/gpio.h"
++#include "driver/spi_master.h"
++#include <esp_timer.h>
++#include "i2c_device.h"
++#include <esp_lcd_panel_vendor.h>
++#include <driver/spi_common.h>
++#include "power_save_timer.h"
++#include <esp_sleep.h>
++#include <driver/rtc_io.h>
++#include "freertos/FreeRTOS.h"
++#include "freertos/task.h"
++#include "power_manager.h"
++
++#include <atomic>
++
++// rh: copy of spotpear/sp-esp32-s3-1.28-box (role dial, screen sleep) without the CST816D touch
++// panel and the LED, for the 1.28" camera board; pins in config.h. Camera not enabled yet.
++#define TAG "Spotpear_ESP32_S3_1_28_CAM_LOW"
++
++LV_FONT_DECLARE(font_noto_sans_basic_16_4);
++LV_FONT_DECLARE(font_material_symbols_16_4);
++
++
++#if CONFIG_RH_DIAL
++// rh: the role dial (display/rh_dial_display.cc) is drawn over the default UI, which is still
++// used in Wi-Fi config mode.
++using CustomLcdDisplayBase = RhDialDisplay;
++// This screen for cn_dial (conest firmware/dial): 240 round, 16 px font (BUILTIN_TEXT_FONT
++// font_noto_sans_basic_16_4, main/CMakeLists.txt), raw RGB565 avatars, battery vs USB unknown
++// (power_manager.h IsDischarging()).
++static constexpr cn_dial::ScreenProfile kRhScreen{DISPLAY_WIDTH, DISPLAY_HEIGHT, cn_dial::Shape::kRound, 16, {16}, 1, cn_dial::kAssetRgb565Raw, cn_dial::Battery::kUnknown};
++#define RH_SCREEN_ARG , kRhScreen
++#else
++using CustomLcdDisplayBase = SpiLcdDisplay;
++#define RH_SCREEN_ARG
++#endif
++class CustomLcdDisplay : public CustomLcdDisplayBase {
++public:
++    CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle,
++                    esp_lcd_panel_handle_t panel_handle,
++                    int width,
++                    int height,
++                    int offset_x,
++                    int offset_y,
++                    bool mirror_x,
++                    bool mirror_y,
++                    bool swap_xy)
++        : CustomLcdDisplayBase(io_handle, panel_handle, width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy RH_SCREEN_ARG) {
++        // Note: UI customization should be done in SetupUI(), not in constructor
++        // to ensure lvgl objects are created before accessing them
++    }
++
++    virtual void SetupUI() override {
++        // Call parent SetupUI() first to create all lvgl objects
++        CustomLcdDisplayBase::SetupUI();
++
++        DisplayLockGuard lock(this);
++        // 由于屏幕是圆的，所以状态栏需要增加左右内边距
++        lv_obj_set_style_pad_left(status_bar_, LV_HOR_RES * 0.33, 0);
++        lv_obj_set_style_pad_right(status_bar_, LV_HOR_RES * 0.33, 0);
++    }
++};
++
++
++class Spotpear_ESP32_S3_1_28_CAM_LOW : public WifiBoard {
++private:
++    i2c_master_bus_handle_t codec_i2c_bus_ = nullptr;
++    Button boot_button_;
++    Display* display_ = nullptr;
++    PowerSaveTimer* power_save_timer_ = nullptr;
++    esp_lcd_panel_handle_t panel_ = nullptr;
++    PowerManager* power_manager_ = nullptr;
++    // conest patch 0011: screen fade-out timer and sleep flag.
++    esp_timer_handle_t sleep_fade_timer_ = nullptr;
++    std::atomic<bool> is_sleeping_{false};
++    // rh: a BOOT press that only lit the dark screen does not also toggle the chat.
++    std::atomic<bool> boot_wake_only_{false};
++
++    // conest patch 0011 OnUserActivity(): BOOT lights the screen within a second (no touch panel on this board).
++    void OnUserActivity() {
++        Application::GetInstance().Schedule([this]() {
++            if (power_save_timer_) power_save_timer_->WakeUp();
++        });
++    }
++
++    // Screen off after 120 s idle (conest patch 0011: PowerSaveTimer(-1, 120, 600), fade the
++    // backlight to 0, 400 ms later switch the panel off and stop the animation). Idle = the dial
++    // shows idle and nothing is playing (Application::CanEnterSleepMode); it now also works on USB
++    // power, as in 0011 (the timer is no longer switched off while charging).
++    // No auto power-off (0011's 600 s on battery): this board only has a charge-status pin and a
++    // battery ADC (power_manager.h IsDischarging(): "没有区分充电和放电"), so "on battery" cannot be
++    // told from "on USB, battery full"; the old shutdown here is a deep sleep with no wake-up
++    // source, which would take a USB-powered board off the host until someone resets it.
++    void InitializePowerSaveTimer() {
++        rtc_gpio_init(GPIO_NUM_3);
++        rtc_gpio_set_direction(GPIO_NUM_3, RTC_GPIO_MODE_OUTPUT_ONLY);
++        rtc_gpio_set_level(GPIO_NUM_3, 1);
++
++        power_save_timer_ = new PowerSaveTimer(-1, 120, -1);
++        power_save_timer_->OnEnterSleepMode([this]() {
++            ESP_LOGI(TAG, "Entering sleep mode: fading out screen");
++            is_sleeping_ = true;
++            GetBacklight()->SetBrightness(0);
++            if (sleep_fade_timer_ == nullptr) {
++                esp_timer_create_args_t timer_args = {
++                    .callback = [](void* arg) {
++                        auto self = static_cast<Spotpear_ESP32_S3_1_28_CAM_LOW*>(arg);
++                        Application::GetInstance().Schedule([self]() {
++                            if (self->is_sleeping_) {
++                                self->GetDisplay()->SetPowerSaveMode(true);
++                            }
++                        });
++                    },
++                    .arg = this,
++                    .dispatch_method = ESP_TIMER_TASK,
++                    .name = "sleep_fade",
++                    .skip_unhandled_events = true,
++                };
++                ESP_ERROR_CHECK(esp_timer_create(&timer_args, &sleep_fade_timer_));
++            }
++            esp_timer_start_once(sleep_fade_timer_, 400000);  // conest 0011: 400 ms 淡出后关屏
++        });
++        power_save_timer_->OnExitSleepMode([this]() {
++            ESP_LOGI(TAG, "Exiting sleep mode: restoring screen");
++            is_sleeping_ = false;
++            if (sleep_fade_timer_ != nullptr) {
++                esp_timer_stop(sleep_fade_timer_);
++            }
++            GetDisplay()->SetPowerSaveMode(false);
++            GetBacklight()->RestoreBrightness();
++        });
++        power_save_timer_->OnShutdownRequest([this]() {
++            ESP_LOGI(TAG, "Shutting down");
++            // 关闭ES8311音频编解码器
++            auto codec = GetAudioCodec();
++            if (codec) {
++                codec->EnableInput(false);
++                codec->EnableOutput(false);
++            }
++            rtc_gpio_set_level(GPIO_NUM_3, 0);
++            // 启用保持功能，确保睡眠期间电平不变
++            rtc_gpio_hold_en(GPIO_NUM_3);
++            esp_lcd_panel_disp_on_off(panel_, false); //关闭显示
++            esp_deep_sleep_start();
++        });
++        power_save_timer_->SetEnabled(true);
++    }
++
++    void InitializePowerManager() {
++        power_manager_ = new PowerManager(BATTERY_CHARGING_PIN, ADC_CHANNEL_0);
++        // conest patch 0011: the screen also sleeps on USB power, so charging no longer turns the
++        // power save timer off (it was the only switch; GetBatteryLevel() below did the same).
++    }
++
++    void InitializeCodecI2c() {
++        // Initialize I2C peripheral
++        i2c_master_bus_config_t i2c_bus_cfg = {
++            .i2c_port = I2C_NUM_0,
++            .sda_io_num = AUDIO_CODEC_I2C_SDA_PIN,
++            .scl_io_num = AUDIO_CODEC_I2C_SCL_PIN,
++            .clk_source = I2C_CLK_SRC_DEFAULT,
++            // .glitch_ignore_cnt = 7,
++            // .intr_priority = 0,
++            // .trans_queue_depth = 0,
++            // .flags = {
++            //     .enable_internal_pullup = 1,
++            // },
++        };
++        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &codec_i2c_bus_));
++    }
++
++    // SPI初始化
++    void InitializeSpi() {
++        ESP_LOGI(TAG, "Initialize SPI bus");
++        spi_bus_config_t buscfg = GC9A01_PANEL_BUS_SPI_CONFIG(DISPLAY_SPI_SCLK_PIN, DISPLAY_SPI_MOSI_PIN,
++                                    DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t));
++        ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));
++    }
++
++    // GC9A01初始化
++    void InitializeGc9a01Display() {
++        ESP_LOGI(TAG, "Init GC9A01 display");
++        ESP_LOGI(TAG, "Install panel IO");
++        esp_lcd_panel_io_handle_t io_handle = NULL;
++        esp_lcd_panel_io_spi_config_t io_config = GC9A01_PANEL_IO_SPI_CONFIG(DISPLAY_SPI_CS_PIN, DISPLAY_SPI_DC_PIN, 0, NULL);
++        io_config.pclk_hz = DISPLAY_SPI_SCLK_HZ;
++        ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(SPI3_HOST, &io_config, &io_handle));
++
++        ESP_LOGI(TAG, "Install GC9A01 panel driver");
++        esp_lcd_panel_handle_t panel_handle = NULL;
++        esp_lcd_panel_dev_config_t panel_config = {};
++        panel_config.reset_gpio_num = DISPLAY_SPI_RESET_PIN;    // Set to -1 if not use
++        panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
++        panel_config.bits_per_pixel = 16;
++
++        ESP_ERROR_CHECK(esp_lcd_new_panel_gc9a01(io_handle, &panel_config, &panel_handle));
++        panel_ = panel_handle;
++        ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
++        ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
++        ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
++        ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
++        ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
++
++        uint8_t data_0x62[] = { 0x18, 0x0D, 0x71, 0xED, 0x70, 0x70, 0x18, 0x0F, 0x71, 0xEF, 0x70, 0x70 };
++        esp_lcd_panel_io_tx_param(io_handle, 0x62, data_0x62, sizeof(data_0x62));
++
++        uint8_t data_0x63[] = { 0x18, 0x11, 0x71, 0xF1, 0x70, 0x70, 0x18, 0x13, 0x71, 0xF3, 0x70, 0x70 };
++        esp_lcd_panel_io_tx_param(io_handle, 0x63, data_0x63, sizeof(data_0x63));
++
++        uint8_t data_0x36[] = { 0x48};
++        esp_lcd_panel_io_tx_param(io_handle, 0x36, data_0x36, sizeof(data_0x36));
++
++        // uint8_t data_0x74[] = { 0x10, 0x85, 0x80, 0x00, 0x00, 0x4E, 0x00};
++        // esp_lcd_panel_io_tx_param(io_handle, 0x74, data_0x74, sizeof(data_0x74));
++
++        // 0xC3/0xC4 (sent on sp-esp32-s3-1.28-box) are commented out in Spotpear's own cam-low board.
++        // uint8_t data_0xC3[] = { 0x1F};
++        // esp_lcd_panel_io_tx_param(io_handle, 0xC3, data_0xC3, sizeof(data_0xC3));
++
++        // uint8_t data_0xC4[] = { 0x1F};
++        // esp_lcd_panel_io_tx_param(io_handle, 0xC4, data_0xC4, sizeof(data_0xC4));
++
++        display_ = new CustomLcdDisplay(io_handle, panel_handle,
++                                    DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
++
++    }
++
++    void InitializeButtons() {
++        // The wake-only mark belongs to one press: set on press-down, used up by that press's click.
++        // A long press has no click (iot_button: LONG_PRESS_START, then PRESS_UP / PRESS_END, no
++        // SINGLE_CLICK), so it clears the mark itself instead of leaving it for the next press.
++        boot_button_.OnPressDown([this]() {
++            boot_wake_only_ = is_sleeping_.load();
++            OnUserActivity();
++        });
++        boot_button_.OnLongPress([this]() { boot_wake_only_ = false; });
++        boot_button_.OnClick([this]() {
++            if (boot_wake_only_) {  // this press only lit the screen
++                boot_wake_only_ = false;
++                return;
++            }
++            auto& app = Application::GetInstance();
++            // During startup (before connected), pressing BOOT button enters Wi-Fi config mode without reboot
++            if (app.GetDeviceState() == kDeviceStateStarting) {
++                EnterWifiConfigMode();
++                return;
++            }
++            app.ToggleChatState();
++        });
++    }
++
++public:
++    Spotpear_ESP32_S3_1_28_CAM_LOW() : boot_button_(BOOT_BUTTON_GPIO) {
++        // 初始化音频I2C
++        InitializeCodecI2c();
++
++        // 显示相关先建立起来
++        InitializeSpi();
++        InitializeGc9a01Display();
++        InitializeButtons();
++        if (GetBacklight()) {
++            GetBacklight()->RestoreBrightness();
++        }
++
++        // 显示和背光可用后再初始化省电逻辑，避免空指针
++        InitializePowerSaveTimer();
++        InitializePowerManager();
++    }
++
++    ~Spotpear_ESP32_S3_1_28_CAM_LOW() {
++        if (sleep_fade_timer_ != nullptr) {
++            esp_timer_stop(sleep_fade_timer_);
++            esp_timer_delete(sleep_fade_timer_);
++            sleep_fade_timer_ = nullptr;
++        }
++        if (power_save_timer_) {
++            delete power_save_timer_;
++            power_save_timer_ = nullptr;
++        }
++        if (power_manager_) {
++            delete power_manager_;
++            power_manager_ = nullptr;
++        }
++        if (display_) {
++            delete display_;
++            display_ = nullptr;
++        }
++        if (codec_i2c_bus_) {
++            i2c_del_master_bus(codec_i2c_bus_);
++            codec_i2c_bus_ = nullptr;
++        }
++    }
++
++
++    virtual Display* GetDisplay() override {
++        return display_;
++    }
++
++    virtual Backlight* GetBacklight() override {
++        static PwmBacklight backlight(DISPLAY_BACKLIGHT_PIN, DISPLAY_BACKLIGHT_OUTPUT_INVERT);
++        return &backlight;
++    }
++
++    virtual AudioCodec* GetAudioCodec() override {
++        static Es8311AudioCodec audio_codec(codec_i2c_bus_, I2C_NUM_0, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
++            AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN,
++            AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR);
++        return &audio_codec;
++    }
++
++    virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
++        if (!power_manager_) {
++            level = 0;
++            charging = false;
++            discharging = true;
++            return false;
++        }
++        
++        charging = power_manager_->IsCharging();
++        discharging = power_manager_->IsDischarging();
++        level = power_manager_->GetBatteryLevel();
++        return true;
++    }
++
++    virtual void SetPowerSaveLevel(PowerSaveLevel level) override {
++        if (level != PowerSaveLevel::LOW_POWER) {
++            power_save_timer_->WakeUp();
++        }
++        WifiBoard::SetPowerSaveLevel(level);
++    }
++};
++
++DECLARE_BOARD(Spotpear_ESP32_S3_1_28_CAM_LOW);
+-- 
+2.54.0 (Apple Git-157)
+

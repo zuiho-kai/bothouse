@@ -1,7 +1,7 @@
 From 8e68c7a479578988ae3d855abe6bdabb6fb9fefb Mon Sep 17 00:00:00 2001
 From: zuiho <qq2324465096@gmail.com>
 Date: Mon, 19 Oct 2026 15:20:17 +0900
-Subject: [PATCH 01/17] rh: default OTA to Mac host, silence local sounds,
+Subject: [PATCH 01/19] rh: default OTA to Mac host, silence local sounds,
  disable mic uplink and wake word
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

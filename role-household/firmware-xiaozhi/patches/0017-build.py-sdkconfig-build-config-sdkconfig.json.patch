@@ -1,7 +1,7 @@
 From 31cfb3cef1b424cedb0dc0e11250e2e08405d0d5 Mon Sep 17 00:00:00 2001
 From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
 Date: Tue, 20 Oct 2026 09:42:04 +0900
-Subject: [PATCH 17/17] =?UTF-8?q?build.py:=20=E4=BD=9C=E5=BA=9F=20sdkconfi?=
+Subject: [PATCH 17/19] =?UTF-8?q?build.py:=20=E4=BD=9C=E5=BA=9F=20sdkconfi?=
  =?UTF-8?q?g=20=E6=97=B6=E4=B8=80=E5=B9=B6=E4=BD=9C=E5=BA=9F=E6=B4=BE?=
  =?UTF-8?q?=E7=94=9F=E7=9A=84=20build/config/sdkconfig.json?=
 MIME-Version: 1.0
