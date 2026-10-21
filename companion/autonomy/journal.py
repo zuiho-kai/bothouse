@@ -39,7 +39,7 @@ class Journal:
                 path = f'/channels/{channel}/messages?limit=100'
                 if before:
                     path += '&before=' + before
-                messages = discord.call(path)
+                messages = discord.call(path, deadline=deadline)
                 if not isinstance(messages, list):
                     raise ValueError('invalid Discord page')
                 if not messages:
