@@ -200,3 +200,90 @@ describe('channel data layer: paging back', () => {
     stop()
   })
 })
+
+describe('channel data layer: optimistic send', () => {
+  /** A transport whose POST answers are released by the test. */
+  function sendHarness(initial: ReturnType<typeof message>[] = []) {
+    const bodies: { text?: string; client_key?: string }[] = []
+    const pending: { release: (body: unknown, status?: number) => void }[] = []
+    const base = harness(initial)
+    const transport: ChannelTransport = {
+      ...base.transport,
+      fetch: (input, init) => {
+        if (init?.method === 'POST') {
+          bodies.push(JSON.parse(String(init.body)) as { text?: string; client_key?: string })
+          return new Promise<Response>((resolve) => {
+            pending.push({
+              release: (body, status = 200) => resolve(json(status, body)),
+            })
+          })
+        }
+        return base.transport.fetch(input, init)
+      },
+    }
+    return { ...base, transport, bodies, pending }
+  }
+
+  it('shows the message before the service answers, then replaces it with the real row', async () => {
+    const { hub, transport, pending } = sendHarness()
+    const { channel, stop } = await ready(transport, hub)
+
+    const sending = channel.actions.send('hello')
+    await settle(2)
+
+    // Visible while the POST is still in flight.
+    expect(channel.source.getSnapshot().outbox).toHaveLength(1)
+    expect(channel.source.getSnapshot().outbox[0]?.text).toBe('hello')
+    expect(channel.source.getSnapshot().outbox[0]?.state).toBe('sending')
+
+    pending[0]?.release({ message: message(1, 'hello') })
+    await sending
+
+    expect(channel.source.getSnapshot().outbox).toHaveLength(0)
+    expect(channel.source.getSnapshot().messages.map(row => row.text)).toEqual(['hello'])
+    stop()
+  })
+
+  it('keeps a failed message and retries it under the same client_key', async () => {
+    const { hub, transport, bodies, pending } = sendHarness()
+    const { channel, stop } = await ready(transport, hub)
+
+    const first = channel.actions.send('retry me')
+    await settle(2)
+    pending[0]?.release({ error: 'boom' }, 500)
+    await expect(first).rejects.toThrow('boom')
+
+    const failed = channel.source.getSnapshot().outbox
+    expect(failed).toHaveLength(1)
+    expect(failed[0]?.state).toBe('failed')
+    expect(failed[0]?.error).toBe('boom')
+
+    // The retry carries the same key, so a resend that did land is deduped.
+    const retry = channel.actions.retrySend(failed[0]!.clientKey)
+    await settle(2)
+    pending[1]?.release({ message: message(1, 'retry me') })
+    await retry
+
+    expect(bodies).toHaveLength(2)
+    expect(bodies[0]?.client_key).toBe(bodies[1]?.client_key)
+    expect(bodies[0]?.client_key).toBe(failed[0]?.clientKey)
+    expect(channel.source.getSnapshot().outbox).toHaveLength(0)
+    stop()
+  })
+
+  it('drops a failed message on request', async () => {
+    const { hub, transport, pending } = sendHarness()
+    const { channel, stop } = await ready(transport, hub)
+
+    const first = channel.actions.send('give up')
+    await settle(2)
+    pending[0]?.release({ error: 'nope' }, 500)
+    await expect(first).rejects.toThrow('nope')
+
+    const key = channel.source.getSnapshot().outbox[0]!.clientKey
+    channel.actions.dismissSend(key)
+
+    expect(channel.source.getSnapshot().outbox).toHaveLength(0)
+    stop()
+  })
+})

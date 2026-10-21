@@ -63,6 +63,16 @@ export interface ChannelRoom {
   readonly name: string
 }
 
+/** One message the human sent that the service has not confirmed yet. */
+export interface OutboxMessage {
+  /** Idempotency key sent as `client_key`; a retry reuses it so the service dedupes. */
+  readonly clientKey: string
+  readonly text: string
+  readonly state: 'sending' | 'failed'
+  /** Why the last attempt failed; set only when `state` is `failed`. */
+  readonly error?: string
+}
+
 /** Whole panel state; `phase` says whether the service answered. */
 export interface ChannelSnapshot {
   readonly phase: 'idle' | 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'unauthorized' | 'error'
@@ -76,6 +86,8 @@ export interface ChannelSnapshot {
   readonly messages: readonly ChannelMessage[]
   /** True while `loadOlder` can still page further back in the selected room. */
   readonly hasMoreOlder: boolean
+  /** Messages shown before the service confirmed them, newest last. */
+  readonly outbox: readonly OutboxMessage[]
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -84,6 +96,10 @@ export interface ChannelActions {
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room; rejects with the service's reason. */
   send(text: string): Promise<void>
+  /** Re-post a failed message, reusing its `client_key` so the service dedupes. */
+  retrySend(clientKey: string): Promise<void>
+  /** Drop a failed message from the outbox without sending it. */
+  dismissSend(clientKey: string): void
   /** Create a room and switch to it. */
   createRoom(name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -124,6 +140,7 @@ type ServiceEvent =
 
 const INITIAL: ChannelSnapshot = {
   phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], hasMoreOlder: false,
+  outbox: [],
 }
 
 /** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
@@ -425,18 +442,47 @@ export function createChannelSource(transport: ChannelTransport): {
     },
   }
 
-  const actions: ChannelActions = {
-    selectRoom,
-    async send(text) {
-      const roomId = snapshot.roomId
-      const owner = lifetime
-      if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
+  /**
+   * Posts one message under a stable `client_key`, showing it in the outbox
+   * first (design §4.3). A retry reuses the key, so the service dedupes a
+   * resend whose first attempt actually landed.
+   */
+  const post = async (clientKey: string, text: string): Promise<void> => {
+    const roomId = snapshot.roomId
+    const owner = lifetime
+    if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
+    const show = (state: OutboxMessage['state'], error?: string): void => {
+      const rest = snapshot.outbox.filter(entry => entry.clientKey !== clientKey)
+      set({ outbox: [...rest, { clientKey, text, state, ...(error === undefined ? {} : { error }) }] })
+    }
+    show('sending')
+    try {
       const { message } = await request<{ message: ChannelMessage }>(`collab/api/rooms/${roomId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text, client_key: crypto.randomUUID() }),
+        body: JSON.stringify({ text, client_key: clientKey }),
       })
-      if (lifetime === owner) onEvent({ type: 'message', message })
+      if (lifetime !== owner) return
+      set({ outbox: snapshot.outbox.filter(entry => entry.clientKey !== clientKey) })
+      onEvent({ type: 'message', message })
+    } catch (error) {
+      if (lifetime === owner) show('failed', error instanceof Error ? error.message : String(error))
+      throw error
+    }
+  }
+
+  const actions: ChannelActions = {
+    selectRoom,
+    async send(text) {
+      await post(crypto.randomUUID(), text)
+    },
+    async retrySend(clientKey) {
+      const entry = snapshot.outbox.find(row => row.clientKey === clientKey)
+      if (entry === undefined) return
+      await post(entry.clientKey, entry.text)
+    },
+    dismissSend(clientKey) {
+      set({ outbox: snapshot.outbox.filter(entry => entry.clientKey !== clientKey) })
     },
     async createRoom(name) {
       const { room } = await request<{ room: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
