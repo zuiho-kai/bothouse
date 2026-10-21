@@ -1,38 +1,18 @@
 CoNest Notices
 
 CoNest
-Copyright (c) zuiho-kai and CoNest contributors.
+Copyright (c) 2026 zuiho-kai and CoNest contributors.
 
-The platform layer of this project is licensed under the GNU Affero General
-Public License v3.0. See LICENSE for the full project license terms.
-The adapter layer is licensed under the Apache License 2.0
-(LICENSES/Apache-2.0.txt). See LICENSING.md for which directories belong to
-which layer and for material that is not licensed by this project.
-
-==== Additional Terms under AGPLv3 Section 7 ====
-
-Pursuant to Section 7(b) of the GNU Affero General Public License version 3,
-the following reasonable legal notice and author attribution must be preserved
-by modified versions in the Appropriate Legal Notices and in any prominent
-about, legal, footer, or attribution location presented by the user interface:
-
-"Built on CoNest"
-
-Modified versions that present a user interface must also preserve a visible
-link to the original project in a prominent about, legal, footer, or
-attribution location:
-
-https://github.com/zuiho-kai/conest
-
-Modified versions must not misrepresent the origin of the software and must
-mark their changes in accordance with AGPLv3 Section 7(c).
+CoNest is licensed under the MIT License. See LICENSE for the full text and
+LICENSING.md for material that is not licensed by this project.
 
 ==== Upstream Notices ====
 
 CoNest is a plugin for platforms such as cc-connect and DSH. For a one-command
 install, bridge/ ships a copy of cc-connect (https://github.com/chenhg5/cc-connect),
-licensed under the MIT License, together with CoNest's plugin code. The MIT license text and copyright notice are
-in bridge/LICENSE-MIT-upstream and must be preserved.
+licensed under the MIT License, together with CoNest's plugin code. The MIT
+license text and copyright notice are in bridge/LICENSE-MIT-upstream and must
+be preserved.
 
 ==== Third-Party Notices ====
 
