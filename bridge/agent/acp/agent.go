@@ -48,6 +48,10 @@ type Agent struct {
 	// session/list (e.g. some Copilot/OpenClaw builds).
 	listUnsupported atomic.Bool
 
+	// steerSupported mirrors the latest handshake's steer advertisement (session_steer.go); the
+	// gate asks SupportsMidTurnInput per message, and a busy session has always handshaken.
+	steerSupported atomic.Bool
+
 	// modesCache holds the latest `modes` block we observed via
 	// session/new or session/load. It's populated by the session
 	// handshake so that future PermissionModes() calls can reflect the
@@ -406,6 +410,12 @@ func (a *Agent) reportModes(block acpModesBlock) {
 	a.modesCurrent = block.CurrentModeID
 	a.modesMu.Unlock()
 }
+
+func (a *Agent) reportSteerSupported(supported bool) { a.steerSupported.Store(supported) }
+
+// SupportsMidTurnInput reports whether a message sent while a turn runs can join that turn
+// (core gate): true once the agent advertised the steer extension.
+func (a *Agent) SupportsMidTurnInput() bool { return a.steerSupported.Load() }
 
 func (a *Agent) reportListSupported(supported bool) {
 	if !supported {

@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-21 Issue #223：ACP 对端声明 `agentCapabilities._meta["dsh/steer"]` 时，gate 忙时插话改走 `SendMidTurn`（session/prompt 带 `_meta["dsh/steer"]`，对端并入正在跑的那一轮并立即回 `_meta["dsh/steered"]`，输出仍从原 prompt 流出；没有在跑的 prompt 时对端拒绝，cc-connect 回落排队，不会另起一轮）。gate 改为逐条询问 `SupportsMidTurnInput`（ACP 握手后才知道），Codex/Claude Code 行为不变。`promptCapabilities.image=true` 时图片发 ACP image 块（png/jpeg/webp/gif，其余仍存盘写路径）；DSH 的 `tool_call_update` 不带 title，进度卡片结果行改用 tool_call 的名字。插话不再附 model-control 说明（那一轮的 prompt 已带）。DSH 侧 steer 是本机对 dsh-acp 0.2.1-rc.2 的补丁，不在本仓库。真实 Discord 私有测试频道（借鲸鱼娘 bot 第二连接，只收测试 webhook）验过插话、带图插话、发图、卡片；未部署，线上切换另行记录。
+
 2026-10-21 Issue #215 / PR #216：独立 WSL conest-ci 已运行两个专用账号的 runner，可并行两项 job；每路上限4个逻辑线程算力、6GiB内存，工作区和工具缓存独立。真实 Actions run 39546540674 的 bridge、companion、firmware-assets、dial-metrics 全过，原 Ubuntu GPU 闸门仍存活。最终文档提交的检查与合并状态以 PR 为准。登录后自启已配置，未做重启验收；插电不休眠，电池仍可能休眠。仅迁移核心 CI，release/ui-preview 仍在云端；未核对账单页面。详见 docs/SELF_HOSTED_CI.md。
 
 2026-10-21 Issue #208：G哥插话后公开回复延迟。已分别复现 Codex commentary 被缓冲，以及核心在工具边界冻结旧预览却不为新文字恢复；修复明确 phase 的普通公开文字分类、可恢复冻结状态与新段落收尾。严格语音、未知phase和内部推理边界保留；运输失败不因新文字恢复，旧消息不被覆盖。适配器回放、真实 Engine→gate→app-server→预览链路和三次真人输入的 STREAM2 CUJ 已通过；原版四条回归失败。全量/race/CI与部署状态见对应PR，真实频道待自然验收。详见[插话公开回复](CODEX_INSERT_PUBLIC_REPLY.md)。未接管他人PR清理或语音优化。

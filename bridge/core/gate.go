@@ -36,6 +36,7 @@ type gateState struct {
 	timeout         time.Duration
 	fallback        string        // action on gate error/timeout
 	inject          bool          // agent folds mid-turn input into the running turn (claudecode only)
+	injectDyn       func() bool   // agent says per message whether it can (SupportsMidTurnInput: codex app-server, ACP steer)
 	textBurstWindow time.Duration // per-project idle text debounce; attachments keep the default
 	mu              sync.Mutex
 	buf             map[string][]string // interactiveKey → silent messages not yet delivered
@@ -145,12 +146,14 @@ func (e *Engine) SetGate(url string, timeoutMs int, fallback string) {
 	// Claude Code merges stdin input into the running turn, Codex app-server via turn/steer;
 	// codex exec would start a second process, so other agents get busy inserts as a queued turn.
 	inject := e.agent != nil && e.agent.Name() == "claudecode"
-	if m, ok := e.agent.(interface{ SupportsMidTurnInput() bool }); ok && m.SupportsMidTurnInput() {
-		inject = true
+	var injectDyn func() bool
+	if m, ok := e.agent.(interface{ SupportsMidTurnInput() bool }); ok {
+		// Asked per message: ACP learns it from the agent's handshake, after the gate is set up.
+		injectDyn = m.SupportsMidTurnInput
 	}
-	e.gate = &gateState{url: url, timeout: time.Duration(timeoutMs) * time.Millisecond, fallback: fallback, inject: inject, textBurstWindow: burstWindow,
+	e.gate = &gateState{url: url, timeout: time.Duration(timeoutMs) * time.Millisecond, fallback: fallback, inject: inject, injectDyn: injectDyn, textBurstWindow: burstWindow,
 		buf: map[string][]string{}, held: map[string]*heldMsg{}, released: map[*Message]bool{}}
-	slog.Info("gate enabled", "url", url, "timeout_ms", timeoutMs, "fallback", fallback, "mid_turn_inject", inject)
+	slog.Info("gate enabled", "url", url, "timeout_ms", timeoutMs, "fallback", fallback, "mid_turn_inject", e.gate.canInject())
 }
 
 // SetGateBurstWindow configures idle text coalescing before the engine starts
@@ -303,7 +306,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	e.teamNoteTurn(msg, session)
 
-	if busy && g.inject {
+	if busy && g.canInject() {
 		if idle := e.turnIdleFor(interactiveKey); idle >= deadTurnAfter {
 			// maomao fork: don't pretend to deliver into a turn that has stopped moving.
 			// The message stays in the channel; backfill hands it to the next turn
@@ -333,7 +336,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if strings.TrimSpace(inject) == "" {
 		inject = "（补充附件，和刚才的消息是一起发的）"
 	}
-	if busy && g.inject && e.injectIntoRunningTurn(interactiveKey, inject, msg.ReplyCtx, msg.Images, msg.Files) {
+	if busy && g.canInject() && e.injectIntoRunningTurn(interactiveKey, inject, msg.ReplyCtx, msg.Images, msg.Files) {
 		g.mu.Lock()
 		g.dropBuffered(interactiveKey, len(buffered))
 		g.mu.Unlock()
@@ -436,7 +439,11 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, replyCtx 
 	state.mu.Lock()
 	state.injectedReplyCtxs = append(state.injectedReplyCtxs, rec)
 	state.mu.Unlock()
-	if err := as.Send(e.withAgentIdentity(content), "", images, files); err != nil {
+	send := as.Send
+	if m, ok := as.(MidTurnSender); ok {
+		send = m.SendMidTurn // never starts a turn of its own (a blocking Send would)
+	}
+	if err := send(e.withAgentIdentity(content), "", images, files); err != nil {
 		slog.Warn("gate: mid-turn inject failed", "error", err)
 		state.mu.Lock()
 		for i, r := range state.injectedReplyCtxs {
@@ -451,6 +458,15 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, replyCtx 
 	slog.Info("gate: injected into running turn", "interactive_key", interactiveKey, "len", len(content))
 	return true
 }
+
+// MidTurnSender is an AgentSession whose ordinary Send runs a whole turn (ACP); injection uses
+// SendMidTurn, which joins the running turn or fails so the message is queued.
+type MidTurnSender interface {
+	SendMidTurn(prompt string, messageID string, images []ImageAttachment, files []FileAttachment) error
+}
+
+// canInject reports whether a busy message may be injected into the running turn.
+func (g *gateState) canInject() bool { return g.inject || (g.injectDyn != nil && g.injectDyn()) }
 
 // injectedReply is one message injected into the running turn (interactiveState.injectedReplyCtxs);
 // a pointer so a failed Send removes exactly its own entry.

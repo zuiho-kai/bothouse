@@ -2,11 +2,14 @@ package acp
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +47,9 @@ type acpSession struct {
 	outputTurn      privateOutputTurn
 
 	sendMu         sync.Mutex
+	promptInFlight atomic.Bool // a session/prompt RPC is outstanding (sendLocked)
+	steerSupported atomic.Bool // handshake advertised steerMetaKey (session_steer.go)
+	imagePrompts   atomic.Bool // handshake advertised promptCapabilities.image
 	inputMu        sync.Mutex
 	inputGuard     bool // suppress replay and notifications outside a strict prompt
 	inputActive    bool
@@ -56,6 +62,7 @@ type acpSession struct {
 
 	toolInputMu   sync.Mutex
 	toolInputByID map[string]string // toolCallId -> summarized tool input
+	toolNameByID  map[string]string // toolCallId -> tool_call title/kind, for updates that omit the title
 
 	// modesMu guards availableModes and currentMode. Both fields are
 	// populated on handshake (session/new or session/load response) and
@@ -105,6 +112,7 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		cancel:        cancel,
 		permByID:      make(map[string]permState),
 		toolInputByID: make(map[string]string),
+		toolNameByID:  make(map[string]string),
 		acpSessID:     cfg.resumeSessionID,
 		callbacks:     cfg.callbacks,
 		strictResume:  cfg.strictResume,
@@ -216,6 +224,12 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	)
 	if s.callbacks != nil {
 		s.callbacks.reportListSupported(listSupported)
+	}
+	s.imagePrompts.Store(initOut.AgentCapabilities.PromptCapabilities.Image)
+	steer := initOut.AgentCapabilities.Meta[steerMetaKey] == true
+	s.steerSupported.Store(steer)
+	if r, ok := s.callbacks.(steerReporter); ok {
+		r.reportSteerSupported(steer)
 	}
 
 	if strings.TrimSpace(authMethod) != "" {
@@ -442,6 +456,10 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 	s.outputMu.Lock()
 	defer s.outputMu.Unlock()
 	for _, ev := range mapSessionUpdate(sid, params) {
+		if ev.Type == core.EventToolResult {
+			// mapToolCallUpdate falls back to the toolCallId when the update carries no title.
+			ev.ToolName = s.toolNameFor(ev.ToolName)
+		}
 		if ev.Type == core.EventToolUse && s.outputMessageID == "" {
 			s.outputFilter = privateOutput{}
 		}
@@ -501,16 +519,28 @@ func (s *acpSession) maybeAbsorbCurrentModeUpdate(params json.RawMessage) {
 // OpenCode ACP bug (#7370): rawInput is empty in tool_call and request_permission,
 // but populated in tool_call_update. We cache from both sources.
 func (s *acpSession) evictToolInputCacheIfNeededLocked() {
-	if len(s.toolInputByID) < toolInputCacheMaxEntries {
-		return
-	}
 	target := toolInputCacheMaxEntries / 2
-	for k := range s.toolInputByID {
-		if len(s.toolInputByID) <= target {
-			break
+	for _, m := range []map[string]string{s.toolInputByID, s.toolNameByID} {
+		if len(m) < toolInputCacheMaxEntries {
+			continue
 		}
-		delete(s.toolInputByID, k)
+		for k := range m {
+			if len(m) <= target {
+				break
+			}
+			delete(m, k)
+		}
 	}
+}
+
+// toolNameFor returns the name a tool_call announced for this toolCallId, or label unchanged.
+func (s *acpSession) toolNameFor(label string) string {
+	s.toolInputMu.Lock()
+	defer s.toolInputMu.Unlock()
+	if name := s.toolNameByID[label]; name != "" {
+		return name
+	}
+	return label
 }
 
 func (s *acpSession) cacheToolCallInput(params json.RawMessage) {
@@ -530,10 +560,20 @@ func (s *acpSession) cacheToolCallInput(params json.RawMessage) {
 	case "tool_call":
 		var tc struct {
 			ToolCallID string          `json:"toolCallId"`
+			Title      string          `json:"title"`
 			Kind       string          `json:"kind"`
 			RawInput   json.RawMessage `json:"rawInput"`
 		}
-		if json.Unmarshal(wrap.Update, &tc) != nil || tc.ToolCallID == "" || len(tc.RawInput) == 0 {
+		if json.Unmarshal(wrap.Update, &tc) != nil || tc.ToolCallID == "" {
+			return
+		}
+		if name := cmp.Or(tc.Title, tc.Kind); name != "" && s.toolNameByID != nil {
+			s.toolInputMu.Lock()
+			s.evictToolInputCacheIfNeededLocked()
+			s.toolNameByID[tc.ToolCallID] = name
+			s.toolInputMu.Unlock()
+		}
+		if len(tc.RawInput) == 0 {
 			return
 		}
 		s.toolInputMu.Lock()
@@ -687,23 +727,14 @@ func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAt
 func (s *acpSession) sendLocked(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, strict bool) error {
 	s.resetPrivateOutput()
 
-	filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
-	prompt = core.AppendFileRefs(prompt, filePaths)
-	if len(images) > 0 {
-		prompt = s.appendImageRefs(prompt, images)
-	}
-
 	sid := s.currentACPSessionID()
 	if sid == "" {
 		return fmt.Errorf("acp: no agent session id")
 	}
 
-	promptBlocks := []any{
-		map[string]any{"type": "text", "text": core.PrependModelSwitchInstructions(prompt)},
-	}
 	params := map[string]any{
 		"sessionId": sid,
-		"prompt":    promptBlocks,
+		"prompt":    s.promptBlocks(prompt, messageID, images, files, true),
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
@@ -722,7 +753,9 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		s.inputActive = true
 		s.inputMu.Unlock()
 	}
+	s.promptInFlight.Store(true)
 	res, err := s.tr.callCompleted(s.ctx, "session/prompt", params, complete)
+	s.promptInFlight.Store(false)
 	complete() // write failure/cancellation may not invoke the reader callback
 	var result struct {
 		StopReason string `json:"stopReason"`
@@ -764,6 +797,53 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		Done:      true,
 	})
 	return nil
+}
+
+// promptBlocks builds session/prompt content: the text (with saved file references, after the
+// model-control instructions when modelSkill) and, when the agent advertised
+// promptCapabilities.image, one image block per supported image. Other images are saved to disk
+// and referenced by path in the text.
+func (s *acpSession) promptBlocks(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, modelSkill bool) []any {
+	filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
+	prompt = core.AppendFileRefs(prompt, filePaths)
+	var imageBlocks []any
+	if len(images) > 0 {
+		var rest []core.ImageAttachment
+		if s.imagePrompts.Load() {
+			imageBlocks, rest = acpImageBlocks(images)
+		} else {
+			rest = images
+		}
+		if len(rest) > 0 {
+			prompt = s.appendImageRefs(prompt, rest)
+		} else if strings.TrimSpace(prompt) == "" {
+			prompt = "User sent image(s)."
+		}
+	}
+	if modelSkill {
+		prompt = core.PrependModelSwitchInstructions(prompt)
+	}
+	blocks := []any{map[string]any{"type": "text", "text": prompt}}
+	return append(blocks, imageBlocks...)
+}
+
+// acpImageMimeTypes are the raster types the ACP image block accepts in practice (DSH rejects others).
+var acpImageMimeTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/webp": true, "image/gif": true}
+
+// acpImageBlocks returns inline ACP image blocks for images of a supported type, and the rest.
+func acpImageBlocks(images []core.ImageAttachment) (blocks []any, rest []core.ImageAttachment) {
+	for _, img := range images {
+		mt := strings.ToLower(strings.TrimSpace(img.MimeType))
+		if mt == "" || !acpImageMimeTypes[mt] {
+			mt = http.DetectContentType(img.Data)
+		}
+		if len(img.Data) == 0 || !acpImageMimeTypes[mt] {
+			rest = append(rest, img)
+			continue
+		}
+		blocks = append(blocks, map[string]any{"type": "image", "mimeType": mt, "data": base64.StdEncoding.EncodeToString(img.Data)})
+	}
+	return blocks, rest
 }
 
 func (s *acpSession) appendImageRefs(prompt string, images []core.ImageAttachment) string {

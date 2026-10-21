@@ -49,6 +49,12 @@ type acpInitializeResult struct {
 			List   json.RawMessage `json:"list,omitempty"`
 			Resume json.RawMessage `json:"resume,omitempty"`
 		} `json:"sessionCapabilities"`
+		PromptCapabilities struct {
+			// Image: session/prompt accepts ACP image content blocks.
+			Image bool `json:"image"`
+		} `json:"promptCapabilities"`
+		// Meta carries vendor extensions; see steerMetaKey (session_steer.go).
+		Meta map[string]any `json:"_meta,omitempty"`
 	} `json:"agentCapabilities"`
 }
 
