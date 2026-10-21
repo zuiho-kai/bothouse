@@ -5,6 +5,83 @@ import (
 	"time"
 )
 
+func TestTaskCardHeartbeat_TextEventsPreventFalseStall(t *testing.T) {
+	key := "discord:text-live"
+	e, p, as, state := newHeartbeatTestEngine(t, key)
+	e.display.ToolMessages = false
+	e.display.TaskCard.OpenAfter = -1
+	e.display.TaskCard.StallAfter = 200 * time.Millisecond
+	session := e.sessions.GetOrCreateActive(key)
+	go func() {
+		as.events <- Event{Type: EventToolUse, ToolName: "Read"}
+		as.events <- Event{Type: EventToolResult, ToolName: "Read", Content: "ok"}
+		for i := 0; i < 12; i++ {
+			time.Sleep(30 * time.Millisecond)
+			as.events <- Event{Type: EventText, Content: "继续输出"}
+		}
+		as.events <- Event{Type: EventResult, Content: "完成", Done: true}
+	}()
+	e.processInteractiveEvents(state, session, e.sessions, key, "text-live", time.Now(), nil, nil, state.replyCtx)
+	beats := 0
+	for _, pl := range heartbeatPayloads(p) {
+		if pl.Heartbeat {
+			beats++
+			if pl.Stalled {
+				t.Fatal("active text output incorrectly marked stalled")
+			}
+		}
+	}
+	if beats == 0 {
+		t.Fatal("no heartbeat observed")
+	}
+}
+
+func TestTaskCardHeartbeat_StopFinalizesCard(t *testing.T) {
+	key := "discord:stop-live"
+	e, p, as, state := newHeartbeatTestEngine(t, key)
+	stop := make(chan struct{})
+	state.stopCh = stop
+	session := e.sessions.GetOrCreateActive(key)
+	go func() {
+		as.events <- Event{Type: EventToolUse, ToolName: "Bash"}
+		time.Sleep(120 * time.Millisecond)
+		close(stop)
+	}()
+	e.processInteractiveEvents(state, session, e.sessions, key, "stop-live", time.Now(), nil, nil, state.replyCtx)
+	pls := heartbeatPayloads(p)
+	if len(pls) == 0 || pls[len(pls)-1].State == ProgressCardStateRunning {
+		t.Fatal("stopped turn leaves a running card")
+	}
+}
+
+func TestTaskCardHeartbeat_QueuedChatRemainsLazy(t *testing.T) {
+	key := "discord:queued-chat"
+	e, p, _, state := newHeartbeatTestEngine(t, key)
+	e.display.TaskCard.OpenAfter = -1
+	as := newQueuingSession(key)
+	state.agentSession = as
+	state.pendingMessages = []queuedMessage{{platform: p, replyCtx: "second", content: "你好"}}
+	session := e.sessions.GetOrCreateActive(key)
+	go func() {
+		as.events <- Event{Type: EventResult, Content: "第一轮", Done: true}
+		for i := 0; i < 400; i++ {
+			as.sendMu.Lock()
+			sent := len(as.sendCalls) > 0
+			as.sendMu.Unlock()
+			if sent {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		as.events <- Event{Type: EventThinking, Content: "问候"}
+		as.events <- Event{Type: EventResult, Content: "你好", Done: true}
+	}()
+	e.processInteractiveEvents(state, session, e.sessions, key, "first", time.Now(), nil, nil, state.replyCtx)
+	if len(heartbeatPayloads(p)) != 0 {
+		t.Fatal("queued chat incorrectly opened a card")
+	}
+}
+
 func newHeartbeatTestEngine(t *testing.T, key string) (*Engine, *stubCompactProgressPlatform, *controllableAgentSession, *interactiveState) {
 	t.Helper()
 	p := &stubCompactProgressPlatform{

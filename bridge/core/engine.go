@@ -5495,6 +5495,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	board := e.boardBegin(state, sessionKey)
 	cp.onStep = board.step
 	defer func() { board.finish(state, BoardDoneStopped) }()
+	// Covers cancellation and early exits without overwriting a completed card.
+	defer func() {
+		if cp.state == ProgressCardStateRunning {
+			cp.Finalize(ProgressCardStateFailed)
+		}
+	}()
 
 	// Send instant confirmation reply if enabled and no streaming card is active.
 	// Streaming cards provide their own "processing" indicator, so instant reply
@@ -5578,6 +5584,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				goto channelClosed
 			}
 			state.lastEventAt.Store(time.Now().UnixNano())
+			cp.lastEventAt = cp.now() // every backend event, including text and hidden tool results
 		case now := <-heartbeatTick:
 			// the first tick may come early (OpenAfter); later refreshes keep to Heartbeat
 			if cp.Opened() && now.Sub(lastBeat) < tc.Heartbeat-tc.Heartbeat/10 {
@@ -6871,6 +6878,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.ctx, queuedRenderer)
 				cp = newCompactProgressWriter(e.ctx, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
+				cp.lazy = true
+				cp.stallAfter = tc.StallAfter
+				lastBeat = time.Time{}
 				board = e.boardBegin(state, sessionKey) // maomao fork: the queued turn's board row
 				cp.onStep = board.step
 

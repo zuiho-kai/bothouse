@@ -698,3 +698,8 @@ PR #10只补充工作流文档、PR模板及仓库设置，已合并；Issue #3�
 
 - 任务卡片网关心跳（progress_style=card）：只有工具调用才开卡（任何工具都算；回复慢的闲聊、只有 thinking 的回合都不开；task_card_after_secs 默认 0，设 N>0 才按时长开卡）；进行中网关自己每 task_card_heartbeat_secs（默认 10 秒，且不低于平台编辑间隔）刷新“仍在运行/当前工具/已用时/最近动静”，超过 task_card_stall_secs（默认 180 秒）无事件标“疑似卡住”（Discord 橙色）；不依赖模型调用进度命令。tool_messages=false 时卡片只记工具名。单测覆盖长时间无输出的工具调用；真实 Discord 频道未验证，未部署。
 - 任务卡片精简：每步一行「图标 动作 · 对象」（运行命令/读文件/改文件/搜索…），shell 命令去掉注释、开头 cd、重定向和管道后部分，路径只留文件名；成功的工具输出不上卡片，失败只标「⚠️ 失败」；只显示最近 3 步，完整命令和输出只进 debug 日志。
+# PR #10 部署复审补充（G哥，2026-10-21）
+
+- Refs #11：基于 d68263318e7f6b339f2bb09b652695c8ed5e2a4c 复现持续文本误报停滞、停止后卡片仍运行；补充每个后端事件刷新活动时间、退出收口卡片、排队轮次继承开卡/停滞配置。
+- 两条回归修复前失败；修复后心跳回归与全部 CUJ 的 race 检测通过，新增排队闲聊回归通过。原 PR core/discord/config 全量 race 通过。Mac 全量遇到 TestSetupCLIsHint（干净 main 复现）及 TestForceKillCmd_KillsGrandchild 的偶发 operation not permitted；不把本机全量称为全绿，最终以最新提交 CI 为准。
+- 部署尚未执行。现场五角色 progress_style=compact，需切 card 才启用；保留 tool_messages=false。无工具纯文字回合默认不开卡。生产版本/备份/验证另记本机统一交接。
