@@ -68,6 +68,9 @@ type teamFile struct {
 	// CoolingUntil (maomao fork): the bot's model is cooling down after "at
 	// capacity" until then; schedulers (outing-tick) hold off.
 	CoolingUntil time.Time `json:"cooling_until,omitzero"`
+	// Mention (maomao fork): how teammates address this bot on its platform (SelfMentioner),
+	// so a voice-desk dispatch can hand work to it in the right channel.
+	Mention string `json:"mention,omitempty"`
 }
 
 // SetTeam enables the status board for this project. dir == "" disables it.
@@ -159,7 +162,7 @@ func (e *Engine) runTeamWriter() {
 			continue
 		}
 		now := time.Now()
-		f := teamFile{Project: e.name, Name: t.name}
+		f := teamFile{Project: e.name, Name: t.name, Mention: e.selfMention()}
 		t.mu.Lock()
 		for key, ts := range t.seen {
 			busy := ts.session != nil && ts.session.Busy()

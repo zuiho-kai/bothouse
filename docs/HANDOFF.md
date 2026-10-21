@@ -2,6 +2,8 @@
 
 2026-10-21 Issue #223：ACP 对端声明 `agentCapabilities._meta["dsh/steer"]` 时，gate 忙时插话改走 `SendMidTurn`（session/prompt 带 `_meta["dsh/steer"]`，对端并入正在跑的那一轮并立即回 `_meta["dsh/steered"]`，输出仍从原 prompt 流出；没有在跑的 prompt 时对端拒绝，cc-connect 回落排队，不会另起一轮）。gate 改为逐条询问 `SupportsMidTurnInput`（ACP 握手后才知道），Codex/Claude Code 行为不变。`promptCapabilities.image=true` 时图片发 ACP image 块（png/jpeg/webp/gif，其余仍存盘写路径）；DSH 的 `tool_call_update` 不带 title，进度卡片结果行改用 tool_call 的名字。插话不再附 model-control 说明（那一轮的 prompt 已带）。DSH 侧 steer 是本机对 dsh-acp 0.2.1-rc.2 的补丁，不在本仓库。真实 Discord 私有测试频道（借鲸鱼娘 bot 第二连接，只收测试 webhook）验过插话、带图插话、发图、卡片；未部署，线上切换另行记录。
 
+2026-10-21 Issue #221：自主采集临时断连增加仅GET的有界重试；失败阶段及安全分类保留在实例diagnostics.json，最近20次且恢复不清除。发送/附件/活动提交和整个tick不重试。单一Codex实现与自查，无子Agent；真实CLI隔离故障→恢复通过，线上部署与自然分钟任务验收另记录。详见[重试与诊断](AUTONOMY_RELIABILITY.md)。
+
 2026-10-21 Issue #215 / PR #216：独立 WSL conest-ci 已运行两个专用账号的 runner，可并行两项 job；每路上限4个逻辑线程算力、6GiB内存，工作区和工具缓存独立。真实 Actions run 39546540674 的 bridge、companion、firmware-assets、dial-metrics 全过，原 Ubuntu GPU 闸门仍存活。最终文档提交的检查与合并状态以 PR 为准。登录后自启已配置，未做重启验收；插电不休眠，电池仍可能休眠。仅迁移核心 CI，release/ui-preview 仍在云端；未核对账单页面。详见 docs/SELF_HOSTED_CI.md。
 
 2026-10-21 Issue #208：G哥插话后公开回复延迟。已分别复现 Codex commentary 被缓冲，以及核心在工具边界冻结旧预览却不为新文字恢复；修复明确 phase 的普通公开文字分类、可恢复冻结状态与新段落收尾。严格语音、未知phase和内部推理边界保留；运输失败不因新文字恢复，旧消息不被覆盖。适配器回放、真实 Engine→gate→app-server→预览链路和三次真人输入的 STREAM2 CUJ 已通过；原版四条回归失败。全量/race/CI与部署状态见对应PR，真实频道待自然验收。详见[插话公开回复](CODEX_INSERT_PUBLIC_REPLY.md)。未接管他人PR清理或语音优化。
@@ -39,6 +41,7 @@
 ## 2026-10-21：Codex插话后空响应，发布候选未部署
 
 确认生产发布基线遗漏主分支#161的子会话通知隔离；插话已送达，子Agent通知提前结束父轮次。已按真实适配器+假JSON-RPC复现空结果，最小回移后通过。证据和发布限制见 [CODEX_CHILD_NOTIFICATION_ISOLATION.md](CODEX_CHILD_NOTIFICATION_ISOLATION.md)。旧桥接可能误报空闲，重启前必须核对实际父会话结束；当前未动生产。
+2026-10-21 04:45：语音晨间候选基于现网4f085a26，移入口语提示及独立ASR分阶段诊断，未推送/部署。companion 488 passed/3 skipped；真实私有模型成功11.983秒、豆包首块0.486秒；空闲ASR本轮0.795/0.609秒，历史慢首轮根因仍未定。完整证据和独立网关/固件候选见 [晨间候选](VOICE_MORNING_CANDIDATE_20261021.md)。TF/EAF并发提示尚未接通，不能称全部人物素材25–30fps通过。无硬件操作。
 
 ## 2026-10-21：#193/#194 任务卡本地发布候选
 
@@ -668,3 +671,13 @@ PR #10只补充工作流文档、PR模板及仓库设置，已合并；Issue #3�
 - 明确接纳失败的503带 submission=not_sent；companion 按此证据提示未发送，普通503/丢失确认仍只查回执。存储故障不能证明历史请求未发送，不带该标记。
 - ACP合成协议与启动失败测试先红后绿；竞态/CUJ通过，companion476通过/3跳过。Go全量/vet/build见PR最新验证记录。真实CLI、设备、频道未测试。
 - #135旧产物与校验和保留，#139依旧草稿；早上需重新构建匹配服务，夜间未部署、未重启、未刷板。
+
+## 语音协作复核与慢首轮复现（2026-10-21 09:38，本地未部署）
+
+G哥已实际通过桥接向肥鱼、大豆包发出任务，两者均返回；没有新建原生子Agent。肥鱼probe副本d9275e75的3项回放由父级复跑通过，约402ms轮询最坏相位、加假TTS首块0.5s后904ms。它未运行真实网关，0.4/0.3s轮询周期不是每次固定增加0.4–0.7s；模型8–13s完成时，“前3秒加快轮询”帮助有限，暂不采用。当前完整成功文本后进行流式合成，首块可在合成期间下发，不是等待整段音频生成完。
+
+大豆包独立报告五角色TF视频7组主机测试通过，父级另外复跑真实raw worker/DMA/取消/失败回归通过。候选仍0005683，固件及SHA未变；实际25–30fps、出声同步、温升、切换延迟仍待硬件。
+
+本轮8796 ASR-only复现同一3.007秒合成输入首轮14378.36ms、次轮816.63ms，推理14347/807ms，queue均0。未调用模型/TTS或播放。隔离无预热2009/612ms未复现14s；增加缓存查找与有界空闲诊断后，预热2146ms、首轮690ms、45秒空闲后1280ms，两轮模型缓存均命中且单次温度0解码。特征及编码593.287/1119.141ms、major faults7/85；不足以归因线上14s异常，未加保活或改识别参数。
+
+候选 .work/conest-voice-morning 的诊断工具与4项契约测试已更新、全部通过；首次根目录执行因tools导入路径失败，正确companion目录执行通过。仅本地诊断与文档改动，无生产服务/配置、CUJ、硬件、声音或新调度。详见docs/VOICE_MORNING_CANDIDATE_20261021.md；数值证据位于.local/asr-followup-20261021.jsonl、asr-followup-profile-20261021.jsonl、asr-idle-profile-20261021.jsonl。生产桥接已为他会话部署的dba1aca，禁止用旧候选整条覆盖或重跑旧计划。

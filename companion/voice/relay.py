@@ -32,7 +32,10 @@ async def relay_turn(service, turn, request_id):
     expected = turn['_binding']
     scope = turn.get('device_id', 'desktop')
     body = dict(payload_identity(service, turn['project'], scope),
-                mode='voice', request_id=request_id, message=turn['prompt'])
+                mode='voice', request_id=request_id, message=turn['prompt'],
+                # The owner's own words, apart from the entry prompt: the bridge confirms a
+                # voice-desk hand-off only from this, never from the prompt text.
+                user_text=turn.get('input_text', ''))
     path = '/relay/voice/' + request_id
     deadline = time.monotonic() + 190
     submitted = False

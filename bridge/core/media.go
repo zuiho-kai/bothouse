@@ -267,6 +267,17 @@ var (
 // parseVideo returns the watchvid result for link in msg. Bots handling the same message share one
 // result; concurrent messages with the same link share one running watchvid. Waiting stops at ctx,
 // and nothing new is started once ctx is done.
+// deadlinePassed reports whether ctx is done or its deadline has passed. ctx.Err() alone lags the
+// deadline until the context's timer callback runs, which on a loaded machine let the loop start
+// one more watchvid after the message's time was already up.
+func deadlinePassed(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	dl, ok := ctx.Deadline()
+	return ok && !time.Now().Before(dl)
+}
+
 func (e *Engine) parseVideo(ctx context.Context, msg *Message, link videoLink) videoResult {
 	videoMu.Lock()
 	mk := ""
@@ -280,7 +291,7 @@ func (e *Engine) parseVideo(ctx context.Context, msg *Message, link videoLink) v
 		if run = videoRunning[link.Key]; run != nil {
 			slog.Info("watchvid: shared (already running)", "project", e.name, "key", link.Key)
 		} else {
-			if ctx.Err() != nil {
+			if deadlinePassed(ctx) {
 				videoMu.Unlock()
 				return videoResult{Err: fmt.Sprintf("等待超时（%s），没有开始解析", ctxLimit(ctx))}
 			}
@@ -394,7 +405,7 @@ func (e *Engine) prepareMedia(msg *Message) {
 		ctx, cancel := withLimit(e.ctx, watchvidTimeout)
 		defer cancel()
 		for i, l := range links {
-			if ctx.Err() != nil {
+			if deadlinePassed(ctx) {
 				var rest []string
 				for _, r := range links[i:] {
 					rest = append(rest, r.URL)

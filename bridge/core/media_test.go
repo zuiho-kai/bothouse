@@ -520,3 +520,20 @@ func TestIsMountPoint(t *testing.T) {
 		t.Error("missing path is not a mount point")
 	}
 }
+
+// lagCtx is past its deadline but its timer callback has not run yet: Err is still nil.
+type lagCtx struct{ context.Context }
+
+func (lagCtx) Deadline() (time.Time, bool) { return time.Now().Add(-time.Millisecond), true }
+func (lagCtx) Err() error                  { return nil }
+
+func TestDeadlinePassedDoesNotWaitForTimerCallback(t *testing.T) {
+	if !deadlinePassed(lagCtx{context.Background()}) {
+		t.Fatal("a passed deadline must count as expired even before ctx.Err() is set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	if deadlinePassed(ctx) || deadlinePassed(context.Background()) {
+		t.Fatal("a live context is not expired")
+	}
+}

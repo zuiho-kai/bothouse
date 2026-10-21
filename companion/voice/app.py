@@ -28,6 +28,7 @@ from .roles import Role, validate_roles, voice_label
 from .discussion import Discussions, DiscussionInput, AdvanceInput
 from .speech import _pcm_samples
 from .recognition import prewarm, transcribe_request
+from .prompt import SPOKEN_REPLY_GUIDANCE
 
 
 class TurnInput(BaseModel):
@@ -198,7 +199,7 @@ class VoiceService:
                 'role_name': self.roles[data.project].name,
                 'voice_label': voice_label(self.settings, self.roles[data.project]),
                 'prompt': self.playback_context(data.project) +
-                '[用户从电脑语音入口发言，请接续当前会话，用适合朗读的简短中文回答。'
+                '[用户从电脑语音入口发言，请接续当前会话。' + SPOKEN_REPLY_GUIDANCE +
                 '本轮结果由语音页面展示；不要另外用消息工具向Discord重复发送本轮对话。]\n' + (context or text)}
         if discussion:
             turn.update(discussion)

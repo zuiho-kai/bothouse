@@ -16,6 +16,7 @@ import tomllib
 from zoneinfo import ZoneInfo
 
 from .io import Bridge, Discord, RemoteError, write_json
+from .diagnostics import record_failure
 from .journal import Journal, excerpts, message_url, render
 from .sources import source_messages
 
@@ -179,8 +180,12 @@ class Runner:
     def __init__(self, config, state_path, bridge, discord):
         self.config, self.path = config, Path(state_path)
         self.bridge, self.discord = bridge, discord
-        self.state = json.loads(self.path.read_text()) if self.path.exists() else {'actions': {}}
-        self.journal = Journal(self.path.parent / 'messages.sqlite3')
+        try:
+            self.state = json.loads(self.path.read_text()) if self.path.exists() else {'actions': {}}
+            self.journal = Journal(self.path.parent / 'messages.sqlite3')
+        except Exception as exc:
+            record_failure(self.path.parent, "initialize", exc)
+            raise
 
     def save(self):
         write_json(self.path, self.state)
@@ -282,30 +287,40 @@ class Runner:
         return render(self.config, self.journal, display, date, now)
 
     def tick(self, now, collect_only=False):
+        stage = "collect"
         try:
             touched_dates = self.journal.collect(self.discord, self.config)
             self.state['last_collected'] = now.isoformat()
             self.state.pop('collection_error', None)
-        except Exception as exc:
-            self.state['collection_error'] = f'采集失败 ({type(exc).__name__})；未根据旧材料触发活动'
+            stage = "reconcile"
+            self.reconcile()
+            stage = "schedule"
+            if not collect_only:
+                for key, kind, at, status in due_slots(self.config, now, self.state):
+                    if status != 'due':
+                        self.state['actions'][key] = {'status': status, 'at': at.isoformat()}
+                        self.save()
+                        continue
+                    if kind == 'digest':
+                        self.archive_post(at.date().isoformat(), now)
+                    self.submit(key, kind, at)
+                self.state['last_tick'] = now.isoformat()
+            stage = "save"
             self.save()
-            raise
-        self.reconcile()
-        if not collect_only:
-            for key, kind, at, status in due_slots(self.config, now, self.state):
-                if status != 'due':
-                    self.state['actions'][key] = {'status': status, 'at': at.isoformat()}
+            stage = "render"
+            today = now.astimezone(ZoneInfo(self.config['timezone'])).date()
+            for date in sorted(touched_dates | {today - timedelta(days=1), today}):
+                if date >= datetime.fromisoformat(self.config['archive_since']).date():
+                    self.render(date.isoformat(), now)
+        except Exception as exc:
+            record_failure(self.path.parent, stage, exc)
+            if stage == "collect":
+                self.state['collection_error'] = '采集失败；详见本机 diagnostics.json，未根据旧材料触发活动'
+                try:
                     self.save()
-                    continue
-                if kind == 'digest':
-                    self.archive_post(at.date().isoformat(), now)
-                self.submit(key, kind, at)
-            self.state['last_tick'] = now.isoformat()
-        self.save()
-        today = now.astimezone(ZoneInfo(self.config['timezone'])).date()
-        for date in sorted(touched_dates | {today - timedelta(days=1), today}):
-            if date >= datetime.fromisoformat(self.config['archive_since']).date():
-                self.render(date.isoformat(), now)
+                except Exception:
+                    pass  # Preserve the original failure; diagnostics are stored separately.
+            raise
 
 
 def initialize(path, channel, *, leader='', bridge_config=None, socket=None, timer_store=None, journal_dir=None):
