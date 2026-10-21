@@ -28,6 +28,7 @@ from uuid import UUID
 from .bridge import BridgeError
 from .floor import Availability, PartnerAvailability
 from .roles import Role
+from .prompt import SPOKEN_REPLY_GUIDANCE
 
 DEVICE_ID_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
 DEVICE_SECRET_RE = re.compile(r'[A-Za-z0-9_-]{32,128}\Z')
@@ -563,7 +564,7 @@ class DeviceRouter:
         return text
 
     def _prompt(self, device: DeviceBinding, text: str) -> str:
-        return ('[用户从' + device.name + '发言，请接续当前会话，用适合朗读的简短中文回答。'
+        return ('[用户从' + device.name + '发言，请接续当前会话。' + SPOKEN_REPLY_GUIDANCE +
                 '本轮结果只由这台设备播放；不要另外用消息工具向Discord重复发送本轮对话。]\n' + text)
 
     def _apply_reply(self, turn: dict, result: dict) -> None:

@@ -24,6 +24,8 @@ import tempfile
 import threading
 import time
 
+from . import asr_diag
+
 import numpy as np
 
 
@@ -170,6 +172,8 @@ class Speech:
 
     def transcribe_timed(self, wav_bytes: bytes) -> tuple[str, dict]:
         # Per-call timings, never a shared "last result" which races requests.
+        # 只记录诊断：默认关闭，VOICE_ASR_DIAG 指向文件时才采样，且绝不影响返回值。
+        diag_before, diag_idle = asr_diag.begin()
         started = time.monotonic()
         samples = _pcm_samples(wav_bytes, rate=16000, max_bytes=MAX_WAV_BYTES,
                                max_seconds=MAX_AUDIO_SECONDS)
@@ -203,7 +207,7 @@ class Speech:
         if not text.strip():
             raise ValueError("未识别到可用语音，请重新录音。")
         ended = time.monotonic()
-        return text.strip(), {
+        timings = {
             'audio_ms': round(len(samples) / 16),
             'validation_ms': round((queued-started)*1000),
             'queue_ms': round((acquired-queued)*1000),
@@ -211,6 +215,8 @@ class Speech:
             'inference_ms': round((ended-infer_started)*1000),
             'total_ms': round((ended-started)*1000),
         }
+        asr_diag.finish(timings, diag_before, diag_idle)
+        return text.strip(), timings
 
     def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
         encoded = _validate_tts_text(text)
