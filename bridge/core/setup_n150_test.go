@@ -194,7 +194,8 @@ func TestApplyWizardDryRunIsHonest(t *testing.T) {
 			!(strings.Contains(w.Fix, "dry run") || strings.Contains(w.Fix, "预演")) {
 			t.Errorf("%s: not-in-guild fix = %+v", lang, w)
 		}
-		if res.Roles[0].PersonaWritten || !hasStep(res, "dry run: would write") {
+		would := map[string]string{"en": "dry run: would write", "zh": "预演：会写"}[lang] // step lines follow the language (rc5)
+		if res.Roles[0].PersonaWritten || !hasStep(res, would) {
 			t.Errorf("%s: persona_written=%v steps=%+v", lang, res.Roles[0].PersonaWritten, res.Steps)
 		}
 		if entries, _ := os.ReadDir(dir); len(entries) != 0 {

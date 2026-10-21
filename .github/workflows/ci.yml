@@ -27,6 +27,8 @@ jobs:
         working-directory: companion
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Isolate job temporary files
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
@@ -49,6 +51,8 @@ jobs:
         working-directory: firmware/esp32s3
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Isolate job temporary files
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
@@ -63,6 +67,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Isolate job temporary files
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: python3 firmware/dial/tools/gen_layout.py --check
       - run: cmake -S firmware/dial -B build/dial
       - run: cmake --build build/dial
@@ -88,4 +94,6 @@ jobs:
       - run: node --test ../integrations/dsh-public-output/*.test.mjs
       - run: go mod verify
       - run: go build -tags no_web ./...
+      # Windows is a supported platform (install.ps1): the code and its tests must keep compiling there.
+      - run: GOOS=windows GOARCH=amd64 go build -tags no_web ./... && GOOS=windows GOARCH=amd64 go vet -tags no_web ./...
       - run: go test -tags no_web -p 1 -count=1 ./...

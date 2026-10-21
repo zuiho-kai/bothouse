@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func TestParseDaemonInstallArgs_ConfigSetsWorkDir(t *testing.T) {
@@ -116,5 +118,26 @@ func TestParseDaemonInstallArgs_WorkDirOverridesConfig(t *testing.T) {
 	want := filepath.Clean("/tmp/override")
 	if cfg.WorkDir != want {
 		t.Fatalf("cfg.WorkDir = %q, want %q", cfg.WorkDir, want)
+	}
+}
+
+// `cc-connect daemon install` with no flags, run from any folder, uses ~/.cc-connect (the config
+// the wizard and setup apply write), not the current directory.
+func TestDefaultDaemonWorkDirIsUserConfigDir(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Chdir(t.TempDir()) // no config.toml here
+	if got, want := defaultDaemonWorkDir(), filepath.Join(home, ".cc-connect"); got != want {
+		t.Fatalf("work dir = %q, want %q", got, want)
+	}
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile("config.toml", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := filepath.EvalSymlinks(defaultDaemonWorkDir())
+	want, _ := filepath.EvalSymlinks(dir)
+	if got != want {
+		t.Fatalf("with ./config.toml: work dir = %q, want %q", got, want)
 	}
 }

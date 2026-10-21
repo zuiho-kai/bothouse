@@ -478,9 +478,10 @@ func replaceExecutable(target, src string) error {
 	}
 
 	// On Windows, rename over a running exe is not possible directly.
-	// Move old binary aside, then move new one in.
-	backup := target + ".old"
-	os.Remove(backup)
+	// Move old binary aside (a fresh name each time: an earlier backup may still be running),
+	// then move new one in.
+	core.RemoveBinaryBackups(target)
+	backup := core.BinaryBackupPath(target)
 
 	if err := os.Rename(target, backup); err != nil {
 		return fmt.Errorf("backup old binary: %w", err)

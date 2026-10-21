@@ -278,7 +278,10 @@ func warnAllowFromUnknown(lang string, bots []string) WizardWarning {
 
 func warnAllowFromEveryone(lang string) WizardWarning {
 	w := WizardWarning{Code: "allow_from_everyone"}
-	if isZH(lang) {
+	if isJA(lang) {
+		w.Message = "allow_from が * です：サーバーの誰でもボットにこのコンピューターでコマンドを実行させられます。"
+		w.Fix = "自分だけで使うなら自分の Discord ユーザー ID にしてください（カンマ区切りで複数人も可）。取得方法：Discord 設定 → 詳細設定 → 開発者モードをオン、自分のアイコンを右クリック → ユーザー ID をコピー。"
+	} else if isZH(lang) {
 		w.Message = "allow_from 是 *：服务器里任何人都能让机器人在这台电脑上跑命令。"
 		w.Fix = "只想自己用就改成你的 Discord 用户 ID（逗号分隔可以放几个人）。" + discordUserIDHowZH
 	} else {
@@ -315,7 +318,9 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan) {
 		res.GateHint = GateHint(req.Language, running, pl.fallbackName)
 		if !running {
 			w := WizardWarning{Code: "gate_not_running", Message: res.GateHint}
-			if isZH(req.Language) {
+			if isJA(req.Language) {
+				w.Fix = "入れなくても使えます。誰が答えるかを AI に判断させたいときに gate を入れてください：docs/ccm-and-wiki.md の「起 gate」の節を参照。"
+			} else if isZH(req.Language) {
 				w.Fix = "可以不装。想让 AI 自己判断谁回，再装 gate：见 docs/ccm-and-wiki.md「起 gate」。"
 			} else {
 				w.Fix = "Optional. To let AI decide who answers, install the gate: see docs/ccm-and-wiki.md \"start the gate\"."
@@ -337,6 +342,12 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan) {
 // Without it, cc-connect falls back per bot (core/gate.go gate_fallback): the fallback
 // role answers ("reply"), the others only listen ("context"); an @-mentioned bot always answers.
 func GateHint(lang string, running bool, fallbackName string) string {
+	if isJA(lang) {
+		if running {
+			return "gate が動いています：メッセージごとにどのロールが答えるかを gate が判断します。"
+		}
+		return "gate なし（入れなくても使えます）：@ されたロールは普段どおり答え、それ以外のメッセージはすべてフォールバックロール「" + fallbackName + "」が答えます。gate のインストールには数十分かかり、約 3GB をダウンロードします。"
+	}
 	if isZH(lang) {
 		if running {
 			return "gate 在运行：每条消息由它判断该哪个角色回。"

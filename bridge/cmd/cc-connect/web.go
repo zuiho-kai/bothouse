@@ -90,23 +90,34 @@ func runWeb(args []string) {
 }
 
 func openBrowser(rawURL string) error {
-	switch runtime.GOOS {
+	name, args, err := browserCommand(runtime.GOOS, isWSL(), exec.LookPath, rawURL)
+	if err != nil {
+		return err
+	}
+	return exec.Command(name, args...).Start()
+}
+
+// browserCommand picks the command that opens rawURL. On Windows (and from WSL) it uses
+// rundll32 url.dll,FileProtocolHandler instead of `cmd /c start`: cmd.exe treats the "&" in
+// a link such as /login?token=…&next=/setup as a command separator and opens a cut-off URL.
+func browserCommand(goos string, wsl bool, lookPath func(string) (string, error), rawURL string) (string, []string, error) {
+	switch goos {
 	case "darwin":
-		return exec.Command("open", rawURL).Start()
+		return "open", []string{rawURL}, nil
 	case "linux":
-		if isWSL() {
-			return exec.Command("cmd.exe", "/c", "start", rawURL).Start()
+		if wsl {
+			return "rundll32.exe", []string{"url.dll,FileProtocolHandler", rawURL}, nil
 		}
 		// On headless Linux, xdg-open is often unavailable.
 		// Check early and return a clear error so the caller can print the URL.
-		if _, err := exec.LookPath("xdg-open"); err != nil {
-			return fmt.Errorf("xdg-open not found (headless server?): %w", err)
+		if _, err := lookPath("xdg-open"); err != nil {
+			return "", nil, fmt.Errorf("xdg-open not found (headless server?): %w", err)
 		}
-		return exec.Command("xdg-open", rawURL).Start()
+		return "xdg-open", []string{rawURL}, nil
 	case "windows":
-		return exec.Command("cmd", "/c", "start", rawURL).Start()
+		return "rundll32", []string{"url.dll,FileProtocolHandler", rawURL}, nil
 	default:
-		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+		return "", nil, fmt.Errorf("unsupported OS: %s", goos)
 	}
 }
 

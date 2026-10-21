@@ -2,6 +2,20 @@
 
 2026-10-21 Issue #223：ACP 对端声明 `agentCapabilities._meta["dsh/steer"]` 时，gate 忙时插话改走 `SendMidTurn`（session/prompt 带 `_meta["dsh/steer"]`，对端并入正在跑的那一轮并立即回 `_meta["dsh/steered"]`，输出仍从原 prompt 流出；没有在跑的 prompt 时对端拒绝，cc-connect 回落排队，不会另起一轮）。gate 改为逐条询问 `SupportsMidTurnInput`（ACP 握手后才知道），Codex/Claude Code 行为不变。`promptCapabilities.image=true` 时图片发 ACP image 块（png/jpeg/webp/gif，其余仍存盘写路径）；DSH 的 `tool_call_update` 不带 title，进度卡片结果行改用 tool_call 的名字。插话不再附 model-control 说明（那一轮的 prompt 已带）。DSH 侧 steer 是本机对 dsh-acp 0.2.1-rc.2 的补丁，不在本仓库。真实 Discord 私有测试频道（借鲸鱼娘 bot 第二连接，只收测试 webhook）验过插话、带图插话、发图、卡片；未部署，线上切换另行记录。
 
+2026-10-21：Issue #203 / PR #206 Windows 支持（分支 feat/windows-support）。
+- 装：Release 多出 windows/amd64、windows/arm64 两个 .zip（内含 cc-connect.exe，进 checksums.txt）；根目录 `install.ps1`，PowerShell 一行 `irm …/install.ps1 | iex`（私有仓库用 `gh api … | Out-String | iex`），校验 sha256、装到 `%USERPROFILE%\.local\bin`、加进用户 PATH。install.sh 在 Git Bash/MSYS 下指去 install.ps1。
+- 适配：向导链接在 Windows 用 rundll32 打开（`cmd /c start` 会在 `&next=` 处截断）；Windows 重启改为子进程+父进程等它退出（原来父进程直接退出，计划任务失去监管）；next_steps 在 Windows 给 PowerShell 的 Start-Process 而不是 nohup；系统语言在 Windows 读 GetUserDefaultLocaleName；CLI 探测补 `%APPDATA%\npm` 和 PATHEXT；后台服务沿用上游的「任务计划程序」登录时启动。
+- 顺手修（三端）：管理接口 Stop 改 5 秒 Shutdown，「重启生效」的回复不再被掐断（Windows 验收首跑暴露）；`cc-connect daemon install` 不带参数时用 `~/.cc-connect`，不再要求在该目录下运行（Windows 验收暴露）。
+- 验证：release.yml 新增 smoke-windows（发布前验包）和 verify-windows（发布后在干净 windows-latest 按文档命令装、首次运行、向导页、重启、Ctrl+Break 退出、setup apply 假数据、计划任务安装/卸载）；ci.yml 加 GOOS=windows build+vet。v0.1.0-rc4 是这个分支打的预发布。Windows 真机、真凭据配成功未测（Linux 真机另有人测）。
+
+2026-10-21 PR #210 同步 main 70d8febf（#227）：主线并行修复了同一视频截止时间竞态；合并统一沿用 deadlinePassed，移除重复辅助函数，保留 #227 的辅助函数回归和 #210 两条真实入口回归。此前 e5a17802 的四项核心 CI 已全部通过；同步后的提交须重新跑 CI，不沿用旧结果。未合并 PR、未部署。
+
+2026-10-21 Issue #226 / PR #210：修复视频消息预算截止后仍启动下一链接的竞态。消息预算和共享解析进程使用独立定时器，ctx.Err() 的取消通知可能晚于 Deadline；prepareMedia 和 parseVideo 的新任务入口现在同时检查主动取消与截止时刻，保留跨消息共享解析生命周期。新确定性回归在修改前两条入口均失败；修改后与原 TestVideoTimeout 连续100次通过，视频 race（三次）及核心 CUJ 通过，macOS Go 全量仅 cmd 包既有 TestAnnounceSetupWizardAlwaysPrintsLink、TestSetupCLIsHint 失败（用修改前 media.go overlay 对照复现），其余包通过。Linux CI 以最新提交运行结果为准，未合并、未部署。
+
+2026-10-21 PR #210 CI 优先重验（Refs #218）：同步 main 80843347 后，将 #219 的核心 CI 临时目录隔离同步到本 PR。双 Runner 使用独立账户，默认共用 /tmp 导致第二账户写 /tmp/agent-prompts 权限失败（main run 39551891537 和 #214 run 39552298763 已复现）；四项 job 在 checkout 后导出 TMPDIR=$RUNNER_TEMP，使测试临时目录随 Runner 隔离。只调整 CI 环境，不修改该 PR 的业务实现。此前 bd908224 的四项核心检查已通过，新提交仍须重新验证；UI preview 尚使用官方 runner，账单限制仍未解决，迁移另见 #219。未合并、未部署。
+
+2026-10-21：rc5 Linux 真机实测剩余问题（分支 fix/rc5-linux-followups，基线 main 9b880ec6）。重配已有机器人时，页头和确认页按人设文件实际写的回答语言显示（GET /setup/persona 和结果里的 reply_language 读 `<!-- conest:reply-language -->` 下一行），不勾「改现有人设」时写明沿用、怎么改；setup apply / token 校验遇 Discord 429 按 retry_after 重试（最多 3 次、单次不超过 10 秒，超了如实说要等多久）；jev 提示、jev 失败原因、保存页步骤行、token 无效、gate 提示、预设人设名补日文（步骤键名保持英文给脚本用，网页按语言翻）；setup apply 首次运行到写项目时才建 config.toml，token 无效不再留下空模板；媒体库不再默认找 ~/im-bridge/bin，只认 CONEST_MEDIA_BIN_DIR，NAS 根目录只认 CONEST_MEDIA_NAS_ROOT（没设就不用 NAS、不提示 NAS 没挂）；公开副本会带出的私有默认值改成必须给：contrib/gate 的 gate_switch.py / sync_gate.sh（SWITCH_HOST、SWITCH_TS_IP、SWITCH_WIN_HOME）、companion/tools/smoke_device.py（--instance-dir / --releases-dir 或 CONEST_DEVICE_*）、role-household 快照的 dial.py（RH_TEAM_DIR，没设不读忙闲）和 tools/smoke_phone.py（RH_CO_LEAD / RH_CO_SUB）；向导新建的项目写 show_quota_indicator = false、show_workdir_indicator = false，已有项目不动；install.sh 私有仓库不再打出 curl 404、装完的文档链接指向所装 tag，GETTING_STARTED 写了 CONEST_VERSION。未部署。
+
 2026-10-21 Issue #221：自主采集临时断连增加仅GET的有界重试；失败阶段及安全分类保留在实例diagnostics.json，最近20次且恢复不清除。发送/附件/活动提交和整个tick不重试。单一Codex实现与自查，无子Agent；真实CLI隔离故障→恢复通过，线上部署与自然分钟任务验收另记录。详见[重试与诊断](AUTONOMY_RELIABILITY.md)。
 
 2026-10-21 Issue #215 / PR #216：独立 WSL conest-ci 已运行两个专用账号的 runner，可并行两项 job；每路上限4个逻辑线程算力、6GiB内存，工作区和工具缓存独立。真实 Actions run 39546540674 的 bridge、companion、firmware-assets、dial-metrics 全过，原 Ubuntu GPU 闸门仍存活。最终文档提交的检查与合并状态以 PR 为准。登录后自启已配置，未做重启验收；插电不休眠，电池仍可能休眠。仅迁移核心 CI，release/ui-preview 仍在云端；未核对账单页面。详见 docs/SELF_HOSTED_CI.md。
@@ -13,7 +27,7 @@
 2026-10-21 Issue #204：指定 bot 按具体请求代批所有类型工具权限。单一 Codex 实现/自查，无独立 reviewer。Discord 配置 permission_approvers，需共享频道会话；名单与可信授权说明来自操作者配置。随机请求编号隔离后端重复 ID，跨频道/过期/并发/多个 cron/适配器失败均受控，真人按钮保留；不代答偏好问答。回归含真实 Gateway 入口和核心 ReceiveMessage CUJ，目标 race/vet 通过。全量 Go 首轮只有向导中文断言受宿主 LC_ALL 覆盖 LANG 失败；清除 LC_ALL/LC_MESSAGES 后 cmd 包全部通过，未修改向导源码或测试。源码未部署，发布及真实验证看统一运行交接。详见 DELEGATED_PERMISSIONS.md。
 
 2026-10-21：PR #198 易用性（分支 feat/onboarding-ux）。新人和 AI 的装、配、上线现在只有一条路：
-- 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 暂不支持。
+- 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 见下面 #203。
 - 配：没有配置时运行 `cc-connect`，会自动打开向导并在终端打印链接；SSH 下给出 `ssh -L` 命令。AI 用 `cc-connect setup apply`，见 AGENTS.md 文末一节。
 - 确认上线：以下情况 setup apply 不再报成功，返回 `ok:false`，带阻塞 warnings 和链接——Message Content Intent 没开或查不到、机器人不在服务器、查不到所有者。查不到所有者时 allow_from 写成 `set-your-discord-user-id`，谁的话都不听；带上真实 ID 重跑后会被替换。显式写 `*` 时给一条不阻断的提示。
 - 向导填的默认频道写进 `group_reply_all_channels`；`cc-connect update` 按 checksums.txt 校验。

@@ -15,7 +15,7 @@
 
     工作状态（conest DECOR.md 3，板子名牌里的「· 工作中 / · 空闲中」）：
     {"type": "rh_dial", "role": "ju", "conest_status": {"busy": true}}
-    来源是 ~/im-bridge/team/<project>.json 的 sessions[].busy（任一会话忙就算忙，同 conest PR #118），
+    来源是 $RH_TEAM_DIR/<project>.json 的 sessions[].busy（任一会话忙就算忙，同 conest PR #118），
     角色对应看 roles.toml [[discord.bots]] 的 project（一个角色绑几个 project 时任一忙就算忙）。
     文件读不到、过期（updated 超过 TEAM_STALE_SEC）时是「未知」：推 {"conest_status": {"busy": null}}，板子隐藏工作状态，不猜。
 
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import threading
@@ -54,8 +55,10 @@ INTERRUPTED_SEC = 2.5
 # 仍要有上限：防止乱传 size 让 ffmpeg 生成超大图（1024×1024 RGB565 = 2 MB）。
 MAX_SIZE = 1024
 MIN_SIZE = 16
-# 队友状态文件目录（每个 cc-connect project 一个 <project>.json，sessions[].busy）。来源：用户派活原话里给的路径。
-TEAM_DIR = Path.home() / "im-bridge" / "team"
+# 队友状态文件目录（每个 cc-connect project 一个 <project>.json，sessions[].busy；即 cc-connect 项目配置
+# team_status_dir 指的目录）。用环境变量 RH_TEAM_DIR 给，没有默认目录（原来写死的是维护者本机路径）；
+# 不给就不读忙闲，板子不显示工作状态，启动时记一行说明。
+TEAM_DIR: Path | None = Path(os.environ["RH_TEAM_DIR"]).expanduser() if os.environ.get("RH_TEAM_DIR") else None
 # 多久读一次队友状态文件（秒）。来源：实现者定：3 个几百字节的小文件，读一次不到 1 毫秒；2 秒内板子跟上忙闲变化。
 BUSY_POLL_SEC = 2.0
 # 队友状态文件多久没重写算过期（秒）：写的进程没了，忙闲按未知。来源：conest bridge/core/team.go:25-27 的约定——
@@ -179,7 +182,7 @@ def _project_busy(path: Path, now: float) -> bool | None:
     if at is None or now - at > TEAM_STALE_SEC:
         return None
     sessions = d["sessions"]
-    if sessions is None:   # 实测（2026-10-20 ~/im-bridge/team/maomao.json）：没有会话时写的是 "sessions": null，即空闲
+    if sessions is None:   # 实测（2026-10-20 线上 team 目录里的 maomao.json）：没有会话时写的是 "sessions": null，即空闲
         sessions = []
     if not isinstance(sessions, list):
         return None
@@ -209,7 +212,7 @@ class Dial:
 
     def __init__(self, server: XiaozhiServer, roles: list[Role], config_dir: Path,
                  log: Callable[[str], None] = lambda s: print(s, flush=True), clock: Callable[[], float] = time.monotonic,
-                 bots: list[DiscordBot] = (), team_dir: Path = TEAM_DIR, busy_poll: float | None = BUSY_POLL_SEC):
+                 bots: list[DiscordBot] = (), team_dir: Path | None = TEAM_DIR, busy_poll: float | None = BUSY_POLL_SEC):
         self.server, self.config_dir, self.log = server, Path(config_dir), log
         self.roles = {r.id: r for r in roles}
         self.st = RoleStates(list(self.roles), clock)
@@ -224,8 +227,10 @@ class Dial:
         self._subs: set[asyncio.Queue] = set()   # 网页圆屏的 SSE 订阅（事件循环里用）
         self._sse_sent: dict[str, str] = {}      # 角色 -> 上次推给网页的状态
         # 工作状态：cc-connect project -> 角色（roles.toml [[discord.bots]]，只要绑了小家角色的）
-        self.team_dir = Path(team_dir)
+        self.team_dir = Path(team_dir) if team_dir else None
         self._projects = {b.project: b.role for b in bots if b.project and b.role in self.roles}   # 一个角色可绑几个 project
+        if self.team_dir is None and self._projects:
+            self.log("[dial] 没设 RH_TEAM_DIR（cc-connect 的 team_status_dir）：不读队友忙闲，板子不显示工作状态")
         self._busy: dict[str, bool] = {}        # 角色 -> 最近读到的忙闲（读不到的不在里面）
         self._busy_sent: dict[str, bool] = {}   # 角色 -> 上次发给板子的忙闲
         self._stop = threading.Event()
@@ -291,7 +296,7 @@ class Dial:
     def refresh_busy(self) -> None:
         """读一遍队友状态文件，忙闲变了的角色推给它的板子（只推 conest_status，不动别的字段）。
         从已知变成未知（文件没了、读不懂、过期）推 busy: null，板子隐藏工作状态。"""
-        now = read_busy(self.team_dir, self._projects)
+        now = read_busy(self.team_dir, self._projects) if self.team_dir else {}
         with self._mu:   # 同 _push_changes：记 _busy_sent 和排队推送在锁里，顺序一致
             went_idle = [r for r, b in now.items() if b is False and self._busy.get(r) is True]
             self._busy = now

@@ -6,17 +6,21 @@ package core
 // 或者说作为一个记忆」「不应该特异化，不是应该统一吗」「你直接搞磁盘不就行了」.
 //
 //   - A user message with a video link (the sites watchvid handles: Bilibili, YouTube) runs
-//     ~/im-bridge/bin/watchvid once per link for the whole process — the four bots get the
+//     <$CONEST_MEDIA_BIN_DIR>/watchvid once per link for the whole process — the four bots get the
 //     same Discord message, the first one runs it, the others wait for that run. watchvid writes
-//     straight into the NAS media library (/Volumes/personal_folder/wiki-media/<id>/) and
-//     mediaarchive adds the wiki catalogue line. The message then carries the result path, so
+//     straight into the NAS media library (under $CONEST_MEDIA_NAS_ROOT) and mediaarchive adds
+//     the wiki catalogue line. The message then carries the result path, so
 //     every bot only reads the files; no bot sandbox changes.
 //   - Attachments the agents save under <work_dir>/.cc-connect/attachments are handed to
 //     `mediaarchive attach`, which copies them straight to the NAS (no queue, no LaunchAgent).
+//   - No NAS configured ($CONEST_MEDIA_NAS_ROOT unset): no mount check and no NAS notes; the
+//     message only points at watchvid's result.
 //   - NAS not mounted: the video is still parsed (watchvid falls back to a local temp dir that
 //     is never moved), archiving fails, and the message says "NAS 没挂，这条没存".
 //
-// Off unless EnableMediaLibrary is called (cmd/cc-connect does it when the scripts exist).
+// Off unless EnableMediaLibrary is called with a directory holding both scripts: cmd/cc-connect
+// passes $CONEST_MEDIA_BIN_DIR. There is no default directory — the scripts are the maintainers'
+// own, so an install without them never looks for them and logs nothing about them.
 
 import (
 	"bytes"
@@ -59,7 +63,8 @@ var (
 	mediaEnabled     bool
 	watchvidPath     string
 	mediaArchivePath string
-	mediaNASRoot     = "/Volumes/personal_folder"
+	// mediaNASRoot is the NAS share the media library lives on ($CONEST_MEDIA_NAS_ROOT); "" = no NAS.
+	mediaNASRoot string
 	// mediaNASMounted reports whether the NAS share is mounted (var for tests).
 	mediaNASMounted = func() bool { return isMountPoint(mediaNASRoot) }
 	// runWatchvid runs watchvid on url and returns its stdout and stderr (var for tests).
@@ -101,10 +106,16 @@ func withLimit(parent context.Context, d time.Duration) (context.Context, contex
 	return context.WithTimeout(context.WithValue(parent, limitKey{}, d), d)
 }
 
-// EnableMediaLibrary turns the media library on when both scripts exist under home.
-func EnableMediaLibrary(home string) {
-	wv := filepath.Join(home, "im-bridge", "bin", "watchvid")
-	ma := filepath.Join(home, "im-bridge", "bin", "mediaarchive")
+// EnableMediaLibrary turns the media library on when binDir holds both scripts (watchvid and
+// mediaarchive). binDir "" (not configured) leaves it off without a log line. nasRoot is the NAS
+// share the library lives on; "" = no NAS (no mount check, no "NAS 没挂" notes).
+func EnableMediaLibrary(binDir, nasRoot string) {
+	if binDir == "" {
+		return
+	}
+	mediaNASRoot = nasRoot
+	wv := filepath.Join(binDir, "watchvid")
+	ma := filepath.Join(binDir, "mediaarchive")
 	for _, p := range []string{wv, ma} {
 		if _, err := os.Stat(p); err != nil {
 			slog.Info("media library off: script missing", "path", p)
@@ -235,7 +246,9 @@ type videoResult struct {
 	Err   string
 }
 
-func (r videoResult) onNAS() bool { return strings.HasPrefix(r.Index, mediaNASRoot+"/") }
+func (r videoResult) onNAS() bool {
+	return mediaNASRoot != "" && strings.HasPrefix(r.Index, mediaNASRoot+"/")
+}
 
 // watchvidRun is one watchvid process; everyone waiting for the same video shares it.
 type watchvidRun struct {
@@ -264,9 +277,6 @@ var (
 	videoMsgOrder []string
 )
 
-// parseVideo returns the watchvid result for link in msg. Bots handling the same message share one
-// result; concurrent messages with the same link share one running watchvid. Waiting stops at ctx,
-// and nothing new is started once ctx is done.
 // deadlinePassed reports whether ctx is done or its deadline has passed. ctx.Err() alone lags the
 // deadline until the context's timer callback runs, which on a loaded machine let the loop start
 // one more watchvid after the message's time was already up.
@@ -278,6 +288,9 @@ func deadlinePassed(ctx context.Context) bool {
 	return ok && !time.Now().Before(dl)
 }
 
+// parseVideo returns the watchvid result for link in msg. Bots handling the same message share one
+// result; concurrent messages with the same link share one running watchvid. Waiting stops at ctx,
+// and nothing new is started once ctx is done.
 func (e *Engine) parseVideo(ctx context.Context, msg *Message, link videoLink) videoResult {
 	videoMu.Lock()
 	mk := ""
@@ -379,12 +392,16 @@ func videoNote(link videoLink, r videoResult) string {
 		return fmt.Sprintf("（cc-connect 用 watchvid 解析视频 %s 失败：%s）", link.URL, r.Err)
 	}
 	dir := filepath.Dir(r.Index)
+	if mediaNASRoot == "" { // no NAS configured: where watchvid put it is all there is to say
+		return fmt.Sprintf("（cc-connect 已用 watchvid 解析视频 %s：先读 %s，关键帧、音频、转写都在同一目录，只读即可，不用再跑 watchvid。）",
+			link.URL, r.Index)
+	}
 	if !r.onNAS() {
 		return fmt.Sprintf("（cc-connect 已用 watchvid 解析视频 %s：先读 %s，关键帧、音频、转写都在同一目录，只读即可，不用再跑 watchvid。%s：这份结果在本机临时目录，没进媒体库。）",
 			link.URL, r.Index, nasMissingNote)
 	}
 	return fmt.Sprintf("（cc-connect 已用 watchvid 解析视频 %s：先读 %s，关键帧 frames/、音频 audio.m4a、转写、弹幕、热评都在同一目录，只读即可，不用再跑 watchvid。"+
-		"已存进媒体库 %s，wiki 目录 ~/wiki/refs/media/ 有一行；原视频默认不存，用户明确要存时跑 `mediaarchive --keep-video %s`。）",
+		"已存进媒体库 %s，mediaarchive 已在 wiki 的媒体目录里记了一行；原视频默认不存，用户明确要存时跑 `mediaarchive --keep-video %s`。）",
 		link.URL, r.Index, dir, filepath.Base(dir))
 }
 
@@ -419,7 +436,7 @@ func (e *Engine) prepareMedia(msg *Message) {
 			slog.Info("media: video note added", "project", e.name, "session", msg.SessionKey, "key", l.Key, "index", r.Index, "error", r.Err)
 		}
 	}
-	if (len(msg.Images) > 0 || len(msg.Files) > 0) && !mediaNASMounted() {
+	if (len(msg.Images) > 0 || len(msg.Files) > 0) && mediaNASRoot != "" && !mediaNASMounted() {
 		notes = append(notes, "（"+nasMissingNote+"：这条消息的附件没存进媒体库。）")
 		slog.Warn("media: NAS not mounted, attachments not archived", "project", e.name, "session", msg.SessionKey)
 	}

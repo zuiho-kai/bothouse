@@ -13,6 +13,7 @@ These methods block: web adapters should invoke them in a worker thread.
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Callable
 import os
 from pathlib import Path
@@ -25,6 +26,8 @@ import threading
 import time
 
 from . import asr_diag
+
+logger = logging.getLogger("uvicorn.error")  # same sink as the other ASR logs (server.log)
 
 import numpy as np
 
@@ -131,8 +134,31 @@ def _cache_directory() -> Path:
     return path
 
 
+REMOTE_ASR_BACKOFF_SECONDS = 60
+
+
+def _remote_transcribe(url: str, wav_bytes: bytes, timeout: float) -> tuple[str, float | None]:
+    """POST the WAV to a remote recognizer; returns (text, remote inference ms). Never uses a proxy."""
+    import json
+    import urllib.request
+
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    request = urllib.request.Request(url, data=wav_bytes, headers={"Content-Type": "audio/wav"})
+    with opener.open(request, timeout=timeout) as response:
+        payload = json.loads(response.read(64 * 1024))
+    text = payload.get("text")
+    if not isinstance(text, str):
+        raise TypeError("远程识别没有返回文本")
+    inference = payload.get("inference_ms")
+    return text, float(inference) if isinstance(inference, (int, float)) else None
+
+
 class Speech:
-    def __init__(self, model_path: str, voice: str = "Tingting", tts=None):
+    def __init__(self, model_path: str, voice: str = "Tingting", tts=None, *,
+                 remote_url: str = "", remote_timeout: float = 3.0):
+        self.remote_url = remote_url
+        self.remote_timeout = remote_timeout
+        self._remote_down_until = 0.0
         self.model_path = str(_resolve_model_path(model_path))
         if not isinstance(voice, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]{0,79}", voice):
             raise ValueError("音色名称无效，请使用已安装的系统音色，例如 Tingting。")
@@ -144,6 +170,21 @@ class Speech:
     def close(self):
         if self.tts is not None:
             self.tts.close()
+
+    def _try_remote(self, wav_bytes: bytes) -> tuple[str, float | None] | None:
+        """Remote recognition, or None to fall back to local. A failure pauses remote tries
+        for a minute so each turn does not pay the timeout again."""
+        if time.monotonic() < self._remote_down_until:
+            return None
+        try:
+            text, inference = _remote_transcribe(self.remote_url, wav_bytes, self.remote_timeout)
+        except Exception as exc:
+            self._remote_down_until = time.monotonic() + REMOTE_ASR_BACKOFF_SECONDS
+            logger.warning("远程识别失败，%d 秒内改用本机识别：%s", REMOTE_ASR_BACKOFF_SECONDS, type(exc).__name__)
+            return None
+        if not text.strip():
+            return None  # let the local model decide; an empty remote result is not authoritative
+        return text, inference
 
     def transcribe(self, wav_bytes: bytes) -> str:
         return self.transcribe_timed(wav_bytes)[0]
@@ -184,6 +225,23 @@ class Speech:
         if rms < 0.001 or active_samples < 160:  # -60 dBFS / 10 ms activity floor
             raise ValueError("音频为空、静音或音量过低，请靠近麦克风后重试。")
         queued = time.monotonic()
+        remote = self._try_remote(wav_bytes) if self.remote_url else None
+        if remote is not None:
+            text, remote_inference = remote
+            ended = time.monotonic()
+            timings = {
+                'audio_ms': round(len(samples) / 16),
+                'validation_ms': round((queued-started)*1000),
+                'queue_ms': 0,
+                'setup_ms': 0,
+                'inference_ms': round((ended-queued)*1000),
+                'total_ms': round((ended-started)*1000),
+                'remote_ms': round((ended-queued)*1000),
+            }
+            if remote_inference is not None:
+                timings['remote_inference_ms'] = round(remote_inference)
+            asr_diag.finish(timings, diag_before, diag_idle)
+            return text.strip(), timings
         with _ASR_LOCK:
             acquired = time.monotonic()
             # Recheck even after warm-up: upstream downloads when a path is missing.

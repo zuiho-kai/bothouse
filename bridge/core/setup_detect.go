@@ -107,6 +107,16 @@ var cliSpecs = []cliSpec{
 // prefix (~/.npm-global/bin), bun (~/.bun/bin), cargo (~/.cargo/bin), go install (~/go/bin).
 func extraBinDirs() []string {
 	home, _ := os.UserHomeDir()
+	if runtime.GOOS == "windows" {
+		// npm -g puts claude.cmd / codex.cmd in %APPDATA%\npm; Claude Code's native installer
+		// uses %USERPROFILE%\.local\bin.
+		dirs := []string{filepath.Join(home, ".local", "bin"), filepath.Join(home, ".bun", "bin"),
+			filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "go", "bin")}
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			dirs = append([]string{filepath.Join(appData, "npm")}, dirs...)
+		}
+		return dirs
+	}
 	return []string{
 		filepath.Join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin",
 		filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".bun", "bin"),
@@ -123,8 +133,8 @@ var lookPath = func(bin string) (path string, inPath bool, err error) {
 		return p, true, nil
 	}
 	for _, d := range extraBinDirs() {
-		p := filepath.Join(d, bin)
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+		// LookPath on a full path checks the exec bit on Unix and tries PATHEXT (.exe, .cmd …) on Windows.
+		if p, err := exec.LookPath(filepath.Join(d, bin)); err == nil {
 			return p, false, nil
 		}
 	}
