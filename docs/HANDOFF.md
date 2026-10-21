@@ -695,3 +695,5 @@ PR #10只补充工作流文档、PR模板及仓库设置，已合并；Issue #3�
 - 明确接纳失败的503带 submission=not_sent；companion 按此证据提示未发送，普通503/丢失确认仍只查回执。存储故障不能证明历史请求未发送，不带该标记。
 - ACP合成协议与启动失败测试先红后绿；竞态/CUJ通过，companion476通过/3跳过。Go全量/vet/build见PR最新验证记录。真实CLI、设备、频道未测试。
 - #135旧产物与校验和保留，#139依旧草稿；早上需重新构建匹配服务，夜间未部署、未重启、未刷板。
+
+- 任务卡片网关心跳（progress_style=card）：有工具调用或一轮超过 task_card_after_secs（默认 5 秒）就开卡；进行中网关自己每 task_card_heartbeat_secs（默认 10 秒，且不低于平台编辑间隔）刷新“仍在运行/当前工具/已用时/最近动静”，超过 task_card_stall_secs（默认 180 秒）无事件标“疑似卡住”（Discord 橙色）；不依赖模型调用进度命令。tool_messages=false 时卡片只记工具名。单测覆盖长时间无输出的工具调用；真实 Discord 频道未验证，未部署。

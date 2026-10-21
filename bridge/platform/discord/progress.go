@@ -55,6 +55,9 @@ func buildDiscordProgressEmbed(payload *core.ProgressCardPayload) *discordgo.Mes
 	}
 	agent := discordProgressAgentLabel(payload.Agent)
 	title, color, footer := discordProgressStateMeta(payload.State, payload.Lang, agent)
+	if payload.Stalled && payload.State == core.ProgressCardStateRunning {
+		color = 0xE67E22 // stall mark: orange until a new event arrives
+	}
 	embed := &discordgo.MessageEmbed{
 		Title:       trimDiscordRunes(title, maxDiscordEmbedTitleLen),
 		Description: buildDiscordProgressDescription(payload),
@@ -143,7 +146,8 @@ func buildDiscordProgressLineN(item core.ProgressCardEntry, lang string, lineLen
 // so words said mid-run are not wiped.
 func buildDiscordProgressList(payload *core.ProgressCardPayload, items []core.ProgressCardEntry) string {
 	lines := []string{buildDiscordProgressBarLine(&core.ProgressCardPayload{
-		Lang: payload.Lang, Steps: payload.Steps, ElapsedSec: payload.ElapsedSec,
+		Lang: payload.Lang, Steps: payload.Steps, ElapsedSec: payload.ElapsedSec, State: payload.State,
+		Heartbeat: payload.Heartbeat, IdleSec: payload.IdleSec, Current: payload.Current, Stalled: payload.Stalled,
 	}, nil)}
 	for _, item := range items {
 		if line := buildDiscordProgressLineN(item, payload.Lang, payload.LineLen); line != "" {
@@ -431,6 +435,19 @@ func buildDiscordProgressBarLine(payload *core.ProgressCardPayload, items []core
 		}
 	} else {
 		head = fmt.Sprintf("step %d · %dm%02ds", payload.Steps, sec/60, sec%60)
+	}
+	if payload.Heartbeat && payload.State == core.ProgressCardStateRunning {
+		// gateway heartbeat: still running / stalled, elapsed, tool in flight, time since the last event
+		lang := "en"
+		if zh {
+			lang = "zh"
+		}
+		live := core.ProgressLiveLine(lang, sec, payload.IdleSec, payload.Current, payload.Stalled)
+		if zh {
+			head = fmt.Sprintf("第 %d 步 · ", payload.Steps) + strings.TrimSpace(live)
+		} else {
+			head = fmt.Sprintf("step %d · ", payload.Steps) + strings.TrimSpace(live)
+		}
 	}
 	if payload.State == core.ProgressCardStateRunning && len(items) > 0 {
 		if line := buildDiscordProgressLine(items[len(items)-1], payload.Lang); line != "" {

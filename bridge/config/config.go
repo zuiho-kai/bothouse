@@ -202,6 +202,13 @@ type DisplayConfig struct {
 	ShowContextIndicator *bool   `toml:"show_context_indicator"` // whether [ctx: ~N%] suffix is shown; default true
 	ReplyFooter          *bool   `toml:"reply_footer"`           // whether Codex-like footer is shown; default true
 	HideAgentFooter      *bool   `toml:"hide_agent_footer"`      // strip agent-emitted model/token footer lines; default false
+	// Task card (progress_style = "card"): open after the first tool call, or once a turn has
+	// run task_card_after_secs without finishing (0 = only on tool calls); while the turn runs
+	// the gateway refreshes it every task_card_heartbeat_secs (0 = off) and marks it stalled
+	// after task_card_stall_secs with no new event (0 = never). Defaults 5 / 10 / 180.
+	TaskCardAfterSecs     *int `toml:"task_card_after_secs"`
+	TaskCardHeartbeatSecs *int `toml:"task_card_heartbeat_secs"`
+	TaskCardStallSecs     *int `toml:"task_card_stall_secs"`
 }
 
 // StreamPreviewConfig controls real-time streaming preview in IM.
@@ -1015,6 +1022,32 @@ func EffectiveHistoryMaxLen(cfg *Config, proj *ProjectConfig) int {
 		return *cfg.Display.HistoryMaxLen
 	}
 	return 1000
+}
+
+// EffectiveTaskCard returns the task-card open-after, heartbeat and stall thresholds in
+// seconds (project > global > defaults 5 / 10 / 180; negative values count as 0).
+func EffectiveTaskCard(cfg *Config, proj *ProjectConfig) (after, heartbeat, stall int) {
+	pick := func(get func(*DisplayConfig) *int, def int) int {
+		v := def
+		if cfg != nil {
+			if p := get(&cfg.Display); p != nil {
+				v = *p
+			}
+		}
+		if proj != nil && proj.Display != nil {
+			if p := get(proj.Display); p != nil {
+				v = *p
+			}
+		}
+		if v < 0 {
+			v = 0
+		}
+		return v
+	}
+	after = pick(func(d *DisplayConfig) *int { return d.TaskCardAfterSecs }, 5)
+	heartbeat = pick(func(d *DisplayConfig) *int { return d.TaskCardHeartbeatSecs }, 10)
+	stall = pick(func(d *DisplayConfig) *int { return d.TaskCardStallSecs }, 180)
+	return
 }
 
 // EffectiveShell returns the shell binary, flag, and init command for the project.
