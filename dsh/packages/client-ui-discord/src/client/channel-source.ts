@@ -65,7 +65,7 @@ export interface ChannelRoom {
 
 /** Whole panel state; `phase` says whether the service answered. */
 export interface ChannelSnapshot {
-  readonly phase: 'idle' | 'loading' | 'ready' | 'unavailable' | 'unauthorized' | 'error'
+  readonly phase: 'idle' | 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'unauthorized' | 'error'
   readonly error: string | undefined
   readonly rooms: readonly ChannelRoom[]
   readonly roomId: number | undefined
@@ -74,6 +74,8 @@ export interface ChannelSnapshot {
   readonly thinking: Readonly<Record<string, readonly string[]>>
   /** Selected room's messages, ascending by id. */
   readonly messages: readonly ChannelMessage[]
+  /** True while `loadOlder` can still page further back in the selected room. */
+  readonly hasMoreOlder: boolean
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -92,6 +94,8 @@ export interface ChannelActions {
   updateMember(id: string, input: MemberInput): Promise<void>
   /** Remove a UI-created DSH member. */
   removeMember(id: string): Promise<void>
+  /** Page further back in the selected room; resolves with how many rows arrived. */
+  loadOlder(): Promise<number>
 }
 
 /** Narrow EventSource surface used here, so tests can pass a fake. */
@@ -105,6 +109,10 @@ export interface ChannelTransport {
   openEvents(url: string): EventStreamLike
   /** Resolve a service path against the document base. */
   url(path: string): string
+  /** Wait before a reconnect attempt; injectable so tests need no real clocks. */
+  delay?(ms: number): Promise<void>
+  /** Jitter source in `[0, 1)`; injectable so backoff is deterministic in tests. */
+  random?(): number
 }
 
 type ServiceEvent =
@@ -115,8 +123,17 @@ type ServiceEvent =
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
 
 const INITIAL: ChannelSnapshot = {
-  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [],
+  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], hasMoreOlder: false,
 }
+
+/** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
+const MAX_BACKOFF_MS = 30_000
+
+/** Messages requested per page, both for the first read and for `loadOlder`. */
+const PAGE_SIZE = 100
+
+/** Messages requested per catch-up read after a reconnect. */
+const CATCH_UP_LIMIT = 200
 
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 class ServiceError extends Error {
@@ -139,6 +156,8 @@ export function browserTransport(): ChannelTransport {
     fetch: (input, init) => fetch(input, { credentials: 'same-origin', ...init }),
     openEvents: url => new EventSource(url, { withCredentials: true }),
     url: path => new URL(path, document.baseURI).toString(),
+    delay: ms => new Promise(resolve => setTimeout(resolve, ms)),
+    random: () => Math.random(),
   }
 }
 
@@ -157,6 +176,10 @@ export function createChannelSource(transport: ChannelTransport): {
   let stream: EventStreamLike | undefined
   let lifetime: object | undefined
   let pending: { controller: AbortController; events: ServiceEvent[] } | undefined
+  /** Consecutive reconnect attempts since the stream last opened. */
+  let attempt = 0
+  /** Identifies the scheduled retry, so a stop() or a newer retry cancels it. */
+  let reconnectToken: object | undefined
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -220,26 +243,72 @@ export function createChannelSource(transport: ChannelTransport): {
       if (!current()) return
       const roomId = state.rooms.some(r => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id
       const rows: ChannelMessage[] = []
+      let hasMoreOlder = false
       if (roomId !== undefined) {
-        // Re-read retained rows too: cards can be edited/deleted while offline.
-        // The paging cursor is independent of messages arriving through SSE.
-        let after = resume && roomId === previous.roomId ? (previous.messages[0]?.id ?? 1) - 1 : undefined
-        while (current()) {
-          const query = after === undefined ? 'limit=100' : 'after=' + after + '&limit=200'
-          const { messages } = await request<{ messages: ChannelMessage[] }>(
-            'collab/api/rooms/' + roomId + '/messages?' + query, { signal: read.controller.signal },
-          )
-          if (!current()) return
-          rows.push(...messages)
-          if (after === undefined || messages.length < 200) break
-          const next = messages.at(-1)?.id
-          if (next === undefined || next <= after) throw new Error('Channel history cursor did not advance')
-          after = next
+        if (resume && roomId === previous.roomId) {
+          // Design §4.3: after a reconnect, catch up with `after=newestId` instead
+          // of re-reading the room. Ids are the merge key, so a row that also
+          // arrived through SSE is folded in rather than duplicated.
+          const merged = new Map<number, ChannelMessage>(previous.messages.map(m => [m.id, m]))
+          const newest = previous.messages.at(-1)?.id ?? 0
+          let cursor = newest
+          while (current()) {
+            const { messages } = await request<{ messages: ChannelMessage[] }>(
+              'collab/api/rooms/' + roomId + '/messages?after=' + cursor + '&limit=' + CATCH_UP_LIMIT,
+              { signal: read.controller.signal },
+            )
+            if (!current()) return
+            for (const row of messages) merged.set(row.id, row)
+            if (messages.length < CATCH_UP_LIMIT) break
+            const next = messages.at(-1)?.id
+            if (next === undefined || next <= cursor) throw new Error('Channel history cursor did not advance')
+            cursor = next
+          }
+          // Cards can be edited or deleted while offline, and `after=` cannot see
+          // either. Re-read only the page the user was looking at (one request),
+          // and treat it as authoritative for the ids it spans; older rows keep
+          // their last seen state until the panel reloads.
+          if (newest > 0) {
+            const { messages: known } = await request<{ messages: ChannelMessage[] }>(
+              'collab/api/rooms/' + roomId + '/messages?before=' + (newest + 1) + '&limit=' + PAGE_SIZE,
+              { signal: read.controller.signal },
+            )
+            if (!current()) return
+            for (const row of known) merged.set(row.id, row)
+            const windowFrom = known[0]?.id
+            if (windowFrom !== undefined) {
+              const present = new Set(known.map(row => row.id))
+              for (const id of [...merged.keys()]) {
+                if (id >= windowFrom && id <= newest && !present.has(id)) merged.delete(id)
+              }
+            }
+          }
+          rows.push(...[...merged.values()].sort((a, b) => a.id - b.id))
+          hasMoreOlder = previous.hasMoreOlder
+        } else {
+          // First read or a room switch: newest page, then page forward.
+          let after: number | undefined
+          while (current()) {
+            const query = after === undefined ? 'limit=' + PAGE_SIZE : 'after=' + after + '&limit=' + CATCH_UP_LIMIT
+            const { messages } = await request<{ messages: ChannelMessage[] }>(
+              'collab/api/rooms/' + roomId + '/messages?' + query, { signal: read.controller.signal },
+            )
+            if (!current()) return
+            rows.push(...messages)
+            if (after === undefined) {
+              hasMoreOlder = messages.length >= PAGE_SIZE
+              break
+            }
+            if (messages.length < CATCH_UP_LIMIT) break
+            const next = messages.at(-1)?.id
+            if (next === undefined || next <= after) throw new Error('Channel history cursor did not advance')
+            after = next
+          }
         }
       }
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
-        members: state.members, thinking: state.thinking, messages: rows,
+        members: state.members, thinking: state.thinking, messages: rows, hasMoreOlder,
       }
       for (const event of read.events) next = applyEvent(next, event)
       pending = undefined
@@ -256,31 +325,80 @@ export function createChannelSource(transport: ChannelTransport): {
     await refresh(false)
   }
 
+  /** Wait before the next attempt; tests inject a fake so no clock is needed. */
+  const pause = (ms: number): Promise<void> =>
+    transport.delay === undefined ? Promise.resolve() : transport.delay(ms)
+
+  /** Jitter source in `[0, 1)`. */
+  const random = (): number => transport.random?.() ?? 0.5
+
+  /** Backoff before retry `attempt`: 1, 2, 4, 8… seconds, capped, then jittered. */
+  const backoffMs = (attempt: number): number => {
+    const base = Math.min(1000 * 2 ** attempt, MAX_BACKOFF_MS)
+    // Jitter stays inside `[base/2, base]`, so the cap holds even after jitter.
+    return Math.round(base / 2 + random() * (base / 2))
+  }
+
+  /** Opens the live stream; `onerror` schedules a backoff retry (design §4.3). */
+  const listen = (owner: object): void => {
+    if (lifetime !== owner || listeners.size === 0) return
+    let events: EventStreamLike
+    try {
+      events = transport.openEvents(transport.url('collab/api/events'))
+    } catch (error) {
+      fail(error)
+      return
+    }
+    stream = events
+    events.onopen = () => {
+      if (lifetime !== owner || stream !== events) return
+      attempt = 0
+      void refresh(true)
+    }
+    events.onerror = () => {
+      if (lifetime !== owner || stream !== events) return
+      // The socket is dead: drop it, then retry on a fresh one.
+      stream = undefined
+      events.onopen = null
+      events.onmessage = null
+      events.onerror = null
+      events.close()
+      pending?.controller.abort()
+      pending = undefined
+      retry(owner)
+    }
+    events.onmessage = (event: MessageEvent<string>) => {
+      if (lifetime !== owner || stream !== events) return
+      try { onEvent(JSON.parse(event.data) as ServiceEvent) } catch (error) { void error /* malformed frames are repaired on reconnect */ }
+    }
+  }
+
+  /** Enters `reconnecting` and resumes the stream after a jittered backoff. */
+  const retry = (owner: object): void => {
+    if (lifetime !== owner) return
+    const token = { attempt }
+    reconnectToken = token
+    const wait = backoffMs(attempt)
+    attempt += 1
+    set({ phase: 'reconnecting', error: undefined })
+    void pause(wait).then(() => {
+      if (lifetime !== owner || reconnectToken !== token) return
+      reconnectToken = undefined
+      listen(owner)
+    })
+  }
+
   const start = async (owner: object): Promise<void> => {
     set({ phase: 'loading', error: undefined })
     await refresh(false)
     if (lifetime !== owner || listeners.size === 0 || snapshot.phase !== 'ready') return
-    try {
-      const events = transport.openEvents(transport.url('collab/api/events'))
-      stream = events
-      events.onopen = () => { if (lifetime === owner) void refresh(true) }
-      events.onerror = () => {
-        if (lifetime !== owner) return
-        pending?.controller.abort()
-        pending = undefined
-        set({ phase: 'loading', error: undefined })
-      }
-      events.onmessage = (event: MessageEvent<string>) => {
-        if (lifetime !== owner) return
-        try { onEvent(JSON.parse(event.data) as ServiceEvent) } catch (error) { void error /* malformed frames are repaired on reconnect */ }
-      }
-    } catch (error) {
-      if (lifetime === owner) fail(error)
-    }
+    listen(owner)
   }
 
   const stop = (): void => {
     lifetime = undefined
+    reconnectToken = undefined
+    attempt = 0
     pending?.controller.abort()
     pending = undefined
     if (stream !== undefined) {
@@ -337,6 +455,25 @@ export function createChannelSource(transport: ChannelTransport): {
     },
     async removeMember(id) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+    async loadOlder() {
+      const roomId = snapshot.roomId
+      const owner = lifetime
+      const oldest = snapshot.messages[0]?.id
+      if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
+      if (oldest === undefined || !snapshot.hasMoreOlder) return 0
+      const { messages } = await request<{ messages: ChannelMessage[] }>(
+        `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
+      )
+      if (lifetime !== owner) return 0
+      // Older rows and rows already on screen are one ordered set keyed by id.
+      const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
+      for (const row of messages) merged.set(row.id, row)
+      set({
+        messages: [...merged.values()].sort((a, b) => a.id - b.id),
+        hasMoreOlder: messages.length >= PAGE_SIZE,
+      })
+      return messages.length
     },
   }
 

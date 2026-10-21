@@ -142,7 +142,9 @@ describe('channel source', () => {
     const { transport, streams, closed, calls } = fakeTransport((url) => {
       if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (url.startsWith('/collab/api/rooms/1/messages?limit')) return json(200, { messages: [message(1, 'a')] })
-      if (url.startsWith('/collab/api/rooms/1/messages?after=0')) return json(200, { messages: [message(1, 'a'), message(2, 'b')] })
+      if (url.startsWith('/collab/api/rooms/1/messages?after=1')) return json(200, { messages: [message(2, 'b')] })
+      // Reconnect re-reads the page the user was looking at (design §4.3).
+      if (url.startsWith('/collab/api/rooms/1/messages?before=2')) return json(200, { messages: [message(1, 'a')] })
       return json(404, { error: 'not found' })
     })
     const { source } = createChannelSource(transport)
