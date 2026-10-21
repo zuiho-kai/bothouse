@@ -38,6 +38,7 @@ func TestHelperFakeAppServer(t *testing.T) {
 	}
 	thread := ""
 	turns := 0
+	steers := 0
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for in.Scan() {
@@ -81,8 +82,13 @@ func TestHelperFakeAppServer(t *testing.T) {
 			}
 			reply(map[string]any{"turn": map[string]any{"id": turn}})
 			notify("turn/started", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn}})
+			if scenario == "steer-engine" {
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "agentMessage", "phase": "commentary", "text": "Starting the original task."}})
+				notify("item/started", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "commandExecution", "command": "long-running-work"}})
+				continue
+			}
 			switch scenario {
-			case "hang", "steer", "steer-child":
+			case "hang", "steer", "steer-child", "steer-public":
 				continue // stays running until steered
 			case "idle-only":
 				notify("thread/status/changed", map[string]any{"threadId": thread, "status": map[string]any{"type": "idle"}})
@@ -113,6 +119,11 @@ func TestHelperFakeAppServer(t *testing.T) {
 			}
 
 			turn, _ := req.Params["expectedTurnId"].(string)
+			steers++
+			if (scenario == "steer-public" || scenario == "steer-engine") && steers == 1 {
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "agentMessage", "phase": "commentary", "text": "I received your inserted message; continuing the original task."}})
+				continue // No next tool or turn completion to flush a buffered answer.
+			}
 			notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "agentMessage", "text": "steered"}})
 			completed(thread, turn, "completed")
 		default:

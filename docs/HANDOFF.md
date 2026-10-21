@@ -1,5 +1,7 @@
 # 共栖当前交接
 
+2026-10-21 Issue #208：G哥插话后公开回复延迟。已分别复现 Codex commentary 被缓冲，以及核心在工具边界冻结旧预览却不为新文字恢复；修复明确 phase 的普通公开文字分类、可恢复冻结状态与新段落收尾。严格语音、未知phase和内部推理边界保留；运输失败不因新文字恢复，旧消息不被覆盖。适配器回放、真实 Engine→gate→app-server→预览链路和三次真人输入的 STREAM2 CUJ 已通过；原版四条回归失败。全量/race/CI与部署状态见对应PR，真实频道待自然验收。详见[插话公开回复](CODEX_INSERT_PUBLIC_REPLY.md)。未接管他人PR清理或语音优化。
+
 2026-10-21：n150 Linux 真机实测问题修复（分支 fix/setup-n150-findings，基线 main 62aec4e3）。setup apply / 网页向导：回复语言为 角色 reply_language > 请求 language（--lang）> 本机 locale（不用 Discord 服务器 preferred_locale：默认 en-US，会把中文电脑配成英文），代码原样传（zh-TW、ko 不截断），结果里写 reply_language/reply_language_from，没指定时给不阻断的 reply_language_default；网页向导用顶栏右上角的语言作默认回复语言并显示「机器人回复语言：X」，向导文案中英日（用户 2026-10-21 定），其他语言界面回落英文，文案集中在 web/src/pages/Setup/texts.ts。网页和命令行首次运行都不再说备份了旧配置（store 判断配置仍是首次模板）。CLI 没登录给阻塞的 agent_not_logged_in（带登录步骤），token 401 给阻塞的 discord_token_invalid（带重置链接），dry-run 不再说“已保存”、persona_written 如实，首次运行不再说“previous config kept”，setup clis 为空或都没登录时 stderr 给提示，中文机器人名变 role-N 时 steps 说明原因（文档已改）。同一 token 多处在线查不出，只写进文档。Go 沙箱全量通过；隔离 HOME + 假 Discord 跑了 CLI 前后对比和网页向导全流程（PR 描述）。未部署。
 
 2026-10-21 Issue #204：指定 bot 按具体请求代批所有类型工具权限。单一 Codex 实现/自查，无独立 reviewer。Discord 配置 permission_approvers，需共享频道会话；名单与可信授权说明来自操作者配置。随机请求编号隔离后端重复 ID，跨频道/过期/并发/多个 cron/适配器失败均受控，真人按钮保留；不代答偏好问答。回归含真实 Gateway 入口和核心 ReceiveMessage CUJ，目标 race/vet 通过。全量 Go 首轮只有向导中文断言受宿主 LC_ALL 覆盖 LANG 失败；清除 LC_ALL/LC_MESSAGES 后 cmd 包全部通过，未修改向导源码或测试。源码未部署，发布及真实验证看统一运行交接。详见 DELEGATED_PERMISSIONS.md。

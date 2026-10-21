@@ -51,6 +51,7 @@ type streamPreview struct {
 	timerStop chan struct{} // closed when preview ends
 
 	pendingStatus CardStatus // last status set via setStatus(); applied on recovery
+	frozen        bool       // intentional segment boundary; unlike a transport failure, may resume
 }
 
 // ToolStepKind identifies the kind of progress row shown in rich cards.
@@ -291,13 +292,16 @@ func (sp *streamPreview) flushLocked(text string) {
 	sp.lastSentAt = time.Now()
 }
 
-// freeze stops the streaming preview permanently: cancels pending timers,
+// freeze commits the current streaming segment: cancels pending timers,
 // updates the preview message in-place with the accumulated text, and marks
-// the preview as degraded so no further updates are sent.
+// the preview as degraded so no further updates are sent until detach+unfreeze.
 // Call this when a permission prompt or other interruption occurs.
 func (sp *streamPreview) freeze() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
+	if !sp.degraded {
+		sp.frozen = true
+	}
 
 	sp.cancelTimerLocked()
 
@@ -327,9 +331,9 @@ func (sp *streamPreview) freeze() {
 //
 // Required pairing: callers must invoke unfreeze() only after a matching
 // freeze()+detachPreview() (or an equivalent sequence that left previewMsgID
-// nil and degraded true). It is intended to be called once the user-visible
-// interruption (permission prompt, AskUserQuestion) has been resolved and
-// the agent is producing new output in the same turn.
+// nil and degraded true). The next public text after a tool/thinking boundary
+// or a resolved permission request starts a fresh segment. Calls during an
+// active segment or after a transport failure are no-ops.
 //
 // Why a new card: the old preview message is committed by freeze() as a
 // permanent in-place update of the pre-interruption text. Keeping a handle
@@ -341,6 +345,10 @@ func (sp *streamPreview) freeze() {
 func (sp *streamPreview) unfreeze() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
+	if !sp.frozen || sp.previewMsgID != nil {
+		return // Never revive transport failures or overwrite a committed message.
+	}
+	sp.frozen = false
 
 	sp.cancelTimerLocked()
 
@@ -370,6 +378,7 @@ func (sp *streamPreview) unfreeze() {
 func (sp *streamPreview) discard() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
+	sp.frozen = false
 
 	sp.cancelTimerLocked()
 

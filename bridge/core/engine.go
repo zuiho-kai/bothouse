@@ -6010,6 +6010,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				content = stripAgentFooterLines(content)
 			}
 			if content != "" && !isEllipsisOnly(content) {
+				// A tool/thinking boundary commits the previous preview. The
+				// next public text opens a new one, even before the next tool
+				// or final result (including an answer to a mid-turn insert).
+				sp.unfreeze()
 				// Pre-compute silentHold transition including this chunk so the
 				// rich-card path doesn't leak a preview that gets recalled at
 				// end-of-stream when the text resolves to bare NO_REPLY (Lark
@@ -6581,14 +6585,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// When tool calls happened and prior text was already surfaced in segments,
 				// only send the unsent remainder. When tool progress is hidden, tool events don't surface
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
-				sp.discard()
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
 					if unsent != "" {
-						if !sendChunksWithStatusFooter(e.ctx, p, markFinalReply(p, replyCtx), unsent, statusFooter, sendWorkspaceWithError) {
+						if !sp.finish(unsent, statusFooter) && !sendChunksWithStatusFooter(e.ctx, p, markFinalReply(p, replyCtx), unsent, statusFooter, sendWorkspaceWithError) {
 							return
 						}
 					}
+				} else {
+					sp.discard()
 				}
 			} else if suppressDuplicate {
 				sp.discard()

@@ -1679,21 +1679,21 @@ func TestProcessInteractiveEvents_CompactProgressCoalescesThinkingAndToolUse(t *
 	e.processInteractiveEvents(state, session, e.sessions, sessionKey, "m1", time.Now(), nil, nil, state.replyCtx)
 
 	sent := p.getSent()
-	if len(sent) != 1 || sent[0] != "done" {
-		t.Fatalf("sent = %#v, want only final assistant reply", sent)
+	if len(sent) != 0 {
+		t.Fatalf("sent = %#v, reply already visible in its preview", sent)
 	}
 
 	starts := p.getPreviewStarts()
-	if len(starts) != 1 {
-		t.Fatalf("preview starts = %d, want 1", len(starts))
+	if len(starts) != 2 || starts[1] != "done" {
+		t.Fatalf("preview starts = %#v, want progress then separate public reply", starts)
 	}
 	if !strings.Contains(starts[0], "Thinking") {
 		t.Fatalf("start preview should contain thinking text, got %q", starts[0])
 	}
 
 	edits := p.getPreviewEdits()
-	if len(edits) != 1 {
-		t.Fatalf("preview edits = %d, want 1", len(edits))
+	if len(edits) != 2 || edits[1] != "done" {
+		t.Fatalf("preview edits = %#v, want progress update then reply finish", edits)
 	}
 	if !strings.Contains(edits[0], "pwd") {
 		t.Fatalf("updated preview should contain tool input, got %q", edits[0])
@@ -1726,13 +1726,13 @@ func TestProcessInteractiveEvents_CardProgressUsesCardTemplate(t *testing.T) {
 	e.processInteractiveEvents(state, session, e.sessions, sessionKey, "m2", time.Now(), nil, nil, state.replyCtx)
 
 	sent := p.getSent()
-	if len(sent) != 1 || sent[0] != "done" {
-		t.Fatalf("sent = %#v, want only final assistant reply", sent)
+	if len(sent) != 0 {
+		t.Fatalf("sent = %#v, reply already visible in its preview", sent)
 	}
 
 	starts := p.getPreviewStarts()
-	if len(starts) != 1 {
-		t.Fatalf("preview starts = %d, want 1", len(starts))
+	if len(starts) != 2 || starts[1] != "done" {
+		t.Fatalf("preview starts = %#v, want progress then separate public reply", starts)
 	}
 	if !strings.Contains(starts[0], "**Progress**") {
 		t.Fatalf("start preview should contain fallback progress title, got %q", starts[0])
@@ -1742,8 +1742,8 @@ func TestProcessInteractiveEvents_CardProgressUsesCardTemplate(t *testing.T) {
 	}
 
 	edits := p.getPreviewEdits()
-	if len(edits) != 1 {
-		t.Fatalf("preview edits = %d, want 1", len(edits))
+	if len(edits) != 2 || edits[1] != "done" {
+		t.Fatalf("preview edits = %#v, want progress update then reply finish", edits)
 	}
 	if !strings.Contains(edits[0], "2.") {
 		t.Fatalf("updated preview should contain second item index, got %q", edits[0])
@@ -1863,9 +1863,12 @@ func TestProcessInteractiveEvents_CardProgressUsesStructuredPayloadWhenSupported
 
 	e.processInteractiveEvents(state, session, e.sessions, sessionKey, "m3", time.Now(), nil, nil, state.replyCtx)
 
+	if sent := p.getSent(); len(sent) != 0 {
+		t.Fatalf("reply duplicated outside preview: %#v", sent)
+	}
 	starts := p.getPreviewStarts()
-	if len(starts) != 1 {
-		t.Fatalf("preview starts = %d, want 1", len(starts))
+	if len(starts) != 2 || starts[1] != "done" {
+		t.Fatalf("preview starts = %#v, want progress then separate public reply", starts)
 	}
 	if !strings.HasPrefix(starts[0], ProgressCardPayloadPrefix) {
 		t.Fatalf("start preview should be structured payload, got %q", starts[0])
@@ -1885,8 +1888,8 @@ func TestProcessInteractiveEvents_CardProgressUsesStructuredPayloadWhenSupported
 	}
 
 	edits := p.getPreviewEdits()
-	if len(edits) != 2 {
-		t.Fatalf("preview edits = %d, want 2", len(edits))
+	if len(edits) != 3 || edits[2] != "done" {
+		t.Fatalf("preview edits = %#v, want progress update, completion and reply finish", edits)
 	}
 	updatePayload, ok := ParseProgressCardPayload(edits[0])
 	if !ok {
