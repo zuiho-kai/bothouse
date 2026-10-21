@@ -452,7 +452,8 @@ def build_service(settings: Settings, speech=None, bridge=None, roles=None) -> V
         elif settings.tts_volc_credentials:
             from .volc_tts import HybridTTS, VolcTTS
             tts = HybridTTS(tts, VolcTTS(settings.tts_volc_credentials))
-        speech = Speech(settings.model_path, settings.voice, tts=tts)
+        speech = Speech(settings.model_path, settings.voice, tts=tts,
+                        remote_url=settings.asr_remote_url, remote_timeout=settings.asr_remote_timeout_s)
     return VoiceService(settings, speech, bridge, roles)
 
 
