@@ -287,3 +287,89 @@ describe('channel data layer: optimistic send', () => {
     stop()
   })
 })
+
+describe('channel data layer: reconciliation safety', () => {
+  it('keeps an unconfirmed optimistic message when a reconnect reconciles the tail', async () => {
+    const bodies: { client_key?: string }[] = []
+    const releases: ((body: unknown) => void)[] = []
+    const base = harness([message(1, 'a')])
+    const transport: ChannelTransport = {
+      ...base.transport,
+      fetch: (input, init) => {
+        if (init?.method === 'POST') {
+          bodies.push(JSON.parse(String(init.body)) as { client_key?: string })
+          return new Promise<Response>(resolve => {
+            releases.push(body => resolve(json(200, body)))
+          })
+        }
+        return base.transport.fetch(input, init)
+      },
+    }
+    const { hub } = base
+    const { channel, stop } = await ready(transport, hub)
+
+    // In flight: shown in the outbox, the service has not written it yet, so the
+    // tail page a reconnect re-reads cannot contain it.
+    const sending = channel.actions.send('not confirmed yet')
+    await settle(2)
+    expect(channel.source.getSnapshot().outbox).toHaveLength(1)
+
+    hub.drop()
+    await settle()
+    expect(hub.open()).toBe(true)
+    await settle()
+
+    // Reconciliation must not treat it as deleted just because the service's page
+    // does not list it: it lives in the outbox, not in the confirmed rows.
+    expect(channel.source.getSnapshot().outbox).toHaveLength(1)
+    expect(channel.source.getSnapshot().outbox[0]?.text).toBe('not confirmed yet')
+    expect(channel.source.getSnapshot().messages.map(row => row.id)).toEqual([1])
+
+    releases[0]?.({ message: message(2, 'not confirmed yet') })
+    await sending
+    expect(channel.source.getSnapshot().outbox).toHaveLength(0)
+    expect(channel.source.getSnapshot().messages.map(row => row.id)).toEqual([1, 2])
+    stop()
+  })
+
+  it('does not delete a row that only arrived through SSE during the catch-up', async () => {
+    const { rows, hub, transport } = harness([message(1, 'a')])
+    const { channel, stop } = await ready(transport, hub)
+
+    // Row 2 exists on the server and reaches us through the new stream, but the
+    // tail page read by reconciliation may already be in flight without it.
+    rows.push(message(2, 'b'))
+    hub.drop()
+    await settle()
+    expect(hub.open()).toBe(true)
+    expect(hub.emit({ type: 'message', message: message(2, 'b') })).toBe(true)
+    await settle()
+
+    expect(channel.source.getSnapshot().messages.map(row => row.id)).toEqual([1, 2])
+    stop()
+  })
+
+  it('keeps every jittered wait at or below the 30 s cap', async () => {
+    const base = harness([message(1, 'a')], { random: () => 0.999 })
+    const { hub, waits, transport } = base
+    const { stop } = await ready(transport, hub)
+
+    for (let i = 0; i < 8; i += 1) {
+      hub.drop()
+      await settle()
+    }
+
+    expect(waits.length).toBe(8)
+    // With random() near 1 the wait sits at the top of each window, never above it.
+    expect(Math.max(...waits)).toBeLessThanOrEqual(30_000)
+    const bases = [1000, 2000, 4000, 8000, 16_000, 30_000, 30_000, 30_000]
+    waits.forEach((wait, index) => {
+      expect(wait).toBeLessThanOrEqual(bases[index]!)
+      expect(wait).toBeGreaterThan(bases[index]! / 2)
+    })
+    // Still doubling before the cap is reached.
+    expect(waits[1]! / waits[0]!).toBeGreaterThan(1.9)
+    expect(waits[2]! / waits[1]!).toBeGreaterThan(1.9)
+    stop()
+  })
+})
