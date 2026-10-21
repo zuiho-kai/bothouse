@@ -363,7 +363,7 @@ func (c TaskCardCfg) withDefaults() TaskCardCfg {
 		return v
 	}
 	return TaskCardCfg{
-		OpenAfter:  def(c.OpenAfter, 5*time.Second),
+		OpenAfter:  def(c.OpenAfter, 0), // off: only tool calls open a card (reply latency is not a task signal)
 		Heartbeat:  def(c.Heartbeat, 10*time.Second),
 		StallAfter: def(c.StallAfter, 180*time.Second),
 	}
@@ -372,7 +372,7 @@ func (c TaskCardCfg) withDefaults() TaskCardCfg {
 // TaskCardCfg — when a turn gets a task card and how the gateway keeps it alive.
 // Zero value = defaults (see defaultTaskCardCfg); set a field negative to turn it off.
 type TaskCardCfg struct {
-	OpenAfter  time.Duration // open a card once a turn runs this long without a reply (no tool call needed)
+	OpenAfter  time.Duration // opt-in: also open a card once a turn runs this long (default off; tool calls always open one)
 	Heartbeat  time.Duration // refresh the running card this often, with no model cooperation
 	StallAfter time.Duration // mark the card stalled after this long with no new agent event
 }
@@ -5544,6 +5544,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// flight, time since the last event, stall mark) without any model cooperation.
 	tc := e.display.TaskCard.withDefaults()
 	cp.stallAfter = tc.StallAfter
+	cp.lazy = true // only a tool call (or opt-in OpenAfter) opens the card; chat never does
 	var heartbeatTick <-chan time.Time
 	if cp.Active() && cp.style == progressStyleCard && tc.Heartbeat > 0 {
 		iv := tc.Heartbeat

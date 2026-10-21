@@ -1737,19 +1737,17 @@ func TestProcessInteractiveEvents_CardProgressUsesCardTemplate(t *testing.T) {
 	if !strings.Contains(starts[0], "**Progress**") {
 		t.Fatalf("start preview should contain fallback progress title, got %q", starts[0])
 	}
-	if !strings.Contains(starts[0], "1.") {
-		t.Fatalf("start preview should contain first item index, got %q", starts[0])
+	// the card opens on the tool call and includes the thinking seen before it
+	if !strings.Contains(starts[0], "1.") || !strings.Contains(starts[0], "2.") {
+		t.Fatalf("start preview should contain both items, got %q", starts[0])
+	}
+	if !strings.Contains(starts[0], "🔧 Run · echo hi") {
+		t.Fatalf("start preview should contain the short tool line, got %q", starts[0])
 	}
 
 	edits := p.getPreviewEdits()
-	if len(edits) != 2 || edits[1] != "done" {
-		t.Fatalf("preview edits = %#v, want progress update then reply finish", edits)
-	}
-	if !strings.Contains(edits[0], "2.") {
-		t.Fatalf("updated preview should contain second item index, got %q", edits[0])
-	}
-	if !strings.Contains(edits[0], "echo hi") {
-		t.Fatalf("updated preview should contain tool command, got %q", edits[0])
+	if len(edits) != 1 || edits[0] != "done" {
+		t.Fatalf("preview edits = %#v, want only the reply finish", edits)
 	}
 }
 
@@ -1877,8 +1875,8 @@ func TestProcessInteractiveEvents_CardProgressUsesStructuredPayloadWhenSupported
 	if !ok {
 		t.Fatalf("start preview should parse as structured payload, got %q", starts[0])
 	}
-	if len(startPayload.Items) != 1 {
-		t.Fatalf("start payload items = %d, want 1", len(startPayload.Items))
+	if len(startPayload.Items) != 2 { // opened by the tool call, with the earlier thinking
+		t.Fatalf("start payload items = %d, want 2", len(startPayload.Items))
 	}
 	if startPayload.Items[0].Kind != ProgressEntryThinking {
 		t.Fatalf("start payload kind = %q, want %q", startPayload.Items[0].Kind, ProgressEntryThinking)
@@ -1887,24 +1885,17 @@ func TestProcessInteractiveEvents_CardProgressUsesStructuredPayloadWhenSupported
 		t.Fatalf("start payload state = %q, want %q", startPayload.State, ProgressCardStateRunning)
 	}
 
-	edits := p.getPreviewEdits()
-	if len(edits) != 3 || edits[2] != "done" {
-		t.Fatalf("preview edits = %#v, want progress update, completion and reply finish", edits)
-	}
-	updatePayload, ok := ParseProgressCardPayload(edits[0])
-	if !ok {
-		t.Fatalf("update preview should parse as structured payload, got %q", edits[0])
-	}
-	if len(updatePayload.Items) != 2 {
-		t.Fatalf("update payload items = %d, want 2", len(updatePayload.Items))
-	}
-	if !strings.Contains(updatePayload.Items[1].Text, "echo hi") {
-		t.Fatalf("second payload item should contain tool command, got %q", updatePayload.Items[1].Text)
+	if !strings.Contains(startPayload.Items[1].Text, "echo hi") {
+		t.Fatalf("second payload item should contain tool command, got %q", startPayload.Items[1].Text)
 	}
 
-	finalPayload, ok := ParseProgressCardPayload(edits[1])
+	edits := p.getPreviewEdits()
+	if len(edits) != 2 || edits[1] != "done" {
+		t.Fatalf("preview edits = %#v, want completion and reply finish", edits)
+	}
+	finalPayload, ok := ParseProgressCardPayload(edits[0])
 	if !ok {
-		t.Fatalf("final preview should parse as structured payload, got %q", edits[1])
+		t.Fatalf("final preview should parse as structured payload, got %q", edits[0])
 	}
 	if finalPayload.State != ProgressCardStateCompleted {
 		t.Fatalf("final payload state = %q, want %q", finalPayload.State, ProgressCardStateCompleted)

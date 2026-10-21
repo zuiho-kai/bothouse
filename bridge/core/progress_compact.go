@@ -273,7 +273,11 @@ type compactProgressWriter struct {
 	// board's "当前步骤"); nil = none.
 	onStep func(ProgressCardEntry)
 	// maomao fork: the "等子 agent" line currently in items/entries ("" = none).
-	waitText     string
+	waitText string
+	// Lazy open: the card is only sent once the turn is a task (a tool call, see
+	// noteToolForOpen); steps before that (thinking) are kept and shown when it opens.
+	wantOpen     bool
+	lazy         bool // set by the engine; off = open on the first step (direct writer users)
 	waitFallback string
 
 	// Gateway heartbeat: when the last agent event arrived, the tool in flight, the stall
@@ -352,7 +356,7 @@ func SuppressStandaloneToolResultEvent(p Platform) bool {
 var progressClock = time.Now
 
 // progressCardMaxEntries — maomao fork: the card shows one refreshed line, like a progress bar (upstream 10).
-var progressCardMaxEntries = 1
+var progressCardMaxEntries = ProgressCardVisibleSteps
 
 func newCompactProgressWriter(ctx context.Context, p Platform, replyCtx any, agentName string, lang Language, transform func(string) string) *compactProgressWriter {
 	w := &compactProgressWriter{
@@ -502,9 +506,19 @@ func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallbac
 	case progressStyleCard:
 		if item.Kind == ProgressEntryToolUse {
 			w.steps++
+			w.noteToolForOpen(item.Tool)
+		}
+		// One short line per step; the full command/output goes to the log only.
+		slog.Debug("progress card step", "platform", w.platform.Name(), "kind", item.Kind, "tool", item.Tool, "detail", text)
+		summary := SummarizeProgressStep(item, string(w.lang))
+		if summary == "" { // successful tool result: no output text on the card
+			if w.handle == nil || !w.renderCard() {
+				return true
+			}
+			return w.push()
 		}
 		w.items = append(w.items, item)
-		w.entries = append(w.entries, fallback)
+		w.entries = append(w.entries, summary)
 		truncated := false
 		if w.maxEntries > 0 && len(w.items) > w.maxEntries {
 			w.items = w.items[len(w.items)-w.maxEntries:]
@@ -517,6 +531,9 @@ func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallbac
 			truncated = true
 		}
 		w.truncated = truncated
+		if w.handle == nil && w.lazy && !w.wantOpen {
+			return true // not a task (yet): keep the step, send nothing
+		}
 		if !w.renderCard() {
 			return false
 		}
@@ -758,8 +775,12 @@ func (w *compactProgressWriter) Heartbeat(openAfter time.Duration) bool {
 	if !w.enabled || w.failed || w.style != progressStyleCard {
 		return false
 	}
-	if w.handle == nil && (openAfter <= 0 || w.now().Sub(w.startedAt) < openAfter) {
-		return false
+	if w.handle == nil {
+		timeDue := openAfter > 0 && w.now().Sub(w.startedAt) >= openAfter // opt-in, default off
+		if !w.wantOpen && !timeDue {
+			return false
+		}
+		w.wantOpen = true
 	}
 	w.live = w.liveState()
 	if !w.renderCard() {
@@ -840,3 +861,7 @@ func ProgressLiveLine(lang string, elapsedSec, idleSec int, current string, stal
 func renderProgressLiveLine(lang Language, elapsedSec int, live progressLive) string {
 	return ProgressLiveLine(string(lang), elapsedSec, live.idleSec, live.current, live.stalled)
 }
+
+// noteToolForOpen applies the card-open rule: any tool call (lookups included) makes the turn
+// a task and opens the card now. A turn without tools never opens one here, however slow.
+func (w *compactProgressWriter) noteToolForOpen(string) { w.wantOpen = true }

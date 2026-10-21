@@ -76,11 +76,8 @@ func buildDiscordProgressDescription(payload *core.ProgressCardPayload) string {
 		return " "
 	}
 	items := discordProgressItems(payload)
-	if payload.LineLen > 0 {
+	if payload.LineLen > 0 || payload.Steps > 0 || payload.ElapsedSec > 0 || payload.Heartbeat {
 		return buildDiscordProgressList(payload, items)
-	}
-	if payload.Steps > 0 || payload.ElapsedSec > 0 {
-		return buildDiscordProgressBarLine(payload, items)
 	}
 	lines := make([]string, 0, len(items)+1)
 	if payload.Truncated {
@@ -130,12 +127,9 @@ func buildDiscordProgressLineN(item core.ProgressCardEntry, lang string, lineLen
 	switch item.Kind {
 	case core.ProgressEntryThinking:
 		return "💭 " + trimDiscordRunes(text, n)
-	case core.ProgressEntryToolUse:
-		return "🔧 " + trimDiscordRunes(buildDiscordToolUseSummary(item, lang), n)
-	case core.ProgressEntryToolResult:
-		return "🧾 " + trimDiscordRunes(buildDiscordToolResultSummary(item, lang), n)
-	case core.ProgressEntryError:
-		return "❌ " + trimDiscordRunes(text, n)
+	case core.ProgressEntryToolUse, core.ProgressEntryToolResult, core.ProgressEntryError:
+		// one short human-readable line; tool output never goes on the card
+		return trimDiscordRunes(core.SummarizeProgressStep(item, discordStepLang(lang)), n)
 	default:
 		return "• " + trimDiscordRunes(text, n)
 	}
@@ -149,11 +143,20 @@ func buildDiscordProgressList(payload *core.ProgressCardPayload, items []core.Pr
 		Lang: payload.Lang, Steps: payload.Steps, ElapsedSec: payload.ElapsedSec, State: payload.State,
 		Heartbeat: payload.Heartbeat, IdleSec: payload.IdleSec, Current: payload.Current, Stalled: payload.Stalled,
 	}, nil)}
+	lineLen := payload.LineLen
+	if lineLen <= 0 {
+		lineLen = maxDiscordProgressLineLen
+	}
+	var steps []string
 	for _, item := range items {
-		if line := buildDiscordProgressLineN(item, payload.Lang, payload.LineLen); line != "" {
-			lines = append(lines, line)
+		if line := buildDiscordProgressLineN(item, payload.Lang, lineLen); line != "" {
+			steps = append(steps, line)
 		}
 	}
+	if len(steps) > core.ProgressCardVisibleSteps { // header + the most recent steps only
+		steps = steps[len(steps)-core.ProgressCardVisibleSteps:]
+	}
+	lines = append(lines, steps...)
 	desc := trimDiscordRunes(strings.Join(lines, "\n"), maxDiscordProgressDescLen)
 	if strings.TrimSpace(desc) == "" {
 		return " "
@@ -455,4 +458,11 @@ func buildDiscordProgressBarLine(payload *core.ProgressCardPayload, items []core
 		}
 	}
 	return head
+}
+
+func discordStepLang(lang string) string {
+	if strings.HasPrefix(normalizeDiscordProgressLang(lang), "zh") {
+		return "zh"
+	}
+	return "en"
 }
