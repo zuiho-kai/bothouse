@@ -31,7 +31,7 @@ export function roomOf(frame, store) {
   const candidates = [frame.reply_ctx, typeof sk === 'string' && sk.includes(':') ? sk.split(':')[1] : undefined];
   for (let raw of candidates) {
     if (typeof raw !== 'string') continue;
-    if (raw.startsWith('room-')) raw = raw.slice(5);
+    if (raw.startsWith('room-')) raw = raw.slice(5).replace(/:epoch-[0-9]+$/, '');
     if (/^\d+$/.test(raw) && store.room(Number(raw)) !== undefined) return Number(raw);
   }
   return undefined;
@@ -140,7 +140,7 @@ export class CloudWebGateway {
 
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
+    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0 || !this.hub.canDispatch(msg)) return;
     const fromAgent = msg.author_kind === 'role';
     let text = msg.text;
     if (fromAgent) {
@@ -161,7 +161,7 @@ export class CloudWebGateway {
       else if (hit && !content) content = BARE_MENTION;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
+        user_id: msg.author, user_name: msg.name, content, reply_ctx: this.replyContext(msg.room_id),
         mentioned: hit, from_bot: fromAgent,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
@@ -172,6 +172,19 @@ export class CloudWebGateway {
 
   async fromBot(bot, d) {
     const { member } = bot;
+    // No cancel acknowledgement exists in CWIP. Fence old output using the
+    // opaque reply_ctx cc-connect echoes, even after the room continues.
+    const room = roomOf(d, this.hub.store);
+    // Preview edits carry a handle, not reply_ctx; validate the stored row below.
+    if (room !== undefined && d.type !== 'update_message' && d.type !== 'delete_message') {
+      const c = this.hub.store.control(room);
+      if (c.stopped || (c.epoch > 0 && d.reply_ctx !== this.replyContext(room))) {
+        if (d.type === 'preview_start' && typeof d.ref_id === 'string') {
+          send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: '' });
+        }
+        return;
+      }
+    }
     switch (d.type) {
       case 'ping': send(bot.ws, { type: 'pong' }); return;
       case 'reply': {
@@ -209,6 +222,8 @@ export class CloudWebGateway {
       case 'delete_message': {
         const h = d.preview_handle;
         if (typeof h !== 'string' || !/^\d+$/.test(h)) return;
+        const message = this.hub.store.message(Number(h));
+        if (message !== undefined && !this.hub.canDispatch(message)) return;
         if (d.type === 'delete_message') { this.hub.remove(Number(h), 'role', member.id); return; }
         const body = this.body(d.content);
         if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
@@ -216,6 +231,17 @@ export class CloudWebGateway {
       }
       default:
     }
+  }
+
+  replyContext(roomId) {
+    const epoch = this.hub.store.control(roomId).epoch;
+    return roomKey(roomId) + (epoch ? `:epoch-${epoch}` : '');
+  }
+
+  stopRoom(roomId) {
+    const outputOnly = [...this.bots.keys()].filter(id => this.hub.thinking.get(roomId)?.has(id));
+    for (const { member } of this.bots.values()) this.hub.setThinking(roomId, member.id, false);
+    return outputOnly;
   }
 
   body(content) {

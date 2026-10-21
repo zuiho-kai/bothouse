@@ -8,11 +8,12 @@
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
 import { mentions, nameCalled } from './mentions.mjs';
+import { CollabError } from './store.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
 // Agent-to-agent relay cap: after this many agent messages in a row without a
-// human message, agent mentions stop starting DSH turns (prevents loops with bots).
+// human message, agent mentions stop dispatching turns (including external bots).
 export const DEFAULT_MAX_RELAY = 6;
 
 /** Final reply text of a turn: the last non-empty assistant message's text blocks. */
@@ -89,10 +90,12 @@ export class DshMembers {
    * @param hub - Hub instance.
    * @param runtime - { ctx, createUserMessage, workspacePath, logger }.
    * @param members - [{ id, name, agentPreset?, permissionPreset?, model?: { provider, model } }].
-   * @param options - { maxRelay? }.
+   * @param options - { maxRelay?, stopTimeoutMs? }.
    */
-  constructor(hub, runtime, members, { maxRelay = DEFAULT_MAX_RELAY } = {}) {
-    this.maxRelay = maxRelay;
+  constructor(hub, runtime, members, { maxRelay = DEFAULT_MAX_RELAY, stopTimeoutMs = 5_000 } = {}) {
+    hub.maxRelay = maxRelay;
+    this.stopTimeoutMs = stopTimeoutMs;
+    this.stopping = new Map();
     this.hub = hub;
     this.store = hub.store;
     this.rt = runtime;
@@ -159,17 +162,11 @@ export class DshMembers {
    * accepted @ always has its job. Returns the post-commit continuation.
    */
   plan(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null) return undefined;
+    if (msg.author_kind === 'system' || msg.card !== null || !this.hub.canDispatch(msg)) return undefined;
     const hit = mentions(msg.text, this.hub.routable());
     const targets = [...this.config.keys()].filter(id => id !== msg.author
       && (hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
     if (targets.length === 0) return undefined;
-    if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
-      return () => this.hub.post(msg.room_id, {
-        authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
-        text: `Agent 之间已经连续接力 ${this.maxRelay} 次以上，暂停自动接力；需要继续请人来 @。`,
-      });
-    }
     const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
     return () => { for (const job of jobs) this.enqueue(job, () => this.run(job.id)); };
   }
@@ -192,7 +189,7 @@ export class DshMembers {
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
     const agent = await this.ensureAgent(member, room);
-    if (this.closed) return;
+    if (this.closed || this.store.job(jobId)?.state !== 'pending') return;
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
@@ -226,6 +223,11 @@ export class DshMembers {
   }
 
   finish(job, member, { events, reason }) {
+    if (!['pending', 'sent'].includes(this.store.job(job.id)?.state)) return;
+    if (reason?.kind === 'aborted' && reason.reason?.kind === 'user') {
+      this.fail(job.id, `${member.name} 已停止。`, 'interrupted');
+      return;
+    }
     const text = finalText(events);
     if (text === undefined) {
       this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
@@ -247,6 +249,68 @@ export class DshMembers {
     this.hub.post(job.room_id, {
       authorKind: 'system', author: 'system', name: 'system', text: notice, clientKey: `dsh-job-${jobId}-${state}`,
     });
+  }
+
+  requireRoom(roomId) {
+    if (this.store.room(roomId) === undefined) throw new CollabError('room-missing', 'room not found');
+  }
+
+  stopRoom(roomId) {
+    this.requireRoom(roomId);
+    if (this.stopping.has(roomId)) return this.stopping.get(roomId);
+    this.hub.stopRoom(roomId);
+    const stopping = this.cancelRoomJobs(roomId).finally(() => this.stopping.delete(roomId));
+    this.stopping.set(roomId, stopping);
+    return stopping;
+  }
+
+  async cancelRoomJobs(roomId) {
+    const jobs = this.store.openJobs().filter(j => j.room_id === roomId);
+    // Do this synchronously, before callbacks or awaits can release a queued job.
+    this.store.transaction(() => { for (const job of jobs) this.store.finishJob(job.id, 'interrupted'); });
+    const results = await Promise.all(jobs.filter(j => j.state === 'sent').map(async job => {
+      const agent = this.rt.ctx.agents.get(job.session_id);
+      const watcher = this.watching.get(job.session_id);
+      let timer;
+      try {
+        if (agent === undefined) return { member: job.member_id, outcome: 'not-loaded' };
+        const events = agent.session.snapshotEvents(job.seq_before);
+        const consumed = consumingTurn(events, job.input_id);
+        // inbox/claimed precedes user/message while input assembly awaits I/O.
+        const claimedTurn = watcher?.jobId === job.id ? watcher.turn : undefined;
+        const active = consumed ? consumed.end === undefined : claimedTurn !== undefined
+          && !events.some(e => e.type === 'turn/end' && e.data?.turn === claimedTurn);
+        // Withdraw only our input. Never clear the Web UI's queued messages.
+        agent.inbox.remove(job.input_id);
+        if (!active) return { member: job.member_id, outcome: 'withdrawn' };
+        agent.cancel({ kind: 'user' }, { keepInbox: true });
+        const idle = Promise.resolve(agent.whenIdle()).then(() => 'idle');
+        const timeout = new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), this.stopTimeoutMs); });
+        return { member: job.member_id, outcome: await Promise.race([idle, timeout]) };
+      } catch (error) {
+        this.rt.logger.warn('collab: stop job %d failed: %s', job.id, error?.message ?? error);
+        return { member: job.member_id, outcome: 'error' };
+      } finally {
+        clearTimeout(timer);
+        if (watcher?.jobId === job.id) {
+          if (this.watching.get(job.session_id) === watcher) this.watching.delete(job.session_id);
+          watcher.resolve(INTERRUPTED);
+        }
+        this.hub.setThinking(roomId, job.member_id, false);
+      }
+    }));
+    for (const id of this.config.keys()) this.hub.setThinking(roomId, id, false);
+    const unconfirmed = results.filter(r => ['timeout', 'error', 'not-loaded'].includes(r.outcome)).map(r => r.member);
+    if (jobs.length && !this.closed) this.hub.post(roomId, { authorKind: 'system', author: 'system', name: 'system',
+      text: unconfirmed.length ? '频道接力已停止；部分任务尚未确认退出，迟到回复将被忽略。' : '已停止。',
+    });
+    return { room_id: roomId, stopped: true, cancelled_jobs: jobs.length, unconfirmed };
+  }
+
+  continueRoom(roomId) {
+    this.requireRoom(roomId);
+    if (this.stopping.has(roomId)) throw new CollabError('conflict', 'room is still stopping');
+    return this.hub.continueRoom(roomId);
   }
 
   /** Live Agent for (member, room): loaded, resumed, or newly created and bound. */
@@ -345,17 +409,24 @@ export class DshMembers {
    */
   recover() {
     for (const job of this.store.openJobs()) {
+      // A crash may occur after the durable room fence but before job cleanup.
+      // Never resume those inputs simply because their job row is still open.
+      if (!this.hub.canDispatch({ room_id: job.room_id, id: job.trigger_id })) {
+        this.store.finishJob(job.id, 'interrupted');
+        continue;
+      }
       this.enqueue(job, () => (job.state === 'pending' ? this.run(job.id) : this.settleSent(job)));
     }
   }
 
   /** Settle one job that was sent before a restart, without sending it again. */
   async settleSent(job) {
+    if (this.store.job(job.id)?.state !== 'sent') return;
     const member = this.config.get(job.member_id);
     const interrupted = (why) => this.fail(job.id, `${member?.name ?? job.member_id} 上次被重启打断，${why}，需要的话请重新 @。`, 'interrupted');
     if (member === undefined || !job.input_id) { interrupted('这条没有完成'); return; }
     const agent = await this.liveAgent(job.session_id, member);
-    if (this.closed) return;
+    if (this.closed || this.store.job(job.id)?.state !== 'sent') return;
     const consumed = consumingTurn(agent.session.snapshotEvents(job.seq_before), job.input_id);
     if (consumed === undefined) {
       // Not consumed: withdraw it if still pending. Only a running Agent can be
@@ -374,6 +445,9 @@ export class DshMembers {
   /** Stop taking work and release waiters; open jobs stay for the next start's recovery. */
   async close() {
     this.closed = true;
+    // Stop operations have their own bounded deadline; let their store access
+    // finish before the plugin closes SQLite.
+    await Promise.allSettled(this.stopping.values());
     for (const w of this.watching.values()) w.resolve(INTERRUPTED);
     this.watching.clear();
     // A queue still waiting on the host (for example a resume during shutdown) must not block unload forever.

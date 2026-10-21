@@ -1,5 +1,13 @@
 # 共栖当前交接
 
+## 2026-10-22：Issue #8，停止/继续后端草稿（G哥，未部署）
+
+分支 feat/8-room-stop-continue；仅实现 dsh/collab 后端，不改其他人的组件/数据源。新增 owner 登录保护的 stop/continue POST，保留 Web UI inbox、撤回频道输入、5 秒取消等待上限、已停止文案、持久房间暂停/接力预算、cloud_web 旧输出隔离。接口和暂停语义见 dsh/collab/README.md。schema 3→4 升级在事务中执行，旧版本回滚需要数据库备份。
+
+实际验证：Node v26.11.1 下后端 40/40（含本地 HTTP 入口、SQLite 重开、取消超时、迟到回复、外部 bot 接力）；现有前端数据源/提及 vitest 11/11。开发中回归先失败：已 claimed 未记 user/message 时 cancellation 次数 0≠1；重复 continue 将 relay_after 改成 3≠2，修后均通过。Go 全量检查仍在运行，结果补到 PR，不能视为已通过。
+
+这是作者自查，没有独立审核。DSH Agent 和 WebSocket 使用测试替身，未在真实 DSH host/模型或浏览器验收。前端停止/继续按钮等待 #6 组件结构，在同一 PR 补齐；Issue #8 未完成。所有 PR 等 owner 审核，禁止合并、部署。
+
 ## 2026-10-22：Issue #13，Discord 连接未就绪时看板维护崩溃
 
 本机部署 main `c96c2ac` 时，Gateway 首次连接 EOF 后重试；十秒后的旧看板清理把 nil `*discordgo.Session` 转成非 nil 的 `boardAPI` 接口，在 discordgo REST 调用里崩溃。已自动回滚原二进制并核验五个桥接心跳及配置、会话、定时任务连续性。

@@ -6,7 +6,7 @@ import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason } from './dsh-member.mjs';
-import { resolveConfig } from './plugin.mjs';
+import { resolveConfig, roomActionRoute } from './plugin.mjs';
 import { Roster } from './roster.mjs';
 import { promptText } from './dsh-member.mjs';
 
@@ -158,7 +158,7 @@ test('progress card payload becomes a titled card', () => {
  * user/message (same id), assistant messages, turn/end — and feeds each event
  * to the driver like the root session/event listener does.
  */
-function fakeDsh() {
+function fakeDsh({ emitDiscarded = false } = {}) {
   const sessions = new Map();
   const made = [];
   let ids = 0;
@@ -167,9 +167,14 @@ function fakeDsh() {
     const session = { id, events: [], get seq() { return this.events.length; }, snapshotEvents(from = 0) { return this.events.slice(from); }, requestHeader() { return undefined; } };
     const pending = [];
     const agent = {
-      session, prompts: [], turns: 0, ctx: { on() {} },
+      session, prompts: [], turns: 0, cancellations: [], ctx: { on() {} },
+      cancel(cause, options) {
+        this.cancellations.push({ cause, options });
+        emit(this, 'turn/end', { turn: this.turns, reason: { kind: 'aborted', reason: cause } });
+      },
+      async whenIdle() {},
       followup(m) { this.prompts.push(m); pending.push(m); },
-      inbox: { get nextTurn() { return pending; }, remove(id) { const i = pending.findIndex(m => m.id === id); if (i < 0) return false; pending.splice(i, 1); return true; } },
+      inbox: { get nextTurn() { return pending; }, remove(id) { const i = pending.findIndex(m => m.id === id); if (i < 0) return false; pending.splice(i, 1); if (emitDiscarded) members?.onDiscarded(session.id, id); return true; } },
     };
     sessions.set(id, agent);
     return agent;
@@ -203,7 +208,7 @@ function fakeDsh() {
     const n = ++agent.turns;
     emit(agent, 'turn/start', { turn: n });
     if (input !== undefined) {
-      agent.inbox.remove(input.id);
+      agent.inbox.nextTurn.splice(agent.inbox.nextTurn.findIndex(m => m.id === input.id), 1);
       members?.onClaimed(agent.session.id, input.id, n);
       emit(agent, 'user/message', input);
     }
@@ -219,6 +224,223 @@ function fakeDsh() {
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+
+const ask = (hub, text = '@DeepSeek work', room = 1) => hub.post(room, { authorKind: 'user', author: 'owner', name: '我', text });
+
+test('stop: cancels active and queued channel jobs, preserves Web UI inbox and other rooms', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const dsh = fakeDsh(); const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, ['partial @DeepSeek'], null);
+  agent.followup({ id: 'web-ui', content: [] });
+  ask(hub); ask(hub, '@DeepSeek other', 2); await settle();
+  const stopping = members.stopRoom(1);
+  assert.equal(members.stopRoom(1), stopping);
+  assert.throws(() => members.continueRoom(1), /still stopping/);
+  const result = await stopping; await settle();
+  assert.equal(result.cancelled_jobs, 2); assert.deepEqual(result.unconfirmed, []);
+  assert.deepEqual(agent.cancellations, [{ cause: { kind: 'user' }, options: { keepInbox: true } }]);
+  assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), ['web-ui']);
+  assert.equal(agent.prompts.length, 2, 'pending channel job was never admitted');
+  assert.equal(hub.thinking.get(1).size, 0); assert.equal(hub.thinking.get(2).has('ds'), true);
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text.includes('partial')), false);
+  await members.close();
+});
+
+test('stop: withdrawing queued input receives discarded, never cancels unrelated Web UI turn', async () => {
+  const hub = makeHub(); const dsh = fakeDsh({ emitDiscarded: true });
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.emit(agent, 'turn/start', { turn: 99 });
+  dsh.emit(agent, 'user/message', { id: 'web-active' });
+  agent.followup({ id: 'web-pending' });
+  let discarded = 0;
+  const realDiscard = members.onDiscarded.bind(members);
+  members.onDiscarded = (...args) => { discarded++; realDiscard(...args); };
+  await members.stopRoom(1); await settle();
+  assert.equal(discarded, 1); assert.equal(agent.cancellations.length, 0);
+  assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), ['web-pending']);
+  assert.equal(members.watching.size, 0); assert.equal(hub.store.openJobs().length, 0);
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '已停止。');
+  await members.close();
+});
+
+test('stop: claimed input before user/message logging is still cancelled', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.emit(agent, 'turn/start', { turn: ++agent.turns });
+  const input = agent.inbox.nextTurn.shift();
+  members.onClaimed(agent.session.id, input.id, agent.turns);
+  await members.stopRoom(1);
+  assert.equal(agent.cancellations.length, 1);
+  await members.close();
+});
+
+test('stop: inbox.remove without a discarded event still releases the waiter', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  await members.stopRoom(1); await settle();
+  assert.equal(agent.inbox.nextTurn.length, 0);
+  assert.equal(members.watching.size, 0);
+  assert.equal(hub.thinking.get(1).size, 0);
+  await members.close();
+});
+
+test('stop: durable room fence survives reopen and prevents crash-gap job recovery', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-stop-')), 'store.sqlite');
+  const store = new Store(path); store.ensureRoom(1, 'general');
+  const hub = makeHubFrom(store);
+  const trigger = ask(hub).message;
+  store.addJob('ds', 1, trigger.id);
+  hub.stopRoom(1); store.close();
+  const reopened = new Store(path); const h2 = makeHubFrom(reopened);
+  assert.equal(reopened.control(1).stopped, 1);
+  const dsh = fakeDsh(); const members = dsh.attach(h2, [{ id: 'ds', name: 'DeepSeek' }]);
+  members.recover(); await settle();
+  assert.equal(reopened.openJobs().length, 0); assert.equal(dsh.made.length, 0);
+  assert.equal(dsh.ctx.agents.resumes, 0);
+  members.continueRoom(1); ask(h2); await settle(); assert.equal(dsh.made.length, 1);
+  await members.close(); reopened.close();
+});
+
+test('continue: cloud bot relay cap resumes delivery exactly once', async () => {
+  const hub = makeHub(); hub.maxRelay = 0;
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const a = connect(gw, 'bot=a&name=Alpha'); const b = connect(gw, 'bot=b&name=Beta');
+  a.frame({ type: 'reply', reply_ctx: 'room-1', content: '@Beta next', agent: true });
+  await settle(); assert.equal(b.of('message').length, 0);
+  assert.equal(hub.continueRoom(1).resumed, 1); await settle();
+  assert.equal(b.of('message').length, 1); assert.equal(b.of('message')[0].mentioned, true);
+  hub.continueRoom(1); await settle(); assert.equal(b.of('message').length, 1);
+});
+
+test('stop: shutdown waits for bounded cancellation before SQLite closes', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 20 });
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null); agent.cancel = () => {}; agent.whenIdle = () => new Promise(() => {});
+  const stopping = members.stopRoom(1);
+  await members.close(); hub.store.close();
+  assert.deepEqual((await stopping).unconfirmed, ['ds']);
+});
+
+test('stop: cancellation timeout clears thinking within budget and fences late output', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 25 });
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null);
+  agent.cancel = () => {}; agent.whenIdle = () => new Promise(() => {});
+  const start = Date.now(); const result = await members.stopRoom(1);
+  assert.ok(Date.now() - start < 1000); assert.deepEqual(result.unconfirmed, ['ds']);
+  assert.equal(hub.thinking.get(1).size, 0);
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: 'late @DeepSeek' }] } });
+  dsh.emit(agent, 'turn/end', { turn: 1, reason: { kind: 'completed' } });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === 'late @DeepSeek'), false);
+  assert.equal(hub.store.openJobs().length, 0);
+  await members.close();
+});
+
+test('stop: unloaded agent is not resumed and an in-flight create cannot admit cancelled work', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  dsh.sessions.delete(dsh.made[0]);
+  assert.deepEqual((await members.stopRoom(1)).unconfirmed, ['ds']);
+  assert.equal(dsh.ctx.agents.resumes, 0);
+  await members.close();
+  const h2 = makeHub(); const d2 = fakeDsh(); const m2 = d2.attach(h2, [{ id: 'ds', name: 'DeepSeek' }]);
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const create = d2.ctx.agents.create.bind(d2.ctx.agents);
+  d2.ctx.agents.create = async o => { const a = await create(o); await gate; return a; };
+  ask(h2); await settle(); await m2.stopRoom(1); release(); await settle();
+  assert.equal(d2.sessions.get(d2.made[0]).prompts.length, 0);
+  await m2.close();
+});
+
+test('continue: relay cap resumes one delivery, without duplicate history or repeat budget resets', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { maxRelay: 0 });
+  hub.setMember({ id: 'bot', name: 'Bot', kind: 'bot' });
+  hub.post(1, { authorKind: 'role', author: 'bot', name: 'Bot', text: '@DeepSeek resume me' });
+  await settle(); assert.equal(dsh.made.length, 0);
+  const history = hub.store.page(1, undefined, 50);
+  assert.equal(members.continueRoom(1).resumed, 1); await settle();
+  assert.equal(dsh.sessions.get(dsh.made[0]).prompts.length, 1);
+  const control = hub.store.control(1);
+  hub.post(1, { authorKind: 'system', author: 'system', name: 'system', text: 'notice' });
+  assert.equal(members.continueRoom(1).resumed, 0);
+  assert.equal(hub.store.control(1).relay_after, control.relay_after);
+  assert.deepEqual(hub.store.page(1, undefined, 50).slice(0, history.length), history);
+  await members.close();
+});
+
+test('cloud-web: stop fences old replies, typing and previews through continue', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  bot.frame({ type: 'preview_start', ref_id: 'old', reply_ctx: 'room-1', content: 'old preview' });
+  const handle = bot.of('preview_ack').at(-1).preview_handle;
+  bot.frame({ type: 'typing_start', reply_ctx: 'room-1' });
+  hub.stopRoom(1); gw.stopRoom(1);
+  for (const continuing of [false, true]) {
+    if (continuing) hub.continueRoom(1);
+    bot.frame({ type: 'reply', reply_ctx: 'room-1', content: 'stale reply' });
+    bot.frame({ type: 'typing_start', reply_ctx: 'room-1' });
+    bot.frame({ type: 'preview_start', ref_id: 'late', reply_ctx: 'room-1', content: 'late preview' });
+    bot.frame({ type: 'update_message', preview_handle: handle, content: 'stale edit' });
+    await settle();
+    assert.equal(hub.thinking.get(1).size, 0);
+    assert.equal(bot.of('preview_ack').at(-1).preview_handle, '');
+    assert.deepEqual(hub.store.page(1, undefined, 50).map(m => m.text), ['old preview']);
+  }
+  ask(hub, '@Bot new'); await settle();
+  const ctx = bot.of('message').at(-1).reply_ctx;
+  assert.equal(ctx, 'room-1:epoch-1');
+  bot.frame({ type: 'reply', reply_ctx: ctx, content: 'fresh reply' }); await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, 'fresh reply');
+  bot.frame({ type: 'preview_start', ref_id: 'fresh', reply_ctx: ctx, content: 'new preview' });
+  const freshHandle = bot.of('preview_ack').at(-1).preview_handle;
+  bot.frame({ type: 'update_message', session_key: 'cloud_web:room-1:owner', preview_handle: freshHandle, content: 'new edit' });
+  await settle();
+  assert.equal(hub.store.message(Number(freshHandle)).text, 'new edit');
+  bot.frame({ type: 'delete_message', session_key: 'cloud_web:room-1:owner', preview_handle: freshHandle });
+  await settle();
+  assert.equal(hub.store.message(Number(freshHandle)), undefined);
+});
+
+test('room action HTTP: auth, method, missing room, empty POST, stop/continue conflict', async t => {
+  const { createServer } = await import('node:http');
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
+  const server = createServer((req, res) => { roomActionRoute(req, res, {
+    owner: r => r.headers.authorization === 'test', dsh: members, gateway: { stopRoom() {} },
+  }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(e => { res.writeHead(500); res.end(String(e)); }); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await members.close(); });
+  const url = 'http://127.0.0.1:' + server.address().port + '/collab/api/rooms/';
+  const call = (path, options = {}) => fetch(url + path, { method: 'POST', headers: { authorization: 'test' }, ...options });
+  assert.equal((await call('1/stop', { headers: {} })).status, 401);
+  assert.equal((await call('1/stop', { method: 'GET' })).status, 405);
+  assert.equal((await call('99/stop')).status, 404);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]); dsh.turn(agent, [], null);
+  agent.cancel = () => {}; agent.whenIdle = () => new Promise(() => {});
+  const stopping = call('1/stop');
+  const deadline = Date.now() + 2000;
+  while (!members.stopping.has(1) && Date.now() < deadline) await tick();
+  assert.equal(members.stopping.has(1), true, 'HTTP stop reached the driver');
+  assert.equal((await call('1/continue')).status, 409);
+  assert.deepEqual((await (await stopping).json()).unconfirmed, ['ds']);
+  assert.equal((await call('1/continue')).status, 200);
+  assert.equal((await call('1/stop')).status, 200);
+});
 
 test('DSH member: @ admits one prompt, its turn posts the reply, duplicates never re-run', async () => {
   const hub = makeHub();
@@ -313,7 +535,7 @@ test('DSH member: a discarded input ends its job and frees the queue', async () 
   assert.equal(agent.prompts.length, 2, 'the next job still runs');
 });
 
-test('DSH member: partial text of an aborted turn is posted with an unfinished marker', async () => {
+test('DSH member: user cancellation reports stopped without publishing partial text', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
@@ -321,7 +543,7 @@ test('DSH member: partial text of an aborted turn is posted with an unfinished m
   await settle();
   dsh.turn(dsh.sessions.get(dsh.made[0]), ['第一段'], { kind: 'aborted', reason: { kind: 'user' } });
   await settle();
-  assert.equal(hub.store.page(1, undefined, 1)[0].text, '第一段\n\n（这一轮没有正常结束：aborted：user）');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, 'DeepSeek 已停止。');
 });
 
 test('DSH member: a failed admission reports the error and leaves no stale watcher', async () => {
@@ -462,7 +684,7 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   const v2 = new Store(path);
   v2.ensureRoom(1, 'general');
   v2.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
-  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; PRAGMA user_version = 1');
+  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; DROP TABLE relay_blocked; DROP TABLE room_controls; PRAGMA user_version = 1');
   v2.close();
   const raw = new DatabaseSync(path);
   assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);

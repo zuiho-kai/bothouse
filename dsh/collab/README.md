@@ -103,6 +103,21 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 
 ## 验证
 
+### 停止和继续接口（Issue #8，前端按钮待接入）
+
+两个接口沿用 DSH 登录校验，只接受 POST，可发空 body：
+
+- `/collab/api/rooms/{id}/stop`：先持久化频道暂停和旧消息截止点，再将该频道 pending/sent jobs 标为 interrupted。仅撤回频道自己的 inbox input；对已加载且正在处理该输入的 Agent 调 `cancel({kind:'user'}, {keepInbox:true})`。不会为了停止去 resume Session。
+- `/collab/api/rooms/{id}/continue`：解除暂停并重置接力预算；到上限时暂存的触发消息只重新派发一次，不重复写历史。手动停止取消的 jobs 不重跑；暂停期间新消息只进历史，继续后不自动补投，需要重新 @。
+
+stop 返回 `{room_id, stopped:true, cancelled_jobs, unconfirmed, output_only}`。每个 DSH Agent 最多等待 5 秒，超时也清除 thinking，并把未确认退出的成员 id 放进 unconfirmed；这不代表其底层工具已结束。用户取消显示「已停止」，半截回答不触发下一轮接力。continue 返回 `{room_id, resumed, stopped:false}`；重复调用不会再投递或重置预算；停止请求尚在收尾时返回 409。未登录为 401、房间不存在为 404、非 POST 为 405。
+
+cloud_web 没有停止确认协议：这里只清显示状态，并按 reply_ctx 的 epoch 屏蔽旧回复/typing/preview。停止时仍显示工作中的外部 bot 列入 output_only，不能将其当作底层已取消。新请求的 chat_id 不变，reply_ctx 变为 `room-N:epoch-E`；客户端须原样回显。预览编辑/删除没有 reply_ctx，按原消息 id 与停止截止点校验。
+
+`GET /collab/api/state` 增加 room_controls；SSE 增加 `{type:'room_control',room_id,stopped,epoch,cutoff,relay_after}`。接力上限提示的 card 为 `{type:'relay_limit',room_id}`，供同一 PR 后续前端接继续按钮。暂停状态和接力待续消息持久化，迁移为 SQLite schema 4；回滚到旧代码需同时恢复升级前数据库备份。
+
+测试使用真实 SQLite、Hub 和本地 HTTP 服务，DSH Agent / WebSocket 为测试替身。pin 的 Inbox.remove 只移除输入、不发 discarded 事件；实现不依赖该事件，测试同时覆盖有/无事件。尚未在真实 DSH host、真实模型或浏览器上验收，不等于已部署。
+
 ~~~sh
 node --test dsh/collab/*.test.mjs
 ~~~

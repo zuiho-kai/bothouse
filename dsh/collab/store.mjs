@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export class Store {
   constructor(path) {
@@ -15,8 +15,16 @@ export class Store {
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
-    if (version < SCHEMA_VERSION) this.migrate(version);
+    if (version < SCHEMA_VERSION) this.transaction(() => this.migrate(version));
     this.q = {
+      control: this.db.prepare('SELECT * FROM room_controls WHERE room_id = ?'),
+      controlWrite: this.db.prepare(`INSERT INTO room_controls (room_id, stopped, epoch, cutoff, relay_after)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET stopped=excluded.stopped,
+        epoch=excluded.epoch, cutoff=excluded.cutoff, relay_after=excluded.relay_after`),
+      block: this.db.prepare('INSERT OR IGNORE INTO relay_blocked (room_id, message_id) VALUES (?, ?)'),
+      blocked: this.db.prepare('SELECT message_id FROM relay_blocked WHERE room_id = ? ORDER BY message_id'),
+      clearBlocked: this.db.prepare('DELETE FROM relay_blocked WHERE room_id = ?'),
+      latest: this.db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE room_id = ?'),
       room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
@@ -29,7 +37,8 @@ export class Store {
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
       relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role'
-        AND id > COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0)`),
+        AND id > MAX(COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0),
+          COALESCE((SELECT relay_after FROM room_controls WHERE room_id = ?), 0))`),
       binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
       bind: this.db.prepare('INSERT INTO bindings (member_id, room_id, session_id, context_cursor) VALUES (?, ?, ?, 0)'),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
@@ -71,11 +80,18 @@ export class Store {
         created_at REAL NOT NULL,
         removed INTEGER NOT NULL DEFAULT 0)`);
     }
+    if (from < 4) this.db.exec(`
+      CREATE TABLE room_controls (
+        room_id INTEGER PRIMARY KEY REFERENCES rooms(id), stopped INTEGER NOT NULL,
+        epoch INTEGER NOT NULL, cutoff INTEGER NOT NULL, relay_after INTEGER NOT NULL);
+      CREATE TABLE relay_blocked (
+        room_id INTEGER NOT NULL REFERENCES rooms(id), message_id INTEGER NOT NULL REFERENCES messages(id),
+        PRIMARY KEY (room_id, message_id));`);
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
   createV1() {
-    this.db.exec(`BEGIN;
+    this.db.exec(`
       CREATE TABLE rooms (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
       CREATE TABLE messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,7 +123,7 @@ export class Store {
         reply_id INTEGER,
         created_at REAL NOT NULL,
         UNIQUE (member_id, trigger_id));
-      COMMIT;`);
+      `);
   }
 
   close() { this.db.close(); }
@@ -178,7 +194,14 @@ export class Store {
   since(roomId, afterId, limit) { return this.q.after.all(roomId, afterId ?? 0, clampLimit(limit)); }
 
   /** Agent messages posted since the last human message, up to and including messageId. */
-  relayDepth(roomId, messageId) { return this.q.relay.get(roomId, messageId, roomId, messageId).n; }
+  relayDepth(roomId, messageId) { return this.q.relay.get(roomId, messageId, roomId, messageId, roomId).n; }
+
+  control(roomId) { return this.q.control.get(roomId) ?? { room_id: roomId, stopped: 0, epoch: 0, cutoff: 0, relay_after: 0 }; }
+  writeControl(c) { this.q.controlWrite.run(c.room_id, c.stopped, c.epoch, c.cutoff, c.relay_after); }
+  latestId(roomId) { return this.q.latest.get(roomId).id; }
+  blockRelay(roomId, messageId) { this.q.block.run(roomId, messageId); }
+  blocked(roomId) { return this.q.blocked.all(roomId).map(r => this.message(r.message_id)).filter(Boolean); }
+  clearBlocked(roomId) { this.q.clearBlocked.run(roomId); }
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
   bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId); }
