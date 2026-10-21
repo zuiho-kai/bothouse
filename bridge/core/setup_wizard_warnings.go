@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -34,7 +35,10 @@ func appendUnique(list []string, v string) []string {
 func warnIntentOff(lang, bot, appID string) WizardWarning {
 	w := WizardWarning{Code: "message_content_intent_off", Project: bot, Blocking: true,
 		URL: "https://discord.com/developers/applications/" + appID + "/bot"}
-	if isZH(lang) {
+	if isJA(lang) {
+		w.Message = "ボット「" + bot + "」の Message Content Intent がオフです。メッセージ本文を読めないので、グループで返答しません。"
+		w.Fix = "リンク（Developer Portal → Bot）を開き、Message Content Intent をオンにして保存してください。セットアップのやり直しは不要で、cc-connect を再起動するだけです。"
+	} else if isZH(lang) {
 		w.Message = "机器人「" + bot + "」没开 Message Content Intent，读不到消息正文，在群里不会回话。"
 		w.Fix = "打开链接（Discord 开发者后台 → Bot），打开 Message Content Intent 并保存；不用重新跑向导，重启 cc-connect 即可。"
 	} else {
@@ -44,16 +48,209 @@ func warnIntentOff(lang, bot, appID string) WizardWarning {
 	return w
 }
 
-func warnNotInGuild(lang, bot, invite string) WizardWarning {
+// nameNote: why a bot whose name has no a-z / 0-9 gets project "role-N".
+func nameNote(lang, botName, project string) string {
+	return tr3(lang,
+		"机器人「"+botName+"」的名字里没有英文字母或数字，内部项目名用 "+project+"（项目名要用在文件夹和地址里，只能是英文字母、数字、-、_）。机器人在群里显示的名字不变。",
+		"ボット「"+botName+"」の名前には英字や数字がないため、内部のプロジェクト名は "+project+" にしました（フォルダやアドレスに使うため英字・数字・-・_ のみ）。グループでの表示名は変わりません。",
+		"Bot \""+botName+"\" has no letters a-z or digits in its name, so its internal project name is "+project+" (project names go into folders and addresses: a-z, 0-9, - and _ only). Its display name in the group does not change.")
+}
+
+func warnNotInGuild(lang, bot, invite string, dryRun bool) WizardWarning {
 	w := WizardWarning{Code: "bot_not_in_guild", Project: bot, Blocking: true, URL: invite}
-	if isZH(lang) {
+	switch {
+	case isJA(lang):
+		w.Message = "ボット「" + bot + "」はまだ選んだサーバーに入っていません。"
+		w.Fix = "招待リンクを開き、このサーバーを選んで「認証」を押してください。設定は保存済みなので、追加した後にセットアップをやり直す必要はありません。"
+		if dryRun {
+			w.Fix = "招待リンクを開き、このサーバーを選んで「認証」を押してください。今回は予行（dry run）なので何も書き込んでいません。追加した後に --dry-run を外してもう一度実行してください。"
+		}
+	case isZH(lang) && dryRun:
+		w.Message = "机器人「" + bot + "」还没进你选的服务器。"
+		w.Fix = "打开邀请链接，选这个服务器，点「授权」。这次是预演（dry run），什么都没写；拉进去之后去掉 --dry-run 正式跑一次。"
+	case isZH(lang):
 		w.Message = "机器人「" + bot + "」还没进你选的服务器。"
 		w.Fix = "打开邀请链接，选这个服务器，点「授权」。配置已经存好，拉进去以后不用重新跑向导。"
-	} else {
+	case dryRun:
+		w.Message = "Bot \"" + bot + "\" is not in the selected server yet."
+		w.Fix = "Open the invite link, pick the server and authorize. This was a dry run: nothing was written; run again without --dry-run to save."
+	default:
 		w.Message = "Bot \"" + bot + "\" is not in the selected server yet."
 		w.Fix = "Open the invite link, pick the server and authorize. The config is saved; no need to rerun setup afterwards."
 	}
 	return w
+}
+
+// warnTokenInvalid: Discord answered 401 for role n's token.
+func warnTokenInvalid(lang string, n int) WizardWarning {
+	w := WizardWarning{Code: "discord_token_invalid", Blocking: true, URL: DiscordPortalURL}
+	if isJA(lang) {
+		w.Message = fmt.Sprintf("%d 番目のボットのトークンが無効です（Discord が 401 を返しました）。入力ミス、コピー漏れ、またはリセット済みです。何も書き込んでいません。", n)
+		w.Fix = "リンク（Discord Developer Portal）を開く → アプリを選ぶ → 左の Bot → Reset Token で新しいトークンをコピーし（表示は 1 回だけ）、リクエストのトークンを置き換えてもう一度実行してください。"
+	} else if isZH(lang) {
+		w.Message = fmt.Sprintf("第 %d 个机器人的 token 无效（Discord 回 401）：填错了、没复制全，或者已经被重置过。什么都没写。", n)
+		w.Fix = "打开链接（Discord 开发者后台）→ 点你的应用 → 左边 Bot → Reset Token，复制新 token（只显示一次）换掉请求里的 token，再跑一次。"
+	} else {
+		w.Message = fmt.Sprintf("The token of bot %d is invalid (Discord answered 401): mistyped, cut off, or reset since. Nothing was written.", n)
+		w.Fix = "Open the link (Discord Developer Portal) → your application → Bot → Reset Token, copy the new token (shown once) into the request and run again."
+	}
+	return w
+}
+
+// cliLoginHow says how to log in to an agent CLI on this machine (works over SSH too: the
+// CLIs print a link to open on any device).
+func cliLoginHow(lang, agentType string) string {
+	zh := isZH(lang)
+	if isJA(lang) {
+		switch agentType {
+		case "claudecode":
+			return "このマシンのターミナルで claude auth login を実行し（または claude を起動して /login と入力）、表示に従ってログインしてください。ブラウザがない場合はリンクが表示されるので、任意の端末で開いてログインし、コードをターミナルに貼り付けます。"
+		case "codex":
+			return "このマシンのターミナルで codex login を実行し、表示に従ってログインしてください。API キーを使う場合は printenv OPENAI_API_KEY | codex login --with-api-key。"
+		case "gemini":
+			return "このマシンのターミナルで gemini を実行し、Login with Google を選んでログインしてください。"
+		case "opencode":
+			return "このマシンのターミナルで opencode auth login を実行し、表示に従ってログインしてください。"
+		}
+		return "この CLI の説明に従って、このマシンでログインしてください。"
+	}
+	switch agentType {
+	case "claudecode":
+		if zh {
+			return "在这台机器的终端运行 claude auth login（或运行 claude 后输入 /login），按提示登录；没有浏览器时它会给一个链接，在任意设备打开登录，再把码贴回终端。"
+		}
+		return "On this machine run claude auth login (or run claude and type /login) and follow the prompts; without a browser it prints a link to open on any device, then paste the code back."
+	case "codex":
+		if zh {
+			return "在这台机器的终端运行 codex login，按提示登录；用 API key 的话运行 printenv OPENAI_API_KEY | codex login --with-api-key。"
+		}
+		return "On this machine run codex login and follow the prompts; with an API key: printenv OPENAI_API_KEY | codex login --with-api-key."
+	case "gemini":
+		if zh {
+			return "在这台机器的终端运行 gemini，选 Login with Google 按提示登录。"
+		}
+		return "On this machine run gemini and choose Login with Google."
+	case "opencode":
+		if zh {
+			return "在这台机器的终端运行 opencode auth login，按提示登录。"
+		}
+		return "On this machine run opencode auth login and follow the prompts."
+	}
+	if zh {
+		return "按这个 CLI 自己的说明在这台机器上登录。"
+	}
+	return "Log in to this CLI on this machine as its own docs describe."
+}
+
+// warnAgentLogins: roles that use a CLI's own login (no provider) whose CLI is not logged in
+// (blocking: the bot would answer nothing) or whose login can't be checked (a note). One
+// warning per CLI.
+func warnAgentLogins(lang string, roles []plannedRole, clis []LocalCLI) []WizardWarning {
+	var out []WizardWarning
+	byType := map[string][]string{}
+	var order []string
+	for _, r := range roles {
+		if r.Provider != nil {
+			continue // a third-party API: the CLI's own login is not used
+		}
+		if r.reused && r.agentAsked == "" {
+			continue // an existing bot keeps its CLI, which may use a provider from config.toml
+		}
+		if _, ok := byType[r.AgentType]; !ok {
+			order = append(order, r.AgentType)
+		}
+		byType[r.AgentType] = append(byType[r.AgentType], r.Name)
+	}
+	zh := isZH(lang)
+	for _, at := range order {
+		var cli *LocalCLI
+		for i := range clis {
+			if clis[i].AgentType == at {
+				cli = &clis[i]
+				break
+			}
+		}
+		if cli == nil || (cli.Login != "not_logged_in" && cli.Login != "unknown") {
+			continue
+		}
+		label := cli.Label
+		if label == "" {
+			label = at
+		}
+		bots := strings.Join(byType[at], "、")
+		w := WizardWarning{Project: strings.Join(byType[at], ",")}
+		ja := isJA(lang)
+		after := "Then run cc-connect setup clis and check that its login is logged_in, and restart cc-connect; no need to rerun setup. Or let this role use a third-party API instead: in the web wizard, tick \"Use a third-party API instead\" on the Local CLI step and save again; from the command line, add \"provider\" to the role (see cc-connect setup matrix)."
+		if zh {
+			after = "登录后跑 cc-connect setup clis，确认它的 login 是 logged_in，再重启 cc-connect；不用重跑配置。也可以给这个角色改用第三方 API：网页向导在「本机 CLI」一步勾「改用第三方 API」，填好再保存一次；命令行在这个 role 里加 \"provider\"（见 cc-connect setup matrix）。"
+		}
+		if ja {
+			after = "ログイン後に cc-connect setup clis を実行し、login が logged_in になっていることを確認してから cc-connect を再起動してください。設定のやり直しは不要です。代わりにこのロールにサードパーティ API を使うこともできます：ウェブのウィザードでは「ローカル CLI」のステップで「代わりにサードパーティ API を使う」にチェックして入力し、もう一度保存。コマンドラインではそのロールに \"provider\" を追加（cc-connect setup matrix を参照）。"
+		}
+		if cli.Login == "not_logged_in" {
+			w.Code, w.Blocking = "agent_not_logged_in", true
+			if ja {
+				w.Message = "「" + bots + "」はこのマシンの " + label + " を使いますが、まだログインしていません。ログインするまでボットはメッセージに答えられません。"
+			} else if zh {
+				w.Message = "「" + bots + "」用本机的 " + label + "，但它还没登录：登录之前机器人收到消息也答不出来。"
+			} else {
+				w.Message = "\"" + bots + "\" use(s) this machine's " + label + ", which is not logged in: until it is, the bot cannot answer."
+			}
+		} else {
+			w.Code = "agent_login_unknown"
+			if ja {
+				w.Message = "「" + bots + "」はこのマシンの " + label + " を使いますが、ログイン状態を確認できません。ログインしていなければボットは答えられません。"
+			} else if zh {
+				w.Message = "「" + bots + "」用本机的 " + label + "，向导查不了它登没登录。没登录的话机器人答不出来。"
+			} else {
+				w.Message = "\"" + bots + "\" use(s) this machine's " + label + "; setup cannot tell whether it is logged in. If not, the bot cannot answer."
+			}
+		}
+		w.Fix = cliLoginHow(lang, at) + " " + after
+		if zh || ja {
+			w.Fix = cliLoginHow(lang, at) + after
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// replyLanguageCodes: common codes to suggest; any language code works ("Always reply in <name>.").
+const replyLanguageCodes = "zh, zh-TW, en, ja, ko, es, ru …"
+
+// warnReplyLanguageDefault tells which reply language was picked for roles nobody chose one for,
+// where it came from and how to change it (a note, not blocking).
+func warnReplyLanguageDefault(lang string, roles []plannedRole) []WizardWarning {
+	var bots []string
+	var code string
+	for _, r := range roles {
+		if r.replyFrom != "system" {
+			continue
+		}
+		if r.reused && !r.writesPersona() {
+			continue // an existing bot's persona is not touched
+		}
+		bots = append(bots, r.Name)
+		code = r.ReplyLanguage
+	}
+	if len(bots) == 0 {
+		return nil
+	}
+	w := WizardWarning{Code: "reply_language_default", Project: strings.Join(bots, ",")}
+	name := LanguageName(code)
+	if isJA(lang) {
+		w.Message = "返答言語が指定されていないため、ボット「" + strings.Join(bots, "」「") + "」は " + name + "（" + code + "）で返答します。このコンピューターのシステム言語から決めました。"
+		w.Fix = "違う場合はユーザーにどの言語にするか聞き、リクエストに \"language\": \"<コード>\"（" + replyLanguageCodes + "）を追加してもう一度実行してください。設定済みのボットはそのロールに \"reply_language\": \"<コード>\" を追加して実行すると、ペルソナの返答言語の行だけが変わります。persona_file の <!-- conest:reply-language --> の下の行を直接編集しても構いません。"
+	} else if isZH(lang) {
+		src := "这台电脑的系统语言"
+		w.Message = "没指定回复语言，机器人「" + strings.Join(bots, "、") + "」会用 " + name + "（" + code + "）回复，按" + src + "定的。"
+		w.Fix = "不对就问用户要哪种语言，在请求里加 \"language\": \"<代码>\"（" + replyLanguageCodes + "）再跑一次；已经配好的机器人在它的 role 里加 \"reply_language\": \"<代码>\" 再跑，只改人设里回复语言那一行。也可以直接改 persona_file 里 <!-- conest:reply-language --> 下面那一行。"
+	} else {
+		src := "this computer's system locale"
+		w.Message = "No reply language was given: bot(s) \"" + strings.Join(bots, "\", \"") + "\" will reply in " + name + " (" + code + "), from " + src + "."
+		w.Fix = "If that is wrong, ask the user which language and add \"language\": \"<code>\" (" + replyLanguageCodes + ") to the request and run again; for a bot already set up, add \"reply_language\": \"<code>\" to its role and run again — only the reply-language line of its persona changes. Or edit the line under <!-- conest:reply-language --> in its persona_file."
+	}
+	return []WizardWarning{w}
 }
 
 // AllowFromUnset is written to allow_from when no one is known to allow (owner lookup failed
@@ -66,7 +263,10 @@ const discordUserIDHowEN = "How: Discord Settings → Advanced → turn on Devel
 
 func warnAllowFromUnknown(lang string, bots []string) WizardWarning {
 	w := WizardWarning{Code: "allow_from_unknown", Blocking: true, Project: strings.Join(bots, ",")}
-	if isZH(lang) {
+	if isJA(lang) {
+		w.Message = "ボットの所有者が見つからず、誰の指示を聞けばよいか分かりません。安全のため、今は誰の指示も聞きません（allow_from = " + AllowFromUnset + "）。"
+		w.Fix = "ウィザード最後のページの「ボットに指示できる人」に自分の Discord ユーザー ID を入れてもう一度保存してください（AI：リクエストに \"allow_from\": \"<ユーザー ID>\" を追加）。取得方法：Discord 設定 → 詳細設定 → 開発者モードをオン、自分のアイコンを右クリック → ユーザー ID をコピー。"
+	} else if isZH(lang) {
 		w.Message = "没查到机器人的所有者，不知道该听谁的。为了安全，机器人现在谁的话都不听（allow_from = " + AllowFromUnset + "）。"
 		w.Fix = "把你自己的 Discord 用户 ID 填进向导最后一页的「谁能指挥这些机器人」（AI：请求里加 \"allow_from\": \"<你的用户 ID>\"）再保存一次。" + discordUserIDHowZH
 	} else {
@@ -91,7 +291,10 @@ func warnAllowFromEveryone(lang string) WizardWarning {
 func warnIntentUnknown(lang, bot, appID string) WizardWarning {
 	w := WizardWarning{Code: "message_content_intent_unknown", Project: bot, Blocking: true,
 		URL: "https://discord.com/developers/applications/" + appID + "/bot"}
-	if isZH(lang) {
+	if isJA(lang) {
+		w.Message = "ボット「" + bot + "」の Message Content Intent がオンか確認できませんでした（Discord のアプリ情報を取得できません）。オフだとメッセージ本文を読めません。"
+		w.Fix = "リンク（Developer Portal → Bot）を開き、Message Content Intent がオンで保存済みか確認してから、cc-connect を再起動するか、もう一度セットアップを実行して確認してください。"
+	} else if isZH(lang) {
 		w.Message = "没查到机器人「" + bot + "」的 Message Content Intent 开没开（Discord 的应用接口没回）。没开的话机器人读不到消息正文。"
 		w.Fix = "打开链接（Discord 开发者后台 → Bot），确认 Message Content Intent 已打开并保存；然后重启 cc-connect，或者再跑一次向导确认。"
 	} else {

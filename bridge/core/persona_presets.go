@@ -111,21 +111,54 @@ func PersonaPresets(lang string) []PersonaPreset {
 	return personaPresetsEN
 }
 
+// isJA: Japanese messages (wizard copy is zh / ja / en; anything else gets English).
+func isJA(lang string) bool { return strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "ja") }
+
+// tr3 picks the message for lang: zh*, ja*, else English.
+func tr3(lang, zh, ja, en string) string {
+	switch {
+	case isZH(lang):
+		return zh
+	case isJA(lang):
+		return ja
+	}
+	return en
+}
+
 func isZH(lang string) bool { return strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") }
 
 // replyLanguageMarker starts the reply-language section the wizard appends to a persona.
 const replyLanguageMarker = "<!-- conest:reply-language -->"
 
-// WithReplyLanguage replaces (or appends) the reply-language section of a persona.
-// lang "" leaves the persona unchanged.
+// WithReplyLanguage replaces the line after the reply-language marker, or appends marker + line
+// when there is none. Text the user wrote below that line is kept. lang "" leaves the persona unchanged.
 func WithReplyLanguage(persona, lang string) string {
 	lang = strings.TrimSpace(lang)
 	if lang == "" {
 		return persona
 	}
-	if i := strings.Index(persona, replyLanguageMarker); i >= 0 {
-		persona = strings.TrimRight(persona[:i], "\n")
+	line := replyLanguageLine(lang)
+	eol := "\n"
+	if strings.Contains(persona, "\r\n") { // a file saved on Windows keeps its line endings
+		eol = "\r\n"
 	}
+	if i := strings.Index(persona, replyLanguageMarker); i >= 0 {
+		rest := persona[i+len(replyLanguageMarker):]
+		rest = strings.TrimPrefix(strings.TrimPrefix(rest, "\r"), "\n")
+		after := ""
+		if j := strings.Index(rest, "\n"); j >= 0 {
+			after = rest[j+1:] // everything below the old language line (its \r goes with it)
+		}
+		return persona[:i] + replyLanguageMarker + eol + line + eol + after
+	}
+	persona = strings.TrimRight(persona, "\r\n")
+	if persona != "" {
+		persona += eol + eol
+	}
+	return persona + replyLanguageMarker + eol + line + eol
+}
+
+func replyLanguageLine(lang string) string {
 	line := "Always reply in " + languageName(lang) + "."
 	if isZH(lang) {
 		line = "无论对方用什么语言，都用中文回答。"
@@ -133,14 +166,13 @@ func WithReplyLanguage(persona, lang string) string {
 			line = "無論對方用什麼語言，都用繁體中文回答。"
 		}
 	}
-	persona = strings.TrimRight(persona, "\n")
-	if persona != "" {
-		persona += "\n\n"
-	}
-	return persona + replyLanguageMarker + "\n" + line + "\n"
+	return line
 }
 
 func languageName(lang string) string {
+	if strings.EqualFold(lang, "zh-TW") {
+		return "Traditional Chinese"
+	}
 	switch strings.ToLower(strings.SplitN(lang, "-", 2)[0]) {
 	case "en":
 		return "English"
@@ -150,10 +182,43 @@ func languageName(lang string) string {
 		return "Korean"
 	case "es":
 		return "Spanish"
+	case "fr":
+		return "French"
+	case "de":
+		return "German"
+	case "pt":
+		return "Portuguese"
 	case "ru":
 		return "Russian"
 	case "zh":
 		return "Chinese"
 	}
 	return lang
+}
+
+// LanguageName is the English name of a reply-language code ("zh" → "Chinese").
+func LanguageName(lang string) string { return languageName(NormalizeLanguage(lang)) }
+
+// NormalizeLanguage turns a locale ("zh-CN", "zh_TW.UTF-8", "pt-BR", "en-US") into the
+// reply-language code the wizard writes: "zh", "zh-TW", or the bare language ("pt", "en").
+// Traditional Chinese locales (TW, HK, MO, Hant) map to "zh-TW"; "" stays "".
+func NormalizeLanguage(locale string) string {
+	l := strings.TrimSpace(locale)
+	if i := strings.IndexAny(l, ".@"); i >= 0 {
+		l = l[:i]
+	}
+	l = strings.ReplaceAll(l, "_", "-")
+	if l == "" {
+		return ""
+	}
+	parts := strings.Split(strings.ToLower(l), "-")
+	if parts[0] == "zh" {
+		for _, p := range parts[1:] {
+			if p == "tw" || p == "hk" || p == "mo" || p == "hant" {
+				return "zh-TW"
+			}
+		}
+		return "zh"
+	}
+	return parts[0]
 }

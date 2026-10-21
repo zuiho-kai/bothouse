@@ -14,5 +14,5 @@ func (e *Engine) withAgentIdentity(prompt string) string {
 }
 
 func (e *Engine) withAgentInstructions(prompt, userID string, fromBot bool) string {
-	return e.withAgentIdentity(e.withSubagentPolicy(prompt, userID, fromBot))
+	return e.withAgentIdentity(e.withPermissionDelegateAuthority(e.withSubagentPolicy(prompt, userID, fromBot)))
 }

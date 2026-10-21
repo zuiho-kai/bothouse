@@ -46,7 +46,8 @@ export interface WizardResult {
   gate_running?: boolean; gate_hint?: string; next_steps?: string[];
   steps: { step: string; ok: boolean; detail?: string }[];
   roles: { project: string; name: string; agent_type: string; work_dir: string; persona_file: string; bot_id?: string;
-    invite_url?: string; in_guild?: boolean; provider?: string; provider_via?: string; fallback: boolean; reused: boolean; persona_written: boolean }[];
+    invite_url?: string; in_guild?: boolean; provider?: string; provider_via?: string; fallback: boolean; reused: boolean; persona_written: boolean;
+    reply_language?: string; reply_language_name?: string; reply_language_from?: string }[];
   fallback_role?: string; jev_test?: JevTest; jev_ok: boolean; jev_reason?: string; jev_in_use?: string; jev_hint: string; hardware: boolean; restart_required: boolean; config_backup?: string;
 }
 

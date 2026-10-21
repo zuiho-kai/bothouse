@@ -2738,3 +2738,69 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 		t.Fatal("card, acceptance fact, or board identity lost")
 	}
 }
+
+// Human task -> delegated approval -> next task -> stale approval -> human
+// decision. Uses the real engine/session manager and both public input paths.
+func TestCUJ_Permission1_DelegatedApprovalDoesNotApproveNextTask(t *testing.T) {
+	p := &delegatedTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}
+	a := &cujAgent{}
+	e := NewEngine("test", a, []Platform{p}, t.TempDir()+"/sessions.json", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	events := func(result string) []Event {
+		return []Event{
+			{Type: EventPermissionRequest, RequestID: "backend-reused-id", ToolName: "run_command", ToolInput: "test fixture"},
+			{Type: EventResult, Content: result, Done: true},
+		}
+	}
+	send := func(id, actor, text, token string) {
+		e.ReceiveMessage(p, &Message{SessionKey: "test:channel", Platform: "test", MessageID: id, UserID: actor, UserName: actor, Content: text, ReplyCtx: "test", Mentioned: true, FromBot: actor != "human", IsPermissionResponse: token != "", PermissionApprovalID: token})
+	}
+	waitPrompt := func(old string) string {
+		var id string
+		inputWait(t, func() bool {
+			for _, msg := range p.getSent() {
+				parts := strings.Split(msg, "/permit ")
+				if len(parts) > 1 && len(parts[1]) >= 32 {
+					candidate := parts[1][:32]
+					if candidate != old {
+						id = candidate
+						return true
+					}
+				}
+			}
+			return false
+		})
+		return id
+	}
+	a.setNextSessionEvents(events("first task continued"), 0)
+	send("task1", "human", "run task one", "")
+	first := waitPrompt("")
+	send("untrusted", "stranger", "allow", first)
+	if strings.Contains(strings.Join(p.getSent(), "\n"), "first task continued") {
+		t.Fatal("untrusted bot advanced task")
+	}
+	send("authorized", "gge", "allow", first)
+	inputWait(t, func() bool { return strings.Contains(strings.Join(p.getSent(), "\n"), "first task continued") })
+	inputWait(t, func() bool { s := e.sessions.GetOrCreateActive("test:channel"); return !s.Busy() })
+	a.mu.Lock()
+	agentSession := a.sessions[0]
+	a.mu.Unlock()
+	agentSession.mu.Lock()
+	agentSession.pendingEvents = events("second task continued")
+	agentSession.mu.Unlock()
+	send("task2", "human", "run task two", "")
+	second := waitPrompt(first)
+	if second == first {
+		t.Fatal("approval key reused")
+	}
+	send("late duplicate", "cjiang", "allow", first)
+	if strings.Contains(strings.Join(p.getSent(), "\n"), "second task continued") {
+		t.Fatal("stale approval advanced next task")
+	}
+	send("human approval", "human", "allow", "")
+	inputWait(t, func() bool { return strings.Contains(strings.Join(p.getSent(), "\n"), "second task continued") })
+	visible := strings.Join(p.getSent(), "\n")
+	if !strings.Contains(visible, "actor=gge") || !strings.Contains(visible, "request="+first) {
+		t.Fatal("missing delegated audit receipt")
+	}
+}

@@ -10,7 +10,7 @@ import {
   type DiscordBotInfo, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell, type PersonaPreset,
   type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor,
 } from '@/api/wizard';
-import { wizardTexts, isZhLang } from './texts';
+import { isZhLang, langLabel, replyLangOptions, wizardTexts } from './texts';
 
 interface RoleDraft {
   key: number;
@@ -24,6 +24,7 @@ interface RoleDraft {
   provider: { vendor: string; base_url: string; api_key: string; model: string };
   persona: string;
   reply_language: string;
+  replyTouched?: boolean; // picked by hand for this role: the language picker no longer changes it
   // existing bot (reuse_project): its persona file is only written when editPersona is ticked
   existingWorkDir?: string;
   existingPersona?: { path: string; exists: boolean; content: string };
@@ -37,10 +38,6 @@ const MEMORY_FILE: Record<string, string> = {
 };
 // Vendors without a default model need one typed in (core validateWizardProvider).
 
-const REPLY_LANGS = [
-  { v: 'zh', zh: '中文', en: 'Chinese' }, { v: 'en', zh: '英文', en: 'English' }, { v: 'ja', zh: '日文', en: 'Japanese' },
-  { v: 'ko', zh: '韩文', en: 'Korean' }, { v: 'es', zh: '西班牙文', en: 'Spanish' }, { v: 'ru', zh: '俄文', en: 'Russian' },
-];
 
 // Same rule as core/setup_wizard.go cleanProjectName.
 const cleanName = (s: string) => s.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -54,7 +51,8 @@ export default function SetupWizard() {
   const lang = i18n.language || 'en';
   const zh = isZhLang(lang);
   const T = wizardTexts(lang);
-  const sysReply = zh ? 'zh' : (lang.split('-')[0] || 'en');
+  // default reply language = the UI language picked at the top right, as is (zh-TW, ko … too)
+  const sysReply = lang;
 
   const [step, setStep] = useState(0);
   const [platform, setPlatform] = useState<'discord' | 'feishu'>('discord');
@@ -69,6 +67,8 @@ export default function SetupWizard() {
     provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '' }, persona: '', reply_language: sysReply,
   }), [sysReply]);
   const [roles, setRoles] = useState<RoleDraft[]>(() => [newRole()]);
+  // the language picker sets the reply language of every role not picked by hand
+  useEffect(() => { setRoles((rs) => rs.map((r) => (r.replyTouched ? r : { ...r, reply_language: lang }))); }, [lang]);
   const [guildID, setGuildID] = useState('');
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [channelID, setChannelID] = useState('');
@@ -233,7 +233,7 @@ export default function SetupWizard() {
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
     const req: WizardRequest = {
       platform: platform === 'feishu' ? ((feishu?.platform_type as 'feishu' | 'lark') || 'feishu') : 'discord',
-      language: zh ? 'zh' : 'en',
+      language: lang,
       roles: roles.map((r, i) => ({
         ...(r.reuse_project ? { reuse_project: r.reuse_project } : platform === 'discord' ? { token: mask(r.token, `<BOT_TOKEN_${i + 1}>`) } : {}),
         ...(platform === 'feishu' ? { name: 'feishu-bot' } : {}),
@@ -314,6 +314,7 @@ export default function SetupWizard() {
         <div>
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">{T.title}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">{T.subtitle}</p>
+          <p className="text-sm text-gray-700 dark:text-gray-300 mt-1" data-testid="reply-lang-line">{T.replyLangLine}<b>{langLabel(lang)}</b><span className="text-xs text-gray-500">{T.replyLangHow}</span></p>
         </div>
         <Link to="/projects?manual=1" className="text-xs text-gray-400 hover:text-accent whitespace-nowrap">{T.manualOther}</Link>
       </div>
@@ -522,8 +523,8 @@ export default function SetupWizard() {
                     <Textarea rows={8} value={r.persona} onChange={(e) => patchRole(r.key, { persona: e.target.value })} data-testid={`persona-${idx}`} />
                     <div className="flex items-center gap-2">
                       <label className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{T.replyLang}</label>
-                      <select className={selectCls + ' max-w-[12rem]'} value={r.reply_language} onChange={(e) => patchRole(r.key, { reply_language: e.target.value })} data-testid={`reply-lang-${idx}`}>
-                        {REPLY_LANGS.map((l) => <option key={l.v} value={l.v}>{zh ? l.zh : l.en}</option>)}
+                      <select className={selectCls + ' max-w-[12rem]'} value={r.reply_language} onChange={(e) => patchRole(r.key, { reply_language: e.target.value, replyTouched: true })} data-testid={`reply-lang-${idx}`}>
+                        {replyLangOptions(r.reply_language).map((c) => <option key={c} value={c}>{langLabel(c)}</option>)}
                       </select>
                     </div>
                   </>
@@ -599,7 +600,7 @@ export default function SetupWizard() {
                 <p className="text-sm text-gray-700 dark:text-gray-300">{T.reviewNote}</p>
                 <ul className="text-sm space-y-1">
                   {roles.map((r) => (
-                    <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{fallback === projectOf(r) && platform === 'discord' ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
+                    <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{(!r.reuse_project || r.editPersona) && <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{fallback === projectOf(r) && platform === 'discord' ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
                   ))}
                   {platform === 'discord' && <li>• {guilds.find((g) => g.id === guildID)?.name} / #{channels.find((c) => c.id === channelID)?.name}</li>}
                   {(jevSave.saved || jevUnchanged) && <li>• jev: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
@@ -633,6 +634,9 @@ export default function SetupWizard() {
                 <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
                   {result.steps.map((s, i) => <li key={i}>{s.ok ? '✓' : '✗'} {s.step}{s.detail ? ` — ${s.detail}` : ''}</li>)}
                 </ul>
+                {result.roles.filter((r) => r.reply_language).map((r) => (
+                  <p key={`l${r.project}`} className="text-xs text-gray-600 dark:text-gray-400" data-testid="reply-lang-saved">{T.replyLangSaved}{r.name} → {langLabel(r.reply_language || '')}</p>
+                ))}
                 {result.allow_from && <p className="text-xs text-gray-600 dark:text-gray-400" data-testid="allow-from-saved">{T.allowFromSaved}<code>{result.allow_from}</code></p>}
                 {result.gate_hint && (
                   <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5" data-testid="gate-hint">

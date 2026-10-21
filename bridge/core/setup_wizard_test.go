@@ -56,6 +56,12 @@ func fakeDiscord(t *testing.T, bots map[string]string) *httptest.Server { // tok
 			_ = json.NewEncoder(w).Encode(app)
 		case "/users/@me/guilds":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "900", "name": "Home"}})
+		case "/guilds/900":
+			if fakeGuildLocale == "" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "900", "name": "Home", "preferred_locale": fakeGuildLocale})
 		case "/guilds/900/channels":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "3", "name": "voice", "type": 2, "position": 0},
@@ -71,6 +77,15 @@ func fakeDiscord(t *testing.T, bots map[string]string) *httptest.Server { // tok
 	discordAPIBase = srv.URL
 	t.Cleanup(func() { discordAPIBase = old; srv.Close() })
 	return srv
+}
+
+// fakeGuildLocale is what GET /guilds/900 returns as preferred_locale ("" = the lookup fails).
+var fakeGuildLocale = ""
+
+func setGuildLocale(t *testing.T, loc string) {
+	old := fakeGuildLocale
+	fakeGuildLocale = loc
+	t.Cleanup(func() { fakeGuildLocale = old })
 }
 
 // fakeModel: /chat/completions; logprobs controls whether top_logprobs are returned.
@@ -669,6 +684,7 @@ func TestSetupHTTPEndpoints(t *testing.T) {
 	if code, out := call("GET", "/setup/matrix", nil); code != 200 || !strings.Contains(mustMarshal(out), `"mode":"convert"`) {
 		t.Fatalf("matrix: %d %v", code, out)
 	}
+	t.Setenv("ANTHROPIC_API_KEY", "test-key") // the sandbox's claude counts as logged in (no agent_not_logged_in)
 	if code, _ := call("POST", "/setup/apply", map[string]any{"roles": []any{map[string]any{"token": t1, "agent_type": "claudecode"}}, "dry_run": true}); code != 200 {
 		t.Fatalf("apply dry run: %d", code)
 	}

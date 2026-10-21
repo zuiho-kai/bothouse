@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -96,6 +97,15 @@ func DiscordBotIDFromToken(token string) string {
 	return ""
 }
 
+// DiscordPortalURL is where a bot token is reset (Bot → Reset Token).
+const DiscordPortalURL = "https://discord.com/developers/applications"
+
+// ErrDiscordTokenInvalid: Discord answered 401 — the token is wrong, was reset, or was copied
+// incompletely. The text carries the fix too, because the web wizard's token check shows only it.
+var ErrDiscordTokenInvalid = errors.New("discord: token 无效（401），去 " + DiscordPortalURL +
+	" → 你的应用 → Bot → Reset Token，复制新 token 再填 / invalid token (401): open " + DiscordPortalURL +
+	" → your application → Bot → Reset Token and use the new token")
+
 func discordGet(ctx context.Context, token, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discordAPIBase+path, nil)
 	if err != nil {
@@ -108,7 +118,7 @@ func discordGet(ctx context.Context, token, path string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("discord: token 无效（401）/ invalid token")
+		return ErrDiscordTokenInvalid
 	}
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))

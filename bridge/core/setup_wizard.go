@@ -15,6 +15,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -100,13 +101,19 @@ type WizardRoleResult struct {
 	ProviderVia    string `json:"provider_via,omitempty"` // native | convert
 	Fallback       bool   `json:"fallback"`
 	Reused         bool   `json:"reused"`
-	PersonaWritten bool   `json:"persona_written"` // false = an existing bot's persona file was left alone
+	PersonaWritten bool   `json:"persona_written"` // false = the persona file was not written (existing bot left alone, or dry run)
+	// ReplyLanguage is the language written into the persona ("zh", "zh-TW", "en", "ja", "ko", …),
+	// ReplyLanguageFrom where it came from: role (reply_language) | request (language) |
+	// system (this machine's locale) | existing (an existing bot's file, not touched).
+	ReplyLanguage     string `json:"reply_language,omitempty"`
+	ReplyLanguageName string `json:"reply_language_name,omitempty"`
+	ReplyLanguageFrom string `json:"reply_language_from,omitempty"`
 }
 
 // WizardWarning is something the user still has to do (or should know) after apply.
 // Blocking ones mean the bot will not work until it is done, so the result is not ok.
 type WizardWarning struct {
-	Code     string `json:"code"` // message_content_intent_off | message_content_intent_unknown | bot_not_in_guild | allow_from_unknown | allow_from_everyone | gate_not_running
+	Code     string `json:"code"` // message_content_intent_off | message_content_intent_unknown | bot_not_in_guild | allow_from_unknown | allow_from_everyone | gate_not_running | discord_token_invalid | agent_not_logged_in | agent_login_unknown | reply_language_default
 	Project  string `json:"project,omitempty"`
 	Blocking bool   `json:"blocking"`
 	Message  string `json:"message"`
@@ -336,6 +343,22 @@ func HardwarePresent() bool {
 	return true
 }
 
+// SystemReplyLanguage is the reply-language code of the process locale (LC_ALL / LC_MESSAGES /
+// LANG, e.g. "ja_JP.UTF-8" → "ja"); "C", "POSIX" or none → "en".
+func SystemReplyLanguage() string {
+	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		if v := os.Getenv(k); v != "" {
+			if v == "C" || v == "POSIX" || strings.HasPrefix(v, "C.") {
+				return "en"
+			}
+			if l := NormalizeLanguage(v); l != "" {
+				return l
+			}
+		}
+	}
+	return "en"
+}
+
 // SystemLanguage: "zh" or "en" from the process locale (LC_ALL / LANG).
 func SystemLanguage() string {
 	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
@@ -538,6 +561,10 @@ type wizardIdentity struct {
 	botID    string
 	username string
 	reuse    string // reuse_project as asked
+	// replyFrom: where ReplyLanguage came from (see WizardRoleResult.ReplyLanguageFrom)
+	replyFrom string
+	// agentAsked: agent_type as given in the request ("" = default / the existing project's)
+	agentAsked string
 }
 
 // plannedRole is a role after names are fixed against the config (inside the lock).
@@ -547,6 +574,13 @@ type plannedRole struct {
 	workDir  string
 	reused   bool // an existing project (asked for, or the same bot found by its ID)
 	agentCmd string
+	nameNote string // why the project name is not the bot's name (e.g. role-1 for a name with no a-z/0-9)
+}
+
+// updatesReplyLanguage: an existing bot whose persona is otherwise left alone gets only its
+// reply-language line changed when this request names reply_language for that role.
+func (r plannedRole) updatesReplyLanguage() bool {
+	return r.reused && !r.writesPersona() && r.replyFrom == "role" && r.workDir != ""
 }
 
 // writesPersona: a new bot always gets its persona file; an existing one (asked for by
@@ -579,6 +613,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		res.Error = err.Error()
 		return res
 	}
+	// The reply language: a role's reply_language, else the request's language, else this
+	// machine's locale. Messages in the result use req.Language (default: system).
+	replyLang, replyFrom := NormalizeLanguage(req.Language), "request"
 	if req.Language == "" {
 		req.Language = SystemLanguage()
 	}
@@ -619,6 +656,11 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if err != nil {
 		return fail("config", err)
 	}
+	// asked before writing: after the write the config is no longer the first-run template
+	storeIsFresh := false
+	if f, ok := env.Store.(interface{ IsFreshConfig() bool }); ok {
+		storeIsFresh = f.IsFreshConfig()
+	}
 	byProject := map[string]WizardExistingBot{}
 	for _, b := range snap.DiscordBots() {
 		byProject[b.Project] = b
@@ -632,7 +674,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	ids := make([]wizardIdentity, 0, len(req.Roles))
 	var owners []string // owners of the bots' Discord applications: the default allow_from
 	for i, r := range req.Roles {
-		w := wizardIdentity{WizardRole: r, reuse: r.ReuseProject}
+		w := wizardIdentity{WizardRole: r, reuse: r.ReuseProject, agentAsked: r.AgentType}
 		step := fmt.Sprintf("role %d", i+1)
 		if r.Provider != nil {
 			if err := validateWizardProvider(*r.Provider); err != nil {
@@ -658,7 +700,12 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 			info, err := CheckDiscordBot(ctx, w.token)
 			if err != nil {
-				return fail(step+" discord", err)
+				r := fail(step+" discord", err)
+				if errors.Is(err, ErrDiscordTokenInvalid) {
+					r.Warnings = append(r.Warnings, warnTokenInvalid(req.Language, i+1))
+					r.NeedsUserAction = true
+				}
+				return r
 			}
 			w.botID, w.username = info.BotID, info.Username
 			rr := WizardRoleResult{BotID: info.BotID}
@@ -672,7 +719,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			if !in {
 				rr.InviteURL = DiscordInviteURL(info.ApplicationID, guildID)
 				res.InviteURLs = append(res.InviteURLs, rr.InviteURL)
-				res.Warnings = append(res.Warnings, warnNotInGuild(req.Language, info.Username, rr.InviteURL))
+				res.Warnings = append(res.Warnings, warnNotInGuild(req.Language, info.Username, rr.InviteURL, req.DryRun))
 			}
 			if info.OwnerID != "" {
 				owners = appendUnique(owners, info.OwnerID)
@@ -694,10 +741,17 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		if w.Name == "" {
 			w.Name = w.username
 		}
-		if w.ReplyLanguage == "" {
-			w.ReplyLanguage = req.Language
-		}
 		ids = append(ids, w)
+	}
+	if replyLang == "" {
+		replyLang, replyFrom = SystemReplyLanguage(), "system"
+	}
+	for i := range ids {
+		if ids[i].ReplyLanguage != "" {
+			ids[i].ReplyLanguage, ids[i].replyFrom = NormalizeLanguage(ids[i].ReplyLanguage), "role"
+		} else {
+			ids[i].ReplyLanguage, ids[i].replyFrom = replyLang, replyFrom
+		}
 	}
 
 	// allow_from: what the user gave, else the bots' owners. Nothing known (owner lookup failed,
@@ -727,9 +781,28 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if err != nil {
 		return fail("plan", err)
 	}
+	res.Warnings = append(res.Warnings, warnAgentLogins(req.Language, pl.roles, clis)...)
+	res.Warnings = append(res.Warnings, warnReplyLanguageDefault(req.Language, pl.roles)...)
+	for _, r := range pl.roles {
+		if r.nameNote != "" {
+			addStep(res, "project name", nil, r.nameNote)
+		}
+	}
 
 	if req.DryRun {
 		fillRoleResults(res, pl)
+		for i, r := range pl.roles {
+			res.Roles[i].PersonaWritten = false
+			step := fmt.Sprintf("role %d persona", i+1)
+			switch {
+			case r.writesPersona():
+				addStep(res, step, nil, "dry run: would write "+PersonaFilePath(r.AgentType, r.workDir)+" (reply language "+r.ReplyLanguage+")")
+			case r.updatesReplyLanguage():
+				addStep(res, step, nil, "dry run: would set the reply-language line of "+PersonaFilePath(r.AgentType, r.workDir)+" to "+r.ReplyLanguage)
+			default:
+				addStep(res, step, nil, "dry run: "+r.project+": existing persona would be left untouched")
+			}
+		}
 		usable := false
 		if req.Jev != nil && strings.TrimSpace(req.Jev.BaseURL) != "" {
 			t := TestJevEndpoint(ctx, req.Jev.BaseURL, req.Jev.APIKey, req.Jev.Model)
@@ -764,12 +837,35 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		addStep(res, "fallback_role", nil, pl.note)
 	}
 	res.ConfigBackup = backup
-	addStep(res, "config", nil, fmt.Sprintf("%d projects written; previous config kept as %s (the rewrite does not keep comments)", len(pl.writes), backup))
+	if storeIsFresh {
+		// the backup is only the empty first-run template: nothing of the user's to keep
+		res.ConfigBackup = ""
+		addStep(res, "config", nil, fmt.Sprintf("%d projects written to a new config (first run, no earlier config)", len(pl.writes)))
+	} else {
+		addStep(res, "config", nil, fmt.Sprintf("%d projects written; previous config kept as %s (the rewrite does not keep comments)", len(pl.writes), backup))
+	}
 
 	// 4. persona files: new roles always; existing bots only when this request carries a persona (H1)
 	for i, r := range pl.roles {
 		step := fmt.Sprintf("role %d persona", i+1)
 		if r.reused && !r.writesPersona() {
+			if r.updatesReplyLanguage() {
+				// only the reply-language section changes; the rest of the persona stays as it is
+				path := PersonaFilePath(r.AgentType, r.workDir)
+				b, err := os.ReadFile(path)
+				if err != nil && !os.IsNotExist(err) {
+					return fail(step, err) // unreadable: don't overwrite the persona with just the language line
+				}
+				if err := os.MkdirAll(r.workDir, 0o755); err != nil {
+					return fail(step, err)
+				}
+				if err := AtomicWriteFile(path, []byte(WithReplyLanguage(string(b), r.ReplyLanguage)), 0o644); err != nil {
+					return fail(step, err)
+				}
+				res.Roles[i].PersonaWritten = true
+				addStep(res, step, nil, r.project+": reply language set to "+r.ReplyLanguage+" in "+path+" (rest of the persona untouched)")
+				continue
+			}
 			addStep(res, step, nil, r.project+": existing persona left untouched")
 			continue
 		}
@@ -845,6 +941,13 @@ func fillRoleResults(res *WizardResult, pl *wizardPlan) {
 		}
 		rr.Reused = r.reused
 		rr.PersonaWritten = !r.reused || r.writesPersona()
+		rr.ReplyLanguage, rr.ReplyLanguageFrom = r.ReplyLanguage, r.replyFrom
+		if r.reused && !r.writesPersona() && !r.updatesReplyLanguage() {
+			rr.ReplyLanguage, rr.ReplyLanguageFrom = "", "existing"
+		}
+		if rr.ReplyLanguage != "" {
+			rr.ReplyLanguageName = LanguageName(rr.ReplyLanguage)
+		}
 		rr.Fallback = r.project == pl.fallback
 		rr.Provider, rr.ProviderVia = "", ""
 		if r.Provider != nil {
@@ -907,13 +1010,20 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			if base == "" {
 				base = w.Name
 			}
+			raw := base
 			base = cleanProjectName(base)
+			noASCII := base == "" && raw != ""
 			if base == "" {
 				base = fmt.Sprintf("role-%d", i+1)
 			}
 			name := base
 			for n := 2; taken[name] || used[name]; n++ {
 				name = fmt.Sprintf("%s-%d", base, n)
+			}
+			if noASCII {
+				// project names are a-z 0-9 _ - (they go into paths, URLs and gate_url ?bot=); said
+				// without entry-specific steps, since the web wizard has no project-name box
+				r.nameNote = nameNote(req.Language, raw, name)
 			}
 			r.project = name
 		}

@@ -15,6 +15,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/config"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // captureStdout runs f and returns what it printed.
@@ -176,7 +179,8 @@ func TestSetupApplyDryRunWritesNothing(t *testing.T) {
 	cfg := filepath.Join(dir, "sub", "config.toml")
 	req := filepath.Join(t.TempDir(), "req.json")
 	_ = os.WriteFile(req, []byte(`{"language":"zh","discord":{"guild_id":"900"},"roles":[{"token":"`+testBotToken+`","agent_type":"claudecode"}]}`), 0o600)
-	cmd := helper(t, "setup", []string{"CONEST_DISCORD_API_BASE=" + srv.URL, "HOME=" + dir}, "apply", "--json", req, "--config", cfg, "--dry-run")
+	// ANTHROPIC_API_KEY: the sandbox's claude counts as logged in, so no agent_not_logged_in
+	cmd := helper(t, "setup", []string{"CONEST_DISCORD_API_BASE=" + srv.URL, "HOME=" + dir, "ANTHROPIC_API_KEY=test-key"}, "apply", "--json", req, "--config", cfg, "--dry-run")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("dry run: %v\n%s", err, out)
@@ -284,4 +288,84 @@ func TestFirstRunServesWizardAndOpensBrowser(t *testing.T) {
 	}
 	resp.Body.Close()
 
+}
+
+// n150: `setup clis` with nothing found printed only [] — now a hint on stderr (stdout stays JSON).
+func TestSetupCLIsHint(t *testing.T) {
+	if h := setupCLIsHint("zh", nil); !strings.Contains(h, "没找到") || !strings.Contains(h, "claude auth login") {
+		t.Errorf("none found: %q", h)
+	}
+	if h := setupCLIsHint("en", []core.LocalCLI{{AgentType: "claudecode", Supported: true, Login: "not_logged_in"}}); !strings.Contains(h, "none is confirmed logged in") {
+		t.Errorf("none logged in: %q", h)
+	}
+	if h := setupCLIsHint("en", []core.LocalCLI{{AgentType: "claudecode", Supported: true, Login: "logged_in"}}); h != "" {
+		t.Errorf("logged in: %q", h)
+	}
+	dir := t.TempDir()
+	cmd := helper(t, "setup", []string{"HOME=" + dir, "PATH=" + dir, "LANG=en_US.UTF-8", "LC_ALL="}, "clis")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil || strings.TrimSpace(string(out)) != "[]" || !strings.Contains(stderr.String(), "No agent CLI") {
+		t.Fatalf("setup clis: err=%v stdout=%s stderr=%s", err, out, stderr.String())
+	}
+}
+
+// n150: first run through `setup apply` (no config yet) said "previous config kept as …" about the
+// empty template it had just written; --lang sets the reply language.
+func TestSetupApplyFirstRunNoBackupClaimAndLang(t *testing.T) {
+	srv := fakeDiscordAPI(t, 1<<18, "900")
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	req := filepath.Join(dir, "req.json")
+	_ = os.WriteFile(req, []byte(`{"discord":{"guild_id":"900"},"roles":[{"token":"`+testBotToken+`","agent_type":"claudecode"}]}`), 0o600)
+	cmd := helper(t, "setup", []string{"CONEST_DISCORD_API_BASE=" + srv.URL, "HOME=" + dir, "ANTHROPIC_API_KEY=test-key", "LANG=en_US.UTF-8", "LC_ALL="},
+		"apply", "--json", req, "--config", cfg, "--lang", "ja")
+	out, _ := cmd.Output()
+	var res struct {
+		Saved        bool   `json:"saved"`
+		ConfigBackup string `json:"config_backup"`
+		Steps        []struct{ Detail string }
+		Roles        []struct {
+			ReplyLanguage string `json:"reply_language"`
+			From          string `json:"reply_language_from"`
+			PersonaFile   string `json:"persona_file"`
+		}
+	}
+	if err := json.Unmarshal(out, &res); err != nil || !res.Saved || len(res.Roles) != 1 {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if res.ConfigBackup != "" || strings.Contains(string(out), "previous config kept") || !strings.Contains(string(out), "first run") {
+		t.Errorf("first run claims a backup:\n%s", out)
+	}
+	if res.Roles[0].ReplyLanguage != "ja" || res.Roles[0].From != "request" {
+		t.Errorf("--lang ja: %+v", res.Roles[0])
+	}
+	if b, _ := os.ReadFile(res.Roles[0].PersonaFile); !strings.Contains(string(b), "Always reply in Japanese.") {
+		t.Errorf("persona: %q", b)
+	}
+}
+
+// Review of PR #207: the web wizard's first run (cc-connect wrote the template, the browser saves)
+// went through handleSetupApply without FreshConfig and said "previous config kept as …". The store
+// now tells ApplyWizard itself.
+func TestConfigWizardStoreIsFreshConfig(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.toml")
+	old := config.ConfigPath
+	config.ConfigPath = p
+	t.Cleanup(func() { config.ConfigPath = old })
+	if (configWizardStore{}).IsFreshConfig() {
+		t.Fatal("missing config is not the first-run template")
+	}
+	if err := bootstrapSetupConfig(p); err != nil {
+		t.Fatal(err)
+	}
+	if !(configWizardStore{}).IsFreshConfig() {
+		t.Fatal("first-run template should be fresh")
+	}
+	_ = os.WriteFile(p, []byte("[log]\nlevel = \"info\"\n"), 0o600) // the user's own config without projects
+	if (configWizardStore{}).IsFreshConfig() {
+		t.Fatal("a config the user wrote is not fresh")
+	}
 }

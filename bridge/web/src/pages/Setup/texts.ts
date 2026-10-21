@@ -1,5 +1,5 @@
-// Setup wizard copy. Language follows the web UI's i18n (navigator language / saved choice):
-// zh* → Chinese, anything else → English.
+// Setup wizard copy — all of it lives here. Language = the web UI language picked at the top right
+// (Layout/Header.tsx), which is also the default reply language written into personas.
 const zh = {
   title: '安装向导',
   subtitle: '选平台 → 接机器人 → 每个角色选本机 CLI → 人设 → 兜底角色 → jev。其余全部用默认值。',
@@ -52,6 +52,7 @@ const zh = {
   failed: '没保存成：',
   roleLabel: '角色', fallbackTag: '兜底',
   manualOther: '其他平台（手动）',
+  replyLangLine: '机器人回复语言：', replyLangHow: '（右上角换语言就会跟着换；每个角色也能在“人设”一步单独改）', replyLangSaved: '回复语言：',
 } as const;
 
 type Texts = { [K in keyof typeof zh]: (typeof zh)[K] extends readonly string[] ? readonly string[] : string };
@@ -108,8 +109,81 @@ const en: Texts = {
   failed: 'Not saved: ',
   roleLabel: 'Role', fallbackTag: 'fallback',
   manualOther: 'Other platforms (manual)',
+  replyLangLine: 'Bots reply in: ', replyLangHow: ' (change the language at the top right; each role can also be changed on the Persona step)', replyLangSaved: 'Reply language: ',
+};
+
+const ja: Texts = {
+  title: 'セットアップウィザード',
+  subtitle: 'プラットフォーム → ボット → ロールごとのローカル CLI → ペルソナ → フォールバックロール → jev。それ以外はすべて既定値です。',
+  steps: ['プラットフォーム', 'ボット', 'ローカル CLI', 'ペルソナ', 'フォールバック', 'jev', '完了'],
+  next: '次へ', back: '戻る', save: '設定を保存', saving: '保存中…', restart: '再起動して反映', restarted: '再起動を要求しました',
+  platformQ: 'どのチャットアプリに入れますか？',
+  discordDesc: 'メイン＋サブ、gate、ロール間の引き継ぎまで Discord ですべて動きます。',
+  feishuDesc: 'QR コードを読み取るとボットを自動作成します。Feishu は今のところボット 1 体のみです。',
+  existingBots: 'このマシンの設定に既にあるボット（そのまま選べます）：',
+  useThis: 'これを使う', using: '選択中',
+  newBot: '新しいボット', tokenLabel: 'ボットトークン（Bot → Reset Token でコピー）',
+  noBotHelp: 'まだボットがない場合：Discord Developer Portal でアプリを作成 → Bot → Reset Token、同じページで Message Content Intent をオンにしてください。',
+  openPortal: 'Developer Portal を開く',
+  check: '確認', checking: '確認中…',
+  intentOff: 'Message Content Intent がオフです：ボットはメッセージ本文を読めません。Developer Portal の Bot ページでオンにしてください。',
+  server: 'サーバー', channel: '既定のチャットチャンネル',
+  notInGuild: 'このボットはまだ選んだサーバーに入っていません。リンクから追加してから「次へ」を押してください。',
+  invite: '招待リンク',
+  addRole: 'ボットを追加（ボット 1 体 = ロール 1 つ）', remove: '削除',
+  rolesNote: 'ボット 1 体が 1 つのロールです。',
+  feishuScanned: '読み取り完了。', chatQ: '既定のグループチャット', chatEmpty: 'ボットはまだどのグループにも入っていません。グループに追加して更新するか、スキップしてください（個別チャットはそのまま使えます）。', refresh: '更新',
+  cliQ: 'このロールはどのローカル CLI を使いますか？インストール済みのものだけ表示します。既定では CLI 自身のログインを使います。',
+  loggedIn: 'ログイン済み', notLoggedIn: '未ログイン', unknownLogin: 'ログイン状態不明', unsupported: '選択不可',
+  noCLI: '使える CLI が見つかりません。claude / codex / gemini / opencode のどれかをインストールしてから、このページを再読み込みしてください。',
+  thirdParty: '代わりにサードパーティ API を使う（任意）', vendor: 'プロバイダー', baseURL: 'Base URL', apiKey: 'Key', model: 'モデル',
+  native: 'ネイティブ', convert: 'ローカル変換',
+  viaNative: 'このプロバイダーにはこの CLI 向けのネイティブ API があり、直接つなぎます。',
+  viaConvert: 'このプロバイダーはこの CLI のプロトコルに対応していません。cc-connect がローカルに変換口を立て、/chat/completions に変換します。',
+  copyPrompt: 'プロンプトをコピーしてローカル CLI に設定させる', copied: 'コピーしました',
+  personaQ: 'ペルソナ：既定のペルソナをクリックして入れてから編集するか、自分で書くか、空のままにします。',
+  personaAbout: '既定のペルソナは本プロジェクト作者のチームのキャラクター（橘、鯨娘、龍娘、レインボーキャット、Raven）で、あくまで例です。空なら CLI そのままで、返答言語の 1 行だけ加えます。あとからいつでも変えられます：「プロジェクト」ページ、チャットでボットに頼む、または下のファイルを直接編集。',
+  personaNew: '新規', replyLang: '返答言語',
+  editExistingPersona: 'このボットの既存ペルソナを編集する（チェックしなければそのまま）', noWorkDir: 'このプロジェクトには work_dir がないため、ここではペルソナを編集しません', noPersonaFile: '（ペルソナファイルはまだありません）',
+  personaWhere: 'インストール後は「プロジェクト」ページでこのロールを開いて編集できます。チャットで頼む、またはフォルダ内のファイルを直接編集しても同じファイルが変わります：',
+  fallbackQ: 'フォールバックロール：jev が未設定・テスト不合格、または誰が答えるべきか判断できないとき、このボットが答えます。',
+  jevTitle: 'jev：メッセージにどのロールが答えるかを判断',
+  jevQ: '確率を返すモデル（Base URL / Key / モデル）。おすすめ：SiliconFlow、OpenRouter、DeepSeek、MiniMax、ローカルの小型モデル。',
+  jevNoClaude: 'Claude と GPT は確率を返さないため使えません。',
+  jevTesting: 'テスト中…', jevOK: '使えます。「次へ」で保存します。', jevInUse: '使用中：', jevStored: '保存済み',
+  jevRetry: '別のものにする', jevSkip: 'jev をスキップ', jevKeepOld: 'スキップして今のものを使い続ける', jevRemove: 'jev を使わない',
+  review: '確認', reviewNote: '以下をこのマシンの設定に書き込みます。載っていない項目はすべて既定値です。',
+  forAI: 'AI 向け：同じ設定を 1 コマンドで（秘密情報はプレースホルダー）',
+  done: '保存しました。', doneRestart: '「再起動して反映」を押すと新しい設定で動きます。', backupNote: '元の設定のバックアップ：',
+  savedNeedsAction: '設定は保存しましたが、まだ次の作業が必要です。やらないとボットは返答しません：', alsoKnow: 'そのほか：', openLink: '開く',
+  allowFromLabel: 'ボットに指示できる人（Discord ユーザー ID、カンマ区切り。* = サーバーの全員）',
+  allowFromNote: '既定はボットの所有者、つまりボットを作ったあなたです。ボットはこのコンピューターでコマンドを実行できるので、むやみに広げないでください。',
+  allowFromSaved: '指示を受ける相手：', allowFromMissing: 'ボットの所有者が見つかりません。自分の Discord ユーザー ID を入れてから保存してください（入れないとボットは誰の指示も聞きません）。取得方法：Discord 設定 → 詳細設定 → 開発者モードをオン、自分のアイコンを右クリック → ユーザー ID をコピー。',
+  allowFromEveryone: '* = サーバーの誰でもボットにこのコンピューターでコマンドを実行させられます。自分だけで使うなら自分の Discord ユーザー ID を入れてください。',
+  intentUnknown: 'Message Content Intent がオンか確認できませんでした。Developer Portal の Bot ページでオンになっているか確かめてください。', gateTitle: 'gate（誰が答えるかを判断、任意）',
+  failed: '保存できませんでした：',
+  roleLabel: 'ロール', fallbackTag: 'フォールバック',
+  manualOther: 'その他のプラットフォーム（手動）',
+  replyLangLine: 'ボットの返答言語：', replyLangHow: '（右上で言語を切り替えると連動します。ロールごとに「ペルソナ」で個別にも変えられます）', replyLangSaved: '返答言語：',
 };
 
 export type WizardTexts = Texts;
-export const wizardTexts = (lang: string): Texts => (lang.toLowerCase().startsWith('zh') ? (zh as unknown as Texts) : en);
+
+// Wizard copy exists in zh / en / ja (source: user, 2026-10-21 — 「可以就中文，英文，日文」 while the
+// wizard still changes a lot); other UI languages show the English copy. To add one: one Texts object
+// here and one entry in TEXTS.
+const TEXTS: Record<string, Texts> = { zh: zh as unknown as Texts, en, ja };
+
+/** Copy for an i18n language: zh* → zh (incl. zh-TW, closer than English), ja* → ja, else en. */
+export const wizardTexts = (lang: string): Texts => TEXTS[(lang || '').toLowerCase().split('-')[0]] ?? en;
+
+// Reply languages offered per role: the languages of the top-right picker (Layout/Header.tsx),
+// in their own names. The reply language is the picked code as is (zh-TW, ko … are not cut).
+const REPLY_LANG_LABELS: Record<string, string> = {
+  zh: '简体中文', 'zh-TW': '繁體中文', en: 'English', ja: '日本語', ko: '한국어', es: 'Español', ru: 'Русский',
+};
+export const langLabel = (code: string) => REPLY_LANG_LABELS[code] ?? code;
+/** Options for a role's reply-language select; always includes `current`. */
+export const replyLangOptions = (current: string): string[] =>
+  current && !(current in REPLY_LANG_LABELS) ? [current, ...Object.keys(REPLY_LANG_LABELS)] : Object.keys(REPLY_LANG_LABELS);
 export const isZhLang = (lang: string) => lang.toLowerCase().startsWith('zh');
