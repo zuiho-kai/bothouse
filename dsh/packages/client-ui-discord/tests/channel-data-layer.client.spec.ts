@@ -332,6 +332,41 @@ describe('channel data layer: reconciliation safety', () => {
     stop()
   })
 
+  it('keeps a failed outbox message across a reconnect reconcile', async () => {
+    const releases: ((body: unknown, status: number) => void)[] = []
+    const base = harness([message(1, 'a')])
+    const transport: ChannelTransport = {
+      ...base.transport,
+      fetch: (input, init) => {
+        if (init?.method === 'POST') {
+          return new Promise<Response>(resolve => {
+            releases.push((body, status) => resolve(json(status, body)))
+          })
+        }
+        return base.transport.fetch(input, init)
+      },
+    }
+    const { hub } = base
+    const { channel, stop } = await ready(transport, hub)
+
+    const first = channel.actions.send('will fail')
+    await settle(2)
+    releases[0]?.({ error: 'boom' }, 500)
+    await expect(first).rejects.toThrow('boom')
+    expect(channel.source.getSnapshot().outbox[0]?.state).toBe('failed')
+
+    hub.drop()
+    await settle()
+    expect(hub.open()).toBe(true)
+    await settle()
+
+    // A failed send is still the human's message: reconciliation must not drop it.
+    expect(channel.source.getSnapshot().outbox).toHaveLength(1)
+    expect(channel.source.getSnapshot().outbox[0]?.state).toBe('failed')
+    expect(channel.source.getSnapshot().outbox[0]?.text).toBe('will fail')
+    stop()
+  })
+
   it('does not delete a row that only arrived through SSE during the catch-up', async () => {
     const { rows, hub, transport } = harness([message(1, 'a')])
     const { channel, stop } = await ready(transport, hub)
