@@ -336,10 +336,14 @@ func (w *compactProgressWriter) detailStepTargetMax() int {
 	return progressStepTargetMax
 }
 
-// maxSteps is how many steps the card renders: brief 3, full 8 unless the
-// user's progress_card_entries is larger.
+// maxSteps is how many steps the card renders. The bot's own
+// progress_card_entries always wins when it is larger; brief defaults to 3 and
+// full to 8, so a bot configured for 6 keeps its 6 in both levels.
 func (w *compactProgressWriter) maxSteps() int {
 	if w.detail != "full" {
+		if w.maxEntries > ProgressCardVisibleSteps {
+			return w.maxEntries
+		}
 		return ProgressCardVisibleSteps
 	}
 	if w.maxEntries > 8 {

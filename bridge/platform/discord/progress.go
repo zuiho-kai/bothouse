@@ -161,21 +161,61 @@ func buildDiscordProgressList(payload *core.ProgressCardPayload, items []core.Pr
 	if maxSteps <= 0 {
 		maxSteps = core.ProgressCardVisibleSteps
 	}
-	var steps []string
+	var steps []progressStepLine
 	for _, item := range items {
-		if line := buildDiscordProgressLineNL(item, payload.Lang, lineLen, payload.ThinkLen, payload.ThinkLen > 400); line != "" {
-			steps = append(steps, line)
+		line := buildDiscordProgressLineNL(item, payload.Lang, lineLen, payload.ThinkLen, payload.ThinkLen > 400)
+		if line == "" {
+			continue
 		}
+		steps = append(steps, progressStepLine{text: line, thinking: item.Kind == core.ProgressEntryThinking})
 	}
-	if len(steps) > maxSteps { // header + the most recent steps only
-		steps = steps[len(steps)-maxSteps:]
+	// Thinking is the narrative, not a step: it keeps its own budget and is not
+	// dropped by the step cap (merged thinking is one item anyway). Only the
+	// oldest non-thinking steps fall off, in their original order.
+	// Only the newest thinking is the current line of thought; older ones would
+	// push the tool steps off the card and read as a wall of text.
+	if kept := steps[:0]; true {
+		last := -1
+		for i, s := range steps {
+			if s.thinking {
+				last = i
+			}
+		}
+		for i, s := range steps {
+			if !s.thinking || i == last {
+				kept = append(kept, s)
+			}
+		}
+		steps = kept
 	}
-	lines = append(lines, steps...)
+	for len(steps) > maxSteps {
+		drop := -1
+		for i, s := range steps {
+			if !s.thinking {
+				drop = i
+				break
+			}
+		}
+		if drop < 0 {
+			break
+		}
+		steps = append(steps[:drop], steps[drop+1:]...)
+	}
+	for _, s := range steps {
+		lines = append(lines, s.text)
+	}
 	desc := trimDiscordRunes(strings.Join(lines, "\n"), maxDiscordProgressDescLen)
 	if strings.TrimSpace(desc) == "" {
 		return " "
 	}
 	return desc
+}
+
+// progressStepLine is one rendered card line, tagged so the step cap can drop
+// ordinary steps while keeping the thinking paragraph.
+type progressStepLine struct {
+	text     string
+	thinking bool
 }
 
 func buildDiscordToolUseSummary(item core.ProgressCardEntry, lang string) string {

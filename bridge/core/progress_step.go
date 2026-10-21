@@ -109,7 +109,7 @@ func SummarizeProgressStepDetail(item ProgressCardEntry, lang string, targetMax 
 	case ProgressEntryError:
 		return "⚠️ " + truncateProgressRunes(collapseProgressSpace(item.Text), targetMax)
 	case ProgressEntryThinking:
-		return "💭 " + truncateProgressRunes(collapseProgressSpace(item.Text), targetMax)
+		return "💭 " + truncateProgressRunes(strings.TrimSpace(item.Text), targetMax)
 	default:
 		return "• " + truncateProgressRunes(collapseProgressSpace(item.Text), targetMax+20)
 	}
@@ -164,7 +164,7 @@ func progressToolSummaryN(tool, input string, targetMax int) (progressToolVerb, 
 	var target string
 	switch k.kind {
 	case "shell":
-		target = ShellCommandSummary(progressInputText(input, "command", "cmd"))
+		target = ShellCommandSummaryN(progressInputText(input, "command", "cmd"), targetMax)
 	case "file":
 		target = progressBaseName(progressInputText(input, "file_path", "path", "notebook_path", "filename", "file"))
 	case "pattern":
@@ -217,6 +217,14 @@ func progressBaseName(p string) string {
 // leading `cd … &&`, no redirects, nothing after the first pipe, whitespace collapsed,
 // at most ~40 runes.
 func ShellCommandSummary(cmd string) string {
+	return ShellCommandSummaryN(cmd, progressStepTargetMax)
+}
+
+// ShellCommandSummaryN is ShellCommandSummary with an explicit rune budget.
+func ShellCommandSummaryN(cmd string, targetMax int) string {
+	if targetMax <= 0 {
+		targetMax = progressStepTargetMax
+	}
 	cmd = strings.TrimSpace(cmd)
 	for _, pre := range []string{"/bin/bash -lc ", "/bin/sh -c ", "bash -lc ", "bash -c ", "sh -c ", "zsh -lc "} {
 		if strings.HasPrefix(cmd, pre) {
@@ -256,10 +264,26 @@ func ShellCommandSummary(cmd string) string {
 		case "cd", "pushd", "popd", "set", "export", "source", ".", "echo", "true", ":":
 			continue
 		}
-		return truncateProgressRunes(seg, progressStepTargetMax)
+		return truncateProgressRunes(shortenCommandPaths(seg), targetMax)
 	}
 	// only setup commands (e.g. a lone `echo hi`): show the first one
-	return truncateProgressRunes(first, progressStepTargetMax)
+	return truncateProgressRunes(shortenCommandPaths(first), targetMax)
+}
+
+// shortenCommandPaths replaces long absolute paths in a command summary with
+// "…/basename", so a card line names the file without the full home path.
+func shortenCommandPaths(cmd string) string {
+	fields := strings.Fields(cmd)
+	for i, f := range fields {
+		if !strings.HasPrefix(f, "/") || strings.Count(f, "/") < 2 {
+			continue
+		}
+		trimmed := strings.TrimRight(f, "/")
+		if base := path.Base(trimmed); base != "" && base != "." && base != "/" {
+			fields[i] = "…/" + base
+		}
+	}
+	return strings.Join(fields, " ")
 }
 
 func collapseProgressSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
