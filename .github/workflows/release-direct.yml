@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TAG: v0.1.0-rc13
-      TARGET: e919c8176d4626e911315e2f225629886eb4c779
+      TAG: v0.1.0-rc14
+      TARGET: 0e61a31ed4facef59f15d17a7c542b152ac05f39
       GH_TOKEN: "${{ github.token }}"
       GH_REPO: "${{ github.repository }}"
     steps:
@@ -87,8 +87,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     env:
-      TAG: v0.1.0-rc13
-      TARGET: e919c8176d4626e911315e2f225629886eb4c779
+      TAG: v0.1.0-rc14
+      TARGET: 0e61a31ed4facef59f15d17a7c542b152ac05f39
       GH_TOKEN: "${{ github.token }}"
     steps:
     - name: Download the release (instead of the artifact)
@@ -118,8 +118,8 @@ jobs:
     permissions:
       contents: read
     env:
-      TAG: v0.1.0-rc13
-      TARGET: e919c8176d4626e911315e2f225629886eb4c779
+      TAG: v0.1.0-rc14
+      TARGET: 0e61a31ed4facef59f15d17a7c542b152ac05f39
       GH_TOKEN: "${{ github.token }}"
       CONEST_REPO: "${{ github.repository }}"
     steps:
