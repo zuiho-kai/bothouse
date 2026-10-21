@@ -246,6 +246,42 @@ func TestVideoNoteFollowsMountState(t *testing.T) {
 	}
 }
 
+// A deadline can pass before the timer goroutine updates Err/Done.
+type delayedMediaDeadline struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c delayedMediaDeadline) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestVideoExpiredDeadlineBeforeCancellation(t *testing.T) {
+	for _, entry := range []string{"parse", "prepare"} {
+		t.Run(entry, func(t *testing.T) {
+			var runs atomic.Int32
+			withMedia(t, okRun(&runs), nil)
+			ctx := delayedMediaDeadline{context.Background(), time.Now().Add(-time.Second)}
+			e := newMediaEngine("deadline-test")
+			m := &Message{Content: "https://b23.tv/second", MessageID: "expired", ChannelID: "c"}
+			if entry == "parse" {
+				r := e.parseVideo(ctx, m, findVideoLinks(m.Content)[0])
+				if !strings.Contains(r.Err, "没有开始解析") {
+					t.Errorf("expired budget should reject a new video: %+v", r)
+				}
+			} else {
+				e.ctx = ctx
+				e.prepareMedia(m)
+				if !strings.Contains(m.Content, "没有解析：https://b23.tv/second") {
+					t.Errorf("expired budget should leave the next link unparsed: %q", m.Content)
+				}
+			}
+			waitVideoRuns(t)
+			if n := runs.Load(); n != 0 {
+				t.Errorf("started %d videos after the deadline", n)
+			}
+		})
+	}
+}
+
 // watchvid hangs: the message goes on with a failure note after the timeout; later links in the
 // same message are not started; a plain message in the session is not delayed meanwhile.
 func TestVideoTimeout(t *testing.T) {

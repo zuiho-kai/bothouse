@@ -382,6 +382,19 @@ func JevHint(lang string, usable bool, hardware bool, fallbackName string) strin
 	if fallbackName != "" {
 		zhName, enName = "「"+fallbackName+"」", " \""+fallbackName+"\""
 	}
+	if isJA(lang) {
+		if usable {
+			if hardware {
+				return "gate はこれでメッセージにどのロールが答えるかを判断し、ボードもこれでチャンネルを選びます。"
+			}
+			return "gate はこれでメッセージにどのロールが答えるかを判断します。"
+		}
+		s := "未設定の場合：@ されたロールは普段どおり答え、誰が答えるか判断できないメッセージはフォールバックロール" + zhName + "が答えます"
+		if hardware {
+			s += "。ボードのチャンネル選択は読みの一致で行います"
+		}
+		return s + "。"
+	}
 	if isZH(lang) {
 		if usable {
 			if hardware {
@@ -438,14 +451,14 @@ func ApplyJev(ctx context.Context, dataDir string, j WizardJev, lang string) (Je
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return out, err
 		}
-		out.Cleared, out.Detail = true, "removed "+path
+		out.Cleared, out.Detail = true, stepJevRemoved(lang, path)
 		return out, nil
 	}
 	if strings.TrimSpace(j.BaseURL) == "" { // skipped / not filled in: keep whatever is in use
 		if old, ok := activeJev(dataDir); ok {
 			out.InUse = old.Model + " @ " + old.URL
 		}
-		out.Detail = "kept"
+		out.Detail = stepJevKept(lang)
 		return out, nil
 	}
 	cfg := JevConfig{Backend: "llm", URL: strings.TrimRight(strings.TrimSpace(j.BaseURL), "/"),
@@ -465,12 +478,15 @@ func ApplyJev(ctx context.Context, dataDir string, j WizardJev, lang string) (Je
 	if err := writeJSONFile(path, cfg, 0o600); err != nil {
 		return out, err
 	}
-	out.Saved, out.InUse, out.Detail = true, cfg.Model+" @ "+cfg.URL, "saved "+path
+	out.Saved, out.InUse, out.Detail = true, cfg.Model+" @ "+cfg.URL, stepJevSaved(lang, path)
 	return out, nil
 }
 
 // withOldJev appends "still using the previous jev" to a failure reason.
 func withOldJev(lang, reason, inUse string) string {
+	if isJA(lang) {
+		return strings.TrimSuffix(reason, "。") + "。前のもの（" + inUse + "）を使い続けます。"
+	}
 	if isZH(lang) {
 		return strings.TrimSuffix(reason, "。") + "；仍在用旧的 " + inUse + "。"
 	}
@@ -479,8 +495,11 @@ func withOldJev(lang, reason, inUse string) string {
 
 // JevFailReason explains why a jev was not saved.
 func JevFailReason(lang string, t JevTestResult) string {
-	zh := isZH(lang)
+	zh, ja := isZH(lang), isJA(lang)
 	if t.Slow {
+		if ja {
+			return fmt.Sprintf("遅すぎます：1 トークンに %.1f 秒かかりました。gate は毎回 %.1f 秒しか待たないので、保存しても使われません。", float64(t.LatencyMs)/1000, jevMaxLatency.Seconds())
+		}
 		if zh {
 			return fmt.Sprintf("太慢：回一个字用了 %.1f 秒，gate 每次只等 %.1f 秒，存了也用不上。", float64(t.LatencyMs)/1000, jevMaxLatency.Seconds())
 		}
@@ -491,25 +510,25 @@ func JevFailReason(lang string, t JevTestResult) string {
 	if strings.HasPrefix(t.Error, "HTTP ") {
 		fmt.Sscanf(t.Error, "HTTP %d", &code)
 	}
-	pick := func(zhText, enText string) string {
-		if zh {
-			return zhText + t.Error
-		}
-		return enText + t.Error
+	pick := func(zhText, jaText, enText string) string {
+		return tr3(lang, zhText, jaText, enText) + t.Error
 	}
 	switch {
 	case code == 400 || code == 422:
-		return pick("接口拒绝了请求参数（gate 打分用同样的参数）：", "The endpoint rejected the request parameters (the gate scores with the same ones): ")
+		return pick("接口拒绝了请求参数（gate 打分用同样的参数）：", "API がリクエストのパラメーターを拒否しました（gate の採点も同じパラメーターを使います）：", "The endpoint rejected the request parameters (the gate scores with the same ones): ")
 	case code == 401 || code == 403:
-		return pick("Key 不对或没有权限：", "Wrong key or no permission: ")
+		return pick("Key 不对或没有权限：", "Key が違うか、権限がありません：", "Wrong key or no permission: ")
 	case code == 404:
-		return pick("地址不对（Base URL 或模型名）：", "Wrong address (Base URL or model name): ")
+		return pick("地址不对（Base URL 或模型名）：", "アドレスが違います（Base URL またはモデル名）：", "Wrong address (Base URL or model name): ")
 	case code >= 500:
-		return pick("服务端出错或暂时连不上：", "Server error or temporarily unavailable: ")
+		return pick("服务端出错或暂时连不上：", "サーバーエラー、または一時的に接続できません：", "Server error or temporarily unavailable: ")
 	case code != 0:
-		return pick("接口返回错误：", "The endpoint returned an error: ")
+		return pick("接口返回错误：", "API がエラーを返しました：", "The endpoint returned an error: ")
 	case !t.Reachable:
-		return pick("连不上：", "Could not connect: ")
+		return pick("连不上：", "接続できません：", "Could not connect: ")
+	}
+	if ja {
+		return "このモデルは確率を返さないため、保存しても使われません。"
 	}
 	if zh {
 		return "这个模型不给概率，存了也不会被用上。"
@@ -700,12 +719,17 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 			info, err := CheckDiscordBot(ctx, w.token)
 			if err != nil {
-				r := fail(step+" discord", err)
-				if errors.Is(err, ErrDiscordTokenInvalid) {
+				var rl *ErrDiscordRateLimited
+				switch {
+				case errors.Is(err, ErrDiscordTokenInvalid):
+					r := fail(step+" discord", errors.New(discordTokenInvalidText(req.Language)))
 					r.Warnings = append(r.Warnings, warnTokenInvalid(req.Language, i+1))
 					r.NeedsUserAction = true
+					return r
+				case errors.As(err, &rl):
+					return fail(step+" discord", errors.New(discordRateLimitedText(req.Language, rl.RetryAfter)))
 				}
-				return r
+				return fail(step+" discord", err)
 			}
 			w.botID, w.username = info.BotID, info.Username
 			rr := WizardRoleResult{BotID: info.BotID}
@@ -724,16 +748,13 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			if info.OwnerID != "" {
 				owners = appendUnique(owners, info.OwnerID)
 			}
-			detail := "bot " + info.Username
 			switch {
 			case !info.IntentKnown: // the application lookup failed: can't tell, so don't call it fine
-				detail += "; Message Content Intent 没查到 / could not be checked"
 				res.Warnings = append(res.Warnings, warnIntentUnknown(req.Language, info.Username, info.ApplicationID))
 			case !info.MessageContent:
-				detail += "; Message Content Intent 未开启 / not enabled (Developer Portal → Bot)"
 				res.Warnings = append(res.Warnings, warnIntentOff(req.Language, info.Username, info.ApplicationID))
 			}
-			addStep(res, step+" discord", nil, detail)
+			addStep(res, step+" discord", nil, stepBotDetail(req.Language, info.Username, info.IntentKnown, info.MessageContent))
 			res.Roles = append(res.Roles, rr)
 		} else {
 			res.Roles = append(res.Roles, WizardRoleResult{})
@@ -796,11 +817,11 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			step := fmt.Sprintf("role %d persona", i+1)
 			switch {
 			case r.writesPersona():
-				addStep(res, step, nil, "dry run: would write "+PersonaFilePath(r.AgentType, r.workDir)+" (reply language "+r.ReplyLanguage+")")
+				addStep(res, step, nil, stepDryPersonaWrite(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
 			case r.updatesReplyLanguage():
-				addStep(res, step, nil, "dry run: would set the reply-language line of "+PersonaFilePath(r.AgentType, r.workDir)+" to "+r.ReplyLanguage)
+				addStep(res, step, nil, stepDryPersonaLang(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
 			default:
-				addStep(res, step, nil, "dry run: "+r.project+": existing persona would be left untouched")
+				addStep(res, step, nil, stepDryPersonaKept(req.Language, r.project))
 			}
 		}
 		usable := false
@@ -840,9 +861,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if storeIsFresh {
 		// the backup is only the empty first-run template: nothing of the user's to keep
 		res.ConfigBackup = ""
-		addStep(res, "config", nil, fmt.Sprintf("%d projects written to a new config (first run, no earlier config)", len(pl.writes)))
+		addStep(res, "config", nil, stepConfigFresh(req.Language, len(pl.writes)))
 	} else {
-		addStep(res, "config", nil, fmt.Sprintf("%d projects written; previous config kept as %s (the rewrite does not keep comments)", len(pl.writes), backup))
+		addStep(res, "config", nil, stepConfigBackup(req.Language, len(pl.writes), backup))
 	}
 
 	// 4. persona files: new roles always; existing bots only when this request carries a persona (H1)
@@ -863,10 +884,10 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 					return fail(step, err)
 				}
 				res.Roles[i].PersonaWritten = true
-				addStep(res, step, nil, r.project+": reply language set to "+r.ReplyLanguage+" in "+path+" (rest of the persona untouched)")
+				addStep(res, step, nil, stepPersonaLangOnly(req.Language, r.project, r.ReplyLanguage, path))
 				continue
 			}
-			addStep(res, step, nil, r.project+": existing persona left untouched")
+			addStep(res, step, nil, stepPersonaKept(req.Language, r.project))
 			continue
 		}
 		if err := os.MkdirAll(r.workDir, 0o755); err != nil {
@@ -882,7 +903,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		if err := AtomicWriteFile(path, []byte(WithReplyLanguage(content, r.ReplyLanguage)), 0o644); err != nil {
 			return fail(step, err)
 		}
-		addStep(res, step, nil, r.project+" → "+path)
+		addStep(res, step, nil, stepPersonaWritten(req.Language, r.project, path))
 	}
 
 	if req.Platform == "discord" && len(pl.team) > 1 {
@@ -895,7 +916,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		if err := writeJSONFile(filepath.Join(env.DataDir, gateTeamFile), gt, 0o644); err != nil {
 			return fail("gate team", err)
 		}
-		addStep(res, "team", nil, fmt.Sprintf("%d bots, fallback %s", len(pl.team), pl.fallbackName))
+		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
 	}
 
 	// 5. jev: absent = keep; empty base_url = remove; otherwise saved only if the gate could use it
@@ -906,7 +927,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 		res.Jev, res.JevOK, res.JevReason, res.JevInUse = out.Test, out.Reason == "", out.Reason, out.InUse
 		if out.Reason != "" {
-			addStep(res, "jev", fmt.Errorf("not saved: %s", out.Reason), "")
+			addStep(res, "jev", errors.New(stepJevNotSaved(req.Language, out.Reason)), "")
 		} else {
 			addStep(res, "jev", nil, out.Detail)
 		}
@@ -943,7 +964,13 @@ func fillRoleResults(res *WizardResult, pl *wizardPlan) {
 		rr.PersonaWritten = !r.reused || r.writesPersona()
 		rr.ReplyLanguage, rr.ReplyLanguageFrom = r.ReplyLanguage, r.replyFrom
 		if r.reused && !r.writesPersona() && !r.updatesReplyLanguage() {
+			// left alone: report the language its persona already sets ("" = none set)
 			rr.ReplyLanguage, rr.ReplyLanguageFrom = "", "existing"
+			if r.workDir != "" {
+				if b, err := os.ReadFile(PersonaFilePath(r.AgentType, r.workDir)); err == nil {
+					rr.ReplyLanguage, _ = PersonaReplyLanguage(string(b))
+				}
+			}
 		}
 		if rr.ReplyLanguage != "" {
 			rr.ReplyLanguageName = LanguageName(rr.ReplyLanguage)
@@ -1100,7 +1127,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	}
 	if !found {
 		if pl.fallback != "" {
-			pl.note = fmt.Sprintf("%q is not one of the bots; using %q", pl.fallback, pl.roles[0].project)
+			pl.note = stepFallbackNote(req.Language, pl.fallback, pl.roles[0].project)
 		}
 		pl.fallback = pl.roles[0].project
 	}
@@ -1408,6 +1435,7 @@ func (m *ManagementServer) handleSetupDiscordCheck(w http.ResponseWriter, r *htt
 	var req struct {
 		Token        string `json:"token"`
 		ReuseProject string `json:"reuse_project"`
+		Lang         string `json:"lang"` // language of the error text (the web UI language)
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -1419,7 +1447,15 @@ func (m *ManagementServer) handleSetupDiscordCheck(w http.ResponseWriter, r *htt
 	}
 	info, err := CheckDiscordBot(r.Context(), tok)
 	if err != nil {
-		mgmtError(w, http.StatusBadRequest, err.Error())
+		msg := err.Error()
+		var rl *ErrDiscordRateLimited
+		switch {
+		case errors.Is(err, ErrDiscordTokenInvalid):
+			msg = discordTokenInvalidText(req.Lang)
+		case errors.As(err, &rl):
+			msg = discordRateLimitedText(req.Lang, rl.RetryAfter)
+		}
+		mgmtError(w, http.StatusBadRequest, msg)
 		return
 	}
 	mgmtJSON(w, http.StatusOK, info)
@@ -1540,9 +1576,13 @@ func (m *ManagementServer) handleSetupPersona(w http.ResponseWriter, r *http.Req
 	writePersonaJSON(w, PersonaFilePath(q.Get("agent_type"), wd))
 }
 
+// writePersonaJSON also says which reply language the persona sets (PersonaReplyLanguage), so the
+// wizard can show what an existing bot keeps when its persona is left alone.
 func writePersonaJSON(w http.ResponseWriter, path string) {
 	b, err := os.ReadFile(path)
-	mgmtJSON(w, http.StatusOK, map[string]any{"path": path, "exists": err == nil, "content": string(b)})
+	code, line := PersonaReplyLanguage(string(b))
+	mgmtJSON(w, http.StatusOK, map[string]any{"path": path, "exists": err == nil, "content": string(b),
+		"reply_language": code, "reply_language_line": line})
 }
 
 // handleProjectPersona: GET/PUT /projects/{name}/persona — the agent's

@@ -1,5 +1,13 @@
 # 共栖当前交接
 
+2026-10-21 PR #210 同步 main 70d8febf（#227）：主线并行修复了同一视频截止时间竞态；合并统一沿用 deadlinePassed，移除重复辅助函数，保留 #227 的辅助函数回归和 #210 两条真实入口回归。此前 e5a17802 的四项核心 CI 已全部通过；同步后的提交须重新跑 CI，不沿用旧结果。未合并 PR、未部署。
+
+2026-10-21 Issue #226 / PR #210：修复视频消息预算截止后仍启动下一链接的竞态。消息预算和共享解析进程使用独立定时器，ctx.Err() 的取消通知可能晚于 Deadline；prepareMedia 和 parseVideo 的新任务入口现在同时检查主动取消与截止时刻，保留跨消息共享解析生命周期。新确定性回归在修改前两条入口均失败；修改后与原 TestVideoTimeout 连续100次通过，视频 race（三次）及核心 CUJ 通过，macOS Go 全量仅 cmd 包既有 TestAnnounceSetupWizardAlwaysPrintsLink、TestSetupCLIsHint 失败（用修改前 media.go overlay 对照复现），其余包通过。Linux CI 以最新提交运行结果为准，未合并、未部署。
+
+2026-10-21 PR #210 CI 优先重验（Refs #218）：同步 main 80843347 后，将 #219 的核心 CI 临时目录隔离同步到本 PR。双 Runner 使用独立账户，默认共用 /tmp 导致第二账户写 /tmp/agent-prompts 权限失败（main run 39551891537 和 #214 run 39552298763 已复现）；四项 job 在 checkout 后导出 TMPDIR=$RUNNER_TEMP，使测试临时目录随 Runner 隔离。只调整 CI 环境，不修改该 PR 的业务实现。此前 bd908224 的四项核心检查已通过，新提交仍须重新验证；UI preview 尚使用官方 runner，账单限制仍未解决，迁移另见 #219。未合并、未部署。
+
+2026-10-21：rc5 Linux 真机实测剩余问题（分支 fix/rc5-linux-followups，基线 main 9b880ec6）。重配已有机器人时，页头和确认页按人设文件实际写的回答语言显示（GET /setup/persona 和结果里的 reply_language 读 `<!-- conest:reply-language -->` 下一行），不勾「改现有人设」时写明沿用、怎么改；setup apply / token 校验遇 Discord 429 按 retry_after 重试（最多 3 次、单次不超过 10 秒，超了如实说要等多久）；jev 提示、jev 失败原因、保存页步骤行、token 无效、gate 提示、预设人设名补日文（步骤键名保持英文给脚本用，网页按语言翻）；setup apply 首次运行到写项目时才建 config.toml，token 无效不再留下空模板；媒体库不再默认找 ~/im-bridge/bin，只认 CONEST_MEDIA_BIN_DIR，NAS 根目录只认 CONEST_MEDIA_NAS_ROOT（没设就不用 NAS、不提示 NAS 没挂）；公开副本会带出的私有默认值改成必须给：contrib/gate 的 gate_switch.py / sync_gate.sh（SWITCH_HOST、SWITCH_TS_IP、SWITCH_WIN_HOME）、companion/tools/smoke_device.py（--instance-dir / --releases-dir 或 CONEST_DEVICE_*）、role-household 快照的 dial.py（RH_TEAM_DIR，没设不读忙闲）和 tools/smoke_phone.py（RH_CO_LEAD / RH_CO_SUB）；向导新建的项目写 show_quota_indicator = false、show_workdir_indicator = false，已有项目不动；install.sh 私有仓库不再打出 curl 404、装完的文档链接指向所装 tag，GETTING_STARTED 写了 CONEST_VERSION。未部署。
+
 2026-10-21 Issue #221：自主采集临时断连增加仅GET的有界重试；失败阶段及安全分类保留在实例diagnostics.json，最近20次且恢复不清除。发送/附件/活动提交和整个tick不重试。单一Codex实现与自查，无子Agent；真实CLI隔离故障→恢复通过，线上部署与自然分钟任务验收另记录。详见[重试与诊断](AUTONOMY_RELIABILITY.md)。
 
 2026-10-21 Issue #215 / PR #216：独立 WSL conest-ci 已运行两个专用账号的 runner，可并行两项 job；每路上限4个逻辑线程算力、6GiB内存，工作区和工具缓存独立。真实 Actions run 39546540674 的 bridge、companion、firmware-assets、dial-metrics 全过，原 Ubuntu GPU 闸门仍存活。最终文档提交的检查与合并状态以 PR 为准。登录后自启已配置，未做重启验收；插电不休眠，电池仍可能休眠。仅迁移核心 CI，release/ui-preview 仍在云端；未核对账单页面。详见 docs/SELF_HOSTED_CI.md。

@@ -29,8 +29,11 @@ import urllib.error
 import urllib.request
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8796"
-DEFAULT_INSTANCE_DIR = os.path.expanduser("~/.cc-connect-maomao/voice/device-preview-20261017-140039")
-DEFAULT_RELEASES_DIR = os.path.expanduser("~/.cc-connect-maomao/voice/releases")
+# The deployment's instance and releases directories have no default (they used to be a
+# maintainer's own paths): pass --instance-dir / --releases-dir or set CONEST_DEVICE_INSTANCE_DIR /
+# CONEST_DEVICE_RELEASES_DIR.
+DEFAULT_INSTANCE_DIR = os.environ.get("CONEST_DEVICE_INSTANCE_DIR", "")
+DEFAULT_RELEASES_DIR = os.environ.get("CONEST_DEVICE_RELEASES_DIR", "")
 
 
 def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict[str, str], bytes]:
@@ -334,12 +337,12 @@ def main():
     parser.add_argument(
         "--instance-dir",
         default=DEFAULT_INSTANCE_DIR,
-        help="Instance directory containing deploy records",
+        help="Instance directory containing deploy records (default: $CONEST_DEVICE_INSTANCE_DIR; required)",
     )
     parser.add_argument(
         "--releases-dir",
         default=DEFAULT_RELEASES_DIR,
-        help="Releases root directory",
+        help="Releases root directory (default: $CONEST_DEVICE_RELEASES_DIR; required)",
     )
     parser.add_argument(
         "--expected-commit",
@@ -348,6 +351,11 @@ def main():
     )
 
     args = parser.parse_args()
+    if not args.instance_dir or not args.releases_dir:
+        parser.error("need the deployment's directories: --instance-dir and --releases-dir "
+                     "(or CONEST_DEVICE_INSTANCE_DIR / CONEST_DEVICE_RELEASES_DIR)")
+    args.instance_dir = os.path.expanduser(args.instance_dir)
+    args.releases_dir = os.path.expanduser(args.releases_dir)
     sys.exit(
         run_smoke_checks(
             base_url=args.url,

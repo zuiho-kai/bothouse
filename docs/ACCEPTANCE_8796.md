@@ -14,8 +14,10 @@
 在开始真人语音交互前，可在终端执行项目内置的只读冒烟脚本：
 
 ```bash
-python3 companion/tools/smoke_device.py
+python3 companion/tools/smoke_device.py --instance-dir <实例目录> --releases-dir <发布根目录>
 ```
+
+两个目录是这台机器上 8796 部署的实例目录和发布根目录，没有默认值；也可以用环境变量 `CONEST_DEVICE_INSTANCE_DIR`、`CONEST_DEVICE_RELEASES_DIR` 给。
 
 ### 预期输出
 - 所有页面（首页、普通设备页、圆屏 HTML、`screen.css`、`screen.js`）与 `/api/devices` 均返回 **HTTP 200**；

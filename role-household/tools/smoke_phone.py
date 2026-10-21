@@ -48,7 +48,10 @@ EXCERPT = 120                             # 证据里每条摘多少字。来源
 
 # --co-mention 场景
 CO_ROOM = 2                               # 来源：派活原话「在 room 2 发」「绝对不往 room 1 发」
-CO_LEAD, CO_SUB = "maomao", "longniang"   # hub 里橘、龙娘的作者 id。来源：线上 room 2 消息的 author 字段
+# hub 里主 bot（橘）、sub（龙娘）的作者 id：.env 的 RH_CO_LEAD / RH_CO_SUB（或 --co-lead / --co-sub）给，
+# 不写死成维护者自己的 id；--co-mention 没给就报错退出。
+CO_LEAD: str | None = None
+CO_SUB: str | None = None
 CO_FACTOR = (11, 99)                      # A、B 取两位数。来源：用户 2026-10-20 原句「17×23」是两位数乘两位数
 CO_WAIT_S = 600                           # 等两个 bot 回完的上限。来源：实现者定（龙娘一轮通常一两分钟）
 CO_POLL_S = 5                             # 来源：实现者定
@@ -341,7 +344,13 @@ def main() -> int:
     ap.add_argument("--rooms", default=",".join(map(str, ROOMS)))
     ap.add_argument("--out", default=str(ROOT / "logs" / "smoke"))
     ap.add_argument("--co-mention", action="store_true", help="在 room 2 发一条同时 @橘和龙娘的消息并查顺序（会发消息）")
+    ap.add_argument("--co-lead", default=env.get("RH_CO_LEAD"), help="--co-mention：hub 里主 bot 的作者 id（默认 .env RH_CO_LEAD）")
+    ap.add_argument("--co-sub", default=env.get("RH_CO_SUB"), help="--co-mention：hub 里 sub 的作者 id（默认 .env RH_CO_SUB）")
     a = ap.parse_args()
+    global CO_LEAD, CO_SUB
+    CO_LEAD, CO_SUB = a.co_lead, a.co_sub
+    if a.co_mention and not (CO_LEAD and CO_SUB):
+        ap.error("--co-mention 要知道 hub 里两个 bot 的作者 id：在 .env 写 RH_CO_LEAD= 和 RH_CO_SUB=，或加 --co-lead / --co-sub")
     token = env["RH_HUB_TOKEN"]
     out = Path(a.out) / time.strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True, exist_ok=True)

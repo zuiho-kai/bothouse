@@ -28,8 +28,9 @@ CONFIG = {
     "listen_port": int(os.environ.get("SWITCH_PORT", "9930")),          # cc-connect 的 gate_url 指向这里
     "tunnel_port": int(os.environ.get("SWITCH_TUNNEL_PORT", "19930")),  # 本机这头的转发端口
     "remote_port": int(os.environ.get("SWITCH_REMOTE_PORT", "9930")),   # 对面 gate.py 的端口
-    "host": os.environ.get("SWITCH_HOST", "zxy@100.97.84.11"),
-    "tailscale_ip": os.environ.get("SWITCH_TS_IP", "100.97.84.11"),
+    # GPU 机器（SSH 目标 user@host）和它的 tailscale IP：没有默认值，必须给（见 main 里的检查）
+    "host": os.environ.get("SWITCH_HOST", ""),
+    "tailscale_ip": os.environ.get("SWITCH_TS_IP", ""),
     "start_script": os.environ.get("SWITCH_START_SCRIPT",
                                    str(Path(__file__).with_name("start_gate_wsl.sh"))),
     "stop_script": os.environ.get("SWITCH_STOP_SCRIPT",
@@ -41,7 +42,7 @@ CONFIG = {
 TAILSCALE = os.environ.get("TAILSCALE", "tailscale")
 LAN_MAX_MS = float(os.environ.get("SWITCH_LAN_MAX_MS", "30"))  # 直连且延迟不超过这个，就当同一个局域网
 GATE_PY = Path(os.environ.get("SWITCH_GATE_PY", Path(__file__).with_name("gate.py")))
-os.environ.setdefault("GATE_TEAM", str(Path.home() / ".cc-connect-maomao/gate-team.json"))
+# 团队文件：GATE_TEAM 给就用它；不给由 gate.py 自己找向导写的 gate-team.json（同 gate.py 的默认）。
 
 
 class NeedModel(Exception):
@@ -334,6 +335,10 @@ class H(BaseHTTPRequestHandler):
 
 
 def main():
+    missing = [k for k, v in (("SWITCH_HOST", CONFIG["host"]), ("SWITCH_TS_IP", CONFIG["tailscale_ip"])) if not v]
+    if missing:
+        raise SystemExit("gate_switch: 先设 " + "、".join(missing) +
+                         "（GPU 机器的 SSH 目标 user@host 和它的 tailscale IP），例如 SWITCH_HOST=me@100.x.y.z SWITCH_TS_IP=100.x.y.z")
     def bye(*_):
         stop_tunnel("切换器退出")
         os._exit(0)

@@ -21,6 +21,17 @@ gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.gith
 
 装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。
 
+默认装最新的发布版（含预发布版）。要装固定版本（比如几个人用同一版、或者退回上一版），在 `sh` 前面加 `CONEST_VERSION=<tag>`，tag 在仓库的 Releases 页能看到：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | CONEST_VERSION=<tag> sh
+gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.github.raw' | CONEST_VERSION=<tag> sh
+```
+
+`<tag>` 换成 Releases 页上的版本名（形如 `v0.1.0-rc5`）。
+
+装完 `cc-connect --version` 看装的是哪一版；装完提示里的文档链接也指向这一版的文档。
+
 **2. 配。** 二选一，写的是同一份配置（`~/.cc-connect/config.toml`）：
 
 - 人：运行 `cc-connect`。第一次运行会自动在浏览器打开安装向导（打不开就把带口令的链接打印出来，复制到浏览器）。

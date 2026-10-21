@@ -1038,10 +1038,10 @@ func main() {
 		engines[i].SetHeartbeatScheduler(heartbeatSched)
 	}
 
-	// maomao fork: video links → watchvid once, attachments → NAS media library (off if the scripts are missing).
-	if home, err := os.UserHomeDir(); err == nil {
-		core.EnableMediaLibrary(home)
-	}
+	// maomao fork: video links → watchvid once, attachments → NAS media library. Only when
+	// CONEST_MEDIA_BIN_DIR names the directory with watchvid and mediaarchive; off otherwise.
+	// CONEST_MEDIA_NAS_ROOT: the NAS share it lives on (unset = no NAS).
+	core.EnableMediaLibrary(os.Getenv("CONEST_MEDIA_BIN_DIR"), os.Getenv("CONEST_MEDIA_NAS_ROOT"))
 
 	var startErrors []error
 	for _, e := range engines {

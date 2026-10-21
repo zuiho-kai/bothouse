@@ -335,7 +335,7 @@ func TestSetupApplyFirstRunNoBackupClaimAndLang(t *testing.T) {
 	if err := json.Unmarshal(out, &res); err != nil || !res.Saved || len(res.Roles) != 1 {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if res.ConfigBackup != "" || strings.Contains(string(out), "previous config kept") || !strings.Contains(string(out), "first run") {
+	if res.ConfigBackup != "" || strings.Contains(string(out), "previous config kept") || !strings.Contains(string(out), "初回実行") { // --lang ja: the step line is Japanese
 		t.Errorf("first run claims a backup:\n%s", out)
 	}
 	if res.Roles[0].ReplyLanguage != "ja" || res.Roles[0].From != "request" {
@@ -367,5 +367,63 @@ func TestConfigWizardStoreIsFreshConfig(t *testing.T) {
 	_ = os.WriteFile(p, []byte("[log]\nlevel = \"info\"\n"), 0o600) // the user's own config without projects
 	if (configWizardStore{}).IsFreshConfig() {
 		t.Fatal("a config the user wrote is not fresh")
+	}
+}
+
+// rc5: a first `setup apply` with an invalid token said "Nothing was written" but had already
+// created the first-run config.toml. The config is now created only when projects are written.
+func TestSetupApplyInvalidTokenWritesNoConfig(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "sub", "config.toml")
+	req := filepath.Join(t.TempDir(), "req.json")
+	_ = os.WriteFile(req, []byte(`{"language":"en","discord":{"guild_id":"900"},"roles":[{"token":"`+testBotToken+`","agent_type":"claudecode"}]}`), 0o600)
+	out, err := helper(t, "setup", []string{"CONEST_DISCORD_API_BASE=" + srv.URL, "HOME=" + dir}, "apply", "--json", req, "--config", cfg).Output()
+	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1, got %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "Nothing was written") || !strings.Contains(string(out), "discord_token_invalid") {
+		t.Fatalf("result:\n%s", out)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("an invalid token left files behind: %v", entries)
+	}
+}
+
+// rc5: a new bot's reply footer sent the owner's quota ("5h 剩 65% · 周 36%") and this machine's
+// path to the group. Projects the wizard creates now turn both off; existing projects keep theirs.
+func TestSetupApplyNewBotFooterHidesQuotaAndPath(t *testing.T) {
+	srv := fakeDiscordAPI(t, 1<<18, "900")
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	_ = os.WriteFile(cfg, []byte("[[projects]]\nname = \"mine\"\n[projects.agent]\ntype = \"claudecode\"\n[projects.agent.options]\nwork_dir = \"/tmp\"\n[[projects.platforms]]\ntype = \"telegram\"\n[projects.platforms.options]\ntoken = \"x\"\n"), 0o600)
+	req := filepath.Join(dir, "req.json")
+	_ = os.WriteFile(req, []byte(`{"language":"en","discord":{"guild_id":"900"},"roles":[{"token":"`+testBotToken+`","agent_type":"claudecode"}]}`), 0o600)
+	out, _ := helper(t, "setup", []string{"CONEST_DISCORD_API_BASE=" + srv.URL, "HOME=" + dir, "ANTHROPIC_API_KEY=test-key"}, "apply", "--json", req, "--config", cfg).Output()
+	if !strings.Contains(string(out), `"saved": true`) {
+		t.Fatalf("apply:\n%s", out)
+	}
+	c, err := config.Load(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, p := range c.Projects {
+		switch p.Name {
+		case "juzi":
+			seen++
+			if p.ShowQuotaIndicator == nil || *p.ShowQuotaIndicator || p.ShowWorkdirIndicator == nil || *p.ShowWorkdirIndicator {
+				t.Errorf("new bot footer: quota=%v workdir=%v", p.ShowQuotaIndicator, p.ShowWorkdirIndicator)
+			}
+		case "mine":
+			seen++
+			if p.ShowQuotaIndicator != nil || p.ShowWorkdirIndicator != nil {
+				t.Errorf("existing project changed: quota=%v workdir=%v", p.ShowQuotaIndicator, p.ShowWorkdirIndicator)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("projects: %+v", c.Projects)
 	}
 }

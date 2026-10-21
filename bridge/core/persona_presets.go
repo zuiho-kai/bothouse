@@ -103,10 +103,25 @@ You are "Raven" — short black hair with a few silver streaks, a black feather 
 `},
 }
 
-// PersonaPresets returns the presets in lang ("zh*" → Chinese, anything else → English).
+// personaNamesJA: the presets' names in Japanese (the wizard's persona-step note uses the same
+// ones). The texts stay English; the reply-language line written under them sets the language.
+var personaNamesJA = map[string]string{"ju": "橘", "jingyu": "鯨娘", "longniang": "龍娘", "caihongmao": "レインボーキャット", "grok": "Raven"}
+
+// PersonaPresets returns the presets in lang ("zh*" → Chinese, "ja*" → English texts with
+// Japanese names, anything else → English).
 func PersonaPresets(lang string) []PersonaPreset {
 	if isZH(lang) {
 		return personaPresetsZH
+	}
+	if isJA(lang) {
+		out := make([]PersonaPreset, len(personaPresetsEN))
+		for i, p := range personaPresetsEN {
+			if n := personaNamesJA[p.ID]; n != "" {
+				p.Name = n
+			}
+			out[i] = p
+		}
+		return out
 	}
 	return personaPresetsEN
 }
@@ -156,6 +171,28 @@ func WithReplyLanguage(persona, lang string) string {
 		persona += eol + eol
 	}
 	return persona + replyLanguageMarker + eol + line + eol
+}
+
+// PersonaReplyLanguage reads the reply language a persona sets: the line under the reply-language
+// marker. code is the language code when that line is one the wizard writes ("" otherwise); line
+// is the line itself ("" when the persona has no marker, i.e. the CLI answers as it likes).
+func PersonaReplyLanguage(persona string) (code, line string) {
+	i := strings.Index(persona, replyLanguageMarker)
+	if i < 0 {
+		return "", ""
+	}
+	rest := strings.TrimLeft(persona[i+len(replyLanguageMarker):], "\r\n")
+	line, _, _ = strings.Cut(rest, "\n")
+	line = strings.TrimSpace(line)
+	for _, c := range []string{"zh", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "pt", "ru"} {
+		if line == replyLanguageLine(c) {
+			return c, line
+		}
+	}
+	if l, ok := strings.CutPrefix(line, "Always reply in "); ok { // a code languageName does not know
+		return strings.TrimSuffix(l, "."), line
+	}
+	return "", line
 }
 
 func replyLanguageLine(lang string) string {
