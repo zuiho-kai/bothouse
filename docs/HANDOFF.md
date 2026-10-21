@@ -1,5 +1,11 @@
 # 共栖当前交接
 
+2026-10-21：Issue #203 / PR #206 Windows 支持（分支 feat/windows-support）。
+- 装：Release 多出 windows/amd64、windows/arm64 两个 .zip（内含 cc-connect.exe，进 checksums.txt）；根目录 `install.ps1`，PowerShell 一行 `irm …/install.ps1 | iex`（私有仓库用 `gh api … | Out-String | iex`），校验 sha256、装到 `%USERPROFILE%\.local\bin`、加进用户 PATH。install.sh 在 Git Bash/MSYS 下指去 install.ps1。
+- 适配：向导链接在 Windows 用 rundll32 打开（`cmd /c start` 会在 `&next=` 处截断）；Windows 重启改为子进程+父进程等它退出（原来父进程直接退出，计划任务失去监管）；next_steps 在 Windows 给 PowerShell 的 Start-Process 而不是 nohup；系统语言在 Windows 读 GetUserDefaultLocaleName；CLI 探测补 `%APPDATA%\npm` 和 PATHEXT；后台服务沿用上游的「任务计划程序」登录时启动。
+- 顺手修（三端）：管理接口 Stop 改 5 秒 Shutdown，「重启生效」的回复不再被掐断（Windows 验收首跑暴露）；`cc-connect daemon install` 不带参数时用 `~/.cc-connect`，不再要求在该目录下运行（Windows 验收暴露）。
+- 验证：release.yml 新增 smoke-windows（发布前验包）和 verify-windows（发布后在干净 windows-latest 按文档命令装、首次运行、向导页、重启、Ctrl+Break 退出、setup apply 假数据、计划任务安装/卸载）；ci.yml 加 GOOS=windows build+vet。v0.1.0-rc4 是这个分支打的预发布。Windows 真机、真凭据配成功未测（Linux 真机另有人测）。
+
 2026-10-21 PR #210 同步 main 70d8febf（#227）：主线并行修复了同一视频截止时间竞态；合并统一沿用 deadlinePassed，移除重复辅助函数，保留 #227 的辅助函数回归和 #210 两条真实入口回归。此前 e5a17802 的四项核心 CI 已全部通过；同步后的提交须重新跑 CI，不沿用旧结果。未合并 PR、未部署。
 
 2026-10-21 Issue #226 / PR #210：修复视频消息预算截止后仍启动下一链接的竞态。消息预算和共享解析进程使用独立定时器，ctx.Err() 的取消通知可能晚于 Deadline；prepareMedia 和 parseVideo 的新任务入口现在同时检查主动取消与截止时刻，保留跨消息共享解析生命周期。新确定性回归在修改前两条入口均失败；修改后与原 TestVideoTimeout 连续100次通过，视频 race（三次）及核心 CUJ 通过，macOS Go 全量仅 cmd 包既有 TestAnnounceSetupWizardAlwaysPrintsLink、TestSetupCLIsHint 失败（用修改前 media.go overlay 对照复现），其余包通过。Linux CI 以最新提交运行结果为准，未合并、未部署。
@@ -19,7 +25,7 @@
 2026-10-21 Issue #204：指定 bot 按具体请求代批所有类型工具权限。单一 Codex 实现/自查，无独立 reviewer。Discord 配置 permission_approvers，需共享频道会话；名单与可信授权说明来自操作者配置。随机请求编号隔离后端重复 ID，跨频道/过期/并发/多个 cron/适配器失败均受控，真人按钮保留；不代答偏好问答。回归含真实 Gateway 入口和核心 ReceiveMessage CUJ，目标 race/vet 通过。全量 Go 首轮只有向导中文断言受宿主 LC_ALL 覆盖 LANG 失败；清除 LC_ALL/LC_MESSAGES 后 cmd 包全部通过，未修改向导源码或测试。源码未部署，发布及真实验证看统一运行交接。详见 DELEGATED_PERMISSIONS.md。
 
 2026-10-21：PR #198 易用性（分支 feat/onboarding-ux）。新人和 AI 的装、配、上线现在只有一条路：
-- 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 暂不支持。
+- 装：打 tag 后，`.github/workflows/release.yml` 编出 macOS/Linux × arm64/amd64 四个包（带网页向导）发到 Release，用根目录 `install.sh` 装。Windows 见下面 #203。
 - 配：没有配置时运行 `cc-connect`，会自动打开向导并在终端打印链接；SSH 下给出 `ssh -L` 命令。AI 用 `cc-connect setup apply`，见 AGENTS.md 文末一节。
 - 确认上线：以下情况 setup apply 不再报成功，返回 `ok:false`，带阻塞 warnings 和链接——Message Content Intent 没开或查不到、机器人不在服务器、查不到所有者。查不到所有者时 allow_from 写成 `set-your-discord-user-id`，谁的话都不听；带上真实 ID 重跑后会被替换。显式写 `*` 时给一条不阻断的提示。
 - 向导填的默认频道写进 `group_reply_all_channels`；`cc-connect update` 按 checksums.txt 校验。

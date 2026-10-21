@@ -356,10 +356,15 @@ func SystemReplyLanguage() string {
 			}
 		}
 	}
+	// Windows does not set LANG: ask the OS ("zh-CN" → "zh"); "" on macOS / Linux.
+	if l := NormalizeLanguage(osLocaleName()); l != "" {
+		return l
+	}
 	return "en"
 }
 
-// SystemLanguage: "zh" or "en" from the process locale (LC_ALL / LANG).
+// SystemLanguage: "zh" or "en" from the process locale (LC_ALL / LANG). Windows does not set
+// LANG, so there the user's locale name (zh-CN, en-US, …) is asked from the OS instead.
 func SystemLanguage() string {
 	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
 		if v := os.Getenv(k); v != "" {
@@ -368,6 +373,9 @@ func SystemLanguage() string {
 			}
 			return "en"
 		}
+	}
+	if isZH(osLocaleName()) {
+		return "zh"
 	}
 	return "en"
 }

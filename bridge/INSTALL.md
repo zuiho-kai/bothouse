@@ -4,7 +4,7 @@
 > **不要用 npm / brew / 上游 chenhg5/cc-connect 的 Release 装**：那是上游版，没有 `cc-connect setup`、没有向导。
 > 上游原来这份安装文档（各平台手动配置）在 <https://github.com/chenhg5/cc-connect/blob/main/INSTALL.md>，只在手写配置时参考。
 
-只有一条路：**装 → 向导或 `setup apply` → 确认上线**。macOS / Linux（arm64、amd64）；Windows 暂不支持。
+只有一条路：**装 → 向导或 `setup apply` → 确认上线**。macOS / Linux / Windows（arm64、amd64）。
 
 ## 1. 装
 
@@ -15,7 +15,16 @@ curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | sh
 gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
 ```
 
-装到 `~/.local/bin/cc-connect`，不用 Go 和 Node。`CONEST_VERSION=<tag>` 装指定版本，`INSTALL_DIR=<目录>` 换位置。
+Windows（PowerShell）：
+
+```powershell
+# 仓库公开后
+irm https://raw.githubusercontent.com/Zssan12/conest/main/install.ps1 | iex
+# 仓库私有时（先 winget install GitHub.cli，再 gh auth login）
+gh api repos/Zssan12/conest/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
+```
+
+装到 `~/.local/bin/cc-connect`（Windows：`%USERPROFILE%\.local\bin\cc-connect.exe`，并加进用户 PATH），不用 Go 和 Node。`CONEST_VERSION=<tag>` 装指定版本，`INSTALL_DIR=<目录>` 换位置（PowerShell 里写 `$env:CONEST_VERSION='<tag>'`）。
 从源码编（开发用）见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 附录 B。
 
 ## 2. 配

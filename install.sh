@@ -8,7 +8,8 @@
 # Environment:
 #   CONEST_VERSION   tag to install (default: the newest release, pre-releases included)
 #   INSTALL_DIR      where to put cc-connect (default: ~/.local/bin)
-# macOS and Linux (arm64, amd64). Windows is not supported yet.
+# macOS and Linux (arm64, amd64). On Windows use install.ps1 (PowerShell):
+#   irm https://raw.githubusercontent.com/Zssan12/conest/main/install.ps1 | iex
 set -eu
 
 # Everything runs from main, called on the last line: if a `curl | sh` download is cut
@@ -23,7 +24,8 @@ main() {
   case "$(uname -s)" in
     Darwin) os=darwin ;;
     Linux) os=linux ;;
-    *) die "unsupported OS $(uname -s): macOS and Linux only for now (Windows is not supported yet)" ;;
+    MINGW*|MSYS*|CYGWIN*) die "this is Windows: in PowerShell run   irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex   (private repo: see docs/GETTING_STARTED.md step 1)" ;;
+    *) die "unsupported OS $(uname -s): this script is for macOS and Linux; on Windows use install.ps1 (docs/GETTING_STARTED.md)" ;;
   esac
   case "$(uname -m)" in
     arm64|aarch64) arch=arm64 ;;

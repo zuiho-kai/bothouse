@@ -1372,14 +1372,9 @@ func main() {
 			slog.Error("restart: cannot determine executable path", "error", err)
 			os.Exit(1)
 		}
-		// After self-update, os.Executable() may return the .old path on Linux.
-		// Strip the .old suffix to restart from the updated binary.
-		if strings.HasSuffix(execPath, ".old") {
-			newPath := strings.TrimSuffix(execPath, ".old")
-			if _, err := os.Stat(newPath); err == nil {
-				execPath = newPath
-			}
-		}
+		// After self-update, os.Executable() may return the backup path (.old / .old-<n>).
+		// Restart from the updated binary instead.
+		execPath = core.BinaryFromBackupPath(execPath)
 		slog.Info("restarting...", "path", execPath, "args", os.Args)
 		if err := restartProcess(execPath); err != nil {
 			slog.Error("restart: failed", "error", err)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -142,7 +143,7 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 		release()
 		exe, err := os.Executable()
 		if err == nil {
-			err = restartProcess(exe)
+			err = restartProcess(core.BinaryFromBackupPath(exe))
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "restart failed: %v\n", err)
@@ -236,7 +237,21 @@ func instanceRunning(configPath string) bool {
 func setupNextSteps(lang, configFlag string, running, needsAction bool) []string {
 	cmd := "cc-connect"
 	if configFlag != "" {
-		cmd += " --config " + configFlag
+		cmd += " --config " + quoteIfSpaced(configFlag)
+	}
+	// quick background try: nohup on macOS/Linux. Windows has no nohup: PowerShell's Start-Process,
+	// with the log going to the file cc-connect itself writes (CC_LOG_FILE, main.go). CC_LOG_FILE is
+	// removed again right after, so later commands in the same window are not redirected too.
+	tryCmd, tryLog := "nohup "+cmd+" > ~/.cc-connect/run.log 2>&1 &", "~/.cc-connect/run.log"
+	if nextStepsGOOS == "windows" {
+		start := "Start-Process cc-connect -WindowStyle Hidden"
+		if configFlag != "" {
+			// Start-Process joins -ArgumentList with spaces and does not quote: a path with spaces
+			// needs its own double quotes inside the single-quoted PowerShell string.
+			start = `Start-Process cc-connect -ArgumentList '--config','"` + strings.ReplaceAll(configFlag, "'", "''") + `"' -WindowStyle Hidden`
+		}
+		tryLog = `$HOME\.cc-connect\run.log`
+		tryCmd = `$env:CC_LOG_FILE="` + tryLog + `"; ` + start + `; Remove-Item Env:CC_LOG_FILE`
 	}
 	zh := strings.HasPrefix(strings.ToLower(lang), "zh")
 	var out []string
@@ -254,17 +269,28 @@ func setupNextSteps(lang, configFlag string, running, needsAction bool) []string
 		out = append(out, "cc-connect is running; restart it to use the new config: click \"Restart to apply\" in the wizard, or cc-connect daemon restart for the service, or Ctrl+C and run "+cmd+" again")
 	case zh:
 		out = append(out, "后台启动并常驻（推荐，AI 也用这个，不要在前台跑 "+cmd+"，会一直占住终端）："+daemonCmd(configFlag)+"；看日志 cc-connect daemon logs -f，出现 \"discord: connected\" 就是上线了，去频道里 @ 机器人说一句试试",
-			"只想先临时试一下：nohup "+cmd+" > ~/.cc-connect/run.log 2>&1 &（日志在 ~/.cc-connect/run.log）")
+			"只想先临时试一下："+tryCmd+"（日志在 "+tryLog+"）")
 	default:
 		out = append(out, "Start in the background as a service (recommended, also for AI agents — do not run "+cmd+" in the foreground, it holds the terminal): "+daemonCmd(configFlag)+"; follow the log with cc-connect daemon logs -f, \"discord: connected\" means it is online — @ the bot in the channel to try",
-			"Just a quick try: nohup "+cmd+" > ~/.cc-connect/run.log 2>&1 & (log in ~/.cc-connect/run.log)")
+			"Just a quick try: "+tryCmd+" (log in "+tryLog+")")
 	}
 	return out
 }
 
+// nextStepsGOOS is runtime.GOOS; swapped in tests.
+var nextStepsGOOS = runtime.GOOS
+
+// quoteIfSpaced wraps a path with spaces in double quotes (sh, zsh, bash and PowerShell all accept it).
+func quoteIfSpaced(p string) string {
+	if strings.ContainsAny(p, " \t") {
+		return `"` + p + `"`
+	}
+	return p
+}
+
 func daemonCmd(configFlag string) string {
 	if configFlag != "" {
-		return "cc-connect daemon install --config " + configFlag
+		return "cc-connect daemon install --config " + quoteIfSpaced(configFlag)
 	}
 	return "cc-connect daemon install"
 }

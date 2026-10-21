@@ -10,12 +10,14 @@
 
 **想自己用起来：** 从 [从零用起 CoNest](docs/GETTING_STARTED.md) 开始。没有硬件，走「配 ccm 和 wiki」「接进 Discord 或飞书」两条线就能完整用；有板子再看「接硬件」。
 
-装 → 向导 → 确认上线（macOS / Linux；Windows 暂不支持；不用装 Go 和 Node）：
+装 → 向导 → 确认上线（macOS / Linux / Windows；不用装 Go 和 Node）：
 
 ~~~sh
-curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | sh   # 仓库私有时见入门文档第 1 步
+curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | sh   # macOS / Linux；仓库私有时见入门文档第 1 步
 cc-connect      # 第一次运行自动在浏览器打开安装向导；或让 AI 跑 cc-connect setup apply（见 AGENTS.md）
 ~~~
+
+Windows 在 PowerShell 里：`irm https://raw.githubusercontent.com/Zssan12/conest/main/install.ps1 | iex`，再运行 `cc-connect`。
 
 执行任务时的公开进展、Discord 任务卡及简短语音回执见[公开进展说明](docs/PUBLIC_PROGRESS.md)。可由主 bot 的置顶团队状态栏汇总本频道“进行中／待你处理”的任务卡链接，结束后移出入口并保留历史。同一任务可显式跨轮续卡；本地 task list/show 查询、task accept 记录真人明确验收，验收后保留完成状态。按项目启用，默认关闭；源码验证与生产验收分别记录。
 

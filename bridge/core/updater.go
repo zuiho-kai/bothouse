@@ -284,8 +284,8 @@ func replaceBinary(newBinary []byte) error {
 		return fmt.Errorf("chmod: %w", err)
 	}
 
-	oldPath := execPath + ".old"
-	os.Remove(oldPath)
+	RemoveBinaryBackups(execPath)
+	oldPath := BinaryBackupPath(execPath)
 
 	if err := os.Rename(execPath, oldPath); err != nil {
 		os.Remove(tmpPath)
@@ -300,9 +300,8 @@ func replaceBinary(newBinary []byte) error {
 		return fmt.Errorf("install new binary: %w", err)
 	}
 
-	// Don't remove .old file on Linux - the running process may still need it
-	// for os.Executable() to work correctly after restart.
-	// The .old file will be overwritten on next update.
+	// Don't remove the backup now: the running process may still need it for os.Executable()
+	// to work correctly after restart. RemoveBinaryBackups clears it on the next update.
 
 	slog.Info("updater: binary replaced successfully", "path", execPath)
 	return nil

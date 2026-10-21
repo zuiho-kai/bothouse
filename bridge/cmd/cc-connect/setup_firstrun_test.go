@@ -370,6 +370,50 @@ func TestConfigWizardStoreIsFreshConfig(t *testing.T) {
 	}
 }
 
+// The wizard link has "&next=/setup": cmd.exe would cut it at "&", so Windows must not go through `cmd /c start`.
+func TestBrowserCommandKeepsWholeLink(t *testing.T) {
+	link := "http://localhost:9820/login?token=abc&next=/setup"
+	noXdg := func(string) (string, error) { return "", exec.ErrNotFound }
+	for _, tc := range []struct {
+		goos string
+		wsl  bool
+	}{{"windows", false}, {"linux", true}, {"darwin", false}} {
+		name, args, err := browserCommand(tc.goos, tc.wsl, noXdg, link)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.goos, err)
+		}
+		if strings.HasPrefix(strings.ToLower(name), "cmd") || len(args) == 0 || args[len(args)-1] != link {
+			t.Fatalf("%s (wsl=%v): %s %q", tc.goos, tc.wsl, name, args)
+		}
+	}
+	if _, _, err := browserCommand("linux", false, noXdg, link); err == nil {
+		t.Fatal("headless linux without xdg-open must report an error so the link gets printed")
+	}
+}
+
+// Windows has no nohup: the quick-try line is PowerShell there. Paths with spaces stay one
+// argument, and CC_LOG_FILE does not stay set in the user's window.
+func TestSetupNextStepsWindows(t *testing.T) {
+	old := nextStepsGOOS
+	nextStepsGOOS = "windows"
+	t.Cleanup(func() { nextStepsGOOS = old })
+	s := strings.Join(setupNextSteps("zh", "", false, false), "\n")
+	if strings.Contains(s, "nohup") || strings.Contains(s, "~/") ||
+		!strings.Contains(s, `$env:CC_LOG_FILE="$HOME\.cc-connect\run.log"; Start-Process cc-connect -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`) ||
+		!strings.Contains(s, `日志在 $HOME\.cc-connect\run.log`) || !strings.Contains(s, "cc-connect daemon install") {
+		t.Fatalf("windows: %s", s)
+	}
+	s = strings.Join(setupNextSteps("en", `C:\Users\Jane Doe\it's\c.toml`, false, false), "\n")
+	for _, want := range []string{
+		`-ArgumentList '--config','"C:\Users\Jane Doe\it''s\c.toml"'`,
+		`cc-connect daemon install --config "C:\Users\Jane Doe\it's\c.toml"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("windows --config with spaces: missing %s in\n%s", want, s)
+		}
+	}
+}
+
 // rc5: a first `setup apply` with an invalid token said "Nothing was written" but had already
 // created the first-run config.toml. The config is now created only when projects are written.
 func TestSetupApplyInvalidTokenWritesNoConfig(t *testing.T) {
