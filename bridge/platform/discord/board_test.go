@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestBoardBeforeConnectionAndAfterStop(t *testing.T) {
@@ -207,5 +209,40 @@ func TestUpsertBoardEditSucceedsPinFails(t *testing.T) {
 	id, err := upsertBoard(api, "c1", "old", "**谁在干啥**")
 	if err != nil || id != "old" || api.edits != 1 || len(api.pins) != 1 {
 		t.Fatalf("upsert = (%q, %v) edits=%d pins=%v, want saved edit despite pin error", id, err, api.edits, api.pins)
+	}
+}
+
+type stubChatPost struct {
+	sent []*discordgo.MessageSend
+	err  error
+}
+
+func (s *stubChatPost) ChannelMessageSendComplex(_ string, data *discordgo.MessageSend, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	s.sent = append(s.sent, data)
+	return &discordgo.Message{}, s.err
+}
+
+func TestPostToChatOutcome(t *testing.T) {
+	lost := &stubChatPost{err: io.ErrUnexpectedEOF}
+	if err := postToChat(context.Background(), lost, "c1", "<@42> x", "<@42>"); !errors.Is(err, core.ErrPostOutcomeUnknown) {
+		t.Fatalf("lost reply must be outcome-unknown, got %v", err)
+	}
+	rejected := &stubChatPost{err: &discordgo.RESTError{Response: &http.Response{StatusCode: 403}}}
+	if err := postToChat(context.Background(), rejected, "c1", "<@42> x", "<@42>"); err == nil || errors.Is(err, core.ErrPostOutcomeUnknown) {
+		t.Fatalf("a 403 is a definite failure, got %v", err)
+	}
+}
+
+func TestPostToChatPingsOnlyTarget(t *testing.T) {
+	api := &stubChatPost{}
+	if err := postToChat(context.Background(), api, "c1", "<@42> 【语音转达】主人：继续", "<@42>"); err != nil {
+		t.Fatal(err)
+	}
+	m := api.sent[0].AllowedMentions
+	if m == nil || len(m.Users) != 1 || m.Users[0] != "42" || len(m.Parse) != 0 {
+		t.Fatalf("allowed mentions = %+v", m)
+	}
+	if err := postToChat(context.Background(), api, "c1", "x", "@everyone"); err == nil || len(api.sent) != 1 {
+		t.Fatal("invalid mention must not post")
 	}
 }

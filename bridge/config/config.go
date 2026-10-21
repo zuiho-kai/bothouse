@@ -570,6 +570,9 @@ type ProjectConfig struct {
 	// subtasks), "team" (only other members), "mixed" (whoever fits; default). User 2026-10-24
 	// 01:25 「单模型多进程，完全团队模式，混合模式……默认混合模型」; same names as DSH's channel setting.
 	DispatchMode string `toml:"dispatch_mode,omitempty"`
+	// VoiceDesk (maomao fork): voice turns see every teammate's progress and may hand an explicitly
+	// confirmed instruction to a teammate in its channel (core/voice_desk.go). Default off.
+	VoiceDesk bool `toml:"voice_desk,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who

@@ -757,6 +757,7 @@ func main() {
 		engine.SetTeamBoard(proj.TeamBoard)
 		engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
 		engine.SetDispatchMode(proj.DispatchMode)
+		engine.SetVoiceDesk(proj.VoiceDesk)
 		resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 		engine.SetResetOnIdle(resetIdle)
 		if defaulted {
@@ -1809,6 +1810,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 	engine.SetTeamBoard(proj.TeamBoard)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
 	engine.SetDispatchMode(proj.DispatchMode)
+	engine.SetVoiceDesk(proj.VoiceDesk)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 	engine.SetResetOnIdle(resetIdle)
 	if defaulted {
