@@ -20,7 +20,10 @@ Guide: docs/connect-discord-feishu.md in the conest repo.
 const setupApplyFields = `
 Request JSON (only the fields marked REQUIRED must be given; everything else has a default):
   platform           "discord" (default) | "feishu" | "lark"
-  language           "zh" | "en" | … language of messages, and the default reply language (default: system locale)
+  language           reply language of the bots: "zh" | "en" | "ja" (any language code works) — ask the user.
+                     Not given: this machine's locale (LANG); the
+                     result says which (roles[].reply_language / reply_language_from + a
+                     reply_language_default note). Also the language of the messages. Same as --lang.
   discord.guild_id   REQUIRED (Discord): ID of the server the bots live in
   discord.channel_id default chat channel ID (optional). With several bots, listening without an @ is
                      limited to it (group_reply_all_channels); @mentions and DMs work everywhere
@@ -34,7 +37,8 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
     persona          text of the persona file (CLAUDE.md / AGENTS.md / GEMINI.md in work_dir).
                      Empty = no persona, only the reply-language line. Examples: "setup personas".
     edit_persona     true = also overwrite the persona of a reused bot (otherwise its file is left as is)
-    reply_language   default: language
+    reply_language   this role's reply language (default: language). For a bot that is already set up it
+                     changes only the reply-language line of its persona file
     provider         {"vendor", "api_key", "base_url", "model"}: a third-party API instead of the CLI's own
                      login (vendors and native/converted: "setup matrix")
   fallback_role      project that answers when no one is addressed (default: first role)
@@ -59,7 +63,9 @@ Output JSON:
                      message_content_intent_unknown, bot_not_in_guild, allow_from_unknown (owner not found: the
                      bots obey no one until you give allow_from), allow_from_everyone (you gave "*"),
                      gate_not_running (no gate is fine:
-                     @-mentioned roles and the fallback role answer)
+                     @-mentioned roles and the fallback role answer), discord_token_invalid (blocking:
+                     reset the token in the Developer Portal), agent_not_logged_in (blocking: the role's
+                     CLI is not logged in, fix says how), agent_login_unknown, reply_language_default
   invite_urls        links that add bots to the server (bots not in it yet)
   allow_from         who the new bots take orders from
   next_steps         how to start or restart cc-connect (in the background: cc-connect daemon install;

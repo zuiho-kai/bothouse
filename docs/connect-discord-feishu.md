@@ -81,7 +81,8 @@ cc-connect          # 第一次运行（还没配机器人）：建好配置，�
 
 - 只有 `discord.guild_id` 和每个角色的 `token`（或 `reuse_project`）是必填的，最小请求：`{"discord": {"guild_id": "<服务器 ID>"}, "roles": [{"token": "<token>"}]}`。
 - 返回：`ok` = 存好了且没有要你做的事；`saved` = 配置已写入；`needs_user_action` 为 true 时看 `warnings` 里 `blocking: true` 的项
-  （`message_content_intent_off`：去开发者后台打开 intent；`bot_not_in_guild`：打开 `url` / `invite_urls` 里的邀请链接），不做机器人不会回话；
+  （`message_content_intent_off`：去开发者后台打开 intent；`bot_not_in_guild`：打开 `url` / `invite_urls` 里的邀请链接；`agent_not_logged_in`：照 `fix` 登录这台机器上的 CLI；
+  `discord_token_invalid`：重置 token），不做机器人不会回话；
   `next_steps` 写了怎么启动或重启。`ok` 为 false 时退出码是 1（存好了但还要你做事也是 1）。`gate_not_running` 只是提示，gate 可以不装。
 - `allow_from` 不写时，默认是每个机器人所属 Discord 应用的所有者（用 token 查）；写进新机器人，和原来 `allow_from` 为空的已有机器人，已有非空的不动。查不到所有者（Discord 应用接口没回）时不会放开：写成 `allow_from = "set-your-discord-user-id"`（谁都不听），返回阻塞的 `allow_from_unknown`，要用户给自己的 Discord 用户 ID 再跑一次。只有显式写 `"*"` 才是服务器里所有人（会附一条不阻断的 `allow_from_everyone` 提醒）。照提示带上真实 ID 重跑时，占位值会被换掉。
 - `reuse_project` 的机器人保留原 project 名、CLI、work_dir、服务器；它的人设文件只有同时带了 `persona` 和 `"edit_persona": true` 才会改。
@@ -90,7 +91,14 @@ cc-connect          # 第一次运行（还没配机器人）：建好配置，�
   CLI 在 PATH 之外（如 `~/.local/bin`）找到时，把绝对路径写进该项目的 `cmd`，重启后也找得到。
   多个机器人组队时，已有的 `allow_bots` 取并集，自己改过的 `gate_url`、`gate_fallback`、`team_lead_bot`、`group_reply_all` 不动。
 - 第三方 API：`custom` 必须给 `base_url`；硅基流动、OpenRouter、本机模型、custom 必须给 `model`。
-- 每项都能省：`agent_type` 不写 = 本机第一个已登录的 CLI；project 名不写 = 机器人名；`work_dir` 不写 = `~/.cc-connect/roles/<project>`。
+- 每项都能省：`agent_type` 不写 = 本机第一个已登录的 CLI（一个都没登录时退回第一个装了的，并返回阻塞的 `agent_not_logged_in`，`fix` 写了怎么登录）；
+  project 名不写 = 机器人名转成小写的 a-z、0-9、`-`、`_`（project 名要进路径、URL 和 `gate_url ?bot=`），机器人名里一个这样的字符都没有（例如全是中文）时是 `role-1`、`role-2`……，`steps` 里有一条 `project name` 说明，机器人在群里显示的名字不变，想要别的 project 名就写 `project`；
+  `work_dir` 不写 = `~/.cc-connect/roles/<project>`。
+- 回复语言：角色的 `reply_language` > 请求的 `language`（或 `--lang`）> 本机 locale（`LANG`）。语言代码原样写（`zh-TW`、`ko` 不会被改）。
+  网页向导：右上角（顶栏）选的语言就是默认回复语言，向导顶部显示「机器人回复语言：X」，每个角色在「人设」一步还能单独改；向导文案有中、英、日，其他语言界面显示英文。结果里每个角色有 `reply_language`、`reply_language_from`（role / request / system / existing），
+  没指定时另有一条不阻断的 `reply_language_default` 提醒。已配好的机器人在 role 里带 `reply_language` 重跑，只改人设文件里 `<!-- conest:reply-language -->` 下面那一行，其余不动。
+- token 无效（Discord 回 401）时什么都不写，返回阻塞的 `discord_token_invalid`，`url` 是开发者后台，去 Bot → Reset Token 换新的再跑。
+- 同一个 token 只能有一个 cc-connect 在线。这个机器人已经在别的电脑或进程上跑着时，两边会各回一遍，先停掉旧的；向导查不出别的机器上有没有在跑，所以 dry-run 也不会提醒。
 - 同样的 JSON 也能 `POST http://localhost:<管理端口>/api/v1/setup/apply`（`Authorization: Bearer <management token>`），返回同一份 JSON。
 - 飞书：`"platform": "feishu"`，加 `"feishu": {"app_id", "app_secret", "chat_id"}`（app_id/secret 来自扫码或 `cc-connect feishu setup`），`roles` 只放一个。
 - 网页向导最后一步「给 AI」里有当前这套配置的命令，密钥是占位符。

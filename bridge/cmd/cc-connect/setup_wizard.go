@@ -28,6 +28,21 @@ func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	return out
 }
 
+// firstRunHeader starts the config bootstrapSetupConfig writes; the wizard's rewrite drops comments.
+const firstRunHeader = "# cc-connect (conest) — created on first run."
+
+// IsFreshConfig: config.toml is still the first-run template (written by cc-connect or setup apply,
+// no projects yet), so a backup of it holds nothing of the user's. Used by core.ApplyWizard for
+// both the web wizard and setup apply.
+func (configWizardStore) IsFreshConfig() bool {
+	b, err := os.ReadFile(config.ConfigPath)
+	if err != nil || !strings.HasPrefix(string(b), firstRunHeader) {
+		return false
+	}
+	ps, err := config.WizardSnapshot()
+	return err == nil && len(ps) == 0
+}
+
 func (configWizardStore) Snapshot() (core.WizardSnapshot, error) {
 	ps, err := config.WizardSnapshot()
 	if err != nil {
@@ -278,13 +293,17 @@ func runSetup(args []string) {
 	configFile := fs.String("config", "", "path to config file")
 	jsonPath := fs.String("json", "", "wizard request JSON file, or - for stdin")
 	dryRun := fs.Bool("dry-run", false, "validate and print the plan without writing")
-	lang := fs.String("lang", "", "language for personas (zh|en; default: system)")
+	lang := fs.String("lang", "", "personas: language of the examples (zh|en; default: system). apply: reply language of the bots (zh|en|ja|…), same as \"language\" in the request")
 	_ = fs.Parse(args[1:])
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	switch sub {
 	case "clis":
-		_ = enc.Encode(core.DetectLocalCLIs(context.Background()))
+		clis := core.DetectLocalCLIs(context.Background())
+		_ = enc.Encode(clis)
+		if hint := setupCLIsHint(core.SystemLanguage(), clis); hint != "" {
+			fmt.Fprintln(os.Stderr, hint) // stdout stays the JSON list
+		}
 	case "matrix":
 		_ = enc.Encode(map[string]any{"vendors": core.WizardVendors, "matrix": core.VendorMatrix()})
 	case "personas":
@@ -314,6 +333,9 @@ func runSetup(args []string) {
 		}
 		if *dryRun {
 			req.DryRun = true
+		}
+		if *lang != "" {
+			req.Language = *lang
 		}
 		// A dry run writes nothing, not even the first-run config: plan against an empty one.
 		var store core.WizardStore = configWizardStore{}
@@ -352,6 +374,31 @@ func runSetup(args []string) {
 	}
 }
 
+// setupCLIsHint explains an empty or not-logged-in `setup clis` list (printed to stderr).
+func setupCLIsHint(lang string, clis []core.LocalCLI) string {
+	zh := lang == "zh"
+	supported, loggedIn := 0, 0
+	for _, c := range clis {
+		if c.Supported {
+			supported++
+			if c.Login == "logged_in" {
+				loggedIn++
+			}
+		}
+	}
+	switch {
+	case supported == 0 && zh:
+		return "本机没找到 cc-connect 能用的 CLI（claude / codex / gemini / opencode …，PATH 和 ~/.local/bin 等常见目录都找过）。先装一个并登录，例如 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，然后 claude auth login；装好再跑一次 cc-connect setup clis。"
+	case supported == 0:
+		return "No agent CLI cc-connect can use was found (claude / codex / gemini / opencode …; searched PATH and common dirs like ~/.local/bin). Install one and log in, e.g. Claude Code: curl -fsSL https://claude.ai/install.sh | bash, then claude auth login; then run cc-connect setup clis again."
+	case loggedIn == 0 && zh:
+		return "找到了 CLI，但没有一个确认已登录（login 不是 logged_in）。没登录的 CLI 配上去机器人答不出来：先登录（claude auth login / codex login / gemini / opencode auth login），再跑一次 cc-connect setup clis。"
+	case loggedIn == 0:
+		return "CLIs were found but none is confirmed logged in (login is not logged_in). A bot on a CLI that is not logged in cannot answer: log in first (claude auth login / codex login / gemini / opencode auth login), then run cc-connect setup clis again."
+	}
+	return ""
+}
+
 // emptyWizardStore is a config with no projects, for a dry run before any config exists.
 type emptyWizardStore struct{}
 
@@ -378,7 +425,7 @@ func bootstrapSetupConfig(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	content := fmt.Sprintf(`# cc-connect (conest) — created on first run. Open the setup wizard in the browser;
+	content := fmt.Sprintf(firstRunHeader+` Open the setup wizard in the browser;
 # it adds one [[projects]] per bot. Manual reference: cc-connect config-example
 
 [log]
