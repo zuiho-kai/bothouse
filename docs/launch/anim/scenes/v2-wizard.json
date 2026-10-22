@@ -1,0 +1,23 @@
+{
+  "template": "wizard",
+  "_src": "数字来源：stage.top 112 = 大字卡底(common.js top34 + 50px×1.15≈92) + 20 留白；窗口 470×1.05≈494 高，底边约 606，不进 y>640 字幕区（派活要求）；宽 1090×1.05≈1145 留两侧边距（视觉取值）。timing 按派活「总长约 5–6 秒、不加速」分配，实测 6.3 秒。avatar/color/tag 照抄 scenes/v2-split.json 的 roles。",
+  "headline": { "zh": "拉进一个群，就是一支团队", "en": "One group chat. One team." },
+  "brand": true,
+  "url": "127.0.0.1:9820/setup",
+  "stage": { "top": 112, "w": 1090, "h": 470, "scale": 1.05 },
+  "collapse": true,
+  "restart": false,
+  "finale": true,
+  "timing": { "start": 300, "move": 200, "click": 90, "appear": 120, "type": 350, "settle": 80, "okHold": 200, "end": 300 },
+  "clis": [
+    { "id": "claudecode", "label": { "zh": "Claude Code", "en": "Claude Code" } },
+    { "id": "dsh",        "label": { "zh": "DSH",         "en": "DSH" } },
+    { "id": "codex",      "label": { "zh": "Codex",       "en": "Codex" } },
+    { "id": "gemini",     "label": { "zh": "Gemini CLI",  "en": "Gemini CLI" } }
+  ],
+  "roles": [
+    { "name": { "zh": "opus", "en": "opus" },    "cli": "claudecode", "avatar": "O",  "color": "#5865f2", "tag": { "zh": "Claude Code", "en": "Claude Code" } },
+    { "name": { "zh": "鲸鱼娘", "en": "Whale" }, "cli": "dsh",        "avatar": "🐳", "color": "#3ba55d", "tag": { "zh": "DSH", "en": "DSH" } },
+    { "name": { "zh": "笔杆", "en": "Writer" },  "cli": "codex",      "avatar": "✍️", "color": "#f0b232", "tag": { "zh": "Codex", "en": "Codex" } }
+  ]
+}

@@ -34,13 +34,29 @@
   .input { height:34px; border-radius:9px; background:#2b2d3a; color:#6d7090; display:flex; align-items:center; padding:0 12px; font-size:13px; }
   .key { position:absolute; right:14px; top:10px; background:#fff; color:#111; font-weight:700; font-size:13px; border-radius:6px; padding:2px 7px; opacity:0; transform:scale(.7); transition:all .12s ease; }
   .key.on { opacity:1; transform:none; }
+  /* collapse 收拢用：窗口飞向中央的过渡、群聊图标（只在 SCENE.collapse 为 true 时出现） */
+  .win.fly { transition:transform var(--fly) cubic-bezier(.6,0,.4,1), opacity var(--fly) ease-in; }
+  .group { position:absolute; left:50%; top:var(--gy); width:150px; height:118px; margin:-59px 0 0 -75px; opacity:0; transform:scale(.3); transition:transform .35s cubic-bezier(.34,1.56,.64,1), opacity .2s; z-index:5; }
+  .group.on { opacity:1; transform:none; }
+  .group .bub { position:absolute; inset:0 0 18px 0; background:#5865f2; border-radius:30px; box-shadow:0 16px 40px rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; gap:6px; }
+  .group .bub::after { content:""; position:absolute; left:30px; bottom:-16px; border:10px solid transparent; border-top:14px solid #5865f2; border-left:4px solid #5865f2; }
+  .group .av { width:28px; height:28px; border-radius:50%; border:3px solid #fff; color:#fff; font:700 13px/22px sans-serif; text-align:center; }
+  /* 可选粘贴反馈（SCENE.pasteFx 为 true 时）：窗口左右抖 + 边框闪白；计数角标（SCENE.counter）。抖幅/时长为目测取值，无外部来源 */
+  .win.shake { animation:winshake .28s ease; }
+  @keyframes winshake { 0%,100% { translate:0 0; } 20% { translate:-9px 0; } 40% { translate:8px 0; } 60% { translate:-6px 0; } 80% { translate:4px 0; } }
+  .win.flash { box-shadow:0 20px 50px rgba(0,0,0,.55), inset 0 0 0 3px #fff, 0 0 30px rgba(255,255,255,.45); }
+  .win { position:relative; }
+  .cnt { position:absolute; right:12px; top:44px; z-index:3; background:#ed4245; color:#fff; font-weight:800; font-size:22px; border-radius:10px; padding:3px 12px; opacity:0; transform:scale(.4) rotate(-8deg); transition:all .22s cubic-bezier(.34,1.56,.64,1); }
+  .cnt.on { opacity:1; transform:rotate(-6deg); }
   #cursor { position:absolute; left:0; top:0; width:26px; height:26px; z-index:10; pointer-events:none; filter:drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
 </style>
 </head>
 <body>
 <div class="caption" id="cap"></div>
 <div class="grid" id="grid"></div>
+<div class="group" id="group"><div class="bub"></div></div>
 <svg id="cursor" viewBox="0 0 24 24"><path d="M3 2 L3 20 L8 15 L11.5 22 L14.5 20.6 L11 13.8 L18 13.8 Z" fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></svg>
+<script src="common.js"></script>
 <script>
 (async () => {
   const S = window.SCENE, L = window.LANG || 'en';
@@ -48,7 +64,14 @@
   const wait = ms => new Promise(r => setTimeout(r, ms));
   document.documentElement.lang = L === 'zh' ? 'zh-CN' : 'en';
   const cap = document.getElementById('cap'), grid = document.getElementById('grid'), cur = document.getElementById('cursor');
-  cap.textContent = t(S.caption);
+  // headline 存在时由 common.js 画中上方大字卡，本模板不画自己的 caption
+  if (!S.headline) cap.textContent = t(S.caption);
+  // 可选排版：gridTop/rowH 覆盖默认 140/255，给字幕留出底部 80px（v2-pain 用）；bubbleSize 放大气泡字号便于看清
+  if (S.gridTop) grid.style.top = S.gridTop + 'px';
+  if (S.rowH) grid.style.gridAutoRows = S.rowH + 'px';
+  // 可选：cursorColor 改光标填色；cursorSize 改光标尺寸（v2-pain 用醒目黄色，来源 Gemini 审片意见）
+  if (S.cursorColor) cur.querySelector('path').setAttribute('fill', S.cursorColor);
+  if (S.cursorSize) { cur.style.width = cur.style.height = S.cursorSize + 'px'; }
 
   const W = S.windows.map(w => {
     const el = document.createElement('div');
@@ -60,7 +83,9 @@
     el.querySelector('.empty').textContent = t(S.newChat);
     el.querySelector('.key').textContent = t(S.pasteKey);
     el.querySelector('.bubble').textContent = t(S.context);
+    if (S.bubbleSize) el.querySelector('.bubble').style.fontSize = S.bubbleSize + 'px';
     el.querySelector('.input').textContent = '…';
+    if (S.counter) { const c = document.createElement('div'); c.className = 'cnt'; el.appendChild(c); }
     grid.appendChild(el);
     return el;
   });
@@ -87,6 +112,7 @@
   const [x0, y0] = aim(0);
   cur.style.transform = `translate(${x0}px, ${y0 - 60}px)`;
   window.__start = Date.now();  // 开播时刻，render.py 按 [__start, __done] 裁剪
+  window.BH && BH.overlay();
   await wait(50);
   cap.classList.add('on');
   moveTo(0, S.startMs);
@@ -104,8 +130,34 @@
     const key = q(i, '.key');
     key.classList.add('on'); W[i].classList.add('hit');
     show(i, true);
+    if (S.pasteFx) W[i].classList.add('shake', 'flash');
+    // 计数角标：counter 是带 {n} 的文案，n = 第几遍（起手窗口算第 1 遍）
+    if (S.counter) { const c = W[i].querySelector('.cnt'); c.textContent = t(S.counter).replace('{n}', k + 2); c.classList.add('on'); }
     await wait(ms - move);
-    key.classList.remove('on'); W[i].classList.remove('hit');
+    key.classList.remove('on'); W[i].classList.remove('hit', 'flash');
+  }
+  if (S.collapse) {
+    // 收拢：四个窗口缩小飞向画面中央并淡出，随后弹出群聊图标（圆角气泡 + 各窗口颜色的小头像）
+    const c = S.collapseCfg || {};
+    await wait(c.holdMs ?? 0);
+    cur.style.transition = 'opacity .15s'; cur.style.opacity = 0;
+    const g = document.getElementById('group');
+    const gr = grid.getBoundingClientRect();
+    const cx = 640, cy = gr.top + gr.height / 2;  // 640 = 1280 宽的一半
+    g.style.setProperty('--gy', cy + 'px');
+    g.querySelector('.bub').innerHTML = S.windows.map(w => `<span class="av" style="background:${w.color}">${t(w.name).slice(0, 1)}</span>`).join('');
+    const fly = c.flyMs ?? 600;
+    W.forEach(el => {
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--fly', fly + 'ms');
+      el.classList.add('fly');
+      el.style.transform = `translate(${cx - (r.left + r.width / 2)}px, ${cy - (r.top + r.height / 2)}px) scale(.08)`;
+      el.style.opacity = 0;
+    });
+    // 窗口飞到约 70% 时图标弹出，衔接上（节奏取值，无外部来源）
+    await wait(Math.round(fly * 0.7));
+    g.classList.add('on');
+    await wait(fly - Math.round(fly * 0.7));
   }
   await wait(S.endMs);
   window.__done = true;

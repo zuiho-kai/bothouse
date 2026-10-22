@@ -1,0 +1,79 @@
+{
+  "template": "windows",
+  "_source": "docs/launch/promo-zh-v2.md 第 1 镜「痛点」。第 3 轮按 Gemini 审片意见改：气泡缩成一行短句并放大字号、粘贴时窗口抖一下闪一下（pasteFx）、光标改醒目黄色、加「第 n 遍」角标、收拢在约 3.6 秒前完成、整镜 4.0–4.3 秒（均来自派活要求）。节奏：起手 0.05+0.4 秒、三跳 0.75/0.7/0.65 秒、停 0.2 秒、收拢 0.55 秒 → 收拢完成约 3.3 秒，再停 0.8 秒，总长约 4.1 秒；旁白 01 时长 3.06 秒（vo/zh/lines.json），+1 秒 = 4.06，与画面长度取大。rowH 225 让窗口底边 598，不进 y>640 字幕区。黄色 #ffd400、气泡 26px、光标 40px 为目测取值。",
+  "headline": {
+    "zh": "同一段背景，讲四遍",
+    "en": "Same context, told four times"
+  },
+  "headline_at": 200,
+  "brand": false,
+  "windows": [
+    {
+      "name": {
+        "zh": "Claude",
+        "en": "Claude"
+      },
+      "color": "#d97757"
+    },
+    {
+      "name": {
+        "zh": "Codex",
+        "en": "Codex"
+      },
+      "color": "#10a37f"
+    },
+    {
+      "name": {
+        "zh": "Gemini",
+        "en": "Gemini"
+      },
+      "color": "#4285f4"
+    },
+    {
+      "name": {
+        "zh": "DeepSeek",
+        "en": "DeepSeek"
+      },
+      "color": "#4d6bfe"
+    }
+  ],
+  "context": {
+    "zh": "我是小周，在做 bothouse……",
+    "en": "I'm Zhou, building bothouse…"
+  },
+  "newChat": {
+    "zh": "新对话",
+    "en": "New chat"
+  },
+  "pasteKey": {
+    "zh": "⌘V",
+    "en": "⌘V"
+  },
+  "gridTop": 118,
+  "rowH": 225,
+  "bubbleSize": 26,
+  "order": [
+    1,
+    2,
+    3
+  ],
+  "startMs": 400,
+  "hopsMs": [
+    750,
+    700,
+    650
+  ],
+  "collapse": true,
+  "collapseCfg": {
+    "holdMs": 200,
+    "flyMs": 550
+  },
+  "endMs": 800,
+  "cursorColor": "#ffd400",
+  "cursorSize": 40,
+  "pasteFx": true,
+  "counter": {
+    "zh": "第 {n} 遍",
+    "en": "#{n}"
+  }
+}

@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- 左右对比模板（第 6 镜「常驻省 token」）：读 window.SCENE / window.LANG，开播设 __start，播完设 __done。
+     画面 1280×720，来源：docs/launch/x-15s.md「成片规格：1280×720 mp4」。
+     顶部约 120px 留给 common.js 的大字卡和左上角标志（大字卡 top:34px、50px 字号，见 common.js）；
+     底部 80px 留给字幕（来源：派活要求「底部 80px 留给字幕」），所以面板占 y 128–630。
+     背景同 phone.html 的深蓝径向渐变。 -->
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1280px; height:720px; overflow:hidden; }
+  body { background:radial-gradient(ellipse at 50% 40%, #2a2d5a 0%, #0d0e1a 70%); color:#fff;
+    font:15px/1.4 -apple-system,"Helvetica Neue","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",Arial,sans-serif; position:relative; }
+  .glow { position:absolute; border-radius:50%; filter:blur(70px); opacity:.35; pointer-events:none; }
+  .panel { position:absolute; top:128px; width:560px; height:502px; border-radius:22px; overflow:hidden;
+    background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.09); box-shadow:0 20px 60px rgba(0,0,0,.35);
+    opacity:0; transform:translateY(16px); transition:all .5s ease; }
+  .panel.on { opacity:1; transform:none; }
+  #L { left:60px; } #R { left:660px; }
+  #L.lose { border-color:rgba(237,66,69,.45); } #R.win { border-color:rgba(59,165,93,.6); box-shadow:0 0 40px rgba(59,165,93,.25), 0 20px 60px rgba(0,0,0,.35); }
+  .ttl { position:absolute; left:26px; top:18px; font-size:28px; font-weight:800; }
+  .sub { position:absolute; left:26px; top:58px; font-size:16px; color:#a5a9d6; }
+  .card { position:absolute; height:44px; width:150px; border-radius:10px; background:#383a52; border:1px solid #545a8c;
+    display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:600; color:#e3e5ff;
+    transition:all .55s cubic-bezier(.34,1.3,.64,1); white-space:nowrap; }
+  .av { position:absolute; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; }
+  .tmp { width:44px; height:44px; background:#6b6f86; font-size:14px; opacity:0; transform:scale(.3); transition:all .35s cubic-bezier(.34,1.56,.64,1); }
+  .tmp.on { opacity:1; transform:none; }
+  .row.gone .tmp, .row.gone .card { opacity:.22; filter:grayscale(1); }
+  .bub { position:absolute; top:-30px; left:50%; transform:translateX(-50%); background:#fff; color:#333; font-size:12px; font-weight:600;
+    border-radius:9px; padding:2px 7px; white-space:nowrap; opacity:0; transition:opacity .2s; }
+  .bub.on { opacity:1; }
+  .bub::after { content:''; position:absolute; bottom:-5px; left:50%; margin-left:-5px; border:5px solid transparent; border-top-color:#fff; border-bottom:0; }
+  .team { width:62px; height:62px; font-size:24px; box-shadow:0 0 0 3px rgba(255,255,255,.12); transition:transform .25s; }
+  .team.pulse { transform:scale(1.15); box-shadow:0 0 0 4px #3ba55d, 0 0 24px rgba(59,165,93,.7); }
+  .nm { position:absolute; width:110px; text-align:center; font-size:15px; font-weight:700; }
+  .tag { display:block; font-size:11px; font-weight:600; color:#c9cdfb; background:rgba(88,101,242,.28); border-radius:4px; padding:0 5px; margin:3px auto 0; width:max-content; }
+  .mem { position:absolute; left:110px; top:236px; width:220px; text-align:center; font-size:15px; color:#ffe8a3; background:rgba(240,178,50,.14);
+    border:1px solid rgba(240,178,50,.4); border-radius:20px; padding:4px 0; }
+  .ok { position:absolute; right:-8px; top:-10px; width:22px; height:22px; border-radius:50%; background:#3ba55d; color:#fff; font-size:13px;
+    display:flex; align-items:center; justify-content:center; opacity:0; transform:scale(.3); transition:all .3s cubic-bezier(.34,1.56,.64,1); }
+  .ok.on { opacity:1; transform:none; }
+  .meter { position:absolute; left:26px; right:26px; bottom:22px; height:92px; }
+  .meter .lb { font-size:15px; color:#a5a9d6; }
+  .meter .num { position:absolute; right:0; top:-8px; font-size:40px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .bar { position:absolute; left:0; right:0; bottom:6px; height:16px; border-radius:8px; background:rgba(255,255,255,.08); overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; border-radius:8px; }
+  #L .num { color:#ff6b6b; } #L .bar i { background:linear-gradient(90deg,#f0b232,#ed4245); }
+  #R .num { color:#57d68d; } #R .bar i { background:linear-gradient(90deg,#3ba55d,#57d68d); }
+  .spawn { width:46px; height:46px; font-size:20px; background:#9b59b6; opacity:0; transform:scale(.2); transition:all .45s cubic-bezier(.34,1.56,.64,1); }
+  .spawn.on { opacity:1; transform:none; }
+  /* 可选结尾标签（SCENE.badge）：右面板中上方弹出发光胶囊。尺寸/颜色为目测取值，无外部来源 */
+  .badge { position:absolute; left:50%; top:216px; z-index:4; transform:translateX(-50%) scale(.3); opacity:0; white-space:nowrap;
+    padding:10px 30px; border-radius:999px; background:linear-gradient(90deg,#3ba55d,#57d68d); color:#fff; font-size:34px; font-weight:800;
+    box-shadow:0 0 0 3px rgba(255,255,255,.25), 0 0 46px 6px rgba(87,214,141,.75); transition:all .5s cubic-bezier(.34,1.56,.64,1); }
+  .badge.on { opacity:1; transform:translateX(-50%) scale(1); animation:badgeglow 1.4s ease-in-out .5s infinite; }
+  @keyframes badgeglow { 50% { box-shadow:0 0 0 3px rgba(255,255,255,.35), 0 0 70px 14px rgba(87,214,141,.9); } }
+  #link { position:absolute; left:0; top:0; pointer-events:none; }
+  #link path { stroke:#c39bd3; stroke-width:2.5; stroke-dasharray:6 6; fill:none; stroke-dashoffset:200; transition:stroke-dashoffset .6s ease; opacity:0; }
+  #link.on path { stroke-dashoffset:0; opacity:1; }
+</style>
+</head>
+<body>
+<div class="glow" style="left:80px;top:220px;width:420px;height:320px;background:#ed4245"></div>
+<div class="glow" style="left:780px;top:220px;width:420px;height:320px;background:#3ba55d"></div>
+<div class="panel" id="L"></div>
+<div class="panel" id="R"></div>
+<script src="common.js"></script>
+<script>
+const S = window.SCENE, L = window.LANG || 'en';
+const t = v => (v && typeof v === 'object') ? (v[L] ?? v.en ?? '') : (v ?? '');
+const $ = id => document.getElementById(id);
+const el = (cls, parent, html = '', style = '') => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; d.style.cssText = style; parent.appendChild(d); return d; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const TM = S.timing;  // 时长来源：派活要求「总长约 9–10 秒，节奏看得清」，三个项目各占约 2.2 秒
+const at = (ms, fn) => setTimeout(fn, ms);
+
+// 面板骨架
+const PL = $('L'), PR = $('R');
+for (const [p, side] of [[PL, S.left], [PR, S.right]]) {
+  el('ttl', p, esc(t(side.title)));
+  el('sub', p, esc(t(side.sub)));
+  p.meter = el('meter', p, `<div class="lb">${esc(t(S.tokenLabel))}</div><div class="num">0</div><div class="bar"><i></i></div>`);
+  p.val = 0; p.target = 0;
+  // 可选 numSize：放大 token 数字（v2-token 用 56px，来源 Gemini 审片意见「数字放大到约 56px」）
+  if (S.numSize) { const n = p.meter.querySelector('.num'); n.style.fontSize = S.numSize + 'px'; n.style.top = -Math.round(S.numSize * .45) + 'px'; }
+}
+// token 计数：示意值，不是实测（来源：分镜只要求左边「狂涨」右边「平稳」，数值在 JSON 里调）
+const MAX = S.left.perProject * S.projects.length;  // 进度条满格 = 左边最终值
+function tick() {
+  for (const p of [PL, PR]) {
+    p.val += (p.target - p.val) * 0.08;   // 每帧逼近 8%，约 1 秒走完一次上涨
+    if (Math.abs(p.target - p.val) < 50) p.val = p.target;
+    p.meter.querySelector('.num').textContent = Math.round(p.val).toLocaleString('en-US');
+    p.meter.querySelector('.bar i').style.width = (p.val / MAX * 100) + '%';
+  }
+  requestAnimationFrame(tick);
+}
+
+// 右侧常驻团队：三个头像 x 中心 120/220/320，y 中心 150
+const teamX = [120, 220, 320], teamY = 150;
+const teamEls = S.right.team.map((m, i) => {
+  const a = el('av team', PR, esc(m.avatar), `left:${teamX[i]-31}px;top:${teamY-31}px;background:${m.color}`);
+  el('nm', PR, `${esc(t(m.name))}${S.hideTags ? '' : `<span class="tag">${esc(m.tag)}</span>`}`, `left:${teamX[i]-55}px;top:${teamY+38}px`);
+  return a;
+});
+if (S.right.memory) el('mem', PR, esc(t(S.right.memory)));
+
+function leftProject(i) {
+  // 每行：项目卡 + 三个新拉的临时头像，行距 92px
+  const y = 100 + i * 92;
+  if (i > 0) PL.querySelector(`.row[data-i="${i-1}"]`).classList.add('gone');
+  const row = el('row', PL); row.dataset.i = i;
+  const c = el('card', row, esc(t(S.projects[i])), `left:-170px;top:${y + 22}px;opacity:0`);
+  requestAnimationFrame(() => requestAnimationFrame(() => { c.style.left = '26px'; c.style.opacity = 1; }));
+  [0, 1, 2].forEach(k => {
+    const a = el('av tmp', row, 'AI', `left:${220 + k * 92}px;top:${y + 22}px`);
+    at(250 + k * 110, () => a.classList.add('on'));
+    // 「读背景…」小气泡可选：left.reading 不给就不画
+    if (S.left.reading) {
+      const b = el('bub', a, esc(t(S.left.reading)));
+      at(550 + k * 110, () => b.classList.add('on'));
+      at(1700, () => b.classList.remove('on'));
+    }
+  });
+  at(550, () => { PL.target += S.left.perProject; });
+}
+
+function rightProject(i) {
+  // 卡片从右边飞进来，落在团队下方一排
+  const c = el('card', PR, esc(t(S.projects[i])) + '<div class="ok">✓</div>', `left:600px;top:300px;opacity:0`);
+  requestAnimationFrame(() => requestAnimationFrame(() => { c.style.left = (26 + i * 170) + 'px'; c.style.top = '300px'; c.style.opacity = 1; }));
+  at(500, () => {
+    teamEls.forEach(a => a.classList.add('pulse'));
+    c.querySelector('.ok').classList.add('on');
+    PR.target += i === 0 ? S.right.first : S.right.perProject;  // 第一次读一遍背景，之后只加一点
+  });
+  at(800, () => teamEls.forEach(a => a.classList.remove('pulse')));
+}
+
+function spawn() {
+  // 从团队派生「专人」：放在团队右边，虚线连回笔杆
+  const sx = 470, sy = 150;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.id = 'link'; svg.setAttribute('width', 560); svg.setAttribute('height', 502);
+  svg.innerHTML = `<path d="M${teamX[2]+34} ${teamY} C ${teamX[2]+70} ${teamY-40}, ${sx-60} ${sy-40}, ${sx-26} ${sy}"/>`;
+  PR.insertBefore(svg, PR.firstChild);
+  const a = el('av spawn', PR, '★', `left:${sx-23}px;top:${sy-23}px`);
+  const n = el('nm', PR, esc(t(S.right.spawn)), `left:${sx-55}px;top:${sy+30}px;color:#e3c6ef;opacity:0;transition:opacity .4s`);
+  requestAnimationFrame(() => requestAnimationFrame(() => { svg.classList.add('on'); }));
+  at(300, () => { a.classList.add('on'); n.style.opacity = 1; });
+}
+
+function play() {
+  window.__start = Date.now();
+  window.BH && BH.overlay();
+  requestAnimationFrame(tick);
+  at(100, () => { PL.classList.add('on'); PR.classList.add('on'); });
+  S.projects.forEach((_, i) => at(TM.first + i * TM.gap, () => { leftProject(i); rightProject(i); }));
+  at(TM.verdict ?? (TM.spawn - 400), () => { PL.classList.add('lose'); PR.classList.add('win'); });
+  if (S.badge) { const b = el('badge', PR, esc(t(S.badge.text))); at(S.badge.at, () => { b.classList.add('on'); const m = PR.querySelector('.mem'); if (m) { m.style.transition = 'opacity .3s'; m.style.opacity = 0; } }); }
+  at(TM.spawn, spawn);
+  at(TM.end, () => { window.__done = true; });
+}
+document.fonts.ready.then(play);
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "template": "assemble",
+  "_source": "第 3 镜重做：Gemini 审片建议「AI 英雄集结卡片」替换配置向导；旁白「Claude、DeepSeek、Codex，拉进一个群，就是一支团队」5.52 秒，镜头开始后 0.3 秒进来（派活说明）。avatar/color/name/tag 照抄 scenes/v2-split.json 的 roles；英文 headline 照抄 scenes/v2-wizard.json。",
+  "headline": { "zh": "拉进一个群，就是一支团队", "en": "One group chat. One team." },
+  "headline_at": 3200,
+  "brand": true,
+  "channel": { "zh": "dev", "en": "dev" },
+  "_timing": "毫秒。cards：0.3 秒起依次弹出，间隔 700 让三张在约 3 秒前出完（派活「0.3 到约 3 秒」）；gather 3200 开始吸入，约 4.5 秒前落定（派活「约 3.2 到 4.5 秒」）；end 6700（派活「结尾停到约 6.7 秒」）。headline_at 与吸入同时，对上旁白「拉进一个群」。",
+  "timing": { "first": 300, "gap": 700, "gather": 3200, "link": 4100, "end": 6700 },
+  "members": [
+    { "name": { "zh": "opus", "en": "opus" },    "avatar": "O",  "color": "#5865f2",
+      "tag": { "zh": "Claude Code", "en": "Claude Code" }, "duty": { "zh": "拆活、交付", "en": "Plans & ships" } },
+    { "name": { "zh": "鲸鱼娘", "en": "Whale" }, "avatar": "🐳", "color": "#3ba55d",
+      "tag": { "zh": "DSH", "en": "DSH" },                 "duty": { "zh": "修 bug", "en": "Fixes bugs" } },
+    { "name": { "zh": "笔杆", "en": "Writer" },  "avatar": "✍️", "color": "#f0b232",
+      "tag": { "zh": "Codex", "en": "Codex" },             "duty": { "zh": "写文案", "en": "Writes copy" } }
+  ]
+}

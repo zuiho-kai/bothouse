@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- 集结模板（第 3 镜「拉进一个群，就是一支团队」）。示例：scenes/v2-assemble.json。
+     render.py 注入 window.SCENE / window.LANG；开播设 __start、调 BH.overlay()，播完设 __done。
+     字段：members [{name,avatar,color,tag,duty}]，channel {zh,en}，timing {first,gap,gather,link,end}（毫秒）。
+     画面 1280×720（来源：docs/launch/anim/README.md「画面 1280×720」）。
+     大字卡占 y 34–92（common.js top:34px、50px×1.15）；底部 80px 留给字幕（README「底部 80px 留给后期烧字幕」），
+     所以全部内容放在 y 140–600 之间。背景、光晕、毛玻璃照抄 compare.html / outro.html。 -->
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1280px; height:720px; overflow:hidden; }
+  body { background:radial-gradient(ellipse at 50% 40%, #2a2d5a 0%, #0d0e1a 70%); color:#fff;
+    font:15px/1.4 -apple-system,"Helvetica Neue","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",Arial,sans-serif; position:relative; }
+  .glow { position:absolute; border-radius:50%; filter:blur(70px); opacity:.35; pointer-events:none; }  /* 同 compare.html */
+
+  /* 大卡 260×300（派活「每张约 260×300」），三张间距 60：总宽 900，左起 190 居中；top 170 → 底 470 */
+  .card { position:absolute; top:170px; width:260px; height:300px; border-radius:24px;
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.12);
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px;
+    opacity:0; transform:translateY(30px) scale(.7);
+    transition:opacity .45s ease, transform .55s cubic-bezier(.34,1.56,.64,1); }
+  .card.on { opacity:1; transform:none; border-color:var(--c); animation:breathe 2.2s ease-in-out .5s infinite; }
+  /* 呼吸光晕（Gemini 建议「呼吸光晕」），周期 2.2 秒为视觉取值 */
+  @keyframes breathe { 0%,100% { box-shadow:0 0 28px -6px var(--c), 0 20px 50px rgba(0,0,0,.35); }
+                       50%     { box-shadow:0 0 56px 0 var(--c),   0 20px 50px rgba(0,0,0,.35); } }
+  /* 吸入：0.8 秒落进群聊圈（3.2 → 约 4.0 秒，派活「约 3.2 到 4.5 秒」） */
+  .card.fly { animation:none; transition:transform .8s cubic-bezier(.55,0,.3,1), opacity .35s ease .45s; opacity:0; }
+  .card::before { content:''; position:absolute; inset:0; border-radius:24px;
+    background:linear-gradient(160deg, color-mix(in srgb, var(--c) 28%, transparent), transparent 60%); pointer-events:none; }
+  .av { border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; color:#fff; background:var(--c); }
+  .card .av { width:104px; height:104px; font-size:48px; box-shadow:0 0 0 5px rgba(255,255,255,.12); }
+  .card .nm { font-size:32px; font-weight:800; }
+  .tag { font-size:17px; font-weight:700; color:#e3e5ff; background:color-mix(in srgb, var(--c) 35%, transparent);
+    border:1px solid var(--c); border-radius:8px; padding:2px 10px; }
+  .card .duty { font-size:20px; color:#c9cdfb; }
+
+  /* 群聊圈：760×330 圆角大气泡，居中 left 260；top 200 → 底 530 */
+  #room { position:absolute; left:260px; top:200px; width:760px; height:330px; border-radius:40px;
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.14);
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); box-shadow:0 24px 70px rgba(0,0,0,.45);
+    opacity:0; transform:scale(.85); transition:opacity .4s ease, transform .55s cubic-bezier(.34,1.56,.64,1), box-shadow .6s; }
+  #room.on { opacity:1; transform:none; }
+  #room.lit { border-color:rgba(88,101,242,.75); box-shadow:0 0 70px -6px rgba(88,101,242,.65), 0 24px 70px rgba(0,0,0,.45); }
+  #room .hd { position:absolute; left:34px; top:24px; right:34px; display:flex; align-items:center; gap:12px;
+    padding-bottom:16px; border-bottom:1px solid rgba(255,255,255,.1); }
+  #room .ch { font-size:30px; font-weight:800; color:#e3e5ff; }
+  #room .ch b { color:#8b93ff; margin-right:4px; }
+  #room .bh { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:18px; font-weight:700; color:#c9cdfb; }
+  #room .bh svg { width:26px; height:26px; }
+  /* 圈内成员：头像 112px，中心 x 相对圈 170/380/590（间距 210），y 中心 175 */
+  .mem { position:absolute; width:180px; text-align:center; opacity:0; transform:scale(.4);
+    transition:opacity .3s, transform .45s cubic-bezier(.34,1.56,.64,1); }
+  .mem.on { opacity:1; transform:none; }
+  .mem .av { width:112px; height:112px; font-size:52px; margin:0 auto; position:relative; box-shadow:0 0 0 4px rgba(255,255,255,.14); transition:box-shadow .5s; }
+  .mem.lit .av { box-shadow:0 0 0 5px var(--c), 0 0 34px 4px var(--c); }
+  .mem .nm { margin-top:10px; font-size:24px; font-weight:800; }
+  .mem .tag { display:inline-block; margin-top:6px; font-size:15px; }
+  #wire { position:absolute; left:0; top:0; pointer-events:none; }
+  #wire line { stroke:url(#g); stroke-width:4; stroke-linecap:round; stroke-dasharray:220; stroke-dashoffset:220; transition:stroke-dashoffset .6s ease; }
+  #wire.on line { stroke-dashoffset:0; }
+</style>
+</head>
+<body>
+<div class="glow" style="left:120px;top:220px;width:360px;height:300px;background:#5865f2"></div>
+<div class="glow" style="left:460px;top:250px;width:360px;height:300px;background:#3ba55d"></div>
+<div class="glow" style="left:800px;top:220px;width:360px;height:300px;background:#f0b232"></div>
+<div id="room"></div>
+<script src="common.js"></script>
+<script>
+const S = window.SCENE, TM = S.timing;
+const t = v => window.BH ? BH.t(v) : (v && v.en) || v;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const at = (ms, fn) => setTimeout(fn, ms);
+const mk = (cls, parent, html, style = '') => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; d.style.cssText = style; parent.appendChild(d); return d; };
+// 标志与 common.js 的 bothouse 图形一致
+const logo = `<svg viewBox="0 0 26 26"><path d="M3 12 L13 3 L23 12 V23 H3 Z" fill="#5865f2"/><circle cx="9.5" cy="16" r="2" fill="#fff"/><circle cx="16.5" cy="16" r="2" fill="#fff"/></svg>`;
+
+const room = document.getElementById('room');
+const RX = 260, RY = 200;                 // 群聊圈左上角，同 CSS #room
+const memX = [170, 380, 590], memY = 175; // 圈内头像中心（相对圈），同 CSS 注释
+const cardX = [190, 510, 830];            // 大卡左边：190 起，宽 260 + 间距 60
+mk('hd', room, `<span class="ch"><b>#</b>${esc(t(S.channel))}</span><span class="bh">${logo}bothouse</span>`);
+const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+svg.id = 'wire'; svg.setAttribute('width', 760); svg.setAttribute('height', 330);
+svg.innerHTML = `<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="${S.members[0].color}"/><stop offset=".5" stop-color="${S.members[1].color}"/><stop offset="1" stop-color="${S.members[2].color}"/></linearGradient></defs>` +
+  [0, 1].map(i => `<line x1="${memX[i]+64}" y1="${memY}" x2="${memX[i+1]-64}" y2="${memY}"/>`).join('');
+room.appendChild(svg);
+
+const cards = [], mems = [];
+S.members.forEach((m, i) => {
+  const c = mk('card', document.body,
+    `<div class="av">${esc(m.avatar)}</div><div class="nm">${esc(t(m.name))}</div><div class="tag">${esc(t(m.tag))}</div><div class="duty">${esc(t(m.duty))}</div>`,
+    `left:${cardX[i]}px;--c:${m.color}`);
+  cards.push(c);
+  const e = mk('mem', room, `<div class="av">${esc(m.avatar)}</div><div class="nm">${esc(t(m.name))}</div><div class="tag">${esc(t(m.tag))}</div>`,
+    `left:${memX[i]-90}px;top:${memY-56}px;--c:${m.color}`);
+  mems.push(e);
+});
+
+function gather() {
+  room.classList.add('on');
+  cards.forEach((c, i) => {
+    // 大卡中心 → 圈内头像中心，缩到 0.35 倍
+    const dx = RX + memX[i] - (cardX[i] + 130), dy = RY + memY - (170 + 150);
+    c.classList.add('fly');
+    c.style.transform = `translate(${dx}px,${dy}px) scale(.35)`;
+    at(450 + i * 80, () => mems[i].classList.add('on'));
+  });
+}
+
+function play() {
+  window.__start = Date.now();
+  window.BH && BH.overlay();
+  cards.forEach((c, i) => at(TM.first + i * TM.gap, () => c.classList.add('on')));
+  at(TM.gather, gather);
+  at(TM.link, () => { svg.classList.add('on'); room.classList.add('lit'); mems.forEach(m => m.classList.add('lit')); });
+  at(TM.end, () => { window.__done = true; });
+}
+document.fonts.ready.then(play);
+</script>
+</body>
+</html>

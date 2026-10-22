@@ -72,9 +72,33 @@
   .ptr { position:absolute; left:0; top:0; width:22px; height:22px; z-index:10; pointer-events:none; transition:transform .2s cubic-bezier(.4,.1,.2,1); filter:drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
   .ripple { position:absolute; width:28px; height:28px; margin:-14px 0 0 -14px; border-radius:50%; border:2px solid #42ff9c; z-index:9; pointer-events:none; animation:rip .35s ease-out forwards; }
   @keyframes rip { from { transform:scale(.3); opacity:1; } to { transform:scale(1.3); opacity:0; } }
+  /* ---- 以下全是可选字段（stage / collapse / finale）才用到的样式，x-wizard 不带这些字段，外观不变 ---- */
+  body.stage { display:block; }
+  body.stage .caption { display:none; }
+  body.stage .win { position:absolute; transform-origin:0 0; transition:filter .35s, opacity .35s; }
+  /* stage 窗口矮：第 3 张卡展开时放不下，角色列表贴底、旧行从上方挤出去，保证「再加一个角色」和保存按钮一直可见；角色说明行省掉 */
+  body.stage .note { display:none; }
+  body.stage .roles { flex:1 1 auto; min-height:0; overflow:hidden; justify-content:flex-end; }
+  body.stage .role { flex:none; }
+  body.stage .win.dim { filter:blur(2px) brightness(.45); }
+  .role { transition:all .25s ease, max-height .3s ease; }
+  .role.mini { flex-direction:row; align-items:center; gap:10px; padding:7px 12px; }
+  .role.mini .rh, .role.mini .lbl, .role.mini .clis { display:none; }
+  .role.mini .inp { border:none; background:none; padding:0; height:auto; font-weight:600; }
+  .role .sum { display:none; }
+  .role.mini .sum { display:flex; align-items:center; gap:10px; }
+  .av { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:14px; flex:none; }
+  .finale { position:absolute; z-index:40; left:50%; top:0; transform:translateX(-50%); display:flex; gap:44px; padding:30px 44px; border-radius:24px 24px 24px 6px;
+    background:#313338; box-shadow:0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08); opacity:0; transition:opacity .25s; }
+  .finale.on { opacity:1; }
+  .mem { display:flex; flex-direction:column; align-items:center; gap:12px; transition:transform .55s cubic-bezier(.34,1.3,.64,1), opacity .3s; }
+  .mem .av { width:84px; height:84px; font-size:40px; box-shadow:0 0 0 4px rgba(255,255,255,.08); }
+  .mem p { color:#fff; font-size:24px; font-weight:700; white-space:nowrap; }
+  .mem p span { color:#b5bac1; font-weight:500; }
 </style>
 </head>
 <body>
+<script src="common.js"></script>
 <div class="caption" id="cap"></div>
 <div class="win" id="win">
   <div class="bar">
@@ -128,7 +152,7 @@ const win = $('win'), ptr = $('ptr');
 // 静态部分
 $('cap').innerHTML = esc(t(S.caption)) + (S.sub ? `<small>${esc(t(S.sub))}</small>` : '');
 $('url').textContent = S.url || '127.0.0.1:9820/setup';  // 9820 = 管理网页默认端口，bridge/config/config.go:180
-$('brand').innerHTML = esc(S.brand || 'CC');              // Sidebar.tsx:48-51 折叠态品牌
+$('brand').innerHTML = esc(typeof S.brand === 'string' ? S.brand : 'CC');  // Sidebar.tsx:48-51 折叠态品牌；brand:true 是 common.js 的左上角标志开关，不当文字
 $('title').textContent = u('title');
 $('subt').textContent = t(S.subtitle);
 if (!S.subtitle) $('subt').remove();  // 不给 subtitle 就不占行
@@ -145,6 +169,18 @@ function pills(cur) {  // 胶囊样式照 SetupWizard.tsx:410：当前步实心�
 pills(S.startStep ?? 1);  // 默认停在「机器人」步：真实向导里角色卡在这一步（SetupWizard.tsx:535-612）
 const cliList = S.clis || [];
 
+// 可选 stage：{ top, w, h, scale }。窗口绝对定位、整体放大，左侧 caption 不显示（给 headline 让出上方）。
+// 不写 stage 时走原来的 flex 布局，x-wizard 不受影响。
+const ST = S.stage;
+const Z = ST ? (ST.scale || 1) : 1;
+if (ST) {
+  document.body.classList.add('stage');
+  win.style.width = ST.w + 'px'; win.style.height = ST.h + 'px';
+  win.style.left = ((1280 - ST.w * Z) / 2) + 'px';  // 1280 = 画面宽，来源同文件头
+  win.style.top = ST.top + 'px';
+  win.style.transform = `scale(${Z})`;
+}
+
 // 光标：移动到某元素中心，点击时缩放 + 涟漪
 const wr = () => win.getBoundingClientRect();
 let px = 600, py = 520;  // 光标起点：窗口右下区域，避免一开场就挡住按钮（视觉取值，无外部来源）
@@ -153,7 +189,7 @@ place();
 const wait = ms => new Promise(r => setTimeout(r, ms));
 async function moveTo(el, ms) {
   const r = el.getBoundingClientRect(), w = wr();
-  px = r.left - w.left + r.width / 2; py = r.top - w.top + r.height / 2;
+  px = (r.left - w.left + r.width / 2) / Z; py = (r.top - w.top + r.height / 2) / Z;  // 窗口放大时换回窗口内坐标
   ptr.style.transitionDuration = ms + 'ms'; place();
   await wait(ms);
 }
@@ -170,10 +206,17 @@ async function type(el, text, ms) {
   el.innerHTML = esc(text); el.classList.remove('focus');
 }
 function addCard(idx) {
+  const r = (S.roles || [])[idx] || {};
   const d = document.createElement('div'); d.className = 'role';
   d.innerHTML = `<div class="rh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M12 8V4M8 14h.01M16 14h.01"/></svg>${esc(u('roleLabel'))} ${idx + 1}</div>
     <div><div class="lbl">${esc(u('roleName'))}</div><div class="inp"></div></div>
+    <div class="sum" style="margin-left:auto"><span class="badge"></span></div>
     <div class="clis">${cliList.map(c => `<div class="cli" data-id="${esc(c.id)}"><b>${esc(t(c.label))}</b>${c.badge === false ? '' : `<span class="badge">${esc(u('loggedIn'))}</span>`}</div>`).join('')}</div>`;
+  if (S.collapse) {  // 可选：折叠后行首显示头像（字段 avatar/color，与 phone 模板 roles 同名）
+    const a = document.createElement('div'); a.className = 'sum';
+    a.innerHTML = `<span class="av" style="background:${esc(r.color || '#5865f2')}">${esc(r.avatar || '')}</span>`;
+    d.prepend(a);
+  }
   $('roles').appendChild(d);
   requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('on')));
   return d;
@@ -181,10 +224,37 @@ function addCard(idx) {
 
 // 时长：整段约 3.3 秒，来源 docs/launch/x-15s.md「2–4 秒」这一格（后期可再加速）；各段按此总长分配，场景 "timing" 可覆盖
 // 合计约 120 + 2×960 + 230 + 160 + 230 + 450 ≈ 3.1 秒
-const D = { start: 120, move: 160, click: 70, appear: 100, type: 200, settle: 40, okHold: 60, end: 450, ...(S.timing || {}) };
+const D = { start: 120, move: 160, click: 70, appear: 100, type: 200, settle: 40, okHold: 60, end: 450,
+  fly: 150, flyHold: 550,  // finale 用：每个头像错开 150ms 飞入、飞完停 550ms（.mem 过渡 .55s），视觉取值，场景 timing 可覆盖
+  ...(S.timing || {}) };
+
+// 可选 finale：保存后各角色头像带名牌，从自己的角色卡飞进一个群聊气泡，排成一排，标「名字 · tag」
+async function finale() {
+  const box = document.createElement('div'); box.className = 'finale';
+  const cards = [...document.querySelectorAll('.role')];
+  box.innerHTML = (S.roles || []).map(r => `<div class="mem"><div class="av" style="background:${esc(r.color || '#5865f2')}">${esc(r.avatar || '')}</div><p>${esc(t(r.name))}${r.tag ? ` <span>· ${esc(t(r.tag))}</span>` : ''}</p></div>`).join('');
+  document.body.appendChild(box);
+  const wb = win.getBoundingClientRect();
+  box.style.top = (wb.top + wb.height / 2 - box.offsetHeight / 2) + 'px';  // 竖直居中在窗口上
+  const mems = [...box.children];
+  mems.forEach((m, i) => {  // 起点：对应角色卡的头像位置
+    const src = (cards[i]?.querySelector('.av') || cards[i] || win).getBoundingClientRect();
+    const dst = m.querySelector('.av').getBoundingClientRect();
+    m.style.transition = 'none'; m.style.opacity = '0';
+    m.style.transform = `translate(${src.left - dst.left}px, ${src.top - dst.top}px) scale(.35)`;
+  });
+  box.getBoundingClientRect();
+  win.classList.add('dim'); box.classList.add('on');
+  for (const m of mems) {
+    m.style.transition = ''; m.style.opacity = '1'; m.style.transform = 'none';
+    await wait(D.fly);
+  }
+  await wait(D.flyHold);
+}
 
 (async () => {
   window.__start = Date.now();  // 开播时刻，render.py 按 [__start, __done] 裁剪
+  BH.overlay();
   $('cap').classList.add('on');
   await wait(D.start);
   for (const [i, r] of (S.roles || []).entries()) {
@@ -196,14 +266,21 @@ const D = { start: 120, move: 160, click: 70, appear: 100, type: 200, settle: 40
     const opt = card.querySelector(`.cli[data-id="${r.cli}"]`);
     await moveTo(opt, D.move); await click(opt); opt.classList.add('sel');
     await wait(D.settle);
+    if (S.collapse) {  // 可选：选完收成一行「头像 名字 … CLI」，给下一张卡腾地方
+      card.querySelector('.sum .badge').textContent = t(cliList.find(c => c.id === r.cli)?.label);
+      card.classList.add('mini');
+    }
   }
   await moveTo($('save'), D.move); await click($('save'));
   pills(steps.length - 1);                       // 跳到「完成」
   $('add').parentElement.style.display = 'none';  // 真实向导保存后进入结果页，不再能加角色
   $('save').style.visibility = 'hidden'; $('back').classList.add('dis');  // 真实向导出结果后不再显示保存按钮（SetupWizard.tsx:867）
   $('ok').classList.add('on'); await wait(D.appear + D.okHold);
-  await moveTo($('restart'), D.move); await click($('restart'));
-  $('restart').textContent = u('restarted'); $('restart').classList.add('dis');
+  if (S.restart !== false) {  // 可选：restart:false 时不演示点「重启生效」
+    await moveTo($('restart'), D.move); await click($('restart'));
+    $('restart').textContent = u('restarted'); $('restart').classList.add('dis');
+  }
+  if (S.finale) await finale();
   await wait(D.end);
   window.__done = true;
 })();

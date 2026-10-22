@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  品牌亮相 / 片尾模板。示例：scenes/v2-brand.json（第 2 镜）、scenes/v2-end.json（第 9 镜）。
+  render.py 注入 window.SCENE（"template": "outro"）和 window.LANG。开播设 __start，播完设 __done。
+
+  场景 JSON 字段（全部可选，不给就不画）：
+    platforms: { at, step_ms, dock_at, items: [ { name: {zh,en}, color, glyph } ] }
+               平台色块从 at 起每隔 step_ms 依次点亮；dock_at 时整行缩小上移，给标志让位。
+    logo:      { at }                     标志弹出 + 光晕
+    slogan:    [ { text: {zh,en}, at, size } ]  口号行，逐行淡入；size 字号 px，默认 42
+    repo:      { text, at, pill }         仓库地址，等宽字；pill 为 true 时做成胶囊并在前面加代码图标
+    pill 也可带 size：胶囊字号 px，默认 26
+    pill:      { text: {zh,en}, at }      胶囊标签
+    credit:    { text: {zh,en}, at }      右下角小字（音乐署名）
+    total_ms   场景总时长（毫秒）
+-->
+<style>
+  /* 1280×720：来源 docs/launch/anim/README.md「画面 1280×720」 */
+  html, body { margin:0; width:1280px; height:720px; overflow:hidden; }
+  /* 背景与 phone.html 一致：深蓝径向渐变 */
+  body { background:radial-gradient(ellipse at 50% 40%, #2a2d5a 0%, #0d0e1a 70%); color:#fff;
+    font-family:-apple-system,"Helvetica Neue","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",Arial,sans-serif; position:relative; }
+  /* 底部 80px 留给字幕（来源：派活要求「底部 80px 留给字幕」），主体只在 0–640px 内居中 */
+  .stage { position:absolute; left:0; right:0; top:0; height:640px; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .glow { position:absolute; left:50%; top:46%; width:620px; height:620px; margin:-310px 0 0 -310px; border-radius:50%;
+    background:radial-gradient(circle, rgba(88,101,242,.45) 0%, rgba(88,101,242,0) 62%); opacity:0; transform:scale(.4); pointer-events:none; }
+  .glow.on { animation:glowin .9s ease-out forwards, breathe 2.6s ease-in-out .9s infinite; }
+  @keyframes glowin { to { opacity:1; transform:scale(1); } }
+  @keyframes breathe { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.7; transform:scale(1.06); } }
+
+  .plats { display:flex; gap:22px; transition:transform .7s cubic-bezier(.4,0,.2,1), margin .7s; margin-bottom:0; }
+  .plats.dock { transform:scale(.62); margin-bottom:-6px; }
+  .plat { width:150px; height:118px; border-radius:22px; background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.12);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; opacity:.28; filter:grayscale(1);
+    transition:all .45s cubic-bezier(.34,1.56,.64,1); }
+  .plat .g { width:48px; height:48px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:800; color:#fff; }
+  .plat .n { font-size:20px; font-weight:600; color:#e6e8ff; }
+  .plat.on { opacity:1; filter:none; transform:translateY(-6px) scale(1.06); background:rgba(255,255,255,.1); border-color:var(--c); box-shadow:0 0 34px -4px var(--c); }
+
+  .logo { display:flex; align-items:center; gap:22px; opacity:0; transform:scale(.4); }
+  .logo.on { animation:pop .7s cubic-bezier(.34,1.56,.64,1) forwards; }
+  @keyframes pop { 0% { opacity:0; transform:scale(.4); } 100% { opacity:1; transform:none; } }
+  .logo svg { width:104px; height:104px; filter:drop-shadow(0 0 22px rgba(88,101,242,.8)); }
+  .logo span { font-size:96px; font-weight:800; letter-spacing:1px; text-shadow:0 6px 30px rgba(0,0,0,.5); }
+
+  .slogan { font-size:42px; font-weight:700; line-height:1.3; margin-top:14px; opacity:0; transform:translateY(14px); transition:all .5s ease-out; text-shadow:0 4px 20px rgba(0,0,0,.5); }
+  .slogan.on { opacity:1; transform:none; }
+  .slogan.s2 { color:#aeb5ff; }
+  .repo { font-family:"SF Mono",Menlo,Consolas,"Courier New",monospace; font-size:28px; color:#c9cdfb; margin-top:26px; opacity:0; transition:opacity .5s; }
+  .pill { margin-top:18px; padding:9px 28px; border-radius:999px; background:#3ba55d; color:#fff; font-size:26px; font-weight:700;
+    box-shadow:0 0 28px -2px rgba(59,165,93,.8); opacity:0; transform:scale(.5); }
+  .pill.on { animation:pop .55s cubic-bezier(.34,1.56,.64,1) forwards; }
+  .repo.on { opacity:1; }
+  /* 可选：repo.pill 胶囊样式 + 简单代码图标（不用任何商标）。尺寸为目测取值 */
+  .repo.cap { display:flex; align-items:center; gap:12px; padding:10px 26px 10px 18px; border-radius:999px; background:rgba(255,255,255,.08);
+    border:1.5px solid rgba(201,205,251,.45); color:#fff; font-size:30px; }
+  .repo.cap svg { width:34px; height:34px; flex:none; }
+  /* 署名放右下角，但在字幕区（底 80px）上方 */
+  .credit { position:absolute; right:26px; bottom:88px; font-size:13px; color:rgba(255,255,255,.55); opacity:0; transition:opacity .6s; }
+  .credit.on { opacity:1; }
+</style>
+</head>
+<body>
+<div class="glow" id="glow"></div>
+<div class="stage" id="stage"></div>
+<script src="common.js"></script>
+<script>
+(function () {
+  const S = window.SCENE || {};
+  const L = window.LANG || "zh";
+  const t = v => (v && typeof v === "object") ? (v[L] ?? v.zh ?? v.en ?? "") : (v ?? "");
+  const stage = document.getElementById("stage");
+  const timers = [];
+  const at = (ms, fn) => timers.push([ms ?? 0, fn]);
+  const el = (cls, html) => { const d = document.createElement("div"); d.className = cls; if (html != null) d.innerHTML = html; stage.appendChild(d); return d; };
+  const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+  if (S.platforms) {
+    const P = S.platforms, row = el("plats");
+    // 默认间隔 350ms：目测节奏取值，场景可覆盖
+    const step = P.step_ms ?? 350;
+    (P.items || []).forEach((it, i) => {
+      const d = document.createElement("div"); d.className = "plat"; d.style.setProperty("--c", it.color || "#5865f2");
+      d.innerHTML = `<div class="g" style="background:${it.color || "#5865f2"}">${esc(t(it.glyph) || t(it.name)[0])}</div><div class="n">${esc(t(it.name))}</div>`;
+      row.appendChild(d);
+      at((P.at ?? 0) + i * step, () => d.classList.add("on"));
+    });
+    if (P.dock_at != null) at(P.dock_at, () => row.classList.add("dock"));
+  }
+  // 标志图形与 common.js 左上角小标志同款（房子 + 两个对话点），放大版
+  if (S.logo) {
+    const lg = el("logo", `<svg viewBox="0 0 26 26"><path d="M3 12 L13 3 L23 12 V23 H3 Z" fill="#5865f2"/><circle cx="9.5" cy="16" r="2" fill="#fff"/><circle cx="16.5" cy="16" r="2" fill="#fff"/></svg><span>bothouse</span>`);
+    at(S.logo.at, () => { lg.classList.add("on"); document.getElementById("glow").classList.add("on"); });
+  }
+  (S.slogan || []).forEach((s, i) => { const d = el("slogan s" + (i + 1)); d.textContent = t(s.text); if (s.size) d.style.fontSize = s.size + "px"; at(s.at, () => d.classList.add("on")); });
+  if (S.repo) { const d = el("repo" + (S.repo.pill ? " cap" : ""));
+    if (S.repo.pill) { d.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#aeb5ff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7 L3 12 L8 17"/><path d="M16 7 L21 12 L16 17"/><path d="M13.5 5 L10.5 19"/></svg><span></span>`; d.querySelector("span").textContent = t(S.repo.text); }
+    else d.textContent = t(S.repo.text); at(S.repo.at, () => d.classList.add("on")); }
+  if (S.pill) { const d = el("pill"); d.textContent = t(S.pill.text); if (S.pill.size) { d.style.fontSize = S.pill.size + "px"; d.style.padding = `${Math.round(S.pill.size * .3)}px ${Math.round(S.pill.size * 1.1)}px`; } at(S.pill.at, () => d.classList.add("on")); }
+  if (S.credit) { const d = document.createElement("div"); d.className = "credit"; d.textContent = t(S.credit.text); document.body.appendChild(d); at(S.credit.at, () => d.classList.add("on")); }
+
+  // 有 dock_at 时，标志等元素在平台行收起前不占位，平台行先在画面正中亮起
+  if (S.platforms && S.platforms.dock_at != null) {
+    const rest = [...stage.children].filter(c => !c.classList.contains("plats"));
+    rest.forEach(c => c.style.display = "none");
+    at(S.platforms.dock_at, () => rest.forEach(c => c.style.display = ""));
+  }
+  // 未给 total_ms 时：最后一个元素出现后停 1500ms（目测取值）
+  const total = S.total_ms ?? (Math.max(0, ...timers.map(x => x[0])) + 1500);
+  const start = () => {
+    window.__start = Date.now();
+    window.BH && BH.overlay();
+    timers.forEach(([ms, fn]) => setTimeout(fn, ms));
+    setTimeout(() => { window.__done = true; }, total);
+  };
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => requestAnimationFrame(start));
+})();
+</script>
+</body>
+</html>

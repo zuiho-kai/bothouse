@@ -1,0 +1,52 @@
+{
+  "_source": "docs/launch/promo-zh-v2.md 分镜表 1–9；sub 照抄旁白列；每镜时长由 cut.py 按旁白时长 + 1 秒留白算；第 2 镜画面大字即口号，不出字幕（Gemini 审：字幕与大字重复）；第 3 镜换成集结卡片（Gemini 审：表单难看难读）；第 9 镜画面已有口号、地址、开源免费，不出字幕（Gemini 二审：与画面重复）",
+  "music": {
+    "file": "music/Digital_Lemonade.mp3",
+    "credit": "\"Digital Lemonade\" Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 http://creativecommons.org/licenses/by/4.0/"
+  },
+  "clips": [
+    {
+      "scene": "v2-pain",
+      "vo": "vo/zh/01.wav",
+      "sub": "开了四个 AI，同一段背景，要讲四遍。"
+    },
+    {
+      "scene": "v2-brand",
+      "vo": "vo/zh/02.wav"
+    },
+    {
+      "scene": "v2-assemble",
+      "vo": "vo/zh/03.wav",
+      "sub": "Claude、DeepSeek、Codex，拉进一个群，就是一支团队。"
+    },
+    {
+      "scene": "v2-team",
+      "vo": "vo/zh/04.wav",
+      "sub": "你只跟 opus 说一句，它自己分活、派人、交差。"
+    },
+    {
+      "scene": "v2-split",
+      "vo": "vo/zh/05.wav",
+      "sub": "两个项目一起丢进来，各有人认领，谁也不抢谁的。"
+    },
+    {
+      "scene": "v2-token",
+      "vo": "vo/zh/06.wav",
+      "sub": "别家每个项目临时拉一队，背景读了又读。这里的角色常驻，一份记忆接所有项目，要专人就自己派生一个。"
+    },
+    {
+      "scene": "v2-memory",
+      "vo": "vo/zh/07.wav",
+      "sub": "全队记同一本账。昨天跟谁说过的，今天谁都记得。"
+    },
+    {
+      "scene": "v2-review",
+      "vo": "vo/zh/08.wav",
+      "sub": "每晚自己复盘，越用越懂你。新规矩，你点头才算。"
+    },
+    {
+      "scene": "v2-end",
+      "vo": "vo/zh/09.wav"
+    }
+  ]
+}

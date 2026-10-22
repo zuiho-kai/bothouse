@@ -1,0 +1,76 @@
+{
+  "template": "phone",
+  "_source": "docs/launch/promo-zh-v2.md 第 8 镜；clock 与台词来自派活说明，时长约 6 秒",
+  "headline": {
+    "zh": "越用越懂你",
+    "en": "Learns your way"
+  },
+  "brand": true,
+  "channel": {
+    "zh": "dev",
+    "en": "dev"
+  },
+  "me": "you",
+  "roles": {
+    "you": {
+      "name": {
+        "zh": "你",
+        "en": "you"
+      },
+      "color": "#e67e22",
+      "avatar": "Y",
+      "bot": false
+    },
+    "opus": {
+      "name": {
+        "zh": "opus",
+        "en": "opus"
+      },
+      "color": "#5865f2",
+      "avatar": "O",
+      "bot": true,
+      "tag": {
+        "zh": "Claude Code",
+        "en": "Claude Code"
+      }
+    }
+  },
+  "clock": "8:30",
+  "timing": {
+    "end": 3100
+  },
+  "steps": [
+    {
+      "say": "opus",
+      "text": {
+        "zh": "早。昨晚复盘：这类登录 bug 是第二次了，要不要记成规矩？",
+        "en": "Morning. From last night's review: that's the second login bug like this. Want me to make it a rule?"
+      }
+    },
+    {
+      "wait": 2400
+    },
+    {
+      "say": "you",
+      "text": {
+        "zh": "记吧 👍",
+        "en": "Do it 👍"
+      }
+    },
+    {
+      "wait": 800
+    },
+    {
+      "busy": "opus",
+      "ms": 400
+    },
+    {
+      "say": "opus",
+      "text": {
+        "zh": "已记，附上你的原话 ✅",
+        "en": "Saved, with your exact words ✅"
+      }
+    }
+  ],
+  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒"
+}

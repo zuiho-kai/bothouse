@@ -1,0 +1,10 @@
+{
+  "template": "outro",
+  "_note": "第 2 镜「亮名字」，来源 docs/launch/promo-zh-v2.md 分镜表第 2 行；约 4–5 秒来源派活要求。",
+  "logo": { "at": 200 },
+  "slogan": [
+    { "text": { "zh": "一个会话管所有项目", "en": "One session runs every project" }, "at": 1000 },
+    { "text": { "zh": "谁也不抢谁的活", "en": "Nobody steps on anyone's work" }, "at": 1700 }
+  ],
+  "total_ms": 4500
+}

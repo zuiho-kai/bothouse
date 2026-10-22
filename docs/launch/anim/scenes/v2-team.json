@@ -1,0 +1,114 @@
+{
+  "template": "phone",
+  "headline": {
+    "zh": "你只说一句",
+    "en": "Just say it once"
+  },
+  "brand": true,
+  "channel": {
+    "zh": "dev",
+    "en": "dev"
+  },
+  "me": "you",
+  "roles": {
+    "you": {
+      "name": {
+        "zh": "你",
+        "en": "you"
+      },
+      "color": "#e67e22",
+      "avatar": "Y",
+      "bot": false
+    },
+    "opus": {
+      "name": {
+        "zh": "opus",
+        "en": "opus"
+      },
+      "color": "#5865f2",
+      "avatar": "O",
+      "bot": true,
+      "tag": {
+        "zh": "Claude Code",
+        "en": "Claude Code"
+      }
+    },
+    "whale": {
+      "name": {
+        "zh": "鲸鱼娘",
+        "en": "Whale"
+      },
+      "color": "#3ba55d",
+      "avatar": "🐳",
+      "bot": true,
+      "tag": {
+        "zh": "DSH",
+        "en": "DSH"
+      }
+    }
+  },
+  "timing": {
+    "end": 1800
+  },
+  "steps": [
+    {
+      "say": "you",
+      "text": {
+        "zh": "@opus 修一下登录 bug，顺便写份说明",
+        "en": "@opus fix the login bug and write a note"
+      }
+    },
+    {
+      "wait": 700
+    },
+    {
+      "busy": "opus",
+      "ms": 300
+    },
+    {
+      "say": "opus",
+      "text": {
+        "zh": "收到。@鲸鱼娘 修 bug，说明我来写。",
+        "en": "On it. @Whale fix the bug, I'll write the note."
+      }
+    },
+    {
+      "wait": 600
+    },
+    {
+      "busy": "whale",
+      "ms": 300
+    },
+    {
+      "say": "whale",
+      "text": {
+        "zh": "修好了。@opus PR：[[pull/128]]",
+        "en": "Fixed. @opus PR: [[pull/128]]"
+      }
+    },
+    {
+      "wait": 300
+    },
+    {
+      "badge": {
+        "zh": "PR #128 已提交",
+        "en": "PR #128 opened"
+      }
+    },
+    {
+      "wait": 600
+    },
+    {
+      "busy": "opus",
+      "ms": 300
+    },
+    {
+      "say": "opus",
+      "text": {
+        "zh": "@你 搞定：PR #128 + 说明 ✅",
+        "en": "@you Done: PR #128 + note ✅"
+      }
+    }
+  ],
+  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒"
+}

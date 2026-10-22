@@ -1,0 +1,83 @@
+{
+  "template": "outro",
+  "_note": "第 9 镜「结尾」，来源 docs/launch/promo-zh-v2.md 分镜表第 9 行。第 3 轮按 Gemini 审片意见改：平台点亮加快、地址/开源免费/署名在约 2.5 秒内出现并停住、胶囊放大、地址做成带代码图标的胶囊、整镜约 6.5 秒（均来自派活要求；旁白 09 时长 5.52 秒 +1 = 6.52）。各 at/step 毫秒为按 2.5 秒上限排的目测节奏。",
+  "platforms": {
+    "at": 100,
+    "step_ms": 200,
+    "dock_at": 1000,
+    "items": [
+      {
+        "name": {
+          "zh": "Discord",
+          "en": "Discord"
+        },
+        "color": "#5865f2",
+        "glyph": "D"
+      },
+      {
+        "name": {
+          "zh": "飞书",
+          "en": "Feishu"
+        },
+        "color": "#3370ff",
+        "glyph": {
+          "zh": "飞",
+          "en": "F"
+        }
+      },
+      {
+        "name": {
+          "zh": "DSH",
+          "en": "DSH"
+        },
+        "color": "#4d6bfe",
+        "glyph": "S"
+      },
+      {
+        "name": {
+          "zh": "自建频道",
+          "en": "Self-hosted"
+        },
+        "color": "#3ba55d",
+        "glyph": "#"
+      }
+    ]
+  },
+  "logo": {
+    "at": 1050
+  },
+  "slogan": [
+    {
+      "text": {
+        "zh": "一个会话管所有项目，谁也不抢谁的活",
+        "en": "One session runs every project. Nobody steps on anyone's work."
+      },
+      "at": 1400,
+      "size": 34
+    }
+  ],
+  "repo": {
+    "text": {
+      "zh": "github.com/zuiho-kai/bothouse",
+      "en": "github.com/zuiho-kai/bothouse"
+    },
+    "at": 1800,
+    "pill": true
+  },
+  "pill": {
+    "text": {
+      "zh": "开源免费",
+      "en": "Open source · Free"
+    },
+    "at": 2150,
+    "size": 36
+  },
+  "credit": {
+    "text": {
+      "zh": "Music: \"Digital Lemonade\" Kevin MacLeod (incompetech.com) · CC BY 4.0",
+      "en": "Music: \"Digital Lemonade\" Kevin MacLeod (incompetech.com) · CC BY 4.0"
+    },
+    "at": 2150
+  },
+  "total_ms": 6500
+}

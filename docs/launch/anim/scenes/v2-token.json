@@ -1,0 +1,108 @@
+{
+  "template": "compare",
+  "_source": "第 6 镜「常驻省 token」，来源 docs/launch/promo-zh-v2.md。第 3 轮按 Gemini 审片意见改：数字放大到约 56px（numSize）、结尾弹发光标签「省下大把 token」不写百分比（数字是示意值不是实测）、去掉「读背景…」小气泡和头像下的工具名小标签（hideTags）、总长 9.5–10 秒（均来自派活要求）。保留「专人」派生，因为旁白 06 说「要专人就自己派生一个」。end 9800ms：旁白 06 时长 8.95 秒（vo/zh/lines.json），+1 = 9.95 秒，成片取大；verdict 7300 / badge 8300 为目测节奏取值。",
+  "brand": true,
+  "headline": {
+    "zh": "常驻同事，不是临时工",
+    "en": "Colleagues, not temps"
+  },
+  "headline_at": 300,
+  "left": {
+    "title": {
+      "zh": "临时团队",
+      "en": "Temp teams"
+    },
+    "sub": {
+      "zh": "每个项目新拉一队",
+      "en": "A new crew per project"
+    },
+    "perProject": 120000
+  },
+  "right": {
+    "title": {
+      "zh": "常驻同事",
+      "en": "Resident colleagues"
+    },
+    "sub": {
+      "zh": "一份记忆接所有项目",
+      "en": "One memory, every project"
+    },
+    "memory": {
+      "zh": "📒 一份记忆",
+      "en": "📒 One memory"
+    },
+    "caught": {
+      "zh": "接住",
+      "en": "got it"
+    },
+    "first": 40000,
+    "perProject": 3000,
+    "team": [
+      {
+        "name": {
+          "zh": "opus",
+          "en": "opus"
+        },
+        "tag": "Claude Code",
+        "color": "#5865f2",
+        "avatar": "O"
+      },
+      {
+        "name": {
+          "zh": "鲸鱼娘",
+          "en": "Whale"
+        },
+        "tag": "DSH",
+        "color": "#3ba55d",
+        "avatar": "🐳"
+      },
+      {
+        "name": {
+          "zh": "笔杆",
+          "en": "Writer"
+        },
+        "tag": "Codex",
+        "color": "#f0b232",
+        "avatar": "✍️"
+      }
+    ],
+    "spawn": {
+      "zh": "专人",
+      "en": "Specialist"
+    }
+  },
+  "tokenLabel": {
+    "zh": "已花 token",
+    "en": "tokens spent"
+  },
+  "projects": [
+    {
+      "zh": "修登录 bug",
+      "en": "Fix login bug"
+    },
+    {
+      "zh": "写官网文案",
+      "en": "Site copy"
+    },
+    {
+      "zh": "做周报",
+      "en": "Weekly report"
+    }
+  ],
+  "timing": {
+    "first": 1000,
+    "gap": 2200,
+    "verdict": 7300,
+    "spawn": 7700,
+    "end": 9800
+  },
+  "numSize": 56,
+  "hideTags": true,
+  "badge": {
+    "text": {
+      "zh": "省下大把 token",
+      "en": "Tons of tokens saved"
+    },
+    "at": 8300
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "template": "phone",
+  "_source": "docs/launch/promo-zh-v2.md 第 5 镜；台词与时长约 6–7 秒来自派活说明",
+  "headline": {
+    "zh": "各认各的活",
+    "en": "Everyone owns a lane"
+  },
+  "brand": true,
+  "channel": {
+    "zh": "dev",
+    "en": "dev"
+  },
+  "me": "you",
+  "roles": {
+    "you": {
+      "name": {
+        "zh": "你",
+        "en": "you"
+      },
+      "color": "#e67e22",
+      "avatar": "Y",
+      "bot": false
+    },
+    "opus": {
+      "name": {
+        "zh": "opus",
+        "en": "opus"
+      },
+      "color": "#5865f2",
+      "avatar": "O",
+      "bot": true,
+      "tag": {
+        "zh": "Claude Code",
+        "en": "Claude Code"
+      }
+    },
+    "whale": {
+      "name": {
+        "zh": "鲸鱼娘",
+        "en": "Whale"
+      },
+      "color": "#3ba55d",
+      "avatar": "🐳",
+      "bot": true,
+      "tag": {
+        "zh": "DSH",
+        "en": "DSH"
+      }
+    },
+    "writer": {
+      "name": {
+        "zh": "笔杆",
+        "en": "Writer"
+      },
+      "color": "#f0b232",
+      "avatar": "✍️",
+      "bot": true,
+      "tag": {
+        "zh": "Codex",
+        "en": "Codex"
+      }
+    }
+  },
+  "timing": {
+    "end": 2100
+  },
+  "steps": [
+    {
+      "say": "you",
+      "text": {
+        "zh": "@opus 两件事：修登录 bug，再写一版官网文案",
+        "en": "@opus two things: fix the login bug, and draft new homepage copy"
+      }
+    },
+    {
+      "wait": 700
+    },
+    {
+      "busy": "opus",
+      "ms": 300
+    },
+    {
+      "say": "opus",
+      "text": {
+        "zh": "@鲸鱼娘 登录 bug 归你；@笔杆 官网文案归你。",
+        "en": "@Whale the login bug is yours. @Writer you've got the homepage copy."
+      }
+    },
+    {
+      "wait": 900
+    },
+    {
+      "say": "whale",
+      "text": {
+        "zh": "收到，修 bug。",
+        "en": "On it — fixing the bug."
+      }
+    },
+    {
+      "wait": 800
+    },
+    {
+      "say": "writer",
+      "text": {
+        "zh": "收到，写文案。",
+        "en": "On it — writing the copy."
+      }
+    }
+  ],
+  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒"
+}

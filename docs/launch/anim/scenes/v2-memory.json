@@ -1,0 +1,105 @@
+{
+  "template": "phone",
+  "_source": "docs/launch/promo-zh-v2.md 第 7 镜；时长约 6–7 秒来自派活说明",
+  "headline": {
+    "zh": "全队一本账",
+    "en": "One shared notebook"
+  },
+  "brand": true,
+  "channel": {
+    "zh": "dev",
+    "en": "dev"
+  },
+  "me": "you",
+  "roles": {
+    "you": {
+      "name": {
+        "zh": "你",
+        "en": "you"
+      },
+      "color": "#e67e22",
+      "avatar": "Y",
+      "bot": false
+    },
+    "opus": {
+      "name": {
+        "zh": "opus",
+        "en": "opus"
+      },
+      "color": "#5865f2",
+      "avatar": "O",
+      "bot": true,
+      "tag": {
+        "zh": "Claude Code",
+        "en": "Claude Code"
+      }
+    },
+    "whale": {
+      "name": {
+        "zh": "鲸鱼娘",
+        "en": "Whale"
+      },
+      "color": "#3ba55d",
+      "avatar": "🐳",
+      "bot": true,
+      "tag": {
+        "zh": "DSH",
+        "en": "DSH"
+      }
+    }
+  },
+  "timing": {
+    "end": 2800
+  },
+  "steps": [
+    {
+      "say": "you",
+      "text": {
+        "zh": "@鲸鱼娘 我们周会定在什么时候，谁主持？",
+        "en": "@Whale when's our weekly sync, and who runs it?"
+      }
+    },
+    {
+      "wait": 600
+    },
+    {
+      "busy": "whale",
+      "ms": 300
+    },
+    {
+      "say": "whale",
+      "text": {
+        "zh": "每周一上午 10 点，opus 主持。见 [[wiki/team/meetings]]",
+        "en": "Mondays at 10am, opus runs it. See [[wiki/team/meetings]]"
+      }
+    },
+    {
+      "wait": 1000
+    },
+    {
+      "wiki": {
+        "path": "wiki / team / meetings",
+        "title": {
+          "zh": "团队 / 周会",
+          "en": "Team / Weekly sync"
+        },
+        "lines": [
+          {
+            "zh": "时间：每周一上午 10:00",
+            "en": "When: Mondays, 10:00 am",
+            "hi": true
+          },
+          {
+            "zh": "主持：opus",
+            "en": "Host: opus"
+          },
+          {
+            "zh": "记录：鲸鱼娘",
+            "en": "Notes: Whale"
+          }
+        ]
+      }
+    }
+  ],
+  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒"
+}
