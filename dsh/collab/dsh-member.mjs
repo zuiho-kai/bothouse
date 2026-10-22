@@ -85,19 +85,27 @@ export function describeReason(reason) {
 
 /** Driver outcome -> the three results the stop API is allowed to report. */
 const OUTCOME = { idle: 'confirmed', withdrawn: 'confirmed', timeout: 'requested', error: 'requested',
-  // Nothing to cancel when the Agent is not loaded: that is not a confirmed stop either.
-  'not-loaded': 'unsupported' };
+  // No Agent loaded means no turn was running, so nothing is left running either: the room is
+  // stopped for that member, which is a confirmed stop. Reporting it as unsupported used to tell
+  // a DSH member "you are not a DSH task", which was simply false.
+  'not-loaded': 'confirmed' };
 /** Stronger result wins when two jobs share a member. */
 const STRENGTH = { confirmed: 3, requested: 2, unsupported: 1 };
 
 /** System line for one stop, per the three results above. */
-export function stopNotice(stopped) {
-  const by = state => stopped.filter(r => r.outcome === state).map(r => r.member);
+export function stopNotice(stopped, notRunning = [], nameOf = id => id) {
+  // A member whose Agent was not loaded had no turn to stop: saying "已停止" would claim we
+  // stopped something. It gets its own line, and is kept out of the other buckets.
+  const idle = new Set(notRunning);
+  // Users read names in the channel, so never show a bare member id here.
+  const by = state => stopped.filter(r => r.outcome === state && !idle.has(r.member)).map(r => nameOf(r.member));
   const parts = [];
   const confirmed = by('confirmed'); const requested = by('requested'); const unsupported = by('unsupported');
   if (confirmed.length) parts.push(`已停止：${confirmed.join('、')}`);
   if (requested.length) parts.push(`已请求停止、未确认退出：${requested.join('、')}（迟到回复将被忽略）`);
   if (unsupported.length) parts.push(`不支持终止、只屏蔽旧输出：${unsupported.join('、')}`);
+  const wasIdle = stopped.filter(r => idle.has(r.member)).map(r => nameOf(r.member));
+  if (wasIdle.length) parts.push(`本来就没在跑：${wasIdle.join('、')}`);
   return parts.length ? `${parts.join('；')}。` : '已停止。';
 }
 
@@ -249,7 +257,7 @@ export class DshMembers {
     const text = finalText(events);
     if (text === undefined) {
       // Same wording as the HTTP stop path, so both entries say the same thing.
-      if (cancelled) this.fail(job.id, `已停止：${member.id}。`, 'interrupted');
+      if (cancelled) this.fail(job.id, `已停止：${member.name}。`, 'interrupted');
       else this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
       return;
     }
@@ -271,9 +279,12 @@ export class DshMembers {
     });
   }
 
+  /** Member id -> the name the channel shows. Users never see bare ids in these lines. */
+  nameOf = id => this.config.get(id)?.name ?? id;
+
   /** Members that only had their output fenced: name them, or the user reads silence as success. */
   unsupportedNotice(stopped) {
-    const names = stopped.map(r => `${this.config.get(r.member)?.name ?? r.member}`).join('、');
+    const names = stopped.map(r => this.nameOf(r.member)).join('、');
     return `停止只发生在频道里：${names} 这些成员不是 DSH 任务，不支持终止，只屏蔽它们的旧输出。`;
   }
 
@@ -336,7 +347,13 @@ export class DshMembers {
       }
     }));
     for (const id of this.config.keys()) this.hub.setThinking(roomId, id, false);
-    const unconfirmed = results.filter(r => ['timeout', 'error', 'not-loaded'].includes(r.outcome)).map(r => r.member);
+    // A member whose Agent was not loaded was never running, so there is nothing left unconfirmed
+    // (and no late output to fence): only a cancel we could not confirm inside the deadline counts.
+    const unconfirmed = results.filter(r => ['timeout', 'error'].includes(r.outcome)).map(r => r.member);
+    // A member counts as "was not running" only when every job of theirs found no live Agent;
+    // mixing that with a real turn must not hide the turn that was actually stopped.
+    const notRunning = [...new Set(results.map(r => r.member))]
+      .filter(m => results.filter(r => r.member === m).every(r => r.outcome === 'not-loaded'));
     // Publish what each stopped turn had already written, so a stop loses no text.
     const partials = results.filter(r => r.partial !== undefined);
     for (const r of partials) {
@@ -360,7 +377,7 @@ export class DshMembers {
     const allUnsupported = stopped.length > 0 && stopped.every(r => r.outcome === 'unsupported');
     // Silence would read as "stopped"; say either what stopped, what could not, or that nothing ran.
     const notice = stopped.length === 0 ? '没有在跑的任务。'
-      : allUnsupported ? this.unsupportedNotice(stopped) : stopNotice(stopped);
+      : allUnsupported ? this.unsupportedNotice(stopped) : stopNotice(stopped, notRunning, this.nameOf);
     if (!this.closed) this.hub.post(roomId, { authorKind: 'system', author: 'system', name: 'system', text: notice });
     return { room_id: roomId, stopped: true, cancelled_jobs: jobs.length, unconfirmed, stopped_members: stopped };
   }

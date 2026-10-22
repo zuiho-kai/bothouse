@@ -184,8 +184,12 @@ export class CloudWebGateway {
       // Turn output is fenced by reply_ctx epoch; typing and previews stay fenced by `stopped`
       // because they describe a turn that is no longer running.
       const current = this.replyContext(room);
-      const stale = d.type === 'reply' && d.agent !== true
-        ? false
+      // A reply without the agent mark is proactive, but a missing mark must not waive the epoch:
+      // an old reply_ctx proves it came from the stopped turn, so it is dropped like marked output.
+      // Only a reply with no reply_ctx at all, or one already on the current epoch, gets through.
+      const proactive = d.type === 'reply' && d.agent !== true;
+      const stale = proactive
+        ? d.reply_ctx !== undefined && c.epoch > 0 && d.reply_ctx !== current
         : c.stopped === 1 || (c.epoch > 0 && d.reply_ctx !== current);
       if (stale) {
         if (d.type === 'preview_start' && typeof d.ref_id === 'string') {

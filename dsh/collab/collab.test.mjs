@@ -264,7 +264,8 @@ test('stop: withdrawing queued input receives discarded, never cancels unrelated
   assert.equal(discarded, 1); assert.equal(agent.cancellations.length, 0);
   assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), ['web-pending']);
   assert.equal(members.watching.size, 0); assert.equal(hub.store.openJobs().length, 0);
-  assert.equal(hub.store.page(1, undefined, 1)[0].text, '已停止：ds。', 'the notice names the confirmed member');
+  // The channel line shows the member's name, not its id.
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '已停止：DeepSeek。', 'the notice names the confirmed member');
   await members.close();
 });
 
@@ -385,7 +386,8 @@ test('stop: unloaded agent is not resumed and an in-flight create cannot admit c
   const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
   ask(hub); await settle();
   dsh.sessions.delete(dsh.made[0]);
-  assert.deepEqual((await members.stopRoom(1)).unconfirmed, ['ds']);
+  // Nothing was running, so there is nothing left unconfirmed either.
+  assert.deepEqual((await members.stopRoom(1)).unconfirmed, []);
   assert.equal(dsh.ctx.agents.resumes, 0);
   await members.close();
   const h2 = makeHub(); const d2 = fakeDsh(); const m2 = d2.attach(h2, [{ id: 'ds', name: 'DeepSeek' }]);
@@ -450,8 +452,9 @@ test('cloud-web: a stop does not swallow what the bot posts on its own', async (
   bot.frame({ type: 'reply', reply_ctx: before, agent: true, content: '停之前那轮的迟到输出' });
   await settle();
   assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === '停之前那轮的迟到输出'), false);
-  // A timer or proactive notice is not turn output: it must land, or a stop silently eats it.
-  bot.frame({ type: 'reply', reply_ctx: before, content: '定时任务：该喝水了' });
+  // A timer or proactive notice is not turn output and carries no epoch: it must land, or a
+  // stop silently eats it. (Riding the stopped turn's old reply_ctx would look like its output.)
+  bot.frame({ type: 'reply', session_key: 'p:room-1', content: '定时任务：该喝水了' });
   await settle();
   assert.equal(hub.store.page(1, undefined, 1)[0].text, '定时任务：该喝水了');
   // Landing in history is not permission to keep relaying: the room is still stopped.
@@ -944,4 +947,39 @@ test('cloud-web: a bot may not take a name another member already uses', () => {
   const ws = connect(gw, 'bot=imposter&name=DeepSeek');
   assert.equal(ws.of('register_ack')[0].ok, false);
   assert.equal(ws.closed.code, 4002);
+});
+
+test('stop: an unloaded agent reports not running instead of claiming it is not a DSH task', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  // The Agent is gone: nothing was running for this member, so nothing was cancelled.
+  dsh.sessions.delete(dsh.made[0]);
+  const result = await members.stopRoom(1);
+  await settle();
+  // Nothing to confirm does not mean "could not confirm": it was never running.
+  assert.deepEqual(result.unconfirmed, []);
+  const notice = hub.store.page(1, undefined, 50).filter(m => m.name === 'system').at(-1);
+  assert.match(notice.text, /本来就没在跑/);
+  // A DSH member never gets the mislabeled "not a DSH task" line.
+  assert.doesNotMatch(notice.text, /不是 DSH 任务/);
+  await members.close();
+});
+
+test('cloud-web: a reply from the stopped turn epoch is dropped even without the agent mark', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  ask(hub, '@Bot first'); await settle();
+  const before = bot.of('message').at(-1).reply_ctx;
+  bot.frame({ type: 'typing_start', reply_ctx: before });
+  hub.stopRoom(1); gw.stopRoom(1);
+  await settle();
+  // The bridge failed to mark turn output, but the old epoch still proves it is the stopped turn's.
+  bot.frame({ type: 'reply', reply_ctx: before, content: '迟到输出，没标 agent' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text.startsWith('迟到输出，没标 agent')), false);
+  // A proactive message carries no epoch at all: it is not the stopped turn and must land.
+  bot.frame({ type: 'reply', session_key: 'p:room-1', content: '定时任务：该喝水了' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '定时任务：该喝水了');
 });
