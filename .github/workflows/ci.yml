@@ -16,7 +16,9 @@ concurrency:
 
 jobs:
   companion:
-    runs-on: ubuntu-latest
+    # Linux jobs of this private repo run on the Oracle vps-arm runners (arm64, label bothouse-ci); user 2026-10-18
+    # 「把一些工作链接到甲骨文那边编译」, 2026-10-23「你就不能去甲骨文那边搞吗」.
+    runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 10
     defaults:
       run:
@@ -52,7 +54,7 @@ jobs:
       - run: go test -tags no_web -count=1 ./core -run "Wiki|Cron|SubWiki"
 
   bridge:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 20
     defaults:
       run:
@@ -62,7 +64,9 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: bridge/go.mod
-          cache-dependency-path: bridge/go.sum
+          # The self-hosted runner keeps GOMODCACHE/GOCACHE on disk; restoring the 0.5-1 GB Actions cache at ~1 MB/s
+          # stalled the job at 81-94% after 20 min (Zssan12/conest run 39819487730).
+          cache: false
       # node with zlib zstd (what DSH itself needs: dsh-session-persistence-jsonl imports zstdCompress from
       # node:zlib), so the zstd session-log tests in contrib/hooks run instead of being skipped
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
