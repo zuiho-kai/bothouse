@@ -46,6 +46,7 @@ type ManagementServer struct {
 	engines map[string]*Engine // project name → engine
 
 	cronScheduler      *CronScheduler
+	wikiSubScript      string // sub-wiki.sh of the agent.closed hook, for the wizard (core/setup_wiki.go)
 	timerScheduler     *TimerScheduler
 	heartbeatScheduler *HeartbeatScheduler
 	bridgeServer       *BridgeServer
@@ -98,6 +99,7 @@ func (m *ManagementServer) RegisterEngine(name string, e *Engine) {
 }
 
 func (m *ManagementServer) SetCronScheduler(cs *CronScheduler)           { m.cronScheduler = cs }
+func (m *ManagementServer) SetWikiSubScript(p string)                    { m.wikiSubScript = p }
 func (m *ManagementServer) SetTimerScheduler(ts *TimerScheduler)         { m.timerScheduler = ts }
 func (m *ManagementServer) SetHeartbeatScheduler(hs *HeartbeatScheduler) { m.heartbeatScheduler = hs }
 func (m *ManagementServer) SetBridgeServer(bs *BridgeServer)             { m.bridgeServer = bs }

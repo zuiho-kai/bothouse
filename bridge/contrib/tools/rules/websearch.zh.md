@@ -1,0 +1,1 @@
+- 搜网页：`{{UV}} run -q --script {{TOOLS}}/websearch.py search "关键词" [条数]` 返回标题、链接、摘要（免费，不要 key）；`… websearch.py fetch <网址>` 取网页正文。有时效的事（新闻、版本、价格、日期）先搜再说。

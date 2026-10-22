@@ -90,6 +90,9 @@ var cliSpecs = []cliSpec{
 	{"opencode", "OpenCode", []string{"opencode"}, ProtocolOpenAIChat, func(h string) string {
 		return loginIf(fileExists(filepath.Join(h, ".local", "share", "opencode", "auth.json")))
 	}, ""},
+	// DSH (npm @deepseek-ai/dsh): logged in = the official key variable, an account login, or the user's own
+	// model setup in DSH's config (dshLogin).
+	{"dsh", "DSH (DeepSeek Harness)", []string{"dsh"}, ProtocolAnthropic, dshLogin, ""},
 	{"antigravity", "Antigravity CLI", []string{"agy"}, "", nil, ""},
 	{"cursor", "Cursor Agent", []string{"cursor-agent", "agent"}, "", nil, ""},
 	{"copilot", "GitHub Copilot", []string{"copilot"}, "", nil, ""},
@@ -327,10 +330,28 @@ type MatrixCell struct {
 
 var protocolOfAgent = map[string]string{
 	"claudecode": ProtocolAnthropic, "codex": ProtocolResponses, "gemini": ProtocolGemini, "opencode": ProtocolOpenAIChat,
+	"dsh": ProtocolAnthropic, // DSH's llm-deepseek speaks Anthropic Messages only (POST <baseURL>/v1/messages)
 }
 
 // AttachableAgents are the CLIs a third-party API can be attached to.
-var AttachableAgents = []string{"claudecode", "codex", "gemini", "opencode"}
+var AttachableAgents = []string{"claudecode", "codex", "gemini", "opencode", "dsh"}
+
+// nativeOnlyAgents take a third-party API only at the vendor's own endpoint for their protocol: DSH has no
+// cc-connect provider (the API goes into a DSH config layer), so the local converter cannot sit in between.
+var nativeOnlyAgents = map[string]bool{"dsh": true}
+
+// VendorServes: vendor × agentType works (natively, or through the converter where the agent allows it).
+func VendorServes(vendorID, agentType string) bool {
+	v, ok := wizardVendor(vendorID)
+	if !ok {
+		return false
+	}
+	if !nativeOnlyAgents[agentType] {
+		return true
+	}
+	_, native := v.Endpoints[protocolOfAgent[agentType]]
+	return native
+}
 
 // VendorMatrix returns every vendor × attachable CLI combination.
 func VendorMatrix() []MatrixCell {
@@ -340,6 +361,9 @@ func VendorMatrix() []MatrixCell {
 			continue
 		}
 		for _, at := range AttachableAgents {
+			if !VendorServes(v.ID, at) {
+				continue
+			}
 			p := ResolveWizardProvider(v.ID, at, v.OpenAIBase, "", v.Model)
 			mode := "native"
 			if p.APIFormat == APIFormatOpenAIChat {

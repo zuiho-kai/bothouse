@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +21,14 @@ import (
 
 // configWizardStore implements core.WizardStore on top of config.toml.
 type configWizardStore struct{}
+
+func (configWizardStore) EnsureHook(event, command string) (bool, error) {
+	return config.EnsureWizardHook(event, command)
+}
+
+func (bootstrapOnWriteStore) EnsureHook(event, command string) (bool, error) {
+	return config.EnsureWizardHook(event, command) // called after ApplyProjects wrote the config
+}
 
 func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	out := core.WizardSnapshot{Projects: make([]core.WizardExistingProject, 0, len(ps))}
@@ -61,6 +71,7 @@ func (configWizardStore) ApplyProjects(plan func(core.WizardSnapshot) ([]core.Wi
 		list := make([]config.WizardProjectOptions, 0, len(ws))
 		for _, w := range ws {
 			o := config.WizardProjectOptions{Name: w.Name, AgentType: w.AgentType, WorkDir: w.WorkDir, AgentCmd: w.AgentCmd,
+				AgentArgs: w.AgentArgs, AgentEnv: w.AgentEnv,
 				PlatformType: w.PlatformType, Options: w.Options, GateURL: w.GateURL, GateFallback: w.GateFallback,
 				OwnerOpenID: w.FeishuOwnerOpenID}
 			if w.Provider != nil {
@@ -320,6 +331,14 @@ func runSetup(args []string) {
 		fmt.Print(setupUsage)
 		return
 	}
+	if sub == "hooks" {
+		runSetupHooks(args[1:])
+		return
+	}
+	if sub == "tools" {
+		runSetupTools(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("setup "+sub, flag.ExitOnError)
 	if sub == "apply" {
 		fs.Usage = func() {
@@ -420,14 +439,20 @@ func runSetup(args []string) {
 		case os.IsNotExist(statErr):
 			store, dataDir = bootstrapOnWriteStore{}, defaultDataDir()
 		}
+		wikiSub := ""
 		if dataDir == "" {
 			cfg, err := config.LoadForSetup(config.ConfigPath)
 			if err != nil {
 				fail(err)
 			}
 			dataDir = cfg.DataDir
+			wikiSub = subWikiScript(cfg)
 		}
-		res := core.ApplyWizard(context.Background(), core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true}, req)
+		env := core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true, WikiSubScript: wikiSub}
+		if sock := resolveSocketPath(dataDir); !req.DryRun && fileExistsCmd(sock) && instanceRunning(config.ConfigPath) {
+			env.Cron = socketCron{sock} // the running cc-connect owns the job file: add through it
+		}
+		res := core.ApplyWizard(context.Background(), env, req)
 		if res.Saved {
 			lang := req.Language
 			if lang == "" {
@@ -461,9 +486,9 @@ func setupCLIsHint(lang string, clis []core.LocalCLI) string {
 	}
 	switch {
 	case supported == 0 && zh:
-		return "本机没找到 cc-connect 能用的 CLI（claude / codex / gemini / opencode …，PATH 和 ~/.local/bin 等常见目录都找过）。先装一个并登录，例如 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，然后 claude auth login；装好再跑一次 cc-connect setup clis。"
+		return "本机没找到 cc-connect 能用的 CLI（claude / codex / gemini / opencode / dsh …，PATH 和 ~/.local/bin 等常见目录都找过）。先装一个并登录，例如 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，然后 claude auth login；DSH："+core.DSHInstallHint+"；装好再跑一次 cc-connect setup clis。"
 	case supported == 0:
-		return "No agent CLI cc-connect can use was found (claude / codex / gemini / opencode …; searched PATH and common dirs like ~/.local/bin). Install one and log in, e.g. Claude Code: curl -fsSL https://claude.ai/install.sh | bash, then claude auth login; then run cc-connect setup clis again."
+		return "No agent CLI cc-connect can use was found (claude / codex / gemini / opencode / dsh …; searched PATH and common dirs like ~/.local/bin). Install one and log in, e.g. Claude Code: curl -fsSL https://claude.ai/install.sh | bash, then claude auth login; DSH: "+core.DSHInstallHint+"; then run cc-connect setup clis again."
 	case loggedIn == 0 && zh:
 		return "找到了 CLI，但没有一个确认已登录（login 不是 logged_in）。没登录的 CLI 配上去机器人答不出来：先登录（claude auth login / codex login / gemini / opencode auth login），再跑一次 cc-connect setup clis。"
 	case loggedIn == 0:
@@ -538,4 +563,70 @@ func setupPortFromLink(link string) int {
 		fmt.Sscanf(link[i+len("localhost:"):], "%d", &port)
 	}
 	return port
+}
+
+// subWikiScript: sub-wiki.sh of the config's agent.closed hook (bridge/contrib/wiki/README.md step 3), "" if none.
+func subWikiScript(cfg *config.Config) string {
+	var cmds []string
+	for _, h := range cfg.Hooks {
+		if h.Event == "agent.closed" && h.Type == "command" {
+			cmds = append(cmds, h.Command)
+		}
+	}
+	return core.SubWikiScriptFromHooks(cmds)
+}
+
+func fileExistsCmd(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+func (c socketCron) SetExec(id, exec string) error {
+	payload, _ := json.Marshal(map[string]any{"id": id, "field": "exec", "value": exec})
+	resp, err := apiPost(c.sock, "/cron/edit", payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cron edit: %s", strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// socketCron adds the wizard's cron jobs through a running cc-connect (its /cron/list and /cron/add), so the
+// jobs start now and the running process does not write its older job list over them.
+type socketCron struct{ sock string }
+
+func (c socketCron) List() ([]*core.CronJob, error) {
+	client := &http.Client{Transport: &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+		return net.Dial("unix", c.sock)
+	}}}
+	resp, err := client.Get("http://unix/cron/list")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("cron list: %s", strings.TrimSpace(string(body)))
+	}
+	var jobs []*core.CronJob
+	return jobs, json.Unmarshal(body, &jobs)
+}
+
+func (c socketCron) Add(j *core.CronJob) error {
+	payload, _ := json.Marshal(core.CronAddRequest{Project: j.Project, SessionKey: j.SessionKey, CronExpr: j.CronExpr,
+		Exec: j.Exec, Description: j.Description, Mute: j.Mute, TimeoutMins: j.TimeoutMins})
+	resp, err := apiPost(c.sock, "/cron/add", payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cron add: %s", strings.TrimSpace(string(body)))
+	}
+	return nil
 }

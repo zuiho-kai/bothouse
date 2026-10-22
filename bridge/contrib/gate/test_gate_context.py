@@ -20,6 +20,8 @@ def load_gate(team=None, wiki=None):
     fake.Scorer = Scorer
     sys.modules["scorer"] = fake
     os.environ["GATE_SETUP_DIR"] = tempfile.mkdtemp()  # 不读本机 ~/.cc-connect 里向导写的文件
+    os.environ.pop("GATE_JEV", None)
+    os.environ["GATE_MODEL"] = "fake"  # 没有 jev 时 gate 要显式的本机模型才肯启动；拿到的是上面的假 scorer
     for k, v in (("GATE_TEAM", team), ("GATE_WIKI", wiki)):
         if v is None:
             os.environ.pop(k, None)
@@ -57,6 +59,15 @@ class T(unittest.TestCase):
         finally:
             srv.shutdown()
         self.assertEqual(out, {"wiki": [{"path": str(w / "infra/vps.md"), "desc": "VPS 一览 | 4: - 代理端口 7890"}]})
+
+    def test_busy_mention_lead_pause_aborts(self):  # 主角色被 @ 或叫名字、正忙、「暂停」→ abort；不忙 → reply
+        g = load_gate()
+        me = g.lead.current()
+        g.tasks[me] = types.SimpleNamespace(score=lambda *a, **k: types.SimpleNamespace(choice=3, probs=[0, 0, 0, 1]))
+        d = lambda c, m, b: g.decide({"content": c, "mentioned": m, "busy": b, "session_key": "t:1"}, me)[0]
+        self.assertEqual(d("暂停", True, True), "abort")
+        self.assertEqual(d(g.NAMES[me][0] + " 暂停", False, True), "abort")
+        self.assertEqual(d("暂停", True, False), "reply")
 
 
 if __name__ == "__main__":

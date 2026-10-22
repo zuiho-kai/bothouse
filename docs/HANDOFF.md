@@ -1,5 +1,9 @@
 # 共栖当前交接
 
+## 2026-10-22：工具拦截 hook 进仓库（Claude Code + DSH）
+
+作者本机的 hook（bash-guard、param-source-guard、dispatch-review-guard、fix-claim-guard、promise-guard、wiki-context）去掉私人路径后放进 `bridge/contrib/hooks/`，随二进制发布（`embed.go`）。向导新建的 Claude Code 角色默认全开，人设末尾带规则说明；`cc-connect setup hooks on|off|status` 给已有角色和 DSH 角色开关。DSH 通过自带的 `dsh-hooks-claude-code` 桥读同一份 `<work_dir>/.claude/settings.json`。用户在聊天里说「把检查关了/打开检查」，机器人按人设说明运行 `run.py off|on [hook]`，写角色目录的 `.claude/conest-hooks.json`，立即生效。说明见 `bridge/contrib/hooks/README.md`。验收：干净 HOME 里向导建 Claude Code 角色、命令开 DSH 角色；真实 DSH（假模型）里 pkill、未审派活、无来源数字被拒，【免审:小改动】放行，Stop 在 zstd 记录上拦一次。未部署，作者本机线上 hook 没动。
+
 ## 2026-10-22：Issue #13，Discord 连接未就绪时看板维护崩溃
 
 本机部署 main `c96c2ac` 时，Gateway 首次连接 EOF 后重试；十秒后的旧看板清理把 nil `*discordgo.Session` 转成非 nil 的 `boardAPI` 接口，在 discordgo REST 调用里崩溃。已自动回滚原二进制并核验五个桥接心跳及配置、会话、定时任务连续性。

@@ -6,7 +6,7 @@
 
 ## 0. 要准备的
 
-- macOS 或 Linux。gate 的本地模型用 mlx，只在 Apple 芯片上跑；别的机器见第 3 步末尾。
+- macOS 或 Linux。gate 用向导里填的 jev 打分，不带本地模型。
 - 装 ccm 不用 Go，也不用 Node：用预编译包（第 1 步）。gate 要 [uv](https://docs.astral.sh/uv/)；wiki 要 Python 3.9+ 和 git。
 - 已登录的 `claude` CLI（也可以是 codex 等 cc-connect 支持的 agent）。
 - 每个 bot 一个聊天平台的 bot 账号（线 2 第 1 步）。
@@ -26,7 +26,7 @@ maomao 多出来的功能说明见 [bridge/MAOMAO.md](../bridge/MAOMAO.md)。
 ## 3. 起 gate（可选）
 
 **可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回；向导配出来的配置不装 gate 也能用。
-装 gate 是为了让 AI 自己判断一句话该谁回：第一次运行要装 Python 依赖、下载约 3GB 的本地模型，要几十分钟（国内网络更久）。
+装 gate 是为了让 AI 自己判断一句话该谁回。**要先在向导里填 jev**（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）；没填 gate 会报错退出，并提示怎么填。
 
 下面的命令都在 conest 仓库根目录运行（没 clone 过的先 `git clone https://github.com/zuiho-kai/bothouse.git && cd bothouse`）。
 
@@ -45,12 +45,13 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
    "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
   ```
 
-- gate 用哪个模型打分，按这个顺序：向导填的 jev（`~/.cc-connect/jev.json`，测出给概率的才用）→ 本机 mlx 的 Qwen3.5-4B
-  （第一次运行会下载，约 3GB；换模型设 `GATE_MODEL`）→ 都没有就只按规则判，规则判不了的交给 lead（兜底角色）回。
-  启动时打印的 `scorer=jev|local|rules` 就是用的哪一种。
+- gate 用向导填的 jev 打分（`~/.cc-connect/jev.json`，测出给概率的才用）。没有 jev 时 gate 启动就报错退出，
+  提示两种填法：用硅基流动的免费 Qwen 小模型，或本地起一个 0.6B 小模型（如 `mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit`）再填进向导的 jev。
+  gate 不会自己下载模型。启动时打印的 `scorer=jev` 就是在用 jev。
 - 判断日志在 `GATE_LOG`（默认 `~/.cc-connect/gate.jsonl`），用来调规则。
 - 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
-- 不是 Apple 芯片：`bridge/contrib/gate/scorer_torch.py` 是 PyTorch 版打分（有 NVIDIA 显卡的机器），`gate_switch.py`
+- 想在自己的显卡上跑大一点的本机模型：显式设 `GATE_MODEL=<本地模型目录>`，Apple 芯片用 `bridge/contrib/gate/scorer.py`（`uv run --with mlx-lm`），
+  N 卡用 `scorer_torch.py`（PyTorch 版，放成 `scorer.py`）；`gate_switch.py`
   演示了把 gate 放在另一台机器上、连不上时退回规则（要先设 `SWITCH_HOST`、`SWITCH_TS_IP`；同步脚本 `sync_gate.sh` 另要 `SWITCH_WIN_HOME`）。这两样按你的机器改，不在这篇的范围内。
 
 ## 4. 装 wiki 并接到 gate

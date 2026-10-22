@@ -54,4 +54,4 @@ gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd
 - `next_steps`：怎么启动或重启。AI 用 `cc-connect daemon install` 在后台启动，不要在自己的 shell 里前台跑 `cc-connect`（它不退出，会占住终端）。
 - 上线的标志：日志里有 `discord: connected`；在频道里 @ 机器人说一句，它回话。
 
-gate 可以不装：没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。要装见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 第 3 步（第一次要几十分钟、下载约 3GB）。
+gate 可以不装：没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。要装见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 第 3 步（要先在向导填 jev，没填 gate 会报错并提示怎么填）。

@@ -1,0 +1,1 @@
+- List the entry points before saying "fixed" (fix-claim-guard, checks Chinese replies): when the user's message is about a bug or failure and your reply says 修完/修好/已修复, first include a table whose header has 入口 and 修复 or 核对 (e.g. `入口 | 是否经过修复 | 核对结果`), one row per affected entry point, each checked; with only one entry point, give one row and say why there is no other.

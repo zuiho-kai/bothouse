@@ -1,0 +1,44 @@
+name: Artifact cleanup
+
+# 用户 2026-10-22「留1小时」：每小时删 zuiho-kai 名下私有仓库里超过 1 小时的 artifact。
+# artifact 存储额度按账号算，run 39784879535 (v0.1.1) 因额度满上传失败。
+# 默认的 github.token 只能管本仓库；要覆盖名下其它私有仓库，需要配 secret ARTIFACT_CLEANUP_TOKEN
+# （对这些仓库有 Actions 读写权限的 token）。没配时只清本仓库，其它仓库读不到就跳过。
+# 跨 run 取产物的仓库不在这里清（2026-10-18 删 jiuwenswarm 依赖的安装包弄坏过其检查流程）。
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.ARTIFACT_CLEANUP_TOKEN || github.token }}
+      HAS_PAT: ${{ secrets.ARTIFACT_CLEANUP_TOKEN != '' }}
+      OWNER: zuiho-kai
+      # 有 workflow 用 download-artifact 的 run-id 跨 run 取产物（jiuwenswarm/ci/win-duplex-check win-duplex.yml）
+      SKIP_REPOS: 'jiuwenswarm'
+    steps:
+      - name: Delete artifacts older than 1 hour
+        run: |
+          set -uo pipefail
+          cutoff=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)
+          if [ "$HAS_PAT" != true ]; then
+            repos="${{ github.event.repository.name }}"
+          else
+            repos=$(gh api --paginate "user/repos?affiliation=owner&visibility=private&per_page=100" --jq '.[].name')
+          fi
+          for r in $repos; do
+            case " $SKIP_REPOS " in *" $r "*) echo "skip $r"; continue ;; esac
+            ids=$(gh api --paginate "repos/$OWNER/$r/actions/artifacts?per_page=100" \
+              --jq ".artifacts[] | select(.created_at < \"$cutoff\") | .id" 2>/dev/null) || { echo "cannot list $r"; continue; }
+            for id in $ids; do
+              gh api -X DELETE "repos/$OWNER/$r/actions/artifacts/$id" && echo "deleted $r $id"
+            done
+          done

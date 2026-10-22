@@ -14,6 +14,14 @@ const setupUsage = `Usage:
   cc-connect setup personas [--lang zh|en]
                          Example personas you can copy into "persona" (the maintainers' own characters;
                          optional — leave persona empty to use none)
+  cc-connect setup hooks on|off|status --work-dir <dir> [--cli claudecode|dsh] [--only a,b] [--lang zh|en]
+                         Tool hooks (bash-guard, dispatch-review-guard, …) for one role: switch them on or off in
+                         <dir>/.claude/settings.json and keep the rules block in its persona in step.
+                         New Claude Code roles from the wizard get all of them. Run "setup hooks -h" for more.
+  cc-connect setup tools on|off|status --work-dir <dir> [--agent claudecode|codex|acp|…] [--only a,b] [--lang zh|en]
+                         Small tools for one role (peek: what the other bots are doing; watchvid: turn a video
+                         link into frames + transcript; websearch: free web search and page text) and the lines
+                         in its persona that tell it how to use them. New roles from the wizard get all of them.
 
 No config yet? Just run "cc-connect": it opens the same wizard in your browser.
 Guide: docs/connect-discord-feishu.md in the conest repo.
@@ -60,6 +68,12 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      A reused Discord bot (reuse_project) keeps its Discord settings and also joins the platform.
                      Wrong address or token: nothing is written (error says how to fix). Platform down right
                      now: saved with the blocking warning cloud_web_unreachable.
+  wiki               optional {"daily", "night", "split"}: models of the memory wiki (~/wiki or $WIKI_DIR with
+                     bin/ingest.py). daily = every 30 minutes, new sessions into the wiki; night = nightly review,
+                     reflection and the weekly lint; split = splitting pages/domains that are full. Values: haiku |
+                     sonnet | opus | codex:high | agy. Omitted = keep (ingest.py's defaults: haiku, codex:high,
+                     codex:high); written to the wiki's config.json. With a wiki, the three scheduled runs (every
+                     30 min; 03:00 Mon-Sat; 03:00 Sun) are also added as muted cron jobs (step "wiki cron"), once.
   dry_run            true = same as --dry-run: check everything (token, server, intent), write nothing
 
 Minimal Discord request:

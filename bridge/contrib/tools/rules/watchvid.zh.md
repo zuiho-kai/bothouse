@@ -1,0 +1,1 @@
+- 看视频：遇到视频链接（B 站、YouTube 等）运行 `{{UV}} run -q --script {{TOOLS}}/watchvid.py <链接>`，最后一行是 `watchvid-index.md` 的路径：先读它，再按里面列的路径看抽出的画面、转写和弹幕/评论。只看标题和简介不算看过视频。
