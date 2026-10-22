@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**你的 AI 不该每天失忆。** 把 Claude、Codex 们变成一支住在群里的团队：有名字、有分工、记得昨天、每晚复盘，越用越懂你。
+**你的 AI 不该每天失忆。** 把 Claude、Codex、Gemini、DeepSeek、MiniMax 们变成一支住在群里的团队：有名字、有分工、记得昨天、每晚复盘，越用越懂你。
 
 你大概已经在用 Claude Code、Codex、Gemini，或者 DSH（DeepSeek 出的智能体工具）。它们各干各的，谁也不记得谁说过什么。
 bothouse 是一个插件：装上它，这几个 AI 变成一支有性格的团队，住进你的 Discord、飞书或自建频道。

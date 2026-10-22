@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-**Your AIs shouldn't wake up with amnesia every day.** bothouse turns Claude, Codex and friends into a team that lives in your group chat: named roles, real handoffs, a memory of yesterday, and a review every night. It gets to know you better the more you use it.
+**Your AIs shouldn't wake up with amnesia every day.** bothouse turns Claude, Codex, Gemini, DeepSeek, MiniMax and friends into a team that lives in your group chat: named roles, real handoffs, a memory of yesterday, and a review every night. It gets to know you better the more you use it.
 
 You probably already use Claude Code, Codex, Gemini or DSH (DeepSeek's agent framework). Each works alone, and none remembers what the others said.
 bothouse is a plugin. Install it, and those AIs become a team with personalities inside your Discord, Feishu, or self-hosted channel.
