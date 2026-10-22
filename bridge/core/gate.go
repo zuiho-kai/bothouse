@@ -49,13 +49,13 @@ type gateState struct {
 	textBurstWindow time.Duration // per-project idle text debounce; attachments keep the default
 	mu              sync.Mutex
 	buf             map[string][]string // interactiveKey → silent messages not yet delivered
-	held            map[string]*heldMsg // interactiveKey → burst being collected while idle
+	held            map[string]*heldMsg // interactiveKey → burst being collected (busy or idle)
 	released        map[*Message]bool   // bursts handed back to handleMessage by their timer
 	gbuf            map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
 }
 
 // Discord (and most IM clients) split "image + caption" into two messages, in either order,
-// and people often send a few lines in a row. When idle, a message is held burstWindow
+// and people often send a few lines in a row. Busy or idle, a message is held burstWindow
 // (attachment-only: attachmentHold) and anything arriving meanwhile joins it, so a burst
 // becomes one turn instead of a turn plus an injection that ends up answered twice.
 // maxBuffered caps the silent buffer; subs hear every message and may stay quiet for a long time.
@@ -93,7 +93,7 @@ type gateRequest struct {
 	// and a sub together (the sub answers, the lead waits for its @) from the sub's answer @-ing the
 	// lead (issue #182).
 	FromBot bool `json:"from_bot,omitempty"`
-	// Parts (maomao fork): the messages an idle burst folded into this one, each as it was sent; nil
+	// Parts (maomao fork): the messages a burst folded into this one, each as it was sent; nil
 	// for a single message. Content mixes them, so the gate judges "@-ed the lead and a sub together"
 	// on each part (issue #184).
 	Parts []gatePart `json:"parts,omitempty"`
@@ -282,7 +282,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		h.timer.Reset(g.burstDelay(h.msg))
 		g.mu.Unlock()
 		return true
-	} else if !busy {
+	} else {
+		// Busy or idle, the burst is collected the same way (burstWindow / attachmentHold above):
+		// held only while idle, a busy bot judged "@别人 看这个" and its image one by one, and the
+		// image alone — no text, no @ — was inserted into the lead's running turn (user 2026-10-23
+		// 「我都艾特你了，他还在判断」; review ~/.claude/reviews/lead-steal-all.md, ~1.5s extra wait accepted).
 		window := g.holdWindow(msg)
 		h := &heldMsg{msg: msg}
 		h.timer = time.AfterFunc(window, func() {

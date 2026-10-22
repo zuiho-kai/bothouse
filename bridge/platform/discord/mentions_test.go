@@ -38,22 +38,35 @@ func TestMarkSelfMention(t *testing.T) {
 }
 
 func TestNameCalled(t *testing.T) {
+	team := []string{"龙娘", "鲸鱼娘", "彩虹猫"}
 	cases := []struct {
 		text string
 		want bool
 	}{
-		{"行了橘，别贫了", true},
+		// a line opening with her name: a call
+		{"橘，你看这个", true},
 		{"橘 你看这个", true},
 		{"橘？", true},
-		{"那橘你呢", false}, // name inside a sentence: not addressed
-		{"橘说得对", false},
-		{"跟橘的审美一样圆", false},
+		{"橘", true},
+		{"橘你来定", true},
 		{"Claude橘：你来", true},
+		{"龙娘、橘，你们看看", true},
+		{"龙娘和橘 你们俩对一下", true},
+		{"我算完了\n橘，你核对一下", true}, // a later line opening with her name
+		// the name inside a sentence: talk about her (user 2026-10-23「我都艾特你了，他还在判断」)
+		{"行了橘，别贫了", false},
+		{"好的，我先等橘回复，这个你怎么看", false},
+		{"收到！橘你先忙", false},
+		{"那橘你呢", false},
+		{"橘说得对", false},
+		{"橘在忙，等她", false},
+		{"跟橘的审美一样圆", false},
+		{"橘子很好吃", false},
 		{"```\n橘，\n```", false}, // code block
 		{"龙娘，你来", false},
 	}
 	for _, c := range cases {
-		if got := nameCalled(c.text, "Claude橘"); got != c.want {
+		if got := nameCalled(c.text, "Claude橘", team...); got != c.want {
 			t.Errorf("nameCalled(%q) = %v, want %v", c.text, got, c.want)
 		}
 	}

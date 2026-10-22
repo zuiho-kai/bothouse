@@ -196,6 +196,7 @@ func TestBackfillImages_InjectedMidTurn(t *testing.T) {
 
 	msg := &Message{SessionKey: "discord:c1", ChannelID: "c1", MessageID: "102", UserName: "zuiho",
 		Content: "看图", Mentioned: true, Images: []ImageAttachment{{Data: []byte("OWN")}}}
+	e.gate.released[msg] = true // its burst window has passed (busy bots hold bursts too)
 	if !e.applyGate(p, msg, s, "k") {
 		t.Fatal("busy mentioned message should be injected")
 	}
@@ -397,11 +398,13 @@ func TestBackfillImages_ConcurrentMessagesDeliverOnce(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for _, id := range []string{"102", "103"} {
+		m := &Message{SessionKey: "discord:c1", ChannelID: "c1", MessageID: id, UserName: "zuiho", Content: "看", Mentioned: true}
+		e.gate.released[m] = true // two bursts whose windows have passed (busy bots hold bursts too)
 		wg.Add(1)
-		go func(id string) {
+		go func(m *Message) {
 			defer wg.Done()
-			e.applyGate(p, &Message{SessionKey: "discord:c1", ChannelID: "c1", MessageID: id, UserName: "zuiho", Content: "看", Mentioned: true}, s, "k")
-		}(id)
+			e.applyGate(p, m, s, "k")
+		}(m)
 	}
 	wg.Wait()
 	imgs, _ := running.sent()
