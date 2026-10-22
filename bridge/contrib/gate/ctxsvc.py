@@ -11,6 +11,10 @@ POST /context {key, text}  → {wiki: [{path, desc}]}，desc = 页描述 | 行�
 import os, re, time
 from pathlib import Path
 
+try:
+    import lead  # 主角色切换（gate 目录里有）；hooks/wiki-context.py 只装了 ctxsvc + wiki_search，没有就不附身份段
+except ImportError:
+    lead = None
 import wiki_search as search
 
 _env = os.environ.get("GATE_WIKI", "~/wiki").strip()
@@ -64,4 +68,7 @@ def match_wiki(text, k=TOP_PAGES):
 
 
 def context(req):
-    return {"wiki": match_wiki(req.get("text") or "")}
+    # 主角色切换过就附上主/次身份段（lead.py）。cc-connect 按 path 每个会话只推一次，path 里带切换时间，
+    # 所以每次切换后每个角色的下一轮各收到一次（用户 2026-10-21「这个我预期可以一句话去换」）
+    who = lead.identity(req.get("bot") or "") if lead else None
+    return {"wiki": ([who] if who else []) + match_wiki(req.get("text") or "")}

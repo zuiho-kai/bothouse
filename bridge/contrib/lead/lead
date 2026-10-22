@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""主角色接口的客户端：每个角色自己来问 / 自己来当主。
+
+用法（在任何一个 bot 的机器上都能跑，走本机 127.0.0.1:9930）：
+  lead                  # 现在谁是主角色
+  lead me               # 我自己当主（按 CC_PROJECT 认自己）
+  lead 码农             # 指定谁当主（名字/别名/成员 key/平台 ID 都行）
+  lead --bot coder me
+gate 地址：LEAD_GATE_URL，默认 http://127.0.0.1:9930/lead（gate.py 默认端口）。
+
+退出码：0 成功；2 接口说认不出 / 参数错；3 连不上 gate。
+"""
+import argparse, json, os, sys, urllib.error, urllib.request
+
+URL = os.environ.get("LEAD_GATE_URL", "http://127.0.0.1:9930/lead")
+
+
+def call(body, bot=""):
+    url = URL + (f"?bot={bot}" if bot else "")
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:  # 老版本 gate 没有 /lead，会回 404 HTML
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            msg = json.loads(raw).get("error") or e.reason
+        except ValueError:
+            msg = f"gate 回了 {e.code}：{raw.strip().splitlines()[0] if raw.strip() else e.reason}"
+        print(msg, file=sys.stderr)
+        sys.exit(2)
+    except OSError as e:
+        print(f"连不上 gate（{URL}）：{e}", file=sys.stderr)
+        sys.exit(3)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("who", nargs="?", help="me = 自己；也可以是名字/别名/Discord ID；不给 = 只查")
+    ap.add_argument("--bot", default=os.environ.get("CC_PROJECT", ""), help="我是谁（默认取 CC_PROJECT）")
+    a = ap.parse_args()
+    if a.who is None:
+        s = call({"action": "get"}, a.bot)
+        print(f"主角色：{s['name']}" + (f"（{s['at']} 切过来的）" if s["at"] else "（没切过，默认）"))
+        return
+    body = {"action": "set"} if a.who == "me" else {"action": "set", "who": a.who}
+    s = call(body, a.bot)
+    verb = "切过去了" if s["changed"] else "本来就是"
+    print(f"{verb}：现在主角色是{s['name']}" + (f"（{s['at']}）" if s["at"] else ""))
+
+
+if __name__ == "__main__":
+    main()
