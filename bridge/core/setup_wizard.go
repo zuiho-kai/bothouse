@@ -265,8 +265,6 @@ type WizardEnv struct {
 	// CLI is on this PATH. The command-line entry sets it: a shell PATH says nothing about the
 	// PATH launchd/systemd gives the service later. Projects that already have cmd keep it.
 	AlwaysWriteCmd bool
-	// ConfigPath: config.toml, recorded for the role wiki engine (it reads each role's agent and provider there).
-	ConfigPath string
 }
 
 // ── files written next to config.toml ─────────────────────────
@@ -1022,9 +1020,6 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 	}
 
-	// 4b. every role gets its own wiki (core/rolewiki.go)
-	applyWizardRoleWikis(res, env, req.Language, pl.roles)
-
 	// 自建平台 team: every member's wizard-made persona (one with a conest marker) gets the team line;
 	// a hand-written persona without one is left alone (H1)
 	if cloudWeb && len(pl.team) > 1 {
@@ -1053,7 +1048,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 
 	if req.Platform == "discord" && len(pl.team) > 1 {
-		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}, "project": pl.fallback}, "subs": map[string]any{}}
+		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
 		for _, t := range pl.team {
 			if t.Project != pl.fallback {
 				gt["subs"].(map[string]any)[t.Project] = map[string]any{"name": t.Name, "aliases": []string{}}

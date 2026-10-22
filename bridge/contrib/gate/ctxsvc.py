@@ -19,33 +19,14 @@ TTL = 300  # 来源：作者本机 ctxsvc.py 沿用的 300 秒重建索引（wik
 TOP_PAGES = 3  # 来源：作者本机 ctxsvc.py，每轮推前 3 页（回放评测按前 3 页口径）
 DESC_CHARS = 120  # 来源：作者本机 ctxsvc.py 的页描述截断
 
-# 每个角色自己的 wiki（向导建在 <数据目录>/wikis/<project>，bridge/contrib/wiki/rolewiki.py）：先查它，再查共享的 WIKI
-SETUP_DIR = Path(os.environ.get("GATE_SETUP_DIR") or Path.home() / ".cc-connect").expanduser()
-_idx = {}  # wiki root → (index, built at)
+_idx, _idx_at, _idx_root = None, 0.0, None
 
 
-def _index(root=None):
-    global _idx
-    if not isinstance(_idx, dict):  # tests reset it with None
-        _idx = {}
-    root = root or WIKI
-    idx, at = _idx.get(root, (None, 0.0))
-    if idx is None or time.time() - at >= TTL:
-        idx = search.Index(root)
-        _idx[root] = (idx, time.time())
-    return idx
-
-
-def role_wiki(bot):
-    """bot = gate_url 的 ?bot=（项目名）；"" = 主角色，项目名在 gate-team.json 的 lead.project。"""
-    if not bot:
-        try:
-            import json
-            bot = json.loads((SETUP_DIR / "gate-team.json").read_text(encoding="utf-8"))["lead"].get("project", "")
-        except (OSError, ValueError, KeyError):
-            return None
-    d = SETUP_DIR / "wikis" / re.sub(r"[^\w.-]+", "-", bot) if bot else None
-    return d if d and d.is_dir() else None
+def _index():
+    global _idx, _idx_at, _idx_root
+    if _idx is None or _idx_root != WIKI or time.time() - _idx_at >= TTL:
+        _idx, _idx_at, _idx_root = search.Index(WIKI), time.time(), WIKI
+    return _idx
 
 
 # cc-connect 拼在用户原话前的块（各占一段，以空行结束；同 core/handoff.go staleBlocks）
@@ -61,18 +42,17 @@ def query(text):
     return _BLOCKS.sub("", text).strip()
 
 
-def _shown(rel, root=None):
+def _shown(rel):
     """推给 agent 的路径：家目录写成 ~，agent 直接能读。"""
-    p = str((root or WIKI) / rel)
+    p = str(WIKI / rel)
     home = str(Path.home())
     return "~" + p[len(home):] if p.startswith(home + os.sep) else p
 
 
-def match_wiki(text, k=TOP_PAGES, root=None):
-    root = root or WIKI
-    if root is None or not Path(root).is_dir():
+def match_wiki(text, k=TOP_PAGES):
+    if WIKI is None or not WIKI.is_dir():
         return []
-    idx = _index(root)
+    idx = _index()
     pages = {}
     for rel, ln, line in idx.search(query(text)):  # 前 10 行，按首次出现排页
         if rel not in pages:
@@ -80,12 +60,8 @@ def match_wiki(text, k=TOP_PAGES, root=None):
                 continue
             pages[rel] = [idx.desc.get(rel, "")[:DESC_CHARS]]
         pages[rel].append(f"{ln}: {line.strip()}")
-    return [{"path": _shown(rel, root), "desc": " | ".join(parts)} for rel, parts in pages.items()]
+    return [{"path": _shown(rel), "desc": " | ".join(parts)} for rel, parts in pages.items()]
 
 
 def context(req):
-    text = req.get("text") or ""
-    own = role_wiki(req.get("bot") or "")
-    out = match_wiki(text, root=own) if own else []
-    seen = {w["path"] for w in out}
-    return {"wiki": out + [w for w in match_wiki(text) if w["path"] not in seen]}
+    return {"wiki": match_wiki(req.get("text") or "")}

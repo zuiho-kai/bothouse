@@ -54,20 +54,6 @@ class T(unittest.TestCase):
         ctxsvc.WIKI = Path.home() / "wiki-test-not-created"
         self.assertEqual(ctxsvc._shown("a/b.md"), "~/wiki-test-not-created/a/b.md")
 
-    def test_role_wiki_first_and_only_its_own(self):
-        with tempfile.TemporaryDirectory() as d:
-            old = ctxsvc.SETUP_DIR
-            ctxsvc.SETUP_DIR, ctxsvc.WIKI, ctxsvc._idx = Path(d), None, None
-            try:
-                (Path(d) / "wikis" / "coder").mkdir(parents=True)
-                make_wiki(Path(d) / "wikis" / "coder")
-                (Path(d) / "wikis" / "writer").mkdir()
-                own = ctxsvc.context({"text": "代理端口", "bot": "coder"})["wiki"]
-                self.assertTrue(own and "wikis/coder/infra/vps.md" in own[0]["path"].replace("\\", "/"))
-                self.assertEqual(ctxsvc.context({"text": "代理端口", "bot": "writer"})["wiki"], [])
-            finally:
-                ctxsvc.SETUP_DIR = old
-
 
 if __name__ == "__main__":
     unittest.main()

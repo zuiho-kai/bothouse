@@ -13,7 +13,7 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-func init() { core.AgentHookFS, core.RoleWikiFS = ccconnect.AgentHookFiles, ccconnect.RoleWikiFiles }
+func init() { core.AgentHookFS = ccconnect.AgentHookFiles }
 
 const setupHooksUsage = `Usage: cc-connect setup hooks on|off|status --work-dir <dir> [flags]
 
