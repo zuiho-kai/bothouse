@@ -268,6 +268,16 @@ test('stop: withdrawing queued input receives discarded, never cancels unrelated
   await members.close();
 });
 
+test('stop: an idle room says so instead of staying silent', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const result = await members.stopRoom(1); await settle();
+  assert.deepEqual(result.stopped_members, [], 'no job ran, so no member stopped');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '没有在跑的任务。');
+  assert.equal(hub.store.control(1).stopped, 1, 'the room is still paused for later work');
+  await members.close();
+});
+
 test('stop: claimed input before user/message logging is still cancelled', async () => {
   const hub = makeHub(); const dsh = fakeDsh();
   const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);

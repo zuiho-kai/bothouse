@@ -84,7 +84,11 @@ export function describeReason(reason) {
 }
 
 /** Driver outcome -> the three results the stop API is allowed to report. */
-const OUTCOME = { idle: 'confirmed', withdrawn: 'confirmed', timeout: 'requested', error: 'requested', 'not-loaded': 'requested' };
+const OUTCOME = { idle: 'confirmed', withdrawn: 'confirmed', timeout: 'requested', error: 'requested',
+  // Nothing to cancel when the Agent is not loaded: that is not a confirmed stop either.
+  'not-loaded': 'unsupported' };
+/** Stronger result wins when two jobs share a member. */
+const STRENGTH = { confirmed: 3, requested: 2, unsupported: 1 };
 
 /** System line for one stop, per the three results above. */
 export function stopNotice(stopped) {
@@ -244,7 +248,8 @@ export class DshMembers {
     const cancelled = reason?.kind === 'aborted' && reason.reason?.kind === 'user';
     const text = finalText(events);
     if (text === undefined) {
-      if (cancelled) this.fail(job.id, `${member.name} 已停止。`, 'interrupted');
+      // Same wording as the HTTP stop path, so both entries say the same thing.
+      if (cancelled) this.fail(job.id, `已停止：${member.id}。`, 'interrupted');
       else this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
       return;
     }
@@ -297,8 +302,6 @@ export class DshMembers {
       try {
         if (agent === undefined) return { member: job.member_id, name, job: job.id, outcome: 'not-loaded' };
         const events = agent.session.snapshotEvents(job.seq_before);
-        // Text the turn already produced stays visible, flagged as cut short by the stop.
-        const partial = finalText(events);
         const consumed = consumingTurn(events, job.input_id);
         // inbox/claimed precedes user/message while input assembly awaits I/O.
         const claimedTurn = watcher?.jobId === job.id ? watcher.turn : undefined;
@@ -306,14 +309,20 @@ export class DshMembers {
           && !events.some(e => e.type === 'turn/end' && e.data?.turn === claimedTurn);
         // Withdraw only our input. Never clear the Web UI's queued messages.
         agent.inbox.remove(job.input_id);
-        if (!active) return { member: job.member_id, name, job: job.id, outcome: 'withdrawn', partial };
+        // Nothing ran for our input: this channel turn produced no text, and the events since
+        // seq_before may belong to a Web UI turn in the same session, so publish nothing.
+        if (!active) return { member: job.member_id, name, job: job.id, outcome: 'withdrawn' };
         agent.cancel({ kind: 'user' }, { keepInbox: true });
         const idle = Promise.resolve(agent.whenIdle()).then(() => 'idle');
         const timeout = new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), this.stopTimeoutMs); });
-        return { member: job.member_id, name, job: job.id, outcome: await Promise.race([idle, timeout]), partial };
+        const outcome = await Promise.race([idle, timeout]);
+        // Read the text only now: whatever the turn wrote up to the moment it went idle counts,
+        // not just what existed when cancel() was called.
+        return { member: job.member_id, name, job: job.id, outcome,
+          partial: finalText(agent.session.snapshotEvents(job.seq_before)) };
       } catch (error) {
         this.rt.logger.warn('collab: stop job %d failed: %s', job.id, error?.message ?? error);
-        return { member: job.member_id, name, job: job.id, outcome: 'error', partial };
+        return { member: job.member_id, name, job: job.id, outcome: 'error' };
       } finally {
         clearTimeout(timer);
         if (watcher?.jobId === job.id) {
@@ -336,15 +345,20 @@ export class DshMembers {
     }
     // One entry per member: confirmed (the turn really ended), requested (cancel sent, not
     // confirmed within stopTimeoutMs) or unsupported (nothing to cancel here).
-    const stopped = results.map(r => ({ member: r.member, outcome: OUTCOME[r.outcome] ?? 'unsupported' }));
+    const byMember = new Map();
+    for (const r of results) {
+      const outcome = OUTCOME[r.outcome] ?? 'unsupported';
+      const seen = byMember.get(r.member);
+      if (seen === undefined || STRENGTH[outcome] > STRENGTH[seen]) byMember.set(r.member, outcome);
+    }
+    const stopped = [...byMember].map(([member, outcome]) => ({ member, outcome }));
     // Only the output fence is running for these members: that is not a stop, and must be said.
     for (const id of outputOnly) if (!stopped.some(r => r.member === id)) stopped.push({ member: id, outcome: 'unsupported' });
-    const silent = stopped.every(r => r.outcome === 'unsupported') && stopped.length > 0
-      ? this.unsupportedNotice(stopped) : undefined;
-    if (!this.closed && (stopped.length > 0 || silent !== undefined)) {
-      this.hub.post(roomId, { authorKind: 'system', author: 'system', name: 'system',
-        text: silent ?? stopNotice(stopped) });
-    }
+    const allUnsupported = stopped.length > 0 && stopped.every(r => r.outcome === 'unsupported');
+    // Silence would read as "stopped"; say either what stopped, what could not, or that nothing ran.
+    const notice = stopped.length === 0 ? '没有在跑的任务。'
+      : allUnsupported ? this.unsupportedNotice(stopped) : stopNotice(stopped);
+    if (!this.closed) this.hub.post(roomId, { authorKind: 'system', author: 'system', name: 'system', text: notice });
     return { room_id: roomId, stopped: true, cancelled_jobs: jobs.length, unconfirmed, stopped_members: stopped };
   }
 
