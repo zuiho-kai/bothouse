@@ -1,10 +1,11 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["mlx-lm; sys_platform == 'darwin' and platform_machine == 'arm64'"]  # mlx 只有 Apple 芯片；别的机器不装，gate 用 jev 或只按规则
+# dependencies = []  # 打分用 jev（OpenAI 兼容接口，标准库就够）；不装、不下载本地模型
 # ///
 """主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent / abort。
 
-先走确定性规则，规则定不了再让本地 Qwen3.5-4B 读 A/B/C 三个选项的概率（约 30ms，见 scorer.py）。
+先走确定性规则，规则定不了再让 jev（向导填的模型）读 A/B/C 三个选项的概率（见 scorer_remote.py）。
+没填 jev 就报错退出，不自己下载模型。
 每次判断写进 GATE_LOG（默认 ~/.cc-connect/gate.jsonl），用来调规则或以后做微调。
 POST /decide  {content, mentioned, busy, has_images, has_files, buffered[]} → {action, reason}
 POST /context {key, text} → 每轮相关的 wiki 页（ctxsvc.py；wiki 目录 GATE_WIKI，默认 ~/wiki）
@@ -18,11 +19,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import ctxsvc
-from scorer_remote import NullScorer, RemoteScorer, load_jev
+from scorer_remote import RemoteScorer, load_jev
 import lead
 
 PORT = 9930
-MODEL = os.environ.get("GATE_MODEL", "mlx-community/Qwen3.5-4B-MLX-4bit")
+# 本机模型只在显式设了 GATE_MODEL 时用（GPU 机器上 start_gate_wsl.sh 那种部署），没有默认值、不自动下载
+MODEL = os.environ.get("GATE_MODEL", "")
 LOG = Path(os.environ.get("GATE_LOG", Path.home() / ".cc-connect/gate.jsonl"))
 
 # 安装向导（cc-connect 网页 / cc-connect setup apply）把 jev.json、gate-team.json 写在 cc-connect 的数据目录。
@@ -78,16 +80,28 @@ def _member_text(t, k):
 SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复 / D 打断）："  # 末尾重提选项：不加的话偏向 A
 
 ACTIONS = ["silent", "insert", "reply", "abort"]  # abort：忙时叫停/暂停/换事 → cc-connect 先取消当前一轮再按 reply 投递（用户原话「我说暂停，还要等个40分钟」）
+# 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
+NO_JEV = """gate 没法启动：没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）。
+gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
+  1. 用免费小模型：硅基流动的免费 Qwen 小模型。在安装向导（运行 cc-connect，浏览器里的 /setup）的 jev 一步填 Base URL、Key、模型名。
+  2. 本地下载一个 0.6B 小模型：如 Qwen3 0.6B，用 mlx_lm.server 起 OpenAI 兼容接口
+     （mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit），再把地址填进向导的 jev。LM Studio 不给概率，当不了 jev。"""
+
+
 def make_scorer():
-    """jev.json（拿得到概率）→ 本机 mlx Qwen → 只按规则（NullScorer：模型那步按出错走，主 bot 回 = 兜底角色回）。"""
-    jev = load_jev(os.environ.get("GATE_JEV") or SETUP_DIR / "jev.json")
+    """jev.json（向导写的、测出给概率的）→ RemoteScorer；显式设了 GATE_MODEL → 本机 scorer.py；都没有 → 报错退出。"""
+    path = os.environ.get("GATE_JEV") or SETUP_DIR / "jev.json"
+    jev = load_jev(path)
     if jev:
         return RemoteScorer(jev), "jev"
-    try:
-        from scorer import Scorer
-    except ImportError:  # 没装 mlx（非 Apple 芯片、Linux、Windows）
-        return NullScorer(), "rules"
-    return Scorer(MODEL), "local"
+    if MODEL:
+        try:
+            from scorer import Scorer
+        except ImportError as e:
+            raise SystemExit(f"gate 没法启动：设了 GATE_MODEL={MODEL}，但加载不了本机打分器（{e}）。"
+                             "Apple 芯片用 uv run --with mlx-lm 运行；N 卡把 scorer_torch.py 放成 scorer.py。不想用本机模型就去掉 GATE_MODEL、在向导填 jev。")
+        return Scorer(MODEL), "local"
+    raise SystemExit(NO_JEV.format(path=path))
 
 
 scorer, SCORER_KIND = make_scorer()

@@ -2,14 +2,17 @@
 # requires-python = ">=3.12"
 # dependencies = ["mlx-lm"]
 # ///
-"""scorer 回归测试：uv run contrib/gate/test_scorer.py（会再加载一份 4B，约 3GB，十几秒）。"""
+"""本机打分器 scorer.py 的回归测试：GATE_MODEL=<本地模型目录或 HF repo id> uv run contrib/gate/test_scorer.py。
+gate 默认用 jev，不带本地模型；这个测试只给显式设了 GATE_MODEL 的部署用，不设就退出、不下载。"""
 import os, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from scorer import Scorer
 
-MODEL = os.environ.get("GATE_MODEL", "mlx-community/Qwen3.5-4B-MLX-4bit")
+MODEL = os.environ.get("GATE_MODEL", "")
+if not MODEL:
+    sys.exit("先设 GATE_MODEL=<本地模型目录或 HF repo id>；这个测试不自带模型")
 PREFIX = "判断用户这句话是 A 闲聊、B 提供信息、还是 C 提问。只答一个字母。\n\n"
 INPUTS = ["哈哈哈今天好开心", "补充一下，接口是 v2 版本的", "这个怎么部署？", "等等我再找找", "英伟达财报超预期"]
 fails = []

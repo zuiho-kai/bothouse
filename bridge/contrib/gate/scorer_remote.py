@@ -2,8 +2,8 @@
 
 接口和 scorer.py 的本地 Qwen 打分器一样（prepare → task.score → Score），gate.py 按这个顺序选：
   1. <GATE_SETUP_DIR>/jev.json（安装向导写的；logprobs 测试没过的不用）→ RemoteScorer
-  2. 本机 mlx + Qwen → scorer.Scorer
-  3. 都没有 → NullScorer：score 抛 ValueError，gate.py 按出错处理（主 bot reply = 兜底角色回，sub context）
+  2. 显式设了 GATE_MODEL → 本机 scorer.Scorer（不设就不用，不自动下载）
+  3. 都没有 → gate 启动时报错退出，提示去向导填 jev
 不打日志、不记 key。
 """
 import json, math, re, time, urllib.error, urllib.request
@@ -107,11 +107,3 @@ class RemoteTask:
         probs = [round(math.exp(x) / mass, 3) for x in lps]
         return Score(choice=max(range(len(probs)), key=probs.__getitem__), probs=probs, logprobs=[round(x, 4) for x in lps],
                      option_mass=round(mass, 3), cached_tokens=0, input_tokens=0, ms=round((time.perf_counter() - t) * 1000, 1))
-
-
-class NullScorer:
-    def prepare(self, *a, **k):
-        return self
-
-    def score(self, *a, **k):
-        raise ValueError("没有可用的模型（jev / 本机 Qwen），只按规则判")

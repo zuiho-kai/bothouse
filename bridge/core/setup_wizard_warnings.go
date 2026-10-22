@@ -336,8 +336,7 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan) {
 	res.OK = !res.NeedsUserAction
 }
 
-// 来源：「约 3GB」= docs/ccm-and-wiki.md 第 3 步 gate 本地模型下载大小；「几十分钟」= 2026-10-21 新人实测
-// （notes/usability-newbie-20261021.md 第 5 条：只装 Python 依赖就等了约 12 分钟，之后才下模型）。
+// gate 不带本地模型，没填 jev 启动就报错（contrib/gate/gate.py make_scorer；用户 2026-10-22「这种直接报错，直接说没填jev模型」）。
 // GateHint says how a team of bots decides who answers, with or without the gate.
 // Without it, cc-connect falls back per bot (core/gate.go gate_fallback): the fallback
 // role answers ("reply"), the others only listen ("context"); an @-mentioned bot always answers.
@@ -346,16 +345,16 @@ func GateHint(lang string, running bool, fallbackName string) string {
 		if running {
 			return "gate が動いています：メッセージごとにどのロールが答えるかを gate が判断します。"
 		}
-		return "gate なし（入れなくても使えます）：@ されたロールは普段どおり答え、それ以外のメッセージはすべてフォールバックロール「" + fallbackName + "」が答えます。gate のインストールには数十分かかり、約 3GB をダウンロードします。"
+		return "gate なし（入れなくても使えます）：@ されたロールは普段どおり答え、それ以外のメッセージはすべてフォールバックロール「" + fallbackName + "」が答えます。gate を入れるには、先にウィザードで jev を設定してください（未設定だと gate は起動時にエラーで止まり、設定方法を表示します）。"
 	}
 	if isZH(lang) {
 		if running {
 			return "gate 在运行：每条消息由它判断该哪个角色回。"
 		}
-		return "没装 gate（可以不装）：被 @ 的角色照常回，其余消息都由兜底角色「" + fallbackName + "」回。装 gate 要几十分钟、下载约 3GB。"
+		return "没装 gate（可以不装）：被 @ 的角色照常回，其余消息都由兜底角色「" + fallbackName + "」回。装 gate 要先在向导里填 jev（没填 gate 启动会报错并提示怎么填）。"
 	}
 	if running {
 		return "The gate is running: it decides which role answers each message."
 	}
-	return "No gate (optional): an @-mentioned role answers; every other message goes to the fallback role \"" + fallbackName + "\". Installing the gate takes tens of minutes and about 3GB of downloads."
+	return "No gate (optional): an @-mentioned role answers; every other message goes to the fallback role \"" + fallbackName + "\". To install the gate, fill in jev in the wizard first (without it the gate stops at startup and says how to fill it in)."
 }
