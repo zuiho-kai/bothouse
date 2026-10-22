@@ -989,6 +989,13 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				content = string(b)
 			}
 		}
+		if !r.reused { // a new role keeps a diary (setup_defaults.go)
+			lang := r.ReplyLanguage
+			if lang == "" {
+				lang = req.Language
+			}
+			content = WithDiary(content, lang)
+		}
 		if err := AtomicWriteFile(path, []byte(WithReplyLanguage(content, r.ReplyLanguage)), 0o644); err != nil {
 			return fail(step, err)
 		}
