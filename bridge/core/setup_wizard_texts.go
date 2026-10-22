@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -121,4 +122,10 @@ func stepJevSaved(lang, path string) string {
 
 func stepJevNotSaved(lang, reason string) string {
 	return tr3(lang, "没保存："+reason, "保存していません："+reason, "not saved: "+reason)
+}
+
+func stepHooksOn(lang string, names []string, settings string) string {
+	return tr3(lang, "工具 hook 已开（"+strings.Join(names, "、")+"）："+settings+"；关掉用 cc-connect setup hooks off --work-dir <目录>",
+		"ツール hook を有効化（"+strings.Join(names, "、")+"）："+settings+"。無効化は cc-connect setup hooks off --work-dir <dir>",
+		"tool hooks on ("+strings.Join(names, ", ")+"): "+settings+"; turn off with cc-connect setup hooks off --work-dir <dir>")
 }

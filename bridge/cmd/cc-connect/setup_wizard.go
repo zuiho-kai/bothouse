@@ -320,6 +320,10 @@ func runSetup(args []string) {
 		fmt.Print(setupUsage)
 		return
 	}
+	if sub == "hooks" {
+		runSetupHooks(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("setup "+sub, flag.ExitOnError)
 	if sub == "apply" {
 		fs.Usage = func() {

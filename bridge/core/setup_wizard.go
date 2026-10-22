@@ -899,6 +899,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			switch {
 			case r.writesPersona():
 				addStep(res, step, nil, stepDryPersonaWrite(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
+				if !r.reused && wizardHooksFor(r.AgentType) {
+					addStep(res, fmt.Sprintf("role %d hooks", i+1), nil, stepHooksOn(req.Language, AgentHookNames(), AgentHookSettingsPath(r.workDir)))
+				}
 			case r.updatesReplyLanguage():
 				addStep(res, step, nil, stepDryPersonaLang(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
 			default:
@@ -985,6 +988,16 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			return fail(step, err)
 		}
 		addStep(res, step, nil, stepPersonaWritten(req.Language, r.project, path))
+		if !r.reused && wizardHooksFor(r.AgentType) {
+			// a new Claude Code role gets every tool hook and their rules in its persona; a failure here
+			// (no python3, …) is reported but does not undo the role ("cc-connect setup hooks on" later)
+			hs := fmt.Sprintf("role %d hooks", i+1)
+			if h, err := EnableAgentHooks(AgentHookOptions{DataDir: env.DataDir, WorkDir: r.workDir, CLI: "claudecode", Lang: r.ReplyLanguage}); err != nil {
+				addStep(res, hs, err, "")
+			} else {
+				addStep(res, hs, nil, stepHooksOn(req.Language, h.Enabled, h.SettingsFile))
+			}
+		}
 	}
 
 	// 自建平台 team: every member's wizard-made persona (one with a conest marker) gets the team line;
