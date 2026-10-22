@@ -230,9 +230,12 @@ export async function roomActionRoute(req, res, { owner, dsh, gateway }) {
     dsh.requireRoom(roomId);
     if (match[2] === 'continue') return dsh.continueRoom(roomId);
     // Ask the gateway first: it knows which non-DSH members are streaming output right now.
-    const outputOnly = gateway.stopRoom(roomId) ?? [];
-    const stopping = dsh.stopRoom(roomId, { outputOnly });
-    return { ...await stopping, output_only: outputOnly };
+    // Older gateways returned just the outputOnly array (or nothing).
+    const result = gateway.stopRoom(roomId);
+    const outputOnly = Array.isArray(result) ? result : result?.outputOnly ?? [];
+    const recalled = Array.isArray(result) ? [] : result?.recalled ?? [];
+    const stopping = dsh.stopRoom(roomId, { outputOnly, recalled });
+    return { ...await stopping, output_only: outputOnly, recalled };
   }, false);
   return true;
 }

@@ -21,6 +21,9 @@ const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息�
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败' };
 const RESERVED_IDS = new Set(['user', 'system']);
+// Messages a bot may still be running or queueing per room, recalled on stop.
+// 来源：沿用 bridge/core/engine.go defaultMaxQueuedMessages = 5，加 1 条在跑
+export const MAX_RECALLABLE = 6;
 const MAX_NAME = 64;
 
 export function roomKey(roomId) { return `room-${roomId}`; }
@@ -72,6 +75,8 @@ export class CloudWebGateway {
     this.logger = logger;
     /** member id -> { ws, member } */
     this.bots = new Map();
+    /** member id -> (room id -> newest msg_ids sent to that bot, oldest first, at most MAX_RECALLABLE) */
+    this.delivered = new Map();
     hub.onMessage(message => this.onNew(message));
   }
 
@@ -129,6 +134,7 @@ export class CloudWebGateway {
       clearTimeout(timer);
       if (bot !== undefined && this.bots.get(bot.member.id) === bot) {
         this.bots.delete(bot.member.id);
+        this.delivered.delete(bot.member.id);
         this.hub.setOnline(bot.member.id, false);
       }
     });
@@ -214,7 +220,18 @@ export class CloudWebGateway {
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
       send(ws, frame);
+      this.remember(member.id, msg.room_id, frame.msg_id);
     }
+  }
+
+  /** Keep the newest MAX_RECALLABLE msg_ids sent to a bot in a room, so stop can recall them. */
+  remember(botId, roomId, msgId) {
+    let rooms = this.delivered.get(botId);
+    if (rooms === undefined) this.delivered.set(botId, rooms = new Map());
+    const ids = rooms.get(roomId) ?? [];
+    ids.push(msgId);
+    if (ids.length > MAX_RECALLABLE) ids.splice(0, ids.length - MAX_RECALLABLE);
+    rooms.set(roomId, ids);
   }
 
   async fromBot(bot, d) {
@@ -314,10 +331,24 @@ export class CloudWebGateway {
     return roomKey(roomId) + (epoch ? `:epoch-${epoch}` : '');
   }
 
+  /**
+   * Stop a room for every connected bot: recall the messages it may still be running or
+   * queueing (cc-connect stops the running turn or drops the queued one; it sends no ack),
+   * and clear thinking. outputOnly = bots that were thinking; recalled = bots sent a recall.
+   */
   stopRoom(roomId) {
     const outputOnly = [...this.bots.keys()].filter(id => this.hub.thinking.get(roomId)?.has(id));
-    for (const { member } of this.bots.values()) this.hub.setThinking(roomId, member.id, false);
-    return outputOnly;
+    const recalled = [];
+    for (const { ws, member } of this.bots.values()) {
+      this.hub.setThinking(roomId, member.id, false);
+      const rooms = this.delivered.get(member.id);
+      const ids = rooms?.get(roomId);
+      if (ids === undefined || ids.length === 0) continue;
+      for (const msgId of ids) send(ws, { type: 'message_recall', msg_id: msgId, chat_id: roomKey(roomId) });
+      rooms.delete(roomId);
+      recalled.push(member.id);
+    }
+    return { outputOnly, recalled };
   }
 
   body(content) {

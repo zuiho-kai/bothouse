@@ -1126,3 +1126,67 @@ test('dsh-member: workspace names are refused, never rewritten, when they are no
     assert.throws(() => dsh.workspaceFor({ id: bad }), /workspace|member id/, `refused: ${JSON.stringify(bad)}`);
   }
 });
+
+test('cloud-web: stop recalls the latest message ids sent to each bot, then forgets them', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  const other = connect(gw, 'bot=c&name=Cee');
+  for (let i = 0; i < 8; i++) ask(hub, `@Bot m${i}`);
+  await settle();
+  const sent = bot.of('message').map(f => f.msg_id);
+  assert.equal(sent.length, 8);
+  assert.match(sent[0], /^hub-\d+$/);
+  const result = gw.stopRoom(1);
+  // Only the newest six can still be running or queued in cc-connect (queue 5 + 1 running).
+  const recalls = bot.of('message_recall');
+  assert.deepEqual(recalls.map(f => f.msg_id), sent.slice(-6));
+  assert.ok(recalls.every(f => f.chat_id === 'room-1'));
+  assert.deepEqual(other.of('message_recall').map(f => f.msg_id), other.of('message').map(f => f.msg_id).slice(-6));
+  assert.deepEqual([...result.recalled].sort(), ['b', 'c']);
+  assert.deepEqual(result.outputOnly, []);
+  // The records are spent: a second stop recalls nothing.
+  const again = gw.stopRoom(1);
+  assert.deepEqual(again.recalled, []);
+  assert.equal(bot.of('message_recall').length, 6);
+  // A bot that disconnects takes its records with it.
+  hub.continueRoom(1);
+  ask(hub, '@Bot after continue'); await settle();
+  bot.close();
+  const back = connect(gw, 'bot=b&name=Bot');
+  const third = gw.stopRoom(1);
+  assert.deepEqual(back.of('message_recall'), []);
+  assert.deepEqual(third.recalled, ['c']);
+});
+
+test('room action HTTP: a thinking bot that got a recall is requested, one without records is unsupported', async t => {
+  const { createServer } = await import('node:http');
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const server = createServer((req, res) => { roomActionRoute(req, res, {
+    owner: r => r.headers.authorization === 'test', dsh: members, gateway: gw,
+  }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(() => { res.writeHead(500); res.end(); }); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await members.close(); });
+  const cw = connect(gw, 'bot=cw&name=CW');
+  ask(hub, '@CW go'); await settle();
+  const delivered = cw.of('message').at(-1).msg_id;
+  // cx connects after the message went out: it is thinking, but nothing was delivered to recall.
+  const cx = connect(gw, 'bot=cx&name=CX');
+  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  cx.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  await settle();
+  const res = await fetch('http://127.0.0.1:' + server.address().port + '/collab/api/rooms/1/stop',
+    { method: 'POST', headers: { authorization: 'test' }, body: '{}' });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.recalled, ['cw']);
+  assert.deepEqual(cw.of('message_recall').map(f => f.msg_id), [delivered]);
+  assert.deepEqual(cx.of('message_recall'), []);
+  const outcome = Object.fromEntries(body.stopped_members.map(r => [r.member, r.outcome]));
+  assert.deepEqual(outcome, { cw: 'requested', cx: 'unsupported' });
+  const notice = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system').at(-1).text;
+  assert.match(notice, /已请求停止、未确认退出：CW/);
+  assert.match(notice, /不支持终止、只屏蔽旧输出：CX/);
+  await gw.closeAll();
+});

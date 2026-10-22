@@ -281,7 +281,7 @@ export class DshMembers {
   }
 
   /** Member id -> the name the channel shows. Users never see bare ids in these lines. */
-  nameOf = id => this.config.get(id)?.name ?? id;
+  nameOf = id => this.config.get(id)?.name ?? this.hub.members.get(id)?.name ?? id;
 
   /** Members that only had their output fenced: name them, or the user reads silence as success. */
   unsupportedNotice(stopped) {
@@ -293,16 +293,16 @@ export class DshMembers {
     if (this.store.room(roomId) === undefined) throw new CollabError('room-missing', 'room not found');
   }
 
-  stopRoom(roomId, { outputOnly = [] } = {}) {
+  stopRoom(roomId, { outputOnly = [], recalled = [] } = {}) {
     this.requireRoom(roomId);
     if (this.stopping.has(roomId)) return this.stopping.get(roomId);
     this.hub.stopRoom(roomId);
-    const stopping = this.cancelRoomJobs(roomId, outputOnly).finally(() => this.stopping.delete(roomId));
+    const stopping = this.cancelRoomJobs(roomId, outputOnly, recalled).finally(() => this.stopping.delete(roomId));
     this.stopping.set(roomId, stopping);
     return stopping;
   }
 
-  async cancelRoomJobs(roomId, outputOnly = []) {
+  async cancelRoomJobs(roomId, outputOnly = [], recalled = []) {
     const jobs = this.store.openJobs().filter(j => j.room_id === roomId);
     // Do this synchronously, before callbacks or awaits can release a queued job.
     this.store.transaction(() => { for (const job of jobs) this.store.finishJob(job.id, 'interrupted'); });
@@ -373,8 +373,11 @@ export class DshMembers {
       if (seen === undefined || STRENGTH[outcome] > STRENGTH[seen]) byMember.set(r.member, outcome);
     }
     const stopped = [...byMember].map(([member, outcome]) => ({ member, outcome }));
-    // Only the output fence is running for these members: that is not a stop, and must be said.
-    for (const id of outputOnly) if (!stopped.some(r => r.member === id)) stopped.push({ member: id, outcome: 'unsupported' });
+    // A recalled bot was asked to stop (cc-connect sends no ack): requested. Without a recall
+    // only the output fence is running for it: that is not a stop, and must be said.
+    for (const id of outputOnly) {
+      if (!stopped.some(r => r.member === id)) stopped.push({ member: id, outcome: recalled.includes(id) ? 'requested' : 'unsupported' });
+    }
     const allUnsupported = stopped.length > 0 && stopped.every(r => r.outcome === 'unsupported');
     // Silence would read as "stopped"; say either what stopped, what could not, or that nothing ran.
     const notice = stopped.length === 0 ? '没有在跑的任务。'
