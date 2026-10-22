@@ -83,6 +83,13 @@ func markSelfMention(text, botID, botRoleID, name string) string {
 	if !otherMentionRe.MatchString(stripped) {
 		return stripped
 	}
+	return labelSelfMention(text, botID, botRoleID, name)
+}
+
+// labelSelfMention always turns this bot's own mention into "@name(你)". Used for a person's
+// Discord reply: with the own @ stripped, "reply to 橘 + @彩虹猫" read to 彩虹猫 as a quote with no
+// one called, and she stayed silent (2026-10-22, user: 「好像我回你的时候同时艾特彩虹猫，你们都不理我」).
+func labelSelfMention(text, botID, botRoleID, name string) string {
 	self := "@" + name + "(你)"
 	text = strings.ReplaceAll(text, "<@!"+botID+">", self)
 	text = strings.ReplaceAll(text, "<@"+botID+">", self)

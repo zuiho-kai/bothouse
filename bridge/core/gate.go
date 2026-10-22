@@ -34,6 +34,12 @@ import (
 
 const insertNote = "（以下是补充信息，不是提问。若它不改变你之前的结论、也无需动作，只回复 NO_REPLY；否则简短回应。）"
 
+// mentionedNote goes before a person's message that called this bot (an @ of the bot or its role,
+// a bare @, or a reply to its message) when the gate says reply: such a turn must not end in a bare
+// NO_REPLY. 2026-10-22, user: 「好像我回你的时候同时艾特彩虹猫，你们都不理我，然后还有空@也不理我」
+// (both times the gate said reply and the model answered NO_REPLY).
+const mentionedNote = "（用户这条明确 @ 了你或回复了你，必须回复，不要只回 NO_REPLY。）"
+
 type gateState struct {
 	url             string
 	timeout         time.Duration
@@ -335,6 +341,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		}
 	}
 	content := msg.Content
+	if dec.Action == "reply" && msg.Mentioned && !msg.FromBot {
+		content = mentionedNote + "\n" + content
+	}
 	session.backfillMu.Lock() // maomao fork: read and mark seen as one step (Session.backfillMu)
 	if back, images, ok := e.channelBackfill(p, msg, session); ok {
 		// The channel itself is the record: it covers the gate buffer and also

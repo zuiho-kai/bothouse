@@ -17,12 +17,17 @@ func (p *Platform) humanReplyRoute(m *discordgo.MessageCreate, roleID string, me
 	if !p.respondToAtEveryoneAndHere {
 		body.Content = stripEveryoneHere(body.Content)
 	}
+	ref := m.ReferencedMessage
 	if otherMentionRe.MatchString(body.Content) {
 		self := isDiscordBotMention(&discordgo.MessageCreate{Message: &body}, p.botID, roleID, p.respondToAtEveryoneAndHere)
+		// The bot being replied to is addressed too: replying to 橘 while @-ing 彩虹猫 calls both
+		// (2026-10-22, user: 「好像我回你的时候同时艾特彩虹猫，你们都不理我」). Before, only the @-ed bot got it.
+		if ref != nil && ref.Author != nil && ref.Author.ID == p.botID {
+			self = true
+		}
 		return self, self
 	}
 
-	ref := m.ReferencedMessage
 	if ref == nil || ref.Author == nil || ref.Author.ID == "" {
 		// Deleted/unavailable references do not establish an addressee. Do not
 		// guess using group-reply-all or quoted prose; an explicit @ still works.
