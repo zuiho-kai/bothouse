@@ -13,7 +13,7 @@
 ## 安装（和作者本机一样：gate + wiki 都装）
 
 1. 装 gate（`../gate`，见 `gate.py` 开头），团队文件 `gate-team.json`。
-2. 主角色 wiki：把 llm-wiki 模板放到 `~/wiki`，把本目录 `bin/*.py` 复制到 `~/wiki/bin/`（`teammate/` 一起）。
+2. 主角色 wiki：把 llm-wiki 模板放到 `~/wiki`，把本目录 `llmwiki/*.py` 复制到 `~/wiki/bin/`（`teammate/` 一起）。
    在 `~/wiki/config.json` 写主角色是谁（不写就是占位名 `assistant`）：
 
    ```json

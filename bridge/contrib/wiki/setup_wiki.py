@@ -66,7 +66,7 @@ def main(bot):
                                               user=USER, lead=LEAD) + body)
     # bin/ingest.py and bin/lint.py forward to the shared tool (../bin, or $WIKI_BIN), same as the author's sub wikis
     for f in ("ingest.py", "lint.py", "search.py"):
-        shutil.copy(HERE / "bin" / "teammate" / f, w / "bin" / f)
+        shutil.copy(HERE / "llmwiki" / "teammate" / f, w / "bin" / f)
     for d in ("refs",):
         subprocess.run(["git", "rm", "-rq", d], cwd=w, check=True)
     lines = []
