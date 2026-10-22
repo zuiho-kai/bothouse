@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -176,7 +177,11 @@ func TestRoleWikiConfigDSH(t *testing.T) {
 	r := plannedRole{wizardIdentity: wizardIdentity{WizardRole: WizardRole{AgentType: "dsh", Provider: &WizardProvider{Vendor: "deepseek", APIKey: "k"}}}, project: "whale"}
 	c := roleWikiConfig("/data", r, nil, clis)
 	cmd, _ := c["dsh_cmd"].([]string)
-	if c["ingest_engine"] != "dsh" || c["dream_engine"] != "dsh" || len(cmd) != 2 || cmd[0] != node || cmd[1] != real ||
+	want := []string{node, real}
+	if runtime.GOOS == "windows" { // dshLaunch keeps the npm dsh.cmd shim as-is on Windows
+		want = []string{dsh}
+	}
+	if c["ingest_engine"] != "dsh" || c["dream_engine"] != "dsh" || strings.Join(cmd, "\x00") != strings.Join(want, "\x00") ||
 		c["dsh_patch"] != DSHPatchPath("/data", "whale") || c["dsh_env_file"] != DSHEnvPath("/data", "whale") {
 		t.Fatalf("config = %v", c)
 	}
