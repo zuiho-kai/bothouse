@@ -3,14 +3,19 @@
  * list, in a Discord-style three-column layout. All data arrives through the
  * injected `useChannels` hook; posting goes through the injected actions.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type UIEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelSnapshot } from './channel-source.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
-import { color, PALETTE } from './theme.ts'
+import {
+  MemberPanel,
+  RoomList,
+  RoomView,
+  StatusBanner,
+} from './components/index.ts'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -23,94 +28,6 @@ export interface ChannelsInjected extends ChannelActions {
 export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS>
 
 type T = TranslateNS<typeof NS>
-
-function Avatar({ id, name, small }: { id: string; name: string; small?: boolean }) {
-  return (
-    <span className={small === true ? `${css.avatar} ${css.avatarSmall}` : css.avatar} style={{ background: color(id) }} aria-hidden>
-      {(name || id).slice(0, 1)}
-    </span>
-  )
-}
-
-function KindTag({ kind, t }: { kind: ChannelMember['kind'] | undefined; t: T }) {
-  if (kind === 'dsh') return <span className={css.tag}>{t('kindDsh')}</span>
-  if (kind === 'bot') return <span className={css.tag}>{t('kindBot')}</span>
-  return null
-}
-
-function MessageRow({ message, member, t }: { message: ChannelMessage; member: ChannelMember | undefined; t: T }) {
-  let card: { title?: string; state?: string } | undefined
-  if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
-  }
-  return (
-    <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
-      <Avatar id={message.author} name={message.name} />
-      <div className={css.messageBody}>
-        <div className={css.messageHead}>
-          <span className={css.author}>{message.name}</span>
-          <KindTag kind={member?.kind} t={t} />
-          <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
-        </div>
-        {card === undefined
-          ? <div className={css.text}>{message.text}</div>
-          : (
-              <div className={css.card} data-state={card.state}>
-                <div className={css.cardTitle}>{card.title}</div>
-                <div className={css.text}>{message.text}</div>
-              </div>
-            )}
-      </div>
-    </div>
-  )
-}
-
-function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
-  title: string
-  members: readonly ChannelMember[]
-  busy: ReadonlySet<string>
-  onPick: (member: ChannelMember) => void
-  onEdit: (member: ChannelMember) => void
-  onRemove: (member: ChannelMember) => void
-  t: T
-}) {
-  if (members.length === 0) return null
-  return (
-    <>
-      <h3 className={css.groupTitle}>{title}</h3>
-      {members.map(m => (
-        <div key={m.id} className={m.online ? css.memberRow : `${css.memberRow} ${css.offline}`}>
-          <button
-            type="button"
-            className={css.member}
-            title={t('mentionPick', { name: m.name })}
-            onClick={() => { onPick(m) }}
-          >
-            <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} small />
-              <span className={css.presence} />
-            </span>
-            <span className={css.memberText}>
-              <span className={css.memberName}>{m.name}<KindTag kind={m.kind} t={t} /></span>
-              <span className={css.memberStatus}>{busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
-              {m.kind === 'dsh' && (
-                <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
-              )}
-            </span>
-          </button>
-          {m.kind === 'dsh' && (m.editable === true
-            ? (
-                <span className={css.memberActions}>
-                  <button type="button" className={css.linkButton} onClick={() => { onEdit(m) }}>{t('editMember')}</button>
-                  <button type="button" className={css.linkButton} onClick={() => { onRemove(m) }}>{t('removeMember')}</button>
-                </span>
-              )
-            : <span className={css.memberActions} title={t('configMember')}>⚙</span>)}
-        </div>
-      ))}
-    </>
-  )
-}
 
 /**
  * Render the channels panel.
@@ -167,11 +84,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }, [state.messages, state.roomId])
 
   if (state.phase !== 'ready') {
-    const notice = state.phase === 'unavailable' ? t('unavailable')
-      : state.phase === 'unauthorized' ? t('unauthorized')
-        : state.phase === 'error' ? t('error', { message: state.error ?? '' })
-          : t('loading')
-    return <div className={css.page}><div className={css.notice} role="status">{notice}</div></div>
+    return (
+      <div className={css.page}>
+        <StatusBanner phase={state.phase} error={state.error} t={t} />
+      </div>
+    )
   }
 
   const room = state.rooms.find(r => r.id === state.roomId)
@@ -271,164 +188,73 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     }
   }
 
+  const onScroll = (event: UIEvent<HTMLDivElement>): void => {
+    const el = event.currentTarget
+    stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
+  }
+
   return (
     <div className={css.page}>
-      <nav
-        className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms}
-        aria-label={t('rooms')}
-      >
-        <div className={css.groupHead}>
-          <h3 className={css.groupTitle}>{t('rooms')}</h3>
-          <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
-        </div>
-        {newRoom !== undefined && (
-          <input
-            className={css.roomInput}
-            autoFocus
-            value={newRoom}
-            maxLength={32}
-            placeholder={t('newRoomPlaceholder')}
-            aria-label={t('newRoom')}
-            onChange={(event) => { setNewRoom(event.target.value) }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); submitRoom() }
-              if (event.key === 'Escape') { setNewRoom(undefined); setRoomError(undefined) }
-            }}
-            onBlur={() => { if ((newRoom ?? '').trim() === '') setNewRoom(undefined) }}
-          />
-        )}
-        {roomError !== undefined && <div className={css.sendError} role="alert">{roomError}</div>}
-        {state.rooms.map(r => (
-          <button
-            key={r.id}
-            type="button"
-            className={r.id === state.roomId ? `${css.room} ${css.roomActive}` : css.room}
-            aria-current={r.id === state.roomId}
-            onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
-          >
-            <span className={css.hash} aria-hidden>#</span>{r.name}
-          </button>
-        ))}
-      </nav>
-      <section className={css.chat}>
-        <header className={css.chatHead}>
-          <button
-            type="button"
-            className={css.mobileNavButton}
-            aria-label={t('toggleRooms')}
-            title={t('toggleRooms')}
-            aria-expanded={drawer === 'rooms'}
-            onClick={() => { setDrawer(d => d === 'rooms' ? undefined : 'rooms') }}
-          >
-            ☰
-          </button>
-          <span className={css.chatTitle}><span className={css.hash} aria-hidden>#</span>{room?.name}</span>
-          <button
-            type="button"
-            className={css.mobileNavButton}
-            aria-label={t('toggleMembers')}
-            title={t('toggleMembers')}
-            aria-expanded={drawer === 'members'}
-            onClick={() => { setDrawer(d => d === 'members' ? undefined : 'members') }}
-          >
-            👥
-          </button>
-        </header>
-        <div
-          ref={logRef}
-          className={css.log}
-          role="log"
-          aria-live="polite"
-          onScroll={(event) => {
-            const el = event.currentTarget
-            stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
-          }}
-        >
-          {state.messages.length === 0
-            ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} />)}
-        </div>
-        <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
-        <div className={css.composer}>
-          {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
-          {popupOpen && (
-            <div className={css.mentionPopup}>
-              <div className={css.mentionTitle}>
-                {mention.query === '' ? t('mentionTitle') : t('mentionTitleQuery', { query: mention.query })}
-              </div>
-              <div role="listbox" id="channel-mention-list" aria-label={t('mentionTitle')}>
-                {candidates.map((m, index) => (
-                  <div
-                    key={m.id}
-                    id={`channel-mention-${m.id}`}
-                    role="option"
-                    aria-selected={index === selected}
-                    className={index === selected ? `${css.mentionItem} ${css.mentionActive}` : css.mentionItem}
-                    // Keep focus in the textarea so typing continues after a click.
-                    onMouseDown={(event) => { event.preventDefault() }}
-                    onMouseEnter={() => { setHighlight(index) }}
-                    onClick={() => { choose(m) }}
-                  >
-                    <span className={css.memberAvatar}>
-                      <Avatar id={m.id} name={m.name} small />
-                      {m.online && <span className={css.presence} />}
-                    </span>
-                    <span className={css.mentionName}>{m.name}</span>
-                    <KindTag kind={m.kind} t={t} />
-                    <span className={css.mentionMeta}>
-                      {busy.has(m.id) ? t('working') : m.online ? `@${m.id}` : t('offline')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className={css.mentionHint}>{t('mentionHint')}</div>
-            </div>
-          )}
-          <div className={css.composerRow}>
-            <textarea
-              ref={inputRef}
-              className={css.input}
-              rows={1}
-              value={draft}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={t('placeholder', { room: room?.name ?? '' })}
-              role="combobox"
-              aria-expanded={popupOpen}
-              aria-controls="channel-mention-list"
-              aria-autocomplete="list"
-              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : undefined}
-              onChange={(event) => {
-                const roomId = state.roomId
-                const value = event.target.value
-                if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
-                setCaret(event.target.selectionStart)
-                setHighlight(0)
-              }}
-              onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
-              onKeyDown={onKeyDown}
-            />
-            <button
-              type="button"
-              className={css.mentionButton}
-              title={t('mentionButton')}
-              aria-label={t('mentionButton')}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              onClick={openPicker}
-            >
-              @
-            </button>
-          </div>
-        </div>
-      </section>
-      <aside
-        className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}
-        aria-label={t('panel')}
-      >
-        <button type="button" className={css.addMemberButton} onClick={() => { setDialog(null) }}>+ {t('addMember')}</button>
-        {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
-        <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
-        <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
-      </aside>
+      <RoomList
+        rooms={state.rooms}
+        activeRoomId={state.roomId}
+        isOpenOnMobile={drawer === 'rooms'}
+        newRoom={newRoom}
+        roomError={roomError}
+        onSelectRoom={(roomId) => {
+          stickRef.current = true
+          setDrawer(undefined)
+          void selectRoom(roomId)
+        }}
+        onStartNewRoom={() => { setNewRoom(''); setRoomError(undefined) }}
+        onCancelNewRoom={() => { setNewRoom(undefined); setRoomError(undefined) }}
+        onNewRoomChange={setNewRoom}
+        onSubmitRoom={submitRoom}
+        t={t}
+      />
+      <RoomView
+        room={room}
+        drawer={drawer}
+        logRef={logRef}
+        inputRef={inputRef}
+        messages={state.messages}
+        membersById={byId}
+        busyNames={busyNames}
+        draft={draft}
+        sendError={sendError}
+        sending={state.roomId !== undefined && sending[state.roomId] === true}
+        popupOpen={popupOpen}
+        mentionQuery={mention?.query ?? ''}
+        candidates={candidates}
+        selected={selected}
+        busy={busy}
+        onToggleRooms={() => { setDrawer(d => d === 'rooms' ? undefined : 'rooms') }}
+        onToggleMembers={() => { setDrawer(d => d === 'members' ? undefined : 'members') }}
+        onScroll={onScroll}
+        onDraftChange={(value, nextCaret) => {
+          const roomId = state.roomId
+          if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
+          setCaret(nextCaret)
+          setHighlight(0)
+        }}
+        onSelectCaret={setCaret}
+        onKeyDown={onKeyDown}
+        onOpenPicker={openPicker}
+        onSelectCandidate={choose}
+        onHighlightCandidate={setHighlight}
+        t={t}
+      />
+      <MemberPanel
+        members={state.members}
+        busy={busy}
+        isOpenOnMobile={drawer === 'members'}
+        memberError={memberError}
+        onAddMember={() => { setDialog(null) }}
+        onPickMember={pickFromList}
+        onEditMember={setDialog}
+        onRemoveMember={confirmRemove}
+        t={t}
+      />
       {drawer !== undefined && (
         <div
           className={css.mobileBackdrop}
