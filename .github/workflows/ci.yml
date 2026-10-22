@@ -53,7 +53,9 @@ jobs:
           test_tools=$(mktemp -d "$RUNNER_TEMP/conest-vitest.XXXXXX")
           cp dsh/package.json dsh/package-lock.json "$test_tools/"
           npm ci --prefix "$test_tools" --no-audit --no-fund
+          ln -sfn "$test_tools/node_modules" dsh/node_modules
           echo "CONEST_VITEST=$test_tools/node_modules/.bin/vitest" >> "$GITHUB_ENV"
+          echo "NODE_PATH=$test_tools/node_modules" >> "$GITHUB_ENV"
       - name: Channel client regressions
         working-directory: .
         run: '"$CONEST_VITEST" run --config dsh/vitest.config.mjs'
