@@ -1,0 +1,24 @@
+{
+  "template": "windows",
+  "_source": "docs/launch/x-15s.md 分镜 0–2 秒：四个 AI 窗口，复制粘贴来回切（加速）；hopsMs 递减来自用户原话「节奏越来越快，显得很累」",
+  "caption": {
+    "zh": "你的 AI 每天都在失忆",
+    "en": "Your AIs forget you every day."
+  },
+  "windows": [
+    {"name": {"zh": "Claude", "en": "Claude"}, "color": "#d97757"},
+    {"name": {"zh": "Codex", "en": "Codex"}, "color": "#10a37f"},
+    {"name": {"zh": "Gemini", "en": "Gemini"}, "color": "#4285f4"},
+    {"name": {"zh": "DeepSeek", "en": "DeepSeek"}, "color": "#4d6bfe"}
+  ],
+  "context": {
+    "zh": "我是小周，在做 bothouse，Python 后端。昨天说到登录 bug，规范是先写测试……",
+    "en": "I'm Zhou, building bothouse, Python backend. Yesterday we were on the login bug, tests first…"
+  },
+  "newChat": {"zh": "新对话", "en": "New chat"},
+  "pasteKey": {"zh": "⌘V", "en": "⌘V"},
+  "order": [1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3],
+  "startMs": 250,
+  "hopsMs": [380, 330, 280, 240, 200, 170, 140, 120, 100, 90, 80],
+  "endMs": 350
+}

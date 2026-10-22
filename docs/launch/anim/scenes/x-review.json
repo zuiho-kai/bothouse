@@ -1,0 +1,22 @@
+{
+  "template": "phone",
+  "_source": "docs/launch/x-15s.md 分镜 11–13 秒：群里 opus 主动问要不要记一条规则；时长约 3–4 秒来自同一分镜（后期可加速）",
+  "caption": { "zh": "每晚复盘，\n越用越懂你", "en": "It reviews\nevery night.\nIt learns your way." },
+  "channel": { "zh": "dev", "en": "dev" },
+  "clock": "8:30",
+  "me": "you",
+  "roles": {
+    "you":   { "name": { "zh": "你", "en": "you" },      "color": "#e67e22", "avatar": "Y",  "bot": false },
+    "opus":  { "name": { "zh": "opus", "en": "opus" },   "color": "#5865f2", "avatar": "O",  "bot": true },
+    "whale": { "name": { "zh": "鲸鱼娘", "en": "Whale" }, "color": "#3ba55d", "avatar": "🐳", "bot": true }
+  },
+  "steps": [
+    { "busy": "opus", "ms": 500 },
+    { "say": "opus", "text": { "zh": "早。昨晚复盘发现这类登录 bug 是第二次了，要不要记一条规则？", "en": "Morning. Last night's review: this kind of login bug has bitten us twice now. Make it a rule?" } },
+    { "wait": 500 },
+    { "type": { "zh": "记吧 👍", "en": "Do it 👍" }, "ms": 600 },
+    { "wait": 300 },
+    { "busy": "opus", "ms": 400 },
+    { "say": "opus", "text": { "zh": "已记，附上你的原话 ✅", "en": "Saved, with your exact words ✅" } }
+  ]
+}

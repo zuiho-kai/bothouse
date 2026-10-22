@@ -1,0 +1,11 @@
+{
+  "_source": "docs/launch/x-15s.md 分镜顺序：0–2 混乱、2–4 向导、4–8 派活、8–11 记忆、11–13 复盘、13–15 结尾；speed = 片段实测时长 ÷ 分镜格子，复盘放宽到约 2.3 秒以便读完",
+  "clips": [
+    { "scene": "x-chaos", "speed": 1.45 },
+    { "scene": "x-wizard", "speed": 1.6 },
+    { "scene": "x-team", "speed": 1.5 },
+    { "scene": "x-memory", "speed": 1.2 },
+    { "scene": "x-review", "speed": 1.7 },
+    { "scene": "x-end" }
+  ]
+}

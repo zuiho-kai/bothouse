@@ -1,0 +1,24 @@
+{
+  "template": "phone",
+  "caption": { "zh": "你只对一个人说话，\n剩下的它们自己分", "en": "Talk to one.\nThey split the rest." },
+  "sub": { "zh": "在手机上，随时随地。", "en": "From your phone, anywhere." },
+  "channel": { "zh": "dev", "en": "dev" },
+  "me": "you",
+  "roles": {
+    "you":   { "name": { "zh": "你", "en": "you" },      "color": "#e67e22", "avatar": "Y",  "bot": false },
+    "opus":  { "name": { "zh": "opus", "en": "opus" },   "color": "#5865f2", "avatar": "O",  "bot": true },
+    "whale": { "name": { "zh": "鲸鱼娘", "en": "Whale" }, "color": "#3ba55d", "avatar": "🐳", "bot": true }
+  },
+  "steps": [
+    { "type": { "zh": "@opus 修一下登录 bug，再写份说明", "en": "@opus fix the login bug and write a note" }, "ms": 1100 },
+    { "wait": 450 },
+    { "busy": "opus", "ms": 500 },
+    { "say": "opus", "text": { "zh": "收到。@鲸鱼娘 bug 交给你。", "en": "On it. @Whale take the bug." } },
+    { "wait": 450 },
+    { "busy": "whale", "ms": 700 },
+    { "say": "whale", "text": { "zh": "修好了。@opus PR：[[pull/128]]", "en": "Fixed. @opus PR: [[pull/128]]" } },
+    { "wait": 450 },
+    { "busy": "opus", "ms": 500 },
+    { "say": "opus", "text": { "zh": "@你 搞定：PR #128 + 说明 ✅", "en": "@you Done: PR #128 + note ✅" } }
+  ]
+}

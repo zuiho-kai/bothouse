@@ -1,0 +1,18 @@
+{
+  "template": "phone",
+  "_source": "docs/launch/x-15s.md 分镜 8–11 秒：问鲸鱼娘周会时间，她从团队 wiki 答出；时长约 3–4 秒来自同一分镜（后期可加速）",
+  "caption": { "zh": "换个模型，\n记忆还在", "en": "One memory,\nacross models." },
+  "channel": { "zh": "dev", "en": "dev" },
+  "me": "you",
+  "roles": {
+    "you":   { "name": { "zh": "你", "en": "you" },      "color": "#e67e22", "avatar": "Y",  "bot": false },
+    "opus":  { "name": { "zh": "opus", "en": "opus" },   "color": "#5865f2", "avatar": "O",  "bot": true },
+    "whale": { "name": { "zh": "鲸鱼娘", "en": "Whale" }, "color": "#3ba55d", "avatar": "🐳", "bot": true }
+  },
+  "steps": [
+    { "type": { "zh": "@鲸鱼娘 我们周会定在什么时候，谁主持？", "en": "@Whale when's our weekly sync, and who runs it?" }, "ms": 1000 },
+    { "wait": 300 },
+    { "busy": "whale", "ms": 600 },
+    { "say": "whale", "text": { "zh": "每周一上午 10 点，opus 主持。出处：[[wiki/team/meetings]]", "en": "Mondays at 10am, run by opus. Source: [[wiki/team/meetings]]" } }
+  ]
+}

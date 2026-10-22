@@ -32,3 +32,6 @@ bridge/internal/rhhub/src/rh/
 
 # vitest cache from running dsh/vitest.config.mjs at the repo root
 node_modules/
+
+# 宣传片动画渲染产物（docs/launch/anim/render.py）
+docs/launch/anim/out/

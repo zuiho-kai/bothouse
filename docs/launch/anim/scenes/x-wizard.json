@@ -1,0 +1,16 @@
+{
+  "template": "wizard",
+  "caption": { "zh": "点几下，\n一支团队", "en": "A few clicks.\nOne team." },
+  "url": "127.0.0.1:9820/setup",
+  "brand": "CC",
+  "clis": [
+    { "id": "claudecode", "label": { "zh": "Claude Code", "en": "Claude Code" } },
+    { "id": "dsh",        "label": { "zh": "DSH",         "en": "DSH" } },
+    { "id": "codex",      "label": { "zh": "Codex",       "en": "Codex" } },
+    { "id": "gemini",     "label": { "zh": "Gemini CLI",  "en": "Gemini CLI" } }
+  ],
+  "roles": [
+    { "name": { "zh": "opus", "en": "opus" },     "cli": "claudecode" },
+    { "name": { "zh": "鲸鱼娘", "en": "Whale" },  "cli": "dsh" }
+  ]
+}

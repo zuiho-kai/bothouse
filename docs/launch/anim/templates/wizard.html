@@ -1,0 +1,212 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- 安装向导模板：浏览器窗口里的简化版配置向导。读 window.SCENE / window.LANG，开播设 window.__start，播完设 window.__done = true。
+     画面 1280×720，来源：docs/launch/x-15s.md「成片规格：1280×720 mp4」。
+     外层背景照搬 templates/phone.html（深蓝径向渐变 + 左侧大字）。
+     窗口里的布局、文案、配色照真实向导：
+       bridge/web/src/pages/Setup/SetupWizard.tsx:390-416（标题、步骤胶囊、Card）、:583-611（自建平台角色卡、角色名输入、再加一个角色）、
+       :616-638（每个角色选本机 CLI 的格子 + 登录徽章）、:811-842（保存好了 + 重启生效）、:861-868（底部导航 + 保存配置）；
+       文案 bridge/web/src/pages/Setup/texts.ts；深色主题色 bridge/web/src/index.css:11-14（accent 66 255 156）、
+       components/ui/{Card,Button,Input,Badge}.tsx 的 dark: 类；外框 components/Layout/{Layout,Sidebar}.tsx。
+     简化：真实向导分 7 步，这里把「机器人」和「本机 CLI」两步合到一张角色卡里，直接跳到保存。 -->
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1280px; height:720px; overflow:hidden; }
+  body { background:radial-gradient(ellipse at 50% 40%, #2a2d5a 0%, #0d0e1a 70%); font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",Arial,sans-serif; display:flex; align-items:center; justify-content:center; gap:48px; -webkit-font-smoothing:antialiased; }
+  /* 左侧大字：照搬 phone.html 的 .caption，宽度按窗口留下的空间缩小 */
+  .caption { color:#fff; width:300px; font-size:38px; font-weight:700; line-height:1.15; letter-spacing:-.5px; opacity:0; transform:translateY(12px); transition:all .6s ease; white-space:pre-line; }
+  .caption.on { opacity:1; transform:none; }
+  .caption small { display:block; font-size:18px; font-weight:500; color:#a5a9d6; margin-top:14px; letter-spacing:0; }
+
+  /* 浏览器窗口 */
+  .win { width:860px; height:620px; border-radius:12px; overflow:hidden; background:#0a0a0c; box-shadow:0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08); display:flex; flex-direction:column; position:relative; }
+  .bar { height:38px; flex:none; background:#1c1d22; display:flex; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid rgba(255,255,255,.06); }
+  .dot { width:12px; height:12px; border-radius:50%; }
+  .url { margin-left:18px; flex:1; max-width:420px; height:24px; border-radius:6px; background:#2a2b31; color:#9ca3af; font-size:12px; display:flex; align-items:center; padding:0 10px; gap:6px; }
+  .app { flex:1; display:flex; min-height:0; background:linear-gradient(135deg,#030712,#0a0a0c,#030712); }
+  /* 侧栏：Sidebar.tsx 的折叠态（w-16，品牌只显示 CC），省出宽度给向导 */
+  .side { width:64px; flex:none; background:rgba(0,0,0,.85); border-right:1px solid rgba(255,255,255,.08); display:flex; flex-direction:column; align-items:center; }
+  .brand { height:56px; width:100%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; border-bottom:1px solid rgba(255,255,255,.08); letter-spacing:-1px; }
+  .nav { padding-top:16px; display:flex; flex-direction:column; gap:4px; }
+  .nav i { width:42px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center; }
+  .nav i::before { content:''; width:16px; height:16px; border-radius:4px; border:2px solid #9ca3af; opacity:.7; }
+  .nav i.on { background:rgba(66,255,156,.12); box-shadow:inset 0 0 0 1px rgba(66,255,156,.25); }
+  .nav i.on::before { border-color:#42ff9c; opacity:1; }
+  .main { flex:1; padding:20px 24px; display:flex; flex-direction:column; gap:12px; min-width:0; }
+  h2 { font-size:18px; font-weight:700; color:#fff; }
+  .subt { font-size:13px; color:#9ca3af; margin-top:2px; }
+  .pills { display:flex; flex-wrap:wrap; gap:6px; }
+  .pill { padding:4px 10px; border-radius:999px; font-size:12px; background:rgba(255,255,255,.06); color:#6b7280; transition:all .2s; }
+  .pill.done { background:rgba(66,255,156,.15); color:#42ff9c; }
+  .pill.cur { background:#42ff9c; color:#000; }
+  .card { flex:1; min-height:0; border-radius:12px; padding:16px 18px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.08); display:flex; flex-direction:column; gap:10px; color:#e5e7eb; }
+  .note { font-size:12px; color:#6b7280; }
+  .role { border-radius:12px; border:1px solid #374151; padding:10px 12px; display:flex; flex-direction:column; gap:8px; opacity:0; transform:translateY(10px); transition:all .25s ease; }
+  .role.on { opacity:1; transform:none; }
+  .rh { font-size:13px; font-weight:500; color:#e5e7eb; display:flex; align-items:center; gap:6px; }
+  .lbl { font-size:13px; font-weight:500; color:#d1d5db; margin-bottom:4px; }
+  .inp { height:34px; border-radius:8px; border:1px solid rgba(255,255,255,.1); background:rgba(0,0,0,.45); color:#fff; font-size:14px; display:flex; align-items:center; padding:0 12px; transition:all .15s; }
+  .inp.focus { border-color:#42ff9c; box-shadow:0 0 0 2px rgba(66,255,156,.45); }
+  .caret { display:inline-block; width:1px; height:16px; background:#fff; margin-left:1px; }
+  .clis { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .cli { border-radius:8px; border:1px solid #374151; padding:7px 9px; font-size:13px; color:#f3f4f6; display:flex; align-items:center; justify-content:space-between; gap:6px; transition:all .15s; }
+  .cli b { font-weight:500; white-space:nowrap; }
+  .cli.sel { border-color:#42ff9c; background:rgba(66,255,156,.05); }
+  .badge { display:inline-flex; padding:1px 6px; border-radius:6px; font-size:11px; font-weight:500; white-space:nowrap; background:rgba(6,78,59,.25); color:#34d399; border:1px solid rgba(16,185,129,.2); }
+  .btn { display:inline-flex; align-items:center; gap:6px; font-weight:500; border-radius:8px; transition:all .15s; }
+  .btn.sec { background:rgba(255,255,255,.08); color:#d1d5db; border:1px solid rgba(255,255,255,.06); padding:6px 12px; font-size:12px; }
+  .btn.pri { background:#42ff9c; color:#000; padding:8px 16px; font-size:14px; box-shadow:0 0 20px -6px rgba(66,255,156,.55); }
+  .btn.dis { opacity:.5; }
+  .btn.press { transform:scale(.95); filter:brightness(1.15); }
+  .roles { display:flex; flex-direction:column; gap:10px; }
+  .ok { display:none; flex-direction:column; gap:8px; }
+  .ok.on { display:flex; animation:pop .3s ease; }
+  .ok { flex-direction:row; align-items:center; justify-content:space-between; }
+  .ok p { color:#059669; font-weight:500; display:flex; align-items:center; gap:6px; }
+  .ok p svg { flex:none; }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .navbar { margin-top:auto; display:flex; justify-content:space-between; padding-top:10px; border-top:1px solid #1f2937; }
+  /* 光标 */
+  .ptr { position:absolute; left:0; top:0; width:22px; height:22px; z-index:10; pointer-events:none; transition:transform .2s cubic-bezier(.4,.1,.2,1); filter:drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+  .ripple { position:absolute; width:28px; height:28px; margin:-14px 0 0 -14px; border-radius:50%; border:2px solid #42ff9c; z-index:9; pointer-events:none; animation:rip .35s ease-out forwards; }
+  @keyframes rip { from { transform:scale(.3); opacity:1; } to { transform:scale(1.3); opacity:0; } }
+</style>
+</head>
+<body>
+<div class="caption" id="cap"></div>
+<div class="win" id="win">
+  <div class="bar">
+    <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+    <div class="url"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2.5"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span id="url"></span></div>
+  </div>
+  <div class="app">
+    <div class="side"><div class="brand" id="brand"></div><div class="nav"><i></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="main">
+      <div><h2 id="title"></h2><p class="subt" id="subt"></p></div>
+      <div class="pills" id="pills"></div>
+      <div class="card">
+        <p class="note" id="rolesNote"></p>
+        <div class="roles" id="roles"></div>
+        <div><span class="btn sec" id="add"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg><span id="addTx"></span></span></div>
+        <div class="ok" id="ok"><p><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><span id="okTx"></span></p><div><span class="btn pri" id="restart"></span></div></div>
+        <div class="navbar"><span class="btn sec" id="back" style="font-size:14px;padding:8px 16px"></span><span class="btn pri" id="save"></span></div>
+      </div>
+    </div>
+  </div>
+  <svg class="ptr" id="ptr" viewBox="0 0 24 24"><path d="M4 2l15 10.5-6.5 1.2L16 21l-3 1.3-3.4-7.3L4 19z" fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></svg>
+</div>
+
+<script>
+const S = window.SCENE, L = window.LANG || 'en';
+const t = v => (v && typeof v === 'object') ? (v[L] ?? v.en ?? '') : (v ?? '');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// 界面文案默认值逐字取自 bridge/web/src/pages/Setup/texts.ts（行号见右侧）；场景 JSON 的 "ui" 可覆盖任一项
+const UI = {
+  title:     { zh: '安装向导', en: 'Setup wizard' },                                   // texts.ts:4 / :84
+  steps:     { zh: ['平台', '机器人', '本机 CLI', '人设', '兜底角色', 'jev', '完成'],     // texts.ts:6
+               en: ['Platform', 'Bots', 'Local CLI', 'Persona', 'Fallback', 'jev', 'Done'] }, // texts.ts:86
+  rolesNote: { zh: '每个角色在平台里是一个成员：在频道里写「@名字」就是叫她。',            // texts.ts:18 cwRolesNote
+               en: 'Each role is a member on the platform: write "@name" in a channel to call her.' },
+  roleLabel: { zh: '角色', en: 'Role' },                                                // texts.ts:67 / :147
+  roleName:  { zh: '角色名（平台里显示的名字）', en: 'Role name (shown on the platform)' }, // texts.ts:19 cwRoleName
+  addRole:   { zh: '再加一个角色', en: 'Add another role' },                            // texts.ts:23 / :103 cwAddRole
+  back:      { zh: '上一步', en: 'Back' },                                              // texts.ts:7 / :87
+  save:      { zh: '保存配置', en: 'Save' },                                            // texts.ts:7 / :87
+  done:      { zh: '保存好了。点“重启生效”让新配置跑起来。',                               // texts.ts:59 done + doneRestart
+               en: 'Saved. Click "Restart to apply" to run with the new config.' },     // texts.ts:139
+  restart:   { zh: '重启生效', en: 'Restart to apply' },                                // texts.ts:7 / :87
+  restarted: { zh: '已发出重启', en: 'Restart requested' },                             // texts.ts:7 / :87
+  loggedIn:  { zh: '已登录', en: 'logged in' },                                         // texts.ts:39 / :119
+  ...(S.ui || {}),
+};
+const u = k => t(UI[k]);
+const $ = id => document.getElementById(id);
+const win = $('win'), ptr = $('ptr');
+
+// 静态部分
+$('cap').innerHTML = esc(t(S.caption)) + (S.sub ? `<small>${esc(t(S.sub))}</small>` : '');
+$('url').textContent = S.url || '127.0.0.1:9820/setup';  // 9820 = 管理网页默认端口，bridge/config/config.go:180
+$('brand').innerHTML = esc(S.brand || 'CC');              // Sidebar.tsx:48-51 折叠态品牌
+$('title').textContent = u('title');
+$('subt').textContent = t(S.subtitle);
+if (!S.subtitle) $('subt').remove();  // 不给 subtitle 就不占行
+$('rolesNote').textContent = u('rolesNote');
+$('addTx').textContent = u('addRole');
+$('back').textContent = u('back');
+$('save').textContent = u('save');
+$('okTx').textContent = u('done');
+$('restart').textContent = u('restart');
+const steps = u('steps');
+function pills(cur) {  // 胶囊样式照 SetupWizard.tsx:410：当前步实心，之前的步淡色
+  $('pills').innerHTML = steps.map((s, i) => `<span class="pill ${i === cur ? 'cur' : i < cur ? 'done' : ''}">${esc(s)}</span>`).join('');
+}
+pills(S.startStep ?? 1);  // 默认停在「机器人」步：真实向导里角色卡在这一步（SetupWizard.tsx:535-612）
+const cliList = S.clis || [];
+
+// 光标：移动到某元素中心，点击时缩放 + 涟漪
+const wr = () => win.getBoundingClientRect();
+let px = 600, py = 520;  // 光标起点：窗口右下区域，避免一开场就挡住按钮（视觉取值，无外部来源）
+const place = () => { ptr.style.transform = `translate(${px - 4}px, ${py - 2}px)`; };
+place();
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function moveTo(el, ms) {
+  const r = el.getBoundingClientRect(), w = wr();
+  px = r.left - w.left + r.width / 2; py = r.top - w.top + r.height / 2;
+  ptr.style.transitionDuration = ms + 'ms'; place();
+  await wait(ms);
+}
+async function click(el) {
+  const rp = document.createElement('div'); rp.className = 'ripple';
+  rp.style.left = px + 'px'; rp.style.top = py + 'px'; win.appendChild(rp);
+  el.classList.add('press'); await wait(D.click); el.classList.remove('press');
+  setTimeout(() => rp.remove(), 400);
+}
+async function type(el, text, ms) {
+  const ch = [...text];
+  el.classList.add('focus');
+  for (let i = 1; i <= ch.length; i++) { el.innerHTML = esc(ch.slice(0, i).join('')) + '<span class="caret"></span>'; await wait(ms / ch.length); }
+  el.innerHTML = esc(text); el.classList.remove('focus');
+}
+function addCard(idx) {
+  const d = document.createElement('div'); d.className = 'role';
+  d.innerHTML = `<div class="rh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M12 8V4M8 14h.01M16 14h.01"/></svg>${esc(u('roleLabel'))} ${idx + 1}</div>
+    <div><div class="lbl">${esc(u('roleName'))}</div><div class="inp"></div></div>
+    <div class="clis">${cliList.map(c => `<div class="cli" data-id="${esc(c.id)}"><b>${esc(t(c.label))}</b>${c.badge === false ? '' : `<span class="badge">${esc(u('loggedIn'))}</span>`}</div>`).join('')}</div>`;
+  $('roles').appendChild(d);
+  requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('on')));
+  return d;
+}
+
+// 时长：整段约 3.3 秒，来源 docs/launch/x-15s.md「2–4 秒」这一格（后期可再加速）；各段按此总长分配，场景 "timing" 可覆盖
+// 合计约 120 + 2×960 + 230 + 160 + 230 + 450 ≈ 3.1 秒
+const D = { start: 120, move: 160, click: 70, appear: 100, type: 200, settle: 40, okHold: 60, end: 450, ...(S.timing || {}) };
+
+(async () => {
+  window.__start = Date.now();  // 开播时刻，render.py 按 [__start, __done] 裁剪
+  $('cap').classList.add('on');
+  await wait(D.start);
+  for (const [i, r] of (S.roles || []).entries()) {
+    await moveTo($('add'), D.move); await click($('add'));
+    const card = addCard(i); await wait(D.appear);
+    const inp = card.querySelector('.inp');
+    await moveTo(inp, D.move);
+    await type(inp, t(r.name), r.typeMs ?? D.type);
+    const opt = card.querySelector(`.cli[data-id="${r.cli}"]`);
+    await moveTo(opt, D.move); await click(opt); opt.classList.add('sel');
+    await wait(D.settle);
+  }
+  await moveTo($('save'), D.move); await click($('save'));
+  pills(steps.length - 1);                       // 跳到「完成」
+  $('add').parentElement.style.display = 'none';  // 真实向导保存后进入结果页，不再能加角色
+  $('save').style.visibility = 'hidden'; $('back').classList.add('dis');  // 真实向导出结果后不再显示保存按钮（SetupWizard.tsx:867）
+  $('ok').classList.add('on'); await wait(D.appear + D.okHold);
+  await moveTo($('restart'), D.move); await click($('restart'));
+  $('restart').textContent = u('restarted'); $('restart').classList.add('dis');
+  await wait(D.end);
+  window.__done = true;
+})();
+</script>
+</body>
+</html>

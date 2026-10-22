@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  字卡模板（通用）：X 片尾、B 站各段【字卡】共用。
+  渲染器用 page.add_init_script 注入：
+    window.SCENE = 场景 JSON（"template": "card"）
+    window.LANG  = "zh" | "en"
+  播完设 window.__done = true。
+
+  场景 JSON 字段：
+    bg, fg            背景色 / 文字色（可选，默认黑底白字）
+    lines: [          逐行淡入
+      { "text": {"zh": "...", "en": "..."},
+        "style": "big" | "medium" | "small" | "mono",
+        "at": 出现时间（毫秒，从场景开始算） }
+    ]
+    fade_ms           每行淡入时长（可选）
+    total_ms          场景总时长（毫秒）；最后一行出现后停留到这个时刻
+    hold_ms           若不给 total_ms，则 = 最后一行出现时刻 + fade_ms + hold_ms
+-->
+<style>
+  /* 1280×720：来源 docs/launch/x-15s.md「成片规格：1280×720 mp4」 */
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; }
+  body {
+    background: var(--bg, #000);
+    color: var(--fg, #fff);
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+  }
+  .line { opacity: 0; transform: translateY(12px); transition-property: opacity, transform; transition-timing-function: ease-out; padding: 0 80px; }
+  .line.on { opacity: 1; transform: none; }
+  /* 字号按 720 高画面目测取值：大字约 1/12 画面高，小字/等宽约 1/24 */
+  .big    { font-size: 60px; font-weight: 700; line-height: 1.3; margin: 10px 0; }
+  .medium { font-size: 44px; font-weight: 600; line-height: 1.3; margin: 8px 0; }
+  .small  { font-size: 30px; font-weight: 400; line-height: 1.4; margin: 8px 0; color: var(--small, #bbb); }
+  .mono   { font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace; font-size: 32px; margin-top: 36px; color: var(--mono, inherit); }
+</style>
+</head>
+<body>
+<script>
+(function () {
+  const S = window.SCENE || { lines: [] };
+  const L = window.LANG || "zh";
+  const pick = t => (t && typeof t === "object") ? (t[L] ?? t.zh ?? t.en ?? "") : (t ?? "");
+  // 默认值：淡入 400ms、停留 1000ms，目测节奏取值，场景可覆盖
+  const FADE = S.fade_ms ?? 400;
+  const HOLD = S.hold_ms ?? 1000;
+  const root = document.documentElement.style;
+  if (S.bg) root.setProperty("--bg", S.bg);
+  if (S.fg) root.setProperty("--fg", S.fg);
+  if (S.mono_color) root.setProperty("--mono", S.mono_color);
+
+  const els = (S.lines || []).map(ln => {
+    const d = document.createElement("div");
+    d.className = "line " + (ln.style || "big");
+    d.textContent = pick(ln.text);
+    d.style.transitionDuration = FADE + "ms";
+    document.body.appendChild(d);
+    return [d, ln.at ?? 0];
+  });
+  const lastAt = els.reduce((m, [, at]) => Math.max(m, at), 0);
+  const total = S.total_ms ?? (lastAt + FADE + HOLD);
+
+  const start = () => {
+    window.__start = Date.now();  // 开播时刻，render.py 按 [__start, __done] 裁剪
+    els.forEach(([d, at]) => setTimeout(() => d.classList.add("on"), at));
+    setTimeout(() => { window.__done = true; }, total);
+  };
+  // 等字体就绪再开播，避免首帧回退字体
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => requestAnimationFrame(start));
+})();
+</script>
+</body>
+</html>
