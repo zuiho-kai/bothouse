@@ -163,25 +163,25 @@ func roleWikiConfig(dataDir string, r plannedRole, picks *WizardWiki, clis []Loc
 const wikiMarker, wikiMarkerEnd = "<!-- conest:wiki -->", "<!-- /conest:wiki -->"
 
 func wikiSection(lang, wiki, export, bot string) string {
-	sw := "python3 -I " + wikiQuote(export) + " --switch " + bot
+	sw := "python3 -X utf8 -I " + wikiQuote(export) + " --switch " + bot
 	return tr3(lang,
 		"## 记忆 wiki\n"+
 			"你有一本自己的记忆 wiki：`"+wiki+"`。你的会话和日记会自动整理进去，每天夜里还会做一次反思。想查以前的事先在里面找："+
-			"`python3 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <关键词>`。\n"+
+			"`python3 -X utf8 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <关键词>`。\n"+
 			"用户让你关掉或打开它时，直接运行，不用再问：\n"+
 			"- 关掉记忆 wiki（不再整理，也不反思）：`"+sw+" wiki off`\n"+
 			"- 只关夜间反思：`"+sw+" dream off`\n"+
 			"- 重新打开：把 off 换成 on。\n",
 		"## 記憶 wiki\n"+
 			"あなたには自分の記憶 wiki があります：`"+wiki+"`。会話と日記は自動で整理され、毎晩ふり返りも行います。昔のことはまずここで探します："+
-			"`python3 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <キーワード>`。\n"+
+			"`python3 -X utf8 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <キーワード>`。\n"+
 			"ユーザーにオフ／オンを頼まれたら、聞き返さずに実行します：\n"+
 			"- 記憶 wiki を止める（整理もふり返りもしない）：`"+sw+" wiki off`\n"+
 			"- 夜のふり返りだけ止める：`"+sw+" dream off`\n"+
 			"- 戻すときは off を on に。\n",
 		"## Memory wiki\n"+
 			"You have a memory wiki of your own: `"+wiki+"`. Your sessions and diary are distilled into it, and every night it reflects on the day. Look there first for anything from before: "+
-			"`python3 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <words>`.\n"+
+			"`python3 -X utf8 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <words>`.\n"+
 			"When your user asks you to turn it off or on, just run it, no need to ask back:\n"+
 			"- turn the memory wiki off (no distilling, no reflection): `"+sw+" wiki off`\n"+
 			"- turn only the nightly reflection off: `"+sw+" dream off`\n"+

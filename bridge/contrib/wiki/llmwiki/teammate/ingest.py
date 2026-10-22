@@ -11,4 +11,4 @@ tool = Path(os.environ.get("WIKI_BIN") or Path.home() / "wiki" / "bin") / "inges
 if "\nSHARED_TOOL = 1" not in (tool.read_text() if tool.exists() else ""):
     sys.exit(f"{tool} is not the shared tool (no SHARED_TOOL marker: ~/wiki not merged or rolled back); not running it")
 os.environ["WIKI_DIR"] = str(wiki)
-os.execv(sys.executable, [sys.executable, "-I", str(tool), *sys.argv[1:]])
+os.execv(sys.executable, [sys.executable, "-X", "utf8", "-I", str(tool), *sys.argv[1:]])

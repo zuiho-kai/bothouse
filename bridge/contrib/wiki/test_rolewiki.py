@@ -94,6 +94,7 @@ class RoleWiki(unittest.TestCase):
                             f"runpy.run_path({str(w / 'bin' / 'ingest.py')!r}, run_name='__main__')"],
                            env=self.env, capture_output=True, text=True)
         self.assertNotIn("unknown key", r.stdout + r.stderr)
+        self.assertIn("usage", r.stdout, r.stderr)  # the tool ran: its config.json read, --help printed
 
     def test_setup_null_engines_and_half_made(self):
         self.env["WIKI_ENGINES"] = "null"  # Go's json.Marshal of a nil map
@@ -123,7 +124,8 @@ class RoleWiki(unittest.TestCase):
         w = self.home / "roles" / "whale" / "wiki"
         code = ("import runpy,sys,json; sys.argv=['ingest.py']; g=runpy.run_path(sys.argv[0] if False else %r, run_name='x');"
                 "ok,out,_=g['dsh']('do it','TRANSCRIPT',label='t'); print(json.dumps([ok,out]))") % str(self.home / "wiki" / "bin" / "ingest.py")
-        r = subprocess.run([sys.executable, "-I", "-c", code], env=dict(self.env, WIKI_DIR=str(w)), capture_output=True, text=True, cwd=w)
+        r = subprocess.run([sys.executable, "-X", "utf8", "-I", "-c", code], env=dict(self.env, WIKI_DIR=str(w)), capture_output=True, text=True, cwd=w)
+        self.assertTrue(r.stdout.strip(), r.stderr)
         ok, out = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertTrue(ok, r.stderr)
         self.assertIn("argv=--profile headless --patch /p.yml -", out)
