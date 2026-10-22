@@ -244,7 +244,9 @@ test('stop: cancels active and queued channel jobs, preserves Web UI inbox and o
   assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), ['web-ui']);
   assert.equal(agent.prompts.length, 2, 'pending channel job was never admitted');
   assert.equal(hub.thinking.get(1).size, 0); assert.equal(hub.thinking.get(2).has('ds'), true);
-  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text.includes('partial')), false);
+  // A stop keeps the text the turn had already produced, flagged with the reason.
+  const stopped = hub.store.page(1, undefined, 50).find(m => m.text.includes('partial'));
+  assert.equal(stopped.text, 'partial @DeepSeek\n\n（这一轮没有正常结束：aborted：user）');
   await members.close();
 });
 
@@ -262,7 +264,7 @@ test('stop: withdrawing queued input receives discarded, never cancels unrelated
   assert.equal(discarded, 1); assert.equal(agent.cancellations.length, 0);
   assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), ['web-pending']);
   assert.equal(members.watching.size, 0); assert.equal(hub.store.openJobs().length, 0);
-  assert.equal(hub.store.page(1, undefined, 1)[0].text, '已停止。');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '已停止：ds。', 'the notice names the confirmed member');
   await members.close();
 });
 
@@ -383,6 +385,28 @@ test('continue: relay cap resumes one delivery, without duplicate history or rep
   await members.close();
 });
 
+test('cloud-web: the fence drops stale context, not everything while stopped', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  ask(hub, '@Bot first'); await settle();
+  const before = bot.of('message').at(-1).reply_ctx;
+  hub.stopRoom(1); gw.stopRoom(1);
+  await settle();
+  // Output still echoing the pre-stop context stays fenced.
+  bot.frame({ type: 'reply', reply_ctx: before, content: 'stale reply' });
+  bot.frame({ type: 'typing_start', reply_ctx: before });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === 'stale reply'), false);
+  assert.equal(hub.thinking.get(1)?.size ?? 0, 0);
+  // A message carrying the room's current context is not output of the stopped turn: it lands
+  // even though the room is still stopped, so a stop cannot silently eat what comes next.
+  const current = gw.replyContext(1);
+  assert.notEqual(current, before, 'the stop moved the room to a new epoch');
+  bot.frame({ type: 'reply', reply_ctx: current, content: '主动发的提醒' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '主动发的提醒');
+});
+
 test('cloud-web: stop fences old replies, typing and previews through continue', async () => {
   const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
@@ -414,6 +438,34 @@ test('cloud-web: stop fences old replies, typing and previews through continue',
   bot.frame({ type: 'delete_message', session_key: 'cloud_web:room-1:owner', preview_handle: freshHandle });
   await settle();
   assert.equal(hub.store.message(Number(freshHandle)), undefined);
+});
+
+test('room action HTTP: stop reports one outcome per member, and says when it cannot stop', async t => {
+  const { createServer } = await import('node:http');
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
+  // A cloud-web bot is streaming output in the same room: it has no cancel protocol.
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const server = createServer((req, res) => { roomActionRoute(req, res, {
+    owner: r => r.headers.authorization === 'test', dsh: members, gateway: gw,
+  }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(() => { res.writeHead(500); res.end(); }); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await members.close(); });
+  const url = 'http://127.0.0.1:' + server.address().port + '/collab/api/rooms/1/stop';
+  const posting = (body, auth = 'test') => fetch(url, { method: 'POST', headers: { authorization: auth }, body: JSON.stringify(body ?? {}) });
+  // A connected cloud-web bot that is streaming output right now.
+  const cw = connect(gw, 'bot=cw&name=CW');
+  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  await settle();
+  const res = await posting({});
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.output_only, ['cw'], 'the gateway names the member it can only fence');
+  assert.deepEqual(body.stopped_members, [{ member: 'cw', outcome: 'unsupported' }]);
+  assert.equal(body.cancelled_jobs, 0);
+  const notices = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system').map(m => m.text);
+  assert.equal(notices.at(-1).includes('不支持终止'), true, 'silence would read as a real stop');
+  await gw.closeAll();
 });
 
 test('room action HTTP: auth, method, missing room, empty POST, stop/continue conflict', async t => {
@@ -535,7 +587,7 @@ test('DSH member: a discarded input ends its job and frees the queue', async () 
   assert.equal(agent.prompts.length, 2, 'the next job still runs');
 });
 
-test('DSH member: user cancellation reports stopped without publishing partial text', async () => {
+test('DSH member: user cancellation preserves partial text and aborted reason', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
@@ -543,7 +595,7 @@ test('DSH member: user cancellation reports stopped without publishing partial t
   await settle();
   dsh.turn(dsh.sessions.get(dsh.made[0]), ['第一段'], { kind: 'aborted', reason: { kind: 'user' } });
   await settle();
-  assert.equal(hub.store.page(1, undefined, 1)[0].text, 'DeepSeek 已停止。');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '第一段\n\n（这一轮没有正常结束：aborted：user）');
 });
 
 test('DSH member: a failed admission reports the error and leaves no stale watcher', async () => {

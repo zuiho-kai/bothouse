@@ -83,6 +83,22 @@ export function describeReason(reason) {
   return `${reason.kind ?? 'unknown'}${detail ? `：${String(detail).replace(/\s+/g, ' ').slice(0, 200)}` : ''}`;
 }
 
+/** Driver outcome -> the three results the stop API is allowed to report. */
+const OUTCOME = { idle: 'confirmed', withdrawn: 'confirmed', timeout: 'requested', error: 'requested', 'not-loaded': 'requested' };
+
+/** System line for one stop, per the three results above. */
+export function stopNotice(stopped) {
+  const by = state => stopped.filter(r => r.outcome === state).map(r => r.member);
+  const parts = [];
+  const confirmed = by('confirmed'); const requested = by('requested'); const unsupported = by('unsupported');
+  if (confirmed.length) parts.push(`已停止：${confirmed.join('、')}`);
+  if (requested.length) parts.push(`已请求停止、未确认退出：${requested.join('、')}（迟到回复将被忽略）`);
+  if (unsupported.length) parts.push(`不支持终止、只屏蔽旧输出：${unsupported.join('、')}`);
+  return parts.length ? `${parts.join('；')}。` : '已停止。';
+}
+
+/** Reason DSH reports when the user cancels the running turn. */
+const STOPPED_REASON = { kind: 'aborted', reason: { kind: 'user' } };
 const INTERRUPTED = Symbol('interrupted');
 
 export class DshMembers {
@@ -224,13 +240,12 @@ export class DshMembers {
 
   finish(job, member, { events, reason }) {
     if (!['pending', 'sent'].includes(this.store.job(job.id)?.state)) return;
-    if (reason?.kind === 'aborted' && reason.reason?.kind === 'user') {
-      this.fail(job.id, `${member.name} 已停止。`, 'interrupted');
-      return;
-    }
+    // A user stop keeps the text the turn already produced; the marker says why it stopped.
+    const cancelled = reason?.kind === 'aborted' && reason.reason?.kind === 'user';
     const text = finalText(events);
     if (text === undefined) {
-      this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
+      if (cancelled) this.fail(job.id, `${member.name} 已停止。`, 'interrupted');
+      else this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
       return;
     }
     const kind = reason?.kind;
@@ -239,7 +254,7 @@ export class DshMembers {
       authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`,
       text: complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`,
     });
-    this.store.finishJob(job.id, 'done', message.id);
+    this.store.finishJob(job.id, cancelled ? 'interrupted' : 'done', message.id);
   }
 
   fail(jobId, notice, state = 'failed') {
@@ -251,30 +266,39 @@ export class DshMembers {
     });
   }
 
+  /** Members that only had their output fenced: name them, or the user reads silence as success. */
+  unsupportedNotice(stopped) {
+    const names = stopped.map(r => `${this.config.get(r.member)?.name ?? r.member}`).join('、');
+    return `停止只发生在频道里：${names} 这些成员不是 DSH 任务，不支持终止，只屏蔽它们的旧输出。`;
+  }
+
   requireRoom(roomId) {
     if (this.store.room(roomId) === undefined) throw new CollabError('room-missing', 'room not found');
   }
 
-  stopRoom(roomId) {
+  stopRoom(roomId, { outputOnly = [] } = {}) {
     this.requireRoom(roomId);
     if (this.stopping.has(roomId)) return this.stopping.get(roomId);
     this.hub.stopRoom(roomId);
-    const stopping = this.cancelRoomJobs(roomId).finally(() => this.stopping.delete(roomId));
+    const stopping = this.cancelRoomJobs(roomId, outputOnly).finally(() => this.stopping.delete(roomId));
     this.stopping.set(roomId, stopping);
     return stopping;
   }
 
-  async cancelRoomJobs(roomId) {
+  async cancelRoomJobs(roomId, outputOnly = []) {
     const jobs = this.store.openJobs().filter(j => j.room_id === roomId);
     // Do this synchronously, before callbacks or awaits can release a queued job.
     this.store.transaction(() => { for (const job of jobs) this.store.finishJob(job.id, 'interrupted'); });
     const results = await Promise.all(jobs.filter(j => j.state === 'sent').map(async job => {
       const agent = this.rt.ctx.agents.get(job.session_id);
       const watcher = this.watching.get(job.session_id);
+      const name = this.config.get(job.member_id)?.name ?? job.member_id;
       let timer;
       try {
-        if (agent === undefined) return { member: job.member_id, outcome: 'not-loaded' };
+        if (agent === undefined) return { member: job.member_id, name, job: job.id, outcome: 'not-loaded' };
         const events = agent.session.snapshotEvents(job.seq_before);
+        // Text the turn already produced stays visible, flagged as cut short by the stop.
+        const partial = finalText(events);
         const consumed = consumingTurn(events, job.input_id);
         // inbox/claimed precedes user/message while input assembly awaits I/O.
         const claimedTurn = watcher?.jobId === job.id ? watcher.turn : undefined;
@@ -282,14 +306,14 @@ export class DshMembers {
           && !events.some(e => e.type === 'turn/end' && e.data?.turn === claimedTurn);
         // Withdraw only our input. Never clear the Web UI's queued messages.
         agent.inbox.remove(job.input_id);
-        if (!active) return { member: job.member_id, outcome: 'withdrawn' };
+        if (!active) return { member: job.member_id, name, job: job.id, outcome: 'withdrawn', partial };
         agent.cancel({ kind: 'user' }, { keepInbox: true });
         const idle = Promise.resolve(agent.whenIdle()).then(() => 'idle');
         const timeout = new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), this.stopTimeoutMs); });
-        return { member: job.member_id, outcome: await Promise.race([idle, timeout]) };
+        return { member: job.member_id, name, job: job.id, outcome: await Promise.race([idle, timeout]), partial };
       } catch (error) {
         this.rt.logger.warn('collab: stop job %d failed: %s', job.id, error?.message ?? error);
-        return { member: job.member_id, outcome: 'error' };
+        return { member: job.member_id, name, job: job.id, outcome: 'error', partial };
       } finally {
         clearTimeout(timer);
         if (watcher?.jobId === job.id) {
@@ -301,10 +325,27 @@ export class DshMembers {
     }));
     for (const id of this.config.keys()) this.hub.setThinking(roomId, id, false);
     const unconfirmed = results.filter(r => ['timeout', 'error', 'not-loaded'].includes(r.outcome)).map(r => r.member);
-    if (jobs.length && !this.closed) this.hub.post(roomId, { authorKind: 'system', author: 'system', name: 'system',
-      text: unconfirmed.length ? '频道接力已停止；部分任务尚未确认退出，迟到回复将被忽略。' : '已停止。',
-    });
-    return { room_id: roomId, stopped: true, cancelled_jobs: jobs.length, unconfirmed };
+    // Publish what each stopped turn had already written, so a stop loses no text.
+    const partials = results.filter(r => r.partial !== undefined);
+    for (const r of partials) {
+      if (this.closed) break;
+      this.hub.post(roomId, {
+        authorKind: 'role', author: r.member, name: r.name, clientKey: `dsh-job-${r.job}-interrupted`,
+        text: `${r.partial}\n\n（这一轮没有正常结束：${describeReason(STOPPED_REASON)}）`,
+      });
+    }
+    // One entry per member: confirmed (the turn really ended), requested (cancel sent, not
+    // confirmed within stopTimeoutMs) or unsupported (nothing to cancel here).
+    const stopped = results.map(r => ({ member: r.member, outcome: OUTCOME[r.outcome] ?? 'unsupported' }));
+    // Only the output fence is running for these members: that is not a stop, and must be said.
+    for (const id of outputOnly) if (!stopped.some(r => r.member === id)) stopped.push({ member: id, outcome: 'unsupported' });
+    const silent = stopped.every(r => r.outcome === 'unsupported') && stopped.length > 0
+      ? this.unsupportedNotice(stopped) : undefined;
+    if (!this.closed && (stopped.length > 0 || silent !== undefined)) {
+      this.hub.post(roomId, { authorKind: 'system', author: 'system', name: 'system',
+        text: silent ?? stopNotice(stopped) });
+    }
+    return { room_id: roomId, stopped: true, cancelled_jobs: jobs.length, unconfirmed, stopped_members: stopped };
   }
 
   continueRoom(roomId) {
