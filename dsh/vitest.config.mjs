@@ -10,6 +10,7 @@ export default {
       'dsh/packages/client-ui-discord/tests/channel-source.client.spec.ts',
       'dsh/packages/client-ui-discord/tests/mention-complete.client.spec.ts',
       'dsh/packages/client-ui-discord/tests/theme.client.spec.ts',
+      'dsh/packages/client-ui-discord/tests/channels-page.client.spec.tsx',
     ],
   },
 };
