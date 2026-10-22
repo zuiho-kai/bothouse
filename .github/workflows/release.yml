@@ -89,7 +89,9 @@ jobs:
           name: release-dist
           path: dist/
           if-no-files-found: error
-          retention-days: 7
+          # 1 天：artifact 只在本次 run 的 job 之间传递，发布后不再需要；额度按账号算，
+          # run 39784879535 (v0.1.1) 因 "Artifact storage quota has been hit" 上传失败。
+          retention-days: 1
 
   # Same check as the linux/amd64 smoke test, on a real Windows machine, before anything is published.
   smoke-windows:
@@ -368,3 +370,25 @@ jobs:
           Get-Process cc-connect -ErrorAction SilentlyContinue | Stop-Process -Force
           Stop-Process -Id $fake.Id -Force
           Write-Host "PASS: quick-try with spaces in home and config path: one --config argument, log in the spaced home, CC_LOG_FILE not left set"
+
+  # 用户 2026-10-22「留1小时」：artifact 只用来在本次 run 的 job 之间传包，发布、验收完就删掉本次 run 的全部
+  # artifact（retention-days 最小 1 天，只作兜底）。额度按账号算，run 39784879535 曾因额度满上传失败。
+  cleanup-artifacts:
+    needs: [build, smoke-windows, publish, verify-windows]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Delete this run's artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for id in $(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id"
+            echo "deleted artifact $id"
+          done

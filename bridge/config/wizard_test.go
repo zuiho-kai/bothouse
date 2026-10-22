@@ -226,3 +226,32 @@ aux_channels = { "1" = "2" }
 		}
 	}
 }
+
+func TestUpsertWizardProjectAgentArgsEnv(t *testing.T) {
+	dir := t.TempDir()
+	old := ConfigPath
+	ConfigPath = filepath.Join(dir, "config.toml")
+	defer func() { ConfigPath = old }()
+	if err := os.WriteFile(ConfigPath, []byte("[log]\nlevel = \"info\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "whale", AgentType: "dsh", AgentCmd: "/n/node",
+		AgentArgs: []string{"/d/bin.js", "--profile", "acp"}, AgentEnv: map[string]string{"UV_CACHE_DIR": "/w/.cache/uv"}}); err != nil {
+		t.Fatal(err)
+	}
+	// a later write merges env and leaves args alone when it has none
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "whale", AgentEnv: map[string]string{"K": "v"}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadPermissive(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := cfg.Projects[0].Agent.Options
+	args, _ := o["args"].([]any)
+	env, _ := o["env"].(map[string]any)
+	if cfg.Projects[0].Agent.Type != "dsh" || o["cmd"] != "/n/node" || len(args) != 3 || args[0] != "/d/bin.js" ||
+		env["UV_CACHE_DIR"] != "/w/.cache/uv" || env["K"] != "v" {
+		t.Fatalf("agent options = %v", o)
+	}
+}

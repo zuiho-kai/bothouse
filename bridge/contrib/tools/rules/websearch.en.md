@@ -1,0 +1,1 @@
+- Web search: `{{UV}} run -q --script {{TOOLS}}/websearch.py search "query" [n]` returns titles, links and snippets (free, no key); `… websearch.py fetch <url>` returns a page's main text. Search before answering anything time-sensitive (news, versions, prices, dates).

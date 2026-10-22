@@ -24,7 +24,12 @@ export interface SetupStateResp {
     cloud_web_url?: string; cloud_web_fallback?: string; cloud_web_team?: { project: string; name: string }[] };
   jev?: { url: string; model: string; has_key: boolean; logprobs: boolean };
   jev_hint: string;
+  /** the memory wiki (core/setup_wiki.go); absent = no ~/wiki/bin/ingest.py on this machine */
+  wiki?: { dir: string; engines: WikiEngine[]; defaults: WizardWiki; current: WizardWiki };
 }
+export interface WikiEngine { id: string; label: string; agent_type: string }
+/** model of each kind of wiki work; omitted = keep */
+export interface WizardWiki { daily?: string; night?: string; split?: string }
 
 export interface WizardRole {
   project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
@@ -40,6 +45,7 @@ export interface WizardRequest {
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
   allow_from?: string;
+  wiki?: WizardWiki;
   dry_run?: boolean;
 }
 export interface WizardWarning { code: string; project?: string; blocking: boolean; message: string; fix: string; url?: string }

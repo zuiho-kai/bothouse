@@ -211,6 +211,15 @@ func (s *memStore) ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite
 		if w.AgentCmd != "" {
 			p.AgentCmd = w.AgentCmd
 		}
+		if w.AgentArgs != nil {
+			p.AgentArgs = w.AgentArgs
+		}
+		for k, v := range w.AgentEnv {
+			if p.AgentEnv == nil {
+				p.AgentEnv = map[string]string{}
+			}
+			p.AgentEnv[k] = v
+		}
 		if w.PlatformType != "" {
 			p.PlatformType = w.PlatformType
 		}
@@ -553,7 +562,13 @@ func TestVendorMatrix(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, cells[k].Mode, mode)
 		}
 	}
-	if len(cells) != 6*len(AttachableAgents) {
+	if cells["deepseek×dsh"].Mode != "native" || cells["deepseek×dsh"].BaseURL != "https://api.deepseek.com/anthropic" {
+		t.Errorf("deepseek×dsh = %+v", cells["deepseek×dsh"])
+	}
+	if _, ok := cells["local×dsh"]; ok { // DSH takes native Anthropic endpoints only (VendorServes)
+		t.Error("local×dsh must not be in the matrix")
+	}
+	if len(cells) != 6*len(AttachableAgents)-1 {
 		t.Errorf("matrix size %d", len(cells))
 	}
 	// a custom base URL always goes through the converter for non-OpenAI CLIs

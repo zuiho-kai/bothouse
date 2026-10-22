@@ -1,0 +1,9 @@
+.ingest.log
+.ingest.lock
+__pycache__/
+.ingest.sqlite
+.ingest-usage.tsv
+.ingest.running
+.ingest.queue
+.ingest-work/
+config.json

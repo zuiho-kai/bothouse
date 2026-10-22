@@ -333,6 +333,7 @@ type CronAddRequest struct {
 	WorkDir     string `json:"work_dir"`
 	Description string `json:"description"`
 	Silent      *bool  `json:"silent,omitempty"`
+	Mute        bool   `json:"mute,omitempty"` // post nothing (start notice and output)
 	SessionMode string `json:"session_mode,omitempty"`
 	Mode        string `json:"mode,omitempty"`
 	TimeoutMins *int   `json:"timeout_mins,omitempty"`
@@ -412,6 +413,7 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Enabled:     true,
 		Silent:      req.Silent,
+		Mute:        req.Mute,
 		SessionMode: NormalizeCronSessionMode(req.SessionMode),
 		Mode:        req.Mode,
 		TimeoutMins: req.TimeoutMins,
