@@ -80,12 +80,106 @@
 
 .chatHead {
   display: flex;
-  gap: 6px;
+  gap: 12px;
   align-items: center;
-  height: 44px;
+  justify-content: space-between;
+  min-height: 44px;
   padding: 0 16px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   font-weight: 600;
+}
+
+.chatHeadTitle {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.chatHeadActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.stopButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.stopButton:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary-inverted);
+  background: var(--dsw-alias-state-error-primary);
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.stopButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stopButton:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+}
+
+.stopIcon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.roomNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 13px;
+}
+
+.roomNoticeText {
+  flex: 1;
+  min-width: 0;
+}
+
+.noticeClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.noticeClose:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .log {
@@ -181,6 +275,62 @@
 .cardTitle {
   font-size: 13px;
   font-weight: 600;
+}
+
+.relayCard {
+  border-left-color: var(--dsw-alias-state-business-primary);
+}
+
+.relayCardBody {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.relayCardText {
+  flex: 1;
+  min-width: 200px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.continueButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--dsw-alias-state-business-primary);
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-label-primary-inverted);
+  background: var(--dsw-alias-state-business-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.continueButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.continueButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.continueButton:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+}
+
+.cardError {
+  margin-top: 6px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
 }
 
 .working {

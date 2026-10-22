@@ -46,6 +46,8 @@ export function apply(ctx: ClientContext): void {
     addMember: channels.actions.addMember,
     updateMember: channels.actions.updateMember,
     removeMember: channels.actions.removeMember,
+    stopRoom: channels.actions.stopRoom,
+    continueRoom: channels.actions.continueRoom,
   })
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',

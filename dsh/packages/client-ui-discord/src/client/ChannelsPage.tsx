@@ -45,10 +45,26 @@ function KindTag({ kind, t }: { kind: ChannelMember['kind'] | undefined; t: T })
   return null
 }
 
-function MessageRow({ message, member, t }: { message: ChannelMessage; member: ChannelMember | undefined; t: T }) {
-  let card: { title?: string; state?: string } | undefined
+function MessageRow({
+  message,
+  member,
+  t,
+  onContinue,
+  isContinuing,
+  isResumed,
+  relayError,
+}: {
+  message: ChannelMessage
+  member: ChannelMember | undefined
+  t: T
+  onContinue: (roomId: number, messageId: number) => void
+  isContinuing: boolean
+  isResumed: boolean
+  relayError: string | undefined
+}) {
+  let card: { title?: string; state?: string; type?: string; room_id?: number } | undefined
   if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; type?: string; room_id?: number } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
   return (
     <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
@@ -61,12 +77,33 @@ function MessageRow({ message, member, t }: { message: ChannelMessage; member: C
         </div>
         {card === undefined
           ? <div className={css.text}>{message.text}</div>
-          : (
-              <div className={css.card} data-state={card.state}>
-                <div className={css.cardTitle}>{card.title}</div>
-                <div className={css.text}>{message.text}</div>
-              </div>
-            )}
+          : card.type === 'relay_limit'
+            ? (
+                <div className={`${css.card} ${css.relayCard}`} data-type="relay_limit">
+                  <div className={css.relayCardBody}>
+                    <div className={css.relayCardText}>{message.text}</div>
+                    <button
+                      type="button"
+                      className={css.continueButton}
+                      title={t('continueRoomTitle')}
+                      aria-label={t('continueRoom')}
+                      disabled={isContinuing || isResumed}
+                      onClick={() => { onContinue(card?.room_id ?? message.room_id, message.id) }}
+                    >
+                      {isContinuing ? t('continuingRoom') : isResumed ? t('continueResumed') : t('continueRoom')}
+                    </button>
+                  </div>
+                  {relayError !== undefined && (
+                    <div className={css.cardError} role="alert">{relayError}</div>
+                  )}
+                </div>
+              )
+            : (
+                <div className={css.card} data-state={card.state}>
+                  {card.title !== undefined && <div className={css.cardTitle}>{card.title}</div>}
+                  <div className={css.text}>{message.text}</div>
+                </div>
+              )}
       </div>
     </div>
   )
@@ -124,11 +161,18 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, t }: ChannelsPageProps) {
+export function ChannelsPage({
+  useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, stopRoom, continueRoom, t,
+}: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
+  const [stoppingRoom, setStoppingRoom] = useState<Record<number, boolean>>({})
+  const [stopNotice, setStopNotice] = useState<Record<number, string | undefined>>({})
+  const [continuingMessages, setContinuingMessages] = useState<Record<number, boolean>>({})
+  const [resumedMessages, setResumedMessages] = useState<Record<number, boolean>>({})
+  const [relayErrors, setRelayErrors] = useState<Record<number, string | undefined>>({})
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
@@ -242,6 +286,67 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     })
   }
 
+  const handleStop = (roomId: number): void => {
+    if (stoppingRoom[roomId] === true) return
+    const currentlyBusy = new Set(state.thinking[String(roomId)] ?? [])
+    setStoppingRoom(previous => ({ ...previous, [roomId]: true }))
+    setStopNotice(previous => ({ ...previous, [roomId]: undefined }))
+    stopRoom(roomId).then((res) => {
+      if (res.stopped_members.length === 0) {
+        setStopNotice(previous => ({ ...previous, [roomId]: t('stopNone') }))
+      } else {
+        const parts: string[] = []
+        const confirmed = res.stopped_members.filter(m => m.outcome === 'confirmed')
+        const requested = res.stopped_members.filter(m => m.outcome === 'requested')
+        const unsupported = res.stopped_members.filter(m => m.outcome === 'unsupported')
+
+        const stopped = confirmed.filter(m => currentlyBusy.has(m.member))
+        const notRunning = confirmed.filter(m => !currentlyBusy.has(m.member))
+
+        if (stopped.length > 0) {
+          const names = stopped.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+          parts.push(t('stopConfirmed', { names }))
+        }
+        if (requested.length > 0) {
+          const names = requested.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+          parts.push(t('stopRequested', { names }))
+        }
+        if (unsupported.length > 0) {
+          const names = unsupported.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+          parts.push(t('stopUnsupported', { names }))
+        }
+        if (notRunning.length > 0) {
+          const names = notRunning.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+          parts.push(t('stopNotRunning', { names }))
+        }
+        setStopNotice(previous => ({ ...previous, [roomId]: parts.length ? parts.join('；') : t('stopNone') }))
+      }
+    }).catch((error: unknown) => {
+      setStopNotice(previous => ({
+        ...previous,
+        [roomId]: t('stopFailed', { message: error instanceof Error ? error.message : String(error) }),
+      }))
+    }).finally(() => {
+      setStoppingRoom(previous => ({ ...previous, [roomId]: false }))
+    })
+  }
+
+  const handleContinue = (targetRoomId: number, messageId: number): void => {
+    if (continuingMessages[messageId] === true || resumedMessages[messageId] === true) return
+    setContinuingMessages(previous => ({ ...previous, [messageId]: true }))
+    setRelayErrors(previous => ({ ...previous, [messageId]: undefined }))
+    continueRoom(targetRoomId).then(() => {
+      setResumedMessages(previous => ({ ...previous, [messageId]: true }))
+    }).catch((error: unknown) => {
+      setRelayErrors(previous => ({
+        ...previous,
+        [messageId]: t('continueFailed', { message: error instanceof Error ? error.message : String(error) }),
+      }))
+    }).finally(() => {
+      setContinuingMessages(previous => ({ ...previous, [messageId]: false }))
+    })
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (popupOpen && !event.nativeEvent.isComposing) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -304,7 +409,43 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         ))}
       </nav>
       <section className={css.chat}>
-        <header className={css.chatHead}><span className={css.hash} aria-hidden>#</span>{room?.name}</header>
+        <header className={css.chatHead}>
+          <div className={css.chatHeadTitle}>
+            <span className={css.hash} aria-hidden>#</span>{room?.name}
+          </div>
+          {state.roomId !== undefined && (
+            <div className={css.chatHeadActions}>
+              <button
+                type="button"
+                className={css.stopButton}
+                title={t('stopRoomTitle')}
+                aria-label={t('stopRoom')}
+                disabled={stoppingRoom[state.roomId] === true}
+                onClick={() => { handleStop(state.roomId as number) }}
+              >
+                <span className={css.stopIcon} aria-hidden />
+                <span>{stoppingRoom[state.roomId] ? t('stoppingRoom') : t('stopRoom')}</span>
+              </button>
+            </div>
+          )}
+        </header>
+        {state.roomId !== undefined && stopNotice[state.roomId] !== undefined && (
+          <div className={css.roomNotice} role="status" aria-live="polite">
+            <span className={css.roomNoticeText}>{stopNotice[state.roomId]}</span>
+            <button
+              type="button"
+              className={css.noticeClose}
+              title={t('closeNotice')}
+              aria-label={t('closeNotice')}
+              onClick={() => {
+                const rid = state.roomId as number
+                setStopNotice(previous => ({ ...previous, [rid]: undefined }))
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div
           ref={logRef}
           className={css.log}
@@ -317,7 +458,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         >
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} />)}
+            : state.messages.map(m => (
+                <MessageRow
+                  key={m.id}
+                  message={m}
+                  member={byId.get(m.author)}
+                  t={t}
+                  onContinue={handleContinue}
+                  isContinuing={continuingMessages[m.id] === true}
+                  isResumed={resumedMessages[m.id] === true}
+                  relayError={relayErrors[m.id]}
+                />
+              ))}
         </div>
         <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
         <div className={css.composer}>
