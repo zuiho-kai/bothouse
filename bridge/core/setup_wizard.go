@@ -48,7 +48,10 @@ type WizardRequest struct {
 	// Not given = the owner of each bot's Discord application (looked up with the token).
 	// Written to new bots and to existing bots whose allow_from is still empty; a non-empty one is kept.
 	AllowFrom *string `json:"allow_from,omitempty"`
-	DryRun    bool    `json:"dry_run,omitempty"`
+	// Wiki: the models of the memory wiki's work (core/setup_wiki.go); nil or "" = keep. With a wiki
+	// (~/wiki/bin/ingest.py), the wizard also adds its scheduled runs as muted cron jobs.
+	Wiki   *WizardWiki `json:"wiki,omitempty"`
+	DryRun bool        `json:"dry_run,omitempty"`
 }
 
 type WizardFeishu struct {
@@ -157,8 +160,10 @@ type WizardResult struct {
 
 type WizardProjectWrite struct {
 	Name, AgentType, WorkDir, PlatformType string
-	AgentCmd                               string         // absolute CLI path when it was found outside PATH (L2); "" = leave
-	Options                                map[string]any // merged into the platform's options; "" deletes a key
+	AgentCmd                               string            // absolute CLI path when it was found outside PATH (L2); "" = leave
+	AgentArgs                              []string          // agent option args; nil = leave
+	AgentEnv                               map[string]string // merged into agent option env
+	Options                                map[string]any    // merged into the platform's options; "" deletes a key
 	GateURL, GateFallback                  *string
 	Provider                               *ProviderConfig
 	FeishuOwnerOpenID                      string // feishu: merged into allow_from when it is empty
@@ -265,6 +270,10 @@ type WizardEnv struct {
 	// CLI is on this PATH. The command-line entry sets it: a shell PATH says nothing about the
 	// PATH launchd/systemd gives the service later. Projects that already have cmd keep it.
 	AlwaysWriteCmd bool
+	// Cron: where the wiki's cron jobs go (core/setup_wiki.go); nil = the job file in DataDir.
+	Cron WizardCron
+	// WikiSubScript: sub-wiki.sh of the config's agent.closed hook ("" = no teammate wikis).
+	WikiSubScript string
 }
 
 // ── files written next to config.toml ─────────────────────────
@@ -558,7 +567,7 @@ func JevFailReason(lang string, t JevTestResult) string {
 var memoryFileOfAgent = map[string]string{
 	"claudecode": "CLAUDE.md", "codex": "AGENTS.md", "gemini": "GEMINI.md", "antigravity": "GEMINI.md",
 	"opencode": "OPENCODE.md", "iflow": "IFLOW.md", "reasonix": "REASONIX.md",
-	"qoder": "AGENTS.md", "kimi": "AGENTS.md", "pi": "AGENTS.md",
+	"qoder": "AGENTS.md", "kimi": "AGENTS.md", "pi": "AGENTS.md", "dsh": "AGENTS.md",
 }
 
 // PersonaFilePath is the agent's project instruction file in workDir — the same
@@ -608,11 +617,13 @@ type wizardIdentity struct {
 // plannedRole is a role after names are fixed against the config (inside the lock).
 type plannedRole struct {
 	wizardIdentity
-	project  string
-	workDir  string
-	reused   bool // an existing project (asked for, or the same bot found by its ID)
-	agentCmd string
-	nameNote string // why the project name is not the bot's name (e.g. role-1 for a name with no a-z/0-9)
+	project   string
+	workDir   string
+	reused    bool // an existing project (asked for, or the same bot found by its ID)
+	agentCmd  string
+	agentArgs []string          // dsh: how to start the user's dsh (dshRoleLaunch)
+	agentEnv  map[string]string // dsh: UV_CACHE_DIR, the wizard-picked key
+	nameNote  string            // why the project name is not the bot's name (e.g. role-1 for a name with no a-z/0-9)
 }
 
 // updatesReplyLanguage: an existing bot whose persona is otherwise left alone gets only its
@@ -667,6 +678,11 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	if len(req.Roles) == 0 {
 		return fail("roles", fmt.Errorf("at least one role is required"))
+	}
+	if req.Wiki != nil {
+		if err := req.Wiki.validate(); err != nil {
+			return fail("wiki", err)
+		}
 	}
 	if isFeishu && len(req.Roles) != 1 {
 		return fail("roles", fmt.Errorf("feishu: one bot per wizard run (multi-role is Discord and cloud_web only)"))
@@ -899,6 +915,18 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			switch {
 			case r.writesPersona():
 				addStep(res, step, nil, stepDryPersonaWrite(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
+				if r.AgentType == "dsh" && !r.reused {
+					addStep(res, fmt.Sprintf("role %d dsh", i+1), nil, DSHPatchPath(env.DataDir, r.project))
+				}
+				if !r.reused && wizardHooksFor(r.AgentType) {
+					addStep(res, fmt.Sprintf("role %d hooks", i+1), nil, stepHooksOn(req.Language, AgentHookNames(), hookSettingsShown(r.AgentType, r.workDir, nil)))
+				}
+				if !r.reused && AgentToolFS != nil {
+					addStep(res, fmt.Sprintf("role %d tools", i+1), nil, stepToolsOn(req.Language, AgentToolNames(), PersonaFilePath(r.AgentType, r.workDir)))
+				}
+				if !r.reused && (RoleWikiFS != nil || env.WikiSubScript != "") {
+					addStep(res, fmt.Sprintf("role %d wiki", i+1), nil, filepath.Join(r.workDir, "wiki"))
+				}
 			case r.updatesReplyLanguage():
 				addStep(res, step, nil, stepDryPersonaLang(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
 			default:
@@ -981,10 +1009,59 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				content = string(b)
 			}
 		}
+		if !r.reused { // a new role keeps a diary (setup_defaults.go)
+			lang := r.ReplyLanguage
+			if lang == "" {
+				lang = req.Language
+			}
+			content = WithDiary(content, lang)
+		}
 		if err := AtomicWriteFile(path, []byte(WithReplyLanguage(content, r.ReplyLanguage)), 0o644); err != nil {
 			return fail(step, err)
 		}
 		addStep(res, step, nil, stepPersonaWritten(req.Language, r.project, path))
+		dsh := wizardDSH(clis)
+		if r.AgentType == "dsh" && !r.reused {
+			// every new DSH role gets its overlay (dsh --patch): the third-party API picked for it (the key is in
+			// the role's env) and the hook bridge; the user's own $DSH_HOME is not written
+			ds := fmt.Sprintf("role %d dsh", i+1)
+			p, err := writeDSHProviderPatch(env.DataDir, r.project, r.Provider)
+			if err != nil {
+				return fail(ds, err)
+			}
+			addStep(res, ds, nil, p)
+		}
+		if !r.reused && wizardHooksFor(r.AgentType) {
+			// a new role gets every tool hook and their rules in its persona; a failure here
+			// (no python3, no npm for DSH's hook bridge, …) is reported but does not undo the role
+			// ("cc-connect setup hooks on" later)
+			hs := fmt.Sprintf("role %d hooks", i+1)
+			o := AgentHookOptions{DataDir: env.DataDir, WorkDir: r.workDir, CLI: r.AgentType, Lang: r.ReplyLanguage}
+			var err error
+			if r.AgentType == "dsh" {
+				o.DSHPatch = DSHPatchPath(env.DataDir, r.project)
+				o.DSHBridge, err = EnsureDSHBridgeFor(ctx, env.DataDir, dsh.Path, dsh.Version)
+			}
+			var h *AgentHookResult
+			if err == nil {
+				h, err = EnableAgentHooks(o)
+			}
+			if err != nil {
+				addStep(res, hs, err, "")
+			} else {
+				addStep(res, hs, nil, stepHooksOn(req.Language, h.Enabled, hookSettingsShown(r.AgentType, r.workDir, h)))
+			}
+		}
+		if !r.reused && AgentToolFS != nil {
+			// a new role gets the small tools (peek, watchvid, websearch) and their lines in its persona; a failure
+			// here is reported but does not undo the role ("cc-connect setup tools on" later)
+			ts := fmt.Sprintf("role %d tools", i+1)
+			if t, err := EnableAgentTools(AgentToolOptions{DataDir: env.DataDir, WorkDir: r.workDir, AgentType: r.AgentType, Lang: r.ReplyLanguage}); err != nil {
+				addStep(res, ts, err, "")
+			} else {
+				addStep(res, ts, nil, stepToolsOn(req.Language, t.Enabled, t.PersonaFile))
+			}
+		}
 	}
 
 	// 自建平台 team: every member's wizard-made persona (one with a conest marker) gets the team line;
@@ -1060,6 +1137,17 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if err := writeJSONFile(filepath.Join(env.DataDir, setupStateFile), st, 0o644); err != nil {
 		return fail("state", err)
 	}
+	wikiSession := "" // the self-hosted platform has no fixed channel to anchor a cron job to: models only
+	if !cloudWeb {
+		ch := st.ChannelID
+		if ch == "" {
+			ch = state.ChannelID // a run without channel_id keeps the earlier default channel
+		}
+		wikiSession = wizardSessionKey(req.Platform, ch, st.FeishuChatID)
+	}
+	// every new role's own wiki + nightly reflection (core/rolewiki.go); the cron jobs below then run its sub-wiki.sh
+	env.WikiSubScript = applyRoleWikis(ctx, res, env, req, pl, clis)
+	applyWizardWiki(res, env, req, pl.fallback, wikiSession)
 	res.RestartRequired = true
 	res.Saved = true
 	finishWizardResult(res, req, pl)
@@ -1191,10 +1279,16 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			r.AgentType = defaultAgent
 		}
 		if r.AgentType == "" {
-			return nil, fmt.Errorf("no supported agent CLI found on this machine (install claude / codex / gemini / opencode …)")
+			return nil, fmt.Errorf("no supported agent CLI found on this machine (install claude / codex / gemini / opencode / dsh …)")
 		}
 		if r.Provider != nil && protocolOfAgent[r.AgentType] == "" {
 			return nil, fmt.Errorf("%s can't take a third-party API in cc-connect; use one of %v", r.AgentType, AttachableAgents)
+		}
+		if r.Provider != nil && !VendorServes(r.Provider.Vendor, r.AgentType) {
+			return nil, fmt.Errorf("%s: %s has no Anthropic endpoint, which DSH needs (DSH only speaks Anthropic Messages)", r.AgentType, r.Provider.Vendor)
+		}
+		if r.Provider != nil && r.AgentType == "dsh" && r.reused {
+			return nil, fmt.Errorf("%s is an existing DSH role: change its model in DSH's own config", r.project)
 		}
 		if !r.reused {
 			r.workDir = r.WorkDir
@@ -1208,6 +1302,13 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		for _, c := range clis {
 			if c.AgentType == r.AgentType && c.Supported && c.Path != "" && (!c.InPath || alwaysCmd) {
 				r.agentCmd = c.Path // found outside PATH: tell the service where it is (L2)
+			}
+		}
+		if r.AgentType == "dsh" && !r.reused {
+			for _, c := range clis {
+				if c.AgentType == "dsh" && c.Path != "" {
+					r.agentCmd, r.agentArgs, r.agentEnv = dshRoleLaunch(c.Path, dataDir, r.project, r.workDir, r.Provider)
+				}
 			}
 		}
 		if cloudWeb {
@@ -1294,9 +1395,12 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		if r.agentCmd != "" && (!exists || ex.AgentCmd == "") {
 			pw.AgentCmd = r.agentCmd
 		}
-		if r.Provider != nil {
+		if r.Provider != nil && r.AgentType != "dsh" { // DSH has no cc-connect provider: dshRoleLaunch + the role's overlay
 			p := ResolveWizardProvider(r.Provider.Vendor, r.AgentType, r.Provider.BaseURL, r.Provider.APIKey, r.Provider.Model)
 			pw.Provider = &p
+		}
+		if !exists {
+			pw.AgentArgs, pw.AgentEnv = r.agentArgs, r.agentEnv
 		}
 		if cloudWeb {
 			pw.PlatformType = "cloud_web"
@@ -1677,6 +1781,9 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 			fb = t.Name
 		}
 	}
+	if w := LoadWikiSetup(); w != nil {
+		out["wiki"] = w
+	}
 	j, ok := LoadJevConfig(m.wizardDataDir)
 	out["jev_hint"] = JevHint(r.URL.Query().Get("lang"), ok && j.Logprobs, out["hardware"].(bool), fb)
 	mgmtJSON(w, http.StatusOK, out)
@@ -1860,7 +1967,11 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 		mgmtError(w, http.StatusServiceUnavailable, "wizard not configured")
 		return
 	}
-	res := ApplyWizard(r.Context(), WizardEnv{Store: m.wizardStore, DataDir: m.wizardDataDir}, req)
+	env := WizardEnv{Store: m.wizardStore, DataDir: m.wizardDataDir, WikiSubScript: m.wikiSubScript}
+	if m.cronScheduler != nil { // a running service: the wiki's jobs start without a restart
+		env.Cron = CronOfScheduler(m.cronScheduler)
+	}
+	res := ApplyWizard(r.Context(), env, req)
 	status := http.StatusOK
 	if !res.OK && !res.Saved { // saved with warnings is still a 200: the config was written
 		status = http.StatusBadRequest

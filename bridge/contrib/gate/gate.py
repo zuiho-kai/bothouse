@@ -1,10 +1,11 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["mlx-lm; sys_platform == 'darwin' and platform_machine == 'arm64'"]  # mlx 只有 Apple 芯片；别的机器不装，gate 用 jev 或只按规则
+# dependencies = []  # 打分用 jev（OpenAI 兼容接口，标准库就够）；不装、不下载本地模型
 # ///
-"""主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent。
+"""主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent / abort。
 
-先走确定性规则，规则定不了再让本地 Qwen3.5-4B 读 A/B/C 三个选项的概率（约 30ms，见 scorer.py）。
+先走确定性规则，规则定不了再让 jev（向导填的模型）读 A/B/C 三个选项的概率（见 scorer_remote.py）。
+没填 jev 就报错退出，不自己下载模型。
 每次判断写进 GATE_LOG（默认 ~/.cc-connect/gate.jsonl），用来调规则或以后做微调。
 POST /decide  {content, mentioned, busy, has_images, has_files, buffered[]} → {action, reason}
 POST /context {key, text} → 每轮相关的 wiki 页（ctxsvc.py；wiki 目录 GATE_WIKI，默认 ~/wiki）
@@ -18,10 +19,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import ctxsvc
-from scorer_remote import NullScorer, RemoteScorer, load_jev
+from scorer_remote import RemoteScorer, load_jev
+import lead
 
 PORT = 9930
-MODEL = os.environ.get("GATE_MODEL", "mlx-community/Qwen3.5-4B-MLX-4bit")
+# 本机模型只在显式设了 GATE_MODEL 时用（GPU 机器上 start_gate_wsl.sh 那种部署），没有默认值、不自动下载
+MODEL = os.environ.get("GATE_MODEL", "")
 LOG = Path(os.environ.get("GATE_LOG", Path.home() / ".cc-connect/gate.jsonl"))
 
 # 安装向导（cc-connect 网页 / cc-connect setup apply）把 jev.json、gate-team.json 写在 cc-connect 的数据目录。
@@ -39,6 +42,7 @@ SUBS = {k: v["name"] for k, v in _team["subs"].items()}
 NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _team["subs"].items()}
 NAMES[""] = LEAD_NAMES
 SUB_LIST = "、".join(SUBS.values())
+lead.configure(_team)  # 主角色可切换（lead.py）：用同一份团队文件
 
 
 def _team_text(t):
@@ -46,8 +50,8 @@ def _team_text(t):
     return (t.replace("橘、龙娘、鲸鱼娘、彩虹猫", f"{LEAD}、{SUB_LIST}")
              .replace("龙娘、鲸鱼娘、彩虹猫", SUB_LIST).replace("橘", LEAD))
 
-# 叫它、明确要它看/答
-CALL = re.compile("|".join(map(re.escape, LEAD_NAMES)) + r"|你看看|你看下|看一下|帮我|你觉得|你怎么看|怎么看|怎么办|能不能|可以吗|为什么|是什么|吗[？?]?$|[？?]\s*$")
+# 明确要它看/答（叫它的名字另看 NAMES[主角色]，主角色可切换，lead.py）
+CALL = re.compile(r"你看看|你看下|看一下|帮我|你觉得|你怎么看|怎么看|怎么办|能不能|可以吗|为什么|是什么|吗[？?]?$|[？?]\s*$")
 URL = re.compile(r"https?://\S+")
 # 纯应答/语气词 → 不出声
 ACK = re.compile(r"^(好的?|嗯+|哦+|噢+|ok|OK|行|收到|知道了|谢谢|谢了|thx|👌|👍|哈+|嘿+|[.。!！~～]+)$")
@@ -60,39 +64,62 @@ PROMPT = """你是群聊里「橘」的"要不要出声"判断器。橘是群里
 A 不回：闲聊、语气词、自言自语、还没说完、和橘无关
 B 插入：给出了新信息、新资料，或者对橘正在做的事的更正、追加、叫停，橘应该马上知道，但用户没要求回答
 C 回复：用户在问橘、要橘做事或给意见、问大家的看法
+D 打断：橘正在干活时，用户叫停、暂停、别做了、换成别的事（要她马上停下，不是补充信息）
 只答一个字母。
 
 """
 PROMPT = _team_text(PROMPT)
-SUFFIX = LEAD + "{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复）："  # 末尾重提选项：不加的话偏向 A
 
-ACTIONS = ["silent", "insert", "reply"]
+
+def _member_text(t, k):
+    """_team_text 之后的提示词，再把主 bot 换成当前主角色 k，其余成员当队友。"""
+    others = "、".join(v for j, v in lead.NAME.items() if j != k)
+    return t.replace(SUB_LIST, "\0").replace(LEAD, lead.NAME[k]).replace("\0", others)
+
+
+SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复 / D 打断）："  # 末尾重提选项：不加的话偏向 A
+
+ACTIONS = ["silent", "insert", "reply", "abort"]  # abort：忙时叫停/暂停/换事 → cc-connect 先取消当前一轮再按 reply 投递（用户原话「我说暂停，还要等个40分钟」）
+# 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
+NO_JEV = """gate 没法启动：没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）。
+gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
+  1. 用免费小模型：硅基流动的免费 Qwen 小模型。在安装向导（运行 cc-connect，浏览器里的 /setup）的 jev 一步填 Base URL、Key、模型名。
+  2. 本地下载一个 0.6B 小模型：如 Qwen3 0.6B，用 mlx_lm.server 起 OpenAI 兼容接口
+     （mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit），再把地址填进向导的 jev。LM Studio 不给概率，当不了 jev。"""
+
+
 def make_scorer():
-    """jev.json（拿得到概率）→ 本机 mlx Qwen → 只按规则（NullScorer：模型那步按出错走，主 bot 回 = 兜底角色回）。"""
-    jev = load_jev(os.environ.get("GATE_JEV") or SETUP_DIR / "jev.json")
+    """jev.json（向导写的、测出给概率的）→ RemoteScorer；显式设了 GATE_MODEL → 本机 scorer.py；都没有 → 报错退出。"""
+    path = os.environ.get("GATE_JEV") or SETUP_DIR / "jev.json"
+    jev = load_jev(path)
     if jev:
         return RemoteScorer(jev), "jev"
-    try:
-        from scorer import Scorer
-    except ImportError:  # 没装 mlx（非 Apple 芯片、Linux、Windows）
-        return NullScorer(), "rules"
-    return Scorer(MODEL), "local"
+    if MODEL:
+        try:
+            from scorer import Scorer
+        except ImportError as e:
+            raise SystemExit(f"gate 没法启动：设了 GATE_MODEL={MODEL}，但加载不了本机打分器（{e}）。"
+                             "Apple 芯片用 uv run --with mlx-lm 运行；N 卡把 scorer_torch.py 放成 scorer.py。不想用本机模型就去掉 GATE_MODEL、在向导填 jev。")
+        return Scorer(MODEL), "local"
+    raise SystemExit(NO_JEV.format(path=path))
 
 
 scorer, SCORER_KIND = make_scorer()
-task = scorer.prepare(PROMPT, options=["A", "B", "C"], prefill="答案：")
+# 谁当主角色就用谁的名字判（lead.py）
+tasks = {k: scorer.prepare(_member_text(PROMPT, k), options=["A", "B", "C", "D"], prefill="答案：") for k in lead.KEYS}
 
 # sub：忙时这句要不要打断她
 SUB_PROMPT = """一个 AI 成员正在处理派给她的任务，这时群里有人发了新消息。判断这条消息怎么给她：
 A 增量：普通群聊、和她手上的任务无关，先记着，等她下次开口时再一起看
-B 插入：和她正在做的任务直接相关（更正、补充要求、改方向、叫停、叫她名字问进度），应该马上告诉她
+B 插入：和她正在做的任务直接相关（更正、补充要求、改方向、叫她名字问进度），应该马上告诉她
+D 打断：叫停、暂停、别做了、换成别的事（要她马上停下手上的任务）
 群里还有橘、龙娘、鲸鱼娘、彩虹猫；叫的是别人的名字，就是在跟别人说话，不是对她。
 只答一个字母。
 
 """
 SUB_PROMPT = _team_text(SUB_PROMPT)
-SUB_SUFFIX = "她是「{name}」，正在做的任务：「{task}」\n群里刚发：「{msg}」\n\n判断（A 增量 / B 插入）："
-sub_task = scorer.prepare(SUB_PROMPT, options=["A", "B"], prefill="答案：")
+SUB_SUFFIX = "她是「{name}」，正在做的任务：「{task}」\n群里刚发：「{msg}」\n\n判断（A 增量 / B 插入 / D 打断）："
+sub_task = scorer.prepare(SUB_PROMPT, options=["A", "B", "D"], prefill="答案：")
 # 多频道：每个频道是她的一个独立会话（share_session_in_channel），手上的活按 (bot, session_key) 记
 current_task = {}  # (bot, session_key) → 最近一次被叫时的内容
 
@@ -128,15 +155,26 @@ def mentions_name(content, bot):
     return any(n in content for n in NAMES[bot])
 
 
-def judge(content, busy, buffered):
+def judge(content, busy, buffered, me=""):
     state = "正在干活（处理用户之前的请求）" if busy else "现在空闲"
     history = ""
     if buffered:
         history = "之前还没回的消息：\n" + "\n".join(f"- {b[:300]}" for b in buffered[-6:]) + "\n"
-    return task.score(SUFFIX.format(state=state, history=history, msg=content[:1500]))
+    return tasks[me].score(SUFFIX.format(name=lead.NAME[me], state=state, history=history, msg=content[:1500]))
 
 
 def decide_sub(req, bot):
+    action, reason, sc = _decide_sub(req, bot)
+    if action == "reply" and req.get("busy"):  # 叫她且她正忙：是不是叫停
+        key = (bot, req.get("session_key") or "")
+        content = (req.get("content") or "").strip()
+        sc2 = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task.get(key, "")[:500], msg=content[:1500]))
+        if sc2.choice == 2:
+            return "abort", reason + "；sub model: 打断", sc2
+    return action, reason, sc
+
+
+def _decide_sub(req, bot):
     content = (req.get("content") or "").strip()
     key = (bot, req.get("session_key") or "")
     if req.get("mentioned"):
@@ -148,7 +186,7 @@ def decide_sub(req, bot):
         current_task[key] = content[-500:]
         return "reply", "sub: 被点名", None
     if mentions_name(content, bot):
-        sc = named_task.score(NAMED_SUFFIX.format(name=SUBS[bot], msg=content[:1500]))
+        sc = named_task.score(NAMED_SUFFIX.format(name=lead.NAME[bot], msg=content[:1500]))
         if sc.probs[1] >= NAMED_THRESHOLD:
             current_task[key] = content[-500:]
             return "reply", "sub model: 提到且在叫她", sc
@@ -156,26 +194,51 @@ def decide_sub(req, bot):
             return "context", "sub model: 只是提到", sc
     if not req.get("busy") or not current_task.get(key):
         return "context", "sub: 空闲，记作增量", None
-    sc = sub_task.score(SUB_SUFFIX.format(name=SUBS[bot], task=current_task[key], msg=content[:1500]))
-    return ("context", "insert")[sc.choice], "sub model", sc
+    sc = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task[key], msg=content[:1500]))
+    return ("context", "insert", "abort")[sc.choice], "sub model", sc
 
 
-def decide(req):
+def route(req, bot=""):
+    """用户切换主角色的那句先处理（lead.py）；其余按当前主角色分流：主角色走主的规则，其他成员走 sub 的规则。"""
+    content = (req.get("content") or "").strip()
+    target = lead.parse(req, content, bot)
+    if target is not None:
+        lead.set_lead(target)
+        if bot == target:
+            return "reply", f"rule: 用户把主角色切到{lead.NAME[target]}", None
+        return "context", f"rule: 用户把主角色切到{lead.NAME[target]}，不是我", None
+    if bot == lead.current():
+        return decide(req, bot)
+    return decide_sub(req, bot)
+
+
+def decide(req, me=""):
+    action, reason, sc = _decide_lead(req, me)
+    if action == "reply" and req.get("busy"):  # @主角色/叫她名字且她正忙：是不是叫停，同 decide_sub（用户原话「艾特她的时候，不要只有insert插入，而是还有abort插入」）
+        content = (req.get("content") or "").strip()
+        if req.get("mentioned") or any(n in content for n in NAMES[me]):
+            sc2 = judge(content, True, req.get("buffered") or [], me)
+            if ACTIONS[sc2.choice] == "abort":
+                return "abort", reason + "；model: 打断", sc2
+    return action, reason, sc
+
+
+def _decide_lead(req, me=""):
     content = (req.get("content") or "").strip()
     buffered = req.get("buffered") or []
     busy = bool(req.get("busy"))
     if req.get("mentioned"):
-        return "reply", f"rule: @{LEAD}", None
+        return "reply", f"rule: @{lead.NAME[me]}", None
     if re.search(r"<@!?&?\d+>", content):  # @ 了别的 bot/人（自己的 @ 已被 cc-connect 去掉）→ 不是叫橘
         return "silent", "rule: @了别人", None
     called = called_names(content)
-    if called and "" not in called:  # 开头叫的是 sub，让她自己接
+    if called and me not in called:  # 开头叫的是别人，让她自己接
         return "silent", "rule: 点名 sub", None
     if content.startswith("/"):
         return "reply", "rule: command", None
     if ACK.match(content):
         return "silent", "rule: 应答", None
-    if CALL.search(content):
+    if CALL.search(content) or any(n in content for n in NAMES[me]):
         return "reply", "rule: 叫我/提问", None
     links = len(URL.findall(content)) + sum(len(URL.findall(b)) for b in buffered)
     if links >= LINKS_FOR_REPLY:
@@ -187,10 +250,13 @@ def decide(req):
     if not content:
         return "insert", "rule: 只有附件", None
     try:
-        sc = judge(content, busy, buffered)
+        sc = judge(content, busy, buffered, me)
     except ValueError as e:  # 输入超过 scorer 上限：和 cc-connect 出错时一样按 reply
         return "reply", f"error: {e}", None
-    return ACTIONS[sc.choice], "model", sc
+    action = ACTIONS[sc.choice]
+    if action == "abort" and not busy:  # 不忙没有可打断的，按回复
+        return "reply", "model: 打断但空闲，按回复", sc
+    return action, "model", sc
 
 
 # ---------- 分级：这条是聊天还是干活（给 cc-connect 自动选模型用）----------
@@ -234,11 +300,31 @@ def tier_of(req):
 
 
 class H(BaseHTTPRequestHandler):
+    def _json(self, obj, code=200):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
         bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
+        if url.path == "/lead":  # 主角色自己来问 / 自己来当（用户 2026-10-21：「每个角色都可以去选择当主，他自己有个功能接口过去搞」）
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            action = (req.get("action") or "get").strip()
+            if action == "get":
+                s = lead.state()
+                return self._json({"ok": True, "lead": s["lead"], "name": lead.NAME[s["lead"]], "at": s["at"]})
+            if action == "set":
+                target = lead.resolve(req.get("who") if req.get("who") is not None else bot)
+                if target is None:
+                    return self._json({"ok": False, "error": f"认不出是谁：{req.get('who')!r}"}, 400)
+                changed = lead.set_lead(target)
+                s = lead.state()
+                return self._json({"ok": True, "changed": changed, "lead": s["lead"], "name": lead.NAME[s["lead"]], "at": s["at"]})
+            return self._json({"ok": False, "error": f"action 只认 get / set：{action!r}"}, 400)
         if url.path == "/context":  # 每轮相关的 wiki 页（ctxsvc.py）
             req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            req.setdefault("bot", bot)  # sub 的 gate_url 带 ?bot=
             body = json.dumps(ctxsvc.context(req), ensure_ascii=False).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
@@ -248,11 +334,11 @@ class H(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         t = time.time()
         try:
-            action, reason, sc = decide_sub(req, bot) if bot else decide(req)
+            action, reason, sc = route(req, bot)
         except ValueError as e:  # 输入超过 scorer 上限
-            action, reason, sc = ("context" if bot else "reply"), f"error: {e}", None
+            action, reason, sc = ("reply" if bot == lead.current() else "context"), f"error: {e}", None
         tier = tier_reason = tier_probs = None
-        if action in ("reply", "insert"):
+        if action in ("reply", "insert", "abort"):  # abort 在 cc-connect 里按 reply 投递
             try:
                 tier, tier_reason, tsc = tier_of(req)
                 tier_probs = tsc.probs if tsc else None
@@ -261,7 +347,7 @@ class H(BaseHTTPRequestHandler):
         probs = sc.probs if sc else None
         ms = round((time.time() - t) * 1000)
         with LOG.open("a") as f:
-            f.write(json.dumps({"t": time.strftime("%F %T"), "bot": bot or LEAD, "busy": req.get("busy"), "mentioned": req.get("mentioned"),
+            f.write(json.dumps({"t": time.strftime("%F %T"), "bot": bot or LEAD, "lead": lead.NAME[lead.current()], "busy": req.get("busy"), "mentioned": req.get("mentioned"),
                                 "content": (req.get("content") or "")[:300], "buffered": len(req.get("buffered") or []),
                                 "action": action, "reason": reason, "probs": probs, "ms": ms,
                                 "tier": tier, "tier_reason": tier_reason, "tier_probs": tier_probs,

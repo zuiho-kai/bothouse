@@ -61,7 +61,7 @@ gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd
 - 都没有就是好了。日志里出现 `discord: connected` 就是上线，去频道里 @ 机器人说一句试试。
 - 想关掉终端也一直在线：`cc-connect daemon install`（装成后台服务、开机登录后自动起：macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。Windows 上 `cc-connect daemon stop` / `uninstall` 会结束这个服务启动的全部进程，包括机器人正在跑的 AI CLI；在机器人里让 AI 跑 `cc-connect daemon restart`（或 stop、install --force、uninstall）也可以：这时操作交给服务外的一个后台进程做完，结果写在 `%USERPROFILE%\.cc-connect\logs\daemon-handoff.log`。
 
-**gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：第一次要装 Python 依赖、下载约 3GB 模型，要几十分钟。
+**gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：要先在向导填 jev，没填 gate 会报错并提示怎么填。
 
 ## 上面三步之后，按需再加
 
@@ -89,10 +89,10 @@ gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd
 
 - **ccm / maomao 分支**：`bridge/` 里的 cc-connect 分支。比上游多了 gate、一主多 sub、队友状态、bot 之间交接。
 - **主 bot / sub**：主 bot 默认接话；sub 听得到群里每句话，只有被 @ 或被点名才开口。
-- **gate（快脑）**：每条消息先问它「回 / 插进正在做的这一轮 / 不回」。先走规则，规则定不了再让本地 Qwen 读选项概率。
+- **gate（快脑）**：每条消息先问它「回 / 插进正在做的这一轮 / 不回」。先走规则，规则定不了再让 jev 读选项概率。
 - **wiki**：llm-wiki 的分层记忆（`MEMORY.md` → 域 `README.md` → 主题页）。会话结束后自动整理进去，gate 每轮把相关的页推给 bot。
 - **jev**：只做选择题、给出选项概率的模型。gate 用它判断群里一句话该哪个角色回。
-  向导里三个框（Base URL、Key、模型）填一个给概率的 OpenAI 兼容模型就行；没有时 gate 按规则判、判不了交给兜底角色。
+  向导里三个框（Base URL、Key、模型）填一个给概率的 OpenAI 兼容模型就行；gate 要用它，没填时 gate 启动会报错并提示怎么填（gate 没在运行时，没被 @ 的消息由兜底角色回）。
 
 ## 两条线
 

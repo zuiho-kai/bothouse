@@ -59,7 +59,7 @@ func closeCronResponseBody(body io.Closer) {
 func runCronAdd(args []string) {
 	var project, sessionKey, cronExpr, prompt, execCmd, desc, dataDir, sessionMode string
 	var timeoutMins *int
-	var silent bool
+	var silent, mute bool
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -116,6 +116,8 @@ func runCronAdd(args []string) {
 			}
 		case "--silent":
 			silent = true
+		case "--mute":
+			mute = true
 		case "--help", "-h":
 			printCronAddUsage()
 			return
@@ -168,6 +170,9 @@ func runCronAdd(args []string) {
 	}
 	if silent {
 		body["silent"] = true
+	}
+	if mute {
+		body["mute"] = true
 	}
 	if sessionMode != "" {
 		body["session_mode"] = sessionMode
@@ -629,6 +634,7 @@ Options:
       --session-mode <mode>  reuse (default) or new-per-run — fresh agent session each run
       --timeout-mins <n>     Max minutes to wait per run (0 = no limit; default 30 if omitted)
       --silent               Suppress cron start notification
+      --mute                 Post nothing (no start notification, no output)
       --data-dir <path>      Data directory (default: ~/.cc-connect)
   -h, --help                 Show this help
 

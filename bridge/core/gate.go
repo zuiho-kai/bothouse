@@ -9,6 +9,9 @@ package core
 //               answer NO_REPLY.
 //   - "context": like silent, but attachments don't force a turn (they are noted as text). For
 //               sub agents that hear every message but only speak when @-ed (main + subs setup).
+//   - "abort":  the user is calling off what the bot is doing (stop / pause / do something else).
+//               Busy → the running turn is cancelled (same path as /stop) and this message starts
+//               a new turn, instead of waiting for the old one to finish. Idle → same as "reply".
 //   - "reply":  the user wants an answer. Busy → also injected into the running turn, whose
 //               final reply then covers it. Idle → normal turn.
 // Any gate error or timeout falls back to gate_fallback (default "reply", so the bot never goes deaf);
@@ -206,7 +209,7 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
 	}
 	switch out.Action {
-	case "reply", "insert", "silent", "context":
+	case "reply", "insert", "silent", "context", "abort":
 		return out
 	}
 	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action}
@@ -305,6 +308,22 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	e.teamNoteTurn(msg, session)
+
+	if dec.Action == "abort" {
+		// maomao fork: "stop / pause / do X instead" while busy must not wait for the turn to end.
+		if busy {
+			if e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx) {
+				e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
+				// Let the cancelled turn release the session (same wait as a recalled message),
+				// so this message starts the new turn instead of queueing behind the old one.
+				if e.waitForSessionLock(session, recalledStopLockWait) {
+					session.UnlockWithoutUpdate()
+				}
+			}
+			busy = session.Busy()
+		}
+		dec.Action = "reply"
+	}
 
 	if busy && g.canInject() {
 		if idle := e.turnIdleFor(interactiveKey); idle >= deadTurnAfter {

@@ -9,7 +9,7 @@ import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getPersonas, getSetupState, listChannels, listFeishuChats,
   startLocalHub, testCloudWeb, testJev, saveJev,
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell, type PersonaPreset,
-  type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor,
+  type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
 import { isZhLang, keptLangLabel, langLabel, replyLangOptions, stepLabel, wizardTexts } from './texts';
 
@@ -96,6 +96,9 @@ export default function SetupWizard() {
   const [copied, setCopied] = useState('');
   // allow_from: defaults to the bots' owners (from the token check) until the user edits it
   const [allowFrom, setAllowFrom] = useState<string | null>(null);
+  // memory wiki models: start from what is in effect; only the ones changed go into the request
+  const [wikiPick, setWikiPick] = useState<WizardWiki>({});
+  const wikiInfo = state?.wiki;
 
   useEffect(() => {
     getSetupState(lang).then(setState).catch(() => {});
@@ -312,6 +315,11 @@ export default function SetupWizard() {
     }
     if (platform === 'cloud_web') req.cloud_web = cwLocalKnown ? {} : { url: cwURL, token: mask(cw.token, '<PLATFORM_BOT_TOKEN>') };
     if (platform === 'feishu' && feishu) req.feishu = { ...feishu, app_secret: mask(feishu.app_secret, '<APP_SECRET>'), chat_id: chatID };
+    if (wikiInfo) {
+      const w: WizardWiki = {};
+      (['daily', 'night', 'split'] as const).forEach((k) => { if (wikiPick[k] && wikiPick[k] !== wikiInfo.current[k]) w[k] = wikiPick[k]; });
+      if (Object.keys(w).length) req.wiki = w;
+    }
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     return req;
   };
@@ -343,6 +351,13 @@ export default function SetupWizard() {
         `Run \`cc-connect setup matrix\` to see whether this provider is native or converted for ${r.agent_type}; then save the JSON below to a file, ` +
         `replace the placeholders, and run \`cc-connect setup apply --json <file>\` (or POST it to http://localhost:<management port>/api/v1/setup/apply).\n` +
         `I will give you the key separately; never print or log it. Tell me the "steps" from the output JSON.\n\n${body}`;
+  };
+
+  // wiki model options: engines whose CLI is on this machine or used by a role, plus the one in effect
+  const wikiOptions = (k: keyof WizardWiki) => {
+    if (!wikiInfo) return [];
+    const have = new Set([...(clis || []).map((c) => c.agent_type), ...roles.map((r) => r.agent_type)]);
+    return wikiInfo.engines.filter((e) => have.has(e.agent_type) || e.id === wikiInfo.current[k]);
   };
 
   // ── step validity ──
@@ -602,10 +617,14 @@ export default function SetupWizard() {
           <div className="space-y-4">
             <p className="text-sm text-gray-700 dark:text-gray-300">{T.cliQ}</p>
             {clis && clis.filter((c) => c.supported).length === 0 && <p className="text-sm text-red-500">{T.noCLI}</p>}
+            {clis && !clis.some((c) => c.agent_type === 'dsh') && <p className="text-xs text-gray-500" data-testid="dsh-install">{T.dshInstall}</p>}
             {roles.map((r, idx) => {
               const cell = matrix.find((m) => m.vendor === r.provider.vendor && m.agent_type === r.agent_type);
               const vendor = vendors.find((v) => v.id === r.provider.vendor);
-              const attachable = ['claudecode', 'codex', 'gemini', 'opencode'].includes(r.agent_type);
+              const attachable = ['claudecode', 'codex', 'gemini', 'opencode', 'dsh'].includes(r.agent_type);
+              // DSH takes a vendor only at its native Anthropic endpoint: vendors without a matrix cell for it are greyed out
+              const isDSH = r.agent_type === 'dsh';
+              const served = (id: string) => !isDSH || matrix.some((m) => m.vendor === id && m.agent_type === 'dsh');
               const via = r.provider.base_url && vendor && r.provider.base_url !== vendor.openai_base && r.agent_type !== 'opencode' ? 'convert' : cell?.mode;
               return (
                 <div key={r.key} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3" data-testid={`cli-role-${idx}`}>
@@ -625,15 +644,17 @@ export default function SetupWizard() {
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.useProvider} data-testid={`use-provider-${idx}`}
                       onChange={(e) => patchRole(r.key, { useProvider: e.target.checked })} />{T.thirdParty}</label>
                   )}
+                  {isDSH && !r.useProvider && <p className="text-xs text-gray-500" data-testid={`dsh-own-${idx}`}>{T.dshOwn}</p>}
                   {attachable && r.useProvider && (
                     <div className="space-y-2 pl-5">
                       <select className={selectCls} value={r.provider.vendor} data-testid={`vendor-${idx}`}
                         onChange={(e) => { const v = vendors.find((x) => x.id === e.target.value); patchRole(r.key, { provider: { ...r.provider, vendor: e.target.value, base_url: v?.id === 'custom' ? '' : v?.openai_base || '', model: v?.model || '' } }); }}>
-                        {vendors.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                        {vendors.map((v) => <option key={v.id} value={v.id} disabled={!served(v.id)}>{v.label}</option>)}
                       </select>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <Input placeholder={vendor?.openai_base || 'https://…/v1'} label={T.baseURL} value={r.provider.base_url}
-                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />
+                      {isDSH && <p className={`text-xs ${served(r.provider.vendor) ? 'text-gray-500' : 'text-red-500'}`} data-testid={`dsh-vendors-${idx}`}>{T.dshVendors}</p>}
+                      <div className={`grid grid-cols-1 gap-2 ${isDSH ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+                        {!isDSH && <Input placeholder={vendor?.openai_base || 'https://…/v1'} label={T.baseURL} value={r.provider.base_url}
+                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />}
                         <Input type="password" label={T.apiKey} value={r.provider.api_key} data-testid={`provider-key-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />
                         <Input label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} data-testid={`provider-model-${idx}`}
@@ -767,6 +788,22 @@ export default function SetupWizard() {
                   {platform === 'cloud_web' && <li data-testid="review-cloud-web">• {T.cwReview}{cwURL}{cwLocalKnown ? T.cwLocalTag : ''}</li>}
                   {(jevSave.saved || jevUnchanged) && <li>• jev: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
                 </ul>
+                {wikiInfo && (
+                  <div className="space-y-2" data-testid="wiki-models">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{T.wikiTitle}</p>
+                    <p className="text-xs text-gray-500">{T.wikiNote}</p>
+                    {([['daily', T.wikiDaily, T.wikiDailyHelp], ['night', T.wikiNight, T.wikiNightHelp], ['split', T.wikiSplit, T.wikiSplitHelp]] as const).map(([k, label, help]) => (
+                      <div key={k} className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+                        <select className={selectCls} data-testid={`wiki-${k}`} value={wikiPick[k] || wikiInfo.current[k] || ''}
+                          onChange={(e) => setWikiPick({ ...wikiPick, [k]: e.target.value })}>
+                          {wikiOptions(k).map((e) => <option key={e.id} value={e.id}>{e.label}{e.id === wikiInfo.defaults[k] ? ` (${T.wikiDefault})` : ''}</option>)}
+                        </select>
+                        <span className="text-xs text-gray-500">{help}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {platform === 'discord' && (
                   <div className="space-y-1">
                     <Input label={T.allowFromLabel} value={allowFromValue} data-testid="allow-from" onChange={(e) => setAllowFrom(e.target.value)} />

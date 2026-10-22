@@ -1,0 +1,6 @@
+{
+  "coder": {"name": "码农", "project": "coder", "kind": "codex", "workdir": "~/bots/coder",
+            "persona": "~/bots/coder/AGENTS.md"},
+  "writer": {"name": "笔杆", "project": "writer", "kind": "agy", "workdir": "~/bots/writer",
+             "persona": "~/bots/writer/GEMINI.md", "wiki": "~/bots/writer/wiki"}
+}

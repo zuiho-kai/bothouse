@@ -1,0 +1,1 @@
+- Teammates' progress: `{{UV}} run -q --script {{TOOLS}}/peek.py` shows what each bot is doing and when it last acted; `… peek.py <name> -n 20` shows one bot's last 20 steps. Run it to see whether a teammate is busy or stuck instead of digging through their session logs.

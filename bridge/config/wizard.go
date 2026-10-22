@@ -22,9 +22,11 @@ type WizardProjectOptions struct {
 	Options      map[string]any // merged into the first platform of PlatformType (created if missing)
 	GateURL      *string
 	GateFallback *string
-	Provider     *ProviderConfig // inline provider, becomes the active provider
-	OwnerOpenID  string          // feishu/lark: merged into allow_from (same rule as the QR save)
-	AgentCmd     string          // agent option cmd (absolute CLI path found outside PATH)
+	Provider     *ProviderConfig   // inline provider, becomes the active provider
+	OwnerOpenID  string            // feishu/lark: merged into allow_from (same rule as the QR save)
+	AgentCmd     string            // agent option cmd (absolute CLI path found outside PATH)
+	AgentArgs    []string          // agent option args (nil = leave)
+	AgentEnv     map[string]string // merged into agent option env
 }
 
 // UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
@@ -220,6 +222,18 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 	if o.AgentCmd != "" {
 		agentOpts["cmd"] = o.AgentCmd
 	}
+	if o.AgentArgs != nil {
+		agentOpts["args"] = o.AgentArgs
+	}
+	if len(o.AgentEnv) > 0 {
+		env, err := subMap(agentOpts, "env")
+		if err != nil {
+			return err
+		}
+		for k, v := range o.AgentEnv {
+			env[k] = v
+		}
+	}
 	if o.PlatformType != "" {
 		plats, err := tableList(p, "platforms")
 		if err != nil {
@@ -349,4 +363,32 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+// EnsureWizardHook adds a global [[hooks]] entry of type command unless one with the same event and command is there.
+func EnsureWizardHook(event, command string) (added bool, err error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if ConfigPath == "" {
+		return false, fmt.Errorf("config path not set")
+	}
+	raw, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return false, fmt.Errorf("read config: %w", err)
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		return false, fmt.Errorf("parse config: %w", err)
+	}
+	hooks, err := tableList(doc, "hooks")
+	if err != nil {
+		return false, err
+	}
+	for _, h := range hooks {
+		if h["event"] == event && h["command"] == command {
+			return false, nil
+		}
+	}
+	doc["hooks"] = append(hooks, map[string]any{"event": event, "type": "command", "command": command})
+	return true, saveConfig(doc)
 }

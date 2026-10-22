@@ -1,0 +1,1 @@
+- 承诺要有回执（promise-guard）：回复里说了"X 点回来看""跑完告诉你""下一步我去做 X"，同一轮就要有兑现它的东西——带时间的设定时器（`cc-connect timer add --delay 30m --prompt "…"`，终端会话用 ScheduleWakeup）；等结果的有后台任务或子 agent 在跑；下一步的事当轮派出去（子 agent、后台命令、@ 队友）。不打算跟进就明说「这件事不跟进，原因是 Y」。

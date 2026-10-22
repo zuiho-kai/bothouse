@@ -80,7 +80,7 @@ var SandboxClearedVars = []string{
 // 测试仍可在它之前放自己的假件。
 var SandboxStandIns = []string{
 	"claude", "codex", "gemini", "agy", "agent", "cursor-agent", "copilot",
-	"iflow", "kimi", "opencode", "pi", "qodercli", "devin", "reasonix",
+	"iflow", "kimi", "opencode", "pi", "qodercli", "devin", "reasonix", "dsh",
 	"security", "secret-tool",
 }
 
