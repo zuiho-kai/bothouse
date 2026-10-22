@@ -842,6 +842,16 @@ func (s *APIServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.relay.Send(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, ErrRelayNoReplyYet) {
+			// The target was reached and may still be working. Answering 500
+			// makes the dispatcher read a healthy long task as a failure and
+			// resend it, so the wait expiry gets its own accepted status.
+			apiJSON(w, http.StatusAccepted, map[string]any{
+				"status":  RelayStatusWaiting,
+				"message": err.Error(),
+			})
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

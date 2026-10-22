@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -579,5 +581,116 @@ func TestHandleRelay_MultiWorkspaceRequiresWorkspaceBinding(t *testing.T) {
 	}
 	if got := e.sessions.ActiveSessionID("relay:source:mock:C404"); got != "" {
 		t.Fatalf("expected no global relay session, got %q", got)
+	}
+}
+
+// relaySendFixture wires a source and a target engine the way the group
+// visibility tests do, so the wait-expiry path can be driven end to end.
+func relaySendFixture(t *testing.T, timeout time.Duration) (*RelayManager, *controllableAgentSession) {
+	t.Helper()
+	sourcePlatform := &relayVisibilityPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
+	targetPlatform := &relayVisibilityPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
+	sourceEngine := NewEngine("source", &stubAgent{}, []Platform{sourcePlatform}, "", LangEnglish)
+	targetSession := newControllableSession("target-session")
+	targetEngine := NewEngine("target", &controllableAgent{nextSession: targetSession}, []Platform{targetPlatform}, "", LangEnglish)
+
+	rm := NewRelayManager("")
+	rm.Bind("feishu", "chat-1", map[string]string{"source": "source-bot", "target": "target-bot"})
+	rm.RegisterEngine("source", sourceEngine)
+	rm.RegisterEngine("target", targetEngine)
+	rm.SetVisibility(RelayVisibilityNone)
+	rm.SetTimeout(timeout)
+	return rm, targetSession
+}
+
+// A target that was reached but had not answered when the wait expired is not a
+// failure. Recording it as one is what made a healthy long task look broken and
+// invited a resend of the same assignment.
+func TestRelaySend_WaitExpiryIsReportedAsWaitingNotFailed(t *testing.T) {
+	rm, targetSession := relaySendFixture(t, 30*time.Millisecond)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := rm.Send(context.Background(), RelayRequest{
+			From: "source", To: "target", SessionKey: "feishu:chat-1:user", Message: "go",
+		})
+		errCh <- err
+	}()
+
+	// Let the target produce nothing until the wait expires, then unblock the
+	// engine loop the way HandleRelay's drain path expects.
+	time.Sleep(60 * time.Millisecond)
+	targetSession.events <- Event{Type: EventThinking, Content: "still working"}
+	targetSession.events <- Event{Type: EventResult, Content: "done", Done: true}
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, ErrRelayNoReplyYet) {
+			t.Fatalf("Send() error = %v, want ErrRelayNoReplyYet", err)
+		}
+		if errors.Is(err, context.Canceled) {
+			t.Fatalf("wait expiry was reported as cancellation: %v", err)
+		}
+		msg := err.Error()
+		for _, want := range []string{"not a failure", "may still be working", "task thread"} {
+			if !strings.Contains(msg, want) {
+				t.Fatalf("error %q does not explain %q, so a caller cannot tell it apart from a real failure", msg, want)
+			}
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Send() did not return")
+	}
+}
+
+// The sentinel must stay specific: an unreachable target is a real failure and
+// must not be excused as "still working".
+func TestRelaySend_UnreachableTargetIsNotNoReplyYet(t *testing.T) {
+	rm := NewRelayManager("")
+	rm.Bind("feishu", "chat-1", map[string]string{"source": "source-bot", "target": "target-bot"})
+	sourceEngine := NewEngine("source", &stubAgent{}, []Platform{&relayVisibilityPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}}, "", LangEnglish)
+	rm.RegisterEngine("source", sourceEngine)
+
+	_, err := rm.Send(context.Background(), RelayRequest{
+		From: "source", To: "target", SessionKey: "feishu:chat-1:user", Message: "go",
+	})
+	if err == nil {
+		t.Fatal("Send() to an unregistered engine returned no error")
+	}
+	if errors.Is(err, ErrRelayNoReplyYet) {
+		t.Fatalf("a real routing failure was excused as waiting: %v", err)
+	}
+}
+
+// The dispatch entry point is the HTTP route, not Send directly: a wait expiry
+// must reach the caller as "accepted, still working" and never as a 500, which
+// reads as a broken task.
+func TestRelaySendAPI_WaitExpiryAnswersAcceptedNot500(t *testing.T) {
+	rm, targetSession := relaySendFixture(t, 30*time.Millisecond)
+	// Same shape the voice relay tests use: the handler under test needs the
+	// manager and nothing else, so no unix socket is created.
+	api := &APIServer{relay: rm}
+
+	payload := `{"from":"source","to":"target","session_key":"feishu:chat-1:user","message":"go"}`
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		api.handleRelaySend(w, httptest.NewRequest(http.MethodPost, "/relay/send", strings.NewReader(payload)))
+		done <- w
+	}()
+
+	time.Sleep(60 * time.Millisecond)
+	targetSession.events <- Event{Type: EventThinking, Content: "still working"}
+	targetSession.events <- Event{Type: EventResult, Content: "done", Done: true}
+
+	select {
+	case w := <-done:
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("status = %d body %q, want 202 so a still-working target is not reported as a failed dispatch", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), `"waiting"`) {
+			t.Fatalf("body = %q, want status waiting", w.Body.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not return")
 	}
 }
