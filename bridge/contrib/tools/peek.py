@@ -15,7 +15,8 @@ work_dir say which session log to read. Nothing is written and no bot is disturb
 
   claudecode   $CLAUDE_CONFIG_DIR or ~/.claude: projects/<work_dir with every non-alphanumeric char as ->/*.jsonl
   codex        $CODEX_HOME or ~/.codex: sessions/**/rollout-*.jsonl whose session_meta cwd is the work_dir
-  dsh (acp)    $DSH_HOME or ~/.dsh: sessions/*/*/session.v4.jsonl whose first line's cwd is the work_dir
+  dsh (acp)    $DSH_HOME or ~/.dsh: sessions/*/*/session.v4.jsonl[.zstd] whose first line's cwd is the work_dir
+               (zstd is DSH's default; dshlog.py, installed next to this script, reads both)
                (DSH_HOME also from the project's agent env, or an `export DSH_HOME=` line in its cmd script)
   antigravity  only whether the newest conversation file changed recently (it is protobuf in sqlite)
   others       not supported yet (the bot is listed as such)
@@ -165,6 +166,57 @@ def first_row(path):
     return rows[0] if rows else {}
 
 
+# ---- DSH logs: plain or zstd, through dshlog.py (bridge/contrib/hooks, shared with the hooks and the wiki export).
+# Installed next to this script (<data_dir>/tools); in a checkout it is in ../hooks. Loaded on first use, so the
+# other CLIs' bots never need it.
+_DSHLOG = []
+
+
+def dshlog():
+    if not _DSHLOG:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        for p in (os.path.join(here, "dshlog.py"), os.path.join(os.path.dirname(here), "hooks", "dshlog.py")):
+            if os.path.isfile(p):
+                spec = importlib.util.spec_from_file_location("dshlog", p)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                _DSHLOG.append(mod)
+                break
+        else:
+            raise FileNotFoundError(f"dshlog.py not found next to {here} (reinstall the tools: cc-connect setup tools)")
+    return _DSHLOG[0]
+
+
+_DSH_ROWS = {}  # (path, mtime, size) -> rows: a bot's steps and turn state read one log, decoded once
+
+
+def dsh_rows(path, head=False):
+    try:
+        st = os.stat(path)
+        key = (path, head, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return []
+    if key in _DSH_ROWS:
+        return _DSH_ROWS[key]
+    rows = []
+    for line in dshlog().read_lines(path, head=head):
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue  # the line being written right now
+        if isinstance(r, dict):
+            rows.append(r)
+    _DSH_ROWS.clear()
+    _DSH_ROWS[key] = rows
+    return rows
+
+
+def dsh_first_row(path):
+    rows = dsh_rows(path, head=True)
+    return rows[0] if rows else {}
+
+
 def dump(obj):
     return json.dumps(obj, ensure_ascii=False)[:ARG_CHARS]
 
@@ -202,7 +254,7 @@ def claude_steps(path):
 
 def dsh_steps(path):
     calls, done, out = {}, {}, []
-    for r in read_jsonl(path):
+    for r in dsh_rows(path):
         t = r.get("time")
         t = t / 1000 if isinstance(t, (int, float)) else None
         d = r.get("data") or {}
@@ -226,7 +278,7 @@ def dsh_turn(path):
     """(last turn still open, last activity, turn start)."""
     started = last = None
     open_ = False
-    for r in read_jsonl(path):
+    for r in dsh_rows(path):
         t = r.get("time")
         t = t / 1000 if isinstance(t, (int, float)) else None
         if r.get("type") == "turn/start":
@@ -278,8 +330,11 @@ def session_for(bot):
                 return p
         return None
     if k == "dsh":
-        fs = glob.glob(os.path.join(dsh_home(bot["opts"]), "sessions", "*", "*", "session.v4.jsonl"))
-        return newest([p for p in fs if first_row(p).get("cwd") == wd])
+        fs = [p for p in dshlog().session_logs(dsh_home(bot["opts"])) if os.path.exists(p)]
+        for p in sorted(fs, key=os.path.getmtime, reverse=True):  # newest first: a .zstd head may cost a node run
+            if dsh_first_row(p).get("cwd") == wd:
+                return p
+        return None
     if k == "antigravity":
         return newest(glob.glob(os.path.join(HOME, ".gemini", "antigravity-cli", "conversations", "*.db")))
     return None

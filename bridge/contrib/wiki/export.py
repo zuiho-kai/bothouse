@@ -29,8 +29,8 @@ Which sessions belong to a bot (data, 2026-10-17):
     (probes, "只回复 OK" tests) and every llm-wiki ingest pass (cwd .../wiki/.ingest-work).
   * gemini (agy): trajectory_metadata_blob field 1.1 (workspace URI) == file://<work_dir>.
   * dsh bots (jingyu after the Codex -> DSH switch, 2026-10-21):
-    <dsh_home>/sessions/<cwd slug>/<id>/session.v4.jsonl (stored uncompressed: the profile sets
-    session-persistence-jsonl compression: none) whose first record (type "session") has cwd == work_dir and
+    <dsh_home>/sessions/<cwd slug>/<id>/session.v4.jsonl or session.v4.jsonl.zstd (zstd is DSH's default; both
+    are read by ../hooks/dshlog.py) whose first record (type "session") has cwd == work_dir and
     delegationDepth 0 (subagents run inside a turn; their results are already in it). Her Codex sessions from
     before the switch are still exported, so a rollback loses nothing.
 """
@@ -200,7 +200,27 @@ def codex_records(path, cwd):
 #   assistant/message data.message.content [{type reasoning|text|tool-call}]: the text blocks are the reply
 #   tool/call         data.name, data.arguments (a JSON string)
 #   tool/result       data.message.content [{type text|image}], data.message.isError: what the command printed
-DSH_SESSION_FILE = "session.v4.jsonl"
+# The log is session.v4.jsonl, or session.v4.jsonl.zstd under DSH's default compression: found and read by dshlog.py
+# (bridge/contrib/hooks, shared with the hooks and peek), loaded on first use so codex/agy-only exports never need it.
+_DSHLOG = []
+
+
+def dshlog():
+    if not _DSHLOG:
+        import importlib.util
+        here = Path(__file__).resolve().parent
+        for p in (here / "dshlog.py", here.parent / "hooks" / "dshlog.py"):
+            if p.exists():
+                spec = importlib.util.spec_from_file_location("dshlog", p)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                _DSHLOG.append(mod)
+                break
+        else:
+            raise FileNotFoundError(f"dshlog.py not found next to {here} or in {here.parent / 'hooks'}")
+    return _DSHLOG[0]
+
+
 # cc-connect's ACP adapter puts its model-control skill before every prompt (core.PrependModelSwitchInstructions)
 MODEL_HEAD, MODEL_END = "[cc-connect model-control instructions]", "[/cc-connect model-control instructions]"
 
@@ -217,17 +237,16 @@ def dsh_meta(path):
     """The session record, {} if the file is gone, unreadable or not a session (one bad file must not stop the
     bot's whole export: sources() runs outside the per-file try)."""
     try:
-        with open(path) as f:
-            d = json.loads(f.readline())
-    except (OSError, ValueError):
+        d = json.loads((dshlog().read_lines(path, head=True) or [""])[0])
+    except ValueError:
         return {}
-    return d if d.get("type") == "session" else {}
+    return d if isinstance(d, dict) and d.get("type") == "session" else {}
 
 
 def dsh_sessions(dsh_home, workdir):
     """{session id: session file} of the top-level DSH sessions run in workdir."""
     found = {}
-    for p in sorted((Path(dsh_home) / "sessions").glob(f"*/*/{DSH_SESSION_FILE}")):
+    for p in map(Path, dshlog().session_logs(dsh_home)):
         m = dsh_meta(p)
         if m.get("cwd") == workdir and not m.get("delegationDepth") and m.get("id"):
             found[m["id"]] = p
@@ -252,37 +271,38 @@ def dsh_tool_arg(data):
 
 def dsh_records(path, cwd):
     recs = []
-    with open(path) as f:
-        for line in f:
-            try:
-                d = json.loads(line)
-            except ValueError:
-                continue  # a line still being written
-            t, data, ts = d.get("type"), d.get("data") or {}, dsh_time(d)
-            if t == "user/message" and (data.get("source") or {}).get("kind") == "user":
-                parts = [dsh_user_text(c.get("text", "")) for c in data.get("content", [])
-                         if isinstance(c, dict) and c.get("type") == "text"]
-                parts = [x for i, x in enumerate(parts) if x and x not in parts[:i]]
-                if parts:
-                    recs.append(user_rec("\n\n".join(parts), cwd, ts))
-            elif t == "assistant/message":
-                content = (data.get("message") or {}).get("content", [])
-                txt = "".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text").strip()
-                if txt:
-                    recs.append(text_rec(txt, cwd, ts))
-            elif t == "tool/call":
-                arg = dsh_tool_arg(data)
-                if arg:
-                    recs.append(tool_rec(data.get("name") or "tool", arg[:300], cwd, ts))
-            elif t == "tool/result":
-                # Kept so failures reach the ingest (方案 4:
-                # 「导出补上命令报错」); 300 chars like the command above (this file's existing tool_rec length), but
-                # head and tail, as the author's reflect.py does.
-                msg = data.get("message") or {}
-                out = "".join(c.get("text", "") for c in msg.get("content", [])
-                              if isinstance(c, dict) and c.get("type") == "text").strip()
-                if out:
-                    recs.append(tool_rec("result error" if msg.get("isError") else "result", cut(out, 300), cwd, ts))
+    for line in dshlog().read_lines(path):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue  # a line still being written
+        if not isinstance(d, dict):
+            continue
+        t, data, ts = d.get("type"), d.get("data") or {}, dsh_time(d)
+        if t == "user/message" and (data.get("source") or {}).get("kind") == "user":
+            parts = [dsh_user_text(c.get("text", "")) for c in data.get("content", [])
+                     if isinstance(c, dict) and c.get("type") == "text"]
+            parts = [x for i, x in enumerate(parts) if x and x not in parts[:i]]
+            if parts:
+                recs.append(user_rec("\n\n".join(parts), cwd, ts))
+        elif t == "assistant/message":
+            content = (data.get("message") or {}).get("content", [])
+            txt = "".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text").strip()
+            if txt:
+                recs.append(text_rec(txt, cwd, ts))
+        elif t == "tool/call":
+            arg = dsh_tool_arg(data)
+            if arg:
+                recs.append(tool_rec(data.get("name") or "tool", arg[:300], cwd, ts))
+        elif t == "tool/result":
+            # Kept so failures reach the ingest (方案 4:
+            # 「导出补上命令报错」); 300 chars like the command above (this file's existing tool_rec length), but
+            # head and tail, as the author's reflect.py does.
+            msg = data.get("message") or {}
+            out = "".join(c.get("text", "") for c in msg.get("content", [])
+                          if isinstance(c, dict) and c.get("type") == "text").strip()
+            if out:
+                recs.append(tool_rec("result error" if msg.get("isError") else "result", cut(out, 300), cwd, ts))
     return recs
 
 

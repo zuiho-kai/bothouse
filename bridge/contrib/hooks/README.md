@@ -19,7 +19,7 @@ cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 
 `--cli dsh` 另外做一件事：在 `$DSH_HOME/cordis.patch.yml`（默认 `~/.dsh`，DSH 对所有 profile 都套的用户层）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`，`configPath` 是绝对路径 `$DSH_HOME/conest-hooks.settings.json`。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（cc-connect 管的 DSH 角色：重启 cc-connect）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
 
-需要 `python3`。DSH 默认把会话记录存成 zstd 压缩；Stop 检查用 Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node 来解。
+需要 `python3`。DSH 默认把会话记录存成 zstd 压缩（`session.v4.jsonl.zstd`），不用改成 `compression: none`。找记录、解压都在 `dshlog.py`：Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node，逐帧解，正在写的最后一帧先跳过。看队友（`contrib/tools/peek.py`）和 wiki 导出（`contrib/wiki/export.py`）用的也是这一份。
 
 ## 关掉
 
@@ -93,6 +93,7 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 
 ```sh
 python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
+python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
 python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```

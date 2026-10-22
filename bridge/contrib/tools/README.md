@@ -8,7 +8,7 @@ role. "on" copies the scripts to `<data_dir>/tools` (default `~/.cc-connect/tool
 
 | tool | what it does | needs |
 |---|---|---|
-| `peek.py` | what each bot is doing right now: last action, how long ago, last steps (read-only) | uv |
+| `peek.py` | what each bot is doing right now: last action, how long ago, last steps (read-only). DSH logs, plain or zstd (the DSH default), are read by `dshlog.py`, installed next to it | uv |
 | `watchvid.py` | turns a video link (Bilibili, YouTube, anything yt-dlp reads) into frames, transcript, bullet comments, top comments and a `watchvid-index.md` | uv, ffmpeg + ffprobe |
 | `websearch.py` | free web search (DuckDuckGo/Bing/Brave via ddgs; Baidu/Sogou/360/Bilibili for Chinese) and page text | uv |
 

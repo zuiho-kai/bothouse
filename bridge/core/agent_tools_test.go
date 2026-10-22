@@ -12,7 +12,7 @@ import (
 func toolFS(t *testing.T) fstest.MapFS {
 	t.Helper()
 	m := fstest.MapFS{}
-	for _, pat := range []string{"../contrib/tools/*.py", "../contrib/tools/rules/*.md"} {
+	for _, pat := range []string{"../contrib/tools/*.py", "../contrib/tools/rules/*.md", "../contrib/hooks/dshlog.py"} {
 		files, err := filepath.Glob(pat)
 		if err != nil || len(files) == 0 {
 			t.Fatalf("no files for %s: %v", pat, err)
@@ -48,7 +48,7 @@ func TestAgentToolsOnOff(t *testing.T) {
 	if strings.Join(res.Enabled, ",") != "peek,watchvid,websearch" || res.PersonaFile != persona {
 		t.Fatalf("result %+v", res)
 	}
-	for _, f := range []string{"peek.py", "watchvid.py", "websearch.py", "rules/_head.en.md"} {
+	for _, f := range []string{"peek.py", "dshlog.py", "watchvid.py", "websearch.py", "rules/_head.en.md"} {
 		if _, err := os.Stat(filepath.Join(data, "tools", f)); err != nil {
 			t.Errorf("not installed: %s", f)
 		}

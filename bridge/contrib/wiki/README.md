@@ -6,7 +6,8 @@
   引文逐字核对用户原话）；`--lint` 每周体检。依赖同目录的 `sessionlog.py`、`daypack.py`、`codex_daypack.py`、
   `lint.py`、`search.py`。
 - `bin/teammate/`：sub 角色 wiki 里的 `bin/ingest.py` / `lint.py` / `search.py` 转发壳，转到共享的 `bin/`。
-- `export.py`：把 sub 角色（Codex / Antigravity / DSH）的会话和日记转成 ingest 读的转录。
+- `export.py`：把 sub 角色（Codex / Antigravity / DSH）的会话和日记转成 ingest 读的转录。DSH 记录压缩（默认 zstd）和不压缩都能读，
+  用的是 `../hooks/dshlog.py`（和 hook、peek 同一份），DSH 那边不用关压缩。
 - `sub-wiki.sh`：sub 角色的触发入口（pending / nightly / lint / cc-connect `agent.closed` 钩子）。
 - `setup_wiki.py`：给每个 sub 角色建一本自己的 wiki（从 llm-wiki 模板克隆）。
 

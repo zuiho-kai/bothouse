@@ -36,11 +36,9 @@ this file unchanged. DSH runs the same .claude/settings.json through its officia
    (acceptance run: the first Stop hook saw the log up to the request, the second saw the reply). Stop waits
    until the log holds the hook/invoked record of this Stop hook (written before the hook runs) with no
    hook/result after it, re-reading for at most STOP_WAIT seconds.
-   Compressed logs (the DSH default) are read with Python's compression.zstd (3.14+), the zstandard module, or
-   the node that runs DSH, frame by frame (zlib.zstdDecompressSync only decodes the first frame of a buffer).
+   Plain and zstd-compressed logs (the DSH default) are found and read by dshlog.py (next to this file).
 stdout / stderr / exit code of the hook are passed through.
 """
-import glob
 import json
 import os
 import subprocess
@@ -48,6 +46,19 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load(name):
+    """A module installed next to this file (python3 -I leaves the script's directory off sys.path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+dshlog = _load("dshlog")
+
 # DSH tool name -> Claude Code tool name (DSH tool names: dsh-base/cordis.patch.yml, dsh-tool-fs, dsh-tool-subagent)
 NAMES = {
     "bash": "Bash",
@@ -66,35 +77,6 @@ OPTS = {"role": None, "dsh_home": None, "dsh_global": False}  # {session_id: tur
 # 来源：实测，验收时日志在钩子开始后约 0.15 秒内写到；留足余量又不拖住回复（Stop 超时设的是 30 秒）
 STOP_WAIT = 3.0
 MODEL_HEAD, MODEL_END = "[cc-connect model-control instructions]", "[/cc-connect model-control instructions]"
-
-# Splits a buffer of concatenated zstd frames (RFC 8878 section 3.1) and decodes each with node's zlib.
-NODE_ZSTD = r"""
-const z = require('zlib'), b = require('fs').readFileSync(process.argv[1]); const out = []; let p = 0;
-while (p + 4 <= b.length) {
-  const m = b.readUInt32LE(p);
-  if (((m & 0xFFFFFFF0) >>> 0) === 0x184D2A50) { if (p + 8 > b.length) break; p += 8 + b.readUInt32LE(p + 4); continue; }
-  if (m !== 0xFD2FB528) break;
-  let q = p + 4; const fhd = b[q++]; const single = (fhd >> 5) & 1, fcs = fhd >> 6;
-  if (!single) q++;
-  q += [0, 1, 2, 4][fhd & 3];
-  q += fcs === 0 ? single : [0, 2, 4, 8][fcs];
-  let ok = true;
-  for (;;) {
-    if (q + 3 > b.length) { ok = false; break; }
-    const h = b[q] | (b[q + 1] << 8) | (b[q + 2] << 16); q += 3;
-    q += ((h >> 1) & 3) === 1 ? 1 : (h >>> 3);
-    if (h & 1) break;
-  }
-  if (!ok) break;
-  if ((fhd >> 2) & 1) q += 4;
-  if (q > b.length) break;
-  try { out.push(z.zstdDecompressSync(b.subarray(p, q))); } catch (e) { break; }
-  p = q;
-  if (process.argv[2] === 'head') break;
-}
-process.stdout.write(Buffer.concat(out));
-"""
-
 
 def dsh_home():
     return OPTS["dsh_home"] or os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh")
@@ -118,48 +100,10 @@ def write_json(path, obj):
 
 
 def session_file(sid):
-    if not sid:
-        return None
-    base = os.path.join(glob.escape(os.path.join(dsh_home(), "sessions")), "*", glob.escape(sid))
-    for name in ("session.v4.jsonl", "session.v4.jsonl.zstd"):
-        hits = glob.glob(os.path.join(base, name))
-        if hits:
-            return hits[0]
-    return None
+    return dshlog.session_file(dsh_home(), sid)
 
 
-def read_lines(path, head=False):
-    """Lines of a DSH session log, plain or zstd; [] when it cannot be read.
-    head: only the first line (the session record), decoding only the first zstd frame."""
-    if not path.endswith(".zstd"):
-        try:
-            with open(path, encoding="utf-8") as f:
-                return [f.readline().rstrip("\n")] if head else f.read().splitlines()
-        except OSError:
-            return []
-    data = None
-    try:
-        from compression import zstd  # Python 3.14+
-        with open(path, "rb") as f:
-            raw = f.read()
-        data = zstd.ZstdDecompressor().decompress(raw) if head else zstd.decompress(raw)  # one frame / all
-    except Exception:
-        pass
-    if data is None:
-        try:
-            import zstandard
-            with open(path, "rb") as f:  # read_across_frames: the default stops after the first frame
-                data = zstandard.ZstdDecompressor().stream_reader(f, read_across_frames=not head).read()
-        except Exception:
-            pass
-    if data is None:
-        try:
-            data = subprocess.run(["node", "-e", NODE_ZSTD, path] + (["head"] if head else []),
-                                  capture_output=True, timeout=20).stdout
-        except (OSError, subprocess.SubprocessError):
-            return []
-    lines = data.decode("utf-8", "replace").splitlines()
-    return lines[:1] if head else lines
+read_lines = dshlog.read_lines
 
 
 def records(lines):
@@ -288,7 +232,7 @@ SWITCH = os.path.join(".claude", "conest-hooks.json")
 
 def hook_names():
     return sorted(f[:-3] for f in os.listdir(HERE)
-                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "ctxsvc.py", "wiki_search.py")
+                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "ctxsvc.py", "wiki_search.py")
                   and not f.startswith("test_"))
 
 

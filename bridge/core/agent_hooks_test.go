@@ -72,7 +72,7 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 	if off := AgentHooksSwitchedOff(wd); !slices.Equal(off, []string{"promise-guard"}) {
 		t.Fatalf("switched off = %v", off)
 	}
-	for _, f := range []string{"run.py", "bash-guard.py", "doc-ok.py", "ctxsvc.py", "wiki_search.py", "rules/_head.zh.md"} {
+	for _, f := range []string{"run.py", "dshlog.py", "bash-guard.py", "doc-ok.py", "ctxsvc.py", "wiki_search.py", "rules/_head.zh.md"} {
 		if _, err := os.Stat(filepath.Join(data, "hooks", f)); err != nil {
 			t.Errorf("script %s not installed: %v", f, err)
 		}
