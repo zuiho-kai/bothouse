@@ -60,6 +60,9 @@ export const zh = {
   continuingRoom: '正在继续…',
   continueResumed: '已继续',
   continueFailed: '继续失败：{message}',
+  toggleRooms: '切换频道列表',
+  toggleMembers: '切换成员列表',
+  closeDrawer: '关闭侧栏',
 } as const
 
 /** English dictionary. */
@@ -119,6 +122,9 @@ export const en: Record<keyof typeof zh, string> = {
   continuingRoom: 'Continuing…',
   continueResumed: 'Resumed',
   continueFailed: 'Continue failed: {message}',
+  toggleRooms: 'Toggle channel list',
+  toggleMembers: 'Toggle member list',
+  closeDrawer: 'Close sidebar',
 }
 
 /** Keys of the channel panel dictionary. */

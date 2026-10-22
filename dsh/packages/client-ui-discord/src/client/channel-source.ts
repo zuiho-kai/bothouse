@@ -95,9 +95,21 @@ export interface ChannelRoomControl {
   readonly relay_after: number
 }
 
+/** One message the human sent that the service has not confirmed yet. */
+export interface OutboxMessage {
+  /** Idempotency key sent as `client_key`; a retry reuses it so the service dedupes. */
+  readonly clientKey: string
+  /** Room the message belongs to; it is shown and retried only in this room. */
+  readonly roomId: number
+  readonly text: string
+  readonly state: 'sending' | 'failed'
+  /** Why the last attempt failed; set only when `state` is `failed`. */
+  readonly error?: string
+}
+
 /** Whole panel state; `phase` says whether the service answered. */
 export interface ChannelSnapshot {
-  readonly phase: 'idle' | 'loading' | 'ready' | 'unavailable' | 'unauthorized' | 'error'
+  readonly phase: 'idle' | 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'unauthorized' | 'error'
   readonly error: string | undefined
   readonly rooms: readonly ChannelRoom[]
   readonly roomId: number | undefined
@@ -106,6 +118,10 @@ export interface ChannelSnapshot {
   readonly thinking: Readonly<Record<string, readonly string[]>>
   /** Selected room's messages, ascending by id. */
   readonly messages: readonly ChannelMessage[]
+  /** True while `loadOlder` can still page further back in the selected room. */
+  readonly hasMoreOlder: boolean
+  /** The selected room's messages shown before the service confirmed them, newest last. */
+  readonly outbox: readonly OutboxMessage[]
   /** Room id → room control state. */
   readonly roomControls?: Readonly<Record<number, ChannelRoomControl>>
 }
@@ -116,6 +132,10 @@ export interface ChannelActions {
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room; rejects with the service's reason. */
   send(text: string): Promise<void>
+  /** Re-post a failed message, reusing its `client_key` so the service dedupes. */
+  retrySend(clientKey: string): Promise<void>
+  /** Drop a failed message from the outbox without sending it. */
+  dismissSend(clientKey: string): void
   /** Create a room and switch to it. */
   createRoom(name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -126,6 +146,8 @@ export interface ChannelActions {
   updateMember(id: string, input: MemberInput): Promise<void>
   /** Remove a UI-created DSH member. */
   removeMember(id: string): Promise<void>
+  /** Page further back in the selected room; resolves with how many rows arrived. */
+  loadOlder(): Promise<number>
   /** Stop running tasks in the room (defaults to selected room). */
   stopRoom(roomId?: number): Promise<StopRoomResult>
   /** Resume relay continuation in the room (defaults to selected room). */
@@ -143,6 +165,10 @@ export interface ChannelTransport {
   openEvents(url: string): EventStreamLike
   /** Resolve a service path against the document base. */
   url(path: string): string
+  /** Wait before a reconnect attempt; injectable so tests need no real clocks. */
+  delay?(ms: number): Promise<void>
+  /** Jitter source in `[0, 1)`; injectable so backoff is deterministic in tests. */
+  random?(): number
 }
 
 type ServiceEvent =
@@ -154,8 +180,18 @@ type ServiceEvent =
   | { readonly type: 'room_control'; readonly room_id: number; readonly stopped: number | boolean; readonly epoch?: number; readonly cutoff?: number; readonly relay_after?: number }
 
 const INITIAL: ChannelSnapshot = {
-  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [],
+  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], hasMoreOlder: false,
+  outbox: [],
 }
+
+/** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
+const MAX_BACKOFF_MS = 30_000
+
+/** Messages requested per page, both for the first read and for `loadOlder`. */
+const PAGE_SIZE = 100
+
+/** Messages requested per catch-up read after a reconnect. */
+const CATCH_UP_LIMIT = 200
 
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 class ServiceError extends Error {
@@ -178,6 +214,8 @@ export function browserTransport(): ChannelTransport {
     fetch: (input, init) => fetch(input, { credentials: 'same-origin', ...init }),
     openEvents: url => new EventSource(url, { withCredentials: true }),
     url: path => new URL(path, document.baseURI).toString(),
+    delay: ms => new Promise(resolve => setTimeout(resolve, ms)),
+    random: () => Math.random(),
   }
 }
 
@@ -196,10 +234,38 @@ export function createChannelSource(transport: ChannelTransport): {
   let stream: EventStreamLike | undefined
   let lifetime: object | undefined
   let pending: { controller: AbortController; events: ServiceEvent[] } | undefined
+  /** Consecutive reconnect attempts since the stream last opened. */
+  let attempt = 0
+  /** Identifies the scheduled retry, so a stop() or a newer retry cancels it. */
+  let reconnectToken: object | undefined
+  /** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
+  let outbox: OutboxMessage[] = []
+  /**
+   * Page-back request in flight per room, tagged with the ticket and the epoch
+   * it was issued under. Only a latch from the current epoch blocks a new page:
+   * after a window rebuild (A → B → A, reconnect) the old request is aborted and
+   * can no longer hold the room hostage until it returns.
+   */
+  const paging = new Map<number, { ticket: number; epoch: number; controller: AbortController }>()
+  /** Ticket of the newest page-back request per room, so a page that lost its race is dropped. */
+  const pageTicket = new Map<number, number>()
+  let nextPageTicket = 0
+  /**
+   * Bumped whenever the cached window is rebuilt (room switch or reconnect
+   * reconcile). A page-back response captured under an older epoch describes a
+   * window that no longer exists, so merging it would resurrect stale rows —
+   * e.g. A → B → back to A, where the room check alone passes again.
+   */
+  let historyEpoch = 0
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
     for (const listener of listeners) listener()
+  }
+
+  /** Re-publishes the outbox, narrowed to the selected room. */
+  const publishOutbox = (): void => {
+    set({ outbox: outbox.filter(entry => entry.roomId === snapshot.roomId) })
   }
 
   const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -275,21 +341,63 @@ export function createChannelSource(transport: ChannelTransport): {
       if (!current()) return
       const roomId = state.rooms.some(r => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id
       const rows: ChannelMessage[] = []
+      let hasMoreOlder = false
       if (roomId !== undefined) {
-        // Re-read retained rows too: cards can be edited/deleted while offline.
-        // The paging cursor is independent of messages arriving through SSE.
-        let after = resume && roomId === previous.roomId ? (previous.messages[0]?.id ?? 1) - 1 : undefined
-        while (current()) {
-          const query = after === undefined ? 'limit=100' : 'after=' + after + '&limit=200'
-          const { messages } = await request<{ messages: ChannelMessage[] }>(
-            'collab/api/rooms/' + roomId + '/messages?' + query, { signal: read.controller.signal },
-          )
-          if (!current()) return
-          rows.push(...messages)
-          if (after === undefined || messages.length < 200) break
-          const next = messages.at(-1)?.id
-          if (next === undefined || next <= after) throw new Error('Channel history cursor did not advance')
-          after = next
+        if (resume && roomId === previous.roomId && previous.messages.length > 0) {
+          // Design §4.3: a reconnect reconciles the WHOLE cached window, not just
+          // the newest page. Cards can be edited or deleted while offline and
+          // `after=` only reports rows that still exist, so the cached window is
+          // re-read from its oldest held id and the service wins for every id in
+          // it: an id the service still returns is overwritten with its current
+          // content, an id it no longer returns was deleted and is dropped.
+          const merged = new Map<number, ChannelMessage>(previous.messages.map(m => [m.id, m]))
+          const oldest = previous.messages[0]!.id
+          const present = new Set<number>()
+          let cursor = oldest - 1
+          while (current()) {
+            const { messages } = await request<{ messages: ChannelMessage[] }>(
+              'collab/api/rooms/' + roomId + '/messages?after=' + cursor + '&limit=' + CATCH_UP_LIMIT,
+              { signal: read.controller.signal },
+            )
+            if (!current()) return
+            // Ids are the merge key, so a row that also arrived through SSE is
+            // folded in rather than duplicated.
+            for (const row of messages) {
+              merged.set(row.id, row)
+              present.add(row.id)
+            }
+            if (messages.length < CATCH_UP_LIMIT) break
+            const next = messages.at(-1)?.id
+            if (next === undefined || next <= cursor) throw new Error('Channel history cursor did not advance')
+            cursor = next
+          }
+          for (const id of [...merged.keys()]) {
+            if (id >= oldest && !present.has(id)) merged.delete(id)
+          }
+          // The window was rebuilt from the service: pages started before this
+          // point describe the old contents.
+          historyEpoch += 1
+          rows.push(...[...merged.values()].sort((a, b) => a.id - b.id))
+          hasMoreOlder = previous.hasMoreOlder
+        } else {
+          // First read or a room switch: newest page, then page forward.
+          let after: number | undefined
+          while (current()) {
+            const query = after === undefined ? 'limit=' + PAGE_SIZE : 'after=' + after + '&limit=' + CATCH_UP_LIMIT
+            const { messages } = await request<{ messages: ChannelMessage[] }>(
+              'collab/api/rooms/' + roomId + '/messages?' + query, { signal: read.controller.signal },
+            )
+            if (!current()) return
+            rows.push(...messages)
+            if (after === undefined) {
+              hasMoreOlder = messages.length >= PAGE_SIZE
+              break
+            }
+            if (messages.length < CATCH_UP_LIMIT) break
+            const next = messages.at(-1)?.id
+            if (next === undefined || next <= after) throw new Error('Channel history cursor did not advance')
+            after = next
+          }
         }
       }
       const controls: Record<number, ChannelRoomControl> = {}
@@ -306,7 +414,8 @@ export function createChannelSource(transport: ChannelTransport): {
       }
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
-        members: state.members, thinking: state.thinking, messages: rows,
+        members: state.members, thinking: state.thinking, messages: rows, hasMoreOlder,
+        outbox: outbox.filter(entry => entry.roomId === roomId),
         roomControls: controls,
       }
       for (const event of read.events) next = applyEvent(next, event)
@@ -319,36 +428,90 @@ export function createChannelSource(transport: ChannelTransport): {
     }
   }
 
-  const selectRoom = async (roomId: number): Promise<void> => {
-    set({ roomId, messages: [] })
+  const selectRoom = async (selected: number): Promise<void> => {
+    // Any page still in flight for the previous window is stale from here on.
+    historyEpoch += 1
+    set({ roomId: selected, messages: [], outbox: outbox.filter(entry => entry.roomId === selected) })
     await refresh(false)
+  }
+
+  /** Wait before the next attempt; tests inject a fake so no clock is needed. */
+  const pause = (ms: number): Promise<void> =>
+    transport.delay === undefined ? Promise.resolve() : transport.delay(ms)
+
+  /** Jitter source in `[0, 1)`. */
+  const random = (): number => transport.random?.() ?? 0.5
+
+  /** Backoff before retry `attempt`: 1, 2, 4, 8… seconds, capped, then jittered. */
+  const backoffMs = (attempt: number): number => {
+    const base = Math.min(1000 * 2 ** attempt, MAX_BACKOFF_MS)
+    // Jitter stays inside `[base/2, base]`, so the cap holds even after jitter.
+    return Math.round(base / 2 + random() * (base / 2))
+  }
+
+  /** Opens the live stream; `onerror` schedules a backoff retry (design §4.3). */
+  const listen = (owner: object): void => {
+    if (lifetime !== owner || listeners.size === 0) return
+    let events: EventStreamLike
+    try {
+      events = transport.openEvents(transport.url('collab/api/events'))
+    } catch (error) {
+      fail(error)
+      return
+    }
+    stream = events
+    events.onopen = () => {
+      if (lifetime !== owner || stream !== events) return
+      attempt = 0
+      void refresh(true)
+    }
+    events.onerror = () => {
+      if (lifetime !== owner || stream !== events) return
+      // The socket is dead: drop it, then retry on a fresh one.
+      stream = undefined
+      events.onopen = null
+      events.onmessage = null
+      events.onerror = null
+      events.close()
+      pending?.controller.abort()
+      pending = undefined
+      retry(owner)
+    }
+    events.onmessage = (event: MessageEvent<string>) => {
+      if (lifetime !== owner || stream !== events) return
+      try { onEvent(JSON.parse(event.data) as ServiceEvent) } catch (error) { void error /* malformed frames are repaired on reconnect */ }
+    }
+  }
+
+  /** Enters `reconnecting` and resumes the stream after a jittered backoff. */
+  const retry = (owner: object): void => {
+    if (lifetime !== owner) return
+    const token = { attempt }
+    reconnectToken = token
+    const wait = backoffMs(attempt)
+    attempt += 1
+    set({ phase: 'reconnecting', error: undefined })
+    void pause(wait).then(() => {
+      if (lifetime !== owner || reconnectToken !== token) return
+      reconnectToken = undefined
+      listen(owner)
+    })
   }
 
   const start = async (owner: object): Promise<void> => {
     set({ phase: 'loading', error: undefined })
     await refresh(false)
     if (lifetime !== owner || listeners.size === 0 || snapshot.phase !== 'ready') return
-    try {
-      const events = transport.openEvents(transport.url('collab/api/events'))
-      stream = events
-      events.onopen = () => { if (lifetime === owner) void refresh(true) }
-      events.onerror = () => {
-        if (lifetime !== owner) return
-        pending?.controller.abort()
-        pending = undefined
-        set({ phase: 'loading', error: undefined })
-      }
-      events.onmessage = (event: MessageEvent<string>) => {
-        if (lifetime !== owner) return
-        try { onEvent(JSON.parse(event.data) as ServiceEvent) } catch (error) { void error /* malformed frames are repaired on reconnect */ }
-      }
-    } catch (error) {
-      if (lifetime === owner) fail(error)
-    }
+    listen(owner)
   }
 
   const stop = (): void => {
     lifetime = undefined
+    reconnectToken = undefined
+    attempt = 0
+    for (const latch of paging.values()) latch.controller.abort()
+    paging.clear()
+    pageTicket.clear()
     pending?.controller.abort()
     pending = undefined
     if (stream !== undefined) {
@@ -362,7 +525,7 @@ export function createChannelSource(transport: ChannelTransport): {
 
   const source: ObservableSnapshot<ChannelSnapshot> = {
     getSnapshot: () => snapshot,
-    subscribe(listener) {
+    subscribe(listener: () => void) {
       listeners.add(listener)
       if (lifetime === undefined) {
         lifetime = {}
@@ -375,18 +538,56 @@ export function createChannelSource(transport: ChannelTransport): {
     },
   }
 
+  /**
+   * Posts one message under a stable `client_key`, showing it in the outbox
+   * first (design §4.3). A retry reuses the key, so the service dedupes a
+   * resend whose first attempt actually landed.
+   */
+  const post = async (roomId: number, clientKey: string, text: string): Promise<void> => {
+    const owner = lifetime
+    if (owner === undefined) throw new Error('No channel is open')
+    const show = (state: OutboxMessage['state'], error?: string): void => {
+      outbox = [...outbox.filter(entry => entry.clientKey !== clientKey), {
+        clientKey, roomId, text, state, ...(error === undefined ? {} : { error }),
+      }]
+      publishOutbox()
+    }
+    show('sending')
+    try {
+      const { message } = await request<{ message: ChannelMessage }>(`collab/api/rooms/${roomId}/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, client_key: clientKey }),
+      })
+      if (lifetime !== owner) return
+      outbox = outbox.filter(entry => entry.clientKey !== clientKey)
+      publishOutbox()
+      onEvent({ type: 'message', message })
+    } catch (error) {
+      if (lifetime === owner) show('failed', error instanceof Error ? error.message : String(error))
+      throw error
+    }
+  }
+
   const actions: ChannelActions = {
     selectRoom,
     async send(text) {
       const roomId = snapshot.roomId
-      const owner = lifetime
-      if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
-      const { message } = await request<{ message: ChannelMessage }>(`collab/api/rooms/${roomId}/messages`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text, client_key: crypto.randomUUID() }),
-      })
-      if (lifetime === owner) onEvent({ type: 'message', message })
+      if (roomId === undefined) throw new Error('No channel is open')
+      await post(roomId, crypto.randomUUID(), text)
+    },
+    async retrySend(clientKey) {
+      const roomId = snapshot.roomId
+      const entry = outbox.find(row => row.clientKey === clientKey)
+      // A message is retried only in the room it was written for, never elsewhere.
+      if (entry === undefined || roomId === undefined || entry.roomId !== roomId) {
+        throw new Error('That message does not belong to the selected channel')
+      }
+      await post(entry.roomId, entry.clientKey, entry.text)
+    },
+    dismissSend(clientKey) {
+      outbox = outbox.filter(entry => entry.clientKey !== clientKey)
+      publishOutbox()
     },
     async createRoom(name) {
       const { room } = await request<{ room: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
@@ -415,6 +616,55 @@ export function createChannelSource(transport: ChannelTransport): {
       const target = roomId ?? snapshot.roomId
       if (target === undefined) throw new Error('No channel is open')
       return await request<ContinueRoomResult>(`collab/api/rooms/${target}/continue`, { method: 'POST' })
+    },
+    async loadOlder() {
+      const roomId = snapshot.roomId
+      const owner = lifetime
+      const oldest = snapshot.messages[0]?.id
+      if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
+      // One page at a time per room: a second overlapping read would interleave
+      // pages. Another room's page is independent and must not be blocked.
+      const held = paging.get(roomId)
+      if (held !== undefined && held.epoch === historyEpoch) return 0
+      if (oldest === undefined || !snapshot.hasMoreOlder) return 0
+      // A latch left over from an older window is stale: abort its request and
+      // take the room over. Its finally sees a different ticket and leaves ours.
+      held?.controller.abort()
+      // Every page takes a ticket and records the window it was asked against;
+      // both must still hold when it comes back, otherwise it is a stale page.
+      const ticket = ++nextPageTicket
+      const epoch = historyEpoch
+      const controller = new AbortController()
+      paging.set(roomId, { ticket, epoch, controller })
+      pageTicket.set(roomId, ticket)
+      try {
+        let messages: ChannelMessage[]
+        try {
+          ({ messages } = await request<{ messages: ChannelMessage[] }>(
+            `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
+            { signal: controller.signal },
+          ))
+        } catch (error) {
+          if (controller.signal.aborted) return 0
+          throw error
+        }
+        if (controller.signal.aborted) return 0
+        // The page belongs to the room and the window that asked for it: after a
+        // room switch (even one that came back) or a newer request, it is stale.
+        if (lifetime !== owner || snapshot.roomId !== roomId) return 0
+        if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0
+        // Older rows and rows already on screen are one ordered set keyed by id.
+        const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
+        for (const row of messages) merged.set(row.id, row)
+        set({
+          messages: [...merged.values()].sort((a, b) => a.id - b.id),
+          hasMoreOlder: messages.length >= PAGE_SIZE,
+        })
+        return messages.length
+      } finally {
+        // Only the request that owns the latch may release it.
+        if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId)
+      }
     },
   }
 

@@ -142,6 +142,8 @@ describe('channel source', () => {
     const { transport, streams, closed, calls } = fakeTransport((url) => {
       if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (url.startsWith('/collab/api/rooms/1/messages?limit')) return json(200, { messages: [message(1, 'a')] })
+      // Reconnect reconciles the whole cached window from its oldest held id
+      // (design §4.3), so edits and deletions inside the cache are reconciled.
       if (url.startsWith('/collab/api/rooms/1/messages?after=0')) return json(200, { messages: [message(1, 'a'), message(2, 'b')] })
       return json(404, { error: 'not found' })
     })

@@ -345,4 +345,85 @@ describe('channels page', () => {
     await act(async () => {})
     expect(screen.getByRole('alert').textContent).toContain('继续失败：Room locked')
   })
+
+  it('supports mobile drawer toggle, channel switching, member pick and escape closing', async () => {
+    const p = props(ready)
+    const view = render(<ChannelsPage {...p} />)
+
+    const roomBtn = screen.getByRole('button', { name: zh.toggleRooms })
+    const memberBtn = screen.getByRole('button', { name: zh.toggleMembers })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Open room drawer
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    const nav = view.container.querySelector('nav')
+    expect(nav?.className).toContain('drawerOpen')
+    expect(document.activeElement).toBe(nav)
+
+    // Selecting a room closes drawer
+    fireEvent.click(screen.getByRole('button', { name: 'other' }))
+    expect(p.selectRoom).toHaveBeenCalledWith(2)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(nav?.className).not.toContain('drawerOpen')
+
+    // Open room drawer and press Escape on nav to close
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(nav!, { key: 'Escape' })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Open room drawer and press Escape on window (e.g. focus left drawer) to close
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    // Esc while IME is composing does not close drawer
+    fireEvent.keyDown(window, { key: 'Escape', isComposing: true })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Esc in new room input cancels input without closing drawer
+    fireEvent.click(roomBtn)
+    fireEvent.click(screen.getByRole('button', { name: zh.newRoom }))
+    const roomInput = screen.getByPlaceholderText(zh.newRoomPlaceholder)
+    fireEvent.change(roomInput, { target: { value: 'cancel-me' } })
+    fireEvent.keyDown(roomInput, { key: 'Escape' })
+    expect(screen.queryByPlaceholderText(zh.newRoomPlaceholder)).toBeNull()
+    expect(nav?.className).toContain('drawerOpen')
+
+    // Close button with closeDrawer label closes drawer
+    fireEvent.click(screen.getByRole('button', { name: zh.closeDrawer }))
+    expect(nav?.className).not.toContain('drawerOpen')
+
+    // Open members drawer
+    fireEvent.click(memberBtn)
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('true')
+    const aside = view.container.querySelector('aside')
+    expect(aside?.className).toContain('drawerOpen')
+    expect(document.activeElement).toBe(aside)
+
+    // Esc in MemberDialog closes dialog without closing drawer
+    fireEvent.click(screen.getByRole('button', { name: `+ ${zh.addMember}` }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toBeTruthy()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(aside?.className).toContain('drawerOpen')
+
+    // Clicking backdrop closes drawer
+    const backdrop = view.container.querySelector('[role="presentation"]')
+    expect(backdrop).toBeTruthy()
+    fireEvent.click(backdrop!)
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(aside?.className).not.toContain('drawerOpen')
+
+    // Picking a member from drawer inserts mention and closes drawer
+    fireEvent.click(memberBtn)
+    expect(aside?.className).toContain('drawerOpen')
+    fireEvent.click(screen.getByTitle('在输入框里 @橘'))
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(aside?.className).not.toContain('drawerOpen')
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('@橘 ')
+  })
 })

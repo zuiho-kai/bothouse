@@ -3,13 +3,19 @@
  * list, in a Discord-style three-column layout. All data arrives through the
  * injected `useChannels` hook; posting goes through the injected actions.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type UIEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelSnapshot } from './channel-source.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
+import {
+  MemberPanel,
+  RoomList,
+  RoomView,
+  StatusBanner,
+} from './components/index.ts'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -22,139 +28,6 @@ export interface ChannelsInjected extends ChannelActions {
 export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS>
 
 type T = TranslateNS<typeof NS>
-
-const PALETTE = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22']
-
-function color(id: string): string {
-  let h = 7
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return PALETTE[h % PALETTE.length] as string
-}
-
-function Avatar({ id, name, small }: { id: string; name: string; small?: boolean }) {
-  return (
-    <span className={small === true ? `${css.avatar} ${css.avatarSmall}` : css.avatar} style={{ background: color(id) }} aria-hidden>
-      {(name || id).slice(0, 1)}
-    </span>
-  )
-}
-
-function KindTag({ kind, t }: { kind: ChannelMember['kind'] | undefined; t: T }) {
-  if (kind === 'dsh') return <span className={css.tag}>{t('kindDsh')}</span>
-  if (kind === 'bot') return <span className={css.tag}>{t('kindBot')}</span>
-  return null
-}
-
-function MessageRow({
-  message,
-  member,
-  t,
-  onContinue,
-  isContinuing,
-  isResumed,
-  relayError,
-}: {
-  message: ChannelMessage
-  member: ChannelMember | undefined
-  t: T
-  onContinue: (roomId: number, messageId: number) => void
-  isContinuing: boolean
-  isResumed: boolean
-  relayError: string | undefined
-}) {
-  let card: { title?: string; state?: string; type?: string; room_id?: number } | undefined
-  if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; type?: string; room_id?: number } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
-  }
-  return (
-    <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
-      <Avatar id={message.author} name={message.name} />
-      <div className={css.messageBody}>
-        <div className={css.messageHead}>
-          <span className={css.author}>{message.name}</span>
-          <KindTag kind={member?.kind} t={t} />
-          <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
-        </div>
-        {card === undefined
-          ? <div className={css.text}>{message.text}</div>
-          : card.type === 'relay_limit'
-            ? (
-                <div className={`${css.card} ${css.relayCard}`} data-type="relay_limit">
-                  <div className={css.relayCardBody}>
-                    <div className={css.relayCardText}>{message.text}</div>
-                    <button
-                      type="button"
-                      className={css.continueButton}
-                      title={t('continueRoomTitle')}
-                      aria-label={t('continueRoom')}
-                      disabled={isContinuing || isResumed}
-                      onClick={() => { onContinue(card?.room_id ?? message.room_id, message.id) }}
-                    >
-                      {isContinuing ? t('continuingRoom') : isResumed ? t('continueResumed') : t('continueRoom')}
-                    </button>
-                  </div>
-                  {relayError !== undefined && (
-                    <div className={css.cardError} role="alert">{relayError}</div>
-                  )}
-                </div>
-              )
-            : (
-                <div className={css.card} data-state={card.state}>
-                  {card.title !== undefined && <div className={css.cardTitle}>{card.title}</div>}
-                  <div className={css.text}>{message.text}</div>
-                </div>
-              )}
-      </div>
-    </div>
-  )
-}
-
-function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
-  title: string
-  members: readonly ChannelMember[]
-  busy: ReadonlySet<string>
-  onPick: (member: ChannelMember) => void
-  onEdit: (member: ChannelMember) => void
-  onRemove: (member: ChannelMember) => void
-  t: T
-}) {
-  if (members.length === 0) return null
-  return (
-    <>
-      <h3 className={css.groupTitle}>{title}</h3>
-      {members.map(m => (
-        <div key={m.id} className={m.online ? css.memberRow : `${css.memberRow} ${css.offline}`}>
-          <button
-            type="button"
-            className={css.member}
-            title={t('mentionPick', { name: m.name })}
-            onClick={() => { onPick(m) }}
-          >
-            <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} small />
-              <span className={css.presence} />
-            </span>
-            <span className={css.memberText}>
-              <span className={css.memberName}>{m.name}<KindTag kind={m.kind} t={t} /></span>
-              <span className={css.memberStatus}>{busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
-              {m.kind === 'dsh' && (
-                <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
-              )}
-            </span>
-          </button>
-          {m.kind === 'dsh' && (m.editable === true
-            ? (
-                <span className={css.memberActions}>
-                  <button type="button" className={css.linkButton} onClick={() => { onEdit(m) }}>{t('editMember')}</button>
-                  <button type="button" className={css.linkButton} onClick={() => { onRemove(m) }}>{t('removeMember')}</button>
-                </span>
-              )
-            : <span className={css.memberActions} title={t('configMember')}>⚙</span>)}
-        </div>
-      ))}
-    </>
-  )
-}
 
 /**
  * Render the channels panel.
@@ -191,6 +64,28 @@ export function ChannelsPage({
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
+  const roomsRef = useRef<HTMLElement>(null)
+  const membersRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (drawer === 'rooms') {
+      roomsRef.current?.focus()
+    } else if (drawer === 'members') {
+      membersRef.current?.focus()
+    }
+  }, [drawer])
+
+  useEffect(() => {
+    if (drawer === undefined) return
+    const onEscape = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing) {
+        setDrawer(undefined)
+      }
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => { window.removeEventListener('keydown', onEscape) }
+  }, [drawer])
 
   useEffect(() => {
     const input = inputRef.current
@@ -208,11 +103,11 @@ export function ChannelsPage({
   }, [state.messages, state.roomId])
 
   if (state.phase !== 'ready') {
-    const notice = state.phase === 'unavailable' ? t('unavailable')
-      : state.phase === 'unauthorized' ? t('unauthorized')
-        : state.phase === 'error' ? t('error', { message: state.error ?? '' })
-          : t('loading')
-    return <div className={css.page}><div className={css.notice} role="status">{notice}</div></div>
+    return (
+      <div className={css.page}>
+        <StatusBanner phase={state.phase} error={state.error} t={t} />
+      </div>
+    )
   }
 
   const room = state.rooms.find(r => r.id === state.roomId)
@@ -240,6 +135,7 @@ export function ChannelsPage({
   }
 
   const pickFromList = (member: ChannelMember): void => {
+    setDrawer(undefined)
     const next = insertMention(draft, caret, member)
     setDraft(next.text, next.caret)
   }
@@ -248,7 +144,7 @@ export function ChannelsPage({
     const name = (newRoom ?? '').trim()
     if (!name) { setNewRoom(undefined); return }
     setRoomError(undefined)
-    createRoom(name).then(() => { setNewRoom(undefined) }).catch((error: unknown) => {
+    createRoom(name).then(() => { setNewRoom(undefined); setDrawer(undefined) }).catch((error: unknown) => {
       setRoomError(error instanceof Error ? error.message : String(error))
     })
   }
@@ -294,33 +190,20 @@ export function ChannelsPage({
     stopRoom(roomId).then((res) => {
       if (res.stopped_members.length === 0) {
         setStopNotice(previous => ({ ...previous, [roomId]: t('stopNone') }))
-      } else {
-        const parts: string[] = []
-        const confirmed = res.stopped_members.filter(m => m.outcome === 'confirmed')
-        const requested = res.stopped_members.filter(m => m.outcome === 'requested')
-        const unsupported = res.stopped_members.filter(m => m.outcome === 'unsupported')
-
-        const stopped = confirmed.filter(m => currentlyBusy.has(m.member))
-        const notRunning = confirmed.filter(m => !currentlyBusy.has(m.member))
-
-        if (stopped.length > 0) {
-          const names = stopped.map(m => byId.get(m.member)?.name ?? m.member).join('、')
-          parts.push(t('stopConfirmed', { names }))
-        }
-        if (requested.length > 0) {
-          const names = requested.map(m => byId.get(m.member)?.name ?? m.member).join('、')
-          parts.push(t('stopRequested', { names }))
-        }
-        if (unsupported.length > 0) {
-          const names = unsupported.map(m => byId.get(m.member)?.name ?? m.member).join('、')
-          parts.push(t('stopUnsupported', { names }))
-        }
-        if (notRunning.length > 0) {
-          const names = notRunning.map(m => byId.get(m.member)?.name ?? m.member).join('、')
-          parts.push(t('stopNotRunning', { names }))
-        }
-        setStopNotice(previous => ({ ...previous, [roomId]: parts.length ? parts.join('；') : t('stopNone') }))
+        return
       }
+      const names = (members: readonly { member: string }[]): string => members.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+      const confirmed = res.stopped_members.filter(m => m.outcome === 'confirmed')
+      const stopped = confirmed.filter(m => currentlyBusy.has(m.member))
+      const notRunning = confirmed.filter(m => !currentlyBusy.has(m.member))
+      const requested = res.stopped_members.filter(m => m.outcome === 'requested')
+      const unsupported = res.stopped_members.filter(m => m.outcome === 'unsupported')
+      const parts: string[] = []
+      if (stopped.length > 0) parts.push(t('stopConfirmed', { names: names(stopped) }))
+      if (requested.length > 0) parts.push(t('stopRequested', { names: names(requested) }))
+      if (unsupported.length > 0) parts.push(t('stopUnsupported', { names: names(unsupported) }))
+      if (notRunning.length > 0) parts.push(t('stopNotRunning', { names: names(notRunning) }))
+      setStopNotice(previous => ({ ...previous, [roomId]: parts.length ? parts.join('；') : t('stopNone') }))
     }).catch((error: unknown) => {
       setStopNotice(previous => ({
         ...previous,
@@ -372,183 +255,99 @@ export function ChannelsPage({
     }
   }
 
+  const onScroll = (event: UIEvent<HTMLDivElement>): void => {
+    const el = event.currentTarget
+    stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
+  }
+
   return (
     <div className={css.page}>
-      <nav className={css.rooms} aria-label={t('rooms')}>
-        <div className={css.groupHead}>
-          <h3 className={css.groupTitle}>{t('rooms')}</h3>
-          <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
-        </div>
-        {newRoom !== undefined && (
-          <input
-            className={css.roomInput}
-            autoFocus
-            value={newRoom}
-            maxLength={32}
-            placeholder={t('newRoomPlaceholder')}
-            aria-label={t('newRoom')}
-            onChange={(event) => { setNewRoom(event.target.value) }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); submitRoom() }
-              if (event.key === 'Escape') { setNewRoom(undefined); setRoomError(undefined) }
-            }}
-            onBlur={() => { if ((newRoom ?? '').trim() === '') setNewRoom(undefined) }}
-          />
-        )}
-        {roomError !== undefined && <div className={css.sendError} role="alert">{roomError}</div>}
-        {state.rooms.map(r => (
-          <button
-            key={r.id}
-            type="button"
-            className={r.id === state.roomId ? `${css.room} ${css.roomActive}` : css.room}
-            aria-current={r.id === state.roomId}
-            onClick={() => { stickRef.current = true; void selectRoom(r.id) }}
-          >
-            <span className={css.hash} aria-hidden>#</span>{r.name}
-          </button>
-        ))}
-      </nav>
-      <section className={css.chat}>
-        <header className={css.chatHead}>
-          <div className={css.chatHeadTitle}>
-            <span className={css.hash} aria-hidden>#</span>{room?.name}
-          </div>
-          {state.roomId !== undefined && (
-            <div className={css.chatHeadActions}>
-              <button
-                type="button"
-                className={css.stopButton}
-                title={t('stopRoomTitle')}
-                aria-label={t('stopRoom')}
-                disabled={stoppingRoom[state.roomId] === true}
-                onClick={() => { handleStop(state.roomId as number) }}
-              >
-                <span className={css.stopIcon} aria-hidden />
-                <span>{stoppingRoom[state.roomId] ? t('stoppingRoom') : t('stopRoom')}</span>
-              </button>
-            </div>
-          )}
-        </header>
-        {state.roomId !== undefined && stopNotice[state.roomId] !== undefined && (
-          <div className={css.roomNotice} role="status" aria-live="polite">
-            <span className={css.roomNoticeText}>{stopNotice[state.roomId]}</span>
-            <button
-              type="button"
-              className={css.noticeClose}
-              title={t('closeNotice')}
-              aria-label={t('closeNotice')}
-              onClick={() => {
-                const rid = state.roomId as number
-                setStopNotice(previous => ({ ...previous, [rid]: undefined }))
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
+      <RoomList
+        rooms={state.rooms}
+        activeRoomId={state.roomId}
+        isOpenOnMobile={drawer === 'rooms'}
+        drawerRef={roomsRef}
+        newRoom={newRoom}
+        roomError={roomError}
+        onSelectRoom={(roomId) => {
+          stickRef.current = true
+          setDrawer(undefined)
+          void selectRoom(roomId)
+        }}
+        onStartNewRoom={() => { setNewRoom(''); setRoomError(undefined) }}
+        onCancelNewRoom={() => { setNewRoom(undefined); setRoomError(undefined) }}
+        onNewRoomChange={setNewRoom}
+        onSubmitRoom={submitRoom}
+        onCloseDrawer={() => { setDrawer(undefined) }}
+        t={t}
+      />
+      <RoomView
+        room={room}
+        roomId={state.roomId}
+        drawer={drawer}
+        logRef={logRef}
+        inputRef={inputRef}
+        messages={state.messages}
+        membersById={byId}
+        busyNames={busyNames}
+        draft={draft}
+        sendError={sendError}
+        sending={state.roomId !== undefined && sending[state.roomId] === true}
+        popupOpen={popupOpen}
+        mentionQuery={mention?.query ?? ''}
+        candidates={candidates}
+        selected={selected}
+        busy={busy}
+        onToggleRooms={() => { setDrawer(d => d === 'rooms' ? undefined : 'rooms') }}
+        onToggleMembers={() => { setDrawer(d => d === 'members' ? undefined : 'members') }}
+        onScroll={onScroll}
+        onDraftChange={(value, nextCaret) => {
+          const roomId = state.roomId
+          if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
+          setCaret(nextCaret)
+          setHighlight(0)
+        }}
+        onSelectCaret={setCaret}
+        onKeyDown={onKeyDown}
+        onOpenPicker={openPicker}
+        onSelectCandidate={choose}
+        onHighlightCandidate={setHighlight}
+        stopping={state.roomId !== undefined && stoppingRoom[state.roomId] === true}
+        stopNotice={state.roomId === undefined ? undefined : stopNotice[state.roomId]}
+        onStop={() => { if (state.roomId !== undefined) handleStop(state.roomId) }}
+        onCloseNotice={() => {
+          const rid = state.roomId
+          if (rid !== undefined) setStopNotice(previous => ({ ...previous, [rid]: undefined }))
+        }}
+        relayState={messageId => ({
+          continuing: continuingMessages[messageId] === true,
+          resumed: resumedMessages[messageId] === true,
+          error: relayErrors[messageId],
+        })}
+        onContinue={handleContinue}
+        t={t}
+      />
+      <MemberPanel
+        members={state.members}
+        busy={busy}
+        isOpenOnMobile={drawer === 'members'}
+        drawerRef={membersRef}
+        memberError={memberError}
+        onAddMember={() => { setDialog(null) }}
+        onPickMember={pickFromList}
+        onEditMember={setDialog}
+        onRemoveMember={confirmRemove}
+        onCloseDrawer={() => { setDrawer(undefined) }}
+        t={t}
+      />
+      {drawer !== undefined && (
         <div
-          ref={logRef}
-          className={css.log}
-          role="log"
-          aria-live="polite"
-          onScroll={(event) => {
-            const el = event.currentTarget
-            stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
-          }}
-        >
-          {state.messages.length === 0
-            ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => (
-                <MessageRow
-                  key={m.id}
-                  message={m}
-                  member={byId.get(m.author)}
-                  t={t}
-                  onContinue={handleContinue}
-                  isContinuing={continuingMessages[m.id] === true}
-                  isResumed={resumedMessages[m.id] === true}
-                  relayError={relayErrors[m.id]}
-                />
-              ))}
-        </div>
-        <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
-        <div className={css.composer}>
-          {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
-          {popupOpen && (
-            <div className={css.mentionPopup}>
-              <div className={css.mentionTitle}>
-                {mention.query === '' ? t('mentionTitle') : t('mentionTitleQuery', { query: mention.query })}
-              </div>
-              <div role="listbox" id="channel-mention-list" aria-label={t('mentionTitle')}>
-                {candidates.map((m, index) => (
-                  <div
-                    key={m.id}
-                    id={`channel-mention-${m.id}`}
-                    role="option"
-                    aria-selected={index === selected}
-                    className={index === selected ? `${css.mentionItem} ${css.mentionActive}` : css.mentionItem}
-                    // Keep focus in the textarea so typing continues after a click.
-                    onMouseDown={(event) => { event.preventDefault() }}
-                    onMouseEnter={() => { setHighlight(index) }}
-                    onClick={() => { choose(m) }}
-                  >
-                    <span className={css.memberAvatar}>
-                      <Avatar id={m.id} name={m.name} small />
-                      {m.online && <span className={css.presence} />}
-                    </span>
-                    <span className={css.mentionName}>{m.name}</span>
-                    <KindTag kind={m.kind} t={t} />
-                    <span className={css.mentionMeta}>
-                      {busy.has(m.id) ? t('working') : m.online ? `@${m.id}` : t('offline')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className={css.mentionHint}>{t('mentionHint')}</div>
-            </div>
-          )}
-          <div className={css.composerRow}>
-            <textarea
-              ref={inputRef}
-              className={css.input}
-              rows={1}
-              value={draft}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={t('placeholder', { room: room?.name ?? '' })}
-              role="combobox"
-              aria-expanded={popupOpen}
-              aria-controls="channel-mention-list"
-              aria-autocomplete="list"
-              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : undefined}
-              onChange={(event) => {
-                const roomId = state.roomId
-                const value = event.target.value
-                if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
-                setCaret(event.target.selectionStart)
-                setHighlight(0)
-              }}
-              onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
-              onKeyDown={onKeyDown}
-            />
-            <button
-              type="button"
-              className={css.mentionButton}
-              title={t('mentionButton')}
-              aria-label={t('mentionButton')}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              onClick={openPicker}
-            >
-              @
-            </button>
-          </div>
-        </div>
-      </section>
-      <aside className={css.members}>
-        <button type="button" className={css.addMemberButton} onClick={() => { setDialog(null) }}>+ {t('addMember')}</button>
-        {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
-        <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
-        <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
-      </aside>
+          className={css.mobileBackdrop}
+          role="presentation"
+          aria-hidden="true"
+          onClick={() => { setDrawer(undefined) }}
+        />
+      )}
       {dialog !== undefined && (
         <MemberDialog
           member={dialog ?? undefined}
