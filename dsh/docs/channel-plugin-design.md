@@ -15,7 +15,7 @@
   5. 头像色、在线绿点和弹窗遮罩不跟随主题。
   6. 手机端（≤900px）切不了频道。
 - 落地顺序按 owner 复核后的优先级：主题收口 → 页面测试接进 CI → 数据层（整窗对账、退避重连、乐观发送）→ 手机端 → 停止和继续 → 组件拆分 →（可选）卡片与审批入口。详见 §10。
-- **本阶段不含**：派活回交（agent 之间自动把结果交回发起者）与记忆管理（共享记忆 / wiki 的读写）。这五个 issue 只把「频道这个入口」做扎实，不是把愿景做完，做完五步也不等于主线收尾。另外「等批准」的处理入口（§9）单独一期，不塞进这五步。
+- **本阶段不含**：派活回交（agent 之间自动把结果交回发起者）与记忆管理（共享记忆 / wiki 的读写）。§10 的 7 个 PR 只把「频道这个入口」做扎实，不是把愿景做完；7 个 PR 全合进 `main` 也不等于主线收尾。其中「等批准」的入口（§9）是第 7 个、可选的那个，不占前 6 个的位置。
 
 ## 1. 现状差距
 
@@ -23,15 +23,15 @@
 |---|---|---|---|
 | 左栏入口和主面板 | 已有，`sidebar.panellist` 的 order 是 5，`main` 的 key 是 `channels` | [B:dsh/packages/client-ui-discord/src/client/index.ts](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/index.ts) | 无 |
 | 频道视图 | React 单组件，包含频道列表、消息、输入框、成员栏 | [B:.../ChannelsPage.tsx](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/ChannelsPage.tsx) | 需要拆分 |
-| 数据层 | 不依赖 React 的 `createChannelSource`，基于 `ObservableSnapshot`；第一个订阅者出现时才开 SSE，最后一个离开就关 | [B:.../channel-source.ts](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/channel-source.ts) | 重连只有全量 refresh，没有退避；改成整窗对账见 §4.3，已由 #18 实现 |
-| 重连对账 | `main` 的 `channel-source.ts` 重连时从缓存窗口最早一条重读，注释写明 *cards can be edited/deleted while offline* | [B:.../channel-source.ts](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/channel-source.ts) | **不能退化成只补新增**，否则离线期间被改/被删的卡片会一直显示旧状态；正确做法是整窗对账（§4.3） |
+| 数据层 | 不依赖 React 的 `createChannelSource`，基于 `ObservableSnapshot`；第一个订阅者出现时才开 SSE，最后一个离开就关 | [B:.../channel-source.ts](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/channel-source.ts) | 有三个 spec 在跑、页面 spec 不在白名单；重连与翻页策略见下一行，改造见 §4.3，已由 #18 实现 |
+| 重连对账 | `main` 的 `channel-source.ts` 重连时**从缓存窗口最早一条重读**（注释写明 *cards can be edited/deleted while offline*），但没有退避、没有按 `after=` 分页 | [B:.../channel-source.ts](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/channel-source.ts) | **不能退化成只补新增**，否则离线期间被改/被删的卡片会一直显示旧状态；整窗对账 + 退避的正式做法见 §4.3，已由 #18 实现 |
 | 复用 /collab 页面 | **不复用**。page.html 是独立的最简页面，跟原生插件只共用后端 API | [B:dsh/collab/page.html](https://github.com/zuiho-kai/bothouse/blob/main/dsh/collab/page.html) | 原生插件稳定后可以把 page.html 降级成调试页 |
 | @ 补全 | 已有 `activeMention`、`rankMembers` 等函数，并有测试 | [B:.../mention-complete.ts](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/mention-complete.ts) | 弹层的键盘交互要单独做成组件 |
 | 成员管理 | MemberDialog 支持增、改、删，能选模型 | [B:.../MemberDialog.tsx](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/MemberDialog.tsx) | 无 |
 | 工作状态 | 后端发 `thinking` 事件，前端按频道显示 | [B:dsh/collab/hub.mjs](https://github.com/zuiho-kai/bothouse/blob/main/dsh/collab/hub.mjs) | 无 |
 | 停止 | `main` 里**没有**；#20 已加 `POST /collab/api/rooms/{id}/stop`、`/continue`，DSH 成员用 `agent.cancel({kind:'user'},{keepInbox:true})`（`dsh-member.mjs:286`） | [B:dsh/collab/plugin.mjs](https://github.com/zuiho-kai/bothouse/blob/main/dsh/collab/plugin.mjs) | 8a 有实现；8b（cloud_web 停止协议）未做，只能屏蔽旧输出，见 §8 |
 | 待批准 | 页面只渲染卡片 `title`/`state`；collab 只做了 `permissionPresets.set`（`dsh-member.mjs:277`），没有把 approval 请求转出来 | [B:.../ChannelsPage.tsx](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/ChannelsPage.tsx) | 「等批准」的任务在频道里看不见，处理入口要单独设计（§9） |
-| 手机端 | ≤900px 直接把 `.rooms`、`.members` 设为 `display: none`，没有替代入口（`ChannelsPage.module.css:375`） | [B:.../ChannelsPage.module.css](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/ChannelsPage.module.css) | 手机上切不了频道（§7） |
+| 手机端 | ≤900px 直接把 `.rooms`、`.members` 设为 `display: none`，没有替代入口（`ChannelsPage.module.css:375`） | [B:.../ChannelsPage.module.css](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/ChannelsPage.module.css) | 手机上切不了频道（§8） |
 | 页面测试 | `channels-page.client.spec.tsx` 不在 `dsh/vitest.config.mjs` 的 include 白名单里，仓库没装 jsdom / @testing-library | [B:dsh/vitest.config.mjs](https://github.com/zuiho-kai/bothouse/blob/main/dsh/vitest.config.mjs) | 页面零覆盖，「测试跟着组件迁移」是空话，要先接进 CI |
 | 接力上限 | 后端 `maxRelay`（默认 6），超过后发一条系统消息 | [B:dsh/collab/dsh-member.mjs](https://github.com/zuiho-kai/bothouse/blob/main/dsh/collab/dsh-member.mjs) 第 14–15、167–170 行 | 前端没有专门提示，也没有"继续"按钮 |
 | 主题 | 86 处 `var(--dsw-*)`；硬编码有 `#fff`（第 126、565 行）、`#23a55a`（第 351 行，在线点）；头像 `PALETTE` 有 8 个 Discord 色 | [B:.../ChannelsPage.module.css](https://github.com/zuiho-kai/bothouse/blob/main/dsh/packages/client-ui-discord/src/client/ChannelsPage.module.css)、`ChannelsPage.tsx` 第 26 行 | 改成 token |
@@ -116,6 +116,7 @@ ChannelsPage (容器：读 snapshot、分发 actions)
   - 然后**对当前频道的整段本地缓存做对账**：从缓存里最早那条的 id 开始，用 `after=` 逐页（每页 200）读到最新，服务端仍然返回的行以服务端内容覆盖，缓存区间内服务端不再返回的行删掉。**唯独不要全量重拉整个频道历史**：缓存的起点是本地最早一条，不是房间最早一条。
   - 为什么必须整窗而不是只补新增：`after=` 只报告「仍然存在的行」，看不到编辑和删除。进度卡会被反复改写，离线期间被改的卡若只补新增就会一直显示旧进度（见 §1「重连对账」与 owner 复审第 1 条）。只重读最新一页同样不够——`loadOlder` 翻上来的更早卡片仍会停在旧内容。
   - 空页也是权威信息：重读区间返回空，说明缓存区间内的行在离线期间被删光了，要一并清掉。
+  - **已知代价**：对账范围等于本地缓存窗口，而窗口大小取决于用户翻过多少页。深翻页过（比如往上翻了 10 页、缓存了上千条）之后重连会连续发多个 `after=` 请求（每页 200）。这是有意的取舍：要覆盖离线期间的编辑和删除就必须重读整段窗口，宁可多几个请求也不显示旧状态。缓解措施是重连期间 StatusBanner 显示「重连中」，并且这些请求串行发，不并发打满。
   - 页面隐藏时不强制断开，恢复可见时如果连接已断，立即重连。
 - 向上翻页（`before=oldestId&limit=100`）：
   - 每个房间同时只允许一个翻页请求，**按房间加闩**：一个房间的请求在飞时，另一个房间照样能翻页。
@@ -141,7 +142,7 @@ ChannelsPage (容器：读 snapshot、分发 actions)
 ```
 dsh/packages/client-ui-discord/src/client/
   index.ts                 挂载（不变）
-  channel-source.ts        数据层（PR3 改造）
+  channel-source.ts        数据层（PR3 改造，已在 #18）
   mention-complete.ts      （不变）
   locales.ts
   components/
@@ -197,9 +198,10 @@ dsh/collab/                后端（#20 已加 stop/continue；审批入口单�
 - 方案（≤900px）：
   - 顶栏加一个「频道」按钮，打开左侧抽屉放 `RoomList`；选中频道后抽屉自动收起。
   - 成员栏改成从右侧抽屉打开，`@` 成员仍然走 Composer 的 `MentionPopover`。
-  - 进度卡和停止按钮在窄屏必须可触达（按钮 ≤ 44px 高度，不靠 hover）。
+  - 进度卡和停止按钮在窄屏必须可触达：**点击区域 ≥ 44px**（不靠 hover，也不靠小图标硬点）。
   - StatusBanner 固定在顶部，不占抽屉。
-- 验收：375×667 视口下能切频道、能 @ 成员、能看到任务卡状态、能点停止；页面没有横向滚动；抽屉打开时背景可点关闭。
+- 验收：375×667 视口下能切频道、能 @ 成员、能看到任务卡状态；页面没有横向滚动；抽屉打开时背景可点关闭。
+  （「窄屏能点停止」不在这里验：停止本身是 §7、PR5 的内容，PR4 只保证抽屉和布局不挡路。）
 - 优先级：owner 定为最高优先，排在组件拆分之前。
 
 ## 9. 等批准的任务（permission 转发到频道）
@@ -238,9 +240,9 @@ dsh/collab/                后端（#20 已加 stop/continue；审批入口单�
 2. **PR2 页面测试接进 CI**（#6 前置）：把 `channels-page.client.spec.tsx` 加进 `dsh/vitest.config.mjs` 的 include，补 jsdom 与 @testing-library 依赖，让 CI 真的跑页面测试。
    验收：CI 里能看到页面测试执行；本地 `npx vitest run` 文件数和用例数都包含页面 spec。
 3. **PR3 数据层**（#7）：按频道缓存、退避重连、**整窗对账**、乐观发送（`client_key`）、向上翻页（`before`，按房间加闩）、StatusBanner 显示重连中。
-   验收：假服务端按 `before`/`after`/`limit` 真实返回；断线重连后不丢不重；**离线期间被改的卡片显示新内容、被删的卡片消失，翻页翻上来的更早卡片同样对得上**；切频道时翻页结果不串房间。
+   验收：假服务端按 `before`/`after`/`limit` 真实返回；断线重连后不丢不重；**离线期间被改的卡片显示新内容、被删的卡片消失，翻页翻上来的更早卡片同样对得上**；切频道时翻页结果不串房间，**A → B → 切回 A 的旧页也不混进来**（翻页请求带自增序号 + 窗口代次）。
 4. **PR4 手机端**：§8 的抽屉和切换器。
-   验收：375×667 下能切频道、@ 成员、看任务卡、点停止，无横向滚动。
+   验收：375×667 下能切频道、能 @ 成员、能看任务卡状态，无横向滚动；抽屉按钮点击区域 ≥ 44px。**「窄屏能点停止」归 PR5 验**，这里只保证布局不挡路。
 5. **PR5 停止和继续**（#8）：§7 的 8a 与三态呈现、继续的幂等。「8b 未做」写进 PR 正文。
    验收：三个状态各有测试和对应文案；只有 cloud_web 在跑时也贴提示；中断轮次保留半截正文并带 `aborted：user` 标记；重复点继续不会重复派发。
 6. **PR6 组件拆分**（#6）：按 §3 拆分，不改行为。优先级最低，别排在手机可用和消息可靠性前面。
