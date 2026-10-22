@@ -1,6 +1,10 @@
 package discord
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -68,5 +72,36 @@ func TestDiscordSubTaskRowWaitingOnOwnBackgroundWork(t *testing.T) {
 	want := "⏳ 后台 · 后台分两次等自己的 sleep · 开始于 <t:1792318365:R>\n　└ 等自己的后台任务 — 第一条已在后台运行，等待完成通知。"
 	if row != want {
 		t.Fatalf("row = %q\nwant  %q", row, want)
+	}
+}
+
+// IsLatestMessage asks for the newest message in the handle's channel and
+// compares IDs.
+func TestDiscordIsLatestMessage(t *testing.T) {
+	newest := "m2"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/channels/log1/messages") || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "unexpected", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"id":"`+newest+`","channel_id":"log1"}]`)
+	}))
+	t.Cleanup(server.Close)
+	p := &Platform{session: newTestDiscordSession(t, server)}
+	p.self = p
+	var _ core.LatestMessageChecker = &progressPlatform{Platform: p}
+
+	ok, err := p.IsLatestMessage(context.Background(), &discordPreviewHandle{channelID: "log1", messageID: "m2"})
+	if err != nil || !ok {
+		t.Fatalf("newest message: ok=%v err=%v, want true", ok, err)
+	}
+	ok, err = p.IsLatestMessage(context.Background(), &discordPreviewHandle{channelID: "log1", messageID: "m1"})
+	if err != nil || ok {
+		t.Fatalf("buried message: ok=%v err=%v, want false", ok, err)
+	}
+	if _, err := p.IsLatestMessage(context.Background(), "bad"); err == nil {
+		t.Fatal("bad handle: want error")
 	}
 }
