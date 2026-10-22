@@ -106,6 +106,18 @@ func withLimit(parent context.Context, d time.Duration) (context.Context, contex
 	return context.WithTimeout(context.WithValue(parent, limitKey{}, d), d)
 }
 
+// ctxExpired reports whether ctx is done or its deadline has passed. ctx.Err() alone lags the
+// deadline: it turns non-nil only after the timer goroutine runs, so a watchvid run whose own
+// (later-started, same-length) deadline already fired can return while the message's ctx.Err() is
+// still nil, and the next link would start after the message's time is up.
+func ctxExpired(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	dl, ok := ctx.Deadline()
+	return ok && !time.Now().Before(dl)
+}
+
 // EnableMediaLibrary turns the media library on when binDir holds both scripts (watchvid and
 // mediaarchive). binDir "" (not configured) leaves it off without a log line. nasRoot is the NAS
 // share the library lives on; "" = no NAS (no mount check, no "NAS 没挂" notes).
@@ -293,7 +305,7 @@ func (e *Engine) parseVideo(ctx context.Context, msg *Message, link videoLink) v
 		if run = videoRunning[link.Key]; run != nil {
 			slog.Info("watchvid: shared (already running)", "project", e.name, "key", link.Key)
 		} else {
-			if ctx.Err() != nil {
+			if ctxExpired(ctx) {
 				videoMu.Unlock()
 				return videoResult{Err: fmt.Sprintf("等待超时（%s），没有开始解析", ctxLimit(ctx))}
 			}
@@ -411,7 +423,7 @@ func (e *Engine) prepareMedia(msg *Message) {
 		ctx, cancel := withLimit(e.ctx, watchvidTimeout)
 		defer cancel()
 		for i, l := range links {
-			if ctx.Err() != nil {
+			if ctxExpired(ctx) {
 				var rest []string
 				for _, r := range links[i:] {
 					rest = append(rest, r.URL)
