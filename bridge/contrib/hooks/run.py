@@ -111,8 +111,8 @@ def read_lines(path):
     if data is None:
         try:
             import zstandard
-            with open(path, "rb") as f:
-                data = b"".join(zstandard.ZstdDecompressor().read_to_iter(f))
+            with open(path, "rb") as f:  # read_across_frames: the default stops after the first frame
+                data = zstandard.ZstdDecompressor().stream_reader(f, read_across_frames=True).read()
         except Exception:
             pass
     if data is None:
