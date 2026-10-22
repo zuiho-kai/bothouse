@@ -301,6 +301,7 @@ func (p *Platform) onMessage(data *chatbot.BotCallbackDataModel, richText *richT
 		msg := &core.Message{
 			SessionKey: sessionKey,
 			Platform:   "dingtalk",
+			Direct:     data.ConversationType == "1", // a 1:1 chat calls the bot (core/gate_local.go)
 			UserID:     data.SenderStaffId,
 			UserName:   data.SenderNick,
 			ChatName:   data.ConversationTitle,
@@ -345,6 +346,7 @@ func (p *Platform) onMessage(data *chatbot.BotCallbackDataModel, richText *richT
 	msg := &core.Message{
 		SessionKey: sessionKey,
 		Platform:   "dingtalk",
+		Direct:     data.ConversationType == "1", // a 1:1 chat calls the bot (core/gate_local.go)
 		UserID:     data.SenderStaffId,
 		UserName:   data.SenderNick,
 		ChatName:   data.ConversationTitle,
@@ -432,6 +434,7 @@ func (p *Platform) handleAudioMessage(data *chatbot.BotCallbackDataModel, sessio
 			msg := &core.Message{
 				SessionKey: sessionKey,
 				Platform:   "dingtalk",
+				Direct:     data.ConversationType == "1", // a 1:1 chat calls the bot (core/gate_local.go)
 				UserID:     data.SenderStaffId,
 				UserName:   data.SenderNick,
 				Content:    recognition,
@@ -457,6 +460,7 @@ func (p *Platform) handleAudioMessage(data *chatbot.BotCallbackDataModel, sessio
 	msg := &core.Message{
 		SessionKey: sessionKey,
 		Platform:   "dingtalk",
+		Direct:     data.ConversationType == "1", // a 1:1 chat calls the bot (core/gate_local.go)
 		UserID:     data.SenderStaffId,
 		UserName:   data.SenderNick,
 		Content:    recognition, // Use recognition as text content
@@ -536,6 +540,7 @@ func (p *Platform) handleImageMessage(data *chatbot.BotCallbackDataModel, sessio
 	msg := &core.Message{
 		SessionKey: sessionKey,
 		Platform:   "dingtalk",
+		Direct:     data.ConversationType == "1", // a 1:1 chat calls the bot (core/gate_local.go)
 		UserID:     data.SenderStaffId,
 		UserName:   data.SenderNick,
 		MessageID:  data.MsgId,
@@ -617,6 +622,7 @@ func (p *Platform) handleFileMessage(data *chatbot.BotCallbackDataModel, session
 	msg := &core.Message{
 		SessionKey: sessionKey,
 		Platform:   "dingtalk",
+		Direct:     data.ConversationType == "1", // a 1:1 chat calls the bot (core/gate_local.go)
 		UserID:     data.SenderStaffId,
 		UserName:   data.SenderNick,
 		ChatName:   data.ConversationTitle,

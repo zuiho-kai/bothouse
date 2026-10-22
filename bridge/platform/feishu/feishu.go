@@ -111,6 +111,10 @@ type replyContext struct {
 	chatID          string
 	sessionKey      string
 	bootstrapThread bool
+	// mentioned / direct: the message @-s the bot in a group / comes from a p2p chat. Copied onto
+	// core.Message in dispatchCoreMessage for core's built-in busy rules (core/gate_local.go).
+	mentioned bool
+	direct    bool
 }
 
 type Platform struct {
@@ -1091,6 +1095,10 @@ func (p *Platform) dispatchCoreMessage(msg *core.Message) {
 		return
 	}
 	p.populateWorkspaceChannelKeys(msg)
+	if rc, ok := msg.ReplyCtx.(replyContext); ok {
+		msg.Mentioned = msg.Mentioned || rc.mentioned
+		msg.Direct = msg.Direct || rc.direct
+	}
 	if p.isMessageRecalled(msg.MessageID) {
 		slog.Debug(p.tag()+": recalled message dispatch dropped", "message_id", msg.MessageID)
 		return
@@ -1432,7 +1440,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	mentions := msg.Mentions
 	parentID := stringValue(msg.ParentId)
 
-	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey}
+	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
+		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
+		direct:    chatType == "p2p"}
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
 		"session_key", sessionKey,

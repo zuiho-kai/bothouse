@@ -582,6 +582,13 @@ func (p *Platform) handleMessage(ctx context.Context, msg *models.Message) {
 }
 
 func (p *Platform) dispatchMessage(msg *core.Message, tgMsg *models.Message) {
+	// Who the message calls, for core's built-in busy rules (core/gate_local.go): a private chat,
+	// or in a group an @bot / a reply to the bot (isDirectedAtBot, minus bare /commands).
+	if tgMsg.Chat.Type == models.ChatTypePrivate {
+		msg.Direct = true
+	} else if (tgMsg.Chat.Type == models.ChatTypeGroup || tgMsg.Chat.Type == models.ChatTypeSupergroup) && !isCommand(tgMsg) {
+		msg.Mentioned = p.isDirectedAtBot(tgMsg)
+	}
 	// Enrich with platform-specific context (reply quotes, location text, etc.)
 	var extras []string
 	if replyText := enrichReplyContent(tgMsg); replyText != "" {

@@ -733,6 +733,10 @@ name = "my-backend"
 #                                  # （支持中途插话的 agent；其余照旧排队）；整条只是「暂停」「停一下」「别做了」/ stop / pause
 #                                  # 就打断当前这一轮。空闲时不受影响。模型闸门（gate_url）仍需手动装，配了它就由它判断。
 #                                  # false = upstream behaviour / 关掉 = 和上游一样。
+#                                  # Platforms that tell "called": discord, telegram, cloud-web, feishu, slack, webex
+#                                  # (@ / reply / DM); wecom (websocket), dingtalk (DM only). Others: rules never apply.
+#                                  # 能判断"叫到它"的平台：discord、telegram、cloud-web、飞书、slack、webex（@、回复、私聊）；
+#                                  # 企业微信（websocket）、钉钉只认私聊；其余平台不生效。
 # gate_timeout_ms = 3000           # Gate error/timeout → gate_fallback. / 闸门出错或超时按 gate_fallback 处理。
 # gate_fallback = "reply"          # Main: "reply" (default). Subs: "context" (listen only, never all subs at once).
 #                                  # 主 bot 用默认 reply；sub 用 context（闸门挂了只听不说，不会几个 sub 一起开口）。

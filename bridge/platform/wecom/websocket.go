@@ -429,6 +429,7 @@ func (p *WSPlatform) handleMsgCallback(frame wsFrame) {
 		slog.Debug("wecom-ws: voice received (transcribed)", "user", body.From.UserID, "len", len(content))
 		go p.handler(p, &core.Message{
 			SessionKey: sessionKey, Platform: "wecom",
+			Direct:    body.ChatType == "single", // a 1:1 chat calls the bot (core/gate_local.go)
 			MessageID: body.MsgID,
 			UserID:    body.From.UserID, UserName: body.From.UserID,
 			ChatName: chatName,
@@ -446,6 +447,7 @@ func (p *WSPlatform) handleMsgCallback(frame wsFrame) {
 		slog.Debug("wecom-ws: text received", "user", body.From.UserID, "len", len(content))
 		go p.handler(p, &core.Message{
 			SessionKey: sessionKey, Platform: "wecom",
+			Direct:    body.ChatType == "single", // a 1:1 chat calls the bot (core/gate_local.go)
 			MessageID: body.MsgID,
 			UserID:    body.From.UserID, UserName: body.From.UserID,
 			ChatName: chatName,

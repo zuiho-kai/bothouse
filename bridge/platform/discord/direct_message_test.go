@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -33,5 +34,33 @@ func TestDirectMessageMarksDirect(t *testing.T) {
 				t.Fatalf("Direct = %v, want %v", delivered[0].Direct, tc.want)
 			}
 		})
+	}
+}
+
+// What core's built-in busy rules (core/gate_local.go) receive for a reply to this bot: Mentioned
+// (the reply ping), the quote prepended, and another bot's @ kept, so "reply + @彩虹猫 暂停" is not
+// a stop for this bot while "reply + 暂停" is.
+func TestReplyToBotReachesCoreAsCalled(t *testing.T) {
+	for _, tc := range []struct{ content, want string }{
+		{"暂停", "暂停"},
+		{"<@200> 暂停", "<@200> 暂停"},
+		{"<@100> 暂停", "@bot100(你) 暂停"},
+	} {
+		var got *core.Message
+		p := &Platform{botID: "100", botName: "bot100", allowFrom: "*"}
+		p.botRoleIDs.Store("guild", "110")
+		p.channelNameCache.Store("channel", "test")
+		p.handler = func(_ core.Platform, m *core.Message) { got = m }
+		p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+			ID: "r-" + tc.content, GuildID: "guild", ChannelID: "channel", Author: &discordgo.User{ID: "human"},
+			Timestamp: time.Now(), Type: discordgo.MessageTypeReply, Content: tc.content,
+			MessageReference:  &discordgo.MessageReference{MessageID: "original"},
+			ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: "100", Bot: true, Username: "bot100"}, Content: "我在跑"}}})
+		if got == nil || !got.Mentioned || got.Direct {
+			t.Fatalf("%q: got %+v, want Mentioned and not Direct", tc.content, got)
+		}
+		if !strings.HasPrefix(got.Content, "[replying to ") || !strings.HasSuffix(got.Content, "]\n"+tc.want) {
+			t.Errorf("%q: content = %q, want quote + %q", tc.content, got.Content, tc.want)
+		}
 	}
 }

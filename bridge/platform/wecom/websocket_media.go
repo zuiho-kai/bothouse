@@ -432,6 +432,7 @@ func (p *WSPlatform) deliverWSMediaInbound(body *wsMsgCallbackBody, sessionKey, 
 
 	p.handler(p, &core.Message{
 		SessionKey: sessionKey, Platform: "wecom",
+		Direct:    body.ChatType == "single", // a 1:1 chat calls the bot (core/gate_local.go)
 		MessageID: body.MsgID,
 		UserID:    body.From.UserID, UserName: body.From.UserID,
 		ChatName:     chatName,

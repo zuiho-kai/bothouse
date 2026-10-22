@@ -11,7 +11,12 @@ package core
 //   - anything else → written into the running turn (same path as the gate's busy "reply"), when
 //     the agent supports mid-turn input.
 // Everything else (idle sessions, messages that don't call the bot, agents without mid-turn input,
-// a refused injection) keeps the upstream path: a normal turn or the busy queue.
+// a refused injection, a turn idle for deadTurnAfter) keeps the upstream path: a normal turn or the
+// busy queue. A stop word with nothing to cancel is answered like /stop and dropped.
+//
+// "Calls the bot" comes from the platform: Message.Mentioned (an @ or a reply to the bot) and
+// Message.Direct (a private chat). Set by discord, telegram, cloud-web, feishu, slack, webex
+// (both) and wecom, dingtalk (Direct only).
 
 import (
 	"log/slog"
@@ -32,12 +37,15 @@ var localStopWords = map[string]bool{
 var (
 	// "[replying to X: …]\n" prepended by the Discord adapter (applyReferencedMessage).
 	localReplyPrefix = "[replying to "
-	// Mentions left in the text: raw <@id>/<@!id>/<@&role> and the "@name(你)" self label.
-	localMentionRe = regexp.MustCompile(`<@[!&]?\d+>|@\S+?\(你\)`)
+	// The "@name(你)" label the Discord adapter leaves for this bot's own @ (labelSelfMention);
+	// the name may contain spaces. Other people's mentions (<@id>, @everyone, @name) are kept, so
+	// "@彩虹猫 暂停" in a reply to this bot is not a stop for this bot.
+	localSelfMentionRe = regexp.MustCompile(`@[^@\n]+?\(你\)`)
 )
 
-// isLocalStopWord reports whether text is only a stop word (ignoring a reply quote, mentions,
-// whitespace, punctuation and case). A longer sentence that merely contains one is not a stop.
+// isLocalStopWord reports whether text is only a stop word (ignoring a reply quote, this bot's own
+// @ label, whitespace, punctuation and case). A longer sentence that merely contains one, or one
+// that also @-s someone else, is not a stop.
 func isLocalStopWord(text string) bool {
 	if strings.HasPrefix(text, localReplyPrefix) {
 		i := strings.LastIndex(text, "]\n")
@@ -46,7 +54,7 @@ func isLocalStopWord(text string) bool {
 		}
 		text = text[i+2:]
 	}
-	text = localMentionRe.ReplaceAllString(text, " ")
+	text = localSelfMentionRe.ReplaceAllString(text, " ")
 	text = strings.TrimFunc(text, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '　' ||
 			strings.ContainsRune("。.!！~～、,，…", r)
@@ -70,11 +78,22 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		return false
 	}
 	if isLocalStopWord(userTextOf(msg)) {
-		if !e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx) {
-			return false
+		stopped := e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx)
+		if !stopped {
+			// Same fallback as /stop (cmdStop): the state may be stored under a workspace-prefixed key.
+			if found := e.findInteractiveKeyForSession(msg.SessionKey); found != "" && found != interactiveKey {
+				stopped = e.stopInteractiveSession(found, p, msg.ReplyCtx)
+			}
+		}
+		if !stopped {
+			// Nothing to cancel: answer like /stop does and drop the stop word, so it never becomes
+			// the next turn's prompt.
+			slog.Info("gate(local): stop word but no running turn to cancel", "session", msg.SessionKey)
+			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgNoExecution))
+			return true
 		}
 		slog.Info("gate(local): stop word cancelled the running turn", "session", msg.SessionKey)
-		e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateStopped))
 		// Let the cancelled turn release the session, as the gate's abort does.
 		if e.waitForSessionLock(session, recalledStopLockWait) {
 			session.UnlockWithoutUpdate()
@@ -96,6 +115,6 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		return false
 	}
 	e.teamNoteTurn(msg, session)
-	e.reply(p, msg.ReplyCtx, "↪ 已插入")
+	e.reply(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
 	return true
 }

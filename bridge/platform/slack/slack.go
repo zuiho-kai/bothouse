@@ -219,6 +219,7 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 					Audio:     audio,
 					MessageID: ev.TimeStamp,
 					ReplyCtx:  replyContext{channel: ev.Channel, timestamp: threadTS},
+					Mentioned: true, // app_mention: the bot was @-ed (core/gate_local.go)
 				}
 				p.handler(p, msg)
 
@@ -280,6 +281,7 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 					Content:  ev.Text, Images: images, Files: docFiles, Audio: audio,
 					MessageID: ts,
 					ReplyCtx:  replyContext{channel: ev.Channel, timestamp: threadTS},
+					Direct:    ev.ChannelType == "im", // a DM calls the bot (core/gate_local.go)
 				}
 				p.handler(p, msg)
 			}

@@ -418,6 +418,9 @@ func (p *Platform) handleMessage(raw []byte) {
 		// maomao fork: the gate decides who answers from these (core/gate.go).
 		Mentioned: m.Mentioned != nil && *m.Mentioned,
 		FromBot:   m.FromBot,
+		// A private chat calls the bot (core/gate_local.go built-in busy rules). Only the documented
+		// chat_type "direct" (docs/cloud-web.md); a missing chat_type is not taken as a DM.
+		Direct: strings.EqualFold(strings.TrimSpace(m.ChatType), "direct") && !m.FromBot,
 	}
 
 	p.mu.RLock()

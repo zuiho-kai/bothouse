@@ -171,6 +171,8 @@ const (
 	MsgExecutionStopped          MsgKey = "execution_stopped"
 	MsgSessionCancelled          MsgKey = "session_cancelled"
 	MsgNoExecution               MsgKey = "no_execution"
+	MsgLocalGateStopped          MsgKey = "local_gate_stopped"
+	MsgLocalGateInserted         MsgKey = "local_gate_inserted"
 	MsgPreviousProcessing        MsgKey = "previous_processing"
 	MsgQueueFull                 MsgKey = "queue_full"
 	MsgMessageQueued             MsgKey = "message_queued"
@@ -953,6 +955,22 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "會話已取消。可以繼續新的對話。",
 		LangJapanese:           "セッションをキャンセルしました。新しい指示を受け付けます。",
 		LangSpanish:            "Sesion cancelada. Listo para nuevas instrucciones.",
+	},
+	// Built-in busy rules (gate_local.go). Keep the ⏹ / ↪ prefixes: teammates' adapters filter
+	// bot notices by them (discord isBotNotice).
+	MsgLocalGateStopped: {
+		LangEnglish:            "⏹ Stopped the current turn.",
+		LangChinese:            "⏹ 已打断当前这一轮",
+		LangTraditionalChinese: "⏹ 已打斷目前這一輪",
+		LangJapanese:           "⏹ 現在のターンを中断しました。",
+		LangSpanish:            "⏹ Turno actual interrumpido.",
+	},
+	MsgLocalGateInserted: {
+		LangEnglish:            "↪ Added to the current turn.",
+		LangChinese:            "↪ 已插入",
+		LangTraditionalChinese: "↪ 已插入",
+		LangJapanese:           "↪ 現在のターンに追加しました。",
+		LangSpanish:            "↪ Añadido al turno actual.",
 	},
 	MsgNoExecution: {
 		LangEnglish:            "No execution in progress.",
