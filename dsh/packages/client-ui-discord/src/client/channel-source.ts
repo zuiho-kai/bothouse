@@ -203,6 +203,16 @@ export function createChannelSource(transport: ChannelTransport): {
   let outbox: OutboxMessage[] = []
   /** Rooms with a page-back request in flight; a second request per room would reorder history. */
   const paging = new Set<number>()
+  /** Ticket of the newest page-back request per room, so a page that lost its race is dropped. */
+  const pageTicket = new Map<number, number>()
+  let nextPageTicket = 0
+  /**
+   * Bumped whenever the cached window is rebuilt (room switch or reconnect
+   * reconcile). A page-back response captured under an older epoch describes a
+   * window that no longer exists, so merging it would resurrect stale rows —
+   * e.g. A → B → back to A, where the room check alone passes again.
+   */
+  let historyEpoch = 0
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -304,6 +314,9 @@ export function createChannelSource(transport: ChannelTransport): {
           for (const id of [...merged.keys()]) {
             if (id >= oldest && !present.has(id)) merged.delete(id)
           }
+          // The window was rebuilt from the service: pages started before this
+          // point describe the old contents.
+          historyEpoch += 1
           rows.push(...[...merged.values()].sort((a, b) => a.id - b.id))
           hasMoreOlder = previous.hasMoreOlder
         } else {
@@ -343,6 +356,8 @@ export function createChannelSource(transport: ChannelTransport): {
   }
 
   const selectRoom = async (selected: number): Promise<void> => {
+    // Any page still in flight for the previous window is stale from here on.
+    historyEpoch += 1
     set({ roomId: selected, messages: [], outbox: outbox.filter(entry => entry.roomId === selected) })
     await refresh(false)
   }
@@ -422,6 +437,7 @@ export function createChannelSource(transport: ChannelTransport): {
     reconnectToken = undefined
     attempt = 0
     paging.clear()
+    pageTicket.clear()
     pending?.controller.abort()
     pending = undefined
     if (stream !== undefined) {
@@ -527,13 +543,19 @@ export function createChannelSource(transport: ChannelTransport): {
       if (paging.has(roomId)) return 0
       if (oldest === undefined || !snapshot.hasMoreOlder) return 0
       paging.add(roomId)
+      // Every page takes a ticket and records the window it was asked against;
+      // both must still hold when it comes back, otherwise it is a stale page.
+      const ticket = ++nextPageTicket
+      const epoch = historyEpoch
+      pageTicket.set(roomId, ticket)
       try {
         const { messages } = await request<{ messages: ChannelMessage[] }>(
           `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
         )
-        // The page belongs to the room that asked for it: after a room switch it
-        // is stale, so it is dropped rather than merged into the new room.
+        // The page belongs to the room and the window that asked for it: after a
+        // room switch (even one that came back) or a newer request, it is stale.
         if (lifetime !== owner || snapshot.roomId !== roomId) return 0
+        if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0
         // Older rows and rows already on screen are one ordered set keyed by id.
         const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
         for (const row of messages) merged.set(row.id, row)

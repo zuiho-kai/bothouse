@@ -546,6 +546,39 @@ describe('channel data layer: review fixes', () => {
     stop()
   })
 
+  it('drops a page that was in flight when the user switched away and came back', async () => {
+    const rooms = [{ id: 1, name: 'one' }, { id: 2, name: 'two' }]
+    const one = Array.from({ length: 150 }, (_, index) => message(index + 1, `one${String(index + 1)}`, 1))
+    const two = Array.from({ length: 20 }, (_, index) => message(index + 200, `two${String(index + 200)}`, 2))
+    const base = harness([...one, ...two], { rooms })
+    let release: (() => void) | undefined
+    const transport: ChannelTransport = {
+      ...base.transport,
+      fetch: (input, init) => {
+        if (input.includes('/rooms/1/messages') && input.includes('before=')) {
+          return new Promise<Response>(resolve => {
+            // The page was asked against the old window and carries rows marked stale.
+            release = () => resolve(json(200, { messages: one.slice(0, 50).map(row => ({ ...row, text: `${row.text}-stale` })) }))
+          })
+        }
+        return base.transport.fetch(input, init)
+      },
+    }
+    const { channel, stop } = await ready(transport, base.hub)
+
+    const stale = channel.actions.loadOlder()
+    await settle(2)
+    // Away and back: the room matches again, so only the epoch can catch this page.
+    await channel.actions.selectRoom(2)
+    await channel.actions.selectRoom(1)
+
+    release?.()
+    expect(await stale).toBe(0)
+    // The stale page must not resurrect rows the rebuilt window does not hold.
+    expect(channel.source.getSnapshot().messages.some(row => row.text.endsWith('-stale'))).toBe(false)
+    stop()
+  })
+
   it('discards a page that arrives after the room changed and still pages the new room', async () => {
     const rooms = [{ id: 1, name: 'one' }, { id: 2, name: 'two' }]
     const one = Array.from({ length: 150 }, (_, index) => message(index + 1, `one${String(index + 1)}`, 1))
