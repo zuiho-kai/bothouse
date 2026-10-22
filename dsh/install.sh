@@ -35,11 +35,17 @@ DSH_DIR="$(cd "$(dirname "$DSH_JS")/.." && pwd)"
 WEB_APP="$DSH_DIR/node_modules/@deepseek-ai/dsh-web-app"
 [ -d "$WEB_APP" ] || { echo "dsh-web-app not found under $DSH_DIR" >&2; exit 1; }
 
-echo "== install collab dependencies"
-(cd "$HERE/collab" && pnpm install)
+if [ ! -d "$HERE/collab/node_modules" ]; then
+  echo "== install collab dependencies"
+  (cd "$HERE/collab" && pnpm install --frozen-lockfile --config.minimum-release-age=0)
+fi
 
-echo "== build client-ui-discord"
-(cd "$UI" && pnpm install --ignore-workspace && pnpm run bundle)
+if [ -f "$UI/lib/client.js" ]; then
+  echo "== client-ui-discord already bundled, skipping build"
+else
+  echo "== build client-ui-discord"
+  (cd "$UI" && pnpm install --ignore-workspace && pnpm run bundle)
+fi
 
 echo "== install into profile $PROFILE"
 dsh plugin --profile "$PROFILE" add "link:$WEB_APP" "link:$HERE/collab" "link:$UI"

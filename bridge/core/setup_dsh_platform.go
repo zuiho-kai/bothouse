@@ -69,6 +69,14 @@ func FindDSHInstallScript() string {
 			dir = parent
 		}
 	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if p := filepath.Join(home, ".bothouse", "dsh", "install.sh"); fileExists(p) {
+			return p
+		}
+	}
+	if p, err := ExtractEmbeddedDSH(""); err == nil && fileExists(p) {
+		return p
+	}
 	return ""
 }
 
@@ -107,6 +115,11 @@ func InstallDSHPlugin(ctx context.Context, lang string) (DSHStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	script := FindDSHInstallScript()
+	if script == "" || !fileExists(script) {
+		if p, err := ExtractEmbeddedDSH(""); err == nil && fileExists(p) {
+			script = p
+		}
+	}
 	if script == "" {
 		return GetDSHStatus(ctx), errors.New("dsh/install.sh not found (set BOTHOUSE_DSH_DIR to the repo's dsh directory)")
 	}
