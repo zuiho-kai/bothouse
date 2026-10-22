@@ -902,6 +902,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				if !r.reused && wizardHooksFor(r.AgentType) {
 					addStep(res, fmt.Sprintf("role %d hooks", i+1), nil, stepHooksOn(req.Language, AgentHookNames(), AgentHookSettingsPath(r.workDir)))
 				}
+				if !r.reused && AgentToolFS != nil {
+					addStep(res, fmt.Sprintf("role %d tools", i+1), nil, stepToolsOn(req.Language, AgentToolNames(), PersonaFilePath(r.AgentType, r.workDir)))
+				}
 			case r.updatesReplyLanguage():
 				addStep(res, step, nil, stepDryPersonaLang(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
 			default:
@@ -996,6 +999,16 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				addStep(res, hs, err, "")
 			} else {
 				addStep(res, hs, nil, stepHooksOn(req.Language, h.Enabled, h.SettingsFile))
+			}
+		}
+		if !r.reused && AgentToolFS != nil {
+			// a new role gets the small tools (peek, watchvid, websearch) and their lines in its persona; a failure
+			// here is reported but does not undo the role ("cc-connect setup tools on" later)
+			ts := fmt.Sprintf("role %d tools", i+1)
+			if t, err := EnableAgentTools(AgentToolOptions{DataDir: env.DataDir, WorkDir: r.workDir, AgentType: r.AgentType, Lang: r.ReplyLanguage}); err != nil {
+				addStep(res, ts, err, "")
+			} else {
+				addStep(res, ts, nil, stepToolsOn(req.Language, t.Enabled, t.PersonaFile))
 			}
 		}
 	}

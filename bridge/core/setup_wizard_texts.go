@@ -129,3 +129,9 @@ func stepHooksOn(lang string, names []string, settings string) string {
 		"ツール hook を有効化（"+strings.Join(names, "、")+"）："+settings+"。無効化は cc-connect setup hooks off --work-dir <dir>",
 		"tool hooks on ("+strings.Join(names, ", ")+"): "+settings+"; turn off with cc-connect setup hooks off --work-dir <dir>")
 }
+
+func stepToolsOn(lang string, names []string, persona string) string {
+	return tr3(lang, "小工具已写进人设（"+strings.Join(names, "、")+"）："+persona+"；去掉用 cc-connect setup tools off --work-dir <目录>",
+		"小ツールをペルソナに追加（"+strings.Join(names, "、")+"）："+persona+"。外すには cc-connect setup tools off --work-dir <dir>",
+		"small tools added to the persona ("+strings.Join(names, ", ")+"): "+persona+"; remove with cc-connect setup tools off --work-dir <dir>")
+}
