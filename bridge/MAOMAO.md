@@ -56,12 +56,14 @@ aux_channels = { "<main channel ID>" = "<log channel ID>" }  # progress card, su
 
 ## Example gate
 
-`contrib/gate/gate.py` (macOS / Apple Silicon, `uv run contrib/gate/gate.py`): deterministic rules first
-(@-mention, @-ing someone else, questions, pure acknowledgements, link bursts), then a local Qwen3.5-4B (MLX)
-reads the probabilities of three options (~30 ms on M5 Max). Every decision is logged as JSONL for tuning
+`contrib/gate/gate.py` (`uv run contrib/gate/gate.py`): deterministic rules first
+(@-mention, @-ing someone else, questions, pure acknowledgements, link bursts), then jev — the OpenAI-compatible
+model filled in by the setup wizard (`~/.cc-connect/jev.json`, `contrib/gate/scorer_remote.py`) — reads the
+probabilities of the options. Without jev the gate exits at startup with a message on how to fill it in (a free
+SiliconFlow Qwen model, or a local Qwen3 0.6B); it never downloads a model by itself. Every decision is logged as JSONL for tuning
 (`GATE_LOG`, default `~/.cc-connect/gate.jsonl`); model decisions also log `option_mass` (how much of the
 full-vocabulary probability lands on A/B/C — ~0.9 normally, low means the prompt is off) and raw `logprobs`.
-Model: `GATE_MODEL` (HF repo id or local path). Sub mode: `/decide?bot=<name>` — @ or called by name at the
+Optional local model: set `GATE_MODEL` (local path) explicitly to use `contrib/gate/scorer.py` instead of jev. Sub mode: `/decide?bot=<name>` — @ or called by name at the
 start of the message → reply; name mid-sentence → the 4B judges "mentioned vs. called" (≥ 0.7 to reply);
 otherwise idle → context, busy → the 4B decides context vs. mid-turn insert. Your team (main bot name, sub keys and
 names) comes from the JSON file in `GATE_TEAM`; without it the gate uses the placeholder `contrib/gate/team.example.json`
@@ -77,7 +79,7 @@ model: `python3 -I contrib/gate/test_ctxsvc.py`, `python3 -I contrib/gate/test_g
 The model part lives in `contrib/gate/scorer.py`: a fixed prefix + variable input, one forward pass, read
 single-token options. The prefix's KV / linear-attention state is computed once and copied per call, so
 only the ~40-token suffix is recomputed (Qwen3.5's linear-attention state can't be trimmed, so this
-"continue from a saved point" is the only way to reuse it). Tests: `uv run contrib/gate/test_scorer.py`
+"continue from a saved point" is the only way to reuse it). Tests: `GATE_MODEL=<path> uv run contrib/gate/test_scorer.py`
 (cached vs. full recompute, cache not polluted across inputs, option/length validation).
 
 ## Build

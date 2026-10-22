@@ -51,7 +51,7 @@ cc-connect          # 第一次运行（还没配机器人）：建好配置，�
    - Message Content Intent 没开，或者没查到开没开 → 点链接到开发者后台 Bot 页打开 / 确认；
    - 机器人还没进服务器 → 点邀请链接拉进去。
    这两件做完不用重新跑向导，点「重启生效」就行。多个机器人时还会写 gate 的情况：**gate 可以不装**，没装时被 @ 的角色照常回，其余消息都由兜底角色回；
-   想让 AI 自己判断谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步，第一次要几十分钟、下载约 3GB）。
+   想让 AI 自己判断谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步，要先在这一步填 jev，没填 gate 会报错并提示怎么填）。
 
 ## 3. 让你的 AI 帮你配
 
@@ -136,8 +136,8 @@ key 只留在 cc-connect 里。所以任何 OpenAI 兼容接口都能挂到这�
   实测（2026-10-20）：mlx_lm.server + Qwen3-0.6B-4bit 能通过并能打分；LM Studio（MLX 引擎）回 `logprobs: null`，当不了 jev。
   能用才写 `jev.json`；不能用就不写，原来能用的旧 jev 保留并在原因里写「仍在用旧的 …」——新填错一次不该悄悄把选角色关掉。
   一键命令和接口同样：`jev` 不给 = 不动；`"jev": {"base_url": ""}` 也是不动；`"jev": {"remove": true}` = 删掉；没存时返回 `"jev_ok": false`、`jev_reason`，`jev_in_use` 是现在生效的那个。
-- **没有可用的 jev**（没填、测试没过）：gate 改用本机 mlx 的 Qwen（只有 Apple 芯片 Mac）；也没有就只按规则判，
-  被 @、被点名的角色照常回，规则判不了的由兜底角色回。**gate 没在运行**时：被 @ 的角色照常回，其他消息由兜底角色回
+- **没有可用的 jev**（没填、测试没过）：gate 启动就报错退出，提示去这一步填 jev（硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B），
+  不会自己下载模型。**gate 没在运行**时：被 @ 的角色照常回，其他消息由兜底角色回
   （cc-connect 的 `gate_fallback`：兜底角色 `reply`，其他 `context`；被 @ 时一律 `reply`，见 `bridge/core/gate.go`）。
 
 ## 6. 向导写了什么（给别的程序读）

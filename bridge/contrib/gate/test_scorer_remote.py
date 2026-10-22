@@ -80,8 +80,8 @@ class T(unittest.TestCase):
         self.assertIsNone(sr.load_jev(d / "missing.json"))
 
 
-def load_gate(setup_dir, local_scorer=True):
-    """setup_dir 里放向导写的文件；local_scorer=False 模拟没装 mlx。"""
+def load_gate(setup_dir, local_scorer=True, model=None):
+    """setup_dir 里放向导写的文件；local_scorer=False 模拟没装 mlx；model = GATE_MODEL（None = 不设）。"""
     sys.modules.pop("scorer", None)
     if local_scorer:
         fake = types.ModuleType("scorer")
@@ -97,8 +97,10 @@ def load_gate(setup_dir, local_scorer=True):
     else:
         sys.modules["scorer"] = None  # import scorer → ImportError
     os.environ["GATE_SETUP_DIR"] = str(setup_dir)
-    for k in ("GATE_TEAM", "GATE_JEV", "GATE_WIKI"):
+    for k in ("GATE_TEAM", "GATE_JEV", "GATE_WIKI", "GATE_MODEL"):
         os.environ.pop(k, None)
+    if model is not None:
+        os.environ["GATE_MODEL"] = model
     for m in ("gate", "ctxsvc"):
         sys.modules.pop(m, None)
     return importlib.import_module("gate")
@@ -115,21 +117,24 @@ class GateSelection(unittest.TestCase):
         self.assertEqual(set(g.SUBS), {"juzi"})
         self.assertEqual(g.SCORER_KIND, "jev")
 
-    def test_rules_only_fallback_role_replies(self):
-        d = Path(tempfile.mkdtemp())
-        g = load_gate(d, local_scorer=False)
-        self.assertEqual(g.SCORER_KIND, "rules")
-        # 规则判不了的一句：主 bot（= 兜底角色）回
-        action, reason, _ = g.decide({"content": "今天天气有点怪"})
-        self.assertEqual(action, "reply")
-        self.assertIn("error", reason)
-        # 规则能判的照常：@ 了别人 → 不回
-        self.assertEqual(g.decide({"content": "<@123> 看下"})[0], "silent")
+    def test_no_jev_exits_with_hint(self):  # 用户原话「这种直接报错，直接说没填jev模型，推荐本地下载0.6b或者用免费小模型」
+        for jev in (None, {"url": "http://m/v1", "model": "q", "logprobs": False}):  # 没填 / 测试没拿到概率
+            d = Path(tempfile.mkdtemp())
+            if jev:
+                (d / "jev.json").write_text(json.dumps(jev))
+            with self.assertRaises(SystemExit) as cm:
+                load_gate(d)
+            msg = str(cm.exception.code)
+            for want in ("没填 jev 模型", "硅基流动", "0.6B"):
+                self.assertIn(want, msg)
 
-    def test_local_when_no_jev(self):
-        d = Path(tempfile.mkdtemp())
-        (d / "jev.json").write_text(json.dumps({"url": "http://m/v1", "model": "q", "logprobs": False}))
-        self.assertEqual(load_gate(d).SCORER_KIND, "local")
+    def test_explicit_gate_model_uses_local(self):
+        self.assertEqual(load_gate(Path(tempfile.mkdtemp()), model="/models/q").SCORER_KIND, "local")
+
+    def test_explicit_gate_model_without_local_scorer_exits(self):
+        with self.assertRaises(SystemExit) as cm:
+            load_gate(Path(tempfile.mkdtemp()), local_scorer=False, model="/models/q")
+        self.assertIn("GATE_MODEL", str(cm.exception.code))
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ def load_gate(team=None, wiki=None):
     fake.Scorer = Scorer
     sys.modules["scorer"] = fake
     os.environ["GATE_SETUP_DIR"] = tempfile.mkdtemp()  # 不读本机 ~/.cc-connect 里向导写的文件
+    os.environ.pop("GATE_JEV", None)
+    os.environ["GATE_MODEL"] = "fake"  # 没有 jev 时 gate 要显式的本机模型才肯启动；拿到的是上面的假 scorer
     for k, v in (("GATE_TEAM", team), ("GATE_WIKI", wiki)):
         if v is None:
             os.environ.pop(k, None)
