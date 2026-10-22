@@ -69,6 +69,15 @@ opus, Whale and Writer can be Claude Code, DSH and Codex. Give them the names an
 - **Swap the lead in one sentence.** "Whale, you lead now." "Back to opus." The default responder changes on the spot.
 - **Sessions continue.** One session per channel, and it continues after a restart. Messages posted while a role was offline are handed to it before it answers.
 
+### jev, the dispatcher: a small model decides who answers
+
+With several AIs in one group, who should answer a message? bothouse brings in a small model as the dispatcher. We call it jev.
+It answers one multiple-choice question: should opus answer this, or Whale, or nobody? A message that names someone goes to them; everything else goes to jev.
+
+- **A free SiliconFlow model is enough.** No thinking mode needed. Fill in three boxes: base URL, key, model name.
+- **Or run a small model locally**, such as Qwen 0.6B, and dispatch without going online.
+- Set it up right in the install wizard. It tests the model as soon as you fill it in.
+
 ### One team memory that grows
 
 Others build memory as a database for the agent. We build it as a wiki for the team.
