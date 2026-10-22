@@ -1190,3 +1190,75 @@ test('room action HTTP: a thinking bot that got a recall is requested, one witho
   assert.match(notice, /不支持终止、只屏蔽旧输出：CX/);
   await gw.closeAll();
 });
+
+// --- schema migrations must be structural, not version-gated ---
+
+/** Every table and column the current code relies on. */
+function assertCompleteSchema(store) {
+  const tables = store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(r => r.name);
+  for (const t of ['rooms', 'messages', 'bindings', 'jobs', 'members', 'room_controls', 'relay_blocked', 'room_members']) {
+    assert.equal(tables.includes(t), true, `missing table ${t}`);
+  }
+  assert.equal(store.hasColumn('jobs', 'input_id'), true, 'missing jobs.input_id');
+  assert.equal(store.hasColumn('members', 'cli'), true, "missing owner's members.cli");
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(store.hasColumn('rooms', 'visibility'), true, 'missing rooms.visibility');
+}
+
+test('store: a fresh database gets the complete schema', () => {
+  const store = new Store(':memory:');
+  assertCompleteSchema(store);
+  store.close();
+});
+
+test("store: a database stopped at owner's v4 (cli column, no room tables) upgrades", async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'ownerv4.sqlite3');
+  // Build their v4: members already carries cli, the room tables were never created.
+  const store = new Store(path);
+  store.db.exec('DROP TABLE room_controls; DROP TABLE relay_blocked; PRAGMA user_version = 4');
+  store.close();
+  const reopened = new Store(path);
+  assertCompleteSchema(reopened);
+  // The upgraded database must actually work, not merely look right.
+  reopened.ensureRoom(1, 'general');
+  assert.equal(reopened.control(1).stopped, 0);
+  reopened.close();
+});
+
+test('store: a database stopped at our old v4 (room tables, no cli column) upgrades', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'ourv4.sqlite3');
+  const store = new Store(path);
+  store.db.exec('ALTER TABLE members DROP COLUMN cli; PRAGMA user_version = 4');
+  store.close();
+  const reopened = new Store(path);
+  assertCompleteSchema(reopened);
+  reopened.ensureRoom(1, 'general');
+  // Exercise the columns the two v4 variants disagreed about.
+  reopened.seedMember({ id: 'ds', name: 'DeepSeek' });
+  assert.equal(reopened.member('ds').name, 'DeepSeek');
+  reopened.close();
+});
+
+test('store: a database stamped current but missing structure is still repaired', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'stamped.sqlite3');
+  // The dangerous case: the version number is already ours, so a version-gated migration
+  // would skip everything and the first query on the missing table would throw at runtime.
+  const store = new Store(path);
+  store.db.exec('DROP TABLE room_controls; DROP TABLE relay_blocked; ALTER TABLE members DROP COLUMN cli');
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 6);
+  store.close();
+  const reopened = new Store(path);
+  assertCompleteSchema(reopened);
+  reopened.ensureRoom(1, 'general');
+  assert.equal(reopened.control(1).stopped, 0);
+  reopened.close();
+});

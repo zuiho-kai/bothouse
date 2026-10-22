@@ -9,7 +9,7 @@ export const MAX_TEXT = 128 * 1024;
 // The human owner's member id. Written once here so the access predicate and the plugin
 // cannot disagree about who bypasses room membership.
 export const OWNER_ID = 'owner';
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export class Store {
   constructor(path) {
@@ -18,7 +18,10 @@ export class Store {
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
+    // Run the structural pass even when the version already matches: a database stamped 5 by
+    // a branch that meant something else must still get the columns and tables it lacks.
     if (version < SCHEMA_VERSION) this.transaction(() => this.migrate(version));
+    else this.transaction(() => this.ensureStructure());
     this.q = {
       control: this.db.prepare('SELECT * FROM room_controls WHERE room_id = ?'),
       controlWrite: this.db.prepare(`INSERT INTO room_controls (room_id, stopped, epoch, cutoff, relay_after)
@@ -79,43 +82,59 @@ export class Store {
 
   migrate(from) {
     if (from < 1) this.createV1();
+    // Version numbers are bookkeeping, not evidence. owner's feat/collab-cli-member-b and
+    // this branch both shipped a "v4" with different contents (a members.cli column there,
+    // the room_controls/relay_blocked tables here), so a database can legitimately claim 4
+    // and still be missing half of it. Every step below asks the database what it has.
+    this.ensureStructure();
+    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+
+  /** Whether `table` already has `column`. Table names here are literals, never user input. */
+  hasColumn(table, column) {
+    return this.db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === column);
+  }
+
+  /** Bring the schema to the shape this code expects, idempotently. */
+  ensureStructure() {
     // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
-    if (from < 2) this.db.exec('ALTER TABLE jobs ADD COLUMN input_id TEXT');
+    if (!this.hasColumn('jobs', 'input_id')) this.db.exec('ALTER TABLE jobs ADD COLUMN input_id TEXT');
     // v3: DSH members live in the database; config rows are seeds the UI cannot edit.
     // A removed member keeps its row (and id) so old messages and bindings stay attributable.
-    if (from < 3) {
-      this.db.exec(`CREATE TABLE members (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        provider TEXT,
-        model TEXT,
-        persona TEXT NOT NULL DEFAULT '',
-        source TEXT NOT NULL CHECK (source IN ('config', 'ui')),
-        created_at REAL NOT NULL,
-        removed INTEGER NOT NULL DEFAULT 0)`);
-    }
-    if (from < 4) this.db.exec(`
-      CREATE TABLE room_controls (
+    this.db.exec(`CREATE TABLE IF NOT EXISTS members (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider TEXT,
+      model TEXT,
+      persona TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL CHECK (source IN ('config', 'ui')),
+      created_at REAL NOT NULL,
+      removed INTEGER NOT NULL DEFAULT 0)`);
+    // owner's v4: a DSH member may be backed by a local CLI. Added here too, so it does not
+    // matter whether their change lands before or after ours.
+    if (!this.hasColumn('members', 'cli')) this.db.exec('ALTER TABLE members ADD COLUMN cli TEXT');
+    // our v4 (now v5): per-room stop/continue bookkeeping.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS room_controls (
         room_id INTEGER PRIMARY KEY REFERENCES rooms(id), stopped INTEGER NOT NULL,
         epoch INTEGER NOT NULL, cutoff INTEGER NOT NULL, relay_after INTEGER NOT NULL);
-      CREATE TABLE relay_blocked (
+      CREATE TABLE IF NOT EXISTS relay_blocked (
         room_id INTEGER NOT NULL REFERENCES rooms(id), message_id INTEGER NOT NULL REFERENCES messages(id),
         PRIMARY KEY (room_id, message_id));`);
-    // v5: private threads. A room is 'public' until someone closes it; private rooms admit only
-    // listed members (plus the human owner), for reads, writes and broadcasts alike.
+    // v6: private threads. A room is 'public' until someone closes it; private rooms admit
+    // only listed members (plus the human owner), for reads, writes and broadcasts alike.
     // Existing rooms stay public so upgrading does not lock anyone out of their history.
-    if (from < 5) {
+    if (!this.hasColumn('rooms', 'visibility')) {
       this.db.exec(`ALTER TABLE rooms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'
         CHECK (visibility IN ('public', 'private'))`);
-      this.db.exec(`CREATE TABLE room_members (
-        room_id INTEGER NOT NULL REFERENCES rooms(id),
-        member_id TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
-        added_at REAL NOT NULL,
-        PRIMARY KEY (room_id, member_id));
-        CREATE INDEX room_members_member ON room_members (member_id)`);
     }
-    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS room_members (
+      room_id INTEGER NOT NULL REFERENCES rooms(id),
+      member_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
+      added_at REAL NOT NULL,
+      PRIMARY KEY (room_id, member_id));
+      CREATE INDEX IF NOT EXISTS room_members_member ON room_members (member_id)`);
   }
 
   createV1() {
