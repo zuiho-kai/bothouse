@@ -1053,14 +1053,10 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 
 	if req.Platform == "discord" && len(pl.team) > 1 {
-		// project and id: the lead switch (lead_switch.go) names roles by project and by their <@id>
-		lead := map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}, "project": pl.fallback}
-		gt := map[string]any{"lead": lead, "subs": map[string]any{}}
+		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}, "project": pl.fallback}, "subs": map[string]any{}}
 		for _, t := range pl.team {
 			if t.Project != pl.fallback {
-				gt["subs"].(map[string]any)[t.Project] = map[string]any{"name": t.Name, "aliases": []string{}, "id": t.BotID}
-			} else {
-				lead["id"] = t.BotID
+				gt["subs"].(map[string]any)[t.Project] = map[string]any{"name": t.Name, "aliases": []string{}}
 			}
 		}
 		if err := writeJSONFile(filepath.Join(env.DataDir, gateTeamFile), gt, 0o644); err != nil {

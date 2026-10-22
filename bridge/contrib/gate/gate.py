@@ -35,7 +35,6 @@ _team_file = os.environ.get("GATE_TEAM") or (SETUP_DIR / "gate-team.json" if (SE
 _team = json.loads(Path(_team_file).expanduser().read_text(encoding="utf-8"))
 LEAD = _team["lead"]["name"]
 LEAD_NAMES = [LEAD, *_team["lead"].get("aliases", [])]
-LEAD_PROJECT = _team["lead"].get("project", "")  # 向导写的兜底角色项目名；cc-connect 切主角色后在请求里带 "lead"
 SUBS = {k: v["name"] for k, v in _team["subs"].items()}
 NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _team["subs"].items()}
 NAMES[""] = LEAD_NAMES
@@ -138,7 +137,6 @@ def judge(content, busy, buffered):
 
 
 def decide_sub(req, bot):
-    name = SUBS.get(bot, LEAD)  # bot "" = 向导选的主角色，被切成次时也走这里
     content = (req.get("content") or "").strip()
     key = (bot, req.get("session_key") or "")
     if req.get("mentioned"):
@@ -150,7 +148,7 @@ def decide_sub(req, bot):
         current_task[key] = content[-500:]
         return "reply", "sub: 被点名", None
     if mentions_name(content, bot):
-        sc = named_task.score(NAMED_SUFFIX.format(name=name, msg=content[:1500]))
+        sc = named_task.score(NAMED_SUFFIX.format(name=SUBS[bot], msg=content[:1500]))
         if sc.probs[1] >= NAMED_THRESHOLD:
             current_task[key] = content[-500:]
             return "reply", "sub model: 提到且在叫她", sc
@@ -158,11 +156,11 @@ def decide_sub(req, bot):
             return "context", "sub model: 只是提到", sc
     if not req.get("busy") or not current_task.get(key):
         return "context", "sub: 空闲，记作增量", None
-    sc = sub_task.score(SUB_SUFFIX.format(name=name, task=current_task[key], msg=content[:1500]))
+    sc = sub_task.score(SUB_SUFFIX.format(name=SUBS[bot], task=current_task[key], msg=content[:1500]))
     return ("context", "insert")[sc.choice], "sub model", sc
 
 
-def decide(req, me=""):
+def decide(req):
     content = (req.get("content") or "").strip()
     buffered = req.get("buffered") or []
     busy = bool(req.get("busy"))
@@ -171,13 +169,13 @@ def decide(req, me=""):
     if re.search(r"<@!?&?\d+>", content):  # @ 了别的 bot/人（自己的 @ 已被 cc-connect 去掉）→ 不是叫橘
         return "silent", "rule: @了别人", None
     called = called_names(content)
-    if called and me not in called:  # 开头叫的是别人，让她自己接
+    if called and "" not in called:  # 开头叫的是 sub，让她自己接
         return "silent", "rule: 点名 sub", None
     if content.startswith("/"):
         return "reply", "rule: command", None
     if ACK.match(content):
         return "silent", "rule: 应答", None
-    if CALL.search(content) or any(n in content for n in NAMES[me]):
+    if CALL.search(content):
         return "reply", "rule: 叫我/提问", None
     links = len(URL.findall(content)) + sum(len(URL.findall(b)) for b in buffered)
     if links >= LINKS_FOR_REPLY:
@@ -250,11 +248,7 @@ class H(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         t = time.time()
         try:
-            # 当前主角色（cc-connect 一句话切换后带来，lead_switch.go）：是我就按主的规则，否则按次的规则
-            me = "" if (bot or LEAD_PROJECT) == LEAD_PROJECT else bot
-            cur = req.get("lead") or LEAD_PROJECT
-            is_lead = (bot or LEAD_PROJECT) == cur if cur else not bot
-            action, reason, sc = decide(req, me) if is_lead else decide_sub(req, me)
+            action, reason, sc = decide_sub(req, bot) if bot else decide(req)
         except ValueError as e:  # 输入超过 scorer 上限
             action, reason, sc = ("context" if bot else "reply"), f"error: {e}", None
         tier = tier_reason = tier_probs = None

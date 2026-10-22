@@ -92,8 +92,6 @@ type gateRequest struct {
 	// "可以" answering its question from idle chatter. LastReplyAge is seconds since then.
 	LastReply    string `json:"last_reply,omitempty"`
 	LastReplyAge int    `json:"last_reply_age_s,omitempty"`
-	// Lead (lead_switch.go): the project that is the lead now; the gate routes this bot by it
-	Lead string `json:"lead,omitempty"`
 }
 
 // gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
@@ -286,26 +284,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	g.mu.Unlock()
 
 	last, lastAge := lastReply(session)
-	var dec gateResponse
-	if handled, mine := e.leadSwitchFor(msg); handled { // "X，你当主": no gate, no model (lead_switch.go)
-		dec = gateResponse{Action: "context", Reason: "lead switched to another role"}
-		if mine {
-			dec = gateResponse{Action: "reply", Reason: "lead switched to me"}
-		}
-	} else {
-		lead := ""
-		if s, ok := CurrentLead(e.dataDir); ok {
-			lead = s.Lead
-		}
-		dec = g.decide(e.ctx, gateRequest{
-			SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
-			HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
-			LastReply: last, LastReplyAge: lastAge, Lead: lead,
-		})
-		if strings.HasPrefix(dec.Reason, "gate ") { // no gate answer: follow the current lead (no gate installed)
-			dec.Action = e.leadFallback(msg.Mentioned, dec.Action)
-		}
-	}
+	dec := g.decide(e.ctx, gateRequest{
+		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
+		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
+		LastReply: last, LastReplyAge: lastAge,
+	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
 
@@ -615,9 +598,6 @@ func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content str
 	}
 	if !turnCtx {
 		return content
-	}
-	if c := e.leadIdentity(session); c != "" {
-		content = c + "\n\n" + content
 	}
 	if c := e.turnContext(session, sessionKey, query); c != "" {
 		content = c + "\n\n" + content
