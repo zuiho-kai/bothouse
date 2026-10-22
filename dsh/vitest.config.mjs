@@ -6,10 +6,7 @@ export default {
   root: fileURLToPath(new URL('..', import.meta.url)),
   oxc: { tsconfig: false },
   test: {
-    include: [
-      'dsh/packages/client-ui-discord/tests/channel-source.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/mention-complete.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/channels-page.client.spec.tsx',
-    ],
+    // Every channel client spec runs here; a new spec needs no edit to this list.
+    include: ['dsh/packages/client-ui-discord/tests/*.client.spec.{ts,tsx}'],
   },
 };
