@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type RefObject } from 'react'
+import type { KeyboardEvent, RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelMember } from '../channel-source.ts'
 import type { NS } from '../locales.ts'
@@ -8,7 +8,7 @@ import css from '../ChannelsPage.module.css'
 type T = TranslateNS<typeof NS>
 
 export interface ComposerProps {
-  inputRef: RefObject<HTMLTextAreaElement | null>
+  inputRef: RefObject<HTMLTextAreaElement>
   draft: string
   sendError: string | undefined
   disabled: boolean

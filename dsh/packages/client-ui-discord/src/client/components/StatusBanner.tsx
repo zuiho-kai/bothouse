@@ -7,7 +7,7 @@ type T = TranslateNS<typeof NS>
 
 export interface StatusBannerProps {
   phase: ChannelSnapshot['phase']
-  error?: string
+  error?: string | undefined
   t: T
 }
 

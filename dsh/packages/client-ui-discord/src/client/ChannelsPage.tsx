@@ -4,7 +4,7 @@
  * injected `useChannels` hook; posting goes through the injected actions.
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type UIEvent } from 'react'
-import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelSnapshot } from './channel-source.ts'
@@ -27,15 +27,13 @@ export interface ChannelsInjected extends ChannelActions {
 /** Full props of the channels main panel. */
 export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS>
 
-type T = TranslateNS<typeof NS>
-
 /**
  * Render the channels panel.
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
 export function ChannelsPage({
-  useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, stopRoom, continueRoom, t,
+  useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, loadOlder, stopRoom, continueRoom, t,
 }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
@@ -51,6 +49,8 @@ export function ChannelsPage({
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
   const logRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
+  // One older page at a time; the data layer also latches, this just avoids re-asking on every scroll event.
+  const loadingOlder = useRef(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // Caret offset in the draft; drives which `@query` (if any) is being typed.
   const [caret, setCaret] = useState(0)
@@ -102,7 +102,8 @@ export function ChannelsPage({
     if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
   }, [state.messages, state.roomId])
 
-  if (state.phase !== 'ready') {
+  // While reconnecting the cached view stays usable; RoomView shows a banner on top.
+  if (state.phase !== 'ready' && state.phase !== 'reconnecting') {
     return (
       <div className={css.page}>
         <StatusBanner phase={state.phase} error={state.error} t={t} />
@@ -258,6 +259,18 @@ export function ChannelsPage({
   const onScroll = (event: UIEvent<HTMLDivElement>): void => {
     const el = event.currentTarget
     stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
+    if (el.scrollTop < 40 && state.hasMoreOlder && !loadingOlder.current) {
+      loadingOlder.current = true
+      const before = el.scrollHeight
+      loadOlder().then((count) => {
+        // Keep the reader's place: the page grew above them by the new rows' height.
+        if (count > 0) requestAnimationFrame(() => { el.scrollTop += el.scrollHeight - before })
+      }).catch((error: unknown) => {
+        void error // a failed page leaves hasMoreOlder set, so the next scroll to the top retries
+      }).finally(() => {
+        loadingOlder.current = false
+      })
+    }
   }
 
   return (
@@ -288,6 +301,7 @@ export function ChannelsPage({
         logRef={logRef}
         inputRef={inputRef}
         messages={state.messages}
+        reconnecting={state.phase === 'reconnecting'}
         membersById={byId}
         busyNames={busyNames}
         draft={draft}

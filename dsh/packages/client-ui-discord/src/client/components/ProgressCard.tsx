@@ -1,8 +1,8 @@
 import css from '../ChannelsPage.module.css'
 
 export interface ProgressCardProps {
-  title?: string
-  state?: string
+  title?: string | undefined
+  state?: string | undefined
   text: string
 }
 

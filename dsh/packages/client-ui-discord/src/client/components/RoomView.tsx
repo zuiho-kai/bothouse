@@ -14,9 +14,10 @@ export interface RoomViewProps {
   room: ChannelRoom | undefined
   roomId: number | undefined
   drawer: 'rooms' | 'members' | undefined
-  logRef: RefObject<HTMLDivElement | null>
-  inputRef: RefObject<HTMLTextAreaElement | null>
+  logRef: RefObject<HTMLDivElement>
+  inputRef: RefObject<HTMLTextAreaElement>
   messages: readonly ChannelMessage[]
+  reconnecting: boolean
   membersById: ReadonlyMap<string, ChannelMember>
   busyNames: readonly string[]
   draft: string
@@ -52,6 +53,7 @@ export function RoomView({
   logRef,
   inputRef,
   messages,
+  reconnecting,
   membersById,
   busyNames,
   draft,
@@ -90,6 +92,7 @@ export function RoomView({
         stopping={stopping}
         t={t}
       />
+      {reconnecting && <div className={css.reconnecting} role="status">{t('reconnecting')}</div>}
       {stopNotice !== undefined && (
         <div className={css.roomNotice} role="status" aria-live="polite">
           <span className={css.roomNoticeText}>{stopNotice}</span>
