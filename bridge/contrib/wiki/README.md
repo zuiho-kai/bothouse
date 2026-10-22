@@ -36,10 +36,12 @@
    command = "/bin/zsh -f <本目录>/sub-wiki.sh hook"
    ```
 
-4. 定时（作者本机用 launchd，这里换成 cc-connect cron；`--exec` 的输出会发到该会话，`--silent` 不发）：
+4. 定时：向导（网页或 `cc-connect setup apply`）发现 `~/wiki/bin/ingest.py`（或 `$WIKI_DIR`）时已自动加好下面三条
+   静音任务（挂在兜底角色和默认频道上，重跑不会重复），三项模型也在向导里选。手动加法如下
+   （`--exec` 的输出默认会发到该会话，`--mute` 什么都不发）：
 
    ```sh
-   S="--project <主角色项目> --session-key <会话 key> --silent"
+   S="--project <主角色项目> --session-key <会话 key> --mute"
    cc-connect cron add $S --cron "*/30 * * * *" --exec "python3 -I ~/wiki/bin/ingest.py --pending; zsh -f <本目录>/sub-wiki.sh pending" --desc "wiki ingest"
    cc-connect cron add $S --cron "0 3 * * 1-6"  --exec "python3 -I ~/wiki/bin/ingest.py --nightly; zsh -f <本目录>/sub-wiki.sh nightly" --desc "wiki nightly + 反思"
    cc-connect cron add $S --cron "0 3 * * 0"    --exec "python3 -I ~/wiki/bin/ingest.py --lint; zsh -f <本目录>/sub-wiki.sh lint" --desc "wiki weekly lint"
@@ -47,4 +49,4 @@
 
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。
-模型引擎（haiku / sonnet / codex …）在 config.json 的 `*_engine` 键改。
+模型引擎（haiku / sonnet / codex …）在向导里选，或在 config.json 的 `*_engine` 键改。

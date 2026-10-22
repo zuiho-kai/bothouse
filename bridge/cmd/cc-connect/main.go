@@ -1145,6 +1145,7 @@ func main() {
 		}
 		mgmtSrv.SetSetupFeishuSave(saveFeishuSetup)
 		mgmtSrv.SetWizard(configWizardStore{}, cfg.DataDir)
+		mgmtSrv.SetWikiSubScript(subWikiScript(cfg))
 		mgmtSrv.SetSetupWeixinSave(func(req core.WeixinSetupSaveRequest) error {
 			_, err := config.EnsureProjectWithWeixinPlatform(config.EnsureProjectWithWeixinOptions{
 				ProjectName: req.ProjectName,

@@ -9,7 +9,7 @@ import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getPersonas, getSetupState, listChannels, listFeishuChats,
   startLocalHub, testCloudWeb, testJev, saveJev,
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell, type PersonaPreset,
-  type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor,
+  type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
 import { isZhLang, keptLangLabel, langLabel, replyLangOptions, stepLabel, wizardTexts } from './texts';
 
@@ -96,6 +96,9 @@ export default function SetupWizard() {
   const [copied, setCopied] = useState('');
   // allow_from: defaults to the bots' owners (from the token check) until the user edits it
   const [allowFrom, setAllowFrom] = useState<string | null>(null);
+  // memory wiki models: start from what is in effect; only the ones changed go into the request
+  const [wikiPick, setWikiPick] = useState<WizardWiki>({});
+  const wikiInfo = state?.wiki;
 
   useEffect(() => {
     getSetupState(lang).then(setState).catch(() => {});
@@ -312,6 +315,11 @@ export default function SetupWizard() {
     }
     if (platform === 'cloud_web') req.cloud_web = cwLocalKnown ? {} : { url: cwURL, token: mask(cw.token, '<PLATFORM_BOT_TOKEN>') };
     if (platform === 'feishu' && feishu) req.feishu = { ...feishu, app_secret: mask(feishu.app_secret, '<APP_SECRET>'), chat_id: chatID };
+    if (wikiInfo) {
+      const w: WizardWiki = {};
+      (['daily', 'night', 'split'] as const).forEach((k) => { if (wikiPick[k] && wikiPick[k] !== wikiInfo.current[k]) w[k] = wikiPick[k]; });
+      if (Object.keys(w).length) req.wiki = w;
+    }
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     return req;
   };
@@ -343,6 +351,13 @@ export default function SetupWizard() {
         `Run \`cc-connect setup matrix\` to see whether this provider is native or converted for ${r.agent_type}; then save the JSON below to a file, ` +
         `replace the placeholders, and run \`cc-connect setup apply --json <file>\` (or POST it to http://localhost:<management port>/api/v1/setup/apply).\n` +
         `I will give you the key separately; never print or log it. Tell me the "steps" from the output JSON.\n\n${body}`;
+  };
+
+  // wiki model options: engines whose CLI is on this machine or used by a role, plus the one in effect
+  const wikiOptions = (k: keyof WizardWiki) => {
+    if (!wikiInfo) return [];
+    const have = new Set([...(clis || []).map((c) => c.agent_type), ...roles.map((r) => r.agent_type)]);
+    return wikiInfo.engines.filter((e) => have.has(e.agent_type) || e.id === wikiInfo.current[k]);
   };
 
   // ── step validity ──
@@ -767,6 +782,22 @@ export default function SetupWizard() {
                   {platform === 'cloud_web' && <li data-testid="review-cloud-web">• {T.cwReview}{cwURL}{cwLocalKnown ? T.cwLocalTag : ''}</li>}
                   {(jevSave.saved || jevUnchanged) && <li>• jev: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
                 </ul>
+                {wikiInfo && (
+                  <div className="space-y-2" data-testid="wiki-models">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{T.wikiTitle}</p>
+                    <p className="text-xs text-gray-500">{T.wikiNote}</p>
+                    {([['daily', T.wikiDaily, T.wikiDailyHelp], ['night', T.wikiNight, T.wikiNightHelp], ['split', T.wikiSplit, T.wikiSplitHelp]] as const).map(([k, label, help]) => (
+                      <div key={k} className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+                        <select className={selectCls} data-testid={`wiki-${k}`} value={wikiPick[k] || wikiInfo.current[k] || ''}
+                          onChange={(e) => setWikiPick({ ...wikiPick, [k]: e.target.value })}>
+                          {wikiOptions(k).map((e) => <option key={e.id} value={e.id}>{e.label}{e.id === wikiInfo.defaults[k] ? ` (${T.wikiDefault})` : ''}</option>)}
+                        </select>
+                        <span className="text-xs text-gray-500">{help}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {platform === 'discord' && (
                   <div className="space-y-1">
                     <Input label={T.allowFromLabel} value={allowFromValue} data-testid="allow-from" onChange={(e) => setAllowFrom(e.target.value)} />
