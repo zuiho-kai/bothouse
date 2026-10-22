@@ -40,27 +40,39 @@ func resumableTask(t *Task, accepted bool, now time.Time) bool {
 // number that continuation would use. ok is false when the session has no open
 // card, in which case the turn can only start one.
 func (p *PublicProgress) runStart(token string) (taskID string, resumeSeq int64, ok bool) {
+	taskID, resumeSeq, _, _, ok = p.resumeHint(token)
+	return taskID, resumeSeq, ok
+}
+
+// resumeHint is runStart plus the state and title the offered card already
+// carries. It exists for the resume note: a card that delivered a result stays
+// open on purpose (a turn result is not the owner's acceptance), so the next
+// turn in that session is still offered it. An agent that starts unrelated work
+// and continues that card leaves the owner with no card for the new task; the
+// note can only warn about that if it knows what state the card reached.
+func (p *PublicProgress) resumeHint(token string) (taskID string, resumeSeq int64, state TaskState, title string, ok bool) {
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
 	p.mu.Lock()
 	r := p.runs[token]
 	p.mu.Unlock()
 	if r == nil {
-		return "", 0, false
+		return "", 0, "", "", false
 	}
 	r.mu.Lock()
 	cand := r.candidate
 	r.mu.Unlock()
 	if cand == nil {
-		return "", 0, false
+		return "", 0, "", "", false
 	}
 	cand.mu.Lock()
 	defer cand.mu.Unlock()
 	if !cand.record.Closed || cand.record.Task.SessionKey != r.record.Task.SessionKey ||
 		!resumableTask(cand.record.Task, cand.record.Accepted, time.Now()) {
-		return "", 0, false
+		return "", 0, "", "", false
 	}
-	return cand.record.Task.ID, cand.record.LastSeq + 1, true
+	t := cand.record.Task
+	return t.ID, cand.record.LastSeq + 1, t.State, t.Title, true
 }
 
 // lockReportRun selects and locks the target without changing it. The caller

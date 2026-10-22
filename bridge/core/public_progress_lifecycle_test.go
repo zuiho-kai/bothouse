@@ -149,3 +149,44 @@ func TestPublicProgress_TaskQueryReportsOnlyPublicState(t *testing.T) {
 		t.Fatalf("limit ignored: %d", len(limited))
 	}
 }
+
+// A card that already delivered its result stays open on purpose: a turn result
+// is not the owner's acceptance. The next turn is still offered that card, so the
+// resume hint has to say which card it is and what state it reached. Without the
+// state an agent doing unrelated new work reads the hint as "continue this card"
+// and the owner never gets a card for the new task.
+func TestPublicProgress_ResumeHintCarriesCardStateAndTitle(t *testing.T) {
+	dir := t.TempDir()
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(dir, "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run, id := startCard(t, p, platform, "room:one", "复核私有房间隔离")
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room:one", Run: run, Seq: 2, Kind: "result", Summary: "复核完了"}); err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "result")
+
+	next := p.begin(platform, "room:one", LangChinese, nil)
+	taskID, resumeSeq, state, title, ok := p.resumeHint(next)
+	if !ok || taskID != id || resumeSeq != 3 {
+		t.Fatalf("resumeHint = %q/%d/%v, want %q/3/true", taskID, resumeSeq, ok, id)
+	}
+	if state != TaskStateResultReady {
+		t.Fatalf("resumeHint state = %q, want %q so the hint can say the card already delivered", state, TaskStateResultReady)
+	}
+	if title != "复核私有房间隔离" {
+		t.Fatalf("resumeHint title = %q, want the open card title", title)
+	}
+
+	// Acceptance is terminal: there is nothing left to continue.
+	if _, err := p.Accept(id, "主人"); err != nil {
+		t.Fatal(err)
+	}
+	third := p.begin(platform, "room:one", LangChinese, nil)
+	if _, _, _, _, ok := p.resumeHint(third); ok {
+		t.Fatal("an accepted card was still offered for continuation")
+	}
+}

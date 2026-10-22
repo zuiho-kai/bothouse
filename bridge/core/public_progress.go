@@ -599,8 +599,11 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 	prefix := quote(command) + " progress --project " + quote(e.name) + " --session " + quote(session) + " --data-dir " + quote(e.publicProgress.dataDir)
 	resumeNote := ""
-	if taskID, resumeSeq, ok := e.publicProgress.runStart(token); ok {
-		resumeNote = " If this turn continues the work on the card opened earlier (" + taskID + "), do not start again: use --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update and keep that title. New work still starts its own card at --seq 1."
+	if taskID, resumeSeq, state, title, ok := e.publicProgress.resumeHint(token); ok {
+		// Naming the state is the point: an owner who asked for something new
+		// must not lose the card for it to an earlier card that already
+		// delivered a result, which is the most common wrong continuation.
+		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
 	}
 	return strings.NewReplacer(
 		"COMMAND", prefix,
