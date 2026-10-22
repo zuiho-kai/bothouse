@@ -201,8 +201,13 @@ export function createChannelSource(transport: ChannelTransport): {
   let reconnectToken: object | undefined
   /** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
   let outbox: OutboxMessage[] = []
-  /** Rooms with a page-back request in flight; a second request per room would reorder history. */
-  const paging = new Set<number>()
+  /**
+   * Page-back request in flight per room, tagged with the ticket and the epoch
+   * it was issued under. Only a latch from the current epoch blocks a new page:
+   * after a window rebuild (A → B → A, reconnect) the old request is aborted and
+   * can no longer hold the room hostage until it returns.
+   */
+  const paging = new Map<number, { ticket: number; epoch: number; controller: AbortController }>()
   /** Ticket of the newest page-back request per room, so a page that lost its race is dropped. */
   const pageTicket = new Map<number, number>()
   let nextPageTicket = 0
@@ -436,6 +441,7 @@ export function createChannelSource(transport: ChannelTransport): {
     lifetime = undefined
     reconnectToken = undefined
     attempt = 0
+    for (const latch of paging.values()) latch.controller.abort()
     paging.clear()
     pageTicket.clear()
     pending?.controller.abort()
@@ -540,18 +546,31 @@ export function createChannelSource(transport: ChannelTransport): {
       if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
       // One page at a time per room: a second overlapping read would interleave
       // pages. Another room's page is independent and must not be blocked.
-      if (paging.has(roomId)) return 0
+      const held = paging.get(roomId)
+      if (held !== undefined && held.epoch === historyEpoch) return 0
       if (oldest === undefined || !snapshot.hasMoreOlder) return 0
-      paging.add(roomId)
+      // A latch left over from an older window is stale: abort its request and
+      // take the room over. Its finally sees a different ticket and leaves ours.
+      held?.controller.abort()
       // Every page takes a ticket and records the window it was asked against;
       // both must still hold when it comes back, otherwise it is a stale page.
       const ticket = ++nextPageTicket
       const epoch = historyEpoch
+      const controller = new AbortController()
+      paging.set(roomId, { ticket, epoch, controller })
       pageTicket.set(roomId, ticket)
       try {
-        const { messages } = await request<{ messages: ChannelMessage[] }>(
-          `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
-        )
+        let messages: ChannelMessage[]
+        try {
+          ({ messages } = await request<{ messages: ChannelMessage[] }>(
+            `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
+            { signal: controller.signal },
+          ))
+        } catch (error) {
+          if (controller.signal.aborted) return 0
+          throw error
+        }
+        if (controller.signal.aborted) return 0
         // The page belongs to the room and the window that asked for it: after a
         // room switch (even one that came back) or a newer request, it is stale.
         if (lifetime !== owner || snapshot.roomId !== roomId) return 0
@@ -565,7 +584,8 @@ export function createChannelSource(transport: ChannelTransport): {
         })
         return messages.length
       } finally {
-        paging.delete(roomId)
+        // Only the request that owns the latch may release it.
+        if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId)
       }
     },
   }

@@ -614,6 +614,61 @@ describe('channel data layer: review fixes', () => {
     stop()
   })
 
+  it('A → B → A while A\'s old page is in flight: a new page goes out and merges, the late stale page changes nothing', async () => {
+    const rooms = [{ id: 1, name: 'one' }, { id: 2, name: 'two' }]
+    const one = Array.from({ length: 250 }, (_, index) => message(index + 1, `one${String(index + 1)}`, 1))
+    const two = Array.from({ length: 150 }, (_, index) => message(index + 1, `two${String(index + 1)}`, 2))
+    const base = harness([...one, ...two], { rooms })
+    const held: (() => void)[] = []
+    let pageCalls = 0
+    const transport: ChannelTransport = {
+      ...base.transport,
+      fetch: (input, init) => {
+        if (input.includes('/rooms/1/messages') && input.includes('before=')) {
+          pageCalls += 1
+          // Calls 1 (stale) and 3 (latch probe) hang; call 2 is the fresh page.
+          if (pageCalls !== 2) {
+            return new Promise<Response>(resolve => {
+              held.push(() => resolve(json(200, { messages: one.slice(0, 50).map(row => ({ ...row, text: `${row.text}-stale` })) })))
+            })
+          }
+        }
+        return base.transport.fetch(input, init)
+      },
+    }
+    const { channel, stop } = await ready(transport, base.hub)
+
+    const stale = channel.actions.loadOlder()
+    await settle(2)
+    await channel.actions.selectRoom(2)
+    await channel.actions.selectRoom(1)
+
+    // The old request has not returned, yet the rebuilt window can page at once.
+    const fresh = await channel.actions.loadOlder()
+    expect(fresh).toBe(100)
+    expect(pageCalls).toBe(2)
+    const ids = channel.source.getSnapshot().messages.map(m => m.id)
+    expect(ids[0]).toBe(51)
+    expect(ids).toHaveLength(200)
+
+    // A third page is now in flight and must hold the latch for the current epoch.
+    const probe = channel.actions.loadOlder()
+    await settle(2)
+    expect(pageCalls).toBe(3)
+
+    // The stale page lands late: dropped, and it must not release the live latch.
+    held[0]?.()
+    expect(await stale).toBe(0)
+    expect(channel.source.getSnapshot().messages.some(row => row.text.endsWith('-stale'))).toBe(false)
+    expect(channel.source.getSnapshot().messages).toHaveLength(200)
+    expect(await channel.actions.loadOlder()).toBe(0)
+    expect(pageCalls).toBe(3)
+
+    held[1]?.()
+    await probe
+    stop()
+  })
+
   it('does not start a second page request while one is in flight', async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => message(index + 51, `m${String(index + 51)}`))
     const older = Array.from({ length: 50 }, (_, index) => message(index + 1, `m${String(index + 1)}`))
