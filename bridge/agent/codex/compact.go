@@ -104,7 +104,7 @@ func (cs *codexSession) compactNative(ctx context.Context) error {
 		}
 		return json.NewEncoder(in).Encode(p)
 	}
-	if err = write(1, "initialize", map[string]any{"clientInfo": map[string]any{"name": "cc-connect-compact", "version": "1.0"}}); err != nil {
+	if err = write(1, "initialize", map[string]any{"clientInfo": map[string]any{"name": "bothouse-compact", "version": "1.0"}}); err != nil {
 		return err
 	}
 	state := compactProgress{thread: cs.CurrentSessionID()}

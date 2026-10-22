@@ -5,15 +5,15 @@
 "回复里写了'下一步/先做'的事，同一轮就派出去"；审稿三条；代码审查 2026-10-18。
 三类承诺和各自认的回执：
   带时间（HH:MM 回来看 / X 分钟后、过 X 分钟再看 / 明早看 / 到时我来看 / 大约 22:15 跑完、结果出来就发你）→ 只认会按时叫醒的：
-      cc-connect timer/cron add、ScheduleWakeup、CronCreate；outing-next（作者自用脚本，不在本仓库，没有就不会匹配）
+      bothouse timer/cron add、ScheduleWakeup、CronCreate；outing-next（作者自用脚本，不在本仓库，没有就不会匹配）
       只在 outing-tick 真会叫的频道和钟点里算（见 outing_fire）。
-      后台 Bash、后台 Agent 不算：挂在会话上，cc-connect 一重启就没了（审稿第 1 条）。
+      后台 Bash、后台 Agent 不算：挂在会话上，bothouse 一重启就没了（审稿第 1 条）。
       只有绝对钟点（HH:MM、X 点 Y 分）可以靠前几轮的定时器：要算得出那个定时器的响铃时间，并且在"现在"和承诺的钟点之间。
       "我定了/设了/已安排 01:18 回来看"这类自称设好了的话，不走过去时、例行任务的豁免，必须真有回执。
   等结果（结果出来再告诉你 / 跑完再说 / 等它回来我再…）→ 上面那些，或本轮的后台 Bash / 后台 Agent / Monitor / SendMessage，
       或本轮、上一轮启动、还没收到完成通知的后台任务（跑完会自动叫醒）。
   下一步（下一步我去改 X / 我先做 X / 马上派人）→ 本轮派出去的东西：Agent、SendMessage、后台或脱离会话的 Bash
-      （nohup、setsid、cc-connect …，另加环境变量 HOOK_DETACHED_CMDS 列的命令）、回复里 @ 队友，或定时器。普通前台 Bash 不算：轮次结束它也结束了，没人接着做。
+      （nohup、setsid、bothouse …，另加环境变量 HOOK_DETACHED_CMDS 列的命令）、回复里 @ 队友，或定时器。普通前台 Bash 不算：轮次结束它也结束了，没人接着做。
 不算承诺：建议句和问句、转述别人的话、讲过去的事、表格行、标题行、引号里的话。
 回复里写了"不跟进/不再看 + 原因"的放行（审稿第 2 条）。
 只拦一次（stop_hook_active 时放行），写法照 fix-claim-guard.py；hook 自己出错时静默放行。"""
@@ -95,23 +95,26 @@ HEADING = re.compile(r"^\s*(?:#+\s.*|[-*]?\s*\*\*[^*]+\*\*[：:]?|\|.*)\s*$")
 NEG = re.compile(r"[没未不别无]")
 # 明说不跟进 + 原因：放行（审稿第 2 条）
 OPT_OUT = re.compile(r"(?:不跟进|不再跟进|不再看|不回来看|不再回来|不盯了|不再盯|不追了)[^。\n]{0,40}?(?:原因|因为)|(?:原因|因为)[^。\n]{0,40}?(?:不跟进|不再跟进|不再看|不回来看|不再回来|不盯了|不再盯|不追了)")
-# 回复里 @ 队友 = 在群里派活（cc-connect：把 <@id> 写进回复就会 @ 到她）
+# 回复里 @ 队友 = 在群里派活（bothouse：把 <@id> 写进回复就会 @ 到她）
 MENTION = re.compile(r"<@\d+>")
 
 # ---- 回执 ----
-# 只认在命令位置上的 cc-connect（行首、; && | ( 之后），echo/printf 里的字面命令不算（代码审查第 8 条）
+# 只认在命令位置上的 bothouse（行首、; && | ( 之后），echo/printf 里的字面命令不算（代码审查第 8 条）
 CMD_POS = r"(?:^|[;&|(\n]|\$\()\s*(?:[\w./~-]*/)?"
-WAKE_CMD = re.compile(CMD_POS + r"cc-connect(?:-\w+)?\s+(?:timer|cron)\s+add\b", re.M)
-TIMER_DELAY = re.compile(CMD_POS + r"cc-connect(?:-\w+)?\s+timer\s+add\b[^\n]*?--delay[= ]\s*(\d+)\s*([smhd])", re.M)
-TIMER_AT = re.compile(CMD_POS + r"cc-connect(?:-\w+)?\s+timer\s+add\b[^\n]*?--at[= ]\s*[\"']?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:?\d{2}|Z)?)", re.M)
-UNIT_S = {"s": 1, "m": 60, "h": 3600, "d": 86400}  # 秒/分/时/天换算成秒；单位写法来源：cc-connect timer add --help（30m、2h）
+WAKE_CMD = re.compile(CMD_POS + r"(?:bothouse|cc-connect)(?:-\w+)?\s+(?:timer|cron)\s+add\b", re.M)
+TIMER_DELAY = re.compile(CMD_POS + r"(?:bothouse|cc-connect)(?:-\w+)?\s+timer\s+add\b[^\n]*?--delay[= ]\s*(\d+)\s*([smhd])", re.M)
+TIMER_AT = re.compile(CMD_POS + r"(?:bothouse|cc-connect)(?:-\w+)?\s+timer\s+add\b[^\n]*?--at[= ]\s*[\"']?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:?\d{2}|Z)?)", re.M)
+UNIT_S = {"s": 1, "m": 60, "h": 3600, "d": 86400}  # 秒/分/时/天换算成秒；单位写法来源：bothouse timer add --help（30m、2h）
 WAKE_TOOLS = {"ScheduleWakeup", "CronCreate"}
 OUTING = re.compile(CMD_POS + r"outing-next\s+(?:(\d+)m\b|(\d{1,2}):(\d{2})\b)", re.M)
-JOBS = os.path.expanduser("~/.cc-connect/crons/jobs.json")
+_DATA = os.path.expanduser("~/.bothouse")
+if not os.path.exists(_DATA) and os.path.isdir(os.path.expanduser("~/.cc-connect")):
+    _DATA = os.path.expanduser("~/.cc-connect")
+JOBS = os.path.join(_DATA, "crons", "jobs.json")
 # 脱离会话、轮次结束后还在干活的 Bash
 # 作者自己的后台派活命令（如 gpt、dsx）写进 HOOK_DETACHED_CMDS，用 | 隔开
 _EXTRA = "".join(r"|\b" + re.escape(x.strip()) + r"\s" for x in os.environ.get("HOOK_DETACHED_CMDS", "").split("|") if x.strip())
-DETACHED_CMD = re.compile(r"\bnohup\b|\bsetsid\b|&\s*(?:disown)?\s*$|cc-connect\s|launchctl\s|systemd-run\s" + _EXTRA, re.M)
+DETACHED_CMD = re.compile(r"\bnohup\b|\bsetsid\b|&\s*(?:disown)?\s*$|bothouse\s|launchctl\s|systemd-run\s" + _EXTRA, re.M)
 # 后台任务的 id（Bash 后台、超时转后台、后台 Agent）和完成通知里的 id。前台 Agent 的结果里也有 agentId，所以只认 "Async agent launched" 后面那个
 BG_ID = re.compile(r"(?:running in background with ID: |moved to the background \(ID: |Async agent launched.{0,300}?agentId: )([A-Za-z0-9]+)", re.S)
 DONE_ID = re.compile(r"<task-id>([A-Za-z0-9]+)</task-id>")
@@ -170,7 +173,7 @@ def parse_ts(ts):
 
 
 def ctx_env():
-    """(项目, 频道 id)：cc-connect 给会话设的 CC_PROJECT、CC_SESSION_KEY（outing-next 也按它们找频道）。"""
+    """(项目, 频道 id)：bothouse 给会话设的 CC_PROJECT、CC_SESSION_KEY（outing-next 也按它们找频道）。"""
     return os.environ.get("CC_PROJECT", ""), os.environ.get("CC_SESSION_KEY", "").rpartition(":")[2]
 
 
@@ -414,7 +417,7 @@ def launched_ids(entries):
 
 def context(ts, ctx=None):
     """最后一轮的 (prior_fires, pending_bg)。ts = turns() 的结果。
-    pending_bg 只看本轮和上一轮启动的后台任务：更早启动、一直没等到完成通知的，多半是 cc-connect 重启时被杀了
+    pending_bg 只看本轮和上一轮启动的后台任务：更早启动、一直没等到完成通知的，多半是 bothouse 重启时被杀了
     （transcript 里看不出来），拿它当回执就会重演"说了回来却没人叫醒"，所以不算。"""
     fires = []
     for head, ents in ts[:-1]:
@@ -439,7 +442,7 @@ def reason(missing):
             lines.append(f"「{s}」说了下一步要做，但本轮没派出去（Agent、SendMessage、nohup/后台命令、@ 队友、定时器都没有）。")
     return ("承诺没有回执（用户 2026-10-18：说了会回来看就要真的回来看；2026-10-17 规则：写了下一步的事同一轮就派出去）。\n"
             + "\n".join(lines) +
-            "\n现在补上：带时间的设定时器，例如 cc-connect timer add --delay 30m --prompt \"回来看 X 的结果并汇报\""
+            "\n现在补上：带时间的设定时器，例如 bothouse timer add --delay 30m --prompt \"回来看 X 的结果并汇报\""
             "（终端会话用 ScheduleWakeup）；下一步的事现在就做，或当轮派给 subagent/队友。"
             "确实不打算跟进的，必须在回复里明说「这件事不跟进，原因是 Y」。")
 

@@ -127,7 +127,7 @@ func TestDefaultDaemonWorkDirIsUserConfigDir(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)
 	t.Chdir(t.TempDir()) // no config.toml here
-	if got, want := defaultDaemonWorkDir(), filepath.Join(home, ".cc-connect"); got != want {
+	if got, want := defaultDaemonWorkDir(), filepath.Join(home, ".bothouse"); got != want {
 		t.Fatalf("work dir = %q, want %q", got, want)
 	}
 	dir := t.TempDir()

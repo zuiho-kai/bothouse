@@ -101,7 +101,7 @@ var cliSpecs = []cliSpec{
 	{"iflow", "iFlow", []string{"iflow"}, "", nil, ""},
 	{"pi", "Pi", []string{"pi"}, "", nil, ""},
 	{"", "WorkBuddy", []string{"workbuddy", "codebuddy"}, "", nil,
-		"cc-connect 还没有 WorkBuddy 的适配器，装了只能显示，不能选 / no cc-connect adapter yet"},
+		"bothouse 还没有 WorkBuddy 的适配器，装了只能显示，不能选 / no bothouse adapter yet"},
 }
 
 // extraBinDirs are common install locations that a service (launchd/systemd) PATH

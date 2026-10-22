@@ -1,4 +1,4 @@
-# CoNest cc-connect installer for Windows: downloads the prebuilt binary (with the setup wizard)
+# CoNest bothouse installer for Windows: downloads the prebuilt binary (with the setup wizard)
 # from the GitHub Release, puts it in %USERPROFILE%\.local\bin and adds that to your user PATH.
 # No Go or Node needed. Windows PowerShell 5.1 or PowerShell 7, x64 or arm64.
 #
@@ -7,14 +7,14 @@
 #
 # Environment:
 #   CONEST_VERSION   tag to install (default: the newest release, pre-releases included)
-#   INSTALL_DIR      where to put cc-connect.exe (default: %USERPROFILE%\.local\bin)
+#   INSTALL_DIR      where to put bothouse.exe (default: %USERPROFILE%\.local\bin)
 #   CONEST_REPO      owner/name to install from (default: zuiho-kai/bothouse; CI uses it for a test copy)
 # Same steps as install.sh (macOS / Linux).
 
-# Everything runs from Install-CcConnect, called on the last line: if an `irm | iex` download is
+# Everything runs from Install-Bothouse, called on the last line: if an `irm | iex` download is
 # cut short, the function is never called and nothing runs. Errors throw instead of `exit`, so the
 # window you pasted into stays open.
-function Install-CcConnect {
+function Install-Bothouse {
   $ErrorActionPreference = 'Stop'
   $ProgressPreference = 'SilentlyContinue' # Windows PowerShell 5.1 downloads are very slow with the progress bar
   # Windows PowerShell 5.1 may still default to TLS 1.0, which GitHub refuses.
@@ -38,12 +38,11 @@ function Install-CcConnect {
     $archName = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
   }
   switch -Regex ($archName) {
-    '^(X64|AMD64)$' { $arch = 'amd64' }
-    '^(Arm64|ARM64)$' { $arch = 'arm64' }
+    '^(X64|AMD64|Arm64)$' { $arch = 'amd64' } # Windows on ARM runs the same x64 executable.
     default { Fail "unsupported CPU $($archName): arm64 and amd64 only" }
   }
 
-  $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("cc-connect-install-" + [guid]::NewGuid().ToString('N'))
+  $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("bothouse-install-" + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $tmp | Out-Null
   try {
     # 1. which release: public API first; a private repo answers 404 there, then the logged-in gh
@@ -63,24 +62,25 @@ function Install-CcConnect {
       }
     }
 
-    $asset = "cc-connect-$tag-windows-$arch.zip"
+    $asset = 'bothouse-windows.exe'
     $from = if ($repo -ne 'zuiho-kai/bothouse') { " from $repo" } else { '' }
-    Write-Host "Installing cc-connect $tag (windows/$arch)$from into $installDir"
+    Write-Host "Installing bothouse $tag (windows/$arch)$from into $installDir"
+    Write-Host "Downloading $asset"
 
     # 2. download
-    $zip = Join-Path $tmp $asset
-    $sums = Join-Path $tmp 'checksums.txt'
+    $download = Join-Path $tmp $asset
+    $sums = Join-Path $tmp 'SHA256SUMS'
     $fetchWeb = {
       $base = "https://github.com/$repo/releases/download/$tag"
       try {
-        Invoke-WebRequest -UseBasicParsing -Uri "$base/$asset" -OutFile $zip
-        Invoke-WebRequest -UseBasicParsing -Uri "$base/checksums.txt" -OutFile $sums
+        Invoke-WebRequest -UseBasicParsing -Uri "$base/$asset" -OutFile $download
+        Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $sums
         return $true
       } catch { return $false }
     }
     $fetchGh = {
       if (-not (Test-Gh)) { return $false }
-      & gh release download $tag -R $repo -p $asset -p checksums.txt -D $tmp --clobber
+      & gh release download $tag -R $repo -p $asset -p SHA256SUMS -D $tmp --clobber
       return ($LASTEXITCODE -eq 0)
     }
     if ($via -eq 'gh') {
@@ -95,22 +95,19 @@ function Install-CcConnect {
       $parts = $line -split '\s+', 2
       if ($parts.Count -eq 2 -and $parts[1].TrimStart('*') -eq $asset) { $expected = $parts[0].ToLower() }
     }
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLower()
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $download).Hash.ToLower()
     if (-not $expected -or $expected -ne $actual) { Fail "checksum mismatch for $asset" }
     Write-Host "Checksum OK ($asset sha256 $actual)"
 
-    $unpack = Join-Path $tmp 'unpack'
-    Expand-Archive -LiteralPath $zip -DestinationPath $unpack -Force
-    $newExe = Join-Path $unpack 'cc-connect.exe'
-    if (-not (Test-Path -LiteralPath $newExe)) { Fail "cc-connect.exe not found in $asset" }
+    $newExe = $download
 
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-    $target = Join-Path $installDir 'cc-connect.exe'
+    $target = Join-Path $installDir 'bothouse.exe'
     # Earlier backups first (best effort: one still running stays), then move the current exe
-    # aside under a fresh name. A running cc-connect.exe cannot be overwritten or deleted, but it
+    # aside under a fresh name. A running bothouse.exe cannot be overwritten or deleted, but it
     # can be renamed; a fixed backup name would collide with a backup that is still running.
     Get-ChildItem -LiteralPath $installDir -File -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -ieq 'cc-connect.exe.old' -or $_.Name -like 'cc-connect.exe.old-*' } |
+      Where-Object { $_.Name -ieq 'bothouse.exe.old' -or $_.Name -like 'bothouse.exe.old-*' } |
       ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath $target) {
       Move-Item -LiteralPath $target -Destination ("$target.old-" + [DateTime]::UtcNow.Ticks) -Force
@@ -138,7 +135,7 @@ function Install-CcConnect {
     $envKey.Close()
     if (-not @($env:Path -split ';' | Where-Object { & $samePath $_ }).Count) { $env:Path = "$installDir;$env:Path" }
 
-    # What a new window will run for `cc-connect`: the system PATH comes before the user PATH.
+    # What a new window will run for `bothouse`: the system PATH comes before the user PATH.
     $machinePath = [string](Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').GetValue('Path', '')
     $userPathNow = [Environment]::GetEnvironmentVariable('Path', 'User')
     $first = $null
@@ -146,17 +143,17 @@ function Install-CcConnect {
       if (-not $dir) { continue }
       $dir = [Environment]::ExpandEnvironmentVariables($dir)
       foreach ($ext in @('.exe', '.cmd', '.bat', '.ps1', '.com')) {
-        $candidate = Join-Path $dir ('cc-connect' + $ext)
+        $candidate = Join-Path $dir ('bothouse' + $ext)
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { $first = $candidate; break }
       }
       if ($first) { break }
     }
-    $run = 'cc-connect'
+    $run = 'bothouse'
     if ($first -and ($first -ine $target)) {
       Write-Host ""
-      Write-Host "WARNING: in a new window, typing 'cc-connect' runs another copy first: $first"
+      Write-Host "WARNING: in a new window, typing 'bothouse' runs another copy first: $first"
       Write-Host "  It is an older or upstream build without the setup wizard."
-      Write-Host "  Remove it (npm uninstall -g cc-connect if it came from npm); a copy on the system PATH wins over $installDir."
+      Write-Host "  Remove it (npm uninstall -g bothouse if it came from npm); a copy on the system PATH wins over $installDir."
       Write-Host "Until then, use the full path: $target"
       $run = "& '$target'"
     }
@@ -165,13 +162,13 @@ function Install-CcConnect {
     Write-Host "It opens the setup wizard in your browser. Guide: https://github.com/$repo/blob/main/docs/GETTING_STARTED.md"
   } finally {
     # only the files this script made, one by one, then the (now empty) folders
-    foreach ($f in @((Join-Path $tmp 'unpack\cc-connect.exe'), (Join-Path $tmp 'checksums.txt'), (Join-Path $tmp "cc-connect-$tag-windows-$arch.zip"))) {
+    foreach ($f in @((Join-Path $tmp 'SHA256SUMS'), (Join-Path $tmp 'bothouse-windows.exe'))) {
       Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
     }
-    foreach ($d in @((Join-Path $tmp 'unpack'), $tmp)) {
+    foreach ($d in @($tmp)) {
       Remove-Item -LiteralPath $d -Force -ErrorAction SilentlyContinue
     }
   }
 }
 
-Install-CcConnect
+Install-Bothouse

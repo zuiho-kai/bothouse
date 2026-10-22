@@ -1,5 +1,5 @@
 # Start a command as a child of another process (PROC_THREAD_ATTRIBUTE_PARENT_PROCESS), to act
-# like an agent CLI that cc-connect started. Used by release.yml verify-windows. Prints the PID.
+# like an agent CLI that bothouse started. Used by release.yml verify-windows. Prints the PID.
 param([Parameter(Mandatory)][int]$ParentId, [Parameter(Mandatory)][string]$CommandLine)
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'

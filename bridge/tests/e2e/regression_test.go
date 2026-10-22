@@ -1012,7 +1012,7 @@ func TestRegression_DiscordEmbed(t *testing.T) {
 			{Name: "Duration", Value: "1.5s", Inline: true},
 		},
 	}
-	embed.Footer.Text = "cc-connect v1.0"
+	embed.Footer.Text = "bothouse v1.0"
 
 	// Verify structure
 	assert.Equal(t, "Test Result", embed.Title)
@@ -1022,7 +1022,7 @@ func TestRegression_DiscordEmbed(t *testing.T) {
 	assert.Equal(t, "Status", embed.Fields[0].Name)
 	assert.Equal(t, "Success", embed.Fields[0].Value)
 	assert.True(t, embed.Fields[0].Inline)
-	assert.Equal(t, "cc-connect v1.0", embed.Footer.Text)
+	assert.Equal(t, "bothouse v1.0", embed.Footer.Text)
 
 	t.Log("Discord embed: PASS")
 }

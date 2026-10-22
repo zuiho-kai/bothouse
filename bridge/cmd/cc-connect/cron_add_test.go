@@ -44,7 +44,7 @@ func TestPrintCronAddUsage_DocumentsSilent(t *testing.T) {
 	if !strings.Contains(help, "Suppress cron start notification") {
 		t.Errorf("printCronAddUsage does not describe --silent; got:\n%s", help)
 	}
-	if !strings.Contains(help, "cc-connect cron add --cron \"0 9 * * *\" --prompt \"Daily standup reminder\" --silent") {
+	if !strings.Contains(help, "bothouse cron add --cron \"0 9 * * *\" --prompt \"Daily standup reminder\" --silent") {
 		t.Errorf("printCronAddUsage does not include --silent example; got:\n%s", help)
 	}
 }

@@ -203,7 +203,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 			"terminal": false,
 		},
 		"clientInfo": map[string]any{
-			"name":    "cc-connect",
+			"name":    "bothouse",
 			"version": "1.0.0",
 		},
 	}

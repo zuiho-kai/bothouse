@@ -1,6 +1,6 @@
 # 线 1：配 ccm 和 wiki
 
-做完这篇：本机跑着 ccm（cc-connect maomao 分支），一个主 bot 加几个 sub；（装了 gate 的话）gate 判断谁回话；
+做完这篇：本机跑着 ccm（bothouse maomao 分支），一个主 bot 加几个 sub；（装了 gate 的话）gate 判断谁回话；
 每轮回话前 bot 会收到「可能相关的 wiki 页」；会话结束后 wiki 自动多出记录。
 装和配机器人只有一条路：[从零用起](GETTING_STARTED.md)的「装 → 向导 → 确认上线」。这篇讲之后可以加的 gate 和 wiki，都可选。
 
@@ -8,19 +8,19 @@
 
 - macOS 或 Linux。gate 用向导里填的 jev 打分，不带本地模型。
 - 装 ccm 不用 Go，也不用 Node：用预编译包（第 1 步）。gate 要 [uv](https://docs.astral.sh/uv/)；wiki 要 Python 3.9+ 和 git。
-- 已登录的 `claude` CLI（也可以是 codex 等 cc-connect 支持的 agent）。
+- 已登录的 `claude` CLI（也可以是 codex 等 bothouse 支持的 agent）。
 - 每个 bot 一个聊天平台的 bot 账号（线 2 第 1 步）。
 
 ## 1. 装 ccm
 
 照[从零用起](GETTING_STARTED.md)第 1 步，一行命令装预编译包（带网页向导）。
-不要用 npm / brew 装：那是上游 cc-connect，没有安装向导、gate 和一主多 sub。想自己从源码编见文末附录 B。
+不要用 npm / brew 装：那是上游 bothouse，没有安装向导、gate 和一主多 sub。想自己从源码编见文末附录 B。
 maomao 多出来的功能说明见 [bridge/MAOMAO.md](../bridge/MAOMAO.md)。
 
 ## 2. 配机器人：用向导
 
-运行 `cc-connect`，浏览器里的向导会写好一主多 sub 的全部配置（每个机器人一个 `[[projects]]`，以及 `allow_from`、`allow_bots`、
-`team_lead_bot`、`gate_url`、`gate-team.json`），见[线 2](connect-discord-feishu.md)。也可以让 AI 跑 `cc-connect setup apply`。
+运行 `bothouse`，浏览器里的向导会写好一主多 sub 的全部配置（每个机器人一个 `[[projects]]`，以及 `allow_from`、`allow_bots`、
+`team_lead_bot`、`gate_url`、`gate-team.json`），见[线 2](connect-discord-feishu.md)。也可以让 AI 跑 `bothouse setup apply`。
 已经用向导配过的直接跳到第 3 步。手写 TOML 的老办法放在文末附录 A。
 
 ## 3. 起 gate（可选）
@@ -35,8 +35,8 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
 # → gate on 127.0.0.1:9930  team=主管+码农、笔杆  wiki=/Users/you/wiki
 ```
 
-- 用过向导的话，团队文件向导已经写好了（`~/.cc-connect/gate-team.json`，lead = 向导里选的兜底角色），gate 默认读它。
-  没用向导时自己写一份：`cp bridge/contrib/gate/team.example.json ~/.cc-connect/gate-team.json` 再改成你的角色
+- 用过向导的话，团队文件向导已经写好了（`~/.bothouse/gate-team.json`，lead = 向导里选的兜底角色），gate 默认读它。
+  没用向导时自己写一份：`cp bridge/contrib/gate/team.example.json ~/.bothouse/gate-team.json` 再改成你的角色
   （名字是群里叫她的叫法，`subs` 的 key 就是 `gate_url` 里 `?bot=` 后面那个）。两样都没有才用 `team.example.json` 里的占位名字。
   格式：
 
@@ -45,10 +45,10 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
    "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
   ```
 
-- gate 用向导填的 jev 打分（`~/.cc-connect/jev.json`，测出给概率的才用）。没有 jev 时 gate 启动就报错退出，
+- gate 用向导填的 jev 打分（`~/.bothouse/jev.json`，测出给概率的才用）。没有 jev 时 gate 启动就报错退出，
   提示两种填法：用硅基流动的免费 Qwen 小模型，或本地起一个 0.6B 小模型（如 `mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit`）再填进向导的 jev。
   gate 不会自己下载模型。启动时打印的 `scorer=jev` 就是在用 jev。
-- 判断日志在 `GATE_LOG`（默认 `~/.cc-connect/gate.jsonl`），用来调规则。
+- 判断日志在 `GATE_LOG`（默认 `~/.bothouse/gate.jsonl`），用来调规则。
 - 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
 - 想在自己的显卡上跑大一点的本机模型：显式设 `GATE_MODEL=<本地模型目录>`，Apple 芯片用 `bridge/contrib/gate/scorer.py`（`uv run --with mlx-lm`），
   N 卡用 `scorer_torch.py`（PyTorch 版，放成 `scorer.py`）；`gate_switch.py`
@@ -83,8 +83,8 @@ ccm 拼在消息前面：
 ## 5. 起 ccm
 
 ```sh
-cc-connect                  # 读 ~/.cc-connect/config.toml；或 --config <路径>
-cc-connect daemon install   # 想关掉终端也一直在线：装成后台服务
+bothouse                  # 读 ~/.bothouse/config.toml；或 --config <路径>
+bothouse daemon install   # 想关掉终端也一直在线：装成后台服务
 ```
 
 ## 6. 怎么验证
@@ -105,14 +105,14 @@ cc-connect daemon install   # 想关掉终端也一直在线：装成后台服�
 
 ## 附录 A：手写 TOML（不用向导时）
 
-向导写的就是下面这些。只有不想用向导时才手写：先跑一次 `cc-connect` 让它生成 `~/.cc-connect/config.toml`（Ctrl+C 退出向导），
-再往里加 `[[projects]]`（每个 bot 一个 project；完整示例 `cc-connect config example`，`# ---- maomao fork` 那段有每一项的说明）：
+向导写的就是下面这些。只有不想用向导时才手写：先跑一次 `bothouse` 让它生成 `~/.bothouse/config.toml`（Ctrl+C 退出向导），
+再往里加 `[[projects]]`（每个 bot 一个 project；完整示例 `bothouse config example`，`# ---- maomao fork` 那段有每一项的说明）：
 
 ```toml
 [[projects]]
 name = "lead"                                  # 主 bot
 gate_url = "http://127.0.0.1:9930/decide"
-team_status_dir = "~/.cc-connect/team"
+team_status_dir = "~/.bothouse/team"
 team_name = "主管"
 team_status_inject = true                      # 每轮开头附上队友在忙什么
 [projects.agent]
@@ -133,7 +133,7 @@ team_lead_bot = "<主 bot 的用户 ID>"
 name = "coder"                                 # 一个 sub
 gate_url = "http://127.0.0.1:9930/decide?bot=coder"   # ?bot= 要和团队文件 subs 里的 key 一样
 gate_fallback = "context"                      # gate 挂了只听不说，不会所有 sub 一起开口
-team_status_dir = "~/.cc-connect/team"
+team_status_dir = "~/.bothouse/team"
 team_name = "码农"
 [projects.agent]
 type = "codex"
@@ -150,7 +150,7 @@ allow_bots = "<主 bot 的用户 ID>"
 team_lead_bot = "<主 bot 的用户 ID>"
 ```
 
-token 不要提交进任何仓库。`~/.cc-connect/config.toml` 只放在本机。ID 怎么拿见[线 2 附录 A2](connect-discord-feishu.md#a2-拿-id)。
+token 不要提交进任何仓库。`~/.bothouse/config.toml` 只放在本机。ID 怎么拿见[线 2 附录 A2](connect-discord-feishu.md#a2-拿-id)。
 
 ## 附录 B：从源码编（开发用）
 
@@ -162,4 +162,4 @@ make build          # 带网页向导的完整版，约 3–5 分钟；npm 和 g
 make build-noweb    # 不要网页时（不用 Node）；setup apply 命令照样能用
 ```
 
-编出来的是 `bridge/cc-connect`。
+编出来的是 `bridge/bothouse`。

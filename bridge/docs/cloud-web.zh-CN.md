@@ -4,17 +4,17 @@
 
 ## 概述
 
-**cloud_web** 平台让 cc-connect 将**自建 IM Gateway** 当作一等公民 IM 平台接入，使用方式与 Telegram、Discord、飞书相同。
+**cloud_web** 平台让 bothouse 将**自建 IM Gateway** 当作一等公民 IM 平台接入，使用方式与 Telegram、Discord、飞书相同。
 
-cc-connect 通过 **Cloud Web IM Protocol (CWIP)** 与 Gateway 通信。CWIP 复用 [Bridge 协议](./bridge-protocol.zh-CN.md) 的消息语义，但角色反转：cc-connect 为客户端，自建 Gateway 为 IM 服务端。
+bothouse 通过 **Cloud Web IM Protocol (CWIP)** 与 Gateway 通信。CWIP 复用 [Bridge 协议](./bridge-protocol.zh-CN.md) 的消息语义，但角色反转：bothouse 为客户端，自建 Gateway 为 IM 服务端。
 
 ### 三种传输模式
 
-| `transport` | cc-connect 角色 | 适用场景 |
+| `transport` | bothouse 角色 | 适用场景 |
 |-------------|----------------|----------|
 | `websocket` | WebSocket 客户端（主动连接） | 实时双向，推荐默认 |
-| `long_poll` | HTTP 长轮询客户端 | 防火墙友好，流量均由 cc-connect 发起 |
-| `gateway` | HTTP Webhook 服务端 | Gateway 主动推送事件到 cc-connect |
+| `long_poll` | HTTP 长轮询客户端 | 防火墙友好，流量均由 bothouse 发起 |
+| `gateway` | HTTP Webhook 服务端 | Gateway 主动推送事件到 bothouse |
 
 三种模式共用同一套 JSON 消息类型与能力模型。
 
@@ -52,13 +52,13 @@ Web 管理端：项目向导 → **Cloud Web (自建 IM)** → 填写传输模�
 
 ## 握手
 
-WebSocket 连接后，或 HTTP 模式下 `POST /cloud-web/v1/register`，cc-connect 发送：
+WebSocket 连接后，或 HTTP 模式下 `POST /cloud-web/v1/register`，bothouse 发送：
 
 ```json
 {
   "type": "register",
   "platform": "cloud_web",
-  "client": "cc-connect",
+  "client": "bothouse",
   "project": "my-project",
   "transport": "websocket",
   "metadata": { "protocol_version": 1 }
@@ -76,7 +76,7 @@ Gateway 响应：
 }
 ```
 
-能力列表与 [Bridge 协议能力表](./bridge-protocol.zh-CN.md) 一致。未声明的能力由 cc-connect 自动降级。
+能力列表与 [Bridge 协议能力表](./bridge-protocol.zh-CN.md) 一致。未声明的能力由 bothouse 自动降级。
 
 ---
 
@@ -86,7 +86,7 @@ Gateway 响应：
 |------|------|------|
 | websocket | `wss://<host>/cloud-web/ws` | 同一连接 |
 | long_poll | `POST /cloud-web/v1/events` | `POST /cloud-web/v1/send` |
-| gateway | cc-connect 监听 `webhook_path`（默认 `/cloud-web/webhook`） | `POST <base_url>/cloud-web/v1/send` |
+| gateway | bothouse 监听 `webhook_path`（默认 `/cloud-web/webhook`） | `POST <base_url>/cloud-web/v1/send` |
 
 Gateway 模式可选注册：
 
@@ -97,7 +97,7 @@ POST /cloud-web/v1/register
 
 ---
 
-## 入站消息（Gateway → cc-connect）
+## 入站消息（Gateway → bothouse）
 
 ### `message`
 
@@ -126,7 +126,7 @@ POST /cloud-web/v1/register
 
 ---
 
-## 出站消息（cc-connect → Gateway）
+## 出站消息（bothouse → Gateway）
 
 支持：`reply`、`reply_stream`、`card`、`buttons`、`typing_start/stop`、`preview_start`、`update_message`、`delete_message`、`image`、`file`、`audio`。
 
@@ -166,7 +166,7 @@ POST /cloud-web/v1/register
 
 ## 最小 Gateway 示例（Go）
 
-下面是一个用于本地测试的最小 WebSocket Gateway：接收 `register`、推送 `message`、打印 cc-connect 发来的 `reply`。
+下面是一个用于本地测试的最小 WebSocket Gateway：接收 `register`、推送 `message`、打印 bothouse 发来的 `reply`。
 
 ```go
 package main
@@ -210,4 +210,4 @@ func main() {
 }
 ```
 
-cc-connect 配置：`ws_url = "ws://127.0.0.1:8080/cloud-web/ws"`，并设置相同的 `token`。
+bothouse 配置：`ws_url = "ws://127.0.0.1:8080/cloud-web/ws"`，并设置相同的 `token`。

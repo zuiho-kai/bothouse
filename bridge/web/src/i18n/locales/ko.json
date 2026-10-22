@@ -167,8 +167,8 @@
     "rawConfig": "원본 설정"
   },
   "login": {
-    "title": "CC-Connect 관리 콘솔",
-    "subtitle": "CC-Connect 인스턴스에 연결합니다",
+    "title": "bothouse 관리 콘솔",
+    "subtitle": "bothouse 인스턴스에 연결합니다",
     "token": "API 토큰",
     "serverUrl": "서버 URL",
     "connect": "연결",
@@ -274,7 +274,7 @@
     "longPollTimeout": "롱 폴 타임아웃 (ms)",
     "listen": "수신 주소",
     "publicUrl": "공개 웹훅 URL",
-    "publicUrlHint": "게이트웨이가 cc-connect 웹훅에 접근하기 위한 공개 URL",
+    "publicUrlHint": "게이트웨이가 bothouse 웹훅에 접근하기 위한 공개 URL",
     "registerUrl": "등록 URL",
     "registerUrlHint": "선택 사항: 웹훅 콜백을 등록할 게이트웨이 엔드포인트",
     "cloudWebWsHint": "기본 URL이 설정된 경우 선택 사항이며, 기본값은 /cloud-web/ws입니다",

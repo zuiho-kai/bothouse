@@ -167,8 +167,8 @@
     "rawConfig": "Config. sin procesar"
   },
   "login": {
-    "title": "CC-Connect Admin",
-    "subtitle": "Conéctese a su instancia de CC-Connect",
+    "title": "bothouse Admin",
+    "subtitle": "Conéctese a su instancia de bothouse",
     "token": "Token de API",
     "serverUrl": "URL del servidor",
     "connect": "Conectar",
@@ -274,7 +274,7 @@
     "longPollTimeout": "Timeout de long polling (ms)",
     "listen": "Dirección de escucha",
     "publicUrl": "URL pública del webhook",
-    "publicUrlHint": "URL pública para que el Gateway llame al webhook de cc-connect",
+    "publicUrlHint": "URL pública para que el Gateway llame al webhook de bothouse",
     "registerUrl": "URL de registro",
     "registerUrlHint": "Opcional: endpoint para registrar el webhook en el Gateway",
     "cloudWebWsHint": "Opcional si hay base URL; predeterminado /cloud-web/ws",

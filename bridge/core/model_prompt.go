@@ -22,7 +22,7 @@ func modelSwitchPromptForExe() string {
 func modelSwitchPromptForPath(exe string) string {
 	// Keep spaces and shell metacharacters literal, including embedded apostrophes.
 	quoted := "'" + strings.ReplaceAll(exe, "'", "'\"'\"'") + "'"
-	return strings.ReplaceAll(ModelSwitchPrompt, "cc-connect model", quoted+" model")
+	return strings.ReplaceAll(ModelSwitchPrompt, "bothouse model", quoted+" model")
 }
 
 // PrependModelSwitchInstructions supplies tool instructions to adapters without
@@ -35,6 +35,6 @@ func PrependModelSwitchInstructions(prompt string) string {
 
 // Markers of the block above; handoffs strip it from old user turns.
 const (
-	modelControlHead = "[cc-connect model-control instructions]"
-	modelControlEnd  = "[/cc-connect model-control instructions]"
+	modelControlHead = "[bothouse model-control instructions]"
+	modelControlEnd  = "[/bothouse model-control instructions]"
 )

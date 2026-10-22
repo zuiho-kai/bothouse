@@ -393,8 +393,8 @@ func TestSessionConfig_MatchesCopilotCreateResumeShape(t *testing.T) {
 	if cfg.SessionID != "sess-1" {
 		t.Fatalf("SessionID = %q, want sess-1", cfg.SessionID)
 	}
-	if cfg.ClientName != "cc-connect" {
-		t.Fatalf("ClientName = %q, want cc-connect", cfg.ClientName)
+	if cfg.ClientName != "bothouse" {
+		t.Fatalf("ClientName = %q, want bothouse", cfg.ClientName)
 	}
 	if cfg.Model != "gpt-5.2" {
 		t.Fatalf("Model = %q, want gpt-5.2", cfg.Model)

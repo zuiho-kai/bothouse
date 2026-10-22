@@ -285,7 +285,7 @@ func main() {
 	}
 
 	if rootOpts.showVersion {
-		fmt.Printf("cc-connect %s\ncommit:  %s\nbuilt:   %s\n", version, commit, buildTime)
+		fmt.Printf("bothouse %s\ncommit:  %s\nbuilt:   %s\n", version, commit, buildTime)
 		return
 	}
 
@@ -299,7 +299,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	core.VersionInfo = fmt.Sprintf("cc-connect %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
+	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
 	core.CurrentVersion = version
 	core.CurrentCommit = commit
 	core.CurrentBuildTime = buildTime
@@ -342,7 +342,7 @@ func main() {
 	if len(cfg.Projects) == 0 {
 		fmt.Fprintf(os.Stderr, "Error: no projects configured in %s\n", configPath)
 		fmt.Fprintln(os.Stderr, "Add at least one [[project]] section to your config.toml, or run:")
-		fmt.Fprintln(os.Stderr, "  cc-connect init")
+		fmt.Fprintln(os.Stderr, "  bothouse init")
 		os.Exit(1)
 	}
 
@@ -1310,7 +1310,7 @@ func main() {
 		apiSrv.Start()
 	}
 
-	slog.Info("cc-connect is running", "projects", len(engines))
+	slog.Info("bothouse is running", "projects", len(engines))
 
 	// After startup, check if we were restarted and queue the success
 	// notification. The engine dispatches it on the first OnPlatformReady
@@ -1417,7 +1417,7 @@ func parseRootCLIOptions(args []string) (rootCLIOptions, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = printUsage
 
-	configPath := fs.String("config", "", "path to config file (default: ./config.toml or ~/.cc-connect/config.toml)")
+	configPath := fs.String("config", "", "path to config file (default: ./config.toml or ~/.bothouse/config.toml)")
 	force := fs.Bool("force", false, "kill any existing instance with the same config before starting")
 	observe := fs.Bool("observe", false, "observe native terminal Claude Code sessions and forward to Slack")
 	observeChannel := fs.String("observe-channel", "", "Slack channel ID to forward terminal observations to (requires --observe)")
@@ -1557,7 +1557,7 @@ func resolveConfigPath(explicit string) string {
 		return "config.toml"
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cc-connect", "config.toml")
+		return filepath.Join(ccconnect.DataDir(home), "config.toml")
 	}
 	return "config.toml"
 }
@@ -1572,25 +1572,20 @@ func printUsage() {
 	updateHint := getUpdateHintIfAvailable()
 
 	fmt.Fprintf(os.Stderr, `
-                                              _
-  ___ ___        ___ ___  _ __  _ __   ___  ___| |_
- / __/ __|_____ / __/ _ \| '_ \| '_ \ / _ \/ __| __|
-| (_| (_|_____|  (_| (_) | | | | | | |  __/ (__| |_
- \___\__|      \___\___/|_| |_|_| |_|\___|\___|\__|  %s%s
+  bothouse %s%s
 
   Bridge your messaging platforms to local AI coding agents.
   Supports: Claude Code, Codex, Cursor, Gemini CLI, Qoder CLI, OpenCode
   Platforms: Feishu, TuiTui, Telegram, Slack, DingTalk, Discord, LINE, WeChat Work, Weixin, QQ, QQ Bot
 
   conest:  https://github.com/zuiho-kai/bothouse (docs/GETTING_STARTED.md)
-  Upstream: https://github.com/chenhg5/cc-connect
 
 Usage:
-  cc-connect [flags]
-  cc-connect <command> [args]
+  bothouse [flags]
+  bothouse <command> [args]
 
 Flags:
-  --config <path>    Path to config file (default: ./config.toml or ~/.cc-connect/config.toml)
+  --config <path>    Path to config file (default: ./config.toml or ~/.bothouse/config.toml)
   --force            Kill any existing instance with the same config before starting
   --version          Print version and exit
   --help             Show this help message
@@ -1604,7 +1599,7 @@ Commands:
 
   web                Open the web admin (with no bots configured yet: the setup wizard)
 
-  daemon             Manage cc-connect as a background service (systemd/launchd/schtasks)
+  daemon             Manage bothouse as a background service (systemd/launchd/schtasks)
     install          Install and start the daemon service
     uninstall        Remove the daemon service
     start            Start the daemon
@@ -1663,19 +1658,19 @@ Commands:
   config-example     (deprecated: use 'config example' instead)
 
 Examples:
-  cc-connect                          Start (no config yet: opens the setup wizard)
-  cc-connect setup apply --json r.json  Configure bots from a JSON request
-  cc-connect --config /path/to.toml   Start with a specific config file
-  cc-connect daemon install           Install as a system service
-  cc-connect daemon logs -f           Follow daemon logs
-  cc-connect send -m "hello"          Send a message to the active session
-  cc-connect cron list                List all scheduled tasks
-  cc-connect feishu setup             Setup Feishu/Lark bot credentials
-  cc-connect weixin setup             Setup Weixin (ilink) with QR or --token
-  cc-connect yuanbao setup            Setup Yuanbao bot with --token app_key:app_secret
-  cc-connect update                   Update to the latest version
-  cc-connect config format            Format the config file
-  cc-connect config example > c.toml  Save example config to a file
+  bothouse                          Start (no config yet: opens the setup wizard)
+  bothouse setup apply --json r.json  Configure bots from a JSON request
+  bothouse --config /path/to.toml   Start with a specific config file
+  bothouse daemon install           Install as a system service
+  bothouse daemon logs -f           Follow daemon logs
+  bothouse send -m "hello"          Send a message to the active session
+  bothouse cron list                List all scheduled tasks
+  bothouse feishu setup             Setup Feishu/Lark bot credentials
+  bothouse weixin setup             Setup Weixin (ilink) with QR or --token
+  bothouse yuanbao setup            Setup Yuanbao bot with --token app_key:app_secret
+  bothouse update                   Update to the latest version
+  bothouse config format            Format the config file
+  bothouse config example > c.toml  Save example config to a file
 
 `, v, updateHint)
 }

@@ -168,8 +168,8 @@
     "rawConfig": "原始配置"
   },
   "login": {
-    "title": "CC-Connect 管理后台",
-    "subtitle": "连接到您的 CC-Connect 实例",
+    "title": "bothouse 管理后台",
+    "subtitle": "连接到您的 bothouse 实例",
     "token": "API 令牌",
     "serverUrl": "服务器地址",
     "connect": "连接",
@@ -275,7 +275,7 @@
     "longPollTimeout": "长轮询超时（毫秒）",
     "listen": "监听地址",
     "publicUrl": "公网 Webhook URL",
-    "publicUrlHint": "供 Gateway 回调 cc-connect 的公网地址",
+    "publicUrlHint": "供 Gateway 回调 bothouse 的公网地址",
     "registerUrl": "注册 URL",
     "registerUrlHint": "可选：向 Gateway 注册 Webhook 的接口地址",
     "cloudWebWsHint": "若已填写 base URL 可留空，默认 /cloud-web/ws",

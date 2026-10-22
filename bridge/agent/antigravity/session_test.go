@@ -18,7 +18,7 @@ func TestSlugify(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"cc-connect", "cc-connect"},
+		{"bothouse", "bothouse"},
 		{"Daily", "daily"},
 		{"My Project", "my-project"},
 		{"hello_world", "hello-world"},

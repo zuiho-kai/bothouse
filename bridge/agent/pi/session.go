@@ -104,7 +104,7 @@ type piSession struct {
 // way to learn the session id is to send {"type":"get_state"} and parse the
 // matching response. By using a fixed sentinel id we can match the response
 // unambiguously even if other commands are in flight.
-const stateProbeID = "cc-connect-state-probe"
+const stateProbeID = "bothouse-state-probe"
 
 // sessionIDReady reports whether the session id has been observed on the
 // pi side and stored. Used by readLoopRPC to decide when it is safe to

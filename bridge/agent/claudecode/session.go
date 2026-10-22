@@ -107,7 +107,7 @@ func (cs *claudeSession) StartupWarning() string { return cs.startupWarning }
 // sharedSystemPromptRelPath is the location under ccDataDir where the
 // shared cc-connect system prompt file lives. Reused across every spawn
 // that doesn't need per-session customization (the 99% case).
-const sharedSystemPromptRelPath = "agent-prompts/cc-connect-system.md"
+const sharedSystemPromptRelPath = "agent-prompts/bothouse-system.md"
 
 // ensureSharedSystemPromptFile lazily writes <ccDataDir>/agent-prompts/
 // cc-connect-system.md with the cc-connect default AgentSystemPrompt
@@ -162,7 +162,7 @@ func writeTempAppendPromptFile(ccDataDir, content string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	f, err := os.CreateTemp(dir, "cc-connect-system-*.md")
+	f, err := os.CreateTemp(dir, "bothouse-system-*.md")
 	if err != nil {
 		return "", err
 	}
@@ -195,7 +195,7 @@ func writeTempAppendPromptFile(ccDataDir, content string) (string, error) {
 // next spawn would mistake for valid content.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(dir, ".cc-connect-system-*.tmp")
+	f, err := os.CreateTemp(dir, ".bothouse-system-*.tmp")
 	if err != nil {
 		return err
 	}

@@ -15,7 +15,7 @@ import (
 
 func init() { core.AgentToolFS = ccconnect.AgentToolFiles }
 
-const setupToolsUsage = `Usage: cc-connect setup tools on|off|status --work-dir <dir> [--agent <type>] [flags]
+const setupToolsUsage = `Usage: bothouse setup tools on|off|status --work-dir <dir> [--agent <type>] [flags]
 
 Small command-line tools for one role (the role's work_dir): %s.
 "on" installs the scripts into <data_dir>/tools and adds a block between <!-- conest:tools --> markers to

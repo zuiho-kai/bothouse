@@ -467,15 +467,15 @@ func TestBuildAppendSystemPrompt(t *testing.T) {
 // concurrent spawns.
 func TestEnsureSharedSystemPromptFile_WritesOnceAndReuses(t *testing.T) {
 	dir := t.TempDir()
-	content := "## cc-connect prompt\n" + makeFiller(10*1024)
+	content := "## bothouse prompt\n" + makeFiller(10*1024)
 
 	// First call must create the file.
 	path1, err := ensureSharedSystemPromptFile(dir, content)
 	if err != nil {
 		t.Fatalf("first ensure: %v", err)
 	}
-	if !strings.HasSuffix(filepath.ToSlash(path1), "agent-prompts/cc-connect-system.md") {
-		t.Errorf("path %q does not end in agent-prompts/cc-connect-system.md", path1)
+	if !strings.HasSuffix(filepath.ToSlash(path1), "agent-prompts/bothouse-system.md") {
+		t.Errorf("path %q does not end in agent-prompts/bothouse-system.md", path1)
 	}
 	got, err := os.ReadFile(path1)
 	if err != nil {
@@ -541,7 +541,7 @@ func TestEnsureSharedSystemPromptFile_EmptyDirUsesTempDir(t *testing.T) {
 		t.Fatalf("ensure with empty dir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Remove(path) })
-	if !strings.Contains(filepath.ToSlash(path), "/agent-prompts/cc-connect-system.md") {
+	if !strings.Contains(filepath.ToSlash(path), "/agent-prompts/bothouse-system.md") {
 		t.Errorf("unexpected fallback path: %q", path)
 	}
 }
@@ -631,9 +631,9 @@ func makeFiller(n int) string {
 // assistant text reaches the user.
 //
 // Cases covered:
-//  - string content (plain text result)
-//  - array content (Anthropic SDK multi-block: [{type:"text", text:"..."}])
-//  - is_error=true (exit code 1, success=false)
+//   - string content (plain text result)
+//   - array content (Anthropic SDK multi-block: [{type:"text", text:"..."}])
+//   - is_error=true (exit code 1, success=false)
 func TestHandleUserEmitsToolResult(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -649,10 +649,10 @@ func TestHandleUserEmitsToolResult(t *testing.T) {
 				"message": map[string]any{
 					"content": []any{
 						map[string]any{
-							"type":          "tool_result",
-							"tool_use_id":   "toolu_abc",
-							"is_error":      false,
-							"content":       "command output here",
+							"type":        "tool_result",
+							"tool_use_id": "toolu_abc",
+							"is_error":    false,
+							"content":     "command output here",
 						},
 					},
 				},

@@ -1,12 +1,12 @@
-# 安装和配置 cc-connect（conest 版）
+# 安装和配置 bothouse（conest 版）
 
-> 给人和给 AI 读的都是这一份。这里的 cc-connect 是 conest 仓库 `bridge/` 里的 maomao 分支，带安装向导、gate、一主多 sub。
-> **不要用 npm / brew / 上游 chenhg5/cc-connect 的 Release 装**：那是上游版，没有 `cc-connect setup`、没有向导。
-> 上游原来这份安装文档（各平台手动配置）在 <https://github.com/chenhg5/cc-connect/blob/main/INSTALL.md>，只在手写配置时参考。
+> 给人和给 AI 读的都是这一份。这里的 bothouse 是 conest 仓库 `bridge/` 里的 maomao 分支，带安装向导、gate、一主多 sub。
 
 只有一条路：**装 → 向导或 `setup apply` → 确认上线**。macOS / Linux / Windows（arm64、amd64）。
 
 ## 1. 装
+
+优先从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载 dmg/exe 并双击，Linux 下载裸二进制。macOS 首次请「右键→打开」。命令行安装如下：
 
 ```sh
 # 仓库公开后
@@ -24,19 +24,19 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
 ```
 
-装到 `~/.local/bin/cc-connect`（Windows：`%USERPROFILE%\.local\bin\cc-connect.exe`，并加进用户 PATH），不用 Go 和 Node。`CONEST_VERSION=<tag>` 装指定版本，`INSTALL_DIR=<目录>` 换位置（PowerShell 里写 `$env:CONEST_VERSION='<tag>'`）。
+装到 `~/.local/bin/bothouse`（Windows：`%USERPROFILE%\.local\bin\bothouse.exe`，并加进用户 PATH），不用 Go 和 Node。`CONEST_VERSION=<tag>` 装指定版本，`INSTALL_DIR=<目录>` 换位置（PowerShell 里写 `$env:CONEST_VERSION='<tag>'`）。
 从源码编（开发用）见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 附录 B。
 
 ## 2. 配
 
-- **人**：运行 `cc-connect`。还没配机器人时，它自动在浏览器打开安装向导（打不开就在终端打印带登录口令的链接）。照页面点完，点「重启生效」。
+- **人**：运行 `bothouse`。还没配机器人时，它自动在浏览器打开安装向导（打不开就在终端打印带登录口令的链接）。照页面点完，点「重启生效」。
 - **AI**：用一条命令，参数一次给全：
 
   ```sh
-  cc-connect setup apply -h                                     # 每个 JSON 字段的说明
-  cc-connect setup clis                                         # 本机有哪些 CLI、登录没有
-  cc-connect setup apply --json req.json --dry-run              # 只检查（token、服务器、intent），不写任何文件
-  cc-connect setup apply --json req.json                        # 写配置
+  bothouse setup apply -h                                     # 每个 JSON 字段的说明
+  bothouse setup clis                                         # 本机有哪些 CLI、登录没有
+  bothouse setup apply --json req.json --dry-run              # 只检查（token、服务器、intent），不写任何文件
+  bothouse setup apply --json req.json                        # 写配置
   ```
 
   最小请求：`{"discord": {"guild_id": "<服务器 ID>"}, "roles": [{"token": "<机器人 token>"}]}`。一个 token = 一个角色，多个角色就在 `roles` 里放多个。
@@ -51,7 +51,7 @@ gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd
 - `saved: true, ok: false, needs_user_action: true`：配置已写，但 `warnings` 里 `blocking: true` 的事要用户先做，否则机器人不会回话：
   `message_content_intent_off` / `message_content_intent_unknown`（打开 `url`，在开发者后台 Bot 页打开或确认 Message Content Intent）、`bot_not_in_guild`（打开邀请链接 `url`，把机器人拉进服务器）、
   `allow_from_unknown`（没查到所有者，机器人先谁都不听：问用户要他的 Discord 用户 ID，请求里加 `allow_from` 再跑）。做完不用重跑（allow_from 除外），重启即可。
-- `next_steps`：怎么启动或重启。AI 用 `cc-connect daemon install` 在后台启动，不要在自己的 shell 里前台跑 `cc-connect`（它不退出，会占住终端）。
+- `next_steps`：怎么启动或重启。AI 用 `bothouse daemon install` 在后台启动，不要在自己的 shell 里前台跑 `bothouse`（它不退出，会占住终端）。
 - 上线的标志：日志里有 `discord: connected`；在频道里 @ 机器人说一句，它回话。
 
 gate 可以不装：没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。要装见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 第 3 步（要先在向导填 jev，没填 gate 会报错并提示怎么填）。

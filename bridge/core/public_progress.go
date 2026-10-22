@@ -467,7 +467,7 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.mu.Lock()
 	state.publicProgressRun = token
 	state.mu.Unlock()
-	command := "cc-connect"
+	command := "bothouse"
 	if path, err := os.Executable(); err == nil {
 		command = path
 	}

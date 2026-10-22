@@ -1,6 +1,6 @@
-"""Windows acceptance for the installed cc-connect (run by release.yml verify-windows).
+"""Windows acceptance for the installed bothouse (run by release.yml verify-windows).
 
-No config yet → `cc-connect` prints the wizard link → the link and the wizard API answer over
+No config yet → `bothouse` prints the wizard link → the link and the wizard API answer over
 HTTP → POST /api/v1/restart (what the wizard's "restart to apply" button does) → the wizard is
 back and the process is still alive → Ctrl+Break → exits with code 0. Every check prints a
 PASS line; any failure exits non-zero. Uses the real user profile of the clean runner.
@@ -29,7 +29,7 @@ def fail(msg: str) -> None:
 
 def pump(stream) -> None:
     for line in iter(stream.readline, ""):
-        print("  [cc-connect]", line.rstrip(), flush=True)
+        print("  [bothouse]", line.rstrip(), flush=True)
         lines.put(line)
 
 
@@ -66,11 +66,11 @@ def wait_http(url: str, timeout: float):
     fail(f"{url} did not answer within {timeout}s: {last}")
 
 
-exe = shutil.which("cc-connect")
+exe = shutil.which("bothouse")
 if not exe:
-    fail("cc-connect is not on PATH")
+    fail("bothouse is not on PATH")
 print("binary:", exe, flush=True)
-cfg = os.path.join(os.path.expanduser("~"), ".cc-connect", "config.toml")
+cfg = os.path.join(os.path.expanduser("~"), ".bothouse", "config.toml")
 if os.path.exists(cfg):
     fail(f"{cfg} already exists; this check needs a first run")
 
@@ -110,7 +110,7 @@ try:
     print(f"PASS POST /api/v1/restart -> HTTP {status}: {body[:200]}", flush=True)
     time.sleep(2)
     if proc.poll() is not None:
-        fail(f"cc-connect exited with {proc.returncode} after restart (should keep running)")
+        fail(f"bothouse exited with {proc.returncode} after restart (should keep running)")
     status, body = wait_http(link, 30)
     if status != 200:
         fail(f"wizard after restart: HTTP {status}")
@@ -121,10 +121,10 @@ try:
     try:
         code = proc.wait(timeout=30)
     except subprocess.TimeoutExpired:
-        fail("cc-connect did not exit within 30s of Ctrl+Break")
+        fail("bothouse did not exit within 30s of Ctrl+Break")
     if code != 0:
         fail(f"exit code {code} after Ctrl+Break")
-    print("PASS Ctrl+Break -> cc-connect exited with code 0", flush=True)
+    print("PASS Ctrl+Break -> bothouse exited with code 0", flush=True)
 finally:
     if proc.poll() is None:
         proc.kill()

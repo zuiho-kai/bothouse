@@ -20,7 +20,7 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-const agyPermissionHookName = "cc-connect-permission-bridge"
+const agyPermissionHookName = "bothouse-permission-bridge"
 
 type agyHookInput struct {
 	ConversationID string `json:"conversationId"`
@@ -50,7 +50,7 @@ type agyPermissionBridge struct {
 
 func newAgyPermissionBridge(ctx context.Context, events chan<- core.Event) (*agyPermissionBridge, error) {
 	bridgeCtx, cancel := context.WithCancel(ctx)
-	rootDir, err := os.MkdirTemp("", "cc-connect-agy-permission-")
+	rootDir, err := os.MkdirTemp("", "bothouse-agy-permission-")
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("create permission bridge directory: %w", err)
@@ -131,7 +131,7 @@ func createAgyConfigOverlay(rootDir string) (string, error) {
 
 	executable, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("resolve cc-connect executable for Agy hook: %w", err)
+		return "", fmt.Errorf("resolve bothouse executable for Agy hook: %w", err)
 	}
 	bridgeHook, err := json.Marshal(map[string]any{
 		"PreToolUse": []any{
@@ -229,11 +229,11 @@ func (b *agyPermissionBridge) handleConnection(conn net.Conn) {
 
 	var request antigravityhook.BridgeRequest
 	if err := json.NewDecoder(io.LimitReader(conn, 4<<20)).Decode(&request); err != nil {
-		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "invalid cc-connect permission bridge request"})
+		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "invalid bothouse permission bridge request"})
 		return
 	}
 	if !bridgeTokenEqual(request.Token, b.token) {
-		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "cc-connect permission bridge authentication failed"})
+		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "bothouse permission bridge authentication failed"})
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
@@ -269,7 +269,7 @@ func (b *agyPermissionBridge) handleConnection(conn net.Conn) {
 	select {
 	case b.events <- event:
 	case <-b.ctx.Done():
-		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "cc-connect session closed"})
+		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "bothouse session closed"})
 		return
 	}
 
@@ -288,7 +288,7 @@ func (b *agyPermissionBridge) handleConnection(conn net.Conn) {
 		}
 		b.writeResponse(conn, response)
 	case <-b.ctx.Done():
-		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "cc-connect session closed"})
+		b.writeResponse(conn, antigravityhook.BridgeResponse{Decision: "deny", Reason: "bothouse session closed"})
 	}
 }
 

@@ -59,7 +59,7 @@ func runWeb(args []string) {
 		port = result.ManagementPort
 		token = result.ManagementToken
 		fmt.Printf("Web admin configured on port %d.\n", port)
-		fmt.Println("Restart cc-connect for the changes to take effect.")
+		fmt.Println("Restart bothouse for the changes to take effect.")
 	}
 
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
@@ -85,7 +85,7 @@ func runWeb(args []string) {
 		fmt.Printf("\nCould not open browser automatically.\n")
 		fmt.Printf("Open this URL in your browser:\n")
 		fmt.Printf("  %s/login?token=%s\n", baseURL, token)
-		fmt.Printf("\nNote: make sure cc-connect is running (it hosts the web admin on port %d).\n", port)
+		fmt.Printf("\nNote: make sure bothouse is running (it hosts the web admin on port %d).\n", port)
 	}
 }
 

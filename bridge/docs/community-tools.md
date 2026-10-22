@@ -1,12 +1,12 @@
 # Community Tools
 
-This page lists community-maintained tools and helpers built around cc-connect.
+This page lists community-maintained tools and helpers built around bothouse.
 
-These tools are not official cc-connect components unless explicitly stated. Please report issues, feature requests, and support questions to each tool's own repository.
+These tools are not official bothouse components unless explicitly stated. Please report issues, feature requests, and support questions to each tool's own repository.
 
 ## CC-Tray
 
-A lightweight Windows tray controller for an already configured `cc-connect daemon` running inside WSL.
+A lightweight Windows tray controller for an already configured `bothouse daemon` running inside WSL.
 
 - Repository: https://github.com/STAR-REIN/CC-Tray
 - Platform: Windows + WSL

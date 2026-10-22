@@ -1,4 +1,4 @@
-APP        := cc-connect
+APP        := bothouse
 MODULE     := github.com/chenhg5/cc-connect
 CMD        := ./cmd/cc-connect
 DIST       := dist

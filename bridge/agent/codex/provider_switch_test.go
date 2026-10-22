@@ -24,7 +24,7 @@ func skipIfNoConfig(t *testing.T) *config.Config {
 	if os.Getenv("CC_RUN_PROVIDER_INTEGRATION") != "1" {
 		t.Skip("set CC_RUN_PROVIDER_INTEGRATION=1 to run provider integration tests")
 	}
-	cfgPath := os.ExpandEnv("$HOME/.cc-connect/config.toml")
+	cfgPath := os.ExpandEnv("$HOME/.bothouse/config.toml")
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		t.Skipf("config not found at %s", cfgPath)
 	}

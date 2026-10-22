@@ -14,7 +14,7 @@
 ## Interaction Flow
 
 1. User sends `/delete`.
-2. If the platform supports cards, cc-connect renders a delete-mode session list card.
+2. If the platform supports cards, bothouse renders a delete-mode session list card.
 3. Each session row exposes a single right-side button that toggles selected/unselected state.
 4. The card footer provides:
    - `删除已选`
@@ -24,7 +24,7 @@
 6. The confirmation card provides:
    - `确认删除`
    - `返回继续选择`
-7. On confirmation, cc-connect deletes the selected sessions, skips the active session, clears the temporary selection state, and renders a result card.
+7. On confirmation, bothouse deletes the selected sessions, skips the active session, clears the temporary selection state, and renders a result card.
 
 ## State Model
 

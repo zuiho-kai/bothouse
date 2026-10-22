@@ -544,7 +544,7 @@ func TestWorkspaceAgentOptions_FullSnapshot(t *testing.T) {
 	// PATH. WorkspaceAgentOptions only reads fields that the production
 	// New() also writes; this just verifies the snapshot shape.
 	a := &Agent{
-		cmd:           "my-cli",
+		cmd:              "my-cli",
 		cliExtraArgs:     []string{"--add-dir", "/parent"},
 		cmdArgsFlag:      "-a",
 		model:            "claude-opus-4-7",
@@ -560,7 +560,7 @@ func TestWorkspaceAgentOptions_FullSnapshot(t *testing.T) {
 
 	want := map[string]any{
 		"mode":               "acceptEdits",
-		"cmd":           "my-cli --add-dir /parent",
+		"cmd":                "my-cli --add-dir /parent",
 		"cmd_args_flag":      "-a",
 		"model":              "claude-opus-4-7",
 		"reasoning_effort":   "high",
@@ -622,7 +622,7 @@ func TestWorkspaceAgentOptions_RoundTripsThroughNew(t *testing.T) {
 		t.Skip("run_as_user-based LookPath bypass is Unix-only")
 	}
 	parent := &Agent{
-		cmd:           "my-cli",
+		cmd:              "my-cli",
 		cliExtraArgs:     []string{"code", "--add-dir", "/parent"},
 		cmdArgsFlag:      "-a",
 		model:            "claude-opus-4-7",
@@ -720,9 +720,9 @@ func TestScanSessionMeta_AITitleAndCustomTitle(t *testing.T) {
 	path := filepath.Join(tmpDir, "test.jsonl")
 
 	lines := []string{
-		`{"type": "user", "message": {"content": "[cc-connect sender_id=abc] first prompt"}}`,
+		`{"type": "user", "message": {"content": "[bothouse sender_id=abc] first prompt"}}`,
 		`{"type": "assistant", "message": {"content": "reply"}}`,
-		`{"type": "ai-title", "sessionId": "sess-1", "aiTitle": "查看cc-connect开机自启功能"}`,
+		`{"type": "ai-title", "sessionId": "sess-1", "aiTitle": "查看bothouse开机自启功能"}`,
 	}
 	data := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
@@ -733,7 +733,7 @@ func TestScanSessionMeta_AITitleAndCustomTitle(t *testing.T) {
 	if count != 2 {
 		t.Errorf("scanSessionMeta count = %d, want 2", count)
 	}
-	if summary != "查看cc-connect开机自启功能" {
+	if summary != "查看bothouse开机自启功能" {
 		t.Errorf("scanSessionMeta summary = %q, want ai-title", summary)
 	}
 }
@@ -921,7 +921,7 @@ func TestAgent_ImplementsSessionIDValidator(t *testing.T) {
 
 func TestNew_WorkDirDoesNotExist(t *testing.T) {
 	opts := map[string]any{
-		"work_dir": "/tmp/cc-connect-nonexistent-dir-that-should-not-exist",
+		"work_dir": "/tmp/bothouse-nonexistent-dir-that-should-not-exist",
 	}
 	_, err := New(opts)
 	if err == nil {

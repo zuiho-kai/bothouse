@@ -17280,7 +17280,7 @@ func (e *Engine) cmdBindStatus(p Platform, replyCtx any, chatID string) {
 	e.reply(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgRelayBound), strings.Join(parts, " ↔ ")))
 }
 
-const ccConnectInstructionMarker = "<!-- cc-connect-instructions -->"
+const ccConnectInstructionMarker = "<!-- bothouse-instructions -->"
 
 type setupResult int
 
@@ -17372,9 +17372,9 @@ func (e *Engine) buildSenderPrompt(content, userID, userName, platform, sessionK
 	}
 	if userName != "" {
 		safeName := strings.NewReplacer(`"`, `'`, "\n", " ", "\r", "").Replace(userName)
-		return fmt.Sprintf("[cc-connect sender_id=%s sender_name=\"%s\" platform=%s chat_id=%s]\n%s", userID, safeName, platform, chatID, content)
+		return fmt.Sprintf("[bothouse sender_id=%s sender_name=\"%s\" platform=%s chat_id=%s]\n%s", userID, safeName, platform, chatID, content)
 	}
-	return fmt.Sprintf("[cc-connect sender_id=%s platform=%s chat_id=%s]\n%s", userID, platform, chatID, content)
+	return fmt.Sprintf("[bothouse sender_id=%s platform=%s chat_id=%s]\n%s", userID, platform, chatID, content)
 }
 
 func extractChannelID(sessionKey string) string {
