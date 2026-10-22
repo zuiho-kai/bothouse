@@ -45,7 +45,8 @@
       "text": {
         "zh": "早。昨晚复盘：这类登录 bug 是第二次了，要不要记成规矩？",
         "en": "Morning. From last night's review: that's the second login bug like this. Want me to make it a rule?"
-      }
+      },
+      "zoom": false
     },
     {
       "wait": 2400
@@ -55,7 +56,8 @@
       "text": {
         "zh": "记吧 👍",
         "en": "Do it 👍"
-      }
+      },
+      "zoom": false
     },
     {
       "wait": 800
@@ -70,7 +72,19 @@
         "zh": "已记，附上你的原话 ✅",
         "en": "Saved, with your exact words ✅"
       }
+    },
+    {
+      "wait": 300
+    },
+    {
+      "badge": {
+        "zh": "新规矩 +1",
+        "en": "New rule +1"
+      },
+      "icon": false
     }
   ],
-  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒"
+  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒",
+  "zoom_max": 1,
+  "_zoom": "右侧只放大最后一张 + 「新规矩 +1」徽章；zoom_max 1、徽章文字来源：派活要求；wait 300 同第 4 镜徽章间隔"
 }

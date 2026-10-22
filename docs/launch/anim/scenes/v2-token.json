@@ -1,6 +1,6 @@
 {
   "template": "compare",
-  "_source": "第 6 镜「常驻省 token」，来源 docs/launch/promo-zh-v2.md。第 3 轮按 Gemini 审片意见改：数字放大到约 56px（numSize）、结尾弹发光标签「省下大把 token」不写百分比（数字是示意值不是实测）、去掉「读背景…」小气泡和头像下的工具名小标签（hideTags）、总长 9.5–10 秒（均来自派活要求）。保留「专人」派生，因为旁白 06 说「要专人就自己派生一个」。end 9800ms：旁白 06 时长 8.95 秒（vo/zh/lines.json），+1 = 9.95 秒，成片取大；verdict 7300 / badge 8300 为目测节奏取值。",
+  "_source": "第 6 镜「常驻省 token」，来源 docs/launch/promo-zh-v2.md。第 3 轮按 Gemini 审片意见改：数字放大到约 56px（numSize）、结尾弹发光标签「省下大把 token」不写百分比（数字是示意值不是实测）、去掉「读背景…」小气泡和头像下的工具名小标签（hideTags）、总长 9.5–10 秒（均来自派活要求）。保留「专人」派生，因为旁白 06 说「要专人就自己派生一个」。end 9800ms：旁白 06 时长 8.95 秒（vo/zh/lines.json），+1 = 9.95 秒，成片取大；verdict 7300 / badge 8300 为目测节奏取值。 第 4 轮按 Gemini 二审改：两侧任务卡纵向对齐（左红✕右绿✓），「省下大把 token」改成右侧数字上方的小徽章、弱发光（派活要求）。",
   "brand": true,
   "headline": {
     "zh": "常驻同事，不是临时工",

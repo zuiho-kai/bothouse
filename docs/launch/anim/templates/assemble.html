@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <!-- 集结模板（第 3 镜「拉进一个群，就是一支团队」）。示例：scenes/v2-assemble.json。
      render.py 注入 window.SCENE / window.LANG；开播设 __start、调 BH.overlay()，播完设 __done。
-     字段：members [{name,avatar,color,tag,duty}]，channel {zh,en}，timing {first,gap,gather,link,end}（毫秒）。
+     字段：members [{name,avatar,icon?,color,tag,duty}]（icon 可选：whale | pen），channel {zh,en}，timing {first,gap,gather,link,end}（毫秒）。
      画面 1280×720（来源：docs/launch/anim/README.md「画面 1280×720」）。
      大字卡占 y 34–92（common.js top:34px、50px×1.15）；底部 80px 留给字幕（README「底部 80px 留给后期烧字幕」），
      所以全部内容放在 y 140–600 之间。背景、光晕、毛玻璃照抄 compare.html / outro.html。 -->
@@ -31,36 +31,48 @@
   .card::before { content:''; position:absolute; inset:0; border-radius:24px;
     background:linear-gradient(160deg, color-mix(in srgb, var(--c) 28%, transparent), transparent 60%); pointer-events:none; }
   .av { border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; color:#fff; background:var(--c); }
-  .card .av { width:104px; height:104px; font-size:48px; box-shadow:0 0 0 5px rgba(255,255,255,.12); }
+  .card .av { width:104px; height:104px; font-size:48px; font-family:-apple-system,'Helvetica Neue',Arial,sans-serif; box-shadow:0 0 0 5px rgba(255,255,255,.12); }
   .card .nm { font-size:32px; font-weight:800; }
   .tag { font-size:17px; font-weight:700; color:#e3e5ff; background:color-mix(in srgb, var(--c) 35%, transparent);
     border:1px solid var(--c); border-radius:8px; padding:2px 10px; }
   .card .duty { font-size:20px; color:#c9cdfb; }
 
-  /* 群聊圈：760×330 圆角大气泡，居中 left 260；top 200 → 底 530 */
-  #room { position:absolute; left:260px; top:200px; width:760px; height:330px; border-radius:40px;
+  /* 群聊圈：800×450 毛玻璃面板，left 240 top 145 → 底 595（内容限 y 140–600，见文件头）。
+     第 4 轮按 Gemini 二审第 3 镜「横线串联像流水线」改：三人围着中心 #dev 排成倒三角，环形连线 + 共享光环表达「一个群」（派活要求）。
+     环心相对面板 (400,190)、半径 125、头像 96px 为排版目测取值。 */
+  #room { position:absolute; left:240px; top:145px; width:800px; height:450px; border-radius:40px;
     background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.14);
     backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); box-shadow:0 24px 70px rgba(0,0,0,.45);
     opacity:0; transform:scale(.85); transition:opacity .4s ease, transform .55s cubic-bezier(.34,1.56,.64,1), box-shadow .6s; }
   #room.on { opacity:1; transform:none; }
   #room.lit { border-color:rgba(88,101,242,.75); box-shadow:0 0 70px -6px rgba(88,101,242,.65), 0 24px 70px rgba(0,0,0,.45); }
-  #room .hd { position:absolute; left:34px; top:24px; right:34px; display:flex; align-items:center; gap:12px;
-    padding-bottom:16px; border-bottom:1px solid rgba(255,255,255,.1); }
-  #room .ch { font-size:30px; font-weight:800; color:#e3e5ff; }
-  #room .ch b { color:#8b93ff; margin-right:4px; }
-  #room .bh { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:18px; font-weight:700; color:#c9cdfb; }
-  #room .bh svg { width:26px; height:26px; }
-  /* 圈内成员：头像 112px，中心 x 相对圈 170/380/590（间距 210），y 中心 175 */
-  .mem { position:absolute; width:180px; text-align:center; opacity:0; transform:scale(.4);
+  /* 面板右上角改窗口三色圆点：Gemini 三审「面板内 bothouse 标志与全片左上角标志重复」→ 派活要求换成三色小圆点。圆点 12px/间距 8px 为目测取值，三色为 macOS 窗口按钮常用色 */
+  #room .dots { position:absolute; right:28px; top:26px; display:flex; gap:8px; }
+  #room .dots i { width:12px; height:12px; border-radius:50%; }
+  .hub { position:absolute; width:136px; height:136px; margin:-68px 0 0 -68px; border-radius:50%;
+    background:radial-gradient(circle, rgba(88,101,242,.45), rgba(88,101,242,.12)); border:2px solid rgba(139,147,255,.8);
+    display:flex; align-items:center; justify-content:center; font-size:32px; font-weight:800; color:#fff; }
+  .hub b { color:#aeb5ff; margin-right:2px; }
+  .aura { position:absolute; width:400px; height:400px; margin:-200px 0 0 -200px; border-radius:50%; pointer-events:none;
+    background:radial-gradient(circle, rgba(88,101,242,0) 45%, rgba(88,101,242,.4) 62%, rgba(88,101,242,0) 75%); opacity:0; transform:scale(.7); transition:opacity .6s, transform .8s ease-out; }
+  #room.lit .aura { opacity:1; transform:none; animation:aura 2.2s ease-in-out .8s infinite; }
+  @keyframes aura { 0%,100% { opacity:1; } 50% { opacity:.55; } }
+  .mem { position:absolute; width:96px; height:96px; margin:-48px 0 0 -48px; opacity:0; transform:scale(.4);
     transition:opacity .3s, transform .45s cubic-bezier(.34,1.56,.64,1); }
   .mem.on { opacity:1; transform:none; }
-  .mem .av { width:112px; height:112px; font-size:52px; margin:0 auto; position:relative; box-shadow:0 0 0 4px rgba(255,255,255,.14); transition:box-shadow .5s; }
+  .mem .av { width:96px; height:96px; font-size:46px; position:relative; box-shadow:0 0 0 4px rgba(255,255,255,.14); transition:box-shadow .5s; }
   .mem.lit .av { box-shadow:0 0 0 5px var(--c), 0 0 34px 4px var(--c); }
-  .mem .nm { margin-top:10px; font-size:24px; font-weight:800; }
+  .mem .lb { position:absolute; top:50%; transform:translateY(-50%); width:170px; white-space:nowrap; }
+  .mem .lb.l { right:112px; text-align:right; }
+  .mem .lb.r { left:112px; text-align:left; }
+  .mem .lb.b { top:108px; left:50%; transform:translateX(-50%); text-align:center; }
+  .mem .nm { font-size:24px; font-weight:800; }
   .mem .tag { display:inline-block; margin-top:6px; font-size:15px; }
   #wire { position:absolute; left:0; top:0; pointer-events:none; }
-  #wire line { stroke:url(#g); stroke-width:4; stroke-linecap:round; stroke-dasharray:220; stroke-dashoffset:220; transition:stroke-dashoffset .6s ease; }
-  #wire.on line { stroke-dashoffset:0; }
+  #wire circle { fill:none; stroke:url(#g); stroke-width:4; stroke-linecap:round; stroke-dasharray:786; stroke-dashoffset:786; transition:stroke-dashoffset .9s ease; }  /* 786 ≈ 2π×125 */
+  #wire.on circle { stroke-dashoffset:0; }
+  /* 统一扁平头像：纯色圆 + 白色字母或白色简单图形（派活要求），图形占圆约 55% 为目测取值 */
+  .av svg { width:56%; height:56%; }
 </style>
 </head>
 <body>
@@ -75,36 +87,47 @@ const t = v => window.BH ? BH.t(v) : (v && v.en) || v;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const at = (ms, fn) => setTimeout(fn, ms);
 const mk = (cls, parent, html, style = '') => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; d.style.cssText = style; parent.appendChild(d); return d; };
-// 标志与 common.js 的 bothouse 图形一致
-const logo = `<svg viewBox="0 0 26 26"><path d="M3 12 L13 3 L23 12 V23 H3 Z" fill="#5865f2"/><circle cx="9.5" cy="16" r="2" fill="#fff"/><circle cx="16.5" cy="16" r="2" fill="#fff"/></svg>`;
 
 const room = document.getElementById('room');
-const RX = 260, RY = 200;                 // 群聊圈左上角，同 CSS #room
-const memX = [170, 380, 590], memY = 175; // 圈内头像中心（相对圈），同 CSS 注释
+const RX = 240, RY = 145;                 // 面板左上角，同 CSS #room
+const HX = 400, HY = 190, R = 125;        // 环心与半径（相对面板），同 CSS 注释
+// 倒三角：左上、右上、正下；标签放外侧（左 / 右 / 下）
+const ang = [210, 330, 90].map(d => d * Math.PI / 180);
+const pos = ang.map(a => [HX + R * Math.cos(a), HY - R * Math.sin(a) * -1]);
+const side = ['l', 'r', 'b'];
 const cardX = [190, 510, 830];            // 大卡左边：190 起，宽 260 + 间距 60
-mk('hd', room, `<span class="ch"><b>#</b>${esc(t(S.channel))}</span><span class="bh">${logo}bothouse</span>`);
+// 头像：纯色圆 + 白色字母 / 白色简单图形（icon: whale | pen；不给就用 avatar 文字）
+const ICON = {
+  whale: c => `<svg viewBox="0 0 24 24"><path d="M2.5 13.5c0-3.6 3.6-6.2 8.2-6.2 3.9 0 6.9 1.9 7.8 4.6l2.4-2.6h1.6l-1.2 4.4 1.2 4.1h-1.6l-2.4-2.4c-1 2.9-4 4.6-7.8 4.6-4.6 0-8.2-2.4-8.2-6.5z" fill="#fff"/><circle cx="7" cy="12.2" r="1.1" fill="${c}"/><path d="M9 6.2c-.3-1.3-1.2-2.2-2.4-2.6M9 6.2c.4-1.3 1.4-2.1 2.6-2.4M9 6.2V3" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`,
+  pen: c => `<svg viewBox="0 0 24 24"><path d="M12 2.5l6.5 8.2-3 10.3h-7l-3-10.3z" fill="#fff"/><path d="M12 11.6v8.4" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="11" r="1.9" fill="${c}"/></svg>`,
+};
+const avHTML = m => ICON[m.icon] ? ICON[m.icon](m.color) : esc(m.avatar);
+
 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-svg.id = 'wire'; svg.setAttribute('width', 760); svg.setAttribute('height', 330);
-svg.innerHTML = `<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="${S.members[0].color}"/><stop offset=".5" stop-color="${S.members[1].color}"/><stop offset="1" stop-color="${S.members[2].color}"/></linearGradient></defs>` +
-  [0, 1].map(i => `<line x1="${memX[i]+64}" y1="${memY}" x2="${memX[i+1]-64}" y2="${memY}"/>`).join('');
+svg.id = 'wire'; svg.setAttribute('width', 800); svg.setAttribute('height', 450);
+svg.innerHTML = `<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="${HX-R}" y1="0" x2="${HX+R}" y2="0"><stop offset="0" stop-color="${S.members[0].color}"/><stop offset=".5" stop-color="${S.members[2].color}"/><stop offset="1" stop-color="${S.members[1].color}"/></linearGradient></defs>` +
+  `<circle cx="${HX}" cy="${HY}" r="${R}" transform="rotate(-90 ${HX} ${HY})"/>`;
+mk('aura', room, '', `left:${HX}px;top:${HY}px`);
 room.appendChild(svg);
+mk('hub', room, `<b>#</b>${esc(t(S.channel))}`, `left:${HX}px;top:${HY}px`);
+mk('dots', room, '<i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>');
 
 const cards = [], mems = [];
 S.members.forEach((m, i) => {
   const c = mk('card', document.body,
-    `<div class="av">${esc(m.avatar)}</div><div class="nm">${esc(t(m.name))}</div><div class="tag">${esc(t(m.tag))}</div><div class="duty">${esc(t(m.duty))}</div>`,
+    `<div class="av">${avHTML(m)}</div><div class="nm">${esc(t(m.name))}</div><div class="tag">${esc(t(m.tag))}</div><div class="duty">${esc(t(m.duty))}</div>`,
     `left:${cardX[i]}px;--c:${m.color}`);
   cards.push(c);
-  const e = mk('mem', room, `<div class="av">${esc(m.avatar)}</div><div class="nm">${esc(t(m.name))}</div><div class="tag">${esc(t(m.tag))}</div>`,
-    `left:${memX[i]-90}px;top:${memY-56}px;--c:${m.color}`);
+  const e = mk('mem', room, `<div class="av">${avHTML(m)}</div><div class="lb ${side[i]}"><div class="nm">${esc(t(m.name))}</div><div class="tag">${esc(t(m.tag))}</div></div>`,
+    `left:${pos[i][0]}px;top:${pos[i][1]}px;--c:${m.color}`);
   mems.push(e);
 });
 
 function gather() {
   room.classList.add('on');
   cards.forEach((c, i) => {
-    // 大卡中心 → 圈内头像中心，缩到 0.35 倍
-    const dx = RX + memX[i] - (cardX[i] + 130), dy = RY + memY - (170 + 150);
+    // 大卡中心 → 环上头像中心，缩到 0.35 倍
+    const dx = RX + pos[i][0] - (cardX[i] + 130), dy = RY + pos[i][1] - (170 + 150);
     c.classList.add('fly');
     c.style.transform = `translate(${dx}px,${dy}px) scale(.35)`;
     at(450 + i * 80, () => mems[i].classList.add('on'));

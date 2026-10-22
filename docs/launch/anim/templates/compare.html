@@ -36,7 +36,7 @@
   .team.pulse { transform:scale(1.15); box-shadow:0 0 0 4px #3ba55d, 0 0 24px rgba(59,165,93,.7); }
   .nm { position:absolute; width:110px; text-align:center; font-size:15px; font-weight:700; }
   .tag { display:block; font-size:11px; font-weight:600; color:#c9cdfb; background:rgba(88,101,242,.28); border-radius:4px; padding:0 5px; margin:3px auto 0; width:max-content; }
-  .mem { position:absolute; left:110px; top:236px; width:220px; text-align:center; font-size:15px; color:#ffe8a3; background:rgba(240,178,50,.14);
+  .mem { position:absolute; left:200px; top:236px; width:220px; text-align:center; font-size:15px; color:#ffe8a3; background:rgba(240,178,50,.14);
     border:1px solid rgba(240,178,50,.4); border-radius:20px; padding:4px 0; }
   .ok { position:absolute; right:-8px; top:-10px; width:22px; height:22px; border-radius:50%; background:#3ba55d; color:#fff; font-size:13px;
     display:flex; align-items:center; justify-content:center; opacity:0; transform:scale(.3); transition:all .3s cubic-bezier(.34,1.56,.64,1); }
@@ -50,12 +50,16 @@
   #R .num { color:#57d68d; } #R .bar i { background:linear-gradient(90deg,#3ba55d,#57d68d); }
   .spawn { width:46px; height:46px; font-size:20px; background:#9b59b6; opacity:0; transform:scale(.2); transition:all .45s cubic-bezier(.34,1.56,.64,1); }
   .spawn.on { opacity:1; transform:none; }
-  /* 可选结尾标签（SCENE.badge）：右面板中上方弹出发光胶囊。尺寸/颜色为目测取值，无外部来源 */
-  .badge { position:absolute; left:50%; top:216px; z-index:4; transform:translateX(-50%) scale(.3); opacity:0; white-space:nowrap;
-    padding:10px 30px; border-radius:999px; background:linear-gradient(90deg,#3ba55d,#57d68d); color:#fff; font-size:34px; font-weight:800;
-    box-shadow:0 0 0 3px rgba(255,255,255,.25), 0 0 46px 6px rgba(87,214,141,.75); transition:all .5s cubic-bezier(.34,1.56,.64,1); }
-  .badge.on { opacity:1; transform:translateX(-50%) scale(1); animation:badgeglow 1.4s ease-in-out .5s infinite; }
-  @keyframes badgeglow { 50% { box-shadow:0 0 0 3px rgba(255,255,255,.35), 0 0 70px 14px rgba(87,214,141,.9); } }
+  /* 可选结尾标签（SCENE.badge）：右侧数字正上方的小徽章，弱发光，焦点留给数字（派活要求，Gemini 二审「胶囊喧宾夺主」）。
+     位置：meter 顶 = 502-22-92 = 388，数字顶约 388-25 = 363，徽章底留在 ~355。字号/透明度为目测取值 */
+  .badge { position:absolute; right:26px; top:318px; z-index:4; transform:scale(.3); transform-origin:right center; opacity:0; white-space:nowrap;
+    padding:4px 14px; border-radius:999px; background:rgba(59,165,93,.18); border:1px solid rgba(87,214,141,.55); color:#8ff0b4; font-size:18px; font-weight:700;
+    box-shadow:0 0 14px rgba(87,214,141,.25); transition:all .5s cubic-bezier(.34,1.56,.64,1); }
+  .badge.on { opacity:1; transform:scale(1); }
+  /* 左侧每项后的标记：红 ✕，该行变灰时随 .row.gone 一起灰掉（派活要求「灰色或红色标记」） */
+  .x { position:absolute; right:-8px; top:-10px; width:22px; height:22px; border-radius:50%; background:#ed4245; color:#fff; font-size:13px;
+    display:flex; align-items:center; justify-content:center; opacity:0; transform:scale(.3); transition:all .3s cubic-bezier(.34,1.56,.64,1); }
+  .x.on { opacity:1; transform:none; }
   #link { position:absolute; left:0; top:0; pointer-events:none; }
   #link path { stroke:#c39bd3; stroke-width:2.5; stroke-dasharray:6 6; fill:none; stroke-dashoffset:200; transition:stroke-dashoffset .6s ease; opacity:0; }
   #link.on path { stroke-dashoffset:0; opacity:1; }
@@ -98,8 +102,8 @@ function tick() {
   requestAnimationFrame(tick);
 }
 
-// 右侧常驻团队：三个头像 x 中心 120/220/320，y 中心 150
-const teamX = [120, 220, 320], teamY = 150;
+// 右侧常驻团队：任务卡改成左列纵向（与左面板同位置对齐），团队挪到卡片右边，头像 x 中心 280/370/460，y 中心 150（目测取值）
+const teamX = [280, 370, 460], teamY = 150;
 const teamEls = S.right.team.map((m, i) => {
   const a = el('av team', PR, esc(m.avatar), `left:${teamX[i]-31}px;top:${teamY-31}px;background:${m.color}`);
   el('nm', PR, `${esc(t(m.name))}${S.hideTags ? '' : `<span class="tag">${esc(m.tag)}</span>`}`, `left:${teamX[i]-55}px;top:${teamY+38}px`);
@@ -112,7 +116,8 @@ function leftProject(i) {
   const y = 100 + i * 92;
   if (i > 0) PL.querySelector(`.row[data-i="${i-1}"]`).classList.add('gone');
   const row = el('row', PL); row.dataset.i = i;
-  const c = el('card', row, esc(t(S.projects[i])), `left:-170px;top:${y + 22}px;opacity:0`);
+  const c = el('card', row, esc(t(S.projects[i])) + '<div class="x">✕</div>', `left:-170px;top:${y + 22}px;opacity:0`);
+  at(550, () => c.querySelector('.x').classList.add('on'));
   requestAnimationFrame(() => requestAnimationFrame(() => { c.style.left = '26px'; c.style.opacity = 1; }));
   [0, 1, 2].forEach(k => {
     const a = el('av tmp', row, 'AI', `left:${220 + k * 92}px;top:${y + 22}px`);
@@ -128,9 +133,10 @@ function leftProject(i) {
 }
 
 function rightProject(i) {
-  // 卡片从右边飞进来，落在团队下方一排
-  const c = el('card', PR, esc(t(S.projects[i])) + '<div class="ok">✓</div>', `left:600px;top:300px;opacity:0`);
-  requestAnimationFrame(() => requestAnimationFrame(() => { c.style.left = (26 + i * 170) + 'px'; c.style.top = '300px'; c.style.opacity = 1; }));
+  // 卡片从右边飞进来，纵向排在左列，y 与左面板同一行（100 + i×92 + 22）严格对齐
+  const y = 100 + i * 92 + 22;
+  const c = el('card', PR, esc(t(S.projects[i])) + '<div class="ok">✓</div>', `left:600px;top:${y}px;opacity:0`);
+  requestAnimationFrame(() => requestAnimationFrame(() => { c.style.left = '26px'; c.style.opacity = 1; }));
   at(500, () => {
     teamEls.forEach(a => a.classList.add('pulse'));
     c.querySelector('.ok').classList.add('on');
@@ -140,11 +146,11 @@ function rightProject(i) {
 }
 
 function spawn() {
-  // 从团队派生「专人」：放在团队右边，虚线连回笔杆
-  const sx = 470, sy = 150;
+  // 从团队派生「专人」：放在记忆条右侧、笔杆右下方，虚线从笔杆连下来（坐标目测取值）
+  const sx = 505, sy = 250;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.id = 'link'; svg.setAttribute('width', 560); svg.setAttribute('height', 502);
-  svg.innerHTML = `<path d="M${teamX[2]+34} ${teamY} C ${teamX[2]+70} ${teamY-40}, ${sx-60} ${sy-40}, ${sx-26} ${sy}"/>`;
+  svg.innerHTML = `<path d="M${teamX[2]+24} ${teamY+24} C ${teamX[2]+50} ${teamY+50}, ${sx} ${sy-60}, ${sx} ${sy-26}"/>`;
   PR.insertBefore(svg, PR.firstChild);
   const a = el('av spawn', PR, '★', `left:${sx-23}px;top:${sy-23}px`);
   const n = el('nm', PR, esc(t(S.right.spawn)), `left:${sx-55}px;top:${sy+30}px;color:#e3c6ef;opacity:0;transition:opacity .4s`);
@@ -159,7 +165,7 @@ function play() {
   at(100, () => { PL.classList.add('on'); PR.classList.add('on'); });
   S.projects.forEach((_, i) => at(TM.first + i * TM.gap, () => { leftProject(i); rightProject(i); }));
   at(TM.verdict ?? (TM.spawn - 400), () => { PL.classList.add('lose'); PR.classList.add('win'); });
-  if (S.badge) { const b = el('badge', PR, esc(t(S.badge.text))); at(S.badge.at, () => { b.classList.add('on'); const m = PR.querySelector('.mem'); if (m) { m.style.transition = 'opacity .3s'; m.style.opacity = 0; } }); }
+  if (S.badge) { const b = el('badge', PR, esc(t(S.badge.text))); at(S.badge.at, () => b.classList.add('on')); }
   at(TM.spawn, spawn);
   at(TM.end, () => { window.__done = true; });
 }

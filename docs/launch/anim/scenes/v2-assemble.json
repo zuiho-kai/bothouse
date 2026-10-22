@@ -1,6 +1,6 @@
 {
   "template": "assemble",
-  "_source": "第 3 镜重做：Gemini 审片建议「AI 英雄集结卡片」替换配置向导；旁白「Claude、DeepSeek、Codex，拉进一个群，就是一支团队」5.52 秒，镜头开始后 0.3 秒进来（派活说明）。avatar/color/name/tag 照抄 scenes/v2-split.json 的 roles；英文 headline 照抄 scenes/v2-wizard.json。",
+  "_source": "第 3 镜重做：Gemini 审片建议「AI 英雄集结卡片」替换配置向导；旁白「Claude、DeepSeek、Codex，拉进一个群，就是一支团队」5.52 秒，镜头开始后 0.3 秒进来（派活说明）。avatar/color/name/tag 照抄 scenes/v2-split.json 的 roles（第 4 轮按 Gemini 二审「头像风格打架」把鲸鱼娘、笔杆的 emoji 换成 icon 白色图形 whale/pen，avatar 字母只作后备）；英文 headline 照抄 scenes/v2-wizard.json。",
   "headline": { "zh": "拉进一个群，就是一支团队", "en": "One group chat. One team." },
   "headline_at": 3200,
   "brand": true,
@@ -10,9 +10,9 @@
   "members": [
     { "name": { "zh": "opus", "en": "opus" },    "avatar": "O",  "color": "#5865f2",
       "tag": { "zh": "Claude Code", "en": "Claude Code" }, "duty": { "zh": "拆活、交付", "en": "Plans & ships" } },
-    { "name": { "zh": "鲸鱼娘", "en": "Whale" }, "avatar": "🐳", "color": "#3ba55d",
+    { "name": { "zh": "鲸鱼娘", "en": "Whale" }, "avatar": "W", "icon": "whale", "color": "#3ba55d",
       "tag": { "zh": "DSH", "en": "DSH" },                 "duty": { "zh": "修 bug", "en": "Fixes bugs" } },
-    { "name": { "zh": "笔杆", "en": "Writer" },  "avatar": "✍️", "color": "#f0b232",
+    { "name": { "zh": "笔杆", "en": "Writer" },  "avatar": "P", "icon": "pen", "color": "#f0b232",
       "tag": { "zh": "Codex", "en": "Codex" },             "duty": { "zh": "写文案", "en": "Writes copy" } }
   ]
 }

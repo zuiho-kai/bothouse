@@ -70,7 +70,8 @@
       "text": {
         "zh": "@opus 两件事：修登录 bug，再写一版官网文案",
         "en": "@opus two things: fix the login bug, and draft new homepage copy"
-      }
+      },
+      "zoom": false
     },
     {
       "wait": 700
@@ -84,7 +85,31 @@
       "text": {
         "zh": "@鲸鱼娘 登录 bug 归你；@笔杆 官网文案归你。",
         "en": "@Whale the login bug is yours. @Writer you've got the homepage copy."
-      }
+      },
+      "zoom": false
+    },
+    {
+      "lanes": [
+        {
+          "who": "whale",
+          "text": {
+            "zh": "修登录 bug",
+            "en": "Fix login bug"
+          },
+          "busy": true
+        },
+        {
+          "who": "writer",
+          "text": {
+            "zh": "写官网文案",
+            "en": "Homepage copy"
+          },
+          "status": {
+            "zh": "撰写中",
+            "en": "Writing"
+          }
+        }
+      ]
     },
     {
       "wait": 900
@@ -94,7 +119,8 @@
       "text": {
         "zh": "收到，修 bug。",
         "en": "On it — fixing the bug."
-      }
+      },
+      "zoom": false
     },
     {
       "wait": 800
@@ -104,8 +130,10 @@
       "text": {
         "zh": "收到，写文案。",
         "en": "On it — writing the copy."
-      }
+      },
+      "zoom": false
     }
   ],
-  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒"
+  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒",
+  "_zoom": "右侧不放聊天卡，opus 分派后同时弹两张任务分支卡（lanes），来源：派活要求（Gemini 二审「构图三胞胎」）"
 }

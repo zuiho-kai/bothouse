@@ -56,7 +56,8 @@
       "text": {
         "zh": "@opus 修一下登录 bug，顺便写份说明",
         "en": "@opus fix the login bug and write a note"
-      }
+      },
+      "zoom": false
     },
     {
       "wait": 700
@@ -70,7 +71,8 @@
       "text": {
         "zh": "收到。@鲸鱼娘 修 bug，说明我来写。",
         "en": "On it. @Whale fix the bug, I'll write the note."
-      }
+      },
+      "zoom": false
     },
     {
       "wait": 600
@@ -110,5 +112,7 @@
       }
     }
   ],
-  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒"
+  "_timing": "节奏按审片要求：首条 0.3 秒内直接出现、消息间隔 0.7–1 秒、关键画面在旁白（vo/zh/lines.json）结束前出现，总长约旁白+1.2 秒",
+  "zoom_max": 2,
+  "_zoom": "右侧只放大两张：鲸鱼娘交 PR+徽章、opus 交付；其余 zoom:false 只在手机里。zoom_max 2 来源：派活要求（Gemini 二审「左右 100% 冗余复读」）"
 }

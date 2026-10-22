@@ -32,12 +32,13 @@
   @keyframes breathe { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.7; transform:scale(1.06); } }
 
   .plats { display:flex; gap:22px; transition:transform .7s cubic-bezier(.4,0,.2,1), margin .7s; margin-bottom:0; }
-  .plats.dock { transform:scale(.62); margin-bottom:-6px; }
-  .plat { width:150px; height:118px; border-radius:22px; background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.12);
+  .plats.dock { transform:scale(.8); margin:-14px 0 -10px; }
+  /* 平台块加大、字更清楚：Gemini 二审第 9 镜「图标辨识度差」+ 派活「图标块加大，字更清楚」；尺寸和停靠缩放 .8 为目测取值 */
+  .plat { width:176px; height:140px; border-radius:22px; background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.12);
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; opacity:.28; filter:grayscale(1);
     transition:all .45s cubic-bezier(.34,1.56,.64,1); }
-  .plat .g { width:48px; height:48px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:800; color:#fff; }
-  .plat .n { font-size:20px; font-weight:600; color:#e6e8ff; }
+  .plat .g { width:64px; height:64px; border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:34px; font-weight:800; color:#fff; box-shadow:inset 0 -3px 0 rgba(0,0,0,.18); }
+  .plat .n { font-size:24px; font-weight:700; color:#fff; }
   .plat.on { opacity:1; filter:none; transform:translateY(-6px) scale(1.06); background:rgba(255,255,255,.1); border-color:var(--c); box-shadow:0 0 34px -4px var(--c); }
 
   .logo { display:flex; align-items:center; gap:22px; opacity:0; transform:scale(.4); }
@@ -48,7 +49,7 @@
 
   .slogan { font-size:42px; font-weight:700; line-height:1.3; margin-top:14px; opacity:0; transform:translateY(14px); transition:all .5s ease-out; text-shadow:0 4px 20px rgba(0,0,0,.5); }
   .slogan.on { opacity:1; transform:none; }
-  .slogan.s2 { color:#aeb5ff; }
+  .slogan.s2 { color:#e2e8f0; }  /* Gemini 二审第 9/2 镜「口号第二行过暗」→ 提亮到约 #E2E8F0（派活要求）；outro 只有 v2-brand/v2-end 用 */
   .repo { font-family:"SF Mono",Menlo,Consolas,"Courier New",monospace; font-size:28px; color:#c9cdfb; margin-top:26px; opacity:0; transition:opacity .5s; }
   .pill { margin-top:18px; padding:9px 28px; border-radius:999px; background:#3ba55d; color:#fff; font-size:26px; font-weight:700;
     box-shadow:0 0 28px -2px rgba(59,165,93,.8); opacity:0; transform:scale(.5); }

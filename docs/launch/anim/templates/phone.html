@@ -52,7 +52,8 @@
   /* 卡片在右侧区域内竖直居中：只有一张时不贴底留大片空白 */
   .feed.away { opacity:0; }
   .zc { display:flex; gap:20px; padding:18px 24px; border-radius:18px; background:rgba(49,51,56,.92); box-shadow:0 18px 50px rgba(0,0,0,.45), inset 4px 0 0 #5865f2; transform-origin:left bottom; transition:opacity .5s ease, transform .5s ease; animation:pop .5s cubic-bezier(.34,1.56,.64,1); }
-  .zc.old { opacity:.4; transform:scale(.94); box-shadow:none; }  /* 旧卡变淡缩小，自定 */
+  .zc.old { opacity:.6; transform:scale(.94); box-shadow:none; }  /* 旧卡变淡缩小；不透明度 .4→.6 来自 Gemini 三审「旧卡正文太暗看不清」+ 派活要求「约 60%」。.zc 只在 zoom 的 .feed 里出现 */
+  .zc.old .tx { color:#eceef1; }  /* 旧卡正文提亮（原 #dbdee1），目测取值，同一条 Gemini 三审意见 */
   .zc .av { width:60px; height:60px; font-size:28px; }
   .zc .nm { font-size:26px; }
   .zc .bot { font-size:16px; padding:1px 6px; border-radius:5px; vertical-align:4px; }
@@ -60,6 +61,16 @@
   .zc .tx { font-size:30px; line-height:1.35; margin-top:4px; }  /* 正文 30px ≈ 手机内 14px 的 2 倍，满足「至少约 22px」 */
   .zc .badge { margin:12px 0 0; font-size:22px; padding:8px 18px; border-radius:22px; }
   .zc .badge svg { width:22px; height:22px; }
+  /* 任务分支卡（step "lanes"，第 5 镜）：两张并排同时弹出，顶部色条用角色色。尺寸为目测取值，放大字号同 .zc（30px），无外部来源 */
+  .lanes { display:flex; gap:28px; }
+  .lane { flex:1; padding:26px 28px; border-radius:18px; background:rgba(49,51,56,.92); box-shadow:inset 0 6px 0 var(--c), 0 18px 50px rgba(0,0,0,.45); animation:pop .5s cubic-bezier(.34,1.56,.64,1); }
+  .lane .lt { font-size:30px; font-weight:700; line-height:1.3; }
+  .lane .lw { display:flex; align-items:center; gap:12px; margin-top:18px; font-size:24px; font-weight:700; color:var(--c); }
+  .lane .lw::before { content:"→"; color:#b5bac1; }
+  .lane .av { width:48px; height:48px; font-size:24px; }
+  .lane .lb { margin-top:16px; font-size:20px; color:var(--c); }
+  .lane .lb i { font-style:normal; animation:b 1.2s steps(1) infinite; }
+  .lane .lb i:nth-child(2) { animation-delay:.4s; } .lane .lb i:nth-child(3) { animation-delay:.8s; }
   /* zoom 下的 wiki 卡：来源 用户「2是看不懂你说啥」+ 派活要求（占满右侧大部分、上下居中、标题约 34px、行约 28px、高亮醒目、顶部面包屑）。
      卡片在 .79 缩放的 stage 内，下面的数都是 stage 坐标，换算：屏幕 = 90 + stage×.79（x）、112 + stage×.79（y），90/112/.79 来自上面 body.zoom .stage。
      目标屏幕位置：右侧区域 x 440–1230、y 130–630（同 .feed），卡宽 720（自定，约占区域 790 的九成），水平居中 → 屏幕 x 475 → stage left (475-90)/.79≈487 = 330(手机宽)+157。
@@ -70,7 +81,13 @@
   body.zoom .wiki .wp { display:block; font-size:24px; color:#57606a; margin-bottom:10px; font-family:ui-monospace,Menlo,monospace; }  /* 面包屑屏幕约 19px，自定 */
   body.zoom .wiki .wt { font-size:43px; padding-bottom:16px; margin-bottom:18px; }  /* 屏幕 34px = 43×.79 */
   body.zoom .wiki .wl { font-size:35px; padding:10px 18px; border-radius:10px; margin:4px 0; }  /* 屏幕 28px ≈ 35×.79 */
-  body.zoom .wiki .wl.hi { background:#ffe066; box-shadow:inset 8px 0 0 #f0a020, 0 6px 18px rgba(240,160,32,.35); font-weight:800; }  /* 高亮醒目：更深黄底 + 左侧色条 + 光晕，自定 */
+  body.zoom .wiki .wl.hi { background:rgba(240,178,50,.18); box-shadow:inset 8px 0 0 #f0b232; color:#ffe2a8; font-weight:800; }  /* Gemini 二审第 7 镜「黄色高亮块刺眼」→ 柔和琥珀半透明底 + 左色条（派活要求）；琥珀 #f0b232 取自 v2-assemble 笔杆色 */
+  /* zoom 下 wiki 卡改暗色毛玻璃：Gemini 二审第 7 镜「纯白闪光弹」；底色参考 #1E2230（派活要求），透明度/边框/发光强度为目测取值。只影响 zoom（有 headline 的 v2 镜），x-memory 不走 zoom */
+  body.zoom .wiki { background:rgba(30,34,48,.82); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border:1.5px solid rgba(139,147,255,.35);
+    box-shadow:0 0 44px -4px rgba(88,101,242,.45), 0 24px 60px rgba(0,0,0,.5); color:#eef1ff; }
+  body.zoom .wiki .wp { color:#8b93c9; }
+  body.zoom .wiki .wt { color:#fff; border-bottom-color:rgba(255,255,255,.14); }
+  body.zoom .wiki .wl { color:#c9d6ff; }
   .av { width:34px; height:34px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-size:15px; color:#fff; font-weight:700; }
   .nm { font-weight:600; color:#f2f3f5; font-size:14px; }
   .bot { background:#5865f2; color:#fff; font-size:9px; font-weight:600; border-radius:3px; padding:1px 3px; margin-left:4px; vertical-align:2px; }
@@ -106,6 +123,7 @@ const UI = {
   placeholder: { zh: c => `给 #${c} 发消息`, en: c => `Message #${c}` },
   busy:        { zh: n => `${n} 正在输入…`,   en: n => `${n} is typing…` },
 };
+UI.lane = { zh: '进行中', en: 'In progress' };  // 任务分支卡的状态字，来源：派活要求「进行中…」；单张卡可用 lanes[].status 覆盖（第 5 镜笔杆卡「撰写中…」，派活要求）
 const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 // 已知角色名（当前语言）按长度降序，@后面优先匹配角色名，中文名后不用加空格
 const names = Object.values(S.roles).map(r => t(r.name)).sort((a, b) => b.length - a.length);
@@ -136,7 +154,7 @@ let hotTm;
 function show(d) {
   chat.appendChild(d); requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('on')));
 }
-function say(who, text) {
+function say(who, text, zoom = true) {
   const r = S.roles[who], d = document.createElement('div');
   d.className = 'msg';
   d.innerHTML = `<div class="av" style="background:${r.color}">${esc(r.avatar || t(r.name)[0])}</div><div><div class="nm">${esc(t(r.name))}${r.bot ? '<span class="bot">BOT</span>' : ''}${r.tag ? `<span class="tag">${esc(t(r.tag))}</span>` : ''}</div><div class="tx">${fmt(text)}</div></div>`;
@@ -144,13 +162,13 @@ function say(who, text) {
   d.classList.add('hot'); clearTimeout(hotTm);
   hotTm = setTimeout(() => d.classList.remove('hot'), 900);  // 高亮 900ms：自定，够看清又不抢下一条
   show(d);
-  if (ZOOM) {
+  if (ZOOM && zoom !== false) {  // step 写 "zoom": false 时只进手机，不在右侧放大
     const z = document.createElement('div'); z.className = 'zc';
     z.innerHTML = d.innerHTML;
     feed.querySelectorAll('.zc').forEach(e => e.classList.add('old'));
     feed.appendChild(z);
     const all = feed.querySelectorAll('.zc');
-    if (all.length > 3) all[0].remove();  // 最多留 3 张，来源：派活要求「最多保留 2–3 张」
+    if (all.length > (S.zoom_max ?? 3)) all[0].remove();  // 默认最多留 3 张，来源：派活要求「最多保留 2–3 张」；场景可用 zoom_max 改
   }
 }
 function type(text, ms) {
@@ -178,7 +196,7 @@ const D = { start: 300, type: 1100, busy: 500, end: 1200, ...(S.timing || {}) };
       placeholder();
       say(st.as || S.me || 'you', text);
     } else if ('say' in st) {
-      say(st.say, t(st.text));
+      say(st.say, t(st.text), st.zoom);
     } else if ('busy' in st) {
       typing.textContent = UI.busy[L](t(S.roles[st.busy].name)); typing.classList.add('on');
       await wait(st.ms ?? D.busy);
@@ -186,10 +204,18 @@ const D = { start: 300, type: 1100, busy: 500, end: 1200, ...(S.timing || {}) };
     } else if ('badge' in st) {
       // 最后一条消息下弹出绿色 PR 徽章（GitHub 合并绿）
       const d = document.createElement('div'); d.className = 'badge';
-      d.innerHTML = `<svg viewBox="0 0 16 16" fill="#fff"><path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm0 2.122a2.25 2.25 0 1 0-1.5 0v5.256a2.251 2.251 0 1 0 1.5 0V5.372zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm7.5-6.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zm-.75 1.372a2.25 2.25 0 1 1 1.5 0v3.756a2.251 2.251 0 1 1-1.5 0V6.622zM11.75 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/></svg>${esc(t(st.badge))}`;
+      // 可选 "icon": false 去掉 PR 图标（第 8 镜「新规矩 +1」不是 PR）
+      d.innerHTML = (st.icon === false ? '' : `<svg viewBox="0 0 16 16" fill="#fff"><path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm0 2.122a2.25 2.25 0 1 0-1.5 0v5.256a2.251 2.251 0 1 0 1.5 0V5.372zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm7.5-6.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zm-.75 1.372a2.25 2.25 0 1 1 1.5 0v3.756a2.251 2.251 0 1 1-1.5 0V6.622zM11.75 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/></svg>`) + esc(t(st.badge));
       chat.appendChild(d); requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('on')));
       const zl = ZOOM && feed.lastElementChild;
       if (zl) { const b = d.cloneNode(true); zl.lastElementChild.appendChild(b); requestAnimationFrame(() => requestAnimationFrame(() => b.classList.add('on'))); }
+    } else if ('lanes' in st) {
+      // 右侧并排「任务分支」卡（第 5 镜）：[{who, text, busy}]，同时弹出，表达各走各的线；只在 zoom 下画
+      if (ZOOM) {
+        const box = document.createElement('div'); box.className = 'lanes';
+        box.innerHTML = st.lanes.map(x => { const r = S.roles[x.who]; return `<div class="lane" style="--c:${r.color}"><div class="lt">${esc(t(x.text))}</div><div class="lw"><div class="av" style="background:${r.color}">${esc(r.avatar || t(r.name)[0])}</div><span>${esc(t(r.name))}</span></div>${x.busy || x.status ? `<div class="lb">${esc(x.status ? t(x.status) : t(UI.lane))}<i>.</i><i>.</i><i>.</i></div>` : ''}</div>`; }).join('');
+        feed.appendChild(box);
+      }
     } else if ('wiki' in st) {
       // 侧边滑入 wiki 页面卡片；lines 里带 "hi": true 的那行高亮，没标就高亮第一行
       const w = st.wiki, ls = w.lines || [], hi = Math.max(0, ls.findIndex(x => x.hi));

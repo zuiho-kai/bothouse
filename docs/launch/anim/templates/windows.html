@@ -40,6 +40,16 @@
   .group.on { opacity:1; transform:none; }
   .group .bub { position:absolute; inset:0 0 18px 0; background:#5865f2; border-radius:30px; box-shadow:0 16px 40px rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; gap:6px; }
   .group .bub::after { content:""; position:absolute; left:30px; bottom:-16px; border:10px solid transparent; border-top:14px solid #5865f2; border-left:4px solid #5865f2; }
+  /* 收拢后脉冲放大居中停住 + 蓝色向外扩散光晕：Gemini 二审第 1 镜「结尾过度空旷」改法（放大到约 2.5 倍，派活要求）。只有 collapse 用到，collapse 只有 v2 镜开。
+     光晕扩散到 1.3 倍、周期 1.1 秒为目测取值：放大后图标约 375×295，光晕 1.3 倍仍在字幕区 y<640 之上 */
+  .group.on.big { transform:scale(2.5); transition:transform .5s cubic-bezier(.34,1.7,.64,1); }
+  .group .halo { position:absolute; left:-14px; right:-14px; top:-14px; bottom:4px; border-radius:40px; pointer-events:none; }
+  .group .halo.glow { background:radial-gradient(ellipse, rgba(88,101,242,.55) 0%, rgba(88,101,242,0) 70%); transform:scale(1.5); opacity:0; transition:opacity .4s; }
+  .group .halo.ring { border:2px solid rgba(120,170,255,.85); opacity:0; }
+  .group.big .halo.glow { opacity:1; }
+  .group.big .halo.ring { animation:ripple 1.1s ease-out infinite; }
+  .group.big .halo.ring.r2 { animation-delay:.55s; }
+  @keyframes ripple { 0% { opacity:.9; transform:scale(.9); } 100% { opacity:0; transform:scale(1.3); } }
   .group .av { width:28px; height:28px; border-radius:50%; border:3px solid #fff; color:#fff; font:700 13px/22px sans-serif; text-align:center; }
   /* 可选粘贴反馈（SCENE.pasteFx 为 true 时）：窗口左右抖 + 边框闪白；计数角标（SCENE.counter）。抖幅/时长为目测取值，无外部来源 */
   .win.shake { animation:winshake .28s ease; }
@@ -54,7 +64,7 @@
 <body>
 <div class="caption" id="cap"></div>
 <div class="grid" id="grid"></div>
-<div class="group" id="group"><div class="bub"></div></div>
+<div class="group" id="group"><div class="halo glow"></div><div class="halo ring"></div><div class="halo ring r2"></div><div class="bub"></div></div>
 <svg id="cursor" viewBox="0 0 24 24"><path d="M3 2 L3 20 L8 15 L11.5 22 L14.5 20.6 L11 13.8 L18 13.8 Z" fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></svg>
 <script src="common.js"></script>
 <script>
@@ -158,6 +168,8 @@
     await wait(Math.round(fly * 0.7));
     g.classList.add('on');
     await wait(fly - Math.round(fly * 0.7));
+    // 弹出动画（.35s）落定后再脉冲放大；占用 endMs 的停留时间，不加长镜头
+    setTimeout(() => g.classList.add('big'), 300);
   }
   await wait(S.endMs);
   window.__done = true;
