@@ -317,9 +317,12 @@ export class DshMembers {
         const timeout = new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), this.stopTimeoutMs); });
         const outcome = await Promise.race([idle, timeout]);
         // Read the text only now: whatever the turn wrote up to the moment it went idle counts,
-        // not just what existed when cancel() was called.
-        return { member: job.member_id, name, job: job.id, outcome,
-          partial: finalText(agent.session.snapshotEvents(job.seq_before)) };
+        // not just what existed when cancel() was called. Restrict it to the turn we stopped —
+        // another turn can start in the same Session (Web UI), and its words are not ours.
+        const finished = agent.session.snapshotEvents(job.seq_before);
+        const stoppedTurn = consumingTurn(events, job.input_id)?.turn ?? claimedTurn;
+        const partial = finalText(stoppedTurn === undefined ? events : turnEvents(finished, stoppedTurn));
+        return { member: job.member_id, name, job: job.id, outcome, partial };
       } catch (error) {
         this.rt.logger.warn('collab: stop job %d failed: %s', job.id, error?.message ?? error);
         return { member: job.member_id, name, job: job.id, outcome: 'error' };

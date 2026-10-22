@@ -268,6 +268,26 @@ test('stop: withdrawing queued input receives discarded, never cancels unrelated
   await members.close();
 });
 
+test('stop: publishes only the stopped turn, never the next turn in the same session', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  const input = agent.inbox.nextTurn[0];
+  agent.turns = 1;
+  dsh.emit(agent, 'turn/start', { turn: 1 });
+  dsh.emit(agent, 'user/message', { id: input.id });
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: '第一段' }] } });
+  // Stop while that turn is running; cancel() ends turn 1, then a Web UI turn starts at once.
+  const stopping = members.stopRoom(1);
+  agent.turns = 2;
+  dsh.emit(agent, 'turn/start', { turn: 2 });
+  dsh.emit(agent, 'user/message', { id: 'web-turn' });
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: 'Web UI 那一轮' }] } });
+  await stopping; await settle();
+  const mine = hub.store.page(1, undefined, 50).filter(m => m.author === 'ds').map(m => m.text);
+  assert.deepEqual(mine, ['第一段\n\n（这一轮没有正常结束：aborted：user）'], 'the next turn stayed out of the channel');
+});
+
 test('stop: an idle room says so instead of staying silent', async () => {
   const hub = makeHub(); const dsh = fakeDsh();
   const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
