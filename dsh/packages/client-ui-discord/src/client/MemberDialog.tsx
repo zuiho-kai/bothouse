@@ -71,6 +71,7 @@ export function MemberDialog({ member, listModels, onSubmit, onClose, t }: Membe
         onSubmit={submit}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
+            event.preventDefault()
             event.stopPropagation()
             onClose()
           }

@@ -205,10 +205,16 @@ describe('channels page', () => {
     expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
     expect(nav?.className).not.toContain('drawerOpen')
 
-    // Open room drawer and press Escape to close
+    // Open room drawer and press Escape on nav to close
     fireEvent.click(roomBtn)
     expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
     fireEvent.keyDown(nav!, { key: 'Escape' })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Open room drawer and press Escape on window (e.g. focus left drawer) to close
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(window, { key: 'Escape' })
     expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
 
     // Esc in new room input cancels input without closing drawer

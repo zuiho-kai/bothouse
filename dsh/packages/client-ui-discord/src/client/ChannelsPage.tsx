@@ -70,6 +70,17 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }, [drawer])
 
   useEffect(() => {
+    if (drawer === undefined) return
+    const onEscape = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        setDrawer(undefined)
+      }
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => { window.removeEventListener('keydown', onEscape) }
+  }, [drawer])
+
+  useEffect(() => {
     const input = inputRef.current
     const next = pendingCaret.current
     if (input === null || next === undefined) return
