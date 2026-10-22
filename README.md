@@ -54,9 +54,9 @@ None of this should be locked inside one vendor's app. So bothouse is a plugin: 
 
 ## What it looks like
 
-<img src="docs/assets/demo-chat.en.png" alt="In a Discord channel: you @Lead with a task, Lead splits it to @Coder and @Writer, you interrupt Coder mid-task, both report back to Lead, Lead wraps up and offers to add a rule" width="760">
+<img src="docs/assets/demo-chat.en.png" alt="In a Discord channel: you @opus with a task, opus splits it to @Whale and @Writer, you interrupt Whale mid-task, both report back to opus, opus wraps up and offers to add a rule" width="760">
 
-Lead, Coder and Writer can be Claude Code, Codex and DSH. Give them the names and personas you like.
+opus, Whale and Writer can be Claude Code, DSH and Codex. Give them the names and personas you like.
 
 ## Features
 
@@ -66,7 +66,7 @@ Lead, Coder and Writer can be Claude Code, Codex and DSH. Give them the names an
 - **Hand off, report back.** The lead @s a teammate with a task. The teammate's final answer @s the lead automatically, and the lead wraps up.
 - **Teammate status (optional).** Turn it on and the lead starts every turn knowing who's busy in which channel.
 - **Interrupt while it works.** Add a message while an AI is working and it picks it up mid-task. No waiting.
-- **Swap the lead in one sentence.** "Coder, you lead now." "Back to Lead." The default responder changes on the spot.
+- **Swap the lead in one sentence.** "Whale, you lead now." "Back to opus." The default responder changes on the spot.
 - **Sessions continue.** One session per channel, and it continues after a restart. Messages posted while a role was offline are handed to it before it answers.
 
 ### One team memory that grows
@@ -78,7 +78,7 @@ Others build memory as a database for the agent. We build it as a wiki for the t
 - **Two layers.** One shared main memory the whole team reads, plus a personal notebook per role.
 - **Pages come to the role; it doesn't have to go looking.** Every incoming message is first searched against the wiki, and the matching pages are placed in front of it.
   Whatever the group is talking about, the role has the right page in hand, mid-session too.
-- **Model-agnostic.** Lead on Claude, Coder on Codex, Writer on DSH: all three read the same memory.
+- **Model-agnostic.** opus on Claude, Whale on DSH, Writer on Codex: all three read the same memory.
 
 The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). It remembers one person and one assistant. bothouse shares it across several roles, records what Claude, Codex and DSH each did, hands the relevant pages to a role with every message, and reviews it nightly.
 
@@ -124,9 +124,9 @@ You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek
 
 ```
 traditional agent team                       bothouse
-project A ─ temp PM ─ temp coder ─ temp QA    you ─@─ Lead   (resident, own session and wiki)
-project B ─ temp PM ─ temp coder ─ temp QA           ├─ @Coder  (resident, Codex) ─ spawns sub-agents when needed
-(disbands after the task, context rebuilt)           └─ @Writer (resident, DSH)
+project A ─ temp PM ─ temp coder ─ temp QA    you ─@─ opus   (resident, own session and wiki)
+project B ─ temp PM ─ temp coder ─ temp QA           ├─ @Whale  (resident, DSH) ─ spawns sub-agents when needed
+(disbands after the task, context rebuilt)           └─ @Writer (resident, Codex)
                                               projects A/B/C all flow through the same few people
 ```
 
