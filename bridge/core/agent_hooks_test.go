@@ -138,8 +138,13 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 func TestAgentHooksDSH(t *testing.T) {
 	useRepoHooks(t)
 	data, wd, dshHome := t.TempDir(), t.TempDir(), t.TempDir()
-	patch := filepath.Join(dshHome, "cordis.patch.yml")
-	mine := "- id: time-context\n  config:\n    timeZone: UTC\n"
+	hostPatch := filepath.Join(dshHome, "cordis.patch.yml")
+	host := "- id: time-context\n  config:\n    timeZone: UTC\n"
+	if err := os.WriteFile(hostPatch, []byte(host), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patch := filepath.Join(t.TempDir(), "whale.patch.yml") // the role's overlay
+	mine := "- id: llm-deepseek\n  config:\n    baseURL: https://x\n"
 	if err := os.WriteFile(patch, []byte(mine), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +155,7 @@ func TestAgentHooksDSH(t *testing.T) {
 	if err := os.WriteFile(bridge, []byte("export {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	o := AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "dsh", Lang: "en", DSHHome: dshHome, DSHBridge: bridge,
+	o := AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "dsh", Lang: "en", DSHHome: dshHome, DSHBridge: bridge, DSHPatch: patch,
 		Only: []string{"bash-guard", "promise-guard"}}
 	for i := 0; i < 2; i++ {
 		res, err := EnableAgentHooks(o)
@@ -163,11 +168,19 @@ func TestAgentHooksDSH(t *testing.T) {
 	}
 	b, _ := os.ReadFile(patch)
 	if !strings.HasPrefix(string(b), mine) || strings.Count(string(b), "name: \""+bridge+"\"") != 1 ||
-		!strings.Contains(string(b), "configPath: \""+DSHHookSettingsPath(dshHome)+"\"") {
+		!strings.Contains(string(b), "id: hooks-claude-code") ||
+		!strings.Contains(string(b), "configPath: \""+DSHHookSettingsPath(wd)+"\"") || !strings.Contains(string(b), "projectDir: \""+wd+"\"") {
 		t.Fatalf("patch = %s", b)
 	}
+	// the host DSH_HOME is not written
+	if h, _ := os.ReadFile(hostPatch); string(h) != host {
+		t.Fatalf("host DSH_HOME patch written: %q", h)
+	}
+	if ents, _ := os.ReadDir(dshHome); len(ents) != 1 {
+		t.Fatalf("host DSH_HOME = %v", ents)
+	}
 	// the DSH-wide hook file: every command is --dsh-global with this DSH home; the role is listed with its hooks
-	g, _ := os.ReadFile(DSHHookSettingsPath(dshHome))
+	g, _ := os.ReadFile(DSHHookSettingsPath(wd))
 	if strings.Count(string(g), "--dsh-global --dsh-home "+hookQuote(dshHome)) != len(agentHooks) {
 		t.Fatalf("dsh settings = %s", g)
 	}
@@ -198,13 +211,13 @@ func TestAgentHooksDSH(t *testing.T) {
 		}
 	}
 	// off for the last DSH role: the role leaves dsh-roles.json, the bridge block and the hook file go
-	if _, err := DisableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "dsh", DSHHome: dshHome}); err != nil {
+	if _, err := DisableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "dsh", DSHHome: dshHome, DSHPatch: patch}); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(patch); string(b) != mine {
 		t.Fatalf("patch after off = %q", b)
 	}
-	if _, err := os.Stat(DSHHookSettingsPath(dshHome)); !os.IsNotExist(err) {
+	if _, err := os.Stat(DSHHookSettingsPath(wd)); !os.IsNotExist(err) {
 		t.Fatalf("dsh settings still there: %v", err)
 	}
 	if roles, _ := readDSHRoles(AgentHooksDir(data)); len(roles) != 0 {

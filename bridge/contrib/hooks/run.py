@@ -329,6 +329,10 @@ def main():
         sys.exit("usage: run.py <hook name> | run.py [--role <dir>] off|on [hook ...] | run.py [--role <dir>] status")
     if args[0] in ("off", "on", "status"):
         return switch(args[0], args[1:])
+    if os.environ.get("WIKI_INGEST") == "1":
+        # the wiki's own ingest run (llmwiki ingest.py dsh_env sets it): its scratch dir .ingest-work sits inside a
+        # role, whose hooks (dispatch-review-guard) would refuse every write and void each pass
+        sys.exit(0)
     name = os.path.basename(args[0])
     name = name[:-3] if name.endswith(".py") else name
     target = os.path.join(HERE, name + ".py")

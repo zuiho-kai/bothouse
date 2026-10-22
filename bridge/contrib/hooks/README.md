@@ -17,7 +17,7 @@ cc-connect setup hooks on --work-dir <角色目录>              # Claude Code �
 cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 ```
 
-`--cli dsh` 另外做一件事：在 `$DSH_HOME/cordis.patch.yml`（默认 `~/.dsh`，DSH 对所有 profile 都套的用户层）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`，`configPath` 是绝对路径 `$DSH_HOME/conest-hooks.settings.json`。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（cc-connect 管的 DSH 角色：重启 cc-connect）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
+`--cli dsh` 另外做一件事：在角色自己的 overlay（`dsh --patch`，`<data_dir>/dsh/<角色>.patch.yml`）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`（`id: hooks-claude-code`），`configPath` 是绝对路径 `<角色目录>/.claude/conest-dsh-hooks.json`，`projectDir` 是角色目录。用户自己的 `$DSH_HOME` 一律不写。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（cc-connect 管的 DSH 角色：重启 cc-connect）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
 
 需要 `python3`。DSH 默认把会话记录存成 zstd 压缩（`session.v4.jsonl.zstd`），不用改成 `compression: none`。找记录、解压都在 `dshlog.py`：Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node，逐帧解，正在写的最后一帧先跳过。看队友（`contrib/tools/peek.py`）和 wiki 导出（`contrib/wiki/export.py`）用的也是这一份。
 
@@ -47,7 +47,7 @@ cc-connect setup hooks status --work-dir <角色目录>                     # �
 cc-connect setup hooks on --work-dir <角色目录> --only promise-guard    # 再打开一条
 ```
 
-DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉会把这个角色移出 `dsh-roles.json`；这个 DSH home 下最后一个角色关掉时，`$DSH_HOME/cordis.patch.yml` 里 `# conest:hooks begin` 到 `# conest:hooks end` 那一段和 `conest-hooks.settings.json` 一起删掉，文件其余内容不动。改完重启 DSH 进程才生效。
+DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉会把这个角色移出 `dsh-roles.json`；这个角色的 hook 全关时，它 overlay 里 `# conest:hooks begin` 到 `# conest:hooks end` 那一段和 `conest-dsh-hooks.json` 一起删掉，文件其余内容不动。改完重启 DSH 进程才生效。
 
 cc-connect 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记的（以及旧版写的 `…/hooks/run.py <名字>`），用户自己的 hook 不动。`run.py` 被删掉时命令直接放行（exit 0），不会把所有工具调用都拦下。
 

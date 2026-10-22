@@ -243,6 +243,27 @@ class Hooks(unittest.TestCase):
         finally:
             os.unlink(roles)
 
+    def test_wiki_ingest_passes(self):
+        # the wiki's ingest in DSH (cwd <role>/wiki/.ingest-work): the role's hooks must not refuse its scratch writes
+        role = os.path.join(self.tmp, "ingestrole")
+        work = os.path.join(role, "wiki", ".ingest-work")
+        os.makedirs(work, exist_ok=True)
+        roles = os.path.join(self.hooks, "dsh-roles.json")
+        with open(roles, "w") as f:
+            json.dump({role: {"hooks": ["dispatch-review-guard"], "dsh_home": self.env["DSH_HOME"]}}, f)
+        self.session("ingest1", [], compress=False)
+        p = {"hook_event_name": "PreToolUse", "session_id": "ingest1", "transcript_path": "", "tool_name": "write",
+             "cwd": work, "tool_input": {"file_path": os.path.join(work, "draft.md"), "content": "x"}}
+        try:
+            def run(env):
+                return subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "--conest-hook",
+                                       "--dsh-global", "dispatch-review-guard"], input=json.dumps(p),
+                                      capture_output=True, text=True, env=env, cwd=work, timeout=30).stdout.strip()
+            self.assertTrue(self.denied(run(self.env)))  # without the flag the role's guard refuses it
+            self.assertEqual(run(dict(self.env, WIKI_INGEST="1")), "")
+        finally:
+            os.unlink(roles)
+
     # ---- wiki-context ----
     def test_wiki_context(self):
         p = {"hook_event_name": "UserPromptSubmit", "session_id": "w1", "prompt": "代理端口是多少"}

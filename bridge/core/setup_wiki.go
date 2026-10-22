@@ -42,6 +42,7 @@ var WikiEngines = []WikiEngine{
 	{"opus", "Claude Opus", "claudecode"},
 	{"codex:high", "Codex (GPT)", "codex"},
 	{"agy", "Gemini (Antigravity)", "antigravity"},
+	{"dsh", "DSH (DeepSeek Harness)", "dsh"},
 }
 
 // wikiDefaults: ingest.py DEFAULTS (ingest_engine, night_engine, split_engine), used when config.json has no value.
@@ -221,12 +222,16 @@ func readOrderedJSON(path string) ([]string, []json.RawMessage, error) {
 type WizardCron interface {
 	List() ([]*CronJob, error)
 	Add(job *CronJob) error
+	SetExec(id, exec string) error
 }
 
 type schedulerCron struct{ cs *CronScheduler }
 
 func (c schedulerCron) List() ([]*CronJob, error) { return c.cs.Store().List(), nil }
 func (c schedulerCron) Add(j *CronJob) error      { return c.cs.AddJob(j) }
+func (c schedulerCron) SetExec(id, exec string) error {
+	return c.cs.UpdateJob(id, "exec", exec)
+}
 
 // CronOfScheduler: WizardCron on a running scheduler (jobs start without a restart).
 func CronOfScheduler(cs *CronScheduler) WizardCron { return schedulerCron{cs} }
@@ -235,6 +240,12 @@ type storeCron struct{ s *CronStore }
 
 func (c storeCron) List() ([]*CronJob, error) { return c.s.List(), nil }
 func (c storeCron) Add(j *CronJob) error      { return c.s.Add(j) }
+func (c storeCron) SetExec(id, exec string) error {
+	if !c.s.Update(id, "exec", exec) {
+		return fmt.Errorf("cron job %s: exec not updated", id)
+	}
+	return nil
+}
 
 // wikiCronJob: one of the wiki's runs. Schedules and names: bridge/contrib/wiki/README.md step 4 (the author's
 // launchd setup moved to cc-connect cron); the same description means the same job (no duplicates).
@@ -246,12 +257,16 @@ var wikiCronJobs = []wikiCronJob{
 	{"wiki weekly lint", "0 3 * * 0", "lint"},
 }
 
-// SubWikiScriptFromHooks: the sub-wiki.sh of an agent.closed hook command (README step 3), "" if none.
+// SubWikiScriptFromHooks: the sub-wiki.py of an agent.closed hook command (README step 3), "" if none. A hook
+// from before sub-wiki.py (to sub-wiki.sh, now a one-line forwarder) gives the sub-wiki.py next to it.
 func SubWikiScriptFromHooks(commands []string) string {
 	for _, c := range commands {
 		for _, f := range strings.Fields(c) {
 			f = strings.Trim(f, `"'`)
-			if strings.HasSuffix(f, "sub-wiki.sh") && fileExists(f) {
+			if strings.HasSuffix(f, "sub-wiki.sh") {
+				f = strings.TrimSuffix(f, ".sh") + ".py"
+			}
+			if strings.HasSuffix(f, "sub-wiki.py") && fileExists(f) {
 				return f
 			}
 		}
@@ -259,14 +274,54 @@ func SubWikiScriptFromHooks(commands []string) string {
 	return ""
 }
 
+// wikiPython: the Python the wiki commands run (FindPython), "python3" if none is found now.
+func wikiPython() string {
+	if p, err := FindPython(); err == nil {
+		return p
+	}
+	return "python3"
+}
+
+// cmdQuote quotes for the shell cron jobs and hooks run in: POSIX sh, or PowerShell on Windows (engine.go
+// runs cron exec with powershell.exe there, and hooks with the default shell, also powershell.exe). Both
+// shells take single quotes; PowerShell escapes an embedded ' as ”.
+func cmdQuote(s string) string {
+	if runtime.GOOS == "windows" {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// shellRun: the command line that runs program prog with args in that shell. PowerShell needs the call
+// operator & to run a quoted path; sh does not.
+func shellRun(prog string, args ...string) string {
+	cmd := cmdQuote(prog)
+	if runtime.GOOS == "windows" {
+		cmd = "& " + cmd
+	}
+	for _, a := range args {
+		cmd += " " + a
+	}
+	return cmd
+}
+
+// subWikiCommand: `<python> <sub-wiki.py> <mode>`, the same on Mac, Linux and Windows.
+func subWikiCommand(py, sub, mode string) string {
+	return shellRun(py, "-X", "utf8", "-I", cmdQuote(sub), mode)
+}
+
 func wikiExec(dir, sub, arg string) string {
-	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" } // POSIX quoting
-	cmd := fmt.Sprintf("python3 -I %s --%s", q(filepath.Join(dir, "bin", "ingest.py")), arg)
+	py := wikiPython()
+	cmd := shellRun(py, "-X", "utf8", "-I", cmdQuote(filepath.Join(dir, "bin", "ingest.py")), "--"+arg)
 	if home, _ := os.UserHomeDir(); dir != filepath.Join(home, "wiki") {
-		cmd = "WIKI_DIR=" + q(dir) + " " + cmd
+		if runtime.GOOS == "windows" {
+			cmd = "$env:WIKI_DIR=" + cmdQuote(dir) + "; " + cmd
+		} else {
+			cmd = "WIKI_DIR=" + cmdQuote(dir) + " " + cmd
+		}
 	}
 	if sub != "" {
-		cmd += fmt.Sprintf("; zsh -f %s %s", q(sub), arg)
+		cmd += "; " + subWikiCommand(py, sub, arg)
 	}
 	return cmd
 }
@@ -278,13 +333,20 @@ func AddWikiCronJobs(c WizardCron, project, sessionKey, dir, sub string) (added,
 	if err != nil {
 		return nil, nil, err
 	}
-	have := map[string]bool{}
+	have := map[string]*CronJob{}
 	for _, j := range jobs {
-		have[j.Description] = true
+		have[j.Description] = j
 	}
 	noLimit := 0
 	for _, w := range wikiCronJobs {
-		if have[w.desc] {
+		if j := have[w.desc]; j != nil {
+			// a job from before the role wikis (#35) runs only the main wiki: add the sub-wiki part; one from
+			// before sub-wiki.py runs sub-wiki.sh with zsh or sh (no sh on Windows): rewrite it to python
+			if sub != "" && !strings.Contains(j.Exec, "sub-wiki.py") {
+				if err := c.SetExec(j.ID, wikiExec(dir, sub, w.arg)); err != nil {
+					return added, kept, err
+				}
+			}
 			kept = append(kept, w.desc)
 			continue
 		}
@@ -325,10 +387,6 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 		} else if len(keys) > 0 {
 			addStep(res, "wiki", nil, filepath.Join(dir, "config.json")+": "+strings.Join(keys, ", "))
 		}
-	}
-	if runtime.GOOS == "windows" {
-		addStep(res, "wiki cron", nil, "skipped on Windows: see bridge/contrib/wiki/README.md step 4")
-		return
 	}
 	if sessionKey == "" {
 		addStep(res, "wiki cron", nil, "skipped: no default channel; add them by hand, bridge/contrib/wiki/README.md step 4")

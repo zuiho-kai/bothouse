@@ -47,9 +47,12 @@ Readers (READERS): claudecode, codex. To add one (OpenClaw, harness, DSH, …): 
 (state: a dict kept per session between runs), registered in READERS, plus a sources.json entry naming its role.
 Until then those runtimes are recorded on the bridge path (cc-connect hook) or by their own hook calling `append`.
 """
-import argparse, fcntl, hashlib, json, os, re, sys, time
+import argparse, hashlib, json, os, re, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # filelock.py sits next to this file
+import filelock  # noqa: E402  (fcntl on Mac/Linux, msvcrt on Windows)
 
 VERSION = 1
 KINDS = ("message", "tool", "meta")
@@ -135,7 +138,7 @@ def append(rec, path=None):
     path = Path(path) if path else bridge_path(rec["role"], rec["runtime"], rec["channel"])
     private_dirs(path.parent)
     with private_open(path, "a") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        filelock.lock(f)
         f.write(dumps(rec))
     return path
 
@@ -413,7 +416,7 @@ def sync(only=None, root=None):
     secure(root)
     grew = 0
     with private_open(root / ".sync.lock", "w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)  # two syncs at once would append the same tail twice
+        filelock.lock(lk)  # two syncs at once would append the same tail twice
         for src in sources(root):
             reader = READERS.get(src.get("reader"))
             if reader is None or (only and src["reader"] not in only):

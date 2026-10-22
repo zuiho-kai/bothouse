@@ -22,6 +22,14 @@ import (
 // configWizardStore implements core.WizardStore on top of config.toml.
 type configWizardStore struct{}
 
+func (configWizardStore) EnsureHook(event, command string) (bool, error) {
+	return config.EnsureWizardHook(event, command)
+}
+
+func (bootstrapOnWriteStore) EnsureHook(event, command string) (bool, error) {
+	return config.EnsureWizardHook(event, command) // called after ApplyProjects wrote the config
+}
+
 func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	out := core.WizardSnapshot{Projects: make([]core.WizardExistingProject, 0, len(ps))}
 	for _, p := range ps {
@@ -63,6 +71,7 @@ func (configWizardStore) ApplyProjects(plan func(core.WizardSnapshot) ([]core.Wi
 		list := make([]config.WizardProjectOptions, 0, len(ws))
 		for _, w := range ws {
 			o := config.WizardProjectOptions{Name: w.Name, AgentType: w.AgentType, WorkDir: w.WorkDir, AgentCmd: w.AgentCmd,
+				AgentArgs: w.AgentArgs, AgentEnv: w.AgentEnv,
 				PlatformType: w.PlatformType, Options: w.Options, GateURL: w.GateURL, GateFallback: w.GateFallback,
 				OwnerOpenID: w.FeishuOwnerOpenID}
 			if w.Provider != nil {
@@ -477,9 +486,9 @@ func setupCLIsHint(lang string, clis []core.LocalCLI) string {
 	}
 	switch {
 	case supported == 0 && zh:
-		return "本机没找到 cc-connect 能用的 CLI（claude / codex / gemini / opencode …，PATH 和 ~/.local/bin 等常见目录都找过）。先装一个并登录，例如 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，然后 claude auth login；装好再跑一次 cc-connect setup clis。"
+		return "本机没找到 cc-connect 能用的 CLI（claude / codex / gemini / opencode / dsh …，PATH 和 ~/.local/bin 等常见目录都找过）。先装一个并登录，例如 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，然后 claude auth login；DSH："+core.DSHInstallHint+"；装好再跑一次 cc-connect setup clis。"
 	case supported == 0:
-		return "No agent CLI cc-connect can use was found (claude / codex / gemini / opencode …; searched PATH and common dirs like ~/.local/bin). Install one and log in, e.g. Claude Code: curl -fsSL https://claude.ai/install.sh | bash, then claude auth login; then run cc-connect setup clis again."
+		return "No agent CLI cc-connect can use was found (claude / codex / gemini / opencode / dsh …; searched PATH and common dirs like ~/.local/bin). Install one and log in, e.g. Claude Code: curl -fsSL https://claude.ai/install.sh | bash, then claude auth login; DSH: "+core.DSHInstallHint+"; then run cc-connect setup clis again."
 	case loggedIn == 0 && zh:
 		return "找到了 CLI，但没有一个确认已登录（login 不是 logged_in）。没登录的 CLI 配上去机器人答不出来：先登录（claude auth login / codex login / gemini / opencode auth login），再跑一次 cc-connect setup clis。"
 	case loggedIn == 0:
@@ -570,6 +579,20 @@ func subWikiScript(cfg *config.Config) string {
 func fileExistsCmd(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+func (c socketCron) SetExec(id, exec string) error {
+	payload, _ := json.Marshal(map[string]any{"id": id, "field": "exec", "value": exec})
+	resp, err := apiPost(c.sock, "/cron/edit", payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cron edit: %s", strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 // socketCron adds the wizard's cron jobs through a running cc-connect (its /cron/list and /cron/add), so the

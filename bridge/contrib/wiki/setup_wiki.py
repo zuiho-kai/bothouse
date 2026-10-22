@@ -2,14 +2,22 @@
 (Chinese schema, bot domains, codex engines).
 
   setup_wiki.py <bot> ...   bots are keys of $WIKI_BOTS (default bots.json next to this file)
-  env: LLM_WIKI_SRC = llm-wiki checkout or git URL to clone (default ~/llm-wiki); WIKI_LEAD = 主角色名字（队友前缀示例）;
-       WIKI_USER = the user's display name in channel lines
+  setup_wiki.py --main <dir> <lead name>
+                            a machine with no main wiki yet (the setup wizard, user 2026-10-22 「记忆就是我们的llmwiki
+                            ……当然也能独立」): <dir> from the template, with the shared programs in <dir>/bin that every
+                            role's wiki forwards to. It reads no sessions itself (each role has its own wiki).
+  env: LLM_WIKI_SRC = llm-wiki checkout or git URL to clone, or a plain copy of the template (default ~/llm-wiki;
+       the setup wizard passes template/ next to this file, a copy of github.com/zuiho-kai/llm-wiki);
+       WIKI_LEAD = 主角色名字（队友前缀示例）; WIKI_USER = the user's display name in channel lines;
+       WIKI_ENGINES = JSON object of config.json engine keys overriding the codex defaults below (the wizard sets
+       them from the role's own CLI, so a machine without Codex still runs its wikis)
 """
-import json, os, re, shutil, subprocess, sys
+import json, os, re, shutil, stat, subprocess, sys
 from pathlib import Path
 H = Path.home()
 HERE = Path(__file__).resolve().parent
-_bots = json.loads(Path(os.environ.get("WIKI_BOTS") or HERE / "bots.json").expanduser().read_text(encoding="utf-8"))
+_bots_file = Path(os.environ.get("WIKI_BOTS") or HERE / "bots.json").expanduser()
+_bots = json.loads(_bots_file.read_text(encoding="utf-8")) if _bots_file.exists() else {}
 NAMES = {k: v.get("name") or k for k, v in _bots.items()}
 PERSONA = {k: v.get("persona") or str(Path(v["workdir"]) / "AGENTS.md") for k, v in _bots.items()}
 SRC = os.environ.get("LLM_WIKI_SRC") or str(H / "llm-wiki")
@@ -48,13 +56,74 @@ INTRO = """# Wiki schema
 """
 
 
+def from_template(w):
+    """A new wiki repo at w from SRC (a plain template copy, or an llm-wiki checkout / git URL)."""
+    src = Path(SRC).expanduser()
+    if src.is_dir() and not (src / ".git").exists():  # a plain template copy (the wizard's): copy, start a repo
+        shutil.copytree(src, w, ignore=shutil.ignore_patterns("SOURCE", "__pycache__"))
+        if (w / "gitignore").exists():  # kept without the dot: a .gitignore inside this repo would hide it
+            (w / "gitignore").rename(w / ".gitignore")
+        subprocess.run(["git", "init", "-q"], cwd=w, check=True)
+    else:
+        subprocess.run(["git", "clone", "-q", SRC, str(w)], check=True)
+        subprocess.run(["git", "remote", "remove", "origin"], cwd=w, check=True)  # local only: no push anywhere
+    (w / "bin").mkdir(exist_ok=True)
+
+
+def commit(w, msg):
+    subprocess.run(["git", "add", "-A"], cwd=w, check=True)
+    subprocess.run(["git", "-c", "user.name=sub-memory", "-c", "user.email=sub-memory@localhost", "commit", "-qm", msg],
+                   cwd=w, check=True)
+
+
+def made(w):
+    """True when w is a finished wiki (config.json is written last). A half-made one (template copied, then a
+    crash before config.json) is removed so this run makes it again."""
+    if (w / "config.json").exists():
+        return True
+    if (w / ".git").exists() and (w / "bin").is_dir():
+        # git writes .git/objects read-only; Windows refuses to delete a read-only file, so clear the flag and retry
+        shutil.rmtree(w, onerror=lambda fn, path, _: (os.chmod(path, stat.S_IWRITE), fn(path)))
+    return False
+
+
+def main_wiki(w, lead):
+    w = Path(w).expanduser()
+    if made(w):
+        print(w, "exists")
+        return
+    if w.exists() and any(w.iterdir()):
+        sys.exit(f"{w} exists and is not a wiki (no bin/ingest.py): not touching it")
+    if w.exists():
+        w.rmdir()
+    from_template(w)
+    for f in (HERE / "llmwiki").glob("*.py"):
+        shutil.copy(f, w / "bin" / f.name)
+    shutil.copytree(HERE / "llmwiki" / "teammate", w / "bin" / "teammate", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    (w / ".no-sessions").mkdir(exist_ok=True)
+    (w / ".no-sessions" / ".keep").write_text("")
+    cfg = {"assistant": lead, "bots": {lead: [lead]},
+           # each role's sessions go into that role's own wiki (bots.json); this one reads none (an empty dir)
+           "transcripts": str(w / ".no-sessions"), "rule_files": []}
+    cfg.update({k: v for k, v in (json.loads(os.environ.get("WIKI_ENGINES") or "{}") or {}).items()
+                if k.endswith("_engine") or k in ("after_codex", "codex_models", "dsh_cmd", "dsh_patch", "dsh_env_file")})
+    (w / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
+    commit(w, "llm-wiki：主 wiki 和共享程序（向导建）")
+    print(w, "created")
+
+
 def main(bot):
     name = NAMES[bot]
     w = Path(_bots[bot].get("wiki") or Path(_bots[bot]["workdir"]) / "wiki").expanduser()
+    if made(w):
+        print(bot, w, "exists")
+        return
+    if w.exists() and any(w.iterdir()):
+        sys.exit(f"{w} exists and is not a wiki (no config.json): not touching it")
     if w.exists():
-        sys.exit(f"{w} exists")
-    subprocess.run(["git", "clone", "-q", SRC, str(w)], check=True)
-    subprocess.run(["git", "remote", "remove", "origin"], cwd=w, check=True)  # local only: no push anywhere
+        w.rmdir()
+    from_template(w)
     schema = (w / "schema/CLAUDE.zh-CN.md").read_text()
     body = schema.split("## 分层", 1)[1]
     body = "## 分层" + body
@@ -68,7 +137,10 @@ def main(bot):
     for f in ("ingest.py", "lint.py", "search.py"):
         shutil.copy(HERE / "llmwiki" / "teammate" / f, w / "bin" / f)
     for d in ("refs",):
-        subprocess.run(["git", "rm", "-rq", d], cwd=w, check=True)
+        if subprocess.run(["git", "ls-files", "--error-unmatch", d], cwd=w, capture_output=True).returncode == 0:
+            subprocess.run(["git", "rm", "-rq", d], cwd=w, check=True)
+        else:
+            shutil.rmtree(w / d, ignore_errors=True)
     lines = []
     for d, zh, desc in DOMAINS:
         (w / d).mkdir()
@@ -90,15 +162,19 @@ def main(bot):
         "codex_models": ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"],
         "after_codex": [],  # no Claude fallback: a failed batch waits for the next night
         "rule_files": [PERSONA[bot]],
-        "language": "zh",
     }
+    if _bots[bot].get("dsh_home"):
+        cfg["dsh_home"] = _bots[bot]["dsh_home"]  # the dsh engine runs under the role's DSH home (ingest.py dsh_env)
+    engines = (json.loads(os.environ.get("WIKI_ENGINES") or "{}") or {})
+    cfg.update({k: v for k, v in engines.items() if k.endswith("_engine") or k in ("after_codex", "codex_models", "dsh_cmd", "dsh_patch", "dsh_env_file")})
     (w / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")  # git-ignored
     r = subprocess.run([sys.executable, "-I", "bin/lint.py"], cwd=w, capture_output=True, text=True)
     print(bot, r.stdout.strip())
-    subprocess.run(["git", "add", "-A"], cwd=w, check=True)
-    subprocess.run(["git", "-c", "user.name=sub-memory", "-c", "user.email=sub-memory@localhost", "commit", "-qm",
-                    f"{name}的记忆 wiki：中文 schema、五个分类、codex 引擎"], cwd=w, check=True)
+    commit(w, f"{name}的记忆 wiki：中文 schema、五个分类")
 
 
-for b in sys.argv[1:]:
-    main(b)
+if sys.argv[1:2] == ["--main"]:
+    main_wiki(*sys.argv[2:4])
+else:
+    for b in sys.argv[1:]:
+        main(b)

@@ -101,3 +101,5 @@ func expandUserHome(p string) string {
 	}
 	return p
 }
+
+func init() { core.RoleWikiFS = ccconnect.RoleWikiFiles }

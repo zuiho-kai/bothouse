@@ -1,0 +1,2 @@
+- [misc](misc/README.md) — one-off topics that fit no domain yet
+- [refs](refs/README.md) — reading notes: papers and external projects

@@ -11,6 +11,15 @@
 - `sub-wiki.sh`：sub 角色的触发入口（pending / nightly / lint / cc-connect `agent.closed` 钩子）。
 - `setup_wiki.py`：给每个 sub 角色建一本自己的 wiki（从 llm-wiki 模板克隆）。
 
+## 向导默认做的事
+
+向导（网页或 `cc-connect setup apply`）给每个新角色（任何 CLI）默认开一本自己的 wiki 和夜间反思，下面第 2、3 步不用手做：
+程序装到 `<data_dir>/wiki/`（配置里已有指向 `sub-wiki.sh` 的 `agent.closed` 钩子时，用那一套）；没有主 wiki 时从
+`template/`（[llm-wiki](https://github.com/zuiho-kai/llm-wiki) 模板的副本）建一个，放共享程序；在 `bots.json` 登记角色
+（`kind` = 它的 agent 类型：codex、dsh、claudecode、agy 读各自的会话，其他类型只读日记），跑 `setup_wiki.py` 建它的 wiki，
+加一次 `agent.closed` 钩子，人设里写上 wiki 在哪和怎么关。整理模型默认用这个角色自己的 CLI，向导里选了就按选的。
+关：角色的用户在聊天里说一声，角色运行 `export.py --switch <角色> wiki|dream off`（`on` 打开）。
+
 ## 安装（和作者本机一样：gate + wiki 都装）
 
 1. 装 gate（`../gate`，见 `gate.py` 开头），团队文件 `gate-team.json`。
@@ -34,7 +43,8 @@
    [[hooks]]
    event = "agent.closed"
    type = "command"
-   command = "/bin/zsh -f <本目录>/sub-wiki.sh hook"
+   command = "python3 -X utf8 -I <本目录>/sub-wiki.py hook"                 # Mac / Linux
+   # command = "& python -X utf8 -I '<本目录>\\sub-wiki.py' hook"           # Windows（PowerShell）
    ```
 
 4. 定时：向导（网页或 `cc-connect setup apply`）发现 `~/wiki/bin/ingest.py`（或 `$WIKI_DIR`）时已自动加好下面三条
@@ -43,9 +53,9 @@
 
    ```sh
    S="--project <主角色项目> --session-key <会话 key> --mute"
-   cc-connect cron add $S --cron "*/30 * * * *" --exec "python3 -I ~/wiki/bin/ingest.py --pending; zsh -f <本目录>/sub-wiki.sh pending" --desc "wiki ingest"
-   cc-connect cron add $S --cron "0 3 * * 1-6"  --exec "python3 -I ~/wiki/bin/ingest.py --nightly; zsh -f <本目录>/sub-wiki.sh nightly" --desc "wiki nightly + 反思"
-   cc-connect cron add $S --cron "0 3 * * 0"    --exec "python3 -I ~/wiki/bin/ingest.py --lint; zsh -f <本目录>/sub-wiki.sh lint" --desc "wiki weekly lint"
+   cc-connect cron add $S --cron "*/30 * * * *" --exec "python3 -I ~/wiki/bin/ingest.py --pending; sh <本目录>/sub-wiki.sh pending" --desc "wiki ingest"
+   cc-connect cron add $S --cron "0 3 * * 1-6"  --exec "python3 -I ~/wiki/bin/ingest.py --nightly; sh <本目录>/sub-wiki.sh nightly" --desc "wiki nightly + 反思"
+   cc-connect cron add $S --cron "0 3 * * 0"    --exec "python3 -I ~/wiki/bin/ingest.py --lint; sh <本目录>/sub-wiki.sh lint" --desc "wiki weekly lint"
    ```
 
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、

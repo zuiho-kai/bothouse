@@ -58,6 +58,15 @@ class T(unittest.TestCase):
             srv.shutdown()
         self.assertEqual(out, {"wiki": [{"path": str(w / "infra/vps.md"), "desc": "VPS 一览 | 4: - 代理端口 7890"}]})
 
+    def test_busy_mention_lead_pause_aborts(self):  # 主角色被 @ 或叫名字、正忙、「暂停」→ abort；不忙 → reply
+        g = load_gate()
+        me = g.lead.current()
+        g.tasks[me] = types.SimpleNamespace(score=lambda *a, **k: types.SimpleNamespace(choice=3, probs=[0, 0, 0, 1]))
+        d = lambda c, m, b: g.decide({"content": c, "mentioned": m, "busy": b, "session_key": "t:1"}, me)[0]
+        self.assertEqual(d("暂停", True, True), "abort")
+        self.assertEqual(d(g.NAMES[me][0] + " 暂停", False, True), "abort")
+        self.assertEqual(d("暂停", True, False), "reply")
+
 
 if __name__ == "__main__":
     unittest.main()

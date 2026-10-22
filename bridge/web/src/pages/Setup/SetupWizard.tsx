@@ -617,10 +617,14 @@ export default function SetupWizard() {
           <div className="space-y-4">
             <p className="text-sm text-gray-700 dark:text-gray-300">{T.cliQ}</p>
             {clis && clis.filter((c) => c.supported).length === 0 && <p className="text-sm text-red-500">{T.noCLI}</p>}
+            {clis && !clis.some((c) => c.agent_type === 'dsh') && <p className="text-xs text-gray-500" data-testid="dsh-install">{T.dshInstall}</p>}
             {roles.map((r, idx) => {
               const cell = matrix.find((m) => m.vendor === r.provider.vendor && m.agent_type === r.agent_type);
               const vendor = vendors.find((v) => v.id === r.provider.vendor);
-              const attachable = ['claudecode', 'codex', 'gemini', 'opencode'].includes(r.agent_type);
+              const attachable = ['claudecode', 'codex', 'gemini', 'opencode', 'dsh'].includes(r.agent_type);
+              // DSH takes a vendor only at its native Anthropic endpoint: vendors without a matrix cell for it are greyed out
+              const isDSH = r.agent_type === 'dsh';
+              const served = (id: string) => !isDSH || matrix.some((m) => m.vendor === id && m.agent_type === 'dsh');
               const via = r.provider.base_url && vendor && r.provider.base_url !== vendor.openai_base && r.agent_type !== 'opencode' ? 'convert' : cell?.mode;
               return (
                 <div key={r.key} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3" data-testid={`cli-role-${idx}`}>
@@ -640,15 +644,17 @@ export default function SetupWizard() {
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.useProvider} data-testid={`use-provider-${idx}`}
                       onChange={(e) => patchRole(r.key, { useProvider: e.target.checked })} />{T.thirdParty}</label>
                   )}
+                  {isDSH && !r.useProvider && <p className="text-xs text-gray-500" data-testid={`dsh-own-${idx}`}>{T.dshOwn}</p>}
                   {attachable && r.useProvider && (
                     <div className="space-y-2 pl-5">
                       <select className={selectCls} value={r.provider.vendor} data-testid={`vendor-${idx}`}
                         onChange={(e) => { const v = vendors.find((x) => x.id === e.target.value); patchRole(r.key, { provider: { ...r.provider, vendor: e.target.value, base_url: v?.id === 'custom' ? '' : v?.openai_base || '', model: v?.model || '' } }); }}>
-                        {vendors.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                        {vendors.map((v) => <option key={v.id} value={v.id} disabled={!served(v.id)}>{v.label}</option>)}
                       </select>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <Input placeholder={vendor?.openai_base || 'https://…/v1'} label={T.baseURL} value={r.provider.base_url}
-                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />
+                      {isDSH && <p className={`text-xs ${served(r.provider.vendor) ? 'text-gray-500' : 'text-red-500'}`} data-testid={`dsh-vendors-${idx}`}>{T.dshVendors}</p>}
+                      <div className={`grid grid-cols-1 gap-2 ${isDSH ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+                        {!isDSH && <Input placeholder={vendor?.openai_base || 'https://…/v1'} label={T.baseURL} value={r.provider.base_url}
+                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />}
                         <Input type="password" label={T.apiKey} value={r.provider.api_key} data-testid={`provider-key-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />
                         <Input label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} data-testid={`provider-model-${idx}`}

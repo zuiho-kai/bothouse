@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -69,9 +70,12 @@ func TestAddWikiCronJobsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub := filepath.Join(t.TempDir(), "sub-wiki.sh")
+	sub := filepath.Join(t.TempDir(), "sub-wiki.py")
 	_ = os.WriteFile(sub, []byte("#\n"), 0o755)
-	if got := SubWikiScriptFromHooks([]string{"/bin/zsh -f " + sub + " hook"}); got != sub {
+	if got := SubWikiScriptFromHooks([]string{"/bin/sh " + strings.TrimSuffix(sub, ".py") + ".sh hook"}); got != sub {
+		t.Fatalf("sub script from an old sh hook: %q", got)
+	}
+	if got := SubWikiScriptFromHooks([]string{subWikiCommand("/usr/bin/python3", sub, "hook")}); got != sub {
 		t.Fatalf("sub script: %q", got)
 	}
 	added, kept, err := AddWikiCronJobs(storeCron{st}, "lead", "discord:1", "/w", sub)
@@ -79,13 +83,74 @@ func TestAddWikiCronJobsOnce(t *testing.T) {
 		t.Fatalf("first: %v %v %v", added, kept, err)
 	}
 	for _, j := range st.List() {
-		if !j.Mute || j.TimeoutMins == nil || *j.TimeoutMins != 0 || !strings.Contains(j.Exec, "ingest.py") || !strings.Contains(j.Exec, "sub-wiki.sh") {
+		if !j.Mute || j.TimeoutMins == nil || *j.TimeoutMins != 0 || !strings.Contains(j.Exec, "ingest.py") || !strings.Contains(j.Exec, "sub-wiki.py") {
 			t.Fatalf("job: %+v", j)
 		}
 	}
 	added, kept, _ = AddWikiCronJobs(storeCron{st}, "lead", "discord:1", "/w", sub)
 	if len(added) != 0 || len(kept) != 3 || len(st.List()) != 3 {
 		t.Fatalf("second: %v %v %d", added, kept, len(st.List()))
+	}
+}
+
+func TestAddWikiCronJobsAddsSubToOldJob(t *testing.T) {
+	st, err := NewCronStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := AddWikiCronJobs(storeCron{st}, "lead", "discord:1", "/w", ""); err != nil { // as #35 made them
+		t.Fatal(err)
+	}
+	sub := filepath.Join(t.TempDir(), "sub-wiki.py")
+	if _, _, err := AddWikiCronJobs(storeCron{st}, "lead", "discord:1", "/w", sub); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.List()) != 3 {
+		t.Fatalf("jobs: %d", len(st.List()))
+	}
+	for _, j := range st.List() {
+		if !strings.Contains(j.Exec, "sub-wiki.py") {
+			t.Fatalf("old job not updated: %s", j.Exec)
+		}
+	}
+}
+
+func TestAddWikiCronJobsRewritesShJob(t *testing.T) {
+	st, err := NewCronStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub-wiki.py")
+	if _, _, err := AddWikiCronJobs(storeCron{st}, "lead", "discord:1", "/w", ""); err != nil {
+		t.Fatal(err)
+	}
+	old := []string{"zsh -f", "sh"}
+	for i, j := range st.List() { // as made before sub-wiki.py: zsh, then POSIX sh
+		sh := filepath.Join(dir, "sub-wiki.sh")
+		if err := (storeCron{st}).SetExec(j.ID, j.Exec+"; "+old[i%2]+" '"+sh+"' pending"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := AddWikiCronJobs(storeCron{st}, "lead", "discord:1", "/w", sub); err != nil {
+		t.Fatal(err)
+	}
+	py := wikiPython()
+	for _, j := range st.List() {
+		if strings.Contains(j.Exec, "sub-wiki.sh") || !strings.Contains(j.Exec, subWikiCommand(py, sub, "")) {
+			t.Fatalf("sh job not rewritten: %s", j.Exec)
+		}
+	}
+}
+
+func TestSubWikiCommandShell(t *testing.T) {
+	got := subWikiCommand(`C:\Program Files\Python\python.exe`, `C:\it's\sub-wiki.py`, "hook")
+	want := `'C:\Program Files\Python\python.exe' -X utf8 -I 'C:\it'\''s\sub-wiki.py' hook`
+	if runtime.GOOS == "windows" {
+		want = `& 'C:\Program Files\Python\python.exe' -X utf8 -I 'C:\it''s\sub-wiki.py' hook`
+	}
+	if got != want {
+		t.Fatalf("got %s want %s", got, want)
 	}
 }
 

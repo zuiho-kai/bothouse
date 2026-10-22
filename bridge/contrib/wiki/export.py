@@ -6,7 +6,11 @@
   export.py --no-wait ... a bot whose wiki an ingest run holds is skipped, not waited for (day runs: the lead's
                           `ingest.py --pending` never waits for the lock either; the night run can hold it for hours)
   export.py --count       only count the sessions that would be exported
-  export.py --list        print <bot> <cc-connect project> <wiki dir> per bots.json entry (sub-wiki.sh reads it)
+  export.py --list        print <bot> <cc-connect project> <wiki dir> per bots.json entry that is on (sub-wiki.sh reads it)
+  export.py --switch <bot> wiki|dream on|off
+                          what a role runs when its user asks it in chat to turn its wiki (export + every ingest
+                          run: bots.json "off") or only its nightly reflection (its wiki's config.json "dream") off/on
+                          (user 2026-10-22 「插件默认全开，别人可关」「用户直接跟机器人说，就可以关了」)
 
 Output: <this dir>/transcripts/ (or $WIKI_TRANSCRIPTS)/<bot>/{codex,agy,diary}/<stem>.jsonl, one record per line:
   {"type": "user"|"assistant", "timestamp": ..., "cwd": ..., "message": {"content": ...}}   (what llm-wiki reads)
@@ -27,15 +31,22 @@ Which sessions belong to a bot (data, 2026-10-17):
     Both codex homes are scanned: longniang's cc-connect codex_home is ~/.codex now but its 10-11..10-13
     sessions sit in ~/.codex-relay; jingyu's 10-11 sessions sit in ~/.codex. Excluded: codex_exec runs
     (probes, "只回复 OK" tests) and every llm-wiki ingest pass (cwd .../wiki/.ingest-work).
+  * kind is the role's cc-connect agent type (the setup wizard writes it): codex, dsh, claudecode, agy/antigravity;
+    any other type exports its diary only (no reader for its own log yet).
   * gemini (agy): trajectory_metadata_blob field 1.1 (workspace URI) == file://<work_dir>.
+  * claudecode: ~/.claude/projects/<work_dir with every non-alphanumeric char as "-">/<session id>.jsonl, the
+    top-level session files (Claude Code's own layout), user and assistant records with cwd == work_dir.
   * dsh bots (jingyu after the Codex -> DSH switch, 2026-10-21):
     <dsh_home>/sessions/<cwd slug>/<id>/session.v4.jsonl or session.v4.jsonl.zstd (zstd is DSH's default; both
     are read by ../hooks/dshlog.py) whose first record (type "session") has cwd == work_dir and
     delegationDepth 0 (subagents run inside a turn; their results are already in it). Her Codex sessions from
     before the switch are still exported, so a rollback loses nothing.
 """
-import fcntl, json, os, re, shutil, sqlite3, sys, tempfile, time
+import json, os, re, shutil, sqlite3, sys, tempfile, time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "llmwiki"))
+import filelock  # noqa: E402  (fcntl on Mac/Linux, msvcrt on Windows)
 
 HOME = Path.home()
 OUT = Path(os.environ.get("WIKI_TRANSCRIPTS") or Path(__file__).resolve().parent / "transcripts").expanduser()
@@ -51,6 +62,8 @@ for _k, _v in (json.loads(_bots_file.read_text(encoding="utf-8")) if _bots_file.
     _v = dict(_v, workdir=str(Path(_v["workdir"]).expanduser()))
     if _v.get("dsh_home"):
         _v["dsh_home"] = Path(_v["dsh_home"]).expanduser()
+    elif _v.get("kind") == "dsh":  # DSH's own default (dsh-home-paths): $DSH_HOME, else ~/.dsh
+        _v["dsh_home"] = Path(os.environ.get("DSH_HOME", "").strip() or HOME / ".dsh").expanduser()
     BOTS[_k] = _v
 
 # ---- what cc-connect / the CLIs inject into a user turn (not channel messages) ----
@@ -248,9 +261,60 @@ def dsh_sessions(dsh_home, workdir):
     found = {}
     for p in map(Path, dshlog().session_logs(dsh_home)):
         m = dsh_meta(p)
-        if m.get("cwd") == workdir and not m.get("delegationDepth") and m.get("id"):
+        if same_dir(m.get("cwd"), workdir) and not m.get("delegationDepth") and m.get("id"):
             found[m["id"]] = p
     return found
+
+
+def same_dir(a, b):
+    """Two spellings of one directory (/tmp vs /private/tmp on macOS)."""
+    return bool(a) and (a == b or os.path.realpath(a) == os.path.realpath(b))
+
+
+# ---- Claude Code sessions (its own jsonl under ~/.claude/projects) ----
+CLAUDE_PROJECTS = HOME / ".claude" / "projects"
+
+
+def claude_sessions(workdir):
+    """{session id: file} of Claude Code's top-level sessions run in workdir."""
+    found = {}
+    for wd in {workdir, os.path.realpath(workdir)}:
+        d = CLAUDE_PROJECTS / re.sub(r"[^A-Za-z0-9]", "-", wd)
+        for p in d.glob("*.jsonl") if d.is_dir() else ():
+            found[p.stem] = p
+    return found
+
+
+def claude_records(path, cwd):
+    recs = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict) or d.get("isSidechain") or d.get("isMeta") or d.get("type") not in ("user", "assistant"):
+            continue
+        msg, ts = d.get("message") or {}, d.get("timestamp")
+        content = msg.get("content")
+        if d["type"] == "user":
+            if isinstance(content, str):
+                text = clean_user(content)
+            else:  # tool results come back as user records: only typed text is the user's
+                text = "\n\n".join(clean_user(c.get("text", "")) for c in content or []
+                                    if isinstance(c, dict) and c.get("type") == "text").strip()
+            if text:
+                recs.append(user_rec(text, cwd, ts))
+            continue
+        for c in content if isinstance(content, list) else []:
+            if not isinstance(c, dict):
+                continue
+            if c.get("type") == "text" and c.get("text", "").strip():
+                recs.append(text_rec(c["text"].strip(), cwd, ts))
+            elif c.get("type") == "tool_use":
+                i = c.get("input") or {}
+                arg = i.get("command") or i.get("file_path") or i.get("path") or i.get("url") or json.dumps(i, ensure_ascii=False)
+                recs.append(tool_rec(c.get("name") or "tool", str(arg)[:300], cwd, ts))
+    return recs
 
 
 def dsh_time(d):
@@ -634,10 +698,14 @@ def sources(bot):
     """[(subdir, stem, source path, reader)] for one bot."""
     cfg = BOTS[bot]
     wd = cfg["workdir"]
-    if cfg["kind"] == "codex":
+    kind = cfg.get("kind", "agy")
+    items = []
+    if kind == "codex":
         items = [("codex", stem(s), p, codex_records) for s, p in codex_sessions(wd).items()]
-    else:
+    elif kind in ("agy", "antigravity"):
         items = [("agy", stem(s), p, agy_records) for s, p in agy_sessions(wd).items()]
+    elif kind == "claudecode":
+        items = [("claude", stem(s), p, claude_records) for s, p in claude_sessions(wd).items()]
     if cfg.get("dsh_home"):
         items += [("dsh", stem(s), p, dsh_records) for s, p in dsh_sessions(cfg["dsh_home"], wd).items()]
     diary = Path(wd) / "diary.md"
@@ -653,12 +721,12 @@ def export(bot, out=OUT, wiki=None, wait=True):
         wiki = wiki_of(bot)
     state = wiki / ".ingest.sqlite" if wiki else None
     wd = BOTS[bot]["workdir"]
-    n = {"codex": 0, "agy": 0, "dsh": 0, "diary": 0, "written": 0, "empty": 0, "failed": 0}
+    n = {"codex": 0, "agy": 0, "claude": 0, "dsh": 0, "diary": 0, "written": 0, "empty": 0, "failed": 0}
     lock = open(wiki / ".ingest.lock", "w") if wiki and wiki.is_dir() else None
     try:
         if lock:
             try:  # same lock as ingest.py main(); released when closed
-                fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+                filelock.lock(lock, wait)
             except BlockingIOError:  # --no-wait: an ingest run holds it; the next day run exports this bot
                 n["busy"] = 1
                 return n
@@ -689,20 +757,45 @@ def export(bot, out=OUT, wiki=None, wait=True):
     return n
 
 
+def switch(bot, what, state):
+    """Turn a bot's wiki (bots.json "off") or its nightly reflection (its wiki's config.json "dream") on or off."""
+    if bot not in BOTS or what not in ("wiki", "dream") or state not in ("on", "off"):
+        sys.exit("usage: export.py --switch <bot> wiki|dream on|off")
+    if what == "wiki":
+        raw = json.loads(_bots_file.read_text(encoding="utf-8"))
+        if state == "off":
+            raw[bot]["off"] = True
+        else:
+            raw[bot].pop("off", None)
+        path = _bots_file
+    else:
+        path = wiki_of(bot) / "config.json"
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw["dream"] = state == "on"
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    print(f"{bot}: {what} {state}")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if "--list" in sys.argv:  # sub-wiki.sh: <bot> <cc-connect project> <wiki dir> per line
+    if "--switch" in sys.argv:
+        switch(*(args + ["", "", ""])[:3])
+        return
+    if "--list" in sys.argv:  # sub-wiki.sh: <bot> <cc-connect project> <wiki dir> per line (bots that are on)
         for bot, cfg in BOTS.items():
-            print(bot, cfg.get("project") or bot, wiki_of(bot))
+            if not cfg.get("off"):
+                print(bot, cfg.get("project") or bot, wiki_of(bot))
         return
     bad = [b for b in args if b not in BOTS]
     if bad:
         sys.exit(f"unknown bot {bad[0]!r}: {', '.join(BOTS)}")
     failed = False
-    for bot in args or BOTS:
+    for bot in args or [b for b in BOTS if not BOTS[b].get("off")]:
         try:  # one bot's failure doesn't keep the others from exporting
             if "--count" in sys.argv:
-                print(bot, {k: sum(1 for s in sources(bot) if s[0] == k) for k in ("codex", "agy", "dsh", "diary")})
+                print(bot, {k: sum(1 for s in sources(bot) if s[0] == k) for k in ("codex", "agy", "claude", "dsh", "diary")})
             else:
                 n = export(bot, wait=False) if "--no-wait" in sys.argv else export(bot)
                 print(bot, n)

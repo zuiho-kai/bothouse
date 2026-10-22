@@ -3,8 +3,8 @@ package core
 // Agent hooks: the Claude Code command hooks in bridge/contrib/hooks (bash-guard, dispatch-review-guard, …),
 // installed into <data_dir>/hooks and switched on per role in <work_dir>/.claude/settings.json. Claude Code
 // reads that file itself; DSH reads the same file through its official bridge
-// @deepseek-ai/dsh-hooks-claude-code, mounted once in $DSH_HOME/cordis.patch.yml with the absolute configPath
-// $DSH_HOME/conest-hooks.settings.json (one file for all DSH runs; a relative path would run the hooks of any
+// @deepseek-ai/dsh-hooks-claude-code, mounted in each role's own overlay (dsh --patch) with the absolute configPath
+// <work dir>/.claude/conest-dsh-hooks.json; the user's $DSH_HOME is not written (a relative path would run the hooks of any
 // repository DSH is started in). Its commands carry --dsh-global: run.py runs a hook only inside a role listed
 // in <hooks dir>/dsh-roles.json with that hook on, so DSH elsewhere is untouched.
 // The role's persona gets a marked block telling the model how to work with the enabled hooks.
@@ -301,9 +301,11 @@ func AgentHooksEnabled(workDir string) ([]string, error) {
 	return out, nil
 }
 
-// wizardHooksFor: the wizard switches hooks on for new roles of this agent type. Claude Code only: the wizard
-// has no DSH agent type (DSH roles are set up by hand; "cc-connect setup hooks on --cli dsh").
-func wizardHooksFor(agentType string) bool { return agentType == "claudecode" && AgentHookFS != nil }
+// wizardHooksFor: the wizard switches hooks on for new roles of this agent type: Claude Code natively, DSH
+// (agent type "dsh") through its hook bridge.
+func wizardHooksFor(agentType string) bool {
+	return (agentType == "claudecode" || agentType == "dsh") && AgentHookFS != nil
+}
 
 // AgentHookSwitchFile is the role's on/off switch: {"off": [hook names] or ["all"]}. run.py reads it on every
 // call and writes it for "run.py off|on" (what the agent runs when its user asks in chat).
@@ -343,6 +345,8 @@ type AgentHookOptions struct {
 	Lang    string   // language of the persona block (zh* = Chinese, else English); "" = the persona's reply language, else system
 	Only    []string // hooks to switch on/off; empty = all
 	DSHHome string   // DSH only: "" = $DSH_HOME, else ~/.dsh (dsh-home-paths)
+	// DSHPatch: DSH only, the role's overlay (dsh --patch) the bridge goes into; "" = DSHPatchPath(DataDir, base of WorkDir)
+	DSHPatch string
 	// DSHBridge: DSH only, the entry file of @deepseek-ai/dsh-hooks-claude-code; "" = found next to the dsh on PATH
 	DSHBridge string
 }
@@ -354,6 +358,13 @@ type AgentHookResult struct {
 	SettingsFile string   `json:"settings_file"`
 	PersonaFile  string   `json:"persona_file"`
 	DSHPatchFile string   `json:"dsh_patch_file,omitempty"`
+}
+
+func (o AgentHookOptions) dshPatch() string {
+	if o.DSHPatch != "" {
+		return o.DSHPatch
+	}
+	return DSHPatchPath(o.DataDir, filepath.Base(o.WorkDir))
 }
 
 func (o AgentHookOptions) names() ([]string, error) {
@@ -437,7 +448,7 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		if err := setDSHRole(dir, o.WorkDir, DSHHome(o.DSHHome), res.Enabled); err != nil {
 			return nil, err
 		}
-		if res.DSHPatchFile, err = EnsureDSHHookBridge(o.DSHHome, o.DSHBridge, python, dir); err != nil {
+		if res.DSHPatchFile, err = EnsureDSHHookBridge(o.dshPatch(), o.WorkDir, o.DSHHome, o.DSHBridge, python, dir); err != nil {
 			return nil, err
 		}
 	}
@@ -484,16 +495,8 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		if err := setDSHRole(dir, o.WorkDir, home, res.Enabled); err != nil {
 			return nil, err
 		}
-		roles, err := readDSHRoles(dir)
-		if err != nil {
-			return nil, err
-		}
-		left := false
-		for _, r := range roles {
-			left = left || r.DSHHome == home
-		}
-		if !left {
-			if err := RemoveDSHHookBridge(home); err != nil {
+		if len(res.Enabled) == 0 {
+			if err := RemoveDSHHookBridge(o.dshPatch(), o.WorkDir); err != nil {
 				return nil, err
 			}
 		}
@@ -646,30 +649,35 @@ func writeHookRules(persona, lang string, enabled []string, python, dir, workDir
 
 const dshPatchBegin, dshPatchEnd = "# conest:hooks begin", "# conest:hooks end"
 
-// dshHookPatch mounts DSH's official Claude Code hook bridge with an absolute configPath: the DSH-wide hook file
-// (DSHHookSettingsPath), whose commands run hooks only in cc-connect's DSH roles (run.py --dsh-global).
+// dshHookPatch mounts DSH's official Claude Code hook bridge in the role's own overlay (dsh --patch), like a
+// hand-made role does in its profile: configPath = the role's hook file (DSHHookSettingsPath), projectDir = the
+// role's work dir. The user's own $DSH_HOME is never written. The commands still run hooks only in cc-connect's
+// DSH roles (run.py --dsh-global).
 // The plugin is named by its file: a package name is resolved from the profile directory
 // ($DSH_HOME/profiles/<name>), where the bridge is not installed (ERR_MODULE_NOT_FOUND in a fresh DSH_HOME);
-// the bridge ships with dsh itself (a dependency of @deepseek-ai/dsh).
-func dshHookPatch(bridge, settings string) string {
+// the bridge is its own package, @deepseek-ai/dsh-hooks-claude-code: only a devDependency of @deepseek-ai/dsh, so
+// `npm i -g @deepseek-ai/dsh` does not install it (the wizard installs it into the data dir, EnsureDSHBridgeFor).
+func dshHookPatch(bridge, settings, workDir string) string {
 	q, _ := json.Marshal(bridge) // a JSON string is a valid YAML double-quoted scalar
 	c, _ := json.Marshal(settings)
+	w, _ := json.Marshal(workDir)
 	return dshPatchBegin + ` (written by "cc-connect setup hooks"; runs only in roles set up with "setup hooks on --cli dsh")
 - insert:
-    - id: conest-hooks-claude-code
+    - id: hooks-claude-code
       name: ` + string(q) + `
       config:
         configPath: ` + string(c) + `
+        projectDir: ` + string(w) + `
 ` + dshPatchEnd + "\n"
 }
 
-// DSHHookSettingsPath is the DSH-wide hook file (Claude Code settings format) the bridge reads.
-func DSHHookSettingsPath(dshHome string) string {
-	return filepath.Join(DSHHome(dshHome), "conest-hooks.settings.json")
+// DSHHookSettingsPath is the role's hook file (Claude Code settings format) the bridge reads, in its work dir.
+func DSHHookSettingsPath(workDir string) string {
+	return filepath.Join(workDir, ".claude", "conest-dsh-hooks.json")
 }
 
 // writeDSHHookSettings writes every hook with --dsh-global and this DSH home (DSH starts tools without DSH_*).
-func writeDSHHookSettings(dshHome, python, hooksDir string) error {
+func writeDSHHookSettings(workDir, dshHome, python, hooksDir string) error {
 	home := DSHHome(dshHome)
 	m := map[string]any{}
 	var add []map[string]any
@@ -684,7 +692,7 @@ func writeDSHHookSettings(dshHome, python, hooksDir string) error {
 		events = append(events, h.Event)
 	}
 	editHooks(m, func(string) bool { return true }, add, events)
-	return writeSettings(DSHHookSettingsPath(home), m)
+	return writeSettings(DSHHookSettingsPath(workDir), m)
 }
 
 const dshBridgeRel = "dsh-hooks-claude-code/lib/index.js"
@@ -696,6 +704,11 @@ func FindDSHHookBridge() (string, error) {
 	if err != nil {
 		return "", errors.New("dsh not found on PATH: install DSH, or give the bridge file with --dsh-bridge")
 	}
+	return findDSHBridgeNear(bin)
+}
+
+// findDSHBridgeNear looks for the bridge next to the dsh at bin.
+func findDSHBridgeNear(bin string) (string, error) {
 	if real, err := filepath.EvalSymlinks(bin); err == nil {
 		bin = real
 	}
@@ -727,9 +740,9 @@ func DSHHome(dshHome string) string {
 	return filepath.Join(home, ".dsh")
 }
 
-// EnsureDSHHookBridge adds the bridge (its entry file; "" = FindDSHHookBridge) to $DSH_HOME/cordis.patch.yml (the user layer applied over every profile)
-// once; an existing block is refreshed, the rest of the file is kept.
-func EnsureDSHHookBridge(dshHome, bridge, python, hooksDir string) (string, error) {
+// EnsureDSHHookBridge adds the bridge (its entry file; "" = FindDSHHookBridge) to the role's overlay patch
+// (dsh --patch) once; an existing block is refreshed, the rest of the overlay is kept.
+func EnsureDSHHookBridge(patch, workDir, dshHome, bridge, python, hooksDir string) (string, error) {
 	if bridge == "" {
 		var err error
 		if bridge, err = FindDSHHookBridge(); err != nil {
@@ -742,11 +755,10 @@ func EnsureDSHHookBridge(dshHome, bridge, python, hooksDir string) (string, erro
 	if !fileExists(bridge) {
 		return "", fmt.Errorf("DSH hook bridge %s does not exist", bridge)
 	}
-	if err := writeDSHHookSettings(dshHome, python, hooksDir); err != nil {
+	if err := writeDSHHookSettings(workDir, dshHome, python, hooksDir); err != nil {
 		return "", err
 	}
-	p := filepath.Join(DSHHome(dshHome), "cordis.patch.yml")
-	b, err := os.ReadFile(p)
+	b, err := os.ReadFile(patch)
 	if err != nil && !os.IsNotExist(err) {
 		return "", err
 	}
@@ -758,24 +770,24 @@ func EnsureDSHHookBridge(dshHome, bridge, python, hooksDir string) (string, erro
 	if s != "" {
 		s += "\n"
 	}
-	s += dshHookPatch(bridge, DSHHookSettingsPath(dshHome))
+	s += dshHookPatch(bridge, DSHHookSettingsPath(workDir), workDir)
 	if s == string(b) {
-		return p, nil
+		return patch, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(patch), 0o755); err != nil {
 		return "", err
 	}
-	return p, AtomicWriteFile(p, []byte(s), 0o644)
+	return patch, AtomicWriteFile(patch, []byte(s), 0o644)
 }
 
-// RemoveDSHHookBridge takes the bridge block out of $DSH_HOME/cordis.patch.yml (the rest stays) and removes the
-// DSH-wide hook file. A running DSH keeps what it loaded until it restarts.
-func RemoveDSHHookBridge(dshHome string) error {
-	if err := os.Remove(DSHHookSettingsPath(dshHome)); err != nil && !os.IsNotExist(err) {
+// RemoveDSHHookBridge takes the bridge block out of the role's overlay (the rest stays; an overlay left empty
+// becomes "[]", since the role still starts with --patch) and removes the role's hook file. A running DSH keeps
+// what it loaded until it restarts.
+func RemoveDSHHookBridge(patch, workDir string) error {
+	if err := os.Remove(DSHHookSettingsPath(workDir)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	p := filepath.Join(DSHHome(dshHome), "cordis.patch.yml")
-	b, err := os.ReadFile(p)
+	b, err := os.ReadFile(patch)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -786,7 +798,10 @@ func RemoveDSHHookBridge(dshHome string) error {
 	if s == string(b) {
 		return nil
 	}
-	return AtomicWriteFile(p, []byte(s), 0o644)
+	if strings.TrimSpace(s) == "" {
+		s = "[]\n"
+	}
+	return AtomicWriteFile(patch, []byte(s), 0o644)
 }
 
 func withoutDSHPatch(s string) string {

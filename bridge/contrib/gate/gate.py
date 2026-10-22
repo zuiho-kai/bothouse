@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["mlx-lm; sys_platform == 'darwin' and platform_machine == 'arm64'"]  # mlx 只有 Apple 芯片；别的机器不装，gate 用 jev 或只按规则
 # ///
-"""主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent。
+"""主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent / abort。
 
 先走确定性规则，规则定不了再让本地 Qwen3.5-4B 读 A/B/C 三个选项的概率（约 30ms，见 scorer.py）。
 每次判断写进 GATE_LOG（默认 ~/.cc-connect/gate.jsonl），用来调规则或以后做微调。
@@ -62,6 +62,7 @@ PROMPT = """你是群聊里「橘」的"要不要出声"判断器。橘是群里
 A 不回：闲聊、语气词、自言自语、还没说完、和橘无关
 B 插入：给出了新信息、新资料，或者对橘正在做的事的更正、追加、叫停，橘应该马上知道，但用户没要求回答
 C 回复：用户在问橘、要橘做事或给意见、问大家的看法
+D 打断：橘正在干活时，用户叫停、暂停、别做了、换成别的事（要她马上停下，不是补充信息）
 只答一个字母。
 
 """
@@ -74,9 +75,9 @@ def _member_text(t, k):
     return t.replace(SUB_LIST, "\0").replace(LEAD, lead.NAME[k]).replace("\0", others)
 
 
-SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复）："  # 末尾重提选项：不加的话偏向 A
+SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复 / D 打断）："  # 末尾重提选项：不加的话偏向 A
 
-ACTIONS = ["silent", "insert", "reply"]
+ACTIONS = ["silent", "insert", "reply", "abort"]  # abort：忙时叫停/暂停/换事 → cc-connect 先取消当前一轮再按 reply 投递（用户原话「我说暂停，还要等个40分钟」）
 def make_scorer():
     """jev.json（拿得到概率）→ 本机 mlx Qwen → 只按规则（NullScorer：模型那步按出错走，主 bot 回 = 兜底角色回）。"""
     jev = load_jev(os.environ.get("GATE_JEV") or SETUP_DIR / "jev.json")
@@ -91,19 +92,20 @@ def make_scorer():
 
 scorer, SCORER_KIND = make_scorer()
 # 谁当主角色就用谁的名字判（lead.py）
-tasks = {k: scorer.prepare(_member_text(PROMPT, k), options=["A", "B", "C"], prefill="答案：") for k in lead.KEYS}
+tasks = {k: scorer.prepare(_member_text(PROMPT, k), options=["A", "B", "C", "D"], prefill="答案：") for k in lead.KEYS}
 
 # sub：忙时这句要不要打断她
 SUB_PROMPT = """一个 AI 成员正在处理派给她的任务，这时群里有人发了新消息。判断这条消息怎么给她：
 A 增量：普通群聊、和她手上的任务无关，先记着，等她下次开口时再一起看
-B 插入：和她正在做的任务直接相关（更正、补充要求、改方向、叫停、叫她名字问进度），应该马上告诉她
+B 插入：和她正在做的任务直接相关（更正、补充要求、改方向、叫她名字问进度），应该马上告诉她
+D 打断：叫停、暂停、别做了、换成别的事（要她马上停下手上的任务）
 群里还有橘、龙娘、鲸鱼娘、彩虹猫；叫的是别人的名字，就是在跟别人说话，不是对她。
 只答一个字母。
 
 """
 SUB_PROMPT = _team_text(SUB_PROMPT)
-SUB_SUFFIX = "她是「{name}」，正在做的任务：「{task}」\n群里刚发：「{msg}」\n\n判断（A 增量 / B 插入）："
-sub_task = scorer.prepare(SUB_PROMPT, options=["A", "B"], prefill="答案：")
+SUB_SUFFIX = "她是「{name}」，正在做的任务：「{task}」\n群里刚发：「{msg}」\n\n判断（A 增量 / B 插入 / D 打断）："
+sub_task = scorer.prepare(SUB_PROMPT, options=["A", "B", "D"], prefill="答案：")
 # 多频道：每个频道是她的一个独立会话（share_session_in_channel），手上的活按 (bot, session_key) 记
 current_task = {}  # (bot, session_key) → 最近一次被叫时的内容
 
@@ -148,6 +150,17 @@ def judge(content, busy, buffered, me=""):
 
 
 def decide_sub(req, bot):
+    action, reason, sc = _decide_sub(req, bot)
+    if action == "reply" and req.get("busy"):  # 叫她且她正忙：是不是叫停
+        key = (bot, req.get("session_key") or "")
+        content = (req.get("content") or "").strip()
+        sc2 = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task.get(key, "")[:500], msg=content[:1500]))
+        if sc2.choice == 2:
+            return "abort", reason + "；sub model: 打断", sc2
+    return action, reason, sc
+
+
+def _decide_sub(req, bot):
     content = (req.get("content") or "").strip()
     key = (bot, req.get("session_key") or "")
     if req.get("mentioned"):
@@ -168,7 +181,7 @@ def decide_sub(req, bot):
     if not req.get("busy") or not current_task.get(key):
         return "context", "sub: 空闲，记作增量", None
     sc = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task[key], msg=content[:1500]))
-    return ("context", "insert")[sc.choice], "sub model", sc
+    return ("context", "insert", "abort")[sc.choice], "sub model", sc
 
 
 def route(req, bot=""):
@@ -186,6 +199,17 @@ def route(req, bot=""):
 
 
 def decide(req, me=""):
+    action, reason, sc = _decide_lead(req, me)
+    if action == "reply" and req.get("busy"):  # @主角色/叫她名字且她正忙：是不是叫停，同 decide_sub（用户原话「艾特她的时候，不要只有insert插入，而是还有abort插入」）
+        content = (req.get("content") or "").strip()
+        if req.get("mentioned") or any(n in content for n in NAMES[me]):
+            sc2 = judge(content, True, req.get("buffered") or [], me)
+            if ACTIONS[sc2.choice] == "abort":
+                return "abort", reason + "；model: 打断", sc2
+    return action, reason, sc
+
+
+def _decide_lead(req, me=""):
     content = (req.get("content") or "").strip()
     buffered = req.get("buffered") or []
     busy = bool(req.get("busy"))
@@ -215,7 +239,10 @@ def decide(req, me=""):
         sc = judge(content, busy, buffered, me)
     except ValueError as e:  # 输入超过 scorer 上限：和 cc-connect 出错时一样按 reply
         return "reply", f"error: {e}", None
-    return ACTIONS[sc.choice], "model", sc
+    action = ACTIONS[sc.choice]
+    if action == "abort" and not busy:  # 不忙没有可打断的，按回复
+        return "reply", "model: 打断但空闲，按回复", sc
+    return action, "model", sc
 
 
 # ---------- 分级：这条是聊天还是干活（给 cc-connect 自动选模型用）----------
@@ -297,7 +324,7 @@ class H(BaseHTTPRequestHandler):
         except ValueError as e:  # 输入超过 scorer 上限
             action, reason, sc = ("reply" if bot == lead.current() else "context"), f"error: {e}", None
         tier = tier_reason = tier_probs = None
-        if action in ("reply", "insert"):
+        if action in ("reply", "insert", "abort"):  # abort 在 cc-connect 里按 reply 投递
             try:
                 tier, tier_reason, tsc = tier_of(req)
                 tier_probs = tsc.probs if tsc else None
