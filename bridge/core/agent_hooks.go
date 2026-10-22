@@ -121,13 +121,13 @@ func FindPython() (string, error) {
 	return "", errors.New("python3 not found on PATH (the hooks are Python scripts)")
 }
 
-// hookQuote quotes a path for the shell that runs hook commands: POSIX single quotes (runas_audit.go
-// shellQuote), double quotes on Windows.
+// hookQuote quotes a path for the shell that runs hook commands: POSIX single quotes (embedded quotes
+// escaped), double quotes on Windows.
 func hookQuote(p string) string {
 	if runtime.GOOS == "windows" {
 		return `"` + p + `"`
 	}
-	return shellQuote(p)
+	return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
 }
 
 func agentHookCommand(python, dir, name string) string {
