@@ -14,12 +14,15 @@ are returned. A file that cannot be read at all gives [].
 import glob
 import os
 import subprocess
+import sys
 
 LOG_NAMES = ("session.v4.jsonl", "session.v4.jsonl.zstd")
 
 # Splits a buffer of concatenated zstd frames (RFC 8878 section 3.1) and decodes each with node's zlib.
 NODE_ZSTD = r"""
-const z = require('zlib'), b = require('fs').readFileSync(process.argv[1]); const out = []; let p = 0;
+const z = require('zlib');
+if (!z.zstdDecompressSync) { process.stderr.write('node ' + process.version + ' has no zlib zstd\n'); process.exit(3); }
+const b = require('fs').readFileSync(process.argv[1]); const out = []; let p = 0;
 while (p + 4 <= b.length) {
   const m = b.readUInt32LE(p);
   if (((m & 0xFFFFFFF0) >>> 0) === 0x184D2A50) { if (p + 8 > b.length) break; p += 8 + b.readUInt32LE(p + 4); continue; }
@@ -113,10 +116,17 @@ def _decode_zstd(path, head):
     except Exception:
         pass
     try:
-        return subprocess.run(["node", "-e", NODE_ZSTD, path] + (["head"] if head else []),
-                              capture_output=True, timeout=20).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
+        r = subprocess.run(["node", "-e", NODE_ZSTD, path] + (["head"] if head else []),
+                           capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as e:
+        r = e
+    if isinstance(r, subprocess.CompletedProcess) and r.returncode == 0:
+        return r.stdout
+    # no decoder at all: say so (on stderr, the caller still gets []), or every .zstd log silently reads as empty
+    why = r.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] if isinstance(r, subprocess.CompletedProcess) else [str(r)]
+    print(f"dshlog: cannot decode {path}: no compression.zstd (Python 3.14+), no zstandard module, and node "
+          f"failed ({'; '.join(why) or 'exit ' + str(r.returncode)})", file=sys.stderr)
+    return None
 
 
 def read_lines(path, head=False):

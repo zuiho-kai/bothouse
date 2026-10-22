@@ -48,16 +48,19 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def _load(name):
-    """A module installed next to this file (python3 -I leaves the script's directory off sys.path)."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, name + ".py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+_DSHLOG = []
 
 
-dshlog = _load("dshlog")
+def dshlog():
+    """dshlog.py, installed next to this file (python3 -I leaves the script's directory off sys.path). Loaded on
+    first use: only DSH payloads read a session log, so the Claude Code hooks never depend on it."""
+    if not _DSHLOG:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("dshlog", os.path.join(HERE, "dshlog.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _DSHLOG.append(mod)
+    return _DSHLOG[0]
 
 # DSH tool name -> Claude Code tool name (DSH tool names: dsh-base/cordis.patch.yml, dsh-tool-fs, dsh-tool-subagent)
 NAMES = {
@@ -100,10 +103,11 @@ def write_json(path, obj):
 
 
 def session_file(sid):
-    return dshlog.session_file(dsh_home(), sid)
+    return dshlog().session_file(dsh_home(), sid)
 
 
-read_lines = dshlog.read_lines
+def read_lines(path, head=False):
+    return dshlog().read_lines(path, head=head)
 
 
 def records(lines):

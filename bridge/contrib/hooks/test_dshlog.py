@@ -4,7 +4,7 @@ The zstd logs are written by node's zlib, one frame per record as DSH's dsh-sess
 them; the zstd tests are skipped when node has no zlib zstd. Which decoder runs depends on the Python: 3.14 uses
 compression.zstd, an older one with the zstandard module uses that, else node.
 Run: python3 -I bridge/contrib/hooks/test_dshlog.py"""
-import importlib.util, json, os, shutil, subprocess, sys, tempfile, time, unittest
+import builtins, contextlib, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONTRIB = os.path.dirname(HERE)
@@ -38,6 +38,38 @@ def node_zstd():
 
 
 HAVE_ZSTD = node_zstd()
+if os.environ.get("CI") and not HAVE_ZSTD:  # CI sets up node 24: the zstd tests must run there, not be skipped
+    sys.exit("CI: node has no zlib zstd, the zstd tests would all be skipped")
+
+
+def has_module(name):
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+
+@contextlib.contextmanager
+def only_decoder(keep):
+    """Hide the Python zstd modules other than `keep` ("compression", "zstandard" or "node"); "none" also hides
+    node (an empty PATH)."""
+    real = builtins.__import__
+
+    def fake(name, *a, **k):
+        if name in ("compression", "zstandard") and name != keep:
+            raise ImportError(name)
+        return real(name, *a, **k)
+
+    builtins.__import__ = fake
+    old_path = os.environ.get("PATH", "")
+    if keep == "none":
+        os.environ["PATH"] = ""
+    try:
+        yield
+    finally:
+        builtins.__import__ = real
+        os.environ["PATH"] = old_path
 
 
 def zstd_frames(lines):
@@ -109,6 +141,28 @@ class ReadLines(Base):
         lines = session_lines("s1", "/work")
         p = self.write("s1", lines, zstd=True, raw=zstd_frames(lines[:2]) + b"\x28\xb5\x2f\xfd" + b"\xff" * 40)
         self.assertEqual(dshlog.read_lines(p), lines[:2])
+
+    @unittest.skipUnless(HAVE_ZSTD, "node without zlib zstd")
+    def test_each_decoder(self):
+        lines = session_lines("s1", "/work")
+        whole = zstd_frames(lines)
+        p = self.write("s1", lines, zstd=True)
+        cut = self.write("s2", lines, zstd=True, raw=whole[:-5])
+        decoders = ["node"] + [m for m in ("compression", "zstandard") if has_module(m)]
+        for d in decoders:
+            with only_decoder(d):
+                self.assertEqual(dshlog.read_lines(p), lines, d)
+                self.assertEqual(dshlog.read_lines(p, head=True), lines[:1], d)
+                self.assertEqual(dshlog.read_lines(cut), lines[:-1], d)
+        print(f"\n  decoders tested: {', '.join(decoders)}", file=sys.stderr)
+
+    @unittest.skipUnless(HAVE_ZSTD, "node without zlib zstd")
+    def test_no_decoder_warns(self):
+        p = self.write("s1", session_lines("s1", "/work"), zstd=True)
+        err = io.StringIO()
+        with only_decoder("none"), contextlib.redirect_stderr(err):
+            self.assertEqual(dshlog.read_lines(p), [])
+        self.assertIn("cannot decode", err.getvalue())
 
     def test_bad_files_do_not_raise(self):
         cases = {"garbage": b"not zstd at all\n" * 10, "empty": b"", "magic only": b"\x28\xb5\x2f\xfd"}
