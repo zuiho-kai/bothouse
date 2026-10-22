@@ -249,6 +249,30 @@ describe('channels page', () => {
     expect(screen.getByRole('status').textContent).toContain('已请求停止：橘')
     expect(screen.getByRole('status').textContent).toContain('不支持终止，只屏蔽旧输出：ext')
 
+    // Member not in thinking (not running / not loaded) displays "本来就没在跑"
+    ;(stopRoom as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      room_id: 1, stopped: true, cancelled_jobs: 0, unconfirmed: [],
+      stopped_members: [
+        { member: 'ds', outcome: 'confirmed' },
+      ],
+    })
+    fireEvent.click(stopButton)
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain('本来就没在跑：ds')
+
+    // Mixed: one member busy (stopped), one member not running
+    ;(stopRoom as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      room_id: 1, stopped: true, cancelled_jobs: 1, unconfirmed: [],
+      stopped_members: [
+        { member: 'ju', outcome: 'confirmed' },
+        { member: 'ds', outcome: 'confirmed' },
+      ],
+    })
+    fireEvent.click(stopButton)
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain('已停止：橘')
+    expect(screen.getByRole('status').textContent).toContain('本来就没在跑：ds')
+
     // Failure case
     ;(stopRoom as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'))
     fireEvent.click(stopButton)

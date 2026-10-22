@@ -288,6 +288,7 @@ export function ChannelsPage({
 
   const handleStop = (roomId: number): void => {
     if (stoppingRoom[roomId] === true) return
+    const currentlyBusy = new Set(state.thinking[String(roomId)] ?? [])
     setStoppingRoom(previous => ({ ...previous, [roomId]: true }))
     setStopNotice(previous => ({ ...previous, [roomId]: undefined }))
     stopRoom(roomId).then((res) => {
@@ -299,8 +300,11 @@ export function ChannelsPage({
         const requested = res.stopped_members.filter(m => m.outcome === 'requested')
         const unsupported = res.stopped_members.filter(m => m.outcome === 'unsupported')
 
-        if (confirmed.length > 0) {
-          const names = confirmed.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+        const stopped = confirmed.filter(m => currentlyBusy.has(m.member))
+        const notRunning = confirmed.filter(m => !currentlyBusy.has(m.member))
+
+        if (stopped.length > 0) {
+          const names = stopped.map(m => byId.get(m.member)?.name ?? m.member).join('、')
           parts.push(t('stopConfirmed', { names }))
         }
         if (requested.length > 0) {
@@ -311,7 +315,11 @@ export function ChannelsPage({
           const names = unsupported.map(m => byId.get(m.member)?.name ?? m.member).join('、')
           parts.push(t('stopUnsupported', { names }))
         }
-        setStopNotice(previous => ({ ...previous, [roomId]: parts.join('；') }))
+        if (notRunning.length > 0) {
+          const names = notRunning.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+          parts.push(t('stopNotRunning', { names }))
+        }
+        setStopNotice(previous => ({ ...previous, [roomId]: parts.length ? parts.join('；') : t('stopNone') }))
       }
     }).catch((error: unknown) => {
       setStopNotice(previous => ({
