@@ -1,0 +1,149 @@
+From 42ed5fa5e88f1f6f3ad43f5a4bea105952e48407 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Wed, 21 Oct 2026 11:20:43 +0900
+Subject: [PATCH 19/19] =?UTF-8?q?rh:=20=E8=A1=A8=E7=9B=98=E5=AD=97?=
+ =?UTF-8?q?=E4=BD=93=E5=88=A4=E5=AE=9A=E6=94=B9=E5=9C=A8=E4=B8=BB=E9=A2=98?=
+ =?UTF-8?q?=E5=AD=97=E4=BD=93=E6=8D=A2=E4=B8=8A=E4=B9=8B=E5=90=8E=E5=81=9A?=
+ =?UTF-8?q?=EF=BC=8C=E4=B8=8D=E5=86=8D=E5=9C=A8=20SetupUI=20=E7=94=A8?=
+ =?UTF-8?q?=E5=86=85=E7=BD=AE=E5=AD=97=E4=BD=93=E5=88=A4=E5=AE=9A=E5=90=8E?=
+ =?UTF-8?q?=E6=94=BE=E5=BC=83=E8=A1=A8=E7=9B=98?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SetupUI 时屏幕还是板型内置字体（font_noto_sans_basic_16_4，无 CJK，「工」宽 0），
+资源分区的中文字体约 2 秒后经 Assets::Apply -> SetTextFont/SetTheme 才换上；
+4a87516 在 SetupUI 里判 cn_dial::Supported，于是三块 1.28 板都报 0 px glyph、没有表盘。
+现在 SetupUI 总是建表盘，SetTheme 每次换字体都重判：合适就 overlay_.SetFont 并显示，
+不合适就隐藏（露出默认界面）；配网模式隐藏照旧。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/display/rh_dial_display.cc | 54 +++++++++++++++++++++++++--------
+ main/display/rh_dial_display.h  | 13 ++++++--
+ 2 files changed, 52 insertions(+), 15 deletions(-)
+
+diff --git a/main/display/rh_dial_display.cc b/main/display/rh_dial_display.cc
+index f150d4a..9d928ac 100644
+--- a/main/display/rh_dial_display.cc
++++ b/main/display/rh_dial_display.cc
+@@ -191,16 +191,6 @@ void RhDialDisplay::SetupUI() {
+     SpiLcdDisplay::SetupUI();  // default UI stays underneath (shown only in Wi-Fi config mode)
+     if (!usable_) return;      // logged in the constructor; dial_ stays nullptr, every entry point checks it
+     DisplayLockGuard lock(this);
+-    // Does the overlay fit this screen with the font it is drawn in (the theme font the dial
+-    // inherits from the screen)? cn_dial::Supported: short side >= min_short_side and the name tag,
+-    // status chip and bubble fit with this font's glyph width and line height.
+-    const cn_dial::PillFont font =
+-        cn_dial::DialOverlay::MeasureFont(lv_obj_get_style_text_font(lv_screen_active(), LV_PART_MAIN));
+-    if (!cn_dial::Supported(metrics_, font)) {
+-        ESP_LOGE(TAG, "rh dial: %dx%d with a %d px glyph / %d px line font does not fit (min short side %d), no dial",
+-                 width_, height_, font.glyph_w, font.line_h, cn_dial::layout::kMinShortSide);
+-        return;
+-    }
+     const int W = width_, H = height_;
+     const int C = metrics_.canvas();
+ 
+@@ -258,6 +248,45 @@ void RhDialDisplay::SetupUI() {
+     lv_display_add_event_cb(display_, RenderEventCb, LV_EVENT_RENDER_START, this);
+     lv_display_add_event_cb(display_, RenderEventCb, LV_EVENT_RENDER_READY, this);
+     ESP_LOGI(TAG, "rh dial: ready (%dx%d), waiting for host", W, H);
++    ApplyThemeFont();
++}
++
++// The theme font is replaced after SetupUI: at SetupUI the screen still has the board's built-in
++// font (main/CMakeLists.txt BUILTIN_TEXT_FONT, e.g. font_noto_sans_basic_16_4: no CJK glyphs), and
++// the assets partition's CJK text font arrives ~2 s later through Assets::Apply -> SetTextFont /
++// SetTheme. Both end here.
++void RhDialDisplay::SetTheme(Theme* theme) {
++    SpiLcdDisplay::SetTheme(theme);
++    DisplayLockGuard lock(this);
++    if (dial_ != nullptr) ApplyThemeFont();
++}
++
++// Lock held. Does the overlay fit this screen with the font it is drawn in (the theme font, now on
++// the screen)? cn_dial::Supported: short side >= min_short_side and the name tag, status chip and
++// bubble fit with this font's glyph width and line height. The dial is shown only while it does.
++void RhDialDisplay::ApplyThemeFont() {
++    const lv_font_t* f = lv_obj_get_style_text_font(lv_screen_active(), LV_PART_MAIN);
++    const cn_dial::PillFont font = cn_dial::DialOverlay::MeasureFont(f);
++    const bool fits = cn_dial::Supported(metrics_, font);
++    if (fits) overlay_.SetFont(f);  // re-lays out the name tag and bubble for the new font
++    if (fits != font_fits_ || !font_checked_) {
++        if (fits) {
++            ESP_LOGI(TAG, "rh dial: theme font %d px glyph / %d px line fits, dial shown", font.glyph_w, font.line_h);
++        } else {
++            ESP_LOGW(TAG, "rh dial: %dx%d with a %d px glyph / %d px line font does not fit (min short side %d), "
++                     "dial hidden until the theme font fits", width_, height_, font.glyph_w, font.line_h,
++                     cn_dial::layout::kMinShortSide);
++        }
++    }
++    font_checked_ = true;
++    font_fits_ = fits;
++    UpdateVisible();
++}
++
++// Lock held. The dial covers the default UI unless the font does not fit or the board is in Wi-Fi
++// config mode (that needs the default screen: hotspot name / address instructions).
++void RhDialDisplay::UpdateVisible() {
++    Show(dial_, font_fits_ && !wifi_config_);
+ }
+ 
+ void RhDialDisplay::RenderEventCb(lv_event_t* e) {
+@@ -615,9 +644,8 @@ void RhDialDisplay::RhDeviceState(int state) {
+     if (active) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+     DisplayLockGuard lock(this);
+     if (dial_ == nullptr) return;
+-    // Wi-Fi config mode needs the default screen (hotspot name / address instructions).
+-    if (state == kDeviceStateWifiConfiguring) lv_obj_add_flag(dial_, LV_OBJ_FLAG_HIDDEN);
+-    else lv_obj_remove_flag(dial_, LV_OBJ_FLAG_HIDDEN);
++    wifi_config_ = state == kDeviceStateWifiConfiguring;
++    UpdateVisible();
+ }
+ 
+ void RhDialDisplay::RhDialLink(bool connected) {
+diff --git a/main/display/rh_dial_display.h b/main/display/rh_dial_display.h
+index 27d309c..bb9c363 100644
+--- a/main/display/rh_dial_display.h
++++ b/main/display/rh_dial_display.h
+@@ -50,6 +50,9 @@ public:
+     // Screen off while sleeping (conest patch 0011 SetPowerSaveMode): stop the dial animation and
+     // turn the panel off; the board fades the backlight out first.
+     void SetPowerSaveMode(bool on) override;
++    // Re-checks the overlay against the new theme font (the assets' CJK font replaces the built-in
++    // one after SetupUI) and shows / hides the dial.
++    void SetTheme(Theme* theme) override;
+ 
+ private:
+     enum State { kIdle = 0, kThinking, kSpeaking, kInterrupted };
+@@ -70,12 +73,16 @@ private:
+     static cn_dial::ScreenProfile PanelProfile(cn_dial::ScreenProfile p, int width, int height);
+     const cn_dial::DialMetrics metrics_;
+     const Sizes sz_;
+-    // False when the profile is invalid: then no dial is built and the default UI stays. SetupUI
+-    // also builds none when cn_dial::Supported() says the overlay does not fit with the theme font.
++    // False when the profile is invalid: then no dial is built and the default UI stays. The dial is
++    // also hidden (default UI shown) while cn_dial::Supported() says the overlay does not fit with
++    // the current theme font: see ApplyThemeFont.
+     const bool usable_;
+     cn_dial::DialOverlay overlay_;
+ 
+     lv_obj_t* dial_ = nullptr;
++    bool font_fits_ = false;      // overlay fits with the current theme font (LVGL lock)
++    bool font_checked_ = false;   // ApplyThemeFont ran at least once (first result is always logged)
++    bool wifi_config_ = false;    // DeviceState is Wi-Fi configuring (LVGL lock)
+     lv_obj_t* face_base_ = nullptr;
+     lv_obj_t* face_think_ = nullptr;
+     lv_obj_t* glint_[kGlintStrips] = {};
+@@ -143,6 +150,8 @@ private:
+     void SetState(State s);
+     void InvalidateEdge(int width, float lo, float hi);
+     void BuildGlint();
++    void ApplyThemeFont();
++    void UpdateVisible();
+     void SetFace(lv_obj_t* img, std::unique_ptr<LvglImage>& slot, std::unique_ptr<LvglImage> image);
+     void ClearThinkFace();
+     void RequestAvatars(const std::string& base, const std::string& think);
+-- 
+2.54.0 (Apple Git-157)
+

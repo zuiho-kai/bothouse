@@ -68,6 +68,15 @@ type SubTaskTablePayloadSupport interface {
 	SupportsSubTaskTablePayload() bool
 }
 
+// LatestMessageChecker is implemented by platforms that can tell whether a
+// message they sent (a SendPreviewStart handle) is still the newest one in its
+// channel (Discord). The sub-agent table uses it to repost itself at the
+// bottom when a new row is added after chat pushed it up; platforms without it
+// keep editing the one message in place.
+type LatestMessageChecker interface {
+	IsLatestMessage(ctx context.Context, handle any) (bool, error)
+}
+
 // SubTaskTablePayloadPrefix marks a structured sub-agent table message.
 const SubTaskTablePayloadPrefix = "__cc_connect_subtask_table_v1__:"
 
@@ -161,15 +170,27 @@ func (e *Engine) ensureSubTaskTable(state *interactiveState) {
 	if th, ok := p.(ProgressUpdateThrottler); ok {
 		interval = th.ProgressUpdateInterval()
 	}
-	go e.runSubTaskTable(state, r, starter, updater, interval)
+	latest, _ := p.(LatestMessageChecker)
+	go e.runSubTaskTable(state, r, starter, updater, latest, interval)
 }
 
-func (e *Engine) runSubTaskTable(state *interactiveState, r SubTaskReporter, starter PreviewStarter, updater MessageUpdater, interval time.Duration) {
+// hasNewRow reports whether tasks has a row whose ID is not in sent.
+func hasNewRow(tasks []SubTask, sent map[string]bool) bool {
+	for _, t := range tasks {
+		if !sent[t.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) runSubTaskTable(state *interactiveState, r SubTaskReporter, starter PreviewStarter, updater MessageUpdater, latest LatestMessageChecker, interval time.Duration) {
 	changed := r.SubTasksChanged()
 	var (
 		handle   any
 		gen      uint64
 		lastSent string
+		sentIDs  map[string]bool // rows shown on handle
 		lastAt   time.Time
 		// The previous batch's message, kept until its final state is shown.
 		prevHandle any
@@ -215,6 +236,18 @@ func (e *Engine) runSubTaskTable(state *interactiveState, r SubTaskReporter, sta
 		state.mu.Lock()
 		p, replyCtx := state.platform, state.replyCtx
 		state.mu.Unlock()
+		// 用户 2026-10-22「为什么我现在没看你的sub表」: the table was edited
+		// in place far up the channel, above later chat. When a new row is
+		// added (only then: step edits never repost, to avoid flooding) and
+		// the table is no longer the newest message, post a fresh table at
+		// the bottom with all rows; the old one stays as it was.
+		if handle != nil && latest != nil && hasNewRow(tasks, sentIDs) {
+			if ok, err := latest.IsLatestMessage(ctx, handle); err != nil {
+				slog.Warn("subtask table: latest-message check failed", "error", err)
+			} else if !ok {
+				handle = nil
+			}
+		}
 		if handle == nil {
 			h, err := starter.SendPreviewStart(ctx, markAgentReply(p, replyCtx), content)
 			if err != nil || h == nil {
@@ -226,6 +259,10 @@ func (e *Engine) runSubTaskTable(state *interactiveState, r SubTaskReporter, sta
 			return
 		}
 		lastSent, lastAt = content, time.Now()
+		sentIDs = make(map[string]bool, len(tasks))
+		for _, t := range tasks {
+			sentIDs[t.ID] = true
+		}
 	}
 	flushNow := func() {
 		ctx, cancel := context.WithTimeout(e.ctx, compactProgressAPITimeout)

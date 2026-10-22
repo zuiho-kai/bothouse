@@ -1,7 +1,7 @@
 From b99772f19c793680a0ac81e07c6ab0dbfe62c29d Mon Sep 17 00:00:00 2001
 From: zuiho <qq2324465096@gmail.com>
 Date: Mon, 19 Oct 2026 15:41:13 +0900
-Subject: [PATCH 03/14] rh: README build command and host-push note
+Subject: [PATCH 03/19] rh: README build command and host-push note
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---

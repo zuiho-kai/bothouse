@@ -1,0 +1,108 @@
+From c38250ac2bbedd1b942f6f2f3df2797f487d5486 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Tue, 20 Oct 2026 09:36:10 +0900
+Subject: [PATCH 16/19] =?UTF-8?q?rh:=20=E8=83=8C=E5=85=89=E6=B8=90?=
+ =?UTF-8?q?=E5=8F=98=E6=8C=89=E7=9B=AE=E6=A0=87=E5=88=A4=E9=87=8D=EF=BC=8C?=
+ =?UTF-8?q?=E5=8F=8D=E5=90=91=E8=AF=B7=E6=B1=82=E5=8F=AF=E6=89=93=E6=96=AD?=
+ =?UTF-8?q?=E8=BF=9B=E8=A1=8C=E4=B8=AD=E7=9A=84=E6=B8=90=E5=8F=98?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+熄屏 SetBrightness(0) 刚开始渐变时立刻 RestoreBrightness()，旧代码只比当前亮度，
+brightness_ 仍等于保存值而直接 return，渐变继续走到 0（屏开着、背光 0）。
+改为只有当前与目标都等于请求值才跳过；定时器先停再启；方向由回调每步按目标计算；
+mutex 让改目标/启停与回调的判断到达-停表成为整体。permanent 写设置在空闲时行为不变。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/boards/common/backlight.cc | 35 ++++++++++++++++++++++-----------
+ main/boards/common/backlight.h  |  4 +++-
+ 2 files changed, 27 insertions(+), 12 deletions(-)
+
+diff --git a/main/boards/common/backlight.cc b/main/boards/common/backlight.cc
+index c62fd7a..29ea8b2 100644
+--- a/main/boards/common/backlight.cc
++++ b/main/boards/common/backlight.cc
+@@ -48,32 +48,45 @@ void Backlight::SetBrightness(uint8_t brightness, bool permanent) {
+         brightness = 100;
+     }
+ 
+-    if (brightness_ == brightness) {
+-        return;
++    {
++        // 与渐变定时器回调互斥：改目标和启停定时器要和回调里"判断到达 -> 停表"成为一个整体，
++        // 否则回调读到旧目标后停表，会把这里刚启动的定时器停掉，渐变卡在半路。
++        std::lock_guard<std::mutex> lock(mutex_);
++        // 只有"已停在这个亮度"才是空操作。只比当前亮度会在渐变途中漏掉反向请求：
++        // 熄屏 SetBrightness(0) 刚开始渐变时立刻 RestoreBrightness()，brightness_ 仍等于保存值，
++        // 旧代码直接 return，渐变继续走到 0。
++        if (brightness_ == brightness && target_brightness_ == brightness) {
++            return;
++        }
++        target_brightness_ = brightness;
++        if (transition_timer_ != nullptr) {
++            // 定时器在跑时 esp_timer_start_periodic 返回 ESP_ERR_INVALID_STATE，先停再启；
++            // 未在跑时 stop 返回 INVALID_STATE，无副作用。方向由回调每步按目标重新计算。
++            esp_timer_stop(transition_timer_);
++            // 启动定时器，每 5ms 更新一次
++            esp_timer_start_periodic(transition_timer_, 5 * 1000);
++        }
+     }
+ 
+     if (permanent) {
+         Settings settings("display", true);
+         settings.SetInt("brightness", brightness);
+     }
+-
+-    target_brightness_ = brightness;
+-    step_ = (target_brightness_ > brightness_) ? 1 : -1;
+-
+-    if (transition_timer_ != nullptr) {
+-        // 启动定时器，每 5ms 更新一次
+-        esp_timer_start_periodic(transition_timer_, 5 * 1000);
+-    }
+     ESP_LOGI(TAG, "Set brightness to %d", brightness);
+ }
+ 
+ void Backlight::OnTransitionTimer() {
++    std::lock_guard<std::mutex> lock(mutex_);
+     if (brightness_ == target_brightness_) {
+         esp_timer_stop(transition_timer_);
+         return;
+     }
+ 
+-    brightness_ += step_;
++    if (target_brightness_ > brightness_) {
++        brightness_++;
++    } else {
++        brightness_--;
++    }
+     SetBrightnessImpl(brightness_);
+ 
+     if (brightness_ == target_brightness_) {
+diff --git a/main/boards/common/backlight.h b/main/boards/common/backlight.h
+index 5c09b3d..a3d70a4 100644
+--- a/main/boards/common/backlight.h
++++ b/main/boards/common/backlight.h
+@@ -2,6 +2,7 @@
+ 
+ #include <cstdint>
+ #include <functional>
++#include <mutex>
+ 
+ #include <driver/gpio.h>
+ #include <esp_timer.h>
+@@ -23,7 +24,8 @@ protected:
+     esp_timer_handle_t transition_timer_ = nullptr;
+     uint8_t brightness_ = 0;
+     uint8_t target_brightness_ = 0;
+-    uint8_t step_ = 1;
++    // 保护 brightness_/target_brightness_ 和渐变定时器启停；SetBrightnessImpl 在持锁时被调用
++    std::mutex mutex_;
+ };
+ 
+ 
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,44 @@
+From 31cfb3cef1b424cedb0dc0e11250e2e08405d0d5 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Tue, 20 Oct 2026 09:42:04 +0900
+Subject: [PATCH 17/19] =?UTF-8?q?build.py:=20=E4=BD=9C=E5=BA=9F=20sdkconfi?=
+ =?UTF-8?q?g=20=E6=97=B6=E4=B8=80=E5=B9=B6=E4=BD=9C=E5=BA=9F=E6=B4=BE?=
+ =?UTF-8?q?=E7=94=9F=E7=9A=84=20build/config/sdkconfig.json?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+idf-component-manager 3.1.2 prepare.py:140 用 bool(args.use_sdk_json)，ESP-IDF 首遍传的
+"FALSE" 为真，于是按上一个板型的 sdkconfig.json 求值 $CONFIG 规则，同一 build 目录换板时
+cn_dial 被错删/错拉。源文件作废时让派生文件同步作废，管理器回到缺键 exit 10、用新配置重试的路径。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scripts/build.py | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/scripts/build.py b/scripts/build.py
+index 3b2e56e..f441c3c 100755
+--- a/scripts/build.py
++++ b/scripts/build.py
+@@ -1439,6 +1439,17 @@ def _configure_build(
+             sdkconfig_old.unlink()
+         sdkconfig.replace(sdkconfig_old)
+ 
++    # build/config/sdkconfig.json is derived from the sdkconfig we just retired, so retire it
++    # too. The component manager evaluates `$CONFIG{...}` rules in idf_component.yml (e.g.
++    # cn_dial's RH_DIAL_DEPS) against this file. ESP-IDF intends to skip it on the first pass
++    # (tools/cmake/build.cmake passes --use_sdk_json=FALSE), then regenerate Kconfig and retry.
++    # But idf-component-manager 3.1.2 checks bool(args.use_sdk_json) in
++    # prepare_components/prepare.py:140, and bool("FALSE") is True. So it reads the previous
++    # board's values, and switching boards in one build dir dropped or pulled cn_dial wrongly
++    # (logs/build-sleepfix-spotpear.log:104-114). With the stale file gone, a missing key
++    # makes the manager exit 10, and ESP-IDF retries with the freshly generated file.
++    Path("build/config/sdkconfig.json").unlink(missing_ok=True)
++
+     fragment = Path("build/xiaozhi-build.sdkconfig.defaults")
+     fragment.parent.mkdir(parents=True, exist_ok=True)
+     fragment.write_text(
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,160 @@
+From 09038306a2cefa6af56e98c0797170c776adb146 Mon Sep 17 00:00:00 2001
+From: zuiho <zuiho@zuihomac-studio.tail5b89bb.ts.net>
+Date: Tue, 20 Oct 2026 09:28:36 +0900
+Subject: [PATCH 15/19] =?UTF-8?q?rh:=20=E7=86=84=E5=B1=8F=E6=A3=80?=
+ =?UTF-8?q?=E6=9F=A5=E5=92=8C=E5=94=A4=E9=86=92=E9=83=BD=E6=94=BE=E5=88=B0?=
+ =?UTF-8?q?=E4=B8=BB=E4=BB=BB=E5=8A=A1=E4=B8=B2=E8=A1=8C=E6=89=A7=E8=A1=8C?=
+ =?UTF-8?q?=EF=BC=8C=E8=BF=9B/=E5=87=BA=E5=9B=9E=E8=B0=83=E4=B8=8D?=
+ =?UTF-8?q?=E5=86=8D=E9=87=8D=E5=8F=A0=EF=BC=88design-dial-abstraction.md?=
+ =?UTF-8?q?=2011.2=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+PowerSaveCheck 由 1 s 定时器排进 Application::Schedule（同一时刻最多排一个）；
+WakeUp 在主任务里直接执行，其他任务调用时排进主任务。enabled_ 改原子量，
+排队中的检查在 SetEnabled(false) 之后不再进入熄屏。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ main/application.cc                    |  1 +
+ main/application.h                     | 11 +++++++++++
+ main/boards/common/power_save_timer.cc | 27 +++++++++++++++++++++++++-
+ main/boards/common/power_save_timer.h  | 15 ++++++++------
+ 4 files changed, 47 insertions(+), 7 deletions(-)
+
+diff --git a/main/application.cc b/main/application.cc
+index 031324b..b1734f4 100644
+--- a/main/application.cc
++++ b/main/application.cc
+@@ -185,6 +185,7 @@ void Application::Initialize() {
+ }
+ 
+ void Application::Run() {
++    main_task_ = xTaskGetCurrentTaskHandle();
+     // Set the priority of the main task to 10
+     vTaskPrioritySet(nullptr, 10);
+ 
+diff --git a/main/application.h b/main/application.h
+index 0505bc6..862ce09 100644
+--- a/main/application.h
++++ b/main/application.h
+@@ -8,6 +8,7 @@
+ 
+ #include <string>
+ #include <mutex>
++#include <atomic>
+ #include <deque>
+ #include <memory>
+ #include <functional>
+@@ -82,6 +83,15 @@ public:
+      */
+     void Schedule(std::function<void()>&& callback);
+ 
++    /**
++     * True when called from the task that runs the main event loop (Run()), i.e. the task that
++     * executes Schedule() callbacks. False before Run() has started.
++     */
++    bool IsMainTask() const {
++        TaskHandle_t main_task = main_task_.load();
++        return main_task != nullptr && xTaskGetCurrentTaskHandle() == main_task;
++    }
++
+     /**
+      * Alert with status, message, emotion and optional sound
+      */
+@@ -132,6 +142,7 @@ private:
+ 
+     std::mutex mutex_;
+     std::deque<std::function<void()>> main_tasks_;
++    std::atomic<TaskHandle_t> main_task_{nullptr};  // set at the start of Run(), read from any task
+     std::unique_ptr<Protocol> protocol_;
+     EventGroupHandle_t event_group_ = nullptr;
+     esp_timer_handle_t clock_timer_handle_ = nullptr;
+diff --git a/main/boards/common/power_save_timer.cc b/main/boards/common/power_save_timer.cc
+index 47cf348..72d9391 100644
+--- a/main/boards/common/power_save_timer.cc
++++ b/main/boards/common/power_save_timer.cc
+@@ -10,9 +10,17 @@
+ PowerSaveTimer::PowerSaveTimer(int cpu_max_freq, int seconds_to_sleep, int seconds_to_shutdown)
+     : cpu_max_freq_(cpu_max_freq), seconds_to_sleep_(seconds_to_sleep), seconds_to_shutdown_(seconds_to_shutdown) {
+     esp_timer_create_args_t timer_args = {
++        // Runs in the esp_timer task; the check itself (and the enter / shutdown callbacks it
++        // calls) runs in the main task, serialized with WakeUp (design-dial-abstraction.md 11.2).
+         .callback = [](void* arg) {
+             auto self = static_cast<PowerSaveTimer*>(arg);
+-            self->PowerSaveCheck();
++            if (self->check_pending_.exchange(true)) {
++                return;
++            }
++            Application::GetInstance().Schedule([self]() {
++                self->check_pending_ = false;
++                self->PowerSaveCheck();
++            });
+         },
+         .arg = this,
+         .dispatch_method = ESP_TIMER_TASK,
+@@ -60,6 +68,10 @@ void PowerSaveTimer::OnShutdownRequest(std::function<void()> callback) {
+ }
+ 
+ void PowerSaveTimer::PowerSaveCheck() {
++    // A check queued just before SetEnabled(false) must not put the board to sleep afterwards.
++    if (!enabled_) {
++        return;
++    }
+     auto& app = Application::GetInstance();
+     if (!in_sleep_mode_ && !app.CanEnterSleepMode()) {
+         ticks_ = 0;
+@@ -102,7 +114,20 @@ void PowerSaveTimer::PowerSaveCheck() {
+     }
+ }
+ 
++// Callable from any task. From the main task it runs inline, as before (callers such as
++// Application -> SetPowerSaveLevel(PERFORMANCE) expect the wake-up done when it returns); from any
++// other task it is queued to the main task, so the exit callback never runs while the enter
++// callback is still running (design-dial-abstraction.md 11.2).
+ void PowerSaveTimer::WakeUp() {
++    auto& app = Application::GetInstance();
++    if (app.IsMainTask()) {
++        DoWakeUp();
++        return;
++    }
++    app.Schedule([this]() { DoWakeUp(); });
++}
++
++void PowerSaveTimer::DoWakeUp() {
+     ticks_ = 0;
+     if (in_sleep_mode_.exchange(false)) {
+         ESP_LOGI(TAG, "Exiting power save mode");
+diff --git a/main/boards/common/power_save_timer.h b/main/boards/common/power_save_timer.h
+index e281508..2cbe24f 100644
+--- a/main/boards/common/power_save_timer.h
++++ b/main/boards/common/power_save_timer.h
+@@ -19,15 +19,18 @@ public:
+ 
+ private:
+     void PowerSaveCheck();
++    void DoWakeUp();
+ 
+     esp_timer_handle_t power_save_timer_ = nullptr;
+-    bool enabled_ = false;
+-    // Atomic: PowerSaveCheck runs in the esp_timer task, WakeUp in whichever task calls it (main
+-    // task, touch / button callbacks, network task via SetPowerSaveLevel). exchange() makes each
+-    // enter / exit happen once per transition. The two callbacks can still overlap (a wake-up during
+-    // the enter callback); see design-dial-abstraction.md 11.2 (a lock would hold every board's
+-    // callbacks, some of which take the display lock).
++    // Written by SetEnabled (any task), read by the queued PowerSaveCheck in the main task.
++    std::atomic<bool> enabled_{false};
++    // PowerSaveCheck and DoWakeUp (and so the enter / exit / shutdown callbacks) only run in the
++    // main task (Application::Schedule), so they cannot overlap; see design-dial-abstraction.md 11.2.
++    // in_sleep_mode_ no longer needs to be atomic for that; kept as it is.
+     std::atomic<bool> in_sleep_mode_{false};
++    // The 1 s timer queues at most one PowerSaveCheck at a time, so a busy main task does not
++    // collect a backlog (same intent as skip_unhandled_events on the timer itself).
++    std::atomic<bool> check_pending_{false};
+     bool is_wake_word_running_ = false;
+     int ticks_ = 0;
+     int cpu_max_freq_;
+-- 
+2.54.0 (Apple Git-157)
+

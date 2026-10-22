@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -18,6 +19,26 @@ func (p *progressPlatform) SupportsSubTaskTablePayload() bool {
 }
 
 var _ core.SubTaskTablePayloadSupport = (*progressPlatform)(nil)
+
+// IsLatestMessage implements core.LatestMessageChecker: it asks Discord for
+// the newest message in the handle's channel (one REST call; the engine only
+// asks when a new sub-agent row is added) and compares IDs.
+func (p *Platform) IsLatestMessage(ctx context.Context, previewHandle any) (bool, error) {
+	h, ok := previewHandle.(*discordPreviewHandle)
+	if !ok {
+		return false, fmt.Errorf("discord: invalid preview handle type %T", previewHandle)
+	}
+	msgs, err := p.session.ChannelMessages(h.channelID, 1, "", "", "", discordgo.WithContext(ctx))
+	if err != nil {
+		return false, fmt.Errorf("discord: latest message: %w", err)
+	}
+	if len(msgs) == 0 {
+		return false, nil
+	}
+	return msgs[0].ID == h.messageID, nil
+}
+
+var _ core.LatestMessageChecker = (*progressPlatform)(nil)
 
 func buildDiscordSubTaskEmbed(payload *core.SubTaskTablePayload) *discordgo.MessageEmbed {
 	zh := normalizeDiscordProgressLang(payload.Lang) == "zh"
