@@ -214,6 +214,9 @@ describe('channels page', () => {
     // Open room drawer and press Escape on window (e.g. focus left drawer) to close
     fireEvent.click(roomBtn)
     expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    // Esc while IME is composing does not close drawer
+    fireEvent.keyDown(window, { key: 'Escape', isComposing: true })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
 

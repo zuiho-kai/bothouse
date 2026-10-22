@@ -72,7 +72,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   useEffect(() => {
     if (drawer === undefined) return
     const onEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape' && !event.defaultPrevented) {
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing) {
         setDrawer(undefined)
       }
     }
