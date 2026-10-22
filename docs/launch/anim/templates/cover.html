@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!--
+  cover 模板（v4 镜1 封面）：白黄亮底，bothouse 标志，纸飞机拖彩带划过，五个人从下沿露头，一行小字。
+  来源：脚本 v4.1 镜1；用户原话「我们封面页必须是亮色的，白色，白黄色之类的」。
+  场景字段：roles[{img}]（从左到右露头的立绘）、line {zh,en}、total（总毫秒）。
+  像素位置和动画时长都是排版取值（目测），不是参数。
+-->
+<link rel="stylesheet" href="v4.css">
+<style>
+  #logo { position:absolute; left:0; right:0; top:200px; display:flex; justify-content:center; opacity:0; transform:scale(.4); }
+  #logo.on { animation:pop .6s cubic-bezier(.34,1.56,.64,1) forwards; }
+  #logo .logo span { font-size:110px; }
+  @keyframes pop { to { opacity:1; transform:none; } }
+  #line { position:absolute; left:0; right:0; top:370px; text-align:center; font-size:40px; color:#f08a24; letter-spacing:6px; opacity:0; transform:translateY(14px); transition:all .5s ease; }
+  #line.on { opacity:1; transform:none; }
+  #ribbon { position:absolute; inset:0; pointer-events:none; }
+  #ribbon path { fill:none; stroke-linecap:round; }
+  #plane { position:absolute; left:0; top:0; will-change:transform; }
+  .peek { position:absolute; bottom:0; height:150px; display:flex; align-items:flex-start; justify-content:center; }
+  .peek img { width:230px; transform:translateY(160px); transition:transform .55s cubic-bezier(.34,1.56,.64,1); }
+  .peek.on img { transform:translateY(0); }
+  .peek.bob img { animation:bob 1.2s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { translate:0 0; } 50% { translate:0 -8px; } }
+</style></head>
+<body class="bright">
+<svg id="ribbon" viewBox="0 0 1280 720"><path id="rb1" stroke="#ffb547" stroke-width="10"/><path id="rb2" stroke="#ff8fa3" stroke-width="5"/></svg>
+<div id="logo"></div><div id="line"></div>
+<div id="plane"></div>
+<script src="v4.js"></script>
+<script>
+(async () => {
+  const S = window.SCENE, { t, wait, el, logo, planeSvg, sparks } = V4;
+  document.getElementById('logo').innerHTML = logo(120);
+  const line = document.getElementById('line'); line.textContent = t(S.line);
+  sparks(document.body, [[150, 120, 1.4], [1110, 150, 1, .4], [240, 420, .8, .8], [1040, 430, 1.2, .2], [640, 90, .9, 1]]);
+  // 五个露头：等间距铺在下沿
+  const peeks = S.roles.map((r, i) => {
+    const p = el('div', 'peek'); p.style.left = (110 + i * 220) + 'px'; p.style.width = '230px';
+    p.innerHTML = `<img src="${r.img}">`; document.body.appendChild(p); return p;
+  });
+  // 纸飞机沿一条缓 S 曲线从左下飞到右上，后面画彩带
+  const plane = document.getElementById('plane'); plane.innerHTML = planeSvg(260, '');
+  const pts = s => { const x = -220 + s * 1720, y = 520 - s * 420 + Math.sin(s * Math.PI * 2) * 60; return [x, y]; };
+  const rb = [document.getElementById('rb1'), document.getElementById('rb2')];
+  await Promise.all([...document.images].map(i => i.decode().catch(() => {})));
+  await document.fonts.ready;
+  V4.start();
+  const fly = 2300, t0 = performance.now();
+  (function step() {
+    const s = Math.min(1, (performance.now() - t0) / fly);
+    const [x, y] = pts(s), [x2, y2] = pts(Math.min(1, s + .01));
+    plane.style.transform = `translate(${x}px,${y - 55}px) rotate(${Math.atan2(y2 - y, x2 - x) * 180 / Math.PI + 18}deg)`;
+    let d = ''; for (let k = 0; k <= 40; k++) { const [px, py] = pts(s * k / 40); d += (k ? 'L' : 'M') + px.toFixed(1) + ' ' + (py + 10).toFixed(1); }
+    rb[0].setAttribute('d', d);
+    let d2 = ''; for (let k = 0; k <= 40; k++) { const [px, py] = pts(s * k / 40); d2 += (k ? 'L' : 'M') + px.toFixed(1) + ' ' + (py + 24 + Math.sin(k / 3) * 6).toFixed(1); }
+    rb[1].setAttribute('d', d2);
+    if (s < 1) requestAnimationFrame(step);
+  })();
+  await wait(450); document.getElementById('logo').classList.add('on');
+  await wait(500);
+  for (const p of peeks) { p.classList.add('on'); await wait(110); }
+  await wait(200); line.classList.add('on');
+  peeks.forEach(p => p.classList.add('bob'));
+  await wait(S.total - 1800);
+  V4.done();
+})();
+</script></body></html>

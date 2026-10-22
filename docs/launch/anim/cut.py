@@ -141,7 +141,8 @@ def build(name, lang):
         if s["sub"]:
             a = s["start"] + (VO_DELAY if s["vo"] else 0)
             b = a + s["vodur"] if s["vo"] else s["start"] + s["dur"]
-            parts = segments(s["sub"])
+            # sub 可写成列表：每项就是一屏（只去掉句尾句号），不再按逗号切
+            parts = [x.rstrip("。") for x in s["sub"]] if isinstance(s["sub"], list) else segments(s["sub"])
             per_char = (b - a) / sum(len(x) for x in parts)
             for x in parts:
                 b2 = a + per_char * len(x)
@@ -174,18 +175,64 @@ def build(name, lang):
 
     labels = {"v": "vout", "a": voice, "music": None}
     music = spec.get("music")
+    if isinstance(music, list):
+        # 分段音乐：每段 {"file", "from": 从第几镜开始(0 起), "seek": 从曲子第几秒开始}，放到下一段开始为止；
+        # 段与段之间各淡入淡出 XF 秒。没有「第 1 镜压成氛围音量」这条（那是单曲旧版的规则）
+        XF = 0.25   # 换曲淡入淡出秒数，我定的：够短，翻转镜头的音乐切换听起来是"切"不是"渐变"
+        starts = [shots[min(m.get("from", 0), n - 1)]["start"] for m in music] + [total]
+        segs = []
+        for k, m in enumerate(music):
+            a, b = starts[k], starts[k + 1]
+            if b <= a:
+                continue
+            seek, d = float(m.get("seek", 0)), b - a
+            args += ["-stream_loop", "-1", "-i", str(ROOT / m["file"])]
+            fades = (f",afade=t=in:d={XF}" if k else "") + (f",afade=t=out:st={max(d - XF, 0):.3f}:d={XF}" if k < len(music) - 1 else "")
+            chains.append(f"[{idx}:a]atrim={seek:.3f}:{seek + d:.3f},asetpts=PTS-STARTPTS,loudnorm=I={MUSIC_LUFS},{fmt},asetpts=N/SR/TB{fades},"
+                          f"apad=whole_dur={d:.3f},atrim=0:{d:.3f},adelay={round(a * 1000)}:all=1,apad=whole_dur={total:.3f}[ms{k}]")
+            segs.append(f"[ms{k}]")
+            idx += 1
+        mix = f"amix=inputs={len(segs)}:normalize=0:duration=longest," if len(segs) > 1 else ""
+        chains.append(f"{''.join(segs)}{mix}apad=whole_dur={total:.3f}[mraw]")
+        music = {"_list": True}
     if music:
-        args += ["-stream_loop", "-1", "-i", str(ROOT / music["file"])]
-        first = shots[0]["dur"]
-        # 第 1 镜压到氛围音量，第 2 镜起恢复
-        # loudnorm 后面接 atrim 会按错位的时间戳多剪约 0.4 秒（实测），所以先 atrim 截长度，loudnorm 后只用 apad 补齐
-        chains.append(f"[{idx}:a]atrim=0:{total:.3f},asetpts=PTS-STARTPTS,loudnorm=I={MUSIC_LUFS},{fmt},apad=whole_dur={total:.3f},"
-                      f"volume='if(lt(t,{first:.3f}),{INTRO_VOL},1)':eval=frame[mraw]")
+        if not music.get("_list"):
+            args += ["-stream_loop", "-1", "-i", str(ROOT / music["file"])]
+            seek = float(music.get("seek", 0))
+            if "dip" in music:
+                # 单曲按镜头段压音量：dip=[{"from": 第几镜, "to": 到第几镜之前, "gain": 倍数}]，段边缘 DIP_RAMP 秒线性过渡，曲子不断开
+                DIP_RAMP = 0.4   # 过渡秒数，我定的：短到跟得上翻转，长到听不出跳变
+                expr = "1"
+                for d in music["dip"]:
+                    a = shots[min(d["from"], n - 1)]["start"]
+                    b = shots[d["to"]]["start"] if d["to"] < n else total
+                    w = f"clip(min((t-{a - DIP_RAMP:.3f})/{DIP_RAMP},({b + DIP_RAMP:.3f}-t)/{DIP_RAMP}),0,1)"
+                    expr = f"({expr})*(1-{1 - float(d['gain']):.3f}*{w})"
+                vol = f"volume='{expr}':eval=frame"
+            else:
+                # 旧版：第 1 镜压到氛围音量，第 2 镜起恢复
+                vol = f"volume='if(lt(t,{shots[0]['dur']:.3f}),{INTRO_VOL},1)':eval=frame"
+            # loudnorm 后面接 atrim 会按错位的时间戳多剪约 0.4 秒（实测），所以先 atrim 截长度，loudnorm 后只用 apad 补齐
+            chains.append(f"[{idx}:a]atrim={seek:.3f}:{seek + total:.3f},asetpts=PTS-STARTPTS,loudnorm=I={MUSIC_LUFS},{fmt},apad=whole_dur={total:.3f},"
+                          f"{vol}[mraw]")
+            idx += 1
         m = "mraw"
         if voice:
             # 旁白一路做侧链触发，一路进混音
             chains.append(f"[voice]asplit[vmix][vsc];[mraw][vsc]sidechaincompress={DUCK}[mduck]")
             m, voice = "mduck", "vmix"
+        # 音效：sfx=[{"file", "shot": 第几镜, "at": 镜内秒数, "gain": 倍数}]，叠在闪避后的音乐上（不触发闪避）
+        sfx = spec.get("sfx") or []
+        if sfx:
+            outs = []
+            for k, e in enumerate(sfx):
+                ms = round((shots[min(e["shot"], n - 1)]["start"] + float(e.get("at", 0))) * 1000)
+                args += ["-i", str(ROOT / e["file"])]
+                chains.append(f"[{idx}:a]{fmt},volume={float(e.get('gain', 1)):.3f},adelay={ms}:all=1,apad=whole_dur={total:.3f}[fx{k}]")
+                outs.append(f"[fx{k}]")
+                idx += 1
+            chains.append(f"[{m}]{''.join(outs)}amix=inputs={len(outs) + 1}:normalize=0:duration=first[mfx]")
+            m = "mfx"
         fade = f"afade=t=out:st={max(total - FADE_OUT, 0):.3f}:d={FADE_OUT}"
         # mout 是闪避后的纯音乐，留给测量用；正常出片接 anullsink 丢掉
         chains.append(f"[{m}]asplit[mout][mmix]")

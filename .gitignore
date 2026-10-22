@@ -35,3 +35,6 @@ node_modules/
 
 # 宣传片动画渲染产物（docs/launch/anim/render.py）
 docs/launch/anim/out/
+
+# v4 宣传片字体：从系统 Yuanti SC 字体包抽出的 ttf，苹果字体不进 git（docs/launch/anim/README.md「v4 字体」）
+docs/launch/anim/fonts/

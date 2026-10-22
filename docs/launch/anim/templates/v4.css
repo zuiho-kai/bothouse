@@ -1,0 +1,29 @@
+/* v4 宣传片公用样式：白黄亮色底、圆体字、主题色名字条。
+   用户要求（2026-10-22）：封面和翻转之后每一镜「白底明亮」「轻快」「面向中国二次元」；名字条「符合他们主题的颜色」。
+   字体：苹果自带圆体 Yuanti SC（系统按需下载的字体包），fonts/ 不进 git，抽取方法见 README「v4 字体」。 */
+@font-face { font-family:"BHRound"; font-weight:700; src:local("Yuanti SC Bold"), local("STYuanti-SC-Bold"), url("../fonts/YuantiSCBold.ttf"); }
+@font-face { font-family:"BHRound"; font-weight:400; src:local("Yuanti SC Regular"), local("STYuanti-SC-Regular"), url("../fonts/YuantiSCRegular.ttf"); }
+* { box-sizing:border-box; margin:0; padding:0; }
+/* 1280×720：docs/launch/x-15s.md「成片规格：1280×720 mp4」 */
+html,body { width:1280px; height:720px; overflow:hidden; }
+body { font-family:"BHRound","PingFang SC","Hiragino Sans GB",sans-serif; font-weight:700; color:#4a3b2a; position:relative; }
+/* 亮色底：白到淡奶黄，加几团淡黄光斑（脚本 v4.1「白底淡黄光斑」） */
+.bright { background:radial-gradient(circle at 18% 22%, rgba(255,226,140,.55) 0 90px, transparent 160px),
+  radial-gradient(circle at 84% 18%, rgba(255,214,120,.45) 0 70px, transparent 140px),
+  radial-gradient(circle at 76% 82%, rgba(255,230,160,.5) 0 110px, transparent 190px),
+  radial-gradient(circle at 10% 86%, rgba(255,236,180,.5) 0 70px, transparent 140px),
+  linear-gradient(180deg, #fffdf6 0%, #fff7df 100%); }
+.spark { position:absolute; width:18px; height:18px; pointer-events:none; animation:twk 1.6s ease-in-out infinite; }
+.spark::before { content:""; position:absolute; inset:0; background:#ffc93c;
+  clip-path:polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%); }
+@keyframes twk { 0%,100% { transform:scale(.5) rotate(0); opacity:.4; } 50% { transform:scale(1.1) rotate(45deg); opacity:1; } }
+/* 名字条：主题色胶囊，英文大字 + 中文小字（用户原话「下面再加个那个符合他们主题的颜色的一个名字，deepseek，gemini，到时候方便外国人知道」） */
+.tag { display:inline-flex; align-items:baseline; gap:10px; padding:8px 22px 9px; border-radius:999px; color:#fff;
+  background:var(--c); box-shadow:0 6px 0 rgba(0,0,0,.12), 0 10px 24px rgba(0,0,0,.12); border:3px solid #fff; white-space:nowrap; }
+.tag b { font:800 34px/1 "Avenir Next","Helvetica Neue",Arial,sans-serif; letter-spacing:.5px; }
+.tag i { font-style:normal; font-size:20px; opacity:.95; }
+/* bothouse 标志：沿用 common.js 的小房子 + 两个对话点，改成橘黄配色配亮色底 */
+.logo { display:flex; align-items:center; gap:14px; }
+.logo svg { flex:none; }
+.logo span { font:800 64px/1 "Avenir Next","Helvetica Neue",Arial,sans-serif; letter-spacing:-1px; color:#3b2a18; }
+.logo span em { font-style:normal; color:#f08a24; }

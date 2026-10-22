@@ -1,0 +1,145 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!--
+  collab 模板（v4 镜7 一起干活）：白黄配色群聊。用户丢一句需求，橘回一张脚本卡片（钉在右边），
+  其他人依次补充，卡片跟着改；龙娘贴出一张她画的图；最后卡片翻成 v2 ✓，那张图放大收尾。
+  来源：用户原话「甚至例子也可以用我们刚刚这样的一个协作的例子……我要一个宣传片，然后然后你就提了脚本出来，然后他们都各自补充」；
+  PM 派活的新镜7 四步（用户发需求、橘回脚本 v1 卡片、四人补充并贴图、卡片翻成脚本 v2 ✓）。
+  场景字段：channel{zh,en}、user{name,text}、roles{id:{head,zh,color,cli}}、lead{role,say}、
+  card{title,title2,lines[{zh,en}]}、notes[{role,say,op}]（op 是对卡片的改动）、art{img}、zoomHold（结尾大图至少停多少毫秒）、total（毫秒）。
+  op 种类：{swap:[i,j], set:{i,text}}、{set:{i,text}}、{add:text}、{art:true}（贴图）。
+  底部 80px 留给字幕。像素位置和动画时长是排版取值（目测），不是参数。
+-->
+<link rel="stylesheet" href="v4.css">
+<style>
+  .app { position:absolute; left:40px; top:24px; width:1200px; height:600px; background:#fffdf7; border-radius:22px; overflow:hidden;
+    box-shadow:0 0 0 3px #f6e2b3, 0 18px 50px rgba(220,170,60,.25); opacity:0; transform:translateY(24px); transition:all .4s cubic-bezier(.34,1.3,.64,1); }
+  .app.on { opacity:1; transform:none; }
+  .head { height:56px; display:flex; align-items:center; gap:10px; padding:0 24px; background:linear-gradient(90deg,#fff3cf,#ffeab0); font-size:24px; color:#5a3b12; }
+  .head .hash { color:#f0a030; font:800 26px/1 "Avenir Next",Arial,sans-serif; }
+  .head .heads { margin-left:auto; display:flex; }
+  .head .heads img { width:36px; height:36px; border-radius:50%; border:2px solid var(--c); background:#fff; margin-left:-8px; object-fit:cover; }
+  .chat { position:absolute; left:0; top:56px; width:660px; bottom:62px; padding:12px 22px; display:flex; flex-direction:column; justify-content:flex-end; gap:12px; overflow:hidden; -webkit-mask-image:linear-gradient(transparent 0, #000 40px); /* 顶部渐隐，免得滚出去的气泡被横切一半（Gemini 审） */ }
+  .msg { display:flex; gap:12px; align-items:flex-start; opacity:0; transform:translateY(16px) scale(.95); transition:all .3s cubic-bezier(.34,1.56,.64,1); flex:none; }
+  .msg.on { opacity:1; transform:none; }
+  .msg .av { width:54px; height:54px; flex:none; border-radius:50%; border:3px solid var(--c); background:#fff; object-fit:cover; }
+  .msg .av.me { display:flex; align-items:center; justify-content:center; background:#ffd36b; font-size:26px; }
+  .msg .who { font-size:16px; color:var(--c); display:flex; gap:8px; align-items:center; }
+  .msg .who em { font-style:normal; font:700 12px/1 "Avenir Next",Arial,sans-serif; color:#fff; background:var(--c); border-radius:6px; padding:3px 6px; }
+  .msg .txt { margin-top:4px; font-size:25px; color:#3b2a18; background:#fff; border-radius:4px 18px 18px 18px; padding:9px 15px; box-shadow:0 3px 10px rgba(200,150,60,.16); display:inline-block; }
+  .msg.mine { flex-direction:row-reverse; } .msg.mine .who { justify-content:flex-end; } .msg.mine > div { text-align:right; }
+  .msg.mine .txt { background:#ffe7a8; border-radius:18px 4px 18px 18px; }
+  .msg .pic { margin-top:6px; width:300px; border-radius:14px; border:3px solid #fff; box-shadow:0 6px 18px rgba(200,150,60,.25); display:block; }
+  .typing { font-size:16px; color:#b08a50; height:20px; position:absolute; left:24px; bottom:66px; opacity:0; transition:opacity .08s; }
+  .typing.on { opacity:1; }
+  .input { position:absolute; left:20px; width:620px; bottom:12px; height:44px; border-radius:14px; background:#fff3d6; display:flex; align-items:center; padding:0 16px; font-size:22px; color:#3b2a18; }
+  .input .ph { color:#c9a96b; }
+  .input .caret { display:inline-block; width:2px; height:24px; background:#f08a24; margin-left:2px; animation:blink .7s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  /* 右边钉着的脚本卡片 */
+  .cardwrap { position:absolute; left:690px; top:80px; width:480px; height:500px; perspective:1200px; }
+  .card { position:absolute; inset:0; background:#fff; border-radius:20px; border:3px solid #f6cf72; box-shadow:0 12px 0 #f9e3a8, 0 20px 40px rgba(220,170,60,.25);
+    padding:22px 26px; transform-style:preserve-3d; opacity:0; transform:translateX(-120px) rotate(-6deg) scale(.6); transition:all .5s cubic-bezier(.34,1.4,.64,1); }
+  .card.on { opacity:1; transform:none; }
+  .card.flip { animation:flip .7s ease-in-out; }
+  @keyframes flip { 0% { transform:rotateY(0); } 50% { transform:rotateY(90deg); } 100% { transform:rotateY(0); } }
+  .card h3 { font-size:32px; color:#3b2a18; display:flex; align-items:center; gap:12px; }
+  .card h3 .by { margin-left:auto; width:46px; height:46px; border-radius:50%; border:3px solid #f08a24; object-fit:cover; }
+  .card .ok { color:#2fb36b; }
+  .lines { position:relative; margin-top:16px; }
+  .ln { position:absolute; left:0; right:0; height:56px; display:flex; align-items:center; gap:12px; font-size:25px; color:#4a3b2a; padding:0 12px; border-radius:12px;
+    transition:top .45s cubic-bezier(.34,1.3,.64,1), background .3s, opacity .3s, transform .3s; }
+  .ln .n { width:34px; height:34px; flex:none; border-radius:50%; background:#ffe1a0; color:#a0620c; font:800 19px/34px "Avenir Next",Arial,sans-serif; text-align:center; }
+  .ln.hi { background:#fff3cf; }
+  .ln.new { opacity:0; transform:translateX(30px); }
+  .ln .by { margin-left:auto; width:34px; height:34px; border-radius:50%; border:2px solid var(--c); object-fit:cover; opacity:0; transform:scale(.3); transition:all .3s cubic-bezier(.34,1.7,.64,1); }
+  .ln .by.on { opacity:1; transform:none; }
+  .stamp { position:absolute; right:22px; bottom:20px; font-size:34px; color:#2fb36b; border:4px solid #2fb36b; border-radius:14px; padding:4px 14px; transform:rotate(-10deg) scale(2.4); opacity:0; transition:all .35s cubic-bezier(.5,1.8,.6,1); }
+  .stamp.on { opacity:1; transform:rotate(-10deg) scale(1); }
+  /* 结尾：龙娘的图放大 */
+  .zoom { position:absolute; inset:0; z-index:10; display:flex; align-items:center; justify-content:center; background:rgba(255,250,235,0); transition:background .4s; pointer-events:none; }
+  .zoom.on { background:rgba(255,250,235,.85); }
+  .zoom img { width:860px; border-radius:24px; border:6px solid #fff; box-shadow:0 20px 60px rgba(220,160,60,.35); opacity:0; transform:scale(.4) translate(-300px,120px); transition:all .6s cubic-bezier(.34,1.3,.64,1); margin-bottom:60px; }
+  .zoom.on img { opacity:1; transform:none; }
+</style></head>
+<body class="bright">
+<div class="app" id="app">
+  <div class="head" id="head"></div>
+  <div class="chat" id="chat"></div>
+  <div class="typing" id="typing"></div>
+  <div class="input" id="input"><span id="tx"></span><span class="caret"></span></div>
+  <div class="cardwrap"><div class="card" id="card"><h3 id="ctitle"></h3><div class="lines" id="lines"></div><div class="stamp" id="stamp">OK!</div></div></div>
+</div>
+<div class="zoom" id="zoom"><img id="zimg"></div>
+<script src="v4.js"></script>
+<script>
+(async () => {
+  const S = window.SCENE, { t, wait, el, sparks } = V4, R = S.roles;
+  sparks(document.body, [[12, 20, 1], [1240, 30, 1.1, .5], [14, 650, .9, .3], [1240, 640, 1, .8]]);
+  document.getElementById('head').innerHTML = `<span class="hash">#</span>${t(S.channel)}<span class="heads">` +
+    Object.values(R).map(r => `<img src="${r.head}" style="--c:${r.color}">`).join('') + '</span>';
+  const chat = document.getElementById('chat'), typing = document.getElementById('typing'), tx = document.getElementById('tx');
+  const card = document.getElementById('card'), linesBox = document.getElementById('lines'), ctitle = document.getElementById('ctitle');
+  document.getElementById('zimg').src = S.art.img;
+  const LH = 62;   // 卡片行距（排版取值）
+  function msg(role, html, mine) {
+    const r = role ? R[role] : null, d = el('div', 'msg' + (mine ? ' mine' : ''));
+    d.style.setProperty('--c', r ? r.color : '#f0a030');
+    d.innerHTML = (r ? `<img class="av" src="${r.head}">` : `<div class="av me">🙂</div>`) +
+      `<div><div class="who">${r ? `${t(r.zh)} <em>${r.cli}</em>` : t(S.user.name)}</div><div class="txt">${html}</div></div>`;
+    chat.appendChild(d); requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('on')));
+    // 聊天区放不下时把最上面的挤掉
+    requestAnimationFrame(() => { while (chat.scrollHeight > chat.clientHeight + 2 && chat.children.length > 1) chat.firstChild.remove(); });
+    return d;
+  }
+  let rows = [];
+  const place = () => rows.forEach((r, i) => { r.el.style.top = (i * LH) + 'px'; r.el.querySelector('.n').textContent = i + 1; });
+  function addLine(text, isNew) {
+    const d = el('div', 'ln' + (isNew ? ' new' : ''), `<span class="n"></span><span class="tx">${text}</span><img class="by">`);
+    linesBox.appendChild(d); rows.push({ el: d }); place();
+    if (isNew) requestAnimationFrame(() => requestAnimationFrame(() => d.classList.remove('new')));
+    return d;
+  }
+  const mark = (d, role) => { const b = d.querySelector('.by'); b.src = R[role].head; b.style.setProperty('--c', R[role].color); b.classList.add('on'); d.classList.add('hi'); setTimeout(() => d.classList.remove('hi'), 900); };
+  await Promise.all([...document.images].map(i => i.decode().catch(() => {})));
+  await document.fonts.ready; V4.start();
+  const T0 = Date.now();
+  document.getElementById('app').classList.add('on');
+  await wait(250);
+  // 1. 用户打字发出需求
+  const need = t(S.user.text);
+  for (let c = 1; c <= need.length; c++) { tx.textContent = need.slice(0, c); await wait(55); }
+  await wait(150); tx.textContent = ''; msg(null, need, true);
+  // 2. 橘回脚本卡片
+  await wait(250); typing.textContent = t(R[S.lead.role].zh) + t({ zh: ' 正在输入…', en: ' is typing…' }); typing.classList.add('on');
+  await wait(350); typing.classList.remove('on');
+  msg(S.lead.role, t(S.lead.say));
+  ctitle.innerHTML = `<span>${t(S.card.title)}</span><img class="by" src="${R[S.lead.role].head}">`;
+  card.classList.add('on');
+  await wait(250);
+  for (const l of S.card.lines) { addLine(t(l), true); await wait(110); }
+  await wait(400);
+  // 3. 其他人依次补充，卡片跟着改
+  for (const n of S.notes) {
+    typing.textContent = t(R[n.role].zh) + t({ zh: ' 正在输入…', en: ' is typing…' }); typing.classList.add('on');
+    await wait(300); typing.classList.remove('on');
+    const m = msg(n.role, t(n.say));
+    await wait(420);
+    const op = n.op || {};
+    if (op.swap) { const [i, j] = op.swap; [rows[i], rows[j]] = [rows[j], rows[i]]; place(); mark(rows[i].el, n.role); }
+    if (op.set) { const d = rows[op.set.i].el; d.querySelector('.tx').textContent = t(op.set.text); mark(d, n.role); }
+    if (op.add) { const d = addLine(t(op.add), true); setTimeout(() => mark(d, n.role), 250); }
+    if (op.art) { m.querySelector('.txt').insertAdjacentHTML('afterend', `<img class="pic" src="${S.art.img}">`); requestAnimationFrame(() => { while (chat.scrollHeight > chat.clientHeight + 2 && chat.children.length > 1) chat.firstChild.remove(); }); }
+    await wait(n.hold);
+  }
+  // 4. 卡片翻成 v2 ✓
+  card.classList.add('flip'); await wait(350);
+  ctitle.innerHTML = `<span>${t(S.card.title2)} <span class="ok">✓</span></span><img class="by" src="${R[S.lead.role].head}">`;
+  await wait(350); card.classList.remove('flip'); document.getElementById('stamp').classList.add('on');
+  await wait(700);
+  // 结尾：龙娘那张图放大
+  document.getElementById('zoom').classList.add('on');
+  await wait(Math.max(S.zoomHold || 1200, S.total - (Date.now() - T0)));
+  V4.done();
+})();
+</script></body></html>

@@ -1,0 +1,170 @@
+{
+  "template": "home",
+  "server": {
+    "zh": "AI 娘们的家",
+    "en": "AI Girls' House"
+  },
+  "roles": {
+    "ju": {
+      "head": "../assets/v4/ju-head.png",
+      "en": "Claude",
+      "zh": {
+        "zh": "橘",
+        "en": "Ju"
+      },
+      "color": "#f08a24",
+      "cli": "Claude Code"
+    },
+    "longniang": {
+      "head": "../assets/v4/longniang-head.png",
+      "en": "GPT",
+      "zh": {
+        "zh": "龙娘",
+        "en": "Long"
+      },
+      "color": "#9b7be0",
+      "cli": "Codex"
+    },
+    "jingyu": {
+      "head": "../assets/v4/jingyu-head.png",
+      "en": "DeepSeek",
+      "zh": {
+        "zh": "鲸鱼娘",
+        "en": "Whale"
+      },
+      "color": "#4d6bfe",
+      "cli": "DSH"
+    },
+    "gemini": {
+      "head": "../assets/v4/gemini-head.png",
+      "en": "Gemini",
+      "zh": {
+        "zh": "彩虹猫",
+        "en": "Nyan"
+      },
+      "color": "#9a6cf5",
+      "cli": "Antigravity"
+    },
+    "lanxi": {
+      "head": "../assets/v4/lanxi-head.png",
+      "en": "MiniMax",
+      "zh": {
+        "zh": "岚汐",
+        "en": "Lanxi"
+      },
+      "color": "#3a8fe0",
+      "cli": "MiniMax"
+    }
+  },
+  "user": {
+    "name": {
+      "zh": "你",
+      "en": "You"
+    }
+  },
+  "channels": [
+    {
+      "name": {
+        "zh": "宣传片",
+        "en": "promo"
+      },
+      "roles": [
+        "ju",
+        "jingyu",
+        "gemini"
+      ]
+    },
+    {
+      "name": {
+        "zh": "写代码",
+        "en": "code"
+      },
+      "roles": [
+        "longniang",
+        "lanxi"
+      ]
+    },
+    {
+      "name": {
+        "zh": "量化",
+        "en": "quant"
+      },
+      "roles": [
+        "ju",
+        "longniang"
+      ]
+    },
+    {
+      "name": {
+        "zh": "后宅",
+        "en": "lounge"
+      },
+      "roles": [
+        "ju",
+        "longniang",
+        "jingyu",
+        "gemini",
+        "lanxi"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "ch": 0,
+      "user": {
+        "zh": "片子的配乐挑一下？",
+        "en": "Pick music for the promo?"
+      },
+      "role": "gemini",
+      "say": {
+        "zh": "交给我！",
+        "en": "On it!"
+      },
+      "hold": 1000
+    },
+    {
+      "ch": 1,
+      "user": {
+        "zh": "这个 bug 修一下",
+        "en": "Fix this bug"
+      },
+      "role": "longniang",
+      "say": {
+        "zh": "五分钟！",
+        "en": "Five minutes!"
+      },
+      "hold": 1000
+    },
+    {
+      "ch": 3,
+      "user": {
+        "zh": "今天辛苦啦～",
+        "en": "Good work today~"
+      },
+      "role": "jingyu",
+      "say": {
+        "zh": "哼，知道就好",
+        "en": "Hmph, you'd better know"
+      },
+      "hold": 900
+    }
+  ],
+  "chips": [
+    {
+      "text": {
+        "zh": "多会话管理",
+        "en": "Multi-session"
+      },
+      "at": 700
+    },
+    {
+      "text": {
+        "zh": "多 CLI 管理",
+        "en": "Multi-CLI"
+      },
+      "at": 1300
+    }
+  ],
+  "total": 5000,
+  "_source": "来源：PM 派活的脚本 v4.1（镜号见文件名）与用户 2026-10-22 原话；颜色来源见 _colors；毫秒数是目测节奏，每镜时长对齐旁白（cut.py：旁白 + 1 秒）"
+}

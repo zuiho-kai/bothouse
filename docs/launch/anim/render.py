@@ -54,9 +54,8 @@ async def main():
     names = a.scenes or sorted(p.stem for p in (ROOT / "scenes").glob("*.json"))
     async with async_playwright() as p:
         b = await p.chromium.launch()
-        for n in names:
-            for lang in a.lang.split(","):
-                await render(b, n, lang.strip())
+        # 各场景、各语言并行录：共用一个 browser，每个 render 开自己的 context（串行时一个一个等动画播完，最慢）
+        await asyncio.gather(*(render(b, n, lang.strip()) for n in names for lang in a.lang.split(",")))
         await b.close()
 
 

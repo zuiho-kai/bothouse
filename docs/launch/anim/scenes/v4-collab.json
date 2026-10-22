@@ -1,0 +1,171 @@
+{
+  "template": "collab",
+  "channel": {
+    "zh": "宣传片",
+    "en": "promo"
+  },
+  "user": {
+    "name": {
+      "zh": "你",
+      "en": "You"
+    },
+    "text": {
+      "zh": "帮我做个宣传片～",
+      "en": "Make me a promo video~"
+    }
+  },
+  "roles": {
+    "ju": {
+      "head": "../assets/v4/ju-head.png",
+      "zh": {
+        "zh": "橘",
+        "en": "Ju"
+      },
+      "color": "#f08a24",
+      "cli": "Claude Code"
+    },
+    "longniang": {
+      "head": "../assets/v4/longniang-head.png",
+      "zh": {
+        "zh": "龙娘",
+        "en": "Long"
+      },
+      "color": "#9b7be0",
+      "cli": "Codex"
+    },
+    "jingyu": {
+      "head": "../assets/v4/jingyu-head.png",
+      "zh": {
+        "zh": "鲸鱼娘",
+        "en": "Whale"
+      },
+      "color": "#4d6bfe",
+      "cli": "DSH"
+    },
+    "gemini": {
+      "head": "../assets/v4/gemini-head.png",
+      "zh": {
+        "zh": "彩虹猫",
+        "en": "Nyan"
+      },
+      "color": "#9a6cf5",
+      "cli": "Antigravity"
+    },
+    "lanxi": {
+      "head": "../assets/v4/lanxi-head.png",
+      "zh": {
+        "zh": "岚汐",
+        "en": "Lanxi"
+      },
+      "color": "#3a8fe0",
+      "cli": "MiniMax"
+    }
+  },
+  "lead": {
+    "role": "ju",
+    "say": {
+      "zh": "脚本 v1 来啦",
+      "en": "Script v1, here"
+    }
+  },
+  "card": {
+    "title": {
+      "zh": "脚本 v1",
+      "en": "Script v1"
+    },
+    "title2": {
+      "zh": "脚本 v2",
+      "en": "Script v2"
+    },
+    "lines": [
+      {
+        "zh": "痛点：四个终端",
+        "en": "Pain: four terminals"
+      },
+      {
+        "zh": "封面：五人全身照",
+        "en": "Cover: full cast"
+      },
+      {
+        "zh": "登场：图标 + 名字",
+        "en": "Debut: icons + names"
+      },
+      {
+        "zh": "结尾：GitHub 地址",
+        "en": "End: GitHub link"
+      }
+    ]
+  },
+  "notes": [
+    {
+      "role": "jingyu",
+      "say": {
+        "zh": "封面别剧透，痛点挪后面",
+        "en": "No spoilers on the cover"
+      },
+      "op": {
+        "swap": [
+          0,
+          1
+        ],
+        "set": {
+          "i": 0,
+          "text": {
+            "zh": "封面：只露呆毛",
+            "en": "Cover: just ahoge"
+          }
+        }
+      },
+      "hold": 1200
+    },
+    {
+      "role": "lanxi",
+      "say": {
+        "zh": "名字牌做成圆角卡片",
+        "en": "Make name tags rounded cards"
+      },
+      "op": {
+        "set": {
+          "i": 2,
+          "text": {
+            "zh": "登场：圆角名字卡",
+            "en": "Debut: rounded cards"
+          }
+        }
+      },
+      "hold": 1200
+    },
+    {
+      "role": "gemini",
+      "say": {
+        "zh": "加点反差梗！",
+        "en": "Add a twist gag!"
+      },
+      "op": {
+        "add": {
+          "zh": "彩蛋：反差梗",
+          "en": "Bonus: twist gag"
+        }
+      },
+      "hold": 1200
+    },
+    {
+      "role": "longniang",
+      "say": {
+        "zh": "立绘我来画",
+        "en": "I'll draw them"
+      },
+      "op": {
+        "art": true
+      },
+      "hold": 1500
+    }
+  ],
+  "art": {
+    "img": "../assets/v4/plane.jpg"
+  },
+  "zoomHold": 2800,
+  "_zoomHold": "审稿要求合影停够久、看得出是五个人；2.8 秒是我定的",
+  "total": 12000,
+  "_source": "来源：PM 派活的脚本 v4.1（镜号见文件名）与用户 2026-10-22 原话；颜色来源见 _colors；毫秒数是目测节奏，每镜时长对齐旁白（cut.py：旁白 + 1 秒）"
+}

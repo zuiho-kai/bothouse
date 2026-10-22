@@ -5,3 +5,17 @@ Digital_Lemonade.mp3
   ISRC：USUAN1700010
   许可证：CC BY 4.0 https://creativecommons.org/licenses/by/4.0/
   署名行："Digital Lemonade" Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 http://creativecommons.org/licenses/by/4.0/
+
+happytime.mp3
+  曲名：happytime
+  作者：甘茶の音楽工房 (amachamusic.chagasi.com)
+  来源：https://amachamusic.chagasi.com/mp3/happytime.mp3
+  许可：https://amachamusic.chagasi.com/terms.html「公開中の音楽素材は、商用利用、個人利用問わず利用できます。著作権表示は必須ではありません」
+  用途：promo-zh-v4 整片配乐（片尾写「Music: 甘茶の音楽工房」）
+
+
+sfx-paper-tear2.mp3、sfx-kira2.mp3
+  名称：紙を破る2、キラッ2（効果音ラボ）
+  来源：https://soundeffect-lab.info/sound/various/mp3/paper-tear2.mp3、https://soundeffect-lab.info/sound/anime/mp3/kira2.mp3
+  许可：https://soundeffect-lab.info/agreement/「商用利用無料、クレジット表記・リンク不要」
+  用途：promo-zh-v4 镜4 翻转（撕开黑屏、小房子弹出）

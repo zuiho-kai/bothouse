@@ -1,0 +1,75 @@
+{
+  "template": "debut",
+  "cast": [
+    {
+      "img": "../assets/v4/ju.png",
+      "en": "Claude",
+      "zh": {
+        "zh": "橘",
+        "en": "Ju"
+      },
+      "color": "#f08a24",
+      "x": 150,
+      "cli": "Claude Code",
+      "model": "Claude",
+      "plate": "#f08a24"
+    },
+    {
+      "img": "../assets/v4/longniang.png",
+      "en": "GPT",
+      "zh": {
+        "zh": "龙娘",
+        "en": "Long"
+      },
+      "color": "#9b7be0",
+      "x": 395,
+      "cli": "Codex",
+      "model": "GPT",
+      "plate": "#b9a3ff"
+    },
+    {
+      "img": "../assets/v4/jingyu.png",
+      "en": "DeepSeek",
+      "zh": {
+        "zh": "鲸鱼娘",
+        "en": "Whale"
+      },
+      "color": "#4d6bfe",
+      "x": 640,
+      "cli": "DSH",
+      "model": "DeepSeek",
+      "plate": "#7b93ff"
+    },
+    {
+      "img": "../assets/v4/gemini.png",
+      "en": "Gemini",
+      "zh": {
+        "zh": "彩虹猫",
+        "en": "Nyan"
+      },
+      "color": "linear-gradient(90deg,#6c7bff,#b36bfa,#ff6fb5)",
+      "x": 885,
+      "cli": "反重力 Antigravity",
+      "model": "Gemini",
+      "plate": "#8ab4ff"
+    },
+    {
+      "img": "../assets/v4/lanxi.png",
+      "en": "MiniMax",
+      "zh": {
+        "zh": "岚汐",
+        "en": "Lanxi"
+      },
+      "color": "linear-gradient(90deg,#1fb8d8,#7c5cff)",
+      "x": 1130
+    }
+  ],
+  "each": 1300,
+  "beat": 250,
+  "lastHold": 2000,
+  "shout": {
+    "zh": "等等我～",
+    "en": "Wait for me~"
+  },
+  "_source": "来源：PM 派活的脚本 v4.1（镜号见文件名）与用户 2026-10-22 原话；颜色来源见 _colors；毫秒数是目测节奏，每镜时长对齐旁白（cut.py：旁白 + 1 秒）"
+}

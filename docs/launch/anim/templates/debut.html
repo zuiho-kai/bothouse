@@ -1,0 +1,84 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!--
+  debut 模板（v4 镜6 登场）：镜2 的四块名字牌依次翻过来，变成四个 Q 版立绘，脚下主题色名字条（英文大字中文小字）；
+  停半拍，第五个角色从右边冲进来。
+  来源：脚本 v4.1 镜6；用户原话「现在5个ai娘跑出来」「不要那个传统的那个图标icon，换成他们的那个头像立绘」
+  「下面再加个那个符合他们主题的颜色的一个名字，deepseek，gemini，到时候方便外国人知道这个东西」。
+  场景字段：cast[{img,en,zh,color,cli,model,x}]（前四个翻牌，最后一个冲进来）、each（每人毫秒）、beat（停顿毫秒）、
+  lastHold（最后一人毫秒）、shout{zh,en}（最后一人的小气泡）。本镜无旁白，底部不放字幕。
+  像素位置和动画时长是排版取值（目测），不是参数。
+-->
+<link rel="stylesheet" href="v4.css">
+<style>
+  .slot { position:absolute; top:90px; width:300px; height:560px; margin-left:-150px; perspective:900px; }
+  .plate { position:absolute; left:30px; right:30px; top:180px; height:120px; border-radius:16px; background:#111318; box-shadow:inset 0 0 0 3px var(--c), 0 12px 30px rgba(0,0,0,.25);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; backface-visibility:hidden; transition:transform .35s ease-in, opacity .35s; }
+  .plate b { font:800 24px/1.05 "Avenir Next","Helvetica Neue",Arial,sans-serif; color:var(--c); white-space:nowrap; }
+  .plate small { margin-top:6px; font:600 18px/1 "Avenir Next",Arial,sans-serif; color:#cfd3e6; }
+  .plate.flip { transform:rotateY(90deg) scale(.8); opacity:0; }
+  .chara { position:absolute; left:50%; bottom:90px; height:430px; transform:translateX(-50%) scale(.2); opacity:0; transform-origin:50% 100%;
+    transition:transform .5s cubic-bezier(.34,1.7,.64,1), opacity .2s, filter .3s; }
+  .chara.on { opacity:1; transform:translateX(-50%) scale(1); }
+  .chara.hero { transform:translateX(-50%) scale(1.14); filter:drop-shadow(0 0 18px rgba(255,200,80,.7)); }
+  .chara.idle { animation:bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { translate:0 0; } 50% { translate:0 -6px; } }
+  .nt { position:absolute; left:50%; bottom:22px; transform:translateX(-50%) scale(.3); opacity:0; transition:all .4s cubic-bezier(.34,1.7,.64,1); z-index:3; }
+  .nt.on { opacity:1; transform:translateX(-50%) scale(1); }
+  .nt.small { transform:translateX(-50%) scale(.78); }
+  .ring { position:absolute; left:50%; top:62%; width:20px; height:20px; margin:-10px; border-radius:50%; border:6px solid var(--c); opacity:0; }
+  .ring.on { animation:ring .6s ease-out forwards; }
+  @keyframes ring { 0% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(16); } }
+  /* 冲进来：速度线 + 横向滑入 */
+  .speed { position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .2s;
+    background:repeating-linear-gradient(0deg, transparent 0 26px, rgba(124,92,255,.18) 26px 29px, transparent 29px 60px, rgba(34,198,232,.2) 60px 62px); }
+  .speed.on { opacity:1; animation:sp .3s linear infinite; } @keyframes sp { to { background-position:-200px 0; } }
+  .dash { transition:none !important; }
+  .bub { position:absolute; left:58%; top:40px; z-index:4; background:#fff; color:#5b4bd6; font-size:28px; padding:10px 18px; border-radius:18px; border:3px solid #7c5cff;
+    box-shadow:0 6px 18px rgba(124,92,255,.25); opacity:0; transform:scale(.3); transition:all .35s cubic-bezier(.34,1.7,.64,1); white-space:nowrap; }
+  .bub.on { opacity:1; transform:scale(1); }
+</style></head>
+<body class="bright">
+<div class="speed" id="speed"></div>
+<script src="v4.js"></script>
+<script>
+(async () => {
+  const S = window.SCENE, { t, wait, el, tag, sparks } = V4;
+  sparks(document.body, [[60, 40, 1.2], [1200, 40, 1, .4], [640, 24, .9, .7], [330, 60, .8, .2], [960, 60, .9, 1]]);
+  const slots = S.cast.map((c, i) => {
+    const s = el('div', 'slot'); s.style.left = c.x + 'px'; s.style.setProperty('--c', c.color);
+    s.innerHTML = (i < 4 ? `<div class="plate" style="--c:${c.plate}"><b${c.cli.length > 10 ? ' style="font-size:20px"' : ''}>${c.cli}</b><small>${c.model}</small></div>` : '') +
+      `<div class="ring"></div><img class="chara" src="${c.img}"><div class="nt">${tag({ en: c.en, zh: c.zh, color: c.color })}</div>`;
+    document.body.appendChild(s);
+    return { s, plate: s.querySelector('.plate'), ch: s.querySelector('.chara'), nt: s.querySelector('.nt'), ring: s.querySelector('.ring') };
+  });
+  await Promise.all([...document.images].map(i => i.decode().catch(() => {})));
+  await document.fonts.ready; V4.start();
+  await wait(400);
+  const settle = k => { slots[k].ch.classList.remove('hero'); slots[k].ch.classList.add('idle'); slots[k].nt.classList.add('small'); };
+  for (let i = 0; i < 4; i++) {
+    const o = slots[i];
+    o.plate.classList.add('flip'); o.s.style.zIndex = 2; /* 出场的人压在还没翻的名字牌上面（Gemini 审：牌子挡住鲸鱼娘） */ await wait(260);
+    o.ring.classList.add('on'); o.ch.classList.add('on', 'hero');
+    await wait(250); o.nt.classList.add('on');
+    if (i) settle(i - 1);
+    await wait(S.each - 510);
+  }
+  settle(3);
+  await wait(S.beat);
+  // 最后一人：从右边外面冲到自己的位置
+  const L5 = slots[4], sp = document.getElementById('speed');
+  sp.classList.add('on');
+  L5.ch.classList.add('dash'); L5.ch.style.opacity = 1; L5.ch.style.transform = 'translateX(900px) skewX(-14deg) scale(1)';
+  await wait(30);
+  L5.ch.classList.remove('dash'); L5.ch.style.transition = 'transform .42s cubic-bezier(.2,.9,.3,1.25)';
+  L5.ch.style.transform = 'translateX(-50%) skewX(0) scale(1.14)';
+  await wait(420); sp.classList.remove('on'); L5.ring.classList.add('on');
+  document.body.animate([{ translate: '0 0' }, { translate: '-8px 4px' }, { translate: '6px -3px' }, { translate: '0 0' }], { duration: 260 });
+  L5.nt.classList.add('on');
+  const bub = el('div', 'bub', t(S.shout)); L5.s.appendChild(bub); bub.style.left = '-40px'; bub.style.top = '30px';
+  await wait(250); bub.classList.add('on');
+  await wait(S.lastHold - 700);
+  V4.done();
+})();
+</script></body></html>

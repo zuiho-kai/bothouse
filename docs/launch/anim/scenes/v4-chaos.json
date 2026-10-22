@@ -1,0 +1,72 @@
+{
+  "template": "terms",
+  "mode": "chaos",
+  "terms": [
+    {
+      "cli": "Claude Code",
+      "model": "Claude",
+      "ui": "claude",
+      "color": "#f08a24",
+      "logs": [
+        "> reading repo…",
+        "✗ context lost",
+        "warn: token limit near",
+        "> summarize history?",
+        "✗ session expired",
+        "> loading CLAUDE.md",
+        "warn: which project?",
+        "> retry 3/5"
+      ]
+    },
+    {
+      "cli": "Codex",
+      "model": "GPT",
+      "ui": "codex",
+      "color": "#b9a3ff",
+      "logs": [
+        "$ codex exec",
+        "✗ no AGENTS.md",
+        "warn: sandbox denied",
+        "> patch failed",
+        "? which branch",
+        "> re-run tests",
+        "✗ timeout 600s",
+        "> applying diff"
+      ]
+    },
+    {
+      "cli": "DSH",
+      "model": "DeepSeek",
+      "ui": "dsh",
+      "color": "#7b93ff",
+      "logs": [
+        "dsh> new session",
+        "warn: memory empty",
+        "> who are you?",
+        "✗ unknown project",
+        "> fetching docs…",
+        "? what was decided",
+        "> thinking…",
+        "✗ rate limited"
+      ]
+    },
+    {
+      "cli": "反重力 Antigravity",
+      "model": "Gemini",
+      "ui": "agy",
+      "color": "#8ab4ff",
+      "logs": [
+        "agy> start",
+        "warn: no workspace",
+        "> indexing 0/0",
+        "✗ permission?",
+        "> open browser",
+        "? what context",
+        "> planning…",
+        "✗ lost track"
+      ]
+    }
+  ],
+  "total": 5900,
+  "_source": "来源：PM 派活的脚本 v4.1（镜号见文件名）与用户 2026-10-22 原话；颜色来源见 _colors；毫秒数是目测节奏，每镜时长对齐旁白（cut.py：旁白 + 1 秒）"
+}

@@ -1,0 +1,199 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!--
+  terms 模板（v4 镜2–4）：黑底四格终端，每格名字牌（CLI 大字 + 模型小字）。
+  mode:"chaos"  镜2 痛点一：日志乱滚、光标乱跳、冒「？？？」。
+  mode:"repeat" 镜3 痛点二：同一段背景在四格里轮流重敲，每格弹「请提供更多上下文」。
+  mode:"flip"   镜4 翻转：纸飞机戳破黑屏，黑色像纸一样撕开，后面是白底阳光。
+  来源：脚本 v4.1 镜2–4；用户原话「左上角是那个cc，右上角是codex，左下角是dsh，右下角是反重力」
+  「痛点一的话要加上名字，否则可能别人不清楚一个cli对应的是什么」「然后一转画风变成白色」。
+  场景字段：terms[4]{cli,model,color,logs[]}、ask{zh,en}、typed{zh,en}、reply{zh,en}、total（毫秒）。
+  底部 80px 留给字幕（README 模板约定）。像素位置和动画时长是排版取值（目测），不是参数。
+-->
+<link rel="stylesheet" href="v4.css">
+<style>
+  body { background:#0a0b10; }
+  .dark { position:absolute; inset:0; background:radial-gradient(ellipse at 50% 45%, #1b1d2a 0%, #07080c 75%); }
+  .grid { position:absolute; left:40px; right:40px; top:28px; height:580px; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:22px 26px; }
+  .term { position:relative; background:#111318; border-radius:12px; box-shadow:0 0 0 1px #2a2d3a, 0 16px 40px rgba(0,0,0,.6); overflow:hidden; display:flex; flex-direction:column; }
+  .bar { height:30px; flex:none; display:flex; align-items:center; gap:7px; padding:0 12px; background:#1b1e27; }
+  .bar i { width:11px; height:11px; border-radius:50%; display:block; }
+  .plate { position:absolute; right:14px; top:40px; z-index:3; text-align:right; padding:8px 14px 9px; border-radius:12px; background:rgba(10,11,16,.85); box-shadow:inset 0 0 0 2px var(--c); }
+  .plate b { display:block; font:800 30px/1.05 "Avenir Next","Helvetica Neue",Arial,sans-serif; color:var(--c); letter-spacing:.3px; }
+  .plate small { display:block; margin-top:3px; font:600 17px/1 "Avenir Next","Helvetica Neue",Arial,sans-serif; color:#cfd3e6; }
+  .body { flex:1; padding:10px 14px; font:13px/1.55 Menlo,"SF Mono",monospace; color:#8ff0a4; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; }
+  .body { -webkit-mask-image:linear-gradient(transparent 0, #000 16px); }
+  .body div { flex:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .body .err { color:#ff7a7a; } .body .warn { color:#ffd166; } .body .dim { color:#6c7088; }
+  .prompt { flex:none; height:40px; padding:0 14px; display:flex; align-items:center; gap:8px; border-top:1px solid #23263200; font:17px/1 "PingFang SC",sans-serif; color:#e9ecf8; background:#151821; }
+  .prompt::before { content:"❯"; color:var(--c); font-weight:800; }
+  .caret { display:inline-block; width:10px; height:20px; background:#e9ecf8; animation:blink .7s steps(1) infinite; vertical-align:middle; }
+  @keyframes blink { 50% { opacity:0; } }
+  .jump { position:absolute; width:12px; height:22px; background:#fff; z-index:4; box-shadow:0 0 12px #fff; transition:left .09s, top .09s; }
+  .q { position:absolute; z-index:6; font:900 64px/1 "Avenir Next",Arial,sans-serif; color:#ffd166; text-shadow:0 0 18px rgba(255,209,102,.6); opacity:0; transform:scale(.3) rotate(-10deg); }
+  .q.on { animation:qpop .45s cubic-bezier(.34,1.56,.64,1) forwards; }
+  @keyframes qpop { to { opacity:1; transform:scale(1) rotate(var(--r)); } }
+  .reply { position:absolute; left:50%; top:52%; z-index:5; transform:translate(-50%,-50%) scale(.4); opacity:0; white-space:nowrap;
+    background:#2a1416; color:#ffb3b3; border:2px solid #ff6b6b; border-radius:12px; padding:10px 18px; font:700 24px/1 "PingFang SC",sans-serif; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+  .reply.on { animation:rpop .35s cubic-bezier(.34,1.56,.64,1) forwards; }
+  @keyframes rpop { to { opacity:1; transform:translate(-50%,-50%) scale(1); } }
+  .term.shake { animation:sh .3s ease; } @keyframes sh { 25% { translate:-7px 0; } 50% { translate:6px 0; } 75% { translate:-4px 0; } }
+  /* 四格各像各自的真实界面（用户「参考真实界面的样子，而不是四个一样的界面」）。
+     参照 2026-10-22 实截：Claude Code v2.1 欢迎屏、Codex v0.163 欢迎屏、Antigravity CLI 1.4.5 欢迎屏（伪终端 + pyte 逐格取字和色），
+     DSH 0.2 没有终端界面，是 dsh web 网页（亮色侧栏 + 输入卡），按 playwright 截图画。色值取自截图。 */
+  .hd { flex:none; padding:8px 14px 2px; font:13px/1.45 Menlo,"SF Mono",monospace; color:#e6e6e6; white-space:pre; }
+  .hd .g { color:#999; } .hd .o { color:#d77757; } .hd .b { color:#63a8f8; } .hd .m { color:#cd00cd; font-weight:700; } .hd .bb { color:#5c9cff; }
+  .ft { flex:none; height:20px; padding:0 14px; display:flex; justify-content:space-between; align-items:center; font:12px/1 Menlo,monospace; color:#888; }
+  .ui-claude .hd .art, .ui-agy .hd .art { display:inline-block; vertical-align:top; margin-right:12px; line-height:1.1; font-size:12px; }
+  .ui-claude .hd .meta, .ui-agy .hd .meta { display:inline-block; vertical-align:top; }
+  .ui-claude .body, .ui-codex .body, .ui-agy .body { color:#e6e6e6; margin-top:6px; }
+  .ui-agy .hd .art { font-size:10px; }
+  .ui-claude .body div::before { content:"⏺ "; color:#e6e6e6; }
+  .ui-claude .body .err::before { color:#ff6b80; }
+  .ui-codex .body div::before { content:"• "; color:#999; }
+  .ui-claude .prompt, .ui-agy .prompt { background:none; height:34px; margin:0 10px; padding:0 4px; border-top:1px solid #888; border-bottom:1px solid #888; font:15px/1 Menlo,"PingFang SC",monospace; }
+  .ui-agy .prompt { border-color:#555; }
+  .ui-claude .prompt::before { content:"❯"; color:#e6e6e6; font-weight:400; }
+  .ui-agy .prompt::before { content:">"; color:#5c9cff; font-weight:400; }
+  .ui-codex .prompt { background:#1d2027; height:38px; font:15px/1 Menlo,"PingFang SC",monospace; }
+  .ui-codex .prompt::before { content:"›"; color:#e6e6e6; font-weight:700; }
+  .prompt .ph { color:#8a8a8a; } .prompt .tx:not(:empty) ~ .ph { display:none; }
+  .ui-claude .caret, .ui-codex .caret, .ui-agy .caret { width:9px; height:17px; }
+  /* DSH 网页：亮色 */
+  .ui-dsh { background:#fafafa; flex-direction:row; }
+  .ui-dsh .side { flex:none; width:150px; background:#f0f0f1; border-right:1px solid #e2e2e4; padding:34px 10px 0; font:12px/1 "Helvetica Neue","PingFang SC",sans-serif; color:#222; }
+  .ui-dsh .side .brand { display:flex; align-items:center; gap:5px; font:700 15px/1 "Helvetica Neue",sans-serif; letter-spacing:-.3px; margin-bottom:12px; }
+  .ui-dsh .side .brand em { font:700 7px/1 Menlo,monospace; font-style:normal; background:#111; color:#fff; padding:2px 3px; border-radius:2px; letter-spacing:.5px; }
+  .ui-dsh .side .btn { border:1px solid #d6d6d9; border-radius:7px; background:#f7f7f8; text-align:center; padding:7px 0; margin-bottom:10px; }
+  .ui-dsh .side .it { padding:6px 4px; color:#333; } .ui-dsh .side .sec { padding:8px 4px 4px; color:#888; font-size:11px; }
+  .ui-dsh .side .cur { background:#e3e3e6; border-radius:6px; padding:6px 8px; }
+  .ui-dsh .main { flex:1; display:flex; flex-direction:column; min-width:0; position:relative; }
+  .ui-dsh .bar { position:absolute; left:0; top:0; width:150px; background:none; z-index:2; }
+  .ui-dsh .body { color:#3a3a3c; font:13px/1.55 "Helvetica Neue","PingFang SC",sans-serif; padding:44px 16px 6px; }
+  .ui-dsh .body .err { color:#d93025; } .ui-dsh .body .warn { color:#b26a00; } .ui-dsh .body .dim { color:#8a8a8e; }
+  .ui-dsh .card { flex:none; margin:0 14px 12px; border:1px solid #dcdce0; border-radius:14px; background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+  .ui-dsh .prompt { background:none; height:30px; color:#222; font:14px/1 "Helvetica Neue","PingFang SC",sans-serif; }
+  .ui-dsh .prompt::before { content:none; }
+  .ui-dsh .caret { background:#222; width:2px; height:16px; }
+  .ui-dsh .row { display:flex; align-items:center; gap:12px; padding:0 8px 7px 14px; font:11px/1 "Helvetica Neue",sans-serif; color:#666; }
+  .ui-dsh .row .send { margin-left:auto; width:24px; height:24px; border-radius:50%; background:#4d6bfe; color:#fff; display:flex; align-items:center; justify-content:center; font:700 13px/1 sans-serif; }
+  /* flip：亮色底在最下面，两半黑屏盖在上面，撕开后飞走 */
+  #bright { position:absolute; inset:0; }
+  .rays { position:absolute; left:50%; top:45%; width:1800px; height:1800px; margin:-900px 0 0 -900px; opacity:.55;
+    background:repeating-conic-gradient(from 0deg, rgba(255,214,102,.35) 0 8deg, transparent 8deg 20deg); animation:spin 14s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .sun { position:absolute; left:50%; top:45%; width:520px; height:520px; margin:-260px 0 0 -260px; border-radius:50%; background:radial-gradient(circle, #fff 0 30%, rgba(255,240,190,.9) 45%, rgba(255,230,150,0) 70%); }
+  #house { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%) scale(.2); opacity:0; }
+  #house.on { animation:hpop .6s cubic-bezier(.34,1.7,.64,1) forwards; }
+  @keyframes hpop { to { opacity:1; transform:translate(-50%,-50%) scale(1); } }
+  .half { position:absolute; inset:0; will-change:transform; filter:drop-shadow(0 0 0 #fff) drop-shadow(0 0 2px #fff); }
+  .half.l { transition:transform .9s cubic-bezier(.5,0,.75,0); transform-origin:0% 100%; }
+  .half.r { transition:transform .9s cubic-bezier(.5,0,.75,0); transform-origin:100% 0%; }
+  .half.l.go { transform:translate(-900px,180px) rotate(-14deg); }
+  .half.r.go { transform:translate(900px,-160px) rotate(12deg); }
+  #plane { position:absolute; z-index:20; left:0; top:0; }
+  .burst { position:absolute; z-index:19; left:640px; top:330px; width:10px; height:10px; margin:-5px; border-radius:50%; background:#fff; opacity:0; }
+  .burst.on { animation:burst .5s ease-out forwards; }
+  @keyframes burst { 0% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(60); } }
+</style></head>
+<body>
+<script src="v4.js"></script>
+<script>
+(async () => {
+  const S = window.SCENE, { t, wait, el, planeSvg, houseSvg, sparks } = V4;
+  const lights = '<i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>';
+  // 各界面的骨架：都要有 .body（日志）和 .prompt 里的 .tx（打字）；文字照实截（见上方 CSS 注释）
+  const AGY_LOGO = ["      <span style=\"color:#dbb131\">▄</span><span style=\"color:#f2922e\">▀</span><span style=\"color:#f07236\">▀</span><span style=\"color:#f0583b\">▄</span>", "     <span style=\"color:#9ec345\">▀</span><span style=\"color:#b5b43e\">▀</span><span style=\"color:#e2993d\">▀</span><span style=\"color:#f67a34\">▀</span><span style=\"color:#f86a35\">▀</span><span style=\"color:#ef5442\">▀</span>", "    <span style=\"color:#7cc251\">▀</span><span style=\"color:#71c25c\">▀</span><span style=\"color:#5ca98f\">▀</span><span style=\"color:#5c91b3\">▀</span><span style=\"color:#8373b0\">▀</span><span style=\"color:#746fc3\">▀</span><span style=\"color:#995da8\">▀</span><span style=\"color:#9c5b97\">▀</span>", "   <span style=\"color:#6dc694\">▄</span><span style=\"color:#61c37d\">▀</span><span style=\"color:#43aeab\">▀</span>    <span style=\"color:#4a80ea\">▀</span><span style=\"color:#6c73d8\">▀</span><span style=\"color:#6579e1\">▄</span>", "  <span style=\"color:#67b9f4\">▄</span><span style=\"color:#6bc7a3\">▀</span><span style=\"color:#64b6f6\">▀</span>      <span style=\"color:#3886fb\">▀</span><span style=\"color:#4881f4\">▀</span><span style=\"color:#3d85fc\">▄</span>"];
+  const P = ph => `<div class="prompt"><span class="tx"></span><span class="ph">${ph}</span><span class="caret"></span></div>`;
+  const UI = {
+    plain: () => `<div class="body"></div>` + P(''),
+    claude: () => `<div class="hd"><span class="art o"> ▐▛███▛█\n▝▜██████▀\n ▝▝   ▝▝</span><span class="meta">Claude Code <span class="g">v2.1.308</span>\n<span class="g">Opus 5.5 · Claude Pro</span>\n<span class="g">~/code/bothouse</span></span></div>`
+      + `<div class="body"></div>` + P('Try "fix typecheck errors"') + `<div class="ft"><span>? for shortcuts</span><span>◐ medium · /effort</span></div>`,
+    codex: () => `<div class="hd"><span class="g">&gt;_</span> <b>OpenAI Codex</b> <span class="g">(v0.163.0)</span>\n<span class="g">   ~/code/bothouse</span>\npermissions: <span class="m">YOLO mode</span></div>`
+      + `<div class="body"></div>` + P('Ask Codex to do anything') + `<div class="ft"><span><span style="color:#abdfa7">GPT-6</span> <span style="color:#f6e2b7">medium</span> · ~/code/bothouse</span><span>? for shortcuts</span></div>`,
+    agy: () => `<div class="hd"><span class="art">${AGY_LOGO.join('\n')}</span><span class="meta"><span class="bb">Antigravity CLI</span>\n<span class="g">Google AI Pro</span>\n<span class="g">~/code/bothouse</span></span></div>`
+      + `<div class="body"></div>` + P('') + `<div class="ft"><span>? for shortcuts</span><span>Gemini 3.8 Flash · high</span></div>`,
+    dsh: () => `<div class="side"><div class="brand">🐋 deepseek <em>HARNESS</em></div><div class="btn">⊕ New Session</div><div class="it">✧ Plugins</div><div class="it">◷ Automation tasks</div><div class="sec">Workspaces</div><div class="it">▭ bothouse</div><div class="cur">New Session</div></div>`
+      + `<div class="main"><div class="body"></div><div class="card">${P('Describe what you want to build, / commands, @ files')}<div class="row"><span>Standard mode</span><span>Workspace Write</span><span>DeepSeek V4 ⌄</span><span class="send">↑</span></div></div></div>`,
+  };
+  // 造一层黑底四格，返回各格节点；flip 模式要造两份（左右两半）
+  function buildDark(parent) {
+    const d = el('div', 'dark'); const g = el('div', 'grid'); d.appendChild(g); parent.appendChild(d);
+    const terms = S.terms.map(m => {
+      const w = el('div', 'term'); w.style.setProperty('--c', m.color);
+      w.classList.add('ui-' + (m.ui || 'plain'));
+      w.innerHTML = `<div class="bar">${lights}</div><div class="plate"><b>${m.cli}</b><small>${m.model}</small></div>` + UI[m.ui || 'plain']();
+      g.appendChild(w);
+      const body = w.querySelector('.body');
+      // 先铺满几行日志
+      m.logs.forEach((s, k) => { const ln = el('div', /err|✗/.test(s) ? 'err' : /warn|\?/.test(s) ? 'warn' : k % 3 ? '' : 'dim'); ln.textContent = s; body.appendChild(ln); });
+      return { w, body, tx: w.querySelector('.tx'), m };
+    });
+    return { d, terms };
+  }
+  if (S.mode === 'flip') {
+    const bright = el('div', 'bright'); bright.id = 'bright'; bright.innerHTML = '<div class="rays"></div><div class="sun"></div>'; document.body.appendChild(bright);
+    sparks(bright, [[200, 140, 1.3], [1060, 120, 1, .3], [300, 470, .9, .6], [980, 480, 1.2, .1], [640, 70, 1, .8], [120, 330, .8, .5], [1150, 330, .9, .9]]);
+    const house = el('div', ''); house.id = 'house'; house.innerHTML = houseSvg(200); bright.appendChild(house);
+    // 撕口：从上到下一条锯齿线，中间偏右；左右两半用同一条线互补裁剪
+    const jag = []; for (let k = 0; k <= 24; k++) jag.push([640 + (k % 2 ? 22 : -18) + Math.sin(k * 1.7) * 26, k * 30]);
+    const poly = side => side === 'l' ? [[0, 0], ...jag, [0, 720]] : [[1280, 0], ...jag, [1280, 720]];
+    const halves = ['l', 'r'].map(s => { const h = el('div', 'half ' + s); buildDark(h); h.style.clipPath = 'polygon(' + poly(s).map(([x, y]) => `${x}px ${y}px`).join(',') + ')'; document.body.appendChild(h); return h; });
+    const plane = el('div', ''); plane.id = 'plane'; plane.innerHTML = planeSvg(190, ''); document.body.appendChild(plane);
+    const burst = el('div', 'burst'); document.body.appendChild(burst);
+    await document.fonts.ready; V4.start();
+    // 纸飞机从左边飞向画面中心，戳中后黑屏撕开
+    const fly = 650, t0 = performance.now();
+    await new Promise(res => (function step() {
+      const s = Math.min(1, (performance.now() - t0) / fly), e = s * s;
+      const x = -200 + e * (640 - 175 + 200), y = 470 - e * (470 - 300);
+      plane.style.transform = `translate(${x}px,${y}px) rotate(-12deg)`;
+      s < 1 ? requestAnimationFrame(step) : res();
+    })());
+    burst.classList.add('on');
+    halves.forEach(h => h.style.animation = 'sh .25s ease');
+    await wait(220);
+    halves.forEach(h => h.classList.add('go'));
+    plane.style.transition = 'transform .7s ease-in, opacity .7s'; plane.style.transform = 'translate(1400px,-200px) rotate(-20deg)';
+    await wait(500); house.classList.add('on');
+    await wait(S.total - 650 - 720);
+    return V4.done();
+  }
+
+  const { terms } = buildDark(document.body);
+  await document.fonts.ready; V4.start();
+  const T0 = Date.now(), until = ms => Date.now() - T0 < ms;
+  if (S.mode === 'chaos') {
+    // 日志乱滚：每格各自往下刷新行；一个白色光标在四格之间乱跳；陆续冒出「？？？」
+    const jump = el('div', 'jump'); document.body.appendChild(jump);
+    const qs = [[250, 150, -12], [900, 120, 9], [330, 420, 7], [960, 410, -8], [610, 270, -4]].map(([x, y, r]) => { const q = el('div', 'q', '？？？'); Object.assign(q.style, { left: x + 'px', top: y + 'px' }); q.style.setProperty('--r', r + 'deg'); document.body.appendChild(q); return q; });
+    let k = 0, qi = 0;
+    while (until(S.total)) {
+      terms.forEach((tm, i) => {
+        if ((k + i) % 2) return;
+        const src = tm.m.logs[(k * 3 + i * 5) % tm.m.logs.length];
+        const ln = el('div', /err|✗/.test(src) ? 'err' : /warn|\?/.test(src) ? 'warn' : ''); ln.textContent = src; tm.body.appendChild(ln);
+        if (tm.body.children.length > 14) tm.body.firstChild.remove();
+      });
+      if (k % 2 === 0) { const r = terms[(k * 7) % 4].w.getBoundingClientRect(); jump.style.left = (r.left + 30 + (k * 97) % (r.width * .5)) + 'px'; /* 只在左半边跳，避开右上角名字牌 */ void 0; jump.style.top = (r.top + 50 + (k * 53) % (r.height - 110)) + 'px'; }
+      if (Date.now() - T0 > 1400 + qi * 900 && qi < qs.length) qs[qi++].classList.add('on');
+      if (k % 9 === 4) terms[k % 4].w.classList.add('shake'), setTimeout((w => () => w.classList.remove('shake'))(terms[k % 4].w), 320);
+      k++; await wait(110);
+    }
+  } else if (S.mode === 'repeat') {
+    // 同一段背景在四格里轮流敲一遍，敲完回一句「请提供更多上下文」；第二格起越敲越快
+    const txt = t(S.typed), order = [0, 1, 2, 3];
+    for (let n = 0; n < order.length; n++) {
+      const tm = terms[order[n]], per = Math.max(18, 45 - n * 10);
+      tm.w.style.boxShadow = `0 0 0 3px ${tm.m.color}, 0 16px 40px rgba(0,0,0,.6)`;
+      for (let c = 1; c <= txt.length; c++) { tm.tx.textContent = txt.slice(0, c); await wait(per); }
+      await wait(120);
+      const rp = el('div', 'reply', t(S.reply)); tm.w.appendChild(rp); rp.classList.add('on'); tm.w.classList.add('shake');
+      tm.w.style.boxShadow = '';
+      await wait(260);
+    }
+    while (until(S.total)) await wait(50);
+  }
+  V4.done();
+})();
+</script></body></html>

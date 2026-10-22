@@ -1,0 +1,89 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!--
+  home 模板（v4 镜5 AI 的家）：白黄配色的群聊界面。左边频道列表，每个频道挂着 AI 娘头像；
+  用户在某个频道丢一句话，对应的角色举手接活；上方弹出标签。
+  来源：脚本 v4.1 镜5；用户原话「然后我们怎么AI的家，多会话管理，多cli管理」「不要那个传统的那个图标icon，换成他们的那个头像立绘」。
+  场景字段：server{zh,en}、roles{id:{head,en,zh,color,cli}}、channels[{name{zh,en},roles[id]}]、
+  steps[{ch,user{zh,en},role,say{zh,en}}]、chips[{text{zh,en},at}]、user{name{zh,en}}、total（毫秒）。
+  底部 80px 留给字幕。像素位置和动画时长是排版取值（目测），不是参数。
+-->
+<link rel="stylesheet" href="v4.css">
+<style>
+  .app { position:absolute; left:60px; top:96px; width:1160px; height:520px; background:#fffdf7; border-radius:22px; overflow:hidden; display:flex;
+    box-shadow:0 0 0 3px #f6e2b3, 0 18px 50px rgba(220,170,60,.25); opacity:0; transform:translateY(30px) scale(.97); transition:all .45s cubic-bezier(.34,1.3,.64,1); }
+  .app.on { opacity:1; transform:none; }
+  .side { width:330px; flex:none; background:linear-gradient(180deg,#fff3cf,#ffeab0); padding:18px 14px; display:flex; flex-direction:column; gap:8px; }
+  .srv { display:flex; align-items:center; gap:10px; font-size:24px; color:#5a3b12; padding:4px 8px 12px; border-bottom:2px dashed #f2cf7c; margin-bottom:6px; }
+  .ch { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:14px; font-size:22px; color:#8a6a3a; transition:background .25s, color .25s; opacity:0; transform:translateX(-16px); }
+  .ch.on { opacity:1; transform:none; transition:all .35s ease; }
+  .ch.act { background:#fff; color:#3b2a18; box-shadow:0 4px 12px rgba(220,170,60,.25); }
+  .ch .hash { color:#f0a030; font-family:"Avenir Next",Arial,sans-serif; font-weight:800; }
+  .ch .nm { flex:1; }
+  .ch .hd { width:40px; height:40px; border-radius:50%; background:#fff; border:2.5px solid var(--c); margin-left:-10px; object-fit:cover; position:relative; transition:transform .3s cubic-bezier(.34,1.8,.64,1); }
+  .ch .hd.up { transform:translateY(-10px) scale(1.25); z-index:2; }
+  .main { flex:1; display:flex; flex-direction:column; padding:18px 26px; gap:14px; position:relative; }
+  .topic { font-size:24px; color:#3b2a18; padding-bottom:10px; border-bottom:2px solid #f6ead0; display:flex; align-items:center; gap:8px; }
+  .topic .hash { color:#f0a030; font-family:"Avenir Next",Arial,sans-serif; font-weight:800; }
+  .msgs { flex:1; display:flex; flex-direction:column; justify-content:flex-end; gap:14px; }
+  .msg { display:flex; gap:14px; align-items:flex-start; opacity:0; transform:translateY(14px) scale(.96); transition:all .32s cubic-bezier(.34,1.56,.64,1); }
+  .msg.on { opacity:1; transform:none; }
+  .msg .av { width:62px; height:62px; flex:none; border-radius:50%; border:3px solid var(--c); background:#fff; object-fit:cover; }
+  .msg .av.me { display:flex; align-items:center; justify-content:center; background:#ffd36b; color:#fff; font-size:28px; }
+  .msg .who { font-size:18px; color:var(--c); display:flex; gap:8px; align-items:center; }
+  .msg .who em { font-style:normal; font:700 13px/1 "Avenir Next",Arial,sans-serif; color:#fff; background:var(--c); border-radius:6px; padding:3px 7px; }
+  .msg .txt { margin-top:5px; font-size:26px; color:#3b2a18; background:#fff; border-radius:4px 18px 18px 18px; padding:10px 16px; box-shadow:0 3px 10px rgba(200,150,60,.15); display:inline-block; }
+  .hand { display:inline-block; animation:wave .5s ease-in-out 3; transform-origin:70% 90%; }
+  @keyframes wave { 50% { transform:rotate(-22deg); } }
+  .chips { position:absolute; top:24px; left:0; right:0; display:flex; justify-content:center; gap:26px; }
+  .chip { font-size:40px; color:#fff; background:linear-gradient(135deg,#ffb23e,#ff7e5f); border:4px solid #fff; border-radius:999px; padding:8px 30px 10px;
+    box-shadow:0 8px 0 rgba(230,120,40,.25), 0 12px 30px rgba(255,140,60,.3); opacity:0; transform:scale(.4) rotate(-6deg); }
+  .chip.b { background:linear-gradient(135deg,#7bc6ff,#8f7bff); box-shadow:0 8px 0 rgba(90,90,220,.22), 0 12px 30px rgba(120,120,255,.3); }
+  .chip.on { animation:cpop .5s cubic-bezier(.34,1.7,.64,1) forwards; }
+  @keyframes cpop { to { opacity:1; transform:rotate(-2deg); } }
+</style></head>
+<body class="bright">
+<div class="chips" id="chips"></div>
+<div class="app" id="app"><div class="side" id="side"></div><div class="main"><div class="topic" id="topic"></div><div class="msgs" id="msgs"></div></div></div>
+<script src="v4.js"></script>
+<script>
+(async () => {
+  const S = window.SCENE, { t, wait, el, houseSvg, sparks } = V4, R = S.roles;
+  sparks(document.body, [[40, 60, 1.2], [1210, 70, 1, .4], [30, 640, .9, .7], [1230, 620, 1.1, .2]]);
+  const side = document.getElementById('side');
+  side.appendChild(el('div', 'srv', houseSvg(34) + `<span>${t(S.server)}</span>`));
+  const chs = S.channels.map(c => {
+    const d = el('div', 'ch', `<span class="hash">#</span><span class="nm">${t(c.name)}</span>` + c.roles.map(id => `<img class="hd" data-r="${id}" src="${R[id].head}" style="--c:${R[id].color}">`).join(''));
+    side.appendChild(d); return d;
+  });
+  const chips = S.chips.map((c, i) => { const d = el('div', 'chip' + (i % 2 ? ' b' : ''), t(c.text)); document.getElementById('chips').appendChild(d); return d; });
+  const topic = document.getElementById('topic'), msgs = document.getElementById('msgs');
+  function msg(role, text) {
+    const r = role ? R[role] : null, d = el('div', 'msg');
+    d.style.setProperty('--c', r ? r.color : '#f0a030');
+    d.innerHTML = (r ? `<img class="av" src="${r.head}">` : `<div class="av me">🙂</div>`) +
+      `<div><div class="who">${r ? `${t(r.zh)} <em>${r.cli}</em>` : t(S.user.name)}</div><div class="txt">${text}</div></div>`;
+    msgs.appendChild(d); requestAnimationFrame(() => d.classList.add('on'));
+    while (msgs.children.length > 4) msgs.firstChild.remove();
+  }
+  await Promise.all([...document.images].map(i => i.decode().catch(() => {})));
+  await document.fonts.ready; V4.start();
+  const T0 = Date.now();
+  S.chips.forEach((c, i) => setTimeout(() => chips[i].classList.add('on'), c.at));
+  document.getElementById('app').classList.add('on');
+  for (const c of chs) { await wait(90); c.classList.add('on'); }
+  for (const s of S.steps) {
+    chs.forEach(c => c.classList.remove('act')); chs[s.ch].classList.add('act');
+    topic.innerHTML = `<span class="hash">#</span>${t(S.channels[s.ch].name)}`;
+    msgs.innerHTML = '';
+    await wait(200); msg(null, t(s.user));
+    await wait(550);
+    const hd = chs[s.ch].querySelector(`[data-r="${s.role}"]`); hd && hd.classList.add('up');
+    msg(s.role, `<span class="hand">✋</span> ${t(s.say)}`);
+    await wait(s.hold);
+    hd && hd.classList.remove('up');
+  }
+  await wait(Math.max(0, S.total - (Date.now() - T0)));
+  V4.done();
+})();
+</script></body></html>

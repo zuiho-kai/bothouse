@@ -1,0 +1,79 @@
+{
+  "_source": "PM 派活的脚本 v4.1；旁白照脚本，CLI 念「C L I」、bothouse 念「Bot House」，字幕仍按原文写；镜1、镜6 没有旁白不出字幕。v4b：用户「背景音乐整体有点怪不连贯」→ 整片一首 happytime（Gemini 在四首候选里选的，/tmp/promo-v4/review/music-r.txt），seek 0.5 跳过开头静音（silencedetect 实测）；黑底镜2–3 压到 0.55 倍（约 -5 dB，我定的）不断曲；用户「转折的时候那个声音也不好」→ 镜4 加撕纸声 paper-tear2 和亮音 kira2（Gemini 从 6 个候选里选的，/tmp/promo-v4/review/sfx-r.txt），at 对齐 terms.html flip 的戳破（0.65 秒）和小房子弹出（约 1.37 秒）",
+  "music": {
+    "file": "music/happytime.mp3",
+    "seek": 0.5,
+    "dip": [
+      {
+        "from": 1,
+        "to": 3,
+        "gain": 0.55
+      }
+    ]
+  },
+  "clips": [
+    {
+      "scene": "v4-cover"
+    },
+    {
+      "scene": "v4-chaos",
+      "vo": "vo/zh-v4/02.wav",
+      "sub": [
+        "你家的 AI，还在各住各的吗？",
+        "四个终端，四个窗口。"
+      ]
+    },
+    {
+      "scene": "v4-repeat",
+      "vo": "vo/zh-v4/03.wav",
+      "sub": "换个窗口，又得从头讲。"
+    },
+    {
+      "scene": "v4-flip",
+      "vo": "vo/zh-v4/04.wav",
+      "sub": [
+        "那就……给她们一个家吧！"
+      ]
+    },
+    {
+      "scene": "v4-home",
+      "vo": "vo/zh-v4/05.wav",
+      "sub": [
+        "一个群就是一个家",
+        "多会话、多 CLI，一处全管好。"
+      ]
+    },
+    {
+      "scene": "v4-debut"
+    },
+    {
+      "scene": "v4-collab",
+      "vo": "vo/zh-v4/07.wav",
+      "sub": [
+        "你丢一句需求",
+        "她们自己写脚本、互相补充、分头开工。"
+      ]
+    },
+    {
+      "scene": "v4-outro",
+      "vo": "vo/zh-v4/08.wav",
+      "sub": [
+        "bothouse，欢迎回家！"
+      ]
+    }
+  ],
+  "sfx": [
+    {
+      "file": "music/sfx-paper-tear2.mp3",
+      "shot": 3,
+      "at": 0.68,
+      "gain": 1.0
+    },
+    {
+      "file": "music/sfx-kira2.mp3",
+      "shot": 3,
+      "at": 1.35,
+      "gain": 0.8
+    }
+  ]
+}
