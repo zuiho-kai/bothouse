@@ -110,12 +110,14 @@ class RoleWiki(unittest.TestCase):
         """ingest.py's dsh engine: the configured command, --profile headless, the overlay, the env file, stdin."""
         self.run_py("setup_wiki.py", "--main", str(self.home / "wiki"), "主管")
         self.role("whale", "dsh")
-        fake = self.tmp / "fake-dsh"
-        fake.write_text("#!/bin/sh\necho \"argv=$*\"; echo \"key=$DSH_WIZARD_API_KEY\"; wc -c | tr -d ' '\n")
-        fake.chmod(0o755)
+        # a Python fake run as [python, script], the shape the wizard writes (core/rolewiki.go: node + bin.js), so it
+        # runs on Windows too, where a #!/bin/sh script cannot be started
+        fake = self.tmp / "fake-dsh.py"
+        fake.write_text("import os,sys\nprint('argv=' + ' '.join(sys.argv[1:])); print('key=' + os.environ.get('DSH_WIZARD_API_KEY', ''))\n"
+                        "print(len(sys.stdin.buffer.read()))\n")
         envf = self.tmp / "whale.env"
         envf.write_text("DSH_WIZARD_API_KEY=sk-test\n")
-        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "dsh", "night_engine": "dsh", "dsh_cmd": [str(fake)],
+        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "dsh", "night_engine": "dsh", "dsh_cmd": [sys.executable, str(fake)],
                                                "dsh_patch": "/p.yml", "dsh_env_file": str(envf)})
         self.run_py("setup_wiki.py", "whale")
         w = self.home / "roles" / "whale" / "wiki"
