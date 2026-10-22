@@ -633,9 +633,10 @@
     background: var(--dsw-alias-bg-layer-2);
   }
 
+  /* Same block flow as the desktop columns; flex here laid the header, close button and list side by side. */
   .rooms.drawerOpen,
   .members.drawerOpen {
-    display: flex;
+    display: block;
   }
 
   .mobileBackdrop {
