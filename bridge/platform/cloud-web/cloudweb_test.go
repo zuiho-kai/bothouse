@@ -1,6 +1,10 @@
 package cloudweb
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/chenhg5/cc-connect/core"
+)
 
 func TestNew_RequiredFields(t *testing.T) {
 	tests := []struct {
@@ -57,5 +61,26 @@ func TestBuildSessionKey(t *testing.T) {
 func TestDeriveBaseURL(t *testing.T) {
 	if got := deriveBaseURL("https://gateway.example.com/cloud-web/v1/register"); got != "https://gateway.example.com" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// DSH collab 停止房间时给外部 bot 发 message_recall（Issue #8）：帧必须以
+// Recalled=true、MessageID=msg_id 交给引擎，引擎据此停掉在跑的一轮或删掉排队消息。
+// collab 不带 session_key（引擎按 msg_id 跨会话匹配），多出的 chat_id 应被忽略。
+func TestHandleWire_MessageRecallReachesHandler(t *testing.T) {
+	p := mustNew(t, map[string]any{"token": "t", "transport": "websocket", "ws_url": "ws://127.0.0.1:1/ws"})
+	var got *core.Message
+	p.handler = func(_ core.Platform, m *core.Message) { got = m }
+	p.handleWire([]byte(`{"type":"message_recall","msg_id":"hub-42","chat_id":"room-1"}`))
+	if got == nil {
+		t.Fatal("recall not dispatched")
+	}
+	if !got.Recalled || got.MessageID != "hub-42" {
+		t.Fatalf("Recalled=%v MessageID=%q, want true hub-42", got.Recalled, got.MessageID)
+	}
+	got = nil
+	p.handleWire([]byte(`{"type":"message_recall","chat_id":"room-1"}`))
+	if got != nil {
+		t.Fatal("recall without msg_id must be ignored")
 	}
 }
