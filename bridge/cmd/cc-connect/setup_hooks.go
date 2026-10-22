@@ -24,6 +24,11 @@ $DSH_HOME/cordis.patch.yml. The scripts are installed into <data_dir>/hooks; the
 tells the model the rules of the hooks that are on. "off" removes the hooks and that block (or, with
 --only, just those hooks and their lines); other hooks and the rest of both files are left as they are.
 
+To pause hooks without uninstalling them, the user tells the bot in chat ("turn the checks off"): the
+persona block makes it run <data_dir>/hooks/run.py off|on [hook…], which writes
+<dir>/.claude/conest-hooks.json ({"off": ["bash-guard"]} or {"off": ["all"]}; editing it by hand works too).
+"status" shows both.
+
 Hooks: %s
 
 Flags:
@@ -82,7 +87,8 @@ func runSetupHooks(args []string) {
 	default:
 		var on []string
 		on, err = core.AgentHooksEnabled(wd)
-		res = map[string]any{"enabled": on, "settings_file": core.AgentHookSettingsPath(wd), "hooks": core.AgentHookNames()}
+		res = map[string]any{"enabled": on, "settings_file": core.AgentHookSettingsPath(wd), "hooks": core.AgentHookNames(),
+			"switched_off": core.AgentHooksSwitchedOff(wd), "switch_file": core.AgentHookSwitchFile(wd)}
 	}
 	if err != nil {
 		fail(err)

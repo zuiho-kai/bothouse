@@ -276,6 +276,33 @@ func AgentHooksEnabled(workDir string) ([]string, error) {
 // has no DSH agent type (DSH roles are set up by hand; "cc-connect setup hooks on --cli dsh").
 func wizardHooksFor(agentType string) bool { return agentType == "claudecode" && AgentHookFS != nil }
 
+// AgentHookSwitchFile is the role's on/off switch: {"off": [hook names] or ["all"]}. run.py reads it on every
+// call and writes it for "run.py off|on" (what the agent runs when its user asks in chat).
+func AgentHookSwitchFile(workDir string) string {
+	return filepath.Join(workDir, ".claude", "conest-hooks.json")
+}
+
+// AgentHooksSwitchedOff lists the hooks the switch file turns off ("all" = every hook).
+func AgentHooksSwitchedOff(workDir string) []string {
+	var v struct {
+		Off []string `json:"off"`
+	}
+	b, err := os.ReadFile(AgentHookSwitchFile(workDir))
+	if err != nil || json.Unmarshal(b, &v) != nil {
+		return []string{}
+	}
+	if slices.Contains(v.Off, "all") {
+		return AgentHookNames()
+	}
+	out := []string{}
+	for _, h := range agentHooks {
+		if slices.Contains(v.Off, h.Name) {
+			out = append(out, h.Name)
+		}
+	}
+	return out
+}
+
 // AgentHookCLIs are the CLIs the hooks run under: Claude Code natively, DSH through its bridge.
 var AgentHookCLIs = []string{"claudecode", "dsh"}
 

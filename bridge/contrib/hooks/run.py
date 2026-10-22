@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """Hook entry for Claude Code and DSH: run.py <hook name>  (e.g. run.py bash-guard).
+Switch: run.py off|on [hook ...] / run.py status  — turn hooks off or on for this role (no names = all).
+The agent runs it when its user asks in chat (the persona block says so); a person can edit the file instead.
+The state is the role's .claude/conest-hooks.json: {"off": ["bash-guard", ...]} or {"off": ["all"]}, read on
+every hook call, so a change applies at once. The role directory is the nearest directory upwards from
+CLAUDE_PROJECT_DIR / the payload's cwd / the current directory that has .claude/settings.json.
 
 The hooks in this directory are written against Claude Code's hook protocol. Claude Code calls them through
 this file unchanged. DSH runs the same .claude/settings.json through its official bridge
@@ -244,9 +249,68 @@ def load_state():
         return {}
 
 
+SWITCH = os.path.join(".claude", "conest-hooks.json")
+
+
+def hook_names():
+    return sorted(f[:-3] for f in os.listdir(HERE)
+                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "ctxsvc.py", "wiki_search.py")
+                  and not f.startswith("test_"))
+
+
+def role_dir(start=None):
+    d = os.path.abspath(start or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+    probe = d
+    while True:
+        if os.path.isfile(os.path.join(probe, ".claude", "settings.json")):
+            return probe
+        up = os.path.dirname(probe)
+        if up == probe:
+            return d
+        probe = up
+
+
+def load_off(d):
+    try:
+        with open(os.path.join(d, SWITCH), encoding="utf-8") as f:
+            off = json.load(f).get("off") or []
+        return {str(x) for x in off} if isinstance(off, list) else set()
+    except (OSError, ValueError, AttributeError):
+        return set()
+
+
+def switch(action, names):
+    d = role_dir()
+    known = hook_names()
+    bad = [n for n in names if n not in known]
+    if bad:
+        sys.exit(f"unknown hook {', '.join(bad)}; hooks: {', '.join(known)}")
+    off = load_off(d)
+    if action == "off":
+        off = {"all"} if not names else (off | set(names))
+    elif action == "on":
+        if not names:
+            off = set()
+        else:
+            if "all" in off:
+                off = set(known)
+            off -= set(names)
+    if action in ("on", "off"):
+        os.makedirs(os.path.join(d, ".claude"), exist_ok=True)
+        with open(os.path.join(d, SWITCH), "w", encoding="utf-8") as f:
+            json.dump({"off": sorted(off)}, f, ensure_ascii=False)
+            f.write("\n")
+    disabled = set(known) if "all" in off else off & set(known)
+    print(json.dumps({"role_dir": d, "switch_file": os.path.join(d, SWITCH),
+                      "on": [n for n in known if n not in disabled], "off": [n for n in known if n in disabled]},
+                     ensure_ascii=False))
+
+
 def main():
     if len(sys.argv) < 2:
-        sys.exit("usage: run.py <hook name>")
+        sys.exit("usage: run.py <hook name> | run.py off|on [hook ...] | run.py status")
+    if sys.argv[1] in ("off", "on", "status"):
+        return switch(sys.argv[1], sys.argv[2:])
     name = os.path.basename(sys.argv[1])
     target = os.path.join(HERE, name if name.endswith(".py") else name + ".py")
     raw = sys.stdin.read()
@@ -256,6 +320,9 @@ def main():
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
+    off = load_off(role_dir(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or None))
+    if "all" in off or name in off:
+        sys.exit(0)  # switched off for this role (run.py off): pass without running the hook
     tool = payload.get("tool_name")
     dsh = isinstance(tool, str) and (tool in NAMES or tool == "str_replace_editor")
     if dsh:

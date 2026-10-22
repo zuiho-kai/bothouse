@@ -35,9 +35,9 @@ class Hooks(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp)
 
-    def run_hook(self, name, payload, env=None):
+    def run_hook(self, name, payload, env=None, cwd=None):
         r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), name], input=json.dumps(payload),
-                           capture_output=True, text=True, env=env or self.env, timeout=30)
+                           capture_output=True, text=True, env=env or self.env, timeout=30, cwd=cwd)
         self.assertIn(r.returncode, (0, 2), r.stderr)
         return r.stdout.strip()
 
@@ -129,6 +129,54 @@ class Hooks(unittest.TestCase):
         self.assertEqual(self.run_hook("fix-claim-guard", p), "")  # same turn: only once, like Claude Code
         self.session("stop2", recs, depth=1)
         self.assertEqual(self.run_hook("fix-claim-guard", dict(p, session_id="stop2")), "")  # subagent: no Stop
+
+    # ---- switch: run.py off|on|status, what the agent runs when its user asks in chat ----
+    def test_switch(self):
+        role = os.path.join(self.tmp, "role")
+        os.makedirs(os.path.join(role, ".claude", "sub"), exist_ok=True)
+        with open(os.path.join(role, ".claude", "settings.json"), "w") as f:
+            f.write("{}")
+        sub = os.path.join(role, ".claude", "sub")  # the agent may have cd'ed below the role directory
+
+        def sw(*args):
+            r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), *args], capture_output=True,
+                               text=True, env=self.env, cwd=sub, timeout=30)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return json.loads(r.stdout)
+
+        kill = {"hook_event_name": "PreToolUse", "tool_name": "bash", "tool_input": {"command": "pkill -f x"}}
+        agent = {"hook_event_name": "PreToolUse", "tool_name": "subagent", "tool_input": {"prompt": "改一下 foo"}}
+        bash_ok = lambda: not self.denied(self.run_hook("bash-guard", kill, cwd=role))  # DSH: no cwd in the payload
+        cc_kill = dict(kill, tool_name="Bash", cwd=role)  # Claude Code: cwd in the payload
+        self.assertFalse(bash_ok())
+        st = sw("off")
+        self.assertEqual(st["on"], [])
+        self.assertTrue(bash_ok())
+        self.assertEqual(self.run_hook("bash-guard", cc_kill), "")
+        self.assertEqual(self.run_hook("dispatch-review-guard", agent, cwd=role), "")
+        st = sw("on")
+        self.assertEqual(st["off"], [])
+        self.assertFalse(bash_ok())
+        self.assertTrue(self.denied(self.run_hook("bash-guard", cc_kill)))
+        st = sw("off", "dispatch-review-guard")
+        self.assertEqual(st["off"], ["dispatch-review-guard"])
+        self.assertEqual(self.run_hook("dispatch-review-guard", agent, cwd=role), "")
+        self.assertFalse(bash_ok())  # one hook off leaves the others on
+        st = sw("on", "dispatch-review-guard")
+        self.assertTrue(self.denied(self.run_hook("dispatch-review-guard", agent, cwd=role)))
+        st = sw("off")
+        st = sw("on", "bash-guard")  # from "all off", one back on
+        self.assertEqual(st["on"], ["bash-guard"])
+        self.assertFalse(bash_ok())
+        self.assertEqual(self.run_hook("dispatch-review-guard", agent, cwd=role), "")
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "off", "nope"], capture_output=True,
+                           text=True, env=self.env, cwd=sub)
+        self.assertNotEqual(r.returncode, 0)
+        with open(os.path.join(role, ".claude", "conest-hooks.json")) as f:  # the file a person can edit too
+            self.assertEqual(json.load(f), {"off": sorted(set(st["off"]))})
+        # bash-guard lets the switch command itself through
+        self.assertEqual(self.run_hook("bash-guard", {"hook_event_name": "PreToolUse", "tool_name": "bash",
+            "tool_input": {"command": "python3 " + os.path.join(self.hooks, "run.py") + " off"}}, cwd=self.tmp), "")
 
     # ---- wiki-context ----
     def test_wiki_context(self):

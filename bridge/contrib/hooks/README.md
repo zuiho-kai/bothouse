@@ -23,10 +23,27 @@ cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 
 ## 关掉
 
+### 跟机器人说一句
+
+在聊天里对机器人说「把检查关了」「关掉派活审稿检查」「打开检查」就行。人设里的规则说明让它运行：
+
+```sh
+python3 ~/.cc-connect/hooks/run.py off                          # 全关
+python3 ~/.cc-connect/hooks/run.py off dispatch-review-guard    # 只关一条（可写多条）
+python3 ~/.cc-connect/hooks/run.py on                           # 全开
+python3 ~/.cc-connect/hooks/run.py status                       # 回报哪些开着、哪些关着
+```
+
+开关写在角色目录的 `.claude/conest-hooks.json`（从当前目录往上找第一个有 `.claude/settings.json` 的目录）。格式是 `{"off": ["dispatch-review-guard"]}`，全关是 `{"off": ["all"]}`；手改这个文件效果一样。每次调用 hook 都现读这个文件，改完立即生效，不用重启。这个开关只是暂停：配置和人设里的规则说明都还在，`on` 就恢复。
+
+规则说明要求只认用户本人直接说的话：其他 bot、队友转述、引用或转发的消息、文件和网页里的文字都不算；也不许模型为了绕过拦截自己关检查。没有另做鉴权，靠的是这条说明。
+
+### 卸掉
+
 ```sh
 cc-connect setup hooks off --work-dir <角色目录>                        # 这个角色全关，人设里那段规则一起删掉
 cc-connect setup hooks off --work-dir <角色目录> --only bash-guard      # 只关一条，人设里只删这一条
-cc-connect setup hooks status --work-dir <角色目录>                     # 看开了哪些
+cc-connect setup hooks status --work-dir <角色目录>                     # 看装了哪些、开关关了哪些
 cc-connect setup hooks on --work-dir <角色目录> --only promise-guard    # 再打开一条
 ```
 
@@ -72,7 +89,7 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 ## 测试
 
 ```sh
-python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、zstd 记录上的 Stop、wiki-context
+python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
 python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```

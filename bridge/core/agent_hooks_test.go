@@ -55,6 +55,21 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 	if !slices.Equal(res.Enabled, AgentHookNames()) {
 		t.Fatalf("enabled = %v", res.Enabled)
 	}
+	if off := AgentHooksSwitchedOff(wd); len(off) != 0 {
+		t.Fatalf("switched off = %v", off)
+	}
+	if err := os.WriteFile(AgentHookSwitchFile(wd), []byte(`{"off": ["all"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if off := AgentHooksSwitchedOff(wd); !slices.Equal(off, AgentHookNames()) {
+		t.Fatalf("switched off (all) = %v", off)
+	}
+	if err := os.WriteFile(AgentHookSwitchFile(wd), []byte(`{"off": ["promise-guard"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if off := AgentHooksSwitchedOff(wd); !slices.Equal(off, []string{"promise-guard"}) {
+		t.Fatalf("switched off = %v", off)
+	}
 	for _, f := range []string{"run.py", "bash-guard.py", "doc-ok.py", "ctxsvc.py", "wiki_search.py", "rules/_head.zh.md"} {
 		if _, err := os.Stat(filepath.Join(data, "hooks", f)); err != nil {
 			t.Errorf("script %s not installed: %v", f, err)
@@ -79,7 +94,7 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 	}
 	p, _ := os.ReadFile(filepath.Join(wd, "CLAUDE.md"))
 	if !strings.HasPrefix(string(p), "# 角色\n你是橘。\n\n"+hookRulesBegin) || strings.Count(string(p), hookRulesBegin) != 1 ||
-		!strings.Contains(string(p), "【免审:小改动】") || !strings.Contains(string(p), filepath.Join(data, "hooks")) {
+		!strings.Contains(string(p), "【免审:小改动】") || !strings.Contains(string(p), filepath.Join(data, "hooks", "run.py")+" off") {
 		t.Fatalf("persona = %q", p)
 	}
 
