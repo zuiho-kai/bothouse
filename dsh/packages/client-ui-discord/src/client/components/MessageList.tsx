@@ -8,7 +8,7 @@ import css from '../ChannelsPage.module.css'
 type T = TranslateNS<typeof NS>
 
 export interface MessageListProps {
-  logRef: RefObject<HTMLDivElement | null>
+  logRef: RefObject<HTMLDivElement>
   messages: readonly ChannelMessage[]
   membersById: ReadonlyMap<string, ChannelMember>
   busyNames: readonly string[]

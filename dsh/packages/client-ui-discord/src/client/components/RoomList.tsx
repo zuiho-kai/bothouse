@@ -10,7 +10,7 @@ export interface RoomListProps {
   rooms: readonly ChannelRoom[]
   activeRoomId: number | undefined
   isOpenOnMobile: boolean
-  drawerRef?: RefObject<HTMLElement | null>
+  drawerRef?: RefObject<HTMLElement>
   newRoom: string | undefined
   roomError: string | undefined
   onSelectRoom: (roomId: number) => void

@@ -13,8 +13,8 @@ export interface RoomViewProps {
   room: ChannelRoom | undefined
   roomId: number | undefined
   drawer: 'rooms' | 'members' | undefined
-  logRef: RefObject<HTMLDivElement | null>
-  inputRef: RefObject<HTMLTextAreaElement | null>
+  logRef: RefObject<HTMLDivElement>
+  inputRef: RefObject<HTMLTextAreaElement>
   messages: readonly ChannelMessage[]
   membersById: ReadonlyMap<string, ChannelMember>
   busyNames: readonly string[]

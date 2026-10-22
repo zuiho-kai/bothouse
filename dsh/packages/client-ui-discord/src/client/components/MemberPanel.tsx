@@ -59,7 +59,7 @@ export interface MemberPanelProps {
   members: readonly ChannelMember[]
   busy: ReadonlySet<string>
   isOpenOnMobile: boolean
-  drawerRef?: RefObject<HTMLElement | null>
+  drawerRef?: RefObject<HTMLElement>
   memberError: string | undefined
   onAddMember: () => void
   onPickMember: (member: ChannelMember) => void

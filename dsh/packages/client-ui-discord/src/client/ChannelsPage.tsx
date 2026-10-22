@@ -4,7 +4,7 @@
  * injected `useChannels` hook; posting goes through the injected actions.
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type UIEvent } from 'react'
-import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelSnapshot } from './channel-source.ts'
@@ -26,8 +26,6 @@ export interface ChannelsInjected extends ChannelActions {
 
 /** Full props of the channels main panel. */
 export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS>
-
-type T = TranslateNS<typeof NS>
 
 /**
  * Render the channels panel.
