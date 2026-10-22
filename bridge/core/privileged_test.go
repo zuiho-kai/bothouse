@@ -78,7 +78,7 @@ func TestHandleCommand_CommandsListNoAdmin(t *testing.T) {
 	msg := &Message{UserID: "u", Platform: "test", ReplyCtx: "rctx"}
 	handled := e.handleCommand(p, msg, "/commands list")
 	if !handled {
-		t.Fatal("/commands list must be handled by cc-connect")
+		t.Fatal("/commands list must be handled by bothouse")
 	}
 	for _, s := range p.getSent() {
 		if strings.Contains(strings.ToLower(s), "admin") &&
@@ -103,4 +103,3 @@ func TestHandleCommand_CronAddexecBlocksNonAdmin(t *testing.T) {
 		t.Fatalf("expected admin-required reply; got %#v", sent)
 	}
 }
-

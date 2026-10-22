@@ -1,12 +1,12 @@
 # ACP 适配层设计（草案）
 
-本文描述在 cc-connect 中增加 **Agent Client Protocol（ACP）** 适配的可行方案，目标是让 **已实现 ACP Agent 端** 的上游进程（见 [官方 Agents 列表](https://agentclientprotocol.com/get-started/agents)）能通过 **统一协议**接入现有 `core.Engine`，减少为每个 CLI 单独维护解析逻辑的成本。
+本文描述在 bothouse 中增加 **Agent Client Protocol（ACP）** 适配的可行方案，目标是让 **已实现 ACP Agent 端** 的上游进程（见 [官方 Agents 列表](https://agentclientprotocol.com/get-started/agents)）能通过 **统一协议**接入现有 `core.Engine`，减少为每个 CLI 单独维护解析逻辑的成本。
 
 ## 1. 背景与术语
 
 - **ACP**：基于 JSON-RPC 的标准，用于 **Client（如编辑器）↔ Agent（编码助手进程）** 通信；与 IM 无关。
-- **对 cc-connect 的价值**：在 `agent/` 侧实现 **ACP Client**（连接子进程或 socket 上的 ACP Agent），将 ACP 消息映射为现有的 `core.Agent` / `core.AgentSession` / `core.Event`，从而使 **飞书 / Telegram 等平台** 与「任意兼容 ACP 的 Agent 后端」对接。
-- **不在本文范围（可选二期）**：让 cc-connect **作为 ACP Agent 对外暴露**，供 Zed 等编辑器直连；需完整实现协议 Agent 侧，工作量更大。
+- **对 bothouse 的价值**：在 `agent/` 侧实现 **ACP Client**（连接子进程或 socket 上的 ACP Agent），将 ACP 消息映射为现有的 `core.Agent` / `core.AgentSession` / `core.Event`，从而使 **飞书 / Telegram 等平台** 与「任意兼容 ACP 的 Agent 后端」对接。
+- **不在本文范围（可选二期）**：让 bothouse **作为 ACP Agent 对外暴露**，供 Zed 等编辑器直连；需完整实现协议 Agent 侧，工作量更大。
 
 ## 2. 架构约束（与仓库规则一致）
 
@@ -24,13 +24,13 @@
   1. 会话生命周期：与 `StartSession` / `Close` / `CurrentSessionID` 对齐。
   2. **Prompt turn**：用户文本（及后续可选图片/文件）→ ACP 对应方法；响应流 → `Event`（`EventResult`、`EventThinking`、增量文本等，与现有 Engine 消费方式一致）。
   3. **工具调用与用户批准**：映射到 `EventPermission` + `RespondPermission`（若 ACP 方法名与字段与 core 不完全一致，在适配层做字段转换）。
-- 单项目、单用户会话语义与现有一致：`session_key` 仍由 Platform 提供，ACP 侧使用独立 `sessionID` 字符串与 cc-connect 会话绑定策略需在实现阶段定稿（建议：cc-connect `sessionID` 传入 adapter，ACP session id 由子进程返回或持久化路径配置）。
+- 单项目、单用户会话语义与现有一致：`session_key` 仍由 Platform 提供，ACP 侧使用独立 `sessionID` 字符串与 bothouse 会话绑定策略需在实现阶段定稿（建议：bothouse `sessionID` 传入 adapter，ACP session id 由子进程返回或持久化路径配置）。
 
 ### 3.2 明确延后（二期+）
 
 - ACP **File System / Terminal** 全量映射（若与 IM 展示模型差距大，可先降级为文本摘要或仅日志）。
 - **Slash commands / Agent plan** 与 IM 命令体系的统一（可先忽略或透传为纯文本）。
-- cc-connect **作为 ACP Server** 供编辑器连接。
+- bothouse **作为 ACP Server** 供编辑器连接。
 
 ## 4. 组件划分
 

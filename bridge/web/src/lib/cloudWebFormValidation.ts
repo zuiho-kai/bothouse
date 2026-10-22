@@ -79,7 +79,7 @@ export function validateCloudWebForm(values: Record<string, unknown>): CloudWebV
         return { messageKey: 'setup.cloudWeb.urlRequiredGateway' };
       }
       // Mirror backend New(): register_url requires public_url so the gateway
-      // can reach the cc-connect webhook callback.
+      // can reach the bothouse webhook callback.
       if (registerUrl && !publicUrl) {
         return { messageKey: 'setup.cloudWeb.publicUrlRequiredGateway' };
       }

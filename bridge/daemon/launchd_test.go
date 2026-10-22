@@ -13,7 +13,7 @@ import (
 
 func TestBuildPlist_KeepAliveDoesNotRestartOnCleanExit(t *testing.T) {
 	cfg := Config{
-		BinaryPath: "/opt/cc-connect/cc-connect",
+		BinaryPath: "/opt/bothouse/bothouse",
 		WorkDir:    "/tmp/wd",
 		LogFile:    "/tmp/log",
 		LogMaxSize: 10485760,
@@ -293,8 +293,8 @@ func containsCall(calls []string, want string) bool {
 // `launchctl bootstrap` rejected.
 func TestBuildPlist_EscapesXMLSpecialCharsInPaths(t *testing.T) {
 	cfg := Config{
-		BinaryPath: "/opt/cc-connect/bin & <tools>/cc-connect",
-		WorkDir:    "/Users/jane/Projects/dev & test/cc-connect",
+		BinaryPath: "/opt/bothouse/bin & <tools>/bothouse",
+		WorkDir:    "/Users/jane/Projects/dev & test/bothouse",
 		LogFile:    "/Users/jane/Library/Logs/cc \"connect\".log",
 		LogMaxSize: 10485760,
 		EnvPATH:    "/usr/bin:/path/with'apostrophe/bin",

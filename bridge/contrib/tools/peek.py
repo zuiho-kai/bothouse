@@ -2,15 +2,15 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""peek: see what each bot (cc-connect project) is doing right now, read-only.
+"""peek: see what each bot (bothouse project) is doing right now, read-only.
 
   peek                    one line per bot: last action, how long ago, the last two steps
   peek <bot>              the last 12 steps of one bot (time, duration, tool, command)
   peek <bot> -n 20        more steps
-  peek --config <file>    use this cc-connect config.toml
+  peek --config <file>    use this bothouse config.toml
 
 <bot> is a project's name or team_name in config.toml (case-insensitive), or its agent type when only one
-project uses that type. The bots come from cc-connect's own config: each [[projects]] entry's agent type and
+project uses that type. The bots come from bothouse's own config: each [[projects]] entry's agent type and
 work_dir say which session log to read. Nothing is written and no bot is disturbed.
 
   claudecode   $CLAUDE_CONFIG_DIR or ~/.claude: projects/<work_dir with every non-alphanumeric char as ->/*.jsonl
@@ -21,7 +21,7 @@ work_dir say which session log to read. Nothing is written and no bot is disturb
   antigravity  only whether the newest conversation file changed recently (it is protobuf in sqlite)
   others       not supported yet (the bot is listed as such)
 
-Config: --config, else $CC_CONNECT_CONFIG, else ./config.toml, else ~/.cc-connect/config.toml (cc-connect's own
+Config: --config, else $CC_CONNECT_CONFIG, else ./config.toml, else ~/.bothouse/config.toml (bothouse's own
 order), else config.toml in the data dir this script is installed under (<data_dir>/tools/peek.py).
 """
 import glob
@@ -48,7 +48,7 @@ OPEN_TURN_SECS = 900  # 沿用原版 peek：最后活动 15 分钟内算「还�
 def config_path(explicit=None):
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for p in (explicit, os.environ.get("CC_CONNECT_CONFIG"), "config.toml",
-              os.path.join(HOME, ".cc-connect", "config.toml"), os.path.join(here, "config.toml")):
+              os.path.join(HOME, ".bothouse" if os.path.exists(os.path.join(HOME, ".bothouse")) or not os.path.isdir(os.path.join(HOME, ".cc-connect")) else ".cc-connect", "config.toml"), os.path.join(here, "config.toml")):
         if p and os.path.isfile(p):
             return p
     return None
@@ -184,7 +184,7 @@ def dshlog():
                 _DSHLOG.append(mod)
                 break
         else:
-            raise FileNotFoundError(f"dshlog.py not found next to {here} (reinstall the tools: cc-connect setup tools)")
+            raise FileNotFoundError(f"dshlog.py not found next to {here} (reinstall the tools: bothouse setup tools)")
     return _DSHLOG[0]
 
 
@@ -407,7 +407,7 @@ def main(argv):
                 cfg = v
     path = config_path(cfg)
     if not path:
-        print("no cc-connect config.toml found (pass --config <file> or set CC_CONNECT_CONFIG)", file=sys.stderr)
+        print("no bothouse config.toml found (pass --config <file> or set CC_CONNECT_CONFIG)", file=sys.stderr)
         return 2
     bots = load_bots(path)
     if not bots:

@@ -1,5 +1,5 @@
 #!/bin/sh
-# CoNest cc-connect installer: downloads the prebuilt binary (with the setup wizard)
+# CoNest bothouse installer: downloads the prebuilt binary (with the setup wizard)
 # from the GitHub Release and puts it in ~/.local/bin. No Go or Node needed.
 #
 #   curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh      # public repo
@@ -7,7 +7,7 @@
 #
 # Environment:
 #   CONEST_VERSION   tag to install (default: the newest release, pre-releases included)
-#   INSTALL_DIR      where to put cc-connect (default: ~/.local/bin)
+#   INSTALL_DIR      where to put bothouse (default: ~/.local/bin)
 # macOS and Linux (arm64, amd64). On Windows use install.ps1 (PowerShell):
 #   irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 set -eu
@@ -38,7 +38,7 @@ main() {
 
   tmp=$(mktemp -d)
   asset=""
-  trap 'rm -f "$tmp/cc-connect" "$tmp/checksums.txt" "$tmp/curl.err" 2>/dev/null; [ -n "$asset" ] && rm -f "$tmp/$asset"; rmdir "$tmp" 2>/dev/null || true' EXIT
+  trap 'rm -f "$tmp/bothouse" "$tmp/SHA256SUMS" "$tmp/curl.err" 2>/dev/null; [ -n "$asset" ] && rm -f "$tmp/$asset"; rmdir "$tmp" 2>/dev/null || true' EXIT
 
   # 1. which release: public API first; a private repo answers 404 there, then the logged-in gh
   tag="${CONEST_VERSION:-}"
@@ -55,8 +55,13 @@ main() {
     [ -n "$tag" ] || die "no release found for $REPO. The repo may be private: install the GitHub CLI (gh), run 'gh auth login' with an account that can see the repo, and run this again."
   fi
 
-  asset="cc-connect-$tag-$os-$arch.tar.gz"
-  say "Installing cc-connect $tag ($os/$arch) into $INSTALL_DIR"
+  case "$os/$arch" in
+    darwin/*) asset=bothouse-mac.dmg ;;
+    linux/amd64) asset=bothouse-linux-x64 ;;
+    linux/arm64) asset=bothouse-linux-arm64 ;;
+  esac
+  say "Installing bothouse $tag ($os/$arch) into $INSTALL_DIR"
+  say "Downloading $asset"
 
   # 2. download
   # A private repo answers 404 on the public URL: expected, so that one error stays quiet and the
@@ -65,7 +70,7 @@ main() {
   fetch_curl() {
     have curl || return 1
     base="https://github.com/$REPO/releases/download/$tag"
-    for f in "$asset" checksums.txt; do
+    for f in "$asset" SHA256SUMS; do
       if ! curl -fsSL -o "$tmp/$f" "$base/$f" 2>"$tmp/curl.err"; then
         if grep -q 'error: 404' "$tmp/curl.err"; then public404=1; else cat "$tmp/curl.err" >&2; fi
         return 1
@@ -74,7 +79,7 @@ main() {
   }
   fetch_gh() {
     use_gh || return 1
-    gh release download "$tag" -R "$REPO" -p "$asset" -p checksums.txt -D "$tmp" --clobber
+    gh release download "$tag" -R "$REPO" -p "$asset" -p SHA256SUMS -D "$tmp" --clobber
   }
   if [ "$via" = gh ]; then
     fetch_gh || die "download failed: gh release download $tag -R $REPO -p $asset"
@@ -94,28 +99,40 @@ main() {
   fi
 
   # 3. verify and install
-  expected=$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)
+  expected=$(grep " $asset\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
   if have shasum; then actual=$(shasum -a 256 "$tmp/$asset" | cut -d' ' -f1); else actual=$(sha256sum "$tmp/$asset" | cut -d' ' -f1); fi
   [ -n "$expected" ] && [ "$expected" = "$actual" ] || die "checksum mismatch for $asset"
-  tar -C "$tmp" -xzf "$tmp/$asset" cc-connect
+  say "Checksum OK ($asset sha256 $actual)"
+  if [ "$os" = darwin ]; then
+    mkdir -p "$tmp/volume"
+    hdiutil attach -readonly -nobrowse -mountpoint "$tmp/volume" "$tmp/$asset" >/dev/null
+    if ! cp "$tmp/volume/Bothouse.app/Contents/MacOS/bothouse" "$tmp/bothouse"; then
+      hdiutil detach "$tmp/volume" >/dev/null
+      die "Bothouse.app binary missing in $asset"
+    fi
+    hdiutil detach "$tmp/volume" >/dev/null
+    rmdir "$tmp/volume"
+  else
+    cp "$tmp/$asset" "$tmp/bothouse"
+  fi
   mkdir -p "$INSTALL_DIR"
-  mv -f "$tmp/cc-connect" "$INSTALL_DIR/cc-connect"
-  chmod 755 "$INSTALL_DIR/cc-connect"
-  "$INSTALL_DIR/cc-connect" --version >/dev/null || die "installed, but $INSTALL_DIR/cc-connect does not run"
+  mv -f "$tmp/bothouse" "$INSTALL_DIR/bothouse"
+  chmod 755 "$INSTALL_DIR/bothouse"
+  "$INSTALL_DIR/bothouse" --version >/dev/null || die "installed, but $INSTALL_DIR/bothouse does not run"
 
-  say "Installed: $INSTALL_DIR/cc-connect ($tag)"
-  run="$INSTALL_DIR/cc-connect"
-  first=$(command -v cc-connect 2>/dev/null || true)
+  say "Installed: $INSTALL_DIR/bothouse ($tag)"
+  run="$INSTALL_DIR/bothouse"
+  first=$(command -v bothouse 2>/dev/null || true)
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) on_path=1 ;;
     *) on_path=0 ;;
   esac
-  if [ "$on_path" = 1 ] && [ "$first" = "$INSTALL_DIR/cc-connect" ]; then
-    run=cc-connect
+  if [ "$on_path" = 1 ] && [ "$first" = "$INSTALL_DIR/bothouse" ]; then
+    run=bothouse
   else
     say ""
-    if [ -n "$first" ] && [ "$first" != "$INSTALL_DIR/cc-connect" ]; then
-      say "WARNING: typing 'cc-connect' runs another copy first: $first"
+    if [ -n "$first" ] && [ "$first" != "$INSTALL_DIR/bothouse" ]; then
+      say "WARNING: typing 'bothouse' runs another copy first: $first"
       say "  ($("$first" --version 2>/dev/null | head -n 1 || echo 'unknown version')) — an older or upstream build without the setup wizard."
       say "  Remove it, or put $INSTALL_DIR first on your PATH:"
     else
@@ -126,7 +143,7 @@ main() {
       *) rc="$HOME/.zshrc" ;;
     esac
     say "  echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc && . $rc"
-    say "Until then, use the full path: $INSTALL_DIR/cc-connect"
+    say "Until then, use the full path: $INSTALL_DIR/bothouse"
   fi
   say ""
   say "Next: run   $run"

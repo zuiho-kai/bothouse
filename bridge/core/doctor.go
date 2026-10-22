@@ -3,11 +3,11 @@ package core
 import (
 	"context"
 	"fmt"
+	ccconnect "github.com/chenhg5/cc-connect"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -391,7 +391,7 @@ func checkNetwork(ctx context.Context) []DoctorCheckResult {
 
 	// Check data directory
 	if home, err := os.UserHomeDir(); err == nil {
-		dataDir := filepath.Join(home, ".cc-connect")
+		dataDir := ccconnect.DataDir(home)
 		if info, err := os.Stat(dataDir); err != nil {
 			results = append(results, DoctorCheckResult{
 				Name:   "Data Directory",

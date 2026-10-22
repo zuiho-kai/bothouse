@@ -30,14 +30,14 @@ func TestPinnedCmdModel_DisplayMatchesActual(t *testing.T) {
 func TestPinnedCmdModel_NoModelSwitchInstructions(t *testing.T) {
 	pinned := &antigravitySession{workDir: t.TempDir(), extraArgs: []string{"--model", "gemini-pinned"}}
 	got, _ := pinned.preparePrompt("hello", nil, nil)
-	if strings.Contains(got, "[cc-connect model-control instructions]") {
+	if strings.Contains(got, "[bothouse model-control instructions]") {
 		t.Fatalf("pinned cmd model still gets model-switch instructions: %s", got)
 	}
 	if !strings.Contains(got, "[Task lifecycle]") || !strings.HasSuffix(got, "hello") {
 		t.Fatalf("pinned prompt lost lifecycle guidance or request: %s", got)
 	}
 	free := &antigravitySession{workDir: t.TempDir(), model: "gemini-a"}
-	if got, _ := free.preparePrompt("hello", nil, nil); !strings.Contains(got, "[cc-connect model-control instructions]") {
+	if got, _ := free.preparePrompt("hello", nil, nil); !strings.Contains(got, "[bothouse model-control instructions]") {
 		t.Fatalf("unpinned prompt lost model-switch instructions: %s", got)
 	}
 }

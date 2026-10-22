@@ -142,9 +142,9 @@ func fetchToken(appKey, appSecret, apiDomain, routeEnv string) (*tokenData, erro
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-AppVersion", "cc-connect-yuanbao/1.0.0")
+		req.Header.Set("X-AppVersion", "bothouse-yuanbao/1.0.0")
 		req.Header.Set("X-Instance-Id", fmt.Sprintf("%d", instanceID))
-		req.Header.Set("X-Bot-Version", "cc-connect-yuanbao/1.0.0")
+		req.Header.Set("X-Bot-Version", "bothouse-yuanbao/1.0.0")
 		if routeEnv != "" {
 			req.Header.Set("X-Route-Env", routeEnv)
 		}

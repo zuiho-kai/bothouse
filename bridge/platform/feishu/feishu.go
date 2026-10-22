@@ -5542,8 +5542,8 @@ func classifyCommandToolDetail(detail string) (title, icon string, ok bool) {
 	if strings.HasPrefix(command, "gh ") || command == "gh" {
 		return "GitHub", "cloud_outlined", true
 	}
-	if strings.HasPrefix(command, "cc-connect ") || command == "cc-connect" {
-		return "cc-connect", "robot_outlined", true
+	if strings.HasPrefix(command, "bothouse ") || command == "bothouse" {
+		return "bothouse", "robot_outlined", true
 	}
 	if commandHasAnyPrefix(command, "go test", "npm test", "npm run test", "pnpm test", "yarn test", "pytest", "cargo test", "swift test", "xcodebuild test") {
 		return "Run tests", "list-check_outlined", true
@@ -6032,7 +6032,7 @@ func fetchRichCardRemoteImage(ctx context.Context, rawURL string) ([]byte, strin
 	if err != nil {
 		return nil, "", err
 	}
-	req.Header.Set("User-Agent", "cc-connect-feishu-rich-card-image-resolver/1.0")
+	req.Header.Set("User-Agent", "bothouse-feishu-rich-card-image-resolver/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {

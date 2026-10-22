@@ -2,7 +2,7 @@
 
 ## Overview
 
-Enable a single cc-connect bot (one Slack token) to serve multiple workspaces, with the channel determining which Claude Code working directory and session to use.
+Enable a single bothouse bot (one Slack token) to serve multiple workspaces, with the channel determining which Claude Code working directory and session to use.
 
 ## Config
 
@@ -43,7 +43,7 @@ When a message arrives in a channel:
 
 ### Binding Storage
 
-Persisted in `~/.cc-connect/workspace_bindings.json`:
+Persisted in `~/.bothouse/workspace_bindings.json`:
 
 ```json
 {

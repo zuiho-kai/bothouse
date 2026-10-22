@@ -1,13 +1,13 @@
 # TuiTui Platform Setup Guide / 推推平台接入指南
 
-This guide connects cc-connect to TuiTui through the TuiTui robot WebSocket callback API.
+This guide connects bothouse to TuiTui through the TuiTui robot WebSocket callback API.
 
 ## Prerequisites / 前置条件
 
 - A TuiTui robot app with `app_id` and `app_secret`
-- A local cc-connect project configured with an agent
+- A local bothouse project configured with an agent
 
-TuiTui uses a WebSocket callback connection, so cc-connect does not need a public inbound HTTP endpoint.
+TuiTui uses a WebSocket callback connection, so bothouse does not need a public inbound HTTP endpoint.
 
 ## Configuration / 配置
 
@@ -49,10 +49,10 @@ ws_base = "wss://im.live.360.cn:8282"
 
 - Direct messages, group chats, and teams/channel posts
 - Text replies and slash commands
-- Teams/channel markdown post publishing through `cc-connect tuitui post`
-- Image/file send-back through `cc-connect send --image` and `cc-connect send --file`
+- Teams/channel markdown post publishing through `bothouse tuitui post`
+- Image/file send-back through `bothouse send --image` and `bothouse send --file`
 - Inbound image/file/voice download for agent processing
-- Chat history reads and history attachment downloads through `cc-connect tuitui`
+- Chat history reads and history attachment downloads through `bothouse tuitui`
 - Recent unmentioned group/channel messages injected into the next explicitly mentioned turn
 - Cron/proactive sends through session-key reply context reconstruction
 
@@ -86,12 +86,12 @@ tuitui:<group_id>
 
 ## Reading History / 读取历史
 
-`cc-connect` includes TuiTui history helpers for agents and operators. Credentials are loaded from the configured TuiTui platform by default, or from `TUITUI_APP_ID` / `TUITUI_APP_SECRET`.
+`bothouse` includes TuiTui history helpers for agents and operators. Credentials are loaded from the configured TuiTui platform by default, or from `TUITUI_APP_ID` / `TUITUI_APP_SECRET`.
 
 Read recent messages:
 
 ```bash
-cc-connect tuitui messages \
+bothouse tuitui messages \
   --project my-project \
   --chat 7652669648832580 \
   --chat-type group \
@@ -102,7 +102,7 @@ cc-connect tuitui messages \
 Search recent history:
 
 ```bash
-cc-connect tuitui search \
+bothouse tuitui search \
   --project my-project \
   --chat 7652669648832580 \
   --chat-type group \
@@ -113,7 +113,7 @@ cc-connect tuitui search \
 Download a file or image URL found in history:
 
 ```bash
-cc-connect tuitui download \
+bothouse tuitui download \
   --url "https://example.com/report.xlsx" \
   --out ./tmp/tuitui
 ```
@@ -129,7 +129,7 @@ Supported chat types:
 Publish a new Teams/channel markdown post:
 
 ```bash
-cc-connect tuitui post \
+bothouse tuitui post \
   --project my-project \
   --channel <channel_id> \
   --message "## Daily summary"
@@ -138,7 +138,7 @@ cc-connect tuitui post \
 Reply to an existing post by passing the parent post ID:
 
 ```bash
-cc-connect tuitui post \
+bothouse tuitui post \
   --project my-project \
   --channel <channel_id> \
   --parent <post_id> \

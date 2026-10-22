@@ -167,8 +167,8 @@
     "rawConfig": "生の設定"
   },
   "login": {
-    "title": "CC-Connect 管理コンソール",
-    "subtitle": "CC-Connect インスタンスに接続",
+    "title": "bothouse 管理コンソール",
+    "subtitle": "bothouse インスタンスに接続",
     "token": "API トークン",
     "serverUrl": "サーバー URL",
     "connect": "接続",
@@ -274,7 +274,7 @@
     "longPollTimeout": "ロングポーリングタイムアウト（ms）",
     "listen": "リッスンアドレス",
     "publicUrl": "公開 Webhook URL",
-    "publicUrlHint": "Gateway が cc-connect にコールバックする公開 URL",
+    "publicUrlHint": "Gateway が bothouse にコールバックする公開 URL",
     "registerUrl": "登録 URL",
     "registerUrlHint": "任意：Webhook を Gateway に登録するエンドポイント",
     "cloudWebWsHint": "base URL がある場合は省略可。既定 /cloud-web/ws",

@@ -32,7 +32,7 @@ func TestSmoke_ConfigLoading(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.toml")
 
 	configContent := `
-data_dir = "~/.cc-connect"
+data_dir = "~/.bothouse"
 
 [[projects]]
 name = "test-project"
@@ -55,7 +55,7 @@ level = "info"
 	require.NoError(t, err)
 
 	// Verify basic config fields
-	assert.Equal(t, "~/.cc-connect", cfg.DataDir)
+	assert.Equal(t, "~/.bothouse", cfg.DataDir)
 	assert.Len(t, cfg.Projects, 1)
 	assert.Equal(t, "test-project", cfg.Projects[0].Name)
 	assert.Equal(t, "claudecode", cfg.Projects[0].Agent.Type)

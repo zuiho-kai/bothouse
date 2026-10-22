@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers-extended-cc:executing-plans to implement this plan task-by-task.
 
-**Goal:** Enable a single cc-connect bot to serve multiple workspaces, routing messages to different Claude Code sessions based on Slack channel.
+**Goal:** Enable a single bothouse bot to serve multiple workspaces, routing messages to different Claude Code sessions based on Slack channel.
 
 **Architecture:** Engine-level multiplexing. Add workspace resolution to Engine.handleMessage that maps channel → workspace directory, spawns/resumes per-workspace agent subprocesses, and manages idle reaping. Gated behind `mode = "multi-workspace"` in ProjectConfig so existing single-workspace projects are unaffected.
 

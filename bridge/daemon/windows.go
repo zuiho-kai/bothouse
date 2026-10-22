@@ -17,7 +17,7 @@ import (
 
 const (
 	windowsTaskName   = ServiceName
-	windowsScriptName = "cc-connect-daemon.ps1"
+	windowsScriptName = "bothouse-daemon.ps1"
 )
 
 var runPowerShell = func(script string) (string, error) {

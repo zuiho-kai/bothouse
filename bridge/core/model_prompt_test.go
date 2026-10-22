@@ -7,7 +7,7 @@ import (
 )
 
 func TestModelSwitchPromptShellQuotesExecutable(t *testing.T) {
-	path := "/tmp/bot's tools/$(false)/cc-connect"
+	path := "/tmp/bot's tools/$(false)/bothouse"
 	prompt := modelSwitchPromptForPath(path)
 	start := strings.Index(prompt, "Run "+string(rune(96))) + len("Run ") + 1
 	end := strings.Index(prompt[start:], string(rune(96))) + start

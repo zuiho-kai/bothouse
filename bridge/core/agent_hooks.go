@@ -661,7 +661,7 @@ func dshHookPatch(bridge, settings, workDir string) string {
 	q, _ := json.Marshal(bridge) // a JSON string is a valid YAML double-quoted scalar
 	c, _ := json.Marshal(settings)
 	w, _ := json.Marshal(workDir)
-	return dshPatchBegin + ` (written by "cc-connect setup hooks"; runs only in roles set up with "setup hooks on --cli dsh")
+	return dshPatchBegin + ` (written by "bothouse setup hooks"; runs only in roles set up with "setup hooks on --cli dsh")
 - insert:
     - id: hooks-claude-code
       name: ` + string(q) + `

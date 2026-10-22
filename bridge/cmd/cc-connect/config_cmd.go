@@ -47,7 +47,7 @@ func runConfigFormat(args []string) {
 }
 
 func printConfigUsage() {
-	fmt.Fprintf(os.Stderr, `Usage: cc-connect config <subcommand>
+	fmt.Fprintf(os.Stderr, `Usage: bothouse config <subcommand>
 
 Subcommands:
   example    Print a complete annotated config.toml example
@@ -58,9 +58,9 @@ Flags for 'format':
   --config <path>   Path to config file (default: auto-detect)
 
 Examples:
-  cc-connect config example              Print example config
-  cc-connect config example > config.toml  Save example config
-  cc-connect config format               Format default config file
-  cc-connect config fmt --config /path/to/config.toml
+  bothouse config example              Print example config
+  bothouse config example > config.toml  Save example config
+  bothouse config format               Format default config file
+  bothouse config fmt --config /path/to/config.toml
 `)
 }

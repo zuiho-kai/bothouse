@@ -1,7 +1,7 @@
 # 线 2：接进 Discord 或飞书
 
-**用安装向导，几分钟配完。** 向导在 cc-connect 自带的网页里，人点界面；AI 用一条命令或一个 HTTP 接口，参数一次给全。
-两条路写的是同一份配置。命令行手动配的老办法放在文末附录。还没装 `cc-connect` 的先看[从零用起](GETTING_STARTED.md)第 1 步（一行命令，不用 Go 和 Node）。
+**用安装向导，几分钟配完。** 向导在 bothouse 自带的网页里，人点界面；AI 用一条命令或一个 HTTP 接口，参数一次给全。
+两条路写的是同一份配置。命令行手动配的老办法放在文末附录。还没装 `bothouse` 的先看[从零用起](GETTING_STARTED.md)第 1 步（一行命令，不用 Go 和 Node）。
 gate 可以不装，见下面第 2 节第 7 步。
 
 ```
@@ -13,11 +13,11 @@ gate 可以不装，见下面第 2 节第 7 步。
 ## 1. 打开向导
 
 ```sh
-cc-connect          # 第一次运行（还没配机器人）：建好配置，只起向导（只听本机 127.0.0.1），并自动在浏览器打开
+bothouse          # 第一次运行（还没配机器人）：建好配置，只起向导（只听本机 127.0.0.1），并自动在浏览器打开
 ```
 
 打不开浏览器（例如远程 SSH）时终端会打印带登录口令的链接，复制到浏览器打开；链接也写在配置旁边的 `setup-link.txt`（只有你能读）。
-`cc-connect web` 在还没配机器人时也是打开这个向导。已经在跑的 cc-connect：网页「项目」页右上角「添加项目」就是向导。
+`bothouse web` 在还没配机器人时也是打开这个向导。已经在跑的 bothouse：网页「项目」页右上角「添加项目」就是向导。
 
 ## 2. 向导每一步
 
@@ -55,15 +55,15 @@ cc-connect          # 第一次运行（还没配机器人）：建好配置，�
 
 ## 3. 让你的 AI 帮你配
 
-在仓库目录里对 Claude Code / Codex 说一句「帮我把 cc-connect 配好接上 Discord」就行：仓库根的 `AGENTS.md` / `CLAUDE.md` 告诉它用哪个命令、一次问你哪几项。
+在仓库目录里对 Claude Code / Codex 说一句「帮我把 bothouse 配好接上 Discord」就行：仓库根的 `AGENTS.md` / `CLAUDE.md` 告诉它用哪个命令、一次问你哪几项。
 它要问你的只有：每个机器人的 token、服务器 ID（和默认频道 ID，可选）、每个角色用哪个本机 CLI（不说就用已登录的那个）。
-人设、兜底角色、jev、`allow_from` 都有默认值，不用问。`cc-connect setup apply -h` 列出了每个字段。
+人设、兜底角色、jev、`allow_from` 都有默认值，不用问。`bothouse setup apply -h` 列出了每个字段。
 
 也可以把下面这段和你的 token、key 一起交给它：
 
-> 帮我用 cc-connect 的安装向导接口配好 Discord 机器人。先运行 `cc-connect setup clis` 看本机有哪些 CLI，
-> `cc-connect setup matrix` 看第三方 API 挂到哪个 CLI 是原生还是转换，`cc-connect setup personas` 看默认人设。
-> 然后按下面的格式写一个 JSON，先 `cc-connect setup apply --json <文件> --dry-run` 检查（不写任何文件），没问题再去掉 `--dry-run` 跑一次。
+> 帮我用 bothouse 的安装向导接口配好 Discord 机器人。先运行 `bothouse setup clis` 看本机有哪些 CLI，
+> `bothouse setup matrix` 看第三方 API 挂到哪个 CLI 是原生还是转换，`bothouse setup personas` 看默认人设。
+> 然后按下面的格式写一个 JSON，先 `bothouse setup apply --json <文件> --dry-run` 检查（不写任何文件），没问题再去掉 `--dry-run` 跑一次。
 > token 和 key 不要打印、不要写进日志。做完把输出 JSON 里的 `warnings`（每条的 `fix` 和 `url`）和 `next_steps` 告诉我。
 
 ```json
@@ -96,22 +96,22 @@ cc-connect          # 第一次运行（还没配机器人）：建好配置，�
 - 第三方 API：`custom` 必须给 `base_url`；硅基流动、OpenRouter、本机模型、custom 必须给 `model`。
 - 每项都能省：`agent_type` 不写 = 本机第一个已登录的 CLI（一个都没登录时退回第一个装了的，并返回阻塞的 `agent_not_logged_in`，`fix` 写了怎么登录）；
   project 名不写 = 机器人名转成小写的 a-z、0-9、`-`、`_`（project 名要进路径、URL 和 `gate_url ?bot=`），机器人名里一个这样的字符都没有（例如全是中文）时是 `role-1`、`role-2`……，`steps` 里有一条 `project name` 说明，机器人在群里显示的名字不变，想要别的 project 名就写 `project`；
-  `work_dir` 不写 = `~/.cc-connect/roles/<project>`。
+  `work_dir` 不写 = `~/.bothouse/roles/<project>`。
 - 回复语言：角色的 `reply_language` > 请求的 `language`（或 `--lang`）> 本机 locale（`LANG`）。语言代码原样写（`zh-TW`、`ko` 不会被改）。
   网页向导：右上角（顶栏）选的语言就是默认回复语言，向导顶部显示「机器人回复语言：X」，每个角色在「人设」一步还能单独改；向导文案有中、英、日，其他语言界面显示英文。结果里每个角色有 `reply_language`、`reply_language_from`（role / request / system / existing），
   没指定时另有一条不阻断的 `reply_language_default` 提醒。已配好的机器人在 role 里带 `reply_language` 重跑，只改人设文件里 `<!-- conest:reply-language -->` 下面那一行，其余不动。
 - token 无效（Discord 回 401）时什么都不写，返回阻塞的 `discord_token_invalid`，`url` 是开发者后台，去 Bot → Reset Token 换新的再跑。
-- 同一个 token 只能有一个 cc-connect 在线。这个机器人已经在别的电脑或进程上跑着时，两边会各回一遍，先停掉旧的；向导查不出别的机器上有没有在跑，所以 dry-run 也不会提醒。
+- 同一个 token 只能有一个 bothouse 在线。这个机器人已经在别的电脑或进程上跑着时，两边会各回一遍，先停掉旧的；向导查不出别的机器上有没有在跑，所以 dry-run 也不会提醒。
 - 同样的 JSON 也能 `POST http://localhost:<管理端口>/api/v1/setup/apply`（`Authorization: Bearer <management token>`），返回同一份 JSON。
-- 飞书：`"platform": "feishu"`，加 `"feishu": {"app_id", "app_secret", "chat_id"}`（app_id/secret 来自扫码或 `cc-connect feishu setup`），`roles` 只放一个。
+- 飞书：`"platform": "feishu"`，加 `"feishu": {"app_id", "app_secret", "chat_id"}`（app_id/secret 来自扫码或 `bothouse feishu setup`），`roles` 只放一个。
 - 网页向导最后一步「给 AI」里有当前这套配置的命令，密钥是占位符。
 - 返回里 `jev_ok` 为 false 时 jev 没有写入，`jev_reason` 说明原因（不给概率 / 连不上 / 接口拒绝了测试请求，例如 mlx_lm.server 最多给 11 个候选、gate 要 20 个）。复用的机器人 token 写成 `"${环境变量}"` 时，向导用当前进程的环境变量去校验，配置里仍保留占位符；变量没设会直接报出变量名。
 
 ## 4. 第三方 API × 本机 CLI
 
-`cc-connect setup matrix` 的结果（2026-10-20）。「原生」= 这家有给这个 CLI 用的接口，直接连；「转换」= cc-connect 在本机
+`bothouse setup matrix` 的结果（2026-10-20）。「原生」= 这家有给这个 CLI 用的接口，直接连；「转换」= bothouse 在本机
 起一个转换口，把 CLI 的协议（Claude 的 Messages、Codex 的 Responses、Gemini 的 generateContent）转成 `/chat/completions`，
-key 只留在 cc-connect 里。所以任何 OpenAI 兼容接口都能挂到这四个 CLI 上。
+key 只留在 bothouse 里。所以任何 OpenAI 兼容接口都能挂到这四个 CLI 上。
 
 | 服务商 | Claude Code | Codex | Gemini CLI | OpenCode |
 |---|---|---|---|---|
@@ -122,8 +122,8 @@ key 只留在 cc-connect 里。所以任何 OpenAI 兼容接口都能挂到这�
 | 本机模型（Ollama、LM Studio、llama.cpp…） | 转换 | 转换 | 转换 | 原生 |
 | 其他 OpenAI 兼容接口（自填 Base URL） | 转换 | 转换 | 转换 | 原生 |
 
-接口地址的来源在 `bridge/core/setup_detect.go` 的 `WizardVendors`。别的 CLI（Cursor、Copilot、Kimi、Qoder…）cc-connect 里不能挂第三方 API，
-只能用它们自己的登录；WorkBuddy 装了会显示，但 cc-connect 还没有它的适配器，不能选。
+接口地址的来源在 `bridge/core/setup_detect.go` 的 `WizardVendors`。别的 CLI（Cursor、Copilot、Kimi、Qoder…）bothouse 里不能挂第三方 API，
+只能用它们自己的登录；WorkBuddy 装了会显示，但 bothouse 还没有它的适配器，不能选。
 
 ## 5. jev 和兜底角色
 
@@ -138,25 +138,25 @@ key 只留在 cc-connect 里。所以任何 OpenAI 兼容接口都能挂到这�
   一键命令和接口同样：`jev` 不给 = 不动；`"jev": {"base_url": ""}` 也是不动；`"jev": {"remove": true}` = 删掉；没存时返回 `"jev_ok": false`、`jev_reason`，`jev_in_use` 是现在生效的那个。
 - **没有可用的 jev**（没填、测试没过）：gate 启动就报错退出，提示去这一步填 jev（硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B），
   不会自己下载模型。**gate 没在运行**时：被 @ 的角色照常回，其他消息由兜底角色回
-  （cc-connect 的 `gate_fallback`：兜底角色 `reply`，其他 `context`；被 @ 时一律 `reply`，见 `bridge/core/gate.go`）。
+  （bothouse 的 `gate_fallback`：兜底角色 `reply`，其他 `context`；被 @ 时一律 `reply`，见 `bridge/core/gate.go`）。
 
 ## 6. 向导写了什么（给别的程序读）
 
-都在 cc-connect 的数据目录（默认 `~/.cc-connect`）：
+都在 bothouse 的数据目录（默认 `~/.bothouse`）：
 
 | 文件 | 内容 | 谁读 |
 |---|---|---|
-| `config.toml`（写之前把原文件备份成 `config.toml.bak-<时间>`，每次一份、不覆盖：重写会丢注释，注释从备份里找回；所有写配置的路径共用一把文件锁，向导和正在跑的服务不会互相覆盖） | 每个机器人一个 `[[projects]]`：token、`guild_id`、CLI、第三方 API（`api_format = "openai_chat"` 表示走本机转换）；多个 Discord 机器人时还有 `group_reply_all`、`share_session_in_channel`、`allow_bots`、`team_lead_bot`、`gate_url`、`gate_fallback` | cc-connect |
+| `config.toml`（写之前把原文件备份成 `config.toml.bak-<时间>`，每次一份、不覆盖：重写会丢注释，注释从备份里找回；所有写配置的路径共用一把文件锁，向导和正在跑的服务不会互相覆盖） | 每个机器人一个 `[[projects]]`：token、`guild_id`、CLI、第三方 API（`api_format = "openai_chat"` 表示走本机转换）；多个 Discord 机器人时还有 `group_reply_all`、`share_session_in_channel`、`allow_bots`、`team_lead_bot`、`gate_url`、`gate_fallback` | bothouse |
 | `roles/<project>/CLAUDE.md` 等 | 人设 + 回答语言（`<!-- conest:reply-language -->` 之后那行） | 对应的 CLI |
 | `jev.json`（权限 600） | `{"backend": "llm", "url", "model", "api_key", "logprobs", "tested_at"}` | gate（`contrib/gate/scorer_remote.py`）；角色小家 `[discord.router] key_file` |
 | `gate-team.json` | `{"lead": 兜底角色, "subs": 其他角色}`，key 是 project 名 = `gate_url` 的 `?bot=` | gate |
 | `conest-setup.json` | 平台、服务器 ID、默认频道 ID / 飞书默认群、兜底角色、团队（不含密钥）；自建平台另记 `cloud_web_url`、`cloud_web_fallback`、`cloud_web_team`，不动 Discord 的那几项 | 向导下次打开时；角色小家要默认频道时照抄 `channel_id` |
-| `hub/hub.json`（权限 600）、`hub/hub.sqlite3`、`hub/hub.log`、`hub/src/` | 向导「在本机启动」的自建平台：端口、网页登录 token、机器人 token；消息库；日志；解出来的程序 | cc-connect（启动时平台没在跑就拉起来） |
+| `hub/hub.json`（权限 600）、`hub/hub.sqlite3`、`hub/hub.log`、`hub/src/` | 向导「在本机启动」的自建平台：端口、网页登录 token、机器人 token；消息库；日志；解出来的程序 | bothouse（启动时平台没在跑就拉起来） |
 
 ## 7. 自建平台
 
 自建平台是 role-household 的 hub（`role-household/rh/hub.py`）：一个自己的聊天网页，像 Grok 那样打开就聊，`@名字` 叫哪个角色就哪个回。
-cc-connect 只是接进去：每个角色作为一个成员连平台的机器人入口（cloud_web 平台，`?bot=<project>`）。
+bothouse 只是接进去：每个角色作为一个成员连平台的机器人入口（cloud_web 平台，`?bot=<project>`）。
 
 ```
  选「自建平台」─▶ 本机有平台在跑？ ── 向导起的 ──▶ 地址和 token 自动填好
@@ -166,9 +166,9 @@ cc-connect 只是接进去：每个角色作为一个成员连平台的机器人
                ─▶ 本机 CLI ─▶ 人设 ─▶（多个角色时）兜底角色、jev ─▶ 保存 ─▶ 重启生效 ─▶「打开自建平台」
 ```
 
-- **在本机启动**：cc-connect 安装包里带着平台程序；起它要本机有 [uv](https://docs.astral.sh/uv/getting-started/installation/)（没有时按钮不能点，页面说怎么装）。
+- **在本机启动**：bothouse 安装包里带着平台程序；起它要本机有 [uv](https://docs.astral.sh/uv/getting-started/installation/)（没有时按钮不能点，页面说怎么装）。
   第一次会联网下载 Python 和两个依赖（aiohttp、cryptography），约半分钟；之后几秒。平台只听 127.0.0.1，端口默认 8790（被占时换一个空的），
-  数据在 `<数据目录>/hub/`。重启 cc-connect、重启电脑后，cc-connect 启动时发现它没在跑会再拉起来。
+  数据在 `<数据目录>/hub/`。重启 bothouse、重启电脑后，bothouse 启动时发现它没在跑会再拉起来。
 - **测试连接**：和机器人一样连一次平台的 WebSocket，不注册，平台上不会多出成员。地址错（连不上 / 不是机器人入口）和 token 错（401）分别说怎么改。
   token 错、地址错时什么都不写；平台暂时连不上时照样保存，并在结果里阻塞提醒 `cloud_web_unreachable`。
 - **写进配置**：每个角色的 `[[projects.platforms]]` 加一段 `type = "cloud_web"`：`transport = "websocket"`、`ws_url = "ws(s)://<平台>/cloud-web/ws?bot=<project>&name=<名字>"`、
@@ -180,9 +180,9 @@ cc-connect 只是接进去：每个角色作为一个成员连平台的机器人
   （`bridge/platform/cloud-web/lead_return.go`）；写 `gate_url` / `gate_fallback`（已有 gate 设置的项目不动）；向导写的人设里加一行 `<!-- conest:team -->`
   （和回答语言那行同一种做法，开头写明「在自建平台上」，同一份人设也给 Discord 用时不混）：队长知道有哪些队员、用「@名字」派活，队员知道队长是谁。
   已有机器人没勾「改人设」时也只更新这一行，结果里逐个写明；自己写的、没有向导标记的人设不动，结果里也会说。
-- **给 AI**：`cc-connect setup hub` 看本机平台、`cc-connect setup hub start` 起一个，然后
-  `cc-connect setup apply --json` 发 `{"platform": "cloud_web", "roles": [{"name": "<名字>"}]}`（本机向导起的平台地址和 token 自动填；连别人的加
-  `"cloud_web": {"url": "<地址>", "token": "<token>"}`）。字段见 `cc-connect setup apply -h`。
+- **给 AI**：`bothouse setup hub` 看本机平台、`bothouse setup hub start` 起一个，然后
+  `bothouse setup apply --json` 发 `{"platform": "cloud_web", "roles": [{"name": "<名字>"}]}`（本机向导起的平台地址和 token 自动填；连别人的加
+  `"cloud_web": {"url": "<地址>", "token": "<token>"}`）。字段见 `bothouse setup apply -h`。
 - 以后要接的 DSH 网页走同一个协议，只是多一个预设（`bridge/core/setup_cloudweb.go` 的 `cloudWebPresets`，`allow_from` 不同）。
 
 ## 附录 A：手动接 Discord
@@ -196,7 +196,7 @@ cc-connect 只是接进去：每个角色作为一个成员连平台的机器人
 2. Bot 页打开 **Message Content Intent**（不开读不到消息正文）。
 3. OAuth2 → URL Generator：scopes 勾 `bot`、`applications.commands`；权限至少勾查看频道、发消息、读消息历史、加反应。
    用生成的链接把 bot 拉进你的服务器。
-4. token 写进 `~/.cc-connect/config.toml` 对应 project 的 `[projects.platforms.options] token`，不进任何仓库。
+4. token 写进 `~/.bothouse/config.toml` 对应 project 的 `[projects.platforms.options] token`，不进任何仓库。
 
 ### A2. 拿 ID
 
@@ -218,7 +218,7 @@ Discord 设置 → 高级 → 打开**开发者模式**。之后右键就能「�
 
 ### A4. 怎么验证
 
-- 群里说一句闲聊，主 bot 按 gate 的判断回或不回；`~/.cc-connect/gate.jsonl` 里有这句的判断。
+- 群里说一句闲聊，主 bot 按 gate 的判断回或不回；`~/.bothouse/gate.jsonl` 里有这句的判断。
 - 「码农，帮我看下 X」→ 只有码农回；主 bot @ 码农派活 → 码农接，做完 @ 回来。
 
 ## 附录 B：飞书命令行
@@ -226,11 +226,11 @@ Discord 设置 → 高级 → 打开**开发者模式**。之后右键就能「�
 ### 1. 扫码接入一个 bot
 
 ```sh
-cc-connect feishu setup --project <你的 project 名>
+bothouse feishu setup --project <你的 project 名>
 ```
 
 终端里出二维码，用飞书手机 App 扫码，会自动建企业自建应用、开机器人能力、配权限和事件订阅，并把 App ID、App Secret
-写回配置。不想扫码、已有应用时：`cc-connect feishu setup --project <名> --app cli_xxx:sec_xxx`。
+写回配置。不想扫码、已有应用时：`bothouse feishu setup --project <名> --app cli_xxx:sec_xxx`。
 手动建应用的完整步骤见 [bridge/docs/feishu.md](../bridge/docs/feishu.md)。飞书用长连接，不需要公网 IP。
 
 ### 2. 飞书上目前没有的

@@ -1243,7 +1243,7 @@ func TestProcessInteractiveEvents_AppendsReplyFooterWhenEnabled(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	t.Setenv("USERPROFILE", homeDir)
-	workDir := filepath.Join(homeDir, "codes", "cc-connect")
+	workDir := filepath.Join(homeDir, "codes", "bothouse")
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1434,7 +1434,7 @@ func TestProcessInteractiveEvents_DoesNotAppendReplyFooterWhenDisabled(t *testin
 			model:           "gpt-5.4",
 			reasoningEffort: "xhigh",
 		},
-		workDir: filepath.Join(homeDir, "codes", "cc-connect"),
+		workDir: filepath.Join(homeDir, "codes", "bothouse"),
 		report: &UsageReport{
 			Buckets: []UsageBucket{{
 				Name: "Rate limit",
@@ -1476,7 +1476,7 @@ func TestProcessInteractiveEvents_ReplyFooterPrefersSessionRuntimeState(t *testi
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	t.Setenv("USERPROFILE", homeDir)
-	if err := os.MkdirAll(filepath.Join(homeDir, "codes", "cc-connect"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(homeDir, "codes", "bothouse"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1506,7 +1506,7 @@ func TestProcessInteractiveEvents_ReplyFooterPrefersSessionRuntimeState(t *testi
 	agentSession := newControllableSession("s-footer-runtime")
 	agentSession.model = "gpt-5.4"
 	agentSession.reasoningEffort = "xhigh"
-	sessionWorkDir := filepath.Join(homeDir, "codes", "cc-connect")
+	sessionWorkDir := filepath.Join(homeDir, "codes", "bothouse")
 	agentSession.workDir = sessionWorkDir
 	agentSession.report = &UsageReport{
 		Buckets: []UsageBucket{{
@@ -2414,13 +2414,13 @@ func TestProcessInteractiveEvents_RichCard_ToolThenNoReply(t *testing.T) {
 
 func TestAgentSystemPrompt_MentionsAttachmentSend(t *testing.T) {
 	prompt := AgentSystemPrompt()
-	if !strings.Contains(prompt, "cc-connect send --image") {
+	if !strings.Contains(prompt, "bothouse send --image") {
 		t.Fatalf("prompt missing image send instructions: %q", prompt)
 	}
-	if !strings.Contains(prompt, "cc-connect send --file") {
+	if !strings.Contains(prompt, "bothouse send --file") {
 		t.Fatalf("prompt missing file send instructions: %q", prompt)
 	}
-	if !strings.Contains(prompt, "cc-connect send --tts") {
+	if !strings.Contains(prompt, "bothouse send --tts") {
 		t.Fatalf("prompt missing tts send instructions: %q", prompt)
 	}
 	if !strings.Contains(prompt, "NO_REPLY") {
@@ -3781,7 +3781,7 @@ func TestCmdHelp_UsesLegacyTextOnPlatformWithoutCardSupport(t *testing.T) {
 	if got := p.sent[0]; got != e.i18n.T(MsgHelp) {
 		t.Fatalf("help text = %q, want legacy help text", got)
 	}
-	if strings.Contains(p.sent[0], "cc-connect 帮助") {
+	if strings.Contains(p.sent[0], "bothouse 帮助") {
 		t.Fatalf("help text = %q, should not be card title fallback", p.sent[0])
 	}
 	if !strings.Contains(p.sent[0], "/cron [add|list|exec|del|enable|disable]") {
@@ -3828,7 +3828,7 @@ func TestCmdCurrent_UsesLegacyTextOnPlatformWithoutCardSupport(t *testing.T) {
 	if !strings.Contains(p.sent[0], "Focus") {
 		t.Fatalf("current text = %q, want session name 'Focus'", p.sent[0])
 	}
-	if strings.Contains(p.sent[0], "cc-connect") {
+	if strings.Contains(p.sent[0], "bothouse") {
 		t.Fatalf("current text = %q, should not be card fallback title", p.sent[0])
 	}
 }
@@ -8046,7 +8046,7 @@ func TestSetupMemoryFile_WritesInstructions(t *testing.T) {
 	if !strings.Contains(string(content), ccConnectInstructionMarker) {
 		t.Error("expected instruction marker in file")
 	}
-	if !strings.Contains(string(content), "cc-connect cron add") {
+	if !strings.Contains(string(content), "bothouse cron add") {
 		t.Error("expected cron instructions in file")
 	}
 }
@@ -8091,7 +8091,7 @@ func TestSetupMemoryFile_RefreshesLegacyInstructions(t *testing.T) {
 	if strings.Contains(string(content), "legacy instructions") {
 		t.Fatalf("legacy instructions should be refreshed, got %q", string(content))
 	}
-	if !strings.Contains(string(content), "cc-connect send --image") {
+	if !strings.Contains(string(content), "bothouse send --image") {
 		t.Fatalf("expected refreshed attachment instructions, got %q", string(content))
 	}
 }
@@ -8137,7 +8137,7 @@ func TestCmdCronSetup_WritesAndReplies(t *testing.T) {
 		t.Errorf("reply = %q, want to contain filename", p.sent[0])
 	}
 	if !strings.Contains(p.sent[0], "attachment send-back") {
-		t.Errorf("reply = %q, want unified cc-connect setup success message", p.sent[0])
+		t.Errorf("reply = %q, want unified bothouse setup success message", p.sent[0])
 	}
 
 	content, _ := os.ReadFile(memFile)
@@ -10760,7 +10760,7 @@ func TestBuildSenderPrompt_Enabled(t *testing.T) {
 	e.SetInjectSender(true)
 
 	result := e.buildSenderPrompt("hello world", "user123", "Alice", "feishu", "feishu:channel42:user123", "")
-	expected := "[cc-connect sender_id=user123 sender_name=\"Alice\" platform=feishu chat_id=channel42]\nhello world"
+	expected := "[bothouse sender_id=user123 sender_name=\"Alice\" platform=feishu chat_id=channel42]\nhello world"
 	if result != expected {
 		t.Fatalf("got %q, want %q", result, expected)
 	}
@@ -10791,7 +10791,7 @@ func TestBuildSenderPrompt_EmptyUserName(t *testing.T) {
 	e.SetInjectSender(true)
 
 	result := e.buildSenderPrompt("hello", "user1", "", "feishu", "feishu:ch:user1", "")
-	expected := "[cc-connect sender_id=user1 platform=feishu chat_id=ch]\nhello"
+	expected := "[bothouse sender_id=user1 platform=feishu chat_id=ch]\nhello"
 	if result != expected {
 		t.Fatalf("got %q, want %q", result, expected)
 	}
@@ -10802,7 +10802,7 @@ func TestBuildSenderPrompt_NameWithSpaces(t *testing.T) {
 	e.SetInjectSender(true)
 
 	result := e.buildSenderPrompt("hi", "U999", "Jim Tang", "slack", "slack:C012:U999", "")
-	expected := "[cc-connect sender_id=U999 sender_name=\"Jim Tang\" platform=slack chat_id=C012]\nhi"
+	expected := "[bothouse sender_id=U999 sender_name=\"Jim Tang\" platform=slack chat_id=C012]\nhi"
 	if result != expected {
 		t.Fatalf("got %q, want %q", result, expected)
 	}
@@ -10878,7 +10878,7 @@ func TestBuildSenderPrompt_ChannelKeyOverridesSessionKey(t *testing.T) {
 	// When channelKey is provided, it should be used as chat_id instead of
 	// extracting from sessionKey (which would give "g" for dingtalk).
 	result := e.buildSenderPrompt("hello", "staff1", "Alice", "dingtalk", "dingtalk:g:cidXXX:staff1", "cidXXX")
-	expected := "[cc-connect sender_id=staff1 sender_name=\"Alice\" platform=dingtalk chat_id=cidXXX]\nhello"
+	expected := "[bothouse sender_id=staff1 sender_name=\"Alice\" platform=dingtalk chat_id=cidXXX]\nhello"
 	if result != expected {
 		t.Fatalf("got %q, want %q", result, expected)
 	}
@@ -10891,7 +10891,7 @@ func TestBuildSenderPrompt_FallbackWithoutChannelKey(t *testing.T) {
 	// When channelKey is empty, extractChannelID heuristic should detect
 	// the 4-segment format and extract the correct channel.
 	result := e.buildSenderPrompt("hello", "staff1", "Alice", "dingtalk", "dingtalk:g:cidXXX:staff1", "")
-	expected := "[cc-connect sender_id=staff1 sender_name=\"Alice\" platform=dingtalk chat_id=cidXXX]\nhello"
+	expected := "[bothouse sender_id=staff1 sender_name=\"Alice\" platform=dingtalk chat_id=cidXXX]\nhello"
 	if result != expected {
 		t.Fatalf("got %q, want %q", result, expected)
 	}

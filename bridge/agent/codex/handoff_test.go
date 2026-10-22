@@ -10,7 +10,7 @@ import (
 // Lines trimmed from real rollouts (codex-cli 0.162: a cc-connect thread on
 // the relay and a Codex Desktop thread that compacted), texts shortened.
 var handoffFixture = []string{
-	`{"timestamp":"2026-10-13T18:00:54.535Z","ordinal":0,"type":"session_meta","payload":{"session_id":"01a1366c-ac29-7030-b3cb-b2dc0f6d9188","id":"01a1366c-ac29-7030-b3cb-b2dc0f6d9188","cwd":"/Users/x/im-bridge/jingyu","originator":"cc-connect-codex-agent","cli_version":"0.162.0-alpha.17.2"}}`,
+	`{"timestamp":"2026-10-13T18:00:54.535Z","ordinal":0,"type":"session_meta","payload":{"session_id":"01a1366c-ac29-7030-b3cb-b2dc0f6d9188","id":"01a1366c-ac29-7030-b3cb-b2dc0f6d9188","cwd":"/Users/x/im-bridge/jingyu","originator":"bothouse-codex-agent","cli_version":"0.162.0-alpha.17.2"}}`,
 	`{"timestamp":"2026-10-13T18:00:54.535Z","ordinal":1,"type":"event_msg","payload":{"type":"task_started","turn_id":"t1","model_context_window":258400}}`,
 	`{"timestamp":"2026-10-13T18:00:54.560Z","ordinal":2,"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>\nsandbox"}],"internal_chat_message_metadata_passthrough":{"turn_id":"t1","content_item_kinds":["permissions.instructions"]}}}`,
 	`{"timestamp":"2026-10-13T18:00:54.560Z","ordinal":3,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /Users/x/im-bridge/jingyu\n\n<INSTRUCTIONS>\n# 角色"},{"type":"input_text","text":"<environment_context>\n  <cwd>/Users/x</cwd>"}],"internal_chat_message_metadata_passthrough":{"turn_id":"t1","content_item_kinds":["agents_md.instructions","environments.environment_context"]}}}`,
@@ -114,7 +114,7 @@ func TestReadSessionHandoffFindsRollout(t *testing.T) {
 }
 
 func TestParseHandoffCountsImageBytes(t *testing.T) {
-	img := strings.Repeat("iVBO", 250) // 1000 base64 chars
+	img := strings.Repeat("iVBO", 250)             // 1000 base64 chars
 	lines := append([]string{}, handoffFixture...) // the fixture's user image: 4 chars
 	lines = append(lines,
 		`{"timestamp":"2026-10-13T18:21:00.000Z","ordinal":70,"type":"response_item","payload":{"type":"function_call_output","call_id":"c2","output":[{"type":"input_image","image_url":"data:image/png;base64,`+img+`"}]}}`,

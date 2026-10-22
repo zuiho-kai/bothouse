@@ -477,14 +477,14 @@ func fatalTuiTui(err error) {
 
 func printTuiTuiUsage() {
 	fmt.Print(`Usage:
-  cc-connect tuitui messages --chat <id> [--chat-type direct|group|channel] [--relative-time today] [--limit 100]
-  cc-connect tuitui search --chat <id> --q <keyword> [--chat-type direct|group|channel] [--relative-time last_7_days]
-  cc-connect tuitui post --channel <channel_id|teams_team_channel[_parent]> --message <markdown> [--parent <post_id>]
-  cc-connect tuitui post --channel <channel_id> --stdin < post.md
-  cc-connect tuitui download --url <url> [--out ./tmp/tuitui] [--max-bytes 26214400]
+  bothouse tuitui messages --chat <id> [--chat-type direct|group|channel] [--relative-time today] [--limit 100]
+  bothouse tuitui search --chat <id> --q <keyword> [--chat-type direct|group|channel] [--relative-time last_7_days]
+  bothouse tuitui post --channel <channel_id|teams_team_channel[_parent]> --message <markdown> [--parent <post_id>]
+  bothouse tuitui post --channel <channel_id> --stdin < post.md
+  bothouse tuitui download --url <url> [--out ./tmp/tuitui] [--max-bytes 26214400]
 
 Credential options:
-  --config <path>            Load credentials from cc-connect config (default config path)
+  --config <path>            Load credentials from bothouse config (default config path)
   -p, --project <name>       Pick the TuiTui platform from a project
       --app-id <id>          Override TuiTui app id
       --app-secret <secret>  Override TuiTui app secret

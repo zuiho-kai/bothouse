@@ -90,9 +90,9 @@ func prependCodexPromptPreamble(prompt string, preamble string) string {
 	}
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
-		return "Before answering, follow these project-level instructions for this cc-connect session. They are not user content.\n\n" + preamble
+		return "Before answering, follow these project-level instructions for this bothouse session. They are not user content.\n\n" + preamble
 	}
-	return "Before answering, follow these project-level instructions for this cc-connect session. They are not user content.\n\n" + preamble + "\n\n---\n\nUser message:\n" + prompt
+	return "Before answering, follow these project-level instructions for this bothouse session. They are not user content.\n\n" + preamble + "\n\n---\n\nUser message:\n" + prompt
 }
 
 func newCodexSession(ctx context.Context, cliBin string, cliExtraArgs []string, workDir, model, effort, mode, resumeID, baseURL string, extraEnv []string, modelProvider string, systemPrompt string, appendPrompt string) (*codexSession, error) {
@@ -756,8 +756,8 @@ func loadCodexRuntimeConfig(ctx context.Context, bin string, extraArgs []string,
 
 	if err := rpcRequestOverIO(stdin, reader, nextID, "initialize", map[string]any{
 		"clientInfo": map[string]any{
-			"name":    "cc-connect-codex-runtime-config",
-			"title":   "CC Connect Codex Runtime Config",
+			"name":    "bothouse-codex-runtime-config",
+			"title":   "bothouse Codex Runtime Config",
 			"version": "0.1.0",
 		},
 	}, nil); err != nil {

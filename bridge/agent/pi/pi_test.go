@@ -1827,7 +1827,7 @@ while IFS= read -r line; do
     case "$line" in
         *get_state*)
             cat <<EOF
-{"id":"cc-connect-state-probe","type":"response","command":"get_state","success":true,"data":{"sessionId":"%s","sessionFile":"/tmp/fake.jsonl"}}
+{"id":"bothouse-state-probe","type":"response","command":"get_state","success":true,"data":{"sessionId":"%s","sessionFile":"/tmp/fake.jsonl"}}
 EOF
             ;;
     esac
@@ -1870,7 +1870,7 @@ echo '{"type":"extension_ui_request","id":"ext-init","method":"setStatus","statu
 while IFS= read -r line; do
     case "$line" in
         *get_state*)
-            echo '{"id":"cc-connect-state-probe","type":"response","command":"get_state","success":false,"error":"session not available"}'
+            echo '{"id":"bothouse-state-probe","type":"response","command":"get_state","success":false,"error":"session not available"}'
             ;;
     esac
 done

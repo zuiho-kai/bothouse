@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -174,7 +175,7 @@ func (p *Platform) initCrypto(ctx context.Context, client *mautrix.Client) (*cry
 	if err != nil {
 		return nil, fmt.Errorf("get home dir: %w", err)
 	}
-	cryptoDir := filepath.Join(homeDir, ".cc-connect")
+	cryptoDir := ccconnect.DataDir(homeDir)
 	if err := os.MkdirAll(cryptoDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}

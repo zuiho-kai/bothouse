@@ -240,14 +240,14 @@ func TestApplyWizardWritesDefaultChannel(t *testing.T) {
 func TestVerifyReleaseChecksum(t *testing.T) {
 	data := []byte("binary")
 	// sha256("binary")
-	sums := []byte("9a3a45d01531a20e89ac6ae10b0b0beb0492acd7216a368aa062d1a5fecaf9cd  cc-connect-v1-darwin-arm64.tar.gz\n")
-	if err := VerifyReleaseChecksum(data, sums, "cc-connect-v1-darwin-arm64.tar.gz"); err != nil {
+	sums := []byte("9a3a45d01531a20e89ac6ae10b0b0beb0492acd7216a368aa062d1a5fecaf9cd  bothouse-v1-darwin-arm64.tar.gz\n")
+	if err := VerifyReleaseChecksum(data, sums, "bothouse-v1-darwin-arm64.tar.gz"); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyReleaseChecksum([]byte("tampered"), sums, "cc-connect-v1-darwin-arm64.tar.gz"); err == nil || !strings.Contains(err.Error(), "mismatch") {
+	if err := VerifyReleaseChecksum([]byte("tampered"), sums, "bothouse-v1-darwin-arm64.tar.gz"); err == nil || !strings.Contains(err.Error(), "mismatch") {
 		t.Fatalf("tampered: %v", err)
 	}
-	if err := VerifyReleaseChecksum(data, sums, "cc-connect-v1-linux-amd64.tar.gz"); err == nil || !strings.Contains(err.Error(), "not listed") {
+	if err := VerifyReleaseChecksum(data, sums, "bothouse-v1-linux-amd64.tar.gz"); err == nil || !strings.Contains(err.Error(), "not listed") {
 		t.Fatalf("unlisted: %v", err)
 	}
 }
