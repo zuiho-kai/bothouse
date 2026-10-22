@@ -50,7 +50,28 @@ export function resolveConfig(config, env = process.env) {
   if (!Number.isSafeInteger(maxRelay) || maxRelay < 0) throw Error('conest-collab: maxRelay must be a non-negative integer');
   const botTokenEnv = c.botTokenEnv ?? 'CONEST_COLLAB_BOT_TOKEN';
   const botToken = env[botTokenEnv] ?? '';
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  // Per-bot credentials: "id:secret,id:secret" in env, or a { id: secret } map in config.
+  // Env wins, so a deployment can hand each bot its own secret without editing the overlay.
+  const tokensEnv = c.botTokensEnv ?? 'CONEST_COLLAB_BOT_TOKENS';
+  const botTokens = new Map();
+  for (const [id, secret] of Object.entries(c.botTokens ?? {})) {
+    if (typeof secret !== 'string' || secret === '') throw Error(`conest-collab: botTokens.${id} must be a non-empty string`);
+    botTokens.set(secret, id);
+  }
+  for (const pair of String(env[tokensEnv] ?? '').split(',')) {
+    const at = pair.indexOf(':');
+    if (at < 1) continue;
+    const id = pair.slice(0, at).trim();
+    const secret = pair.slice(at + 1).trim();
+    if (id === '' || secret === '') throw Error(`conest-collab: ${tokensEnv} entries must be "id:secret"`);
+    botTokens.set(secret, id);
+  }
+  // No credential at all is allowed: the gateway simply stays closed. The plugin warns at
+  // startup instead of failing, so a misconfigured env cannot take the whole host down.
+  return {
+    dataDir: c.dataDir, workspacePath: c.workspacePath, rooms, dshMembers: members, maxRelay,
+    botTokenEnv, botToken, botTokens, ownerName: c.ownerName ?? '我',
+  };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -70,7 +91,7 @@ export async function apply(ctx, rawConfig) {
   for (const room of config.rooms) store.ensureRoom(room.id, room.name.trim());
   const hub = new Hub(store, ctx.logger);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
-  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
+  const gateway = new CloudWebGateway(hub, { token: config.botToken, tokens: config.botTokens, logger: ctx.logger });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
@@ -92,11 +113,11 @@ export async function apply(ctx, rawConfig) {
     path: WS_PATH,
     handler: (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://collab.invalid');
-      if (!gateway.authorized(req, url)) {
+      if (!gateway.authorized(req)) {
         socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
         return;
       }
-      wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url));
+      wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url, req.headers));
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
@@ -115,8 +136,17 @@ export async function apply(ctx, rawConfig) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const m = /^\/api\/rooms\/(\d+)\/messages$/.exec(url.pathname);
     if (req.method !== 'GET' || m === null) return json(res, 404, { error: 'not found' });
-    if (!gateway.authorized(req, url) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
+    if (!gateway.authorized(req) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
     if (store.room(Number(m[1])) === undefined) return json(res, 404, { error: 'room not found' });
+    // History is as private as the room. 403 (not 404, not an empty list) so a bug looks
+    // like a bug instead of a quietly empty thread. Owner sessions go through their cookie.
+    if (!owner(req)) {
+      const who = gateway.identify(req.headers);
+      const allowed = who !== undefined && (who.shared
+        ? store.visibility(Number(m[1])) === 'public'
+        : store.canAccess(who.memberId, Number(m[1])));
+      if (!allowed) return json(res, 403, { error: 'not a member of this room' });
+    }
     const before = url.searchParams.get('before');
     const rows = store.page(Number(m[1]), before === null ? undefined : Number(before), url.searchParams.get('limit'));
     return json(res, 200, { messages: rows.map(publicMessage) });
