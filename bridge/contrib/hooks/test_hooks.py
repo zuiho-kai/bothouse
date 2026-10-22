@@ -245,7 +245,11 @@ class Hooks(unittest.TestCase):
 
     def test_wiki_ingest_passes(self):
         # the wiki's ingest in DSH (cwd <role>/wiki/.ingest-work): the role's hooks must not refuse its scratch writes
-        role = os.path.join(self.tmp, "ingestrole")
+        # the role sits outside dispatch-review-guard's free dirs (/tmp, /private/tmp, ~/.claude), as a real role does:
+        # on Linux mkdtemp is under /tmp, where every write passes anyway and the "refused without the flag" half
+        # failed (CI on main 6ae16ce). The real home (not the test's HOME) is never a free dir; removed below.
+        base = tempfile.mkdtemp(prefix=".conest-test-ingest-", dir=os.path.expanduser("~"))
+        role = os.path.join(base, "ingestrole")
         work = os.path.join(role, "wiki", ".ingest-work")
         os.makedirs(work, exist_ok=True)
         roles = os.path.join(self.hooks, "dsh-roles.json")
@@ -263,6 +267,7 @@ class Hooks(unittest.TestCase):
             self.assertEqual(run(dict(self.env, WIKI_INGEST="1")), "")
         finally:
             os.unlink(roles)
+            shutil.rmtree(base)
 
     # ---- wiki-context ----
     def test_wiki_context(self):

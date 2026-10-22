@@ -94,6 +94,7 @@ class RoleWiki(unittest.TestCase):
                             f"runpy.run_path({str(w / 'bin' / 'ingest.py')!r}, run_name='__main__')"],
                            env=self.env, capture_output=True, text=True)
         self.assertNotIn("unknown key", r.stdout + r.stderr)
+        self.assertIn("usage", r.stdout, r.stderr)  # the tool ran: its config.json read, --help printed
 
     def test_setup_null_engines_and_half_made(self):
         self.env["WIKI_ENGINES"] = "null"  # Go's json.Marshal of a nil map
@@ -110,18 +111,21 @@ class RoleWiki(unittest.TestCase):
         """ingest.py's dsh engine: the configured command, --profile headless, the overlay, the env file, stdin."""
         self.run_py("setup_wiki.py", "--main", str(self.home / "wiki"), "主管")
         self.role("whale", "dsh")
-        fake = self.tmp / "fake-dsh"
-        fake.write_text("#!/bin/sh\necho \"argv=$*\"; echo \"key=$DSH_WIZARD_API_KEY\"; wc -c | tr -d ' '\n")
-        fake.chmod(0o755)
+        # a Python fake run as [python, script], the shape the wizard writes (core/rolewiki.go: node + bin.js), so it
+        # runs on Windows too, where a #!/bin/sh script cannot be started
+        fake = self.tmp / "fake-dsh.py"
+        fake.write_text("import os,sys\nprint('argv=' + ' '.join(sys.argv[1:])); print('key=' + os.environ.get('DSH_WIZARD_API_KEY', ''))\n"
+                        "print(len(sys.stdin.buffer.read()))\n")
         envf = self.tmp / "whale.env"
         envf.write_text("DSH_WIZARD_API_KEY=sk-test\n")
-        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "dsh", "night_engine": "dsh", "dsh_cmd": [str(fake)],
+        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "dsh", "night_engine": "dsh", "dsh_cmd": [sys.executable, str(fake)],
                                                "dsh_patch": "/p.yml", "dsh_env_file": str(envf)})
         self.run_py("setup_wiki.py", "whale")
         w = self.home / "roles" / "whale" / "wiki"
         code = ("import runpy,sys,json; sys.argv=['ingest.py']; g=runpy.run_path(sys.argv[0] if False else %r, run_name='x');"
                 "ok,out,_=g['dsh']('do it','TRANSCRIPT',label='t'); print(json.dumps([ok,out]))") % str(self.home / "wiki" / "bin" / "ingest.py")
-        r = subprocess.run([sys.executable, "-I", "-c", code], env=dict(self.env, WIKI_DIR=str(w)), capture_output=True, text=True, cwd=w)
+        r = subprocess.run([sys.executable, "-X", "utf8", "-I", "-c", code], env=dict(self.env, WIKI_DIR=str(w)), capture_output=True, text=True, cwd=w)
+        self.assertTrue(r.stdout.strip(), r.stderr)
         ok, out = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertTrue(ok, r.stderr)
         self.assertIn("argv=--profile headless --patch /p.yml -", out)

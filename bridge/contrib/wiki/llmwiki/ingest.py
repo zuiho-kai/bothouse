@@ -1261,7 +1261,7 @@ def claude(instruction, stdin="", label="?", context=None, model=None):
 
 
 def lint_errors():
-    r = subprocess.run([sys.executable, "-I", str(WIKI / "bin" / "lint.py")], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-X", "utf8", "-I", str(WIKI / "bin" / "lint.py")], capture_output=True, text=True)
     # a lint that died or refused to run (a teammate shim facing a non-shared tool) prints nothing on stdout: that
     # is a failure, not a pass (review 2026-10-20 sub-parity-code-2 A)
     return "" if r.returncode == 0 else (r.stdout.strip() or r.stderr.strip()[-500:] or f"lint exit {r.returncode}")
@@ -1669,7 +1669,7 @@ def split_pass(db, at=SPLIT_AT):
         domain_split(db, d)
     if tried:
         sync_work()  # what the domain splits delivered
-    r = subprocess.run([sys.executable, "-I", str(WIKI / "bin" / "lint.py"), "--warn"], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-X", "utf8", "-I", str(WIKI / "bin" / "lint.py"), "--warn"], capture_output=True, text=True)
     # slots per README: a page counts against the README of the directory it is in
     free = {d: lint.MAX_TOPICS - len(lint.entries(WIKI / d / "README.md")) for d in lint.tree(WIKI)}
     split, compress, skipped, room = [], [], [], dict(free)
@@ -2719,7 +2719,7 @@ def main():
             # USER is required: claude reads its OAuth login from the keychain by user name ("Not logged in" without it)
             env = {"PATH": f"{Path.home()}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(Path.home()),
                    **{k: os.environ[k] for k in ("USER", "LOGNAME", "TMPDIR", "LANG", "WIKI_DIR") if k in os.environ}}
-            subprocess.Popen([sys.executable, "-I", __file__, "--session", sid], env=env, start_new_session=True,
+            subprocess.Popen([sys.executable, "-X", "utf8", "-I", __file__, "--session", sid], env=env, start_new_session=True,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=open(LOG, "a"))
         return
     if a.usage is not None:
