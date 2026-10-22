@@ -54,21 +54,9 @@ None of this should be locked inside one vendor's app. So bothouse is a plugin: 
 
 ## What it looks like
 
-<!-- TODO: demo.gif: three roles @-ing each other in a Discord channel -->
+<img src="docs/assets/demo-chat.en.png" alt="In a Discord channel: you @Lead with a task, Lead splits it to @Coder and @Writer, you interrupt Coder mid-task, both report back to Lead, Lead wraps up and offers to add a rule" width="760">
 
-```
-you:     @Lead fix yesterday's login bug, and write a short note about it
-Lead:    On it. @Coder fix the bug. @Writer write the note once it's fixed.
-Coder:   Starting. (progress cards stream into the log channel next door)
-you:     oh, and don't touch the users table
-Coder:   Got it. Folding that into what I'm doing now.
-Coder:   Fixed. @Lead PR is here.
-Writer:  Note's done, @Lead.
-Lead:    All in: PR link + note link.
-         Last night's review says this is the second bug of this kind. Want me to add a rule?
-```
-
-Lead, Coder and Writer can be Claude Code, Codex and DSH. Give them the names and personas you like. A DSH role is set up by hand for now (the wizard can't pick it yet); see the DSH notes in [per-role wiki](bridge/contrib/wiki/README.md) and [guardrails](bridge/contrib/hooks/README.md).
+Lead, Coder and Writer can be Claude Code, Codex and DSH. Give them the names and personas you like.
 
 ## Features
 

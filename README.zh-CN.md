@@ -54,21 +54,9 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 ## 用起来是什么样
 
-<!-- TODO: demo.gif：Discord 群里三个角色互相 @ 的动图 -->
+<img src="docs/assets/demo-chat.zh.png" alt="Discord 频道里：你 @主管 派活，主管 @码农 和 @笔杆 分工，码农干活时你插一句，做完各自 @ 回主管，主管收尾并提议记一条规则" width="760">
 
-```
-你：    @主管 把昨天那个登录 bug 修了，顺便写个说明
-主管：  收到。@码农 修 bug；@笔杆 等修好了写说明。
-码农：  开始了。（进度卡片在旁边的日志频道里刷）
-你：    对了，别动数据库那张表
-码农：  好，这句直接加进我正在做的事里。
-码农：  修好了，@主管 PR 在这。
-笔杆：  说明写好了，@主管。
-主管：  都齐了：PR 链接 + 说明链接。
-        昨晚复盘发现这类 bug 是第二次了，要不要我记一条规则？
-```
-
-主管、码农、笔杆可以分别是 Claude Code、Codex、DSH。换成你喜欢的名字和人设就行。DSH 角色目前要手工配，向导里还选不到，见[每角色 wiki 与夜间反思](bridge/contrib/wiki/README.md)和[护栏](bridge/contrib/hooks/README.md)里的 DSH 段。
+主管、码农、笔杆可以分别是 Claude Code、Codex、DSH。换成你喜欢的名字和人设就行。
 
 ## 特性
 
