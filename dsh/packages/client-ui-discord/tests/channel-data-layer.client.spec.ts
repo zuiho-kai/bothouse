@@ -479,6 +479,26 @@ describe('channel data layer: review fixes', () => {
     stop()
   })
 
+  it('shows the edited card content after a reconnect', async () => {
+    const card = (state: string) => JSON.stringify({ title: '构建发布包', state })
+    const { rows, hub, transport } = harness([
+      message(1, 'a'),
+      { ...message(2, '构建发布包'), card: card('running') },
+    ])
+    const { channel, stop } = await ready(transport, hub)
+    expect(channel.source.getSnapshot().messages.at(-1)?.card).toBe(card('running'))
+
+    // The card is rewritten while this client is offline; `after=` cannot see it.
+    rows[1] = { ...rows[1]!, card: card('done') }
+    hub.drop()
+    await settle()
+    expect(hub.open()).toBe(true)
+    await settle()
+
+    expect(channel.source.getSnapshot().messages.at(-1)?.card).toBe(card('done'))
+    stop()
+  })
+
   it('does not start a second page request while one is in flight', async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => message(index + 51, `m${String(index + 51)}`))
     const older = Array.from({ length: 50 }, (_, index) => message(index + 1, `m${String(index + 1)}`))
