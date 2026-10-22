@@ -80,10 +80,17 @@ func FindDSHInstallScript() string {
 	return ""
 }
 
+func dshShellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func dshOpenCommand() string {
 	cmd := "dsh " + DSHProfile
 	if h := os.Getenv("DSH_HOME"); h != "" {
-		cmd = "DSH_HOME=" + shellQuote(h) + " " + cmd
+		cmd = "DSH_HOME=" + dshShellQuote(h) + " " + cmd
 	}
 	return cmd
 }
