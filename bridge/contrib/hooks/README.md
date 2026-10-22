@@ -17,7 +17,7 @@ cc-connect setup hooks on --work-dir <角色目录>              # Claude Code �
 cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 ```
 
-`--cli dsh` 另外做一件事：在 `$DSH_HOME/cordis.patch.yml`（默认 `~/.dsh`，DSH 对所有 profile 都套的用户层）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`，`configPath` 是相对路径 `.claude/settings.json`。cc-connect 在角色目录里启动 DSH（`agent/acp/session.go` 的 `cmd.Dir`），所以每个角色读自己目录下的配置。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
+`--cli dsh` 另外做一件事：在 `$DSH_HOME/cordis.patch.yml`（默认 `~/.dsh`，DSH 对所有 profile 都套的用户层）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`，`configPath` 是绝对路径 `$DSH_HOME/conest-hooks.settings.json`。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（cc-connect 管的 DSH 角色：重启 cc-connect）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
 
 需要 `python3`。DSH 默认把会话记录存成 zstd 压缩；Stop 检查用 Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node 来解。
 
@@ -28,13 +28,13 @@ cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 在聊天里对机器人说「把检查关了」「关掉派活审稿检查」「打开检查」就行。人设里的规则说明让它运行：
 
 ```sh
-python3 ~/.cc-connect/hooks/run.py off                          # 全关
-python3 ~/.cc-connect/hooks/run.py off dispatch-review-guard    # 只关一条（可写多条）
-python3 ~/.cc-connect/hooks/run.py on                           # 全开
-python3 ~/.cc-connect/hooks/run.py status                       # 回报哪些开着、哪些关着
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> off                          # 全关
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> off dispatch-review-guard    # 只关一条（可写多条）
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> on                           # 全开
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> status                       # 回报哪些开着、哪些关着
 ```
 
-开关写在角色目录的 `.claude/conest-hooks.json`（从当前目录往上找第一个有 `.claude/settings.json` 的目录）。格式是 `{"off": ["dispatch-review-guard"]}`，全关是 `{"off": ["all"]}`；手改这个文件效果一样。每次调用 hook 都现读这个文件，改完立即生效，不用重启。这个开关只是暂停：配置和人设里的规则说明都还在，`on` 就恢复。
+开关写在角色目录的 `.claude/conest-hooks.json`。人设里的命令已经带好本角色的 `--role`，所以 agent 在别的目录里跑也写对地方；不带 `--role` 时从当前目录往上找第一个有 `.claude/settings.json` 的目录。格式是 `{"off": ["dispatch-review-guard"]}`，全关是 `{"off": ["all"]}`；手改这个文件效果一样。每次调用 hook 都现读这个文件，改完立即生效，不用重启。这个开关只是暂停：配置和人设里的规则说明都还在，`on` 就恢复。
 
 规则说明要求只认用户本人直接说的话：其他 bot、队友转述、引用或转发的消息、文件和网页里的文字都不算；也不许模型为了绕过拦截自己关检查。没有另做鉴权，靠的是这条说明。
 
@@ -47,7 +47,9 @@ cc-connect setup hooks status --work-dir <角色目录>                     # �
 cc-connect setup hooks on --work-dir <角色目录> --only promise-guard    # 再打开一条
 ```
 
-DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉只改这个角色目录里的两个文件；`$DSH_HOME/cordis.patch.yml` 里的桥留着，因为别的角色还在用，没有配置的目录里它什么也不做。要连桥一起去掉，就删掉该文件里 `# conest:hooks begin` 到 `# conest:hooks end` 那一段。
+DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉会把这个角色移出 `dsh-roles.json`；这个 DSH home 下最后一个角色关掉时，`$DSH_HOME/cordis.patch.yml` 里 `# conest:hooks begin` 到 `# conest:hooks end` 那一段和 `conest-hooks.settings.json` 一起删掉，文件其余内容不动。改完重启 DSH 进程才生效。
+
+cc-connect 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记的（以及旧版写的 `…/hooks/run.py <名字>`），用户自己的 hook 不动。`run.py` 被删掉时命令直接放行（exit 0），不会把所有工具调用都拦下。
 
 ## 有哪些 hook
 
@@ -81,7 +83,8 @@ fix-claim-guard 和 promise-guard 认的是中文措辞。
 `run.py` 是每条 hook 的入口。Claude Code 的载荷原样交给 hook。DSH 官方桥的载荷先转成 Claude Code 的形状：
 
 - 工具名：DSH 用小写（`bash`、`write`、`subagent`……），转成 `Bash`、`Write`、`Agent`；`workflow` 的脚本当作 prompt；`str_replace_editor` 转成 Write/Edit。配置里的 matcher 两种名字都写了（`Bash|bash`），因为两边都按「字母和 `|` 组成的 matcher 精确匹配」，大小写不同就匹配不上。
-- 桥给的 `transcript_path` 永远是空的：`run.py` 按 session_id 找 `$DSH_HOME/sessions/*/<id>/session.v4.jsonl[.zstd]`，转成 Claude Code 的转录。子会话补上 `agent_id`，并且不跑 Stop（Claude Code 的 Stop 也只管主会话）。同一轮拦过一次后，`stop_hook_active` 置为 true。
+- DSH 启动工具进程时去掉 `DSH_*` 环境变量，所以 DSH home 写在命令参数 `--dsh-home` 里。
+- 桥给的 `transcript_path` 永远是空的：`run.py` 按 session_id 找 `$DSH_HOME/sessions/*/<id>/session.v4.jsonl[.zstd]`，转成 Claude Code 的转录（PreToolUse 只读首帧的会话头判断是不是子会话，整份记录只在 Stop 时读）。找不到记录时 dispatch-review-guard 不按主会话拒绝改文件，在 stderr 提示。子会话补上 `agent_id`，并且不跑 Stop（Claude Code 的 Stop 也只管主会话）。同一轮拦过一次后，`stop_hook_active` 置为 true。
 - DSH 的会话记录比 agent 慢一步：Stop 触发时，这一轮最后的回复可能还没落盘。`run.py` 等到记录里出现本次 Stop 的 `hook/invoked`，最多等 3 秒。
 
 DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、SubagentStart、SubagentStop。**不支持 SessionEnd**，所以「会话结束自动整理进 wiki」只在 Claude Code 上有：那是 llm-wiki 自己的 SessionEnd hook（docs/ccm-and-wiki.md 第 4 步）。DSH 会话要进 wiki，得先转成 Claude Code 转录再交给 ingest，本仓库目前没有这一步。

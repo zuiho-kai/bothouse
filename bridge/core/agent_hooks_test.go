@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -83,7 +85,7 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(AgentHookSettingsPath(wd))
-	if n := strings.Count(string(b), "run.py' bash-guard"); n != 1 {
+	if n := strings.Count(string(b), "' bash-guard\""); n != 1 {
 		t.Fatalf("bash-guard entries = %d\n%s", n, b)
 	}
 	if !strings.Contains(string(b), "my-own-hook") || !strings.Contains(string(b), `"model": "opus"`) {
@@ -94,7 +96,7 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 	}
 	p, _ := os.ReadFile(filepath.Join(wd, "CLAUDE.md"))
 	if !strings.HasPrefix(string(p), "# 角色\n你是橘。\n\n"+hookRulesBegin) || strings.Count(string(p), hookRulesBegin) != 1 ||
-		!strings.Contains(string(p), "【免审:小改动】") || !strings.Contains(string(p), filepath.Join(data, "hooks", "run.py")+" off") {
+		!strings.Contains(string(p), "【免审:小改动】") || !strings.Contains(string(p), filepath.Join(data, "hooks", "run.py")+" --role "+hookQuote(wd)+" off") {
 		t.Fatalf("persona = %q", p)
 	}
 
@@ -161,8 +163,17 @@ func TestAgentHooksDSH(t *testing.T) {
 	}
 	b, _ := os.ReadFile(patch)
 	if !strings.HasPrefix(string(b), mine) || strings.Count(string(b), "name: \""+bridge+"\"") != 1 ||
-		!strings.Contains(string(b), "configPath: .claude/settings.json") {
+		!strings.Contains(string(b), "configPath: \""+DSHHookSettingsPath(dshHome)+"\"") {
 		t.Fatalf("patch = %s", b)
+	}
+	// the DSH-wide hook file: every command is --dsh-global with this DSH home; the role is listed with its hooks
+	g, _ := os.ReadFile(DSHHookSettingsPath(dshHome))
+	if strings.Count(string(g), "--dsh-global --dsh-home "+hookQuote(dshHome)) != len(agentHooks) {
+		t.Fatalf("dsh settings = %s", g)
+	}
+	roles, err := readDSHRoles(AgentHooksDir(data))
+	if err != nil || !slices.Equal(roles[wd].Hooks, []string{"bash-guard", "promise-guard"}) || roles[wd].DSHHome != dshHome {
+		t.Fatalf("dsh roles = %+v, %v", roles, err)
 	}
 	p, _ := os.ReadFile(filepath.Join(wd, "AGENTS.md"))
 	if !strings.Contains(string(p), "## Tool hooks") || !strings.Contains(string(p), "promise-guard") || strings.Contains(string(p), "dispatch-review-guard") {
@@ -185,6 +196,19 @@ func TestAgentHooksDSH(t *testing.T) {
 		if real, _ := filepath.EvalSymlinks(bridge); got != real {
 			t.Fatalf("FindDSHHookBridge = %q, %v; want %q", got, err, bridge)
 		}
+	}
+	// off for the last DSH role: the role leaves dsh-roles.json, the bridge block and the hook file go
+	if _, err := DisableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "dsh", DSHHome: dshHome}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(patch); string(b) != mine {
+		t.Fatalf("patch after off = %q", b)
+	}
+	if _, err := os.Stat(DSHHookSettingsPath(dshHome)); !os.IsNotExist(err) {
+		t.Fatalf("dsh settings still there: %v", err)
+	}
+	if roles, _ := readDSHRoles(AgentHooksDir(data)); len(roles) != 0 {
+		t.Fatalf("dsh roles after off = %+v", roles)
 	}
 	if _, err := EnableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "codex"}); err == nil {
 		t.Fatal("codex must be refused")
@@ -246,5 +270,38 @@ func TestApplyWizardNewClaudeRoleGetsHooks(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("steps = %+v", res.Steps)
+	}
+}
+
+func TestOurHook(t *testing.T) {
+	cmd := agentHookCommand("/usr/bin/python3", "/d/hooks", "bash-guard", "--role", "/w/r o")
+	if got := ourHook(cmd); got != "bash-guard" {
+		t.Fatalf("ourHook(%q) = %q", cmd, got)
+	}
+	if got := ourHook("'/usr/bin/python3' -I '/d/hooks/run.py' bash-guard"); got != "bash-guard" {
+		t.Fatalf("legacy command not recognised: %q", got)
+	}
+	for _, c := range []string{"python3 ~/my/run.py bash-guard", "my-own-hook bash-guard", "python3 /x/hooks/run.py nope"} {
+		if got := ourHook(c); got != "" {
+			t.Fatalf("ourHook(%q) = %q, want none (the user's own hook)", c, got)
+		}
+	}
+}
+
+// A hook command whose run.py is gone must pass (exit 0), not block (python3 -I <missing> exits 2).
+func TestAgentHookCommandMissingScriptPasses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell guard")
+	}
+	python, err := FindPython()
+	if err != nil {
+		t.Skip(err)
+	}
+	cmd := agentHookCommand(python, filepath.Join(t.TempDir(), "gone"), "bash-guard", "--role", t.TempDir())
+	c := exec.Command("/bin/sh", "-c", cmd)
+	c.Stdin = strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"pkill -f x"}}`)
+	out, err := c.CombinedOutput()
+	if err != nil {
+		t.Fatalf("missing run.py: %v\n%s", err, out)
 	}
 }

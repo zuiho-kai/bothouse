@@ -178,6 +178,71 @@ class Hooks(unittest.TestCase):
         self.assertEqual(self.run_hook("bash-guard", {"hook_event_name": "PreToolUse", "tool_name": "bash",
             "tool_input": {"command": "python3 " + os.path.join(self.hooks, "run.py") + " off"}}, cwd=self.tmp), "")
 
+    # ---- review fixes: missing script, --role, DSH without its environment, --dsh-global ----
+    def test_missing_hook_script_passes(self):
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "--conest-hook", "gone-guard"],
+                           input="{}", capture_output=True, text=True, env=self.env, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)  # exit 2 would block every tool call
+        self.assertIn("missing", r.stderr)
+
+    def test_switch_role_from_other_dir(self):
+        role = os.path.join(self.tmp, "role3")
+        os.makedirs(os.path.join(role, ".claude"), exist_ok=True)
+        with open(os.path.join(role, ".claude", "settings.json"), "w") as f:
+            f.write("{}")
+        elsewhere = os.path.join(self.tmp, "repo", "sub")  # the agent cd'ed into another repo with its own settings
+        os.makedirs(os.path.join(self.tmp, "repo", ".claude"), exist_ok=True)
+        with open(os.path.join(self.tmp, "repo", ".claude", "settings.json"), "w") as f:
+            f.write("{}")
+        os.makedirs(elsewhere, exist_ok=True)
+        env = {k: v for k, v in self.env.items() if k != "CLAUDE_PROJECT_DIR"}  # Bash tool: no CLAUDE_PROJECT_DIR
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "--role", role, "off", "bash-guard"],
+                           capture_output=True, text=True, env=env, cwd=elsewhere, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["role_dir"], role)
+        with open(os.path.join(role, ".claude", "conest-hooks.json")) as f:
+            self.assertEqual(json.load(f), {"off": ["bash-guard"]})
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "repo", ".claude", "conest-hooks.json")))
+        kill = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "pkill -f x"}}
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "--conest-hook", "--role", role,
+                            "bash-guard"], input=json.dumps(kill), capture_output=True, text=True, env=env, cwd=elsewhere)
+        self.assertEqual(r.stdout.strip(), "")  # the hook reads the role's switch too
+
+    def test_dsh_without_env_or_log(self):
+        env = {k: v for k, v in self.env.items() if k != "DSH_HOME"}  # DSH strips DSH_* from tool processes
+        p = {"hook_event_name": "PreToolUse", "session_id": "nolog", "transcript_path": "", "tool_name": "write",
+             "tool_input": {"file_path": "/work/app.py", "content": "x"}}
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "dispatch-review-guard"],
+                           input=json.dumps(p), capture_output=True, text=True, env=env, timeout=30)
+        self.assertFalse(self.denied(r.stdout.strip()), r.stdout)  # no log: not denied as the main session's edit
+        self.assertIn("not found", r.stderr)
+        # --dsh-home given in the command: the log is found and the main-session rule applies
+        self.session("withhome", [], compress=False)
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "--dsh-home", self.env["DSH_HOME"],
+                            "dispatch-review-guard"], input=json.dumps(dict(p, session_id="withhome")),
+                           capture_output=True, text=True, env=env, timeout=30)
+        self.assertTrue(self.denied(r.stdout.strip()), r.stdout + r.stderr)
+
+    def test_dsh_global_only_in_roles(self):
+        role, other = os.path.join(self.tmp, "dshrole"), os.path.join(self.tmp, "stranger")
+        os.makedirs(os.path.join(role, "deep"), exist_ok=True)
+        os.makedirs(other, exist_ok=True)
+        roles = os.path.join(self.hooks, "dsh-roles.json")
+        with open(roles, "w") as f:
+            json.dump({role: {"hooks": ["bash-guard"], "dsh_home": self.env["DSH_HOME"]}}, f)
+        kill = {"hook_event_name": "PreToolUse", "tool_name": "bash", "tool_input": {"command": "pkill -f x"}}
+        try:
+            def run(name, cwd):
+                r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "--conest-hook",
+                                    "--dsh-global", name], input=json.dumps(kill), capture_output=True, text=True,
+                                   env=self.env, cwd=cwd, timeout=30)
+                return r.stdout.strip()
+            self.assertTrue(self.denied(run("bash-guard", os.path.join(role, "deep"))))
+            self.assertEqual(run("bash-guard", other), "")  # a repository that is not a cc-connect role
+            self.assertEqual(run("param-source-guard", role), "")  # hook not on for this role
+        finally:
+            os.unlink(roles)
+
     # ---- wiki-context ----
     def test_wiki_context(self):
         p = {"hook_event_name": "UserPromptSubmit", "session_id": "w1", "prompt": "代理端口是多少"}

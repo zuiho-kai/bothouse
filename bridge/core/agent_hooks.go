@@ -3,8 +3,10 @@ package core
 // Agent hooks: the Claude Code command hooks in bridge/contrib/hooks (bash-guard, dispatch-review-guard, …),
 // installed into <data_dir>/hooks and switched on per role in <work_dir>/.claude/settings.json. Claude Code
 // reads that file itself; DSH reads the same file through its official bridge
-// @deepseek-ai/dsh-hooks-claude-code, mounted once in $DSH_HOME/cordis.patch.yml with a relative configPath:
-// cc-connect starts every ACP agent in its work_dir (agent/acp/session.go cmd.Dir), so each role reads its own.
+// @deepseek-ai/dsh-hooks-claude-code, mounted once in $DSH_HOME/cordis.patch.yml with the absolute configPath
+// $DSH_HOME/conest-hooks.settings.json (one file for all DSH runs; a relative path would run the hooks of any
+// repository DSH is started in). Its commands carry --dsh-global: run.py runs a hook only inside a role listed
+// in <hooks dir>/dsh-roles.json with that hook on, so DSH elsewhere is untouched.
 // The role's persona gets a marked block telling the model how to work with the enabled hooks.
 // Every hook runs through run.py, which turns a DSH payload into Claude Code's shape (see its docstring).
 
@@ -130,15 +132,42 @@ func hookQuote(p string) string {
 	return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
 }
 
-func agentHookCommand(python, dir, name string) string {
-	return hookQuote(python) + " -I " + hookQuote(filepath.Join(dir, "run.py")) + " " + name
+// agentHookMark marks the commands cc-connect writes (run.py ignores it), so only those are ever replaced or removed.
+const agentHookMark = "--conest-hook"
+
+// agentHookCommand: run.py with the marker, then options (--role <work_dir>, --dsh-home, --dsh-global), then the
+// hook name last. On POSIX shells the command passes (exit 0) when run.py is gone: "python3 -I <missing file>"
+// exits 2, which both CLIs read as "block", so a deleted hooks directory would block every tool call.
+func agentHookCommand(python, dir, name string, opts ...string) string {
+	run := hookQuote(filepath.Join(dir, "run.py"))
+	cmd := hookQuote(python) + " -I " + run + " " + agentHookMark
+	for _, o := range opts {
+		if strings.HasPrefix(o, "--") {
+			cmd += " " + o
+		} else {
+			cmd += " " + hookQuote(o)
+		}
+	}
+	cmd += " " + name
+	if runtime.GOOS != "windows" {
+		cmd = "[ -f " + run + " ] || exit 0; " + cmd
+	}
+	return cmd
 }
 
-// ourHook: the hook name when cmd is one written by agentHookCommand ("" otherwise).
-var ourHookCmd = regexp.MustCompile(`run\.py['"]? ([a-z-]+)$`)
+// ourHook: the hook name when cmd is one written by agentHookCommand ("" otherwise). legacyHookCmd also takes
+// the unmarked form older versions wrote ('…/hooks/run.py' <name>), so "on" replaces it and "off" removes it.
+var (
+	ourHookCmd    = regexp.MustCompile(`run\.py['"]? ` + agentHookMark + ` (?:.* )?([a-z-]+)$`)
+	legacyHookCmd = regexp.MustCompile(`[/\\]hooks[/\\]run\.py['"]? ([a-z-]+)$`)
+)
 
 func ourHook(cmd string) string {
-	m := ourHookCmd.FindStringSubmatch(strings.TrimSpace(cmd))
+	cmd = strings.TrimSpace(cmd)
+	m := ourHookCmd.FindStringSubmatch(cmd)
+	if m == nil {
+		m = legacyHookCmd.FindStringSubmatch(cmd)
+	}
 	if m == nil {
 		return ""
 	}
@@ -385,7 +414,8 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	var events []string
 	for _, n := range names {
 		h, _ := agentHookByName(n)
-		g := map[string]any{"hooks": []any{map[string]any{"type": "command", "command": agentHookCommand(python, dir, n), "timeout": h.Timeout}}}
+		g := map[string]any{"hooks": []any{map[string]any{"type": "command",
+			"command": agentHookCommand(python, dir, n, "--role", o.WorkDir), "timeout": h.Timeout}}}
 		if h.Matcher != "" {
 			g["matcher"] = h.Matcher
 		}
@@ -400,11 +430,14 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	if res.Enabled, err = AgentHooksEnabled(o.WorkDir); err != nil {
 		return nil, err
 	}
-	if err := writeHookRules(persona, o.Lang, res.Enabled, python, dir); err != nil {
+	if err := writeHookRules(persona, o.Lang, res.Enabled, python, dir, o.WorkDir); err != nil {
 		return nil, err
 	}
 	if o.CLI == "dsh" {
-		if res.DSHPatchFile, err = EnsureDSHHookBridge(o.DSHHome, o.DSHBridge); err != nil {
+		if err := setDSHRole(dir, o.WorkDir, DSHHome(o.DSHHome), res.Enabled); err != nil {
+			return nil, err
+		}
+		if res.DSHPatchFile, err = EnsureDSHHookBridge(o.DSHHome, o.DSHBridge, python, dir); err != nil {
 			return nil, err
 		}
 	}
@@ -412,7 +445,8 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 }
 
 // DisableAgentHooks switches hooks off for one role (all of them when Only is empty) and updates the persona
-// block; with none left the block is removed. The scripts and the DSH bridge entry stay (other roles use them).
+// block; with none left the block is removed. The scripts stay. For DSH the role leaves dsh-roles.json when it
+// has no hook left, and the bridge block leaves cordis.patch.yml when no DSH role of that DSH home is left.
 func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	persona, err := o.personaPath()
 	if err != nil {
@@ -441,10 +475,79 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	if python == "" {
 		python = "python3"
 	}
-	if err := writeHookRules(persona, o.Lang, res.Enabled, python, AgentHooksDir(o.DataDir)); err != nil {
+	dir := AgentHooksDir(o.DataDir)
+	if err := writeHookRules(persona, o.Lang, res.Enabled, python, dir, o.WorkDir); err != nil {
 		return nil, err
 	}
+	if o.CLI == "dsh" {
+		home := DSHHome(o.DSHHome)
+		if err := setDSHRole(dir, o.WorkDir, home, res.Enabled); err != nil {
+			return nil, err
+		}
+		roles, err := readDSHRoles(dir)
+		if err != nil {
+			return nil, err
+		}
+		left := false
+		for _, r := range roles {
+			left = left || r.DSHHome == home
+		}
+		if !left {
+			if err := RemoveDSHHookBridge(home); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return res, nil
+}
+
+// dshRole is one entry of <hooks dir>/dsh-roles.json, the roles run.py --dsh-global runs hooks in.
+type dshRole struct {
+	Hooks   []string `json:"hooks"`
+	DSHHome string   `json:"dsh_home"`
+}
+
+func dshRolesFile(hooksDir string) string { return filepath.Join(hooksDir, "dsh-roles.json") }
+
+func readDSHRoles(hooksDir string) (map[string]dshRole, error) {
+	roles := map[string]dshRole{}
+	b, err := os.ReadFile(dshRolesFile(hooksDir))
+	if os.IsNotExist(err) {
+		return roles, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes.TrimSpace(b)) > 0 {
+		if err := json.Unmarshal(b, &roles); err != nil {
+			return nil, fmt.Errorf("%s is not valid JSON: %w", dshRolesFile(hooksDir), err)
+		}
+	}
+	return roles, nil
+}
+
+// setDSHRole records the role's enabled hooks (none = the role is removed).
+func setDSHRole(hooksDir, workDir, dshHome string, enabled []string) error {
+	roles, err := readDSHRoles(hooksDir)
+	if err != nil {
+		return err
+	}
+	if len(enabled) == 0 {
+		if _, ok := roles[workDir]; !ok {
+			return nil
+		}
+		delete(roles, workDir)
+	} else {
+		roles[workDir] = dshRole{Hooks: enabled, DSHHome: dshHome}
+	}
+	b, err := json.MarshalIndent(roles, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return err
+	}
+	return AtomicWriteFile(dshRolesFile(hooksDir), append(b, '\n'), 0o644)
 }
 
 // ── persona block ──────────────────────────────────────────────
@@ -452,7 +555,7 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 const hookRulesBegin, hookRulesEnd = "<!-- conest:hooks -->", "<!-- /conest:hooks -->"
 
 // HookRules is the persona block for the enabled hooks ("" for none), from rules/<name>.<zh|en>.md.
-func HookRules(lang string, enabled []string, python, hooksDir string) string {
+func HookRules(lang string, enabled []string, python, hooksDir, workDir string) string {
 	if len(enabled) == 0 || AgentHookFS == nil {
 		return ""
 	}
@@ -477,7 +580,8 @@ func HookRules(lang string, enabled []string, python, hooksDir string) string {
 	if reviews == "" {
 		reviews = "~/.claude/reviews"
 	}
-	r := strings.NewReplacer("{{HOOKS}}", hooksDir, "{{PYTHON}}", python, "{{REVIEWS}}", reviews)
+	r := strings.NewReplacer("{{HOOKS}}", hooksDir, "{{PYTHON}}", python, "{{REVIEWS}}", reviews,
+		"{{ROLE}}", hookQuote(workDir))
 	return r.Replace(strings.Join(parts, "\n"))
 }
 
@@ -517,7 +621,7 @@ func WithHookRules(persona, block string) string {
 	return persona + hookRulesBegin + eol + block + eol + hookRulesEnd + eol
 }
 
-func writeHookRules(persona, lang string, enabled []string, python, dir string) error {
+func writeHookRules(persona, lang string, enabled []string, python, dir, workDir string) error {
 	b, err := os.ReadFile(persona)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -528,7 +632,7 @@ func writeHookRules(persona, lang string, enabled []string, python, dir string) 
 	if lang == "" {
 		lang = SystemLanguage()
 	}
-	out := WithHookRules(string(b), HookRules(lang, enabled, python, dir))
+	out := WithHookRules(string(b), HookRules(lang, enabled, python, dir, workDir))
 	if out == string(b) {
 		return nil
 	}
@@ -542,20 +646,45 @@ func writeHookRules(persona, lang string, enabled []string, python, dir string) 
 
 const dshPatchBegin, dshPatchEnd = "# conest:hooks begin", "# conest:hooks end"
 
-// dshHookPatch mounts DSH's official Claude Code hook bridge with a relative configPath, read from the
-// directory DSH starts in (readFileSync in dsh-hooks-claude-code apply()): the role's work_dir under cc-connect.
+// dshHookPatch mounts DSH's official Claude Code hook bridge with an absolute configPath: the DSH-wide hook file
+// (DSHHookSettingsPath), whose commands run hooks only in cc-connect's DSH roles (run.py --dsh-global).
 // The plugin is named by its file: a package name is resolved from the profile directory
 // ($DSH_HOME/profiles/<name>), where the bridge is not installed (ERR_MODULE_NOT_FOUND in a fresh DSH_HOME);
 // the bridge ships with dsh itself (a dependency of @deepseek-ai/dsh).
-func dshHookPatch(bridge string) string {
+func dshHookPatch(bridge, settings string) string {
 	q, _ := json.Marshal(bridge) // a JSON string is a valid YAML double-quoted scalar
-	return dshPatchBegin + ` (written by "cc-connect setup hooks"; each role's hooks are in <work_dir>/.claude/settings.json)
+	c, _ := json.Marshal(settings)
+	return dshPatchBegin + ` (written by "cc-connect setup hooks"; runs only in roles set up with "setup hooks on --cli dsh")
 - insert:
     - id: conest-hooks-claude-code
       name: ` + string(q) + `
       config:
-        configPath: .claude/settings.json
+        configPath: ` + string(c) + `
 ` + dshPatchEnd + "\n"
+}
+
+// DSHHookSettingsPath is the DSH-wide hook file (Claude Code settings format) the bridge reads.
+func DSHHookSettingsPath(dshHome string) string {
+	return filepath.Join(DSHHome(dshHome), "conest-hooks.settings.json")
+}
+
+// writeDSHHookSettings writes every hook with --dsh-global and this DSH home (DSH starts tools without DSH_*).
+func writeDSHHookSettings(dshHome, python, hooksDir string) error {
+	home := DSHHome(dshHome)
+	m := map[string]any{}
+	var add []map[string]any
+	var events []string
+	for _, h := range agentHooks {
+		g := map[string]any{"hooks": []any{map[string]any{"type": "command",
+			"command": agentHookCommand(python, hooksDir, h.Name, "--dsh-global", "--dsh-home", home), "timeout": h.Timeout}}}
+		if h.Matcher != "" {
+			g["matcher"] = h.Matcher
+		}
+		add = append(add, g)
+		events = append(events, h.Event)
+	}
+	editHooks(m, func(string) bool { return true }, add, events)
+	return writeSettings(DSHHookSettingsPath(home), m)
 }
 
 const dshBridgeRel = "dsh-hooks-claude-code/lib/index.js"
@@ -600,7 +729,7 @@ func DSHHome(dshHome string) string {
 
 // EnsureDSHHookBridge adds the bridge (its entry file; "" = FindDSHHookBridge) to $DSH_HOME/cordis.patch.yml (the user layer applied over every profile)
 // once; an existing block is refreshed, the rest of the file is kept.
-func EnsureDSHHookBridge(dshHome, bridge string) (string, error) {
+func EnsureDSHHookBridge(dshHome, bridge, python, hooksDir string) (string, error) {
 	if bridge == "" {
 		var err error
 		if bridge, err = FindDSHHookBridge(); err != nil {
@@ -613,12 +742,54 @@ func EnsureDSHHookBridge(dshHome, bridge string) (string, error) {
 	if !fileExists(bridge) {
 		return "", fmt.Errorf("DSH hook bridge %s does not exist", bridge)
 	}
+	if err := writeDSHHookSettings(dshHome, python, hooksDir); err != nil {
+		return "", err
+	}
 	p := filepath.Join(DSHHome(dshHome), "cordis.patch.yml")
 	b, err := os.ReadFile(p)
 	if err != nil && !os.IsNotExist(err) {
 		return "", err
 	}
-	s := string(b)
+	s := withoutDSHPatch(string(b))
+	if t := strings.TrimSpace(s); t == "[]" {
+		s = "" // an empty flow list cannot take block items after it
+	}
+	s = strings.TrimRight(s, "\n")
+	if s != "" {
+		s += "\n"
+	}
+	s += dshHookPatch(bridge, DSHHookSettingsPath(dshHome))
+	if s == string(b) {
+		return p, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return "", err
+	}
+	return p, AtomicWriteFile(p, []byte(s), 0o644)
+}
+
+// RemoveDSHHookBridge takes the bridge block out of $DSH_HOME/cordis.patch.yml (the rest stays) and removes the
+// DSH-wide hook file. A running DSH keeps what it loaded until it restarts.
+func RemoveDSHHookBridge(dshHome string) error {
+	if err := os.Remove(DSHHookSettingsPath(dshHome)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	p := filepath.Join(DSHHome(dshHome), "cordis.patch.yml")
+	b, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s := withoutDSHPatch(string(b))
+	if s == string(b) {
+		return nil
+	}
+	return AtomicWriteFile(p, []byte(s), 0o644)
+}
+
+func withoutDSHPatch(s string) string {
 	if i := strings.Index(s, dshPatchBegin); i >= 0 {
 		end := len(s)
 		if j := strings.Index(s[i:], dshPatchEnd); j >= 0 {
@@ -629,19 +800,5 @@ func EnsureDSHHookBridge(dshHome, bridge string) (string, error) {
 		}
 		s = s[:i] + s[end:]
 	}
-	if t := strings.TrimSpace(s); t == "[]" {
-		s = "" // an empty flow list cannot take block items after it
-	}
-	s = strings.TrimRight(s, "\n")
-	if s != "" {
-		s += "\n"
-	}
-	s += dshHookPatch(bridge)
-	if s == string(b) {
-		return p, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return "", err
-	}
-	return p, AtomicWriteFile(p, []byte(s), 0o644)
+	return s
 }

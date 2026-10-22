@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """Hook entry for Claude Code and DSH: run.py <hook name>  (e.g. run.py bash-guard).
-Switch: run.py off|on [hook ...] / run.py status  — turn hooks off or on for this role (no names = all).
-The agent runs it when its user asks in chat (the persona block says so); a person can edit the file instead.
-The state is the role's .claude/conest-hooks.json: {"off": ["bash-guard", ...]} or {"off": ["all"]}, read on
-every hook call, so a change applies at once. The role directory is the nearest directory upwards from
-CLAUDE_PROJECT_DIR / the payload's cwd / the current directory that has .claude/settings.json.
+Switch: run.py --role <dir> off|on [hook ...] / run.py --role <dir> status  — turn hooks off or on for this role
+(no names = all). The agent runs it when its user asks in chat (the persona block says so, with the role's
+--role); a person can edit the file instead. The state is the role's .claude/conest-hooks.json:
+{"off": ["bash-guard", ...]} or {"off": ["all"]}, read on every hook call, so a change applies at once.
+Without --role the role directory is the nearest directory upwards from CLAUDE_PROJECT_DIR / the payload's cwd /
+the current directory that has .claude/settings.json.
+
+Options (before or after the hook name; cc-connect writes them into each hook command):
+  --conest-hook      marks a command written by cc-connect (so "setup hooks off" never touches the user's own hooks)
+  --role <dir>       the role's work_dir: where the switch file is
+  --dsh-home <dir>   DSH's home (DSH starts tools without the DSH_* variables, so $DSH_HOME is not seen here)
+  --dsh-global       the command comes from the one DSH-wide hook file: it runs only inside a role listed in
+                     <hooks dir>/dsh-roles.json (written by "cc-connect setup hooks on|off --cli dsh") and only
+                     the hooks switched on for that role; anywhere else it passes.
+A missing hook script passes (exit 0, warning on stderr): exit 2 would block every tool call.
 
 The hooks in this directory are written against Claude Code's hook protocol. Claude Code calls them through
 this file unchanged. DSH runs the same .claude/settings.json through its official bridge
@@ -50,7 +60,9 @@ NAMES = {
     "subagent_fork": "Agent",
     "workflow": "Agent",
 }
-STATE = os.path.join(HERE, "state", "dsh-stop.json")  # {session_id: turn already blocked once}
+STATE = os.path.join(HERE, "state", "dsh-stop.json")
+DSH_ROLES = os.path.join(HERE, "dsh-roles.json")  # {role work_dir: {"hooks": [...], "dsh_home": ...}}
+OPTS = {"role": None, "dsh_home": None, "dsh_global": False}  # {session_id: turn already blocked once}
 # 来源：实测，验收时日志在钩子开始后约 0.15 秒内写到；留足余量又不拖住回复（Stop 超时设的是 30 秒）
 STOP_WAIT = 3.0
 MODEL_HEAD, MODEL_END = "[cc-connect model-control instructions]", "[/cc-connect model-control instructions]"
@@ -78,13 +90,31 @@ while (p + 4 <= b.length) {
   if (q > b.length) break;
   try { out.push(z.zstdDecompressSync(b.subarray(p, q))); } catch (e) { break; }
   p = q;
+  if (process.argv[2] === 'head') break;
 }
 process.stdout.write(Buffer.concat(out));
 """
 
 
 def dsh_home():
-    return os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh")
+    return OPTS["dsh_home"] or os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh")
+
+
+def write_json(path, obj):
+    """Write via a temporary file + os.replace, so a concurrent reader never sees half a file."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def session_file(sid):
@@ -98,34 +128,38 @@ def session_file(sid):
     return None
 
 
-def read_lines(path):
-    """Lines of a DSH session log, plain or zstd; [] when it cannot be read."""
+def read_lines(path, head=False):
+    """Lines of a DSH session log, plain or zstd; [] when it cannot be read.
+    head: only the first line (the session record), decoding only the first zstd frame."""
     if not path.endswith(".zstd"):
         try:
             with open(path, encoding="utf-8") as f:
-                return f.read().splitlines()
+                return [f.readline().rstrip("\n")] if head else f.read().splitlines()
         except OSError:
             return []
     data = None
     try:
         from compression import zstd  # Python 3.14+
         with open(path, "rb") as f:
-            data = zstd.decompress(f.read())
+            raw = f.read()
+        data = zstd.ZstdDecompressor().decompress(raw) if head else zstd.decompress(raw)  # one frame / all
     except Exception:
         pass
     if data is None:
         try:
             import zstandard
             with open(path, "rb") as f:  # read_across_frames: the default stops after the first frame
-                data = zstandard.ZstdDecompressor().stream_reader(f, read_across_frames=True).read()
+                data = zstandard.ZstdDecompressor().stream_reader(f, read_across_frames=not head).read()
         except Exception:
             pass
     if data is None:
         try:
-            data = subprocess.run(["node", "-e", NODE_ZSTD, path], capture_output=True, timeout=20).stdout
+            data = subprocess.run(["node", "-e", NODE_ZSTD, path] + (["head"] if head else []),
+                                  capture_output=True, timeout=20).stdout
         except (OSError, subprocess.SubprocessError):
             return []
-    return data.decode("utf-8", "replace").splitlines()
+    lines = data.decode("utf-8", "replace").splitlines()
+    return lines[:1] if head else lines
 
 
 def records(lines):
@@ -259,6 +293,8 @@ def hook_names():
 
 
 def role_dir(start=None):
+    if OPTS["role"]:
+        return os.path.abspath(OPTS["role"])
     d = os.path.abspath(start or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     probe = d
     while True:
@@ -296,23 +332,61 @@ def switch(action, names):
                 off = set(known)
             off -= set(names)
     if action in ("on", "off"):
-        os.makedirs(os.path.join(d, ".claude"), exist_ok=True)
-        with open(os.path.join(d, SWITCH), "w", encoding="utf-8") as f:
-            json.dump({"off": sorted(off)}, f, ensure_ascii=False)
-            f.write("\n")
+        write_json(os.path.join(d, SWITCH), {"off": sorted(off)})
     disabled = set(known) if "all" in off else off & set(known)
     print(json.dumps({"role_dir": d, "switch_file": os.path.join(d, SWITCH),
                       "on": [n for n in known if n not in disabled], "off": [n for n in known if n in disabled]},
                      ensure_ascii=False))
 
 
+def parse_args(argv):
+    rest, i = [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--role", "--dsh-home") and i + 1 < len(argv):
+            OPTS[a[2:].replace("-", "_")] = argv[i + 1] or None
+            i += 2
+            continue
+        if a == "--dsh-global":
+            OPTS["dsh_global"] = True
+        elif a != "--conest-hook":
+            rest.append(a)
+        i += 1
+    return rest
+
+
+def dsh_role(start):
+    """The DSH role (listed in dsh-roles.json) at or above start: (work_dir, entry), or (None, None)."""
+    try:
+        with open(DSH_ROLES, encoding="utf-8") as f:
+            roles = json.load(f)
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(roles, dict):
+        return None, None
+    probe = os.path.realpath(start)
+    known = {os.path.realpath(k): (k, v) for k, v in roles.items() if isinstance(v, dict)}
+    while True:
+        if probe in known:
+            return known[probe]
+        up = os.path.dirname(probe)
+        if up == probe:
+            return None, None
+        probe = up
+
+
 def main():
-    if len(sys.argv) < 2:
-        sys.exit("usage: run.py <hook name> | run.py off|on [hook ...] | run.py status")
-    if sys.argv[1] in ("off", "on", "status"):
-        return switch(sys.argv[1], sys.argv[2:])
-    name = os.path.basename(sys.argv[1])
-    target = os.path.join(HERE, name if name.endswith(".py") else name + ".py")
+    args = parse_args(sys.argv[1:])
+    if not args:
+        sys.exit("usage: run.py <hook name> | run.py [--role <dir>] off|on [hook ...] | run.py [--role <dir>] status")
+    if args[0] in ("off", "on", "status"):
+        return switch(args[0], args[1:])
+    name = os.path.basename(args[0])
+    name = name[:-3] if name.endswith(".py") else name
+    target = os.path.join(HERE, name + ".py")
+    if not os.path.isfile(target):
+        sys.stderr.write(f"cc-connect hook {name}: {target} is missing, passing (reinstall: cc-connect setup hooks on)\n")
+        sys.exit(0)
     raw = sys.stdin.read()
     try:
         payload = json.loads(raw)
@@ -320,6 +394,13 @@ def main():
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
+    if OPTS["dsh_global"]:
+        # the DSH-wide hook file applies to every directory DSH runs in: only cc-connect's DSH roles count
+        wd, entry = dsh_role(payload.get("cwd") or os.getcwd())
+        if not wd or name not in (entry.get("hooks") or []):
+            sys.exit(0)
+        OPTS["role"] = wd
+        OPTS["dsh_home"] = OPTS["dsh_home"] or entry.get("dsh_home")
     off = load_off(role_dir(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or None))
     if "all" in off or name in off:
         sys.exit(0)  # switched off for this role (run.py off): pass without running the hook
@@ -329,18 +410,26 @@ def main():
         payload["tool_name"], payload["tool_input"] = tool_input(tool, payload.get("tool_input"))
     stop = payload.get("hook_event_name") == "Stop"
     # Claude Code always gives a transcript; an empty one is the DSH bridge (dsh-hooks-claude-code base())
-    path = session_file(payload.get("session_id") or "") if (dsh or not payload.get("transcript_path")) else None
-    recs = records(read_lines(path)) if path else []
-    head = recs[0] if recs and recs[0].get("type") == "session" else {}
+    bridge = dsh or OPTS["dsh_global"] or not payload.get("transcript_path")
+    path = session_file(payload.get("session_id") or "") if bridge else None
+    # only the first record (session header) is needed here; the whole log is read for Stop alone
+    first = records(read_lines(path, head=True)) if path else []
+    head = first[0] if first and first[0].get("type") == "session" else {}
     sub = bool(head.get("delegationDepth"))
     if sub and "agent_id" not in payload:
         payload["agent_id"] = payload.get("session_id")
+    if (dsh or OPTS["dsh_global"]) and not path and name == "dispatch-review-guard" and "agent_id" not in payload:
+        # no session log (wrong DSH home, not written yet): cannot tell main session from subagent, so do not
+        # deny an edit as the main session's; the dispatch checks (review marks) still apply
+        sys.stderr.write(f"dispatch-review-guard: DSH session log not found under {dsh_home()}/sessions, "
+                         "main-session edit check skipped\n")
+        payload["agent_id"] = payload.get("session_id") or "unknown"
 
     tmp, turn, sid = None, None, payload.get("session_id") or ""
     if stop and path:
         if sub:
             sys.exit(0)
-        recs = wait_for_log(path, recs)
+        recs = wait_for_log(path, records(read_lines(path)))
         fd, tmp = tempfile.mkstemp(prefix="dsh-stop-", suffix=".jsonl")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             for r in transcript(recs, head.get("cwd") or payload.get("cwd") or ""):
@@ -363,9 +452,7 @@ def main():
         if blocked or proc.returncode == 2:
             st = load_state()
             st[sid] = turn
-            os.makedirs(os.path.dirname(STATE), exist_ok=True)
-            with open(STATE, "w") as f:
-                json.dump(st, f)
+            write_json(STATE, st)
     sys.stdout.write(proc.stdout)
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)

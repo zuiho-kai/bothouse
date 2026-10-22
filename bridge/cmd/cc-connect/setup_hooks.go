@@ -17,15 +17,17 @@ func init() { core.AgentHookFS = ccconnect.AgentHookFiles }
 
 const setupHooksUsage = `Usage: cc-connect setup hooks on|off|status --work-dir <dir> [flags]
 
-Tool hooks for one role (the role's work_dir). Claude Code reads them from <dir>/.claude/settings.json;
-DSH reads the same file through @deepseek-ai/dsh-hooks-claude-code, which "on --cli dsh" mounts once in
-$DSH_HOME/cordis.patch.yml. The scripts are installed into <data_dir>/hooks; the persona file
+Tool hooks for one role (the role's work_dir). Claude Code reads them from <dir>/.claude/settings.json.
+DSH reads them through @deepseek-ai/dsh-hooks-claude-code, which "on --cli dsh" mounts once in
+$DSH_HOME/cordis.patch.yml with $DSH_HOME/conest-hooks.settings.json; those hooks run only in the roles set up
+with --cli dsh (listed in <data_dir>/hooks/dsh-roles.json). "off --cli dsh" for the last such role removes that
+block again. Restart DSH (for cc-connect's roles: restart cc-connect) after on/off --cli dsh. The scripts are installed into <data_dir>/hooks; the persona file
 (CLAUDE.md for claudecode, AGENTS.md for dsh) gets a block between <!-- conest:hooks --> markers that
 tells the model the rules of the hooks that are on. "off" removes the hooks and that block (or, with
 --only, just those hooks and their lines); other hooks and the rest of both files are left as they are.
 
 To pause hooks without uninstalling them, the user tells the bot in chat ("turn the checks off"): the
-persona block makes it run <data_dir>/hooks/run.py off|on [hook…], which writes
+persona block makes it run <data_dir>/hooks/run.py --role <dir> off|on [hook…], which writes
 <dir>/.claude/conest-hooks.json ({"off": ["bash-guard"]} or {"off": ["all"]}; editing it by hand works too).
 "status" shows both.
 
