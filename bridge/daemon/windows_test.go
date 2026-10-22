@@ -42,6 +42,8 @@ func TestBuildWindowsTaskScript(t *testing.T) {
 		`while ($true) {`,
 		`& 'C:\Program Files\cc-connect\cc-connect.exe'`,
 		`if ($exitCode -eq 0) { exit 0 }`,
+		`if ($exitCode -eq 75) { continue }`,
+		`$env:CC_SUPERVISED = '1'`,
 		`Start-Sleep -Seconds 10`,
 	} {
 		if !strings.Contains(script, want) {

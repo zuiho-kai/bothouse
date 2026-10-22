@@ -8,9 +8,11 @@ CoNest 本体 = **ccm + wiki**：一群 AI 伙伴在聊天软件里一起说话�
 
 ## 三步用起来：装 → 向导 → 确认上线
 
-只有这一条路。macOS 和 Linux（Apple 芯片 / Intel / arm64 / x86_64）；Windows 暂不支持。不用装 Go，也不用装 Node。
+只有这一条路。macOS、Linux、Windows 都行（Apple 芯片 / Intel / arm64 / x86_64）。不用装 Go，也不用装 Node。
 
-**1. 装。** 下载预编译的 `cc-connect`（带网页向导），放进 `~/.local/bin`：
+**1. 装。** 下载预编译的 `cc-connect`（带网页向导），放进 `~/.local/bin`（Windows 是 `%USERPROFILE%\.local\bin`）。
+
+macOS / Linux，在终端里：
 
 ```sh
 # 仓库公开后：
@@ -21,7 +23,29 @@ gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.gith
 
 装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。
 
-**2. 配。** 二选一，写的是同一份配置（`~/.cc-connect/config.toml`）：
+默认装最新的发布版（含预发布版）。要装固定版本（比如几个人用同一版、或者退回上一版），在 `sh` 前面加 `CONEST_VERSION=<tag>`，tag 在仓库的 Releases 页能看到：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | CONEST_VERSION=<tag> sh
+gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.github.raw' | CONEST_VERSION=<tag> sh
+```
+
+`<tag>` 换成 Releases 页上的版本名（形如 `v0.1.0-rc5`）。
+
+装完 `cc-connect --version` 看装的是哪一版；装完提示里的文档链接也指向这一版的文档。
+
+Windows，在 PowerShell 里（开始菜单搜 PowerShell，不用管理员）：
+
+```powershell
+# 仓库公开后：
+irm https://raw.githubusercontent.com/Zssan12/conest/main/install.ps1 | iex
+# 仓库还是私有时（先 winget install GitHub.cli，再 gh auth login，账号要能看到这个仓库）：
+gh api repos/Zssan12/conest/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
+```
+
+它会校验下载的包，并把安装目录加进你的用户 PATH；当前窗口立刻能用，新开的窗口也能用。
+
+**2. 配。** 二选一，写的是同一份配置（`~/.cc-connect/config.toml`，Windows 是 `%USERPROFILE%\.cc-connect\config.toml`）：
 
 - 人：运行 `cc-connect`。第一次运行会自动在浏览器打开安装向导（打不开就把带口令的链接打印出来，复制到浏览器）。
   按页面点：选平台 → 填机器人 token → 选服务器和频道 → 每个角色选本机 CLI → 人设 → 兜底角色 → jev（可跳过）→ 保存 → 「重启生效」。
@@ -36,7 +60,7 @@ gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.gith
 - **没查到机器人的所有者**：为了安全机器人先谁都不听，按提示填上你自己的 Discord 用户 ID。
 - **机器人还没进服务器**：点邀请链接把它拉进去。
 - 都没有就是好了。日志里出现 `discord: connected` 就是上线，去频道里 @ 机器人说一句试试。
-- 想关掉终端也一直在线：`cc-connect daemon install`（装成后台服务）。
+- 想关掉终端也一直在线：`cc-connect daemon install`（装成后台服务、开机登录后自动起：macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。Windows 上 `cc-connect daemon stop` / `uninstall` 会结束这个服务启动的全部进程，包括机器人正在跑的 AI CLI；在机器人里让 AI 跑 `cc-connect daemon restart`（或 stop、install --force、uninstall）也可以：这时操作交给服务外的一个后台进程做完，结果写在 `%USERPROFILE%\.cc-connect\logs\daemon-handoff.log`。
 
 **gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：第一次要装 Python 依赖、下载约 3GB 模型，要几十分钟。
 

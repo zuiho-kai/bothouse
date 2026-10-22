@@ -56,7 +56,7 @@ export const getCLIs = () => api.get<{ clis: LocalCLI[] }>('/setup/clis');
 export const getMatrix = () => api.get<{ vendors: WizardVendor[]; agents: string[]; matrix: MatrixCell[] }>('/setup/matrix');
 export const getPersonas = (lang: string) => api.get<{ language: string; presets: PersonaPreset[] }>('/setup/personas', { lang });
 export const getExistingBots = () => api.get<{ bots: ExistingBot[] }>('/setup/discord/bots');
-export const checkDiscord = (body: { token?: string; reuse_project?: string }) => api.post<DiscordBotInfo>('/setup/discord/check', body);
+export const checkDiscord = (body: { token?: string; reuse_project?: string; lang?: string }) => api.post<DiscordBotInfo>('/setup/discord/check', body);
 export const listChannels = (body: { token?: string; reuse_project?: string; guild_id: string }) =>
   api.post<{ channels: DiscordChannel[] }>('/setup/discord/channels', body);
 export const listFeishuChats = (body: { app_id: string; app_secret: string; platform_type?: string }) =>
@@ -65,8 +65,9 @@ export const testJev = (body: { base_url: string; api_key?: string; model: strin
   api.post<{ test: JevTest; usable: boolean; reason?: string; in_use?: string; hint: string }>('/setup/jev/test', body);
 export const saveJev = (body: { base_url: string; api_key?: string; model: string; remove?: boolean; lang: string; fallback_name: string }) =>
   api.post<{ saved: boolean; cleared: boolean; reason?: string; in_use?: string; test?: JevTest; hint: string }>('/setup/jev/save', body);
+export interface SetupPersona { path: string; exists: boolean; content: string; reply_language?: string; reply_language_line?: string }
 export const getSetupPersona = (agentType: string, workDir: string) =>
-  api.get<{ path: string; exists: boolean; content: string }>('/setup/persona', { agent_type: agentType, work_dir: workDir });
+  api.get<SetupPersona>('/setup/persona', { agent_type: agentType, work_dir: workDir });
 export const getProjectPersona = (project: string) =>
   api.get<{ path: string; exists: boolean; content: string }>(`/projects/${encodeURIComponent(project)}/persona`);
 export const saveProjectPersona = (project: string, content: string) =>

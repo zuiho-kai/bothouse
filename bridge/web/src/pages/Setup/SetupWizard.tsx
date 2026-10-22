@@ -8,9 +8,9 @@ import { restartSystem } from '@/api/status';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getMatrix, getPersonas, getSetupState, listChannels, listFeishuChats, testJev, saveJev,
   type DiscordBotInfo, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell, type PersonaPreset,
-  type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor,
+  type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor,
 } from '@/api/wizard';
-import { isZhLang, langLabel, replyLangOptions, wizardTexts } from './texts';
+import { isZhLang, keptLangLabel, langLabel, replyLangOptions, stepLabel, wizardTexts } from './texts';
 
 interface RoleDraft {
   key: number;
@@ -27,7 +27,7 @@ interface RoleDraft {
   replyTouched?: boolean; // picked by hand for this role: the language picker no longer changes it
   // existing bot (reuse_project): its persona file is only written when editPersona is ticked
   existingWorkDir?: string;
-  existingPersona?: { path: string; exists: boolean; content: string };
+  existingPersona?: SetupPersona | null; // null = cannot be read (no work_dir, or the request failed)
   editPersona?: boolean;
 }
 
@@ -96,7 +96,7 @@ export default function SetupWizard() {
   }, [lang]);
   // refresh the jev hint with the fallback bot's name when reaching the jev step
   useEffect(() => { if (step === 5) getSetupState(lang, fallbackName).then(setState).catch(() => {}); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { getPersonas(zh ? 'zh' : 'en').then((r) => setPresets(r.presets)).catch(() => {}); }, [zh]);
+  useEffect(() => { getPersonas(lang).then((r) => setPresets(r.presets)).catch(() => {}); }, [lang]);
 
   // default CLI: first installed one that is logged in, else first supported
   const defaultAgent = useMemo(() => {
@@ -126,12 +126,15 @@ export default function SetupWizard() {
   }, [roles, state?.projects, existing]);
   const projectOf = (r: RoleDraft) => projectNames[roles.indexOf(r)] ?? `role-${roles.indexOf(r) + 1}`;
   const nameOf = (r: RoleDraft) => r.info?.username || r.reuse_project || projectOf(r);
+  // an existing bot whose persona is left alone keeps the reply language already in it
+  const keptLang = (r: RoleDraft) => !!r.reuse_project && !r.editPersona;
+  const keptRoles = roles.filter(keptLang);
 
   // ── Discord ──
   const check = async (r: RoleDraft, body: { token?: string; reuse_project?: string }) => {
     patchRole(r.key, { checking: true, error: undefined });
     try {
-      const info = await checkDiscord(body);
+      const info = await checkDiscord({ ...body, lang });
       // A pasted token of a bot that is already configured is that existing bot: switch to the
       // reuse view (its persona is shown read-only and only written when 改人设 is ticked).
       const reuse = body.reuse_project || existing.find((b) => b.bot_id && b.bot_id === info.bot_id)?.project;
@@ -141,9 +144,11 @@ export default function SetupWizard() {
       if (!guildID) setGuildID(exGuild || info.guilds[0]?.id || '');
       if (reuse) {
         const ex = existing.find((b) => b.project === reuse);
-        patchRole(r.key, { agent_type: ex?.agent_type || r.agent_type, existingWorkDir: ex?.work_dir, editPersona: false, persona: '' });
+        patchRole(r.key, { agent_type: ex?.agent_type || r.agent_type, existingWorkDir: ex?.work_dir, editPersona: false, persona: '', existingPersona: undefined });
         if (ex?.work_dir) {
-          getSetupPersona(ex.agent_type, ex.work_dir).then((p) => patchRole(r.key, { existingPersona: p })).catch(() => {});
+          getSetupPersona(ex.agent_type, ex.work_dir).then((p) => patchRole(r.key, { existingPersona: p })).catch(() => patchRole(r.key, { existingPersona: null }));
+        } else {
+          patchRole(r.key, { existingPersona: null });
         }
       }
     } catch (e: any) {
@@ -314,7 +319,14 @@ export default function SetupWizard() {
         <div>
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">{T.title}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">{T.subtitle}</p>
-          <p className="text-sm text-gray-700 dark:text-gray-300 mt-1" data-testid="reply-lang-line">{T.replyLangLine}<b>{langLabel(lang)}</b><span className="text-xs text-gray-500">{T.replyLangHow}</span></p>
+          {roles.some((r) => !keptLang(r)) && (
+            <p className="text-sm text-gray-700 dark:text-gray-300 mt-1" data-testid="reply-lang-line">{T.replyLangLine}<b>{langLabel(lang)}</b><span className="text-xs text-gray-500">{T.replyLangHow}</span></p>
+          )}
+          {keptRoles.length > 0 && (
+            <p className="text-sm text-gray-700 dark:text-gray-300 mt-1" data-testid="reply-lang-kept">{T.replyLangKeptLine}
+              {keptRoles.map((r, i) => <span key={r.key}>{i > 0 && '、'}{nameOf(r)} → <b>{keptLangLabel(T, r.existingPersona)}</b></span>)}
+              <span className="text-xs text-gray-500">{T.replyLangKeptHow}</span></p>
+          )}
         </div>
         <Link to="/projects?manual=1" className="text-xs text-gray-400 hover:text-accent whitespace-nowrap">{T.manualOther}</Link>
       </div>
@@ -600,7 +612,9 @@ export default function SetupWizard() {
                 <p className="text-sm text-gray-700 dark:text-gray-300">{T.reviewNote}</p>
                 <ul className="text-sm space-y-1">
                   {roles.map((r) => (
-                    <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{(!r.reuse_project || r.editPersona) && <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{fallback === projectOf(r) && platform === 'discord' ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
+                    <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{keptLang(r)
+                      ? <span data-testid="review-reply-lang-kept"> · {T.replyLang}: {keptLangLabel(T, r.existingPersona)}{T.replyLangKept}</span>
+                      : <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{fallback === projectOf(r) && platform === 'discord' ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
                   ))}
                   {platform === 'discord' && <li>• {guilds.find((g) => g.id === guildID)?.name} / #{channels.find((c) => c.id === channelID)?.name}</li>}
                   {(jevSave.saved || jevUnchanged) && <li>• jev: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
@@ -632,10 +646,10 @@ export default function SetupWizard() {
                 ))}
                 {!result.ok && <p className="text-xs text-gray-500">{T.doneRestart}</p>}
                 <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
-                  {result.steps.map((s, i) => <li key={i}>{s.ok ? '✓' : '✗'} {s.step}{s.detail ? ` — ${s.detail}` : ''}</li>)}
+                  {result.steps.map((s, i) => <li key={i}>{s.ok ? '✓' : '✗'} {stepLabel(T, s.step)}{s.detail ? ` — ${s.detail}` : ''}</li>)}
                 </ul>
-                {result.roles.filter((r) => r.reply_language).map((r) => (
-                  <p key={`l${r.project}`} className="text-xs text-gray-600 dark:text-gray-400" data-testid="reply-lang-saved">{T.replyLangSaved}{r.name} → {langLabel(r.reply_language || '')}</p>
+                {result.roles.filter((r) => r.reply_language || r.reply_language_from === 'existing').map((r) => (
+                  <p key={`l${r.project}`} className="text-xs text-gray-600 dark:text-gray-400" data-testid="reply-lang-saved">{T.replyLangSaved}{r.name} → {r.reply_language ? langLabel(r.reply_language) : T.replyLangNone}{r.reply_language_from === 'existing' ? T.replyLangKept : ''}</p>
                 ))}
                 {result.allow_from && <p className="text-xs text-gray-600 dark:text-gray-400" data-testid="allow-from-saved">{T.allowFromSaved}<code>{result.allow_from}</code></p>}
                 {result.gate_hint && (

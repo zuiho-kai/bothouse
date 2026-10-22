@@ -13,6 +13,8 @@
 1. **装**：`command -v cc-connect && cc-connect setup --help` 能出 `setup apply` 就跳过。否则
    `gh api repos/Zssan12/conest/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh`（仓库私有，要 gh 已登录；公开后用
    `curl -fsSL https://raw.githubusercontent.com/Zssan12/conest/main/install.sh | sh`），装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
+   Windows（PowerShell）用 `gh api repos/Zssan12/conest/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex`（私有）或
+   `irm https://raw.githubusercontent.com/Zssan12/conest/main/install.ps1 | iex`（公开后），装到 `%USERPROFILE%\.local\bin` 并加进用户 PATH；下面的命令在 PowerShell 里照样用。
 2. **一次问齐**（只问这几项，其余都有默认值）：
    - 每个机器人的 **token**（一个 token = 一个角色）。还没有就让用户去 <https://discord.com/developers/applications> → New Application → Bot → Reset Token，并在同一页打开 **Message Content Intent**。
    - **服务器 ID**，可选再给**默认频道 ID**。拿法：Discord 设置 → 高级 → 打开「开发者模式」，右键服务器图标「复制服务器 ID」、右键频道「复制频道 ID」。
@@ -29,8 +31,8 @@
 4. **确认上线**：看输出 JSON，不只看退出码。`ok: true` 才算好。`needs_user_action: true` 时把 `warnings` 里 `blocking: true` 每条的 `message`、`fix`、`url`
    原样告诉用户（Intent 没开 / 机器人没进服务器 / 没查到所有者要用户给自己的 Discord 用户 ID / CLI 没登录 / token 无效要重置，要用户点链接或回话），用户做完不用重跑，重启即可（token 无效时什么都没写，换新 token 重跑）。
    同一个 token 只能有一个 cc-connect 在线：这个机器人已经在别的电脑或别的进程上跑着时，两边会抢消息、各回一遍，先停掉旧的（向导查不出别的机器上有没有在跑）。
-   然后**在后台**启动：`cc-connect daemon install`（装成系统服务、开机自启；看日志 `cc-connect daemon logs -f`）。**不要在你的 shell 里前台跑 `cc-connect`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
-   只想临时试一下用 `nohup cc-connect > ~/.cc-connect/run.log 2>&1 &`。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句。
+   然后**在后台**启动：`cc-connect daemon install`（装成系统服务、开机自启，Windows 上是登录时启动的计划任务；看日志 `cc-connect daemon logs -f`）。**不要在你的 shell 里前台跑 `cc-connect`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
+   只想临时试一下用 `nohup cc-connect > ~/.cc-connect/run.log 2>&1 &`（Windows：`$env:CC_LOG_FILE="$HOME\.cc-connect\run.log"; Start-Process cc-connect -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`，日志在 `$HOME\.cc-connect\run.log`）。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句。
    不要动用户已在运行的 cc-connect 进程，除非用户同意。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 3 节；人用浏览器向导时直接运行 `cc-connect`。
