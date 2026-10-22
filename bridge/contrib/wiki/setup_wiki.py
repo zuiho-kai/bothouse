@@ -168,7 +168,7 @@ def main(bot):
     engines = (json.loads(os.environ.get("WIKI_ENGINES") or "{}") or {})
     cfg.update({k: v for k, v in engines.items() if k.endswith("_engine") or k in ("after_codex", "codex_models", "dsh_cmd", "dsh_patch", "dsh_env_file")})
     (w / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")  # git-ignored
-    r = subprocess.run([sys.executable, "-I", "bin/lint.py"], cwd=w, capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-X", "utf8", "-I", "bin/lint.py"], cwd=w, capture_output=True, text=True)
     print(bot, r.stdout.strip())
     commit(w, f"{name}的记忆 wiki：中文 schema、五个分类")
 
