@@ -197,4 +197,63 @@ describe('channel source', () => {
     await expect(actions.send('bad')).rejects.toThrow('message text is empty')
     unsubscribe()
   })
+
+  it('calls stop and continue APIs and surfaces their results', async () => {
+    const { transport, calls } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url === '/collab/api/rooms/1/stop' && init?.method === 'POST') {
+        return json(200, {
+          room_id: 1,
+          stopped: true,
+          cancelled_jobs: 1,
+          unconfirmed: [],
+          stopped_members: [{ member: 'ju', outcome: 'confirmed' }],
+        })
+      }
+      if (url === '/collab/api/rooms/1/continue' && init?.method === 'POST') {
+        return json(200, { room_id: 1, resumed: 1, stopped: false })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+
+    const stopRes = await actions.stopRoom()
+    expect(stopRes.stopped).toBe(true)
+    expect(stopRes.stopped_members).toEqual([{ member: 'ju', outcome: 'confirmed' }])
+    expect(calls).toContain('POST /collab/api/rooms/1/stop')
+
+    const continueRes = await actions.continueRoom(1)
+    expect(continueRes.resumed).toBe(1)
+    expect(calls).toContain('POST /collab/api/rooms/1/continue')
+
+    unsubscribe()
+  })
+
+  it('updates roomControls when receiving a room_control event', async () => {
+    const { transport, streams } = fakeTransport((url) => {
+      if (url === '/collab/api/state') {
+        return json(200, {
+          rooms: [{ id: 1, name: 'general' }],
+          members: [],
+          thinking: {},
+          room_controls: [{ room_id: 1, stopped: 0, epoch: 1, cutoff: 10, relay_after: 0 }],
+        })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(streams).toHaveLength(1))
+    expect(source.getSnapshot().roomControls?.[1]?.stopped).toBe(false)
+
+    streams[0]?.onmessage?.(new MessageEvent('message', {
+      data: JSON.stringify({ type: 'room_control', room_id: 1, stopped: 1, epoch: 2, cutoff: 20, relay_after: 0 }),
+    }))
+    expect(source.getSnapshot().roomControls?.[1]?.stopped).toBe(true)
+    expect(source.getSnapshot().roomControls?.[1]?.epoch).toBe(2)
+
+    unsubscribe()
+  })
 })

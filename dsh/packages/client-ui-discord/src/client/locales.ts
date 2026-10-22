@@ -45,6 +45,20 @@ export const zh = {
   cancel: '取消',
   configMember: '来自配置文件，网页里不能修改',
   defaultModel: '默认模型',
+  stopRoom: '停止',
+  stopRoomTitle: '停止当前频道正在执行的任务',
+  stoppingRoom: '正在停止…',
+  stopConfirmed: '已停止：{names}',
+  stopRequested: '已请求停止：{names}',
+  stopUnsupported: '不支持终止，只屏蔽旧输出：{names}',
+  stopNone: '没有在跑的任务。',
+  stopFailed: '停止失败：{message}',
+  closeNotice: '关闭提示',
+  continueRoom: '继续',
+  continueRoomTitle: '继续执行接力任务',
+  continuingRoom: '正在继续…',
+  continueResumed: '已继续',
+  continueFailed: '继续失败：{message}',
 } as const
 
 /** English dictionary. */
@@ -89,6 +103,20 @@ export const en: Record<keyof typeof zh, string> = {
   cancel: 'Cancel',
   configMember: 'From the config file; not editable here',
   defaultModel: 'Default model',
+  stopRoom: 'Stop',
+  stopRoomTitle: 'Stop tasks running in the current channel',
+  stoppingRoom: 'Stopping…',
+  stopConfirmed: 'Stopped: {names}',
+  stopRequested: 'Stop requested: {names}',
+  stopUnsupported: 'Cancellation unsupported, old output blocked: {names}',
+  stopNone: 'No running tasks.',
+  stopFailed: 'Stop failed: {message}',
+  closeNotice: 'Close notice',
+  continueRoom: 'Continue',
+  continueRoomTitle: 'Continue relay task',
+  continuingRoom: 'Continuing…',
+  continueResumed: 'Resumed',
+  continueFailed: 'Continue failed: {message}',
 }
 
 /** Keys of the channel panel dictionary. */
