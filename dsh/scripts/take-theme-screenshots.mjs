@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { color, PALETTE } from '../packages/client-ui-discord/src/client/theme.ts'
@@ -222,6 +222,112 @@ html, body {
 </html>`
 }
 
+function buildMobileHtml(drawer = 'rooms') {
+  const cZxy = color('zxy')
+  const cCjiang = color('cjiang')
+  const cDadoubao = color('dadoubao')
+  const cGge = color('gge')
+
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Discord 频道 - 移动端抽屉预览 (${drawer})</title>
+<style>
+${themeVariables}
+${rawCss}
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+</style>
+</head>
+<body data-ds-dark-theme="dark">
+<div class="page">
+  <nav class="rooms ${drawer === 'rooms' ? 'drawerOpen' : ''}">
+    <div class="groupHead">
+      <h3 class="groupTitle">频道</h3>
+      <div class="roomsHeadActions">
+        <button type="button" class="iconButton" title="新建频道">+</button>
+        <button type="button" class="drawerCloseButton" title="关闭侧栏" aria-label="关闭侧栏">✕</button>
+      </div>
+    </div>
+    <div class="room roomActive"><span class="hash">#</span> general</div>
+    <div class="room"><span class="hash">#</span> 开发讨论</div>
+    <div class="room"><span class="hash">#</span> 任务看板</div>
+  </nav>
+
+  <main class="chat">
+    <header class="chatHead">
+      <button type="button" class="mobileNavButton" aria-label="切换频道列表" title="切换频道列表">☰</button>
+      <span class="chatTitle"><span class="hash">#</span> general</span>
+      <button type="button" class="mobileNavButton" aria-label="切换成员列表" title="切换成员列表">👥</button>
+    </header>
+    <div class="log">
+      <div class="message">
+        <span class="avatar avatarSmall" style="background: ${cDadoubao};">大</span>
+        <div class="messageBody">
+          <div class="messageHead">
+            <span class="author">大豆包</span>
+            <span class="tag">DSH</span>
+            <span class="time">10:00</span>
+          </div>
+          <div class="text">移动端抽屉（375×667 触控 ≥44px）实测效果。</div>
+        </div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="composerRow">
+        <textarea class="input" rows="1" placeholder="发送到 #general"></textarea>
+        <button type="button" class="mentionButton">@</button>
+      </div>
+    </div>
+  </main>
+
+  <aside class="members ${drawer === 'members' ? 'drawerOpen' : ''}">
+    <div class="memberPanelHead">
+      <button type="button" class="addMemberButton">+ 添加成员</button>
+      <button type="button" class="drawerCloseButton" title="关闭侧栏" aria-label="关闭侧栏">✕</button>
+    </div>
+    <div class="groupTitle">成员 — 2</div>
+    <div class="memberRow">
+      <div class="member">
+        <div class="memberAvatar">
+          <span class="avatar avatarSmall" style="background: ${cGge};">G</span>
+          <span class="presence"></span>
+        </div>
+        <div class="memberText">
+          <span class="memberName">G哥</span>
+          <span class="memberStatus">工作中…</span>
+        </div>
+      </div>
+    </div>
+    <div class="memberRow">
+      <div class="member">
+        <div class="memberAvatar">
+          <span class="avatar avatarSmall" style="background: ${cDadoubao};">大</span>
+          <span class="presence"></span>
+        </div>
+        <div class="memberText">
+          <span class="memberName">大豆包</span>
+          <span class="memberStatus">在线 · 前端主力</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="mobileBackdrop"></div>
+</div>
+</body>
+</html>`
+}
+
 const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 for (const mode of ['light', 'dark', 'system']) {
@@ -238,7 +344,26 @@ for (const mode of ['light', 'dark', 'system']) {
     '--window-size=1280,800',
     `file://${tempHtmlPath}`,
   ])
+  unlinkSync(tempHtmlPath)
   console.log(`Saved: ${outPngPath}`)
 }
 
-console.log('All 3 screenshots taken successfully!')
+for (const drawer of ['rooms', 'members']) {
+  const html = buildMobileHtml(drawer)
+  const tempHtmlPath = join(outDir, `preview-mobile-${drawer}.html`)
+  const outPngPath = join(outDir, `mobile-drawer-${drawer}.png`)
+  writeFileSync(tempHtmlPath, html, 'utf-8')
+
+  console.log(`Generating screenshot for mobile drawer: ${drawer}...`)
+  execFileSync(chromePath, [
+    '--headless',
+    '--disable-gpu',
+    `--screenshot=${outPngPath}`,
+    '--window-size=375,667',
+    `file://${tempHtmlPath}`,
+  ])
+  unlinkSync(tempHtmlPath)
+  console.log(`Saved: ${outPngPath}`)
+}
+
+console.log('All screenshots taken successfully!')

@@ -11,6 +11,7 @@ type T = TranslateNS<typeof NS>
 
 export interface RoomViewProps {
   room: ChannelRoom | undefined
+  roomId: number | undefined
   drawer: 'rooms' | 'members' | undefined
   logRef: RefObject<HTMLDivElement | null>
   inputRef: RefObject<HTMLTextAreaElement | null>
@@ -39,6 +40,7 @@ export interface RoomViewProps {
 
 export function RoomView({
   room,
+  roomId,
   drawer,
   logRef,
   inputRef,
@@ -85,7 +87,7 @@ export function RoomView({
         inputRef={inputRef}
         draft={draft}
         sendError={sendError}
-        disabled={room === undefined || sending}
+        disabled={roomId === undefined || sending}
         placeholder={t('placeholder', { room: room?.name ?? '' })}
         popupOpen={popupOpen}
         mentionQuery={mentionQuery}

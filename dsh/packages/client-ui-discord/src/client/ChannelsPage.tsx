@@ -58,14 +58,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
   const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
+  const roomsRef = useRef<HTMLElement>(null)
+  const membersRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    if (drawer === undefined) return
-    const onEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') setDrawer(undefined)
+    if (drawer === 'rooms') {
+      roomsRef.current?.focus()
+    } else if (drawer === 'members') {
+      membersRef.current?.focus()
     }
-    window.addEventListener('keydown', onEscape)
-    return () => { window.removeEventListener('keydown', onEscape) }
   }, [drawer])
 
   useEffect(() => {
@@ -199,6 +200,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         rooms={state.rooms}
         activeRoomId={state.roomId}
         isOpenOnMobile={drawer === 'rooms'}
+        drawerRef={roomsRef}
         newRoom={newRoom}
         roomError={roomError}
         onSelectRoom={(roomId) => {
@@ -210,10 +212,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         onCancelNewRoom={() => { setNewRoom(undefined); setRoomError(undefined) }}
         onNewRoomChange={setNewRoom}
         onSubmitRoom={submitRoom}
+        onCloseDrawer={() => { setDrawer(undefined) }}
         t={t}
       />
       <RoomView
         room={room}
+        roomId={state.roomId}
         drawer={drawer}
         logRef={logRef}
         inputRef={inputRef}
@@ -248,11 +252,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         members={state.members}
         busy={busy}
         isOpenOnMobile={drawer === 'members'}
+        drawerRef={membersRef}
         memberError={memberError}
         onAddMember={() => { setDialog(null) }}
         onPickMember={pickFromList}
         onEditMember={setDialog}
         onRemoveMember={confirmRemove}
+        onCloseDrawer={() => { setDrawer(undefined) }}
         t={t}
       />
       {drawer !== undefined && (

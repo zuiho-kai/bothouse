@@ -197,6 +197,7 @@ describe('channels page', () => {
     expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
     const nav = view.container.querySelector('nav')
     expect(nav?.className).toContain('drawerOpen')
+    expect(document.activeElement).toBe(nav)
 
     // Selecting a room closes drawer
     fireEvent.click(screen.getByRole('button', { name: 'other' }))
@@ -207,13 +208,35 @@ describe('channels page', () => {
     // Open room drawer and press Escape to close
     fireEvent.click(roomBtn)
     expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(nav!, { key: 'Escape' })
     expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Esc in new room input cancels input without closing drawer
+    fireEvent.click(roomBtn)
+    fireEvent.click(screen.getByRole('button', { name: zh.newRoom }))
+    const roomInput = screen.getByPlaceholderText(zh.newRoomPlaceholder)
+    fireEvent.change(roomInput, { target: { value: 'cancel-me' } })
+    fireEvent.keyDown(roomInput, { key: 'Escape' })
+    expect(screen.queryByPlaceholderText(zh.newRoomPlaceholder)).toBeNull()
+    expect(nav?.className).toContain('drawerOpen')
+
+    // Close button with closeDrawer label closes drawer
+    fireEvent.click(screen.getByRole('button', { name: zh.closeDrawer }))
+    expect(nav?.className).not.toContain('drawerOpen')
 
     // Open members drawer
     fireEvent.click(memberBtn)
     expect(memberBtn.getAttribute('aria-expanded')).toBe('true')
     const aside = view.container.querySelector('aside')
+    expect(aside?.className).toContain('drawerOpen')
+    expect(document.activeElement).toBe(aside)
+
+    // Esc in MemberDialog closes dialog without closing drawer
+    fireEvent.click(screen.getByRole('button', { name: `+ ${zh.addMember}` }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toBeTruthy()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(aside?.className).toContain('drawerOpen')
 
     // Clicking backdrop closes drawer

@@ -69,7 +69,12 @@ export function MemberDialog({ member, listModels, onSubmit, onClose, t }: Membe
         aria-modal="true"
         aria-label={member === undefined ? t('memberDialogAdd') : t('memberDialogEdit', { name: member.name })}
         onSubmit={submit}
-        onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            onClose()
+          }
+        }}
       >
         <h2 className={css.dialogTitle}>{member === undefined ? t('memberDialogAdd') : t('memberDialogEdit', { name: member.name })}</h2>
         <label className={css.field}>

@@ -1,3 +1,4 @@
+import type { KeyboardEvent, RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelMember } from '../channel-source.ts'
 import type { NS } from '../locales.ts'
@@ -58,11 +59,13 @@ export interface MemberPanelProps {
   members: readonly ChannelMember[]
   busy: ReadonlySet<string>
   isOpenOnMobile: boolean
+  drawerRef?: RefObject<HTMLElement | null>
   memberError: string | undefined
   onAddMember: () => void
   onPickMember: (member: ChannelMember) => void
   onEditMember: (member: ChannelMember) => void
   onRemoveMember: (member: ChannelMember) => void
+  onCloseDrawer: () => void
   t: T
 }
 
@@ -70,24 +73,49 @@ export function MemberPanel({
   members,
   busy,
   isOpenOnMobile,
+  drawerRef,
   memberError,
   onAddMember,
   onPickMember,
   onEditMember,
   onRemoveMember,
+  onCloseDrawer,
   t,
 }: MemberPanelProps) {
   const agentMembers = members.filter(m => m.kind !== 'human')
   const humanMembers = members.filter(m => m.kind === 'human')
 
+  const onDrawerKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    if (event.key === 'Escape') {
+      event.stopPropagation()
+      onCloseDrawer()
+    }
+  }
+
   return (
     <aside
+      ref={drawerRef}
+      tabIndex={-1}
       className={isOpenOnMobile ? `${css.members} ${css.drawerOpen}` : css.members}
       aria-label={t('panel')}
+      onKeyDown={onDrawerKeyDown}
     >
-      <button type="button" className={css.addMemberButton} onClick={onAddMember}>
-        + {t('addMember')}
-      </button>
+      <div className={css.memberPanelHead}>
+        <button type="button" className={css.addMemberButton} onClick={onAddMember}>
+          + {t('addMember')}
+        </button>
+        {isOpenOnMobile && (
+          <button
+            type="button"
+            className={css.drawerCloseButton}
+            title={t('closeDrawer')}
+            aria-label={t('closeDrawer')}
+            onClick={onCloseDrawer}
+          >
+            ✕
+          </button>
+        )}
+      </div>
       {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
       <MemberGroup
         title={t('agents', { count: String(agentMembers.length) })}
