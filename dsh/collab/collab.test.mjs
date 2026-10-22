@@ -393,7 +393,7 @@ test('cloud-web: the fence drops stale context, not everything while stopped', a
   hub.stopRoom(1); gw.stopRoom(1);
   await settle();
   // Output still echoing the pre-stop context stays fenced.
-  bot.frame({ type: 'reply', reply_ctx: before, content: 'stale reply' });
+  bot.frame({ type: 'reply', reply_ctx: before, agent: true, content: 'stale reply' });
   bot.frame({ type: 'typing_start', reply_ctx: before });
   await settle();
   assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === 'stale reply'), false);
@@ -407,6 +407,27 @@ test('cloud-web: the fence drops stale context, not everything while stopped', a
   assert.equal(hub.store.page(1, undefined, 1)[0].text, '主动发的提醒');
 });
 
+test('cloud-web: a stop does not swallow what the bot posts on its own', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  ask(hub, '@Bot first'); await settle();
+  const before = bot.of('message').at(-1).reply_ctx;
+  // A turn is running when the user stops the room.
+  bot.frame({ type: 'typing_start', reply_ctx: before });
+  hub.stopRoom(1); gw.stopRoom(1);
+  await settle();
+  // The stopped turn's late output is still fenced (the bridge marks turn output agent:true).
+  bot.frame({ type: 'reply', reply_ctx: before, agent: true, content: '停之前那轮的迟到输出' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === '停之前那轮的迟到输出'), false);
+  // A timer or proactive notice is not turn output: it must land, or a stop silently eats it.
+  bot.frame({ type: 'reply', reply_ctx: before, content: '定时任务：该喝水了' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '定时任务：该喝水了');
+  // Landing in history is not permission to keep relaying: the room is still stopped.
+  assert.equal(hub.store.control(1).stopped, 1);
+});
+
 test('cloud-web: stop fences old replies, typing and previews through continue', async () => {
   const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
@@ -416,7 +437,7 @@ test('cloud-web: stop fences old replies, typing and previews through continue',
   hub.stopRoom(1); gw.stopRoom(1);
   for (const continuing of [false, true]) {
     if (continuing) hub.continueRoom(1);
-    bot.frame({ type: 'reply', reply_ctx: 'room-1', content: 'stale reply' });
+    bot.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: 'stale reply' });
     bot.frame({ type: 'typing_start', reply_ctx: 'room-1' });
     bot.frame({ type: 'preview_start', ref_id: 'late', reply_ctx: 'room-1', content: 'late preview' });
     bot.frame({ type: 'update_message', preview_handle: handle, content: 'stale edit' });
@@ -428,7 +449,7 @@ test('cloud-web: stop fences old replies, typing and previews through continue',
   ask(hub, '@Bot new'); await settle();
   const ctx = bot.of('message').at(-1).reply_ctx;
   assert.equal(ctx, 'room-1:epoch-1');
-  bot.frame({ type: 'reply', reply_ctx: ctx, content: 'fresh reply' }); await settle();
+  bot.frame({ type: 'reply', reply_ctx: ctx, agent: true, content: 'fresh reply' }); await settle();
   assert.equal(hub.store.page(1, undefined, 1)[0].text, 'fresh reply');
   bot.frame({ type: 'preview_start', ref_id: 'fresh', reply_ctx: ctx, content: 'new preview' });
   const freshHandle = bot.of('preview_ack').at(-1).preview_handle;

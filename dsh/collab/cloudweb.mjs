@@ -178,11 +178,15 @@ export class CloudWebGateway {
     // Preview edits carry a handle, not reply_ctx; validate the stored row below.
     if (room !== undefined && d.type !== 'update_message' && d.type !== 'delete_message') {
       const c = this.hub.store.control(room);
-      // The epoch in reply_ctx is what fences old output. Fencing on `stopped` alone also
-      // dropped messages the bot starts on its own after a stop: those carry the current
-      // context, so they pass; anything still echoing the pre-stop context is dropped.
+      // Only turn output can be late: the bridge marks it with agent:true. A message the bot
+      // starts on its own (a timer, a proactive notice) carries no such mark and is not the
+      // stopped turn's leftovers, so it must reach history instead of being silently eaten.
+      // Turn output is fenced by reply_ctx epoch; typing and previews stay fenced by `stopped`
+      // because they describe a turn that is no longer running.
       const current = this.replyContext(room);
-      const stale = c.epoch > 0 ? d.reply_ctx !== current : c.stopped === 1;
+      const stale = d.type === 'reply' && d.agent !== true
+        ? false
+        : c.stopped === 1 || (c.epoch > 0 && d.reply_ctx !== current);
       if (stale) {
         if (d.type === 'preview_start' && typeof d.ref_id === 'string') {
           send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: '' });
