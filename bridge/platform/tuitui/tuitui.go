@@ -284,19 +284,19 @@ func (p *Platform) FormattingInstructions() string {
 
 TuiTui history tools:
 - When the user message includes a ` + "`Recent TuiTui messages`" + ` block, treat it as
-  authoritative recent chat context captured by cc-connect. If that injected
+  authoritative recent chat context captured by bothouse. If that injected
   context is sufficient to answer, answer directly without calling the history CLI.
 - Use the history CLI only when the injected context is missing or insufficient,
   such as when the user asks for older messages, a broader time range, files,
   links, reports, or details not present in the injected block:
-  cc-connect tuitui messages --chat <chat_id> --chat-type <direct|group|channel> --relative-time last_7_days --limit 100
-  cc-connect tuitui search --chat <chat_id> --chat-type <direct|group|channel> --relative-time last_7_days --q <keyword>
-  cc-connect tuitui download --url <file_or_image_url> --out ./tmp/tuitui
+  bothouse tuitui messages --chat <chat_id> --chat-type <direct|group|channel> --relative-time last_7_days --limit 100
+  bothouse tuitui search --chat <chat_id> --chat-type <direct|group|channel> --relative-time last_7_days --q <keyword>
+  bothouse tuitui download --url <file_or_image_url> --out ./tmp/tuitui
 - The current chat id is the ` + "`chat_id`" + ` value in the injected sender context when present.
 - To publish a Teams/channel markdown post, use:
-  cc-connect tuitui post --channel <channel_id|teams_team_channel[_parent]> --message <markdown>
+  bothouse tuitui post --channel <channel_id|teams_team_channel[_parent]> --message <markdown>
   or pipe long markdown with:
-  cc-connect tuitui post --channel <channel_id> --stdin < post.md`
+  bothouse tuitui post --channel <channel_id> --stdin < post.md`
 }
 
 func (p *Platform) connectLoop(ctx context.Context) {

@@ -4,20 +4,20 @@
 
 ## 开包就用
 
-用安装向导（网页或 `cc-connect setup apply`）**新建的 Claude Code 角色**会自动开全部 hook：
+用安装向导（网页或 `bothouse setup apply`）**新建的 Claude Code 角色**会自动开全部 hook：
 
-- 脚本装到 `~/.cc-connect/hooks/`（data_dir 下的 `hooks/`，随 cc-connect 二进制一起发布）；
+- 脚本装到 `~/.bothouse/hooks/`（data_dir 下的 `hooks/`，随 bothouse 二进制一起发布）；
 - 角色目录写 `.claude/settings.json` 的 `hooks` 段；文件里原有的其他内容不动；
 - 角色人设（`CLAUDE.md`）末尾加一段规则说明，夹在 `<!-- conest:hooks -->` 和 `<!-- /conest:hooks -->` 之间，告诉模型怎么配合（派活写【免审:小改动】、数字写来源注释等）。
 
 已有角色、手配的角色和 DSH 角色用一条命令打开：
 
 ```sh
-cc-connect setup hooks on --work-dir <角色目录>              # Claude Code 角色
-cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
+bothouse setup hooks on --work-dir <角色目录>              # Claude Code 角色
+bothouse setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 ```
 
-`--cli dsh` 另外做一件事：在角色自己的 overlay（`dsh --patch`，`<data_dir>/dsh/<角色>.patch.yml`）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`（`id: hooks-claude-code`），`configPath` 是绝对路径 `<角色目录>/.claude/conest-dsh-hooks.json`，`projectDir` 是角色目录。用户自己的 `$DSH_HOME` 一律不写。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（cc-connect 管的 DSH 角色：重启 cc-connect）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
+`--cli dsh` 另外做一件事：在角色自己的 overlay（`dsh --patch`，`<data_dir>/dsh/<角色>.patch.yml`）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`（`id: hooks-claude-code`），`configPath` 是绝对路径 `<角色目录>/.claude/conest-dsh-hooks.json`，`projectDir` 是角色目录。用户自己的 `$DSH_HOME` 一律不写。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（bothouse 管的 DSH 角色：重启 bothouse）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
 
 需要 `python3`。DSH 默认把会话记录存成 zstd 压缩（`session.v4.jsonl.zstd`），不用改成 `compression: none`。找记录、解压都在 `dshlog.py`：Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node，逐帧解，正在写的最后一帧先跳过。看队友（`contrib/tools/peek.py`）和 wiki 导出（`contrib/wiki/export.py`）用的也是这一份。
 
@@ -28,10 +28,10 @@ cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 在聊天里对机器人说「把检查关了」「关掉派活审稿检查」「打开检查」就行。人设里的规则说明让它运行：
 
 ```sh
-python3 ~/.cc-connect/hooks/run.py --role <角色目录> off                          # 全关
-python3 ~/.cc-connect/hooks/run.py --role <角色目录> off dispatch-review-guard    # 只关一条（可写多条）
-python3 ~/.cc-connect/hooks/run.py --role <角色目录> on                           # 全开
-python3 ~/.cc-connect/hooks/run.py --role <角色目录> status                       # 回报哪些开着、哪些关着
+python3 ~/.bothouse/hooks/run.py --role <角色目录> off                          # 全关
+python3 ~/.bothouse/hooks/run.py --role <角色目录> off dispatch-review-guard    # 只关一条（可写多条）
+python3 ~/.bothouse/hooks/run.py --role <角色目录> on                           # 全开
+python3 ~/.bothouse/hooks/run.py --role <角色目录> status                       # 回报哪些开着、哪些关着
 ```
 
 开关写在角色目录的 `.claude/conest-hooks.json`。人设里的命令已经带好本角色的 `--role`，所以 agent 在别的目录里跑也写对地方；不带 `--role` 时从当前目录往上找第一个有 `.claude/settings.json` 的目录。格式是 `{"off": ["dispatch-review-guard"]}`，全关是 `{"off": ["all"]}`；手改这个文件效果一样。每次调用 hook 都现读这个文件，改完立即生效，不用重启。这个开关只是暂停：配置和人设里的规则说明都还在，`on` 就恢复。
@@ -41,32 +41,32 @@ python3 ~/.cc-connect/hooks/run.py --role <角色目录> status                 
 ### 卸掉
 
 ```sh
-cc-connect setup hooks off --work-dir <角色目录>                        # 这个角色全关，人设里那段规则一起删掉
-cc-connect setup hooks off --work-dir <角色目录> --only bash-guard      # 只关一条，人设里只删这一条
-cc-connect setup hooks status --work-dir <角色目录>                     # 看装了哪些、开关关了哪些
-cc-connect setup hooks on --work-dir <角色目录> --only promise-guard    # 再打开一条
+bothouse setup hooks off --work-dir <角色目录>                        # 这个角色全关，人设里那段规则一起删掉
+bothouse setup hooks off --work-dir <角色目录> --only bash-guard      # 只关一条，人设里只删这一条
+bothouse setup hooks status --work-dir <角色目录>                     # 看装了哪些、开关关了哪些
+bothouse setup hooks on --work-dir <角色目录> --only promise-guard    # 再打开一条
 ```
 
 DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉会把这个角色移出 `dsh-roles.json`；这个角色的 hook 全关时，它 overlay 里 `# conest:hooks begin` 到 `# conest:hooks end` 那一段和 `conest-dsh-hooks.json` 一起删掉，文件其余内容不动。改完重启 DSH 进程才生效。
 
-cc-connect 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记的（以及旧版写的 `…/hooks/run.py <名字>`），用户自己的 hook 不动。`run.py` 被删掉时命令直接放行（exit 0），不会把所有工具调用都拦下。
+bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记的（以及旧版写的 `…/hooks/run.py <名字>`），用户自己的 hook 不动。`run.py` 被删掉时命令直接放行（exit 0），不会把所有工具调用都拦下。
 
 ## 有哪些 hook
 
 | hook | 事件 | 管什么 | 怎么放行 |
 | --- | --- | --- | --- |
-| bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …cc-connect`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示） | `# long-running-ok`、`# direct-ok`、`# tcc-ok` |
+| bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …bothouse`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示） | `# long-running-ok`、`# direct-ok`、`# tcc-ok` |
 | param-source-guard | PreToolUse（Edit/Write/edit/write/str_replace_editor） | 代码里新加 `名字 = 数字` 没写来源注释 | 同一行或上一行注释写来源（用户原话、数据、SPEC、沿用） |
 | dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 派活没写【已审:…】；主会话直接改代码 | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
 | fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
 | promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
-| wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；cc-connect 起的 bot 跳过，因为 gate 已经推了 |
+| wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；bothouse 起的 bot 跳过，因为 gate 已经推了 |
 
 fix-claim-guard 和 promise-guard 认的是中文措辞。
 
 ## 可选设置（环境变量）
 
-不设也能用。要改的话，把变量写在启动 agent 的环境里（cc-connect 的 `[projects.agent.options] env`，或启动 DSH 的脚本）。
+不设也能用。要改的话，把变量写在启动 agent 的环境里（bothouse 的 `[projects.agent.options] env`，或启动 DSH 的脚本）。
 
 | 变量 | 默认 | 作用 |
 | --- | --- | --- |
@@ -98,4 +98,4 @@ python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句�
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```
 
-`test_promise_guard.py` 里有两条和时钟、本机 `~/.cc-connect/crons/jobs.json` 有关（`test_day_outing_next_passes`、`test_repeat_of_earlier_timer_passes`），换了机器或时间可能失败，所以没进 CI。
+`test_promise_guard.py` 里有两条和时钟、本机 `~/.bothouse/crons/jobs.json` 有关（`test_day_outing_next_passes`、`test_repeat_of_earlier_timer_passes`），换了机器或时间可能失败，所以没进 CI。

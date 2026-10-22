@@ -7,12 +7,12 @@ Switch: run.py --role <dir> off|on [hook ...] / run.py --role <dir> status  — 
 Without --role the role directory is the nearest directory upwards from CLAUDE_PROJECT_DIR / the payload's cwd /
 the current directory that has .claude/settings.json.
 
-Options (before or after the hook name; cc-connect writes them into each hook command):
-  --conest-hook      marks a command written by cc-connect (so "setup hooks off" never touches the user's own hooks)
+Options (before or after the hook name; bothouse writes them into each hook command):
+  --conest-hook      marks a command written by bothouse (so "setup hooks off" never touches the user's own hooks)
   --role <dir>       the role's work_dir: where the switch file is
   --dsh-home <dir>   DSH's home (DSH starts tools without the DSH_* variables, so $DSH_HOME is not seen here)
   --dsh-global       the command comes from the one DSH-wide hook file: it runs only inside a role listed in
-                     <hooks dir>/dsh-roles.json (written by "cc-connect setup hooks on|off --cli dsh") and only
+                     <hooks dir>/dsh-roles.json (written by "bothouse setup hooks on|off --cli dsh") and only
                      the hooks switched on for that role; anywhere else it passes.
 A missing hook script passes (exit 0, warning on stderr): exit 2 would block every tool call.
 
@@ -79,7 +79,7 @@ DSH_ROLES = os.path.join(HERE, "dsh-roles.json")  # {role work_dir: {"hooks": [.
 OPTS = {"role": None, "dsh_home": None, "dsh_global": False}  # {session_id: turn already blocked once}
 # 来源：实测，验收时日志在钩子开始后约 0.15 秒内写到；留足余量又不拖住回复（Stop 超时设的是 30 秒）
 STOP_WAIT = 3.0
-MODEL_HEAD, MODEL_END = "[cc-connect model-control instructions]", "[/cc-connect model-control instructions]"
+MODEL_HEAD, MODEL_END = "[bothouse model-control instructions]", "[/bothouse model-control instructions]"
 
 def dsh_home():
     return OPTS["dsh_home"] or os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh")
@@ -337,7 +337,7 @@ def main():
     name = name[:-3] if name.endswith(".py") else name
     target = os.path.join(HERE, name + ".py")
     if not os.path.isfile(target):
-        sys.stderr.write(f"cc-connect hook {name}: {target} is missing, passing (reinstall: cc-connect setup hooks on)\n")
+        sys.stderr.write(f"bothouse hook {name}: {target} is missing, passing (reinstall: bothouse setup hooks on)\n")
         sys.exit(0)
     raw = sys.stdin.read()
     try:
@@ -347,7 +347,7 @@ def main():
     if not isinstance(payload, dict):
         payload = {}
     if OPTS["dsh_global"]:
-        # the DSH-wide hook file applies to every directory DSH runs in: only cc-connect's DSH roles count
+        # the DSH-wide hook file applies to every directory DSH runs in: only bothouse's DSH roles count
         wd, entry = dsh_role(payload.get("cwd") or os.getcwd())
         if not wd or name not in (entry.get("hooks") or []):
             sys.exit(0)

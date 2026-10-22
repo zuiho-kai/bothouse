@@ -169,7 +169,7 @@ func TestGateContextWiki(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		b, _ := json.Marshal(map[string]any{"wiki": []map[string]string{{"path": "~/wiki/bots/im-bridge.md", "desc": "cc-connect"}}})
+		b, _ := json.Marshal(map[string]any{"wiki": []map[string]string{{"path": "~/wiki/bots/im-bridge.md", "desc": "bothouse"}}})
 		_, _ = w.Write(b)
 	}))
 	defer srv.Close()

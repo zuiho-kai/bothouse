@@ -4,26 +4,26 @@ package main
 // (bridge/core/setup_wizard.go); keep the two in step.
 
 const setupUsage = `Usage:
-  cc-connect setup apply --json <file|-> [--config path] [--dry-run]
+  bothouse setup apply --json <file|-> [--config path] [--dry-run]
                          Configure bots in one go (same as the web setup wizard). JSON in, JSON out.
-                         Run "cc-connect setup apply -h" for every JSON field.
-  cc-connect setup clis       Local CLIs (claude, codex, gemini, …): path, version, logged in or not
-  cc-connect setup matrix     Third-party API providers × CLIs: native or converted
-  cc-connect setup hub        The self-hosted platform (cloud_web) on this machine: running or not, can it be started
-  cc-connect setup hub start  Start it on this machine (127.0.0.1; needs uv), same as the wizard's "Start on this machine"
-  cc-connect setup personas [--lang zh|en]
+                         Run "bothouse setup apply -h" for every JSON field.
+  bothouse setup clis       Local CLIs (claude, codex, gemini, …): path, version, logged in or not
+  bothouse setup matrix     Third-party API providers × CLIs: native or converted
+  bothouse setup hub        The self-hosted platform (cloud_web) on this machine: running or not, can it be started
+  bothouse setup hub start  Start it on this machine (127.0.0.1; needs uv), same as the wizard's "Start on this machine"
+  bothouse setup personas [--lang zh|en]
                          Example personas you can copy into "persona" (the maintainers' own characters;
                          optional — leave persona empty to use none)
-  cc-connect setup hooks on|off|status --work-dir <dir> [--cli claudecode|dsh] [--only a,b] [--lang zh|en]
+  bothouse setup hooks on|off|status --work-dir <dir> [--cli claudecode|dsh] [--only a,b] [--lang zh|en]
                          Tool hooks (bash-guard, dispatch-review-guard, …) for one role: switch them on or off in
                          <dir>/.claude/settings.json and keep the rules block in its persona in step.
                          New Claude Code roles from the wizard get all of them. Run "setup hooks -h" for more.
-  cc-connect setup tools on|off|status --work-dir <dir> [--agent claudecode|codex|acp|…] [--only a,b] [--lang zh|en]
+  bothouse setup tools on|off|status --work-dir <dir> [--agent claudecode|codex|acp|…] [--only a,b] [--lang zh|en]
                          Small tools for one role (peek: what the other bots are doing; watchvid: turn a video
                          link into frames + transcript; websearch: free web search and page text) and the lines
                          in its persona that tell it how to use them. New roles from the wizard get all of them.
 
-No config yet? Just run "cc-connect": it opens the same wizard in your browser.
+No config yet? Just run "bothouse": it opens the same wizard in your browser.
 Guide: docs/connect-discord-feishu.md in the conest repo.
 `
 
@@ -43,7 +43,7 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
     name             display name (default: the bot's Discord username; cloud_web: the project name)
     project          project name in config.toml (default: from name)
     agent_type       claudecode | codex | gemini | opencode | … (default: first logged-in CLI; see "setup clis")
-    work_dir         default: ~/.cc-connect/roles/<project>
+    work_dir         default: ~/.bothouse/roles/<project>
     persona          text of the persona file (CLAUDE.md / AGENTS.md / GEMINI.md in work_dir).
                      Empty = no persona, only the reply-language line. Examples: "setup personas".
     edit_persona     true = also overwrite the persona of a reused bot (otherwise its file is left as is)
@@ -62,7 +62,7 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      who answers. Omitted = keep the current one (or none). {"remove": true} = stop using it.
   feishu             {"app_id", "app_secret", "platform_type", "chat_id", "owner_open_id"} for feishu/lark (one role)
   cloud_web          {"url", "token"} for platform "cloud_web": the platform's address (http://host:port or
-                     https://domain) and its bot token. Both may be left out when "cc-connect setup hub start"
+                     https://domain) and its bot token. Both may be left out when "bothouse setup hub start"
                      (or the web wizard) started the platform on this machine: they are filled in from it.
                      Several roles are fine; each joins as one member (?bot=<project>, shown as its name).
                      A reused Discord bot (reuse_project) keeps its Discord settings and also joins the platform.
@@ -78,7 +78,7 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
 
 Minimal Discord request:
   {"discord": {"guild_id": "<server ID>"}, "roles": [{"token": "<bot token>"}]}
-Minimal self-hosted platform request (after "cc-connect setup hub start"):
+Minimal self-hosted platform request (after "bothouse setup hub start"):
   {"platform": "cloud_web", "roles": [{"name": "<display name>"}]}
 
 Output JSON:
@@ -95,8 +95,8 @@ Output JSON:
   invite_urls        links that add bots to the server (bots not in it yet)
   allow_from         who the new bots take orders from
   cloud_web          platform "cloud_web": the connection test {ok, code, message, fix, page_url}
-  next_steps         how to start or restart cc-connect (in the background: cc-connect daemon install;
-                     never run cc-connect in the foreground from an agent's shell — it does not exit)
+  next_steps         how to start or restart bothouse (in the background: bothouse daemon install;
+                     never run bothouse in the foreground from an agent's shell — it does not exit)
   steps, roles, fallback_role, gate_running, gate_hint, jev_ok, jev_reason, jev_hint, config_backup, error
 Exit code: 0 when ok, 1 otherwise (also when saved but needs_user_action).
 `

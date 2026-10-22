@@ -1,4 +1,4 @@
-"""Tiny stand-in for the Discord REST API, for `cc-connect setup apply` in CI (CONEST_DISCORD_API_BASE).
+"""Tiny stand-in for the Discord REST API, for `bothouse setup apply` in CI (CONEST_DISCORD_API_BASE).
 
 Serves the four calls setup apply makes (same answers as fakeDiscord in
 bridge/core/setup_wizard_test.go): one bot, token "MTEx.ci.fake" (bot id 111), in guild 900,

@@ -1,6 +1,6 @@
 # 独立实例配置与多设备部署指南（Instance Setup）
 
-本文档说明如何在新机器、第二台设备或同机多实例环境下配置与运行 `companion`（包括电脑语音入口 `companion/voice` 与自主活动/日志调度 `companion/autonomy`），以及旧生产实例（`~/.cc-connect-maomao/`）的升级兼容方式与回滚边界。
+本文档说明如何在新机器、第二台设备或同机多实例环境下配置与运行 `companion`（包括电脑语音入口 `companion/voice` 与自主活动/日志调度 `companion/autonomy`），以及旧生产实例（`~/.bothouse-maomao/`）的升级兼容方式与回滚边界。
 
 ---
 
@@ -9,7 +9,7 @@
 为支持「一位 AI 一台设备」（例如 **G哥 + Cursor 双设备/双实例展示**），`companion` 已解除旧部署路径与固定角色默认值：
 
 1. **移除旧生产硬编码**：
-   - 不再默认读写 `~/.cc-connect-maomao/` 或 `/path/to/agents-demo/journal`。
+   - 不再默认读写 `~/.bothouse-maomao/` 或 `/path/to/agents-demo/journal`。
    - 不再内置固定频道 `discord:1560320196239953953`，也不再将 `voice` 锁死在 `gge`（G哥）或将 `autonomy` 主持人锁死在 `cjiang`。
 2. **关键绑定全部显式配置**：
    - `voice` 必须显式指定：`project`、`role_name`、`session_key`、`bridge_socket`、`model_path`、`data_dir`、`shared_memory_dir`。
@@ -27,7 +27,7 @@
 
 ```text
 ~/.conest-<instance>/
-├── config.toml                 # 本实例 cc-connect 桥接配置
+├── config.toml                 # 本实例 bothouse 桥接配置
 ├── data/
 │   ├── run/api.sock            # 本实例桥接 Unix Socket
 │   └── timers/jobs.json        # 本实例桥接定时器存储
@@ -70,7 +70,7 @@ chmod 600 ~/.conest-cursor/voice/config.json
 
 #### 方式 B：在临时 `HOME` 或独立目录下使用 `init` 初始化
 
-可通过环境变量或参数在独立目录中生成初始配置（不会读写 `~/.cc-connect-maomao/`）：
+可通过环境变量或参数在独立目录中生成初始配置（不会读写 `~/.bothouse-maomao/`）：
 
 ```bash
 VOICE_PROJECT=cursor \
@@ -125,13 +125,13 @@ companion/scripts/autonomy --config ~/.conest-gge/autonomy/config.json resume
 
 ---
 
-## 3. 旧生产实例（`~/.cc-connect-maomao/`）升级兼容方式
+## 3. 旧生产实例（`~/.bothouse-maomao/`）升级兼容方式
 
 已有生产实例升级到包含本改动的版本时，**无需迁移现有数据目录**，只需确保显式传入配置文件路径且配置文件字段完整：
 
 1. **显式指定配置文件路径**：
-   - 语音服务：启动参数传 `--config ~/.cc-connect-maomao/voice/config.json`，或在启动环境中设置 `VOICE_CONFIG=~/.cc-connect-maomao/voice/config.json`。
-   - 自主活动：启动参数传 `--config ~/.cc-connect-maomao/autonomy/config.json`（已安装的 cron 命令本身已包含 `--config <绝对路径>`），或设置 `AUTONOMY_CONFIG=~/.cc-connect-maomao/autonomy/config.json`。
+   - 语音服务：启动参数传 `--config ~/.bothouse-maomao/voice/config.json`，或在启动环境中设置 `VOICE_CONFIG=~/.bothouse-maomao/voice/config.json`。
+   - 自主活动：启动参数传 `--config ~/.bothouse-maomao/autonomy/config.json`（已安装的 cron 命令本身已包含 `--config <绝对路径>`），或设置 `AUTONOMY_CONFIG=~/.bothouse-maomao/autonomy/config.json`。
 2. **核对旧配置文件字段完整性**：
    - 旧版通过 `init` 生成的 `voice/config.json` 与 `autonomy/config.json` 已经持久化了全部字段（`project`、`role_name`、`session_key`、`bridge_socket`、`model_path`、`data_dir`、`shared_memory_dir` 以及 `leader`、`bridge_config`、`socket`、`timer_store`、`journal_dir`），可直接通过新版的严格校验。
    - 若旧配置曾手写删减了部分字段（依赖旧版代码中的硬编码默认值），升级后运行 `status` 会立即提示具体缺失字段名称，补齐对应字段即可恢复运行。
@@ -145,7 +145,7 @@ companion/scripts/autonomy --config ~/.conest-gge/autonomy/config.json resume
 1. **数据与配置格式零破坏**：
    - 本次改动不修改 `events.jsonl`、`shared-memory/*.jsonl`、`state.json`、`messages.sqlite3` 的存储结构，也不改动完备 `config.json` 的字段名。
 2. **回滚步骤**：
-   - 若需将代码回滚至本改动之前的版本，已显式写全字段的 `~/.cc-connect-maomao/voice/config.json` 与 `~/.cc-connect-maomao/autonomy/config.json` 可继续被旧版直接读取。
+   - 若需将代码回滚至本改动之前的版本，已显式写全字段的 `~/.bothouse-maomao/voice/config.json` 与 `~/.bothouse-maomao/autonomy/config.json` 可继续被旧版直接读取。
    - 注意：旧版 `voice` 仅允许 `project == "gge"`；若新创建的独立实例配置了其它角色（如 `"project": "cursor"`），在旧版代码下无法启动该非 `gge` 实例，但不会影响原 `gge` 实例。
 3. **故障隔离保证**：
    - 任何配置缺失或校验错误均在本地配置加载阶段终止，不会向桥接 Socket 发送请求、不会向 Discord 发言，也不会修改其它实例的状态文件。

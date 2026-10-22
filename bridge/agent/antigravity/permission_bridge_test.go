@@ -69,7 +69,7 @@ func TestAgyPermissionBridgePreservesHooksAndRelaysDecisions(t *testing.T) {
 		t.Fatal("overlay does not preserve existing hook")
 	}
 	if _, ok := overlayHooks[agyPermissionHookName]; !ok {
-		t.Fatal("overlay does not contain cc-connect permission hook")
+		t.Fatal("overlay does not contain bothouse permission hook")
 	}
 
 	testBridgeDecision(t, bridge, events, "allow", "", "auto_approve", "")

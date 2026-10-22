@@ -216,7 +216,7 @@ func (cs *copilotSession) sessionConfig(sessionID string) copilotSessionConfig {
 	includeSubAgentStreaming := true
 	return copilotSessionConfig{
 		SessionID:                      sessionID,
-		ClientName:                     "cc-connect",
+		ClientName:                     "bothouse",
 		Model:                          strings.TrimSpace(cs.model),
 		Provider:                       cs.provider,
 		RequestPermission:              &requestPermission,
@@ -230,7 +230,7 @@ func (cs *copilotSession) sessionConfig(sessionID string) copilotSessionConfig {
 func newCopilotSessionID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("cc-connect-%d", time.Now().UnixNano())
+		return fmt.Sprintf("bothouse-%d", time.Now().UnixNano())
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80

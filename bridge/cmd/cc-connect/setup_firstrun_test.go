@@ -111,16 +111,16 @@ func TestNeedsSetup(t *testing.T) {
 func TestSetupNextSteps(t *testing.T) {
 	s := strings.Join(setupNextSteps("zh", "", false, false), "\n")
 	// AI agents must not be told to run cc-connect in the foreground (it holds their shell)
-	if !strings.HasPrefix(s, "后台启动并常驻") || !strings.Contains(s, "cc-connect daemon install") || !strings.Contains(s, "nohup cc-connect >") ||
-		strings.Contains(s, "启动：cc-connect（") || strings.Contains(s, "blocking") {
+	if !strings.HasPrefix(s, "后台启动并常驻") || !strings.Contains(s, "bothouse daemon install") || !strings.Contains(s, "nohup bothouse >") ||
+		strings.Contains(s, "启动：bothouse（") || strings.Contains(s, "blocking") {
 		t.Fatalf("not running: %s", s)
 	}
 	s = strings.Join(setupNextSteps("en", "/c.toml", true, true), "\n")
-	if !strings.Contains(s, "blocking=true") || !strings.Contains(s, "cc-connect --config /c.toml") || !strings.Contains(s, "daemon restart") {
+	if !strings.Contains(s, "blocking=true") || !strings.Contains(s, "bothouse --config /c.toml") || !strings.Contains(s, "daemon restart") {
 		t.Fatalf("running + action: %s", s)
 	}
 	s = strings.Join(setupNextSteps("en", "/c.toml", false, false), "\n")
-	if !strings.Contains(s, "cc-connect daemon install --config /c.toml") {
+	if !strings.Contains(s, "bothouse daemon install --config /c.toml") {
 		t.Fatalf("running + action: %s", s)
 	}
 }
@@ -401,14 +401,14 @@ func TestSetupNextStepsWindows(t *testing.T) {
 	t.Cleanup(func() { nextStepsGOOS = old })
 	s := strings.Join(setupNextSteps("zh", "", false, false), "\n")
 	if strings.Contains(s, "nohup") || strings.Contains(s, "~/") ||
-		!strings.Contains(s, `$env:CC_LOG_FILE="$HOME\.cc-connect\run.log"; Start-Process cc-connect -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`) ||
-		!strings.Contains(s, `日志在 $HOME\.cc-connect\run.log`) || !strings.Contains(s, "cc-connect daemon install") {
+		!strings.Contains(s, `$env:CC_LOG_FILE="$HOME\.bothouse\run.log"; Start-Process bothouse -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`) ||
+		!strings.Contains(s, `日志在 $HOME\.bothouse\run.log`) || !strings.Contains(s, "bothouse daemon install") {
 		t.Fatalf("windows: %s", s)
 	}
 	s = strings.Join(setupNextSteps("en", `C:\Users\Jane Doe\it's\c.toml`, false, false), "\n")
 	for _, want := range []string{
 		`-ArgumentList '--config','"C:\Users\Jane Doe\it''s\c.toml"'`,
-		`cc-connect daemon install --config "C:\Users\Jane Doe\it's\c.toml"`,
+		`bothouse daemon install --config "C:\Users\Jane Doe\it's\c.toml"`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("windows --config with spaces: missing %s in\n%s", want, s)

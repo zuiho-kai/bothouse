@@ -1,15 +1,15 @@
 # Google Chat Setup Guide
 
-This guide walks you through connecting **cc-connect** to Google Chat, so you can chat with your local Claude Code from a Google Chat space or DM.
+This guide walks you through connecting **bothouse** to Google Chat, so you can chat with your local Claude Code from a Google Chat space or DM.
 
-cc-connect uses a registered **Google Chat app** whose **Cloud Pub/Sub connection** publishes events to a topic. cc-connect pulls that topic locally (native Go, no extra binaries) and replies through the Chat REST API as the app's service account. This means:
+bothouse uses a registered **Google Chat app** whose **Cloud Pub/Sub connection** publishes events to a topic. bothouse pulls that topic locally (native Go, no extra binaries) and replies through the Chat REST API as the app's service account. This means:
 
 - **No public IP / domain / reverse proxy** — events arrive over a Pub/Sub pull.
 - **No subscription expiry or per-restart resource leak** — the Pub/Sub subscription is fixed (unlike the Workspace Events API, whose subscriptions expire and are recreated each run).
 
 ## Prerequisites
 
-- A **Google Workspace** account. The Google Chat API is only available to Workspace users; consumer `@gmail.com` accounts cannot configure a Chat app. (This applies to every Chat-app/REST integration, not just cc-connect.)
+- A **Google Workspace** account. The Google Chat API is only available to Workspace users; consumer `@gmail.com` accounts cannot configure a Chat app. (This applies to every Chat-app/REST integration, not just bothouse.)
 - A Google Cloud project (billing enabled).
 - `gcloud` CLI installed and authenticated (for the one-time GCP setup below).
 - Claude Code installed and configured.
@@ -34,7 +34,7 @@ cc-connect uses a registered **Google Chat app** whose **Cloud Pub/Sub connectio
 ┌──────────────────────────────────────────────────────────────┐
 │                     Your Local Machine                        │
 │                                                               │
-│  cc-connect ◄──► Claude Code CLI ◄──► Your Project Code       │
+│  bothouse ◄──► Claude Code CLI ◄──► Your Project Code       │
 │       │                                                       │
 │       └─ reply: Chat REST API as service account (chat.bot)   │
 └──────────────────────────────────────────────────────────────┘
@@ -42,8 +42,8 @@ cc-connect uses a registered **Google Chat app** whose **Cloud Pub/Sub connectio
 
 Both directions are native Go and authenticate with the **same service-account key** (`chat.bot` scope):
 
-- **Receive**: cc-connect opens a streaming pull on the subscription via the Cloud Pub/Sub client. The service account needs `roles/pubsub.subscriber` on the subscription.
-- **Send**: cc-connect posts to the Chat REST API as the service account, so replies appear as the bot.
+- **Receive**: bothouse opens a streaming pull on the subscription via the Cloud Pub/Sub client. The service account needs `roles/pubsub.subscriber` on the subscription.
+- **Send**: bothouse posts to the Chat REST API as the service account, so replies appear as the bot.
 
 ---
 
@@ -62,46 +62,46 @@ gcloud services enable chat.googleapis.com pubsub.googleapis.com --project YOUR_
 
 ## Step 2: Create the Pub/Sub topic and subscription
 
-Create a topic, allow Google Chat to publish to it, and create a pull subscription that cc-connect will read.
+Create a topic, allow Google Chat to publish to it, and create a pull subscription that bothouse will read.
 
 ```bash
 PROJECT_ID=YOUR_PROJECT_ID
 
 # Topic the Chat app publishes events to
-gcloud pubsub topics create cc-connect-chat --project "$PROJECT_ID"
+gcloud pubsub topics create bothouse-chat --project "$PROJECT_ID"
 
 # Allow Google Chat's system service account to publish
-gcloud pubsub topics add-iam-policy-binding cc-connect-chat --project "$PROJECT_ID" \
+gcloud pubsub topics add-iam-policy-binding bothouse-chat --project "$PROJECT_ID" \
   --member='serviceAccount:chat-api-push@system.gserviceaccount.com' \
   --role='roles/pubsub.publisher'
 
-# Pull subscription cc-connect reads
-gcloud pubsub subscriptions create cc-connect-chat-sub --topic cc-connect-chat --project "$PROJECT_ID"
+# Pull subscription bothouse reads
+gcloud pubsub subscriptions create bothouse-chat-sub --topic bothouse-chat --project "$PROJECT_ID"
 ```
 
-The subscription resource name is `projects/YOUR_PROJECT_ID/subscriptions/cc-connect-chat-sub` — you'll put this in `config.toml`.
+The subscription resource name is `projects/YOUR_PROJECT_ID/subscriptions/bothouse-chat-sub` — you'll put this in `config.toml`.
 
 ---
 
 ## Step 3: Create a service account
 
-cc-connect uses one service account for **both** pulling events and replying.
+bothouse uses one service account for **both** pulling events and replying.
 
 ```bash
-gcloud iam service-accounts create cc-connect-bot --project "$PROJECT_ID" \
-  --display-name "cc-connect Chat bot"
+gcloud iam service-accounts create bothouse-bot --project "$PROJECT_ID" \
+  --display-name "bothouse Chat bot"
 
 # Allow the service account to pull from the subscription
-gcloud pubsub subscriptions add-iam-policy-binding cc-connect-chat-sub --project "$PROJECT_ID" \
-  --member="serviceAccount:cc-connect-bot@${PROJECT_ID}.iam.gserviceaccount.com" \
+gcloud pubsub subscriptions add-iam-policy-binding bothouse-chat-sub --project "$PROJECT_ID" \
+  --member="serviceAccount:bothouse-bot@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/pubsub.subscriber"
 
-# Download a JSON key (this is a secret — store it safely, e.g. ~/.config/cc-connect/)
-mkdir -p ~/.config/cc-connect
-gcloud iam service-accounts keys create ~/.config/cc-connect/cc-connect-bot-key.json \
-  --iam-account="cc-connect-bot@${PROJECT_ID}.iam.gserviceaccount.com" \
+# Download a JSON key (this is a secret — store it safely, e.g. ~/.config/bothouse/)
+mkdir -p ~/.config/bothouse
+gcloud iam service-accounts keys create ~/.config/bothouse/bothouse-bot-key.json \
+  --iam-account="bothouse-bot@${PROJECT_ID}.iam.gserviceaccount.com" \
   --project "$PROJECT_ID"
-chmod 600 ~/.config/cc-connect/cc-connect-bot-key.json
+chmod 600 ~/.config/bothouse/bothouse-bot-key.json
 ```
 
 > ⚠️ The key file grants the bot's identity — keep it private and never commit it.
@@ -122,14 +122,14 @@ Go to **[Chat API → Configuration](https://console.cloud.google.com/apis/api/c
 | **Application info** | App name (e.g. `Claude`), Avatar URL (HTTPS square image), Description |
 | Interactive features | Enable |
 | **Functionality** | ☑ Receive 1:1 messages (for DM use) and/or ☑ Join spaces and group conversations (for @mention in spaces) |
-| **Connection settings** | **Cloud Pub/Sub** → topic `projects/YOUR_PROJECT_ID/topics/cc-connect-chat` |
+| **Connection settings** | **Cloud Pub/Sub** → topic `projects/YOUR_PROJECT_ID/topics/bothouse-chat` |
 | **Visibility** | Make available to specific people → enter **your own email only** (keeps the app private to you; up to 5 people or a group) |
 
 Click **Save**.
 
 ---
 
-## Step 5: Configure cc-connect
+## Step 5: Configure bothouse
 
 Add a `googlechat` platform to your `config.toml`:
 
@@ -149,9 +149,9 @@ type = "googlechat"
 
 [projects.platforms.options]
 # Pub/Sub subscription the Chat app publishes to (required)
-subscription = "projects/YOUR_PROJECT_ID/subscriptions/cc-connect-chat-sub"
+subscription = "projects/YOUR_PROJECT_ID/subscriptions/bothouse-chat-sub"
 # Service-account key, used to pull events AND reply as the bot (chat.bot) (required)
-credentials_file = "/Users/you/.config/cc-connect/cc-connect-bot-key.json"
+credentials_file = "/Users/you/.config/bothouse/bothouse-bot-key.json"
 # Allowed sender IDs (e.g. "users/1234567890"); "*" = everyone (default).
 allow_from = "*"
 # "space" (default) | "thread" | "user"
@@ -169,17 +169,17 @@ session_scope = "space"
 
 ---
 
-## Step 6: Start cc-connect
+## Step 6: Start bothouse
 
 ```bash
-cc-connect
-# or: cc-connect --config /path/to/config.toml
+bothouse
+# or: bothouse --config /path/to/config.toml
 ```
 
 You should see:
 
 ```
-level=INFO msg="googlechat: started" subscription=projects/.../cc-connect-chat-sub scope=space
+level=INFO msg="googlechat: started" subscription=projects/.../bothouse-chat-sub scope=space
 ```
 
 ---
@@ -209,7 +209,7 @@ The bot replies in-thread as the app.
 ### Q: I sent a message but the bot doesn't respond at all.
 
 1. Is the Chat app **App status = Live**? (required for both receiving and sending)
-2. Is `cc-connect` running? Check the log for `googlechat: started`.
+2. Is `bothouse` running? Check the log for `googlechat: started`.
 3. Does the service account have `roles/pubsub.subscriber` on the subscription? (receive path)
 4. Is `work_dir` a real directory? The agent can't start otherwise.
 5. Give the agent a few seconds on the first message (cold start).

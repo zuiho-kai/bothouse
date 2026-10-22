@@ -23,7 +23,7 @@ class Hooks(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        cls.hooks = os.path.join(cls.tmp, "hooks")  # an installed copy, as "cc-connect setup hooks on" makes
+        cls.hooks = os.path.join(cls.tmp, "hooks")  # an installed copy, as "bothouse setup hooks on" makes
         shutil.copytree(HERE, cls.hooks)
         for f in ("ctxsvc.py", "wiki_search.py"):
             shutil.copy(os.path.join(GATE, f), cls.hooks)
@@ -238,7 +238,7 @@ class Hooks(unittest.TestCase):
                                    env=self.env, cwd=cwd, timeout=30)
                 return r.stdout.strip()
             self.assertTrue(self.denied(run("bash-guard", os.path.join(role, "deep"))))
-            self.assertEqual(run("bash-guard", other), "")  # a repository that is not a cc-connect role
+            self.assertEqual(run("bash-guard", other), "")  # a repository that is not a bothouse role
             self.assertEqual(run("param-source-guard", role), "")  # hook not on for this role
         finally:
             os.unlink(roles)

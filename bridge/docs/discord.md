@@ -1,6 +1,6 @@
 # Discord Setup Guide
 
-This guide walks you through connecting **cc-connect** to Discord, so you can chat with your local Claude Code via a Discord bot.
+This guide walks you through connecting **bothouse** to Discord, so you can chat with your local Claude Code via a Discord bot.
 
 ## Replies in a multi-bot channel
 
@@ -20,7 +20,7 @@ human replies, and bot-to-bot handoffs retain their existing policies.
 ## Prerequisites
 
 - A Discord account
-- A machine that can run cc-connect (no public IP needed)
+- A machine that can run bothouse (no public IP needed)
 - Claude Code installed and configured
 
 > 💡 **Advantage**: Uses Gateway (WebSocket) — no public IP, no domain, no reverse proxy needed.
@@ -36,7 +36,7 @@ Go to [Discord Developer Portal](https://discord.com/developers/applications) an
 ### 1.2 Create a New Application
 
 1. Click "New Application" in the top right
-2. Enter an application name (e.g. `cc-connect`)
+2. Enter an application name (e.g. `bothouse`)
 3. Agree to the Terms of Service
 4. Click "Create"
 
@@ -57,7 +57,7 @@ In the left sidebar, click "Bot".
 
 | Field | Suggested Value |
 |-------|----------------|
-| Username | `cc-connect` |
+| Username | `bothouse` |
 | Avatar | Upload an icon you like |
 
 ---
@@ -104,7 +104,7 @@ Click "Save Changes".
 
 ---
 
-## Step 5: Configure cc-connect
+## Step 5: Configure bothouse
 
 Add the token to your `config.toml`:
 
@@ -128,8 +128,8 @@ token = "MTk4NjIyNDgzNDcOTY3NDUxMg.G8vKqh.xxx..."
 # progress_style = "legacy" # Optional: legacy | compact | card
 ```
 
-> cc-connect automatically configures the required Intents (MESSAGE_CONTENT, GUILD_MESSAGES, DIRECT_MESSAGES).
-> With `thread_isolation = true`, cc-connect creates or reuses a Discord thread for each session and routes follow-up messages by thread channel ID.
+> bothouse automatically configures the required Intents (MESSAGE_CONTENT, GUILD_MESSAGES, DIRECT_MESSAGES).
+> With `thread_isolation = true`, bothouse creates or reuses a Discord thread for each session and routes follow-up messages by thread channel ID.
 > `progress_style = "compact"` merges thinking/tool updates into one editable message; `progress_style = "card"` renders a Discord-native embed progress card and still sends the final answer as a normal message.
 
 ---
@@ -180,14 +180,14 @@ Review the permissions and click "Authorize". Complete the CAPTCHA if prompted.
 
 ---
 
-## Step 8: Start cc-connect
+## Step 8: Start bothouse
 
 ### 8.1 Launch
 
 ```bash
-cc-connect
+bothouse
 # Or specify a config file
-cc-connect -config /path/to/config.toml
+bothouse -config /path/to/config.toml
 ```
 
 ### 8.2 Verify Connection
@@ -195,9 +195,9 @@ cc-connect -config /path/to/config.toml
 You should see logs like:
 
 ```
-level=INFO msg="discord: connected" bot=cc-connect#0000
+level=INFO msg="discord: connected" bot=bothouse#0000
 level=INFO msg="platform started" project=my-project platform=discord
-level=INFO msg="cc-connect is running" projects=1
+level=INFO msg="bothouse is running" projects=1
 ```
 
 ---
@@ -220,9 +220,9 @@ Send a message in any channel where the bot has permissions.
 ```
 User: Help me analyze the current project structure
 
-cc-connect: 🤔 Thinking...
-cc-connect: 🔧 Tool: Bash(ls -la)
-cc-connect: Here's the project structure...
+bothouse: 🤔 Thinking...
+bothouse: 🔧 Tool: Bash(ls -la)
+bothouse: Here's the project structure...
 ```
 
 If you enable `progress_style = "card"`, Discord shows one editable progress embed during the turn, then the final answer arrives as a separate normal message. This reduces channel noise compared with the legacy multi-message flow.
@@ -244,7 +244,7 @@ If you enable `progress_style = "card"`, Discord shows one editable progress emb
 ┌─────────────────────────────────────────────────────────────┐
 │                    Your Local Machine                         │
 │                                                              │
-│   cc-connect ◄──► Claude Code CLI ◄──► Your Project Code    │
+│   bothouse ◄──► Claude Code CLI ◄──► Your Project Code    │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -260,7 +260,7 @@ If you enable `progress_style = "card"`, Discord shows one editable progress emb
 | **Heartbeat** | Automatic keepalive |
 | **Reconnection** | Automatic on disconnect |
 | **Intents** | Must declare required event types |
-| **Message limit** | 2000 characters per message (auto-split by cc-connect) |
+| **Message limit** | 2000 characters per message (auto-split by bothouse) |
 | **Markdown** | Full native support |
 
 ---
@@ -276,7 +276,7 @@ Fix:
 2. Select your app → Bot
 3. Enable "Message Content Intent"
 4. Save changes
-5. Restart cc-connect
+5. Restart bothouse
 
 ### Q: Bot connects then immediately disconnects?
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	ccconnect "github.com/chenhg5/cc-connect"
 	"io"
 	"mime"
 	"net"
@@ -32,7 +33,7 @@ func runSend(args []string) {
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: cc-connect is not running (socket not found: %s)\n", sockPath)
+		fmt.Fprintf(os.Stderr, "Error: bothouse is not running (socket not found: %s)\n", sockPath)
 		os.Exit(1)
 	}
 
@@ -352,23 +353,23 @@ func resolveSocketPath(dataDir string) string {
 		return filepath.Join(envDataDir, "run", "api.sock")
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cc-connect", "run", "api.sock")
+		return filepath.Join(ccconnect.DataDir(home), "run", "api.sock")
 	}
-	return filepath.Join(".cc-connect", "run", "api.sock")
+	return filepath.Join(".bothouse", "run", "api.sock")
 }
 
 func printSendUsage() {
-	fmt.Println(`Usage: cc-connect send [options] <message>
-       cc-connect send [options] -m <message>
-       cc-connect send [options] --stdin < file
-       cc-connect send [options] --image <path>
-       cc-connect send [options] --file <path>
-       cc-connect send [options] --audio <path>
-       cc-connect send [options] --video <path>
-       cc-connect send [options] --tts <text>
-       echo "msg" | cc-connect send [options] --stdin
+	fmt.Println(`Usage: bothouse send [options] <message>
+       bothouse send [options] -m <message>
+       bothouse send [options] --stdin < file
+       bothouse send [options] --image <path>
+       bothouse send [options] --file <path>
+       bothouse send [options] --audio <path>
+       bothouse send [options] --video <path>
+       bothouse send [options] --tts <text>
+       echo "msg" | bothouse send [options] --stdin
 
-Send a message, attachment, or synthesized voice message to an active cc-connect session.
+Send a message, attachment, or synthesized voice message to an active bothouse session.
 
 Options:
   -m, --message <text>     Message to send (preferred over positional args)
@@ -384,18 +385,18 @@ Options:
       --at-all             @ everyone (DingTalk)
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
-      --data-dir <path>    Data directory (default: ~/.cc-connect)
+      --data-dir <path>    Data directory (default: ~/.bothouse)
   -h, --help               Show this help
 
 Examples:
-  cc-connect send "Daily summary: ..."
-  cc-connect send -m "Build completed successfully"
-  cc-connect send --message "Chart generated" --image /tmp/chart.png
-  cc-connect send --file /tmp/report.pdf
-  cc-connect send --video /tmp/demo.mp4
-  cc-connect send --audio /tmp/voice.opus
-  cc-connect send --tts "Hello from cc-connect"
-  cc-connect send --stdin <<'EOF'
+  bothouse send "Daily summary: ..."
+  bothouse send -m "Build completed successfully"
+  bothouse send --message "Chart generated" --image /tmp/chart.png
+  bothouse send --file /tmp/report.pdf
+  bothouse send --video /tmp/demo.mp4
+  bothouse send --audio /tmp/voice.opus
+  bothouse send --tts "Hello from bothouse"
+  bothouse send --stdin <<'EOF'
     Long message with "special" chars, $variables, and newlines
   EOF`)
 }

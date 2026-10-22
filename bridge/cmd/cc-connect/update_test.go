@@ -155,7 +155,7 @@ func TestSyncNpmPackageVersion_UpdatesWhenDifferent(t *testing.T) {
 	execPath := filepath.Join(binDir, "cc-connect")
 
 	pkgJSON := filepath.Join(ccConnectDir, "package.json")
-	pkgData := `{"name": "cc-connect", "version": "v0.9.0"}`
+	pkgData := `{"name": "bothouse", "version": "v0.9.0"}`
 	if err := os.WriteFile(pkgJSON, []byte(pkgData), 0o644); err != nil {
 		t.Fatalf("write pkg.json: %v", err)
 	}

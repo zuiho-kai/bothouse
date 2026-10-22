@@ -37,13 +37,13 @@ func warnIntentOff(lang, bot, appID string) WizardWarning {
 		URL: "https://discord.com/developers/applications/" + appID + "/bot"}
 	if isJA(lang) {
 		w.Message = "ボット「" + bot + "」の Message Content Intent がオフです。メッセージ本文を読めないので、グループで返答しません。"
-		w.Fix = "リンク（Developer Portal → Bot）を開き、Message Content Intent をオンにして保存してください。セットアップのやり直しは不要で、cc-connect を再起動するだけです。"
+		w.Fix = "リンク（Developer Portal → Bot）を開き、Message Content Intent をオンにして保存してください。セットアップのやり直しは不要で、bothouse を再起動するだけです。"
 	} else if isZH(lang) {
 		w.Message = "机器人「" + bot + "」没开 Message Content Intent，读不到消息正文，在群里不会回话。"
-		w.Fix = "打开链接（Discord 开发者后台 → Bot），打开 Message Content Intent 并保存；不用重新跑向导，重启 cc-connect 即可。"
+		w.Fix = "打开链接（Discord 开发者后台 → Bot），打开 Message Content Intent 并保存；不用重新跑向导，重启 bothouse 即可。"
 	} else {
 		w.Message = "Bot \"" + bot + "\" has Message Content Intent off: it cannot read messages and will not answer."
-		w.Fix = "Open the link (Developer Portal → Bot), turn on Message Content Intent and save; no need to rerun setup, just restart cc-connect."
+		w.Fix = "Open the link (Developer Portal → Bot), turn on Message Content Intent and save; no need to rerun setup, just restart bothouse."
 	}
 	return w
 }
@@ -180,12 +180,12 @@ func warnAgentLogins(lang string, roles []plannedRole, clis []LocalCLI) []Wizard
 		bots := strings.Join(byType[at], "、")
 		w := WizardWarning{Project: strings.Join(byType[at], ",")}
 		ja := isJA(lang)
-		after := "Then run cc-connect setup clis and check that its login is logged_in, and restart cc-connect; no need to rerun setup. Or let this role use a third-party API instead: in the web wizard, tick \"Use a third-party API instead\" on the Local CLI step and save again; from the command line, add \"provider\" to the role (see cc-connect setup matrix)."
+		after := "Then run bothouse setup clis and check that its login is logged_in, and restart bothouse; no need to rerun setup. Or let this role use a third-party API instead: in the web wizard, tick \"Use a third-party API instead\" on the Local CLI step and save again; from the command line, add \"provider\" to the role (see bothouse setup matrix)."
 		if zh {
-			after = "登录后跑 cc-connect setup clis，确认它的 login 是 logged_in，再重启 cc-connect；不用重跑配置。也可以给这个角色改用第三方 API：网页向导在「本机 CLI」一步勾「改用第三方 API」，填好再保存一次；命令行在这个 role 里加 \"provider\"（见 cc-connect setup matrix）。"
+			after = "登录后跑 bothouse setup clis，确认它的 login 是 logged_in，再重启 bothouse；不用重跑配置。也可以给这个角色改用第三方 API：网页向导在「本机 CLI」一步勾「改用第三方 API」，填好再保存一次；命令行在这个 role 里加 \"provider\"（见 bothouse setup matrix）。"
 		}
 		if ja {
-			after = "ログイン後に cc-connect setup clis を実行し、login が logged_in になっていることを確認してから cc-connect を再起動してください。設定のやり直しは不要です。代わりにこのロールにサードパーティ API を使うこともできます：ウェブのウィザードでは「ローカル CLI」のステップで「代わりにサードパーティ API を使う」にチェックして入力し、もう一度保存。コマンドラインではそのロールに \"provider\" を追加（cc-connect setup matrix を参照）。"
+			after = "ログイン後に bothouse setup clis を実行し、login が logged_in になっていることを確認してから bothouse を再起動してください。設定のやり直しは不要です。代わりにこのロールにサードパーティ API を使うこともできます：ウェブのウィザードでは「ローカル CLI」のステップで「代わりにサードパーティ API を使う」にチェックして入力し、もう一度保存。コマンドラインではそのロールに \"provider\" を追加（bothouse setup matrix を参照）。"
 		}
 		if cli.Login == "not_logged_in" {
 			w.Code, w.Blocking = "agent_not_logged_in", true
@@ -296,13 +296,13 @@ func warnIntentUnknown(lang, bot, appID string) WizardWarning {
 		URL: "https://discord.com/developers/applications/" + appID + "/bot"}
 	if isJA(lang) {
 		w.Message = "ボット「" + bot + "」の Message Content Intent がオンか確認できませんでした（Discord のアプリ情報を取得できません）。オフだとメッセージ本文を読めません。"
-		w.Fix = "リンク（Developer Portal → Bot）を開き、Message Content Intent がオンで保存済みか確認してから、cc-connect を再起動するか、もう一度セットアップを実行して確認してください。"
+		w.Fix = "リンク（Developer Portal → Bot）を開き、Message Content Intent がオンで保存済みか確認してから、bothouse を再起動するか、もう一度セットアップを実行して確認してください。"
 	} else if isZH(lang) {
 		w.Message = "没查到机器人「" + bot + "」的 Message Content Intent 开没开（Discord 的应用接口没回）。没开的话机器人读不到消息正文。"
-		w.Fix = "打开链接（Discord 开发者后台 → Bot），确认 Message Content Intent 已打开并保存；然后重启 cc-connect，或者再跑一次向导确认。"
+		w.Fix = "打开链接（Discord 开发者后台 → Bot），确认 Message Content Intent 已打开并保存；然后重启 bothouse，或者再跑一次向导确认。"
 	} else {
 		w.Message = "Could not check whether bot \"" + bot + "\" has Message Content Intent on (Discord's application lookup failed). Without it the bot cannot read messages."
-		w.Fix = "Open the link (Developer Portal → Bot), make sure Message Content Intent is on and saved; then restart cc-connect, or run setup again to check."
+		w.Fix = "Open the link (Developer Portal → Bot), make sure Message Content Intent is on and saved; then restart bothouse, or run setup again to check."
 	}
 	return w
 }

@@ -28,7 +28,7 @@ func runModel(args []string) {
 	fs := flag.NewFlagSet("model "+sub, flag.ExitOnError)
 	project := fs.String("project", os.Getenv("CC_PROJECT"), "project (default: $CC_PROJECT)")
 	session := fs.String("session-key", os.Getenv("CC_SESSION_KEY"), "session (default: $CC_SESSION_KEY)")
-	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.cc-connect)")
+	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.bothouse)")
 	effort := fs.String("effort", "", "reasoning effort to set together with the model")
 	jsonOut := fs.Bool("json", false, "print raw JSON")
 	// Allow flags after the positional model name: `model set sol --effort high`.
@@ -60,20 +60,20 @@ func runModel(args []string) {
 		switch sub {
 		case "set":
 			if len(pos) == 0 {
-				modelFail(fmt.Errorf("usage: cc-connect model set <model id> [--effort <level>]"))
+				modelFail(fmt.Errorf("usage: bothouse model set <model id> [--effort <level>]"))
 			}
 			req["model"] = strings.Join(pos, " ")
 			req["effort"] = *effort
 		case "effort":
 			if len(pos) == 0 {
-				modelFail(fmt.Errorf("usage: cc-connect model effort <level>"))
+				modelFail(fmt.Errorf("usage: bothouse model effort <level>"))
 			}
 			req["effort"] = pos[0]
 		case "auto":
 			req["auto"] = true
 		}
 		if *session == "" {
-			modelFail(fmt.Errorf("no session: run this from inside a cc-connect agent session (CC_SESSION_KEY unset)"))
+			modelFail(fmt.Errorf("no session: run this from inside a bothouse agent session (CC_SESSION_KEY unset)"))
 		}
 		body, _ := json.Marshal(req)
 		resp, err := apiPost(sock, "/model/set", body)
@@ -107,7 +107,7 @@ func modelAPIGet(sock, path string, out any) error {
 	}}
 	resp, err := client.Get("http://unix" + path)
 	if err != nil {
-		return fmt.Errorf("cannot reach cc-connect (%s): %w", sock, err)
+		return fmt.Errorf("cannot reach bothouse (%s): %w", sock, err)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
@@ -129,7 +129,7 @@ func printModelStatus(st core.ModelStatus) {
 	if st.AutoChat != "" {
 		state := "on"
 		if st.AutoPaused {
-			state = "paused (a hand-picked model is active; `cc-connect model auto` resumes)"
+			state = "paused (a hand-picked model is active; `bothouse model auto` resumes)"
 		}
 		fmt.Printf("automatic model choice: %s — chat %s, task %s\n", state, st.AutoChat, st.AutoTask)
 	}
@@ -186,7 +186,7 @@ func modelFail(err error) {
 }
 
 func printModelUsage() {
-	fmt.Println(`Usage: cc-connect model <command>   (run by the agent inside its own session)
+	fmt.Println(`Usage: bothouse model <command>   (run by the agent inside its own session)
 
 Commands:
   list                              current model, available models, reasoning effort levels

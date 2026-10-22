@@ -378,18 +378,18 @@ const nasMissingNote = "NAS 没挂，这条没存"
 
 func videoNote(link videoLink, r videoResult) string {
 	if r.Err != "" {
-		return fmt.Sprintf("（cc-connect 用 watchvid 解析视频 %s 失败：%s）", link.URL, r.Err)
+		return fmt.Sprintf("（bothouse 用 watchvid 解析视频 %s 失败：%s）", link.URL, r.Err)
 	}
 	dir := filepath.Dir(r.Index)
 	if mediaNASRoot == "" { // no NAS configured: where watchvid put it is all there is to say
-		return fmt.Sprintf("（cc-connect 已用 watchvid 解析视频 %s：先读 %s，关键帧、音频、转写都在同一目录，只读即可，不用再跑 watchvid。）",
+		return fmt.Sprintf("（bothouse 已用 watchvid 解析视频 %s：先读 %s，关键帧、音频、转写都在同一目录，只读即可，不用再跑 watchvid。）",
 			link.URL, r.Index)
 	}
 	if !r.onNAS() {
-		return fmt.Sprintf("（cc-connect 已用 watchvid 解析视频 %s：先读 %s，关键帧、音频、转写都在同一目录，只读即可，不用再跑 watchvid。%s：这份结果在本机临时目录，没进媒体库。）",
+		return fmt.Sprintf("（bothouse 已用 watchvid 解析视频 %s：先读 %s，关键帧、音频、转写都在同一目录，只读即可，不用再跑 watchvid。%s：这份结果在本机临时目录，没进媒体库。）",
 			link.URL, r.Index, nasMissingNote)
 	}
-	return fmt.Sprintf("（cc-connect 已用 watchvid 解析视频 %s：先读 %s，关键帧 frames/、音频 audio.m4a、转写、弹幕、热评都在同一目录，只读即可，不用再跑 watchvid。"+
+	return fmt.Sprintf("（bothouse 已用 watchvid 解析视频 %s：先读 %s，关键帧 frames/、音频 audio.m4a、转写、弹幕、热评都在同一目录，只读即可，不用再跑 watchvid。"+
 		"已存进媒体库 %s，mediaarchive 已在 wiki 的媒体目录里记了一行；原视频默认不存，用户明确要存时跑 `mediaarchive --keep-video %s`。）",
 		link.URL, r.Index, dir, filepath.Base(dir))
 }

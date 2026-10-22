@@ -152,7 +152,7 @@ func TestCmdNewHandsOffOldSession(t *testing.T) {
 // the handoff, but not the teammate status or wiki pages.
 func TestHandoffWithoutTurnCtx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := json.Marshal(map[string]any{"wiki": []map[string]string{{"path": "~/wiki/bots/im-bridge.md", "desc": "cc-connect"}}})
+		b, _ := json.Marshal(map[string]any{"wiki": []map[string]string{{"path": "~/wiki/bots/im-bridge.md", "desc": "bothouse"}}})
 		_, _ = w.Write(b)
 	}))
 	defer srv.Close()

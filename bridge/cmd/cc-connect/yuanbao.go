@@ -118,7 +118,7 @@ func runYuanbaoSetup(args []string, requestedMode string) {
 		fmt.Printf("   allow_from: %s\n", saveResult.AllowFrom)
 	}
 	fmt.Println()
-	fmt.Println("Next: run cc-connect (or restart the daemon) and the platform will")
+	fmt.Println("Next: run bothouse (or restart the daemon) and the platform will")
 	fmt.Println("auto-fetch sign-tokens via bot_token and connect over WebSocket.")
 }
 
@@ -147,7 +147,7 @@ func splitYuanbaoTokenForVerify(raw string) (appKey, appSecret string) {
 }
 
 func printYuanbaoUsage() {
-	fmt.Println(`Usage: cc-connect yuanbao <command> [options]
+	fmt.Println(`Usage: bothouse yuanbao <command> [options]
 
 Commands:
   setup   Save --token (app_key:app_secret) for a Yuanbao bot (verifies with sign-token API)
@@ -165,7 +165,7 @@ Options:
   --skip-verify             Write credentials without probing sign-token API
 
 Examples:
-  cc-connect yuanbao setup --project my-bot --token DO7xNwDY...:CWLjJDW4...
-  cc-connect yuanbao bind --project my-bot --token app_key:app_secret
-  cc-connect yuanbao setup --project my-bot --token app_key:app_secret --allow-from open_id_1,open_id_2`)
+  bothouse yuanbao setup --project my-bot --token DO7xNwDY...:CWLjJDW4...
+  bothouse yuanbao bind --project my-bot --token app_key:app_secret
+  bothouse yuanbao setup --project my-bot --token app_key:app_secret --allow-from open_id_1,open_id_2`)
 }

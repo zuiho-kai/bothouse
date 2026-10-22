@@ -26,7 +26,7 @@ def say(text):
     return {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}
 
 
-TIMER = ("Bash", {"command": 'cc-connect timer add --delay 30m --prompt "回来看 pm_v2 进度"'})
+TIMER = ("Bash", {"command": 'bothouse timer add --delay 30m --prompt "回来看 pm_v2 进度"'})
 BG_BASH = ("Bash", {"command": "python3 run2.py full", "run_in_background": True})
 BG_AGENT = ("Agent", {"description": "低并发重测", "prompt": "..."})
 
@@ -62,7 +62,7 @@ class Replay(unittest.TestCase):
     # 原句 A
     def test_A_no_timer_blocks(self):
         r = self.blocked(A)
-        self.assertIn("cc-connect timer add --delay 30m", r)
+        self.assertIn("bothouse timer add --delay 30m", r)
         self.assertIn("不跟进，原因是", r)
         self.assertNotIn("删掉", r)
 

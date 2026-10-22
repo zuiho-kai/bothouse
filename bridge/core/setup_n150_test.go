@@ -137,7 +137,7 @@ func TestApplyWizardWarnsCLINotLoggedIn(t *testing.T) {
 		res := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: clis}, req)
 		w := findWarning(res, "agent_not_logged_in")
 		if res.OK || !res.NeedsUserAction || w == nil || !w.Blocking || !strings.Contains(w.Fix, "claude auth login") ||
-			!strings.Contains(w.Fix, "cc-connect setup clis") || !strings.Contains(w.Message, "Juzi") ||
+			!strings.Contains(w.Fix, "bothouse setup clis") || !strings.Contains(w.Message, "Juzi") ||
 			!strings.Contains(w.Fix, "「本机 CLI」一步勾「改用第三方 API」") { // the web wizard's own words, not only the request field
 			t.Errorf("dry=%v: ok=%v needs=%v warning=%+v", dry, res.OK, res.NeedsUserAction, w)
 		}

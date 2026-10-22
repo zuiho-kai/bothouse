@@ -10,7 +10,7 @@ import (
 // again from either backup form.
 func TestBinaryBackupNames(t *testing.T) {
 	dir := t.TempDir()
-	target := filepath.Join(dir, "cc-connect.exe")
+	target := filepath.Join(dir, "bothouse.exe")
 	if err := os.WriteFile(target, []byte("new"), 0o755); err != nil {
 		t.Fatal(err)
 	}

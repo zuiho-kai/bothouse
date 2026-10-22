@@ -211,7 +211,7 @@ func (a *Agent) runClaudeUsageProbe(ctx context.Context) (string, error) {
 // every time and grow that file without bound. A stable dir is trusted once.
 func claudeUsageProbeDir(ccDataDir string) string {
 	if ccDataDir == "" {
-		return filepath.Join(os.TempDir(), "cc-connect-claude-usage")
+		return filepath.Join(os.TempDir(), "bothouse-claude-usage")
 	}
 	return filepath.Join(ccDataDir, "claude-usage-probe")
 }

@@ -91,7 +91,7 @@ func cursorToken(ctx context.Context, env []string) (string, error) {
 
 func fetchCursor(ctx context.Context, client *http.Client, endpoint, token, model string) (*core.UsageReport, error) {
 	var data cursorUsage
-	if err := post(ctx, client, endpoint, token, "cc-connect-quota", []byte("{}"), &data); err != nil {
+	if err := post(ctx, client, endpoint, token, "bothouse-quota", []byte("{}"), &data); err != nil {
 		return nil, err
 	}
 	return data.report(model)
