@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +20,8 @@ type abortTurnSession struct {
 	mu      sync.Mutex
 	prompts []string
 	cancels int
+	// cancelErr: when set, CancelTurn ends the turn the way ACP does (EventError), not with an empty result.
+	cancelErr error
 }
 
 func (s *abortTurnSession) Send(prompt string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
@@ -35,6 +38,11 @@ func (s *abortTurnSession) CancelTurn() error {
 	s.mu.Lock()
 	s.cancels++
 	s.mu.Unlock()
+	if s.cancelErr != nil {
+		err := s.cancelErr
+		go func() { s.events <- Event{Type: EventError, Error: err} }()
+		return nil
+	}
 	go func() { s.events <- Event{Type: EventResult, Content: "", Done: true} }()
 	return nil
 }
@@ -55,6 +63,26 @@ func (a *abortTurnAgent) Stop() error                                           
 func (a *abortTurnAgent) SupportsMidTurnInput() bool                               { return true }
 
 func TestGateAbortWhileBusyStopsTurnAndStartsNewOne(t *testing.T) {
+	runGateAbort(t, &abortTurnSession{events: make(chan Event, 8)})
+}
+
+// The cancelled turn of a normal user message must not post the agent's cancel error
+// ("❌ acp: prompt did not complete successfully") to the channel; it is only logged.
+func TestGateAbortCancelErrorNotSentToChannel(t *testing.T) {
+	p := runGateAbort(t, &abortTurnSession{events: make(chan Event, 8),
+		cancelErr: errors.New("acp: prompt did not complete successfully")})
+	time.Sleep(200 * time.Millisecond) // let the second turn finish sending
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, m := range p.sent {
+		if strings.Contains(m.content, "did not complete") || strings.Contains(m.content, "❌") {
+			t.Fatalf("cancel error leaked to the channel: %+v", p.sent)
+		}
+	}
+}
+
+func runGateAbort(t *testing.T, sess *abortTurnSession) *leadPlatform {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/context") {
 			_, _ = w.Write([]byte(`{}`))
@@ -72,7 +100,6 @@ func TestGateAbortWhileBusyStopsTurnAndStartsNewOne(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := &leadPlatform{}
-	sess := &abortTurnSession{events: make(chan Event, 8)}
 	e := NewEngine("test", &abortTurnAgent{s: sess}, []Platform{p}, t.TempDir()+"/sessions.json", LangEnglish)
 	defer e.Stop()
 	e.SetGate(srv.URL+"/decide", 1000, "reply")
@@ -101,7 +128,7 @@ func TestGateAbortWhileBusyStopsTurnAndStartsNewOne(t *testing.T) {
 			if !strings.Contains(prompts[1], "暂停") {
 				t.Fatalf("second turn prompt = %q, want the abort message", prompts[1])
 			}
-			return
+			return p
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("abort message never started a new turn; cancels=%d prompts=%q sent=%+v", cancels, prompts, p.sent)

@@ -648,6 +648,12 @@ type interactiveState struct {
 	// cleared to false only after a clean EventResult.
 	eventsNeedResync bool
 
+	// turnCancelled: maomao fork — set when /stop or a gate abort cancels the running turn
+	// via CancelTurn (session kept alive). The cancelled turn's EventError (ACP: "prompt did
+	// not complete successfully") is then only logged, not sent to the channel. Cleared when
+	// the next turn starts. Guarded by mu.
+	turnCancelled bool
+
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -4210,6 +4216,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	e.stopUnsolicitedReader(state)
 	state.mu.Lock()
 	needResync := state.eventsNeedResync
+	state.turnCancelled = false
 	state.mu.Unlock()
 	if msg.inputTurn != nil {
 		strict, ok := state.agentSession.(StrictResumeSession)
@@ -6900,6 +6907,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			state.mu.Lock()
 			state.eventsNeedResync = true
+			cancelledByStop := state.turnCancelled
+			state.turnCancelled = false
 			state.mu.Unlock()
 			errorFooterDelivered := false
 			errorAnswerDelivered := false
@@ -6927,7 +6936,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					Platform:   p.Name(),
 					Error:      event.Error.Error(),
 				})
-				if input == nil && isModelCapacityError(errMsg) {
+				if cancelledByStop {
+					// maomao fork: the user (/stop) or the gate (abort) cancelled this turn and was
+					// already told so; the agent's resulting error is expected — log only.
+					slog.Info("agent error after turn cancel suppressed", "session", sessionKey, "error", errMsg)
+				} else if input == nil && isModelCapacityError(errMsg) {
 					// maomao fork: retried / cooled down by runTurnWithCapacityRetry, which tells the user.
 					// A queued message chained into this loop goes back to the queue head,
 					// so the drain loop retries it (not the turn this loop started with).
@@ -11346,6 +11359,7 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 		// the cancelled turn before processing fresh input.
 		state.mu.Lock()
 		state.eventsNeedResync = true
+		state.turnCancelled = true
 		state.mu.Unlock()
 
 		cancelErr := canceller.CancelTurn()
