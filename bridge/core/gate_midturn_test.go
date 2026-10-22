@@ -72,6 +72,7 @@ func TestGate_InjectUsesSendMidTurn(t *testing.T) {
 			s.TryLock() // busy
 
 			msg := &Message{SessionKey: "discord:c1", ChannelID: "c1", MessageID: "102", UserName: "zuiho", Content: "顺便看下这个", Mentioned: true}
+			e.gate.released[msg] = true // its burst window has passed (busy bots hold bursts too)
 			if got := e.applyGate(p, msg, s, "k"); got != tc.injected {
 				t.Fatalf("applyGate handled=%v want %v", got, tc.injected)
 			}

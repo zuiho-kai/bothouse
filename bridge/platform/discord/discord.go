@@ -905,10 +905,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		if text == "" && len(images) == 0 && len(files) == 0 {
 			return // e.g. a footer-only chunk of a long reply
 		}
-		// maomao fork: a teammate calling this bot by name ("行了橘，…") counts like an @, so
+		// maomao fork: a teammate opening a line with this bot's name ("橘，…") counts like an @, so
 		// chat between bots can go on. No hop/round cap (user 2026-10-18「去掉模型聊天限制，
-		// 模型可以持续对话，没有限制」).
-		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName)
+		// 模型可以持续对话，没有限制」). A name mid-sentence does not (mentions.go nameCalled).
+		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName, teamBotNames(p.botID)...)
 		msg.Content = "【" + discordDisplayName(m) + "】" + text
 		p.holdBotMessage(s, m, msg, downloadURL)
 		return
