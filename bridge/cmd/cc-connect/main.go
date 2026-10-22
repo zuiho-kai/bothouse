@@ -360,6 +360,8 @@ func main() {
 	// the self-hosted platform the setup wizard started on this machine (<data_dir>/hub/hub.json):
 	// start it again if it is not running (after a reboot); the cloud_web bots reconnect on their own
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
+	core.RoleWikiConfigPath = config.ConfigPath
+	core.StartRoleWikiTicker(context.Background(), cfg.DataDir, config.ConfigPath) // per-role wikis: idle sessions, nightly reflection
 
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))

@@ -431,7 +431,7 @@ func runSetup(args []string) {
 			}
 			dataDir = cfg.DataDir
 		}
-		res := core.ApplyWizard(context.Background(), core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true}, req)
+		res := core.ApplyWizard(context.Background(), core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true, ConfigPath: config.ConfigPath}, req)
 		if res.Saved {
 			lang := req.Language
 			if lang == "" {
@@ -542,4 +542,13 @@ func setupPortFromLink(link string) int {
 		fmt.Sscanf(link[i+len("localhost:"):], "%d", &port)
 	}
 	return port
+}
+
+// EnsureRoleWiki implements core.WizardRoleWikiStore (core/rolewiki.go).
+func (configWizardStore) EnsureRoleWiki(hooks []core.HookConfig, memoryIndex map[string]string) (int, error) {
+	list := make([]config.RoleWikiHook, 0, len(hooks))
+	for _, h := range hooks {
+		list = append(list, config.RoleWikiHook{Event: h.Event, Command: h.Command})
+	}
+	return config.EnsureRoleWiki(list, memoryIndex)
 }

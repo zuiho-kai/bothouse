@@ -350,3 +350,62 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	}
 	return os.Rename(name, path)
 }
+
+// RoleWikiHook is one top-level [[hooks]] command entry the wizard adds for the role wikis.
+type RoleWikiHook struct{ Event, Command string }
+
+// EnsureRoleWiki adds the hooks config.toml does not have yet (same event and command) and sets memory_index on the
+// named projects that have none (an existing value is kept). One locked read-modify-write; nothing is written when
+// nothing is missing.
+func EnsureRoleWiki(hooks []RoleWikiHook, memoryIndex map[string]string) (changed int, err error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if ConfigPath == "" {
+		return 0, fmt.Errorf("config path not set")
+	}
+	raw, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return 0, fmt.Errorf("read config: %w", err)
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		return 0, fmt.Errorf("parse config: %w", err)
+	}
+	list, err := tableList(doc, "hooks")
+	if err != nil {
+		return 0, err
+	}
+	for _, h := range hooks {
+		have := false
+		for _, t := range list {
+			if t["event"] == h.Event && t["command"] == h.Command {
+				have = true
+			}
+		}
+		if !have {
+			list = append(list, map[string]any{"event": h.Event, "type": "command", "command": h.Command})
+			changed++
+		}
+	}
+	if len(list) > 0 {
+		doc["hooks"] = list
+	}
+	projects, err := tableList(doc, "projects")
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range projects {
+		name, _ := p["name"].(string)
+		if mi, ok := memoryIndex[name]; ok {
+			if cur, _ := p["memory_index"].(string); cur == "" {
+				p["memory_index"] = mi
+				changed++
+			}
+		}
+	}
+	doc["projects"] = projects
+	if changed == 0 {
+		return 0, nil
+	}
+	return changed, saveConfig(doc)
+}

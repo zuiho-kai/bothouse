@@ -47,6 +47,8 @@ jobs:
       - run: node --test ../integrations/dsh-public-output/*.test.mjs
       - run: node --test ../dsh/collab/*.test.mjs
       - run: python3 -I contrib/hooks/test_hooks.py
+      - run: python3 -m unittest discover -s contrib/wiki -p 'test_*.py'
+      - run: python3 -m unittest discover -s contrib/gate -p 'test_ctxsvc.py'
       - name: Install channel test dependencies
         working-directory: .
         # Keep each job's tools isolated, and install the committed dependency tree.
