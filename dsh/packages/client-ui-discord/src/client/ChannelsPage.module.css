@@ -512,7 +512,7 @@
   display: grid;
   place-items: center;
   padding: 16px;
-  background: var(--dsw-alias-overlay-backdrop, rgb(0 0 0 / 0.45));
+  background: var(--dsw-alias-bg-mask-1, rgb(0 0 0 / 0.45));
 }
 
 .dialog {

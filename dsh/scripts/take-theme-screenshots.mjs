@@ -28,7 +28,7 @@ const themeVariables = `
     --dsw-alias-state-warn-primary: #f0b232;
     --dsw-alias-state-error-primary: #f23f43;
     --dsw-alias-state-idle-primary: #80848e;
-    --dsw-alias-overlay-backdrop: rgba(0, 0, 0, 0.45);
+    --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.48);
     --dsw-radius-xs: 3px;
     --dsw-radius-sm: 4px;
     --dsw-radius-md: 8px;
@@ -52,7 +52,7 @@ const themeVariables = `
     --dsw-alias-state-warn-primary: #f0b232;
     --dsw-alias-state-error-primary: #f23f43;
     --dsw-alias-state-idle-primary: #80848e;
-    --dsw-alias-overlay-backdrop: rgba(0, 0, 0, 0.65);
+    --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.5);
     --dsw-radius-xs: 3px;
     --dsw-radius-sm: 4px;
     --dsw-radius-md: 8px;
@@ -77,7 +77,7 @@ const themeVariables = `
       --dsw-alias-state-warn-primary: #f0b232;
       --dsw-alias-state-error-primary: #f23f43;
       --dsw-alias-state-idle-primary: #80848e;
-      --dsw-alias-overlay-backdrop: rgba(0, 0, 0, 0.65);
+      --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.5);
       --dsw-elevation-panel: 0 12px 32px rgba(0, 0, 0, 0.4);
     }
   }
