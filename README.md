@@ -86,9 +86,10 @@ The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). 
 
 ### A review every night, so it grows into your way of working
 
-- **Day:** when a session ends, its content is distilled into the wiki.
-- **Night:** a stronger model re-reads the day's transcripts and checks what was written. Once a week it reads the whole wiki for contradictions and stale facts.
-- **Dream:** like sleep consolidating memory, it turns the things you kept correcting into draft rules, each quoting your exact words, checked word for word by a script. Nothing becomes a rule until you say yes.
+- **Day, cheap model.** When a session ends, sits idle for 30 minutes, or hits a problem mid-session, the new content is distilled into the wiki.
+- **Night, strong model.** It re-reads the day's transcripts and checks what was written. Once a week it reads the whole wiki for contradictions and stale facts.
+- **Dream.** Like sleep consolidating memory, it turns the things you kept correcting into rule candidates.
+- **Two gates.** Every quote in a candidate is checked word for word against what you actually said, so nothing made up gets in. A candidate becomes a rule only when you say yes. It never changes your rules behind your back.
 - **The review is posted back to the channel**, so the next morning you can see what the team learned yesterday.
 
 ### Plugs into what you already use
