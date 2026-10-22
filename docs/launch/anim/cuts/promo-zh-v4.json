@@ -1,5 +1,5 @@
 {
-  "_source": "PM 派活的脚本 v4.1；旁白照脚本，CLI 念「C L I」、bothouse 念「Bot House」，字幕仍按原文写；镜1、镜6 没有旁白不出字幕。v4b：用户「背景音乐整体有点怪不连贯」→ 整片一首 happytime（Gemini 在四首候选里选的，/tmp/promo-v4/review/music-r.txt），seek 0.5 跳过开头静音（silencedetect 实测）；黑底镜2–3 压到 0.55 倍（约 -5 dB，我定的）不断曲；用户「转折的时候那个声音也不好」→ 镜4 加撕纸声 paper-tear2 和亮音 kira2（Gemini 从 6 个候选里选的，/tmp/promo-v4/review/sfx-r.txt），at 对齐 terms.html flip 的戳破（0.65 秒）和小房子弹出（约 1.37 秒）。v4c：用户「第26秒开始那个画面端端端太慢了……更加活泼一点」→ 镜7、镜8 换重配旁白 07c/08c（句间停顿压到 0.15 秒，vo/zh-v4/src/），镜7 字幕按 faster-whisper 实测小句起点换屏",
+  "_source": "PM 派活的脚本 v4.1；旁白照脚本，CLI 念「C L I」、bothouse 念「Bot House」，字幕仍按原文写；镜1、镜6 没有旁白不出字幕。v4b：用户「背景音乐整体有点怪不连贯」→ 整片一首 happytime（Gemini 在四首候选里选的，/tmp/promo-v4/review/music-r.txt），seek 0.5 跳过开头静音（silencedetect 实测）；黑底镜2–3 压到 0.55 倍（约 -5 dB，我定的）不断曲；用户「转折的时候那个声音也不好」→ 镜4 加撕纸声 paper-tear2 和亮音 kira2（Gemini 从 6 个候选里选的，/tmp/promo-v4/review/sfx-r.txt），at 对齐 terms.html flip 的戳破（0.65 秒）和小房子弹出（约 1.37 秒）。v4c：用户「第26秒开始那个画面端端端太慢了……更加活泼一点」→ 镜7、镜8 换重配旁白 07c/08c（句间停顿压到 0.15 秒，vo/zh-v4/src/），镜7 字幕按 faster-whisper 实测小句起点换屏。协调人转彩虹猫：「多会话」听着像「多会画」→ 镜5 旁白和字幕改「多个对话」（05c）",
   "music": {
     "file": "music/happytime.mp3",
     "seek": 0.5,
@@ -37,10 +37,10 @@
     },
     {
       "scene": "v4-home",
-      "vo": "vo/zh-v4/05.wav",
+      "vo": "vo/zh-v4/05c.wav",
       "sub": [
         "一个群就是一个家",
-        "多会话、多 CLI，一处全管好。"
+        "多个对话、多个 CLI，一处全管好。"
       ]
     },
     {

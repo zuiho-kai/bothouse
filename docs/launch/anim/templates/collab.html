@@ -147,7 +147,10 @@
     const m = msg(n.role, t(n.say)), op = n.op || {};
     if (op.art) m.querySelector('.txt').insertAdjacentHTML('afterend', `<img class="pic" src="${S.art.img}">`);
     await wait(250);
-    if (op.swap) { const [i, j] = op.swap; [rows[i], rows[j]] = [rows[j], rows[i]]; place(); mark(rows[i].el, n.role); }
+    if (op.swap) { const [i, j] = op.swap;
+      // 往下让位的那行换位途中压淡并右移，免得两行字交叉叠在一起（Gemini 审 v4c：30.8 秒换位叠字）
+      const down = rows[i].el; down.animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: '40px 0', offset: .25 }, { opacity: 0, translate: '40px 0', offset: .8 }, { opacity: 1, translate: '0 0' }], { duration: 520 });
+      [rows[i], rows[j]] = [rows[j], rows[i]]; place(); mark(rows[i].el, n.role); }
     if (op.set) { const d = rows[op.set.i].el; d.querySelector('.tx').textContent = t(op.set.text); mark(d, n.role); }
     if (op.add) { const d = addLine(t(op.add), true); setTimeout(() => mark(d, n.role), 200); }
     if (op.art) { requestAnimationFrame(() => { while (chat.scrollHeight > chat.clientHeight + 2 && chat.children.length > 1) chat.firstChild.remove(); });
