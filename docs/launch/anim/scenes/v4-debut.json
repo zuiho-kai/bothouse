@@ -9,10 +9,7 @@
         "en": "Ju"
       },
       "color": "#f08a24",
-      "x": 150,
-      "cli": "Claude Code",
-      "model": "Claude",
-      "plate": "#f08a24"
+      "x": 150
     },
     {
       "img": "../assets/v4/longniang.png",
@@ -22,10 +19,7 @@
         "en": "Long"
       },
       "color": "#9b7be0",
-      "x": 395,
-      "cli": "Codex",
-      "model": "GPT",
-      "plate": "#b9a3ff"
+      "x": 395
     },
     {
       "img": "../assets/v4/jingyu.png",
@@ -35,10 +29,7 @@
         "en": "Whale"
       },
       "color": "#4d6bfe",
-      "x": 640,
-      "cli": "DSH",
-      "model": "DeepSeek",
-      "plate": "#7b93ff"
+      "x": 640
     },
     {
       "img": "../assets/v4/gemini.png",
@@ -48,10 +39,7 @@
         "en": "Nyan"
       },
       "color": "linear-gradient(90deg,#6c7bff,#b36bfa,#ff6fb5)",
-      "x": 885,
-      "cli": "反重力 Antigravity",
-      "model": "Gemini",
-      "plate": "#8ab4ff"
+      "x": 885
     },
     {
       "img": "../assets/v4/lanxi.png",
@@ -64,9 +52,16 @@
       "x": 1130
     }
   ],
-  "each": 1300,
-  "beat": 250,
-  "lastHold": 2000,
+  "land": [
+    290,
+    545,
+    790,
+    1035
+  ],
+  "flash": 1280,
+  "flashDur": 1000,
+  "hop": 2790,
+  "total": 5000,
   "shout": {
     "zh": "等等我～",
     "en": "Wait for me~"

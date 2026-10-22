@@ -3,7 +3,8 @@
 <!--
   outro4 模板（v4 镜8 片尾）：白黄亮底，左边五人比耶合影，右边 bothouse 标志、一行口号、GitHub 地址胶囊。
   来源：脚本 v4.1 镜8「五人比耶，标志、『AI 娘们的家 · 开源』、GitHub 地址」；用户原话「从我们那边开始都要有白底明亮的背景」。
-  场景字段：img（合影）、slogan{zh,en}、repo（地址文字）、credit{zh,en}（音乐署名小字，可省）、total（毫秒）。
+  场景字段：img（合影）、slogan{zh,en}、repo（地址文字）、credit{zh,en}（音乐署名小字，可省）、hop（合影一起蹦一下的毫秒，可省）、total（毫秒）。
+  v4c：合影弹进来后五个人一起蹦一下再定格。来源：v4c 派活（已审 promo-v4-fix2）「镜8：五个人一起蹦一下再定格，约 3 秒」。
   底部 80px 留给字幕。像素位置和动画时长是排版取值（目测），不是参数。
 -->
 <link rel="stylesheet" href="v4.css">
@@ -11,6 +12,7 @@
   /* 合影是白底图：multiply 让白底融进奶黄背景，不露白框 */
   #pic { position:absolute; left:10px; top:40px; width:780px; mix-blend-mode:multiply; opacity:0; transform:translateY(40px) scale(.92); transition:all .55s cubic-bezier(.34,1.5,.64,1); }
   #pic.on { opacity:1; transform:none; }
+  #pic { transform-origin:50% 100%; }
   .right { position:absolute; left:780px; right:30px; top:150px; display:flex; flex-direction:column; align-items:center; gap:26px; }
   #logo { opacity:0; transform:scale(.4); }
   #logo.on { animation:pop .5s cubic-bezier(.34,1.7,.64,1) forwards; }
@@ -46,6 +48,10 @@
   await wait(350); document.getElementById('slogan').classList.add('on');
   await wait(300); document.getElementById('repo').classList.add('on');
   document.getElementById('credit').classList.add('on');
+  if (S.hop) { await wait(Math.max(0, S.hop - (Date.now() - T0)));
+    pic.animate([{ transform: 'translateY(0) scale(1,1)' }, { transform: 'translateY(0) scale(1.06,.9)', offset: .15 },
+      { transform: 'translateY(-50px) scale(.96,1.05)', offset: .5, easing: 'ease-in' }, { transform: 'translateY(0) scale(1.05,.93)', offset: .8 },
+      { transform: 'translateY(0) scale(1,1)' }], { duration: 560, easing: 'ease-out' }); }
   await wait(Math.max(0, S.total - (Date.now() - T0)));
   V4.done();
 })();

@@ -1,84 +1,100 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <!--
-  debut 模板（v4 镜6 登场）：镜2 的四块名字牌依次翻过来，变成四个 Q 版立绘，脚下主题色名字条（英文大字中文小字）；
-  停半拍，第五个角色从右边冲进来。
-  来源：脚本 v4.1 镜6；用户原话「现在5个ai娘跑出来」「不要那个传统的那个图标icon，换成他们的那个头像立绘」
-  「下面再加个那个符合他们主题的颜色的一个名字，deepseek，gemini，到时候方便外国人知道这个东西」。
-  场景字段：cast[{img,en,zh,color,cli,model,x}]（前四个翻牌，最后一个冲进来）、each（每人毫秒）、beat（停顿毫秒）、
-  lastHold（最后一人毫秒）、shout{zh,en}（最后一人的小气泡）。本镜无旁白，底部不放字幕。
-  像素位置和动画时长是排版取值（目测），不是参数。
+  debut 模板（v4c 镜6 登场）：前四个 Q 版立绘从上面接连砸下来、落地挤压回弹，脚下主题色名字条跟着弹出；
+  然后 1 秒闪切：岚汐特写冲进画面喊「等等我～」；切回全景她已落位，五个人一起小跳一下，名字条停够再结束。
+  来源：v4c 派活（已审 promo-v4-fix2）「四个人踩着音乐鼓点、每隔约 0.25 秒连续弹跳落地（带挤压回弹），名字条一起弹出；
+  岚汐在一个强调点用约 1 秒的闪切冲进来，然后五个人一起小跳一下。整镜约 5 秒」；
+  用户原话「第26秒开始那个画面端端端太慢了……更加活泼一点」「不要那个传统的那个图标icon，换成他们的那个头像立绘」
+  「下面再加个那个符合他们主题的颜色的一个名字」。
+  场景字段：cast[{img,en,zh,color,x}]（前四个落地，最后一个闪切冲进来）、land[毫秒×4]（四人落地时刻）、
+  flash（闪切开始毫秒）、flashDur（闪切毫秒）、hop（五人一起跳的毫秒）、total（整镜毫秒）、shout{zh,en}（闪切里的气泡）。
+  本镜无旁白，底部不放字幕。像素位置和动画时长是排版取值（目测），不是参数。
 -->
 <link rel="stylesheet" href="v4.css">
 <style>
-  .slot { position:absolute; top:90px; width:300px; height:560px; margin-left:-150px; perspective:900px; }
-  .plate { position:absolute; left:30px; right:30px; top:180px; height:120px; border-radius:16px; background:#111318; box-shadow:inset 0 0 0 3px var(--c), 0 12px 30px rgba(0,0,0,.25);
-    display:flex; flex-direction:column; align-items:center; justify-content:center; backface-visibility:hidden; transition:transform .35s ease-in, opacity .35s; }
-  .plate b { font:800 24px/1.05 "Avenir Next","Helvetica Neue",Arial,sans-serif; color:var(--c); white-space:nowrap; }
-  .plate small { margin-top:6px; font:600 18px/1 "Avenir Next",Arial,sans-serif; color:#cfd3e6; }
-  .plate.flip { transform:rotateY(90deg) scale(.8); opacity:0; }
-  .chara { position:absolute; left:50%; bottom:90px; height:430px; transform:translateX(-50%) scale(.2); opacity:0; transform-origin:50% 100%;
-    transition:transform .5s cubic-bezier(.34,1.7,.64,1), opacity .2s, filter .3s; }
-  .chara.on { opacity:1; transform:translateX(-50%) scale(1); }
-  .chara.hero { transform:translateX(-50%) scale(1.14); filter:drop-shadow(0 0 18px rgba(255,200,80,.7)); }
-  .chara.idle { animation:bob 1.6s ease-in-out infinite; }
-  @keyframes bob { 0%,100% { translate:0 0; } 50% { translate:0 -6px; } }
-  .nt { position:absolute; left:50%; bottom:22px; transform:translateX(-50%) scale(.3); opacity:0; transition:all .4s cubic-bezier(.34,1.7,.64,1); z-index:3; }
-  .nt.on { opacity:1; transform:translateX(-50%) scale(1); }
-  .nt.small { transform:translateX(-50%) scale(.78); }
+  .slot { position:absolute; top:90px; width:300px; height:560px; margin-left:-150px; }
+  .chara { position:absolute; left:50%; bottom:90px; height:430px; margin-left:-150px; width:300px; object-fit:contain; object-position:50% 100%;
+    transform-origin:50% 100%; opacity:0; }
+  .nt { position:absolute; left:50%; bottom:22px; transform:translateX(-50%) scale(.3); opacity:0; transition:all .3s cubic-bezier(.34,1.9,.64,1); z-index:3; }
+  .nt.on { opacity:1; transform:translateX(-50%) scale(.82); }
+  .dust { position:absolute; left:50%; bottom:84px; width:260px; height:30px; margin-left:-130px; border-radius:50%;
+    background:radial-gradient(closest-side, var(--c), transparent); opacity:0; }
   .ring { position:absolute; left:50%; top:62%; width:20px; height:20px; margin:-10px; border-radius:50%; border:6px solid var(--c); opacity:0; }
-  .ring.on { animation:ring .6s ease-out forwards; }
-  @keyframes ring { 0% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(16); } }
-  /* 冲进来：速度线 + 横向滑入 */
-  .speed { position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .2s;
-    background:repeating-linear-gradient(0deg, transparent 0 26px, rgba(124,92,255,.18) 26px 29px, transparent 29px 60px, rgba(34,198,232,.2) 60px 62px); }
-  .speed.on { opacity:1; animation:sp .3s linear infinite; } @keyframes sp { to { background-position:-200px 0; } }
-  .dash { transition:none !important; }
-  .bub { position:absolute; left:58%; top:40px; z-index:4; background:#fff; color:#5b4bd6; font-size:28px; padding:10px 18px; border-radius:18px; border:3px solid #7c5cff;
-    box-shadow:0 6px 18px rgba(124,92,255,.25); opacity:0; transform:scale(.3); transition:all .35s cubic-bezier(.34,1.7,.64,1); white-space:nowrap; }
-  .bub.on { opacity:1; transform:scale(1); }
+  .ring.on { animation:ring .5s ease-out forwards; }
+  @keyframes ring { 0% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(14); } }
+  /* 闪切：岚汐特写 */
+  #flash { position:absolute; inset:0; z-index:20; display:none; overflow:hidden;
+    background:linear-gradient(120deg,#e7fbff 0%,#efe8ff 55%,#ffe9f6 100%); }
+  #flash.on { display:block; }
+  #flash .lines { position:absolute; inset:-40px; opacity:.9;
+    background:repeating-linear-gradient(0deg, transparent 0 22px, rgba(124,92,255,.22) 22px 26px, transparent 26px 54px, rgba(34,198,232,.26) 54px 57px);
+    animation:sp .25s linear infinite; }
+  @keyframes sp { to { background-position:-240px 0; transform:translateX(-30px); } }
+  #flash img { position:absolute; left:50%; bottom:-120px; height:900px; transform-origin:50% 100%; }
+  #flash .big { position:absolute; left:110px; top:120px; font-size:76px; color:#5b4bd6; background:#fff; padding:14px 34px; border-radius:30px; border:5px solid #7c5cff;
+    box-shadow:0 10px 30px rgba(124,92,255,.3); white-space:nowrap; opacity:0; }
+  #flash .nm { position:absolute; right:110px; bottom:140px; opacity:0; }
+  #flash .nm .tag b { font-size:54px; } #flash .nm .tag i { font-size:30px; }
 </style></head>
 <body class="bright">
-<div class="speed" id="speed"></div>
+<div id="flash"><div class="lines"></div><img id="fimg"><div class="big" id="fbig"></div><div class="nm" id="fnm"></div></div>
 <script src="v4.js"></script>
 <script>
 (async () => {
   const S = window.SCENE, { t, wait, el, tag, sparks } = V4;
   sparks(document.body, [[60, 40, 1.2], [1200, 40, 1, .4], [640, 24, .9, .7], [330, 60, .8, .2], [960, 60, .9, 1]]);
-  const slots = S.cast.map((c, i) => {
+  const slots = S.cast.map(c => {
     const s = el('div', 'slot'); s.style.left = c.x + 'px'; s.style.setProperty('--c', c.color);
-    s.innerHTML = (i < 4 ? `<div class="plate" style="--c:${c.plate}"><b${c.cli.length > 10 ? ' style="font-size:20px"' : ''}>${c.cli}</b><small>${c.model}</small></div>` : '') +
-      `<div class="ring"></div><img class="chara" src="${c.img}"><div class="nt">${tag({ en: c.en, zh: c.zh, color: c.color })}</div>`;
+    s.innerHTML = `<div class="dust"></div><div class="ring"></div><img class="chara" src="${c.img}"><div class="nt">${tag({ en: c.en, zh: c.zh, color: c.color })}</div>`;
     document.body.appendChild(s);
-    return { s, plate: s.querySelector('.plate'), ch: s.querySelector('.chara'), nt: s.querySelector('.nt'), ring: s.querySelector('.ring') };
+    return { s, ch: s.querySelector('.chara'), nt: s.querySelector('.nt'), ring: s.querySelector('.ring'), dust: s.querySelector('.dust') };
   });
+  const L = S.cast[S.cast.length - 1];
+  document.getElementById('fimg').src = L.img;
+  document.getElementById('fbig').textContent = t(S.shout);
+  document.getElementById('fnm').innerHTML = tag({ en: L.en, zh: L.zh, color: L.color });
   await Promise.all([...document.images].map(i => i.decode().catch(() => {})));
   await document.fonts.ready; V4.start();
-  await wait(400);
-  const settle = k => { slots[k].ch.classList.remove('hero'); slots[k].ch.classList.add('idle'); slots[k].nt.classList.add('small'); };
-  for (let i = 0; i < 4; i++) {
-    const o = slots[i];
-    o.plate.classList.add('flip'); o.s.style.zIndex = 2; /* 出场的人压在还没翻的名字牌上面（Gemini 审：牌子挡住鲸鱼娘） */ await wait(260);
-    o.ring.classList.add('on'); o.ch.classList.add('on', 'hero');
-    await wait(250); o.nt.classList.add('on');
-    if (i) settle(i - 1);
-    await wait(S.each - 510);
-  }
-  settle(3);
-  await wait(S.beat);
-  // 最后一人：从右边外面冲到自己的位置
-  const L5 = slots[4], sp = document.getElementById('speed');
-  sp.classList.add('on');
-  L5.ch.classList.add('dash'); L5.ch.style.opacity = 1; L5.ch.style.transform = 'translateX(900px) skewX(-14deg) scale(1)';
-  await wait(30);
-  L5.ch.classList.remove('dash'); L5.ch.style.transition = 'transform .42s cubic-bezier(.2,.9,.3,1.25)';
-  L5.ch.style.transform = 'translateX(-50%) skewX(0) scale(1.14)';
-  await wait(420); sp.classList.remove('on'); L5.ring.classList.add('on');
-  document.body.animate([{ translate: '0 0' }, { translate: '-8px 4px' }, { translate: '6px -3px' }, { translate: '0 0' }], { duration: 260 });
-  L5.nt.classList.add('on');
-  const bub = el('div', 'bub', t(S.shout)); L5.s.appendChild(bub); bub.style.left = '-40px'; bub.style.top = '30px';
-  await wait(250); bub.classList.add('on');
-  await wait(S.lastHold - 700);
+  const T0 = Date.now(), at = ms => wait(Math.max(0, ms - (Date.now() - T0)));
+  // 落地：从画面上方砸下来，触地压扁再弹回（挤压回弹）
+  const drop = (o, fromY) => {
+    o.ch.style.opacity = 1;
+    o.ch.animate([
+      { transform: `translateY(${fromY}px) scale(.92,1.1)`, offset: 0 },
+      { transform: 'translateY(0) scale(.92,1.1)', offset: .42, easing: 'ease-out' },
+      { transform: 'translateY(0) scale(1.18,.78)', offset: .56 },
+      { transform: 'translateY(-26px) scale(.95,1.06)', offset: .74 },
+      { transform: 'translateY(0) scale(1.04,.96)', offset: .9 },
+      { transform: 'translateY(0) scale(1,1)', offset: 1 }], { duration: 520, easing: 'ease-in', fill: 'forwards' });
+    setTimeout(() => {
+      o.ring.classList.add('on'); o.nt.classList.add('on');
+      o.dust.animate([{ opacity: .7, transform: 'scaleX(.4)' }, { opacity: 0, transform: 'scaleX(1.4)' }], { duration: 400, fill: 'forwards' });
+    }, 220);
+  };
+  // 每人落地时刻 = land[i]；动画在触地前 220ms 开始下落
+  for (let i = 0; i < 4; i++) { await at(S.land[i] - 220); drop(slots[i], -620); }
+  // 闪切：岚汐特写冲进来
+  await at(S.flash);
+  const F = document.getElementById('flash'), fi = document.getElementById('fimg');
+  F.classList.add('on');
+  fi.animate([{ transform: 'translateX(700px) skewX(-16deg)' }, { transform: 'translateX(-50%) skewX(4deg)', offset: .35 }, { transform: 'translateX(-50%) skewX(0)', offset: .5 },
+    { transform: 'translateX(-52%) scale(1.03)' }], { duration: S.flashDur, easing: 'cubic-bezier(.2,.9,.3,1)', fill: 'forwards' });
+  document.getElementById('fbig').animate([{ opacity: 0, transform: 'scale(.3) rotate(-8deg)' }, { opacity: 1, transform: 'scale(1.12) rotate(-4deg)', offset: .5 }, { opacity: 1, transform: 'scale(1) rotate(-4deg)' }],
+    { duration: 380, delay: 180, easing: 'ease-out', fill: 'forwards' });
+  document.getElementById('fnm').animate([{ opacity: 0, transform: 'translateX(80px)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: 300, easing: 'cubic-bezier(.34,1.7,.64,1)', fill: 'forwards' });
+  await at(S.flash + S.flashDur);
+  F.classList.remove('on');
+  // 切回全景：岚汐正好落地
+  drop(slots[4], -300);
+  document.body.animate([{ translate: '0 0' }, { translate: '-8px 5px' }, { translate: '6px -3px' }, { translate: '0 0' }], { duration: 240, delay: 200 });
+  // 五人一起小跳
+  await at(S.hop);
+  slots.forEach((o, i) => o.ch.animate([
+    { transform: 'translateY(0) scale(1,1)' }, { transform: 'translateY(0) scale(1.1,.88)', offset: .15 },
+    { transform: 'translateY(-60px) scale(.94,1.08)', offset: .5, easing: 'ease-in' }, { transform: 'translateY(0) scale(1.1,.9)', offset: .82 },
+    { transform: 'translateY(0) scale(1,1)' }], { duration: 560, delay: i * 30, easing: 'ease-out' }));
+  await at(S.total);
   V4.done();
 })();
 </script></body></html>

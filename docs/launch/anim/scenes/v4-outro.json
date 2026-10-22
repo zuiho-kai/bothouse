@@ -10,6 +10,7 @@
     "zh": "Music: 甘茶の音楽工房",
     "en": "Music: Amacha Music Studio"
   },
-  "total": 3500,
+  "hop": 1100,
+  "total": 3000,
   "_source": "来源：PM 派活的脚本 v4.1（镜号见文件名）与用户 2026-10-22 原话；颜色来源见 _colors；毫秒数是目测节奏，每镜时长对齐旁白（cut.py：旁白 + 1 秒）"
 }

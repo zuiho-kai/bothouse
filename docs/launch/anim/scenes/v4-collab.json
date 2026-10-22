@@ -12,7 +12,8 @@
     "text": {
       "zh": "帮我做个宣传片～",
       "en": "Make me a promo video~"
-    }
+    },
+    "at": 300
   },
   "roles": {
     "ju": {
@@ -66,7 +67,8 @@
     "say": {
       "zh": "脚本 v1 来啦",
       "en": "Script v1, here"
-    }
+    },
+    "at": 1260
   },
   "card": {
     "title": {
@@ -116,7 +118,7 @@
           }
         }
       },
-      "hold": 1200
+      "at": 2100
     },
     {
       "role": "lanxi",
@@ -133,7 +135,7 @@
           }
         }
       },
-      "hold": 1200
+      "at": 3160
     },
     {
       "role": "gemini",
@@ -147,7 +149,7 @@
           "en": "Bonus: twist gag"
         }
       },
-      "hold": 1200
+      "at": 4240
     },
     {
       "role": "longniang",
@@ -158,14 +160,17 @@
       "op": {
         "art": true
       },
-      "hold": 1500
+      "at": 5240
     }
   ],
+  "flash": 1000,
+  "v2": {
+    "at": 6300
+  },
+  "zoomAt": 7400,
   "art": {
     "img": "../assets/v4/plane.jpg"
   },
-  "zoomHold": 2800,
-  "_zoomHold": "审稿要求合影停够久、看得出是五个人；2.8 秒是我定的",
-  "total": 12000,
+  "total": 10000,
   "_source": "来源：PM 派活的脚本 v4.1（镜号见文件名）与用户 2026-10-22 原话；颜色来源见 _colors；毫秒数是目测节奏，每镜时长对齐旁白（cut.py：旁白 + 1 秒）"
 }

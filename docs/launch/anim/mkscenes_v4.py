@@ -47,30 +47,35 @@ w("v4-home", {"template": "home", "server": Z("AI 娘们的家", "AI Girls' Hous
     "chips": [{"text": Z("多会话管理", "Multi-session"), "at": 700}, {"text": Z("多 CLI 管理", "Multi-CLI"), "at": 1300}],
     "total": 5000})
 
-# 镜6 登场：前四个由镜2 的名字牌翻出来，岚汐冲进来（脚本 v4.1）
+# 镜6 登场（v4c）：用户「第26秒开始那个画面端端端太慢了……更加活泼一点」→ 不再一人一人排队出场（派活方案 1，已审 promo-v4-fix2）。
+# 落地/闪切/小跳的时刻对齐 happytime 的鼓点：librosa beat_track 实测 117.5 BPM，本镜从全片 23.3 秒开始，
+# 镜内拍点 0.29/0.79/1.28/1.79/2.28/2.79/3.30 秒（/tmp/promo-v4/vo4c/beat.txt），半拍 0.255 秒 ≈ 派活「每隔约 0.25 秒」。
+# 四人落在 0.29 起的连续半拍上；闪切 1.28–2.28（派活「约 1 秒的闪切」，正好一拍起一拍止）；小跳 2.79 起，落地约 3.25 踩拍；
+# 整镜 5.0 秒（派活「整镜约 5 秒」），岚汐名字条约 2.5 秒、前四人约 4 秒，够读完。
 order = ["ju", "longniang", "jingyu", "gemini", "lanxi"]
-plate = {"ju": "#f08a24", "longniang": "#b9a3ff", "jingyu": "#7b93ff", "gemini": "#8ab4ff"}
-model = {"ju": ("Claude Code", "Claude"), "longniang": ("Codex", "GPT"), "jingyu": ("DSH", "DeepSeek"), "gemini": ("反重力 Antigravity", "Gemini")}
-cast = []
-for i, k in enumerate(order):
-    c = {"img": A + f"{k}.png", "en": EN[k], "zh": NAME[k], "color": C[k], "x": 150 + i * 245}
-    if k in model: c.update(cli=model[k][0], model=model[k][1], plate=plate[k])
-    cast.append(c)
-w("v4-debut", {"template": "debut", "cast": cast, "each": 1300, "beat": 250, "lastHold": 2000, "shout": Z("等等我～", "Wait for me~")})
+cast = [{"img": A + f"{k}.png", "en": EN[k], "zh": NAME[k], "color": C[k], "x": 150 + i * 245} for i, k in enumerate(order)]
+w("v4-debut", {"template": "debut", "cast": cast, "land": [290, 545, 790, 1035], "flash": 1280, "flashDur": 1000, "hop": 2790,
+    "total": 5000, "shout": Z("等等我～", "Wait for me~")})
 
-# 镜7 协作：用户原话第 4 条；台词照 PM 派活脚本，卡片行文是我加的设定
+# 镜7 协作（v4c）：派活方案 2——气泡连续弹出、不要打字提示，「立绘我来画」「脚本 v2 ✓」两处 1 秒闪切，一句旁白挂一个画面。
+# 每条 at = 旁白 vo/zh-v4/07.wav 里这一小句的起点 + 0.3 秒（cut.py VO_DELAY）。小句起点由 faster-whisper 逐字时间戳实测
+# （/tmp/promo-v4/vo4c/asr.txt：你就 0.00、橘 0.96、鲸鱼娘 1.80、岚汐 2.86、彩虹猫 3.94、龙娘 4.94、V2 5.92 秒），
+# 相邻两条约隔 1 秒 = 派活「字少的停约 1 秒」；合影 7.4 秒起停到 10.0 秒（派活「五人合影停约 2 秒」「整镜约 10–11 秒」）。
 w("v4-collab", {"template": "collab", "channel": Z("宣传片", "promo"),
-    "user": {"name": Z("你", "You"), "text": Z("帮我做个宣传片～", "Make me a promo video~")},
+    "user": {"name": Z("你", "You"), "text": Z("帮我做个宣传片～", "Make me a promo video~"), "at": 300},
     "roles": {k: {"head": A + f"{k}-head.png", "zh": NAME[k], "color": SOLID[k], "cli": CLI[k]} for k in order},
-    "lead": {"role": "ju", "say": Z("脚本 v1 来啦", "Script v1, here")},
+    "lead": {"role": "ju", "say": Z("脚本 v1 来啦", "Script v1, here"), "at": 1260},
     "card": {"title": Z("脚本 v1", "Script v1"), "title2": Z("脚本 v2", "Script v2"),
              "lines": [Z("痛点：四个终端", "Pain: four terminals"), Z("封面：五人全身照", "Cover: full cast"), Z("登场：图标 + 名字", "Debut: icons + names"), Z("结尾：GitHub 地址", "End: GitHub link")]},
-    "notes": [{"role": "jingyu", "say": Z("封面别剧透，痛点挪后面", "No spoilers on the cover"), "op": {"swap": [0, 1], "set": {"i": 0, "text": Z("封面：只露呆毛", "Cover: just ahoge")}}, "hold": 1200},
-              {"role": "lanxi", "say": Z("名字牌做成圆角卡片", "Make name tags rounded cards"), "op": {"set": {"i": 2, "text": Z("登场：圆角名字卡", "Debut: rounded cards")}}, "hold": 1200},
-              {"role": "gemini", "say": Z("加点反差梗！", "Add a twist gag!"), "op": {"add": Z("彩蛋：反差梗", "Bonus: twist gag")}, "hold": 1200},
-              {"role": "longniang", "say": Z("立绘我来画", "I'll draw them"), "op": {"art": True}, "hold": 1500}],
-    "art": {"img": A + "plane.jpg"}, "zoomHold": 2800, "_zoomHold": "审稿要求合影停够久、看得出是五个人；2.8 秒是我定的", "total": 12000})
+    "notes": [{"role": "jingyu", "say": Z("封面别剧透，痛点挪后面", "No spoilers on the cover"), "op": {"swap": [0, 1], "set": {"i": 0, "text": Z("封面：只露呆毛", "Cover: just ahoge")}}, "at": 2100},
+              {"role": "lanxi", "say": Z("名字牌做成圆角卡片", "Make name tags rounded cards"), "op": {"set": {"i": 2, "text": Z("登场：圆角名字卡", "Debut: rounded cards")}}, "at": 3160},
+              {"role": "gemini", "say": Z("加点反差梗！", "Add a twist gag!"), "op": {"add": Z("彩蛋：反差梗", "Bonus: twist gag")}, "at": 4240},
+              {"role": "longniang", "say": Z("立绘我来画", "I'll draw them"), "op": {"art": True}, "at": 5240}],
+    "flash": 1000, "v2": {"at": 6300}, "zoomAt": 7400,
+    "art": {"img": A + "plane.jpg"}, "total": 10000})
 
 # 镜8 片尾：地址照 scenes/v2-end.json:61
 w("v4-outro", {"template": "outro4", "img": A + "peace.jpg", "slogan": Z("AI 娘们的家 · 开源", "A home for AI girls · Open source"),
-    "repo": "github.com/zuiho-kai/bothouse", "credit": Z("Music: 甘茶の音楽工房", "Music: Amacha Music Studio"), "total": 3500})
+    "repo": "github.com/zuiho-kai/bothouse", "credit": Z("Music: 甘茶の音楽工房", "Music: Amacha Music Studio"),
+    # v4c：派活方案 4「五个人一起蹦一下再定格，约 3 秒」；1.1 秒起跳是我定的（合影、标志、地址都弹完之后）
+    "hop": 1100, "total": 3000})

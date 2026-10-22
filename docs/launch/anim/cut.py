@@ -142,13 +142,20 @@ def build(name, lang):
             a = s["start"] + (VO_DELAY if s["vo"] else 0)
             b = a + s["vodur"] if s["vo"] else s["start"] + s["dur"]
             # sub 可写成列表：每项就是一屏（只去掉句尾句号），不再按逗号切
-            parts = [x.rstrip("。") for x in s["sub"]] if isinstance(s["sub"], list) else segments(s["sub"])
-            per_char = (b - a) / sum(len(x) for x in parts)
-            for x in parts:
-                b2 = a + per_char * len(x)
+            # 列表项也可写成 [文字, 旁白内起点秒]：按实测时刻换屏（v4c 镜7 一句旁白挂一个画面，按字数分会和画面错开）
+            if isinstance(s["sub"], list) and all(isinstance(x, list) for x in s["sub"]):
+                starts = [a + float(x[1]) for x in s["sub"]] + [b]
+                timed = [(x[0].rstrip("。"), starts[k], starts[k + 1]) for k, x in enumerate(s["sub"])]
+            else:
+                parts = [x.rstrip("。") for x in s["sub"]] if isinstance(s["sub"], list) else segments(s["sub"])
+                per_char = (b - a) / sum(len(x) for x in parts)
+                timed = []
+                for x in parts:
+                    timed.append((x, a, a + per_char * len(x)))
+                    a += per_char * len(x)
+            for x, a, b2 in timed:
                 events.append(pill_event(a, b2, x))
                 events.append(f"Dialogue: 1,{ts(a)},{ts(b2)},Sub,,0,0,0,,{{\\pos({W/2:.0f},{SUB_CY})}}{x}\n")
-                a = b2
     if events:
         ass = ROOT / "out" / f"{pathlib.Path(name).stem}.{lang}.ass"
         ass.write_text(ass_head() + "".join(events), "utf-8")

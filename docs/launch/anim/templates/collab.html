@@ -6,7 +6,10 @@
   来源：用户原话「甚至例子也可以用我们刚刚这样的一个协作的例子……我要一个宣传片，然后然后你就提了脚本出来，然后他们都各自补充」；
   PM 派活的新镜7 四步（用户发需求、橘回脚本 v1 卡片、四人补充并贴图、卡片翻成脚本 v2 ✓）。
   场景字段：channel{zh,en}、user{name,text}、roles{id:{head,zh,color,cli}}、lead{role,say}、
-  card{title,title2,lines[{zh,en}]}、notes[{role,say,op}]（op 是对卡片的改动）、art{img}、zoomHold（结尾大图至少停多少毫秒）、total（毫秒）。
+  card{title,title2,lines[{zh,en}]}、notes[{role,say,op,at}]（op 是对卡片的改动）、art{img}、total（毫秒）。
+  v4c：去掉「正在输入」和输入框打字，每条气泡按场景给的 at（毫秒，对齐旁白每一小句的起点）弹出；
+  user.at、lead.at、v2.at（卡片翻 v2 ✓）、zoomAt（合影放大）同理；flash 毫秒内把「立绘我来画」和「脚本 v2 ✓」放大闪切。
+  来源：v4c 派活（已审 promo-v4-fix2）「群聊气泡连续弹出，不要打字提示，带弹性动效。『立绘我来画』和『脚本 v2 ✓』两处用 1 秒闪切放大当鼓点……旁白和画面要一一对上」。
   op 种类：{swap:[i,j], set:{i,text}}、{set:{i,text}}、{add:text}、{art:true}（贴图）。
   底部 80px 留给字幕。像素位置和动画时长是排版取值（目测），不是参数。
 -->
@@ -61,6 +64,21 @@
   .zoom.on { background:rgba(255,250,235,.85); }
   .zoom img { width:860px; border-radius:24px; border:6px solid #fff; box-shadow:0 20px 60px rgba(220,160,60,.35); opacity:0; transform:scale(.4) translate(-300px,120px); transition:all .6s cubic-bezier(.34,1.3,.64,1); margin-bottom:60px; }
   .zoom.on img { opacity:1; transform:none; }
+  /* 只缩放不平移：平移会把最新一条顶出聊天区，触发下面的挤掉逻辑把上一条也删了 */
+  .msg { transition:all .32s cubic-bezier(.34,1.9,.64,1); transform:scale(.55); transform-origin:0 100%; }
+  .msg.mine { transform-origin:100% 100%; }
+  /* 闪切放大层 */
+  .fz { position:absolute; inset:0; z-index:12; display:none; align-items:center; justify-content:center; gap:40px;
+    background:radial-gradient(circle at 50% 45%, #fff8e1 0, #ffe9b0 70%, #ffd77a 100%); }
+  .fz.on { display:flex; }
+  .fz .burst { position:absolute; inset:-200px; background:repeating-conic-gradient(from 0deg, rgba(255,255,255,.55) 0 6deg, transparent 6deg 18deg); animation:spin 4s linear infinite; }
+  @keyframes spin { to { transform:rotate(60deg); } }
+  .fz .msg { position:relative; opacity:1; transform:none; transition:none; }
+  .fz .msg .av { width:110px; height:110px; border-width:5px; }
+  .fz .msg .who { font-size:30px; } .fz .msg .who em { font-size:20px; padding:5px 9px; }
+  .fz .msg .txt { font-size:64px; padding:16px 30px; border-radius:8px 34px 34px 34px; }
+  .fz .msg .pic { width:470px; border-width:6px; }
+  .fz .card { position:relative; inset:auto; width:520px; height:500px; opacity:1; transform:scale(1.15); transition:none; }
 </style></head>
 <body class="bright">
 <div class="app" id="app">
@@ -70,6 +88,7 @@
   <div class="input" id="input"><span id="tx"></span><span class="caret"></span></div>
   <div class="cardwrap"><div class="card" id="card"><h3 id="ctitle"></h3><div class="lines" id="lines"></div><div class="stamp" id="stamp">OK!</div></div></div>
 </div>
+<div class="fz" id="fz"><div class="burst"></div></div>
 <div class="zoom" id="zoom"><img id="zimg"></div>
 <script src="v4.js"></script>
 <script>
@@ -103,43 +122,47 @@
   const mark = (d, role) => { const b = d.querySelector('.by'); b.src = R[role].head; b.style.setProperty('--c', R[role].color); b.classList.add('on'); d.classList.add('hi'); setTimeout(() => d.classList.remove('hi'), 900); };
   await Promise.all([...document.images].map(i => i.decode().catch(() => {})));
   await document.fonts.ready; V4.start();
-  const T0 = Date.now();
+  const T0 = Date.now(), at = ms => wait(Math.max(0, ms - (Date.now() - T0)));
+  const fz = document.getElementById('fz');
+  // 1 秒闪切：把一个节点的放大版盖满画面，flash 毫秒后撤掉
+  async function flash(node) {
+    fz.querySelectorAll(':scope > :not(.burst)').forEach(x => x.remove());
+    fz.appendChild(node); fz.classList.add('on');
+    node.animate([{ transform: 'scale(.55)', opacity: .3 }, { transform: 'scale(1.08)', opacity: 1, offset: .25 }, { transform: 'scale(1)', offset: .4 }, { transform: 'scale(1.04)' }],
+      { duration: S.flash, easing: 'ease-out', fill: 'forwards' });
+    await wait(S.flash); fz.classList.remove('on');
+  }
   document.getElementById('app').classList.add('on');
-  await wait(250);
-  // 1. 用户打字发出需求
-  const need = t(S.user.text);
-  for (let c = 1; c <= need.length; c++) { tx.textContent = need.slice(0, c); await wait(55); }
-  await wait(150); tx.textContent = ''; msg(null, need, true);
+  document.getElementById('input').innerHTML = `<span class="ph">${t({ zh: '发消息到 #', en: 'Message #' })}${t(S.channel)}</span>`;
+  // 1. 用户需求直接弹出
+  await at(S.user.at); msg(null, t(S.user.text), true);
   // 2. 橘回脚本卡片
-  await wait(250); typing.textContent = t(R[S.lead.role].zh) + t({ zh: ' 正在输入…', en: ' is typing…' }); typing.classList.add('on');
-  await wait(350); typing.classList.remove('on');
-  msg(S.lead.role, t(S.lead.say));
+  await at(S.lead.at); msg(S.lead.role, t(S.lead.say));
   ctitle.innerHTML = `<span>${t(S.card.title)}</span><img class="by" src="${R[S.lead.role].head}">`;
   card.classList.add('on');
-  await wait(250);
-  for (const l of S.card.lines) { addLine(t(l), true); await wait(110); }
-  await wait(400);
-  // 3. 其他人依次补充，卡片跟着改
+  (async () => { await wait(200); for (const l of S.card.lines) { addLine(t(l), true); await wait(70); } })();
+  // 3. 其他人接连补充，卡片跟着改
   for (const n of S.notes) {
-    typing.textContent = t(R[n.role].zh) + t({ zh: ' 正在输入…', en: ' is typing…' }); typing.classList.add('on');
-    await wait(300); typing.classList.remove('on');
-    const m = msg(n.role, t(n.say));
-    await wait(420);
-    const op = n.op || {};
+    await at(n.at);
+    const m = msg(n.role, t(n.say)), op = n.op || {};
+    if (op.art) m.querySelector('.txt').insertAdjacentHTML('afterend', `<img class="pic" src="${S.art.img}">`);
+    await wait(250);
     if (op.swap) { const [i, j] = op.swap; [rows[i], rows[j]] = [rows[j], rows[i]]; place(); mark(rows[i].el, n.role); }
     if (op.set) { const d = rows[op.set.i].el; d.querySelector('.tx').textContent = t(op.set.text); mark(d, n.role); }
-    if (op.add) { const d = addLine(t(op.add), true); setTimeout(() => mark(d, n.role), 250); }
-    if (op.art) { m.querySelector('.txt').insertAdjacentHTML('afterend', `<img class="pic" src="${S.art.img}">`); requestAnimationFrame(() => { while (chat.scrollHeight > chat.clientHeight + 2 && chat.children.length > 1) chat.firstChild.remove(); }); }
-    await wait(n.hold);
+    if (op.add) { const d = addLine(t(op.add), true); setTimeout(() => mark(d, n.role), 200); }
+    if (op.art) { requestAnimationFrame(() => { while (chat.scrollHeight > chat.clientHeight + 2 && chat.children.length > 1) chat.firstChild.remove(); });
+      await at(n.at + 120); const big = m.cloneNode(true); big.classList.add('on'); await flash(big); }
   }
-  // 4. 卡片翻成 v2 ✓
-  card.classList.add('flip'); await wait(350);
+  // 4. 卡片翻成 v2 ✓，同时闪切放大
+  await at(S.v2.at);
   ctitle.innerHTML = `<span>${t(S.card.title2)} <span class="ok">✓</span></span><img class="by" src="${R[S.lead.role].head}">`;
-  await wait(350); card.classList.remove('flip'); document.getElementById('stamp').classList.add('on');
-  await wait(700);
+  document.getElementById('stamp').classList.add('on');
+  const bigCard = card.cloneNode(true); bigCard.removeAttribute('id'); bigCard.classList.remove('flip');
+  const wrap = el('div'); wrap.style.cssText = 'position:relative;width:520px;height:500px'; wrap.appendChild(bigCard);
+  await flash(wrap);
   // 结尾：龙娘那张图放大
-  document.getElementById('zoom').classList.add('on');
-  await wait(Math.max(S.zoomHold || 1200, S.total - (Date.now() - T0)));
+  await at(S.zoomAt); document.getElementById('zoom').classList.add('on');
+  await at(S.total);
   V4.done();
 })();
 </script></body></html>
