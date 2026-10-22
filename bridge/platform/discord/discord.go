@@ -888,6 +888,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		UserID:    m.Author.ID, UserName: m.Author.Username,
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
 		Mentioned: mentioned, FromBot: fromBot,
+		Direct: m.GuildID == "" && !fromBot, // a DM calls the bot (core/gate_local.go)
 	}
 	// Consume explicit approvals before bot labels, batching or the gate.
 	if fromBot && strings.HasPrefix(approvalContent, "/permit") {

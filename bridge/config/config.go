@@ -532,6 +532,10 @@ type ProjectConfig struct {
 	// GateFallback is the action used when the gate errors or times out (default "reply";
 	// sub agents that only speak when @-ed should use "context").
 	GateFallback string `toml:"gate_fallback,omitempty"`
+	// GateLocal: without gate_url, built-in rules handle a message that calls a busy bot (stop
+	// word → cancel the running turn; anything else → insert into it). nil = on.
+	// Source: user 2026-10-23 「默认打开」.
+	GateLocal *bool `toml:"gate_local,omitempty"`
 	// ChatModel / TaskModel (maomao fork): when both are set, the gate's "chat"/"task" tag picks
 	// the model for each idle turn. ChatEffort / TaskEffort optionally set reasoning effort for
 	// agents that support it. ModelTierStickyMins keeps a session on the task model after a task
@@ -630,6 +634,12 @@ type ProjectConfig struct {
 	Shell string `toml:"shell,omitempty"`
 	// ShellProfile overrides the global shell_profile for this project.
 	ShellProfile string `toml:"shell_profile,omitempty"`
+}
+
+// GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
+// 2026-10-23 「默认打开」). They only act while gate_url is empty.
+func (p ProjectConfig) GateLocalEnabled() bool {
+	return p.GateLocal == nil || *p.GateLocal
 }
 
 type AgentConfig struct {

@@ -152,17 +152,22 @@ func (e *Engine) SetGate(url string, timeoutMs int, fallback string) {
 	default:
 		fallback = "reply"
 	}
-	// Claude Code merges stdin input into the running turn, Codex app-server via turn/steer;
-	// codex exec would start a second process, so other agents get busy inserts as a queued turn.
-	inject := e.agent != nil && e.agent.Name() == "claudecode"
-	var injectDyn func() bool
-	if m, ok := e.agent.(interface{ SupportsMidTurnInput() bool }); ok {
-		// Asked per message: ACP learns it from the agent's handshake, after the gate is set up.
-		injectDyn = m.SupportsMidTurnInput
-	}
+	inject, injectDyn := midTurnInjectCaps(e.agent)
 	e.gate = &gateState{url: url, timeout: time.Duration(timeoutMs) * time.Millisecond, fallback: fallback, inject: inject, injectDyn: injectDyn, textBurstWindow: burstWindow,
 		buf: map[string][]string{}, held: map[string]*heldMsg{}, released: map[*Message]bool{}}
 	slog.Info("gate enabled", "url", url, "timeout_ms", timeoutMs, "fallback", fallback, "mid_turn_inject", e.gate.canInject())
+}
+
+// midTurnInjectCaps reports whether agent folds input sent during a turn into that turn.
+// Claude Code merges stdin input into the running turn, Codex app-server via turn/steer;
+// codex exec would start a second process, so other agents get busy inserts as a queued turn.
+// injectDyn is asked per message: ACP learns it from the agent's handshake, after setup.
+func midTurnInjectCaps(agent Agent) (inject bool, injectDyn func() bool) {
+	inject = agent != nil && agent.Name() == "claudecode"
+	if m, ok := agent.(interface{ SupportsMidTurnInput() bool }); ok {
+		injectDyn = m.SupportsMidTurnInput
+	}
+	return inject, injectDyn
 }
 
 // SetGateBurstWindow configures idle text coalescing before the engine starts
@@ -242,6 +247,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	if g == nil || msg.IsPermissionResponse {
 		if !msg.IsPermissionResponse {
+			if g == nil && e.applyLocalGate(p, msg, session, interactiveKey) {
+				return true
+			}
 			e.teamNoteTurn(msg, session)
 		}
 		return false

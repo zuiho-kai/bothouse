@@ -720,10 +720,19 @@ name = "my-backend"
 #
 # ---- maomao fork: gate / main + subs / team status (see MAOMAO.md, docs/ccm-and-wiki.md) ----
 # ---- maomao 分支：快脑闸门、一主多 sub、队友状态（说明见 MAOMAO.md 和仓库根目录 docs/ccm-and-wiki.md）----
-# All optional; leave them out = upstream behaviour. / 全部可选，不写 = 和上游一样。
+# All optional; leave them out = upstream behaviour, except gate_local (default on). / 全部可选，不写 = 和上游一样（gate_local 除外，默认开）。
 # gate_url = "http://127.0.0.1:9930/decide"   # Main bot: ask the gate (contrib/gate/gate.py) for every user message.
 #                                             # 主 bot：每条用户消息先问闸门；同一个闸门的 /context 还负责每轮推 wiki 页。
 # gate_url = "http://127.0.0.1:9930/decide?bot=coder"   # A sub: ?bot=<key in GATE_TEAM subs>. / sub：?bot=<团队文件 subs 里的 key>
+# gate_local = true                # Default on, no gate_url needed: built-in keyword rules while the bot is busy.
+#                                  # A message that @-s it, replies to it or DMs it is inserted into the running turn
+#                                  # (agents with mid-turn input; others queue as before); one that is only
+#                                  # 「暂停」「停一下」「别做了」 / stop / pause cancels the running turn. Idle bots are unaffected.
+#                                  # The model gate (gate_url) is still installed by hand; with gate_url set it decides instead.
+#                                  # 默认开，不用配 gate_url：bot 忙时的内置关键词规则。@ 它、回复它或私聊它的消息插进当前这一轮
+#                                  # （支持中途插话的 agent；其余照旧排队）；整条只是「暂停」「停一下」「别做了」/ stop / pause
+#                                  # 就打断当前这一轮。空闲时不受影响。模型闸门（gate_url）仍需手动装，配了它就由它判断。
+#                                  # false = upstream behaviour / 关掉 = 和上游一样。
 # gate_timeout_ms = 3000           # Gate error/timeout → gate_fallback. / 闸门出错或超时按 gate_fallback 处理。
 # gate_fallback = "reply"          # Main: "reply" (default). Subs: "context" (listen only, never all subs at once).
 #                                  # 主 bot 用默认 reply；sub 用 context（闸门挂了只听不说，不会几个 sub 一起开口）。

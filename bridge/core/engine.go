@@ -431,6 +431,7 @@ type Engine struct {
 	agentSessionIdleSeq          atomic.Uint64
 	maxQueuedMessages            int
 	gate                         *gateState  // maomao fork: fast-brain gate (nil = off)
+	gateLocal                    bool        // built-in busy rules when gate is nil (gate_local.go)
 	tiers                        *modelTiers // maomao fork: gate-driven chat/task model switching (nil = off)
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
