@@ -268,6 +268,8 @@ func discordProgressStateMeta(state core.ProgressCardState, lang string, agent s
 		return fmt.Sprintf("%s · %s", agent, discordProgressCompletedText(lang)), 0x57F287, discordProgressCompletedFooter(lang)
 	case core.ProgressCardStateFailed:
 		return fmt.Sprintf("%s · %s", agent, discordProgressFailedText(lang)), 0xED4245, discordProgressFailedFooter(lang)
+	case core.ProgressCardStateStopped:
+		return fmt.Sprintf("%s · %s", agent, discordProgressStoppedText(lang)), 0x99AAB5, discordProgressStoppedFooter(lang)
 	default:
 		return fmt.Sprintf("%s · %s", agent, discordProgressRunningText(lang)), 0x5865F2, ""
 	}
@@ -323,6 +325,34 @@ func discordProgressFailedText(lang string) string {
 		return "Fallido"
 	default:
 		return "Failed"
+	}
+}
+
+func discordProgressStoppedText(lang string) string {
+	switch normalizeDiscordProgressLang(lang) {
+	case "zh", "zh-tw":
+		return "已停止"
+	case "ja":
+		return "停止"
+	case "es":
+		return "Detenido"
+	default:
+		return "Stopped"
+	}
+}
+
+func discordProgressStoppedFooter(lang string) string {
+	switch normalizeDiscordProgressLang(lang) {
+	case "zh":
+		return "已按要求停止，本进度卡不再更新。"
+	case "zh-tw":
+		return "已依要求停止，本進度卡不再更新。"
+	case "ja":
+		return "リクエストにより停止しました。この進捗カードは更新されません。"
+	case "es":
+		return "Detenido a petición. Esta tarjeta de progreso ya no se actualiza."
+	default:
+		return "Stopped on request. This progress card is no longer updating."
 	}
 }
 
@@ -514,11 +544,7 @@ func buildDiscordProgressBarLine(payload *core.ProgressCardPayload, items []core
 	}
 	if payload.Heartbeat && payload.State == core.ProgressCardStateRunning {
 		// gateway heartbeat: still running / stalled, elapsed, tool in flight, time since the last event
-		lang := "en"
-		if zh {
-			lang = "zh"
-		}
-		live := core.ProgressLiveLine(lang, sec, payload.IdleSec, payload.Current, payload.Stalled)
+		live := core.ProgressLiveLine(discordStepLang(payload.Lang), sec, payload.IdleSec, payload.Current, payload.Stalled)
 		if zh {
 			head = fmt.Sprintf("第 %d 步 · ", payload.Steps) + strings.TrimSpace(live)
 		} else {
@@ -533,9 +559,8 @@ func buildDiscordProgressBarLine(payload *core.ProgressCardPayload, items []core
 	return head
 }
 
+// discordStepLang is the language core's card texts render in: the card's own,
+// with an empty one read as English like the rest of this card (core reads "" as Chinese).
 func discordStepLang(lang string) string {
-	if strings.HasPrefix(normalizeDiscordProgressLang(lang), "zh") {
-		return "zh"
-	}
-	return "en"
+	return normalizeDiscordProgressLang(lang)
 }

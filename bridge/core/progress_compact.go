@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -32,6 +33,8 @@ const (
 	ProgressCardStateRunning   ProgressCardState = "running"
 	ProgressCardStateCompleted ProgressCardState = "completed"
 	ProgressCardStateFailed    ProgressCardState = "failed"
+	// ProgressCardStateStopped — the user stopped the turn; not an error.
+	ProgressCardStateStopped ProgressCardState = "stopped"
 )
 
 type ProgressCardEntryKind string
@@ -292,8 +295,11 @@ type compactProgressWriter struct {
 	lastEventAt time.Time
 	current     string
 	stallAfter  time.Duration
-	live        progressLive
-	now         func() time.Time
+	// toolStallAfter replaces stallAfter while a tool is in flight: a build or test run
+	// prints nothing for minutes and is not stuck (0 = never mark it stalled).
+	toolStallAfter time.Duration
+	live           progressLive
+	now            func() time.Time
 
 	// Throttle message edits to avoid platform rate limits (e.g. Discord ~5 edits/5s).
 	minUpdateInterval time.Duration
@@ -336,12 +342,12 @@ func (w *compactProgressWriter) detailStepTargetMax() int {
 	return progressStepTargetMax
 }
 
-// maxSteps is how many steps the card renders. The bot's own
-// progress_card_entries always wins when it is larger; brief defaults to 3 and
-// full to 8, so a bot configured for 6 keeps its 6 in both levels.
+// maxSteps is how many steps the card renders. brief shows the bot's own
+// progress_card_entries (default 3, an explicit 1 stays 1); full shows at least 8,
+// so a bot configured for 12 keeps its 12 in both levels.
 func (w *compactProgressWriter) maxSteps() int {
 	if w.detail != "full" {
-		if w.maxEntries > ProgressCardVisibleSteps {
+		if w.maxEntries > 0 {
 			return w.maxEntries
 		}
 		return ProgressCardVisibleSteps
@@ -442,9 +448,11 @@ func newCompactProgressWriter(ctx context.Context, p Platform, replyCtx any, age
 		w.minUpdateInterval = throttler.ProgressUpdateInterval()
 	}
 	if sizer, ok := p.(ProgressCardSizer); ok {
-		if n := sizer.ProgressCardEntries(); n > 1 {
-			w.maxEntries = n
-			w.lineLen = sizer.ProgressCardLineLen()
+		if n := sizer.ProgressCardEntries(); n > 0 {
+			w.maxEntries = n // an explicit 1 keeps the one-line card
+			if n > 1 {
+				w.lineLen = sizer.ProgressCardLineLen()
+			}
 		}
 		w.hideThink = sizer.ProgressCardHideThinking()
 	}
@@ -846,10 +854,14 @@ func (w *compactProgressWriter) payload() string {
 
 func (w *compactProgressWriter) liveState() progressLive {
 	idle := w.now().Sub(w.lastEventAt)
+	threshold := w.stallAfter
+	if w.current != "" {
+		threshold = w.toolStallAfter
+	}
 	return progressLive{
 		idleSec:   int(idle.Seconds()),
 		current:   w.current,
-		stalled:   w.stallAfter > 0 && idle >= w.stallAfter,
+		stalled:   threshold > 0 && idle >= threshold,
 		heartbeat: true,
 	}
 }
@@ -898,63 +910,36 @@ func (w *compactProgressWriter) Active() bool {
 	return w != nil && w.enabled && !w.failed
 }
 
-// fmtProgressDuration renders seconds as "3分20秒" / "3m20s".
-func fmtProgressDuration(zh bool, sec int) string {
+// fmtProgressDuration renders seconds as "3分20秒" / "3m20s" in the card's language.
+func fmtProgressDuration(lang string, sec int) string {
 	if sec < 0 {
 		sec = 0
 	}
-	if zh {
-		if sec >= 3600 {
-			return strconv.Itoa(sec/3600) + "小时" + strconv.Itoa(sec%3600/60) + "分"
-		}
-		if sec >= 60 {
-			return strconv.Itoa(sec/60) + "分" + strconv.Itoa(sec%60) + "秒"
-		}
-		return strconv.Itoa(sec) + "秒"
+	switch {
+	case sec >= 3600:
+		return fmt.Sprintf(TLang(lang, MsgProgressDurHM), sec/3600, sec%3600/60)
+	case sec >= 60:
+		return fmt.Sprintf(TLang(lang, MsgProgressDurMS), sec/60, sec%60)
 	}
-	if sec >= 3600 {
-		return strconv.Itoa(sec/3600) + "h" + strconv.Itoa(sec%3600/60) + "m"
-	}
-	if sec >= 60 {
-		return strconv.Itoa(sec/60) + "m" + strconv.Itoa(sec%60) + "s"
-	}
-	return strconv.Itoa(sec) + "s"
+	return fmt.Sprintf(TLang(lang, MsgProgressDurS), sec)
 }
 
 // ProgressLiveLine renders the heartbeat status of a running card, e.g.
 // "⏳ 仍在运行 · 已 12分3秒 · 当前：Bash · 最近动静 10分前" or, past the threshold,
 // "⚠️ 疑似卡住 · …". Platforms that render the payload themselves can reuse it.
 func ProgressLiveLine(lang string, elapsedSec, idleSec int, current string, stalled bool) string {
-	zh := strings.HasPrefix(strings.ToLower(lang), "zh") || lang == ""
 	var b strings.Builder
-	switch {
-	case stalled && zh:
-		b.WriteString("⚠️ 疑似卡住")
-	case stalled:
-		b.WriteString("⚠️ possibly stalled")
-	case zh:
-		b.WriteString("⏳ 仍在运行")
-	default:
-		b.WriteString("⏳ still running")
-	}
-	if zh {
-		b.WriteString(" · 已 " + fmtProgressDuration(true, elapsedSec))
+	if stalled {
+		b.WriteString("⚠️ " + TLang(lang, MsgProgressLiveStalled))
 	} else {
-		b.WriteString(" · " + fmtProgressDuration(false, elapsedSec))
+		b.WriteString("⏳ " + TLang(lang, MsgProgressLiveRunning))
 	}
+	b.WriteString(" · " + fmt.Sprintf(TLang(lang, MsgProgressLiveElapsed), fmtProgressDuration(lang, elapsedSec)))
 	if c := strings.TrimSpace(current); c != "" {
-		if zh {
-			b.WriteString(" · 当前：" + c)
-		} else {
-			b.WriteString(" · now: " + c)
-		}
+		b.WriteString(" · " + fmt.Sprintf(TLang(lang, MsgProgressLiveCurrent), c))
 	}
 	if idleSec >= 5 {
-		if zh {
-			b.WriteString(" · 最近动静 " + fmtProgressDuration(true, idleSec) + "前")
-		} else {
-			b.WriteString(" · last event " + fmtProgressDuration(false, idleSec) + " ago")
-		}
+		b.WriteString(" · " + fmt.Sprintf(TLang(lang, MsgProgressLiveIdle), fmtProgressDuration(lang, idleSec)))
 	}
 	return b.String()
 }

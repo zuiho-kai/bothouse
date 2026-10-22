@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -4514,17 +4515,168 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "`/workspace init` ではローカルディレクトリ対象が無効です。git URL を使うか、このプロジェクトで `workspace_init_allow_local_paths = true` を有効にしてください。",
 		LangSpanish:            "Los destinos de directorio local están deshabilitados para `/workspace init`. Use una URL de git o habilite `workspace_init_allow_local_paths = true` para este proyecto.",
 	},
+	MsgProgressVerbShell: {
+		LangEnglish:            "Run",
+		LangChinese:            "运行命令",
+		LangTraditionalChinese: "執行命令",
+		LangJapanese:           "コマンド実行",
+		LangSpanish:            "Ejecutar",
+	},
+	MsgProgressVerbRead: {
+		LangEnglish:            "Read",
+		LangChinese:            "读文件",
+		LangTraditionalChinese: "讀檔案",
+		LangJapanese:           "ファイル読込",
+		LangSpanish:            "Leer",
+	},
+	MsgProgressVerbEdit: {
+		LangEnglish:            "Edit",
+		LangChinese:            "改文件",
+		LangTraditionalChinese: "改檔案",
+		LangJapanese:           "ファイル編集",
+		LangSpanish:            "Editar",
+	},
+	MsgProgressVerbWrite: {
+		LangEnglish:            "Write",
+		LangChinese:            "写文件",
+		LangTraditionalChinese: "寫檔案",
+		LangJapanese:           "ファイル書込",
+		LangSpanish:            "Escribir",
+	},
+	MsgProgressVerbSearch: {
+		LangEnglish:            "Search",
+		LangChinese:            "搜索",
+		LangTraditionalChinese: "搜尋",
+		LangJapanese:           "検索",
+		LangSpanish:            "Buscar",
+	},
+	MsgProgressVerbGlob: {
+		LangEnglish:            "Find files",
+		LangChinese:            "找文件",
+		LangTraditionalChinese: "找檔案",
+		LangJapanese:           "ファイル検索",
+		LangSpanish:            "Buscar archivos",
+	},
+	MsgProgressVerbFetch: {
+		LangEnglish:            "Fetch",
+		LangChinese:            "打开网页",
+		LangTraditionalChinese: "開啟網頁",
+		LangJapanese:           "Web 取得",
+		LangSpanish:            "Abrir web",
+	},
+	MsgProgressVerbWebSearch: {
+		LangEnglish:            "Web search",
+		LangChinese:            "搜网页",
+		LangTraditionalChinese: "搜尋網頁",
+		LangJapanese:           "Web 検索",
+		LangSpanish:            "Buscar en la web",
+	},
+	MsgProgressVerbAgent: {
+		LangEnglish:            "Sub-task",
+		LangChinese:            "子任务",
+		LangTraditionalChinese: "子任務",
+		LangJapanese:           "サブタスク",
+		LangSpanish:            "Subtarea",
+	},
+	MsgProgressVerbTodo: {
+		LangEnglish:            "Update todo",
+		LangChinese:            "更新清单",
+		LangTraditionalChinese: "更新清單",
+		LangJapanese:           "ToDo 更新",
+		LangSpanish:            "Actualizar tareas",
+	},
+	MsgProgressVerbTool: {
+		LangEnglish:            "Tool",
+		LangChinese:            "工具",
+		LangTraditionalChinese: "工具",
+		LangJapanese:           "ツール",
+		LangSpanish:            "Herramienta",
+	},
+	MsgProgressStepFailed: {
+		LangEnglish:            "failed",
+		LangChinese:            "失败",
+		LangTraditionalChinese: "失敗",
+		LangJapanese:           "失敗",
+		LangSpanish:            "falló",
+	},
+	MsgProgressStepOutput: {
+		LangEnglish:            "Output",
+		LangChinese:            "输出",
+		LangTraditionalChinese: "輸出",
+		LangJapanese:           "出力",
+		LangSpanish:            "Salida",
+	},
+	MsgProgressLiveRunning: {
+		LangEnglish:            "still running",
+		LangChinese:            "仍在运行",
+		LangTraditionalChinese: "仍在執行",
+		LangJapanese:           "実行中",
+		LangSpanish:            "aún en curso",
+	},
+	MsgProgressLiveStalled: {
+		LangEnglish:            "possibly stalled",
+		LangChinese:            "疑似卡住",
+		LangTraditionalChinese: "疑似卡住",
+		LangJapanese:           "停止の疑い",
+		LangSpanish:            "posiblemente atascado",
+	},
+	MsgProgressLiveElapsed: {
+		LangEnglish:            "%s",
+		LangChinese:            "已 %s",
+		LangTraditionalChinese: "已 %s",
+		LangJapanese:           "経過 %s",
+		LangSpanish:            "%s",
+	},
+	MsgProgressLiveCurrent: {
+		LangEnglish:            "now: %s",
+		LangChinese:            "当前：%s",
+		LangTraditionalChinese: "目前：%s",
+		LangJapanese:           "実行中：%s",
+		LangSpanish:            "ahora: %s",
+	},
+	MsgProgressLiveIdle: {
+		LangEnglish:            "last event %s ago",
+		LangChinese:            "最近动静 %s前",
+		LangTraditionalChinese: "最近動靜 %s前",
+		LangJapanese:           "最終イベント %s前",
+		LangSpanish:            "último evento hace %s",
+	},
+	MsgProgressDurHM: {
+		LangEnglish:            "%dh%dm",
+		LangChinese:            "%d小时%d分",
+		LangTraditionalChinese: "%d小時%d分",
+		LangJapanese:           "%d時間%d分",
+		LangSpanish:            "%dh%dm",
+	},
+	MsgProgressDurMS: {
+		LangEnglish:            "%dm%ds",
+		LangChinese:            "%d分%d秒",
+		LangTraditionalChinese: "%d分%d秒",
+		LangJapanese:           "%d分%d秒",
+		LangSpanish:            "%dm%ds",
+	},
+	MsgProgressDurS: {
+		LangEnglish:            "%ds",
+		LangChinese:            "%d秒",
+		LangTraditionalChinese: "%d秒",
+		LangJapanese:           "%d秒",
+		LangSpanish:            "%ds",
+	},
 }
 
 func (i *I18n) T(key MsgKey) string {
 	i.mu.RLock()
 	lang := i.currentLang()
 	i.mu.RUnlock()
+	return lookupMsg(lang, key)
+}
+
+// lookupMsg returns key in lang, falling back zh-TW → zh → en.
+func lookupMsg(lang Language, key MsgKey) string {
 	if msg, ok := messages[key]; ok {
 		if translated, ok := msg[lang]; ok {
 			return translated
 		}
-		// Fallback: zh-TW → zh → en
 		if lang == LangTraditionalChinese {
 			if translated, ok := msg[LangChinese]; ok {
 				return translated
@@ -4537,10 +4689,60 @@ func (i *I18n) T(key MsgKey) string {
 	return string(key)
 }
 
+// TLang is T for a language given as a string, e.g. a progress card payload's
+// "lang": zh-TW / zh-HK, zh*, ja*, es*, anything else English; "" counts as
+// Chinese, matching the cards' default.
+func TLang(lang string, key MsgKey) string {
+	return lookupMsg(progressLanguage(lang), key)
+}
+
+func progressLanguage(lang string) Language {
+	l := strings.ToLower(strings.TrimSpace(lang))
+	switch {
+	case l == "", l == "zh", l == "zh-cn", l == "zh-hans":
+		return LangChinese
+	case l == "zh-tw", l == "zh-hk", l == "zh-hant":
+		return LangTraditionalChinese
+	case strings.HasPrefix(l, "zh"):
+		return LangChinese
+	case strings.HasPrefix(l, "ja"):
+		return LangJapanese
+	case strings.HasPrefix(l, "es"):
+		return LangSpanish
+	}
+	return LangEnglish
+}
+
 func (i *I18n) Tf(key MsgKey, args ...interface{}) string {
 	template := i.T(key)
 	return fmt.Sprintf(template, args...)
 }
+
+// Progress (task) card texts. Rendered from a card payload's language with TLang,
+// not through an engine's I18n, so platforms reuse them when drawing a payload.
+const (
+	MsgProgressVerbShell     MsgKey = "progress_verb_shell"
+	MsgProgressVerbRead      MsgKey = "progress_verb_read"
+	MsgProgressVerbEdit      MsgKey = "progress_verb_edit"
+	MsgProgressVerbWrite     MsgKey = "progress_verb_write"
+	MsgProgressVerbSearch    MsgKey = "progress_verb_search"
+	MsgProgressVerbGlob      MsgKey = "progress_verb_glob"
+	MsgProgressVerbFetch     MsgKey = "progress_verb_fetch"
+	MsgProgressVerbWebSearch MsgKey = "progress_verb_web_search"
+	MsgProgressVerbAgent     MsgKey = "progress_verb_agent"
+	MsgProgressVerbTodo      MsgKey = "progress_verb_todo"
+	MsgProgressVerbTool      MsgKey = "progress_verb_tool"
+	MsgProgressStepFailed    MsgKey = "progress_step_failed"
+	MsgProgressStepOutput    MsgKey = "progress_step_output"
+	MsgProgressLiveRunning   MsgKey = "progress_live_running"
+	MsgProgressLiveStalled   MsgKey = "progress_live_stalled"
+	MsgProgressLiveElapsed   MsgKey = "progress_live_elapsed"
+	MsgProgressLiveCurrent   MsgKey = "progress_live_current"
+	MsgProgressLiveIdle      MsgKey = "progress_live_idle"
+	MsgProgressDurHM         MsgKey = "progress_dur_h_m"
+	MsgProgressDurMS         MsgKey = "progress_dur_m_s"
+	MsgProgressDurS          MsgKey = "progress_dur_s"
+)
 
 // MsgReplyFooterQuotaRemaining renders "<window> <n>% left" for the first
 // quota window in the reply footer (see formatReplyFooterUsage).

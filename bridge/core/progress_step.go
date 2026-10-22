@@ -14,19 +14,33 @@ const progressStepTargetMax = 40
 // ProgressCardVisibleSteps is how many recent steps a card shows under its header line.
 const ProgressCardVisibleSteps = 3
 
-type progressToolVerb struct{ icon, zh, en string }
+// progressToolVerb is a step's icon and label: an i18n key, or a literal name for tools
+// without one (an unknown tool or an ACP title is shown as-is).
+type progressToolVerb struct {
+	icon string
+	key  MsgKey
+	name string
+}
+
+func (v progressToolVerb) label(lang string) string {
+	if v.key == "" {
+		return v.name
+	}
+	return TLang(lang, v.key)
+}
 
 var (
-	verbShell  = progressToolVerb{"🔧", "运行命令", "Run"}
-	verbRead   = progressToolVerb{"📖", "读文件", "Read"}
-	verbEdit   = progressToolVerb{"✏️", "改文件", "Edit"}
-	verbWrite  = progressToolVerb{"📝", "写文件", "Write"}
-	verbSearch = progressToolVerb{"🔍", "搜索", "Search"}
-	verbGlob   = progressToolVerb{"📂", "找文件", "Find files"}
-	verbFetch  = progressToolVerb{"🌐", "打开网页", "Fetch"}
-	verbWebQ   = progressToolVerb{"🌐", "搜网页", "Web search"}
-	verbAgent  = progressToolVerb{"🤖", "子任务", "Sub-task"}
-	verbTodo   = progressToolVerb{"📋", "更新清单", "Update todo"}
+	verbShell  = progressToolVerb{icon: "🔧", key: MsgProgressVerbShell}
+	verbRead   = progressToolVerb{icon: "📖", key: MsgProgressVerbRead}
+	verbEdit   = progressToolVerb{icon: "✏️", key: MsgProgressVerbEdit}
+	verbWrite  = progressToolVerb{icon: "📝", key: MsgProgressVerbWrite}
+	verbSearch = progressToolVerb{icon: "🔍", key: MsgProgressVerbSearch}
+	verbGlob   = progressToolVerb{icon: "📂", key: MsgProgressVerbGlob}
+	verbFetch  = progressToolVerb{icon: "🌐", key: MsgProgressVerbFetch}
+	verbWebQ   = progressToolVerb{icon: "🌐", key: MsgProgressVerbWebSearch}
+	verbAgent  = progressToolVerb{icon: "🤖", key: MsgProgressVerbAgent}
+	verbTodo   = progressToolVerb{icon: "📋", key: MsgProgressVerbTodo}
+	verbTool   = progressToolVerb{icon: "🔧", key: MsgProgressVerbTool}
 )
 
 type progressToolKind struct {
@@ -71,17 +85,10 @@ func SummarizeProgressStepDetail(item ProgressCardEntry, lang string, targetMax 
 	if targetMax <= 0 {
 		targetMax = progressStepTargetMax
 	}
-	zh := progressLangZh(lang)
-	pick := func(v progressToolVerb) string {
-		if zh {
-			return v.zh
-		}
-		return v.en
-	}
 	switch item.Kind {
 	case ProgressEntryToolUse:
 		verb, target := progressToolSummaryN(item.Tool, item.Text, targetMax)
-		line := verb.icon + " " + pick(verb)
+		line := verb.icon + " " + verb.label(lang)
 		if target != "" {
 			line += " · " + target
 		}
@@ -95,15 +102,12 @@ func SummarizeProgressStepDetail(item ProgressCardEntry, lang string, targetMax 
 			if text == "" {
 				return ""
 			}
-			return "🧾 输出 · " + truncateProgressRunes(text, targetMax*2)
+			return "🧾 " + TLang(lang, MsgProgressStepOutput) + " · " + truncateProgressRunes(text, targetMax*2)
 		}
-		line := "⚠️ 失败"
-		if !zh {
-			line = "⚠️ failed"
-		}
+		line := "⚠️ " + TLang(lang, MsgProgressStepFailed)
 		if strings.TrimSpace(item.Tool) != "" {
 			verb, _ := progressToolSummaryN(item.Tool, "", targetMax)
-			line += " · " + pick(verb)
+			line += " · " + verb.label(lang)
 		}
 		return line
 	case ProgressEntryError:
@@ -130,11 +134,6 @@ func ProgressResultFailed(item ProgressCardEntry) bool {
 	return false
 }
 
-func progressLangZh(lang string) bool {
-	l := strings.ToLower(strings.TrimSpace(lang))
-	return l == "" || strings.HasPrefix(l, "zh")
-}
-
 func progressToolSummary(tool, input string) (progressToolVerb, string) {
 	return progressToolSummaryN(tool, input, progressStepTargetMax)
 }
@@ -154,9 +153,9 @@ func progressToolSummaryN(tool, input string, targetMax int) (progressToolVerb, 
 	k, ok := progressToolKinds[key]
 	if !ok {
 		// unknown tool / ACP free-text title: keep its name as the verb
-		v := progressToolVerb{"🔧", name, name}
+		v := progressToolVerb{icon: "🔧", name: name}
 		if name == "" {
-			v = progressToolVerb{"🔧", "工具", "Tool"}
+			v = verbTool
 		}
 		t := progressInputText(input, "command", "query", "file_path", "path", "pattern", "url")
 		return v, truncateProgressRunes(collapseProgressSpace(t), targetMax)

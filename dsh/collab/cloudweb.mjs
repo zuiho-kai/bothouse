@@ -19,7 +19,7 @@ const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸'];
 const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
 const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
-const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败' };
+const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', stopped: '已停止' };
 const RESERVED_IDS = new Set(['user', 'system']);
 const MAX_NAME = 64;
 

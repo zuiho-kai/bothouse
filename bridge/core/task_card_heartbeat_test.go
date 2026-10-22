@@ -49,8 +49,8 @@ func TestTaskCardHeartbeat_StopFinalizesCard(t *testing.T) {
 	}()
 	e.processInteractiveEvents(state, session, e.sessions, key, "stop-live", time.Now(), nil, nil, state.replyCtx)
 	pls := heartbeatPayloads(p)
-	if len(pls) == 0 || pls[len(pls)-1].State == ProgressCardStateRunning {
-		t.Fatal("stopped turn leaves a running card")
+	if len(pls) == 0 || pls[len(pls)-1].State != ProgressCardStateStopped {
+		t.Fatalf("stopped turn: final card state = %v, want stopped (not running, not failed)", pls)
 	}
 }
 
@@ -117,6 +117,7 @@ func TestTaskCardHeartbeat_LongSilentToolCall(t *testing.T) {
 	key := "discord:silent"
 	e, p, as, state := newHeartbeatTestEngine(t, key)
 	e.display.TaskCard.StallAfter = 15 * time.Second
+	e.display.TaskCard.ToolStallAfter = 15 * time.Second // a tool in flight uses its own threshold
 	session := e.sessions.GetOrCreateActive(key)
 	go func() {
 		as.events <- Event{Type: EventToolUse, ToolName: "Bash", ToolInput: "go test ./... # 10+ 分钟"}
@@ -340,5 +341,75 @@ func TestTaskCardHeartbeat_CurrentClearedWhenToolMessagesHidden(t *testing.T) {
 	}
 	if leaked {
 		t.Fatalf("stale current leaked past the tool result")
+	}
+}
+
+func TestTaskCardHeartbeat_LongToolNotStalledAtTurnThreshold(t *testing.T) {
+	// card clock runs 100x: 450ms real silence = 45s, past StallAfter (15s) but not ToolStallAfter
+	base := time.Now()
+	defer func(old func() time.Time) { progressClock = old }(progressClock)
+	progressClock = func() time.Time { return base.Add(100 * time.Since(base)) }
+	key := "discord:long-build"
+	e, p, as, state := newHeartbeatTestEngine(t, key)
+	e.display.TaskCard.StallAfter = 15 * time.Second // ToolStallAfter left at its default (30m)
+	session := e.sessions.GetOrCreateActive(key)
+	go func() {
+		as.events <- Event{Type: EventToolUse, ToolName: "Bash", ToolInput: "make build"}
+		time.Sleep(450 * time.Millisecond)
+		as.events <- Event{Type: EventToolResult, ToolName: "Bash", Content: "ok"}
+		as.events <- Event{Type: EventResult, Content: "编好了", Done: true}
+	}()
+	e.processInteractiveEvents(state, session, e.sessions, key, "m1", time.Now(), nil, nil, state.replyCtx)
+	beats := 0
+	for _, pl := range heartbeatPayloads(p) {
+		if pl.Heartbeat && pl.Current == "Bash" {
+			beats++
+			if pl.Stalled {
+				t.Fatalf("a build still running at %ds idle is marked stalled", pl.IdleSec)
+			}
+		}
+	}
+	if beats == 0 {
+		t.Fatal("no heartbeat while the tool ran")
+	}
+}
+
+func TestTaskCardHeartbeat_IdleWithoutToolStallsAtTurnThreshold(t *testing.T) {
+	w := &compactProgressWriter{now: progressClock, stallAfter: time.Second, toolStallAfter: time.Hour}
+	w.lastEventAt = w.now().Add(-2 * time.Second)
+	if !w.liveState().stalled {
+		t.Fatal("no tool in flight: 2s idle past a 1s threshold must be stalled")
+	}
+	w.current = "Bash"
+	if w.liveState().stalled {
+		t.Fatal("tool in flight: the tool threshold (1h) applies, not the turn one")
+	}
+	w.toolStallAfter = 0
+	if w.liveState().stalled {
+		t.Fatal("task_card_tool_stall_secs = 0 means a running tool is never marked stalled")
+	}
+}
+
+func TestTaskCardHeartbeat_StopDuringPermissionPromptIsStopped(t *testing.T) {
+	key := "discord:stop-permission"
+	e, p, as, state := newHeartbeatTestEngine(t, key)
+	session := e.sessions.GetOrCreateActive(key)
+	go func() {
+		as.events <- Event{Type: EventToolUse, ToolName: "Write", ToolInput: `{"file_path":"/tmp/a.go"}`}
+		as.events <- Event{Type: EventPermissionRequest, RequestID: "unanswered", ToolName: "Write"}
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			state.mu.Lock()
+			waiting := state.pending != nil
+			state.mu.Unlock()
+			if waiting {
+				break
+			}
+		}
+		state.markStopped() // the user stops the turn while the prompt is unanswered
+	}()
+	e.processInteractiveEvents(state, session, e.sessions, key, "stop-perm", time.Now(), nil, nil, state.replyCtx)
+	pls := heartbeatPayloads(p)
+	if len(pls) == 0 || pls[len(pls)-1].State != ProgressCardStateStopped {
+		t.Fatalf("stop during a permission prompt: final card state = %v, want stopped", pls)
 	}
 }

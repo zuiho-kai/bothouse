@@ -366,6 +366,8 @@ func (c TaskCardCfg) withDefaults() TaskCardCfg {
 		OpenAfter:  def(c.OpenAfter, 0), // off: only tool calls open a card (reply latency is not a task signal)
 		Heartbeat:  def(c.Heartbeat, 10*time.Second),
 		StallAfter: def(c.StallAfter, 180*time.Second),
+		// a tool in flight (build, tests) is silent for minutes without being stuck
+		ToolStallAfter: def(c.ToolStallAfter, 30*time.Minute),
 	}
 }
 
@@ -375,6 +377,8 @@ type TaskCardCfg struct {
 	OpenAfter  time.Duration // opt-in: also open a card once a turn runs this long (default off; tool calls always open one)
 	Heartbeat  time.Duration // refresh the running card this often, with no model cooperation
 	StallAfter time.Duration // mark the card stalled after this long with no new agent event
+	// ToolStallAfter replaces StallAfter while a tool is in flight
+	ToolStallAfter time.Duration
 }
 
 // InstantReplyCfg controls the immediate confirmation reply sent when a message
@@ -5495,10 +5499,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	board := e.boardBegin(state, sessionKey)
 	cp.onStep = board.step
 	defer func() { board.finish(state, BoardDoneStopped) }()
-	// Covers cancellation and early exits without overwriting a completed card.
+	// Covers cancellation and early exits without overwriting a completed card:
+	// a user stop is "stopped" (wherever the loop was waiting, a permission
+	// prompt included), any other exit while running is a failure.
+	stopped := false
 	defer func() {
 		if cp.state == ProgressCardStateRunning {
-			cp.Finalize(ProgressCardStateFailed)
+			if stopped || state.isStopped() {
+				cp.Finalize(ProgressCardStateStopped)
+			} else {
+				cp.Finalize(ProgressCardStateFailed)
+			}
 		}
 	}()
 
@@ -5549,7 +5560,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// Task card heartbeat: open the card for a long turn and keep it alive (elapsed, tool in
 	// flight, time since the last event, stall mark) without any model cooperation.
 	tc := e.display.TaskCard.withDefaults()
-	cp.stallAfter = tc.StallAfter
+	cp.stallAfter, cp.toolStallAfter = tc.StallAfter, tc.ToolStallAfter
 	cp.lazy = true // only a tool call (or opt-in OpenAfter) opens the card; chat never does
 	var heartbeatTick <-chan time.Time
 	if cp.Active() && cp.style == progressStyleCard && tc.Heartbeat > 0 {
@@ -5577,6 +5588,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		handlingSince.Store(0)
 		select {
 		case <-stopCh:
+			stopped = true
 			sp.discard()
 			return
 		case event, ok = <-events:
@@ -5855,7 +5867,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
 				thinkMax := e.display.ThinkingMaxLen
-				if dp, ok := p.(ProgressCardDetailProvider); ok && normalizeProgressCardDetail(dp.ProgressCardDetail()) == "full" {
+				// progress_card_detail is a card setting: plain thinking messages keep thinking_max_len
+				if dp, ok := p.(ProgressCardDetailProvider); ok && cp.Active() && cp.style == progressStyleCard &&
+					normalizeProgressCardDetail(dp.ProgressCardDetail()) == "full" {
 					if thinkMax > 0 && thinkMax < 1200 {
 						thinkMax = 1200
 					}
@@ -6885,7 +6899,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.ctx, queuedRenderer)
 				cp = newCompactProgressWriter(e.ctx, queued.platform, markAgentReply(queued.platform, queued.replyCtx), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
 				cp.lazy = true
-				cp.stallAfter = tc.StallAfter
+				cp.stallAfter, cp.toolStallAfter = tc.StallAfter, tc.ToolStallAfter
 				lastBeat = time.Time{}
 				board = e.boardBegin(state, sessionKey) // maomao fork: the queued turn's board row
 				cp.onStep = board.step

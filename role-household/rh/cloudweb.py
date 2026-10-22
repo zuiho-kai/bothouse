@@ -72,7 +72,7 @@ MAX_BOT_CHARS = MAX_FRAME
 # 进度卡片的前缀。来源：conest bridge/core/progress_compact.go ProgressCardPayloadPrefix。
 PROGRESS_PREFIX = "__cc_connect_progress_card_v1__:"
 # 卡片标题里的状态字、一行的写法：照 conest bridge/platform/discord/progress.go（discordProgress*Text、buildDiscordProgressLineN）。
-CARD_STATES = {"running": "处理中", "completed": "已完成", "failed": "失败"}
+CARD_STATES = {"running": "处理中", "completed": "已完成", "failed": "失败", "stopped": "已停止"}
 CARD_ICONS = {"thinking": "💭", "tool_use": "🔧", "tool_result": "🧾", "error": "❌"}
 CARD_LINE_LEN = 80  # payload 没带 line_len 时一行多少字。来源：discord/progress.go maxDiscordProgressLineLen。
 # 这些开头的是 cc-connect 的状态提示，不转给队友。来源：conest bridge/platform/discord/discord.go isBotNotice。

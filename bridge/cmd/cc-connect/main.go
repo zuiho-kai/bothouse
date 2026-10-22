@@ -2116,12 +2116,12 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 
 // taskCardCfg maps the [display] task_card_* settings onto the engine.
 func taskCardCfg(cfg *config.Config, proj *config.ProjectConfig) core.TaskCardCfg {
-	after, hb, stall := config.EffectiveTaskCard(cfg, proj)
+	after, hb, stall, toolStall := config.EffectiveTaskCard(cfg, proj)
 	secs := func(n int) time.Duration { // config 0 = off; engine zero value = default
 		if n <= 0 {
 			return -1
 		}
 		return time.Duration(n) * time.Second
 	}
-	return core.TaskCardCfg{OpenAfter: secs(after), Heartbeat: secs(hb), StallAfter: secs(stall)}
+	return core.TaskCardCfg{OpenAfter: secs(after), Heartbeat: secs(hb), StallAfter: secs(stall), ToolStallAfter: secs(toolStall)}
 }

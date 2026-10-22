@@ -205,10 +205,13 @@ type DisplayConfig struct {
 	// Task card (progress_style = "card"): only a tool call opens it; task_card_after_secs > 0
 	// (opt-in) also opens one for a turn running that long without a tool; while the turn runs
 	// the gateway refreshes it every task_card_heartbeat_secs (0 = off) and marks it stalled
-	// after task_card_stall_secs with no new event (0 = never). Defaults 0 (off) / 10 / 180.
+	// after task_card_stall_secs with no new event (0 = never); while a tool is in flight the
+	// threshold is task_card_tool_stall_secs instead, since a build or test prints nothing for
+	// minutes. Defaults 0 (off) / 10 / 180 / 1800.
 	TaskCardAfterSecs     *int `toml:"task_card_after_secs"`
 	TaskCardHeartbeatSecs *int `toml:"task_card_heartbeat_secs"`
 	TaskCardStallSecs     *int `toml:"task_card_stall_secs"`
+	TaskCardToolStallSecs *int `toml:"task_card_tool_stall_secs"`
 }
 
 // StreamPreviewConfig controls real-time streaming preview in IM.
@@ -1024,9 +1027,9 @@ func EffectiveHistoryMaxLen(cfg *Config, proj *ProjectConfig) int {
 	return 1000
 }
 
-// EffectiveTaskCard returns the task-card open-after, heartbeat and stall thresholds in
-// seconds (project > global > defaults 0 / 10 / 180; negative values count as 0).
-func EffectiveTaskCard(cfg *Config, proj *ProjectConfig) (after, heartbeat, stall int) {
+// EffectiveTaskCard returns the task-card open-after, heartbeat, stall and tool-stall
+// thresholds in seconds (project > global > defaults 0 / 10 / 180 / 1800; negative values count as 0).
+func EffectiveTaskCard(cfg *Config, proj *ProjectConfig) (after, heartbeat, stall, toolStall int) {
 	pick := func(get func(*DisplayConfig) *int, def int) int {
 		v := def
 		if cfg != nil {
@@ -1047,6 +1050,7 @@ func EffectiveTaskCard(cfg *Config, proj *ProjectConfig) (after, heartbeat, stal
 	after = pick(func(d *DisplayConfig) *int { return d.TaskCardAfterSecs }, 0)
 	heartbeat = pick(func(d *DisplayConfig) *int { return d.TaskCardHeartbeatSecs }, 10)
 	stall = pick(func(d *DisplayConfig) *int { return d.TaskCardStallSecs }, 180)
+	toolStall = pick(func(d *DisplayConfig) *int { return d.TaskCardToolStallSecs }, 1800)
 	return
 }
 

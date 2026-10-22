@@ -129,6 +129,7 @@ level = "info" # debug, info, warn, error
 # task_card_after_secs = 0       # 任务卡片只在有工具调用时开；设 N>0 时没有工具但一轮超过 N 秒也开（默认 0 关：回复慢的闲聊不开卡）
 # task_card_heartbeat_secs = 10  # 一轮进行中由网关每 N 秒刷新卡片：仍在运行、当前工具、已用时、距最近动静（0 = 关）
 # task_card_stall_secs = 180     # 超过 N 秒没有任何新事件，卡片标记“疑似卡住”（0 = 不标）
+# task_card_tool_stall_secs = 1800 # 有工具在跑时（build、跑测试常常几分钟没输出）改用这个阈值（0 = 工具在跑时不标）
 #                                # 过滤 agent 自己混入正文的模型/token 统计 footer 行（默认 false 不过滤）
 
 # Per-project override: each [[projects]] entry may have its own [projects.display]

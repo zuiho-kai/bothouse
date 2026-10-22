@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -137,5 +138,125 @@ func TestSummarizeProgressStepDetailMatchesBrief(t *testing.T) {
 	}
 	if got := SummarizeProgressStepDetail(ProgressCardEntry{Kind: ProgressEntryToolResult, Text: "   "}, "zh", progressStepTargetMax, true); got != "" {
 		t.Fatalf("empty output = %q, want empty line", got)
+	}
+}
+
+// sizedDetailPlatform adds progress_card_entries to detailTestPlatform.
+type sizedDetailPlatform struct {
+	detailTestPlatform
+	entries int
+}
+
+func (p *sizedDetailPlatform) ProgressCardEntries() int       { return p.entries }
+func (p *sizedDetailPlatform) ProgressCardLineLen() int       { return 80 }
+func (p *sizedDetailPlatform) ProgressCardHideThinking() bool { return false }
+
+func TestProgressCardEntriesExplicitOneKeepsOneStep(t *testing.T) {
+	for _, tc := range []struct {
+		detail  string
+		entries int
+		want    int
+	}{
+		{"brief", 0, ProgressCardVisibleSteps}, // unset: default 3
+		{"brief", 1, 1},                        // explicit 1 is honoured
+		{"brief", 6, 6},
+		{"full", 1, 8}, // full shows at least 8
+		{"full", 12, 12},
+	} {
+		p := &sizedDetailPlatform{detailTestPlatform: detailTestPlatform{detail: tc.detail}, entries: tc.entries}
+		w := newCompactProgressWriter(context.Background(), p, progressHintReplyCtx{style: progressStyleCard, payload: true}, "cc", LangChinese, nil)
+		if got := w.maxSteps(); got != tc.want {
+			t.Errorf("detail=%s entries=%d: maxSteps = %d, want %d", tc.detail, tc.entries, got, tc.want)
+		}
+	}
+}
+
+func TestProgressStepTextsFollowCardLanguage(t *testing.T) {
+	use := ProgressCardEntry{Kind: ProgressEntryToolUse, Tool: "Read", Text: `{"file_path":"/a/b/main.go"}`}
+	failed := false
+	res := ProgressCardEntry{Kind: ProgressEntryToolResult, Tool: "Bash", Success: &failed}
+	for lang, want := range map[string][2]string{
+		"zh":    {"📖 读文件 · main.go", "⚠️ 失败 · 运行命令"},
+		"zh-TW": {"📖 讀檔案 · main.go", "⚠️ 失敗 · 執行命令"},
+		"ja":    {"📖 ファイル読込 · main.go", "⚠️ 失敗 · コマンド実行"},
+		"es":    {"📖 Leer · main.go", "⚠️ falló · Ejecutar"},
+		"en":    {"📖 Read · main.go", "⚠️ failed · Run"},
+	} {
+		if got := SummarizeProgressStep(use, lang); got != want[0] {
+			t.Errorf("%s tool use = %q, want %q", lang, got, want[0])
+		}
+		if got := SummarizeProgressStep(res, lang); got != want[1] {
+			t.Errorf("%s failed result = %q, want %q", lang, got, want[1])
+		}
+	}
+	ok := true
+	out := ProgressCardEntry{Kind: ProgressEntryToolResult, Tool: "Bash", Text: "PASS", Success: &ok}
+	if got := SummarizeProgressStepDetail(out, "en", 40, true); got != "🧾 Output · PASS" {
+		t.Errorf("full output line in English = %q", got)
+	}
+}
+
+func TestProgressLiveLineFollowsCardLanguage(t *testing.T) {
+	for lang, want := range map[string]string{
+		"zh":    "⚠️ 疑似卡住 · 已 12分34秒 · 当前：Bash · 最近动静 10分10秒前",
+		"zh-TW": "⚠️ 疑似卡住 · 已 12分34秒 · 目前：Bash · 最近動靜 10分10秒前",
+		"ja":    "⚠️ 停止の疑い · 経過 12分34秒 · 実行中：Bash · 最終イベント 10分10秒前",
+		"es":    "⚠️ posiblemente atascado · 12m34s · ahora: Bash · último evento hace 10m10s",
+		"en":    "⚠️ possibly stalled · 12m34s · now: Bash · last event 10m10s ago",
+	} {
+		if got := ProgressLiveLine(lang, 754, 610, "Bash", true); got != want {
+			t.Errorf("%s live line = %q, want %q", lang, got, want)
+		}
+	}
+	if got := ProgressLiveLine("en", 3700, 0, "", false); got != "⏳ still running · 1h1m" {
+		t.Errorf("hour format = %q", got)
+	}
+}
+
+func TestProgressCardI18nKeysHaveEveryLanguage(t *testing.T) {
+	for _, key := range []MsgKey{
+		MsgProgressVerbShell, MsgProgressVerbRead, MsgProgressVerbEdit, MsgProgressVerbWrite,
+		MsgProgressVerbSearch, MsgProgressVerbGlob, MsgProgressVerbFetch, MsgProgressVerbWebSearch,
+		MsgProgressVerbAgent, MsgProgressVerbTodo, MsgProgressVerbTool, MsgProgressStepFailed,
+		MsgProgressStepOutput, MsgProgressLiveRunning, MsgProgressLiveStalled, MsgProgressLiveElapsed,
+		MsgProgressLiveCurrent, MsgProgressLiveIdle, MsgProgressDurHM, MsgProgressDurMS, MsgProgressDurS,
+	} {
+		for _, lang := range []Language{LangEnglish, LangChinese, LangTraditionalChinese, LangJapanese, LangSpanish} {
+			if strings.TrimSpace(messages[key][lang]) == "" {
+				t.Errorf("%s has no %s text", key, lang)
+			}
+		}
+	}
+}
+
+// legacyFullDetailPlatform is a legacy-style (no card) platform that still reports full detail.
+type legacyFullDetailPlatform struct{ stubPlatformEngine }
+
+func (p *legacyFullDetailPlatform) ProgressCardDetail() string { return "full" }
+
+func TestProgressCardDetailFullLeavesPlainThinkingMessagesAlone(t *testing.T) {
+	p := &legacyFullDetailPlatform{stubPlatformEngine{n: "telegram"}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.SetDisplayConfig(DisplayCfg{ThinkingMessages: true, ThinkingMaxLen: 20, ToolMaxLen: 500, ToolMessages: true})
+	key := "telegram:full-legacy"
+	session := e.sessions.GetOrCreateActive(key)
+	as := newControllableSession("s-full-legacy")
+	state := &interactiveState{agentSession: as, platform: p, replyCtx: "ctx-full-legacy"}
+	e.interactiveStates[key] = state
+	long := strings.Repeat("想", 100)
+	as.events <- Event{Type: EventThinking, Content: long}
+	as.events <- Event{Type: EventResult, Content: "done", Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, key, "m1", time.Now(), nil, nil, state.replyCtx)
+	seen := false
+	for _, m := range p.getSent() {
+		if n := strings.Count(m, "想"); n > 0 {
+			seen = true
+			if n > 20 {
+				t.Fatalf("thinking message kept %d runes; thinking_max_len (20) must hold outside cards: %q", n, m)
+			}
+		}
+	}
+	if !seen {
+		t.Fatalf("no thinking message sent: %#v", p.getSent())
 	}
 }
