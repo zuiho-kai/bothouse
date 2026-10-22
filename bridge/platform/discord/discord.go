@@ -796,6 +796,11 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		m.ReferencedMessage = nil // its quote is already in the channel history
 	}
 	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.botID))
+	// bodySelf: the text itself @-s this bot (user, nickname or managed-role mention), as opposed to
+	// being addressed only as the reply target or by @everyone.
+	bodySelf := strings.Contains(m.Content, "<@"+p.botID+">") || strings.Contains(m.Content, "<@!"+p.botID+">") ||
+		(botRoleID != "" && strings.Contains(m.Content, "<@&"+botRoleID+">"))
+	humanReply := !fromBot && m.GuildID != "" && m.Type == discordgo.MessageTypeReply
 	m.Content = teamRoleMentions(m.Content, m.GuildID, p.botID) // maomao fork: <@&teammate role> → <@teammate>
 	replyAll := false
 	if m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
@@ -806,14 +811,24 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		replyAll = p.replyAllHere(m.GuildID, m.ChannelID, parent)
 	}
 	if mentioned && replyAll {
-		m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
+		if humanReply {
+			m.Content = labelSelfMention(m.Content, p.botID, botRoleID, p.botName)
+		} else {
+			m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
+		}
 	}
 	if m.GuildID != "" && !replyAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
 			return
 		}
-		m.Content = stripDiscordMentionWithRole(m.Content, p.botID, botRoleID)
+		if humanReply {
+			// Keep "@name(你)" in a reply: stripped, the quote looked like the whole message and
+			// the bot did not see it was called (2026-10-22, 彩虹猫 stayed silent).
+			m.Content = labelSelfMention(m.Content, p.botID, botRoleID, p.botName)
+		} else {
+			m.Content = stripDiscordMentionWithRole(m.Content, p.botID, botRoleID)
+		}
 		if m.MentionEveryone {
 			m.Content = stripEveryoneHere(m.Content)
 		}
@@ -842,6 +857,13 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	rctx.lead = p.dispatchedBy(fromBot, mentioned, m.Author.ID, m.Content)
+	// A person's message hands this sub's answer back to the lead only when the text @-s this sub
+	// itself and does not reply to the lead. Being only the reply target is not "@lead and @sub
+	// together"; replying to the lead is talking to her, so she answers herself (gate.py co_mention
+	// says the same) instead of answering once now and again on the sub's @.
+	if !fromBot && (!bodySelf || (m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil && m.ReferencedMessage.Author.ID == p.teamLead)) {
+		rctx.lead = ""
+	}
 
 	images, files, audio := classifyAttachments(m.Attachments, downloadURL)
 
@@ -851,7 +873,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 		// maomao fork: a bare @ means "look at what's going on" — keep it so the
 		// turn starts and the channel backfill shows the context.
-		m.Content = "（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）"
+		m.Content = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
 	}
 
 	// Prepend the replied-to message's content and images so the agent has context.

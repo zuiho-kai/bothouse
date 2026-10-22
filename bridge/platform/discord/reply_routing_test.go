@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -60,11 +61,14 @@ func TestReplyRouting_RecipientMatrix(t *testing.T) {
 	}{
 		{name: "own_reply_ping_off", target: "100", wantMain: true},
 		{name: "own_reply_ping_on", target: "100", ping: true, wantMain: true},
-		{name: "retarget_main", target: "200", ping: true, content: "<@100> 接手", wantMain: true},
-		{name: "retarget_sub", target: "100", ping: true, content: "<@200> 接手", wantSub: true},
-		{name: "nick_mention", target: "200", ping: true, content: "<@!100> 接手", wantMain: true},
-		{name: "role_mention_main", target: "200", ping: true, content: "<@&110> 接手", wantMain: true},
-		{name: "role_mention_sub", target: "100", ping: true, content: "<@&210> 接手", wantSub: true},
+		// Replying to one bot while @-ing another calls both (2026-10-22, user: 「好像我回你的时候同时艾特彩虹猫，你们都不理我」).
+		{name: "reply_sub_at_main", target: "200", ping: true, content: "<@100> 接手", wantMain: true, wantSub: true},
+		{name: "reply_main_at_sub", target: "100", ping: true, content: "<@200> 接手", wantMain: true, wantSub: true},
+		{name: "nick_mention", target: "200", ping: true, content: "<@!100> 接手", wantMain: true, wantSub: true},
+		{name: "role_mention_main", target: "200", ping: true, content: "<@&110> 接手", wantMain: true, wantSub: true},
+		{name: "reply_main_role_at_sub", target: "100", ping: true, content: "<@&210> 你也看看", wantMain: true, wantSub: true},
+		{name: "reply_main_role_at_sub_ping_off", target: "100", content: "<@&210> 你也看看", wantMain: true, wantSub: true},
+		{name: "reply_main_at_third_party", target: "100", content: "<@300> 你看看", wantMain: true},
 		{name: "both_explicit", target: "200", content: "<@100> <@200> 一起看", wantMain: true, wantSub: true},
 		{name: "third_party_bot", target: "300"},
 		{name: "command_reply_only_to_sub", target: "200", content: "/new", wantSub: true},
@@ -80,6 +84,7 @@ func TestReplyRouting_RecipientMatrix(t *testing.T) {
 		{name: "dm_keeps_policy", target: "300", dm: true, wantMain: true, wantSub: true},
 		{name: "ordinary_unaddressed", wantMain: true},
 		{name: "ordinary_mention", content: "<@200> 继续", wantMain: true, wantSub: true},
+		{name: "ordinary_role_mention_sub", content: "<@&210> 继续", wantMain: true, wantSub: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,5 +142,74 @@ func TestReplyRouting_RecipientMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// What each bot reads for the user's 2026-10-22 messages: a reply to 100 that @-s 200's role, and a
+// bare @ of 200's role. 200 must see it was called (its own @ kept as "@name(你)", not stripped) and
+// the bare @ must say the user is waiting; 200's answer is not handed back to 100 (replying to 100 is
+// talking to 100, who answers itself).
+func TestReplyRouting_CalledBotSeesItsMention(t *testing.T) {
+	run := func(id string, m *discordgo.MessageCreate) *core.Message {
+		var got *core.Message
+		p := &Platform{botID: id, botName: "bot" + id, allowFrom: "*", teamLead: "100"}
+		if id == "100" {
+			p.groupReplyAllGuilds = []string{"*"}
+		}
+		p.botRoleIDs.Store("guild", map[string]string{"100": "110", "200": "210"}[id])
+		p.channelNameCache.Store("channel", "test")
+		p.handler = func(_ core.Platform, msg *core.Message) { got = msg }
+		cp := *m.Message
+		p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &cp})
+		return got
+	}
+	reply := func(target, content string) *discordgo.MessageCreate {
+		return &discordgo.MessageCreate{Message: &discordgo.Message{ID: "m-" + target + content, GuildID: "guild", ChannelID: "channel",
+			Author: &discordgo.User{ID: "human"}, Timestamp: time.Now(), Type: discordgo.MessageTypeReply, Content: content,
+			MessageReference:  &discordgo.MessageReference{MessageID: "original"},
+			ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: target, Bot: true, Username: "bot" + target}, Content: "上一条"}}}
+	}
+
+	m := reply("100", "<@&210> 你也看看")
+	main, sub := run("100", m), run("200", m)
+	if main == nil || !main.Mentioned || sub == nil || !sub.Mentioned {
+		t.Fatalf("both must be addressed: main=%+v sub=%+v", main, sub)
+	}
+	if !strings.Contains(sub.Content, "@bot200(你) 你也看看") {
+		t.Errorf("sub must see its own @ marked, got %q", sub.Content)
+	}
+	if lead := sub.ReplyCtx.(replyContext).lead; lead != "" {
+		t.Errorf("reply to the lead must not be handed back to it, lead=%q", lead)
+	}
+
+	// Explicit @lead @sub in a plain message: the sub still hands its answer back (issue #182).
+	plain := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "plain", GuildID: "guild", ChannelID: "channel",
+		Author: &discordgo.User{ID: "human"}, Timestamp: time.Now(), Content: "<@100> <@200> 帮我算",
+		Mentions: []*discordgo.User{{ID: "100", Bot: true}, {ID: "200", Bot: true}}}}
+	if got := run("200", plain); got == nil || got.ReplyCtx.(replyContext).lead != "100" {
+		t.Errorf("explicit co-mention must still return to the lead: %+v", got)
+	}
+
+	// Reply to the sub and @ the lead: the sub is only the reply target, so the lead answers itself
+	// and the sub's answer does not @ it again.
+	m = reply("200", "<@100> 你看看")
+	if got := run("200", m); got == nil || got.ReplyCtx.(replyContext).lead != "" {
+		t.Errorf("sub as reply target must not return to the lead: %+v", got)
+	}
+
+	// Reply to the sub without any @: only the sub, and its text is unchanged (old behavior).
+	m = reply("200", "继续")
+	if run("100", m) != nil {
+		t.Error("lead must not get a reply to the sub")
+	}
+	if got := run("200", m); got == nil || !strings.HasSuffix(got.Content, "\n继续") {
+		t.Errorf("sub reply text changed: %+v", got)
+	}
+
+	bare := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "bare", GuildID: "guild", ChannelID: "channel",
+		Author: &discordgo.User{ID: "human"}, Timestamp: time.Now(), Content: "<@&210>"}}
+	got := run("200", bare)
+	if got == nil || !got.Mentioned || !strings.Contains(got.Content, "用户 @ 了你，在等你回复") {
+		t.Fatalf("bare @ must reach the bot as a call it has to answer: %+v", got)
 	}
 }
