@@ -144,14 +144,6 @@ What works today is step one: one group, several AIs, one shared memory. What we
 
 Want to see this happen? Star the repo to follow along.
 
-## Current limits
-
-- No release yet. The one-liner will work once the first one ships.
-- Feishu is single-role. The DSH web channel is experimental.
-- Team memory needs the dispatcher (gate) and the wiki installed separately. The first pass over your history can run for hours and use real quota. The dispatcher's local model runs only on Apple Silicon Macs; other machines fall back to fixed rules or a hosted model.
-- Memory search is keyword matching only. No vectors.
-- No benchmark numbers. We'll publish how much more accurate or cheaper it is once we've measured it.
-
 ## How it works
 
 ```
