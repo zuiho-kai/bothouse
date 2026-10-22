@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { color, PALETTE } from '../packages/client-ui-discord/src/client/theme.ts'
@@ -344,7 +344,6 @@ for (const mode of ['light', 'dark', 'system']) {
     '--window-size=1280,800',
     `file://${tempHtmlPath}`,
   ])
-  unlinkSync(tempHtmlPath)
   console.log(`Saved: ${outPngPath}`)
 }
 
@@ -362,7 +361,6 @@ for (const drawer of ['rooms', 'members']) {
     '--window-size=375,667',
     `file://${tempHtmlPath}`,
   ])
-  unlinkSync(tempHtmlPath)
   console.log(`Saved: ${outPngPath}`)
 }
 
