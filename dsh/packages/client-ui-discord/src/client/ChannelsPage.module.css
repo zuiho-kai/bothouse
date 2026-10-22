@@ -716,3 +716,11 @@
   color: var(--dsw-alias-label-primary);
   background: transparent;
 }
+
+.reconnecting {
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 13px;
+}

@@ -16,6 +16,7 @@ export interface RoomViewProps {
   logRef: RefObject<HTMLDivElement>
   inputRef: RefObject<HTMLTextAreaElement>
   messages: readonly ChannelMessage[]
+  reconnecting: boolean
   membersById: ReadonlyMap<string, ChannelMember>
   busyNames: readonly string[]
   draft: string
@@ -45,6 +46,7 @@ export function RoomView({
   logRef,
   inputRef,
   messages,
+  reconnecting,
   membersById,
   busyNames,
   draft,
@@ -75,6 +77,7 @@ export function RoomView({
         onToggleMembers={onToggleMembers}
         t={t}
       />
+      {reconnecting && <div className={css.reconnecting} role="status">{t('reconnecting')}</div>}
       <MessageList
         logRef={logRef}
         messages={messages}

@@ -12,6 +12,7 @@ const ready: ChannelSnapshot = {
   rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], roomId: 1,
   members: [{ id: 'ju', name: '橘', kind: 'bot', online: true }], thinking: { 1: ['ju'] },
   messages: [{ id: 1, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '<script>alert(1)</script>', created_at: 1, card: null, from_turn: null }],
+  hasMoreOlder: false, outbox: [],
 }
 
 function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async () => {}): ChannelsPageProps {
@@ -262,5 +263,26 @@ describe('channels page', () => {
     expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
     expect(aside?.className).not.toContain('drawerOpen')
     expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('@橘 ')
+  })
+
+  it('keeps the channel view while reconnecting and says so', () => {
+    render(<ChannelsPage {...props({ ...ready, phase: 'reconnecting' })} />)
+    expect(screen.getByRole('status').textContent).toContain(zh.reconnecting)
+    expect(screen.getByText('<script>alert(1)</script>')).toBeTruthy()
+  })
+
+  it('loads older messages when scrolled to the top, one page at a time and only while more exist', async () => {
+    const loadOlder = vi.fn(async () => 0)
+    const view = render(<ChannelsPage {...{ ...props({ ...ready, hasMoreOlder: true }), loadOlder }} />)
+    const log = screen.getByRole('log')
+    log.scrollTop = 0
+    fireEvent.scroll(log)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    fireEvent.scroll(log)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    await act(async () => {})
+    view.rerender(<ChannelsPage {...{ ...props({ ...ready, hasMoreOlder: false }), loadOlder }} />)
+    fireEvent.scroll(screen.getByRole('log'))
+    expect(loadOlder).toHaveBeenCalledTimes(1)
   })
 })
