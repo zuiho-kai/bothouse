@@ -12,6 +12,7 @@ const ready: ChannelSnapshot = {
   rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], roomId: 1,
   members: [{ id: 'ju', name: '橘', kind: 'bot', online: true }], thinking: { 1: ['ju'] },
   messages: [{ id: 1, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '<script>alert(1)</script>', created_at: 1, card: null, from_turn: null }],
+  hasMoreOlder: false, outbox: [],
 }
 
 function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async () => {}): ChannelsPageProps {
@@ -181,5 +182,107 @@ describe('channels page', () => {
     confirm.mockRestore()
     fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
     expect((screen.getByLabelText(zh.memberPersona) as HTMLTextAreaElement).value).toBe('写代码')
+  })
+
+  it('supports mobile drawer toggle, channel switching, member pick and escape closing', async () => {
+    const p = props(ready)
+    const view = render(<ChannelsPage {...p} />)
+
+    const roomBtn = screen.getByRole('button', { name: zh.toggleRooms })
+    const memberBtn = screen.getByRole('button', { name: zh.toggleMembers })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Open room drawer
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    const nav = view.container.querySelector('nav')
+    expect(nav?.className).toContain('drawerOpen')
+    expect(document.activeElement).toBe(nav)
+
+    // Selecting a room closes drawer
+    fireEvent.click(screen.getByRole('button', { name: 'other' }))
+    expect(p.selectRoom).toHaveBeenCalledWith(2)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(nav?.className).not.toContain('drawerOpen')
+
+    // Open room drawer and press Escape on nav to close
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(nav!, { key: 'Escape' })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Open room drawer and press Escape on window (e.g. focus left drawer) to close
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    // Esc while IME is composing does not close drawer
+    fireEvent.keyDown(window, { key: 'Escape', isComposing: true })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Esc in new room input cancels input without closing drawer
+    fireEvent.click(roomBtn)
+    fireEvent.click(screen.getByRole('button', { name: zh.newRoom }))
+    const roomInput = screen.getByPlaceholderText(zh.newRoomPlaceholder)
+    fireEvent.change(roomInput, { target: { value: 'cancel-me' } })
+    fireEvent.keyDown(roomInput, { key: 'Escape' })
+    expect(screen.queryByPlaceholderText(zh.newRoomPlaceholder)).toBeNull()
+    expect(nav?.className).toContain('drawerOpen')
+
+    // Close button with closeDrawer label closes drawer
+    fireEvent.click(screen.getByRole('button', { name: zh.closeDrawer }))
+    expect(nav?.className).not.toContain('drawerOpen')
+
+    // Open members drawer
+    fireEvent.click(memberBtn)
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('true')
+    const aside = view.container.querySelector('aside')
+    expect(aside?.className).toContain('drawerOpen')
+    expect(document.activeElement).toBe(aside)
+
+    // Esc in MemberDialog closes dialog without closing drawer
+    fireEvent.click(screen.getByRole('button', { name: `+ ${zh.addMember}` }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toBeTruthy()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(aside?.className).toContain('drawerOpen')
+
+    // Clicking backdrop closes drawer
+    const backdrop = view.container.querySelector('[role="presentation"]')
+    expect(backdrop).toBeTruthy()
+    fireEvent.click(backdrop!)
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(aside?.className).not.toContain('drawerOpen')
+
+    // Picking a member from drawer inserts mention and closes drawer
+    fireEvent.click(memberBtn)
+    expect(aside?.className).toContain('drawerOpen')
+    fireEvent.click(screen.getByTitle('在输入框里 @橘'))
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(aside?.className).not.toContain('drawerOpen')
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('@橘 ')
+  })
+
+  it('keeps the channel view while reconnecting and says so', () => {
+    render(<ChannelsPage {...props({ ...ready, phase: 'reconnecting' })} />)
+    expect(screen.getByRole('status').textContent).toContain(zh.reconnecting)
+    expect(screen.getByText('<script>alert(1)</script>')).toBeTruthy()
+  })
+
+  it('loads older messages when scrolled to the top, one page at a time and only while more exist', async () => {
+    const loadOlder = vi.fn(async () => 0)
+    const view = render(<ChannelsPage {...{ ...props({ ...ready, hasMoreOlder: true }), loadOlder }} />)
+    const log = screen.getByRole('log')
+    log.scrollTop = 0
+    fireEvent.scroll(log)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    fireEvent.scroll(log)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    await act(async () => {})
+    view.rerender(<ChannelsPage {...{ ...props({ ...ready, hasMoreOlder: false }), loadOlder }} />)
+    fireEvent.scroll(screen.getByRole('log'))
+    expect(loadOlder).toHaveBeenCalledTimes(1)
   })
 })

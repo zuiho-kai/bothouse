@@ -22,6 +22,7 @@ export const zh = {
   error: '频道服务出错：{message}',
   empty: '这里还没有消息。@一个成员开始吧。',
   sendFailed: '发送失败：{message}',
+  reconnecting: '和频道服务的连接断了，正在重连…（重连后会补齐断线期间的消息）',
   mentionTitle: '可以 @ 的成员',
   mentionTitleQuery: '匹配「{query}」的成员',
   mentionHint: '↑↓ 选择 · Enter / Tab 确认 · Esc 关闭',
@@ -45,6 +46,9 @@ export const zh = {
   cancel: '取消',
   configMember: '来自配置文件，网页里不能修改',
   defaultModel: '默认模型',
+  toggleRooms: '切换频道列表',
+  toggleMembers: '切换成员列表',
+  closeDrawer: '关闭侧栏',
 } as const
 
 /** English dictionary. */
@@ -66,6 +70,7 @@ export const en: Record<keyof typeof zh, string> = {
   error: 'Channel service error: {message}',
   empty: 'No messages yet. @ a member to start.',
   sendFailed: 'Send failed: {message}',
+  reconnecting: 'Lost the connection to the channel service, reconnecting… (missed messages are filled in afterwards)',
   mentionTitle: 'Members you can mention',
   mentionTitleQuery: 'Members matching "{query}"',
   mentionHint: '↑↓ select · Enter / Tab confirm · Esc close',
@@ -89,6 +94,9 @@ export const en: Record<keyof typeof zh, string> = {
   cancel: 'Cancel',
   configMember: 'From the config file; not editable here',
   defaultModel: 'Default model',
+  toggleRooms: 'Toggle channel list',
+  toggleMembers: 'Toggle member list',
+  closeDrawer: 'Close sidebar',
 }
 
 /** Keys of the channel panel dictionary. */

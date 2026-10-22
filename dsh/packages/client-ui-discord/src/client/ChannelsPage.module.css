@@ -80,12 +80,73 @@
 
 .chatHead {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   height: 44px;
   padding: 0 16px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   font-weight: 600;
+}
+
+.chatTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileNavButton {
+  display: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  flex: none;
+}
+
+.mobileNavButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.drawerCloseButton {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  flex: none;
+}
+
+.drawerCloseButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.mobileBackdrop {
+  display: none;
 }
 
 .log {
@@ -123,7 +184,7 @@
   height: 36px;
   border-radius: 50%;
   corner-shape: round;
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted));
   font-weight: 700;
 }
 
@@ -155,7 +216,7 @@
 .tag {
   padding: 0 4px;
   border-radius: var(--dsw-radius-xs);
-  color: var(--dsw-alias-label-primary-inverted);
+  color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted));
   background: var(--dsw-alias-state-business-primary);
   font-size: 10px;
   font-weight: 600;
@@ -348,7 +409,7 @@
   border: 2px solid var(--dsw-alias-bg-layer-2);
   border-radius: 50%;
   corner-shape: round;
-  background: #23a55a;
+  background: var(--dsw-alias-state-success-primary);
 }
 
 .offline .presence {
@@ -375,11 +436,72 @@
 @media (max-width: 900px) {
   .page {
     grid-template-columns: minmax(0, 1fr);
+    position: relative;
+    overflow: hidden;
   }
 
-  .rooms,
+  .chatHead {
+    padding: 0 8px;
+    height: 48px;
+  }
+
+  .mobileNavButton {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .drawerCloseButton {
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .rooms {
+    display: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 260px;
+    max-width: 80vw;
+    z-index: 20;
+    box-shadow: var(--dsw-elevation-panel);
+    border-right: 1px solid var(--dsw-alias-border-l2);
+    background: var(--dsw-alias-bg-layer-2);
+  }
+
   .members {
     display: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 260px;
+    max-width: 80vw;
+    z-index: 20;
+    box-shadow: var(--dsw-elevation-panel);
+    border-left: 1px solid var(--dsw-alias-border-l2);
+    background: var(--dsw-alias-bg-layer-2);
+  }
+
+  /* Same block flow as the desktop columns; flex here laid the header, close button and list side by side. */
+  .rooms.drawerOpen,
+  .members.drawerOpen {
+    display: block;
+  }
+
+  .mobileBackdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    background: var(--dsw-alias-bg-mask-1, rgb(0 0 0 / 0.45));
   }
 }
 
@@ -388,6 +510,24 @@
   align-items: center;
   justify-content: space-between;
   padding-right: 4px;
+}
+
+.roomsHeadActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.memberPanelHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 4px;
+}
+
+.memberPanelHead .addMemberButton {
+  margin: 0;
+  flex: 1;
 }
 
 .iconButton {
@@ -427,6 +567,7 @@
 .roomInput:focus-visible,
 .fieldInput:focus-visible,
 .iconButton:focus-visible,
+.drawerCloseButton:focus-visible,
 .linkButton:focus-visible,
 .addMemberButton:focus-visible,
 .primaryButton:focus-visible,
@@ -512,7 +653,7 @@
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgb(0 0 0 / 0.45);
+  background: var(--dsw-alias-bg-mask-1, rgb(0 0 0 / 0.45));
 }
 
 .dialog {
@@ -562,7 +703,7 @@
 
 .primaryButton {
   border: 0;
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-label-primary-inverted));
   background: var(--dsw-alias-state-business-primary);
 }
 
@@ -575,4 +716,12 @@
   border: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-primary);
   background: transparent;
+}
+
+.reconnecting {
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 13px;
 }

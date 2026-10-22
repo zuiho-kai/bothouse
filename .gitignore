@@ -32,3 +32,6 @@ bridge/internal/rhhub/src/rh/
 
 # vitest cache from running dsh/vitest.config.mjs at the repo root
 node_modules/
+
+# Generated HTML previews for theme/mobile screenshots
+dsh/docs/screenshots/preview-*.html
