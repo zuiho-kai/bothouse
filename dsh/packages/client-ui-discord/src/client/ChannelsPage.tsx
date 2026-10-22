@@ -140,6 +140,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
+
+  useEffect(() => {
+    if (drawer === undefined) return
+    const onEscape = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape') setDrawer(undefined)
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => { window.removeEventListener('keydown', onEscape) }
+  }, [drawer])
 
   useEffect(() => {
     const input = inputRef.current
@@ -189,6 +199,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const pickFromList = (member: ChannelMember): void => {
+    setDrawer(undefined)
     const next = insertMention(draft, caret, member)
     setDraft(next.text, next.caret)
   }
@@ -197,7 +208,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     const name = (newRoom ?? '').trim()
     if (!name) { setNewRoom(undefined); return }
     setRoomError(undefined)
-    createRoom(name).then(() => { setNewRoom(undefined) }).catch((error: unknown) => {
+    createRoom(name).then(() => { setNewRoom(undefined); setDrawer(undefined) }).catch((error: unknown) => {
       setRoomError(error instanceof Error ? error.message : String(error))
     })
   }
@@ -262,7 +273,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
 
   return (
     <div className={css.page}>
-      <nav className={css.rooms} aria-label={t('rooms')}>
+      <nav
+        className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms}
+        aria-label={t('rooms')}
+      >
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
           <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
@@ -290,14 +304,36 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             type="button"
             className={r.id === state.roomId ? `${css.room} ${css.roomActive}` : css.room}
             aria-current={r.id === state.roomId}
-            onClick={() => { stickRef.current = true; void selectRoom(r.id) }}
+            onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
           >
             <span className={css.hash} aria-hidden>#</span>{r.name}
           </button>
         ))}
       </nav>
       <section className={css.chat}>
-        <header className={css.chatHead}><span className={css.hash} aria-hidden>#</span>{room?.name}</header>
+        <header className={css.chatHead}>
+          <button
+            type="button"
+            className={css.mobileNavButton}
+            aria-label={t('toggleRooms')}
+            title={t('toggleRooms')}
+            aria-expanded={drawer === 'rooms'}
+            onClick={() => { setDrawer(d => d === 'rooms' ? undefined : 'rooms') }}
+          >
+            ☰
+          </button>
+          <span className={css.chatTitle}><span className={css.hash} aria-hidden>#</span>{room?.name}</span>
+          <button
+            type="button"
+            className={css.mobileNavButton}
+            aria-label={t('toggleMembers')}
+            title={t('toggleMembers')}
+            aria-expanded={drawer === 'members'}
+            onClick={() => { setDrawer(d => d === 'members' ? undefined : 'members') }}
+          >
+            👥
+          </button>
+        </header>
         <div
           ref={logRef}
           className={css.log}
@@ -384,12 +420,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           </div>
         </div>
       </section>
-      <aside className={css.members}>
+      <aside
+        className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}
+        aria-label={t('panel')}
+      >
         <button type="button" className={css.addMemberButton} onClick={() => { setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
+      {drawer !== undefined && (
+        <div
+          className={css.mobileBackdrop}
+          role="presentation"
+          aria-hidden="true"
+          onClick={() => { setDrawer(undefined) }}
+        />
+      )}
       {dialog !== undefined && (
         <MemberDialog
           member={dialog ?? undefined}

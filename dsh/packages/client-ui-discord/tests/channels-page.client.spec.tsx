@@ -182,4 +182,53 @@ describe('channels page', () => {
     fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
     expect((screen.getByLabelText(zh.memberPersona) as HTMLTextAreaElement).value).toBe('写代码')
   })
+
+  it('supports mobile drawer toggle, channel switching, member pick and escape closing', async () => {
+    const p = props(ready)
+    const view = render(<ChannelsPage {...p} />)
+
+    const roomBtn = screen.getByRole('button', { name: zh.toggleRooms })
+    const memberBtn = screen.getByRole('button', { name: zh.toggleMembers })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Open room drawer
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    const nav = view.container.querySelector('nav')
+    expect(nav?.className).toContain('drawerOpen')
+
+    // Selecting a room closes drawer
+    fireEvent.click(screen.getByRole('button', { name: 'other' }))
+    expect(p.selectRoom).toHaveBeenCalledWith(2)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(nav?.className).not.toContain('drawerOpen')
+
+    // Open room drawer and press Escape to close
+    fireEvent.click(roomBtn)
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(roomBtn.getAttribute('aria-expanded')).toBe('false')
+
+    // Open members drawer
+    fireEvent.click(memberBtn)
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('true')
+    const aside = view.container.querySelector('aside')
+    expect(aside?.className).toContain('drawerOpen')
+
+    // Clicking backdrop closes drawer
+    const backdrop = view.container.querySelector('[role="presentation"]')
+    expect(backdrop).toBeTruthy()
+    fireEvent.click(backdrop!)
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(aside?.className).not.toContain('drawerOpen')
+
+    // Picking a member from drawer inserts mention and closes drawer
+    fireEvent.click(memberBtn)
+    expect(aside?.className).toContain('drawerOpen')
+    fireEvent.click(screen.getByTitle('在输入框里 @橘'))
+    expect(memberBtn.getAttribute('aria-expanded')).toBe('false')
+    expect(aside?.className).not.toContain('drawerOpen')
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('@橘 ')
+  })
 })

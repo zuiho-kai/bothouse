@@ -45,6 +45,9 @@ export const zh = {
   cancel: '取消',
   configMember: '来自配置文件，网页里不能修改',
   defaultModel: '默认模型',
+  toggleRooms: '切换频道列表',
+  toggleMembers: '切换成员列表',
+  closeDrawer: '关闭侧栏',
 } as const
 
 /** English dictionary. */
@@ -89,6 +92,9 @@ export const en: Record<keyof typeof zh, string> = {
   cancel: 'Cancel',
   configMember: 'From the config file; not editable here',
   defaultModel: 'Default model',
+  toggleRooms: 'Toggle channel list',
+  toggleMembers: 'Toggle member list',
+  closeDrawer: 'Close sidebar',
 }
 
 /** Keys of the channel panel dictionary. */
