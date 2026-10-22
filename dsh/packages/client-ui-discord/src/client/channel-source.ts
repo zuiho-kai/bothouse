@@ -201,8 +201,8 @@ export function createChannelSource(transport: ChannelTransport): {
   let reconnectToken: object | undefined
   /** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
   let outbox: OutboxMessage[] = []
-  /** One page-back request at a time, so repeated clicks cannot reorder history. */
-  let paging = false
+  /** Rooms with a page-back request in flight; a second request per room would reorder history. */
+  const paging = new Set<number>()
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -273,43 +273,36 @@ export function createChannelSource(transport: ChannelTransport): {
       const rows: ChannelMessage[] = []
       let hasMoreOlder = false
       if (roomId !== undefined) {
-        if (resume && roomId === previous.roomId) {
-          // Design §4.3: after a reconnect, catch up with `after=newestId` instead
-          // of re-reading the room. Ids are the merge key, so a row that also
-          // arrived through SSE is folded in rather than duplicated.
+        if (resume && roomId === previous.roomId && previous.messages.length > 0) {
+          // Design §4.3: a reconnect reconciles the WHOLE cached window, not just
+          // the newest page. Cards can be edited or deleted while offline and
+          // `after=` only reports rows that still exist, so the cached window is
+          // re-read from its oldest held id and the service wins for every id in
+          // it: an id the service still returns is overwritten with its current
+          // content, an id it no longer returns was deleted and is dropped.
           const merged = new Map<number, ChannelMessage>(previous.messages.map(m => [m.id, m]))
-          const newest = previous.messages.at(-1)?.id ?? 0
-          let cursor = newest
+          const oldest = previous.messages[0]!.id
+          const present = new Set<number>()
+          let cursor = oldest - 1
           while (current()) {
             const { messages } = await request<{ messages: ChannelMessage[] }>(
               'collab/api/rooms/' + roomId + '/messages?after=' + cursor + '&limit=' + CATCH_UP_LIMIT,
               { signal: read.controller.signal },
             )
             if (!current()) return
-            for (const row of messages) merged.set(row.id, row)
+            // Ids are the merge key, so a row that also arrived through SSE is
+            // folded in rather than duplicated.
+            for (const row of messages) {
+              merged.set(row.id, row)
+              present.add(row.id)
+            }
             if (messages.length < CATCH_UP_LIMIT) break
             const next = messages.at(-1)?.id
             if (next === undefined || next <= cursor) throw new Error('Channel history cursor did not advance')
             cursor = next
           }
-          // Cards can be edited or deleted while offline, and `after=` cannot see
-          // either. Re-read only the page the user was looking at (one request),
-          // and treat it as authoritative for the ids it spans; older rows keep
-          // their last seen state until the panel reloads.
-          if (newest > 0) {
-            const { messages: known } = await request<{ messages: ChannelMessage[] }>(
-              'collab/api/rooms/' + roomId + '/messages?before=' + (newest + 1) + '&limit=' + PAGE_SIZE,
-              { signal: read.controller.signal },
-            )
-            if (!current()) return
-            for (const row of known) merged.set(row.id, row)
-            // An empty page is authoritative too: it means nothing exists below
-            // `newest`, so every held row was deleted while the client was offline.
-            const windowFrom = known.length === 0 ? Number.NEGATIVE_INFINITY : known[0]!.id
-            const present = new Set(known.map(row => row.id))
-            for (const id of [...merged.keys()]) {
-              if (id >= windowFrom && id <= newest && !present.has(id)) merged.delete(id)
-            }
+          for (const id of [...merged.keys()]) {
+            if (id >= oldest && !present.has(id)) merged.delete(id)
           }
           rows.push(...[...merged.values()].sort((a, b) => a.id - b.id))
           hasMoreOlder = previous.hasMoreOlder
@@ -428,7 +421,7 @@ export function createChannelSource(transport: ChannelTransport): {
     lifetime = undefined
     reconnectToken = undefined
     attempt = 0
-    paging = false
+    paging.clear()
     pending?.controller.abort()
     pending = undefined
     if (stream !== undefined) {
@@ -529,15 +522,18 @@ export function createChannelSource(transport: ChannelTransport): {
       const owner = lifetime
       const oldest = snapshot.messages[0]?.id
       if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
-      // One page at a time: a second overlapping read could interleave pages.
-      if (paging) return 0
+      // One page at a time per room: a second overlapping read would interleave
+      // pages. Another room's page is independent and must not be blocked.
+      if (paging.has(roomId)) return 0
       if (oldest === undefined || !snapshot.hasMoreOlder) return 0
-      paging = true
+      paging.add(roomId)
       try {
         const { messages } = await request<{ messages: ChannelMessage[] }>(
           `collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`,
         )
-        if (lifetime !== owner) return 0
+        // The page belongs to the room that asked for it: after a room switch it
+        // is stale, so it is dropped rather than merged into the new room.
+        if (lifetime !== owner || snapshot.roomId !== roomId) return 0
         // Older rows and rows already on screen are one ordered set keyed by id.
         const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
         for (const row of messages) merged.set(row.id, row)
@@ -547,7 +543,7 @@ export function createChannelSource(transport: ChannelTransport): {
         })
         return messages.length
       } finally {
-        paging = false
+        paging.delete(roomId)
       }
     },
   }

@@ -21,8 +21,12 @@ const message = (id: number, text: string, roomId = 1) => ({
 })
 
 /** A transport whose message routes honour `after`, `before` and `limit`. */
-function harness(initial: ReturnType<typeof message>[] = [], options: { random?: () => number } = {}) {
+function harness(
+  initial: ReturnType<typeof message>[] = [],
+  options: { random?: () => number; rooms?: { id: number; name: string }[] } = {},
+) {
   const rows = [...initial]
+  const rooms = options.rooms ?? [{ id: 1, name: 'drame' }]
   const calls: string[] = []
   const waits: number[] = []
   const hub = new FakeEventSourceHub()
@@ -30,20 +34,23 @@ function harness(initial: ReturnType<typeof message>[] = [], options: { random?:
     fetch: (input, init) => {
       calls.push(`${init?.method ?? 'GET'} ${input}`)
       if (input.endsWith('collab/api/state')) {
-        return Promise.resolve(json(200, { rooms: [{ id: 1, name: 'drame' }], members: [], thinking: {} }))
+        return Promise.resolve(json(200, { rooms, members: [], thinking: {} }))
       }
-      if (input.includes('collab/api/rooms/1/messages')) {
+      const room = /collab\/api\/rooms\/(\d+)\/messages/.exec(input)
+      if (room !== null) {
+        const roomId = Number(room[1])
         const query = new URL(input, 'http://host/').searchParams
         const limit = Number(query.get('limit') ?? 100)
         const after = query.get('after')
         const before = query.get('before')
+        const inRoom = rows.filter(row => row.room_id === roomId)
         if (after !== null) {
-          return Promise.resolve(json(200, { messages: rows.filter(row => row.id > Number(after)).slice(0, limit) }))
+          return Promise.resolve(json(200, { messages: inRoom.filter(row => row.id > Number(after)).slice(0, limit) }))
         }
         if (before !== null) {
-          return Promise.resolve(json(200, { messages: rows.filter(row => row.id < Number(before)).slice(-limit) }))
+          return Promise.resolve(json(200, { messages: inRoom.filter(row => row.id < Number(before)).slice(-limit) }))
         }
-        return Promise.resolve(json(200, { messages: rows.slice(-limit) }))
+        return Promise.resolve(json(200, { messages: inRoom.slice(-limit) }))
       }
       return Promise.resolve(json(404, { error: 'unexpected' }))
     },
@@ -119,7 +126,7 @@ describe('channel data layer: reconnect', () => {
     stop()
   })
 
-  it('catches up with after=newestId and neither loses nor duplicates', async () => {
+  it('reconciles the whole cached window on reconnect and neither loses nor duplicates', async () => {
     const { rows, calls, hub, transport } = harness([message(1, 'a'), message(2, 'b')])
     const { channel, stop } = await ready(transport, hub)
     expect(channel.source.getSnapshot().messages.map(row => row.id)).toEqual([1, 2])
@@ -130,12 +137,12 @@ describe('channel data layer: reconnect', () => {
     await settle()
     expect(hub.attempts).toBe(2)
 
-    // Reconnect: `onopen` refetches state, then catches up from the newest known id.
+    // Reconnect: `onopen` refetches state, then re-reads from the oldest held id,
+    // so edits and deletions inside the cache are reconciled too (design §4.3).
     expect(hub.open()).toBe(true)
     await settle()
 
-    expect(calls.some(call => call.includes('after=2'))).toBe(true)
-    expect(calls.some(call => call.includes('after=1'))).toBe(false) // not a full re-read
+    expect(calls.some(call => call.includes('after=0'))).toBe(true)
     expect(channel.source.getSnapshot().messages.map(row => row.id)).toEqual([1, 2, 3, 4])
     stop()
   })
@@ -496,6 +503,81 @@ describe('channel data layer: review fixes', () => {
     await settle()
 
     expect(channel.source.getSnapshot().messages.at(-1)?.card).toBe(card('done'))
+    stop()
+  })
+
+  it('reconciles an older card that was paged into the window and edited offline', async () => {
+    const card = (state: string) => JSON.stringify({ title: '构建发布包', state })
+    // 150 rows so the first read holds only the newest page; loadOlder brings older ones in.
+    const seeded = Array.from({ length: 150 }, (_, index) => message(index + 1, `m${String(index + 1)}`))
+    seeded[20] = { ...seeded[20]!, card: card('running') }
+    const { rows, hub, transport } = harness(seeded)
+    const { channel, stop } = await ready(transport, hub)
+    const paged = await channel.actions.loadOlder()
+    expect(paged).toBeGreaterThan(0)
+    // The edited row is now inside the cached window, well below the newest page.
+    expect(channel.source.getSnapshot().messages.find(m => m.id === 21)?.card).toBe(card('running'))
+
+    // It is rewritten while the client is offline; the window must be reconciled.
+    rows[20] = { ...rows[20]!, card: card('done') }
+    hub.drop()
+    await settle()
+    expect(hub.open()).toBe(true)
+    await settle()
+
+    expect(channel.source.getSnapshot().messages.find(m => m.id === 21)?.card).toBe(card('done'))
+    stop()
+  })
+
+  it('drops an older row that was deleted offline after paging up', async () => {
+    const seeded = Array.from({ length: 150 }, (_, index) => message(index + 1, `m${String(index + 1)}`))
+    const { rows, hub, transport } = harness(seeded)
+    const { channel, stop } = await ready(transport, hub)
+    await channel.actions.loadOlder()
+    expect(channel.source.getSnapshot().messages.some(m => m.id === 21)).toBe(true)
+
+    rows.splice(rows.findIndex(row => row.id === 21), 1)
+    hub.drop()
+    await settle()
+    expect(hub.open()).toBe(true)
+    await settle()
+
+    expect(channel.source.getSnapshot().messages.some(m => m.id === 21)).toBe(false)
+    stop()
+  })
+
+  it('discards a page that arrives after the room changed and still pages the new room', async () => {
+    const rooms = [{ id: 1, name: 'one' }, { id: 2, name: 'two' }]
+    const one = Array.from({ length: 150 }, (_, index) => message(index + 1, `one${String(index + 1)}`, 1))
+    const two = Array.from({ length: 150 }, (_, index) => message(index + 1, `two${String(index + 1)}`, 2))
+    const base = harness([...one, ...two], { rooms })
+    let release: (() => void) | undefined
+    const transport: ChannelTransport = {
+      ...base.transport,
+      fetch: (input, init) => {
+        if (input.includes('/rooms/1/messages') && input.includes('before=')) {
+          return new Promise<Response>(resolve => {
+            release = () => resolve(json(200, { messages: one.slice(0, 50) }))
+          })
+        }
+        return base.transport.fetch(input, init)
+      },
+    }
+    const { channel, stop } = await ready(transport, base.hub)
+
+    const stale = channel.actions.loadOlder()
+    await settle(2)
+    // Switch rooms while room 1's page is still in flight.
+    await channel.actions.selectRoom(2)
+    expect(channel.source.getSnapshot().roomId).toBe(2)
+    // The new room can page even though room 1 still has a request out.
+    const fresh = await channel.actions.loadOlder()
+    expect(fresh).toBeGreaterThan(0)
+
+    release?.()
+    expect(await stale).toBe(0)
+    // Room 1's stale page must not leak into room 2.
+    expect(channel.source.getSnapshot().messages.every(m => m.room_id === 2)).toBe(true)
     stop()
   })
 
