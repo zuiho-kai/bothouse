@@ -1,0 +1,1 @@
+- Videos: for a video link (Bilibili, YouTube, …) run `{{UV}} run -q --script {{TOOLS}}/watchvid.py <link>`; its last line is the path of `watchvid-index.md`. Read that first, then the frames, transcript and comments it lists. Reading only the title and description is not watching the video.

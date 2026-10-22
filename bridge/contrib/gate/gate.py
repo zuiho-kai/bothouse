@@ -19,6 +19,7 @@ from pathlib import Path
 
 import ctxsvc
 from scorer_remote import NullScorer, RemoteScorer, load_jev
+import lead
 
 PORT = 9930
 MODEL = os.environ.get("GATE_MODEL", "mlx-community/Qwen3.5-4B-MLX-4bit")
@@ -39,6 +40,7 @@ SUBS = {k: v["name"] for k, v in _team["subs"].items()}
 NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _team["subs"].items()}
 NAMES[""] = LEAD_NAMES
 SUB_LIST = "、".join(SUBS.values())
+lead.configure(_team)  # 主角色可切换（lead.py）：用同一份团队文件
 
 
 def _team_text(t):
@@ -46,8 +48,8 @@ def _team_text(t):
     return (t.replace("橘、龙娘、鲸鱼娘、彩虹猫", f"{LEAD}、{SUB_LIST}")
              .replace("龙娘、鲸鱼娘、彩虹猫", SUB_LIST).replace("橘", LEAD))
 
-# 叫它、明确要它看/答
-CALL = re.compile("|".join(map(re.escape, LEAD_NAMES)) + r"|你看看|你看下|看一下|帮我|你觉得|你怎么看|怎么看|怎么办|能不能|可以吗|为什么|是什么|吗[？?]?$|[？?]\s*$")
+# 明确要它看/答（叫它的名字另看 NAMES[主角色]，主角色可切换，lead.py）
+CALL = re.compile(r"你看看|你看下|看一下|帮我|你觉得|你怎么看|怎么看|怎么办|能不能|可以吗|为什么|是什么|吗[？?]?$|[？?]\s*$")
 URL = re.compile(r"https?://\S+")
 # 纯应答/语气词 → 不出声
 ACK = re.compile(r"^(好的?|嗯+|哦+|噢+|ok|OK|行|收到|知道了|谢谢|谢了|thx|👌|👍|哈+|嘿+|[.。!！~～]+)$")
@@ -64,7 +66,15 @@ C 回复：用户在问橘、要橘做事或给意见、问大家的看法
 
 """
 PROMPT = _team_text(PROMPT)
-SUFFIX = LEAD + "{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复）："  # 末尾重提选项：不加的话偏向 A
+
+
+def _member_text(t, k):
+    """_team_text 之后的提示词，再把主 bot 换成当前主角色 k，其余成员当队友。"""
+    others = "、".join(v for j, v in lead.NAME.items() if j != k)
+    return t.replace(SUB_LIST, "\0").replace(LEAD, lead.NAME[k]).replace("\0", others)
+
+
+SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复）："  # 末尾重提选项：不加的话偏向 A
 
 ACTIONS = ["silent", "insert", "reply"]
 def make_scorer():
@@ -80,7 +90,8 @@ def make_scorer():
 
 
 scorer, SCORER_KIND = make_scorer()
-task = scorer.prepare(PROMPT, options=["A", "B", "C"], prefill="答案：")
+# 谁当主角色就用谁的名字判（lead.py）
+tasks = {k: scorer.prepare(_member_text(PROMPT, k), options=["A", "B", "C"], prefill="答案：") for k in lead.KEYS}
 
 # sub：忙时这句要不要打断她
 SUB_PROMPT = """一个 AI 成员正在处理派给她的任务，这时群里有人发了新消息。判断这条消息怎么给她：
@@ -128,12 +139,12 @@ def mentions_name(content, bot):
     return any(n in content for n in NAMES[bot])
 
 
-def judge(content, busy, buffered):
+def judge(content, busy, buffered, me=""):
     state = "正在干活（处理用户之前的请求）" if busy else "现在空闲"
     history = ""
     if buffered:
         history = "之前还没回的消息：\n" + "\n".join(f"- {b[:300]}" for b in buffered[-6:]) + "\n"
-    return task.score(SUFFIX.format(state=state, history=history, msg=content[:1500]))
+    return tasks[me].score(SUFFIX.format(name=lead.NAME[me], state=state, history=history, msg=content[:1500]))
 
 
 def decide_sub(req, bot):
@@ -148,7 +159,7 @@ def decide_sub(req, bot):
         current_task[key] = content[-500:]
         return "reply", "sub: 被点名", None
     if mentions_name(content, bot):
-        sc = named_task.score(NAMED_SUFFIX.format(name=SUBS[bot], msg=content[:1500]))
+        sc = named_task.score(NAMED_SUFFIX.format(name=lead.NAME[bot], msg=content[:1500]))
         if sc.probs[1] >= NAMED_THRESHOLD:
             current_task[key] = content[-500:]
             return "reply", "sub model: 提到且在叫她", sc
@@ -156,26 +167,40 @@ def decide_sub(req, bot):
             return "context", "sub model: 只是提到", sc
     if not req.get("busy") or not current_task.get(key):
         return "context", "sub: 空闲，记作增量", None
-    sc = sub_task.score(SUB_SUFFIX.format(name=SUBS[bot], task=current_task[key], msg=content[:1500]))
+    sc = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task[key], msg=content[:1500]))
     return ("context", "insert")[sc.choice], "sub model", sc
 
 
-def decide(req):
+def route(req, bot=""):
+    """用户切换主角色的那句先处理（lead.py）；其余按当前主角色分流：主角色走主的规则，其他成员走 sub 的规则。"""
+    content = (req.get("content") or "").strip()
+    target = lead.parse(req, content, bot)
+    if target is not None:
+        lead.set_lead(target)
+        if bot == target:
+            return "reply", f"rule: 用户把主角色切到{lead.NAME[target]}", None
+        return "context", f"rule: 用户把主角色切到{lead.NAME[target]}，不是我", None
+    if bot == lead.current():
+        return decide(req, bot)
+    return decide_sub(req, bot)
+
+
+def decide(req, me=""):
     content = (req.get("content") or "").strip()
     buffered = req.get("buffered") or []
     busy = bool(req.get("busy"))
     if req.get("mentioned"):
-        return "reply", f"rule: @{LEAD}", None
+        return "reply", f"rule: @{lead.NAME[me]}", None
     if re.search(r"<@!?&?\d+>", content):  # @ 了别的 bot/人（自己的 @ 已被 cc-connect 去掉）→ 不是叫橘
         return "silent", "rule: @了别人", None
     called = called_names(content)
-    if called and "" not in called:  # 开头叫的是 sub，让她自己接
+    if called and me not in called:  # 开头叫的是别人，让她自己接
         return "silent", "rule: 点名 sub", None
     if content.startswith("/"):
         return "reply", "rule: command", None
     if ACK.match(content):
         return "silent", "rule: 应答", None
-    if CALL.search(content):
+    if CALL.search(content) or any(n in content for n in NAMES[me]):
         return "reply", "rule: 叫我/提问", None
     links = len(URL.findall(content)) + sum(len(URL.findall(b)) for b in buffered)
     if links >= LINKS_FOR_REPLY:
@@ -187,7 +212,7 @@ def decide(req):
     if not content:
         return "insert", "rule: 只有附件", None
     try:
-        sc = judge(content, busy, buffered)
+        sc = judge(content, busy, buffered, me)
     except ValueError as e:  # 输入超过 scorer 上限：和 cc-connect 出错时一样按 reply
         return "reply", f"error: {e}", None
     return ACTIONS[sc.choice], "model", sc
@@ -234,11 +259,31 @@ def tier_of(req):
 
 
 class H(BaseHTTPRequestHandler):
+    def _json(self, obj, code=200):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
         bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
+        if url.path == "/lead":  # 主角色自己来问 / 自己来当（用户 2026-10-21：「每个角色都可以去选择当主，他自己有个功能接口过去搞」）
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            action = (req.get("action") or "get").strip()
+            if action == "get":
+                s = lead.state()
+                return self._json({"ok": True, "lead": s["lead"], "name": lead.NAME[s["lead"]], "at": s["at"]})
+            if action == "set":
+                target = lead.resolve(req.get("who") if req.get("who") is not None else bot)
+                if target is None:
+                    return self._json({"ok": False, "error": f"认不出是谁：{req.get('who')!r}"}, 400)
+                changed = lead.set_lead(target)
+                s = lead.state()
+                return self._json({"ok": True, "changed": changed, "lead": s["lead"], "name": lead.NAME[s["lead"]], "at": s["at"]})
+            return self._json({"ok": False, "error": f"action 只认 get / set：{action!r}"}, 400)
         if url.path == "/context":  # 每轮相关的 wiki 页（ctxsvc.py）
             req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            req.setdefault("bot", bot)  # sub 的 gate_url 带 ?bot=
             body = json.dumps(ctxsvc.context(req), ensure_ascii=False).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
@@ -248,9 +293,9 @@ class H(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         t = time.time()
         try:
-            action, reason, sc = decide_sub(req, bot) if bot else decide(req)
+            action, reason, sc = route(req, bot)
         except ValueError as e:  # 输入超过 scorer 上限
-            action, reason, sc = ("context" if bot else "reply"), f"error: {e}", None
+            action, reason, sc = ("reply" if bot == lead.current() else "context"), f"error: {e}", None
         tier = tier_reason = tier_probs = None
         if action in ("reply", "insert"):
             try:
@@ -261,7 +306,7 @@ class H(BaseHTTPRequestHandler):
         probs = sc.probs if sc else None
         ms = round((time.time() - t) * 1000)
         with LOG.open("a") as f:
-            f.write(json.dumps({"t": time.strftime("%F %T"), "bot": bot or LEAD, "busy": req.get("busy"), "mentioned": req.get("mentioned"),
+            f.write(json.dumps({"t": time.strftime("%F %T"), "bot": bot or LEAD, "lead": lead.NAME[lead.current()], "busy": req.get("busy"), "mentioned": req.get("mentioned"),
                                 "content": (req.get("content") or "")[:300], "buffered": len(req.get("buffered") or []),
                                 "action": action, "reason": reason, "probs": probs, "ms": ms,
                                 "tier": tier, "tier_reason": tier_reason, "tier_probs": tier_probs,

@@ -1,0 +1,1 @@
+- Wiki hints (wiki-context): in a terminal session a message may start with 「可能相关的 wiki 页」; read a page only when it is relevant, and only the hit lines given (`sed -n`), not the whole page.

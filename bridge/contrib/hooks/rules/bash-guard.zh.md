@@ -1,0 +1,1 @@
+- 命令（bash-guard）：不用 `pkill -f`（会杀掉执行命令的 shell 自己），改用 `kill $(pgrep -f '[x]yz')` 或 pid 文件。后台命令要套超时（`timeout <秒> <命令>`；macOS 用 `perl -e 'alarm shift; exec @ARGV' <秒> <命令>`），不接 `| tail`/`| head`；常驻服务在命令末尾加 `# long-running-ok`。设了 HOOK_PROXY 时下载要走代理，确需直连加 `# direct-ok`。

@@ -69,8 +69,12 @@ const zh = {
   replyLangLine: '机器人回复语言：', replyLangHow: '（右上角换语言就会跟着换；每个角色也能在“人设”一步单独改；已有机器人不勾「改现有人设」就保持原来的语言）', replyLangSaved: '回复语言：',
   replyLangKeptLine: '已有机器人沿用现有人设里的语言：', replyLangKeptHow: '（要改：在“人设”一步勾「改这个机器人现有的人设」，再选回答语言）',
   replyLangKept: '（沿用现有人设，不改）', replyLangNone: '人设里没写，由 CLI 自己决定', replyLangLoading: '读取中…', replyLangUnknown: '未知（读不到人设文件）',
+  wikiTitle: '记忆 wiki 用什么模型', wikiNote: '不改就用默认值；定时整理会自动加上，不往频道发消息。',
+  wikiDaily: '日常整理', wikiDailyHelp: '每半小时把新聊天记进 wiki。',
+  wikiNight: '夜间复核', wikiNightHelp: '每晚检查当天记的对不对、写反思，周日做一次全面体检。',
+  wikiSplit: '拆页', wikiSplitHelp: '某页或某类写满时，把它拆成几页。', wikiDefault: '默认',
   stepNames: { config: '配置', 'project name': '项目名', team: '组队', jev: 'jev', fallback_role: '兜底角色', 'gate team': 'gate 组队', state: '向导状态',
-    discord: 'Discord', persona: '人设', provider: '第三方 API', cloud_web: '自建平台' } as Record<string, string>,
+    discord: 'Discord', persona: '人设', provider: '第三方 API', cloud_web: '自建平台', wiki: '记忆 wiki 模型', 'wiki cron': '记忆 wiki 定时整理' } as Record<string, string>,
 } as const;
 
 type Texts = { [K in keyof typeof zh]: (typeof zh)[K] extends readonly string[] ? readonly string[]
@@ -145,8 +149,12 @@ const en: Texts = {
   replyLangLine: 'Bots reply in: ', replyLangHow: " (change the language at the top right; each role can also be changed on the Persona step; an existing bot keeps its language unless you tick \"Edit this bot's existing persona\")", replyLangSaved: 'Reply language: ',
   replyLangKeptLine: 'Existing bots keep the language in their persona: ', replyLangKeptHow: " (to change it: on the Persona step tick \"Edit this bot's existing persona\" and pick a reply language)",
   replyLangKept: ' (kept from its persona, unchanged)', replyLangNone: 'not set in the persona; the CLI decides', replyLangLoading: 'reading…', replyLangUnknown: 'unknown (persona file not readable)',
+  wikiTitle: 'Models for the memory wiki', wikiNote: 'Leave them to use the defaults. The scheduled runs are added for you and post nothing.',
+  wikiDaily: 'Daily notes', wikiDailyHelp: 'Every 30 minutes, puts new chats into the wiki.',
+  wikiNight: 'Night review', wikiNightHelp: "Every night, checks the day's notes and writes a reflection; a full check-up on Sundays.",
+  wikiSplit: 'Page split', wikiSplitHelp: 'Splits a page or section that is full.', wikiDefault: 'default',
   stepNames: { config: 'config', 'project name': 'project name', team: 'team', jev: 'jev', fallback_role: 'fallback role', 'gate team': 'gate team', state: 'wizard state',
-    discord: 'Discord', persona: 'persona', provider: 'third-party API', cloud_web: 'self-hosted platform' },
+    discord: 'Discord', persona: 'persona', provider: 'third-party API', cloud_web: 'self-hosted platform', wiki: 'memory wiki models', 'wiki cron': 'memory wiki scheduled runs' },
 };
 
 const ja: Texts = {
@@ -218,8 +226,12 @@ const ja: Texts = {
   replyLangLine: 'ボットの返答言語：', replyLangHow: '（右上で言語を切り替えると連動します。ロールごとに「ペルソナ」で個別にも変えられます。既存のボットは「既存ペルソナを編集する」にチェックしない限り元の言語のままです）', replyLangSaved: '返答言語：',
   replyLangKeptLine: '既存のボットはペルソナの言語のまま：', replyLangKeptHow: '（変えるには「ペルソナ」のステップで「このボットの既存ペルソナを編集する」にチェックし、返答言語を選んでください）',
   replyLangKept: '（既存のペルソナのまま、変更なし）', replyLangNone: 'ペルソナに指定なし（CLI まかせ）', replyLangLoading: '読み込み中…', replyLangUnknown: '不明（ペルソナファイルを読めません）',
+  wikiTitle: '記憶 wiki のモデル', wikiNote: '変えなければ既定値を使います。定期整理は自動で追加され、チャンネルには何も送りません。',
+  wikiDaily: '日々の整理', wikiDailyHelp: '30 分ごとに新しい会話を wiki に記録します。',
+  wikiNight: '夜の見直し', wikiNightHelp: '毎晩その日の記録を確認して振り返りを書き、日曜は全体を点検します。',
+  wikiSplit: 'ページ分割', wikiSplitHelp: 'いっぱいになったページや分類を分けます。', wikiDefault: '既定',
   stepNames: { config: '設定', 'project name': 'プロジェクト名', team: 'チーム', jev: 'jev', fallback_role: 'フォールバックロール', 'gate team': 'gate チーム', state: 'ウィザード状態',
-    discord: 'Discord', persona: 'ペルソナ', provider: 'サードパーティ API', cloud_web: '自前プラットフォーム' },
+    discord: 'Discord', persona: 'ペルソナ', provider: 'サードパーティ API', cloud_web: '自前プラットフォーム', wiki: '記憶 wiki のモデル', 'wiki cron': '記憶 wiki の定期整理' },
 };
 
 export type WizardTexts = Texts;

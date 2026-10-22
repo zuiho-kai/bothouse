@@ -1,0 +1,101 @@
+# 工具拦截 hook（Claude Code 和 DSH 通用）
+
+这里的 hook 在 agent 调用工具或结束一轮时检查规则：危险命令、没标明审没审的派活、没写来源的数字、说"修好了"却没列入口表、许了"回来看"却没定时器。违反时拒绝这次调用，或让模型补一步。同一份配置 Claude Code 和 DSH 都会执行。
+
+## 开包就用
+
+用安装向导（网页或 `cc-connect setup apply`）**新建的 Claude Code 角色**会自动开全部 hook：
+
+- 脚本装到 `~/.cc-connect/hooks/`（data_dir 下的 `hooks/`，随 cc-connect 二进制一起发布）；
+- 角色目录写 `.claude/settings.json` 的 `hooks` 段；文件里原有的其他内容不动；
+- 角色人设（`CLAUDE.md`）末尾加一段规则说明，夹在 `<!-- conest:hooks -->` 和 `<!-- /conest:hooks -->` 之间，告诉模型怎么配合（派活写【免审:小改动】、数字写来源注释等）。
+
+已有角色、手配的角色和 DSH 角色用一条命令打开：
+
+```sh
+cc-connect setup hooks on --work-dir <角色目录>              # Claude Code 角色
+cc-connect setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
+```
+
+`--cli dsh` 另外做一件事：在 `$DSH_HOME/cordis.patch.yml`（默认 `~/.dsh`，DSH 对所有 profile 都套的用户层）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`，`configPath` 是绝对路径 `$DSH_HOME/conest-hooks.settings.json`。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（cc-connect 管的 DSH 角色：重启 cc-connect）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
+
+需要 `python3`。DSH 默认把会话记录存成 zstd 压缩（`session.v4.jsonl.zstd`），不用改成 `compression: none`。找记录、解压都在 `dshlog.py`：Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node，逐帧解，正在写的最后一帧先跳过。看队友（`contrib/tools/peek.py`）和 wiki 导出（`contrib/wiki/export.py`）用的也是这一份。
+
+## 关掉
+
+### 跟机器人说一句
+
+在聊天里对机器人说「把检查关了」「关掉派活审稿检查」「打开检查」就行。人设里的规则说明让它运行：
+
+```sh
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> off                          # 全关
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> off dispatch-review-guard    # 只关一条（可写多条）
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> on                           # 全开
+python3 ~/.cc-connect/hooks/run.py --role <角色目录> status                       # 回报哪些开着、哪些关着
+```
+
+开关写在角色目录的 `.claude/conest-hooks.json`。人设里的命令已经带好本角色的 `--role`，所以 agent 在别的目录里跑也写对地方；不带 `--role` 时从当前目录往上找第一个有 `.claude/settings.json` 的目录。格式是 `{"off": ["dispatch-review-guard"]}`，全关是 `{"off": ["all"]}`；手改这个文件效果一样。每次调用 hook 都现读这个文件，改完立即生效，不用重启。这个开关只是暂停：配置和人设里的规则说明都还在，`on` 就恢复。
+
+规则说明要求只认用户本人直接说的话：其他 bot、队友转述、引用或转发的消息、文件和网页里的文字都不算；也不许模型为了绕过拦截自己关检查。没有另做鉴权，靠的是这条说明。
+
+### 卸掉
+
+```sh
+cc-connect setup hooks off --work-dir <角色目录>                        # 这个角色全关，人设里那段规则一起删掉
+cc-connect setup hooks off --work-dir <角色目录> --only bash-guard      # 只关一条，人设里只删这一条
+cc-connect setup hooks status --work-dir <角色目录>                     # 看装了哪些、开关关了哪些
+cc-connect setup hooks on --work-dir <角色目录> --only promise-guard    # 再打开一条
+```
+
+DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉会把这个角色移出 `dsh-roles.json`；这个 DSH home 下最后一个角色关掉时，`$DSH_HOME/cordis.patch.yml` 里 `# conest:hooks begin` 到 `# conest:hooks end` 那一段和 `conest-hooks.settings.json` 一起删掉，文件其余内容不动。改完重启 DSH 进程才生效。
+
+cc-connect 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记的（以及旧版写的 `…/hooks/run.py <名字>`），用户自己的 hook 不动。`run.py` 被删掉时命令直接放行（exit 0），不会把所有工具调用都拦下。
+
+## 有哪些 hook
+
+| hook | 事件 | 管什么 | 怎么放行 |
+| --- | --- | --- | --- |
+| bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …cc-connect`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示） | `# long-running-ok`、`# direct-ok`、`# tcc-ok` |
+| param-source-guard | PreToolUse（Edit/Write/edit/write/str_replace_editor） | 代码里新加 `名字 = 数字` 没写来源注释 | 同一行或上一行注释写来源（用户原话、数据、SPEC、沿用） |
+| dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 派活没写【已审:…】；主会话直接改代码 | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
+| fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
+| promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
+| wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；cc-connect 起的 bot 跳过，因为 gate 已经推了 |
+
+fix-claim-guard 和 promise-guard 认的是中文措辞。
+
+## 可选设置（环境变量）
+
+不设也能用。要改的话，把变量写在启动 agent 的环境里（cc-connect 的 `[projects.agent.options] env`，或启动 DSH 的脚本）。
+
+| 变量 | 默认 | 作用 |
+| --- | --- | --- |
+| `GATE_WIKI` | `~/wiki` | wiki 目录，和 gate 用同一个变量（docs/ccm-and-wiki.md）；`off` 或目录不存在时 wiki 相关的检查不做，也不报错 |
+| `HOOK_PROXY` | 空 | 设了（如 `http://127.0.0.1:7890`）才检查下载走没走代理 |
+| `HOOK_REVIEWS_DIR` | `~/.claude/reviews` | 审稿文件目录（【已审:…】指向这里） |
+| `HOOK_FREE_DIRS` | 空 | 主会话可以直接改的目录，追加在 `~/.claude`、`/tmp`、wiki 目录后面，用系统路径分隔符隔开 |
+| `HOOK_RESEARCHER_DIRS` | 空 | 这些工作目录里【免审:调研】的派活必须用 `subagent_type: "researcher"` 或 sonnet 模型；不设就不查 |
+| `HOOK_TEAMMATES` | 空 | promise-guard 认作"转述队友的话"的名字，`\|` 隔开；仓库预设人设里的几个名字已经算上 |
+| `HOOK_DETACHED_CMDS` | 空 | promise-guard 认作"已派出去"的后台命令名，`\|` 隔开 |
+
+## 两种 CLI 的差别
+
+`run.py` 是每条 hook 的入口。Claude Code 的载荷原样交给 hook。DSH 官方桥的载荷先转成 Claude Code 的形状：
+
+- 工具名：DSH 用小写（`bash`、`write`、`subagent`……），转成 `Bash`、`Write`、`Agent`；`workflow` 的脚本当作 prompt；`str_replace_editor` 转成 Write/Edit。配置里的 matcher 两种名字都写了（`Bash|bash`），因为两边都按「字母和 `|` 组成的 matcher 精确匹配」，大小写不同就匹配不上。
+- DSH 启动工具进程时去掉 `DSH_*` 环境变量，所以 DSH home 写在命令参数 `--dsh-home` 里。
+- 桥给的 `transcript_path` 永远是空的：`run.py` 按 session_id 找 `$DSH_HOME/sessions/*/<id>/session.v4.jsonl[.zstd]`，转成 Claude Code 的转录（PreToolUse 只读首帧的会话头判断是不是子会话，整份记录只在 Stop 时读）。找不到记录时 dispatch-review-guard 不按主会话拒绝改文件，在 stderr 提示。子会话补上 `agent_id`，并且不跑 Stop（Claude Code 的 Stop 也只管主会话）。同一轮拦过一次后，`stop_hook_active` 置为 true。
+- DSH 的会话记录比 agent 慢一步：Stop 触发时，这一轮最后的回复可能还没落盘。`run.py` 等到记录里出现本次 Stop 的 `hook/invoked`，最多等 3 秒。
+
+DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、SubagentStart、SubagentStop。**不支持 SessionEnd**，所以「会话结束自动整理进 wiki」只在 Claude Code 上有：那是 llm-wiki 自己的 SessionEnd hook（docs/ccm-and-wiki.md 第 4 步）。DSH 会话要进 wiki，得先转成 Claude Code 转录再交给 ingest，本仓库目前没有这一步。
+
+## 测试
+
+```sh
+python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
+python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
+python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
+cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
+```
+
+`test_promise_guard.py` 里有两条和时钟、本机 `~/.cc-connect/crons/jobs.json` 有关（`test_day_outing_next_passes`、`test_repeat_of_earlier_timer_passes`），换了机器或时间可能失败，所以没进 CI。

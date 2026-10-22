@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -320,6 +322,14 @@ func runSetup(args []string) {
 		fmt.Print(setupUsage)
 		return
 	}
+	if sub == "hooks" {
+		runSetupHooks(args[1:])
+		return
+	}
+	if sub == "tools" {
+		runSetupTools(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("setup "+sub, flag.ExitOnError)
 	if sub == "apply" {
 		fs.Usage = func() {
@@ -420,14 +430,20 @@ func runSetup(args []string) {
 		case os.IsNotExist(statErr):
 			store, dataDir = bootstrapOnWriteStore{}, defaultDataDir()
 		}
+		wikiSub := ""
 		if dataDir == "" {
 			cfg, err := config.LoadForSetup(config.ConfigPath)
 			if err != nil {
 				fail(err)
 			}
 			dataDir = cfg.DataDir
+			wikiSub = subWikiScript(cfg)
 		}
-		res := core.ApplyWizard(context.Background(), core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true}, req)
+		env := core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true, WikiSubScript: wikiSub}
+		if sock := resolveSocketPath(dataDir); !req.DryRun && fileExistsCmd(sock) && instanceRunning(config.ConfigPath) {
+			env.Cron = socketCron{sock} // the running cc-connect owns the job file: add through it
+		}
+		res := core.ApplyWizard(context.Background(), env, req)
 		if res.Saved {
 			lang := req.Language
 			if lang == "" {
@@ -538,4 +554,56 @@ func setupPortFromLink(link string) int {
 		fmt.Sscanf(link[i+len("localhost:"):], "%d", &port)
 	}
 	return port
+}
+
+// subWikiScript: sub-wiki.sh of the config's agent.closed hook (bridge/contrib/wiki/README.md step 3), "" if none.
+func subWikiScript(cfg *config.Config) string {
+	var cmds []string
+	for _, h := range cfg.Hooks {
+		if h.Event == "agent.closed" && h.Type == "command" {
+			cmds = append(cmds, h.Command)
+		}
+	}
+	return core.SubWikiScriptFromHooks(cmds)
+}
+
+func fileExistsCmd(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// socketCron adds the wizard's cron jobs through a running cc-connect (its /cron/list and /cron/add), so the
+// jobs start now and the running process does not write its older job list over them.
+type socketCron struct{ sock string }
+
+func (c socketCron) List() ([]*core.CronJob, error) {
+	client := &http.Client{Transport: &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+		return net.Dial("unix", c.sock)
+	}}}
+	resp, err := client.Get("http://unix/cron/list")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("cron list: %s", strings.TrimSpace(string(body)))
+	}
+	var jobs []*core.CronJob
+	return jobs, json.Unmarshal(body, &jobs)
+}
+
+func (c socketCron) Add(j *core.CronJob) error {
+	payload, _ := json.Marshal(core.CronAddRequest{Project: j.Project, SessionKey: j.SessionKey, CronExpr: j.CronExpr,
+		Exec: j.Exec, Description: j.Description, Mute: j.Mute, TimeoutMins: j.TimeoutMins})
+	resp, err := apiPost(c.sock, "/cron/add", payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cron add: %s", strings.TrimSpace(string(body)))
+	}
+	return nil
 }
