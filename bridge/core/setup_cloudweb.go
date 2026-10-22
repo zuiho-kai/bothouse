@@ -387,9 +387,9 @@ func localHubHint(lang string, st LocalHubStatus) string {
 			"このマシンでプラットフォームを起動するには、先に uv（Python の実行ツール、1 回入れるだけ）が必要です。入れたら「再検出」を押してください。下で他の人のプラットフォームを入れることもできます。",
 			"Starting the platform here needs uv (a Python runner, installed once). Install it, then click \"Detect again\". Or enter someone else's platform below.")
 	default:
-		return tr3(lang, "这个 cc-connect 安装包里没带自建平台程序，不能在本机一键启动：请连别人的平台（下面填地址和 token），或者用 conest 仓库里的 role-household 自己起一个。",
-			"この cc-connect のパッケージにはプラットフォーム本体が入っていないため、ここでは起動できません。他の人のプラットフォームにつなぐか（下にアドレスと token）、conest リポジトリの role-household で自分で起動してください。",
-			"This cc-connect build does not include the platform, so it cannot start one here: connect to someone else's (address and token below), or run role-household from the conest repo yourself.")
+		return tr3(lang, "这个 bothouse 安装包里没带自建平台程序，不能在本机一键启动：请连别人的平台（下面填地址和 token），或者用 conest 仓库里的 role-household 自己起一个。",
+			"この bothouse のパッケージにはプラットフォーム本体が入っていないため、ここでは起動できません。他の人のプラットフォームにつなぐか（下にアドレスと token）、conest リポジトリの role-household で自分で起動してください。",
+			"This bothouse build does not include the platform, so it cannot start one here: connect to someone else's (address and token below), or run role-household from the conest repo yourself.")
 	}
 }
 

@@ -21,7 +21,7 @@ Needs: uv (runs this script and installs requests, jieba, yt-dlp by itself) and 
 (or WATCHVID_FFMPEG / WATCHVID_FFPROBE). Nothing else is required.
 
 Output folder: --out, else $WATCHVID_DIR, else <data_dir>/media when this script is installed as
-<data_dir>/tools/watchvid.py by cc-connect, else ~/.cc-connect/media.
+<data_dir>/tools/watchvid.py by bothouse, else ~/.bothouse/media.
 
 Transcript, best available first:
    1. $WATCHVID_ASR_URL: any OpenAI-compatible /v1/audio/transcriptions endpoint (OpenAI, Groq, a local
@@ -87,9 +87,13 @@ def out_root(explicit):
     if os.environ.get("WATCHVID_DIR"):
         return Path(os.environ["WATCHVID_DIR"]).expanduser()
     here = Path(__file__).resolve().parent
-    if here.name == "tools" and (here.parent / "config.toml").exists():  # installed by cc-connect into <data_dir>/tools
+    if here.name == "tools" and (here.parent / "config.toml").exists():  # installed by bothouse into <data_dir>/tools
         return here.parent / "media"
-    return Path.home() / ".cc-connect" / "media"
+    home = Path.home()
+    data = home / ".bothouse"
+    if not data.exists() and (home / ".cc-connect").is_dir():
+        data = home / ".cc-connect"
+    return data / "media"
 
 
 # ---------- Bilibili ----------

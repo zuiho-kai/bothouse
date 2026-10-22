@@ -13,25 +13,27 @@ bothouse is a plugin. Install it, and those AIs become a team with personalities
 
 ## Quick start
 
-**Works once the first release is out.** The repository is private while we prepare and there's no installer yet. To try it now, follow section 1 of [Getting started](docs/GETTING_STARTED.md) (Chinese).
+Download the `.dmg` (macOS) or `.exe` (Windows) from [Releases](https://github.com/zuiho-kai/bothouse/releases), or use the commands below. While the repository is private, use the authenticated GitHub CLI commands in section 1 of [Getting started](docs/GETTING_STARTED.md) (Chinese).
 
 ```sh
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && cc-connect
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && bothouse
 ```
 
 ```powershell
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; cc-connect
+irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; bothouse
 ```
 
-The command is `cc-connect`: bothouse ships with the open-source cc-connect bundled, so there's nothing else to install. No Go, no Node.
+The command is `bothouse`. No Go or Node required.
+
+Release downloads: `bothouse-mac.dmg` (universal Bothouse.app for Apple Silicon and Intel; drag it to Applications, then double-click), `bothouse-windows.exe` (x64, also runs on ARM64 Windows; double-click), and `bothouse-linux-x64` / `bothouse-linux-arm64` (`chmod +x`, then run). On macOS the app is unsigned: right-click → Open the first time. First launch opens the browser setup wizard. Verify downloads with `SHA256SUMS`.
 
 **You'll need:** a Discord server (or a Feishu workspace) and at least one AI CLI you're already logged into (Claude Code, Codex or Gemini CLI). The wizard walks you through creating the bot.
 
-1. **Install**: run the one-liner above.
-2. **Configure**: run `cc-connect`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save.
-   Or tell your Claude Code / Codex "set up cc-connect and connect it to Discord"; it asks for everything once.
+1. **Install**: download and open the app, or run the one-liner above.
+2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save.
+   Or tell your Claude Code / Codex "set up bothouse and connect it to Discord"; it asks for everything once.
 3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
 
 To let an AI decide who should answer (a small component we call the gate, think of it as a dispatcher), or to add the team memory, install two more pieces: see [the dispatcher and the team memory](docs/ccm-and-wiki.md) (Chinese).
@@ -148,7 +150,7 @@ What works today is step one: one group, several AIs, one shared memory. What we
 - **Hire a role like you hire a person.** Role packs: persona, memory template and tools in one bundle, one click into the group.
 - **A memory you can take with you.** New machine, new model, same team, same memory.
 - **Stop paying for repeated background.** Resident roles don't re-read the project for every task. We'll publish numbers when we have a real comparison.
-- **Team features on more platforms.** DSH web channels first, then Telegram, Slack, QQ, WeCom (single-role connections already ship with cc-connect).
+- **Team features on more platforms.** DSH web channels first, then Telegram, Slack, QQ, WeCom (single-role connections already ship with bothouse).
 - **Smarter memory.** Semantic search next to keyword search, so a different wording still finds the page.
 
 Want to see this happen? Star the repo to follow along.
@@ -187,4 +189,4 @@ Contributors: start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGEN
 
 bothouse is licensed under [MIT](LICENSE). See [LICENSING.md](LICENSING.md) (Chinese) for details.
 
-bothouse is a plugin for platforms such as [cc-connect](https://github.com/chenhg5/cc-connect) and DSH. For a one-command install, `bridge/` ships a copy of cc-connect; its MIT notice is kept in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to the cc-connect authors and contributors. Third-party dependency licenses are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to its authors and contributors. See [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for dependency licenses.

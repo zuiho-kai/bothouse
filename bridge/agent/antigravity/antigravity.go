@@ -311,7 +311,7 @@ func (a *Agent) GetMode() string {
 
 func (a *Agent) PermissionModes() []core.PermissionModeInfo {
 	return []core.PermissionModeInfo{
-		{Key: "default", Name: "Default", NameZh: "默认", Desc: "Ask for approval through cc-connect on each tool use", DescZh: "每次工具调用都通过 cc-connect 请求确认"},
+		{Key: "default", Name: "Default", NameZh: "默认", Desc: "Ask for approval through bothouse on each tool use", DescZh: "每次工具调用都通过 bothouse 请求确认"},
 		{Key: "yolo", Name: "YOLO", NameZh: "全自动", Desc: "Auto-approve all tool calls", DescZh: "自动批准所有工具调用"},
 		{Key: "plan", Name: "Plan", NameZh: "规划模式", Desc: "Read-only plan mode in sandbox", DescZh: "只读沙箱规划模式"},
 	}

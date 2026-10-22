@@ -15,13 +15,13 @@ import (
 
 func init() { core.AgentHookFS = ccconnect.AgentHookFiles }
 
-const setupHooksUsage = `Usage: cc-connect setup hooks on|off|status --work-dir <dir> [flags]
+const setupHooksUsage = `Usage: bothouse setup hooks on|off|status --work-dir <dir> [flags]
 
 Tool hooks for one role (the role's work_dir). Claude Code reads them from <dir>/.claude/settings.json.
 DSH reads them through @deepseek-ai/dsh-hooks-claude-code, which "on --cli dsh" mounts in the role's own
 overlay (dsh --patch, <data_dir>/dsh/<role>.patch.yml) with <dir>/.claude/conest-dsh-hooks.json; the user's
 $DSH_HOME is not written. Those hooks run only in the roles set up with --cli dsh (listed in
-<data_dir>/hooks/dsh-roles.json). "off --cli dsh" with no hook left removes that block again. Restart DSH (for cc-connect's roles: restart cc-connect) after on/off --cli dsh. The scripts are installed into <data_dir>/hooks; the persona file
+<data_dir>/hooks/dsh-roles.json). "off --cli dsh" with no hook left removes that block again. Restart DSH (for bothouse's roles: restart bothouse) after on/off --cli dsh. The scripts are installed into <data_dir>/hooks; the persona file
 (CLAUDE.md for claudecode, AGENTS.md for dsh) gets a block between <!-- conest:hooks --> markers that
 tells the model the rules of the hooks that are on. "off" removes the hooks and that block (or, with
 --only, just those hooks and their lines); other hooks and the rest of both files are left as they are.

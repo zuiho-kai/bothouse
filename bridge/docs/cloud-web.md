@@ -4,17 +4,17 @@
 
 ## Overview
 
-The **cloud_web** platform lets cc-connect treat your **self-hosted IM gateway** as a first-class messaging platform — the same way it integrates with Telegram, Discord, or Feishu.
+The **cloud_web** platform lets bothouse treat your **self-hosted IM gateway** as a first-class messaging platform — the same way it integrates with Telegram, Discord, or Feishu.
 
-cc-connect connects to your gateway using the **Cloud Web IM Protocol (CWIP)**, which reuses the message semantics of the [Bridge Protocol](./bridge-protocol.md) with reversed roles: cc-connect is the client, your gateway is the IM server.
+bothouse connects to your gateway using the **Cloud Web IM Protocol (CWIP)**, which reuses the message semantics of the [Bridge Protocol](./bridge-protocol.md) with reversed roles: bothouse is the client, your gateway is the IM server.
 
 ### Three transport modes
 
-| `transport` | cc-connect role | Use when |
+| `transport` | bothouse role | Use when |
 |-------------|-------------------|----------|
 | `websocket` | WebSocket client (dial out) | Real-time bidirectional; best default |
-| `long_poll` | HTTP client (blocking poll) | Firewall-friendly; cc-connect initiates all traffic |
-| `gateway` | HTTP webhook server | Your gateway pushes events to cc-connect |
+| `long_poll` | HTTP client (blocking poll) | Firewall-friendly; bothouse initiates all traffic |
+| `gateway` | HTTP webhook server | Your gateway pushes events to bothouse |
 
 All modes share the same JSON message types and capability model.
 
@@ -52,13 +52,13 @@ Every request must include the shared `token`:
 
 ## Handshake
 
-After connection (WebSocket) or via `POST /cloud-web/v1/register` (HTTP modes), cc-connect sends:
+After connection (WebSocket) or via `POST /cloud-web/v1/register` (HTTP modes), bothouse sends:
 
 ```json
 {
   "type": "register",
   "platform": "cloud_web",
-  "client": "cc-connect",
+  "client": "bothouse",
   "project": "my-project",
   "transport": "websocket",
   "metadata": { "protocol_version": 1 }
@@ -76,9 +76,9 @@ Gateway responds:
 }
 ```
 
-Capabilities match [Bridge Protocol capabilities](./bridge-protocol.md#capabilities). Undeclared capabilities are automatically degraded by cc-connect.
+Capabilities match [Bridge Protocol capabilities](./bridge-protocol.md#capabilities). Undeclared capabilities are automatically degraded by bothouse.
 
-maomao fork: `subtask_table` means the gateway renders the sub-agent table (`__cc_connect_subtask_table_v1__:` payload, sent with `preview_start` / `update_message`). Without it cc-connect sends no table.
+maomao fork: `subtask_table` means the gateway renders the sub-agent table (`__cc_connect_subtask_table_v1__:` payload, sent with `preview_start` / `update_message`). Without it bothouse sends no table.
 
 ---
 
@@ -88,7 +88,7 @@ maomao fork: `subtask_table` means the gateway renders the sub-agent table (`__c
 |------|---------|----------|
 | websocket | `wss://<host>/cloud-web/ws` | same connection |
 | long_poll | `POST /cloud-web/v1/events` | `POST /cloud-web/v1/send` |
-| gateway | cc-connect listens `webhook_path` (default `/cloud-web/webhook`) | `POST <base_url>/cloud-web/v1/send` |
+| gateway | bothouse listens `webhook_path` (default `/cloud-web/webhook`) | `POST <base_url>/cloud-web/v1/send` |
 
 Optional gateway registration:
 
@@ -99,7 +99,7 @@ POST /cloud-web/v1/register
 
 ---
 
-## Inbound messages (Gateway → cc-connect)
+## Inbound messages (Gateway → bothouse)
 
 ### `message`
 
@@ -141,11 +141,11 @@ Message was recalled; maps to `Message.Recalled`.
 
 ---
 
-## Outbound messages (cc-connect → Gateway)
+## Outbound messages (bothouse → Gateway)
 
 Same types as Bridge outbound: `reply`, `reply_stream`, `card`, `buttons`, `typing_start`, `typing_stop`, `preview_start`, `update_message`, `delete_message`, `image`, `file`, `audio`.
 
-See [Bridge Protocol — cc-connect → Adapter](./bridge-protocol.md) for full schemas.
+See [Bridge Protocol — bothouse → Adapter](./bridge-protocol.md) for full schemas.
 
 ---
 
@@ -186,7 +186,7 @@ Expose the webhook with nginx, cloudflared, or similar. See [WeCom tunnel guide]
 
 ## Minimal Gateway Example (Go)
 
-Below is a minimal WebSocket Gateway for local testing. It accepts `register`, pushes a `message`, and prints outbound `reply` frames from cc-connect.
+Below is a minimal WebSocket Gateway for local testing. It accepts `register`, pushes a `message`, and prints outbound `reply` frames from bothouse.
 
 ```go
 package main
@@ -230,4 +230,4 @@ func main() {
 }
 ```
 
-Point cc-connect at `ws_url = "ws://127.0.0.1:8080/cloud-web/ws"` with matching `token`.
+Point bothouse at `ws_url = "ws://127.0.0.1:8080/cloud-web/ws"` with matching `token`.

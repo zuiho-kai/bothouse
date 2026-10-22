@@ -16,7 +16,7 @@ import (
 func sanitizeFileName(fileName string, index int) string {
 	fname := filepath.Base(fileName)
 	if fname == "" || fname == "." || fname == ".." {
-		fname = fmt.Sprintf("cc-connect-file-%d", index)
+		fname = fmt.Sprintf("bothouse-file-%d", index)
 	}
 	return fname
 }
@@ -33,9 +33,9 @@ func TestSanitizeFileName(t *testing.T) {
 		{"path traversal", "../../etc/passwd", 0, true, "passwd"},
 		{"deep traversal", "../../../tmp/evil.sh", 1, true, "evil.sh"},
 		{"absolute path", "/etc/shadow", 0, true, "shadow"},
-		{"empty name", "", 2, true, "cc-connect-file-2"},
-		{"dot only", ".", 3, true, "cc-connect-file-3"},
-		{"double dot", "..", 4, true, "cc-connect-file-4"},
+		{"empty name", "", 2, true, "bothouse-file-2"},
+		{"dot only", ".", 3, true, "bothouse-file-3"},
+		{"double dot", "..", 4, true, "bothouse-file-4"},
 		{"subdir file", "subdir/file.txt", 0, true, "file.txt"},
 		{"slash path", "dir/subdir/evil.dll", 0, true, "evil.dll"},
 	}
@@ -250,9 +250,9 @@ func TestHandleMessage_MixedDeltaAndNonDelta(t *testing.T) {
 		"content": "Let me look at the files.",
 	})
 	gs.handleEvent(map[string]any{
-		"type":      "tool_use",
-		"tool_name": "shell",
-		"tool_id":   "t1",
+		"type":       "tool_use",
+		"tool_name":  "shell",
+		"tool_id":    "t1",
 		"parameters": map[string]any{"command": "ls"},
 	})
 	gs.handleEvent(map[string]any{
@@ -405,7 +405,7 @@ func TestSlugify(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"cc-connect", "cc-connect"},
+		{"bothouse", "bothouse"},
 		{"Daily", "daily"},
 		{"My Project", "my-project"},
 		{"hello_world", "hello-world"},
@@ -445,10 +445,10 @@ func TestSessionMessage_TextContent(t *testing.T) {
 
 func TestComputeLineDiff(t *testing.T) {
 	tests := []struct {
-		name     string
-		old      string
-		new_     string
-		want     string
+		name string
+		old  string
+		new_ string
+		want string
 	}{
 		{
 			"single line fully different",

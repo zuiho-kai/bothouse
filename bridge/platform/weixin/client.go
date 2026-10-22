@@ -26,7 +26,7 @@ const (
 	// maxIlinkHTTPResponseBody caps JSON response size (getUpdates may batch many msgs).
 	maxIlinkHTTPResponseBody = 64 << 20
 
-	channelVersion = "cc-connect-weixin/1.0"
+	channelVersion = "bothouse-weixin/1.0"
 )
 
 type apiClient struct {

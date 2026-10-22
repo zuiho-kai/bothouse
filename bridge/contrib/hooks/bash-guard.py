@@ -4,7 +4,7 @@
    没设就不管下载（没有代理的机器上这条没有意义）。
    放行：pget、已带代理（-x/--proxy/*_proxy=/proxy_on）、目标全是本机/局域网/Tailscale、`# direct-ok`。
 2. pkill -f：会匹配到执行本命令的 wrapper shell，把自己杀掉。
-3. macOS 上 go build -o 覆盖 cc-connect 二进制：签名变回 ad-hoc，TCC（屏幕录制、辅助功能等）授权失效。
+3. macOS 上 go build -o 覆盖 bothouse 二进制：签名变回 ad-hoc，TCC（屏幕录制、辅助功能等）授权失效。
 4. 后台命令（run_in_background）看不到进度或没有超时：输出接 | tail/| head 会到结束才吐字；没套超时卡死也无人知。
    常驻服务加 `# long-running-ok` 放行。
 5. 只提示不拦：一条命令整页 cat wiki 下 2 页以上 .md（含 for 循环 cat、*.md 通配）。wiki 目录同 bothouse 的 gate：
@@ -118,8 +118,8 @@ def main():
         if t and t[0] == "pkill" and any(re.match(r"^-[a-zA-Z]*f", a) for a in t[1:]):
             deny("不要用 pkill -f：它会匹配到执行本命令的 wrapper shell，把自己杀掉。"
                  "改用 pid 文件，或 `kill $(pgrep -f '[x]yz')`（方括号让 pattern 不匹配自身）。")
-        if sys.platform == "darwin" and "# tcc-ok" not in cmd and t[:2] == ["go", "build"] and re.search(r"-o\s+\S*cc-connect", seg):
-            deny("不要直接 go build -o 覆盖正在用的 cc-connect：macOS 上签名会变回 ad-hoc，TCC 授权失效。"
+        if sys.platform == "darwin" and "# tcc-ok" not in cmd and t[:2] == ["go", "build"] and re.search(r"-o\s+\S*bothouse", seg):
+            deny("不要直接 go build -o 覆盖正在用的 bothouse：macOS 上签名会变回 ad-hoc，TCC 授权失效。"
                  "编到别的路径，再用原来的证书 codesign 后替换；确实要覆盖就在命令末尾加 `# tcc-ok`。")
     direct_ok = not PROXY_URL or "# direct-ok" in cmd or PROXY.search(cmd)
     for seg in ([] if direct_ok else segments(cmd)):

@@ -1,7 +1,7 @@
 // Setup wizard copy — all of it lives here. Language = the web UI language picked at the top right
 // (Layout/Header.tsx), which is also the default reply language written into personas.
 const zh = {
-  title: '安装向导',
+  title: 'bothouse 安装向导',
   subtitle: '选平台 → 接机器人 → 每个角色选本机 CLI → 人设 → 兜底角色 → jev。其余全部用默认值。',
   steps: ['平台', '机器人', '本机 CLI', '人设', '兜底角色', 'jev', '完成'],
   next: '下一步', back: '上一步', save: '保存配置', saving: '保存中…', restart: '重启生效', restarted: '已发出重启',
@@ -44,7 +44,7 @@ const zh = {
   thirdParty: '改用第三方 API（可选）', vendor: '服务商', baseURL: 'Base URL', apiKey: 'Key', model: '模型',
   native: '原生接口', convert: '本地协议转换',
   viaNative: '这家有给这个 CLI 用的原生接口，直接连。',
-  viaConvert: '这家没有这个 CLI 说的协议：cc-connect 在本机起一个转换口，把请求转成 /chat/completions。',
+  viaConvert: '这家没有这个 CLI 说的协议：bothouse 在本机起一个转换口，把请求转成 /chat/completions。',
   copyPrompt: '复制提示词，交给本地 CLI 自己配', copied: '已复制',
   personaQ: '人设：点一个默认人设填进去，再接着改；也可以自己写，或者留空。',
   personaAbout: '默认人设是本项目作者自己团队的几个角色（橘、鲸鱼娘、龙娘、彩虹猫、渡鸦），只是示例，用不用都行；留空就是 CLI 本来的样子，只加一行回答语言。装好以后随时能换：网页“项目”页、在聊天里叫它改，或直接改下面这个文件。',
@@ -84,7 +84,7 @@ type Texts = { [K in keyof typeof zh]: (typeof zh)[K] extends readonly string[] 
   : (typeof zh)[K] extends Record<string, string> ? Record<string, string> : string };
 
 const en: Texts = {
-  title: 'Setup wizard',
+  title: 'bothouse setup wizard',
   subtitle: 'Platform → bots → local CLI per role → persona → fallback role → jev. Everything else uses defaults.',
   steps: ['Platform', 'Bots', 'Local CLI', 'Persona', 'Fallback', 'jev', 'Done'],
   next: 'Next', back: 'Back', save: 'Save', saving: 'Saving…', restart: 'Restart to apply', restarted: 'Restart requested',
@@ -127,7 +127,7 @@ const en: Texts = {
   thirdParty: 'Use a third-party API instead (optional)', vendor: 'Provider', baseURL: 'Base URL', apiKey: 'Key', model: 'Model',
   native: 'native', convert: 'local conversion',
   viaNative: 'This provider has a native endpoint for this CLI.',
-  viaConvert: 'This provider does not speak this CLI\'s protocol: cc-connect runs a local converter to /chat/completions.',
+  viaConvert: 'This provider does not speak this CLI\'s protocol: bothouse runs a local converter to /chat/completions.',
   copyPrompt: 'Copy a prompt for your local CLI to do it', copied: 'Copied',
   personaQ: 'Persona: click a preset to fill it in, then edit — or write your own, or leave it empty.',
   personaAbout: "The presets are the maintainers' own characters (Ju, Whale Girl, Dragon Girl, Rainbow Cat, Raven) — just examples. Empty = the CLI as it is, plus one reply-language line. You can change it any time: Projects page, ask the bot in chat, or edit the file below.",
@@ -164,7 +164,7 @@ const en: Texts = {
 };
 
 const ja: Texts = {
-  title: 'セットアップウィザード',
+  title: 'bothouse セットアップウィザード',
   subtitle: 'プラットフォーム → ボット → ロールごとのローカル CLI → ペルソナ → フォールバックロール → jev。それ以外はすべて既定値です。',
   steps: ['プラットフォーム', 'ボット', 'ローカル CLI', 'ペルソナ', 'フォールバック', 'jev', '完了'],
   next: '次へ', back: '戻る', save: '設定を保存', saving: '保存中…', restart: '再起動して反映', restarted: '再起動を要求しました',
@@ -207,7 +207,7 @@ const ja: Texts = {
   thirdParty: '代わりにサードパーティ API を使う（任意）', vendor: 'プロバイダー', baseURL: 'Base URL', apiKey: 'Key', model: 'モデル',
   native: 'ネイティブ', convert: 'ローカル変換',
   viaNative: 'このプロバイダーにはこの CLI 向けのネイティブ API があり、直接つなぎます。',
-  viaConvert: 'このプロバイダーはこの CLI のプロトコルに対応していません。cc-connect がローカルに変換口を立て、/chat/completions に変換します。',
+  viaConvert: 'このプロバイダーはこの CLI のプロトコルに対応していません。bothouse がローカルに変換口を立て、/chat/completions に変換します。',
   copyPrompt: 'プロンプトをコピーしてローカル CLI に設定させる', copied: 'コピーしました',
   personaQ: 'ペルソナ：既定のペルソナをクリックして入れてから編集するか、自分で書くか、空のままにします。',
   personaAbout: '既定のペルソナは本プロジェクト作者のチームのキャラクター（橘、鯨娘、龍娘、レインボーキャット、Raven）で、あくまで例です。空なら CLI そのままで、返答言語の 1 行だけ加えます。あとからいつでも変えられます：「プロジェクト」ページ、チャットでボットに頼む、または下のファイルを直接編集。',

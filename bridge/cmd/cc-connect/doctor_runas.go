@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	ccconnect "github.com/chenhg5/cc-connect"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -24,7 +25,7 @@ import (
 // diagnostics.
 func runDoctor(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: cc-connect doctor <subcommand>")
+		fmt.Fprintln(os.Stderr, "usage: bothouse doctor <subcommand>")
 		fmt.Fprintln(os.Stderr, "subcommands:")
 		fmt.Fprintln(os.Stderr, "  user-isolation   audit run_as_user projects and emit an isolation report")
 		os.Exit(2)
@@ -45,7 +46,7 @@ func runDoctorUserIsolation(args []string) {
 	fs := flag.NewFlagSet("doctor user-isolation", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to config file (default: auto-discover)")
 	projectFilter := fs.String("project", "", "limit audit to a single project name")
-	outPath := fs.String("out", "", "path to write JSON report (default: ~/.cc-connect/audits/<timestamp>-<project>.json per project)")
+	outPath := fs.String("out", "", "path to write JSON report (default: ~/.bothouse/audits/<timestamp>-<project>.json per project)")
 	printScript := fs.Bool("print-script", false, "print the embedded probe script and exit")
 	_ = fs.Parse(args)
 
@@ -292,5 +293,5 @@ func defaultAuditDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".cc-connect", "audits"), nil
+	return filepath.Join(ccconnect.DataDir(home), "audits"), nil
 }

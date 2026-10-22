@@ -1,5 +1,17 @@
 # 共栖当前交接
 
+2026-10-23：按用户「免审:小改动」授权统一下载入口，直接推 main。Mac 用 lipo 合并 arm64/amd64 为 universal，仅发布 bothouse-mac.dmg（Bothouse.app，卷名 Bothouse）；Windows 仅发布 x64 的 bothouse-windows.exe，Linux 为 bothouse-linux-x64 / bothouse-linux-arm64。安装脚本和 CLI/网页共用的更新器认新名，更新器兼容旧架构文件和历史压缩包，校验失败不回退。发布 workflow 同步构建与 smoke；打包脚本拒绝单架构输入。回归先红后绿，沙箱 Go 全量、CUJ、定向回归、vet、actionlint、shell 语法检查、Linux 安装与坏校验拒绝通过。v0.1.2 资产替换、Mac 实际启动与安装/更新提取的最终证据见 /tmp/rename/result4.md；旧资产的逐字节备份在 /tmp/rename/dist-v0.1.2。单一 Agent 实现并自查。
+
+2026-10-22 bothouse v0.1.2 改名与安装包：CLI 帮助、版本、启动消息、网页、安装脚本及当前安装文档统一使用 bothouse；module 与内部包名保留。配置默认 ~/.bothouse，仅当它不存在而旧目录存在时沿用旧目录，不迁移文件。发布产物为双架构 dmg/exe/Linux 裸文件和 SHA256SUMS，自更新先新名后历史名，v0.1.1 资产保持原状。沙箱 Go 全量、CUJ、定向回归、vet、前端构建与 actionlint 通过；目录回归已验证旧逻辑失败、新逻辑通过。额外 promise-guard 回放的两个时间/任务环境相关失败在改前改后相同，未扩大修复。用户明确要求推 main 并打 v0.1.2；发布与安装包验收的最终证据记录在 /tmp/rename/result.md。没有操作生产机器人配置、进程或频道；单一 Agent 实现和自查。
+
+## 2026-10-22：Bothouse 可双击下载（Issue #50）
+
+Release 流程改为 Windows 双架构裸 exe、macOS runner 用 hdiutil 生成双架构 Bothouse.app/dmg、Linux 双架构裸二进制及 SHA256SUMS；旧 cc-connect 压缩包与 checksums.txt 继续发布，供旧更新器使用。安装脚本认新文件，CLI 与网页自更新共用新文件优先、旧名回退和按实际下载名称校验；校验失败不回退。新 dmg 未签名，安装文档提示拖入 Applications、首次右键→打开。
+
+本次 v0.1.1 的六个新文件从 main 历史提交 `681dc9497ae9144d27066ac1336bede9faa029d4` 重新构建（保留原版本源码），通过 gh 补传；不移动 tag、不重建旧资产，正文只改中英文安装段。上传与最终资产核验见 `/tmp/rename/result.md`。新更新逻辑属于本 PR，未回灌进 v0.1.1 历史源码。
+
+本机 no_web 沙箱全量 48 个测试包、CUJ、更新下载与校验回归、目标 vet 通过。把下载顺序恢复为旧名优先的 overlay 后，回归报 legacy archive 被当作 native 接受；修复顺序后通过。两个 dmg 均经新更新器挂载并精确提取原二进制；arm64 dmg 用 open 启动 App，隔离配置下 Chrome 前台进入 /setup，网页与 setup/state API 都是 HTTP 200，不接真实平台或模型。Windows 两架构 PE/机器码及交叉构建已检查；本机无 Wine，Windows --version 和桌面双击未验。macOS 签名／公证未做。单一 Codex 实现和自查，无子 Agent、无独立审核；最终 main commit、CI、下载到 bothouse-trial 的文件及未验项见 result.md。
+
 ## 2026-10-22：工具拦截 hook 进仓库（Claude Code + DSH）
 
 作者本机的 hook（bash-guard、param-source-guard、dispatch-review-guard、fix-claim-guard、promise-guard、wiki-context）去掉私人路径后放进 `bridge/contrib/hooks/`，随二进制发布（`embed.go`）。向导新建的 Claude Code 角色默认全开，人设末尾带规则说明；`cc-connect setup hooks on|off|status` 给已有角色和 DSH 角色开关。DSH 通过自带的 `dsh-hooks-claude-code` 桥读同一份 `<work_dir>/.claude/settings.json`。用户在聊天里说「把检查关了/打开检查」，机器人按人设说明运行 `run.py off|on [hook]`，写角色目录的 `.claude/conest-hooks.json`，立即生效。说明见 `bridge/contrib/hooks/README.md`。验收：干净 HOME 里向导建 Claude Code 角色、命令开 DSH 角色；真实 DSH（假模型）里 pkill、未审派活、无来源数字被拒，【免审:小改动】放行，Stop 在 zstd 记录上拦一次。未部署，作者本机线上 hook 没动。

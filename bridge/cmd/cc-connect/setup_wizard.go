@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	ccconnect "github.com/chenhg5/cc-connect"
 	"io"
 	"net"
 	"net/http"
@@ -40,7 +41,7 @@ func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 }
 
 // firstRunHeader starts the config bootstrapSetupConfig writes; the wizard's rewrite drops comments.
-const firstRunHeader = "# cc-connect (conest) — created on first run."
+const firstRunHeader = "# bothouse (conest) — created on first run."
 
 // IsFreshConfig: config.toml is still the first-run template (written by cc-connect or setup apply,
 // no projects yet), so a backup of it holds nothing of the user's. Used by core.ApplyWizard for
@@ -192,9 +193,9 @@ func announceSetupWizard(link, linkFile string, port int, tryBrowser bool) {
 	fmt.Printf("\n  %s\n\n", link)
 	if overSSH() {
 		if zh {
-			fmt.Printf("你是通过 SSH 连进来的：向导只听这台机器的 127.0.0.1。在你自己的电脑上另开一个终端运行\n  ssh -L %d:127.0.0.1:%d <用户名>@<这台机器的地址>\n保持它开着，再在你自己电脑的浏览器里打开上面的链接。也可以不用网页：让 AI 跑 cc-connect setup apply。\n", port, port)
+			fmt.Printf("你是通过 SSH 连进来的：向导只听这台机器的 127.0.0.1。在你自己的电脑上另开一个终端运行\n  ssh -L %d:127.0.0.1:%d <用户名>@<这台机器的地址>\n保持它开着，再在你自己电脑的浏览器里打开上面的链接。也可以不用网页：让 AI 跑 bothouse setup apply。\n", port, port)
 		} else {
-			fmt.Printf("You are on SSH: the wizard only listens on this machine's 127.0.0.1. On your own computer run\n  ssh -L %d:127.0.0.1:%d <user>@<this machine>\nkeep it open, then open the link above in your own browser. Or skip the web page: have an AI run cc-connect setup apply.\n", port, port)
+			fmt.Printf("You are on SSH: the wizard only listens on this machine's 127.0.0.1. On your own computer run\n  ssh -L %d:127.0.0.1:%d <user>@<this machine>\nkeep it open, then open the link above in your own browser. Or skip the web page: have an AI run bothouse setup apply.\n", port, port)
 		}
 	}
 	if zh {
@@ -246,22 +247,24 @@ func instanceRunning(configPath string) bool {
 
 // setupNextSteps tells the user (or AI) how to get the new config running.
 func setupNextSteps(lang, configFlag string, running, needsAction bool) []string {
-	cmd := "cc-connect"
+	cmd := "bothouse"
 	if configFlag != "" {
 		cmd += " --config " + quoteIfSpaced(configFlag)
 	}
 	// quick background try: nohup on macOS/Linux. Windows has no nohup: PowerShell's Start-Process,
 	// with the log going to the file cc-connect itself writes (CC_LOG_FILE, main.go). CC_LOG_FILE is
 	// removed again right after, so later commands in the same window are not redirected too.
-	tryCmd, tryLog := "nohup "+cmd+" > ~/.cc-connect/run.log 2>&1 &", "~/.cc-connect/run.log"
+	homeDir := filepath.Base(defaultDataDir())
+	tryLog := "~/" + homeDir + "/run.log"
+	tryCmd := "nohup " + cmd + " > " + tryLog + " 2>&1 &"
 	if nextStepsGOOS == "windows" {
-		start := "Start-Process cc-connect -WindowStyle Hidden"
+		start := "Start-Process bothouse -WindowStyle Hidden"
 		if configFlag != "" {
 			// Start-Process joins -ArgumentList with spaces and does not quote: a path with spaces
 			// needs its own double quotes inside the single-quoted PowerShell string.
-			start = `Start-Process cc-connect -ArgumentList '--config','"` + strings.ReplaceAll(configFlag, "'", "''") + `"' -WindowStyle Hidden`
+			start = `Start-Process bothouse -ArgumentList '--config','"` + strings.ReplaceAll(configFlag, "'", "''") + `"' -WindowStyle Hidden`
 		}
-		tryLog = `$HOME\.cc-connect\run.log`
+		tryLog = `$HOME\` + homeDir + `\run.log`
 		tryCmd = `$env:CC_LOG_FILE="` + tryLog + `"; ` + start + `; Remove-Item Env:CC_LOG_FILE`
 	}
 	zh := strings.HasPrefix(strings.ToLower(lang), "zh")
@@ -275,14 +278,14 @@ func setupNextSteps(lang, configFlag string, running, needsAction bool) []string
 	}
 	switch {
 	case running && zh:
-		out = append(out, "cc-connect 正在运行，重启后新配置才生效：在向导网页点「重启生效」；装成后台服务的运行 cc-connect daemon restart；前台跑的按 Ctrl+C 后再运行 "+cmd)
+		out = append(out, "bothouse 正在运行，重启后新配置才生效：在向导网页点「重启生效」；装成后台服务的运行 bothouse daemon restart；前台跑的按 Ctrl+C 后再运行 "+cmd)
 	case running:
-		out = append(out, "cc-connect is running; restart it to use the new config: click \"Restart to apply\" in the wizard, or cc-connect daemon restart for the service, or Ctrl+C and run "+cmd+" again")
+		out = append(out, "bothouse is running; restart it to use the new config: click \"Restart to apply\" in the wizard, or bothouse daemon restart for the service, or Ctrl+C and run "+cmd+" again")
 	case zh:
-		out = append(out, "后台启动并常驻（推荐，AI 也用这个，不要在前台跑 "+cmd+"，会一直占住终端）："+daemonCmd(configFlag)+"；看日志 cc-connect daemon logs -f，出现 \"discord: connected\" 就是上线了，去频道里 @ 机器人说一句试试",
+		out = append(out, "后台启动并常驻（推荐，AI 也用这个，不要在前台跑 "+cmd+"，会一直占住终端）："+daemonCmd(configFlag)+"；看日志 bothouse daemon logs -f，出现 \"discord: connected\" 就是上线了，去频道里 @ 机器人说一句试试",
 			"只想先临时试一下："+tryCmd+"（日志在 "+tryLog+"）")
 	default:
-		out = append(out, "Start in the background as a service (recommended, also for AI agents — do not run "+cmd+" in the foreground, it holds the terminal): "+daemonCmd(configFlag)+"; follow the log with cc-connect daemon logs -f, \"discord: connected\" means it is online — @ the bot in the channel to try",
+		out = append(out, "Start in the background as a service (recommended, also for AI agents — do not run "+cmd+" in the foreground, it holds the terminal): "+daemonCmd(configFlag)+"; follow the log with bothouse daemon logs -f, \"discord: connected\" means it is online — @ the bot in the channel to try",
 			"Just a quick try: "+tryCmd+" (log in "+tryLog+")")
 	}
 	return out
@@ -293,11 +296,11 @@ func setupNextSteps(lang, configFlag string, running, needsAction bool) []string
 func cloudWebNextStep(lang, page string) string {
 	switch {
 	case strings.HasPrefix(strings.ToLower(lang), "zh"):
-		return "自建平台：日志出现 \"cloud_web: websocket connected\" 就是连上了；打开平台网页 " + page + "（本机向导启动的平台用 cc-connect setup hub 输出里的 open_url 登录），发一句「@角色名 你好」试试"
+		return "自建平台：日志出现 \"cloud_web: websocket connected\" 就是连上了；打开平台网页 " + page + "（本机向导启动的平台用 bothouse setup hub 输出里的 open_url 登录），发一句「@角色名 你好」试试"
 	case strings.HasPrefix(strings.ToLower(lang), "ja"):
-		return "自前プラットフォーム：ログに \"cloud_web: websocket connected\" が出たら接続済みです。プラットフォームの Web ページ " + page + " を開き（このマシンでウィザードが起動したものは cc-connect setup hub の open_url でログイン）、「@ロール名 こんにちは」と送ってみてください"
+		return "自前プラットフォーム：ログに \"cloud_web: websocket connected\" が出たら接続済みです。プラットフォームの Web ページ " + page + " を開き（このマシンでウィザードが起動したものは bothouse setup hub の open_url でログイン）、「@ロール名 こんにちは」と送ってみてください"
 	}
-	return "Self-hosted platform: \"cloud_web: websocket connected\" in the log means it is connected; open the platform's page " + page + " (for the one started on this machine, sign in with open_url from cc-connect setup hub) and send \"@<role name> hi\""
+	return "Self-hosted platform: \"cloud_web: websocket connected\" in the log means it is connected; open the platform's page " + page + " (for the one started on this machine, sign in with open_url from bothouse setup hub) and send \"@<role name> hi\""
 }
 
 // nextStepsGOOS is runtime.GOOS; swapped in tests.
@@ -313,9 +316,9 @@ func quoteIfSpaced(p string) string {
 
 func daemonCmd(configFlag string) string {
 	if configFlag != "" {
-		return "cc-connect daemon install --config " + quoteIfSpaced(configFlag)
+		return "bothouse daemon install --config " + quoteIfSpaced(configFlag)
 	}
-	return "cc-connect daemon install"
+	return "bothouse daemon install"
 }
 
 // runSetup: `cc-connect setup apply --json <file|->` (one-shot config for AI
@@ -342,7 +345,7 @@ func runSetup(args []string) {
 	fs := flag.NewFlagSet("setup "+sub, flag.ExitOnError)
 	if sub == "apply" {
 		fs.Usage = func() {
-			fmt.Fprint(fs.Output(), "Usage: cc-connect setup apply --json <file|-> [--config path] [--dry-run]\n\nFlags:\n")
+			fmt.Fprint(fs.Output(), "Usage: bothouse setup apply --json <file|-> [--config path] [--dry-run]\n\nFlags:\n")
 			fs.PrintDefaults()
 			fmt.Fprint(fs.Output(), setupApplyFields)
 		}
@@ -486,13 +489,13 @@ func setupCLIsHint(lang string, clis []core.LocalCLI) string {
 	}
 	switch {
 	case supported == 0 && zh:
-		return "本机没找到 cc-connect 能用的 CLI（claude / codex / gemini / opencode / dsh …，PATH 和 ~/.local/bin 等常见目录都找过）。先装一个并登录，例如 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，然后 claude auth login；DSH："+core.DSHInstallHint+"；装好再跑一次 cc-connect setup clis。"
+		return "本机没找到 bothouse 能用的 CLI（claude / codex / gemini / opencode / dsh …，PATH 和 ~/.local/bin 等常见目录都找过）。先装一个并登录，例如 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，然后 claude auth login；DSH：" + core.DSHInstallHint + "；装好再跑一次 bothouse setup clis。"
 	case supported == 0:
-		return "No agent CLI cc-connect can use was found (claude / codex / gemini / opencode / dsh …; searched PATH and common dirs like ~/.local/bin). Install one and log in, e.g. Claude Code: curl -fsSL https://claude.ai/install.sh | bash, then claude auth login; DSH: "+core.DSHInstallHint+"; then run cc-connect setup clis again."
+		return "No agent CLI bothouse can use was found (claude / codex / gemini / opencode / dsh …; searched PATH and common dirs like ~/.local/bin). Install one and log in, e.g. Claude Code: curl -fsSL https://claude.ai/install.sh | bash, then claude auth login; DSH: " + core.DSHInstallHint + "; then run bothouse setup clis again."
 	case loggedIn == 0 && zh:
-		return "找到了 CLI，但没有一个确认已登录（login 不是 logged_in）。没登录的 CLI 配上去机器人答不出来：先登录（claude auth login / codex login / gemini / opencode auth login），再跑一次 cc-connect setup clis。"
+		return "找到了 CLI，但没有一个确认已登录（login 不是 logged_in）。没登录的 CLI 配上去机器人答不出来：先登录（claude auth login / codex login / gemini / opencode auth login），再跑一次 bothouse setup clis。"
 	case loggedIn == 0:
-		return "CLIs were found but none is confirmed logged in (login is not logged_in). A bot on a CLI that is not logged in cannot answer: log in first (claude auth login / codex login / gemini / opencode auth login), then run cc-connect setup clis again."
+		return "CLIs were found but none is confirmed logged in (login is not logged_in). A bot on a CLI that is not logged in cannot answer: log in first (claude auth login / codex login / gemini / opencode auth login), then run bothouse setup clis again."
 	}
 	return ""
 }
@@ -526,9 +529,9 @@ func (bootstrapOnWriteStore) ApplyProjects(plan func(core.WizardSnapshot) ([]cor
 // defaultDataDir is config.load's default data_dir (no data_dir in the config).
 func defaultDataDir() string {
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cc-connect")
+		return ccconnect.DataDir(home)
 	}
-	return ".cc-connect"
+	return ".bothouse"
 }
 
 func fail(err error) {
@@ -542,7 +545,7 @@ func bootstrapSetupConfig(path string) error {
 		return err
 	}
 	content := fmt.Sprintf(firstRunHeader+` Open the setup wizard in the browser;
-# it adds one [[projects]] per bot. Manual reference: cc-connect config-example
+# it adds one [[projects]] per bot. Manual reference: bothouse config-example
 
 [log]
 level = "info"
@@ -550,7 +553,7 @@ level = "info"
 [management]
 enabled = true
 host = "127.0.0.1" # this machine only; remove to listen on all interfaces
-port = 9820 # 来源：沿用 cc-connect 管理接口默认端口
+port = 9820 # 来源：沿用 bothouse 管理接口默认端口
 token = %q
 `, core.GenerateToken(16))
 	return os.WriteFile(path, []byte(content), 0o600)

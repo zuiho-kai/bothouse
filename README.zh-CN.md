@@ -13,25 +13,25 @@ bothouse 是一个插件：装上它，这几个 AI 变成一支有性格的团�
 
 ## 快速上手
 
-**首个版本发布后可用。** 仓库准备期间保持私有，安装包还没发；现在想先试，按[从零用起](docs/GETTING_STARTED.md)第 1 节装。
+从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载 macOS 的 `bothouse-mac.dmg`（Apple 芯片和 Intel 通用，把 Bothouse.app 拖进 Applications 后双击）或 Windows 的 `bothouse-windows.exe`（x64 和 ARM64 Windows 均可运行，下载后双击），首次启动会在浏览器打开安装向导。macOS 暂未签名，首次打开请「右键→打开」。Linux 下载 `bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行；校验见 `SHA256SUMS`。也可运行下面的命令。仓库保持私有期间，请按[从零用起](docs/GETTING_STARTED.md)第 1 节使用已登录的 GitHub CLI 安装。
 
 ```sh
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && cc-connect
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && bothouse
 ```
 
 ```powershell
 # Windows（PowerShell）
-irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; cc-connect
+irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; bothouse
 ```
 
-装好后的命令叫 `cc-connect`：bothouse 把开源的 cc-connect 一起带着装，你不用另外装它。不用装 Go，不用装 Node。
+装好后的命令叫 `bothouse`。不用装 Go 或 Node。
 
 **开始前准备：** 一个 Discord 服务器（或飞书企业），加上至少一个本机已登录的 AI 命令行工具（Claude Code / Codex / Gemini CLI 任一）。机器人怎么建，向导会一步步带你。
 
 1. **装**：运行上面那一行命令。
-2. **配**：运行 `cc-connect`，浏览器里会打开向导：选平台 → 接机器人 → 每个角色选本机 CLI → 人设 → 保存。
-   也可以对你的 Claude Code / Codex 说「帮我把 cc-connect 配好接上 Discord」，它会一次问齐要的东西。
+2. **配**：运行 `bothouse`，浏览器里会打开向导：选平台 → 接机器人 → 每个角色选本机 CLI → 人设 → 保存。
+   也可以对你的 Claude Code / Codex 说「帮我把 bothouse 配好接上 Discord」，它会一次问齐要的东西。
 3. **用**：保存后点「重启生效」，去频道里 @ 一个角色说句话。
 
 想让 AI 自己判断一句话该谁回（这个组件叫 gate，可以理解成调度员），或者想要团队记忆，再装两个配套组件，见[装调度员和团队记忆](docs/ccm-and-wiki.md)。
@@ -149,7 +149,7 @@ AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode �
 - **像招人一样招角色。** 角色包：人设、记忆模板、工具一起打包，一键进群。
 - **团队记忆可以带走。** 换电脑、换模型，团队还是那支团队，记得的事一件不少。
 - **省下重复的背景。** 常驻角色不用每个任务重读项目。等我们有对比数据再公布数字。
-- **更多平台跑团队功能。** DSH 网页频道，然后是 Telegram、Slack、QQ、企微（单角色接入已随 cc-connect 带着）。
+- **更多平台跑团队功能。** DSH 网页频道，然后是 Telegram、Slack、QQ、企微（单角色接入已随 bothouse 带着）。
 - **记忆更聪明。** 关键词检索之外加语义检索，让换个说法也找得到。
 
 想看到这些饼落地？点个 ⭐ 关注进度。
@@ -188,4 +188,4 @@ Discord / 飞书 / 自建网页频道
 
 bothouse 按 [MIT](LICENSE) 授权，详见[许可说明](LICENSING.md)。
 
-bothouse 是接入 [cc-connect](https://github.com/chenhg5/cc-connect)、DSH 等平台的插件。为了一条命令装好，`bridge/` 随附了一份 cc-connect，它的 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)。感谢 cc-connect 的作者和贡献者。第三方依赖的许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
+随附桥接组件的上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，感谢原作者和贡献者。第三方依赖许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。

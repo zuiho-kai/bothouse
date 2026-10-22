@@ -343,13 +343,13 @@ export default function SetupWizard() {
     const body = JSON.stringify({ ...buildRequest(true), roles: [buildRequest(true).roles[roles.indexOf(r)]] }, null, 2);
     const vendor = vendors.find((v) => v.id === r.provider.vendor);
     return zh
-      ? `请帮我把本机 cc-connect 的角色「${nameOf(r)}」配置成用第三方 API${vendor ? `（${vendor.label}）` : ''}，挂在 ${r.agent_type} 上。\n` +
-        `做法：在 cc-connect 目录运行 \`cc-connect setup matrix\` 看这家挂到 ${r.agent_type} 是原生还是转换；` +
-        `然后把下面的 JSON 存成文件，把占位符换成真实值，运行 \`cc-connect setup apply --json <文件>\`（或 POST 到 http://localhost:<管理端口>/api/v1/setup/apply）。\n` +
+      ? `请帮我把本机 bothouse 的角色「${nameOf(r)}」配置成用第三方 API${vendor ? `（${vendor.label}）` : ''}，挂在 ${r.agent_type} 上。\n` +
+        `做法：在 bothouse 目录运行 \`bothouse setup matrix\` 看这家挂到 ${r.agent_type} 是原生还是转换；` +
+        `然后把下面的 JSON 存成文件，把占位符换成真实值，运行 \`bothouse setup apply --json <文件>\`（或 POST 到 http://localhost:<管理端口>/api/v1/setup/apply）。\n` +
         `key 我会单独给你，不要打印或写进日志。做完把输出 JSON 里的 steps 告诉我。\n\n${body}`
-      : `Please configure the cc-connect role "${nameOf(r)}" on this machine to use a third-party API${vendor ? ` (${vendor.label})` : ''} on ${r.agent_type}.\n` +
-        `Run \`cc-connect setup matrix\` to see whether this provider is native or converted for ${r.agent_type}; then save the JSON below to a file, ` +
-        `replace the placeholders, and run \`cc-connect setup apply --json <file>\` (or POST it to http://localhost:<management port>/api/v1/setup/apply).\n` +
+      : `Please configure the bothouse role "${nameOf(r)}" on this machine to use a third-party API${vendor ? ` (${vendor.label})` : ''} on ${r.agent_type}.\n` +
+        `Run \`bothouse setup matrix\` to see whether this provider is native or converted for ${r.agent_type}; then save the JSON below to a file, ` +
+        `replace the placeholders, and run \`bothouse setup apply --json <file>\` (or POST it to http://localhost:<management port>/api/v1/setup/apply).\n` +
         `I will give you the key separately; never print or log it. Tell me the "steps" from the output JSON.\n\n${body}`;
   };
 
@@ -717,7 +717,7 @@ export default function SetupWizard() {
                   <p className="text-[11px] text-gray-400">{T.personaWhere} <code data-testid={`persona-path-${idx}`}>{
                     r.reuse_project
                       ? (r.existingPersona?.path || `${r.existingWorkDir}/${MEMORY_FILE[r.agent_type] || 'AGENTS.md'}`)
-                      : `${state?.data_dir || '~/.cc-connect'}/roles/${projectOf(r)}/${MEMORY_FILE[r.agent_type] || 'AGENTS.md'}`
+                      : `${state?.data_dir || '~/.bothouse'}/roles/${projectOf(r)}/${MEMORY_FILE[r.agent_type] || 'AGENTS.md'}`
                   }</code></p>
                 )}
               </div>
@@ -858,8 +858,8 @@ export default function SetupWizard() {
             {result && !result.ok && !result.saved && <p className="text-red-500 text-sm">{T.failed}{result.error}</p>}
             <details className="text-xs">
               <summary className="cursor-pointer text-gray-500">{T.forAI}</summary>
-              <pre className="mt-2 p-2 rounded bg-gray-50 dark:bg-black/40 text-gray-700 dark:text-gray-300 overflow-auto max-h-64" data-testid="ai-command">{`cc-connect setup apply --json - <<'EOF'\n${JSON.stringify(buildRequest(true), null, 2)}\nEOF`}</pre>
-              <Button size="sm" variant="ghost" onClick={() => copy('ai', `cc-connect setup apply --json - <<'EOF'\n${JSON.stringify(buildRequest(true), null, 2)}\nEOF`)}><Copy size={12} />{copied === 'ai' ? T.copied : 'Copy'}</Button>
+              <pre className="mt-2 p-2 rounded bg-gray-50 dark:bg-black/40 text-gray-700 dark:text-gray-300 overflow-auto max-h-64" data-testid="ai-command">{`bothouse setup apply --json - <<'EOF'\n${JSON.stringify(buildRequest(true), null, 2)}\nEOF`}</pre>
+              <Button size="sm" variant="ghost" onClick={() => copy('ai', `bothouse setup apply --json - <<'EOF'\n${JSON.stringify(buildRequest(true), null, 2)}\nEOF`)}><Copy size={12} />{copied === 'ai' ? T.copied : 'Copy'}</Button>
             </details>
           </div>
         )}

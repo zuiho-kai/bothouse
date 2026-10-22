@@ -36,7 +36,7 @@ func TestSend_ModelSkillReachesNewAndResumedTurns(t *testing.T) {
 	}()
 	// Grok and DeepSeek share this ACP transport. Explicit progress commands
 	// must survive both a fresh prompt and the next prompt of the same session.
-	for _, user := range []string{"[Public progress channel] cc-connect progress --run fresh --seq 1 --kind start\n检查绑定", "[Public progress channel] cc-connect progress --run renewed --seq 1 --kind start\n继续检查"} {
+	for _, user := range []string{"[Public progress channel] bothouse progress --run fresh --seq 1 --kind start\n检查绑定", "[Public progress channel] bothouse progress --run renewed --seq 1 --kind start\n继续检查"} {
 		done := make(chan error, 1)
 		go func() { done <- s.Send(user, "test", nil, nil) }()
 		select {

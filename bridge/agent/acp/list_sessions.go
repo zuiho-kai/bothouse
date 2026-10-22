@@ -140,7 +140,7 @@ func probeInitialize(ctx context.Context, tr *transport) (*acpInitializeResult, 
 			"fs":       map[string]any{"readTextFile": false, "writeTextFile": false},
 			"terminal": false,
 		},
-		"clientInfo": map[string]any{"name": "cc-connect", "version": "1.0.0"},
+		"clientInfo": map[string]any{"name": "bothouse", "version": "1.0.0"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("acp: probe initialize: %w", err)

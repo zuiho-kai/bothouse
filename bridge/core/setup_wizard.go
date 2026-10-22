@@ -1235,7 +1235,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 					}
 				}
 				if len(unreadable) > 0 {
-					return nil, fmt.Errorf("can't tell whether this bot is already configured — %s. Set that environment variable for cc-connect, or pick the existing bot (reuse_project)", strings.Join(unreadable, "; "))
+					return nil, fmt.Errorf("can't tell whether this bot is already configured — %s. Set that environment variable for bothouse, or pick the existing bot (reuse_project)", strings.Join(unreadable, "; "))
 				}
 			}
 			// a new bot: clean the name, fall back to role-N, then avoid every existing
@@ -1282,7 +1282,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			return nil, fmt.Errorf("no supported agent CLI found on this machine (install claude / codex / gemini / opencode / dsh …)")
 		}
 		if r.Provider != nil && protocolOfAgent[r.AgentType] == "" {
-			return nil, fmt.Errorf("%s can't take a third-party API in cc-connect; use one of %v", r.AgentType, AttachableAgents)
+			return nil, fmt.Errorf("%s can't take a third-party API in bothouse; use one of %v", r.AgentType, AttachableAgents)
 		}
 		if r.Provider != nil && !VendorServes(r.Provider.Vendor, r.AgentType) {
 			return nil, fmt.Errorf("%s: %s has no Anthropic endpoint, which DSH needs (DSH only speaks Anthropic Messages)", r.AgentType, r.Provider.Vendor)

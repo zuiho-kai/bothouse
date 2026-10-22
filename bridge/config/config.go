@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -707,9 +708,9 @@ func load(path string) (*Config, error) {
 	resolveEnvInConfig(cfg)
 	if cfg.DataDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			cfg.DataDir = filepath.Join(home, ".cc-connect")
+			cfg.DataDir = ccconnect.DataDir(home)
 		} else {
-			cfg.DataDir = ".cc-connect"
+			cfg.DataDir = ".bothouse"
 		}
 	}
 	cfg.AttachmentSend = strings.ToLower(strings.TrimSpace(cfg.AttachmentSend))

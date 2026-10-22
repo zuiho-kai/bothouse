@@ -1009,7 +1009,7 @@ func TestSendWPSMessage_NewlinesConvertedToHardBreaks(t *testing.T) {
 	p := plat.(*Platform)
 
 	// Simulated cc-connect engine /status output with bare "\n" separators.
-	in := "cc-connect Status\n\nProject: foo\nAgent: claudecode\nUptime: 2m"
+	in := "bothouse Status\n\nProject: foo\nAgent: claudecode\nUptime: 2m"
 	if err := p.Reply(context.Background(), replyContext{ChatID: "c"}, in); err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
@@ -1018,7 +1018,7 @@ func TestSendWPSMessage_NewlinesConvertedToHardBreaks(t *testing.T) {
 	if err := json.Unmarshal(gotBody, &req); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	want := "cc-connect Status  \n  \nProject: foo  \nAgent: claudecode  \nUptime: 2m"
+	want := "bothouse Status  \n  \nProject: foo  \nAgent: claudecode  \nUptime: 2m"
 	if req.Content.Text.Content != want {
 		t.Fatalf("expected newlines converted to '  \\n', got %q", req.Content.Text.Content)
 	}

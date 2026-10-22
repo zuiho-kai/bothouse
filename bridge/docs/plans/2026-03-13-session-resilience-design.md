@@ -53,7 +53,7 @@ If `EvalSymlinks` fails (path doesn't exist yet), fall back to `filepath.Clean` 
 
 **Dual-track approach with logging to compare accuracy over time.**
 
-#### Track A: SDK token counts (accurate, cc-connect-owned)
+#### Track A: SDK token counts (accurate, bothouse-owned)
 
 - In `processInteractiveEvents`, parse `result` events for `input_tokens` usage
 - Store cumulative `input_tokens` on the `interactiveState` (updated each turn)

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
 	"net/http"
 	"os"
@@ -146,7 +147,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	deviceUuid, _ := opts["device_uuid"].(string)
 	deviceName, _ := opts["device_name"].(string)
 	if deviceName == "" {
-		deviceName = "cc-connect"
+		deviceName = "bothouse"
 	}
 
 	baseURL := defaultWSURL
@@ -268,7 +269,7 @@ func (p *Platform) saveAttachment(name string, data []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
-	dir := filepath.Join(home, ".cc-connect", "attachments")
+	dir := filepath.Join(ccconnect.DataDir(home), "attachments")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir: %w", err)
 	}
@@ -953,7 +954,7 @@ func findConfigFile() string {
 
 	locations := []string{
 		"config.toml",
-		"~/.cc-connect/config.toml",
+		"~/.bothouse/config.toml",
 	}
 
 	for _, loc := range locations {

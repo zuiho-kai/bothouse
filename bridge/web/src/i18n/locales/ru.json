@@ -167,8 +167,8 @@
     "rawConfig": "Сырой конфиг"
   },
   "login": {
-    "title": "CC-Connect Admin",
-    "subtitle": "Подключитесь к вашему серверу CC-Connect",
+    "title": "bothouse Admin",
+    "subtitle": "Подключитесь к вашему серверу bothouse",
     "token": "API-токен",
     "serverUrl": "URL сервера",
     "connect": "Подключиться",

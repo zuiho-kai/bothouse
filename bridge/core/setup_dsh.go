@@ -74,7 +74,7 @@ func DSHEnvPath(dataDir, project string) string {
 // dshProviderPatch points llm-deepseek at the vendor's Anthropic endpoint and makes model the default.
 func dshProviderPatch(project, baseURL, model string) string {
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) } // JSON string = YAML double-quoted scalar
-	return "# written by the cc-connect setup wizard for role " + project + ": the third-party API picked in the wizard.\n" +
+	return "# written by the bothouse setup wizard for role " + project + ": the third-party API picked in the wizard.\n" +
 		"# The key is in this role's env " + DSHKeyEnv + " (config.toml). Everything else is the user's own DSH setup.\n" +
 		"- id: llm-deepseek\n  config:\n    baseURL: " + q(baseURL) + "\n    apiKeyEnv: " + DSHKeyEnv + "\n" +
 		"    models:\n      - id: " + q(model) + "\n" +

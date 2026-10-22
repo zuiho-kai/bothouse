@@ -1,8 +1,8 @@
 # Small tools for agents
 
-Three command-line tools every role can use with its own shell tool. They come with cc-connect: new roles from the
-setup wizard get them, and `cc-connect setup tools on --work-dir <dir> --agent <type>` adds them to an existing
-role. "on" copies the scripts to `<data_dir>/tools` (default `~/.cc-connect/tools`) and writes a block between
+Three command-line tools every role can use with its own shell tool. They come with bothouse: new roles from the
+setup wizard get them, and `bothouse setup tools on --work-dir <dir> --agent <type>` adds them to an existing
+role. "on" copies the scripts to `<data_dir>/tools` (default `~/.bothouse/tools`) and writes a block between
 `<!-- conest:tools -->` markers into the role's persona file saying what each tool is for and how to run it.
 `off` removes the block (or one tool with `--only`); `status` shows what is on.
 
@@ -24,7 +24,7 @@ No API key, account or cookie is required.
 ## Use by hand
 
 ```sh
-T=~/.cc-connect/tools
+T=~/.bothouse/tools
 uv run -q --script $T/peek.py                 # one line per bot
 uv run -q --script $T/peek.py <bot> -n 20     # one bot's last 20 steps
 uv run -q --script $T/watchvid.py 'https://www.youtube.com/watch?v=jNQXAC9IVRw'   # last line: index path
@@ -36,7 +36,7 @@ Each script's `--help` (or its docstring) has the details.
 
 ### peek
 
-Reads cc-connect's `config.toml` (`--config`, else `$CC_CONNECT_CONFIG`, `./config.toml`, `~/.cc-connect/config.toml`).
+Reads bothouse's `config.toml` (`--config`, else `$CC_CONNECT_CONFIG`, `./config.toml`, `~/.bothouse/config.toml`).
 Each `[[projects]]` entry is a bot, named by `team_name` or `name`; its agent type and `work_dir` say where the
 session log is: Claude Code (`~/.claude/projects/…`), Codex (`~/.codex/sessions`, matched by cwd), DSH
 (`$DSH_HOME/sessions`, matched by cwd; `DSH_HOME` from the project's agent env or its cmd script). Antigravity only
