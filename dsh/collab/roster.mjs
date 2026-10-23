@@ -3,6 +3,7 @@
 // unique across every channel member (DSH members and cc-connect bots alike)
 // because @-mentions are matched by name.
 import { CollabError } from './store.mjs';
+import { memberId } from './identity.mjs';
 
 const MAX_NAME = 32;
 const MAX_PERSONA = 4000;
@@ -26,15 +27,21 @@ export class Roster {
    * @param dsh - DshMembers (runtime routing).
    * @param llm - DSH `ctx.llm` service, or undefined to skip model checks.
    */
-  constructor(hub, dsh, llm) {
+  constructor(hub, dsh, llm, { reservedIds = new Set() } = {}) {
     this.hub = hub;
     this.store = hub.store;
     this.dsh = dsh;
     this.llm = llm;
+    this.reservedIds = new Set([...reservedIds, ...(hub.reservedBotIds ?? [])]);
   }
 
   /** Write config members as seeds, then publish every active member. */
   load(configMembers) {
+    const rows = this.store.db.prepare('SELECT id FROM members').all();
+    for (const m of [...rows, ...configMembers]) {
+      memberId(m.id);
+      if (this.reservedIds.has(m.id)) throw new CollabError('invalid', 'bot identity collision');
+    }
     this.store.transaction(() => { for (const m of configMembers) this.store.seedMember(m); });
     for (const row of this.store.members()) this.dsh.putMember(rowToMember(row));
   }
@@ -110,7 +117,7 @@ export class Roster {
   /** A stable, unused member id derived from the name (ASCII) or a short random suffix. */
   newId(name) {
     const slug = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
-    const taken = id => RESERVED.has(id) || this.store.member(id) !== undefined || this.hub.members.has(id);
+    const taken = id => RESERVED.has(id) || this.reservedIds.has(id) || this.store.member(id) !== undefined || this.hub.members.has(id);
     if (slug && /^[a-z0-9]/.test(slug) && !taken(slug)) return slug;
     for (;;) {
       const id = `m-${Math.random().toString(36).slice(2, 8)}`;

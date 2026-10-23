@@ -13,6 +13,7 @@ import { Hub } from './hub.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster } from './roster.mjs';
+import { memberId, validateCredentials } from './identity.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -53,18 +54,27 @@ export function resolveConfig(config, env = process.env) {
   // Per-bot credentials: "id:secret,id:secret" in env, or a { id: secret } map in config.
   // Env wins, so a deployment can hand each bot its own secret without editing the overlay.
   const tokensEnv = c.botTokensEnv ?? 'CONEST_COLLAB_BOT_TOKENS';
-  const botTokens = new Map();
-  for (const [id, secret] of Object.entries(c.botTokens ?? {})) {
-    if (typeof secret !== 'string' || secret === '') throw Error(`conest-collab: botTokens.${id} must be a non-empty string`);
-    botTokens.set(secret, id);
-  }
-  for (const pair of String(env[tokensEnv] ?? '').split(',')) {
+  const byId = new Map(Object.entries(c.botTokens ?? {}));
+  const overrides = new Set();
+  for (const pair of String(env[tokensEnv] ?? '').split(',').filter(Boolean)) {
     const at = pair.indexOf(':');
-    if (at < 1) continue;
+    if (at < 1) throw Error('invalid bot credential entry');
     const id = pair.slice(0, at).trim();
     const secret = pair.slice(at + 1).trim();
-    if (id === '' || secret === '') throw Error(`conest-collab: ${tokensEnv} entries must be "id:secret"`);
+    if (overrides.has(id)) throw Error('duplicate bot identity in credentials');
+    overrides.add(id);
+    byId.set(id, secret);
+  }
+  const botTokens = new Map();
+  for (const [id, secret] of byId) {
+    memberId(id);
+    if (typeof secret !== 'string' || secret === '' || botTokens.has(secret)) throw Error('invalid or duplicate bot secret');
     botTokens.set(secret, id);
+  }
+  validateCredentials(botTokens, botToken, ids);
+  for (const room of rooms) {
+    validatePolicy(room);
+    validateRoomMembers(room.initial_members ?? [], id => ids.has(id) || [...botTokens.values()].includes(id));
   }
   // No credential at all is allowed: the gateway simply stays closed. The plugin warns at
   // startup instead of failing, so a misconfigured env cannot take the whole host down.
@@ -88,14 +98,14 @@ export async function apply(ctx, rawConfig) {
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
-  for (const room of config.rooms) store.ensureRoom(room.id, room.name.trim());
   const hub = new Hub(store, ctx.logger);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const gateway = new CloudWebGateway(hub, { token: config.botToken, tokens: config.botTokens, logger: ctx.logger });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
-  const roster = new Roster(hub, dsh, ctx.llm);
+  const roster = new Roster(hub, dsh, ctx.llm, { reservedIds: new Set(config.botTokens.values()) });
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
+  seedRooms(store, config.rooms);
   ctx.on('session/event', (session, event) => dsh.onSessionEvent(session, event));
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => dsh.onClaimed(agent.session.id, message.id, turn));
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
@@ -107,8 +117,8 @@ export async function apply(ctx, rawConfig) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
   const streams = new Set();
 
-  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab', handler: (req, res) => browserRoute(req, res) }), 'conest-collab: /collab');
-  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/api/rooms', handler: (req, res) => historyRoute(req, res) }), 'conest-collab: /api/rooms');
+  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab', handler: (req, res) => browserRoute(req, res, { owner, dsh, gateway, store, hub, roster, ownerName: config.ownerName, events }) }), 'conest-collab: /collab');
+  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/api/rooms', handler: (req, res) => historyRoute(req, res, { store, gateway, owner }) }), 'conest-collab: /api/rooms');
   ctx.effect(() => ctx.webServer.registerUpgrade({
     path: WS_PATH,
     handler: (req, socket, head) => {
@@ -131,80 +141,6 @@ export async function apply(ctx, rawConfig) {
 
   ctx.logger.info('conest-collab: %d room(s), %d DSH member(s), cloud-web %s', config.rooms.length, config.dshMembers.length, config.botToken ? 'on' : 'off');
 
-  /** cc-connect ChannelHistory: GET /api/rooms/{id}/messages?before=&limit= (bot token or owner). */
-  function historyRoute(req, res) {
-    const url = new URL(req.url ?? '/', 'http://collab.invalid');
-    const m = /^\/api\/rooms\/(\d+)\/messages$/.exec(url.pathname);
-    if (req.method !== 'GET' || m === null) return json(res, 404, { error: 'not found' });
-    if (!gateway.authorized(req) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
-    if (store.room(Number(m[1])) === undefined) return json(res, 404, { error: 'room not found' });
-    // History is as private as the room. 403 (not 404, not an empty list) so a bug looks
-    // like a bug instead of a quietly empty thread. Owner sessions go through their cookie.
-    if (!owner(req)) {
-      const who = gateway.identify(req.headers);
-      const allowed = who !== undefined && (who.shared
-        ? store.visibility(Number(m[1])) === 'public'
-        : store.canAccess(who.memberId, Number(m[1])));
-      if (!allowed) return json(res, 403, { error: 'not a member of this room' });
-    }
-    const before = url.searchParams.get('before');
-    const rows = store.page(Number(m[1]), before === null ? undefined : Number(before), url.searchParams.get('limit'));
-    return json(res, 200, { messages: rows.map(publicMessage) });
-  }
-
-  async function browserRoute(req, res) {
-    if (await roomActionRoute(req, res, { owner, dsh, gateway })) return;
-    const url = new URL(req.url ?? '/', 'http://collab.invalid');
-    const path = url.pathname.replace(/\/+$/, '');
-    if (!owner(req)) {
-      if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
-      return json(res, 401, { error: 'unauthorized' });
-    }
-    if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
-    if (path === '/collab/api/state' && req.method === 'GET') {
-      return json(res, 200, { me: OWNER, rooms: store.rooms(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])), room_controls: store.rooms().map(r => store.control(r.id)) });
-    }
-    if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
-    const m = /^\/collab\/api\/rooms\/(\d+)\/messages$/.exec(path);
-    if (m !== null && req.method === 'GET') {
-      const roomId = Number(m[1]);
-      if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
-      const after = url.searchParams.get('after');
-      const before = url.searchParams.get('before');
-      const rows = after !== null ? store.since(roomId, Number(after), url.searchParams.get('limit'))
-        : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
-      return json(res, 200, { messages: rows.map(publicMessage) });
-    }
-    if (m !== null && req.method === 'POST') {
-      return withBody(req, res, (body) => {
-        const clientKey = typeof body?.client_key === 'string' && body.client_key ? `web:${body.client_key.slice(0, 64)}` : undefined;
-        const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey });
-        return { message: publicMessage(message) };
-      });
-    }
-    if (path === '/collab/api/models' && req.method === 'GET') return json(res, 200, { routes: await roster.models() });
-    if (path === '/collab/api/rooms' && req.method === 'POST') {
-      return withBody(req, res, (body) => {
-        const name = String(body?.name ?? '').trim().replace(/^#/, '');
-        if (!name || name.length > 32 || /\s/.test(name)) throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
-        const room = store.createRoom(name);
-        hub.emit({ type: 'rooms', rooms: store.rooms() });
-        return { room };
-      });
-    }
-    if (path === '/collab/api/members' && req.method === 'POST') {
-      return withBody(req, res, async body => ({ member: await roster.create(body) }));
-    }
-    const mm = /^\/collab\/api\/members\/([^/]+)$/.exec(path);
-    if (mm !== null && req.method === 'PATCH') {
-      return withBody(req, res, async body => ({ member: await roster.update(decodeURIComponent(mm[1]), body) }));
-    }
-    if (mm !== null && req.method === 'DELETE') {
-      return withBody(req, res, () => { roster.remove(decodeURIComponent(mm[1])); return { ok: true }; }, false);
-    }
-    return json(res, 404, { error: 'not found' });
-  }
-
   function events(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(': connected\n\n');
@@ -216,7 +152,157 @@ export async function apply(ctx, rawConfig) {
   }
 }
 
+export async function browserRoute(req, res, { owner, dsh, gateway, store, hub, roster, ownerName, events }) {
+  if (await roomActionRoute(req, res, { owner, dsh, gateway })) return;
+  if (await roomPolicyRoute(req, res, { owner, store, hub, dsh, gateway })) return;
+  const url = new URL(req.url ?? '/', 'http://collab.invalid');
+  const path = url.pathname.replace(/\/+$/, '');
+  if (!owner(req)) {
+    if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
+    return json(res, 401, { error: 'unauthorized' });
+  }
+  if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
+  if (path === '/collab/api/state' && req.method === 'GET') {
+    return json(res, 200, { me: OWNER, rooms: store.rooms(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])), room_controls: store.rooms().map(r => store.control(r.id)) });
+  }
+  if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
+  const m = /^\/collab\/api\/rooms\/(\d+)\/messages$/.exec(path);
+  if (m !== null && req.method === 'GET') {
+    const roomId = Number(m[1]);
+    if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
+    const after = url.searchParams.get('after');
+    const before = url.searchParams.get('before');
+    const rows = after !== null ? store.since(roomId, Number(after), url.searchParams.get('limit'))
+      : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
+    return json(res, 200, { messages: rows.map(publicMessage) });
+  }
+  if (m !== null && req.method === 'POST') {
+    return withBody(req, res, (body) => {
+      const clientKey = typeof body?.client_key === 'string' && body.client_key ? `web:${body.client_key.slice(0, 64)}` : undefined;
+      const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: ownerName, text: String(body?.text ?? ''), clientKey });
+      return { message: publicMessage(message) };
+    });
+  }
+  if (path === '/collab/api/models' && req.method === 'GET') return json(res, 200, { routes: await roster.models() });
+  if (path === '/collab/api/members' && req.method === 'POST') {
+    return withBody(req, res, async body => ({ member: await roster.create(body) }));
+  }
+  const mm = /^\/collab\/api\/members\/([^/]+)$/.exec(path);
+  if (mm !== null && req.method === 'PATCH') {
+    return withBody(req, res, async body => ({ member: await roster.update(decodeURIComponent(mm[1]), body) }));
+  }
+  if (mm !== null && req.method === 'DELETE') {
+    return withBody(req, res, () => { roster.remove(decodeURIComponent(mm[1])); return { ok: true }; }, false);
+  }
+  return json(res, 404, { error: 'not found' });
+}
+
+
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, conflict: 409, 'read-only': 403 };
+
+/** The production history route is exported so HTTP tests exercise exactly this handler. */
+export function historyRoute(req, res, { store, gateway, owner }) {
+  const url = new URL(req.url ?? '/', 'http://collab.invalid');
+  const match = /^[/]api[/]rooms[/]([0-9]+)[/]messages$/.exec(url.pathname);
+  if (req.method !== 'GET' || !match) return json(res, 404, { error: 'not found' });
+  const isOwner = owner(req);
+  const who = gateway.identify(req.headers);
+  if (!isOwner && !who) return json(res, 401, { error: 'unauthorized' });
+  const id = Number(match[1]);
+  if (!store.room(id)) return json(res, 404, { error: 'room not found' });
+  if (!isOwner && !(who.shared ? store.visibility(id) === 'public' : store.canAccess(who.memberId, id))) {
+    return json(res, 403, { error: 'not a member of this room' });
+  }
+  const before = url.searchParams.get('before');
+  return json(res, 200, { messages: store.page(id, before === null ? undefined : Number(before), url.searchParams.get('limit')).map(publicMessage) });
+}
+
+function validatePolicy(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new CollabError('invalid', 'room policy must be an object');
+  if (body.visibility !== undefined && !['public', 'private'].includes(body.visibility)) throw new CollabError('invalid', 'invalid visibility');
+  if ('members' in body || 'role' in body) throw new CollabError('invalid', 'use the members endpoint');
+}
+
+function validateRoomMembers(ids, known) {
+  if (!Array.isArray(ids) || new Set(ids).size !== ids.length) throw new CollabError('invalid', 'unique member ids required');
+  for (const id of ids) {
+    memberId(id);
+    if (!known(id)) throw new CollabError('invalid', 'unknown or ineligible member identity');
+  }
+}
+
+/** Config only seeds new rooms. Persisted policy is authoritative after first creation. */
+export function seedRooms(store, rooms) {
+  store.transaction(() => {
+    for (const room of rooms) {
+      if (store.room(room.id)) continue;
+      store.ensureRoom(room.id, room.name.trim());
+      if (room.visibility !== undefined) store.setVisibility(room.id, room.visibility);
+      for (const id of room.initial_members ?? []) store.addRoomMember(room.id, id);
+    }
+  });
+}
+
+/** Owner-only metadata and membership API; no bot credential grants management rights. */
+export async function roomPolicyRoute(req, res, { store, hub, gateway, dsh, owner }) {
+  const path = new URL(req.url ?? '/', 'http://collab.invalid').pathname.replace(/[/]+$/, '');
+  const match = /^[/]collab[/]api[/]rooms(?:[/]([0-9]+)(?:[/](members)(?:[/]([^/]+))?)?)?$/.exec(path);
+  if (!match) return false;
+  const [, rawId, membershipRoute, targetId] = match;
+  if (!owner(req)) { json(res, 401, { error: 'unauthorized' }); return true; }
+  const id = rawId === undefined ? undefined : Number(rawId);
+  if (id !== undefined && !store.room(id)) { json(res, 404, { error: 'room not found' }); return true; }
+  const members = room => [{ member_id: OWNER, role: 'owner', added_at: null }, ...store.roomMembers(room).filter(m => m.member_id !== OWNER)];
+  if (req.method === 'GET' && id !== undefined && !targetId) {
+    json(res, 200, membershipRoute ? { members: members(id) } : { room: store.room(id) });
+    return true;
+  }
+  const create = req.method === 'POST' && id === undefined;
+  const patch = req.method === 'PATCH' && id !== undefined && !membershipRoute;
+  const add = req.method === 'POST' && !!membershipRoute && !targetId;
+  const remove = req.method === 'DELETE' && !!targetId;
+  if (!create && !patch && !add && !remove) { json(res, 405, { error: 'method not allowed' }); return true; }
+  await withBody(req, res, body => {
+    let roomId = id;
+    let targets = [];
+    const known = target => {
+      const persisted = store.member(target);
+      return persisted ? !persisted.removed && dsh.config.has(target) : dsh.config.has(target) || [...gateway.tokens.values()].includes(target);
+    };
+    if (create || patch) {
+      validatePolicy(body);
+      if (patch && 'initial_members' in body) throw new CollabError('invalid', 'initial_members is only accepted on creation');
+      targets = create ? body.initial_members ?? [] : [];
+    } else {
+      if (!remove && (!body || typeof body !== 'object' || Array.isArray(body) || 'role' in body)) throw new CollabError('invalid', 'invalid membership body');
+      targets = remove ? [decodeURIComponent(targetId)] : body.member_ids ?? (body.member_id === undefined ? [] : [body.member_id]);
+      if (!targets.length) throw new CollabError('invalid', 'member ids required');
+    }
+    // Revoking an obsolete identity must remain possible after roster removal.
+    validateRoomMembers(targets, remove ? () => true : known);
+    const name = create || patch ? (body.name === undefined && patch ? store.room(id).name : String(body.name ?? '').trim().replace(/^#/, '')) : undefined;
+    // 来源：existing room creation limit, 32 characters without spaces.
+    if ((create || patch) && (!name || name.length > 32 || /\s/.test(name))) throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
+    store.transaction(() => {
+      if (create) roomId = store.createRoom(name).id;
+      if (patch) store.ensureRoom(id, name);
+      if ((create || patch) && body.visibility !== undefined) store.setVisibility(roomId, body.visibility);
+      for (const target of targets) {
+        if (remove) store.removeRoomMember(roomId, target);
+        else store.addRoomMember(roomId, target);
+      }
+      // Mark jobs and Sessions invalid in the same commit as the ACL change.
+      dsh.fenceRoom(roomId);
+    });
+    dsh.reconcileRoom(roomId);
+    gateway.reconcileRoom(roomId);
+    hub.emit({ type: 'room_updated', room: store.room(roomId) });
+    if (create || add || remove) hub.emit({ type: 'room_members_changed', room_id: roomId, members: members(roomId).map(m => m.member_id), action: remove ? 'remove' : 'add', target_member_ids: targets });
+    hub.emit({ type: 'rooms', rooms: store.rooms() });
+    return membershipRoute ? { members: members(roomId) } : { room: store.room(roomId) };
+  }, !remove);
+  return true;
+}
 
 /** Owner-only actions, shared by the HTTP host and isolated integration tests. */
 export async function roomActionRoute(req, res, { owner, dsh, gateway }) {

@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve, join, sep } from 'node:path';
 import { mentions, nameCalled } from './mentions.mjs';
 import { CollabError } from './store.mjs';
+import { memberId } from './identity.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -128,7 +129,8 @@ export class DshMembers {
     this.hub = hub;
     this.store = hub.store;
     this.rt = runtime;
-    this.config = new Map(members.map(m => [m.id, m]));
+    this.config = new Map();
+    for (const m of members) { this.validateIdentity(m); this.config.set(m.id, m); }
     this.queues = new Map();
     this.closed = false;
     /** sessionId -> { jobId, inputId, seqBefore, turn, resolve } while a turn is outstanding */
@@ -147,6 +149,7 @@ export class DshMembers {
 
   /** Add or replace a member at runtime; its bound Sessions pick up the new model on their next request. */
   putMember(m) {
+    this.validateIdentity(m);
     this.config.set(m.id, m);
     this.publish(m);
   }
@@ -154,6 +157,7 @@ export class DshMembers {
   /** Stop routing to a member. Pending jobs for it fail when they run; history keeps its name. */
   dropMember(id) {
     this.config.delete(id);
+    for (const room of this.store.rooms()) { this.fenceRoom(room.id); this.reconcileRoom(room.id); }
     this.hub.removeMember(id);
   }
 
@@ -176,6 +180,12 @@ export class DshMembers {
   onClaimed(sessionId, messageId, turn) {
     const w = this.watching.get(sessionId);
     if (w !== undefined && w.inputId === messageId) w.turn = turn;
+    // claimed precedes user/message: remember the turn even if revocation already
+    // released the watcher. A late claim must never escape cancellation.
+    const job = this.store.db.prepare('SELECT * FROM jobs WHERE session_id = ? AND input_id = ?').get(sessionId, messageId);
+    if (job && (!this.allowed(job) || this.store.sessionFenced(sessionId) || job.state !== 'sent')) {
+      this.cleanupInput(job, this.rt.ctx.agents.get(sessionId), turn);
+    }
   }
 
   /** Root agent/inbox/discarded listener: a withdrawn input ends its job. */
@@ -194,6 +204,7 @@ export class DshMembers {
     if (msg.author_kind === 'system' || msg.card !== null || !this.hub.canDispatch(msg)) return undefined;
     const hit = mentions(msg.text, this.hub.routable());
     const targets = [...this.config.keys()].filter(id => id !== msg.author
+      && this.store.canAccess(id, msg.room_id)
       && (hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
     if (targets.length === 0) return undefined;
     const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
@@ -217,8 +228,9 @@ export class DshMembers {
     const member = this.config.get(job.member_id);
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
-    const agent = await this.ensureAgent(member, room);
-    if (this.closed || this.store.job(jobId)?.state !== 'pending') return;
+    if (!this.allowed(job)) { this.interrupt(job); return; }
+    const agent = await this.ensureAgent(member, room, job);
+    if (!agent || this.closed || this.store.job(jobId)?.state !== 'pending' || !this.allowed(job)) { this.interrupt(this.store.job(jobId)); return; }
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
@@ -226,12 +238,13 @@ export class DshMembers {
       .slice(-CONTEXT_LIMIT);
     const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen) }], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
-    if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
-    await this.admitAndSettle(job, member, agent, input, seqBefore);
+    if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id, this.workspaceFor(member, room.id))) return;
+    await this.admitAndSettle(this.store.job(jobId), member, agent, input, seqBefore);
   }
 
   /** Watch for the consuming turn, admit the input, and post the outcome. */
   async admitAndSettle(job, member, agent, input, seqBefore) {
+    if (!this.allowed(job) || this.store.sessionFenced(agent.session.id)) { this.interrupt(job); return; }
     const sessionId = agent.session.id;
     const done = new Promise((resolve) => {
       this.watching.set(sessionId, { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve });
@@ -253,6 +266,7 @@ export class DshMembers {
 
   finish(job, member, { events, reason }) {
     if (!['pending', 'sent'].includes(this.store.job(job.id)?.state)) return;
+    if (!this.allowed(job)) { this.interrupt(job); return; }
     // A user stop keeps the text the turn already produced; the marker says why it stopped.
     const cancelled = reason?.kind === 'aborted' && reason.reason?.kind === 'user';
     const text = finalText(events);
@@ -275,6 +289,7 @@ export class DshMembers {
     if (this.closed) return;
     const job = this.store.job(jobId);
     if (job === undefined || !this.store.finishJob(jobId, state)) return;
+    if (!this.allowed(job)) return;
     this.hub.post(job.room_id, {
       authorKind: 'system', author: 'system', name: 'system', text: notice, clientKey: `dsh-job-${jobId}-${state}`,
     });
@@ -291,6 +306,66 @@ export class DshMembers {
 
   requireRoom(roomId) {
     if (this.store.room(roomId) === undefined) throw new CollabError('room-missing', 'room not found');
+  }
+
+  validateIdentity(m) {
+    memberId(m?.id);
+    if (this.hub.reservedBotIds?.has(m.id) || this.hub.members.get(m.id)?.kind === 'bot') throw new CollabError('invalid', 'bot identity collision');
+  }
+
+  allowed(job) {
+    return !!job && this.config.has(job.member_id) && this.store.canAccess(job.member_id, job.room_id)
+      && job.access_stamp === this.store.accessStamp(job.member_id, job.room_id);
+  }
+
+  /** Called inside the ACL transaction, before any asynchronous cleanup. */
+  fenceRoom(roomId) {
+    for (const binding of this.store.db.prepare('SELECT * FROM bindings WHERE room_id = ?').all(roomId)) {
+      if (!this.config.has(binding.member_id) || !this.store.canAccess(binding.member_id, roomId)
+        || binding.access_stamp !== this.store.accessStamp(binding.member_id, roomId)) this.store.fenceSession(binding.session_id, 'authorization');
+    }
+    for (const job of this.store.openJobs().filter(j => j.room_id === roomId && !this.allowed(j))) {
+      this.store.fenceSession(job.session_id, 'authorization');
+      this.store.finishJob(job.id, 'interrupted');
+    }
+  }
+
+  cleanupInput(job, agent, claimedTurn) {
+    if (!agent || !job.input_id) return;
+    const watcher = this.watching.get(job.session_id);
+    const claimed = claimedTurn ?? (watcher?.jobId === job.id ? watcher.turn : undefined);
+    try {
+      const events = agent.session.snapshotEvents(job.seq_before);
+      const consumed = consumingTurn(events, job.input_id);
+      agent.inbox.remove(job.input_id);
+      const turn = consumed?.turn ?? claimed;
+      if (turn !== undefined && !events.some(e => e.type === 'turn/end' && e.data?.turn === turn)) {
+        Promise.resolve(agent.cancel({ kind: 'user' }, { keepInbox: true })).catch(error => {
+          this.rt.logger.warn('collab: cancellation rejected for job %d: %s', job.id, error?.message ?? error);
+        });
+      }
+    } catch (error) {
+      // Persistent fence is deliberately never lifted on cancellation failure/timeout.
+      this.rt.logger.warn('collab: input cleanup failed for job %d: %s', job.id, error?.message ?? error);
+    }
+  }
+
+  interrupt(job) {
+    if (!job) return;
+    this.store.fenceSession(job.session_id, 'interrupted');
+    this.store.finishJob(job.id, 'interrupted');
+    this.cleanupInput(job, this.rt.ctx.agents.get(job.session_id));
+    const w = this.watching.get(job.session_id);
+    if (w?.jobId === job.id) { this.watching.delete(job.session_id); w.resolve(INTERRUPTED); }
+    this.hub.setThinking(job.room_id, job.member_id, false);
+  }
+
+  reconcileRoom(roomId) {
+    this.fenceRoom(roomId);
+    const invalid = this.store.db.prepare("SELECT * FROM jobs WHERE room_id = ? AND state IN ('pending', 'sent', 'interrupted')").all(roomId);
+    for (const job of invalid) {
+      if (!this.allowed(job) || this.store.sessionFenced(job.session_id)) this.interrupt(job);
+    }
   }
 
   stopRoom(roomId, { outputOnly = [], recalled = [] } = {}) {
@@ -324,10 +399,11 @@ export class DshMembers {
         // Nothing ran for our input: this channel turn produced no text, and the events since
         // seq_before may belong to a Web UI turn in the same session, so publish nothing.
         if (!active) return { member: job.member_id, name, job: job.id, outcome: 'withdrawn' };
-        agent.cancel({ kind: 'user' }, { keepInbox: true });
-        const idle = Promise.resolve(agent.whenIdle()).then(() => 'idle');
+        const cancelled = Promise.resolve(agent.cancel({ kind: 'user' }, { keepInbox: true }));
+        const idle = cancelled.then(() => agent.whenIdle()).then(() => 'idle');
         const timeout = new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), this.stopTimeoutMs); });
         const outcome = await Promise.race([idle, timeout]);
+        if (outcome === 'timeout') this.store.fenceSession(job.session_id, 'cancel-timeout');
         // Read the text only now: whatever the turn wrote up to the moment it went idle counts,
         // not just what existed when cancel() was called. Restrict it to the turn we stopped —
         // another turn can start in the same Session (Web UI), and its words are not ours.
@@ -336,6 +412,7 @@ export class DshMembers {
         const partial = finalText(stoppedTurn === undefined ? events : turnEvents(finished, stoppedTurn));
         return { member: job.member_id, name, job: job.id, outcome, partial };
       } catch (error) {
+        this.store.fenceSession(job.session_id, 'cancel-failed');
         this.rt.logger.warn('collab: stop job %d failed: %s', job.id, error?.message ?? error);
         return { member: job.member_id, name, job: job.id, outcome: 'error' };
       } finally {
@@ -359,6 +436,7 @@ export class DshMembers {
     const partials = results.filter(r => r.partial !== undefined);
     for (const r of partials) {
       if (this.closed) break;
+      if (!this.allowed(this.store.job(r.job))) continue;
       this.hub.post(roomId, {
         authorKind: 'role', author: r.member, name: r.name, clientKey: `dsh-job-${r.job}-interrupted`,
         text: `${r.partial}\n\n（这一轮没有正常结束：${describeReason(STOPPED_REASON)}）`,
@@ -393,9 +471,18 @@ export class DshMembers {
   }
 
   /** Live Agent for (member, room): loaded, resumed, or newly created and bound. */
-  async ensureAgent(member, room) {
+  async ensureAgent(member, room, job) {
     const binding = this.store.binding(member.id, room.id);
-    if (binding !== undefined) return this.liveAgent(binding.session_id, member);
+    const path = this.workspaceFor(member, room.id);
+    const valid = () => !this.closed && (!job || (this.allowed(job) && this.store.job(job.id)?.state === 'pending'));
+    if (!valid()) return undefined;
+    if (binding?.workspace_path === path && binding.access_stamp === this.store.accessStamp(member.id, room.id)
+      && !this.store.sessionFenced(binding.session_id) && this.rt.ctx.agents.get(binding.session_id)) {
+      return this.liveAgent(binding.session_id, member);
+    }
+    // No safe snapshot API is required from the host. Never resume an unloaded
+    // Session whose durable inbox might execute before ACL revalidation.
+    if (binding) this.store.fenceSession(binding.session_id, 'migration-or-unloaded');
     const { ctx } = this.rt;
     const preset = await ctx.agentPresets.resolve(member.agentPreset);
     const scope = await ctx.agentPresets.acquireScope(preset.id);
@@ -403,7 +490,8 @@ export class DshMembers {
     let handle;
     let workspace;
     try {
-      workspace = await ctx.workspaceRegistry.create(this.workspaceFor(member));
+      workspace = await ctx.workspaceRegistry.create(path);
+      if (!valid()) return undefined;
       handle = await ctx.agents.create({
         sessionId,
         meta: { cwd: workspace.path, agentPreset: preset.id },
@@ -416,10 +504,12 @@ export class DshMembers {
     } finally {
       await scope[Symbol.asyncDispose]();
     }
+    if (!valid()) { this.store.fenceSession(sessionId, 'admission-invalidated'); return undefined; }
     await workspace.attachSession(sessionId);
+    if (!valid()) { this.store.fenceSession(sessionId, 'attach-invalidated'); return undefined; }
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
     ctx.sessionTitle.rename(handle.agent.session, `#${room.name} · ${member.name}`);
-    this.store.bind(member.id, room.id, sessionId);
+    this.store.bind(member.id, room.id, sessionId, path, this.store.accessStamp(member.id, room.id));
     return handle.agent;
   }
 
@@ -432,10 +522,7 @@ export class DshMembers {
       if (member !== undefined && !this.hooked.has(loaded)) this.setup(loaded.ctx, member, loaded);
       return loaded;
     }
-    return (await ctx.agents.resume({
-      resumeSessionId: sessionId,
-      ...(member === undefined ? {} : { agentOptions: this.selection(member), setup: s => this.setup(s, member) }),
-    })).agent;
+    throw new CollabError('unsafe-resume', 'unloaded collab Session must be isolated before new work');
   }
 
   /** The member's model, or the host default at the time of the call (webhook pattern). */
@@ -445,18 +532,18 @@ export class DshMembers {
   }
 
   /**
-   * Each member gets its own directory under the configured root, so two threads never
-   * see each other's files or tool side effects. Member ids reach us from config and from
+   * Each member/room gets its own Session and default cwd, not an OS filesystem sandbox.
+   * Member ids reach us from config and from
    * the network, so anything that is not a plain slug is refused rather than sanitised:
    * a silently rewritten id would land two members in the same directory.
    */
-  workspaceFor(member) {
-    const id = String(member?.id ?? '');
-    if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(id)) throw new CollabError('bad-member-id', `member id ${JSON.stringify(id)} cannot name a workspace`);
+  workspaceFor(member, roomId) {
+    const id = memberId(member?.id);
+    if (!Number.isSafeInteger(roomId) || roomId <= 0) throw new CollabError('room-missing', 'invalid workspace room id');
     const root = resolve(this.rt.workspacePath);
-    const dir = resolve(root, id);
+    const dir = resolve(root, id, `room-${roomId}`);
     // Belt and braces: the slug rule already forbids '..' and separators.
-    if (dir !== join(root, id) || !dir.startsWith(root + sep)) {
+    if (dir !== join(root, id, `room-${roomId}`) || !dir.startsWith(root.endsWith(sep) ? root : root + sep)) {
       throw new CollabError('bad-workspace', `workspace for ${id} escapes ${root}`);
     }
     return dir;
@@ -508,8 +595,8 @@ export class DshMembers {
     for (const job of this.store.openJobs()) {
       // A crash may occur after the durable room fence but before job cleanup.
       // Never resume those inputs simply because their job row is still open.
-      if (!this.hub.canDispatch({ room_id: job.room_id, id: job.trigger_id })) {
-        this.store.finishJob(job.id, 'interrupted');
+      if (!this.allowed(job) || !this.hub.canDispatch({ room_id: job.room_id, id: job.trigger_id })) {
+        this.interrupt(job);
         continue;
       }
       this.enqueue(job, () => (job.state === 'pending' ? this.run(job.id) : this.settleSent(job)));
@@ -520,9 +607,18 @@ export class DshMembers {
   async settleSent(job) {
     if (this.store.job(job.id)?.state !== 'sent') return;
     const member = this.config.get(job.member_id);
-    const interrupted = (why) => this.fail(job.id, `${member?.name ?? job.member_id} 上次被重启打断，${why}，需要的话请重新 @。`, 'interrupted');
+    const interrupted = (why) => {
+      this.fail(job.id, `${member?.name ?? job.member_id} 上次被重启打断，${why}，需要的话请重新 @。`, 'interrupted');
+      this.interrupt(job);
+    };
     if (member === undefined || !job.input_id) { interrupted('这条没有完成'); return; }
+    const binding = this.store.binding(job.member_id, job.room_id);
+    if (!this.allowed(job) || job.workspace_path !== this.workspaceFor(member, job.room_id)
+      || binding?.session_id !== job.session_id || binding?.workspace_path !== job.workspace_path
+      || binding?.access_stamp !== job.access_stamp || this.store.sessionFenced(job.session_id)
+      || !this.rt.ctx.agents.get(job.session_id)) { this.interrupt(job); return; }
     const agent = await this.liveAgent(job.session_id, member);
+    if (!this.allowed(job) || this.store.job(job.id)?.state !== 'sent') { this.interrupt(job); return; }
     if (this.closed || this.store.job(job.id)?.state !== 'sent') return;
     const consumed = consumingTurn(agent.session.snapshotEvents(job.seq_before), job.input_id);
     if (consumed === undefined) {
@@ -530,12 +626,19 @@ export class DshMembers {
       // consuming it right now; an idle Agent without it in its inbox has lost
       // it, and waiting would block this member's queue forever.
       if (agent.inbox.remove(job.input_id)) { interrupted('这条还没开始执行，已撤回'); return; }
-      if (agent.status !== 'running') { interrupted('这条没有被执行'); return; }
-      await this.admitAndSettle(job, member, agent, { id: job.input_id, admit: false }, job.seq_before);
+      // A missing input may already be claimed before user/message was persisted.
+      // Without proof of its consuming turn, isolate rather than install a watcher
+      // that can never learn the lost turn/start or accidentally bind Web UI work.
+      interrupted('无法安全确认消费轮次，旧会话已隔离');
       return;
     }
     // Resume closes a crash-orphaned turn with kind 'interrupted'; its partial text is not an answer.
-    if (consumed.end === undefined || consumed.end.data?.reason?.kind === 'interrupted') { interrupted('这条没有完成'); return; }
+    if (consumed.end === undefined || consumed.end.data?.reason?.kind === 'interrupted') {
+      // The input was claimed and its turn is still open. Recovery must fence the
+      // Session and cancel that exact turn before this queue accepts new work.
+      interrupted('这条没有完成，旧轮次已隔离');
+      return;
+    }
     this.finish(job, member, { events: turnEvents(agent.session.snapshotEvents(job.seq_before), consumed.turn), reason: consumed.end.data?.reason });
   }
 
