@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask } from './channel-source.ts'
 import { groupRooms } from './channel-source.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
+import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { Avatar } from './Avatar.tsx'
@@ -233,6 +234,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
   const [leadOpen, setLeadOpen] = useState(false)
+  const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
+  useEffect(() => { setCapabilitiesDismissed(false) }, [state.roomId])
   const composerRef = useRef<HTMLDivElement>(null)
   // `@` start of the popup currently shown, read by the outside-click listener.
   const openMentionAt = useRef<number | undefined>(undefined)
@@ -423,6 +426,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (draft === '/' && !event.nativeEvent.isComposing) {
+      if (event.key === 'Escape') { event.preventDefault(); setCapabilitiesDismissed(true); return }
+      if (event.key === 'Enter') { event.preventDefault(); return }
+    }
     if (popupOpen && !event.nativeEvent.isComposing) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
@@ -539,6 +546,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         </div>
         <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
         <div className={css.composer} ref={composerRef}>
+          {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {popupOpen && (
             <div className={css.mentionPopup}>
@@ -599,6 +607,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                 const roomId = state.roomId
                 const value = event.target.value
                 if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
+                setCapabilitiesDismissed(false)
                 setCaret(event.target.selectionStart)
                 setHighlight(0)
               }}
