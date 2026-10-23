@@ -488,6 +488,7 @@ type Engine struct {
 	// skipSubagentPolicy drops the per-turn delegation policy block
 	// (project option inject_subagent_policy = false). Default false = inject.
 	skipSubagentPolicy atomic.Bool
+	skipAgentIdentity  atomic.Bool
 	replyFooterEnabled bool
 
 	// When true, /list etc. only show sessions tracked by cc-connect,
@@ -570,6 +571,7 @@ type queuedMessage struct {
 	platform          Platform
 	replyCtx          any
 	content           string
+	reference         *MessageReference
 	images            []ImageAttachment
 	files             []FileAttachment
 	fromVoice         bool
@@ -3513,6 +3515,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		platform:            p,
 		replyCtx:            msg.ReplyCtx,
 		content:             msg.Content,
+		reference:           msg.Reference,
 		images:              msg.Images,
 		files:               msg.Files,
 		fromVoice:           msg.FromVoice,
@@ -4245,7 +4248,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
-		content := msg.Content
+		content := session.renderReference(msg.Content, msg.Reference)
 		images := msg.Images
 		if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
 			// maomao fork: first turn of a fresh context gets the recent channel images back.
@@ -6758,6 +6761,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// maomao fork: a capacity retry re-sends it with this backfill, not before it
 				// (the backfill already marked those posts seen).
 				*chainedQueued = queued
+				queued.content = session.renderReference(queued.content, queued.reference)
 				queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
@@ -7213,6 +7217,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		}
 		e.startScheduledQueuedTurn(&queued, session)
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
+		queued.content = session.renderReference(queued.content, queued.reference)
 		queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
 		prompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()

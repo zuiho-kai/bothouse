@@ -883,6 +883,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 
 	msg := &core.Message{
 		SessionKey: sessionKey, ChannelKey: channelKey, Platform: "discord",
+		Reference: p.messageReference(m.ReferencedMessage),
 		ChannelID: m.ChannelID,
 		MessageID: m.ID,
 		UserID:    m.Author.ID, UserName: m.Author.Username,
@@ -1991,4 +1992,22 @@ func discordDisplayName(m *discordgo.MessageCreate) string {
 		return m.Author.GlobalName
 	}
 	return m.Author.Username
+}
+
+// messageReference only proposes shortening this bot's known agent output.
+// Session.renderReference checks the current context again at actual delivery.
+func (p *Platform) messageReference(ref *discordgo.Message) *core.MessageReference {
+	if ref == nil || ref.Author == nil || p.botID == "" || ref.Author.ID != p.botID || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
+		return nil
+	}
+	text := []rune(ref.Content)
+	if len(text) > 80 {
+		text = text[:80]
+	}
+	prefix := "[replying to " + ref.Author.Username + ": "
+	return &core.MessageReference{
+		Full:   prefix + ref.Content + "]\n",
+		Short:  prefix + string(text) + "（你自己的上一条，已在上文）]\n",
+		SentAt: ref.Timestamp,
+	}
 }

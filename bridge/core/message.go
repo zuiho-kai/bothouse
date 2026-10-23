@@ -371,6 +371,7 @@ type Message struct {
 	UserName     string
 	ChatName     string // human-readable chat/group name (optional)
 	Content      string
+	Reference    *MessageReference
 	Images       []ImageAttachment   // attached images (if any)
 	Files        []FileAttachment    // attached files (if any)
 	Audio        *AudioAttachment    // voice message (if any)

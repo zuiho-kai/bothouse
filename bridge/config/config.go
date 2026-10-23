@@ -592,6 +592,7 @@ type ProjectConfig struct {
 	// delegation policy (start subagents only on explicit human consent);
 	// false = send the request as is.
 	InjectSubagentPolicy *bool `toml:"inject_subagent_policy,omitempty"`
+	InjectAgentIdentity  *bool `toml:"inject_agent_identity,omitempty"`
 	// ReplyFooter: nil/true = render the reply footer; false = disable it
 	// entirely (the per-line indicator flags above become no-ops).
 	ReplyFooter      *bool        `toml:"reply_footer,omitempty"`
@@ -4098,4 +4099,13 @@ func orDefault(v, d int) int {
 		return d
 	}
 	return v
+}
+
+// AgentIdentityEnabled follows ~/.claude/reviews/bridge-ctx-slim.md: only
+// maomao defaults to persona-owned identity. An explicit option can restore it.
+func (p ProjectConfig) AgentIdentityEnabled() bool {
+	if p.InjectAgentIdentity != nil {
+		return *p.InjectAgentIdentity
+	}
+	return p.Name != "maomao"
 }

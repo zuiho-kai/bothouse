@@ -766,6 +766,7 @@ name = "my-backend"
 #                                   # 状态行不显示账号额度，也不再查询额度（默认 true 显示）
 # show_quota_status = false        # Without a measured quota, show nothing instead of "unavailable / no data / querying / failed" (default: true)
 #                                   # 查不到额度时不显示「暂不可查询/暂无数据/查询中/查询失败」，什么都不显示（默认 true 显示）
+# inject_agent_identity = false   # maomao defaults false; all other projects default true.
 # inject_subagent_policy = false   # Stop prefixing each turn with the bridge delegation policy (default: true = prefix)
 #                                   # 不再在每轮请求前加「子 agent 委派策略」（默认 true 加）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
