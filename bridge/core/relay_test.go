@@ -374,20 +374,19 @@ func TestHandleRelay_ReturnsPartialOnTimeout(t *testing.T) {
 
 	session.events <- Event{Type: EventText, Content: "partial response", SessionID: "relay-session"}
 	time.Sleep(40 * time.Millisecond)
-	// After timeout, HandleRelay consumes the next event from the channel to
-	// unblock the for-range loop, then checks ctx.Err() and spawns the drain
-	// goroutine. We need two events: one to unblock HandleRelay, and one
-	// EventResult for the drain goroutine to close the session cleanly.
-	session.events <- Event{Type: EventThinking, Content: "still working"}
-	session.events <- Event{Type: EventResult, Content: "done", Done: true}
-
-	got := <-done
+	var got relayResult
+	select {
+	case got = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay timeout did not return without a new event")
+	}
 	if got.err != nil {
 		t.Fatalf("HandleRelay() error = %v, want nil", got.err)
 	}
 	if got.resp != "partial response" {
 		t.Fatalf("HandleRelay() response = %q, want %q", got.resp, "partial response")
 	}
+	session.events <- Event{Type: EventResult, Content: "done", Done: true}
 
 	// Wait for the background drain goroutine to close the session.
 	select {
@@ -416,17 +415,19 @@ func TestHandleRelay_TimeoutWithoutTextReturnsContextError(t *testing.T) {
 	}()
 
 	time.Sleep(40 * time.Millisecond)
-	// One event to unblock HandleRelay's for-range, one for the drain goroutine.
-	session.events <- Event{Type: EventThinking, Content: "still working"}
-	session.events <- Event{Type: EventResult, Content: "done", Done: true}
-
-	got := <-done
+	var got relayResult
+	select {
+	case got = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay timeout did not return without a new event")
+	}
 	if got.resp != "" {
 		t.Fatalf("HandleRelay() response = %q, want empty", got.resp)
 	}
 	if !errors.Is(got.err, context.DeadlineExceeded) {
 		t.Fatalf("HandleRelay() error = %v, want context deadline exceeded", got.err)
 	}
+	session.events <- Event{Type: EventResult, Content: "done", Done: true}
 
 	select {
 	case <-session.closed:

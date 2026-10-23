@@ -248,8 +248,6 @@ func TestHandleRelay_TeamTimeoutDrain(t *testing.T) {
 			waitTeamRelay(t, s.sent)
 			waitTeamState(t, dir, func(entries []teamEntry) bool { return len(entries) == 1 && entries[0].Busy })
 			waitTeamRelay(t, ctx.Done())
-			// Preserve main's existing event-driven deadline observation in this test.
-			s.events <- Event{Type: EventThinking}
 			waitTeamRelay(t, done)
 			if !errors.Is(gotErr, context.DeadlineExceeded) {
 				t.Fatalf("timeout result: %v", gotErr)
