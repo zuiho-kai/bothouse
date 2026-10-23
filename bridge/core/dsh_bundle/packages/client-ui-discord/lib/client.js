@@ -3,12 +3,36 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".LwOOpG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.LwOOpG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.LwOOpG_rooms, .LwOOpG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.LwOOpG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.LwOOpG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.LwOOpG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.LwOOpG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.LwOOpG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.LwOOpG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.LwOOpG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.LwOOpG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.LwOOpG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.LwOOpG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.LwOOpG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_system .LwOOpG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.LwOOpG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.LwOOpG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.LwOOpG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.LwOOpG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.LwOOpG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.LwOOpG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.LwOOpG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.LwOOpG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.LwOOpG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_messageBody {\n  min-width: 0;\n}\n\n.LwOOpG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.LwOOpG_author {\n  font-weight: 600;\n}\n\n.LwOOpG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.LwOOpG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.LwOOpG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.LwOOpG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.LwOOpG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.LwOOpG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.LwOOpG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.LwOOpG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.LwOOpG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.LwOOpG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.LwOOpG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.LwOOpG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.LwOOpG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.LwOOpG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.LwOOpG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.LwOOpG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.LwOOpG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.LwOOpG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.LwOOpG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_mentionName {\n  font-weight: 600;\n}\n\n.LwOOpG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.LwOOpG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.LwOOpG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.LwOOpG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.LwOOpG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.LwOOpG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.LwOOpG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.LwOOpG_offline {\n  opacity: .5;\n}\n\n.LwOOpG_memberAvatar {\n  position: relative;\n}\n\n.LwOOpG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.LwOOpG_offline .LwOOpG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.LwOOpG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.LwOOpG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.LwOOpG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .LwOOpG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .LwOOpG_rooms, .LwOOpG_members {\n    display: none;\n  }\n}\n\n.LwOOpG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.LwOOpG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.LwOOpG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_roomInput, .LwOOpG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.LwOOpG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.LwOOpG_roomInput:focus-visible, .LwOOpG_fieldInput:focus-visible, .LwOOpG_iconButton:focus-visible, .LwOOpG_linkButton:focus-visible, .LwOOpG_addMemberButton:focus-visible, .LwOOpG_primaryButton:focus-visible, .LwOOpG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.LwOOpG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.LwOOpG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.LwOOpG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_memberRow .LwOOpG_member:hover {\n  background: none;\n}\n\n.LwOOpG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.LwOOpG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.LwOOpG_memberRow:hover .LwOOpG_memberActions, .LwOOpG_memberRow:focus-within .LwOOpG_memberActions {\n  opacity: 1;\n}\n\n.LwOOpG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.LwOOpG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.LwOOpG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.LwOOpG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.LwOOpG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.LwOOpG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.LwOOpG_field textarea {\n  resize: vertical;\n}\n\n.LwOOpG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.LwOOpG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.LwOOpG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.LwOOpG_primaryButton, .LwOOpG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.LwOOpG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.LwOOpG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.LwOOpG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.LwOOpG_memberFailed .LwOOpG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.LwOOpG_memberFailed .LwOOpG_presence {\n  background: #ed4245;\n}\n\n.LwOOpG_mobileButton, .LwOOpG_drawerBackdrop {\n  display: none;\n}\n\n.LwOOpG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.LwOOpG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.LwOOpG_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .LwOOpG_page.LwOOpG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .LwOOpG_page.LwOOpG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .LwOOpG_page.LwOOpG_roomsHidden.LwOOpG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .LwOOpG_roomsHidden > .LwOOpG_rooms, .LwOOpG_membersHidden > .LwOOpG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .LwOOpG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .LwOOpG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .LwOOpG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .LwOOpG_panelToggle {\n    display: none;\n  }\n\n  .LwOOpG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .LwOOpG_rooms.LwOOpG_drawerOpen, .LwOOpG_members.LwOOpG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .LwOOpG_rooms.LwOOpG_drawerOpen {\n    left: 0;\n  }\n\n  .LwOOpG_members.LwOOpG_drawerOpen {\n    right: 0;\n  }\n\n  .LwOOpG_memberActions {\n    opacity: 1;\n  }\n\n  .LwOOpG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.LwOOpG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.LwOOpG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.LwOOpG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.LwOOpG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.LwOOpG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.LwOOpG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.LwOOpG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.LwOOpG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.LwOOpG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.LwOOpG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.LwOOpG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.LwOOpG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.LwOOpG_taskDone summary {\n  cursor: pointer;\n}\n\n.LwOOpG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.LwOOpG_taskStatus[data-status=\"asked\"], .LwOOpG_taskStatus[data-status=\"escalated\"], .LwOOpG_taskStatus[data-status=\"declined\"], .LwOOpG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.LwOOpG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.LwOOpG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.LwOOpG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.LwOOpG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.LwOOpG_taskMemberName {\n  font-weight: 600;\n}\n\n.LwOOpG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.LwOOpG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".RqojmG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.RqojmG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.RqojmG_rooms, .RqojmG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.RqojmG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.RqojmG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.RqojmG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.RqojmG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.RqojmG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.RqojmG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.RqojmG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.RqojmG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.RqojmG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.RqojmG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.RqojmG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.RqojmG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.RqojmG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.RqojmG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_system .RqojmG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.RqojmG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.RqojmG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.RqojmG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.RqojmG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.RqojmG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.RqojmG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.RqojmG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.RqojmG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.RqojmG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_messageBody {\n  min-width: 0;\n}\n\n.RqojmG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.RqojmG_author {\n  font-weight: 600;\n}\n\n.RqojmG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.RqojmG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.RqojmG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.RqojmG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.RqojmG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.RqojmG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.RqojmG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.RqojmG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.RqojmG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.RqojmG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.RqojmG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.RqojmG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.RqojmG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.RqojmG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.RqojmG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.RqojmG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.RqojmG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_mentionName {\n  font-weight: 600;\n}\n\n.RqojmG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.RqojmG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.RqojmG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.RqojmG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.RqojmG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.RqojmG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_offline {\n  opacity: .5;\n}\n\n.RqojmG_memberAvatar {\n  position: relative;\n}\n\n.RqojmG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.RqojmG_offline .RqojmG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.RqojmG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.RqojmG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.RqojmG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .RqojmG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .RqojmG_rooms, .RqojmG_members {\n    display: none;\n  }\n}\n\n.RqojmG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.RqojmG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.RqojmG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_roomInput, .RqojmG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.RqojmG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.RqojmG_roomInput:focus-visible, .RqojmG_fieldInput:focus-visible, .RqojmG_iconButton:focus-visible, .RqojmG_linkButton:focus-visible, .RqojmG_addMemberButton:focus-visible, .RqojmG_primaryButton:focus-visible, .RqojmG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.RqojmG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.RqojmG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_memberRow .RqojmG_member:hover {\n  background: none;\n}\n\n.RqojmG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.RqojmG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqojmG_memberRow:hover .RqojmG_memberActions, .RqojmG_memberRow:focus-within .RqojmG_memberActions {\n  opacity: 1;\n}\n\n.RqojmG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.RqojmG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.RqojmG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.RqojmG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.RqojmG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.RqojmG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqojmG_field textarea {\n  resize: vertical;\n}\n\n.RqojmG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.RqojmG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.RqojmG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_primaryButton, .RqojmG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.RqojmG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.RqojmG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.RqojmG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.RqojmG_memberFailed .RqojmG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.RqojmG_memberFailed .RqojmG_presence {\n  background: #ed4245;\n}\n\n.RqojmG_mobileButton, .RqojmG_drawerBackdrop {\n  display: none;\n}\n\n.RqojmG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.RqojmG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .RqojmG_page.RqojmG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .RqojmG_page.RqojmG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .RqojmG_page.RqojmG_roomsHidden.RqojmG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .RqojmG_roomsHidden > .RqojmG_rooms, .RqojmG_membersHidden > .RqojmG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .RqojmG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .RqojmG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .RqojmG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .RqojmG_panelToggle {\n    display: none;\n  }\n\n  .RqojmG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .RqojmG_rooms.RqojmG_drawerOpen, .RqojmG_members.RqojmG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .RqojmG_rooms.RqojmG_drawerOpen {\n    left: 0;\n  }\n\n  .RqojmG_members.RqojmG_drawerOpen {\n    right: 0;\n  }\n\n  .RqojmG_memberActions {\n    opacity: 1;\n  }\n\n  .RqojmG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.RqojmG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.RqojmG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.RqojmG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.RqojmG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.RqojmG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.RqojmG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.RqojmG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.RqojmG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqojmG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.RqojmG_taskDone summary {\n  cursor: pointer;\n}\n\n.RqojmG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.RqojmG_taskStatus[data-status=\"asked\"], .RqojmG_taskStatus[data-status=\"escalated\"], .RqojmG_taskStatus[data-status=\"declined\"], .RqojmG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.RqojmG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.RqojmG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.RqojmG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.RqojmG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.RqojmG_taskMemberName {\n  font-weight: 600;\n}\n\n.RqojmG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.RqojmG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
 // src/client/channel-source.ts
+/**
+* Order rooms as chat channel, then its workspaces, in id order. A workspace whose
+* chat channel is missing is shown at the top level so it stays reachable.
+*/
+function groupRooms(rooms) {
+	const chats = new Set(rooms.filter((r) => r.kind !== "workspace").map((r) => r.id));
+	const under = /* @__PURE__ */ new Map();
+	for (const r of rooms) if (r.kind === "workspace" && r.parent_id != null && chats.has(r.parent_id)) under.set(r.parent_id, [...under.get(r.parent_id) ?? [], r]);
+	const rows = [];
+	for (const r of rooms) if (r.kind !== "workspace") {
+		rows.push({
+			room: r,
+			depth: 0
+		});
+		for (const w of under.get(r.id) ?? []) rows.push({
+			room: w,
+			depth: 1
+		});
+	} else if (r.parent_id == null || !chats.has(r.parent_id)) rows.push({
+		room: r,
+		depth: 0
+	});
+	return rows;
+}
 const INITIAL = {
 	phase: "idle",
 	error: void 0,
@@ -312,8 +336,9 @@ function createChannelSource(transport) {
 				});
 			},
 			async createRoom(name) {
-				const { room } = await request("collab/api/rooms", json("POST", { name }));
-				if (!snapshot.rooms.some((r) => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] });
+				const { room, workspace } = await request("collab/api/rooms", json("POST", { name }));
+				const added = [room, workspace].filter((r) => r !== void 0 && !snapshot.rooms.some((s) => s.id === r.id));
+				if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] });
 				await selectRoom(room.id);
 			},
 			async listModels() {
@@ -417,104 +442,108 @@ function cardMembers(taskId, tasks) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"addMemberButton": "LwOOpG_addMemberButton",
-	"author": "LwOOpG_author",
-	"avatar": "LwOOpG_avatar",
-	"avatarAnchor": "LwOOpG_avatarAnchor",
-	"avatarButton": "LwOOpG_avatarButton",
-	"avatarImage": "LwOOpG_avatarImage",
-	"avatarMenu": "LwOOpG_avatarMenu",
-	"avatarMenuItem": "LwOOpG_avatarMenuItem",
-	"avatarMenuTitle": "LwOOpG_avatarMenuTitle",
-	"avatarOption": "LwOOpG_avatarOption",
-	"avatarPicker": "LwOOpG_avatarPicker",
-	"avatarSmall": "LwOOpG_avatarSmall",
-	"card": "LwOOpG_card",
-	"cardTitle": "LwOOpG_cardTitle",
-	"chat": "LwOOpG_chat",
-	"chatHead": "LwOOpG_chatHead",
-	"choice": "LwOOpG_choice",
-	"choiceRow": "LwOOpG_choiceRow",
-	"composer": "LwOOpG_composer",
-	"composerRow": "LwOOpG_composerRow",
-	"dialog": "LwOOpG_dialog",
-	"dialogActions": "LwOOpG_dialogActions",
-	"dialogBackdrop": "LwOOpG_dialogBackdrop",
-	"dialogTitle": "LwOOpG_dialogTitle",
-	"drawerBackdrop": "LwOOpG_drawerBackdrop",
-	"drawerOpen": "LwOOpG_drawerOpen",
-	"empty": "LwOOpG_empty",
-	"field": "LwOOpG_field",
-	"fieldInput": "LwOOpG_fieldInput",
-	"focused": "LwOOpG_focused",
-	"groupHead": "LwOOpG_groupHead",
-	"groupTitle": "LwOOpG_groupTitle",
-	"guide": "LwOOpG_guide",
-	"hash": "LwOOpG_hash",
-	"iconButton": "LwOOpG_iconButton",
-	"input": "LwOOpG_input",
-	"linkButton": "LwOOpG_linkButton",
-	"log": "LwOOpG_log",
-	"member": "LwOOpG_member",
-	"memberActions": "LwOOpG_memberActions",
-	"memberAvatar": "LwOOpG_memberAvatar",
-	"memberFailed": "LwOOpG_memberFailed",
-	"memberModel": "LwOOpG_memberModel",
-	"memberName": "LwOOpG_memberName",
-	"memberRow": "LwOOpG_memberRow",
-	"members": "LwOOpG_members",
-	"membersHidden": "LwOOpG_membersHidden",
-	"memberStatus": "LwOOpG_memberStatus",
-	"memberText": "LwOOpG_memberText",
-	"mentionActive": "LwOOpG_mentionActive",
-	"mentionButton": "LwOOpG_mentionButton",
-	"mentionHint": "LwOOpG_mentionHint",
-	"mentionItem": "LwOOpG_mentionItem",
-	"mentionMeta": "LwOOpG_mentionMeta",
-	"mentionName": "LwOOpG_mentionName",
-	"mentionPopup": "LwOOpG_mentionPopup",
-	"mentionTitle": "LwOOpG_mentionTitle",
-	"message": "LwOOpG_message",
-	"messageBody": "LwOOpG_messageBody",
-	"messageHead": "LwOOpG_messageHead",
-	"mobileButton": "LwOOpG_mobileButton",
-	"notice": "LwOOpG_notice",
-	"offline": "LwOOpG_offline",
-	"page": "LwOOpG_page",
-	"panelToggle": "LwOOpG_panelToggle",
-	"panelToggleEnd": "LwOOpG_panelToggleEnd",
-	"permActions": "LwOOpG_permActions",
-	"permScope": "LwOOpG_permScope",
-	"permStatus": "LwOOpG_permStatus",
-	"presence": "LwOOpG_presence",
-	"primaryButton": "LwOOpG_primaryButton",
-	"room": "LwOOpG_room",
-	"roomActive": "LwOOpG_roomActive",
-	"roomInput": "LwOOpG_roomInput",
-	"rooms": "LwOOpG_rooms",
-	"roomsHidden": "LwOOpG_roomsHidden",
-	"secondaryButton": "LwOOpG_secondaryButton",
-	"sendError": "LwOOpG_sendError",
-	"system": "LwOOpG_system",
-	"tag": "LwOOpG_tag",
-	"taskBoard": "LwOOpG_taskBoard",
-	"taskCard": "LwOOpG_taskCard",
-	"taskDone": "LwOOpG_taskDone",
-	"taskEmpty": "LwOOpG_taskEmpty",
-	"taskLine": "LwOOpG_taskLine",
-	"taskLinks": "LwOOpG_taskLinks",
-	"taskList": "LwOOpG_taskList",
-	"taskMember": "LwOOpG_taskMember",
-	"taskMemberName": "LwOOpG_taskMemberName",
-	"taskMembers": "LwOOpG_taskMembers",
-	"taskMeta": "LwOOpG_taskMeta",
-	"taskRow": "LwOOpG_taskRow",
-	"taskStatus": "LwOOpG_taskStatus",
-	"taskSub": "LwOOpG_taskSub",
-	"taskTitle": "LwOOpG_taskTitle",
-	"text": "LwOOpG_text",
-	"time": "LwOOpG_time",
-	"working": "LwOOpG_working"
+	"activeBusy": "RqojmG_activeBusy",
+	"activeCount": "RqojmG_activeCount",
+	"addMemberButton": "RqojmG_addMemberButton",
+	"author": "RqojmG_author",
+	"avatar": "RqojmG_avatar",
+	"avatarAnchor": "RqojmG_avatarAnchor",
+	"avatarButton": "RqojmG_avatarButton",
+	"avatarImage": "RqojmG_avatarImage",
+	"avatarMenu": "RqojmG_avatarMenu",
+	"avatarMenuItem": "RqojmG_avatarMenuItem",
+	"avatarMenuTitle": "RqojmG_avatarMenuTitle",
+	"avatarOption": "RqojmG_avatarOption",
+	"avatarPicker": "RqojmG_avatarPicker",
+	"avatarSmall": "RqojmG_avatarSmall",
+	"card": "RqojmG_card",
+	"cardTitle": "RqojmG_cardTitle",
+	"chat": "RqojmG_chat",
+	"chatHead": "RqojmG_chatHead",
+	"choice": "RqojmG_choice",
+	"choiceRow": "RqojmG_choiceRow",
+	"composer": "RqojmG_composer",
+	"composerRow": "RqojmG_composerRow",
+	"dialog": "RqojmG_dialog",
+	"dialogActions": "RqojmG_dialogActions",
+	"dialogBackdrop": "RqojmG_dialogBackdrop",
+	"dialogTitle": "RqojmG_dialogTitle",
+	"drawerBackdrop": "RqojmG_drawerBackdrop",
+	"drawerOpen": "RqojmG_drawerOpen",
+	"empty": "RqojmG_empty",
+	"field": "RqojmG_field",
+	"fieldInput": "RqojmG_fieldInput",
+	"focused": "RqojmG_focused",
+	"groupHead": "RqojmG_groupHead",
+	"groupTitle": "RqojmG_groupTitle",
+	"guide": "RqojmG_guide",
+	"hash": "RqojmG_hash",
+	"iconButton": "RqojmG_iconButton",
+	"input": "RqojmG_input",
+	"linkButton": "RqojmG_linkButton",
+	"log": "RqojmG_log",
+	"member": "RqojmG_member",
+	"memberActions": "RqojmG_memberActions",
+	"memberAvatar": "RqojmG_memberAvatar",
+	"memberFailed": "RqojmG_memberFailed",
+	"memberModel": "RqojmG_memberModel",
+	"memberName": "RqojmG_memberName",
+	"memberRow": "RqojmG_memberRow",
+	"members": "RqojmG_members",
+	"membersHidden": "RqojmG_membersHidden",
+	"memberStatus": "RqojmG_memberStatus",
+	"memberText": "RqojmG_memberText",
+	"mentionActive": "RqojmG_mentionActive",
+	"mentionButton": "RqojmG_mentionButton",
+	"mentionHint": "RqojmG_mentionHint",
+	"mentionItem": "RqojmG_mentionItem",
+	"mentionMeta": "RqojmG_mentionMeta",
+	"mentionName": "RqojmG_mentionName",
+	"mentionPopup": "RqojmG_mentionPopup",
+	"mentionTitle": "RqojmG_mentionTitle",
+	"message": "RqojmG_message",
+	"messageBody": "RqojmG_messageBody",
+	"messageHead": "RqojmG_messageHead",
+	"mobileButton": "RqojmG_mobileButton",
+	"notice": "RqojmG_notice",
+	"offline": "RqojmG_offline",
+	"page": "RqojmG_page",
+	"panelToggle": "RqojmG_panelToggle",
+	"panelToggleEnd": "RqojmG_panelToggleEnd",
+	"permActions": "RqojmG_permActions",
+	"permScope": "RqojmG_permScope",
+	"permStatus": "RqojmG_permStatus",
+	"presence": "RqojmG_presence",
+	"primaryButton": "RqojmG_primaryButton",
+	"room": "RqojmG_room",
+	"roomActive": "RqojmG_roomActive",
+	"roomInput": "RqojmG_roomInput",
+	"roomLabel": "RqojmG_roomLabel",
+	"rooms": "RqojmG_rooms",
+	"roomsHidden": "RqojmG_roomsHidden",
+	"secondaryButton": "RqojmG_secondaryButton",
+	"sendError": "RqojmG_sendError",
+	"system": "RqojmG_system",
+	"tag": "RqojmG_tag",
+	"taskBoard": "RqojmG_taskBoard",
+	"taskCard": "RqojmG_taskCard",
+	"taskDone": "RqojmG_taskDone",
+	"taskEmpty": "RqojmG_taskEmpty",
+	"taskLine": "RqojmG_taskLine",
+	"taskLinks": "RqojmG_taskLinks",
+	"taskList": "RqojmG_taskList",
+	"taskMember": "RqojmG_taskMember",
+	"taskMemberName": "RqojmG_taskMemberName",
+	"taskMembers": "RqojmG_taskMembers",
+	"taskMeta": "RqojmG_taskMeta",
+	"taskRow": "RqojmG_taskRow",
+	"taskStatus": "RqojmG_taskStatus",
+	"taskSub": "RqojmG_taskSub",
+	"taskTitle": "RqojmG_taskTitle",
+	"text": "RqojmG_text",
+	"time": "RqojmG_time",
+	"working": "RqojmG_working",
+	"workspace": "RqojmG_workspace"
 };
 // src/client/TaskBoard.tsx
 function clock(seconds) {
@@ -1607,21 +1636,39 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						role: "alert",
 						children: roomError
 					}),
-					state.rooms.map((r) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-						type: "button",
-						className: r.id === state.roomId ? `${ChannelsPage_module_default.room} ${ChannelsPage_module_default.roomActive}` : ChannelsPage_module_default.room,
-						"aria-current": r.id === state.roomId,
-						onClick: () => {
-							stickRef.current = true;
-							setDrawer(void 0);
-							selectRoom(r.id);
-						},
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ChannelsPage_module_default.hash,
-							"aria-hidden": true,
-							children: "#"
-						}), r.name]
-					}, r.id))
+					groupRooms(state.rooms).map(({ room: r, depth }) => {
+						const active = r.active ?? 0;
+						const showActive = depth === 1 || r.kind === "workspace" || active > 0;
+						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: [
+								ChannelsPage_module_default.room,
+								depth === 1 ? ChannelsPage_module_default.workspace : "",
+								r.id === state.roomId ? ChannelsPage_module_default.roomActive : ""
+							].filter(Boolean).join(" "),
+							"aria-current": r.id === state.roomId,
+							onClick: () => {
+								stickRef.current = true;
+								setDrawer(void 0);
+								selectRoom(r.id);
+							},
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ChannelsPage_module_default.hash,
+									"aria-hidden": true,
+									children: "#"
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ChannelsPage_module_default.roomLabel,
+									children: r.name
+								}),
+								showActive && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: active > 0 ? `${ChannelsPage_module_default.activeCount} ${ChannelsPage_module_default.activeBusy}` : ChannelsPage_module_default.activeCount,
+									children: t("activeTasks", { count: active })
+								})
+							]
+						}, r.id);
+					})
 				]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -1989,6 +2036,7 @@ const zh = {
 	avatarMention: "@ TA",
 	newRoom: "新建频道",
 	newRoomPlaceholder: "频道名，回车创建",
+	activeTasks: "进行中 {count} 件",
 	addMember: "添加成员",
 	editMember: "编辑",
 	removeMember: "移除",
@@ -2083,6 +2131,7 @@ const en = {
 	avatarMention: "Mention",
 	newRoom: "New channel",
 	newRoomPlaceholder: "Channel name, Enter to create",
+	activeTasks: "{count} in progress",
 	addMember: "Add member",
 	editMember: "Edit",
 	removeMember: "Remove",
