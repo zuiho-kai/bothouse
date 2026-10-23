@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -17,9 +19,13 @@ type memberIdentityPlatform struct {
 	*progressTestPlatform
 	threads map[string]string
 	loseACK bool
+	refuse  bool // permanent refusal, like Discord 403 in the thread
 }
 
 func (p *memberIdentityPlatform) PublishTaskFact(ctx context.Context, task *Task, ev TaskEvent, lang Language) error {
+	if p.refuse {
+		return fmt.Errorf("%w: HTTP 403 Missing Access", ErrTaskFactUndeliverable)
+	}
 	if err := p.progressTestPlatform.PublishTaskFact(ctx, task, ev, lang); err != nil {
 		return err
 	}
@@ -95,7 +101,8 @@ func TestTaskMemberReporterIdentityAndDurableRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerToken := progressToken(t, grant.ReportCommand)
+	relayed := relayedMemberTokens(t, p, id, "gjiang")
+	workerToken := relayed["worker"]
 	req := PublicProgressRequest{Project: "fish", SessionKey: session, Run: workerToken, Seq: 1, Kind: "update", Summary: "Checking identity"}
 	journal := p.dir
 	p.dir = filepath.Join(journal, "absent")
@@ -112,7 +119,10 @@ func TestTaskMemberReporterIdentityAndDurableRetry(t *testing.T) {
 		}
 	}
 	childReq := req
-	childReq.Run, childReq.Summary = progressToken(t, childGrant.ReportCommand), "Child checking"
+	if childGrant.ReportCommand != "" {
+		t.Fatal("worker-owned child token returned to creator")
+	}
+	childReq.Run, childReq.Summary = relayed["child"], "Child checking"
 	if _, err := p.Report(childReq); err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +169,84 @@ func TestTaskMemberReporterIdentityAndDurableRetry(t *testing.T) {
 	}
 	if strings.Contains(string(data), run) || strings.Contains(string(data), workerToken) || strings.Contains(string(data), childReq.Run) || !strings.Contains(string(data), `"reporter_project":"gjiang"`) {
 		t.Fatal("journal leaked capability or lost event sender")
+	}
+}
+
+// relayedMemberTokens reads member tokens from the task relay prompt that the
+// bound bot itself receives, the only place a worker-owned token is issued.
+func relayedMemberTokens(t *testing.T, p *PublicProgress, id, project string) map[string]string {
+	t.Helper()
+	p.mu.Lock()
+	r := p.records[id]
+	p.mu.Unlock()
+	note := (&taskRelay{p: p, r: r, req: RelayRequest{TaskID: id, To: project}}).memberNote()
+	out := map[string]string{}
+	for _, m := range regexp.MustCompile(`member (\S+) \([^)]*\): .*--run ([a-f0-9]{64})`).FindAllStringSubmatch(note, -1) {
+		out[m[1]] = m[2]
+	}
+	return out
+}
+
+// Regression (#108 review 1): the creator must not receive a token that
+// publishes under another bot's account.
+func TestTaskMemberWorkerTokenOnlyInWorkerRelay(t *testing.T) {
+	p, lead, _, api, _ := memberIdentityFixture(t)
+	session := "discord:room:user"
+	run, id := startCard(t, p, lead, session, "Task")
+	grant, status := assignMemberHTTP(t, api, TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"})
+	if status != http.StatusOK {
+		t.Fatal("assign failed", status)
+	}
+	own, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "native", Name: "Native", Title: "Check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(grant)
+	if grant.ReportCommand != "" || regexp.MustCompile("[a-f0-9]{64}").Match(b) || grant.ReportVia == "" {
+		t.Fatal("worker report token returned to creator", string(b))
+	}
+	if own.ReportCommand == "" {
+		t.Fatal("creator-owned member lost its report command")
+	}
+	tokens := relayedMemberTokens(t, p, id, "gjiang")
+	if tokens["worker"] == "" || tokens["native"] != "" {
+		t.Fatal("worker relay prompt missing its token or carrying another member's", tokens)
+	}
+	if other := relayedMemberTokens(t, p, id, "fish"); len(other) != 0 {
+		t.Fatal("worker token leaked to another relay target", other)
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: session, Run: tokens["worker"], Seq: 1, Kind: "update", Summary: "started"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Regression (#108 review 2): a worker that may not post in the thread must
+// not block the creator's later facts; the creator posts a visible note.
+func TestTaskMemberRefusedFactDoesNotBlockCard(t *testing.T) {
+	p, lead, worker, api, _ := memberIdentityFixture(t)
+	session := "discord:room:user"
+	run, id := startCard(t, p, lead, session, "Task")
+	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
+		t.Fatal("assign failed", status)
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: session, Run: relayedMemberTokens(t, p, id, "gjiang")["worker"], Seq: 1, Kind: "update", Summary: "worker started"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: session, Run: run, TaskID: id, Seq: 2, Kind: "milestone", Summary: "lead later fact"}); err != nil {
+		t.Fatal(err)
+	}
+	worker.refuse = true
+	p.Flush(context.Background())
+	var note, later bool
+	for _, fact := range lead.facts {
+		note = note || strings.Contains(fact.Summary, "gjiang 无法在线程发言")
+		later = later || strings.Contains(fact.Summary, "lead later fact")
+	}
+	if !note || !later || len(worker.facts) != 0 {
+		t.Fatalf("refused worker fact blocked card or was silent: note=%v later=%v lead=%v", note, later, lead.facts)
+	}
+	if len(p.pending) != 0 {
+		t.Fatal("refused fact left the card pending forever")
 	}
 }
 

@@ -133,6 +133,12 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 			marker += fmt.Sprintf(":detail:%d", i)
 		}
 		if err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part); err != nil {
+			// Missing access or thread is permanent for this account; core
+			// reports it visibly instead of blocking later facts on retries.
+			var rest *discordgo.RESTError
+			if errors.As(err, &rest) && rest.Response != nil && (rest.Response.StatusCode == 403 || rest.Response.StatusCode == 404) {
+				return fmt.Errorf("%w: %w", core.ErrTaskFactUndeliverable, err)
+			}
 			return err
 		}
 	}

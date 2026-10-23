@@ -769,3 +769,27 @@ func TestHandleRelay_BlockingSendTimeoutDrain(t *testing.T) {
 		})
 	}
 }
+
+// A task relay whose worker exits without EventResult must fail, not return
+// (and cache) the partial text as a completed answer.
+func TestHandleTrackedRelay_TaskExitWithoutResultFails(t *testing.T) {
+	s := newTeamRelaySession()
+	s.events = make(chan Event)
+	agent := &controllableAgent{nextSession: s}
+	e, _ := teamRelayEngine(t, agent)
+	done := make(chan struct{})
+	var resp string
+	var err error
+	go func() {
+		resp, err = e.handleTrackedRelay(context.Background(), "lead", "discord:room:u", "P", agent, e.sessions, "relay:lead:discord:room:task:x", true)
+		close(done)
+	}()
+	t.Cleanup(func() { e.cancel() })
+	waitTeamRelay(t, s.sent)
+	s.events <- Event{Type: EventText, Content: "half an ans"}
+	close(s.events)
+	waitTeamRelay(t, done)
+	if err == nil || resp != "" {
+		t.Fatalf("crashed task relay reported success: resp=%q err=%v", resp, err)
+	}
+}

@@ -2,6 +2,11 @@ package core
 
 import "errors"
 
+// ErrTaskFactUndeliverable marks a permanent refusal (e.g. Discord 403/404)
+// to publish a fact with a given account. Retrying cannot succeed, so the
+// creator posts a visible note instead and later facts keep flowing.
+var ErrTaskFactUndeliverable = errors.New("task fact permanently undeliverable")
+
 // taskReporter is also the task-relay integration seam: resolve req.To before
 // recording an assignment, then persist it on each deliberately public event.
 // Missing worker configuration never falls back to the creator's account.

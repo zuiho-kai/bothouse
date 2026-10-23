@@ -22,6 +22,7 @@ type progressREST struct {
 	thread      bool
 	loseACK     bool
 	failHistory bool
+	postStatus  int // non-zero: reply to POST /messages with this HTTP status
 	sends       int
 	guild       string
 	channelType discordgo.ChannelType
@@ -57,6 +58,10 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		if data.AllowedMentions == nil || len(data.AllowedMentions.Parse) > 0 || len(data.AllowedMentions.Users) > 0 {
 			return nil, errors.New("mentions not suppressed")
+		}
+		if r.postStatus != 0 {
+			b, _ := json.Marshal(map[string]any{"code": 50001, "message": "Missing Access"})
+			return &http.Response{StatusCode: r.postStatus, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(b))), Request: req}, nil
 		}
 		r.sends++
 		m := &discordgo.Message{ID: fmt.Sprint(r.sends + 100), ChannelID: channel, Author: &discordgo.User{ID: "bot"}, Embeds: data.Embeds, Timestamp: time.Now()}
@@ -256,6 +261,26 @@ func TestPublicTaskResultDoesNotClaimAcceptance(t *testing.T) {
 			if strings.HasPrefix(f.Name, "task_") {
 				t.Fatal("missing translation", lang, f.Name)
 			}
+		}
+	}
+}
+
+// Regression (#108 review 2): only a permanent refusal is reported as
+// undeliverable; transient failures keep retrying.
+func TestPublicTaskFactPermanentRefusalClassified(t *testing.T) {
+	for _, tc := range []struct {
+		status    int
+		permanent bool
+	}{{403, true}, {404, true}, {500, false}} {
+		transport := &progressREST{messages: map[string][]*discordgo.Message{}, botID: "worker", postStatus: tc.status}
+		session, _ := discordgo.New("Bot fixture-worker")
+		session.Client = &http.Client{Transport: transport}
+		session.MaxRestRetries = 0
+		p := &Platform{session: session, botID: "worker"}
+		task := &core.Task{ID: "task-refused", ThreadID: "thread", ChannelID: "room"}
+		err := p.PublishTaskFact(context.Background(), task, core.TaskEvent{ID: "task-refused:2", Summary: "x", Timestamp: time.Now(), IsKeyFact: true}, core.LangEnglish)
+		if err == nil || errors.Is(err, core.ErrTaskFactUndeliverable) != tc.permanent {
+			t.Fatalf("status %d: err=%v permanent=%v", tc.status, err, tc.permanent)
 		}
 	}
 }

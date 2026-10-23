@@ -674,6 +674,7 @@ const (
 	MsgTaskRelayProgress MsgKey = "MsgTaskRelayProgress"
 	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
 	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
+	MsgTaskReporterMuted MsgKey = "MsgTaskReporterMuted"
 )
 
 const (
@@ -683,6 +684,9 @@ const (
 )
 
 var messages = map[MsgKey]map[Language]string{
+	MsgTaskReporterMuted: {
+		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",
+	},
 	MsgTaskRelayAssigned: {
 		LangEnglish: "Assigned to %s", LangChinese: "已派给 %s", LangTraditionalChinese: "已派給 %s", LangJapanese: "%s に依頼しました", LangSpanish: "Asignado a %s",
 	},

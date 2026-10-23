@@ -17171,6 +17171,12 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		return relayPartialResponseOrError(ctx.Err(), textParts, fromProject, e.name)
 	}
 
+	if quiet {
+		// Task relays cache successful results by request_id; partial text
+		// from a worker that exited without EventResult must not become a
+		// "done" receipt. Match drainRelaySession's unconfirmed failure.
+		return "", fmt.Errorf("relay: agent process exited without a confirmed result")
+	}
 	if len(textParts) > 0 {
 		return strings.Join(textParts, ""), nil
 	}

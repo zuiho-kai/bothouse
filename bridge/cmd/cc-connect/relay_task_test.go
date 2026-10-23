@@ -82,6 +82,10 @@ func TestQuietCLI(t *testing.T) {
 	rm.RegisterEngine("source", source)
 	rm.RegisterEngine("target", target)
 	rm.Bind("test", "room", map[string]string{"source": "Source", "target": "Target"})
+	// Production wiring (main.go) gives every engine the relay manager; task
+	// reporters resolve through it.
+	source.SetRelayManager(rm)
+	target.SetRelayManager(rm)
 	api, err := core.NewAPIServer(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -173,10 +177,13 @@ func TestQuietCLI(t *testing.T) {
 		sends := append([]string(nil), p.sent...)
 		p.mu.Unlock()
 		if cardSeen && strings.Contains(details, "Thread-only full collaborator result") {
-			for _, want := range []string{"Thread-only full assignment", "Thread-only verified evidence"} {
-				if !strings.Contains(details, want) {
-					t.Fatal("missing thread fact", want)
-				}
+			if !strings.Contains(details, "Thread-only verified evidence") {
+				t.Fatal("missing thread fact", "Thread-only verified evidence")
+			}
+			// Since 74bdcb75 assignment text is private (it may carry report
+			// grants) and is never published to the thread.
+			if strings.Contains(details, "Thread-only full assignment") {
+				t.Fatal("assignment text published to thread")
 			}
 			if len(sends) != 0 {
 				t.Fatal("relay echoed to main channel", sends)

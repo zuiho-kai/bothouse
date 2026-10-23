@@ -252,5 +252,15 @@ func (d *taskRelay) prompt() string {
 		command = exe
 	}
 	prefix := shellQuoteRelay(command) + " progress --project " + shellQuoteRelay(d.p.project) + " --session " + shellQuoteRelay(d.req.SessionKey) + " --data-dir " + shellQuoteRelay(d.p.dataDir) + " --run " + d.token
-	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task.\n[/Task relay]\n\n"
+	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
+}
+
+// Member rows bound to this target publish under its account; their tokens
+// are delivered only here, never to the creator that registered them.
+func (d *taskRelay) memberNote() string {
+	cmds := d.p.relayMemberCommands(d.r, d.req.To)
+	if len(cmds) == 0 {
+		return ""
+	}
+	return "\nYour rows on this card (same --seq/--kind/--message rules, own sequence from 1, private to you):\n" + strings.Join(cmds, "\n")
 }
