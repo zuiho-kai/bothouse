@@ -242,7 +242,9 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	p.mu.Lock()
 	r := p.runs[req.Run]
+	lead := r
 	member := p.memberRuns[req.Run]
+	var adopt *publicRun
 	if r != nil && req.TaskID != "" && r.record.Task.ID != req.TaskID {
 		r = nil
 		for _, card := range p.delegations[req.Run] {
@@ -250,6 +252,11 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 				r = card
 				break
 			}
+		}
+		if r == nil {
+			// A batch card released by an earlier lead turn; a later turn of the
+			// same session may close it by explicit id (checked in lockAdoptedRun).
+			adopt = p.records[req.TaskID]
 		}
 	}
 	p.mu.Unlock()
@@ -259,11 +266,17 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if (req.Kind == "failed" || req.Kind == "cancelled") && req.TaskID == "" {
 		return "", errors.New("kind is only available for member reports")
 	}
-	if r == nil {
+	if r == nil && adopt == nil {
 		return "", errors.New("run is not active")
 	}
 	source := r
-	r, err := p.lockReportRun(source, req)
+	var err error
+	if adopt != nil {
+		source = lead
+		r, err = p.lockAdoptedRun(lead, adopt, req)
+	} else {
+		r, err = p.lockReportRun(source, req)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -340,6 +353,14 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	p.mu.Lock()
 	if req.TaskID == "" {
 		p.runs[req.Run] = r // publish adoption only after the first continued report is durable
+	} else if adopt != nil {
+		if p.delegations == nil {
+			p.delegations = map[string]map[string]*publicRun{}
+		}
+		if p.delegations[req.Run] == nil {
+			p.delegations[req.Run] = map[string]*publicRun{}
+		}
+		p.delegations[req.Run]["task:"+t.ID] = r
 	}
 	p.records[t.ID] = r
 	p.pending[t.ID] = r

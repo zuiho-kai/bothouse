@@ -45,6 +45,75 @@ func TestTaskBatchesExplicitContinuationRebindsRun(t *testing.T) {
 	}
 }
 
+// A batch card released by an earlier lead turn must stay closable by a later
+// lead turn via --task, otherwise it stays listed as running forever.
+func TestTaskBatchesLaterLeadTurnClosesReleasedCard(t *testing.T) {
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "room", LangEnglish, nil)
+	grant, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, BatchID: "A", MemberID: "w", Name: "W", Title: "Work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "result")
+	member := progressToken(t, grant.ReportCommand)
+	for seq, kind := range []string{"update", "result"} {
+		if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: member, Seq: int64(seq + 1), Kind: kind, Summary: kind}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := p.begin(platform, "elsewhere", LangEnglish, nil)
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "elsewhere", Run: other, TaskID: grant.TaskID, Seq: 1, Kind: "result", Summary: "x"}); err == nil {
+		t.Fatal("another session closed the card")
+	}
+	next := p.begin(platform, "room", LangEnglish, nil)
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: next, TaskID: grant.TaskID, Seq: 1, Kind: "result", Summary: "all done"}); err != nil {
+		t.Fatal("later lead turn cannot close released batch card:", err)
+	}
+	p.finish(next, "result")
+	task, _ := p.Task(grant.TaskID)
+	p.mu.Lock()
+	_, listed := p.listed[grant.TaskID]
+	p.mu.Unlock()
+	if task.State != TaskStateResultReady || listed {
+		t.Fatalf("state=%s listed=%v, want result_ready and unlisted", task.State, listed)
+	}
+}
+
+// Assigning a member to the resume candidate by id before the first lead report
+// must keep the RESUME_NOTE sequence usable for the lead's own progress.
+func TestTaskBatchesAssignByIDKeepsResumeSequence(t *testing.T) {
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "room", LangEnglish, nil)
+	id, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: run, Seq: 1, Kind: "start", Title: "T", Summary: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "result")
+	next := p.begin(platform, "room", LangEnglish, nil)
+	cid, seq, ok := p.runStart(next)
+	if !ok || cid != id {
+		t.Fatalf("resume candidate %s %v, want %s", cid, ok, id)
+	}
+	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: next, TaskID: cid, MemberID: "w", Name: "W", Title: "Work"}); err != nil {
+		t.Fatal("assign:", err)
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: next, Seq: seq, Kind: "update", Summary: "continue"}); err != nil {
+		t.Fatal("RESUME_NOTE report after assign --id:", err)
+	}
+	p.finish(next, "result")
+	if task, _ := p.Task(id); task.State != TaskStateResultReady {
+		t.Fatalf("state=%s, want result_ready", task.State)
+	}
+}
+
 func TestTaskBatchesAssignmentIsAtomicAndScoped(t *testing.T) {
 	platform := newProgressPlatform()
 	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})

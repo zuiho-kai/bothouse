@@ -83,7 +83,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	}
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
-	r, key, err := p.lockAssignmentRun(req)
+	r, key, resume, err := p.lockAssignmentRun(req)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +125,11 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		r.stopped = p.runs[req.Run].stopped
 		r.reportBase = old.LastSeq
 	}
+	if resume {
+		// The lead continued its resume candidate by id before reporting; adopt
+		// it like Report does, so the RESUME_NOTE sequence keeps working.
+		p.runs[req.Run] = r
+	}
 	if p.memberRuns == nil {
 		p.memberRuns = map[string]*taskMemberRun{}
 	}
@@ -146,7 +151,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 // Caller holds transitionMu. Explicit ids may adopt a closed, resumable card;
 // a batch always starts fresh, even after ordinary progress continued an old
 // card. Ownership is published only after the assignment is durably saved.
-func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun, string, error) {
+func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun, string, bool, error) {
 	p.mu.Lock()
 	source := p.runs[req.Run]
 	key := "batch:" + req.BatchID
@@ -167,19 +172,19 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun
 	}
 	p.mu.Unlock()
 	if source == nil {
-		return nil, key, errors.New("only the lead's active run may assign members")
+		return nil, key, false, errors.New("only the lead's active run may assign members")
 	}
 	source.mu.Lock()
 	if source.record.Closed || source.record.Accepted || source.record.Task.SessionKey != req.SessionKey || (source.stopped != nil && source.stopped()) {
 		source.mu.Unlock()
-		return nil, key, errors.New("task is not active for this run and session")
+		return nil, key, false, errors.New("task is not active for this run and session")
 	}
 	if req.TaskID == source.record.Task.ID && source.record.Task.Seq > 0 {
 		if IsTerminalState(source.record.Task.State) {
 			source.mu.Unlock()
-			return nil, key, errors.New("task is terminal")
+			return nil, key, false, errors.New("task is terminal")
 		}
-		return source, key, nil
+		return source, key, false, nil
 	}
 	if target == nil && req.TaskID == "" {
 		t := source.record.Task
@@ -187,17 +192,18 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun
 		target = &publicRun{publisher: source.publisher, stopped: source.stopped, record: progressRecord{Platform: source.record.Platform, Lang: source.record.Lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: req.SessionKey, ChannelID: t.ChannelID, Origin: t.Origin}}}
 		owned = true
 	}
+	resume := req.TaskID != "" && target != nil && target == source.candidate && source.record.Task.Seq == 0
 	source.mu.Unlock()
 	if target == nil {
-		return nil, key, errors.New("unknown task")
+		return nil, key, false, errors.New("unknown task")
 	}
 	target.mu.Lock()
 	if target.record.Task.SessionKey != req.SessionKey || target.record.Accepted || IsTerminalState(target.record.Task.State) ||
 		(!owned && (!target.record.Closed || !resumableTask(target.record.Task, target.record.Accepted, time.Now()))) {
 		target.mu.Unlock()
-		return nil, key, errors.New("task is not active for this run and session")
+		return nil, key, false, errors.New("task is not active for this run and session")
 	}
-	return target, key, nil
+	return target, key, resume, nil
 }
 
 func (p *PublicProgress) memberGrant(g *taskMemberRun) *TaskMemberGrant {
