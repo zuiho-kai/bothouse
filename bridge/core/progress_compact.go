@@ -409,8 +409,21 @@ func (w *compactProgressWriter) AppendEvent(kind ProgressCardEntryKind, text str
 	}, fallback)
 }
 
-// AppendStructured appends one structured progress event and updates the in-place message.
+// AppendStructured handles one structured progress event. A true result means
+// the caller must not send its raw fallback, not necessarily that delivery
+// succeeded: a card transport failure must not widen tool visibility to chat.
 func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallback string) bool {
+	handled := w.appendStructured(item, fallback)
+	if !handled && w.style == progressStyleCard {
+		switch item.Kind {
+		case ProgressEntryToolUse, ProgressEntryToolResult:
+			return true
+		}
+	}
+	return handled
+}
+
+func (w *compactProgressWriter) appendStructured(item ProgressCardEntry, fallback string) bool {
 	// Hidden thinking is dropped before anything else, so a failed or disabled
 	// card never hands it back to the caller to post in chat.
 	if w.hideThink && item.Kind == ProgressEntryThinking {
