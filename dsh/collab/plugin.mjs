@@ -80,6 +80,7 @@ export async function apply(ctx, rawConfig) {
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
   const tasks = new Tasks(hub);
+  gateway.tasks = tasks;
   tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
@@ -212,8 +213,10 @@ export async function apply(ctx, rawConfig) {
 }
 
 /**
- * #139 B task API, for the owner's browser and for cloud-web bots (shared bot
- * token; a bot names itself in body.actor, the browser always acts as the owner):
+ * #139 B task API, for the owner's browser and for cloud-web bots. The browser
+ * always acts as the owner. Under the shared bot token a bot names itself in
+ * body.actor, which is unverified (Tasks.perform: no owner, no review); a bot
+ * acts as itself verified with a `task` frame on its cloud-web socket.
  *   GET  /collab/api/rooms/{id}/tasks           board of the room's chat channel and its workspaces
  *   POST /collab/api/rooms/{id}/tasks           { title, owner, parent_task?, message_id? } dispatch
  *   GET  /collab/api/tasks/{id}
@@ -229,7 +232,8 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   if (board === null && one === null) return undefined;
   const human = owner(req);
   if (!human && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
-  const actorOf = body => (human ? OWNER : String(body?.actor ?? ''));
+  // The browser is the owner; the shared bot token says nothing about which bot, so body.actor is unverified.
+  const sender = body => (human ? { actor: OWNER, verified: true } : { actor: body?.actor, verified: false });
   const id = Number((board ?? one)[1]);
   if (req.method === 'GET' && board !== null) return withBody(req, res, () => ({ tasks: tasks.list(id), chat_id: tasks.chatOf(id) }), false);
   if (req.method === 'GET' && one !== null && one[2] === undefined) {
@@ -240,16 +244,8 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
     }, false);
   }
   if (req.method !== 'POST') return Promise.resolve(json(res, 404, { error: 'not found' }));
-  const optional = v => (v == null || v === '' ? undefined : Number(v));
-  if (board !== null) {
-    return withBody(req, res, body => ({
-      task: tasks.assign({ roomId: id, title: body?.title, owner: String(body?.owner ?? ''), actor: actorOf(body), parentTask: optional(body?.parent_task), messageId: optional(body?.message_id) }),
-    }));
-  }
-  if (one[2] === 'stance') return withBody(req, res, body => ({ task: tasks.stance(id, { actor: actorOf(body), stance: String(body?.stance ?? ''), note: body?.note }) }));
-  if (one[2] === 'return') return withBody(req, res, body => ({ task: tasks.handBack(id, { actor: actorOf(body), messageId: optional(body?.message_id) }) }));
-  if (one[2] === 'review') return withBody(req, res, body => ({ task: tasks.review(id, { actor: actorOf(body), verdict: String(body?.verdict ?? ''), note: body?.note }) }));
-  return Promise.resolve(json(res, 404, { error: 'not found' }));
+  if (board !== null) return withBody(req, res, body => ({ task: tasks.perform('assign', { roomId: id, body }, sender(body)) }));
+  return withBody(req, res, body => ({ task: tasks.perform(one[2], { id, body }, sender(body)) }));
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503 };

@@ -1291,3 +1291,47 @@ test('tasks API: owner acts as owner, bots name themselves with the bot token, o
   assert.equal((await call('GET', '/collab/api/tasks/99', undefined, { human: true })).status, 404);
   assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'y', owner: 'nobody' }, { human: true })).status, 404);
 });
+
+test('tasks identity: the bot token cannot impersonate the owner or review; a socket frame acts as its own bot', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  gw.tasks = tasks;
+  const call = async (path, body) => {
+    const req = new EventEmitter();
+    req.method = 'POST'; req.url = path; req.headers = { authorization: 'Bearer t' };
+    const res = { status: 0, body: '', writeHead(s) { this.status = s; }, end(b) { this.body = b; } };
+    const p = tasksRoute(req, res, new URL(path, 'http://x'), { tasks, gateway: gw, owner: () => false });
+    req.emit('data', Buffer.from(JSON.stringify(body))); req.emit('end');
+    await p;
+    return { status: res.status, json: JSON.parse(res.body) };
+  };
+  // The shared token may not claim to be the human owner, nobody, or anyone unknown.
+  for (const actor of ['owner', undefined, 'ghost']) {
+    assert.equal((await call('/collab/api/rooms/1/tasks', { title: 'x', owner: 'ds', actor })).status, 403, String(actor));
+  }
+  const t = tasks.assign({ roomId: 1, title: '写测试', owner: 'ds', actor: 'lead' });
+  const delivery = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '好了' }).message;
+  tasks.handBack(t.id, { actor: 'ds', messageId: delivery.id });
+  // Self-reporting as the dispatcher is not enough to accept.
+  const forged = await call(`/collab/api/tasks/${t.id}/review`, { verdict: 'done', actor: 'lead' });
+  assert.equal(forged.status, 403);
+  assert.equal(tasks.task(t.id).status, 'returned');
+  // Over its own socket, another bot is still not the dispatcher ...
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+  whale.frame({ type: 'task', action: 'review', task_id: t.id, verdict: 'done', ref: 'r1' });
+  await new Promise(r => setImmediate(r));
+  assert.equal(whale.of('task_ack')[0].ok, false);
+  assert.equal(whale.of('task_ack')[0].code, 'forbidden');
+  // ... and the dispatcher's own socket accepts, whatever actor the frame claims.
+  const lead = connect(gw, 'bot=lead&name=橘');
+  lead.frame({ type: 'task', action: 'review', task_id: t.id, verdict: 'done', actor: 'owner', ref: 'r2' });
+  await new Promise(r => setImmediate(r));
+  const ack = lead.of('task_ack')[0];
+  assert.equal(ack.ref, 'r2');
+  assert.equal(ack.ok, true);
+  assert.equal(ack.task.status, 'done');
+  // A frame dispatch is recorded as the sending bot.
+  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3' });
+  await new Promise(r => setImmediate(r));
+  assert.equal(lead.of('task_ack')[1].task.created_by, 'lead');
+});

@@ -171,6 +171,33 @@ export class Tasks {
     return this.changed(id);
   }
 
+  /**
+   * One API action (#139 B) for a sender. `verified` says the actor comes from
+   * the connection or session (owner's browser, a cloud-web bot's socket, the
+   * author of a member's message), not from a self-reported body field.
+   * Unverified actors (body.actor under the shared bot token) must name an
+   * existing non-human member and can never review: acceptance only counts
+   * from the dispatcher or the human owner when the server knows who it is.
+   * @param action - assign | stance | return | review.
+   * @param args - { id?: task id, roomId?: room for assign, body: request fields }.
+   */
+  perform(action, { id, roomId, body = {} }, { actor, verified }) {
+    actor = String(actor ?? '');
+    if (!verified) {
+      const m = this.hub.members.get(actor);
+      if (!actor || actor === HUMAN || m === undefined || m.kind === 'human') throw new CollabError('forbidden', 'actor must name an existing member other than the owner');
+      if (action === 'review') throw new CollabError('forbidden', 'review needs a verified sender: the dispatcher over its own connection, or the owner');
+    }
+    const optional = v => (v == null || v === '' ? undefined : Number(v));
+    switch (action) {
+      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id) });
+      case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
+      case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
+      case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });
+      default: throw new CollabError('invalid', 'action must be assign, stance, return or review');
+    }
+  }
+
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
