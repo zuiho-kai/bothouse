@@ -18,7 +18,7 @@ flowchart LR
   G <--> W[共享 wiki]
 ```
 
-接入 DSH 智能体的 ACP 协议与接入 DSH 网页聊天入口是两个方向；后者目前尚未完成。
+接入 DSH 智能体的 ACP 协议与接入 DSH 网页聊天入口是两个方向。网页入口已有原生客户端插件实现（`dsh/packages/client-ui-discord`，走 collab 的 `/collab/api/*` 与 SSE，挂在 DSH 的 `sidebar.panellist` 和 `main`），仍在补齐手机端、停止和继续、等批准入口，尚未合并进 `main`；范围与验收见 [dsh/docs/channel-plugin-design.md](../dsh/docs/channel-plugin-design.md)。
 
 DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补丁，对端握手声明 `dsh/steer` 后适配器才走插话，否则排队。
 
