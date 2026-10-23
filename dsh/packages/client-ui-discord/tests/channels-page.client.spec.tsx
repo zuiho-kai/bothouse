@@ -494,6 +494,52 @@ describe('channels page', () => {
     view.rerender(<ChannelsPage {...props({ ...quoted, messages: quoted.messages.slice(1) }, send)} />)
     expect(screen.getByText(`回复 橘 · ${zh.replyDeleted}`)).toBeTruthy()
   })
+
+  it('renders unread count badge and mention badge on channels (#145)', () => {
+    const unreadSnap: ChannelSnapshot = {
+      ...ready,
+      rooms: [
+        { id: 1, name: 'general' },
+        { id: 2, name: 'ops' },
+        { id: 3, name: 'alerts' },
+      ],
+      unread: {
+        2: { count: 3, mention: false },
+        3: { count: 1, mention: true },
+      },
+    }
+    render(<ChannelsPage {...props(unreadSnap)} />)
+    const opsBtn = screen.getByRole('button', { name: /ops/ })
+    expect(opsBtn.textContent).toContain('3')
+    expect(opsBtn.className).toContain('roomUnread')
+    expect(opsBtn.className).not.toContain('roomMention')
+
+    const alertsBtn = screen.getByRole('button', { name: /alerts/ })
+    expect(alertsBtn.textContent).toContain('@ 1')
+    expect(alertsBtn.className).toContain('roomMention')
+  })
+
+  it('renders unread divider above first unread message and toggles desktop notifications (#145)', async () => {
+    const dividerSnap: ChannelSnapshot = {
+      ...ready,
+      roomId: 1,
+      unread: {
+        1: { count: 2, mention: false, firstUnreadId: 2 },
+      },
+      messages: [
+        { ...ready.messages[0], id: 1, text: '第一条已读' },
+        { ...ready.messages[0], id: 2, text: '第二条未读' },
+        { ...ready.messages[0], id: 3, text: '第三条未读' },
+      ],
+    }
+    render(<ChannelsPage {...props(dividerSnap)} />)
+    expect(screen.getByText(zh.unreadDivider)).toBeTruthy()
+
+    const notifyBtn = screen.getByRole('button', { name: zh.notificationsDisable })
+    expect(notifyBtn).toBeTruthy()
+    fireEvent.click(notifyBtn)
+    expect(screen.getByRole('button', { name: zh.notificationsEnable })).toBeTruthy()
+  })
 })
 
 describe('progress card detail/brief view', () => {

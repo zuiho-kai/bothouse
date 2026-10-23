@@ -126,6 +126,12 @@ export const zh = {
   replyingTo: '回复 {name}',
   replyDeleted: '原消息已删除',
   cancelReply: '取消回复',
+  notificationsEnable: '开启桌面通知',
+  notificationsDisable: '关闭桌面通知',
+  notificationsBlocked: '通知已被浏览器拦截，请在浏览器权限设置中允许',
+  unreadDivider: '以下是新消息',
+  unreadCount: '{count} 条未读',
+  unreadMentionCount: '@ {count} 条提及',
 } as const
 
 /** English dictionary. */
@@ -251,6 +257,12 @@ export const en: Record<keyof typeof zh, string> = {
   replyingTo: 'Replying to {name}',
   replyDeleted: 'Original message was deleted',
   cancelReply: 'Cancel reply',
+  notificationsEnable: 'Enable desktop notifications',
+  notificationsDisable: 'Disable desktop notifications',
+  notificationsBlocked: 'Notifications blocked by browser permissions',
+  unreadDivider: 'New Messages',
+  unreadCount: '{count} unread',
+  unreadMentionCount: '@ {count} mentions',
 }
 
 /** Keys of the channel panel dictionary. */
