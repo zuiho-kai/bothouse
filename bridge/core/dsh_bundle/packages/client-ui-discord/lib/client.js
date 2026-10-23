@@ -90,6 +90,8 @@ function createChannelSource(transport) {
 			error: error instanceof Error ? error.message : String(error)
 		});
 	};
+	const earlyTasks = /* @__PURE__ */ new Map();
+	const newer = (a, b) => (a?.updated_at ?? -Infinity) <= b.updated_at;
 	const applyEvent = (current, event) => {
 		switch (event.type) {
 			case "message": {
@@ -121,6 +123,13 @@ function createChannelSource(transport) {
 				rooms: event.rooms
 			};
 			case "task": {
+				if (current.taskChat === void 0) {
+					if (newer(earlyTasks.get(event.task.id)?.task, event.task)) earlyTasks.set(event.task.id, {
+						chat: event.chat_id,
+						task: event.task
+					});
+					return current;
+				}
 				if (event.chat_id !== current.taskChat) return current;
 				const rows = new Map((current.tasks ?? []).map((t) => [t.id, t]));
 				rows.set(event.task.id, event.task);
@@ -145,8 +154,10 @@ function createChannelSource(transport) {
 			const board = await request("collab/api/rooms/" + roomId + "/tasks", { signal: read.signal });
 			if (lifetime !== owner || boardRead !== read || snapshot.roomId !== roomId) return;
 			const live = snapshot.taskChat === board.chat_id ? snapshot.tasks ?? [] : [];
+			const early = [...earlyTasks.values()].filter((e) => e.chat === board.chat_id).map((e) => e.task);
+			earlyTasks.clear();
 			const rows = new Map(board.tasks.map((t) => [t.id, t]));
-			for (const t of live) if ((rows.get(t.id)?.updated_at ?? -1) <= t.updated_at) rows.set(t.id, t);
+			for (const t of [...live, ...early]) if (newer(rows.get(t.id), t)) rows.set(t.id, t);
 			set({
 				tasks: [...rows.values()].sort((a, b) => b.id - a.id),
 				taskChat: board.chat_id
@@ -185,6 +196,7 @@ function createChannelSource(transport) {
 				}
 			}
 			const keepBoard = roomId === previous.roomId;
+			if (!keepBoard) earlyTasks.clear();
 			let next = {
 				phase: "ready",
 				error: void 0,
@@ -207,9 +219,15 @@ function createChannelSource(transport) {
 		}
 	};
 	const selectRoom = async (roomId) => {
-		set({
+		if (roomId !== snapshot.roomId) earlyTasks.clear();
+		set(roomId === snapshot.roomId ? {
 			roomId,
 			messages: []
+		} : {
+			roomId,
+			messages: [],
+			tasks: [],
+			taskChat: void 0
 		});
 		await refresh(false);
 	};

@@ -244,6 +244,11 @@ export function createChannelSource(transport: ChannelTransport): {
   }
 
 
+  // Task events that arrive before the board of a newly selected room is known
+  // (taskChat undefined) are kept here, newest per task, until loadBoard merges them.
+  const earlyTasks = new Map<number, { chat: number; task: ChannelTask }>()
+  const newer = (a: ChannelTask | undefined, b: ChannelTask): boolean => (a?.updated_at ?? -Infinity) <= b.updated_at
+
   const applyEvent = (current: ChannelSnapshot, event: ServiceEvent): ChannelSnapshot => {
     switch (event.type) {
       case 'message': {
@@ -260,6 +265,10 @@ export function createChannelSource(transport: ChannelTransport): {
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
       case 'rooms': return { ...current, rooms: event.rooms }
       case 'task': {
+        if (current.taskChat === undefined) {
+          if (newer(earlyTasks.get(event.task.id)?.task, event.task)) earlyTasks.set(event.task.id, { chat: event.chat_id, task: event.task })
+          return current
+        }
         if (event.chat_id !== current.taskChat) return current
         const rows = new Map((current.tasks ?? []).map(t => [t.id, t]))
         rows.set(event.task.id, event.task)
@@ -288,8 +297,10 @@ export function createChannelSource(transport: ChannelTransport): {
       if (lifetime !== owner || boardRead !== read || snapshot.roomId !== roomId) return
       // Task events that arrived while the board was loading are newer than it.
       const live = snapshot.taskChat === board.chat_id ? snapshot.tasks ?? [] : []
+      const early = [...earlyTasks.values()].filter(e => e.chat === board.chat_id).map(e => e.task)
+      earlyTasks.clear()
       const rows = new Map(board.tasks.map(t => [t.id, t]))
-      for (const t of live) if ((rows.get(t.id)?.updated_at ?? -1) <= t.updated_at) rows.set(t.id, t)
+      for (const t of [...live, ...early]) if (newer(rows.get(t.id), t)) rows.set(t.id, t)
       set({ tasks: [...rows.values()].sort((a, b) => b.id - a.id), taskChat: board.chat_id })
     } catch (error) {
       void error // Optional board: a missing or failed read leaves it as it was.
@@ -333,6 +344,7 @@ export function createChannelSource(transport: ChannelTransport): {
         }
       }
       const keepBoard = roomId === previous.roomId
+      if (!keepBoard) earlyTasks.clear()
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, messages: rows,
@@ -350,7 +362,9 @@ export function createChannelSource(transport: ChannelTransport): {
   }
 
   const selectRoom = async (roomId: number): Promise<void> => {
-    set({ roomId, messages: [] })
+    // The old board is not this room's: task events wait in earlyTasks until loadBoard.
+    if (roomId !== snapshot.roomId) earlyTasks.clear()
+    set(roomId === snapshot.roomId ? { roomId, messages: [] } : { roomId, messages: [], tasks: [], taskChat: undefined })
     await refresh(false)
   }
 

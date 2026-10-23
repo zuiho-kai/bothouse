@@ -79,7 +79,8 @@ export async function apply(ctx, rawConfig) {
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
-  const tasks = new Tasks(hub);
+  // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
+  const tasks = new Tasks(hub, { start: false });
   gateway.tasks = tasks;
   tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
@@ -91,6 +92,7 @@ export async function apply(ctx, rawConfig) {
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
+  tasks.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;

@@ -1191,6 +1191,81 @@ test('tasks: one reminder @s the owner at the check time and wakes only it; hand
   assert.equal(tasks.timer, undefined, 'nothing left to check');
 });
 
+test('tasks: without #id a stance only answers a dispatch not yet answered (PR #136 review 1)', async () => {
+  const { hub, tasks } = makeTasks();
+  const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【接】好的' });
+  await tick();
+  assert.equal(tasks.task(t.id).status, 'accepted');
+  const check = tasks.task(t.id).next_check_at;
+  // A reply about something else, opened with the team's stance line as usual.
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【退】这个翻译我不擅长，找鲸鱼娘' });
+  await tick();
+  assert.equal(tasks.task(t.id).status, 'accepted', 'an answered task is not changed without #id');
+  assert.equal(tasks.task(t.id).next_check_at, check, 'its reminder stays');
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `【退】#${t.id} 做不了` });
+  await tick();
+  assert.equal(tasks.task(t.id).status, 'declined', 'with #id it applies');
+});
+
+test('tasks: an offline owner gets its reminder once when it comes online (PR #136 review 2)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const clock = { t: 1000, timer: undefined };
+  const tasks = new Tasks(hub, { now: () => clock.t, setTimer: (fn) => (clock.timer = { fn }), clearTimer() {} });
+  tasks.onWake((id, msg) => gw.nudge(id, msg));
+  hub.setMember({ id: 'lead', name: '橘', kind: 'bot', online: true });
+  hub.setMember({ id: 'ju', name: '鲸鱼', kind: 'bot', online: false });
+  const t = tasks.assign({ roomId: 1, title: '润色', owner: 'ju', actor: 'lead' });
+  clock.t += CHECK_AFTER_S + 1;
+  clock.timer.fn();
+  assert.equal(tasks.task(t.id).next_check_at, null);
+  assert.notEqual(tasks.task(t.id).remind_msg_id, null, 'the bot is offline: the reminder stays pending');
+  const ju = connect(gw, 'bot=ju&name=鲸鱼');
+  const got = ju.of('message');
+  assert.equal(got.length, 1, 'delivered on connect');
+  assert.match(got[0].content, /任务 #1「润色」到了检查时间/);
+  assert.equal(got[0].mentioned, true);
+  hub.setOnline('lead', false); hub.setOnline('lead', true);
+  const again = connect(gw, 'bot=ju&name=鲸鱼');
+  assert.equal(ju.of('message').length + again.of('message').length, 1, 'a delivered reminder is never sent again');
+  assert.equal(hub.store.page(1, undefined, 200).filter(m => m.name === '任务提醒').length, 1);
+});
+
+test('tasks: a reminder due during a restart is delivered after the bot reconnects (PR #136 review 2)', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'tasks-restart-'));
+  try {
+    const file = join(dir, 'collab.sqlite3');
+    const s1 = new Store(file); s1.ensureRoom(1, 'general');
+    const hub1 = new Hub(s1, quiet);
+    hub1.setMember({ id: 'lead', name: '橘', kind: 'bot', online: true });
+    hub1.setMember({ id: 'ju', name: '鲸鱼', kind: 'bot', online: true });
+    const before = new Tasks(hub1, { now: () => 1000, setTimer: () => ({}), clearTimer() {} });
+    const t = before.assign({ roomId: 1, title: '润色', owner: 'ju', actor: 'lead' });
+    before.close(); s1.db.close();
+    // Restart after the check time; the timer fires before cc-connect reconnects.
+    const s2 = new Store(file);
+    const hub2 = new Hub(s2, quiet);
+    const gw = new CloudWebGateway(hub2, { token: 't', logger: quiet });
+    const clock = { t: 1000 + CHECK_AFTER_S + 5, timer: undefined };
+    const after = new Tasks(hub2, { now: () => clock.t, setTimer: (fn, ms) => (clock.timer = { fn, ms }), clearTimer() {}, start: false });
+    after.onWake((id, msg) => gw.nudge(id, msg));
+    assert.equal(clock.timer, undefined, 'start: false arms nothing');
+    after.start();
+    assert.equal(clock.timer.ms, 0);
+    clock.timer.fn();
+    assert.equal(after.task(t.id).next_check_at, null);
+    const ju = connect(gw, 'bot=ju&name=鲸鱼');
+    assert.equal(ju.of('message').length, 1, 'not lost: delivered once on reconnect');
+    connect(gw, 'bot=ju&name=鲸鱼');
+    assert.equal(hub2.store.page(1, undefined, 200).filter(m => m.name === '任务提醒').length, 1);
+    after.close(); s2.db.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('tasks: the reminder starts a DSH owner turn with the reminder in its prompt; records start nobody', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();

@@ -4,7 +4,9 @@
 // back. Every step leaves one short system record in the task's room and, when
 // that room is a workspace, in its chat channel; records never @ anyone and
 // never start a bot turn (system rows are skipped by every router). One
-// reminder @s the owner when the check time passes without a hand-back.
+// reminder @s the owner when the check time passes without a hand-back; if no
+// waker can reach the owner (cloud-web bot offline, or not reconnected yet after
+// a restart) the reminder stays pending and is delivered once when it comes online.
 import { CollabError, MAX_TEXT } from './store.mjs';
 
 /** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
@@ -30,9 +32,11 @@ const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
 export class Tasks {
   /**
    * @param hub - Hub (store, members, post, emit).
-   * @param options - { now?(): seconds, setTimer?, clearTimer? } (tests drive the clock).
+   * @param options - { now?(): seconds, setTimer?, clearTimer? } (tests drive the clock);
+   *   start: false defers the timer and pending deliveries until start() (the plugin
+   *   starts after DSH recovery, so a reminder job is never mistaken for a leftover).
    */
-  constructor(hub, { now = () => Date.now() / 1000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  constructor(hub, { now = () => Date.now() / 1000, setTimer = setTimeout, clearTimer = clearTimeout, start = true } = {}) {
     this.hub = hub;
     this.store = hub.store;
     this.db = hub.store.db;
@@ -41,6 +45,7 @@ export class Tasks {
     this.clearTimer = clearTimer;
     this.timer = undefined;
     this.closed = false;
+    this.started = false;
     /** wake(memberId, message) -> start that member on the reminder (DSH member or cloud-web bot). */
     this.wakers = [];
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
@@ -50,26 +55,45 @@ export class Tasks {
       get: this.db.prepare('SELECT * FROM tasks WHERE id = ?'),
       add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?) RETURNING *`),
-      set: this.db.prepare('UPDATE tasks SET status = ?, next_check_at = ?, note = ?, updated_at = ? WHERE id = ? AND status = ? RETURNING *'),
-      handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
+      // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
+      set: this.db.prepare('UPDATE tasks SET status = ?, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
+      handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
         WHERE id = ? AND status = ? RETURNING *`),
       bindAssign: this.db.prepare('UPDATE tasks SET assign_msg_id = ? WHERE id = ? AND assign_msg_id IS NULL'),
       due: this.db.prepare(`SELECT * FROM tasks WHERE next_check_at IS NOT NULL AND next_check_at <= ?
         AND status IN (${PLACEHOLDERS}) ORDER BY next_check_at, id`),
-      unremind: this.db.prepare('UPDATE tasks SET next_check_at = NULL WHERE id = ? AND next_check_at IS NOT NULL RETURNING *'),
+      // Posting the reminder and marking it undelivered is one step; the check time is spent.
+      unremind: this.db.prepare('UPDATE tasks SET next_check_at = NULL, remind_msg_id = ? WHERE id = ? AND next_check_at IS NOT NULL RETURNING *'),
+      undelivered: this.db.prepare(`SELECT * FROM tasks WHERE remind_msg_id IS NOT NULL AND status IN (${PLACEHOLDERS}) ORDER BY id`),
+      // Clear before waking (a success is never re-sent); restore only if nobody took it.
+      takeRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? RETURNING *'),
+      putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND status IN (${PLACEHOLDERS})`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS})`),
-      latestOpen: this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
+      // A stance line without #id only answers a dispatch the owner has not answered yet.
+      latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
     };
     hub.onMessage(message => this.fromMessage(message));
+    // A member coming online (cloud-web register, DSH member published) gets its pending reminders.
+    this.unsubscribe = hub.subscribe(event => { if (event.type === 'members') this.deliverPending(); });
+    if (start) this.start();
+  }
+
+  /** Arm the check timer and deliver reminders left undelivered (e.g. before a restart). */
+  start() {
+    if (this.started || this.closed) return;
+    this.started = true;
+    this.deliverPending();
     this.arm();
   }
 
+  /** wake(memberId, message) returns true when it started that member on the message. */
   onWake(fn) { this.wakers.push(fn); }
 
   close() {
     this.closed = true;
+    this.unsubscribe?.();
     if (this.timer !== undefined) this.clearTimer(this.timer);
     this.timer = undefined;
   }
@@ -134,7 +158,7 @@ export class Tasks {
     const status = STANCES[mark];
     // 退/升 hand the turn to the lead: the reminder is cancelled.
     const check = status === 'declined' || status === 'escalated' ? null : task.next_check_at;
-    const row = this.q.set.get(status, check, clip(note), this.now(), id, task.status);
+    const row = this.q.set.get(status, check, clip(note), this.now(), check === null ? 0 : 1, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     const tail = row.note ? `：${row.note}` : '';
     this.record(row, 'stance', `#${id}「${row.title}」${this.nameOf(row.owner)} 表态【${mark}】${tail}`);
@@ -162,7 +186,7 @@ export class Tasks {
     if (verdict !== 'done' && verdict !== 'rework') throw new CollabError('invalid', 'verdict must be done or rework');
     // Rework is a new round with the same check time as a dispatch (source above).
     const check = verdict === 'rework' ? this.now() + CHECK_AFTER_S : null;
-    const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), id, task.status);
+    const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), 0, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     const tail = clip(note) ? `：${clip(note)}` : '';
     this.record(row, verdict, verdict === 'done'
@@ -204,29 +228,52 @@ export class Tasks {
     const first = String(msg.text).split('\n', 1)[0];
     const m = STANCE_LINE.exec(first);
     if (m === null) return undefined;
+    // Members open every reply with a stance, so without #id only a not-yet-answered
+    // dispatch counts; once answered, changing that task needs its #id.
     const task = m[2] !== undefined ? this.task(Number(m[2]))
-      : this.q.latestOpen.get(msg.room_id, msg.author, ...WORKING);
+      : this.q.latestAssigned.get(msg.room_id, msg.author);
     if (task === undefined || task.owner !== msg.author || !WORKING.includes(task.status)) return undefined;
     return this.stance(task.id, { actor: msg.author, stance: m[1], note: m[3] });
   }
 
-  /** Post the reminder for every task past its check time, once each. */
+  /** Post the reminder for every task past its check time, once each, and wake its owner. */
   tick() {
-    if (this.closed) return;
+    if (this.closed || !this.started) return;
     for (const task of this.q.due.all(this.now(), ...WORKING)) {
-      // Clear first: a crash after this line loses one reminder, never sends two.
-      if (this.q.unremind.get(task.id) === undefined) continue;
       const name = this.nameOf(task.owner);
       const { message } = this.hub.post(task.room_id, {
         authorKind: 'system', author: 'system', name: '任务提醒',
         text: `@${name} 任务 #${task.id}「${task.title}」到了检查时间还没交回：请交回结果，或说明卡在哪。`,
       });
-      for (const wake of this.wakers) {
-        try { wake(task.owner, message); } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
-      }
+      // The check time is spent and the reminder is marked undelivered in one update.
+      if (this.q.unremind.get(message.id, task.id) === undefined) continue;
+      this.deliver(task.id, message.id);
       this.changed(task.id);
     }
     this.arm();
+  }
+
+  /** Retry every undelivered reminder whose task is still the owner's turn. */
+  deliverPending() {
+    if (this.closed || !this.started) return;
+    for (const task of this.q.undelivered.all(...WORKING)) this.deliver(task.id, task.remind_msg_id);
+  }
+
+  /** Wake the owner on one reminder; it stays pending unless some waker took it. */
+  deliver(taskId, msgId) {
+    if (this.delivering) return;
+    const message = this.store.message(msgId);
+    const task = this.q.takeRemind.get(taskId, msgId);
+    if (task === undefined) return;
+    if (message === undefined) return;
+    let taken = false;
+    this.delivering = true;
+    try {
+      for (const wake of this.wakers) {
+        try { if (wake(task.owner, message)) { taken = true; break; } } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
+      }
+    } finally { this.delivering = false; }
+    if (!taken) this.q.putRemind.run(msgId, taskId);
   }
 
   /** Schedule tick() for the earliest pending check time. */

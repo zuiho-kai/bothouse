@@ -99,6 +99,36 @@ describe('channel source', () => {
     unsubscribe()
   })
 
+  it('keeps task events that arrive after a room switch but before its board read returns (PR #136 review 3)', async () => {
+    const board = deferred<Response>()
+    const task = (id: number, status: string, updated_at: number) => ({
+      id, room_id: 2, parent_task: null, title: `t${id}`, owner: 'ds', owner_name: 'DS', created_by: 'ju', created_by_name: '橘',
+      status, next_check_at: null, assign_msg_id: null, result_msg_id: null, note: null, created_at: 1, updated_at, returned_at: null,
+    })
+    const { transport, streams, calls } = fakeTransport((url) => {
+      if (url === '/collab/api/state') return json(200, state)
+      if (url === '/collab/api/rooms/2/tasks') return board.promise
+      if (url.endsWith('/tasks')) return json(200, { chat_id: 1, tasks: [] })
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(streams).toHaveLength(1))
+    await actions.selectRoom(2)
+    await vi.waitFor(() => expect(calls).toContain('GET /collab/api/rooms/2/tasks'))
+    expect(source.getSnapshot().taskChat).toBeUndefined()
+    const send = (event: unknown) => streams[0]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(event) }))
+    // The server read the board before these were written: the board alone would be stale.
+    send({ type: 'task', task: task(5, 'accepted', 20), chat_id: 2, active: 1 })
+    send({ type: 'task', task: task(6, 'assigned', 30), chat_id: 2, active: 2 })
+    send({ type: 'task', task: task(9, 'assigned', 30), chat_id: 7, active: 1 })
+    board.resolve(json(200, { chat_id: 2, tasks: [task(5, 'assigned', 10), task(4, 'done', 40)] }))
+    await vi.waitFor(() => expect(source.getSnapshot().taskChat).toBe(2))
+    const rows = source.getSnapshot().tasks ?? []
+    expect(rows.map(t => [t.id, t.status])).toEqual([[6, 'assigned'], [5, 'accepted'], [4, 'done']])
+    unsubscribe()
+  })
+
   it('keeps live edits and deletions received while a room baseline is loading', async () => {
     const baseline = deferred<Response>()
     let loading = false
