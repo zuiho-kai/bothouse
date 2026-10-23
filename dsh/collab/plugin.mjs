@@ -80,7 +80,7 @@ export async function apply(ctx, rawConfig) {
   const hub = new Hub(store, ctx.logger);
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
-  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
+  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, leadID: () => hub.primaryMember()?.id ?? '' });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
@@ -155,13 +155,13 @@ export async function apply(ctx, rawConfig) {
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
-      return json(res, 200, { me: OWNER, lead_id: primaryMember(hub, store)?.id ?? null,
+      return json(res, 200, { me: OWNER, lead_id: hub.primaryMember()?.id ?? null,
         rooms: store.roomsView().map(r => ({ ...r, dispatch_mode: store.dispatchMode(r.id) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {
-      const member = primaryMember(hub, store);
+      const member = hub.primaryMember();
       return json(res, 200, { lead_id: member?.id ?? null });
     }
     if (path === '/collab/api/lead' && req.method === 'PATCH') {
@@ -238,13 +238,6 @@ export async function apply(ctx, rawConfig) {
     }
     return json(res, 404, { error: 'not found' });
   }
-
-/** Resolve the durable selection while tolerating a removed/offline member. */
-function primaryMember(hub, store) {
-  const selected = store.primaryMember();
-  const member = selected === undefined ? undefined : hub.members.get(selected);
-  return member?.kind !== 'human' ? member : hub.routable()[0];
-}
 
   function events(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });

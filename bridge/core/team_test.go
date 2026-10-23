@@ -62,6 +62,22 @@ func TestTeamSummary(t *testing.T) {
 	}
 }
 
+func TestDynamicTeamLeadFollowsChannelSelection(t *testing.T) {
+	e := newTestEngine()
+	e.team = &teamState{dir: t.TempDir(), name: "橘", inject: true, seen: map[string]*teamSession{}}
+	if !e.isTeamLead() {
+		t.Fatal("configured lead should remain lead before a channel update")
+	}
+	e.setDynamicTeamLead(false)
+	if e.isTeamLead() {
+		t.Fatal("a channel selecting another role must disable lead behavior")
+	}
+	e.setDynamicTeamLead(true)
+	if !e.isTeamLead() {
+		t.Fatal("selecting this role again must restore lead behavior")
+	}
+}
+
 func TestTeamBlockOnlyWhenBoardChanges(t *testing.T) {
 	dir := t.TempDir()
 	e := newTestEngine()

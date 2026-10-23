@@ -199,6 +199,13 @@ func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 // SetTeamWorkspaces turns team mode D on or off. It only acts on the team lead
 // (team_status_inject) and creates nothing by itself.
 func (e *Engine) SetTeamWorkspaces(on bool) {
+	t := e.team
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.workspacesEnabled = on
+	t.mu.Unlock()
 	if !on || !e.isTeamLead() {
 		e.teamWS = nil
 		return

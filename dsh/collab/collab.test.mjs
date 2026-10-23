@@ -85,6 +85,32 @@ test('store: primary role selection persists in the collab database', () => {
   assert.equal(s.primaryMember(), 'whale');
 });
 
+test('primary role: fallback and unmentioned messages route to the selected role', async () => {
+  const hub = makeHub();
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  assert.equal(hub.primaryMember().id, 'ds');
+  hub.store.setPrimaryMember('removed');
+  assert.equal(hub.primaryMember().id, 'ds');
+
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, leadID: () => hub.primaryMember()?.id ?? '' });
+  const ju = connect(gw, 'bot=ju&name=橘');
+
+  hub.store.setPrimaryMember('ds');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '没有点名的消息', clientKey: 'lead-dsh' });
+  await settle();
+  assert.equal(hub.store.openJobs().map(j => j.member_id).join(','), 'ds');
+  assert.equal(ju.of('message').at(-1).mentioned, false);
+  assert.equal(ju.of('message').at(-1).lead_id, 'ds');
+
+  hub.store.setPrimaryMember('ju');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '切换后没有点名', clientKey: 'lead-bot' });
+  await settle();
+  assert.equal(ju.of('message').at(-1).mentioned, true);
+  assert.equal(ju.of('message').at(-1).lead_id, 'ju');
+});
+
 test('team exit: forwards asks and returns answers to the recorded workspace', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
@@ -296,7 +322,7 @@ test('DSH member: @ admits one prompt, its turn posts the reply, duplicates neve
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '先说一句' });
+  hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '先说一句' });
   const { message: trigger } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 总结一下', clientKey: 'once' });
   assert.equal(hub.store.openJobs().length, 1, 'the job commits with the message, before any async step');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 总结一下', clientKey: 'once' });
@@ -514,7 +540,7 @@ test('relay cap: agent-to-agent mentions stop starting DSH turns until a human s
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { maxRelay: 2 });
   hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '开始' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 开始' });
   for (const t of ['一', '二']) hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: `@DeepSeek ${t}` });
   await settle();
   assert.equal(hub.store.openJobs().length, 2, 'mentions within the cap still start jobs');
@@ -798,7 +824,7 @@ test('roster: wizard roles are imported once, existing names skipped', async () 
 test('member failure publishes actionable error and clears it on retry', () => {
   const hub = makeHub();
   const members = fakeDsh().attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
-  const trigger = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
+  const trigger = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
   const job = hub.store.addJob('ds', 1, trigger.id);
   members.fail(job.id, 'No API key configured');
   assert.match(hub.memberView().find(m => m.id === 'ds').error, /没有配置.*Key/);

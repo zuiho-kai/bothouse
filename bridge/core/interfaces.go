@@ -15,6 +15,13 @@ type Platform interface {
 	Stop() error
 }
 
+// TeamLeadStateProvider is implemented by gateways that receive the current
+// primary-role selection from their channel host. The bool is whether this
+// project is the selected role; false means a different role is primary.
+type TeamLeadStateProvider interface {
+	TeamLeadState() (isLead bool, known bool)
+}
+
 // ErrNotSupported indicates a platform doesn't support a particular operation.
 var ErrNotSupported = errors.New("operation not supported by this platform")
 

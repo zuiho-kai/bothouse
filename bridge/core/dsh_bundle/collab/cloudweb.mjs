@@ -85,12 +85,13 @@ export function progressCard(content) {
 export class CloudWebGateway {
   /**
    * @param hub - Hub instance.
-   * @param options - { token: shared bot token (empty disables the gateway), logger }.
+   * @param options - { token: shared bot token (empty disables the gateway), logger, leadID }.
    */
-  constructor(hub, { token, logger }) {
+  constructor(hub, { token, logger, leadID = undefined }) {
     this.hub = hub;
     this.token = token;
     this.logger = logger;
+    this.leadID = leadID;
     /** member id -> { ws, member } */
     this.bots = new Map();
     /** permission prompt message id -> { bot, room, sessionKey, replyCtx } while undecided */
@@ -194,6 +195,8 @@ export class CloudWebGateway {
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
     const only = this.hub.replyRoute(msg);
+    const leadID = typeof this.leadID === 'function' ? String(this.leadID() ?? '') : '';
+    const leadTarget = msg.author_kind === 'user' && leadID !== '' && target === undefined && only === null && mentioned.size === 0 ? leadID : undefined;
     const quote = quotePrefix(this.hub.store.quote(msg));
     for (const { ws, member } of this.bots.values()) {
       if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
@@ -201,7 +204,7 @@ export class CloudWebGateway {
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
       if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
-      const hit = target === member.id || only !== null || mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name, members.filter(m => m.id !== member.id).map(m => m.name)));
+      const hit = target === member.id || leadTarget === member.id || only !== null || mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name, members.filter(m => m.id !== member.id).map(m => m.name)));
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${quote}${content}`;
       else if (hit && !content) content = quote + BARE_MENTION;
@@ -210,6 +213,7 @@ export class CloudWebGateway {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
         user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
         mentioned: hit, from_bot: fromAgent,
+        lead_id: leadID,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;

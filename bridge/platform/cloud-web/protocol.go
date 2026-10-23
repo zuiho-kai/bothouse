@@ -146,6 +146,10 @@ type wireInboundMessage struct {
 	// UserMentionID (maomao fork): the sending bot's <@id>; matched against team_lead_bot to know the
 	// lead dispatched this turn (lead_return.go), as Discord matches the author ID.
 	UserMentionID string `json:"user_mention_id,omitempty"`
+	// LeadID is supplied by the DSH channel host when it has a primary-role
+	// selection. A pointer distinguishes an old gateway from an explicit empty
+	// selection (no routable role yet).
+	LeadID *string `json:"lead_id,omitempty"`
 }
 
 type wireCardAction struct {

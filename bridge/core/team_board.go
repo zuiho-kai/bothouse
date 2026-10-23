@@ -40,7 +40,10 @@ func (e *Engine) SetTeamBoard(on bool) {
 	if t == nil {
 		return
 	}
-	if !on || !t.inject {
+	t.mu.Lock()
+	t.boardEnabled = on
+	t.mu.Unlock()
+	if !on || !e.isTeamLead() {
 		t.mu.Lock()
 		t.board = false
 		t.mu.Unlock()

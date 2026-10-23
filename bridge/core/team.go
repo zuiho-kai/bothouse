@@ -35,6 +35,9 @@ type teamState struct {
 	name      string // display name, e.g. 龙娘
 	inject    bool
 	board     bool // post a live "who is doing what" message per channel (lead only)
+	boardEnabled      bool
+	workspacesEnabled bool
+	dynamicLead       *bool // nil until a channel host reports its current primary role
 	mu        sync.Mutex
 	seen      map[string]*teamSession // sessionKey → state
 	nextRelay uint64                  // process-local status identity; never a task/run token
@@ -111,6 +114,12 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 		t.seen = old.seen
 		t.nextRelay = old.nextRelay
 		t.board = old.board
+		t.boardEnabled = old.boardEnabled
+		t.workspacesEnabled = old.workspacesEnabled
+		if old.dynamicLead != nil {
+			v := *old.dynamicLead
+			t.dynamicLead = &v
+		}
 		old.mu.Unlock()
 	}
 	e.team = t
@@ -325,5 +334,42 @@ func roundDur(d time.Duration) string {
 // isTeamLead reports whether this project is the team lead (the one that reads
 // the others' status; maomao fork).
 func (e *Engine) isTeamLead() bool {
-	return e.team != nil && e.team.inject
+	t := e.team
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.dynamicLead != nil {
+		return *t.dynamicLead
+	}
+	return t.inject
+}
+
+// setDynamicTeamLead applies a primary-role update received from the channel
+// host and refreshes lead-only board/workspace services on the transition.
+func (e *Engine) setDynamicTeamLead(lead bool) {
+	t := e.team
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	changed := t.dynamicLead == nil || *t.dynamicLead != lead
+	v := lead
+	t.dynamicLead = &v
+	boardEnabled, workspacesEnabled := t.boardEnabled, t.workspacesEnabled
+	t.mu.Unlock()
+	if !changed {
+		return
+	}
+	if boardEnabled {
+		e.SetTeamBoard(true)
+	} else {
+		e.SetTeamBoard(false)
+	}
+	if workspacesEnabled {
+		e.SetTeamWorkspaces(true)
+	} else {
+		e.SetTeamWorkspaces(false)
+	}
 }

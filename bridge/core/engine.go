@@ -3102,6 +3102,11 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 	defer e.messageWorkers.Done()
+	if lead, ok := p.(TeamLeadStateProvider); ok {
+		if isLead, known := lead.TeamLeadState(); known {
+			e.setDynamicTeamLead(isLead)
+		}
+	}
 	if msg.Recalled {
 		e.handleMessageRecall(p, msg)
 		return

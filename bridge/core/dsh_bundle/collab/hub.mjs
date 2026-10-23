@@ -25,6 +25,13 @@ export class Hub {
   /** Members whose @-forms are parsed in channel text (agents only; humans are not routed). */
   routable() { return this.memberList().filter(m => m.kind !== 'human'); }
 
+  /** The durable primary role, falling back to the first currently routable member. */
+  primaryMember() {
+    const selected = this.store.primaryMember();
+    const member = selected === undefined ? undefined : this.members.get(selected);
+    return member !== undefined && member.kind !== 'human' ? member : this.routable()[0];
+  }
+
   setMember(member) {
     this.members.set(member.id, member);
     this.emit({ type: 'members', members: this.memberView() });

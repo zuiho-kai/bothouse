@@ -38,6 +38,19 @@ func TestHandleMessage_CarriesMentionedAndFromBot(t *testing.T) {
 	}
 }
 
+func TestHandleMessage_TracksDSHPrimaryRole(t *testing.T) {
+	p := mustNew(t, map[string]any{"token": "t", "transport": "websocket", "ws_url": "ws://127.0.0.1:1/ws?bot=ju", "group_reply_all": true})
+	p.handler = func(_ core.Platform, _ *core.Message) {}
+	p.handleMessage([]byte(`{"type":"message","msg_id":"lead-1","chat_id":"1","user_id":"user","content":"hello","chat_type":"group","lead_id":"ju"}`))
+	if lead, known := p.TeamLeadState(); !known || !lead {
+		t.Fatalf("lead state = (%v, %v), want (true, true)", lead, known)
+	}
+	p.handleMessage([]byte(`{"type":"message","msg_id":"lead-2","chat_id":"1","user_id":"user","content":"hello","chat_type":"group","lead_id":"ds"}`))
+	if lead, known := p.TeamLeadState(); !known || lead {
+		t.Fatalf("lead state = (%v, %v), want (false, true)", lead, known)
+	}
+}
+
 // 队友 bot 不受 allow_from 限制（和 Discord 的 allow_bots 一样由网关担保），allow_from 只管人。
 func TestHandleMessage_FromBotBypassesAllowFrom(t *testing.T) {
 	p := mustNew(t, map[string]any{"token": "t", "transport": "websocket", "ws_url": "ws://127.0.0.1:1/ws",
