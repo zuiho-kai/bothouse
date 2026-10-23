@@ -1438,7 +1438,7 @@ test('store: a v6 database gains kind/parent_id and every chat channel gets 工�
   assert.equal(s.page(1, undefined, 1)[0].text, 'kept');
   assert.deepEqual(s.ensureWorkspaces(), [], 'a chat channel that has a workspace is skipped');
   s.close();
-  // Columns already present (e.g. another branch migrated first): the guarded v8 step still runs once.
+  // Columns already present (e.g. another branch migrated first): reopening adds nothing twice.
   const again = new Store(path);
   again.db.exec('PRAGMA user_version = 6');
   again.close();
@@ -1447,13 +1447,62 @@ test('store: a v6 database gains kind/parent_id and every chat channel gets 工�
   third.close();
 });
 
-test('store: a configured chat channel gets 工作区1 and a config id may not overwrite a workspace', () => {
+test('store: a configured chat channel gets 工作区1 once', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
   assert.deepEqual(s.ensureWorkspaces().map(w => [w.name, w.parent_id]), [['工作区1', 1]]);
   assert.deepEqual(s.ensureWorkspaces(), []);
-  assert.throws(() => s.ensureRoom(2, 'dev'), /already a workspace/);
   assert.deepEqual(s.roomsView().map(r => r.active), [0, 0]);
+});
+
+test('store: default config, then {id:2} added — starts, and the old 工作区1 moves with its messages', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const start = rooms => { // what plugin.apply does on startup
+    const s = new Store(path);
+    for (const r of rooms) s.ensureRoom(r.id, r.name);
+    s.ensureWorkspaces();
+    return s;
+  };
+  const first = start([{ id: 1, name: 'general' }]);
+  const ws = first.room(2);
+  assert.deepEqual([ws.name, ws.kind, ws.parent_id], ['工作区1', 'workspace', 1]);
+  const msg = first.append(2, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
+  first.bind('m1', 2, 'sess-ws');
+  first.addJob('m1', 2, msg.id);
+  first.close();
+  const second = start([{ id: 1, name: 'general' }, { id: 2, name: 'dev' }]);
+  assert.deepEqual(plain(second.rooms()), [
+    { id: 1, name: 'general', kind: 'chat', parent_id: null },
+    { id: 2, name: 'dev', kind: 'chat', parent_id: null },
+    { id: 3, name: '工作区1', kind: 'workspace', parent_id: 1 },
+    { id: 4, name: '工作区1', kind: 'workspace', parent_id: 2 },
+  ]);
+  assert.equal(second.message(msg.id).room_id, 3, 'the moved workspace keeps its messages');
+  assert.equal(second.binding('m1', 3).session_id, 'sess-ws');
+  assert.equal(second.job(1).room_id, 3);
+  assert.equal(second.page(2, undefined, 10).length, 0, 'the configured channel starts empty');
+  second.close();
+});
+
+test('store: a v8 database missing reply_to (#133 shipped after) gains it on open', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  s.close();
+  const up = new Store(path);
+  assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.page(1, undefined, 1)[0].text, 'old');
+  up.close();
 });
 
 test('store: creating a chat channel creates its 工作区1; the next workspace is 工作区n+1', () => {
