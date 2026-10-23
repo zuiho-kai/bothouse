@@ -135,6 +135,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [dialog, setDialog] = useState<ChannelMember | null | undefined>(undefined)
   const [modelsOpen, setModelsOpen] = useState(false)
   const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
+  // Wide-window side columns hidden by the user (#124); narrow windows use the drawers instead.
+  const [roomsHidden, setRoomsHidden] = useState(false)
+  const [membersHidden, setMembersHidden] = useState(false)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
@@ -260,7 +263,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   return (
-    <div className={css.page} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')}>
         <div className={css.groupHead}>
@@ -299,7 +302,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
       <section className={css.chat}>
         <header className={css.chatHead}>
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
+          <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
         <div

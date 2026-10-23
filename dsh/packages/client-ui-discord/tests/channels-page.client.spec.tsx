@@ -241,4 +241,30 @@ describe('channels page', () => {
     render(<ChannelsPage {...props(ready)} />)
     expect(screen.queryByText(zh.guideNoMembers)).toBeNull()
   })
+  it('collapses and restores each side column independently without losing room, draft or messages (#124)', () => {
+    const selectRoom = vi.fn()
+    const view = render(<ChannelsPage {...props(ready)} selectRoom={selectRoom} />)
+    const page = view.container.firstElementChild as HTMLElement
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '草稿' } })
+    const baseline = page.className
+    fireEvent.click(screen.getByRole('button', { name: zh.collapseRooms }))
+    const roomsOnly = page.className
+    expect(screen.getByRole('button', { name: zh.expandRooms }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: zh.collapseMembers }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: zh.collapseMembers }))
+    const both = page.className
+    expect(new Set([baseline, roomsOnly, both]).size).toBe(3)
+    // Both restore buttons stay in the chat header, so the columns can always come back.
+    expect(screen.getByRole('button', { name: zh.expandRooms })).toBeTruthy()
+    expect(screen.getByRole('button', { name: zh.expandMembers })).toBeTruthy()
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('草稿')
+    expect(screen.getByText('<script>alert(1)</script>')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.expandRooms }))
+    fireEvent.click(screen.getByRole('button', { name: zh.expandMembers }))
+    expect(page.className).toBe(baseline)
+    expect(screen.getByRole('button', { name: 'general' }).getAttribute('aria-current')).toBe('true')
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('草稿')
+    expect(selectRoom).not.toHaveBeenCalled()
+  })
 })
