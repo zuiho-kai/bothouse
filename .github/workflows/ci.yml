@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   companion:
-    # Linux jobs of this private repo run on the Oracle vps-arm runners (arm64, label bothouse-ci); user 2026-10-18
+    # Linux jobs run on the self-hosted arm64 runners (Oracle vps-arm, label bothouse-ci)
     # 「把一些工作链接到甲骨文那边编译」, 2026-10-23「你就不能去甲骨文那边搞吗」.
     runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 10

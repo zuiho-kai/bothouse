@@ -3,7 +3,6 @@
 # No Go or Node needed. Windows PowerShell 5.1 or PowerShell 7, x64 or arm64.
 #
 #   irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex      # public repo
-#   gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex   # private repo, gh logged in
 #
 # Environment:
 #   CONEST_VERSION   tag to install (default: the newest release, pre-releases included)
@@ -45,7 +44,7 @@ function Install-Bothouse {
   $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("bothouse-install-" + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $tmp | Out-Null
   try {
-    # 1. which release: public API first; a private repo answers 404 there, then the logged-in gh
+    # 1. which release: public API first; if that is unavailable (a 404 or a proxy), fall back to the logged-in gh
     $tag = $env:CONEST_VERSION
     $via = 'web'
     if (-not $tag) {
@@ -58,7 +57,7 @@ function Install-Bothouse {
         $via = 'gh'
       }
       if (-not $tag) {
-        Fail "no release found for $repo. The repo may be private: install the GitHub CLI (winget install GitHub.cli), run 'gh auth login' with an account that can see the repo, and run this again."
+        Fail "no release found for $repo. Check the network or proxy; if the GitHub API is blocked, install the GitHub CLI (winget install GitHub.cli) and run 'gh auth login', then run this again."
       }
     }
 
@@ -86,7 +85,7 @@ function Install-Bothouse {
     if ($via -eq 'gh') {
       if (-not (& $fetchGh)) { Fail "download failed: gh release download $tag -R $repo -p $asset" }
     } elseif (-not (& $fetchWeb) -and -not (& $fetchGh)) {
-      Fail "download failed: $asset of $tag. Private repo? Install gh (winget install GitHub.cli) and run 'gh auth login' first."
+      Fail "download failed: $asset of $tag. If GitHub is blocked, install gh (winget install GitHub.cli) and run 'gh auth login' first."
     }
 
     # 3. verify and install

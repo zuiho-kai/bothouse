@@ -2,8 +2,7 @@
 # CoNest bothouse installer: downloads the prebuilt binary (with the setup wizard)
 # from the GitHub Release and puts it in ~/.local/bin. No Go or Node needed.
 #
-#   curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh      # public repo
-#   gh api repos/zuiho-kai/bothouse/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh   # private repo, gh logged in
+#   curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 #
 # Environment:
 #   CONEST_VERSION   tag to install (default: the newest release, pre-releases included)
@@ -24,7 +23,7 @@ main() {
   case "$(uname -s)" in
     Darwin) os=darwin ;;
     Linux) os=linux ;;
-    MINGW*|MSYS*|CYGWIN*) die "this is Windows: in PowerShell run   irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex   (private repo: see docs/GETTING_STARTED.md step 1)" ;;
+    MINGW*|MSYS*|CYGWIN*) die "this is Windows: in PowerShell run   irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex   (see docs/GETTING_STARTED.md step 1)" ;;
     *) die "unsupported OS $(uname -s): this script is for macOS and Linux; on Windows use install.ps1 (docs/GETTING_STARTED.md)" ;;
   esac
   case "$(uname -m)" in
@@ -40,7 +39,7 @@ main() {
   asset=""
   trap 'rm -f "$tmp/bothouse" "$tmp/SHA256SUMS" "$tmp/curl.err" 2>/dev/null; [ -n "$asset" ] && rm -f "$tmp/$asset"; rmdir "$tmp" 2>/dev/null || true' EXIT
 
-  # 1. which release: public API first; a private repo answers 404 there, then the logged-in gh
+  # 1. which release: public API first; if that is unavailable (a 404 or a proxy), fall back to the logged-in gh
   tag="${CONEST_VERSION:-}"
   via=curl
   if [ -z "$tag" ]; then
@@ -52,7 +51,7 @@ main() {
       tag=$(gh api "repos/$REPO/releases?per_page=1" --jq '.[0].tag_name' 2>/dev/null || true)
       via=gh
     fi
-    [ -n "$tag" ] || die "no release found for $REPO. The repo may be private: install the GitHub CLI (gh), run 'gh auth login' with an account that can see the repo, and run this again."
+    [ -n "$tag" ] || die "no release found for $REPO. Check the network or proxy; if the GitHub API is blocked, install the GitHub CLI (gh) and run 'gh auth login', then run this again."
   fi
 
   case "$os/$arch" in
@@ -64,7 +63,7 @@ main() {
   say "Downloading $asset"
 
   # 2. download
-  # A private repo answers 404 on the public URL: expected, so that one error stays quiet and the
+  # A 404 on the public URL means the asset is not served there; that one error stays quiet and the
   # gh fallback below says what happens instead. Any other curl error (network, proxy, TLS) is shown.
   public404=0
   fetch_curl() {
@@ -87,10 +86,10 @@ main() {
     if ! fetch_curl; then
       if ! use_gh; then
         [ "$public404" = 1 ] || die "download failed: $asset of $tag (curl error above). Check the network or proxy and run this again."
-        die "download failed: $asset of $tag is not on the public URL. Private repo? Install the GitHub CLI (gh), run 'gh auth login', and run this again."
+        die "download failed: $asset of $tag is not on the public URL. If GitHub is blocked, install the GitHub CLI (gh), run 'gh auth login', and run this again."
       fi
       if [ "$public404" = 1 ]; then
-        say "Not on the public download URL (private repo?); downloading with gh instead."
+        say "Not on the public download URL; downloading with gh instead."
       else
         say "Public download failed (error above); trying gh instead."
       fi

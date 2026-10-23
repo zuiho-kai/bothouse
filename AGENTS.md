@@ -19,10 +19,9 @@
 这是给用户本机装好、配好 cc-connect，不是改代码，不用走 Issue→PR。只有一条路：装 → `setup apply` → 确认上线。
 
 1. **装**：`command -v cc-connect && cc-connect setup --help` 能出 `setup apply` 就跳过。否则
-   `gh api repos/zuiho-kai/bothouse/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh`（仓库私有，要 gh 已登录；公开后用
-   `curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh`），装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
-   Windows（PowerShell）用 `gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex`（私有）或
-   `irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex`（公开后），装到 `%USERPROFILE%\.local\bin` 并加进用户 PATH；下面的命令在 PowerShell 里照样用。
+   `curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh`，装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
+   Windows（PowerShell）用
+   `irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex`，装到 `%USERPROFILE%\.local\bin` 并加进用户 PATH；下面的命令在 PowerShell 里照样用。
 2. **一次问齐**（只问这几项，其余都有默认值）：
    - 每个机器人的 **token**（一个 token = 一个角色）。还没有就让用户去 <https://discord.com/developers/applications> → New Application → Bot → Reset Token，并在同一页打开 **Message Content Intent**。
    - **服务器 ID**，可选再给**默认频道 ID**。拿法：Discord 设置 → 高级 → 打开「开发者模式」，右键服务器图标「复制服务器 ID」、右键频道「复制频道 ID」。
