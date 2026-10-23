@@ -7,6 +7,18 @@
 // one that was consumed is settled from the Session log. Nothing is re-sent,
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { exitTarget } from './team-exit.mjs';
+export const TEAM_MODE_RULES = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8').trim();
+export function workspaceInstructions() { return TEAM_MODE_RULES; }
+export function memberStatus(hub) {
+  const busy = new Set([...hub.thinking.values()].flatMap(s => [...s]));
+  return '【队友状态】\n' + hub.routable().map(m => `${m.name} (${m.id})：${m.online === false || m.error ? '离线' : busy.has(m.id) ? '忙碌' : '空闲'}`).join('\n');
+}
+export function dispatchBrief(hub, roomId) {
+  const mode = hub.store.dispatchMode(roomId);
+  return `【派活方式】${mode === 'solo' ? '单模型多进程：只用自己的子任务' : mode === 'team' ? '完全团队：只派给其他成员' : '混合：按能力选择成员或自己的子任务'}。当前模式由聊天频道设置决定。`;
+}
 import { mentions, nameCalled } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 
@@ -62,13 +74,21 @@ export function consumingTurn(events, inputId) {
  * unseen channel messages up to the trigger. Identity is restated every time
  * because other members' messages in the same history name themselves.
  */
-export function promptText(room, member, messages, store) {
-  const lines = messages.map(m => `【${m.name}】${quotePrefix(store?.quote(m))}${m.text}`);
+export function promptText(room, member, messages, status = '', mode = '', store = undefined) {
+  if (status && typeof status === 'object' && typeof status.quote === 'function') {
+    store = status;
+    status = '';
+    mode = '';
+  }
+  const lines = messages.map(m => `【${m.name}】${quotePrefix(store?.quote?.(m))}${m.text}`);
   const model = member.model === undefined ? '' : `你底层用的模型是 ${member.model.provider}/${member.model.model}。`;
   const persona = member.persona?.trim() ? ['你的人设：', member.persona.trim(), ''] : [];
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
     ...persona,
+    TEAM_MODE_RULES,
+    mode,
+    status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',
     ...lines,
@@ -173,11 +193,15 @@ export class DshMembers {
    * accepted @ always has its job. Returns the post-commit continuation.
    */
   plan(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null) return undefined;
+    if (msg.author_kind === 'system' || msg.card !== null || this.hub.teamExit?.answerFor(msg)) return undefined;
+    const target = exitTarget(msg);
+    const mode = this.store.dispatchMode(msg.room_id);
+    // Solo mode keeps agent-to-agent relays inside the lead's own runtime;
+    // an explicit user mention still routes to the named DSH member.
+    if (mode === 'solo' && msg.author_kind === 'role') return undefined;
     const hit = mentions(msg.text, this.hub.routable());
-    const only = this.hub.replyRoute(msg);
-    const targets = [...this.config.keys()].filter(id => id !== msg.author && (only !== null ? only.has(id)
-      : hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
+    const targets = [...this.config.keys()].filter(id => id !== msg.author && (!target || target === id)
+      && (only !== null ? only.has(id) : hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
     if (targets.length === 0) return undefined;
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
       return () => this.hub.post(msg.room_id, {
@@ -186,7 +210,17 @@ export class DshMembers {
       });
     }
     const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
-    return () => { for (const job of jobs) this.enqueue(job, () => this.run(job.id)); };
+    return () => {
+      for (const job of jobs) this.enqueue(job, () => this.run(job.id));
+      if (mode === 'hybrid' && msg.author_kind === 'user') {
+        const chosen = targets.map(id => this.config.get(id)?.name).filter(Boolean).join('、');
+        this.hub.post(msg.room_id, {
+          authorKind: 'system', author: 'system', name: 'system',
+          clientKey: `dispatch-note:${msg.id}`,
+          text: `📤 混合派活：交给 ${chosen}，原因：按当前成员能力与空闲状态选择。`,
+        });
+      }
+    };
   }
 
   /**
@@ -226,7 +260,7 @@ export class DshMembers {
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, this.store) }], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), dispatchBrief(this.hub, room.id), this.store) }], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     await this.admitAndSettle(job, member, agent, input, seqBefore);
@@ -274,7 +308,7 @@ export class DshMembers {
     let done = false;
     try {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
-      const text = (await entry.agent.ask(promptText(room, member, unseen, this.store), String(room.id), onText))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), dispatchBrief(this.hub, room.id), this.store), String(room.id), onText))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';

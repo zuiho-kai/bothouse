@@ -114,6 +114,10 @@ export class Store {
       this.migrateWorkspaceIds();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
+      this.db.exec(`CREATE TABLE IF NOT EXISTS room_settings (
+        room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
+        dispatch_mode TEXT NOT NULL DEFAULT 'hybrid'
+          CHECK (dispatch_mode IN ('solo', 'team', 'hybrid')))`);
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     });
   }
@@ -241,7 +245,9 @@ export class Store {
   }
   /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
   createRoom(name) {
-    return this.transaction(() => this.q.createRoom.get(name));
+    const room = this.transaction(() => this.q.createRoom.get(name));
+    this.ensureRoomSettings(room.id);
+    return room;
   }
   /**
    * Create the next workspace 工作区<n+1> under a chat channel, n being the highest
@@ -256,6 +262,23 @@ export class Store {
       const n = Math.max(0, ...this.q.children.all(parent).map(w => Number(re.exec(w.name)?.[1] ?? 0)));
       return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent);
     });
+  }
+
+  ensureRoomSettings(roomId) {
+    this.db.prepare('INSERT OR IGNORE INTO room_settings (room_id) VALUES (?)').run(roomId);
+  }
+
+  dispatchMode(roomId) {
+    this.ensureRoomSettings(roomId);
+    return this.db.prepare('SELECT dispatch_mode FROM room_settings WHERE room_id = ?').get(roomId).dispatch_mode;
+  }
+
+  setDispatchMode(roomId, mode) {
+    if (!['solo', 'team', 'hybrid'].includes(mode)) throw new CollabError('invalid', 'dispatch mode must be solo, team, or hybrid');
+    this.ensureRoomSettings(roomId);
+    this.db.prepare('UPDATE room_settings SET dispatch_mode = ? WHERE room_id = ?').run(mode, roomId);
+    return mode;
+  }
   }
 
   /** Active DSH members, config seeds and UI-created alike. */

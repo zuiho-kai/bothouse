@@ -26,3 +26,6 @@ var teamModeRules = func() string {
 func withTeamModeRules(prompt string) string {
 	return teamModeRules + "\n" + prompt
 }
+
+// TeamModeWorkspaceInstructions is the shared opening brief for workspace creation (block D).
+func TeamModeWorkspaceInstructions() string { return teamModeRules }

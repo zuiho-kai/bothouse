@@ -10,6 +10,7 @@ import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
 import { Hub } from './hub.mjs';
+import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster } from './roster.mjs';
@@ -72,8 +73,12 @@ export async function apply(ctx, rawConfig) {
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
-  for (const room of config.rooms) store.ensureRoom(room.id, room.name.trim());
+  for (const room of config.rooms) {
+    store.ensureRoom(room.id, room.name.trim());
+    store.ensureRoomSettings(room.id);
+  }
   const hub = new Hub(store, ctx.logger);
+  hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
@@ -149,7 +154,7 @@ export async function apply(ctx, rawConfig) {
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
-      return json(res, 200, { me: OWNER, rooms: store.roomsView(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
+      return json(res, 200, { me: OWNER, rooms: store.roomsView().map(r => ({ ...r, dispatch_mode: store.dispatchMode(r.id) })), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
@@ -168,6 +173,17 @@ export async function apply(ctx, rawConfig) {
       const rows = after !== null ? store.since(roomId, Number(after), url.searchParams.get('limit'))
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
+    }
+    const mode = /^\/collab\/api\/rooms\/(\d+)\/mode$/.exec(path);
+    if (mode !== null && req.method === 'GET') {
+      const roomId = Number(mode[1]);
+      if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
+      return json(res, 200, { dispatch_mode: store.dispatchMode(roomId) });
+    }
+    if (mode !== null && req.method === 'PATCH') {
+      const roomId = Number(mode[1]);
+      if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
+      return withBody(req, res, body => ({ dispatch_mode: store.setDispatchMode(roomId, body?.dispatch_mode) }));
     }
     if (m !== null && req.method === 'POST') {
       return withBody(req, res, (body) => {

@@ -11,6 +11,7 @@ import { Roster } from './roster.mjs';
 import { promptText } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute } from './plugin.mjs';
+import { TeamExit } from './team-exit.mjs';
 
 const quiet = { warn() {}, info() {} };
 const tick = () => new Promise(r => setImmediate(r));
@@ -60,6 +61,30 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
   assert.equal(s.finishJob(job.id, 'done', 1), true);
   assert.equal(s.finishJob(job.id, 'failed'), false);
   assert.deepEqual(s.openJobs(), []);
+  assert.equal(s.dispatchMode(1), 'hybrid');
+  assert.equal(s.setDispatchMode(1, 'team'), 'team');
+  assert.equal(s.dispatchMode(1), 'team');
+  assert.throws(() => s.setDispatchMode(1, 'bad'), /dispatch mode/);
+});
+
+test('team exit: forwards asks and returns answers to the recorded workspace', async () => {
+  const hub = makeHub();
+  hub.store.db.exec('ALTER TABLE rooms ADD COLUMN parent_id INTEGER');
+  hub.store.db.exec('ALTER TABLE rooms ADD COLUMN kind TEXT');
+  hub.store.db.prepare('UPDATE rooms SET kind = ? WHERE id = 1').run('chat');
+  hub.store.db.prepare('INSERT INTO rooms (id, name, parent_id, kind) VALUES (?, ?, ?, ?)').run(1000000, '工作区1', 1, 'workspace');
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  new TeamExit(hub);
+  hub.post(1000000, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案' });
+  await tick();
+  const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
+  assert.ok(forwarded);
+  assert.match(forwarded.text, /ask-[0-9a-f]{8}/);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: `${forwarded.text.match(/ask-[0-9a-f]{8}/)[0]} 答案是 42` });
+  await tick();
+  const answer = hub.store.page(1000000, undefined, 10).find(m => m.author_kind === 'user');
+  assert.match(answer.text, /答案是 42/);
+  assert.match(answer.text, /@ds/);
 });
 
 test('mentions: own mention removed, others rewritten, fences ignored, bare name calls', () => {

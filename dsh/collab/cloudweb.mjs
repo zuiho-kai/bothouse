@@ -1,3 +1,4 @@
+import { exitTarget } from './team-exit.mjs';
 // cc-connect cloud_web gateway (server side of bridge/platform/cloud-web, WS
 // transport). Ported from role-household/rh/cloudweb.py so a cc-connect
 // project configured for the role-household hub connects here unchanged:
@@ -177,7 +178,8 @@ export class CloudWebGateway {
 
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
+    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0 || this.hub.teamExit?.answerFor(msg)) return;
+    const target = exitTarget(msg);
     const fromAgent = msg.author_kind === 'role';
     // The owner's text reply to a pending permission prompt goes the same way as a button click.
     const answered = msg.author_kind === 'user' ? this.answerByText(msg) : new Set();
@@ -194,12 +196,12 @@ export class CloudWebGateway {
     const only = this.hub.replyRoute(msg);
     const quote = quotePrefix(this.hub.store.quote(msg));
     for (const { ws, member } of this.bots.values()) {
-      if (fromAgent && msg.author === member.id) continue;
+      if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
       if (answered.has(member.id)) continue;
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
       if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
-      const hit = only !== null || mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
+      const hit = target === member.id || only !== null || mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${quote}${content}`;
       else if (hit && !content) content = quote + BARE_MENTION;
@@ -278,7 +280,8 @@ export class CloudWebGateway {
       case 'reply': {
         const room = roomOf(d, this.hub.store);
         if (typeof d.content !== 'string' || room === undefined) return;
-        const text = forDisplay(d.content, this.hub.routable()).trim();
+        const content = ['ask', 'report'].includes(d.kind) ? `[${d.kind}]\n${d.content}` : d.content;
+        const text = forDisplay(content, this.hub.routable()).trim();
         if (!text || text.length > MAX_TEXT) return;
         // reply_in_place (#121): the streamed preview becomes this reply; fall back to a new row if it is gone.
         const h = d.preview_handle;

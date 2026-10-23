@@ -1,6 +1,8 @@
 // CLI 成员：把本机 claude / codex / gemini 通过 ACP 适配器接成群成员。
 // 每个（成员, 房间）一个 ACP session；ask(text) 返回该轮 agent_message_chunk 拼接文本。
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+const TEAM_MODE_RULES = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8').trim()
 import { Readable, Writable } from 'node:stream'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -102,7 +104,7 @@ export class CliMember {
 
   async _ask(text, room, onText) {
     const s = await this._session(room)
-    const body = s.first && this.persona ? `${this.persona}\n\n${text}` : text
+    const body = s.first ? `${TEAM_MODE_RULES}\n\n${this.persona}\n\n${text}` : text
     s.first = false
     this.buffers.set(s.sessionId, '')
     if (onText) this.onText.set(s.sessionId, onText)
