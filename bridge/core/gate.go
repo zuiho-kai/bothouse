@@ -477,9 +477,13 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, replyCtx 
 	state.mu.Lock()
 	as := state.agentSession
 	localInput := state.localInputOnly != nil
+	cancelled := state.turnCancelled
 	state.mu.Unlock()
 	// A local voice turn answers only its own input; queue the message instead.
-	if as == nil || !as.Alive() || localInput {
+	// maomao fork: a cancelled turn that has not ended yet (gate abort waited recalledStopLockWait
+	// in vain) must not take the message either: it would be lost or answered by another turn.
+	// Queued, it is answered by the next turn once the cancelled one ends.
+	if as == nil || !as.Alive() || localInput || cancelled {
 		return false
 	}
 	// The injected message becomes part of this turn's input, so the turn's final answer must also
