@@ -50,7 +50,7 @@ go build -tags no_web -o ../.local/cc-connect-candidate ./cmd/cc-connect
 
 ## 发布和真人验收
 
-发布结果、合并SHA、候选哈希、备份目录、配置/六会话/API检查以 [Issue #34](https://github.com/Zssan12/conest/issues/34) 和本机统一运维交接 /path/to/yijiazi/docs/HANDOFF.md 为准。开发构建及隔离CLI成功不等于已部署，更不等于真人Discord验收通过。
+发布结果、合并SHA、候选哈希、备份目录、配置/六会话/API检查以 [Issue #34](https://github.com/Zssan12/conest/issues/34) 为准。开发构建及隔离CLI成功不等于已部署，更不等于真人Discord验收通过。
 
 发布时必须包含当前main的语音、模型切换、共享记忆与调度；核对唯一操作人和各伙伴/语音空闲后备份、正常停止、原子替换，日志追加。失败回滚二进制，保留最新配置与会话。
 

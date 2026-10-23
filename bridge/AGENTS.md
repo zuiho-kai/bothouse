@@ -1,9 +1,5 @@
 # CC-Connect Development Guide
 
-## Local 一家子 deployment handoff
-
-When working on this Mac's 一家子 / maomao bot deployment, first read [the unified handoff](../docs/HANDOFF.md). It records the actual configuration paths, existing uncommitted changes, verification scope, and unfinished tasks. Recheck runtime state before acting; update that file after deployment progress instead of duplicating status here. The development rules below still apply to code changes.
-
 ## Project Overview
 
 CC-Connect is a bridge that connects AI coding agents (Claude Code, Codex, Gemini CLI, Cursor, etc.) with messaging platforms (Feishu/Lark, Telegram, Discord, Slack, DingTalk, WeChat Work, QQ, LINE). Users interact with their coding agent through their preferred messaging app.

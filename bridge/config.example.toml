@@ -718,8 +718,8 @@ level = "info" # debug, info, warn, error
 name = "my-backend"
 # public_progress = false  # Explicit public task reports to Discord cards; default off, restart required. See docs/PUBLIC_PROGRESS.md.
 #
-# ---- maomao fork: gate / main + subs / team status (see MAOMAO.md, docs/ccm-and-wiki.md) ----
-# ---- maomao 分支：快脑闸门、一主多 sub、队友状态（说明见 MAOMAO.md 和仓库根目录 docs/ccm-and-wiki.md）----
+# ---- maomao fork: gate / main + subs / team status (see docs/ccm-and-wiki.md) ----
+# ---- maomao 分支：快脑闸门、一主多 sub、队友状态（说明见仓库根目录 docs/ccm-and-wiki.md）----
 # All optional; leave them out = upstream behaviour, except gate_local (default on). / 全部可选，不写 = 和上游一样（gate_local 除外，默认开）。
 # gate_url = "http://127.0.0.1:9930/decide"   # Main bot: ask the gate (contrib/gate/gate.py) for every user message.
 #                                             # 主 bot：每条用户消息先问闸门；同一个闸门的 /context 还负责每轮推 wiki 页。

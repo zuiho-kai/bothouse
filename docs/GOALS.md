@@ -28,4 +28,4 @@ bothouse 是可接入不同平台的团队协作与记忆插件。用户已有�
 - 宣传只围绕软件的团队协作与记忆。视频先交脚本，用户看过后再制作。
 - 源码实现、合并、安装包、运行部署和真人验收分别记录。
 - 不把假 CLI、合成测试或旧仓库的演示当作新安装包的真实模型验收。
-- 开发流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)，当前证据见 [STATUS.md](STATUS.md)。
+- 开发流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。

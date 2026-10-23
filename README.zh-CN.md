@@ -184,7 +184,6 @@ Discord / 飞书 / 自建网页频道
 | [角色库：人设、头像和包](docs/persona-packs.md) | 挑人设和头像、自己做、装别人的包 |
 | [每角色 wiki 与夜间反思](bridge/contrib/wiki/README.md) | 每个角色一本 wiki、定时整理、复盘 |
 | [护栏与小工具](bridge/contrib/hooks/README.md) | hook 规则、开关方法、[小工具](bridge/contrib/tools/README.md) |
-| [团队协作细节](bridge/MAOMAO.md) | 一个主角色带几个队友、交接规则、gate 协议（英文） |
 | [自建平台协议](bridge/docs/cloud-web.md) | 自建平台和插件之间的接口（英文） |
 | [架构](docs/ARCHITECTURE.md) | 模块职责和数据流 |
 

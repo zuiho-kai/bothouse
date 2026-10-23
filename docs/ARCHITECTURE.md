@@ -48,11 +48,11 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 - 共享记忆需要另行安装和配置 wiki / gate。检索出的主题页按需提供给角色；原会话的恢复仍由后端负责，两者不能互相替代。
 - 工具审批、公开进展和任务卡按项目启用；一次任务有结果与真人已验收是不同状态。
 
-协议与使用方法见 [团队协作](../bridge/MAOMAO.md)、[自建平台协议](../bridge/docs/cloud-web.md)、[wiki 配置](ccm-and-wiki.md)、[公开进展](PUBLIC_PROGRESS.md)、[工具代批](DELEGATED_PERMISSIONS.md)。
+协议与使用方法见 [自建平台协议](../bridge/docs/cloud-web.md)、[wiki 配置](ccm-and-wiki.md)、[公开进展](PUBLIC_PROGRESS.md)、[工具代批](DELEGATED_PERMISSIONS.md)。
 
 ## 构建与发布
 
-`make hubsrc` 把自建平台源码复制到 Go 嵌入目录，前端构建后随 cc-connect 二进制分发。安装脚本只下载当前仓库 Release 里的预编译包。发布从审核合入 main 的提交构建；提交、安装包和运行部署分别记录，见 [HANDOFF.md](HANDOFF.md)。
+`make hubsrc` 把自建平台源码复制到 Go 嵌入目录，前端构建后随 cc-connect 二进制分发。安装脚本只下载当前仓库 Release 里的预编译包。发布从审核合入 main 的提交构建，流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
 ## Collaboration helper packaging
 

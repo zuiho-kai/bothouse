@@ -15,7 +15,7 @@
 
 照[从零用起](GETTING_STARTED.md)第 1 步，一行命令装预编译包（带网页向导）。
 不要用 npm / brew 装：那是上游 bothouse，没有安装向导、gate 和一主多 sub。想自己从源码编见文末附录 B。
-maomao 多出来的功能说明见 [bridge/MAOMAO.md](../bridge/MAOMAO.md)。
+开发与贡献流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
 ## 2. 配机器人：用向导
 

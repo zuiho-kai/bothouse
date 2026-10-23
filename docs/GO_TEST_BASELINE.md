@@ -1,6 +1,6 @@
 # Issue #3：Go 测试基线诊断
 
-日期：2026-10-16（Asia/Shanghai）。环境：macOS arm64，Go 1.25.14；开发分支 fix/3-go-test-baseline。原始导入失败保留在 STATUS.md；本次没有运行真实模型、Discord 或重启旧服务。
+日期：2026-10-16（Asia/Shanghai）。环境：macOS arm64，Go 1.25.14；开发分支 fix/3-go-test-baseline。本次没有运行真实模型、Discord 或重启旧服务。
 
 ## 根因和修复
 

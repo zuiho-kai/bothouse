@@ -2,7 +2,7 @@
 
 > 用户只是要把 cc-connect 装好、接上 Discord / 飞书（不是改代码）：直接看文末「用户说「配 Discord / 飞书」」一节。
 
-先读取并遵守 [AGENTS.md](AGENTS.md)，再读 [当前交接](docs/HANDOFF.md)。同一套入口供 Claude、Codex 和其他 Agent 使用；能力事实见 [状态表](docs/STATUS.md)。
+先读取并遵守 [AGENTS.md](AGENTS.md)，再读 [贡献流程](CONTRIBUTING.md)。同一套入口供 Claude、Codex 和其他 Agent 使用。
 
 验收要求与教训见 [docs/code-standards.md](docs/code-standards.md)。
 
