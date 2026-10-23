@@ -201,7 +201,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, decidePermission, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
@@ -232,6 +232,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const [modeSaving, setModeSaving] = useState(false)
+  const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
   const [leadOpen, setLeadOpen] = useState(false)
   const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
@@ -649,6 +651,22 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             ))}
           </div>}
         </div>
+        <fieldset disabled={modeSaving || state.roomId === undefined}>
+          <legend>{t('dispatchMode')}</legend>
+          {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
+            <input type="radio" name="dispatch-mode" value={mode}
+              checked={(state.rooms.find(r => r.id === state.roomId)?.dispatch_mode ?? 'mixed') === mode}
+              onChange={() => {}}
+              onClick={() => {
+                const roomId = state.roomId
+                if (roomId === undefined) return
+                setModeSaving(true); setModeError(undefined)
+                setDispatchMode(roomId, mode).catch((error: unknown) => { setModeError(error instanceof Error ? error.message : String(error)) }).finally(() => { setModeSaving(false) })
+              }} />
+            {t(mode === 'solo' ? 'dispatchSolo' : mode === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
+          </label>)}
+        </fieldset>
+        {modeError !== undefined && <div role="alert">{modeError}</div>}
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />

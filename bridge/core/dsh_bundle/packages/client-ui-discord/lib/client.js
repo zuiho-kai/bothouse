@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".lDXFzG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.lDXFzG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.lDXFzG_rooms, .lDXFzG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.lDXFzG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.lDXFzG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.lDXFzG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.lDXFzG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.lDXFzG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.lDXFzG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.lDXFzG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.lDXFzG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.lDXFzG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.lDXFzG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.lDXFzG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.lDXFzG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.lDXFzG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.lDXFzG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.lDXFzG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_system .lDXFzG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.lDXFzG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.lDXFzG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.lDXFzG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.lDXFzG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.lDXFzG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.lDXFzG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.lDXFzG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.lDXFzG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.lDXFzG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_messageBody {\n  min-width: 0;\n}\n\n.lDXFzG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.lDXFzG_author {\n  font-weight: 600;\n}\n\n.lDXFzG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.lDXFzG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.lDXFzG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.lDXFzG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.lDXFzG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.lDXFzG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.lDXFzG_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.lDXFzG_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.lDXFzG_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.lDXFzG_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.lDXFzG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.lDXFzG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.lDXFzG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.lDXFzG_message {\n  position: relative;\n}\n\n.lDXFzG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.lDXFzG_quoteDeleted {\n  font-style: italic;\n}\n\n.lDXFzG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.lDXFzG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.lDXFzG_message:hover .lDXFzG_replyButton, .lDXFzG_message:focus-within .lDXFzG_replyButton, .lDXFzG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .lDXFzG_replyButton {\n    opacity: 1;\n  }\n}\n\n.lDXFzG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.lDXFzG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.lDXFzG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.lDXFzG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.lDXFzG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.lDXFzG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.lDXFzG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.lDXFzG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.lDXFzG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.lDXFzG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.lDXFzG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.lDXFzG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.lDXFzG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_mentionName {\n  font-weight: 600;\n}\n\n.lDXFzG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.lDXFzG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.lDXFzG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.lDXFzG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.lDXFzG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.lDXFzG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.lDXFzG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.lDXFzG_offline {\n  opacity: .5;\n}\n\n.lDXFzG_memberAvatar {\n  position: relative;\n}\n\n.lDXFzG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.lDXFzG_offline .lDXFzG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.lDXFzG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.lDXFzG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.lDXFzG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .lDXFzG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .lDXFzG_rooms, .lDXFzG_members {\n    display: none;\n  }\n}\n\n.lDXFzG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.lDXFzG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.lDXFzG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_roomInput, .lDXFzG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.lDXFzG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.lDXFzG_roomInput:focus-visible, .lDXFzG_fieldInput:focus-visible, .lDXFzG_iconButton:focus-visible, .lDXFzG_linkButton:focus-visible, .lDXFzG_addMemberButton:focus-visible, .lDXFzG_primaryButton:focus-visible, .lDXFzG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.lDXFzG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.lDXFzG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.lDXFzG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_memberRow .lDXFzG_member:hover {\n  background: none;\n}\n\n.lDXFzG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.lDXFzG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.lDXFzG_memberRow:hover .lDXFzG_memberActions, .lDXFzG_memberRow:focus-within .lDXFzG_memberActions {\n  opacity: 1;\n}\n\n.lDXFzG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.lDXFzG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.lDXFzG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.lDXFzG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.lDXFzG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.lDXFzG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.lDXFzG_field textarea {\n  resize: vertical;\n}\n\n.lDXFzG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.lDXFzG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.lDXFzG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.lDXFzG_primaryButton, .lDXFzG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.lDXFzG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.lDXFzG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.lDXFzG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.lDXFzG_memberFailed .lDXFzG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.lDXFzG_memberFailed .lDXFzG_presence {\n  background: #ed4245;\n}\n\n.lDXFzG_mobileButton, .lDXFzG_drawerBackdrop {\n  display: none;\n}\n\n.lDXFzG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.lDXFzG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.lDXFzG_panelToggleEnd {\n  margin-left: auto;\n}\n\n.lDXFzG_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.lDXFzG_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.lDXFzG_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.lDXFzG_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .lDXFzG_page.lDXFzG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .lDXFzG_page.lDXFzG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .lDXFzG_page.lDXFzG_roomsHidden.lDXFzG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .lDXFzG_roomsHidden > .lDXFzG_rooms, .lDXFzG_membersHidden > .lDXFzG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .lDXFzG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .lDXFzG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .lDXFzG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .lDXFzG_panelToggle {\n    display: none;\n  }\n\n  .lDXFzG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .lDXFzG_rooms.lDXFzG_drawerOpen, .lDXFzG_members.lDXFzG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .lDXFzG_rooms.lDXFzG_drawerOpen {\n    left: 0;\n  }\n\n  .lDXFzG_members.lDXFzG_drawerOpen {\n    right: 0;\n  }\n\n  .lDXFzG_memberActions {\n    opacity: 1;\n  }\n\n  .lDXFzG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.lDXFzG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.lDXFzG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.lDXFzG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.lDXFzG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.lDXFzG_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.lDXFzG_leadControl .lDXFzG_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.lDXFzG_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.lDXFzG_leadControl .lDXFzG_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.lDXFzG_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.lDXFzG_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.lDXFzG_leadOption:hover, .lDXFzG_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_taskSection + .lDXFzG_taskSection {\n  margin-top: 8px;\n}\n\n.lDXFzG_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.lDXFzG_taskOwnerGroup + .lDXFzG_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.lDXFzG_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.lDXFzG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.lDXFzG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.lDXFzG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.lDXFzG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.lDXFzG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.lDXFzG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.lDXFzG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.lDXFzG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.lDXFzG_taskDone summary {\n  cursor: pointer;\n}\n\n.lDXFzG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.lDXFzG_taskStatus[data-status=\"asked\"], .lDXFzG_taskStatus[data-status=\"escalated\"], .lDXFzG_taskStatus[data-status=\"declined\"], .lDXFzG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.lDXFzG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.lDXFzG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.lDXFzG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.lDXFzG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.lDXFzG_taskMemberName {\n  font-weight: 600;\n}\n\n.lDXFzG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.lDXFzG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".I3dDmG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.I3dDmG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.I3dDmG_rooms, .I3dDmG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.I3dDmG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.I3dDmG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.I3dDmG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.I3dDmG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.I3dDmG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.I3dDmG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.I3dDmG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.I3dDmG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.I3dDmG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.I3dDmG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.I3dDmG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.I3dDmG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.I3dDmG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.I3dDmG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_system .I3dDmG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.I3dDmG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.I3dDmG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.I3dDmG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.I3dDmG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.I3dDmG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.I3dDmG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.I3dDmG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.I3dDmG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.I3dDmG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_messageBody {\n  min-width: 0;\n}\n\n.I3dDmG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.I3dDmG_author {\n  font-weight: 600;\n}\n\n.I3dDmG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.I3dDmG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.I3dDmG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.I3dDmG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.I3dDmG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.I3dDmG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.I3dDmG_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.I3dDmG_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.I3dDmG_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.I3dDmG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.I3dDmG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.I3dDmG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.I3dDmG_message {\n  position: relative;\n}\n\n.I3dDmG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.I3dDmG_quoteDeleted {\n  font-style: italic;\n}\n\n.I3dDmG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.I3dDmG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.I3dDmG_message:hover .I3dDmG_replyButton, .I3dDmG_message:focus-within .I3dDmG_replyButton, .I3dDmG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .I3dDmG_replyButton {\n    opacity: 1;\n  }\n}\n\n.I3dDmG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.I3dDmG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.I3dDmG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.I3dDmG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.I3dDmG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.I3dDmG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.I3dDmG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.I3dDmG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.I3dDmG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.I3dDmG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_mentionName {\n  font-weight: 600;\n}\n\n.I3dDmG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.I3dDmG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.I3dDmG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.I3dDmG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.I3dDmG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.I3dDmG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_offline {\n  opacity: .5;\n}\n\n.I3dDmG_memberAvatar {\n  position: relative;\n}\n\n.I3dDmG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.I3dDmG_offline .I3dDmG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.I3dDmG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.I3dDmG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.I3dDmG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .I3dDmG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .I3dDmG_rooms, .I3dDmG_members {\n    display: none;\n  }\n}\n\n.I3dDmG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.I3dDmG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.I3dDmG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_roomInput, .I3dDmG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.I3dDmG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.I3dDmG_roomInput:focus-visible, .I3dDmG_fieldInput:focus-visible, .I3dDmG_iconButton:focus-visible, .I3dDmG_linkButton:focus-visible, .I3dDmG_addMemberButton:focus-visible, .I3dDmG_primaryButton:focus-visible, .I3dDmG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.I3dDmG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.I3dDmG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_memberRow .I3dDmG_member:hover {\n  background: none;\n}\n\n.I3dDmG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.I3dDmG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_memberRow:hover .I3dDmG_memberActions, .I3dDmG_memberRow:focus-within .I3dDmG_memberActions {\n  opacity: 1;\n}\n\n.I3dDmG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.I3dDmG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.I3dDmG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.I3dDmG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.I3dDmG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.I3dDmG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_field textarea {\n  resize: vertical;\n}\n\n.I3dDmG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.I3dDmG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.I3dDmG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_primaryButton, .I3dDmG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.I3dDmG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.I3dDmG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.I3dDmG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.I3dDmG_memberFailed .I3dDmG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.I3dDmG_memberFailed .I3dDmG_presence {\n  background: #ed4245;\n}\n\n.I3dDmG_mobileButton, .I3dDmG_drawerBackdrop {\n  display: none;\n}\n\n.I3dDmG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.I3dDmG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_panelToggleEnd {\n  margin-left: auto;\n}\n\n.I3dDmG_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.I3dDmG_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.I3dDmG_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .I3dDmG_page.I3dDmG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .I3dDmG_page.I3dDmG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .I3dDmG_page.I3dDmG_roomsHidden.I3dDmG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .I3dDmG_roomsHidden > .I3dDmG_rooms, .I3dDmG_membersHidden > .I3dDmG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .I3dDmG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .I3dDmG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .I3dDmG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .I3dDmG_panelToggle {\n    display: none;\n  }\n\n  .I3dDmG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .I3dDmG_rooms.I3dDmG_drawerOpen, .I3dDmG_members.I3dDmG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .I3dDmG_rooms.I3dDmG_drawerOpen {\n    left: 0;\n  }\n\n  .I3dDmG_members.I3dDmG_drawerOpen {\n    right: 0;\n  }\n\n  .I3dDmG_memberActions {\n    opacity: 1;\n  }\n\n  .I3dDmG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.I3dDmG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.I3dDmG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.I3dDmG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.I3dDmG_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.I3dDmG_leadControl .I3dDmG_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.I3dDmG_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.I3dDmG_leadControl .I3dDmG_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.I3dDmG_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.I3dDmG_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.I3dDmG_leadOption:hover, .I3dDmG_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_taskSection + .I3dDmG_taskSection {\n  margin-top: 8px;\n}\n\n.I3dDmG_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.I3dDmG_taskOwnerGroup + .I3dDmG_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.I3dDmG_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.I3dDmG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.I3dDmG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.I3dDmG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.I3dDmG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.I3dDmG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.I3dDmG_taskDone summary {\n  cursor: pointer;\n}\n\n.I3dDmG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.I3dDmG_taskStatus[data-status=\"asked\"], .I3dDmG_taskStatus[data-status=\"escalated\"], .I3dDmG_taskStatus[data-status=\"declined\"], .I3dDmG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.I3dDmG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.I3dDmG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.I3dDmG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.I3dDmG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.I3dDmG_taskMemberName {\n  font-weight: 600;\n}\n\n.I3dDmG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.I3dDmG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
@@ -375,6 +375,14 @@ function createChannelSource(transport) {
 			async removeMember(id) {
 				await request(`collab/api/members/${encodeURIComponent(id)}`, { method: "DELETE" });
 			},
+			async setDispatchMode(roomId, mode) {
+				const result = await request(`collab/api/rooms/${roomId}/mode`, json("PATCH", { dispatch_mode: mode }));
+				const chatId = snapshot.rooms.find((r) => r.id === roomId)?.parent_id ?? roomId;
+				set({ rooms: snapshot.rooms.map((r) => r.id === chatId || r.parent_id === chatId ? {
+					...r,
+					...result
+				} : r) });
+			},
 			async setLead(id) {
 				const result = await request("collab/api/lead", json("PATCH", { lead_id: id }));
 				if (lifetime !== void 0) onEvent({
@@ -520,129 +528,129 @@ function boardSections(tasks, rooms, chatId, roomId) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "lDXFzG_activeBusy",
-	"activeCount": "lDXFzG_activeCount",
-	"addMemberButton": "lDXFzG_addMemberButton",
-	"author": "lDXFzG_author",
-	"avatar": "lDXFzG_avatar",
-	"avatarAnchor": "lDXFzG_avatarAnchor",
-	"avatarButton": "lDXFzG_avatarButton",
-	"avatarImage": "lDXFzG_avatarImage",
-	"avatarMenu": "lDXFzG_avatarMenu",
-	"avatarMenuItem": "lDXFzG_avatarMenuItem",
-	"avatarMenuTitle": "lDXFzG_avatarMenuTitle",
-	"avatarOption": "lDXFzG_avatarOption",
-	"avatarPicker": "lDXFzG_avatarPicker",
-	"avatarSmall": "lDXFzG_avatarSmall",
-	"capabilityHelp": "lDXFzG_capabilityHelp",
-	"capabilityItem": "lDXFzG_capabilityItem",
-	"capabilityMenu": "lDXFzG_capabilityMenu",
-	"card": "lDXFzG_card",
-	"cardHead": "lDXFzG_cardHead",
-	"cardTitle": "lDXFzG_cardTitle",
-	"cardViewButton": "lDXFzG_cardViewButton",
-	"cardViews": "lDXFzG_cardViews",
-	"chat": "lDXFzG_chat",
-	"chatHead": "lDXFzG_chatHead",
-	"choice": "lDXFzG_choice",
-	"choiceRow": "lDXFzG_choiceRow",
-	"composer": "lDXFzG_composer",
-	"composerRow": "lDXFzG_composerRow",
-	"dialog": "lDXFzG_dialog",
-	"dialogActions": "lDXFzG_dialogActions",
-	"dialogBackdrop": "lDXFzG_dialogBackdrop",
-	"dialogTitle": "lDXFzG_dialogTitle",
-	"drawerBackdrop": "lDXFzG_drawerBackdrop",
-	"drawerOpen": "lDXFzG_drawerOpen",
-	"empty": "lDXFzG_empty",
-	"field": "lDXFzG_field",
-	"fieldInput": "lDXFzG_fieldInput",
-	"fieldLabel": "lDXFzG_fieldLabel",
-	"focused": "lDXFzG_focused",
-	"groupHead": "lDXFzG_groupHead",
-	"groupTitle": "lDXFzG_groupTitle",
-	"guide": "lDXFzG_guide",
-	"hash": "lDXFzG_hash",
-	"iconButton": "lDXFzG_iconButton",
-	"input": "lDXFzG_input",
-	"leadControl": "lDXFzG_leadControl",
-	"leadMenu": "lDXFzG_leadMenu",
-	"leadOption": "lDXFzG_leadOption",
-	"linkButton": "lDXFzG_linkButton",
-	"log": "lDXFzG_log",
-	"member": "lDXFzG_member",
-	"memberActions": "lDXFzG_memberActions",
-	"memberAvatar": "lDXFzG_memberAvatar",
-	"memberFailed": "lDXFzG_memberFailed",
-	"memberModel": "lDXFzG_memberModel",
-	"memberName": "lDXFzG_memberName",
-	"memberRow": "lDXFzG_memberRow",
-	"members": "lDXFzG_members",
-	"membersHidden": "lDXFzG_membersHidden",
-	"memberStatus": "lDXFzG_memberStatus",
-	"memberText": "lDXFzG_memberText",
-	"mentionActive": "lDXFzG_mentionActive",
-	"mentionButton": "lDXFzG_mentionButton",
-	"mentionHint": "lDXFzG_mentionHint",
-	"mentionItem": "lDXFzG_mentionItem",
-	"mentionMeta": "lDXFzG_mentionMeta",
-	"mentionName": "lDXFzG_mentionName",
-	"mentionPopup": "lDXFzG_mentionPopup",
-	"mentionTitle": "lDXFzG_mentionTitle",
-	"message": "lDXFzG_message",
-	"messageBody": "lDXFzG_messageBody",
-	"messageHead": "lDXFzG_messageHead",
-	"mobileButton": "lDXFzG_mobileButton",
-	"notice": "lDXFzG_notice",
-	"offline": "lDXFzG_offline",
-	"page": "lDXFzG_page",
-	"panelToggle": "lDXFzG_panelToggle",
-	"panelToggleEnd": "lDXFzG_panelToggleEnd",
-	"permActions": "lDXFzG_permActions",
-	"permScope": "lDXFzG_permScope",
-	"permStatus": "lDXFzG_permStatus",
-	"presence": "lDXFzG_presence",
-	"primaryButton": "lDXFzG_primaryButton",
-	"quote": "lDXFzG_quote",
-	"quoteAuthor": "lDXFzG_quoteAuthor",
-	"quoteDeleted": "lDXFzG_quoteDeleted",
-	"replyBar": "lDXFzG_replyBar",
-	"replyBarText": "lDXFzG_replyBarText",
-	"replyButton": "lDXFzG_replyButton",
-	"replyCancel": "lDXFzG_replyCancel",
-	"room": "lDXFzG_room",
-	"roomActive": "lDXFzG_roomActive",
-	"roomInput": "lDXFzG_roomInput",
-	"roomLabel": "lDXFzG_roomLabel",
-	"rooms": "lDXFzG_rooms",
-	"roomsHidden": "lDXFzG_roomsHidden",
-	"secondaryButton": "lDXFzG_secondaryButton",
-	"sendError": "lDXFzG_sendError",
-	"system": "lDXFzG_system",
-	"tag": "lDXFzG_tag",
-	"taskBoard": "lDXFzG_taskBoard",
-	"taskCard": "lDXFzG_taskCard",
-	"taskDone": "lDXFzG_taskDone",
-	"taskEmpty": "lDXFzG_taskEmpty",
-	"taskLine": "lDXFzG_taskLine",
-	"taskLinks": "lDXFzG_taskLinks",
-	"taskList": "lDXFzG_taskList",
-	"taskMember": "lDXFzG_taskMember",
-	"taskMemberName": "lDXFzG_taskMemberName",
-	"taskMembers": "lDXFzG_taskMembers",
-	"taskMeta": "lDXFzG_taskMeta",
-	"taskOwnerGroup": "lDXFzG_taskOwnerGroup",
-	"taskOwnerName": "lDXFzG_taskOwnerName",
-	"taskRow": "lDXFzG_taskRow",
-	"taskSection": "lDXFzG_taskSection",
-	"taskSectionTitle": "lDXFzG_taskSectionTitle",
-	"taskStatus": "lDXFzG_taskStatus",
-	"taskSub": "lDXFzG_taskSub",
-	"taskTitle": "lDXFzG_taskTitle",
-	"text": "lDXFzG_text",
-	"time": "lDXFzG_time",
-	"working": "lDXFzG_working",
-	"workspace": "lDXFzG_workspace"
+	"activeBusy": "I3dDmG_activeBusy",
+	"activeCount": "I3dDmG_activeCount",
+	"addMemberButton": "I3dDmG_addMemberButton",
+	"author": "I3dDmG_author",
+	"avatar": "I3dDmG_avatar",
+	"avatarAnchor": "I3dDmG_avatarAnchor",
+	"avatarButton": "I3dDmG_avatarButton",
+	"avatarImage": "I3dDmG_avatarImage",
+	"avatarMenu": "I3dDmG_avatarMenu",
+	"avatarMenuItem": "I3dDmG_avatarMenuItem",
+	"avatarMenuTitle": "I3dDmG_avatarMenuTitle",
+	"avatarOption": "I3dDmG_avatarOption",
+	"avatarPicker": "I3dDmG_avatarPicker",
+	"avatarSmall": "I3dDmG_avatarSmall",
+	"capabilityHelp": "I3dDmG_capabilityHelp",
+	"capabilityItem": "I3dDmG_capabilityItem",
+	"capabilityMenu": "I3dDmG_capabilityMenu",
+	"card": "I3dDmG_card",
+	"cardHead": "I3dDmG_cardHead",
+	"cardTitle": "I3dDmG_cardTitle",
+	"cardViewButton": "I3dDmG_cardViewButton",
+	"cardViews": "I3dDmG_cardViews",
+	"chat": "I3dDmG_chat",
+	"chatHead": "I3dDmG_chatHead",
+	"choice": "I3dDmG_choice",
+	"choiceRow": "I3dDmG_choiceRow",
+	"composer": "I3dDmG_composer",
+	"composerRow": "I3dDmG_composerRow",
+	"dialog": "I3dDmG_dialog",
+	"dialogActions": "I3dDmG_dialogActions",
+	"dialogBackdrop": "I3dDmG_dialogBackdrop",
+	"dialogTitle": "I3dDmG_dialogTitle",
+	"drawerBackdrop": "I3dDmG_drawerBackdrop",
+	"drawerOpen": "I3dDmG_drawerOpen",
+	"empty": "I3dDmG_empty",
+	"field": "I3dDmG_field",
+	"fieldInput": "I3dDmG_fieldInput",
+	"fieldLabel": "I3dDmG_fieldLabel",
+	"focused": "I3dDmG_focused",
+	"groupHead": "I3dDmG_groupHead",
+	"groupTitle": "I3dDmG_groupTitle",
+	"guide": "I3dDmG_guide",
+	"hash": "I3dDmG_hash",
+	"iconButton": "I3dDmG_iconButton",
+	"input": "I3dDmG_input",
+	"leadControl": "I3dDmG_leadControl",
+	"leadMenu": "I3dDmG_leadMenu",
+	"leadOption": "I3dDmG_leadOption",
+	"linkButton": "I3dDmG_linkButton",
+	"log": "I3dDmG_log",
+	"member": "I3dDmG_member",
+	"memberActions": "I3dDmG_memberActions",
+	"memberAvatar": "I3dDmG_memberAvatar",
+	"memberFailed": "I3dDmG_memberFailed",
+	"memberModel": "I3dDmG_memberModel",
+	"memberName": "I3dDmG_memberName",
+	"memberRow": "I3dDmG_memberRow",
+	"members": "I3dDmG_members",
+	"membersHidden": "I3dDmG_membersHidden",
+	"memberStatus": "I3dDmG_memberStatus",
+	"memberText": "I3dDmG_memberText",
+	"mentionActive": "I3dDmG_mentionActive",
+	"mentionButton": "I3dDmG_mentionButton",
+	"mentionHint": "I3dDmG_mentionHint",
+	"mentionItem": "I3dDmG_mentionItem",
+	"mentionMeta": "I3dDmG_mentionMeta",
+	"mentionName": "I3dDmG_mentionName",
+	"mentionPopup": "I3dDmG_mentionPopup",
+	"mentionTitle": "I3dDmG_mentionTitle",
+	"message": "I3dDmG_message",
+	"messageBody": "I3dDmG_messageBody",
+	"messageHead": "I3dDmG_messageHead",
+	"mobileButton": "I3dDmG_mobileButton",
+	"notice": "I3dDmG_notice",
+	"offline": "I3dDmG_offline",
+	"page": "I3dDmG_page",
+	"panelToggle": "I3dDmG_panelToggle",
+	"panelToggleEnd": "I3dDmG_panelToggleEnd",
+	"permActions": "I3dDmG_permActions",
+	"permScope": "I3dDmG_permScope",
+	"permStatus": "I3dDmG_permStatus",
+	"presence": "I3dDmG_presence",
+	"primaryButton": "I3dDmG_primaryButton",
+	"quote": "I3dDmG_quote",
+	"quoteAuthor": "I3dDmG_quoteAuthor",
+	"quoteDeleted": "I3dDmG_quoteDeleted",
+	"replyBar": "I3dDmG_replyBar",
+	"replyBarText": "I3dDmG_replyBarText",
+	"replyButton": "I3dDmG_replyButton",
+	"replyCancel": "I3dDmG_replyCancel",
+	"room": "I3dDmG_room",
+	"roomActive": "I3dDmG_roomActive",
+	"roomInput": "I3dDmG_roomInput",
+	"roomLabel": "I3dDmG_roomLabel",
+	"rooms": "I3dDmG_rooms",
+	"roomsHidden": "I3dDmG_roomsHidden",
+	"secondaryButton": "I3dDmG_secondaryButton",
+	"sendError": "I3dDmG_sendError",
+	"system": "I3dDmG_system",
+	"tag": "I3dDmG_tag",
+	"taskBoard": "I3dDmG_taskBoard",
+	"taskCard": "I3dDmG_taskCard",
+	"taskDone": "I3dDmG_taskDone",
+	"taskEmpty": "I3dDmG_taskEmpty",
+	"taskLine": "I3dDmG_taskLine",
+	"taskLinks": "I3dDmG_taskLinks",
+	"taskList": "I3dDmG_taskList",
+	"taskMember": "I3dDmG_taskMember",
+	"taskMemberName": "I3dDmG_taskMemberName",
+	"taskMembers": "I3dDmG_taskMembers",
+	"taskMeta": "I3dDmG_taskMeta",
+	"taskOwnerGroup": "I3dDmG_taskOwnerGroup",
+	"taskOwnerName": "I3dDmG_taskOwnerName",
+	"taskRow": "I3dDmG_taskRow",
+	"taskSection": "I3dDmG_taskSection",
+	"taskSectionTitle": "I3dDmG_taskSectionTitle",
+	"taskStatus": "I3dDmG_taskStatus",
+	"taskSub": "I3dDmG_taskSub",
+	"taskTitle": "I3dDmG_taskTitle",
+	"text": "I3dDmG_text",
+	"time": "I3dDmG_time",
+	"working": "I3dDmG_working",
+	"workspace": "I3dDmG_workspace"
 };
 // src/client/TaskBoard.tsx
 function clock(seconds) {
@@ -1587,7 +1595,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, decidePermission, renderSlot, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, renderSlot, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [drafts, setDrafts] = (0, react.useState)({});
 	const [errors, setErrors] = (0, react.useState)({});
@@ -1612,6 +1620,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 	const [newRoom, setNewRoom] = (0, react.useState)(void 0);
 	const [roomError, setRoomError] = (0, react.useState)(void 0);
 	const [memberError, setMemberError] = (0, react.useState)(void 0);
+	const [modeSaving, setModeSaving] = (0, react.useState)(false);
+	const [modeError, setModeError] = (0, react.useState)(void 0);
 	const [leadSaving, setLeadSaving] = (0, react.useState)(false);
 	const [leadOpen, setLeadOpen] = (0, react.useState)(false);
 	const [capabilitiesDismissed, setCapabilitiesDismissed] = (0, react.useState)(false);
@@ -2246,6 +2256,38 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							})
 						]
 					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("fieldset", {
+						disabled: modeSaving || state.roomId === void 0,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("legend", { children: t("dispatchMode") }), [
+							"solo",
+							"team",
+							"mixed"
+						].map((mode) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+							style: { display: "block" },
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+								type: "radio",
+								name: "dispatch-mode",
+								value: mode,
+								checked: (state.rooms.find((r) => r.id === state.roomId)?.dispatch_mode ?? "mixed") === mode,
+								onChange: () => {},
+								onClick: () => {
+									const roomId = state.roomId;
+									if (roomId === void 0) return;
+									setModeSaving(true);
+									setModeError(void 0);
+									setDispatchMode(roomId, mode).catch((error) => {
+										setModeError(error instanceof Error ? error.message : String(error));
+									}).finally(() => {
+										setModeSaving(false);
+									});
+								}
+							}), t(mode === "solo" ? "dispatchSolo" : mode === "team" ? "dispatchTeam" : "dispatchMixed")]
+						}, mode))]
+					}),
+					modeError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						role: "alert",
+						children: modeError
+					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						type: "button",
 						className: ChannelsPage_module_default.addMemberButton,
@@ -2358,6 +2400,10 @@ const zh = {
 	taskNextCheck: "下次看 {time}",
 	taskOpenAssign: "派工消息",
 	taskOpenResult: "交回消息",
+	dispatchMode: "派活方式",
+	dispatchSolo: "单模型多进程 — 同一模型分开处理任务",
+	dispatchTeam: "完全团队 — 交给团队成员协作",
+	dispatchMixed: "混合 — 按任务选择模型与成员",
 	lead: "谁当主",
 	leadNone: "未选择（按原配置）",
 	durSeconds: "{n} 秒",
@@ -2444,6 +2490,10 @@ const zh = {
 };
 /** English dictionary. */
 const en = {
+	dispatchMode: "Dispatch mode",
+	dispatchSolo: "Single model, multiple processes — separate tasks on one model",
+	dispatchTeam: "Full team — delegate to team members",
+	dispatchMixed: "Mixed — choose models and members for each task",
 	taskBoard: "Task board",
 	taskBoardTitle: "Tasks — {count} in progress",
 	taskBoardEmpty: "No tasks dispatched yet",
@@ -2592,6 +2642,7 @@ function apply(ctx) {
 		addMember: channels.actions.addMember,
 		updateMember: channels.actions.updateMember,
 		removeMember: channels.actions.removeMember,
+		setDispatchMode: channels.actions.setDispatchMode,
 		setLead: channels.actions.setLead,
 		decidePermission: channels.actions.decidePermission
 	});

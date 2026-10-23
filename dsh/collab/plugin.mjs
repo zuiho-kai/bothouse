@@ -206,7 +206,11 @@ export async function apply(ctx, rawConfig) {
     if (mode !== null && req.method === 'PATCH') {
       const roomId = Number(mode[1]);
       if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
-      return withBody(req, res, body => ({ dispatch_mode: store.setDispatchMode(roomId, body?.dispatch_mode) }));
+      return withBody(req, res, body => {
+        store.setDispatchMode(roomId, body?.dispatch_mode);
+        hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return store.dispatchSetting(roomId);
+      });
     }
     if (m !== null && req.method === 'POST') {
       return withBody(req, res, (body) => {

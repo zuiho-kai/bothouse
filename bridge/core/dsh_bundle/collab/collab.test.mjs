@@ -825,7 +825,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -908,7 +908,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -1288,7 +1288,7 @@ test('reply: a v6 database gains reply_to and keeps its messages', async () => {
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   const old = up.page(1, undefined, 1)[0];
   assert.equal(old.text, '老消息');
   assert.equal(old.reply_to, null);
@@ -1620,7 +1620,7 @@ test('tasks: the tasks table is ensured idempotently and survives reopen', async
   const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
   assert.equal(cols.includes('note'), true, 'a missing column is added back');
   assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
-  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 10);
   again.close();
 });
 
@@ -1711,7 +1711,7 @@ test('store: a v6 database gains kind/parent_id; opening it creates no workspace
   old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
   old.close();
   const s = new Store(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.deepEqual(plain(s.rooms()), [
     { id: 1, name: 'general', kind: 'chat', parent_id: null },
     { id: 2, name: 'dev', kind: 'chat', parent_id: null },
@@ -1805,11 +1805,11 @@ test('store: a v8 database missing reply_to (#133 shipped after) gains it on ope
   s.ensureRoom(1, 'general');
   s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
   s.close();
   const up = new Store(path);
   assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.equal(up.page(1, undefined, 1)[0].text, 'old');
   up.close();
 });
@@ -1995,4 +1995,23 @@ test('tasks: assigning a subtask to the parent task owner is not blocked by ance
     () => tasks.assign({ roomId: 1, title: '无关任务', owner: 'ds', actor: 'lead' }),
     (err) => err.code === 'member-busy' && err.message.includes('确需并行派请带 force')
   );
+});
+
+
+test('dispatch settings: migration distinguishes generated mixed rows and persists explicit mixed', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general'); s.ensureRoom(2, 'other');
+  s.dispatchMode(1); s.setDispatchMode(2, 'team');
+  s.db.exec('ALTER TABLE room_settings DROP COLUMN dispatch_explicit; PRAGMA user_version = 9');
+  s.ensureSchema();
+  assert.deepEqual(s.dispatchSetting(1), { dispatch_mode: 'mixed', dispatch_explicit: false });
+  assert.deepEqual(s.dispatchSetting(2), { dispatch_mode: 'team', dispatch_explicit: true });
+  s.setDispatchMode(1, 'mixed');
+  const ws = s.createWorkspace(1);
+  s.ensureSchema();
+  assert.deepEqual(s.dispatchSetting(ws.id), { dispatch_mode: 'mixed', dispatch_explicit: true });
+  const hub = new Hub(s, quiet);
+  const gateway = new CloudWebGateway(hub, quiet);
+  assert.deepEqual(gateway.teamWorkspace({ op: 'dispatch_mode', reply_ctx: roomKey(ws.id) }), { ok: true, dispatch_mode: 'mixed', dispatch_explicit: true });
+  s.close();
 });

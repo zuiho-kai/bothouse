@@ -23,7 +23,7 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
     selectRoom: vi.fn(), send,
     createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
-    setLead: vi.fn(async () => {}),
+    setLead: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}),
     t: (key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
       .reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), String(zh[key])),
   } as unknown as ChannelsPageProps
@@ -83,6 +83,18 @@ describe('channels page', () => {
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
     expect(send).toHaveBeenCalledExactlyOnceWith('/')
   })
+  it('selects dispatch mode and reports a failed save', async () => {
+    const save = vi.fn(async () => { throw Error('save failed') })
+    render(<ChannelsPage {...props(ready)} setDispatchMode={save} />)
+    const selector = screen.getByRole('radio', { name: zh.dispatchMixed })
+    expect((selector as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText(zh.dispatchSolo)).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: zh.dispatchTeam })) })
+    expect(save).toHaveBeenCalledWith(1, 'team')
+    expect(screen.getByRole('alert').textContent).toBe('save failed')
+    expect((selector as HTMLInputElement).checked).toBe(true)
+  })
+
   it('keeps task owners working in the member list without claiming they are typing', () => {
     const state: ChannelSnapshot = { ...ready, thinking: {}, tasks: [{
       id: 1, room_id: 1, title: 'task', owner: 'ju', owner_name: '橘', status: 'assigned',

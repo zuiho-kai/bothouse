@@ -20,3 +20,8 @@ func (e *Engine) withAgentInstructions(prompt, userID string, fromBot bool) stri
 // SetAgentIdentityEnabled controls per-turn identity injection
 // (config: inject_agent_identity, default true).
 func (e *Engine) SetAgentIdentityEnabled(on bool) { e.skipAgentIdentity.Store(!on) }
+
+func (e *Engine) withChannelAgentInstructions(prompt, userID string, fromBot bool, p Platform, sessionKey string) string {
+	rules := teamModeRulesFor(e.channelDispatchMode(p, sessionKey))
+	return e.withAgentIdentity(rules + "\n" + e.withPermissionDelegateAuthority(e.withSubagentPolicy(prompt, userID, fromBot)))
+}

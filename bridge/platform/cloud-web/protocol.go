@@ -333,11 +333,13 @@ type wireTeamWorkspaceRoom struct {
 }
 
 type wireTeamWorkspaceAck struct {
-	Type  string                  `json:"type"`
-	RefID string                  `json:"ref_id"`
-	OK    bool                    `json:"ok"`
-	Error string                  `json:"error,omitempty"`
-	Self  *wireTeamWorkspaceRoom  `json:"self,omitempty"`
-	Rooms []wireTeamWorkspaceRoom `json:"rooms,omitempty"`
-	Room  *wireTeamWorkspaceRoom  `json:"room,omitempty"`
+	DispatchMode     string                  `json:"dispatch_mode"`
+	DispatchExplicit bool                    `json:"dispatch_explicit"`
+	Type             string                  `json:"type"`
+	RefID            string                  `json:"ref_id"`
+	OK               bool                    `json:"ok"`
+	Error            string                  `json:"error,omitempty"`
+	Self             *wireTeamWorkspaceRoom  `json:"self,omitempty"`
+	Rooms            []wireTeamWorkspaceRoom `json:"rooms,omitempty"`
+	Room             *wireTeamWorkspaceRoom  `json:"room,omitempty"`
 }

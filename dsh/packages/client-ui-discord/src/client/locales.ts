@@ -39,6 +39,10 @@ export const zh = {
   taskNextCheck: '下次看 {time}',
   taskOpenAssign: '派工消息',
   taskOpenResult: '交回消息',
+  dispatchMode: '派活方式',
+  dispatchSolo: '单模型多进程 — 同一模型分开处理任务',
+  dispatchTeam: '完全团队 — 交给团队成员协作',
+  dispatchMixed: '混合 — 按任务选择模型与成员',
   lead: '谁当主',
   leadNone: '未选择（按原配置）',
   durSeconds: '{n} 秒',
@@ -126,6 +130,10 @@ export const zh = {
 
 /** English dictionary. */
 export const en: Record<keyof typeof zh, string> = {
+  dispatchMode: 'Dispatch mode',
+  dispatchSolo: 'Single model, multiple processes — separate tasks on one model',
+  dispatchTeam: 'Full team — delegate to team members',
+  dispatchMixed: 'Mixed — choose models and members for each task',
   taskBoard: 'Task board',
   taskBoardTitle: 'Tasks — {count} in progress',
   taskBoardEmpty: 'No tasks dispatched yet',

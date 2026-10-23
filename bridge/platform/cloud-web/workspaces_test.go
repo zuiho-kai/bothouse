@@ -36,6 +36,8 @@ func (g *workspaceGateway) Send(_ context.Context, msg map[string]any) error {
 	switch {
 	case g.errOut != "":
 		ack["ok"], ack["error"] = false, g.errOut
+	case msg["op"] == "dispatch_mode":
+		ack["ok"], ack["dispatch_mode"], ack["dispatch_explicit"] = true, "team", true
 	case msg["op"] == "list":
 		var rooms []map[string]string
 		for id, par := range g.parent {
@@ -161,5 +163,20 @@ func TestCloudWebTeamWorkspaceAckThroughPoll(t *testing.T) {
 	}
 	if s := <-got; s != frame {
 		t.Fatalf("gateway inbound = %s", s)
+	}
+}
+
+func TestChannelDispatchModeGatewayQuery(t *testing.T) {
+	p, g := newWorkspaceGateway("text", capTeamWorkspace, "dispatch_mode")
+	p.storeReplyCtx("cloud_web:room-2", "room-2")
+	mode, explicit, err := p.ChannelDispatchMode(context.Background(), "cloud_web:room-2")
+	if err != nil || mode != "team" || !explicit {
+		t.Fatalf("%q %v %v", mode, explicit, err)
+	}
+	if len(g.frames) != 1 || g.frames[0]["op"] != "dispatch_mode" {
+		t.Fatal(g.frames)
+	}
+	if _, _, err = p.ChannelDispatchMode(context.Background(), "cloud_web:missing"); err == nil {
+		t.Fatal("missing context must fail")
 	}
 }

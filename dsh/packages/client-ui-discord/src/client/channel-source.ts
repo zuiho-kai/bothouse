@@ -91,7 +91,11 @@ export interface ModelRoute {
 }
 
 /** One room: a chat channel, or a workspace under one chat channel (#139). */
+export type DispatchMode = 'solo' | 'team' | 'mixed'
+
 export interface ChannelRoom {
+  readonly dispatch_mode?: DispatchMode
+  readonly dispatch_explicit?: boolean
   readonly id: number
   readonly name: string
   /** Absent from older services: treated as a chat channel. */
@@ -199,6 +203,7 @@ export interface ChannelActions {
   /** Remove a UI-created DSH member. */
   removeMember(id: string): Promise<void>
   /** Select the member that owns the primary-role slot for this collab service. */
+  setDispatchMode(roomId: number, mode: DispatchMode): Promise<void>
   setLead(id: string): Promise<void>
   /** Answer a bot's permission prompt (#120); rejects with the service's reason (already decided, expired, offline). */
   decidePermission(messageId: number, decision: PermissionDecision): Promise<void>
@@ -512,6 +517,12 @@ export function createChannelSource(transport: ChannelTransport): {
     },
     async removeMember(id) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+    async setDispatchMode(roomId, mode) {
+      const result = await request<{ dispatch_mode: DispatchMode; dispatch_explicit: boolean }>(`collab/api/rooms/${roomId}/mode`, json('PATCH', { dispatch_mode: mode }))
+      const selected = snapshot.rooms.find(r => r.id === roomId)
+      const chatId = selected?.parent_id ?? roomId
+      set({ rooms: snapshot.rooms.map(r => r.id === chatId || r.parent_id === chatId ? { ...r, ...result } : r) })
     },
     async setLead(id) {
       const result = await request<{ lead_id: string; effective_lead_id?: string | null }>('collab/api/lead', json('PATCH', { lead_id: id }))

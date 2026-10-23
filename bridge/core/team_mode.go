@@ -1,8 +1,11 @@
 package core
 
 import (
+	"context"
+	"log/slog"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // teamModeRulesFile is shared with DSH members: dsh/collab/team-mode-rules.md is
@@ -87,3 +90,49 @@ func (e *Engine) withTeamModeRules(prompt string) string {
 
 // TeamModeWorkspaceInstructions is the shared opening brief for a new workspace in the given mode.
 func TeamModeWorkspaceInstructions(mode string) string { return teamModeRulesFor(mode) }
+
+// ChannelDispatchModeProvider is optional; other platforms keep project configuration.
+type ChannelDispatchModeProvider interface {
+	ChannelDispatchMode(context.Context, string) (string, bool, error)
+}
+
+func (e *Engine) channelDispatchMode(p Platform, sessionKey string) string {
+	fallback := e.DispatchMode()
+	provider, ok := p.(ChannelDispatchModeProvider)
+	if !ok {
+		return fallback
+	}
+	parent := e.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 800*time.Millisecond)
+	defer cancel()
+	type result struct {
+		mode     string
+		explicit bool
+		err      error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		mode, explicit, err := provider.ChannelDispatchMode(ctx, sessionKey)
+		resultCh <- result{mode, explicit, err}
+	}()
+	var mode string
+	var explicit bool
+	var err error
+	select {
+	case r := <-resultCh:
+		mode, explicit, err = r.mode, r.explicit, r.err
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	if err != nil || (explicit && !ValidDispatchMode(mode)) {
+		slog.Warn("channel dispatch mode unavailable; using project configuration", "platform", p.Name(), "error", err)
+		return fallback
+	}
+	if explicit {
+		return mode
+	}
+	return fallback
+}
