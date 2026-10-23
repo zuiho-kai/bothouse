@@ -199,3 +199,13 @@ func TestRemoveBoard(t *testing.T) {
 		t.Fatal("real failure must be reported")
 	}
 }
+
+// The edit already shows the new content; a failing pin (permission, 50-pin
+// limit) must not make the caller retry the same edit every tick forever.
+func TestUpsertBoardEditSucceedsPinFails(t *testing.T) {
+	api := &stubBoardAPI{unpinned: true, pinErr: errors.New("missing permissions")}
+	id, err := upsertBoard(api, "c1", "old", "**谁在干啥**")
+	if err != nil || id != "old" || api.edits != 1 || len(api.pins) != 1 {
+		t.Fatalf("upsert = (%q, %v) edits=%d pins=%v, want saved edit despite pin error", id, err, api.edits, api.pins)
+	}
+}

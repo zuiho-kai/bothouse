@@ -232,6 +232,43 @@ func readTeamFiles(dir string, now time.Time) []teamFile {
 // ("10:42 起") rather than elapsed, so the text only changes when someone's state changes.
 // Task text from another channel is never shown here; only that the teammate is busy elsewhere.
 func renderTeamBoard(files []teamFile, chat string) string {
+	return renderTeamBoardMembers(files, chat, nil)
+}
+
+var teamMemberStatus = map[string]string{
+	"queued": "待开始", "running": "进行中", "waiting": "等待中",
+	"completed": "已完成", "failed": "失败", "cancelled": "已取消", "interrupted": "已中断",
+}
+
+// boardMember picks the teammate's task-card row in this chat: live rows
+// first, then the latest progress. Native children share their owner's bot
+// account and are not roster entries.
+func boardMember(f teamFile, members []teamTaskMember) *teamTaskMember {
+	var best *teamTaskMember
+	for i := range members {
+		m := &members[i]
+		if m.ParentID != "" {
+			continue
+		}
+		if m.ReporterProject != "" {
+			if m.ReporterProject != f.Project {
+				continue
+			}
+		} else if m.Name == "" || m.Name != f.Name {
+			continue
+		}
+		if best == nil || (m.live() && !best.live()) || (m.live() == best.live() && m.UpdatedAt.After(best.UpdatedAt)) {
+			best = m
+		}
+	}
+	return best
+}
+
+func (m *teamTaskMember) live() bool {
+	return m.Status == "queued" || m.Status == "running" || m.Status == "waiting"
+}
+
+func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMember) string {
 	lines := []string{"**谁在干啥**"}
 	for _, f := range files {
 		var best *teamEntry
@@ -286,6 +323,24 @@ func renderTeamBoard(files []teamFile, chat string) string {
 					line = fmt.Sprintf("✅ 做完：%s（%s）", task, best.DoneAt.Local().Format("15:04"))
 				}
 			}
+		}
+		// A task-card assignment in this chat outranks being busy elsewhere
+		// or idle; a live turn here still shows what is happening right now.
+		if m := boardMember(f, members); m != nil && rank < 4 && (m.live() || rank < 2 || m.UpdatedAt.After(best.DoneAt)) {
+			icon := "📋"
+			switch m.Status {
+			case "completed":
+				icon = "✅"
+			case "failed", "cancelled", "interrupted":
+				icon = "❌"
+			case "waiting":
+				icon = "⏳"
+			}
+			status := teamMemberStatus[m.Status]
+			if status == "" {
+				status = taskIndexLabel(m.Status, 12)
+			}
+			line = fmt.Sprintf("%s %s（%s · %s）", icon, boardTask(taskIndexLabel(m.Title, teamBoardTaskRunes*2)), status, m.UpdatedAt.Local().Format("15:04"))
 		}
 		lines = append(lines, fmt.Sprintf("**%s**　%s", f.Name, line))
 	}

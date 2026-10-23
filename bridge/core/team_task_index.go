@@ -17,6 +17,26 @@ type teamTaskLink struct {
 	URL        string    `json:"url"`
 	State      TaskState `json:"state"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	// Members carries only public assignment rows (no summaries or tokens)
+	// so the lead's board can show dispatched teammates.
+	Members []teamTaskMember `json:"members,omitempty"`
+}
+
+type teamTaskMember struct {
+	ReporterProject string    `json:"reporter_project,omitempty"`
+	ParentID        string    `json:"parent_id,omitempty"`
+	Name            string    `json:"name"`
+	Title           string    `json:"title,omitempty"`
+	Status          string    `json:"status"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+func teamTaskMembers(ms []TaskMember) []teamTaskMember {
+	var out []teamTaskMember
+	for _, m := range ms {
+		out = append(out, teamTaskMember{ReporterProject: m.ReporterProject, ParentID: m.ParentID, Name: m.Name, Title: m.Title, Status: m.Status, UpdatedAt: m.UpdatedAt})
+	}
+	return out
 }
 
 func listedTaskState(state TaskState) bool {
@@ -45,7 +65,7 @@ func (p *PublicProgress) taskLinks() []teamTaskLink {
 		t := r.record.Task
 		// A link is useful only once the platform has returned a real message.
 		if listedTaskState(t.State) && t.MessageID != "" && safeTaskURL(t.CardURL) {
-			links = append(links, teamTaskLink{ID: t.ID, SessionKey: t.SessionKey, Title: t.Title, URL: t.CardURL, State: t.State, UpdatedAt: t.UpdatedAt})
+			links = append(links, teamTaskLink{ID: t.ID, SessionKey: t.SessionKey, Title: t.Title, URL: t.CardURL, State: t.State, UpdatedAt: t.UpdatedAt, Members: teamTaskMembers(t.Members)})
 		}
 		r.mu.Unlock()
 	}
@@ -87,7 +107,11 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 			tasks = append(tasks, entry{task, f.Name, f.Project})
 		}
 	}
-	board := renderTeamBoard(files, chat)
+	var members []teamTaskMember
+	for _, task := range tasks {
+		members = append(members, task.Members...)
+	}
+	board := renderTeamBoardMembers(files, chat, members)
 	if len(tasks) == 0 {
 		return board
 	}
