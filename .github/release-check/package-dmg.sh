@@ -28,4 +28,12 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 ln -s /Applications "$stage/Applications"
-hdiutil create -volname Bothouse -srcfolder "$stage" -format UDZO -ov "$output"
+# hdiutil's own size estimate for -srcfolder came out too small once the DSH
+# plugin was embedded in the binary (release run 39881299879 failed with
+# "hdiutil: create failed - No space left on device"), so size it ourselves.
+stage_kb=$(du -sk "$stage" | cut -f1)
+# Margin: +25% plus a fixed 16 MiB covers HFS+ catalog/journal/allocation
+# overhead, which is a fixed cost plus a few percent of volume size; the
+# padding is free in the final image because UDZO compresses empty blocks.
+size_kb=$(( stage_kb + stage_kb / 4 + 16 * 1024 ))
+hdiutil create -volname Bothouse -srcfolder "$stage" -fs HFS+ -size "${size_kb}k" -format UDZO -ov "$output"
