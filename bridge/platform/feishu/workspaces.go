@@ -28,8 +28,8 @@ import (
 var _ core.TeamWorkspaceChannels = (*Platform)(nil)
 
 const (
-	workspaceMaxUsers = 50 // SPEC: create-chat doc, user_id_list at most 50
-	workspaceMaxBots  = 5  // SPEC: create-chat doc, bot_id_list at most 5
+	workspaceMaxUsers = 50  // SPEC: create-chat doc, user_id_list at most 50
+	workspaceMaxBots  = 5   // SPEC: create-chat doc, bot_id_list at most 5
 	workspacePageSize = 100 // 沿用已有配置: fetchChatMembers PageSize(100)
 )
 
