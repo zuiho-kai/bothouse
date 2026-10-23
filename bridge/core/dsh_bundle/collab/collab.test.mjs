@@ -907,3 +907,49 @@ test('cloud-web reply_in_place: a text preview is a draft; the reply with its ha
   assert.equal(hub.store.page(1, undefined, 10).filter(m => m.author === 'ju').length, 2, 'a missing preview falls back to a new row');
   assert.equal(whale.of('message').length, 2);
 });
+
+test('a teammate draft that commits later still reaches members whose cursor moved on, and its <@handoff> carries the trigger', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  ju.frame({ type: 'preview_start', ref_id: 'r1', reply_ctx: 'room-1', content: '先看' });
+  const handle = ju.of('preview_ack').at(-1).preview_handle;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 先说别的' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, ['好']);
+  await settle();
+  assert.ok(hub.store.binding('ds', 1).context_cursor < Number(handle), 'the cursor stops before the uncommitted draft');
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', preview_handle: handle, content: '查完了 @DeepSeek 你接着', agent: true });
+  await settle();
+  const job = hub.store.openJobs().find(j => j.member_id === 'ds');
+  assert.equal(job?.trigger_id, Number(handle), 'the commit hands off with the draft row as trigger');
+  assert.match(agent.prompts.at(-1).content[0].text, /查完了/, 'the handoff prompt contains the committed reply');
+});
+
+test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a CLI job settled after restart', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const live = () => hub.store.page(1, undefined, 20).filter(m => m.draft === 1).map(m => m.author);
+  let ju = connect(gw, 'bot=ju&name=橘');
+  ju.frame({ type: 'preview_start', ref_id: 'r1', reply_ctx: 'room-1', content: '写了一半' });
+  assert.deepEqual(live(), ['ju']);
+  ju.close(1006, 'gone');
+  assert.deepEqual(live(), [], 'a dropped connection removes its text draft');
+  // A hub restart: the draft survives in the store until the bot registers again.
+  hub.draft(1, { authorKind: 'role', author: 'ju', name: '橘', text: '重启前的半句', clientKey: 'preview:ju:r2' });
+  assert.deepEqual(live(), ['ju']);
+  ju = connect(gw, 'bot=ju&name=橘');
+  assert.deepEqual(live(), [], 'a (re)register removes leftover text drafts');
+
+  const job = hub.store.addJob('cc', 1, hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看看' }).message.id);
+  hub.store.markSent(job.id, 'cli:claude', 0, undefined);
+  hub.draft(1, { authorKind: 'role', author: 'cc', name: 'CC', text: '半截', clientKey: `dsh-job-${job.id}` });
+  const members = cliMembers(hub, async () => 'unused');
+  members.recover();
+  await settle();
+  assert.equal(hub.store.job(job.id).state, 'interrupted');
+  assert.deepEqual(live(), [], 'the interrupted CLI job drops its streamed draft');
+});

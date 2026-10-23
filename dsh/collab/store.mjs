@@ -34,6 +34,10 @@ export class Store {
       binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
       bind: this.db.prepare('INSERT INTO bindings (member_id, room_id, session_id, context_cursor) VALUES (?, ?, ?, 0)'),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
+      firstDraft: this.db.prepare(`SELECT MIN(id) AS id FROM messages WHERE room_id = ? AND id <= ? AND author <> ?
+        AND draft = 1 AND deleted = 0 AND card IS NULL`),
+      authorDrafts: this.db.prepare(`SELECT * FROM messages WHERE author_kind = ? AND author = ?
+        AND draft = 1 AND deleted = 0 AND card IS NULL ORDER BY id`),
       addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at)
         VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
       job: this.db.prepare('SELECT * FROM jobs WHERE id = ?'),
@@ -192,6 +196,8 @@ export class Store {
     return again === undefined ? undefined : { message: again, first: false };
   }
   remove(id, authorKind, author) { return this.q.del.get(id, authorKind, author); }
+  /** One author's live text drafts (#121), oldest first. */
+  drafts(authorKind, author) { return this.q.authorDrafts.all(authorKind, author); }
 
   /** Up to `limit` messages before `beforeId` (exclusive), oldest first. */
   page(roomId, beforeId, limit) {
@@ -206,7 +212,15 @@ export class Store {
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
   bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId); }
-  advanceCursor(memberId, roomId, messageId) { this.q.cursor.run(messageId, memberId, roomId); }
+  /**
+   * Move a member's context cursor up to messageId, but never past a
+   * teammate's uncommitted text draft (#121): it keeps its old id when it
+   * commits, so a cursor beyond it would hide the final reply for good.
+   */
+  advanceCursor(memberId, roomId, messageId) {
+    const draft = this.q.firstDraft.get(roomId, messageId, memberId).id;
+    this.q.cursor.run(draft == null ? messageId : Math.min(messageId, draft - 1), memberId, roomId);
+  }
 
   /** Create the job for (member, trigger) once; a repeat returns undefined. */
   addJob(memberId, roomId, triggerId, now = Date.now() / 1000) {

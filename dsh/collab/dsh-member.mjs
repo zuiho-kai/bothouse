@@ -433,7 +433,11 @@ export class DshMembers {
   /** Settle one job that was sent before a restart, without sending it again. */
   async settleSent(job) {
     const member = this.config.get(job.member_id);
-    const interrupted = (why) => this.fail(job.id, `${member?.name ?? job.member_id} 上次被重启打断，${why}，需要的话请重新 @。`, 'interrupted');
+    const interrupted = (why) => {
+      // #121: a CLI turn cut by the restart leaves its streamed draft behind; drop it.
+      this.hub.dropDrafts('role', job.member_id, `dsh-job-${job.id}`);
+      this.fail(job.id, `${member?.name ?? job.member_id} 上次被重启打断，${why}，需要的话请重新 @。`, 'interrupted');
+    };
     if (member === undefined || member.cli !== undefined || !job.input_id) { interrupted('这条没有完成'); return; }
     const agent = await this.liveAgent(job.session_id, member);
     if (this.closed) return;

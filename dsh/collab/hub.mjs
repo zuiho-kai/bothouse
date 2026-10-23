@@ -150,6 +150,16 @@ export class Hub {
     return row;
   }
 
+  /**
+   * Drop text drafts an interrupted stream left behind (#121): all of the
+   * author's, or only the one with clientKey. Committed rows are kept.
+   */
+  dropDrafts(authorKind, author, clientKey) {
+    for (const d of this.store.drafts(authorKind, author)) {
+      if (clientKey === undefined || d.client_key === clientKey) this.remove(d.id, authorKind, author);
+    }
+  }
+
   /** Browser event streams: subscriber(event) is called for every event. */
   subscribe(subscriber) {
     this.subscribers.add(subscriber);

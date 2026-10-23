@@ -105,6 +105,8 @@ export class CloudWebGateway {
       if (bot !== undefined && this.bots.get(bot.member.id) === bot) {
         this.bots.delete(bot.member.id);
         this.hub.setOnline(bot.member.id, false);
+        // #121: a cc-connect that drops mid-stream never commits or deletes its preview.
+        this.hub.dropDrafts('role', bot.member.id);
       }
     });
     ws.on('error', (error) => { this.logger.warn('collab: cloud-web socket error: %s', error?.message ?? error); });
@@ -139,6 +141,8 @@ export class CloudWebGateway {
     this.hub.setMember(member);
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
     for (const room of this.hub.thinking.keys()) this.hub.setThinking(room, id, false);
+    // ...and its half-streamed text previews (also those left by a hub restart) will never be committed.
+    this.hub.dropDrafts('role', id);
     return bot;
   }
 
