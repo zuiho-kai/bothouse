@@ -619,7 +619,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
-        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} t={t} onOpen={openMessage} />
+        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
         <div className={css.leadControl}>
           <span className={css.fieldLabel}>{t('lead')}</span>
           <button

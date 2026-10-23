@@ -5,7 +5,7 @@
  * with its elapsed time). Data comes from the snapshot's `tasks`.
  */
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
-import { boardGroups, cardMembers, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
+import { boardSections, cardMembers, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 
 function clock(seconds: number): string {
@@ -20,17 +20,18 @@ function Status({ status, t }: { status: TaskStatus; t: T }) {
  * Right-column board for the selected chat channel.
  * @param onOpen - jump to a message in a room (dispatch or delivery).
  */
-export function TaskBoard({ tasks, rooms, chatId, t, onOpen }: {
+export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
   tasks: readonly ChannelTask[]
   rooms: readonly ChannelRoom[]
   chatId: number | undefined
+  roomId: number | undefined
   t: T
   onOpen: (roomId: number, messageId: number) => void
 }) {
   const now = Date.now() / 1000
-  const names = new Map(rooms.map(r => [r.id, r.name]))
-  const { open, done } = boardGroups(tasks)
-  const total = open.length + done.length
+  const sections = boardSections(tasks, rooms, chatId, roomId)
+  const openTotal = sections.reduce((n, s) => n + s.open, 0)
+  const all = sections.reduce((n, s) => n + s.open + s.done, 0)
   const row = (task: ChannelTask) => (
     <li key={task.id} className={css.taskRow} data-task-id={task.id}>
       <div className={css.taskLine}>
@@ -38,8 +39,6 @@ export function TaskBoard({ tasks, rooms, chatId, t, onOpen }: {
         <span className={css.taskTitle}>#{task.id} {task.title}</span>
       </div>
       <div className={css.taskMeta}>
-        <span>{task.owner_name}</span>
-        {task.room_id !== chatId && <span>{t('taskIn', { room: names.get(task.room_id) ?? String(task.room_id) })}</span>}
         <span>{t('taskElapsed', { d: formatDuration(elapsed(task, now), t) })}</span>
         {task.next_check_at !== null && <span>{t('taskNextCheck', { time: clock(task.next_check_at) })}</span>}
       </div>
@@ -51,15 +50,27 @@ export function TaskBoard({ tasks, rooms, chatId, t, onOpen }: {
   )
   return (
     <section className={css.taskBoard} aria-label={t('taskBoard')}>
-      <h3 className={css.groupTitle}>{t('taskBoardTitle', { count: String(open.length) })}</h3>
-      {total === 0 && <div className={css.taskEmpty}>{t('taskBoardEmpty')}</div>}
-      <ul className={css.taskList}>{open.map(row)}</ul>
-      {done.length > 0 && (
-        <details className={css.taskDone}>
-          <summary className={css.groupTitle}>{t('taskDoneGroup', { count: String(done.length) })}</summary>
-          <ul className={css.taskList}>{done.map(row)}</ul>
-        </details>
-      )}
+      <h3 className={css.groupTitle}>{t('taskBoardTitle', { count: String(openTotal) })}</h3>
+      {all === 0 && <div className={css.taskEmpty}>{t('taskBoardEmpty')}</div>}
+      {sections.map(section => (
+        <div key={section.roomId} className={css.taskSection} data-room-id={section.roomId}>
+          <h4 className={css.taskSectionTitle}>
+            {section.chat ? t('taskBoardChat') : t('taskBoardWorkspace', { room: section.name })}
+          </h4>
+          {section.owners.map(group => (
+            <div key={group.owner} className={css.taskOwnerGroup} data-owner={group.owner}>
+              <div className={css.taskOwnerName}>{t('taskBoardOwner', { name: group.ownerName })}</div>
+              <ul className={css.taskList}>{group.open.map(row)}</ul>
+              {group.done.length > 0 && (
+                <details className={css.taskDone}>
+                  <summary className={css.groupTitle}>{t('taskDoneGroup', { count: String(group.done.length) })}</summary>
+                  <ul className={css.taskList}>{group.done.map(row)}</ul>
+                </details>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
     </section>
   )
 }

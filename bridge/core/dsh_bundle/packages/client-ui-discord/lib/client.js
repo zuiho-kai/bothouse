@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".XQcfia_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.XQcfia_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.XQcfia_rooms, .XQcfia_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.XQcfia_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.XQcfia_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.XQcfia_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.XQcfia_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.XQcfia_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.XQcfia_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.XQcfia_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.XQcfia_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.XQcfia_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.XQcfia_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.XQcfia_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.XQcfia_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.XQcfia_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.XQcfia_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_system .XQcfia_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.XQcfia_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.XQcfia_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.XQcfia_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.XQcfia_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.XQcfia_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.XQcfia_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.XQcfia_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.XQcfia_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.XQcfia_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_messageBody {\n  min-width: 0;\n}\n\n.XQcfia_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.XQcfia_author {\n  font-weight: 600;\n}\n\n.XQcfia_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.XQcfia_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.XQcfia_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.XQcfia_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.XQcfia_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.XQcfia_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.XQcfia_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.XQcfia_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.XQcfia_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.XQcfia_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.XQcfia_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.XQcfia_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.XQcfia_message {\n  position: relative;\n}\n\n.XQcfia_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.XQcfia_quoteDeleted {\n  font-style: italic;\n}\n\n.XQcfia_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.XQcfia_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.XQcfia_message:hover .XQcfia_replyButton, .XQcfia_message:focus-within .XQcfia_replyButton, .XQcfia_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .XQcfia_replyButton {\n    opacity: 1;\n  }\n}\n\n.XQcfia_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.XQcfia_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.XQcfia_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.XQcfia_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.XQcfia_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.XQcfia_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.XQcfia_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.XQcfia_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.XQcfia_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.XQcfia_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_mentionName {\n  font-weight: 600;\n}\n\n.XQcfia_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.XQcfia_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.XQcfia_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.XQcfia_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.XQcfia_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.XQcfia_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_offline {\n  opacity: .5;\n}\n\n.XQcfia_memberAvatar {\n  position: relative;\n}\n\n.XQcfia_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.XQcfia_offline .XQcfia_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.XQcfia_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.XQcfia_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.XQcfia_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .XQcfia_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .XQcfia_rooms, .XQcfia_members {\n    display: none;\n  }\n}\n\n.XQcfia_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.XQcfia_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.XQcfia_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_roomInput, .XQcfia_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.XQcfia_roomInput {\n  margin: 2px 0 6px;\n}\n\n.XQcfia_roomInput:focus-visible, .XQcfia_fieldInput:focus-visible, .XQcfia_iconButton:focus-visible, .XQcfia_linkButton:focus-visible, .XQcfia_addMemberButton:focus-visible, .XQcfia_primaryButton:focus-visible, .XQcfia_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.XQcfia_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.XQcfia_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_memberRow .XQcfia_member:hover {\n  background: none;\n}\n\n.XQcfia_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.XQcfia_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_memberRow:hover .XQcfia_memberActions, .XQcfia_memberRow:focus-within .XQcfia_memberActions {\n  opacity: 1;\n}\n\n.XQcfia_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.XQcfia_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.XQcfia_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.XQcfia_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.XQcfia_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.XQcfia_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_field textarea {\n  resize: vertical;\n}\n\n.XQcfia_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.XQcfia_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.XQcfia_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_primaryButton, .XQcfia_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.XQcfia_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.XQcfia_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.XQcfia_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.XQcfia_memberFailed .XQcfia_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.XQcfia_memberFailed .XQcfia_presence {\n  background: #ed4245;\n}\n\n.XQcfia_mobileButton, .XQcfia_drawerBackdrop {\n  display: none;\n}\n\n.XQcfia_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.XQcfia_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .XQcfia_page.XQcfia_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .XQcfia_page.XQcfia_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .XQcfia_page.XQcfia_roomsHidden.XQcfia_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .XQcfia_roomsHidden > .XQcfia_rooms, .XQcfia_membersHidden > .XQcfia_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .XQcfia_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .XQcfia_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .XQcfia_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .XQcfia_panelToggle {\n    display: none;\n  }\n\n  .XQcfia_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .XQcfia_rooms.XQcfia_drawerOpen, .XQcfia_members.XQcfia_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .XQcfia_rooms.XQcfia_drawerOpen {\n    left: 0;\n  }\n\n  .XQcfia_members.XQcfia_drawerOpen {\n    right: 0;\n  }\n\n  .XQcfia_memberActions {\n    opacity: 1;\n  }\n\n  .XQcfia_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.XQcfia_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.XQcfia_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.XQcfia_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.XQcfia_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.XQcfia_leadControl .XQcfia_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.XQcfia_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.XQcfia_leadControl .XQcfia_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.XQcfia_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.XQcfia_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.XQcfia_leadOption:hover, .XQcfia_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.XQcfia_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.XQcfia_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.XQcfia_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.XQcfia_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.XQcfia_taskDone summary {\n  cursor: pointer;\n}\n\n.XQcfia_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.XQcfia_taskStatus[data-status=\"asked\"], .XQcfia_taskStatus[data-status=\"escalated\"], .XQcfia_taskStatus[data-status=\"declined\"], .XQcfia_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.XQcfia_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.XQcfia_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.XQcfia_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.XQcfia_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.XQcfia_taskMemberName {\n  font-weight: 600;\n}\n\n.XQcfia_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.XQcfia_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent="._7A5CPa_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n._7A5CPa_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n._7A5CPa_rooms, ._7A5CPa_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n._7A5CPa_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._7A5CPa_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._7A5CPa_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._7A5CPa_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n._7A5CPa_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._7A5CPa_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n._7A5CPa_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n._7A5CPa_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n._7A5CPa_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n._7A5CPa_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n._7A5CPa_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n._7A5CPa_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n._7A5CPa_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n._7A5CPa_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n._7A5CPa_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_system ._7A5CPa_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n._7A5CPa_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n._7A5CPa_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n._7A5CPa_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n._7A5CPa_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n._7A5CPa_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n._7A5CPa_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n._7A5CPa_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n._7A5CPa_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n._7A5CPa_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_messageBody {\n  min-width: 0;\n}\n\n._7A5CPa_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n._7A5CPa_author {\n  font-weight: 600;\n}\n\n._7A5CPa_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n._7A5CPa_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n._7A5CPa_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n._7A5CPa_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n._7A5CPa_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n._7A5CPa_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._7A5CPa_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n._7A5CPa_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n._7A5CPa_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n._7A5CPa_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n._7A5CPa_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n._7A5CPa_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n._7A5CPa_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._7A5CPa_message {\n  position: relative;\n}\n\n._7A5CPa_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n._7A5CPa_quoteDeleted {\n  font-style: italic;\n}\n\n._7A5CPa_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n._7A5CPa_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n._7A5CPa_message:hover ._7A5CPa_replyButton, ._7A5CPa_message:focus-within ._7A5CPa_replyButton, ._7A5CPa_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  ._7A5CPa_replyButton {\n    opacity: 1;\n  }\n}\n\n._7A5CPa_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._7A5CPa_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n._7A5CPa_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n._7A5CPa_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n._7A5CPa_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n._7A5CPa_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._7A5CPa_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n._7A5CPa_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._7A5CPa_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n._7A5CPa_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n._7A5CPa_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._7A5CPa_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._7A5CPa_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_mentionName {\n  font-weight: 600;\n}\n\n._7A5CPa_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n._7A5CPa_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n._7A5CPa_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n._7A5CPa_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n._7A5CPa_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._7A5CPa_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n._7A5CPa_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._7A5CPa_offline {\n  opacity: .5;\n}\n\n._7A5CPa_memberAvatar {\n  position: relative;\n}\n\n._7A5CPa_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n._7A5CPa_offline ._7A5CPa_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._7A5CPa_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n._7A5CPa_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n._7A5CPa_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  ._7A5CPa_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._7A5CPa_rooms, ._7A5CPa_members {\n    display: none;\n  }\n}\n\n._7A5CPa_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n._7A5CPa_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n._7A5CPa_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_roomInput, ._7A5CPa_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n._7A5CPa_roomInput {\n  margin: 2px 0 6px;\n}\n\n._7A5CPa_roomInput:focus-visible, ._7A5CPa_fieldInput:focus-visible, ._7A5CPa_iconButton:focus-visible, ._7A5CPa_linkButton:focus-visible, ._7A5CPa_addMemberButton:focus-visible, ._7A5CPa_primaryButton:focus-visible, ._7A5CPa_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._7A5CPa_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n._7A5CPa_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n._7A5CPa_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_memberRow ._7A5CPa_member:hover {\n  background: none;\n}\n\n._7A5CPa_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n._7A5CPa_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n._7A5CPa_memberRow:hover ._7A5CPa_memberActions, ._7A5CPa_memberRow:focus-within ._7A5CPa_memberActions {\n  opacity: 1;\n}\n\n._7A5CPa_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n._7A5CPa_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n._7A5CPa_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n._7A5CPa_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n._7A5CPa_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n._7A5CPa_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n._7A5CPa_field textarea {\n  resize: vertical;\n}\n\n._7A5CPa_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n._7A5CPa_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n._7A5CPa_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._7A5CPa_primaryButton, ._7A5CPa_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n._7A5CPa_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n._7A5CPa_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n._7A5CPa_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n._7A5CPa_memberFailed ._7A5CPa_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n._7A5CPa_memberFailed ._7A5CPa_presence {\n  background: #ed4245;\n}\n\n._7A5CPa_mobileButton, ._7A5CPa_drawerBackdrop {\n  display: none;\n}\n\n._7A5CPa_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n._7A5CPa_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._7A5CPa_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  ._7A5CPa_page._7A5CPa_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  ._7A5CPa_page._7A5CPa_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  ._7A5CPa_page._7A5CPa_roomsHidden._7A5CPa_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._7A5CPa_roomsHidden > ._7A5CPa_rooms, ._7A5CPa_membersHidden > ._7A5CPa_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  ._7A5CPa_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  ._7A5CPa_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  ._7A5CPa_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  ._7A5CPa_panelToggle {\n    display: none;\n  }\n\n  ._7A5CPa_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  ._7A5CPa_rooms._7A5CPa_drawerOpen, ._7A5CPa_members._7A5CPa_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  ._7A5CPa_rooms._7A5CPa_drawerOpen {\n    left: 0;\n  }\n\n  ._7A5CPa_members._7A5CPa_drawerOpen {\n    right: 0;\n  }\n\n  ._7A5CPa_memberActions {\n    opacity: 1;\n  }\n\n  ._7A5CPa_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n._7A5CPa_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n._7A5CPa_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n._7A5CPa_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n._7A5CPa_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n._7A5CPa_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n._7A5CPa_leadControl ._7A5CPa_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n._7A5CPa_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n._7A5CPa_leadControl ._7A5CPa_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n._7A5CPa_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n._7A5CPa_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n._7A5CPa_leadOption:hover, ._7A5CPa_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_taskSection + ._7A5CPa_taskSection {\n  margin-top: 8px;\n}\n\n._7A5CPa_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._7A5CPa_taskOwnerGroup + ._7A5CPa_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n._7A5CPa_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n._7A5CPa_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n._7A5CPa_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n._7A5CPa_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._7A5CPa_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n._7A5CPa_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n._7A5CPa_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._7A5CPa_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n._7A5CPa_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n._7A5CPa_taskDone summary {\n  cursor: pointer;\n}\n\n._7A5CPa_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n._7A5CPa_taskStatus[data-status=\"asked\"], ._7A5CPa_taskStatus[data-status=\"escalated\"], ._7A5CPa_taskStatus[data-status=\"declined\"], ._7A5CPa_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n._7A5CPa_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._7A5CPa_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n._7A5CPa_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n._7A5CPa_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n._7A5CPa_taskMemberName {\n  font-weight: 600;\n}\n\n._7A5CPa_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._7A5CPa_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
@@ -452,138 +452,194 @@ function formatDuration(seconds, t) {
 		m: String(Math.round(s % 3600 / 60))
 	});
 }
-/** Board sections: open tasks (owner's turn, then waiting for the lead) and finished ones. */
-function boardGroups(tasks) {
-	const rows = boardOrder(tasks);
-	return {
-		open: rows.filter((task) => task.status !== "done"),
-		done: rows.filter((task) => task.status === "done")
-	};
-}
 /** Task-card rows: the task's owner first, then each sub-task in dispatch order. */
 function cardMembers(taskId, tasks) {
 	const task = tasks.find((x) => x.id === taskId);
 	if (task === void 0) return [];
 	return [task, ...tasks.filter((x) => x.parent_task === task.id).sort((a, b) => a.id - b.id)];
 }
+/**
+* The board grouped as chat channel -> workspace -> owner, the shape the owner asked for:
+* a chat channel's board covers all of its workspaces, and inside each block the tasks are
+* listed per member. A task belongs to the room it was dispatched in (its room_id); the
+* board only reads that, it never infers a room from a name.
+* `chatId` is the chat channel the board belongs to, `roomId` the room being viewed: a
+* workspace shows only its own block, the chat channel shows itself and its workspaces.
+* Rooms without tasks are left out; the viewed room itself always stays, so an empty
+* board still says which room it is.
+*/
+function boardSections(tasks, rooms, chatId, roomId) {
+	if (chatId === void 0) return [];
+	const chat = rooms.find((r) => r.id === chatId);
+	const viewed = roomId === void 0 ? void 0 : rooms.find((r) => r.id === roomId);
+	const blocks = viewed?.kind === "workspace" ? [{
+		id: viewed.id,
+		name: viewed.name,
+		chat: false
+	}] : [{
+		id: chatId,
+		name: chat?.name ?? String(chatId),
+		chat: true
+	}, ...rooms.filter((r) => r.kind === "workspace" && r.parent_id === chatId).map((r) => ({
+		id: r.id,
+		name: r.name,
+		chat: false
+	}))];
+	const sections = [];
+	for (const block of blocks) {
+		const mine = boardOrder(tasks.filter((task) => task.room_id === block.id));
+		if (block.id !== roomId && !block.chat && mine.length === 0) continue;
+		const byOwner = /* @__PURE__ */ new Map();
+		for (const task of mine) {
+			let group = byOwner.get(task.owner);
+			if (group === void 0) {
+				group = {
+					open: [],
+					done: []
+				};
+				byOwner.set(task.owner, group);
+			}
+			(task.status === "done" ? group.done : group.open).push(task);
+		}
+		const owners = [...byOwner].map(([owner, group]) => ({
+			owner,
+			ownerName: (group.open[0] ?? group.done[0]).owner_name,
+			open: group.open,
+			done: group.done
+		}));
+		sections.push({
+			roomId: block.id,
+			name: block.name,
+			chat: block.chat,
+			owners,
+			open: owners.reduce((n, g) => n + g.open.length, 0),
+			done: owners.reduce((n, g) => n + g.done.length, 0)
+		});
+	}
+	return sections;
+}
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "XQcfia_activeBusy",
-	"activeCount": "XQcfia_activeCount",
-	"addMemberButton": "XQcfia_addMemberButton",
-	"author": "XQcfia_author",
-	"avatar": "XQcfia_avatar",
-	"avatarAnchor": "XQcfia_avatarAnchor",
-	"avatarButton": "XQcfia_avatarButton",
-	"avatarImage": "XQcfia_avatarImage",
-	"avatarMenu": "XQcfia_avatarMenu",
-	"avatarMenuItem": "XQcfia_avatarMenuItem",
-	"avatarMenuTitle": "XQcfia_avatarMenuTitle",
-	"avatarOption": "XQcfia_avatarOption",
-	"avatarPicker": "XQcfia_avatarPicker",
-	"avatarSmall": "XQcfia_avatarSmall",
-	"card": "XQcfia_card",
-	"cardHead": "XQcfia_cardHead",
-	"cardTitle": "XQcfia_cardTitle",
-	"cardViewButton": "XQcfia_cardViewButton",
-	"cardViews": "XQcfia_cardViews",
-	"chat": "XQcfia_chat",
-	"chatHead": "XQcfia_chatHead",
-	"choice": "XQcfia_choice",
-	"choiceRow": "XQcfia_choiceRow",
-	"composer": "XQcfia_composer",
-	"composerRow": "XQcfia_composerRow",
-	"dialog": "XQcfia_dialog",
-	"dialogActions": "XQcfia_dialogActions",
-	"dialogBackdrop": "XQcfia_dialogBackdrop",
-	"dialogTitle": "XQcfia_dialogTitle",
-	"drawerBackdrop": "XQcfia_drawerBackdrop",
-	"drawerOpen": "XQcfia_drawerOpen",
-	"empty": "XQcfia_empty",
-	"field": "XQcfia_field",
-	"fieldInput": "XQcfia_fieldInput",
-	"fieldLabel": "XQcfia_fieldLabel",
-	"focused": "XQcfia_focused",
-	"groupHead": "XQcfia_groupHead",
-	"groupTitle": "XQcfia_groupTitle",
-	"guide": "XQcfia_guide",
-	"hash": "XQcfia_hash",
-	"iconButton": "XQcfia_iconButton",
-	"input": "XQcfia_input",
-	"leadControl": "XQcfia_leadControl",
-	"leadMenu": "XQcfia_leadMenu",
-	"leadOption": "XQcfia_leadOption",
-	"linkButton": "XQcfia_linkButton",
-	"log": "XQcfia_log",
-	"member": "XQcfia_member",
-	"memberActions": "XQcfia_memberActions",
-	"memberAvatar": "XQcfia_memberAvatar",
-	"memberFailed": "XQcfia_memberFailed",
-	"memberModel": "XQcfia_memberModel",
-	"memberName": "XQcfia_memberName",
-	"memberRow": "XQcfia_memberRow",
-	"members": "XQcfia_members",
-	"membersHidden": "XQcfia_membersHidden",
-	"memberStatus": "XQcfia_memberStatus",
-	"memberText": "XQcfia_memberText",
-	"mentionActive": "XQcfia_mentionActive",
-	"mentionButton": "XQcfia_mentionButton",
-	"mentionHint": "XQcfia_mentionHint",
-	"mentionItem": "XQcfia_mentionItem",
-	"mentionMeta": "XQcfia_mentionMeta",
-	"mentionName": "XQcfia_mentionName",
-	"mentionPopup": "XQcfia_mentionPopup",
-	"mentionTitle": "XQcfia_mentionTitle",
-	"message": "XQcfia_message",
-	"messageBody": "XQcfia_messageBody",
-	"messageHead": "XQcfia_messageHead",
-	"mobileButton": "XQcfia_mobileButton",
-	"notice": "XQcfia_notice",
-	"offline": "XQcfia_offline",
-	"page": "XQcfia_page",
-	"panelToggle": "XQcfia_panelToggle",
-	"panelToggleEnd": "XQcfia_panelToggleEnd",
-	"permActions": "XQcfia_permActions",
-	"permScope": "XQcfia_permScope",
-	"permStatus": "XQcfia_permStatus",
-	"presence": "XQcfia_presence",
-	"primaryButton": "XQcfia_primaryButton",
-	"quote": "XQcfia_quote",
-	"quoteAuthor": "XQcfia_quoteAuthor",
-	"quoteDeleted": "XQcfia_quoteDeleted",
-	"replyBar": "XQcfia_replyBar",
-	"replyBarText": "XQcfia_replyBarText",
-	"replyButton": "XQcfia_replyButton",
-	"replyCancel": "XQcfia_replyCancel",
-	"room": "XQcfia_room",
-	"roomActive": "XQcfia_roomActive",
-	"roomInput": "XQcfia_roomInput",
-	"roomLabel": "XQcfia_roomLabel",
-	"rooms": "XQcfia_rooms",
-	"roomsHidden": "XQcfia_roomsHidden",
-	"secondaryButton": "XQcfia_secondaryButton",
-	"sendError": "XQcfia_sendError",
-	"system": "XQcfia_system",
-	"tag": "XQcfia_tag",
-	"taskBoard": "XQcfia_taskBoard",
-	"taskCard": "XQcfia_taskCard",
-	"taskDone": "XQcfia_taskDone",
-	"taskEmpty": "XQcfia_taskEmpty",
-	"taskLine": "XQcfia_taskLine",
-	"taskLinks": "XQcfia_taskLinks",
-	"taskList": "XQcfia_taskList",
-	"taskMember": "XQcfia_taskMember",
-	"taskMemberName": "XQcfia_taskMemberName",
-	"taskMembers": "XQcfia_taskMembers",
-	"taskMeta": "XQcfia_taskMeta",
-	"taskRow": "XQcfia_taskRow",
-	"taskStatus": "XQcfia_taskStatus",
-	"taskSub": "XQcfia_taskSub",
-	"taskTitle": "XQcfia_taskTitle",
-	"text": "XQcfia_text",
-	"time": "XQcfia_time",
-	"working": "XQcfia_working",
-	"workspace": "XQcfia_workspace"
+	"activeBusy": "_7A5CPa_activeBusy",
+	"activeCount": "_7A5CPa_activeCount",
+	"addMemberButton": "_7A5CPa_addMemberButton",
+	"author": "_7A5CPa_author",
+	"avatar": "_7A5CPa_avatar",
+	"avatarAnchor": "_7A5CPa_avatarAnchor",
+	"avatarButton": "_7A5CPa_avatarButton",
+	"avatarImage": "_7A5CPa_avatarImage",
+	"avatarMenu": "_7A5CPa_avatarMenu",
+	"avatarMenuItem": "_7A5CPa_avatarMenuItem",
+	"avatarMenuTitle": "_7A5CPa_avatarMenuTitle",
+	"avatarOption": "_7A5CPa_avatarOption",
+	"avatarPicker": "_7A5CPa_avatarPicker",
+	"avatarSmall": "_7A5CPa_avatarSmall",
+	"card": "_7A5CPa_card",
+	"cardHead": "_7A5CPa_cardHead",
+	"cardTitle": "_7A5CPa_cardTitle",
+	"cardViewButton": "_7A5CPa_cardViewButton",
+	"cardViews": "_7A5CPa_cardViews",
+	"chat": "_7A5CPa_chat",
+	"chatHead": "_7A5CPa_chatHead",
+	"choice": "_7A5CPa_choice",
+	"choiceRow": "_7A5CPa_choiceRow",
+	"composer": "_7A5CPa_composer",
+	"composerRow": "_7A5CPa_composerRow",
+	"dialog": "_7A5CPa_dialog",
+	"dialogActions": "_7A5CPa_dialogActions",
+	"dialogBackdrop": "_7A5CPa_dialogBackdrop",
+	"dialogTitle": "_7A5CPa_dialogTitle",
+	"drawerBackdrop": "_7A5CPa_drawerBackdrop",
+	"drawerOpen": "_7A5CPa_drawerOpen",
+	"empty": "_7A5CPa_empty",
+	"field": "_7A5CPa_field",
+	"fieldInput": "_7A5CPa_fieldInput",
+	"fieldLabel": "_7A5CPa_fieldLabel",
+	"focused": "_7A5CPa_focused",
+	"groupHead": "_7A5CPa_groupHead",
+	"groupTitle": "_7A5CPa_groupTitle",
+	"guide": "_7A5CPa_guide",
+	"hash": "_7A5CPa_hash",
+	"iconButton": "_7A5CPa_iconButton",
+	"input": "_7A5CPa_input",
+	"leadControl": "_7A5CPa_leadControl",
+	"leadMenu": "_7A5CPa_leadMenu",
+	"leadOption": "_7A5CPa_leadOption",
+	"linkButton": "_7A5CPa_linkButton",
+	"log": "_7A5CPa_log",
+	"member": "_7A5CPa_member",
+	"memberActions": "_7A5CPa_memberActions",
+	"memberAvatar": "_7A5CPa_memberAvatar",
+	"memberFailed": "_7A5CPa_memberFailed",
+	"memberModel": "_7A5CPa_memberModel",
+	"memberName": "_7A5CPa_memberName",
+	"memberRow": "_7A5CPa_memberRow",
+	"members": "_7A5CPa_members",
+	"membersHidden": "_7A5CPa_membersHidden",
+	"memberStatus": "_7A5CPa_memberStatus",
+	"memberText": "_7A5CPa_memberText",
+	"mentionActive": "_7A5CPa_mentionActive",
+	"mentionButton": "_7A5CPa_mentionButton",
+	"mentionHint": "_7A5CPa_mentionHint",
+	"mentionItem": "_7A5CPa_mentionItem",
+	"mentionMeta": "_7A5CPa_mentionMeta",
+	"mentionName": "_7A5CPa_mentionName",
+	"mentionPopup": "_7A5CPa_mentionPopup",
+	"mentionTitle": "_7A5CPa_mentionTitle",
+	"message": "_7A5CPa_message",
+	"messageBody": "_7A5CPa_messageBody",
+	"messageHead": "_7A5CPa_messageHead",
+	"mobileButton": "_7A5CPa_mobileButton",
+	"notice": "_7A5CPa_notice",
+	"offline": "_7A5CPa_offline",
+	"page": "_7A5CPa_page",
+	"panelToggle": "_7A5CPa_panelToggle",
+	"panelToggleEnd": "_7A5CPa_panelToggleEnd",
+	"permActions": "_7A5CPa_permActions",
+	"permScope": "_7A5CPa_permScope",
+	"permStatus": "_7A5CPa_permStatus",
+	"presence": "_7A5CPa_presence",
+	"primaryButton": "_7A5CPa_primaryButton",
+	"quote": "_7A5CPa_quote",
+	"quoteAuthor": "_7A5CPa_quoteAuthor",
+	"quoteDeleted": "_7A5CPa_quoteDeleted",
+	"replyBar": "_7A5CPa_replyBar",
+	"replyBarText": "_7A5CPa_replyBarText",
+	"replyButton": "_7A5CPa_replyButton",
+	"replyCancel": "_7A5CPa_replyCancel",
+	"room": "_7A5CPa_room",
+	"roomActive": "_7A5CPa_roomActive",
+	"roomInput": "_7A5CPa_roomInput",
+	"roomLabel": "_7A5CPa_roomLabel",
+	"rooms": "_7A5CPa_rooms",
+	"roomsHidden": "_7A5CPa_roomsHidden",
+	"secondaryButton": "_7A5CPa_secondaryButton",
+	"sendError": "_7A5CPa_sendError",
+	"system": "_7A5CPa_system",
+	"tag": "_7A5CPa_tag",
+	"taskBoard": "_7A5CPa_taskBoard",
+	"taskCard": "_7A5CPa_taskCard",
+	"taskDone": "_7A5CPa_taskDone",
+	"taskEmpty": "_7A5CPa_taskEmpty",
+	"taskLine": "_7A5CPa_taskLine",
+	"taskLinks": "_7A5CPa_taskLinks",
+	"taskList": "_7A5CPa_taskList",
+	"taskMember": "_7A5CPa_taskMember",
+	"taskMemberName": "_7A5CPa_taskMemberName",
+	"taskMembers": "_7A5CPa_taskMembers",
+	"taskMeta": "_7A5CPa_taskMeta",
+	"taskOwnerGroup": "_7A5CPa_taskOwnerGroup",
+	"taskOwnerName": "_7A5CPa_taskOwnerName",
+	"taskRow": "_7A5CPa_taskRow",
+	"taskSection": "_7A5CPa_taskSection",
+	"taskSectionTitle": "_7A5CPa_taskSectionTitle",
+	"taskStatus": "_7A5CPa_taskStatus",
+	"taskSub": "_7A5CPa_taskSub",
+	"taskTitle": "_7A5CPa_taskTitle",
+	"text": "_7A5CPa_text",
+	"time": "_7A5CPa_time",
+	"working": "_7A5CPa_working",
+	"workspace": "_7A5CPa_workspace"
 };
 // src/client/TaskBoard.tsx
 function clock(seconds) {
@@ -603,11 +659,11 @@ function Status({ status, t }) {
 * Right-column board for the selected chat channel.
 * @param onOpen - jump to a message in a room (dispatch or delivery).
 */
-function TaskBoard({ tasks, rooms, chatId, t, onOpen }) {
+function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
 	const now = Date.now() / 1e3;
-	const names = new Map(rooms.map((r) => [r.id, r.name]));
-	const { open, done } = boardGroups(tasks);
-	const total = open.length + done.length;
+	const sections = boardSections(tasks, rooms, chatId, roomId);
+	const openTotal = sections.reduce((n, s) => n + s.open, 0);
+	const all = sections.reduce((n, s) => n + s.open + s.done, 0);
 	const row = (task) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
 		className: ChannelsPage_module_default.taskRow,
 		"data-task-id": task.id,
@@ -629,12 +685,7 @@ function TaskBoard({ tasks, rooms, chatId, t, onOpen }) {
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: ChannelsPage_module_default.taskMeta,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: task.owner_name }),
-					task.room_id !== chatId && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskIn", { room: names.get(task.room_id) ?? String(task.room_id) }) }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskElapsed", { d: formatDuration(elapsed(task, now), t) }) }),
-					task.next_check_at !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskNextCheck", { time: clock(task.next_check_at) }) })
-				]
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskElapsed", { d: formatDuration(elapsed(task, now), t) }) }), task.next_check_at !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskNextCheck", { time: clock(task.next_check_at) }) })]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: ChannelsPage_module_default.taskLinks,
@@ -662,26 +713,43 @@ function TaskBoard({ tasks, rooms, chatId, t, onOpen }) {
 		children: [
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
 				className: ChannelsPage_module_default.groupTitle,
-				children: t("taskBoardTitle", { count: String(open.length) })
+				children: t("taskBoardTitle", { count: String(openTotal) })
 			}),
-			total === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			all === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.taskEmpty,
 				children: t("taskBoardEmpty")
 			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-				className: ChannelsPage_module_default.taskList,
-				children: open.map(row)
-			}),
-			done.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
-				className: ChannelsPage_module_default.taskDone,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", {
-					className: ChannelsPage_module_default.groupTitle,
-					children: t("taskDoneGroup", { count: String(done.length) })
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-					className: ChannelsPage_module_default.taskList,
-					children: done.map(row)
-				})]
-			})
+			sections.map((section) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: ChannelsPage_module_default.taskSection,
+				"data-room-id": section.roomId,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: ChannelsPage_module_default.taskSectionTitle,
+					children: section.chat ? t("taskBoardChat") : t("taskBoardWorkspace", { room: section.name })
+				}), section.owners.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.taskOwnerGroup,
+					"data-owner": group.owner,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.taskOwnerName,
+							children: t("taskBoardOwner", { name: group.ownerName })
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+							className: ChannelsPage_module_default.taskList,
+							children: group.open.map(row)
+						}),
+						group.done.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
+							className: ChannelsPage_module_default.taskDone,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", {
+								className: ChannelsPage_module_default.groupTitle,
+								children: t("taskDoneGroup", { count: String(group.done.length) })
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+								className: ChannelsPage_module_default.taskList,
+								children: group.done.map(row)
+							})]
+						})
+					]
+				}, group.owner))]
+			}, section.roomId))
 		]
 	});
 }
@@ -2062,6 +2130,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						tasks: state.tasks ?? [],
 						rooms: state.rooms,
 						chatId: state.taskChat,
+						roomId: state.roomId,
 						t,
 						onOpen: openMessage
 					}),
@@ -2184,6 +2253,9 @@ const zh = {
 	taskBoardTitle: "任务板 — 进行中 {count}",
 	taskBoardEmpty: "还没有派出的任务",
 	taskDoneGroup: "已完成 — {count}",
+	taskBoardChat: "聊天频道",
+	taskBoardWorkspace: "{room}",
+	taskBoardOwner: "{name}",
 	taskAssigned: "派出",
 	taskAccepted: "已接",
 	taskAsked: "有疑问",
@@ -2287,6 +2359,9 @@ const en = {
 	taskBoardTitle: "Tasks — {count} in progress",
 	taskBoardEmpty: "No tasks dispatched yet",
 	taskDoneGroup: "Done — {count}",
+	taskBoardChat: "Chat channel",
+	taskBoardWorkspace: "{room}",
+	taskBoardOwner: "{name}",
 	taskAssigned: "Assigned",
 	taskAccepted: "Accepted",
 	taskAsked: "Question",

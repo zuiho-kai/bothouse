@@ -919,6 +919,28 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.taskSection + .taskSection {
+  margin-top: 8px;
+}
+
+.taskSectionTitle {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.taskOwnerGroup + .taskOwnerGroup {
+  margin-top: 4px;
+}
+
+.taskOwnerName {
+  padding: 0 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
 .taskList {
   margin: 0;
   padding: 0;

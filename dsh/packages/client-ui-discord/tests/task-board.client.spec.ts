@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { boardGroups, cardMembers, elapsed, formatDuration, STATUS_KEY, type T } from '../src/client/task-board.ts'
-import type { ChannelTask, TaskStatus } from '../src/client/channel-source.ts'
+import { boardGroups, boardSections, cardMembers, elapsed, formatDuration, STATUS_KEY, type T } from '../src/client/task-board.ts'
+import type { ChannelRoom, ChannelTask, TaskStatus } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 
 const t = ((key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
@@ -41,5 +41,54 @@ describe('task board', () => {
     expect(formatDuration(42, t)).toBe('42 秒')
     expect(formatDuration(600, t)).toBe('10 分钟')
     expect(formatDuration(3600 + 1800, t)).toBe('1 小时 30 分')
+  })
+
+  it('groups the board as chat channel -> workspace -> owner', () => {
+    const rooms: ChannelRoom[] = [
+      { id: 1, name: '聊天', kind: 'chat', parent_id: null },
+      { id: 1000001, name: '工作区1', kind: 'workspace', parent_id: 1 },
+      { id: 1000002, name: '工作区2', kind: 'workspace', parent_id: 1 },
+      { id: 9, name: '别的频道', kind: 'chat', parent_id: null },
+    ]
+    const tasks = [
+      task(1, 'assigned', { room_id: 1, owner: 'a', owner_name: '鲸鱼娘' }),
+      task(2, 'accepted', { room_id: 1000001, owner: 'b', owner_name: '龙娘' }),
+      task(3, 'assigned', { room_id: 1000001, owner: 'a', owner_name: '鲸鱼娘' }),
+      task(4, 'done', { room_id: 1000001, owner: 'b', owner_name: '龙娘' }),
+      task(5, 'assigned', { room_id: 9, owner: 'c', owner_name: '别的' }),
+    ]
+    const sections = boardSections(tasks, rooms, 1)
+    // the chat channel covers itself and its workspaces; other channels stay out
+    expect(sections.map(s => s.roomId)).toEqual([1, 1000001])
+    expect(sections[0].chat).toBe(true)
+    expect(sections[0].name).toBe('聊天')
+    expect(sections[0].open).toBe(1)
+    // workspaces without tasks are left out, the chat channel itself always shows
+    expect(sections.some(s => s.roomId === 1000002)).toBe(false)
+    // per owner inside the workspace, owners in board order (assigned/accepted before done)
+    const ws = sections[1]
+    expect(ws.owners.map(g => g.owner)).toEqual(['a', 'b'])
+    expect(ws.owners[0].ownerName).toBe('鲸鱼娘')
+    expect(ws.owners[0].open.map(x => x.id)).toEqual([3])
+    expect(ws.owners[1].open.map(x => x.id)).toEqual([2])
+    expect(ws.owners[1].done.map(x => x.id)).toEqual([4])
+    expect(ws.open).toBe(2)
+    expect(ws.done).toBe(1)
+    // a workspace's own board shows only that workspace
+    expect(boardSections(tasks, rooms, 1, 1000001).map(s => s.roomId)).toEqual([1000001])
+    expect(boardSections(tasks, rooms, 1, 1000002).map(s => [s.roomId, s.open])).toEqual([[1000002, 0]])
+    // no chat channel selected: nothing to group
+    expect(boardSections(tasks, rooms, undefined)).toEqual([])
+    // viewing the chat channel keeps every workspace block it has tasks for
+    expect(boardSections(tasks, rooms, 1, 1).map(s => s.roomId)).toEqual([1, 1000001])
+  })
+
+  it('keeps the chat channel block when it has no tasks of its own', () => {
+    const rooms: ChannelRoom[] = [
+      { id: 1, name: '聊天', kind: 'chat', parent_id: null },
+      { id: 1000001, name: '工作区1', kind: 'workspace', parent_id: 1 },
+    ]
+    const sections = boardSections([task(1, 'assigned', { room_id: 1000001 })], rooms, 1)
+    expect(sections.map(s => [s.roomId, s.open])).toEqual([[1, 0], [1000001, 1]])
   })
 })
