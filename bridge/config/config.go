@@ -561,6 +561,10 @@ type ProjectConfig struct {
 	MemoryIndex string `toml:"memory_index,omitempty"`
 	// TeamBoard (lead only) keeps one live "who is doing what" message per channel, edited in place.
 	TeamBoard bool `toml:"team_board,omitempty"`
+	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
+	// the same category (existing channels are backfilled at start) and allow `bothouse workspace new`
+	// to add 「工作区n+1」 (core/team_workspace.go). Default off, like team_board / channel_board.
+	TeamWorkspaces bool `toml:"team_workspaces,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who
