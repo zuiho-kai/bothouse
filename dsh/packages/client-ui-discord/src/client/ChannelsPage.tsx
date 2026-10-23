@@ -3,7 +3,8 @@
  * list, in a Discord-style three-column layout. All data arrives through the
  * injected `useChannels` hook; posting goes through the injected actions.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -88,6 +89,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onDecide: ChannelActions['decidePermission']
   onReply: (message: ChannelMessage) => void
 }) {
+  const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } | undefined
   if (message.card !== null) {
     try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
@@ -120,7 +122,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
         </div>
         {card === undefined
-          ? <>{message.text !== '' && <div className={css.text}>{message.text}</div>}<AttachmentList attachments={message.attachments} /></>
+          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={message.text} labels={labels} /></div>}<AttachmentList attachments={message.attachments} /></>
           : (
               <div className={css.card} data-state={card.state}>
                 <div className={css.cardHead}>
@@ -136,7 +138,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     </div>
                   )}
                 </div>
-                <div className={css.text}>{typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text}</div>
+                <div className={css.text}><MarkdownText text={typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text} labels={labels} /></div>
                 {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}

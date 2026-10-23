@@ -548,3 +548,28 @@ describe('progress card detail/brief view', () => {
     expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ name: 'paste.png', mime: 'image/png', data: 'AQID' }])
   })
 })
+
+// #118: exercise the host renderer, rather than mocking Markdown into plain text.
+it('renders Markdown and KaTeX for history, incremental replies and permission text (#118)', () => {
+  const body = '| name | value |'+String.fromCharCode(10)+'| --- | --- |'+String.fromCharCode(10)+'| row | cell |'+String.fromCharCode(10,10)+'**bold**\n\n- item\n\n$7^3 = 7 \\times 7 \\times 7 = 343$'
+  const message = { ...ready.messages[0], text: body }
+  const view = render(<ChannelsPage {...props({ ...ready, messages: [message] })} />)
+  expect(view.container.querySelector('strong')?.textContent).toBe('bold')
+  expect(view.container.querySelector('table td')?.textContent).toBe('row')
+  expect(view.container.querySelector('li')?.textContent).toBe('item')
+  expect(view.container.querySelector('.katex')).not.toBeNull()
+  view.rerender(<ChannelsPage {...props({ ...ready, messages: [{ ...message, text: '**new**' }] })} />)
+  expect(view.container.querySelector('strong')?.textContent).toBe('new')
+  view.rerender(<ChannelsPage {...props({ ...ready, messages: [{ ...message, card: JSON.stringify({ title: 'approval' }) }] })} />)
+  expect(view.container.querySelector('.katex')).not.toBeNull()
+})
+
+it('keeps code dollars literal and blocks raw HTML and unsafe links (#118)', () => {
+  const body = ['~~~sh', 'echo "$HOME"', '~~~', '', '<script>alert(1)</script>', '', '[bad](javascript:alert(1))', '', '$\\notacommand$'].join('\n')
+  const view = render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], text: body }] })} />)
+  expect(view.container.querySelector('pre code')?.textContent).toContain('$HOME')
+  expect(view.container.querySelector('pre .katex')).toBeNull()
+  expect(view.container.querySelector('script')).toBeNull()
+  expect(view.container.querySelector('a[href^="javascript:"]')).toBeNull()
+  expect(view.container.textContent).toContain('notacommand')
+})

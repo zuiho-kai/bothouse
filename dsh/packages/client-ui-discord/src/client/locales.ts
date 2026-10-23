@@ -5,6 +5,9 @@ export const NS = 'discord-channels'
 
 /** Simplified Chinese dictionary and key source. */
 export const zh = {
+  copyCode: '复制代码',
+  copiedCode: '已复制',
+  footnotes: '脚注',
   panel: '频道',
   capabilities: '能力清单',
   capabilityTaskBoard: '任务板',
@@ -137,6 +140,9 @@ export const en: Record<keyof typeof zh, string> = {
   dispatchSolo: 'Single model, multiple processes — separate tasks on one model',
   dispatchTeam: 'Full team — delegate to team members',
   dispatchMixed: 'Mixed — choose models and members for each task',
+  copyCode: 'Copy code',
+  copiedCode: 'Copied',
+  footnotes: 'Footnotes',
   taskBoard: 'Task board',
   taskBoardTitle: 'Tasks — {count} in progress',
   taskBoardEmpty: 'No tasks dispatched yet',
