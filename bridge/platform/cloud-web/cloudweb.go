@@ -53,6 +53,7 @@ type Platform struct {
 
 	teamLead     string   // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
 	leadReturned sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
+	wsAcks       sync.Map // team mode E: ref_id → chan wireTeamWorkspaceAck (workspaces.go)
 }
 
 // Compile-time interface checks.
@@ -352,6 +353,8 @@ func (p *Platform) handleWire(raw []byte) {
 		p.handleRecall(raw)
 	case "ping":
 		_ = p.tp.Send(context.Background(), map[string]any{"type": "pong", "ts": time.Now().UnixMilli()})
+	case typeTeamWorkspaceAck:
+		p.handleTeamWorkspaceAck(raw)
 	default:
 		slog.Debug("cloud_web: unknown inbound type", "type", base.Type)
 	}

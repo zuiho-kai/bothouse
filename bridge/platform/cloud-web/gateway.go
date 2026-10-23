@@ -204,7 +204,7 @@ func (t *gatewayTransport) dispatchBatchPayload(raw []byte) bool {
 	var base wireMsg
 	if err := json.Unmarshal(raw, &base); err == nil {
 		switch base.Type {
-		case "message", "card_action", "message_recall", "ping":
+		case "message", "card_action", "message_recall", "ping", typeTeamWorkspaceAck:
 			t.dispatchOne(raw)
 			return true
 		}
@@ -285,6 +285,9 @@ func (t *gatewayTransport) Send(ctx context.Context, msg map[string]any) error {
 		return fmt.Errorf("cloud_web: send HTTP %d: %s", resp.StatusCode, string(raw))
 	}
 	var ack wirePreviewAck
+	if json.Unmarshal(raw, &ack) == nil && ack.Type == typeTeamWorkspaceAck && t.onInbound != nil {
+		t.onInbound(raw) // team mode E: inline reply to a team_workspace request
+	}
 	if json.Unmarshal(raw, &ack) == nil && ack.Type == "preview_ack" && ack.RefID != "" {
 		t.previewMu.Lock()
 		ch, ok := t.previewRequests[ack.RefID]

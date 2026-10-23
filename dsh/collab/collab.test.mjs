@@ -1576,3 +1576,37 @@ test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作�
     [['general', 'chat', null, 0], ['工作区1', 'workspace', 1, 0], ['工作区2', 'workspace', 1, 0]]);
   assert.equal(workspacesRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/rooms/1/workspaces'), {}), undefined);
 });
+
+test('cloud-web: team_workspace frames (team mode E)', async () => {
+  // Without team mode A (#134) the store has no workspaces: no capability, frames answered "unsupported".
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  assert.equal(ju.of('register_ack')[0].capabilities.includes('team_workspace'), false);
+  ju.frame({ type: 'team_workspace', ref_id: 'w1', op: 'list', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'w1', ok: false, error: 'unsupported' });
+
+  // With A's interface (stubbed here: rooms.kind/parent_id and createWorkspace).
+  const rooms = [{ id: 1, name: 'general', kind: 'chat', parent_id: null }, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 }, { id: 2, name: '量化', kind: 'chat', parent_id: null }];
+  const hub2 = makeHub();
+  const { store } = hub2;
+  store.ensureRoom(2, '量化');
+  store.rooms = () => rooms;
+  store.createWorkspace = (id) => { const w = { id: 1000001, name: '工作区2', kind: 'workspace', parent_id: id }; rooms.push(w); return w; };
+  const events = [];
+  hub2.subscribe(e => events.push(e));
+  const gw2 = new CloudWebGateway(hub2, { token: 't', logger: quiet });
+  const ju2 = connect(gw2, 'bot=ju&name=橘');
+  assert.equal(ju2.of('register_ack')[0].capabilities.includes('team_workspace'), true);
+  ju2.frame({ type: 'team_workspace', ref_id: 'w2', op: 'list', session_key: 'cloud_web:room-1', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'w2', ok: true, self: { id: 'room-1', name: 'general' }, rooms: [{ id: 'room-1000000', name: '工作区1' }] });
+  ju2.frame({ type: 'team_workspace', ref_id: 'w3', op: 'create', reply_ctx: 'room-1', name: '工作区2' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'w3', ok: true, room: { id: 'room-1000001', name: '工作区2' } });
+  assert.equal(events.at(-1).type, 'rooms');
+  ju2.frame({ type: 'team_workspace', ref_id: 'w4', op: 'list', reply_ctx: 'room-9' });
+  await tick();
+  assert.equal(ju2.of('team_workspace_ack').at(-1).error, 'room-missing');
+});

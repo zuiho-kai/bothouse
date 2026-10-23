@@ -176,7 +176,7 @@ func (t *pollTransport) dispatchBatchPayload(raw []byte) bool {
 	var base wireMsg
 	if err := json.Unmarshal(raw, &base); err == nil {
 		switch base.Type {
-		case "message", "card_action", "message_recall", "ping":
+		case "message", "card_action", "message_recall", "ping", typeTeamWorkspaceAck:
 			t.dispatchOne(raw)
 			return true
 		}
@@ -255,6 +255,9 @@ func (t *pollTransport) Send(ctx context.Context, msg map[string]any) error {
 	}
 	// Handle inline preview_ack in send response.
 	var ack wirePreviewAck
+	if json.Unmarshal(raw, &ack) == nil && ack.Type == typeTeamWorkspaceAck && t.onInbound != nil {
+		t.onInbound(raw) // team mode E: inline reply to a team_workspace request
+	}
 	if json.Unmarshal(raw, &ack) == nil && ack.Type == "preview_ack" && ack.RefID != "" {
 		t.previewMu.Lock()
 		ch, ok := t.previewRequests[ack.RefID]
