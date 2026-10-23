@@ -23,7 +23,7 @@ func TestAgentHooksCodexRoleScoped(t *testing.T) {
 	if got.SettingsFile != filepath.Join(dir, "hooks.json") || len(got.Enabled) != 2 {
 		t.Fatalf("%+v", got)
 	}
-	if _, err := os.Stat(AgentHookSettingsPath(wd)); !os.IsNotExist(err) {
+	if _, err := os.Stat(AgentHookSettingsPath("claudecode", wd)); !os.IsNotExist(err) {
 		t.Fatal("wrote Claude settings")
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, "config.toml"))

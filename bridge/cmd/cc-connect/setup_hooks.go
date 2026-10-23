@@ -22,7 +22,7 @@ DSH reads them through @deepseek-ai/dsh-hooks-claude-code, which "on --cli dsh" 
 overlay (dsh --patch, <data_dir>/dsh/<role>.patch.yml) with <dir>/.claude/conest-dsh-hooks.json; the user's
 $DSH_HOME is not written. Those hooks run only in the roles set up with --cli dsh (listed in
 <data_dir>/hooks/dsh-roles.json). "off --cli dsh" with no hook left removes that block again. Restart DSH (for bothouse's roles: restart bothouse) after on/off --cli dsh. The scripts are installed into <data_dir>/hooks; the persona file
-(CLAUDE.md for claudecode, AGENTS.md for dsh) gets a block between <!-- conest:hooks --> markers that
+(CLAUDE.md for claudecode, AGENTS.md for dsh and codex, GEMINI.md for gemini and antigravity) gets a block between <!-- conest:hooks --> markers that
 tells the model the rules of the hooks that are on. "off" removes the hooks and that block (or, with
 --only, just those hooks and their lines); other hooks and the rest of both files are left as they are.
 
@@ -30,6 +30,10 @@ To pause hooks without uninstalling them, the user tells the bot in chat ("turn 
 persona block makes it run <data_dir>/hooks/run.py --role <dir> off|on [hook…], which writes
 <dir>/.claude/conest-hooks.json ({"off": ["bash-guard"]} or {"off": ["all"]}; editing it by hand works too).
 "status" shows both.
+
+--cli: claudecode | dsh | gemini | antigravity | codex. Gemini CLI reads <dir>/.gemini/settings.json, Antigravity
+<dir>/.agents/hooks.json, Codex <dir>/.codex/hooks.json (its hooks stay untrusted for Codex until bothouse
+registers their trusted_hash at session start; "on" also enables the hooks feature in <dir>/.codex/config.toml).
 
 Hooks: %s
 
