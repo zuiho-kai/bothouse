@@ -133,14 +133,29 @@ export class Tasks {
 
   nameOf(id) { return this.hub.members.get(id)?.name ?? id; }
 
-  /** Active (working) tasks for a member across all rooms. */
-  activeTasksOf(owner) {
-    return this.q.busyOfOwner.all(owner, ...WORKING);
+  /** Get all ancestor task IDs of a given task ID (including itself). */
+  ancestorsOf(taskId) {
+    const ids = new Set();
+    let cur = taskId;
+    while (cur != null) {
+      ids.add(cur);
+      const t = this.task(cur);
+      if (!t || t.parent_task == null) break;
+      cur = t.parent_task;
+    }
+    return ids;
   }
 
-  /** Busy info of a member across all rooms. */
-  busyInfo(owner) {
-    const tasks = this.activeTasksOf(owner);
+  /** Active (working) tasks for a member across all rooms, optionally excluding specific task IDs. */
+  activeTasksOf(owner, excludeIds = new Set()) {
+    const rows = this.q.busyOfOwner.all(owner, ...WORKING);
+    if (!excludeIds || excludeIds.size === 0) return rows;
+    return rows.filter(t => !excludeIds.has(t.id));
+  }
+
+  /** Busy info of a member across all rooms, optionally excluding task IDs (e.g. ancestors when dispatching subtasks). */
+  busyInfo(owner, excludeIds = new Set()) {
+    const tasks = this.activeTasksOf(owner, excludeIds);
     if (!tasks || tasks.length === 0) return { busy: false };
     const task = tasks[0];
     const room = this.store.room(task.room_id);
@@ -186,10 +201,11 @@ export class Tasks {
     this.member(actor);
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
-    const busy = this.busyInfo(owner);
+    const excludeIds = parentTask != null ? this.ancestorsOf(parentTask) : new Set();
+    const busy = this.busyInfo(owner, excludeIds);
     if (busy.busy && !force) {
       const targetName = this.nameOf(owner);
-      throw new CollabError('member-busy', `${targetName} 在「${busy.roomName}」已有进行中的任务 #${busy.task.id}「${busy.task.title}」（已用时 ${busy.durationText}），请换人或稍后再派`);
+      throw new CollabError('member-busy', `${targetName} 在「${busy.roomName}」已有进行中的任务 #${busy.task.id}「${busy.task.title}」（已用时 ${busy.durationText}），请换人或稍后再派；确需并行派请带 force`);
     }
     const now = this.now();
     const why = clip(reason);

@@ -240,7 +240,7 @@ export async function apply(ctx, rawConfig) {
  * body.actor, which is unverified (Tasks.perform: no owner, no review); a bot
  * acts as itself verified with a `task` frame on its cloud-web socket.
  *   GET  /collab/api/rooms/{id}/tasks           board of the room's chat channel and its workspaces
- *   POST /collab/api/rooms/{id}/tasks           { title, owner, parent_task?, message_id?, reason? } dispatch
+ *   POST /collab/api/rooms/{id}/tasks           { title, owner, parent_task?, message_id?, reason?, force? } dispatch
  *   GET  /collab/api/tasks/{id}
  *   POST /collab/api/tasks/{id}/stance          { stance: 接|问|退|升, note? }  (task owner)
  *   POST /collab/api/tasks/{id}/return          { message_id }                  (task owner)

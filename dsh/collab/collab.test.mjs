@@ -1863,3 +1863,27 @@ test('memberStatus: displays cross-workspace busy task and duration', () => {
   const statusAfter3m = memberStatus(hub, tasks);
   assert.match(statusAfter3m, /已用时 3 分钟/);
 });
+
+test('tasks: assigning a subtask to the parent task owner is not blocked by ancestors', () => {
+  const { hub, tasks } = makeTasks();
+  hub.store.ensureRoom(2, '工作区1');
+  // Root task assigned to ds
+  const parent = tasks.assign({ roomId: 1, title: '主任务', owner: 'ds', actor: 'lead' });
+  assert.equal(parent.status, 'assigned');
+
+  // Subtask assigned to ds with parentTask = parent.id should succeed without force
+  const sub1 = tasks.assign({ roomId: 2, title: '子任务拆解', owner: 'ds', actor: 'lead', parentTask: parent.id });
+  assert.equal(sub1.status, 'assigned');
+  assert.equal(sub1.parent_task, parent.id);
+
+  // Sub-subtask assigned to ds with parentTask = sub1.id also succeeds
+  const sub2 = tasks.assign({ roomId: 2, title: '孙任务拆解', owner: 'ds', actor: 'lead', parentTask: sub1.id });
+  assert.equal(sub2.status, 'assigned');
+  assert.equal(sub2.parent_task, sub1.id);
+
+  // But assigning an independent new task to ds without parentTask is blocked
+  assert.throws(
+    () => tasks.assign({ roomId: 1, title: '无关任务', owner: 'ds', actor: 'lead' }),
+    (err) => err.code === 'member-busy' && err.message.includes('确需并行派请带 force')
+  );
+});
