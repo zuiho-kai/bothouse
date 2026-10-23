@@ -213,3 +213,33 @@ func TestReplyRouting_CalledBotSeesItsMention(t *testing.T) {
 		t.Fatalf("bare @ must reach the bot as a call it has to answer: %+v", got)
 	}
 }
+
+// A user's bare line-start call must address a sub even when another bot is the
+// configured team lead. This exercises the Discord gateway entrypoint rather
+// than the name matcher alone.
+func TestHandleMessageCreate_LineStartNameCallsNonLead(t *testing.T) {
+	var got *core.Message
+	p := &Platform{
+		botID:               "sub",
+		botName:             "彩虹猫",
+		teamLead:            "lead",
+		allowFrom:           "*",
+		groupReplyAllGuilds: []string{"*"},
+		handler:             func(_ core.Platform, msg *core.Message) { got = msg },
+	}
+	p.channelNameCache.Store("channel", "test")
+	p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        "line-start-name-sub",
+		GuildID:   "guild",
+		ChannelID: "channel",
+		Author:    &discordgo.User{ID: "human", Username: "owner"},
+		Timestamp: time.Now(),
+		Content:   "彩虹猫，你看看这个",
+	}})
+	if got == nil {
+		t.Fatal("line-start name call was not dispatched")
+	}
+	if !got.Mentioned {
+		t.Fatalf("line-start name call must set Mentioned=true: %+v", got)
+	}
+}

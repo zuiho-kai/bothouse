@@ -247,6 +247,28 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.members.get('ju').online, false);
 });
 
+test('cloud-web: a line-start name calls a non-primary role', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const leadPath = join(mkdtempSync(join(tmpdir(), 'cloudweb-line-name-')), 'lead.json');
+  writeFileSync(leadPath, JSON.stringify({ lead: 'whale', name: '鲸鱼娘' }));
+  const store = new Store(':memory:');
+  store.ensureRoom(1, 'general');
+  const hub = new Hub(store, quiet, new LeadState(leadPath, quiet), 'whale');
+  hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
+  hub.setMember({ id: 'whale', name: '鲸鱼娘', kind: 'bot', online: true });
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '橘，你看看这个', clientKey: 'line-name-sub' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).mentioned, true, 'the named non-primary role is addressed');
+  assert.equal(whale.of('message').at(-1).mentioned, false, 'the selected primary is not addressed by another role name');
+});
+
 test('cloud-web: token check accepts bearer, header, or query', () => {
   const gw = new CloudWebGateway(makeHub(), { token: 'secret', logger: quiet });
   const url = q => new URL(`http://x/cloud-web/ws${q}`);
