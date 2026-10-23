@@ -48,3 +48,23 @@ Work that cannot finish in 10 minutes must be cut (user, 2026-10-23: "if it can'
 
 When you assign test work, give it its own HOME, data directory and port in the prompt. Check the live directories before and after.
 If anything changed, report it as an incident. (2026-10-23: a test deleted a live socket and wrote into a live data directory.)
+
+## 8. At most two review rounds
+
+Review the same thing at most twice: the first round looks at the plan or the change itself, the second only at what changed and the previous round's comments, without rereading from the top.
+If it still fails the second round, stop and rethink the approach instead of reviewing it piece by piece; reviews list only must-fix items, not nice-to-haves.
+
+## 9. Scale review to risk
+
+For a small change in one place, covered by tests, verify with tests, checks and the diff range only — no separate reviewer.
+For an ordinary change, have one person review it once; for live flows, the bridge, anything that spends money, and multi-component work, review the plan before the code. Whoever writes the code does not review it.
+
+## 10. Assigning long tasks
+
+If the wait is under 5 minutes, use a normal sub-agent; if it is 5 to 60 minutes, use a long-task agent, run the command in the background and continue from the completion notice.
+If it is over an hour, start it in the background, write the log and result paths, hand off and stop; start a new agent when the result is in. While waiting, do not poll and do not sit idle.
+
+## 11. Status line and calling a teammate
+
+A teammate's reply starts with one of four tags: 【接】 take it and start, 【问】 not enough information, list what is missing, 【退】 not mine, say who fits better, 【升】 irreversible action, spending or a direction call, escalate to the lead.
+To get a specific teammate to answer, @ her or start a line with her name followed by a comma; a name in the middle of a sentence will not reach her, so do not write it that way when you only mean to mention her.
