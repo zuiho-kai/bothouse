@@ -13,8 +13,11 @@ POST /context {key, text} → 每轮相关的 wiki 页（ctxsvc.py；wiki 目录
 主 + sub：主 bot（/decide）按下面的规则和 4B 决定回/插入/不回，要别人开口就 @ 她们。
 sub（/decide?bot=<key>）听群里每句话，但只在被 @ 时回；没 @ 时空闲就记作增量（context，
 下次开口一起带上），忙时由 4B 判断这句和她手上的活有没有关系：有就插入，没有就记作增量。
+没 @、没回复、没点名的用户消息先过 addressee：jev 读频道最近几条判是说给谁的，只有她按主角色的规则接，
+判不出就接着用户正在说话的那位，再没有才归主角色（见下面「没 @ 的消息该归谁」一节）。
 """
-import json, os, re, time, urllib.parse
+import http.client, json, os, re, threading, time, urllib.parse
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -155,6 +158,39 @@ def mentions_name(content, bot):
     return any(n in content for n in NAMES[bot])
 
 
+def _member(name):
+    """名字 / 别名 → 成员 key（"" = 团队文件里的 lead）；认不出 → None。"""
+    return next((k for k, ns in NAMES.items() if name in ns), None)
+
+
+def split_reply(content):
+    """cc-connect 把 Discord「回复」拼成 "[replying to 作者: 原文]\\n正文"（platform/discord applyReferencedMessage，作者 = Discord 用户名）。
+    → (被回复的成员 key 或 None, 用户自己写的部分)。作者按团队文件的名字/别名认（bot 的 Discord 用户名写进 aliases），认不出为 None。
+    引用里的名字不算叫她，回复的是谁的消息，就是在跟谁说话（本机 gate 2026-10-12：回复主角色时 sub 因引用里有自己名字跟着开口）。"""
+    if not content.startswith("[replying to "):
+        return None, content
+    end = content.rfind("]\n")
+    if end >= 0:
+        return _member(content[len("[replying to "):].split(":", 1)[0]), content[end + 2:].strip()
+    end = content.rfind("]")  # 正文为空（只发了图/文件）时尾部的换行已被 strip 掉
+    if end < 0:
+        return None, content
+    return _member(content[len("[replying to "):end].split(":", 1)[0]), content[end + 1:].strip()
+
+
+def user_addressed(req, bot):
+    """这条是不是明确在叫这个成员：被 @、开头点名、或回复她的消息。不含模型判断和提问句。"""
+    if req.get("mentioned"):
+        return True
+    to, own = split_reply((req.get("content") or "").strip())
+    if re.search(r"<@!?&?\d+>", own):  # @ 了别人
+        return False
+    called = called_names(own)
+    if called:
+        return bot in called
+    return to == bot
+
+
 def judge(content, busy, buffered, me=""):
     state = "正在干活（处理用户之前的请求）" if busy else "现在空闲"
     history = ""
@@ -167,7 +203,7 @@ def decide_sub(req, bot):
     action, reason, sc = _decide_sub(req, bot)
     if action == "reply" and req.get("busy"):  # 叫她且她正忙：是不是叫停
         key = (bot, req.get("session_key") or "")
-        content = (req.get("content") or "").strip()
+        content = split_reply((req.get("content") or "").strip())[1]
         sc2 = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task.get(key, "")[:500], msg=content[:1500]))
         if sc2.choice == 2:
             return "abort", reason + "；sub model: 打断", sc2
@@ -180,11 +216,20 @@ def _decide_sub(req, bot):
     if req.get("mentioned"):
         current_task[key] = content[-500:]
         return "reply", "sub: 被@", None
+    to, content = split_reply(content)
     if re.search(r"<@!?&?\d+>", content):  # @ 了别人：不是对她说
         return "context", "sub: @了别人", None
-    if bot in called_names(content):
+    called = called_names(content)
+    if bot in called:
         current_task[key] = content[-500:]
         return "reply", "sub: 被点名", None
+    if called:  # 开头叫的是别人
+        return "context", "sub: 叫的是别人", None
+    if to == bot:  # 回复她的消息 = 在跟她说
+        current_task[key] = content[-500:]
+        return "reply", "sub: 回复她", None
+    if to is not None:
+        return "context", "sub: 回复别人的消息", None
     if mentions_name(content, bot):
         sc = named_task.score(NAMED_SUFFIX.format(name=lead.NAME[bot], msg=content[:1500]))
         if sc.probs[1] >= NAMED_THRESHOLD:
@@ -198,24 +243,409 @@ def _decide_sub(req, bot):
     return ("context", "insert", "abort")[sc.choice], "sub model", sc
 
 
+# ---------- 没 @ 的消息该归谁（用户 2026-10-22「核心要区分一下，让jev判断，是给谁回的」）----------
+# 用户发的、没 @、没回复谁、开头没点名的消息：读频道最近几条消息、本频道谁刚干完活，让 jev 判是说给谁的。
+# 判给谁，谁就按主角色那套规则（_decide_lead）定回/插入/不回，其他成员只收作上下文。每个 bot 各自来问同一条：
+# 第一个请求算，其余等它的结果（_addr_cache），所以只会有一位回。jev 判不出（超时、看不出、出错、收件人不在线）时，
+# 接着用户正在说话的那位（_talking）；也没有才照旧交给主角色。
+# 用户 2026-10-23「没艾特他，怎么他在说话」：用户刚回复橘，下一句没 @、jev 超时，归了主角色鲸鱼娘，她攒满条数抢答（本机 gate.jsonl 09:26:52）。
+#
+# 读的都是 cc-connect 现有的配置（<SETUP_DIR>/config.toml，没有就不读）：
+# - 各 bot 的 discord token：拉频道历史（任一位的都行，主角色优先）；
+# - discord allow_from：谁是用户本人（"*" 或读不到 = 频道里的人都算用户）；
+# - team_status_dir：各 bot 每 2 秒写的忙闲状态（core/team.go），用来看谁刚干完活、谁在线。没配就不知道谁在线，按都在线算。
+# bot 的 Discord ID 用团队文件里成员的 "id"（lead.py）；没写 id 的按 Discord 用户名/昵称对团队文件的名字和别名认。
+try:
+    import tomllib
+except ImportError:  # Python 3.10 及以下：没有 tomllib，读不了 config.toml，按没配处理
+    tomllib = None
+
+CC_CONFIG = SETUP_DIR / "config.toml"
+
+
+def _cc_projects():
+    """config.toml 里属于本团队的 project：[(成员 key, project 表)]，主角色排前面。读不到 → []。"""
+    if tomllib is None:
+        return []
+    try:
+        cfg = tomllib.loads(CC_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for p in cfg.get("projects") or []:
+        k = _project_member(p.get("name") or "")
+        if k is not None:
+            out.append((k, p))
+    return sorted(out, key=lambda kp: kp[0] != "")
+
+
+def _project_member(project):
+    """cc-connect 的 project 名 → 成员 key：subs 的 key 就是 project 名（gate_url 的 ?bot=）；
+    主角色的 project 名在团队文件 lead 的 aliases 里（安装向导写 gate-team.json 时放进去的，core/setup_wizard.go）。"""
+    if project in SUBS:
+        return project
+    return "" if project in LEAD_NAMES else None
+
+
+def _discord_opts():
+    return [pl.get("options") or {} for _, p in _cc_projects() for pl in p.get("platforms") or [] if pl.get("type") == "discord"]
+
+
+def _team_dir():
+    for _, p in _cc_projects():
+        if p.get("team_status_dir"):
+            return Path(p["team_status_dir"]).expanduser()
+    return None
+
+
+def _user_ids():
+    """discord allow_from 里的用户 ID；有 "*" 或一个都没读到 → None（频道里的人都算用户）。"""
+    ids = set()
+    for o in _discord_opts():
+        for i in str(o.get("allow_from") or "").split(","):
+            if i.strip() == "*":
+                return None
+            if i.strip():
+                ids.add(i.strip())
+    return ids or None
+
+
+TEAM_DIR = _team_dir()
+USER_IDS = _user_ids()
+BOT_BY_ID = {i: k for k, i in lead.ID.items()}
+
+ADDR_PROMPT = """群里有用户和 {n} 个 AI 成员：{names}。用户刚发了一条消息，没有 @ 谁，没有回复谁的消息，开头也没叫名字。
+根据最近的聊天、本频道谁刚干完活，判断这条消息是说给谁的：
+{options}
+{unsure} 看不出：和最近的聊天接不上，或者是对大家说的
+用户常接着刚跟他说话的那位往下说：同意、追问、补要求、让她去做、评价她刚发的东西。
+只答一个字母。
+
+"""
+ADDR_SUFFIX = "最近的聊天（旧→新）：\n{history}\n本频道队友：\n{team}\n{last}用户刚发：「{msg}」\n\n判断（{choices} / {unsure} 看不出）："
+# {last}「最后一位说话的 AI」：不写时模型偏向主角色，8 个情景对 6 个；写上 8 个全对（本机 gate 2026-10-22 实测）
+ADDR_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXY"[:len(lead.KEYS)]  # 顺序 = lead.KEYS（主角色在前）；下一个字母 = 看不出
+ADDR_UNSURE = chr(ord("A") + len(lead.KEYS))
+addr_task = scorer.prepare(
+    ADDR_PROMPT.format(n=len(lead.KEYS), names="、".join(lead.NAME[k] for k in lead.KEYS), unsure=ADDR_UNSURE,
+                       options="\n".join(f"{ADDR_LETTERS[i]} {lead.NAME[k]}" for i, k in enumerate(lead.KEYS))),
+    options=list(ADDR_LETTERS) + [ADDR_UNSURE], prefill="答案：")
+ADDR_HISTORY = 6      # 来源：用户原话「最近几条」；条数沿用 judge 的 buffered[-6:]（本机 gate 同值）
+ADDR_MSG_CHARS = 100  # 来源：沿用本机 gate 同值。每条只截开头：6 条聊天 + 队友 + 本条要塞进本机打分器 2048 token 上限（scorer.py）
+# cc-connect 只等 gate gate_timeout_ms（默认 3000ms），超时各 bot 按 gate_fallback 兜底：拉历史总共最多给一半，剩下的给打分
+DISCORD_DEADLINE = 1.5  # 来源：沿用本机 gate 同值（gate_timeout_ms 3000 的一半）
+# 同一条的各个请求都在这之内到：空闲的 bot 先攒 1.5s（core/gate.go burstWindow）+ gate 3s 超时 = 4.5s，翻倍取整
+ADDR_REUSE_SECS = 10  # 来源：沿用本机 gate 同值（burstWindow 1.5s + gate 超时 3s，翻倍取整）
+TEAM_STALE_SECS = 60  # 来源：同 core/team.go teamStaleAfter：文件一分钟没重写 = 那个进程没了
+# 各请求共用的绝对截止，从第一个请求到达算起；留 0.8s 给超时后收件人那次打分和 HTTP 往返，到点算判不出
+ADDR_DEADLINE = 2.2  # 来源：沿用本机 gate 同值（gate_timeout_ms 默认 3000 减 0.8s）
+# 「刚说过话」的窗口：主角色上一条回复在这之内算刚说过话，对话延续用同一口径
+LAST_FRESH_SECS = 1800  # 来源：沿用本机 gate 的 LAST_FRESH_SECS 同值
+
+_addr_cache = {}  # (频道, 本条原文) → [建立时刻, Event, 结果, 正在对话的成员]（结果在 set() 之后不再改）
+# 用户在本频道正跟谁说话：最近一条用户消息落到谁头上（被 @、回复她、点名、或她接了没 @ 的话）
+_talk = {}  # 频道 → (成员 key, 时刻)
+_addr_lock = threading.Lock()
+_dc = {"conn": None, "token": None}
+_dc_lock = threading.Lock()
+
+
+def _chat(key):
+    """session key → "平台:频道"，同 core/team.go chatOf。"""
+    return ":".join((key or "").split(":", 2)[:2])
+
+
+def _ts(s):
+    """ISO 时间 → epoch 秒。Go 写的秒小数位数不定（team/*.json），老版本 Python 的 fromisoformat 只认 3/6 位。"""
+    m = re.match(r"(.*?\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$", s or "")
+    if not m:
+        return None
+    frac = ((m.group(2) or "") + "000000")[:6]
+    tz = m.group(3) or "+00:00"
+    return datetime.fromisoformat(f"{m.group(1)}.{frac}{'+00:00' if tz == 'Z' else tz}").timestamp()
+
+
+def _ago(secs):
+    return "刚才" if secs < 60 else f"{secs // 60} 分钟前" if secs < 3600 else f"{secs // 3600} 小时前"
+
+
+def _discord_token():
+    """本团队一位 bot 的 discord token（config.toml，主角色优先；"${VAR}" 从环境变量取）。不写日志、不外传。"""
+    if not _dc["token"]:  # 没读到不缓存，下次再读
+        for o in _discord_opts():
+            tok = os.path.expandvars(str(o.get("token") or "")).strip()
+            if tok and "${" not in tok:
+                _dc["token"] = tok
+                break
+    return _dc["token"] or ""
+
+
+def _discord_get(path):
+    """GET discord.com/api/v10<path>，总共最多等 DISCORD_DEADLINE 秒；超时或失败返回 None。"""
+    box = {}
+    t = threading.Thread(target=lambda: box.setdefault("v", _discord_get_sync(path)), daemon=True)
+    t.start()
+    t.join(DISCORD_DEADLINE)
+    return box.get("v")
+
+
+def _discord_get_sync(path):
+    """复用一条 HTTPS 连接（每次新建连接实测 0.7–2.5s，复用 0.4s，本机 gate 2026-10-22）。"""
+    tok = _discord_token()
+    if not tok or not _dc_lock.acquire(timeout=DISCORD_DEADLINE):
+        return None
+    try:
+        for attempt in (0, 1):  # 复用的连接可能已被对面关掉：换新连接再试一次
+            fresh = _dc["conn"] is None
+            if fresh:
+                _dc["conn"] = http.client.HTTPSConnection("discord.com", timeout=DISCORD_DEADLINE)
+            try:
+                _dc["conn"].request("GET", "/api/v10" + path, headers={"Authorization": "Bot " + tok, "User-Agent": "DiscordBot (bothouse-gate, 1)"})
+                r = _dc["conn"].getresponse()
+                body = r.read()
+                return json.loads(body) if r.status == 200 else None
+            except Exception:
+                _dc["conn"].close()
+                _dc["conn"] = None
+                if fresh:
+                    return None
+    finally:
+        _dc_lock.release()
+    return None
+
+
+def _bot_key(user):
+    """Discord 用户对象 → 成员 key：先按团队文件的 id，没写 id 的按用户名/昵称对名字和别名；认不出 → None。"""
+    k = BOT_BY_ID.get(str(user.get("id") or ""))
+    if k is not None:
+        return k
+    for n in (user.get("global_name"), user.get("username")):
+        if n and _member(n) is not None:
+            return _member(n)
+    return None
+
+
+def recent_messages(chat, limit):
+    """频道最近的消息，新的在前：[(几秒前, 作者, [回复/@ 到的成员 key], 原文)]；作者是成员 key，人是 None（用户）或名字。
+    拉不到（不是 Discord、没 token、网络失败）返回 []。"""
+    plat, _, cid = chat.partition(":")
+    if plat != "discord" or not cid.isdigit():
+        return []
+    data = _discord_get(f"/channels/{cid}/messages?limit={limit}")
+    if not isinstance(data, list):
+        return []
+    now, out = time.time(), []
+    for m in data:
+        text = (m.get("content") or "").strip()
+        if m.get("webhook_id") or not text:  # 板子 webhook、只有卡片/附件的不算聊天
+            continue
+        a = m.get("author") or {}
+        if a.get("bot"):
+            who = _bot_key(a)
+            if who is None:
+                continue
+        else:
+            who = None if USER_IDS is None or a.get("id") in USER_IDS else (a.get("global_name") or a.get("username") or "某人")
+        to = []
+        ref = (m.get("referenced_message") or {}).get("author")
+        for u in ([ref] if ref else []) + list(m.get("mentions") or []):
+            k = _bot_key(u)
+            if k is not None and k not in to:
+                to.append(k)
+        t = _ts(m.get("timestamp"))
+        out.append((int(now - t) if t else 0, who, to, text))
+    return out
+
+
+def _team_files():
+    """team_status_dir 里本团队每位的状态文件 → {成员 key: 内容}；一分钟没重写的（进程没了）不算。"""
+    if TEAM_DIR is None:
+        return {}
+    now, out = time.time(), {}
+    for p in sorted(TEAM_DIR.glob("*.json")):
+        try:
+            f = json.loads(p.read_text())
+        except (OSError, ValueError):
+            continue
+        k = _project_member(f.get("project") or "")
+        if k is None or now - (_ts(f.get("updated")) or 0) > TEAM_STALE_SECS:
+            continue
+        out[k] = f
+    return out
+
+
+def team_recent(chat):
+    """本频道每位队友的状态：在忙 / 刚做完、接的是哪句。"""
+    now, out = time.time(), []
+    for k, f in _team_files().items():
+        for s in f.get("sessions") or []:
+            if _chat(s.get("key")) != chat:
+                continue
+            task = re.sub(r"\s+", " ", s.get("task") or "")[:60]
+            if s.get("busy"):
+                out.append(f"- {lead.NAME[k]} 正在本频道干活（{_ago(int(now - (_ts(s.get('since')) or now)))}开始），接的是「{task}」")
+            else:
+                out.append(f"- {lead.NAME[k]} {_ago(int(now - (_ts(s.get('done_at')) or now)))}在本频道做完一轮，接的是「{task}」")
+    return out
+
+
+def team_online(bot, chat):
+    """收件人在线且在本频道：她的状态文件一分钟内重写过，且 sessions 里有本频道。没配 team_status_dir 时不知道，按在线算。"""
+    if TEAM_DIR is None:
+        return True
+    f = _team_files().get(bot)
+    return bool(f) and any(_chat(s.get("key")) == chat for s in f.get("sessions") or [])
+
+
+def _key_part(req):
+    """缓存键对应的那一条：合并请求取最后一条有文字的（都没文字取最后一条），否则就是本条。忙闲的 bot 都合并连发
+    （core/gate.go），各 bot 按同一条判，结论才一致。「@某人 看这个」+图拆成两条时图在后、文字为空，取它就丢了 @。"""
+    parts = req.get("parts") or []
+    if parts:
+        p = next((p for p in reversed(parts) if (p.get("content") or "").strip()), parts[-1])
+        return {"content": p.get("content") or "", "mentioned": p.get("mentioned"), "from_bot": p.get("from_bot")}
+    return {"content": req.get("content") or "", "mentioned": req.get("mentioned"), "from_bot": req.get("from_bot")}
+
+
+def _addr_applies(req, bot):
+    """只管用户发的、没 @、没回复、开头没点名、不是命令的消息。只看缓存键那一条（_key_part），各 bot 看到的结论一样：
+    @ 了谁，被 @ 的那位 mentioned=true，其余几位的原文里有 <@id>；回复和点名每位看到的原文相同。
+    只发图/文件、一个字没写的也归这里（以前空文本直接绕过，主角色按「只有附件」插话抢答）。"""
+    p = _key_part(req)
+    content = p["content"].strip()
+    own = split_reply(content)[1]
+    attach_only = not own and bool(req.get("has_images") or req.get("has_files"))
+    return not (p["mentioned"] or p["from_bot"] or content.startswith("[replying to ") or re.search(r"<@!?&?\d+>", own)
+                or called_names(own) or own.startswith("/") or (not own and not attach_only))
+
+
+ATTACH_ONLY_MSG = "（只发了图片/文件，没有文字）"  # 只发附件时喂给 jev 的「用户刚发」，jev 靠上文判是给谁的
+
+
+def _called_in_burst(req, bot):
+    """合并的连发里前面某条明确叫了这个 bot（@、开头点名、回复她）：那条照她自己的规则走，不因最后一条判给别人就丢掉。"""
+    parts = (req.get("parts") or [])[:-1]
+    return any(user_addressed({"content": p.get("content") or "", "mentioned": p.get("mentioned")}, bot) for p in parts)
+
+
+def _judge_addressee(chat, msg, msgs=None):
+    if msgs is None:
+        msgs = recent_messages(chat, ADDR_HISTORY + 4)  # 多拉几条：最新的几条可能就是本条（用户连发）
+    norm = lambda t: re.sub(r"\s+", " ", t).strip()
+    for i, m in enumerate(msgs[:4]):  # 去掉本条自己：只删一条、原文完全相同的（子串匹配会误删历史里更短的旧消息）
+        if m[1] is None and norm(m[3]) == norm(msg):
+            msgs.pop(i)
+            break
+    hist = []
+    for ago, who, to, text in reversed(msgs[:ADDR_HISTORY]):
+        name = "用户" if who is None else lead.NAME.get(who, who)
+        tail = f"（对{'、'.join(lead.NAME[t] for t in to)}说）" if to else ""
+        text = re.sub(r"\s+", " ", text)[:ADDR_MSG_CHARS]
+        hist.append(f"- {_ago(ago)} {name}{tail}：{text}")
+    last = next((f"最后一位说话的 AI：{lead.NAME[w]}（{_ago(a)}）\n" for a, w, _, _ in msgs[:ADDR_HISTORY] if w in lead.NAME), "")
+    team = team_recent(chat)
+    if not hist and not team:
+        return None, "没有上下文", None
+    sc = addr_task.score(ADDR_SUFFIX.format(history="\n".join(hist) or "（拉不到）", team="\n".join(team) or "（没人在本频道干活）",
+                                            last=last, msg=msg[:500], unsure=ADDR_UNSURE,
+                                            choices=" / ".join(f"{ADDR_LETTERS[i]} {lead.NAME[k]}" for i, k in enumerate(lead.KEYS))))
+    if sc.choice >= len(lead.KEYS):
+        return None, "jev 看不出", sc
+    k = lead.KEYS[sc.choice]
+    if not team_online(k, chat):  # 判给的成员下线或不在本频道：她收不到，交主角色
+        return None, f"jev 判给{lead.NAME[k]}，收件人不在线", sc
+    return k, "jev", sc
+
+
+def _settle(ent, result):
+    """结果只落一次：先到的（算完 / 到截止）为准，之后的丢弃。"""
+    with _addr_lock:
+        if not ent[1].is_set():
+            k, why, sc = result
+            if k is None and ent[3] is not None:  # jev 判不出：接着用户正在说话的那位，不交主角色。在锁里定一次，各 bot 看到同一个
+                result = (ent[3], f"{why}，接着和{lead.NAME[ent[3]]}的对话", sc)
+            ent[2] = result
+            ent[1].set()
+
+
+def addressee(req, bot):
+    """→ (收件人成员 key 或 None, 说明, score)。None = 不归这一步管或判不出，照旧走主角色/sub 的规则。"""
+    if addr_task is None or not _addr_applies(req, bot):  # addr_task 为 None：测试里关掉这一步
+        return None, "", None
+    last = split_reply(_key_part(req)["content"].strip())[1] or ATTACH_ONLY_MSG
+    key = (_chat(req.get("session_key")), last)
+    with _addr_lock:
+        now = time.time()
+        for k in [k for k, v in _addr_cache.items() if now - v[0] > ADDR_REUSE_SECS]:
+            del _addr_cache[k]
+        ent = _addr_cache.get(key)
+        mine = ent is None
+        if mine:  # 正在对话的成员在第一个请求到时定下，各 bot 共用，结论一致
+            ent = _addr_cache[key] = [now, threading.Event(), (None, "jev 没算完", None), _talking(key[0], now)]
+
+    def work():
+        try:
+            msgs = recent_messages(key[0], ADDR_HISTORY + 4)
+            with _addr_lock:  # 拉到历史就把「最后发言的 bot」并进对话对象，jev 打分超时也用得上
+                ent[3] = _talking(key[0], ent[0], msgs)
+            r = _judge_addressee(key[0], last, msgs)  # 只喂键那一条：合并和逐条请求的输入相同；连发前几条在频道历史里
+        except Exception as e:  # 拉历史/打分出错（含 jev 超时、输入超长的 ValueError）：判不出
+            r = (None, f"jev 出错 {e!r}"[:200], None)
+        _settle(ent, r)
+
+    if mine:
+        threading.Thread(target=work, daemon=True).start()
+    if not ent[1].wait(max(0.0, ent[0] + ADDR_DEADLINE - time.time())):
+        _settle(ent, (None, "jev 超时", None))
+    return ent[2]
+
+
+def _talking(chat, now, msgs=()):
+    """用户在这个频道正跟谁说话，取两个来源里较新的那个：_talk（她接了用户的话）和频道历史里最后发言的 bot
+    （她真正发出消息的时刻，含主动来报结果；@ 别的 bot 的那条不算）。要在 LAST_FRESH_SECS 之内、且在线在本频道，没有返回 None。"""
+    k, at = _talk.get(chat, (None, 0))
+    age = now - at if k is not None else None
+    said = next(((a, w) for a, w, to, _ in msgs if w in lead.NAME and not to), None)  # msgs 新的在前（recent_messages）
+    if said is not None and (age is None or said[0] < age):
+        age, k = said
+    if k is None or age > LAST_FRESH_SECS or not team_online(k, chat):
+        return None
+    return k
+
+
 def route(req, bot=""):
-    """用户切换主角色的那句先处理（lead.py）；其余按当前主角色分流：主角色走主的规则，其他成员走 sub 的规则。"""
-    content = (req.get("content") or "").strip()
-    target = lead.parse(req, content, bot)
+    action, reason, sc = _route(req, bot)
+    if action in ("reply", "abort", "insert") and not _key_part(req)["from_bot"]:  # 她接了用户这句 = 用户在跟她说话（bot 之间的 @ 不算）
+        _talk[_chat(req.get("session_key"))] = (bot, time.time())
+    return action, reason, sc
+
+
+def _route(req, bot=""):
+    """用户切换主角色的那句先处理（lead.py）；再判没 @ 的消息归谁（addressee）；其余按当前主角色分流：主角色走主的规则，其他成员走 sub 的规则。"""
+    to, own = split_reply((req.get("content") or "").strip())
+    target = lead.parse(req, own, bot, to)
     if target is not None:
         lead.set_lead(target)
         if bot == target:
             return "reply", f"rule: 用户把主角色切到{lead.NAME[target]}", None
         return "context", f"rule: 用户把主角色切到{lead.NAME[target]}，不是我", None
-    if bot == lead.current():
-        return decide(req, bot)
-    return decide_sub(req, bot)
+    addr, why, asc = addressee(req, bot)
+    if addr is not None and bot != addr and _called_in_burst(req, bot):  # 连发前面有条叫的是她：按她自己的规则
+        addr, why = None, f"{why}: 判给{lead.NAME[addr]}，但连发里叫了我"
+    if addr is not None:
+        if bot != addr:
+            return "context", f"{why}: 判给{lead.NAME[addr]}", asc
+        current_task[(bot, req.get("session_key") or "")] = own[-500:]
+        action, reason, sc = decide(req, bot)  # 收件人按主角色那套规则定回/插入/不回（含忙时叫停）
+        return action, f"{why}: 判给我；{reason}", sc or asc
+    action, reason, sc = decide(req, bot) if bot == lead.current() else decide_sub(req, bot)
+    return action, (f"{why}；{reason}" if why else reason), sc or asc
 
 
 def decide(req, me=""):
     action, reason, sc = _decide_lead(req, me)
     if action == "reply" and req.get("busy"):  # @主角色/叫她名字且她正忙：是不是叫停，同 decide_sub（用户原话「艾特她的时候，不要只有insert插入，而是还有abort插入」）
-        content = (req.get("content") or "").strip()
+        content = split_reply((req.get("content") or "").strip())[1]
         if req.get("mentioned") or any(n in content for n in NAMES[me]):
             sc2 = judge(content, True, req.get("buffered") or [], me)
             if ACTIONS[sc2.choice] == "abort":
@@ -229,16 +659,21 @@ def _decide_lead(req, me=""):
     busy = bool(req.get("busy"))
     if req.get("mentioned"):
         return "reply", f"rule: @{lead.NAME[me]}", None
-    if re.search(r"<@!?&?\d+>", content):  # @ 了别的 bot/人（自己的 @ 已被 cc-connect 去掉）→ 不是叫橘
+    to, own = split_reply(content)  # 下面的规则只看用户自己写的部分，引用里的名字、@、问号不算
+    # 回复的是别的成员的消息、开头也没叫我：回复谁就是在跟谁说。回 context 不回 silent：带图时 silent 会被 cc-connect
+    # 改成 insert（core/gate.go 附件不能按文字缓冲），主角色就插话抢答了（本机 gate 2026-10-23「我都艾特你了，他还在判断」）
+    if to not in (None, me) and me not in called_names(own):
+        return "context", "rule: 回复 sub", None
+    if re.search(r"<@!?&?\d+>", own):  # @ 了别的 bot/人（自己的 @ 已被 cc-connect 去掉）→ 不是叫橘
         return "silent", "rule: @了别人", None
-    called = called_names(content)
+    called = called_names(own)
     if called and me not in called:  # 开头叫的是别人，让她自己接
         return "silent", "rule: 点名 sub", None
-    if content.startswith("/"):
+    if own.startswith("/"):
         return "reply", "rule: command", None
-    if ACK.match(content):
+    if ACK.match(own):
         return "silent", "rule: 应答", None
-    if CALL.search(content) or any(n in content for n in NAMES[me]):
+    if CALL.search(own) or any(n in own for n in NAMES[me]):
         return "reply", "rule: 叫我/提问", None
     links = len(URL.findall(content)) + sum(len(URL.findall(b)) for b in buffered)
     if links >= LINKS_FOR_REPLY:
