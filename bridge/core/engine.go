@@ -559,6 +559,9 @@ type Engine struct {
 	// Data directory for socket path injection
 	dataDir        string
 	publicProgress *PublicProgress
+
+	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
+	teamExit teamExitState
 }
 
 // workspaceInitFlow tracks a channel that is being onboarded to a workspace.
@@ -3101,6 +3104,10 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		e.handleMessageRecall(p, msg)
 		return
 	}
+	// #139 C: a user reply to a forwarded workspace [ask] goes back to that workspace.
+	if e.routeWorkspaceAnswer(p, msg) {
+		return
+	}
 
 	slog.Info("message received",
 		"platform", msg.Platform, "msg_id", msg.MessageID,
@@ -5283,6 +5290,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 						e.send(p, markAgentReply(p, replyCtx, session), chunk)
 					}
 				}
+				if fullResponse != "" {
+					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
+				}
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -6402,6 +6412,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			}
 
+			if !isSilent {
+				e.forwardWorkspaceExit(p, sessionKey, baseResponse) // #139 C: workspace [ask]/[report] -> chat channel
+			}
 			if !isSilent && input == nil {
 				e.hooks.Emit(HookEvent{
 					Event:      HookEventMessageSent,
