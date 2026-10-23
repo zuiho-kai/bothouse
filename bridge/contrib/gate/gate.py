@@ -340,7 +340,7 @@ TEAM_STALE_SECS = 60  # 来源：同 core/team.go teamStaleAfter：文件一分�
 # 各请求共用的绝对截止，从第一个请求到达算起；留 0.8s 给超时后收件人那次打分和 HTTP 往返，到点算判不出
 ADDR_DEADLINE = 2.2  # 来源：沿用本机 gate 同值（gate_timeout_ms 默认 3000 减 0.8s）
 # 「刚说过话」的窗口：主角色上一条回复在这之内算刚说过话，对话延续用同一口径
-LAST_FRESH_SECS = 1800  # 来源：沿用本机 gate 的 LAST_FRESH_SECS 同值
+LAST_FRESH_SECS = 1800  # 来源：无来源。本机 gate 最早的备份（gate.py.bak-20261012-ctx）起就是这个值，注释只写用途；wiki 和历史会话里查不到用户原话或数据
 
 _addr_cache = {}  # (频道, 本条原文) → [建立时刻, Event, 结果, 正在对话的成员]（结果在 set() 之后不再改）
 # 用户在本频道正跟谁说话：最近一条用户消息落到谁头上（被 @、回复她、点名、或她接了没 @ 的话）
@@ -528,7 +528,8 @@ def _called_in_burst(req, bot):
     return any(user_addressed({"content": p.get("content") or "", "mentioned": p.get("mentioned")}, bot) for p in parts)
 
 
-def _judge_addressee(chat, msg, msgs=None):
+def _judge_addressee(chat, msg, msgs=None, talking=None, now=None):
+    """talking：正在对话的成员（_talking 的结果）。拉不到历史时把它作为「最后一位说话的 AI」喂给 jev，仍由 jev 判。"""
     if msgs is None:
         msgs = recent_messages(chat, ADDR_HISTORY + 4)  # 多拉几条：最新的几条可能就是本条（用户连发）
     norm = lambda t: re.sub(r"\s+", " ", t).strip()
@@ -543,8 +544,11 @@ def _judge_addressee(chat, msg, msgs=None):
         text = re.sub(r"\s+", " ", text)[:ADDR_MSG_CHARS]
         hist.append(f"- {_ago(ago)} {name}{tail}：{text}")
     last = next((f"最后一位说话的 AI：{lead.NAME[w]}（{_ago(a)}）\n" for a, w, _, _ in msgs[:ADDR_HISTORY] if w in lead.NAME), "")
+    if not last and talking is not None:  # 拉不到历史（Discord 超时 / 没 token）：用本进程记下的对话对象
+        at = _talk.get(chat, (None, 0))[1] if _talk.get(chat, (None,))[0] == talking else 0
+        last = f"最后一位说话的 AI：{lead.NAME[talking]}" + (f"（{_ago((now or time.time()) - at)}）" if at else "") + "\n"
     team = team_recent(chat)
-    if not hist and not team:
+    if not hist and not team and not last:
         return None, "没有上下文", None
     sc = addr_task.score(ADDR_SUFFIX.format(history="\n".join(hist) or "（拉不到）", team="\n".join(team) or "（没人在本频道干活）",
                                             last=last, msg=msg[:500], unsure=ADDR_UNSURE,
@@ -557,12 +561,14 @@ def _judge_addressee(chat, msg, msgs=None):
     return k, "jev", sc
 
 
-def _settle(ent, result):
-    """结果只落一次：先到的（算完 / 到截止）为准，之后的丢弃。"""
+def _settle(ent, result, fallback=False):
+    """结果只落一次：先到的（算完 / 到截止）为准，之后的丢弃。
+    fallback=True 表示 jev 没给出结论（超时、出错、没有任何上下文可喂）：这时才接着用户正在说话的那位。
+    jev 明确答了（含「看不出 / 对大家说的」）以 jev 为准（用户原话「让jev判断，是给谁回的」）。"""
     with _addr_lock:
         if not ent[1].is_set():
             k, why, sc = result
-            if k is None and ent[3] is not None:  # jev 判不出：接着用户正在说话的那位，不交主角色。在锁里定一次，各 bot 看到同一个
+            if fallback and k is None and ent[3] is not None:  # 在锁里定一次，各 bot 看到同一个
                 result = (ent[3], f"{why}，接着和{lead.NAME[ent[3]]}的对话", sc)
             ent[2] = result
             ent[1].set()
@@ -588,15 +594,15 @@ def addressee(req, bot):
             msgs = recent_messages(key[0], ADDR_HISTORY + 4)
             with _addr_lock:  # 拉到历史就把「最后发言的 bot」并进对话对象，jev 打分超时也用得上
                 ent[3] = _talking(key[0], ent[0], msgs)
-            r = _judge_addressee(key[0], last, msgs)  # 只喂键那一条：合并和逐条请求的输入相同；连发前几条在频道历史里
+            r = _judge_addressee(key[0], last, msgs, ent[3], ent[0])  # 只喂键那一条：合并和逐条请求的输入相同；连发前几条在频道历史里
         except Exception as e:  # 拉历史/打分出错（含 jev 超时、输入超长的 ValueError）：判不出
             r = (None, f"jev 出错 {e!r}"[:200], None)
-        _settle(ent, r)
+        _settle(ent, r, fallback=r[2] is None)  # 没有 score = jev 没答（出错 / 没上下文）
 
     if mine:
         threading.Thread(target=work, daemon=True).start()
     if not ent[1].wait(max(0.0, ent[0] + ADDR_DEADLINE - time.time())):
-        _settle(ent, (None, "jev 超时", None))
+        _settle(ent, (None, "jev 超时", None), fallback=True)
     return ent[2]
 
 
@@ -615,7 +621,9 @@ def _talking(chat, now, msgs=()):
 
 def route(req, bot=""):
     action, reason, sc = _route(req, bot)
-    if action in ("reply", "abort", "insert") and not _key_part(req)["from_bot"]:  # 她接了用户这句 = 用户在跟她说话（bot 之间的 @ 不算）
+    p = _key_part(req)
+    # 只记「用户在跟她说」的：@ / 回复 / 点名她，或 jev 判给她。主角色按「攒满 / 提问 / 模型」接的话不算（bot 之间的 @ 也不算）
+    if action in ("reply", "abort", "insert") and not p["from_bot"] and (user_addressed(p, bot) or ": 判给我；" in reason):
         _talk[_chat(req.get("session_key"))] = (bot, time.time())
     return action, reason, sc
 
@@ -636,7 +644,9 @@ def _route(req, bot=""):
         if bot != addr:
             return "context", f"{why}: 判给{lead.NAME[addr]}", asc
         current_task[(bot, req.get("session_key") or "")] = own[-500:]
-        action, reason, sc = decide(req, bot)  # 收件人按主角色那套规则定回/插入/不回（含忙时叫停）
+        # 收件人只跑主角色那套的规则部分，不再串一次 judge：jev 已判给她，再打分要多等一次模型，
+        # 加上拉历史和 jev 会超过 cc-connect 的 gate_timeout_ms（默认 3000ms），兜底成 context 就没人回了
+        action, reason, sc = _decide_lead(req, bot, model=False)
         return action, f"{why}: 判给我；{reason}", sc or asc
     action, reason, sc = decide(req, bot) if bot == lead.current() else decide_sub(req, bot)
     return action, (f"{why}；{reason}" if why else reason), sc or asc
@@ -653,7 +663,7 @@ def decide(req, me=""):
     return action, reason, sc
 
 
-def _decide_lead(req, me=""):
+def _decide_lead(req, me="", model=True):
     content = (req.get("content") or "").strip()
     buffered = req.get("buffered") or []
     busy = bool(req.get("busy"))
@@ -684,6 +694,8 @@ def _decide_lead(req, me=""):
         return "reply", f"rule: 攒了 {len(buffered) + 1} 条", None
     if not content:
         return "insert", "rule: 只有附件", None
+    if not model:  # 已判给我（addressee）：规则没拦下就回，同上面「叫我/提问」那几条规则（忙时也是 reply，由 cc-connect 投递）
+        return "reply", "rule: jev 判给我", None
     try:
         sc = judge(content, busy, buffered, me)
     except ValueError as e:  # 输入超过 scorer 上限：和 cc-connect 出错时一样按 reply
@@ -716,8 +728,8 @@ TIER_SUFFIX = "消息：「{msg}」\n\n判断（A 聊天 / B 任务）："
 tier_task = scorer.prepare(TIER_PROMPT, options=["A", "B"], prefill="答案：")
 
 
-def tier_of(req):
-    """返回 (tier, 依据, score)。tier 是 "chat" 或 "task"。"""
+def tier_of(req, model=True):
+    """返回 (tier, 依据, score)。tier 是 "chat" 或 "task"；model=False 时规则判不了返回 None（不带 tier，cc-connect 用默认模型）。"""
     content = (req.get("content") or "").strip()
     if req.get("has_files") or req.get("has_images"):
         return "task", "tier rule: 带附件", None
@@ -730,6 +742,8 @@ def tier_of(req):
         return "chat", "tier rule: 闲聊/问候", None
     if len(content) <= TIER_CHAT_SHORT:
         return "chat", "tier rule: 短句无干活词", None
+    if not model:  # jev 判给的收件人：时间已花在拉历史和 jev 上，不再串一次模型（同 _route 收件人那段）
+        return None, "tier skip: 已判给我，不再打分", None
     sc = tier_task.score(TIER_SUFFIX.format(msg=content[:1500]))
     return ("chat", "task")[sc.choice], "tier model", sc
 
@@ -775,7 +789,7 @@ class H(BaseHTTPRequestHandler):
         tier = tier_reason = tier_probs = None
         if action in ("reply", "insert", "abort"):  # abort 在 cc-connect 里按 reply 投递
             try:
-                tier, tier_reason, tsc = tier_of(req)
+                tier, tier_reason, tsc = tier_of(req, model=": 判给我；" not in reason)
                 tier_probs = tsc.probs if tsc else None
             except ValueError as e:  # 输入超过 scorer 上限
                 tier, tier_reason = "task", f"tier error: {e}"

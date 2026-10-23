@@ -290,16 +290,60 @@ class Talk(Base):
         gate._talk[CHAT] = ("longniang", time.time() - gate.LAST_FRESH_SECS - 1)
         self.assertEqual(self.replied(self.all_route("你们觉得今晚吃什么好")), [gate.lead.current()])
 
-    def test_insert_counts_as_talk(self):  # 用户这句橘按 insert 接了，也算在跟橘说话；下一条 jev 超时只有橘接
+    def test_unaddressed_insert_not_talk(self):  # 主角色按「只有附件」自己插话：用户没在跟她说，不记成对话（审查第 4 条）
         self.jev_timeout()
-        gate.lead.current = lambda: ""  # 先由橘当主：只发图、没上下文 → 橘按「只有附件」insert
+        gate.lead.current = lambda: ""
         self.history([])
         self.clear()
         a, _, _ = gate.route({"content": "", "busy": True, "has_images": True, "session_key": CHAT}, "")
         self.assertEqual(a, "insert")
+        self.assertNotIn(CHAT, gate._talk)
         gate.lead.current = lambda: "jingyu"
         r = self.route_plain("但是你成片就很正常")
-        self.assertEqual(self.replied({b: v[0] for b, v in r.items()}), [""], r)
+        self.assertEqual(self.replied({b: v[0] for b, v in r.items()}), ["jingyu"], r)
+
+    def test_lead_buffer_reply_not_talk(self):  # 主角色因「攒满 6 条」回了一句不算对话；jev 判给她的算
+        self.history([])
+        gate.addr_task = None  # 关掉 addressee，只看主角色自己的规则
+        self.clear()
+        a, why, _ = gate.route({"content": "随便聊聊", "buffered": ["x"] * 5, "session_key": CHAT}, gate.lead.current())
+        self.assertEqual(a, "reply", why)
+        self.assertNotIn(CHAT, gate._talk)
+
+    def test_jev_unsure_beats_talk(self):  # jev 明确答「看不出 / 对大家说的」：以 jev 为准，不改写成接着对话的那位（审查第 2 条）
+        gate._talk[CHAT] = ("longniang", time.time() - 60)
+        self.history([(60, "longniang", [], "脚本写好了")])
+        gate.addr_task = types.SimpleNamespace(score=lambda *a, **k: (self.calls.append(a), SC(len(gate.lead.KEYS), 6))[1])
+        r = self.all_route("大家怎么看？")
+        self.assertEqual(self.replied(r), [gate.lead.current()], r)
+
+    def test_no_history_still_asks_jev(self):  # 拉不到历史、没有队友状态，但记得正在和龙娘说：把它交给 jev 判（审查第 2 条）
+        gate._talk[CHAT] = ("longniang", time.time() - 60)
+        self.history([])
+        r = self.all_route("那你接着弄")
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("最后一位说话的 AI：龙娘", self.calls[0])
+        self.assertEqual(self.replied(r), ["longniang"], r)
+
+    def test_recipient_no_extra_model(self):  # 判给 sub 后不再串 judge / tier 模型，jev 1s 时整条在 gate_timeout_ms 3000 内（审查第 1 条）
+        self.history([(20, "jingyu", [], "要我继续查吗？")])
+        slow = lambda r: types.SimpleNamespace(score=lambda *a, **k: (time.sleep(1.0), r)[1])
+        gate.addr_task = types.SimpleNamespace(score=lambda *a, **k: (time.sleep(1.0), SC(gate.lead.KEYS.index("jingyu"), 6))[1])
+        gate.tasks.update({k: slow(SC(2, 4)) for k in gate.tasks})
+        saved_tier = gate.tier_task
+        gate.tier_task = slow(SC(1, 2))
+        try:
+            self.clear()
+            req = {"content": "那你接着往下看看后端那边的情况，顺手瞧瞧还有哪里不对劲", "busy": False, "session_key": CHAT}
+            t = time.time()
+            a, why, _ = gate.route(req, "jingyu")
+            tier = gate.tier_of(req, model=": 判给我；" not in why)
+            took = time.time() - t
+        finally:
+            gate.tier_task = saved_tier
+        self.assertEqual(a, "reply", why)
+        self.assertIsNone(tier[0], tier)
+        self.assertLess(took, 2.0, took)  # 只剩 jev 那一次（1s）
 
     def test_bot_report_counts_as_talk(self):  # 龙娘主动来报结果（_talk 里没有她），下一条没 @ 且 jev 超时 → 只有龙娘接
         self.jev_timeout()
