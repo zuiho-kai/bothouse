@@ -33,6 +33,7 @@ func parseProgressArgs(args []string) (core.PublicProgressRequest, string, error
 	f.StringVar(&req.Project, "project", os.Getenv("CC_PROJECT"), "project")
 	f.StringVar(&req.SessionKey, "session", os.Getenv("CC_SESSION_KEY"), "session")
 	f.StringVar(&req.Run, "run", "", "current turn token from prompt (required)")
+	f.StringVar(&req.TaskID, "task", "", "delegation card id; each card has its own sequence")
 	f.Int64Var(&req.Seq, "seq", 0, "sequence, beginning at 1")
 	f.StringVar(&req.Kind, "kind", "", "start/update/milestone/waiting/result (member also: failed/cancelled)")
 	f.StringVar(&req.Title, "title", "", "short task title, required for start")

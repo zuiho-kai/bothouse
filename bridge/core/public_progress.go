@@ -32,6 +32,7 @@ type PublicProgressRequest struct {
 	Project    string `json:"project"`
 	SessionKey string `json:"session_key"`
 	Run        string `json:"run"`
+	TaskID     string `json:"task_id,omitempty"`
 	Seq        int64  `json:"seq"`
 	Kind       string `json:"kind"` // start, update, milestone, waiting, result
 	Title      string `json:"title,omitempty"`
@@ -96,6 +97,8 @@ type PublicProgress struct {
 	project      string
 	runs         map[string]*publicRun
 	memberRuns   map[string]*taskMemberRun
+	// Batch keys belong to the authorizing turn, never the session's open slot.
+	delegations map[string]map[string]*publicRun
 	// records indexes every task this project has ever journalled, so a task can
 	// be queried or accepted by id without walking the journal directory.
 	records map[string]*publicRun
@@ -240,11 +243,20 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	p.mu.Lock()
 	r := p.runs[req.Run]
 	member := p.memberRuns[req.Run]
+	if r != nil && req.TaskID != "" && r.record.Task.ID != req.TaskID {
+		r = nil
+		for _, card := range p.delegations[req.Run] {
+			if card.record.Task.ID == req.TaskID {
+				r = card
+				break
+			}
+		}
+	}
 	p.mu.Unlock()
 	if member != nil {
 		return p.reportMember(member, req)
 	}
-	if req.Kind == "failed" || req.Kind == "cancelled" {
+	if (req.Kind == "failed" || req.Kind == "cancelled") && req.TaskID == "" {
 		return "", errors.New("kind is only available for member reports")
 	}
 	if r == nil {
@@ -264,10 +276,14 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		}
 		return "", errors.New("sequence reused with different content")
 	}
+	if IsTerminalState(r.record.Task.State) {
+		return "", errors.New("task is terminal")
+	}
 	if req.Seq != r.record.LastSeq+1 {
 		return "", errors.New("sequence must increase by one")
 	}
-	if (r.record.LastSeq == 0) != (req.Kind == "start") {
+	if (req.Kind == "start" && r.record.LastSeq != 0) ||
+		(r.record.LastSeq == 0 && r.record.Task.Seq == 0 && req.Kind != "start") {
 		return "", errors.New("first report must be start; do not start twice")
 	}
 	base := r.reportBase
@@ -298,6 +314,16 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		t.State = TaskStateResultReady
 		t.ResultSummary = req.Summary
 		kind, key = TaskEventResultReady, true
+	case "failed":
+		t.State = TaskStateFailed
+		kind, key = TaskEventFailed, true
+	case "cancelled":
+		t.State = TaskStateCancelled
+		kind, key = TaskEventBlocked, true
+	}
+	if IsTerminalState(t.State) {
+		r.record.Closed = true
+		interruptTaskMembers(t)
 	}
 	p.appendEvent(r, kind, strings.TrimSpace(req.Summary), key)
 	r.record.LastSeq = req.Seq
@@ -312,7 +338,9 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		r.reportBase = base
 	}
 	p.mu.Lock()
-	p.runs[req.Run] = r // publish adoption only after the first continued report is durable
+	if req.TaskID == "" {
+		p.runs[req.Run] = r // publish adoption only after the first continued report is durable
+	}
 	p.records[t.ID] = r
 	p.pending[t.ID] = r
 	if req.Kind == "start" {
@@ -320,6 +348,9 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		p.open[t.SessionKey] = r
 	}
 	p.indexRun(r)
+	if IsTerminalState(t.State) {
+		p.revokeMemberRuns(r)
+	}
 	p.mu.Unlock()
 	return t.ID, nil
 }
@@ -330,33 +361,50 @@ func (p *PublicProgress) finish(token, outcome string) {
 	p.mu.Lock()
 	r := p.runs[token]
 	delete(p.runs, token)
+	cards := p.delegations[token]
+	delete(p.delegations, token)
 	p.mu.Unlock()
 	if r == nil {
 		return
 	}
+	seen := map[*publicRun]bool{r: true}
+	for _, card := range cards {
+		if !seen[card] {
+			seen[card] = true
+			p.finishRun(card, outcome, true)
+		}
+	}
+	p.finishRun(r, outcome, false)
+}
+
+// Caller holds transitionMu. A successful lead turn releases delegated cards
+// without inventing a result for unfinished batches.
+func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.record.Accepted {
 		return // acceptance is durable and terminal, even if this turn later fails/stops
 	}
 	r.record.Closed = true
-	if r.record.LastSeq == 0 {
+	if r.record.Task.Seq == 0 {
 		return
 	} // casual chat never creates a card
 	t := r.record.Task
 	i := NewI18n(r.record.Lang)
-	switch outcome {
-	case "result":
-		if t.State != TaskStateWaitingUser && t.State != TaskStateResultReady {
-			t.State = TaskStateResultReady
-			p.appendEvent(r, TaskEventResultReady, i.T(MsgPublicEnded), true)
+	if !IsTerminalState(t.State) {
+		switch outcome {
+		case "result":
+			if !delegated && t.State != TaskStateWaitingUser && t.State != TaskStateResultReady {
+				t.State = TaskStateResultReady
+				p.appendEvent(r, TaskEventResultReady, i.T(MsgPublicEnded), true)
+			}
+		case "cancelled":
+			t.State = TaskStateCancelled
+			p.appendEvent(r, TaskEventBlocked, i.T(MsgExecutionStopped), true)
+		default:
+			t.State = TaskStateFailed
+			p.appendEvent(r, TaskEventFailed, i.T(MsgPublicInterrupted), true)
 		}
-	case "cancelled":
-		t.State = TaskStateCancelled
-		p.appendEvent(r, TaskEventBlocked, i.T(MsgExecutionStopped), true)
-	default:
-		t.State = TaskStateFailed
-		p.appendEvent(r, TaskEventFailed, i.T(MsgPublicInterrupted), true)
 	}
 	if IsTerminalState(t.State) {
 		interruptTaskMembers(t)
@@ -505,7 +553,7 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	).Replace(publicProgressPrompt+publicTaskMembersPrompt) + prompt
 }
 
-const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, keep all participants on this one task card. Before handing off, register each AI or child with ASSIGN_COMMAND --run RUN_TOKEN --id TASK_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' (optional --parent existing-member-id for a child). Pass only its returned report_command to that participant. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
+const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' (optional --parent existing-member-id for a child). Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
 
 const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'.RESUME_NOTE Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history.\n[/Public progress channel]\n\n"
 

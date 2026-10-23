@@ -69,12 +69,12 @@ func (p *PublicProgress) runStart(token string) (taskID string, resumeSeq int64,
 // transport checkpoints under the target's own mutex.
 func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) (*publicRun, error) {
 	r.mu.Lock()
-	if r.record.Closed || r.record.Accepted || (r.stopped != nil && r.stopped()) || r.record.Task.SessionKey != req.SessionKey {
+	if (r.record.Closed && !IsTerminalState(r.record.Task.State)) || r.record.Accepted || (r.stopped != nil && r.stopped()) || r.record.Task.SessionKey != req.SessionKey {
 		r.mu.Unlock()
 		return nil, errors.New("run is not active for this session")
 	}
 	cand := r.candidate
-	if r.record.LastSeq > 0 || cand == nil || req.Kind == "start" {
+	if r.record.Task.Seq > 0 || cand == nil || req.Kind == "start" {
 		return r, nil
 	}
 	r.mu.Unlock()

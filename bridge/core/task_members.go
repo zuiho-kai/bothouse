@@ -35,6 +35,7 @@ type TaskMemberAssignment struct {
 	SessionKey string `json:"session_key"`
 	Run        string `json:"run"`
 	TaskID     string `json:"task_id"`
+	BatchID    string `json:"batch_id,omitempty"`
 	MemberID   string `json:"member_id"`
 	ParentID   string `json:"parent_id,omitempty"`
 	Name       string `json:"name"`
@@ -45,15 +46,17 @@ type TaskMemberGrant struct {
 	TaskID        string `json:"task_id"`
 	MemberID      string `json:"member_id"`
 	ReportCommand string `json:"report_command"`
+	LeadNextSeq   int64  `json:"lead_next_seq"`
 }
 
 type taskMemberRun struct {
-	r          *publicRun
-	id         string
-	assignment TaskMemberAssignment
-	token      string
-	reports    map[int64]string
-	lastSeq    int64
+	r           *publicRun
+	id          string
+	assignment  TaskMemberAssignment
+	token       string
+	reports     map[int64]string
+	lastSeq     int64
+	leadNextSeq int64 // lead sequence when assigned; stable on assignment retry
 }
 
 func memberIndex(t *Task, id string) int {
@@ -69,27 +72,24 @@ func memberIndex(t *Task, id string) int {
 // identity. A grant permits only one row on this card, never parent acceptance.
 func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGrant, error) {
 	// Source: existing public progress title and run-token constraints.
-	if req.Project != p.project || len(req.Run) != 64 || req.TaskID == "" ||
+	if req.Project != p.project || len(req.Run) != 64 || req.SessionKey == "" ||
+		(req.TaskID == "" && strings.TrimSpace(req.BatchID) == "") ||
+		(req.TaskID != "" && req.BatchID != "") ||
+		utf8.RuneCountInString(req.BatchID) > 60 ||
 		strings.TrimSpace(req.MemberID) == "" || utf8.RuneCountInString(req.MemberID) > 60 ||
 		strings.TrimSpace(req.Name) == "" || utf8.RuneCountInString(req.Name) > 60 ||
 		strings.TrimSpace(req.Title) == "" || utf8.RuneCountInString(req.Title) > 60 {
-		return nil, errors.New("project, active run, task, member, name and title required (1..60 characters)")
+		return nil, errors.New("project, session, active run, batch or task, member, name and title required (1..60 characters)")
 	}
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
-	p.mu.Lock()
-	r := p.runs[req.Run]
-	p.mu.Unlock()
-	if r == nil {
-		return nil, errors.New("only the lead's active run may assign members")
+	r, key, err := p.lockAssignmentRun(req)
+	if err != nil {
+		return nil, err
 	}
-	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.record.Closed || r.record.Accepted || r.record.LastSeq == 0 ||
-		r.record.Task.ID != req.TaskID || r.record.Task.SessionKey != req.SessionKey ||
-		(r.stopped != nil && r.stopped()) || IsTerminalState(r.record.Task.State) {
-		return nil, errors.New("task is not active for this run and session")
-	}
+	// Normalize selectors so retrying by the returned id is also idempotent.
+	req.TaskID, req.BatchID = r.record.Task.ID, ""
 	if req.ParentID != "" && memberIndex(r.record.Task, req.ParentID) < 0 {
 		return nil, errors.New("unknown parent member")
 	}
@@ -103,23 +103,101 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		}
 		return nil, errors.New("member id already used; use a new id for new work")
 	}
-	old := r.record.Task.Clone()
+	old := r.record
+	old.Task = r.record.Task.Clone()
 	now := time.Now().UTC()
+	if r.record.Task.Seq == 0 {
+		t := r.record.Task
+		t.Title, t.Agent, t.State, t.FactStage = req.Title, p.project, TaskStateInProgress, FactStageReceived
+		t.CreatedAt = now
+		p.appendEvent(r, TaskEventCreated, req.Title, true)
+	}
+	r.record.Closed = false
 	r.record.Task.Members = append(r.record.Task.Members, TaskMember{ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Status: "queued", AssignedAt: now, UpdatedAt: now})
 	p.memberEvent(r, req.Name+": "+req.Title, false)
 	if err := p.save(r); err != nil {
-		r.record.Task = old
+		r.record = old
 		return nil, err
 	}
-	g := &taskMemberRun{r: r, id: req.MemberID, assignment: req, token: randomProgressID(32), reports: map[int64]string{}}
+	g := &taskMemberRun{r: r, id: req.MemberID, assignment: req, token: randomProgressID(32), reports: map[int64]string{}, leadNextSeq: r.record.LastSeq + 1}
 	p.mu.Lock()
+	if old.Closed {
+		r.stopped = p.runs[req.Run].stopped
+		r.reportBase = old.LastSeq
+	}
 	if p.memberRuns == nil {
 		p.memberRuns = map[string]*taskMemberRun{}
 	}
 	p.memberRuns[g.token] = g
+	if p.delegations == nil {
+		p.delegations = map[string]map[string]*publicRun{}
+	}
+	if p.delegations[req.Run] == nil {
+		p.delegations[req.Run] = map[string]*publicRun{}
+	}
+	p.delegations[req.Run][key] = r
+	p.records[r.record.Task.ID] = r
 	p.pending[r.record.Task.ID] = r
+	p.indexRun(r)
 	p.mu.Unlock()
 	return p.memberGrant(g), nil
+}
+
+// Caller holds transitionMu. Explicit ids may adopt a closed, resumable card;
+// a batch always starts fresh, even after ordinary progress continued an old
+// card. Ownership is published only after the assignment is durably saved.
+func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun, string, error) {
+	p.mu.Lock()
+	source := p.runs[req.Run]
+	key := "batch:" + req.BatchID
+	if req.TaskID != "" {
+		key = "task:" + req.TaskID
+	}
+	target := p.delegations[req.Run][key]
+	owned := target != nil
+	if req.TaskID != "" {
+		for _, card := range p.delegations[req.Run] {
+			if card.record.Task.ID == req.TaskID {
+				target, owned = card, true
+			}
+		}
+		if target == nil {
+			target = p.records[req.TaskID]
+		}
+	}
+	p.mu.Unlock()
+	if source == nil {
+		return nil, key, errors.New("only the lead's active run may assign members")
+	}
+	source.mu.Lock()
+	if source.record.Closed || source.record.Accepted || source.record.Task.SessionKey != req.SessionKey || (source.stopped != nil && source.stopped()) {
+		source.mu.Unlock()
+		return nil, key, errors.New("task is not active for this run and session")
+	}
+	if req.TaskID == source.record.Task.ID && source.record.Task.Seq > 0 {
+		if IsTerminalState(source.record.Task.State) {
+			source.mu.Unlock()
+			return nil, key, errors.New("task is terminal")
+		}
+		return source, key, nil
+	}
+	if target == nil && req.TaskID == "" {
+		t := source.record.Task
+		// Source: task id entropy follows PublicProgress.begin.
+		target = &publicRun{publisher: source.publisher, stopped: source.stopped, record: progressRecord{Platform: source.record.Platform, Lang: source.record.Lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: req.SessionKey, ChannelID: t.ChannelID, Origin: t.Origin}}}
+		owned = true
+	}
+	source.mu.Unlock()
+	if target == nil {
+		return nil, key, errors.New("unknown task")
+	}
+	target.mu.Lock()
+	if target.record.Task.SessionKey != req.SessionKey || target.record.Accepted || IsTerminalState(target.record.Task.State) ||
+		(!owned && (!target.record.Closed || !resumableTask(target.record.Task, target.record.Accepted, time.Now()))) {
+		target.mu.Unlock()
+		return nil, key, errors.New("task is not active for this run and session")
+	}
+	return target, key, nil
 }
 
 func (p *PublicProgress) memberGrant(g *taskMemberRun) *TaskMemberGrant {
@@ -128,7 +206,7 @@ func (p *PublicProgress) memberGrant(g *taskMemberRun) *TaskMemberGrant {
 		command = path
 	}
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
-	return &TaskMemberGrant{TaskID: g.r.record.Task.ID, MemberID: g.id, ReportCommand: quote(command) + " progress --project " + quote(p.project) + " --session " + quote(g.assignment.SessionKey) + " --data-dir " + quote(p.dataDir) + " --run " + g.token}
+	return &TaskMemberGrant{TaskID: g.r.record.Task.ID, MemberID: g.id, LeadNextSeq: g.leadNextSeq, ReportCommand: quote(command) + " progress --project " + quote(p.project) + " --session " + quote(g.assignment.SessionKey) + " --data-dir " + quote(p.dataDir) + " --run " + g.token}
 }
 
 // Member updates change the card without overwriting the lead's overall status.
@@ -146,7 +224,7 @@ func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressReques
 	// Not gated on r.stopped(): the lead's turn ending (idle timeout, recycle,
 	// stop) must not orphan members. The grant itself is the lifetime; it is
 	// revoked on terminal state, acceptance and restart.
-	if req.SessionKey != g.assignment.SessionKey || r.record.Accepted ||
+	if req.SessionKey != g.assignment.SessionKey || (req.TaskID != "" && req.TaskID != r.record.Task.ID) || r.record.Accepted ||
 		IsTerminalState(r.record.Task.State) {
 		return "", errors.New("member report is not active for this task and session")
 	}

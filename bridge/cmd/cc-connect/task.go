@@ -76,6 +76,7 @@ func taskCommand(args []string, out io.Writer) error {
 	project := f.String("project", os.Getenv("CC_PROJECT"), "project")
 	session := f.String("session", "", "session key (list or assign)")
 	id := f.String("id", "", "task id")
+	batch := f.String("batch", "", "stable delegation batch id; opens a fresh card without --id (assign only)")
 	actor := f.String("by", "", "who confirmed the acceptance")
 	run := f.String("run", "", "lead's current run token (assign only)")
 	member := f.String("member", "", "unique member execution id (assign only)")
@@ -98,7 +99,7 @@ func taskCommand(args []string, out io.Writer) error {
 
 	switch action {
 	case "assign":
-		body, err := json.Marshal(core.TaskMemberAssignment{Project: *project, SessionKey: *session, Run: *run, TaskID: *id, MemberID: *member, ParentID: *parent, Name: *name, Title: *title})
+		body, err := json.Marshal(core.TaskMemberAssignment{Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title})
 		if err != nil {
 			return err
 		}
