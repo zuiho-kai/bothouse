@@ -1056,3 +1056,14 @@ func (sm *SessionManager) PruneEmptySessions() int {
 	}
 	return removed
 }
+
+// UserKeys returns every user key (session key) that has a session.
+func (sm *SessionManager) UserKeys() []string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	out := make([]string, 0, len(sm.userSessions))
+	for k := range sm.userSessions {
+		out = append(out, k)
+	}
+	return out
+}

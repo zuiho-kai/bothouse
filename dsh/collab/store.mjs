@@ -6,7 +6,32 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-const SCHEMA_VERSION = 6;
+// v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks; columns are
+// added by ensureSchema() on every open (checked with PRAGMA table_info), so either merge
+// or release order ends with every column; user_version only records the newest schema known.
+const SCHEMA_VERSION = 9;
+/** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
+const COLUMNS = [
+  ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
+  ['members', 'cli', 'TEXT'], // v4: a member may be a local CLI agent (claude | codex | gemini) instead of a model route.
+  ['members', 'avatar', 'TEXT'], // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
+  // v6 (#121): a streamed reply is stored as a draft (shown, not fanned out) until commit
+  // clears the flag. Durable, so a restart between commit and finishJob never fans it out twice.
+  ['messages', 'draft', 'INTEGER NOT NULL DEFAULT 0'],
+  ['messages', 'reply_to', 'INTEGER'], // v7 (#133): the message a user reply quotes.
+  // v8 (#139 team mode A): a room is a chat channel or a workspace under one chat channel.
+  ['rooms', 'kind', "TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'workspace'))"],
+  ['rooms', 'parent_id', 'INTEGER REFERENCES rooms(id)'],
+];
+/** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
+export const WORKSPACE_PREFIX = '工作区';
+// Workspaces take ids from their own range, starting at 1000000, so a configured chat
+// channel added later (users write small ids like 1, 2) can never collide with one.
+// PM-set floor, not user-specified; bot sessions are keyed room-<id> (cloudweb.mjs roomKey),
+// so a workspace id must never change once a bot has used it.
+export const WORKSPACE_ID_MIN = 1000000;
+// Quote excerpt length, same as Discord history (bridge/platform/discord/discord.go:1645-1650).
+export const QUOTE_CHARS = 40;
 
 export class Store {
   constructor(path) {
@@ -15,13 +40,17 @@ export class Store {
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
-    if (version < SCHEMA_VERSION) this.migrate(version);
+    this.ensureSchema(version);
     this.q = {
-      room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
-      rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
+      room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
+      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
+      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id)
+        SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
+          ?, 'workspace', ? RETURNING id, name, kind, parent_id`),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
-      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -44,7 +73,7 @@ export class Store {
       openJobs: this.db.prepare("SELECT * FROM jobs WHERE state IN ('pending', 'sent') ORDER BY id"),
       sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ? WHERE id = ? AND state = 'pending' RETURNING *"),
       finish: this.db.prepare("UPDATE jobs SET state = ?, reply_id = ? WHERE id = ? AND state IN ('pending', 'sent') RETURNING *"),
-      createRoom: this.db.prepare('INSERT INTO rooms (name) VALUES (?) RETURNING id, name'),
+      createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
       seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, source, created_at, removed)
@@ -59,14 +88,16 @@ export class Store {
     };
   }
 
-  migrate(from) {
-    if (from < 1) this.createV1();
-    // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
-    if (from < 2) this.db.exec('ALTER TABLE jobs ADD COLUMN input_id TEXT');
-    // v3: DSH members live in the database; config rows are seeds the UI cannot edit.
-    // A removed member keeps its row (and id) so old messages and bindings stay attributable.
-    if (from < 3) {
-      this.db.exec(`CREATE TABLE members (
+  /**
+   * Bring any older database up to date. Idempotent and run on every open: tables and
+   * columns are created only when missing, so the version number never gates a column.
+   */
+  ensureSchema(version) {
+    this.transaction(() => {
+      if (version < 1) this.createV1();
+      // v3: DSH members live in the database; config rows are seeds the UI cannot edit.
+      // A removed member keeps its row (and id) so old messages and bindings stay attributable.
+      this.db.exec(`CREATE TABLE IF NOT EXISTS members (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         provider TEXT,
@@ -75,20 +106,76 @@ export class Store {
         source TEXT NOT NULL CHECK (source IN ('config', 'ui')),
         created_at REAL NOT NULL,
         removed INTEGER NOT NULL DEFAULT 0)`);
+      const has = new Map();
+      for (const [table, column, definition] of COLUMNS) {
+        if (!has.has(table)) has.set(table, new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name)));
+        if (!has.get(table).has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      }
+      this.migrateWorkspaceIds();
+      // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
+      this.ensureTasks();
+      if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    });
+  }
+
+  /**
+   * v9 (#139 team mode B): one row per dispatched task. Idempotent: creates the
+   * table if missing and adds any column an older copy lacks, so it is safe to run
+   * on every open regardless of user_version.
+   */
+  ensureTasks() {
+    const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get() !== undefined;
+    if (!exists) {
+      this.db.exec(`CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER NOT NULL REFERENCES rooms(id),
+        parent_task INTEGER REFERENCES tasks(id),
+        title TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework')),
+        next_check_at REAL,
+        result_msg_id INTEGER,
+        assign_msg_id INTEGER,
+        note TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        returned_at REAL,
+        remind_msg_id INTEGER)`);
+    } else {
+      const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
+      for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER']]) {
+        if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
+      }
     }
-    // v4: a member may be a local CLI agent (claude | codex | gemini) instead of a model route.
-    if (from < 4) this.db.exec('ALTER TABLE members ADD COLUMN cli TEXT');
-    // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
-    if (from < 5) this.db.exec('ALTER TABLE members ADD COLUMN avatar TEXT');
-    // v6 (#121): a streamed reply is stored as a draft (shown, not fanned out) until
-    // commit clears the flag. Durable, so a restart between commit and finishJob
-    // never fans the same reply out twice.
-    if (from < 6) this.db.exec('ALTER TABLE messages ADD COLUMN draft INTEGER NOT NULL DEFAULT 0');
-    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    this.db.exec('CREATE INDEX IF NOT EXISTS tasks_room ON tasks (room_id, id)');
+  }
+
+  /**
+   * Move workspaces still on the old shared sequence (id < WORKSPACE_ID_MIN) into the
+   * workspace range, repointing their messages, bindings and jobs. This exists only for
+   * unreleased dev databases from before the separate range: no bot session has used
+   * them yet, and it is the only place a room id is ever changed. Released databases
+   * never hit this (no workspace was ever shipped on the shared sequence).
+   */
+  migrateWorkspaceIds() {
+    const old = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND id < ? ORDER BY id`).all(WORKSPACE_ID_MIN);
+    if (!old.length) return;
+    const next = this.db.prepare(`SELECT MAX(?, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ?), ?)) AS id`)
+      .get(WORKSPACE_ID_MIN, WORKSPACE_ID_MIN, WORKSPACE_ID_MIN).id;
+    for (const [i, { id }] of old.entries()) {
+      const to = next + i;
+      const cols = this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name).filter(c => c !== 'id');
+      this.db.prepare(`INSERT INTO rooms (id, ${cols}) SELECT ?, ${cols} FROM rooms WHERE id = ?`).run(to, id);
+      for (const table of ['messages', 'bindings', 'jobs']) this.db.prepare(`UPDATE ${table} SET room_id = ? WHERE room_id = ?`).run(to, id);
+      this.db.prepare('UPDATE rooms SET parent_id = ? WHERE parent_id = ?').run(to, id);
+      this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
+    }
   }
 
   createV1() {
-    this.db.exec(`BEGIN;
+    this.db.exec(`
       CREATE TABLE rooms (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
       CREATE TABLE messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,8 +206,7 @@ export class Store {
         seq_before INTEGER,
         reply_id INTEGER,
         created_at REAL NOT NULL,
-        UNIQUE (member_id, trigger_id));
-      COMMIT;`);
+        UNIQUE (member_id, trigger_id));`);
   }
 
   close() { this.db.close(); }
@@ -138,8 +224,39 @@ export class Store {
     }
   }
 
-  ensureRoom(id, name) { this.q.ensureRoom.run(id, name); }
-  createRoom(name) { return this.q.createRoom.get(name); }
+  /**
+   * Upsert a configured chat channel. Config ids are user-written small numbers; workspaces
+   * live at WORKSPACE_ID_MIN and up, so a config id can only be a workspace if the database
+   * predates that range or someone configured an id inside it. Refuse loudly instead of
+   * moving the workspace: bot sessions are keyed room-<id> and must never see it change.
+   */
+  ensureRoom(id, name) {
+    this.transaction(() => {
+      if (this.q.room.get(id)?.kind === 'workspace') {
+        throw new CollabError('workspace-id-conflict',
+          `config room id ${id} collides with workspace room ${id}; workspace ids start at ${WORKSPACE_ID_MIN} and cannot be reassigned`);
+      }
+      this.q.ensureRoom.run(id, name);
+    });
+  }
+  /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
+  createRoom(name) {
+    return this.transaction(() => this.q.createRoom.get(name));
+  }
+  /**
+   * Create the next workspace 工作区<n+1> under a chat channel, n being the highest
+   * existing 工作区<k>. Called on a workspace, it adds a sibling under the same chat channel.
+   */
+  createWorkspace(roomId) {
+    return this.transaction(() => {
+      const room = this.q.room.get(roomId);
+      if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+      const parent = room.kind === 'workspace' ? room.parent_id : room.id;
+      const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
+      const n = Math.max(0, ...this.q.children.all(parent).map(w => Number(re.exec(w.name)?.[1] ?? 0)));
+      return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent);
+    });
+  }
 
   /** Active DSH members, config seeds and UI-created alike. */
   members() { return this.q.members.all(); }
@@ -158,6 +275,11 @@ export class Store {
   removeMember(id) { return this.q.removeMember.get(id); }
   room(id) { return this.q.room.get(id); }
   rooms() { return this.q.rooms.all(); }
+  /** Rooms for clients: each carries kind, parent_id and its open task count. */
+  roomsView() {
+    // active: tasks in progress in this room; 0 until team mode B fills it from its tasks table (B 块填).
+    return this.rooms().map(r => ({ ...r, active: 0 }));
+  }
 
   /**
    * Append one message. A repeated non-null clientKey returns the stored row
@@ -172,12 +294,33 @@ export class Store {
       const existing = this.q.byKey.get(m.clientKey);
       if (existing !== undefined) return { message: existing, created: false };
     }
+    let replyTo = null;
+    if (m.replyTo != null) {
+      const ref = this.message(Number(m.replyTo));
+      // Only a live message of the same room can be quoted; anything else would leak or dangle.
+      if (ref === undefined || ref.room_id !== roomId) throw new CollabError('reply-missing', 'the message being replied to does not exist');
+      replyTo = ref.id;
+    }
     const row = this.q.insert.get(roomId, m.authorKind, m.author, m.name, text, now,
-      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0);
+      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0, replyTo);
     return { message: row, created: true };
   }
 
   message(id) { return this.q.byId.get(id); }
+
+  /**
+   * What a reply quotes: undefined for a plain message; `{ id, deleted: true }`
+   * when the original is gone (no author or text leaks); else id, author, and
+   * a QUOTE_CHARS excerpt.
+   */
+  quote(row) {
+    if (row.reply_to == null) return undefined;
+    const ref = this.message(row.reply_to);
+    if (ref === undefined || ref.room_id !== row.room_id) return { id: row.reply_to, deleted: true };
+    const chars = [...ref.text];
+    const text = chars.length > QUOTE_CHARS ? chars.slice(0, QUOTE_CHARS).join('') + '…' : ref.text;
+    return { id: ref.id, author_kind: ref.author_kind, author: ref.author, name: ref.name, text };
+  }
   /** Edit or delete only a row the same author wrote; returns the row or undefined. */
   edit(id, authorKind, author, text, card) { return this.q.edit.get(text, card ?? null, id, authorKind, author); }
   /**
@@ -242,10 +385,23 @@ function clampLimit(limit) {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 50;
 }
 
-/** Public JSON row for browsers and the cloud-web history endpoint (rh/hub.py field names). */
-export function publicMessage(row) {
-  return {
+/**
+ * Public JSON row for browsers and the cloud-web history endpoint (rh/hub.py field names).
+ * With a store, a reply carries `reply_to` = store.quote(row).
+ */
+export function publicMessage(row, store) {
+  const out = {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
   };
+  const quote = store?.quote(row);
+  if (quote !== undefined) out.reply_to = quote;
+  return out;
+}
+
+/** Discord-style quote prefix for agent prompts: `[回复 作者：前40字…] ` (discord.go:1645-1650). */
+export function quotePrefix(quote) {
+  if (quote === undefined) return '';
+  if (quote.deleted) return '[回复 原消息已删除] ';
+  return `[回复 ${quote.name}：${quote.text}] `;
 }

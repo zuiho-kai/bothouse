@@ -7,6 +7,7 @@
 // one that was consumed is settled from the Session log. Nothing is re-sent,
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
+import { quotePrefix } from './store.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -60,8 +61,8 @@ export function consumingTurn(events, inputId) {
  * unseen channel messages up to the trigger. Identity is restated every time
  * because other members' messages in the same history name themselves.
  */
-export function promptText(room, member, messages) {
-  const lines = messages.map(m => `【${m.name}】${m.text}`);
+export function promptText(room, member, messages, store) {
+  const lines = messages.map(m => `【${m.name}】${quotePrefix(store?.quote(m))}${m.text}`);
   const model = member.model === undefined ? '' : `你底层用的模型是 ${member.model.provider}/${member.model.model}。`;
   const persona = member.persona?.trim() ? ['你的人设：', member.persona.trim(), ''] : [];
   return [
@@ -184,6 +185,18 @@ export class DshMembers {
     return () => { for (const job of jobs) this.enqueue(job, () => this.run(job.id)); };
   }
 
+  /**
+   * Start a member on a system message addressed to it (#139 B task reminder).
+   * System rows never plan jobs by themselves; this is the one explicit wake.
+   * Returns false when the id is not a DSH member.
+   */
+  nudge(memberId, msg) {
+    if (!this.config.has(memberId)) return false;
+    const job = this.store.addJob(memberId, msg.room_id, msg.id);
+    if (job) this.enqueue(job, () => this.run(job.id));
+    return true;
+  }
+
   /** Serialize work per (member, room): runs, recoveries, and Session resumes never overlap. */
   enqueue(job, task) {
     const key = `${job.member_id}\u0000${job.room_id}`;
@@ -207,9 +220,9 @@ export class DshMembers {
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null && !m.draft)
+      .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen) }], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, this.store) }], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     await this.admitAndSettle(job, member, agent, input, seqBefore);
@@ -225,7 +238,7 @@ export class DshMembers {
     if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null && !m.draft)
+      .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     let entry = this.cliAgents.get(member.id);
@@ -257,7 +270,7 @@ export class DshMembers {
     let done = false;
     try {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
-      const text = (await entry.agent.ask(promptText(room, member, unseen), String(room.id), onText))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen, this.store), String(room.id), onText))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';

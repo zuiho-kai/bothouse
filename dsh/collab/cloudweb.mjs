@@ -6,16 +6,25 @@
 import { forDisplay, forMember, mentions } from './mentions.mjs';
 import { channelText } from './hub.mjs';
 import { checkAvatar } from './avatars.mjs';
-import { CollabError, MAX_TEXT, publicMessage } from './store.mjs';
+import { CollabError, MAX_TEXT, publicMessage, quotePrefix } from './store.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
 // Declared to cc-connect. 'buttons' is declared so permission prompts arrive as
 // a `buttons` frame (bridge platform/cloud-web SendWithButtons) instead of plain
 // text (#120); cards are not declared, so cc-connect degrades them to text
 // (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons'];
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks'];
 // Permission decisions the Channel page and text replies may send. Values are the
 // button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
+/**
+ * Team mode E (#139): the bridge asks for a chat room's workspaces and creates the next one
+ * through `team_workspace` frames (bridge/platform/cloud-web/protocol.go), so workspaces live
+ * only here. Needs team mode A's rooms.parent_id and store.createWorkspace (PR #134); without
+ * them the capability is not advertised and a stray frame is answered "unsupported".
+ */
+export const CAP_TEAM_WORKSPACE = 'team_workspace';
+export function supportsWorkspaces(store) { return typeof store?.createWorkspace === 'function'; }
+
 export const PERM_DECISIONS = { allow: 'perm:allow', deny: 'perm:deny', allow_all: 'perm:allow_all' };
 const PERM_STATES = { allow: 'allowed', deny: 'denied', allow_all: 'allowed_all' };
 // Same vocabularies and order as bridge core/engine.go approveAllPhrases /
@@ -83,6 +92,8 @@ export class CloudWebGateway {
     /** permission prompt message id -> { bot, room, sessionKey, replyCtx } while undecided */
     this.pendingPerms = new Map();
     hub.onControlMessage(message => this.permissionReplies(message).some(reply => !reply.withheld));
+    /** Tasks (#139 B), set by the plugin; `task` frames act through it. */
+    this.tasks = undefined;
     hub.onMessage(message => this.onNew(message));
   }
 
@@ -150,7 +161,8 @@ export class CloudWebGateway {
     const old = this.bots.get(id);
     this.bots.set(id, bot);
     if (old !== undefined) old.ws.close(WS_REPLACED, 'replaced by new connection');
-    send(ws, { type: 'register_ack', ok: true, capabilities: CAPABILITIES, server: { name: 'conest-dsh-collab' } });
+    const capabilities = supportsWorkspaces(this.hub.store) ? [...CAPABILITIES, CAP_TEAM_WORKSPACE] : CAPABILITIES;
+    send(ws, { type: 'register_ack', ok: true, capabilities, server: { name: 'conest-dsh-collab' } });
     this.hub.setMember(member);
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
     for (const room of this.hub.thinking.keys()) this.hub.setThinking(room, id, false);
@@ -172,14 +184,19 @@ export class CloudWebGateway {
     const decision = this.hub.route(msg);
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
+    const only = this.hub.replyRoute(msg);
+    const quote = quotePrefix(this.hub.store.quote(msg));
     for (const { ws, member } of this.bots.values()) {
       if (fromAgent && msg.author === member.id) continue;
       if (answered.has(member.id)) continue;
+      // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
+      if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
       const hit = decision.targets.has(member.id);
       if (fromAgent && !content) continue;
-      if (fromAgent) content = `【${msg.name}】${content}`;
-      else if (hit && !content) content = BARE_MENTION;
+      if (fromAgent) content = `【${msg.name}】${quote}${content}`;
+      else if (hit && !content) content = quote + BARE_MENTION;
+      else content = quote + content;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
         user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
@@ -195,10 +212,66 @@ export class CloudWebGateway {
     }
   }
 
+  /**
+   * Deliver a system message to one connected bot as a mention (#139 B task
+   * reminder); onNew never forwards system rows. False when the bot is offline.
+   */
+  nudge(memberId, msg) {
+    const bot = this.bots.get(memberId);
+    if (bot === undefined) return false;
+    const members = this.hub.routable();
+    const room = this.hub.store.room(msg.room_id);
+    const frame = {
+      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
+      user_id: msg.author, user_name: msg.name, content: forMember(msg.text, bot.member, members) || msg.text,
+      reply_ctx: roomKey(msg.room_id), mentioned: true, from_bot: false,
+    };
+    if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
+    send(bot.ws, frame);
+    return true;
+  }
+
+  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create. */
+  teamWorkspace(d) {
+    const { store } = this.hub;
+    if (!supportsWorkspaces(store)) return { ok: false, error: 'unsupported' };
+    const id = roomOf(d, store);
+    if (id === undefined) return { ok: false, error: 'room-missing' };
+    const self = store.room(id);
+    const view = r => ({ id: roomKey(r.id), name: r.name });
+    try {
+      if (d.op === 'list') {
+        const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.parent_id === id).map(view);
+        return { ok: true, self: view(self), rooms };
+      }
+      if (d.op === 'create') {
+        // A's createWorkspace numbers 工作区n+1 itself; the bridge takes the name it gets back.
+        const w = store.createWorkspace(id);
+        this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return { ok: true, room: view(w) };
+      }
+    } catch (error) {
+      return { ok: false, error: error?.code ?? String(error?.message ?? error) };
+    }
+    return { ok: false, error: 'bad-op' };
+  }
+
   async fromBot(bot, d) {
     const { member } = bot;
     switch (d.type) {
       case 'ping': send(bot.ws, { type: 'pong' }); return;
+      case 'task': {
+        // #139 B: the socket says which bot this is, so the action is verified as it.
+        const ack = r => send(bot.ws, { type: 'task_ack', ref: d.ref, ...r });
+        if (this.tasks === undefined) { ack({ ok: false, error: 'tasks are not enabled' }); return; }
+        try {
+          const task = this.tasks.perform(String(d.action ?? ''), { id: Number(d.task_id), roomId: roomOf(d, this.hub.store), body: d }, { actor: member.id, verified: true });
+          ack({ ok: true, task });
+        } catch (error) {
+          ack({ ok: false, error: error?.message ?? String(error), code: error?.code });
+        }
+        return;
+      }
       case 'reply': {
         const room = roomOf(d, this.hub.store);
         if (typeof d.content !== 'string' || room === undefined) return;
@@ -256,6 +329,11 @@ export class CloudWebGateway {
         send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: handle });
         return;
       }
+      case 'team_workspace': {
+        if (typeof d.ref_id !== 'string') return;
+        send(bot.ws, { type: 'team_workspace_ack', ref_id: d.ref_id, ...this.teamWorkspace(d) });
+        return;
+      }
       case 'update_message':
       case 'delete_message': {
         const h = d.preview_handle;
@@ -290,7 +368,7 @@ export class CloudWebGateway {
     if (bot === undefined) throw new CollabError('offline', `${row.name} 已断线，权限请求还在等待，重连后会失效`);
     this.closePerm(msgId, PERM_STATES[decision], row, by);
     send(bot.ws, { type: 'card_action', session_key: p.sessionKey, reply_ctx: p.replyCtx, action: PERM_DECISIONS[decision] });
-    return publicMessage(this.hub.store.message(msgId));
+    return publicMessage(this.hub.store.message(msgId), this.hub.store);
   }
 
   /** Mark a permission prompt decided/expired and update it for browsers. */

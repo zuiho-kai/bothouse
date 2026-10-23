@@ -151,3 +151,29 @@ for (const scenario of realCases) {
     assert.deepEqual(dsh.run.mock.calls.map(call => call.arguments[0]), jobs.map(job => job.id), 'each committed job is dispatched once');
   });
 }
+
+test('reply with configured lead: native jobs and external delivery share reply targets', async t => {
+  const { store, hub } = fixture(t);
+  const gateway = new CloudWebGateway(hub, { token: 'test', logger: quiet });
+  const member = { id: 'peer', name: 'Peer', kind: 'bot', online: true };
+  const sent = [];
+  hub.setMember(member);
+  gateway.bots.set(member.id, { member, ws: { send: raw => sent.push(JSON.parse(raw)) } });
+  const { message: native } = hub.post(1, { authorKind: 'role', author: 'writer', name: 'Writer', text: 'native answer' });
+  const { message: external } = hub.post(1, { authorKind: 'role', author: 'peer', name: 'Peer', text: 'external answer' });
+  for (const [replyTo, text, targets] of [
+    [native.id, '再看看', ['writer']],
+    [external.id, '再看看', ['peer']],
+    [native.id, '@Peer 你也看看', ['peer', 'writer']],
+  ]) {
+    const { message } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text, replyTo });
+    await new Promise(resolve => setImmediate(resolve));
+    const nativeJobs = store.openJobs().filter(j => j.trigger_id === message.id).map(j => j.member_id);
+    const externalJobs = sent.filter(f => f.msg_id === 'hub-' + message.id && f.mentioned).map(() => 'peer');
+    assert.deepEqual([...nativeJobs, ...externalJobs].sort(), targets.sort());
+    assert.ok(sent.filter(f => f.msg_id === 'hub-' + message.id).every(f => f.content.includes('[回复')));
+  }
+  const { message: late } = store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'deleted reply', replyTo: external.id });
+  hub.remove(external.id, 'role', 'peer');
+  assert.deepEqual([...hub.route(late).targets], [], 'deleted original must not fall back to the lead');
+});

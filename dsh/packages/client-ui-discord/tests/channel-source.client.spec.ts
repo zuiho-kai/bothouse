@@ -1,6 +1,6 @@
 import { setImmediate } from 'node:timers/promises'
 import { describe, expect, it, vi } from 'vitest'
-import { createChannelSource, type ChannelTransport, type EventStreamLike } from '../src/client/channel-source.ts'
+import { createChannelSource, groupRooms, type ChannelRoom, type ChannelTransport, type EventStreamLike } from '../src/client/channel-source.ts'
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -96,6 +96,36 @@ describe('channel source', () => {
     oldRoom.resolve(json(200, { messages: [message(1, 'stale')] }))
     await oldVisit
     expect(source.getSnapshot().messages[0]?.text).toBe('latest')
+    unsubscribe()
+  })
+
+  it('keeps task events that arrive after a room switch but before its board read returns (PR #136 review 3)', async () => {
+    const board = deferred<Response>()
+    const task = (id: number, status: string, updated_at: number) => ({
+      id, room_id: 2, parent_task: null, title: `t${id}`, owner: 'ds', owner_name: 'DS', created_by: 'ju', created_by_name: '橘',
+      status, next_check_at: null, assign_msg_id: null, result_msg_id: null, note: null, created_at: 1, updated_at, returned_at: null,
+    })
+    const { transport, streams, calls } = fakeTransport((url) => {
+      if (url === '/collab/api/state') return json(200, state)
+      if (url === '/collab/api/rooms/2/tasks') return board.promise
+      if (url.endsWith('/tasks')) return json(200, { chat_id: 1, tasks: [] })
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(streams).toHaveLength(1))
+    await actions.selectRoom(2)
+    await vi.waitFor(() => expect(calls).toContain('GET /collab/api/rooms/2/tasks'))
+    expect(source.getSnapshot().taskChat).toBeUndefined()
+    const send = (event: unknown) => streams[0]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(event) }))
+    // The server read the board before these were written: the board alone would be stale.
+    send({ type: 'task', task: task(5, 'accepted', 20), chat_id: 2, active: 1 })
+    send({ type: 'task', task: task(6, 'assigned', 30), chat_id: 2, active: 2 })
+    send({ type: 'task', task: task(9, 'assigned', 30), chat_id: 7, active: 1 })
+    board.resolve(json(200, { chat_id: 2, tasks: [task(5, 'assigned', 10), task(4, 'done', 40)] }))
+    await vi.waitFor(() => expect(source.getSnapshot().taskChat).toBe(2))
+    const rows = source.getSnapshot().tasks ?? []
+    expect(rows.map(t => [t.id, t.status])).toEqual([[6, 'assigned'], [5, 'accepted'], [4, 'done']])
     unsubscribe()
   })
 
@@ -218,6 +248,58 @@ describe('channel source', () => {
     expect(source.getSnapshot().messages).toEqual([decided])
     await expect(actions.decidePermission(7, 'deny')).rejects.toThrow('permission already decided')
     expect(source.getSnapshot().messages).toEqual([decided])
+    unsubscribe()
+  })
+
+  it('groups each chat channel with its workspaces; orphans and old services stay top level (#139)', () => {
+    const rooms: ChannelRoom[] = [
+      { id: 1, name: 'general', kind: 'chat', parent_id: null },
+      { id: 2, name: 'dev', kind: 'chat', parent_id: null },
+      { id: 3, name: '工作区1', kind: 'workspace', parent_id: 1 },
+      { id: 4, name: '工作区1', kind: 'workspace', parent_id: 2 },
+      { id: 5, name: '工作区2', kind: 'workspace', parent_id: 1 },
+      { id: 6, name: '工作区1', kind: 'workspace', parent_id: 99 },
+      { id: 7, name: 'legacy' },
+    ]
+    expect(groupRooms(rooms).map(r => [r.room.id, r.depth])).toEqual([[1, 0], [3, 1], [5, 1], [2, 0], [4, 1], [6, 0], [7, 0]])
+  })
+
+  it('adds a new chat channel and its 工作区1 to the list, then selects the channel (#139)', async () => {
+    let posted = false
+    const created = { room: { id: 2, name: 'ops', kind: 'chat', parent_id: null }, workspace: { id: 3, name: '工作区1', kind: 'workspace', parent_id: 2 } }
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') {
+        const rooms = [{ id: 1, name: 'general', kind: 'chat', parent_id: null }, ...(posted ? [created.room, created.workspace] : [])]
+        return json(200, { me: 'owner', rooms, members: [], thinking: {} })
+      }
+      if (url === '/collab/api/rooms' && init?.method === 'POST') { posted = true; return json(200, created) }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    await actions.createRoom('ops')
+    expect(source.getSnapshot().rooms.map(r => r.name)).toEqual(['general', 'ops', '工作区1'])
+    expect(source.getSnapshot().roomId).toBe(2)
+    unsubscribe()
+  })
+
+  it('sends reply_to only for a reply and degrades a quote whose original is deleted', async () => {
+    const posted: unknown[] = []
+    const { transport, streams } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (init?.method === 'POST') { posted.push(JSON.parse(String(init.body))); return json(200, { message: message(7, 'r') }) }
+      return json(200, { messages: [message(1, 'orig'), { ...message(2, 'reply'), reply_to: { id: 1, author_kind: 'user', author: 'owner', name: '我', text: 'orig' } }] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().messages).toHaveLength(2))
+    await actions.send('plain')
+    await actions.send('re', 1)
+    expect(posted[0]).not.toHaveProperty('reply_to')
+    expect(posted[1]).toMatchObject({ text: 're', reply_to: 1 })
+    streams[0]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'deleted', id: 1, room_id: 1 }) }))
+    expect(source.getSnapshot().messages.find(m => m.id === 2)?.reply_to).toEqual({ id: 1, deleted: true })
     unsubscribe()
   })
 })

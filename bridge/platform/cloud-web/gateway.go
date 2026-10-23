@@ -28,6 +28,7 @@ type gatewayTransport struct {
 
 	mu        sync.RWMutex
 	caps      map[string]bool
+	capsKnown bool // the gateway has told its capabilities (register or capabilities_changed)
 	client    *http.Client
 	server    *http.Server
 	listener  net.Listener
@@ -75,7 +76,15 @@ func (t *gatewayTransport) Capabilities() map[string]bool {
 func (t *gatewayTransport) setCaps(caps map[string]bool) {
 	t.mu.Lock()
 	t.caps = caps
+	t.capsKnown = true
 	t.mu.Unlock()
+}
+
+// CapabilitiesKnown: false until the gateway has told its capabilities.
+func (t *gatewayTransport) CapabilitiesKnown() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.capsKnown
 }
 
 func (t *gatewayTransport) Start(ctx context.Context, onInbound inboundHandler) error {
@@ -204,7 +213,7 @@ func (t *gatewayTransport) dispatchBatchPayload(raw []byte) bool {
 	var base wireMsg
 	if err := json.Unmarshal(raw, &base); err == nil {
 		switch base.Type {
-		case "message", "card_action", "message_recall", "ping":
+		case "message", "card_action", "message_recall", "ping", typeTeamWorkspaceAck:
 			t.dispatchOne(raw)
 			return true
 		}
@@ -285,6 +294,9 @@ func (t *gatewayTransport) Send(ctx context.Context, msg map[string]any) error {
 		return fmt.Errorf("cloud_web: send HTTP %d: %s", resp.StatusCode, string(raw))
 	}
 	var ack wirePreviewAck
+	if json.Unmarshal(raw, &ack) == nil && ack.Type == typeTeamWorkspaceAck && t.onInbound != nil {
+		t.onInbound(raw) // team mode E: inline reply to a team_workspace request
+	}
 	if json.Unmarshal(raw, &ack) == nil && ack.Type == "preview_ack" && ack.RefID != "" {
 		t.previewMu.Lock()
 		ch, ok := t.previewRequests[ack.RefID]

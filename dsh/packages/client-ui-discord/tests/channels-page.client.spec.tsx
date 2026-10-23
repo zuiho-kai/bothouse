@@ -336,4 +336,56 @@ describe('channels page', () => {
     expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('草稿')
     expect(selectRoom).not.toHaveBeenCalled()
   })
+
+  it('lists workspaces indented under their chat channel with an in-progress count (#139)', () => {
+    const rooms = [
+      { id: 1, name: 'general', kind: 'chat' as const, parent_id: null, active: 0 },
+      { id: 2, name: 'dev', kind: 'chat' as const, parent_id: null, active: 2 },
+      { id: 3, name: '工作区1', kind: 'workspace' as const, parent_id: 1, active: 0 },
+      { id: 4, name: '工作区2', kind: 'workspace' as const, parent_id: 1, active: 3 },
+    ]
+    const view = render(<ChannelsPage {...props({ ...ready, rooms })} />)
+    const nav = view.container.querySelector('nav') as HTMLElement
+    const buttons = [...nav.querySelectorAll('button[aria-current]')].map(b => b.textContent)
+    expect(buttons).toEqual(['#general', '#工作区1进行中 0 件', '#工作区2进行中 3 件', '#dev进行中 2 件'])
+    const ws = screen.getByRole('button', { name: /工作区2/ })
+    expect(ws.className).toContain('workspace')
+    expect(screen.getByRole('button', { name: 'general' }).className).not.toContain('workspace')
+  })
+
+  it('replies from a message, shows the quote, cancels, and degrades a deleted original', async () => {
+    const send = vi.fn(async () => {})
+    const quoted: ChannelSnapshot = {
+      ...ready,
+      messages: [
+        { ...ready.messages[0], id: 1, text: '原话' },
+        { ...ready.messages[0], id: 2, author_kind: 'user', author: 'owner', name: '我', text: '回一下', reply_to: { id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '原话' } },
+        { ...ready.messages[0], id: 3, author_kind: 'user', author: 'owner', name: '我', text: '回已删', reply_to: { id: 99, deleted: true } },
+        { ...ready.messages[0], id: 4, author_kind: 'system', author: 'system', name: '系统', text: '系统通知' },
+        { ...ready.messages[0], id: 5, text: '进度', card: JSON.stringify({ title: 'job', state: 'running' }) },
+      ],
+    }
+    const view = render(<ChannelsPage {...props(quoted, send)} />)
+    expect(screen.getAllByText('原话')).toHaveLength(2)
+    expect(screen.getByText(zh.replyDeleted)).toBeTruthy()
+    // Only the three conversation messages offer a reply; system notices and progress cards do not.
+    expect(screen.getAllByRole('button', { name: zh.reply })).toHaveLength(3)
+
+    fireEvent.click(screen.getAllByRole('button', { name: zh.reply })[0] as HTMLElement)
+    expect(screen.getByText('回复 橘')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.cancelReply }))
+    expect(screen.queryByText('回复 橘')).toBeNull()
+
+    fireEvent.click(screen.getAllByRole('button', { name: zh.reply })[0] as HTMLElement)
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: '收到' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('收到', 1)
+    expect(screen.queryByText('回复 橘')).toBeNull()
+
+    // The original vanishes while a reply is being written: the bar says so.
+    fireEvent.click(screen.getAllByRole('button', { name: zh.reply })[0] as HTMLElement)
+    view.rerender(<ChannelsPage {...props({ ...quoted, messages: quoted.messages.slice(1) }, send)} />)
+    expect(screen.getByText(`回复 橘 · ${zh.replyDeleted}`)).toBeTruthy()
+  })
 })

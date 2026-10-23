@@ -4,11 +4,13 @@ import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
-import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX } from './cloudweb.mjs';
+import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason, friendlyFailure } from './dsh-member.mjs';
 import { resolveConfig } from './plugin.mjs';
 import { Roster } from './roster.mjs';
 import { promptText } from './dsh-member.mjs';
+import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
+import { tasksRoute } from './plugin.mjs';
 
 const quiet = { warn() {}, info() {} };
 const tick = () => new Promise(r => setImmediate(r));
@@ -80,7 +82,7 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const ju = connect(gw, 'bot=ju&name=橘&mention_id=111');
   const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
-  assert.deepEqual(ju.of('register_ack')[0], { type: 'register_ack', ok: true, capabilities: CAPABILITIES, server: { name: 'conest-dsh-collab' } });
+  assert.deepEqual(ju.of('register_ack')[0], { type: 'register_ack', ok: true, capabilities: [...CAPABILITIES, 'team_workspace'], server: { name: 'conest-dsh-collab' } });
 
   const bad = connect(gw, 'bot=ds');
   assert.equal(bad.of('register_ack')[0].ok, false);
@@ -464,7 +466,7 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   const v2 = new Store(path);
   v2.ensureRoom(1, 'general');
   v2.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
-  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; ALTER TABLE messages DROP COLUMN draft; DROP TABLE members; PRAGMA user_version = 1');
+  v2.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 1');
   v2.close();
   const raw = new DatabaseSync(path);
   assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);
@@ -650,10 +652,10 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v3.sqlite3');
   const s = new Store(path);
   s.addMember({ id: 'old', name: 'Old', model: { provider: 'relay', model: 'm1' } });
-  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -733,10 +735,10 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v4.sqlite3');
   const s = new Store(path);
   s.addMember({ id: 'old', name: 'Old', cli: 'claude' });
-  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -1081,4 +1083,629 @@ test('cloud-web #120: owner text with several bots pending — no @ answers all,
   await tick(); await tick();
   assert.equal(dou.of('message').at(-1).content, '等一下');
   assert.equal(state(a), 'pending');
+});
+
+// Issue #122: a channel message may reply to one earlier message.
+test('reply: the quote is stored and served; a deleted original degrades without leaking it', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const { message: orig } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '一'.repeat(50) });
+  const { message: reply } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '收到', replyTo: orig.id });
+  assert.equal(reply.reply_to, orig.id);
+  const { publicMessage } = await import('./store.mjs');
+  const pub = publicMessage(reply, hub.store);
+  assert.deepEqual(pub.reply_to, { id: orig.id, author_kind: 'role', author: 'ju', name: '橘', text: '一'.repeat(40) + '…' });
+  assert.deepEqual(events.at(-1).message.reply_to, pub.reply_to, 'the live event carries the quote');
+  assert.equal(publicMessage(orig, hub.store).reply_to, undefined, 'a plain message has no quote');
+  assert.throws(() => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'x', replyTo: 999 }), { code: 'reply-missing' });
+  const { message: elsewhere } = hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '别处' });
+  assert.throws(() => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'x', replyTo: elsewhere.id }), { code: 'reply-missing' }, 'only the same room');
+  hub.remove(orig.id, 'role', 'ju');
+  const gone = publicMessage(hub.store.message(reply.id), hub.store);
+  assert.deepEqual(gone.reply_to, { id: orig.id, deleted: true });
+  assert.doesNotMatch(JSON.stringify(gone), /一一/, 'deleted text never leaks');
+});
+
+test('reply: a v6 database gains reply_to and keeps its messages', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v6.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '老消息' });
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
+  s.close();
+  const up = new Store(path);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  const old = up.page(1, undefined, 1)[0];
+  assert.equal(old.text, '老消息');
+  assert.equal(old.reply_to, null);
+  assert.equal(up.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '回', replyTo: old.id }).message.reply_to, old.id);
+  up.close();
+});
+
+test('reply routing (reply_routing.go): the replied-to bot is called, others are not woken; deleted names nobody', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+  const { message: juSaid } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '日志看完了，一切正常' });
+  await settle();
+  const whaleBefore = whale.of('message').length;
+
+  // Reply to 橘 with no @: only 橘 takes it, with the Discord-style quote prefix.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '再看一遍', replyTo: juSaid.id });
+  await settle();
+  const toJu = ju.of('message').at(-1);
+  assert.equal(toJu.mentioned, true);
+  assert.equal(toJu.content, '[回复 橘：日志看完了，一切正常] 再看一遍');
+  assert.equal(whale.of('message').length, whaleBefore, 'another bot is not woken');
+  assert.equal(hub.store.openJobs().length, 0, 'no DSH job either');
+
+  // Reply to 橘 while @-ing DeepSeek: both are called, 鲸鱼娘 still is not.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你也看看', replyTo: juSaid.id });
+  await settle();
+  assert.equal(ju.of('message').at(-1).mentioned, true);
+  assert.equal(whale.of('message').length, whaleBefore);
+  assert.equal(dsh.made.length, 1);
+  const prompt = dsh.sessions.get(dsh.made[0]).prompts[0].content[0].text;
+  assert.match(prompt, /【我】\[回复 橘：日志看完了，一切正常\] @DeepSeek 你也看看$/);
+
+  // Original deleted: a reply without @ establishes no recipient, and the bot sees no original text.
+  const { message: gone } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '机密内容' });
+  await settle();
+  const { message: late } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '占位' });
+  hub.store.db.prepare('UPDATE messages SET reply_to = ? WHERE id = ?').run(gone.id, late.id);
+  hub.remove(gone.id, 'role', 'ju');
+  const juBefore = ju.of('message').length;
+  const whaleNow = whale.of('message').length;
+  gw.onNew(hub.store.message(late.id));
+  assert.equal(ju.of('message').length, juBefore, 'no guessed recipient');
+  assert.equal(whale.of('message').length, whaleNow);
+  assert.equal(hub.replyRoute(hub.store.message(late.id)).size, 0);
+  const { quotePrefix } = await import('./store.mjs');
+  assert.equal(quotePrefix(hub.store.quote(hub.store.message(late.id))), '[回复 原消息已删除] ');
+});
+
+// ---- #139 team mode B: tasks ----
+
+/** Hub + tasks on a hand-driven clock; the timer is captured instead of scheduled. */
+function makeTasks() {
+  const hub = makeHub();
+  const clock = { t: 1000, timer: undefined };
+  const tasks = new Tasks(hub, {
+    now: () => clock.t,
+    setTimer: (fn, ms) => { clock.timer = { fn, ms }; return clock.timer; },
+    clearTimer: (h) => { if (clock.timer === h) clock.timer = undefined; },
+  });
+  hub.setMember({ id: 'lead', name: '橘', kind: 'bot', online: true });
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  return { hub, tasks, clock };
+}
+const records = hub => hub.store.page(1, undefined, 200).filter(m => m.author_kind === 'system');
+
+test('tasks: dispatch → 接 → hand back → done, each step leaves one task record', () => {
+  const { hub, tasks, clock } = makeTasks();
+  const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
+  assert.equal(t.status, 'assigned');
+  assert.equal(t.next_check_at, 1000 + CHECK_AFTER_S, 'default check time is 10 minutes after dispatch');
+  assert.equal(clock.timer.ms, CHECK_AFTER_S * 1000);
+  assert.equal(t.assign_msg_id, records(hub)[0].id, 'without a dispatch message the record is the jump target');
+  assert.equal(tasks.stance(t.id, { actor: 'ds', stance: '接' }).status, 'accepted');
+  clock.t += 120;
+  const { message: delivery } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '登录页好了' });
+  assert.throws(() => tasks.handBack(t.id, { actor: 'lead', messageId: delivery.id }), /only DeepSeek/);
+  const back = tasks.handBack(t.id, { actor: 'ds', messageId: delivery.id });
+  assert.equal(back.status, 'returned');
+  assert.equal(back.result_msg_id, delivery.id);
+  assert.equal(back.next_check_at, null);
+  assert.throws(() => tasks.review(t.id, { actor: 'ds', verdict: 'done' }), /only 橘/);
+  assert.equal(tasks.review(t.id, { actor: 'lead', verdict: 'done' }).status, 'done');
+  const r = records(hub);
+  assert.equal(r.length, 4);
+  assert.deepEqual(r.map(m => JSON.parse(m.card).event), ['assign', 'stance', 'return', 'done']);
+  assert.match(r[0].text, /派活 #1「写登录页」→ DeepSeek（橘 派）/);
+  assert.match(r[2].text, /交回，用时 2 分钟/);
+  assert.equal(r.every(m => !m.text.includes('@')), true, 'records @ nobody');
+  assert.throws(() => tasks.review(t.id, { actor: 'lead', verdict: 'done' }), /nothing to review/);
+});
+
+test('tasks: 问 keeps the timer; 退 and 升 hand the turn to the lead; rework starts a new round', () => {
+  const { tasks, clock } = makeTasks();
+  const a = tasks.assign({ roomId: 1, title: 'a', owner: 'ds', actor: 'lead' });
+  const asked = tasks.stance(a.id, { actor: 'ds', stance: '问', note: '要不要兼容旧版？' });
+  assert.equal(asked.status, 'asked');
+  assert.equal(asked.note, '要不要兼容旧版？');
+  assert.equal(asked.next_check_at, a.next_check_at);
+  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead' });
+  assert.equal(tasks.stance(b.id, { actor: 'ds', stance: 'decline' }).status, 'declined');
+  assert.equal(tasks.task(b.id).next_check_at, null);
+  assert.throws(() => tasks.stance(b.id, { actor: 'ds', stance: '接' }), /not waiting/);
+  const c = tasks.assign({ roomId: 1, title: 'c', owner: 'ds', actor: 'lead' });
+  assert.equal(tasks.stance(c.id, { actor: 'ds', stance: '升' }).status, 'escalated');
+  assert.equal(tasks.task(c.id).next_check_at, null);
+  clock.t += 50;
+  const again = tasks.review(c.id, { actor: 'lead', verdict: 'rework', note: '拆小一点再做' });
+  assert.equal(again.status, 'rework');
+  assert.equal(again.next_check_at, 1050 + CHECK_AFTER_S);
+  assert.throws(() => tasks.stance(a.id, { actor: 'lead', stance: '接' }), /only DeepSeek/);
+  assert.throws(() => tasks.stance(a.id, { actor: 'ds', stance: '好' }), /接 问 退 升/);
+});
+
+test('tasks: a member reply whose first line is 【接】/【问】/【退】/【升】 sets its task status', async () => {
+  const { hub, tasks } = makeTasks();
+  const a = tasks.assign({ roomId: 1, title: 'a', owner: 'ds', actor: 'lead' });
+  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead' });
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【接】马上做\n细节……' });
+  await tick();
+  assert.equal(tasks.task(b.id).status, 'accepted', 'no #id: the newest open task of that member in the room');
+  assert.equal(tasks.task(b.id).note, '马上做');
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `【升】#${a.id} 需要拍板` });
+  await tick();
+  assert.equal(tasks.task(a.id).status, 'escalated');
+  hub.post(1, { authorKind: 'role', author: 'lead', name: '橘', text: `【退】#${b.id}` });
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '正文里提到【退】不算' });
+  await tick();
+  assert.equal(tasks.task(b.id).status, 'accepted', 'only the owner, only the first line');
+});
+
+test('tasks: one reminder @s the owner at the check time and wakes only it; hand-back cancels it', async () => {
+  const { hub, tasks, clock } = makeTasks();
+  const woken = [];
+  tasks.onWake((id, msg) => woken.push([id, msg.id]));
+  const late = tasks.assign({ roomId: 1, title: '迟交的', owner: 'ds', actor: 'lead' });
+  const onTime = tasks.assign({ roomId: 1, title: '准时的', owner: 'ds', actor: 'lead' });
+  clock.t += 60;
+  const { message: d } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交付' });
+  tasks.handBack(onTime.id, { actor: 'ds', messageId: d.id });
+  clock.t = late.next_check_at - 1;
+  tasks.tick();
+  assert.equal(woken.length, 0, 'not before the check time');
+  clock.t = late.next_check_at + 1;
+  clock.timer.fn();
+  const reminders = hub.store.page(1, undefined, 200).filter(m => m.name === '任务提醒');
+  assert.equal(reminders.length, 1);
+  assert.match(reminders[0].text, /^@DeepSeek 任务 #1「迟交的」/);
+  assert.deepEqual(woken, [['ds', reminders[0].id]]);
+  assert.equal(tasks.task(late.id).next_check_at, null);
+  clock.t += 3600;
+  tasks.tick();
+  assert.equal(hub.store.page(1, undefined, 200).filter(m => m.name === '任务提醒').length, 1, 'only once');
+  assert.equal(tasks.timer, undefined, 'nothing left to check');
+});
+
+test('tasks: without #id a stance only answers a dispatch not yet answered (PR #136 review 1)', async () => {
+  const { hub, tasks } = makeTasks();
+  const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【接】好的' });
+  await tick();
+  assert.equal(tasks.task(t.id).status, 'accepted');
+  const check = tasks.task(t.id).next_check_at;
+  // A reply about something else, opened with the team's stance line as usual.
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【退】这个翻译我不擅长，找鲸鱼娘' });
+  await tick();
+  assert.equal(tasks.task(t.id).status, 'accepted', 'an answered task is not changed without #id');
+  assert.equal(tasks.task(t.id).next_check_at, check, 'its reminder stays');
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `【退】#${t.id} 做不了` });
+  await tick();
+  assert.equal(tasks.task(t.id).status, 'declined', 'with #id it applies');
+});
+
+test('tasks: an offline owner gets its reminder once when it comes online (PR #136 review 2)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const clock = { t: 1000, timer: undefined };
+  const tasks = new Tasks(hub, { now: () => clock.t, setTimer: (fn) => (clock.timer = { fn }), clearTimer() {} });
+  tasks.onWake((id, msg) => gw.nudge(id, msg));
+  hub.setMember({ id: 'lead', name: '橘', kind: 'bot', online: true });
+  hub.setMember({ id: 'ju', name: '鲸鱼', kind: 'bot', online: false });
+  const t = tasks.assign({ roomId: 1, title: '润色', owner: 'ju', actor: 'lead' });
+  clock.t += CHECK_AFTER_S + 1;
+  clock.timer.fn();
+  assert.equal(tasks.task(t.id).next_check_at, null);
+  assert.notEqual(tasks.task(t.id).remind_msg_id, null, 'the bot is offline: the reminder stays pending');
+  const ju = connect(gw, 'bot=ju&name=鲸鱼');
+  const got = ju.of('message');
+  assert.equal(got.length, 1, 'delivered on connect');
+  assert.match(got[0].content, /任务 #1「润色」到了检查时间/);
+  assert.equal(got[0].mentioned, true);
+  hub.setOnline('lead', false); hub.setOnline('lead', true);
+  const again = connect(gw, 'bot=ju&name=鲸鱼');
+  assert.equal(ju.of('message').length + again.of('message').length, 1, 'a delivered reminder is never sent again');
+  assert.equal(hub.store.page(1, undefined, 200).filter(m => m.name === '任务提醒').length, 1);
+});
+
+test('tasks: a reminder due during a restart is delivered after the bot reconnects (PR #136 review 2)', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'tasks-restart-'));
+  try {
+    const file = join(dir, 'collab.sqlite3');
+    const s1 = new Store(file); s1.ensureRoom(1, 'general');
+    const hub1 = new Hub(s1, quiet);
+    hub1.setMember({ id: 'lead', name: '橘', kind: 'bot', online: true });
+    hub1.setMember({ id: 'ju', name: '鲸鱼', kind: 'bot', online: true });
+    const before = new Tasks(hub1, { now: () => 1000, setTimer: () => ({}), clearTimer() {} });
+    const t = before.assign({ roomId: 1, title: '润色', owner: 'ju', actor: 'lead' });
+    before.close(); s1.db.close();
+    // Restart after the check time; the timer fires before cc-connect reconnects.
+    const s2 = new Store(file);
+    const hub2 = new Hub(s2, quiet);
+    const gw = new CloudWebGateway(hub2, { token: 't', logger: quiet });
+    const clock = { t: 1000 + CHECK_AFTER_S + 5, timer: undefined };
+    const after = new Tasks(hub2, { now: () => clock.t, setTimer: (fn, ms) => (clock.timer = { fn, ms }), clearTimer() {}, start: false });
+    after.onWake((id, msg) => gw.nudge(id, msg));
+    assert.equal(clock.timer, undefined, 'start: false arms nothing');
+    after.start();
+    assert.equal(clock.timer.ms, 0);
+    clock.timer.fn();
+    assert.equal(after.task(t.id).next_check_at, null);
+    const ju = connect(gw, 'bot=ju&name=鲸鱼');
+    assert.equal(ju.of('message').length, 1, 'not lost: delivered once on reconnect');
+    connect(gw, 'bot=ju&name=鲸鱼');
+    assert.equal(hub2.store.page(1, undefined, 200).filter(m => m.name === '任务提醒').length, 1);
+    after.close(); s2.db.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('tasks: the reminder starts a DSH owner turn with the reminder in its prompt; records start nobody', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const clock = { t: 1000 };
+  const tasks = new Tasks(hub, { now: () => clock.t, setTimer: () => ({}), clearTimer() {} });
+  // Same wiring as plugin.mjs.
+  tasks.onWake((id, msg) => members.nudge(id, msg) || gw.nudge(id, msg));
+  const t = tasks.assign({ roomId: 1, title: '跑测试', owner: 'ds', actor: 'ju' });
+  tasks.stance(t.id, { actor: 'ds', stance: '接' });
+  const t2 = tasks.assign({ roomId: 1, title: '看日志', owner: 'ju', actor: 'owner' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, 0, 'task records start no DSH job');
+  assert.equal(dsh.made.length, 0);
+  assert.equal(ju.of('message').length, 0, 'task records are not forwarded to cloud-web bots');
+  clock.t += CHECK_AFTER_S + 1;
+  tasks.tick();
+  await settle();
+  assert.equal(dsh.made.length, 1, 'the DSH owner is woken by its reminder');
+  const prompt = dsh.sessions.get(dsh.made[0]).prompts[0].content[0].text;
+  assert.match(prompt, /【任务提醒】@DeepSeek 任务 #1「跑测试」到了检查时间还没交回/);
+  const toJu = ju.of('message');
+  assert.equal(toJu.length, 1, 'the cloud-web owner gets exactly its own reminder');
+  assert.equal(toJu[0].mentioned, true);
+  assert.match(toJu[0].content, new RegExp(`任务 #${t2.id}「看日志」`));
+});
+
+test('tasks: workspace records also go to its chat channel; the board and active count span both', () => {
+  const { hub, tasks } = makeTasks();
+  // Team mode A (#134) adds rooms.kind/parent_id. After the merge they exist already;
+  // add them only when this checkout predates A, so the test works before and after.
+  if (!hub.store.db.prepare('PRAGMA table_info(rooms)').all().some(c => c.name === 'kind')) {
+    hub.store.db.exec("ALTER TABLE rooms ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'; ALTER TABLE rooms ADD COLUMN parent_id INTEGER");
+  }
+  hub.store.db.exec("INSERT INTO rooms (id, name, kind, parent_id) VALUES (2, '工作区1', 'workspace', 1), (3, 'other', 'chat', NULL)");
+  hub.store.q.room = hub.store.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?');
+  const tree = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const inWs = tree.assign({ roomId: 2, title: '在工作区', owner: 'ds', actor: 'lead' });
+  tree.assign({ roomId: 1, title: '在聊天频道', owner: 'ds', actor: 'lead' });
+  tree.assign({ roomId: 3, title: '别的频道', owner: 'ds', actor: 'lead' });
+  const ws = hub.store.page(2, undefined, 50).filter(m => m.card);
+  const chat = hub.store.page(1, undefined, 50).filter(m => m.card);
+  assert.equal(ws.length, 1);
+  assert.equal(chat.length, 2, 'the workspace dispatch is echoed to the chat channel');
+  assert.equal(chat[0].text, ws[0].text);
+  assert.deepEqual(tree.list(1).map(t => t.title), ['在聊天频道', '在工作区']);
+  assert.deepEqual(tree.list(2).map(t => t.title), ['在聊天频道', '在工作区'], 'a workspace shows its chat channel board');
+  assert.equal(tree.countActive(2), 1);
+  const { message: d } = hub.post(2, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '好了' });
+  tree.handBack(inWs.id, { actor: 'ds', messageId: d.id });
+  assert.equal(tree.countActive(2), 0, 'returned is no longer in progress');
+  tree.close(); tasks.close();
+});
+
+test('tasks: the tasks table is ensured idempotently and survives reopen', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'tasks.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.db.exec("INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at) VALUES (1, 'kept', 'ds', 'owner', 'assigned', 1, 1)");
+  s.db.exec('ALTER TABLE tasks DROP COLUMN note; PRAGMA user_version = 8');
+  s.close();
+  const again = new Store(path);
+  again.ensureTasks();
+  const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
+  assert.equal(cols.includes('note'), true, 'a missing column is added back');
+  assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 9);
+  again.close();
+});
+
+test('tasks API: owner acts as owner, bots name themselves with the bot token, others get 401', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const call = async (method, path, body, { human = false, token } = {}) => {
+    const req = new EventEmitter();
+    req.method = method; req.url = path; req.headers = token ? { authorization: `Bearer ${token}` } : {};
+    const res = { status: 0, body: '', writeHead(s) { this.status = s; }, end(b) { this.body = b; } };
+    const p = tasksRoute(req, res, new URL(path, 'http://x'), { tasks, gateway: gw, owner: () => human });
+    if (body !== undefined) { req.emit('data', Buffer.from(JSON.stringify(body))); }
+    req.emit('end');
+    await p;
+    return { status: res.status, json: JSON.parse(res.body) };
+  };
+  assert.equal(tasksRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/state'), { tasks, gateway: gw, owner: () => true }), undefined);
+  assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'x', owner: 'ds', actor: 'lead' })).status, 401);
+  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead' }, { token: 't' });
+  assert.equal(made.status, 200);
+  assert.equal(made.json.task.created_by, 'lead');
+  const id = made.json.task.id;
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/stance`, { stance: '接', actor: 'lead' }, { token: 't' })).status, 403);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/stance`, { stance: '接', actor: 'ds' }, { token: 't' })).json.task.status, 'accepted');
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/return`, { actor: 'ds' }, { token: 't' })).status, 400);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/review`, { verdict: 'done' }, { human: true })).status, 409);
+  const board = await call('GET', '/collab/api/rooms/1/tasks', undefined, { human: true });
+  assert.deepEqual(board.json.tasks.map(t => [t.title, t.status, t.owner_name]), [['写文档', 'accepted', 'DeepSeek']]);
+  assert.equal((await call('GET', '/collab/api/tasks/99', undefined, { human: true })).status, 404);
+  assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'y', owner: 'nobody' }, { human: true })).status, 404);
+});
+
+test('tasks identity: the bot token cannot impersonate the owner or review; a socket frame acts as its own bot', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  gw.tasks = tasks;
+  const call = async (path, body) => {
+    const req = new EventEmitter();
+    req.method = 'POST'; req.url = path; req.headers = { authorization: 'Bearer t' };
+    const res = { status: 0, body: '', writeHead(s) { this.status = s; }, end(b) { this.body = b; } };
+    const p = tasksRoute(req, res, new URL(path, 'http://x'), { tasks, gateway: gw, owner: () => false });
+    req.emit('data', Buffer.from(JSON.stringify(body))); req.emit('end');
+    await p;
+    return { status: res.status, json: JSON.parse(res.body) };
+  };
+  // The shared token may not claim to be the human owner, nobody, or anyone unknown.
+  for (const actor of ['owner', undefined, 'ghost']) {
+    assert.equal((await call('/collab/api/rooms/1/tasks', { title: 'x', owner: 'ds', actor })).status, 403, String(actor));
+  }
+  const t = tasks.assign({ roomId: 1, title: '写测试', owner: 'ds', actor: 'lead' });
+  const delivery = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '好了' }).message;
+  tasks.handBack(t.id, { actor: 'ds', messageId: delivery.id });
+  // Self-reporting as the dispatcher is not enough to accept.
+  const forged = await call(`/collab/api/tasks/${t.id}/review`, { verdict: 'done', actor: 'lead' });
+  assert.equal(forged.status, 403);
+  assert.equal(tasks.task(t.id).status, 'returned');
+  // Over its own socket, another bot is still not the dispatcher ...
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+  whale.frame({ type: 'task', action: 'review', task_id: t.id, verdict: 'done', ref: 'r1' });
+  await new Promise(r => setImmediate(r));
+  assert.equal(whale.of('task_ack')[0].ok, false);
+  assert.equal(whale.of('task_ack')[0].code, 'forbidden');
+  // ... and the dispatcher's own socket accepts, whatever actor the frame claims.
+  const lead = connect(gw, 'bot=lead&name=橘');
+  lead.frame({ type: 'task', action: 'review', task_id: t.id, verdict: 'done', actor: 'owner', ref: 'r2' });
+  await new Promise(r => setImmediate(r));
+  const ack = lead.of('task_ack')[0];
+  assert.equal(ack.ref, 'r2');
+  assert.equal(ack.ok, true);
+  assert.equal(ack.task.status, 'done');
+  // A frame dispatch is recorded as the sending bot.
+  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3' });
+  await new Promise(r => setImmediate(r));
+  assert.equal(lead.of('task_ack')[1].task.created_by, 'lead');
+});
+
+// #139 team mode A: chat channels own workspaces 工作区1..n.
+const plain = v => JSON.parse(JSON.stringify(v));
+test('store: a v6 database gains kind/parent_id; opening it creates no workspace', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v6.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  old.ensureRoom(2, 'dev');
+  old.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
+  old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
+  old.close();
+  const s = new Store(path);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.deepEqual(plain(s.rooms()), [
+    { id: 1, name: 'general', kind: 'chat', parent_id: null },
+    { id: 2, name: 'dev', kind: 'chat', parent_id: null },
+  ], 'no workspace is backfilled on open');
+  assert.equal(s.page(1, undefined, 1)[0].text, 'kept');
+  s.close();
+  // Columns already present (e.g. another branch migrated first): reopening adds nothing twice.
+  const again = new Store(path);
+  again.db.exec('PRAGMA user_version = 6');
+  again.close();
+  const third = new Store(path);
+  assert.equal(third.rooms().length, 2, 'still no workspace after reopening');
+  third.close();
+});
+
+test('store: a configured chat channel gets no workspace until the first createWorkspace', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  assert.deepEqual(s.rooms().map(r => r.kind), ['chat'], 'startup creates no workspace');
+  assert.deepEqual(s.roomsView().map(r => r.active), [0]);
+  assert.deepEqual(plain(s.createWorkspace(1)), { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 });
+  assert.equal(s.createWorkspace(1).name, '工作区2');
+  assert.deepEqual(s.roomsView().map(r => r.active), [0, 0, 0]);
+});
+
+test('store: default config, then {id:2} added — starts, workspace ids stay out of the config range', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const start = config => { // what plugin.apply does on startup
+    const s = new Store(path);
+    for (const r of resolveConfig({ dataDir: path, workspacePath: path, ...config }).rooms) s.ensureRoom(r.id, r.name);
+    return s;
+  };
+  const first = start({}); // default config: one chat channel { id: 1, name: 'general' }
+  assert.equal(first.rooms().some(r => r.kind === 'workspace'), false, 'startup creates no workspace');
+  const ws = first.createWorkspace(1); // what the first POST .../workspaces does
+  assert.deepEqual([ws.name, ws.parent_id], ['工作区1', 1]);
+  assert.ok(ws.id >= 1000000, 'workspace ids start at 1000000');
+  const key = roomKey(ws.id);
+  const msg = first.append(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
+  first.bind('m1', ws.id, 'sess-ws');
+  first.addJob('m1', ws.id, msg.id);
+  first.close();
+  // A chat channel added to the config later takes its own small id; the workspace keeps its id.
+  const second = start({ rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'dev' }] });
+  assert.deepEqual(plain(second.room(2)), { id: 2, name: 'dev', kind: 'chat', parent_id: null });
+  assert.deepEqual(plain(second.room(ws.id)), { id: ws.id, name: '工作区1', kind: 'workspace', parent_id: 1 });
+  assert.equal(second.message(msg.id).room_id, ws.id, 'the workspace keeps its messages');
+  assert.equal(second.binding('m1', ws.id).session_id, 'sess-ws');
+  assert.equal(second.job(1).room_id, ws.id);
+  assert.equal(roomKey(second.rooms().find(r => r.kind === 'workspace').id), key, 'bot session key room-<id> is unchanged');
+  assert.equal(second.page(2, undefined, 10).length, 0, 'the configured channel starts empty');
+  // A config id that is inside the workspace range is refused instead of moving the workspace.
+  assert.throws(() => second.ensureRoom(ws.id, 'clash'), e => e.code === 'workspace-id-conflict');
+  second.close();
+});
+
+test('store: an unreleased dev database moves old small-id workspaces into the workspace range', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  // Shape written by the previous PR revision: 工作区1 shares the config sequence at id 2.
+  old.db.exec("INSERT INTO rooms (id, name, kind, parent_id) VALUES (2, '工作区1', 'workspace', 1)");
+  const msg = old.append(2, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
+  old.bind('m1', 2, 'sess-ws');
+  old.addJob('m1', 2, msg.id);
+  old.close();
+  const s = new Store(path);
+  assert.deepEqual(plain(s.rooms()), [
+    { id: 1, name: 'general', kind: 'chat', parent_id: null },
+    { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 },
+  ]);
+  assert.equal(s.message(msg.id).room_id, 1000000);
+  assert.equal(s.binding('m1', 1000000).session_id, 'sess-ws');
+  assert.equal(s.job(1).room_id, 1000000);
+  s.close();
+});
+
+test('store: a v8 database missing reply_to (#133 shipped after) gains it on open', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  s.close();
+  const up = new Store(path);
+  assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.page(1, undefined, 1)[0].text, 'old');
+  up.close();
+});
+
+test('store: creating a chat channel creates no workspace; the first createWorkspace makes 工作区1, then 工作区2', () => {
+  const s = new Store(':memory:');
+  const room = s.createRoom('ops');
+  assert.deepEqual(plain(room), { id: 1, name: 'ops', kind: 'chat', parent_id: null });
+  assert.equal(s.rooms().some(r => r.kind === 'workspace'), false, 'a new chat channel starts with no workspace');
+  assert.equal(s.createWorkspace(1).name, '工作区1');
+  assert.equal(s.createWorkspace(1).name, '工作区2');
+  // Called on a workspace, the new one is a sibling under the same chat channel.
+  const third = s.createWorkspace(1000000);
+  assert.deepEqual([third.name, third.parent_id], ['工作区3', 1]);
+  // Numbering follows the highest existing number, not the count.
+  s.db.prepare('DELETE FROM rooms WHERE id = ?').run(third.id - 1);
+  assert.equal(s.createWorkspace(1).name, '工作区4');
+  const other = s.createRoom('other');
+  assert.equal(other.kind, 'chat');
+  assert.equal(s.createWorkspace(other.id).name, '工作区1', 'numbering is per chat channel');
+  assert.throws(() => s.createWorkspace(99), e => e.code === 'room-missing');
+});
+
+test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作区n+1, others get 401', async () => {
+  const { workspacesRoute } = await import('./plugin.mjs');
+  const hub = makeHub();
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = async (headers, isOwner = false, path = '/collab/api/rooms/1/workspaces') => {
+    const res = { status: 0, body: undefined, writeHead(code) { this.status = code; }, end(b) { this.body = JSON.parse(b); } };
+    const req = { method: 'POST', headers };
+    const done = workspacesRoute(req, res, new URL(path, 'http://x'), { store: hub.store, hub, gateway, owner: () => isOwner });
+    assert.notEqual(done, undefined);
+    await done;
+    return res;
+  };
+  const bot = await call({ authorization: 'Bearer secret' });
+  assert.equal(bot.status, 200);
+  assert.deepEqual([bot.body.workspace.name, bot.body.workspace.parent_id], ['工作区1', 1]);
+  const own = await call({}, true);
+  assert.equal(own.body.workspace.name, '工作区2');
+  assert.equal((await call({ authorization: 'Bearer wrong' })).status, 401);
+  assert.equal((await call({})).status, 401);
+  assert.equal((await call({ authorization: 'Bearer secret' }, false, '/collab/api/rooms/42/workspaces')).status, 404);
+  const last = events.filter(e => e.type === 'rooms').at(-1);
+  assert.deepEqual(last.rooms.map(r => [r.name, r.kind, r.parent_id, r.active]),
+    [['general', 'chat', null, 0], ['工作区1', 'workspace', 1, 0], ['工作区2', 'workspace', 1, 0]]);
+  assert.equal(workspacesRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/rooms/1/workspaces'), {}), undefined);
+});
+
+test('cloud-web: team_workspace frames (team mode E)', async () => {
+  // A store without team mode A's createWorkspace: no capability, frames answered "unsupported".
+  const hub = makeHub();
+  hub.store.createWorkspace = undefined;
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  assert.equal(ju.of('register_ack')[0].capabilities.includes('team_workspace'), false);
+  ju.frame({ type: 'team_workspace', ref_id: 'w1', op: 'list', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'w1', ok: false, error: 'unsupported' });
+});
+
+test('cloud-web: team_workspace create on the real store (A #134) makes 工作区1 and answers', async () => {
+  const hub2 = makeHub();
+  const { store } = hub2;
+  assert.deepEqual(store.rooms().filter(r => r.kind === 'workspace'), [], 'A no longer creates 工作区1 up front');
+  const events = [];
+  hub2.subscribe(e => events.push(e));
+  const gw2 = new CloudWebGateway(hub2, { token: 't', logger: quiet });
+  const ju2 = connect(gw2, 'bot=ju&name=橘');
+  assert.equal(ju2.of('register_ack')[0].capabilities.includes('team_workspace'), true);
+  ju2.frame({ type: 'team_workspace', ref_id: 'w2', op: 'list', session_key: 'cloud_web:room-1', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'w2', ok: true, self: { id: 'room-1', name: 'general' }, rooms: [] });
+  ju2.frame({ type: 'team_workspace', ref_id: 'w3', op: 'create', reply_ctx: 'room-1' });
+  await tick();
+  const ack = ju2.of('team_workspace_ack').at(-1);
+  assert.equal(ack.ok, true);
+  assert.equal(ack.room.name, '工作区1');
+  assert.ok(Number(ack.room.id.replace('room-', '')) >= 1000000, 'workspace ids start at 1000000');
+  const w = store.room(Number(ack.room.id.replace('room-', '')));
+  assert.equal(w.kind, 'workspace');
+  assert.equal(w.parent_id, 1);
+  assert.equal(events.at(-1).type, 'rooms');
+  ju2.frame({ type: 'team_workspace', ref_id: 'w4', op: 'create', reply_ctx: 'room-1' });
+  await tick();
+  assert.equal(ju2.of('team_workspace_ack').at(-1).room.name, '工作区2');
+  ju2.frame({ type: 'team_workspace', ref_id: 'w5', op: 'list', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1).rooms.map(r => r.name), ['工作区1', '工作区2']);
+  ju2.frame({ type: 'team_workspace', ref_id: 'w6', op: 'list', reply_ctx: 'room-9' });
+  await tick();
+  assert.equal(ju2.of('team_workspace_ack').at(-1).error, 'room-missing');
 });

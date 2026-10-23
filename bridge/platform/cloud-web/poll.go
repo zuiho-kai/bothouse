@@ -24,6 +24,7 @@ type pollTransport struct {
 
 	mu        sync.RWMutex
 	caps      map[string]bool
+	capsKnown bool // the gateway has told its capabilities (register or capabilities_changed)
 	client    *http.Client
 	cancel    context.CancelFunc
 	onInbound inboundHandler
@@ -66,7 +67,15 @@ func (t *pollTransport) Capabilities() map[string]bool {
 func (t *pollTransport) setCaps(caps map[string]bool) {
 	t.mu.Lock()
 	t.caps = caps
+	t.capsKnown = true
 	t.mu.Unlock()
+}
+
+// CapabilitiesKnown: false until the gateway has told its capabilities.
+func (t *pollTransport) CapabilitiesKnown() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.capsKnown
 }
 
 func (t *pollTransport) Start(ctx context.Context, onInbound inboundHandler) error {
@@ -176,7 +185,7 @@ func (t *pollTransport) dispatchBatchPayload(raw []byte) bool {
 	var base wireMsg
 	if err := json.Unmarshal(raw, &base); err == nil {
 		switch base.Type {
-		case "message", "card_action", "message_recall", "ping":
+		case "message", "card_action", "message_recall", "ping", typeTeamWorkspaceAck:
 			t.dispatchOne(raw)
 			return true
 		}
@@ -255,6 +264,9 @@ func (t *pollTransport) Send(ctx context.Context, msg map[string]any) error {
 	}
 	// Handle inline preview_ack in send response.
 	var ack wirePreviewAck
+	if json.Unmarshal(raw, &ack) == nil && ack.Type == typeTeamWorkspaceAck && t.onInbound != nil {
+		t.onInbound(raw) // team mode E: inline reply to a team_workspace request
+	}
 	if json.Unmarshal(raw, &ack) == nil && ack.Type == "preview_ack" && ack.RefID != "" {
 		t.previewMu.Lock()
 		ch, ok := t.previewRequests[ack.RefID]

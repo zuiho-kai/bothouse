@@ -7,7 +7,9 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask } from './channel-source.ts'
+import { groupRooms } from './channel-source.ts'
+import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { Avatar } from './Avatar.tsx'
@@ -34,8 +36,21 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   return null
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide }: {
+/** The quoted original above a reply; a deleted original shows only a placeholder. */
+function Quote({ quote, t }: { quote: ChannelQuote; t: T }) {
+  if (quote.deleted === true) return <div className={`${css.quote} ${css.quoteDeleted}`}>{t('replyDeleted')}</div>
+  return (
+    <div className={css.quote}>
+      <span className={css.quoteAuthor}>{quote.name}</span>
+      <span>{quote.text}</span>
+    </div>
+  )
+}
+
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused }: {
   message: ChannelMessage
+  tasks: readonly ChannelTask[]
+  focused: boolean
   member: ChannelMember | undefined
   t: T
   onConfigure: () => void
@@ -44,13 +59,15 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onCloseMenu: () => void
   onMention: (member: ChannelMember) => void
   onDecide: ChannelActions['decidePermission']
+  onReply: (message: ChannelMessage) => void
 }) {
-  let card: { title?: string; state?: string; action?: string; kind?: string } | undefined
+  let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number } | undefined
   if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
+  const classes = [css.message, message.author_kind === 'system' ? css.system : '', focused ? css.focused : ''].filter(Boolean).join(' ')
   return (
-    <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
+    <div className={classes} data-message-id={message.id}>
       {member === undefined || message.author_kind === 'system'
         ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
         : (
@@ -69,6 +86,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
             </span>
           )}
       <div className={css.messageBody}>
+        {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} />}
         <div className={css.messageHead}>
           <span className={css.author}>{message.name}</span>
           <KindTag kind={member?.kind} cli={member?.cli} t={t} />
@@ -82,9 +100,14 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 <div className={css.text}>{message.text}</div>
                 {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
+                {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
               </div>
             )}
       </div>
+      {/* System notices and progress cards are not conversation turns, so they take no reply. */}
+      {message.author_kind !== 'system' && card === undefined && (
+        <button type="button" className={css.replyButton} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩</button>
+      )}
     </div>
   )
 }
@@ -146,9 +169,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
+  // Per room: the message the next send replies to.
+  const [replies, setReplies] = useState<Record<number, ChannelMessage | undefined>>({})
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
+  const replying = state.roomId === undefined ? undefined : replies[state.roomId]
   const logRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -214,6 +240,24 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     const log = logRef.current
     if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
   }, [state.messages, state.roomId])
+
+  // Task board link (#139 B): once the target room's messages are in, scroll to and mark the message.
+  const [jump, setJump] = useState<{ roomId: number; messageId: number } | undefined>(undefined)
+  const [focusedId, setFocusedId] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (jump === undefined || jump.roomId !== state.roomId) return
+    const el = logRef.current?.querySelector(`[data-message-id="${jump.messageId}"]`)
+    if (el == null) return
+    stickRef.current = false
+    el.scrollIntoView?.({ block: 'center' })
+    setFocusedId(jump.messageId)
+    setJump(undefined)
+  }, [jump, state.messages, state.roomId])
+  const openMessage = (roomId: number, messageId: number): void => {
+    setDrawer(undefined)
+    setJump({ roomId, messageId })
+    if (roomId !== state.roomId) void selectRoom(roomId)
+  }
 
   if (state.phase !== 'ready') {
     const notice = state.phase === 'unavailable' ? t('unavailable')
@@ -292,14 +336,28 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
-    send(text).then(() => {
+    const replyTo = replies[roomId]?.id
+    ;(replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
       setDrafts(previous => ({ ...previous, [roomId]: '' }))
+      setReplies(previous => ({ ...previous, [roomId]: undefined }))
     }).catch((error: unknown) => {
       setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
     }).finally(() => {
       pendingRooms.current.delete(roomId)
       setSending(previous => ({ ...previous, [roomId]: false }))
     })
+  }
+
+  const startReply = (message: ChannelMessage): void => {
+    const roomId = state.roomId
+    if (roomId === undefined) return
+    setReplies(previous => ({ ...previous, [roomId]: message }))
+    pendingCaret.current = caret
+  }
+
+  const cancelReply = (): void => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setReplies(previous => ({ ...previous, [roomId]: undefined }))
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -352,17 +410,24 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           />
         )}
         {roomError !== undefined && <div className={css.sendError} role="alert">{roomError}</div>}
-        {state.rooms.map(r => (
-          <button
-            key={r.id}
-            type="button"
-            className={r.id === state.roomId ? `${css.room} ${css.roomActive}` : css.room}
-            aria-current={r.id === state.roomId}
-            onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
-          >
-            <span className={css.hash} aria-hidden>#</span>{r.name}
-          </button>
-        ))}
+        {groupRooms(state.rooms).map(({ room: r, depth }) => {
+          // #139: workspaces sit indented under their chat channel and always show their
+          // in-progress count; a chat channel shows it only when something is in progress.
+          const active = r.active ?? 0
+          const showActive = depth === 1 || r.kind === 'workspace' || active > 0
+          return (
+            <button
+              key={r.id}
+              type="button"
+              className={[css.room, depth === 1 ? css.workspace : '', r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
+              aria-current={r.id === state.roomId}
+              onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
+            >
+              <span className={css.hash} aria-hidden>#</span><span className={css.roomLabel}>{r.name}</span>
+              {showActive && <span className={active > 0 ? `${css.activeCount} ${css.activeBusy}` : css.activeCount}>{t('activeTasks', { count: active })}</span>}
+            </button>
+          )
+        })}
       </nav>
       <section className={css.chat}>
         <header className={css.chatHead}>
@@ -402,6 +467,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   onCloseMenu={() => { setAvatarMenu(undefined) }}
                   onMention={mentionFromAvatar}
                   onDecide={decidePermission}
+                  tasks={state.tasks ?? []}
+                  focused={focusedId === m.id}
+                  onReply={startReply}
                 />
               ))}
         </div>
@@ -441,6 +509,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               <div className={css.mentionHint}>{t('mentionHint')}</div>
             </div>
           )}
+          {replying !== undefined && (
+            <div className={css.replyBar}>
+              <span className={css.replyBarText}>
+                {t('replyingTo', { name: replying.name })}
+                {state.messages.some(m => m.id === replying.id) ? '' : ` · ${t('replyDeleted')}`}
+              </span>
+              <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
+            </div>
+          )}
           <div className={css.composerRow}>
             <textarea
               ref={inputRef}
@@ -478,6 +555,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
+        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} t={t} onOpen={openMessage} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />

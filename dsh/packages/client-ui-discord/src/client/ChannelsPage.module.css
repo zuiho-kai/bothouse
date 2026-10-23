@@ -61,6 +61,28 @@
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
 }
 
+.workspace {
+  padding-left: 22px;
+  font-size: 0.95em;
+}
+
+.roomLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeCount {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.activeBusy {
+  color: var(--dsw-alias-label-primary);
+}
+
 .roomActive {
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-interactive-bg-hover);
@@ -272,6 +294,88 @@
   margin-top: 6px;
   font-size: 13px;
   font-weight: 600;
+}
+
+/* Reply (issue #122): the quoted original above a reply, and the composer's reply bar. */
+.message {
+  position: relative;
+}
+
+.quote {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quoteDeleted {
+  font-style: italic;
+}
+
+.quoteAuthor {
+  flex: none;
+  font-weight: 600;
+}
+
+.replyButton {
+  position: absolute;
+  top: 4px;
+  right: 16px;
+  opacity: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-2);
+  cursor: pointer;
+}
+
+.message:hover .replyButton,
+.message:focus-within .replyButton,
+.replyButton:focus-visible {
+  opacity: 1;
+}
+
+/* Touch screens have no hover: keep the reply entry visible. */
+@media (hover: none) {
+  .replyButton {
+    opacity: 1;
+  }
+}
+
+.replyBar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+}
+
+.replyBarText {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.replyCancel {
+  flex: none;
+  border: 0;
+  color: inherit;
+  background: none;
+  cursor: pointer;
 }
 
 .working {
@@ -727,4 +831,119 @@
 
 .avatarOption[aria-checked='true'] {
   border-color: var(--dsw-alias-accent, #5865f2);
+}
+
+/* #139 team mode B: task board (right column) and task cards in the stream */
+.taskBoard {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.taskList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.taskRow {
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.taskRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.taskLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.taskTitle {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.taskLinks {
+  display: flex;
+  gap: 8px;
+}
+
+.taskEmpty {
+  margin: 0 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.taskDone summary {
+  cursor: pointer;
+}
+
+.taskStatus {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-primary-inverted);
+  background: var(--dsw-alias-state-business-primary);
+  font-size: 10px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.taskStatus[data-status='asked'],
+.taskStatus[data-status='escalated'],
+.taskStatus[data-status='declined'],
+.taskStatus[data-status='rework'] {
+  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));
+}
+
+.taskStatus[data-status='done'] {
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.taskCard {
+  margin-top: 4px;
+  font-style: normal;
+}
+
+.taskMembers {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.taskMember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.taskMemberName {
+  font-weight: 600;
+}
+
+.taskSub {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focused {
+  background: var(--dsw-alias-interactive-bg-hover);
+  outline: 2px solid var(--dsw-alias-state-business-primary);
 }

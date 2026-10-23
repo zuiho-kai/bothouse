@@ -13,6 +13,7 @@ import { Hub } from './hub.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster } from './roster.mjs';
+import { Tasks } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
@@ -82,6 +83,11 @@ export async function apply(ctx, rawConfig) {
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
+  // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
+  // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
+  const tasks = new Tasks(hub, { start: false });
+  gateway.tasks = tasks;
+  tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
@@ -91,6 +97,7 @@ export async function apply(ctx, rawConfig) {
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
+  tasks.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
@@ -111,6 +118,7 @@ export async function apply(ctx, rawConfig) {
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
+    tasks.close();
     gateway.closeAll();
     for (const end of streams) end();
     wss.close();
@@ -130,19 +138,23 @@ export async function apply(ctx, rawConfig) {
     if (store.room(Number(m[1])) === undefined) return json(res, 404, { error: 'room not found' });
     const before = url.searchParams.get('before');
     const rows = store.page(Number(m[1]), before === null ? undefined : Number(before), url.searchParams.get('limit'));
-    return json(res, 200, { messages: rows.map(publicMessage) });
+    return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
   }
 
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
+    const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
+    if (routed !== undefined) return routed;
+    const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner });
+    if (opened !== undefined) return opened;
     if (!owner(req)) {
       if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return json(res, 401, { error: 'unauthorized' });
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
-      return json(res, 200, { me: OWNER, rooms: store.rooms(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
+      return json(res, 200, { me: OWNER, rooms: store.roomsView(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
@@ -160,13 +172,14 @@ export async function apply(ctx, rawConfig) {
       const before = url.searchParams.get('before');
       const rows = after !== null ? store.since(roomId, Number(after), url.searchParams.get('limit'))
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
-      return json(res, 200, { messages: rows.map(publicMessage) });
+      return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
     if (m !== null && req.method === 'POST') {
       return withBody(req, res, (body) => {
         const clientKey = typeof body?.client_key === 'string' && body.client_key ? `web:${body.client_key.slice(0, 64)}` : undefined;
-        const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey });
-        return { message: publicMessage(message) };
+        const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey,
+          replyTo: Number.isInteger(body?.reply_to) ? body.reply_to : undefined });
+        return { message: publicMessage(message, store) };
       });
     }
     // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.
@@ -181,7 +194,7 @@ export async function apply(ctx, rawConfig) {
         const name = String(body?.name ?? '').trim().replace(/^#/, '');
         if (!name || name.length > 32 || /\s/.test(name)) throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
         const room = store.createRoom(name);
-        hub.emit({ type: 'rooms', rooms: store.rooms() });
+        hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { room };
       });
     }
@@ -209,7 +222,60 @@ export async function apply(ctx, rawConfig) {
   }
 }
 
-const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, conflict: 409, 'read-only': 403, offline: 503 };
+/**
+ * #139 B task API, for the owner's browser and for cloud-web bots. The browser
+ * always acts as the owner. Under the shared bot token a bot names itself in
+ * body.actor, which is unverified (Tasks.perform: no owner, no review); a bot
+ * acts as itself verified with a `task` frame on its cloud-web socket.
+ *   GET  /collab/api/rooms/{id}/tasks           board of the room's chat channel and its workspaces
+ *   POST /collab/api/rooms/{id}/tasks           { title, owner, parent_task?, message_id? } dispatch
+ *   GET  /collab/api/tasks/{id}
+ *   POST /collab/api/tasks/{id}/stance          { stance: 接|问|退|升, note? }  (task owner)
+ *   POST /collab/api/tasks/{id}/return          { message_id }                  (task owner)
+ *   POST /collab/api/tasks/{id}/review          { verdict: done|rework, note? } (the dispatcher)
+ * Returns undefined when the request is not for this route, else a Promise of the reply.
+ */
+export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
+  const path = url.pathname.replace(/\/+$/, '');
+  const board = /^\/collab\/api\/rooms\/(\d+)\/tasks$/.exec(path);
+  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review))?$/.exec(path);
+  if (board === null && one === null) return undefined;
+  const human = owner(req);
+  if (!human && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  // The browser is the owner; the shared bot token says nothing about which bot, so body.actor is unverified.
+  const sender = body => (human ? { actor: OWNER, verified: true } : { actor: body?.actor, verified: false });
+  const id = Number((board ?? one)[1]);
+  if (req.method === 'GET' && board !== null) return withBody(req, res, () => ({ tasks: tasks.list(id), chat_id: tasks.chatOf(id) }), false);
+  if (req.method === 'GET' && one !== null && one[2] === undefined) {
+    return withBody(req, res, () => {
+      const t = tasks.task(id);
+      if (t === undefined) throw new CollabError('task-missing', `task ${id} does not exist`);
+      return { task: tasks.view(t) };
+    }, false);
+  }
+  if (req.method !== 'POST') return Promise.resolve(json(res, 404, { error: 'not found' }));
+  if (board !== null) return withBody(req, res, body => ({ task: tasks.perform('assign', { roomId: id, body }, sender(body)) }));
+  return withBody(req, res, body => ({ task: tasks.perform(one[2], { id, body }, sender(body)) }));
+}
+
+/**
+ * POST /collab/api/rooms/{id}/workspaces: the owner or any cc-connect bot (shared bot
+ * token; collab has no per-room membership, so every connected bot is in every room)
+ * opens the next 工作区<n+1> under that chat channel. Anyone else gets 401.
+ * Returns undefined when the request is not for this route, else a Promise of the reply.
+ */
+export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
+  const m = /^\/collab\/api\/rooms\/(\d+)\/workspaces\/?$/.exec(url.pathname);
+  if (m === null || req.method !== 'POST') return undefined;
+  if (!owner(req) && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  return withBody(req, res, () => {
+    const workspace = store.createWorkspace(Number(m[1]));
+    hub.emit({ type: 'rooms', rooms: store.roomsView() });
+    return { workspace };
+  }, false);
+}
+
+const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 async function withBody(req, res, fn, parse = true) {

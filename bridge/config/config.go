@@ -561,6 +561,11 @@ type ProjectConfig struct {
 	MemoryIndex string `toml:"memory_index,omitempty"`
 	// TeamBoard (lead only) keeps one live "who is doing what" message per channel, edited in place.
 	TeamBoard bool `toml:"team_board,omitempty"`
+	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
+	// the same category (existing channels are backfilled at start) and allow `bothouse workspace new`
+	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
+	// 「默认给我们频道建立工作区1」); set team_workspaces = false to opt out. Ignored on non-lead projects.
+	TeamWorkspaces *bool `toml:"team_workspaces,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who
@@ -641,6 +646,11 @@ type ProjectConfig struct {
 
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
+// TeamWorkspacesEnabled reports team mode D (default on; only acts on the team lead).
+func (p ProjectConfig) TeamWorkspacesEnabled() bool {
+	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
+}
+
 func (p ProjectConfig) GateLocalEnabled() bool {
 	return p.GateLocal == nil || *p.GateLocal
 }

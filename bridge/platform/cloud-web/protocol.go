@@ -38,6 +38,10 @@ const (
 	// maomao fork (#121): a reply frame with preview_handle overwrites that streamed
 	// preview and is then relayed like any reply. Enables text stream previews.
 	capReplyInPlace = "reply_in_place"
+	// Team mode E: the gateway answers team_workspace frames (list a chat room's workspaces,
+	// create the next one). Only on when the gateway lists it: not in allCapabilities, so an
+	// older gateway that sends no capability list never gets these frames.
+	capTeamWorkspace = "team_workspace"
 )
 
 var allCapabilities = []string{
@@ -304,4 +308,36 @@ func isGroupChat(chatType string) bool {
 	default:
 		return false
 	}
+}
+
+// Team mode E (user 2026-10-24 01:26「应该支持我们现有的dsh，discord，飞书，自建平台」): the
+// gateway owns the rooms, so the bridge asks it instead of keeping its own copy.
+//
+//	→ {"type":"team_workspace","ref_id":"tw-…","op":"list"|"create","session_key":"<platform>:room-<id>",
+//	   "chat_id":"room-<id>","reply_ctx":"room-<id>","name":"工作区2"}
+//	← {"type":"team_workspace_ack","ref_id":"tw-…","ok":true,
+//	   "self":{"id":"room-<id>","name":"…"},"rooms":[…],   // list: the room and its workspaces
+//	   "room":{"id":"room-<id>","name":"工作区2"}}        // create: the new workspace
+//	← {"type":"team_workspace_ack","ref_id":"tw-…","ok":false,"error":"unsupported"|"not_team_channel"|"room-missing"|…}
+//
+// "rooms" only lists the room's own workspaces (the gateway's parent relation, e.g. collab's
+// rooms.parent_id), so core numbers and adopts from what the gateway recorded.
+const (
+	typeTeamWorkspace    = "team_workspace"
+	typeTeamWorkspaceAck = "team_workspace_ack"
+)
+
+type wireTeamWorkspaceRoom struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type wireTeamWorkspaceAck struct {
+	Type  string                  `json:"type"`
+	RefID string                  `json:"ref_id"`
+	OK    bool                    `json:"ok"`
+	Error string                  `json:"error,omitempty"`
+	Self  *wireTeamWorkspaceRoom  `json:"self,omitempty"`
+	Rooms []wireTeamWorkspaceRoom `json:"rooms,omitempty"`
+	Room  *wireTeamWorkspaceRoom  `json:"room,omitempty"`
 }
