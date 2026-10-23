@@ -105,10 +105,10 @@ var codeFenceRe = regexp.MustCompile("(?s)```.*?```")
 // nameCalled reports whether a teammate's text calls this bot by name without an @: a line that
 // opens with her name (alone or among teammates' names, "橘，…" / "龙娘、橘 你们看看"), followed by
 // the end, a space, vocative punctuation or a word that calls her ("橘你来", "橘帮我看"). The same
-// opening rule the gate uses for a person's message (~/im-bridge/gate/gate.py LEADING); a name later
+// opening rule the gate uses for a person's message (contrib/gate gate.py LEADING); a name later
 // in the line ("行了橘，…", "这个鲸鱼娘你来看看") is talk about her, not a call — a bot naming a
 // teammate mid-sentence made her answer what was said to someone else (user 2026-10-23「我都艾特你了，
-// 他还在判断」; review ~/.claude/reviews/lead-steal-all.md). "说/在/呢/去" from LEADING are left out:
+// 他还在判断」). "说/在/呢/去" from LEADING are left out:
 // in a bot's line "橘说得对" / "橘在忙" are about her. Text inside ``` fences is ignored.
 func nameCalled(text, botName string, team ...string) bool {
 	mine := botNames(botName)

@@ -286,7 +286,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// Busy or idle, the burst is collected the same way (burstWindow / attachmentHold above):
 		// held only while idle, a busy bot judged "@别人 看这个" and its image one by one, and the
 		// image alone — no text, no @ — was inserted into the lead's running turn (user 2026-10-23
-		// 「我都艾特你了，他还在判断」; review ~/.claude/reviews/lead-steal-all.md, ~1.5s extra wait accepted).
+		// 「我都艾特你了，他还在判断」; ~1.5s extra wait accepted).
 		window := g.holdWindow(msg)
 		h := &heldMsg{msg: msg}
 		h.timer = time.AfterFunc(window, func() {
