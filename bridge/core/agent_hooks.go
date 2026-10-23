@@ -354,8 +354,9 @@ func AgentHooksSwitchedOff(workDir string) []string {
 
 // AgentHookCLIs are the CLIs the hooks run under: Claude Code natively, DSH and Gemini CLI through run.py
 // (each turns its own payload into Claude Code's shape), Antigravity (agy) through its own workspace hook file
-// <work_dir>/.agents/hooks.json, with run.py --agy converting payloads.
-var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity"}
+// <work_dir>/.agents/hooks.json, with run.py --agy converting payloads, and pi through an extension
+// (<work_dir>/.pi/bothouse-hooks.ts, loaded with --extension).
+var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi"}
 
 // geminiMatchers: the matcher each hook gets in Gemini CLI, whose built-in tool names differ from both Claude
 // Code's and DSH's (https://geminicli.com/docs/hooks/reference "Matchers and tool names": run_shell_command,
@@ -401,7 +402,7 @@ func geminiEvent(claudeCodeEvent string) string {
 type AgentHookOptions struct {
 	DataDir string   // cc-connect data_dir: scripts go to <data_dir>/hooks
 	WorkDir string   // the role's work_dir
-	CLI     string   // "claudecode" | "dsh"
+	CLI     string   // "claudecode" | "dsh" | "pi"
 	Lang    string   // language of the persona block (zh* = Chinese, else English); "" = the persona's reply language, else system
 	Only    []string // hooks to switch on/off; empty = all
 	DSHHome string   // DSH only: "" = $DSH_HOME, else ~/.dsh (dsh-home-paths)
@@ -418,6 +419,7 @@ type AgentHookResult struct {
 	SettingsFile string   `json:"settings_file"`
 	PersonaFile  string   `json:"persona_file"`
 	DSHPatchFile string   `json:"dsh_patch_file,omitempty"`
+	PiExtension  string   `json:"pi_extension_file,omitempty"`
 }
 
 func (o AgentHookOptions) dshPatch() string {
@@ -455,6 +457,8 @@ func (o AgentHookOptions) personaPath() (string, error) {
 		return PersonaFilePath("gemini", o.WorkDir), nil // Gemini CLI reads GEMINI.md
 	case "antigravity":
 		return PersonaFilePath("antigravity", o.WorkDir), nil
+	case "pi":
+		return filepath.Join(o.WorkDir, "AGENTS.md"), nil // pi reads AGENTS.md (agent/pi/pi.go ProjectMemoryFile)
 	}
 	return "", fmt.Errorf("hooks run under %s only, not %q", strings.Join(AgentHookCLIs, ", "), o.CLI)
 }
@@ -535,6 +539,11 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 			return nil, err
 		}
 	}
+	if o.CLI == "pi" {
+		if res.PiExtension, err = EnsurePiHookExtension(o.WorkDir); err != nil {
+			return nil, err
+		}
+	}
 	return res, nil
 }
 
@@ -585,6 +594,11 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 			if err := RemoveDSHHookBridge(o.dshPatch(), o.WorkDir); err != nil {
 				return nil, err
 			}
+		}
+	}
+	if o.CLI == "pi" && len(res.Enabled) == 0 {
+		if err := RemovePiHookExtension(o.WorkDir); err != nil {
+			return nil, err
 		}
 	}
 	return res, nil

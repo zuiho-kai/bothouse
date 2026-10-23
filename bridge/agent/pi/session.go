@@ -171,6 +171,7 @@ func newPiSession(ctx context.Context, cmd string, extraArgs []string, workDir, 
 
 func (s *piSession) startRPC(resumeID string) error {
 	args := append(append([]string{}, s.extraArgs...), "--mode", "rpc")
+	args = append(args, core.PiHookExtensionArgs(s.workDir)...) // bothouse hooks (core/agent_hooks_pi.go)
 	if resumeID != "" {
 		args = append(args, "--session-id", resumeID)
 	}
@@ -364,6 +365,7 @@ func (s *piSession) Send(msg string, messageID string, images []core.ImageAttach
 // reads all output events, and sends them to the events channel.
 func (s *piSession) sendJSON(prompt string) error {
 	args := append(append([]string{}, s.extraArgs...), "--mode", "json", "-p", prompt)
+	args = append(args, core.PiHookExtensionArgs(s.workDir)...) // bothouse hooks (core/agent_hooks_pi.go)
 	if sid := s.CurrentSessionID(); sid != "" {
 		args = append(args, "--session-id", sid)
 	}

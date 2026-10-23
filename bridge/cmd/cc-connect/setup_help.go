@@ -14,7 +14,7 @@ const setupUsage = `Usage:
   bothouse setup personas [--lang zh|en]
                          Example personas you can copy into "persona" (the maintainers' own characters;
                          optional — leave persona empty to use none)
-  bothouse setup hooks on|off|status --work-dir <dir> [--cli claudecode|dsh] [--only a,b] [--lang zh|en]
+  bothouse setup hooks on|off|status --work-dir <dir> [--cli claudecode|dsh|pi] [--only a,b] [--lang zh|en]
                          Tool hooks (bash-guard, dispatch-review-guard, …) for one role: switch them on or off in
                          <dir>/.claude/settings.json and keep the rules block in its persona in step.
                          New Claude Code roles from the wizard get all of them. Run "setup hooks -h" for more.

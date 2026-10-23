@@ -26,6 +26,11 @@ $DSH_HOME is not written. Those hooks run only in the roles set up with --cli ds
 tells the model the rules of the hooks that are on. "off" removes the hooks and that block (or, with
 --only, just those hooks and their lines); other hooks and the rest of both files are left as they are.
 
+pi ("--cli pi") runs the same <dir>/.claude/settings.json PreToolUse hooks through an extension, "on" writes
+<dir>/.pi/bothouse-hooks.ts and bothouse passes it with --extension; persona block goes to AGENTS.md. pi loads
+extensions at start: in rpc mode (bothouse's roles) restart the pi process (restart bothouse) after on/off.
+"status --cli pi" also reports whether that extension file exists (pi_extension_present).
+
 To pause hooks without uninstalling them, the user tells the bot in chat ("turn the checks off"): the
 persona block makes it run <data_dir>/hooks/run.py --role <dir> off|on [hook…], which writes
 <dir>/.claude/conest-hooks.json ({"off": ["bash-guard"]} or {"off": ["all"]}; editing it by hand works too).
@@ -53,7 +58,7 @@ func runSetupHooks(args []string) {
 		fs.PrintDefaults()
 	}
 	workDir := fs.String("work-dir", "", "the role's work_dir (REQUIRED)")
-	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity")
+	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity | pi")
 	only := fs.String("only", "", "comma-separated hooks to switch on/off (default: all)")
 	lang := fs.String("lang", "", "language of the persona block: zh | en (default: the persona's reply language, else system)")
 	dshHome := fs.String("dsh-home", "", "DSH home for --cli dsh (default: $DSH_HOME, else ~/.dsh)")
@@ -89,8 +94,15 @@ func runSetupHooks(args []string) {
 	default:
 		var on []string
 		on, err = core.AgentHooksEnabled(*cli, wd)
-		res = map[string]any{"enabled": on, "settings_file": core.AgentHookSettingsPath(*cli, wd), "hooks": core.AgentHookNames(),
+		st := map[string]any{"enabled": on, "settings_file": core.AgentHookSettingsPath(*cli, wd), "hooks": core.AgentHookNames(),
 			"switched_off": core.AgentHooksSwitchedOff(wd), "switch_file": core.AgentHookSwitchFile(wd)}
+		if *cli == "pi" {
+			// The settings file is shared with claudecode; the hooks only run under pi if the extension is there.
+			_, statErr := os.Stat(core.PiHookExtensionPath(wd))
+			st["pi_extension_file"] = core.PiHookExtensionPath(wd)
+			st["pi_extension_present"] = statErr == nil
+		}
+		res = st
 	}
 	if err != nil {
 		fail(err)
