@@ -1,6 +1,6 @@
 package core
 
-// Team mode D (Discord side): every chat channel of the team lead gets a 「工作区1」
+// Team mode D: every chat channel of the team lead gets a 「工作区1」
 // channel in the same category, so the chat channel stays free for talking with the
 // user while big work moves to a workspace. More workspaces (「工作区n+1」) are only
 // created on request — by the lead or by the role doing the work (POST
@@ -39,16 +39,19 @@ type TeamChannel struct {
 var ErrNotTeamChannel = errors.New("not a guild text channel")
 
 // ErrTeamWorkspacePermanent marks a platform error that retrying will not fix (Discord 4xx
-// other than 429: no Manage Channels permission, channel deleted). The chat is then not
+// other than 429: no Manage Channels permission, channel deleted; Feishu: no im:chat). Each
+// platform maps its own errors to it. The chat is then not
 // retried until restart (code review of PR #135, item 2: no request flood per message).
 var ErrTeamWorkspacePermanent = errors.New("permanent platform error")
 
-// ErrTeamWorkspaceNotLeadChat: "new" was asked for a channel that is not a Discord chat
-// channel of the team lead (code review of PR #135, item 3).
-var ErrTeamWorkspaceNotLeadChat = errors.New("not a discord chat channel of the team lead")
+// ErrTeamWorkspaceNotLeadChat: "new" was asked for a channel that is not a chat channel of
+// the team lead on a platform with workspaces (code review of PR #135, item 3).
+var ErrTeamWorkspaceNotLeadChat = errors.New("not a chat channel of the team lead on a platform with workspaces")
 
-// TeamWorkspaceChannels is implemented by platforms that can create workspace
-// channels (only Discord for now).
+// TeamWorkspaceChannels is implemented by platforms that can create workspace channels
+// (Discord, Feishu, cloud_web; team mode E, user 01:26「应该支持我们现有的dsh，discord，飞书，
+// 自建平台」). Naming, n+1, backfill, the on/off switch and the lead check stay in core; the
+// platform of a chat is the first segment of its session key ("<platform>:<id>").
 type TeamWorkspaceChannels interface {
 	// TeamGuildChannels returns channelID itself and every text channel of its guild.
 	// It returns ErrNotTeamChannel (wrapped) when channelID is not a guild text channel.
@@ -61,7 +64,9 @@ type TeamWorkspaceChannels interface {
 const (
 	teamWorkspaceFile   = "team_workspaces.json"
 	teamWorkspacePrefix = "工作区" // naming 「工作区n」: user 00:50「工作区1」「工作区n+1」
-	teamWorkspacePlat   = "discord"
+	// teamWorkspaceBarePlat is the platform of a bare channel ID (no "<platform>:"), the
+	// form team mode D's API and the unified exit already accept for Discord.
+	teamWorkspaceBarePlat = "discord"
 )
 
 // 「工作区」 without a number is the name the old ws-handoff script used. A second chat channel in
@@ -84,7 +89,7 @@ type TeamWorkspace struct {
 }
 
 type teamWorkspaceState struct {
-	// Parents: "discord:<chat channel id>" → its workspaces in creation order.
+	// Parents: "<platform>:<chat channel id>" → its workspaces in creation order.
 	Parents map[string][]TeamWorkspace `json:"parents"`
 }
 
@@ -135,10 +140,11 @@ func saveTeamWorkspacesLocked(path string, st *teamWorkspaceState) error {
 	return AtomicWriteFile(path, out, 0o600)
 }
 
-// teamChatKey normalizes "discord:123", "discord:123:user" or a bare "123" to "discord:123".
+// teamChatKey normalizes "<platform>:123", "<platform>:123:user" to "<platform>:123" and a
+// bare Discord "123" to "discord:123".
 func teamChatKey(channel string) string {
 	if !strings.Contains(channel, ":") {
-		return teamWorkspacePlat + ":" + channel
+		return teamWorkspaceBarePlat + ":" + channel
 	}
 	return chatOf(channel)
 }
@@ -204,12 +210,18 @@ func (e *Engine) SetTeamWorkspaces(on bool) {
 	go e.backfillTeamWorkspaces()
 }
 
-func (e *Engine) teamWorkspacePlatform() (TeamWorkspaceChannels, bool) {
-	p, ok := e.platformForName(teamWorkspacePlat).(TeamWorkspaceChannels)
+// teamWorkspacePlatform returns the platform of chat ("<platform>:<id>") when it can have
+// workspaces.
+func (e *Engine) teamWorkspacePlatform(chat string) (TeamWorkspaceChannels, bool) {
+	name, _, found := strings.Cut(chat, ":")
+	if !found || name == "" {
+		return nil, false
+	}
+	p, ok := e.platformForName(name).(TeamWorkspaceChannels)
 	return p, ok
 }
 
-// backfillTeamWorkspaces ensures 「工作区1」 for every Discord channel the lead already has a
+// backfillTeamWorkspaces ensures 「工作区1」 for every chat channel the lead already has a
 // session in. Channels that fail because the platform is not connected yet are retried.
 func (e *Engine) backfillTeamWorkspaces() {
 	tick := time.NewTicker(teamWorkspaceStartEvery)
@@ -236,7 +248,8 @@ func (e *Engine) backfillTeamWorkspaces() {
 	}
 }
 
-// teamLeadChats lists the distinct Discord chats ("discord:<id>") of the lead's sessions.
+// teamLeadChats lists the distinct chats ("<platform>:<id>") of the lead's sessions on
+// platforms that can have workspaces.
 func (e *Engine) teamLeadChats() []string {
 	if e.sessions == nil {
 		return nil
@@ -244,11 +257,11 @@ func (e *Engine) teamLeadChats() []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, k := range e.sessions.UserKeys() {
-		if !strings.HasPrefix(k, teamWorkspacePlat+":") {
+		c := chatOf(k)
+		if seen[c] {
 			continue
 		}
-		c := chatOf(k)
-		if !seen[c] {
+		if _, ok := e.teamWorkspacePlatform(c); ok {
 			seen[c] = true
 			out = append(out, c)
 		}
@@ -272,10 +285,13 @@ func (e *Engine) isTeamLeadChat(chat string) bool {
 // teamWorkspaceNoteChat ensures 「工作区1」 for a channel the lead sees for the first time.
 func (e *Engine) teamWorkspaceNoteChat(sessionKey string) {
 	ws := e.teamWS
-	if ws == nil || !strings.HasPrefix(sessionKey, teamWorkspacePlat+":") {
+	if ws == nil {
 		return
 	}
 	chat := chatOf(sessionKey)
+	if _, ok := e.teamWorkspacePlatform(chat); !ok {
+		return
+	}
 	ws.mu.Lock()
 	done := ws.seen[chat]
 	ws.mu.Unlock()
@@ -332,7 +348,7 @@ func (e *Engine) NewTeamWorkspace(sessionKey string) (parent string, w TeamWorks
 	if e.teamWS == nil {
 		return "", TeamWorkspace{}, fmt.Errorf("team workspaces are off for project %q (team_workspaces, lead only)", e.name)
 	}
-	if !strings.HasPrefix(sessionKey, teamWorkspacePlat+":") {
+	if _, ok := e.teamWorkspacePlatform(chatOf(sessionKey)); !ok {
 		return "", TeamWorkspace{}, fmt.Errorf("team workspace: session key %q: %w", sessionKey, ErrTeamWorkspaceNotLeadChat)
 	}
 	chat := chatOf(sessionKey)
@@ -356,9 +372,9 @@ func (e *Engine) NewTeamWorkspace(sessionKey string) (parent string, w TeamWorks
 // 「工作区1」 (next=false) or creates the next 「工作区n+1」 (next=true). It returns the
 // workspaces after the operation and the one it created (nil if none).
 func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *TeamWorkspace, error) {
-	plat, ok := e.teamWorkspacePlatform()
+	plat, ok := e.teamWorkspacePlatform(chat)
 	if !ok || e.dataDir == "" {
-		return nil, nil, fmt.Errorf("team workspace: no discord platform or data dir")
+		return nil, nil, fmt.Errorf("team workspace: %s: no platform with workspaces or no data dir", chat)
 	}
 	// One operation at a time, from listing the guild to saving, so two calls never both
 	// create 「工作区1」 or read a guild listing taken before the other's create.
@@ -385,7 +401,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	if name == "" {
 		return list, nil, nil
 	}
-	// The Discord request runs without teamWorkspaceStore.mu, so WorkspaceParent (reply path,
+	// The platform request runs without teamWorkspaceStore.mu, so WorkspaceParent (reply path,
 	// team mode C) never waits on the network; teamWorkspaceOpMu keeps operations serial.
 	c, err := plat.CreateTeamWorkspaceChannel(ctx, self.ID, name)
 	if err != nil {
@@ -420,8 +436,13 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(path)
 
+	// Channel IDs are only unique within a platform, so only this platform's records count.
+	plat, _, _ := strings.Cut(chat, ":")
 	claimed := map[string]string{} // workspace id → parent chat
 	for parent, list := range st.Parents {
+		if p, _, _ := strings.Cut(parent, ":"); p != plat {
+			continue
+		}
 		for _, w := range list {
 			claimed[w.ID] = parent
 		}

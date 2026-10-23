@@ -430,3 +430,51 @@ func TestNewTeamWorkspaceOnlyLeadDiscordChats(t *testing.T) {
 		t.Fatalf("lead chat: %+v %v", w, err)
 	}
 }
+
+// Team mode E: the platform of a chat comes from its session key; each platform's chats get
+// their own 「工作区1」 from that platform, and the same channel ID on two platforms is two chats.
+func TestTeamWorkspacesPerPlatform(t *testing.T) {
+	disc := newWorkspaceGuild()
+	fs := &fakeWorkspaceGuild{
+		stubPlatformEngine: stubPlatformEngine{n: "feishu"},
+		channels:           []TeamChannel{{ID: "100", Name: "飞书群"}},
+		nonText:            map[string]bool{"oc_p2p": true},
+	}
+	dataDir := t.TempDir()
+	e := NewEngine("lead", &stubAgent{}, []Platform{disc, fs}, "", LangEnglish)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(dataDir)
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	for _, k := range []string{"discord:100:u1", "feishu:100:ou_1", "feishu:oc_p2p:ou_1", "telegram:5:u"} {
+		e.sessions.GetOrCreateActive(k)
+	}
+	got := e.teamLeadChats()
+	if strings.Join(got, ",") == "" || len(got) != 3 {
+		t.Fatalf("lead chats = %v, want discord:100, feishu:100, feishu:oc_p2p", got)
+	}
+	for _, c := range got {
+		if err := e.ensureTeamWorkspace(c); err != nil {
+			t.Fatalf("ensure %s: %v", c, err)
+		}
+	}
+	if d, f := disc.createdNames(), fs.createdNames(); len(d) != 1 || d[0] != "catA/工作区1" || len(f) != 1 || f[0] != "/工作区1" {
+		t.Fatalf("discord created %v, feishu created %v", d, f)
+	}
+	fw := e.TeamWorkspacesOf("feishu:100")
+	if len(fw) != 1 {
+		t.Fatalf("feishu workspaces = %+v", fw)
+	}
+	if p, ok := e.WorkspaceParent("feishu:" + fw[0].ID); !ok || p != "feishu:100" {
+		t.Fatalf("feishu parent = %q %v", p, ok)
+	}
+	if _, w, err := e.NewTeamWorkspace("feishu:100:ou_1"); err != nil || w.Name != "工作区2" {
+		t.Fatalf("feishu new: %+v %v", w, err)
+	}
+	if _, _, err := e.NewTeamWorkspace("telegram:5:u"); !errors.Is(err, ErrTeamWorkspaceNotLeadChat) {
+		t.Fatalf("telegram new: %v", err)
+	}
+	if got := disc.createdNames(); len(got) != 1 {
+		t.Fatalf("discord created after feishu new = %v", got)
+	}
+}
