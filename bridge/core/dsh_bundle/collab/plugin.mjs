@@ -286,7 +286,7 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
   }, false);
 }
 
-const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503 };
+const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, busy: 409 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 async function withBody(req, res, fn, parse = true) {

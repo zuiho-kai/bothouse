@@ -70,10 +70,13 @@ export class Tasks {
       putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND status IN (${PLACEHOLDERS})`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS})`),
+      activeOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
+      activeAll: this.db.prepare(`SELECT * FROM tasks WHERE status IN (${PLACEHOLDERS}) ORDER BY id DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
       latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
     };
+    hub.tasks = this;
     hub.onMessage(message => this.fromMessage(message));
     // A member coming online (cloud-web register, DSH member published) gets its pending reminders.
     this.unsubscribe = hub.subscribe(event => { if (event.type === 'members') this.deliverPending(); });
@@ -119,6 +122,20 @@ export class Tasks {
   /** In-progress tasks in one room (the "进行中 N 件" next to it in the channel list). */
   countActive(roomId) { return this.q.active.get(roomId, ...WORKING).n; }
 
+  /** Active (in-progress) task of a member across all rooms, if any. */
+  activeOf(owner) {
+    return this.q.activeOfOwner.get(owner, ...WORKING);
+  }
+
+  /** Map of memberId -> active task for all busy members across all rooms. */
+  busyMap() {
+    const map = new Map();
+    for (const row of this.q.activeAll.all(...WORKING)) {
+      if (!map.has(row.owner)) map.set(row.owner, row);
+    }
+    return map;
+  }
+
   /** Public task row: codes plus display names. */
   view(t) {
     return {
@@ -135,7 +152,7 @@ export class Tasks {
    * Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`.
    * `reason` is the dispatcher's own one-line why-this-member, shown in the record (team mode C).
    */
-  assign({ roomId, title, owner, actor, parentTask, messageId, reason }) {
+  assign({ roomId, title, owner, actor, parentTask, messageId, reason, force = false }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const text = String(title ?? '').trim();
@@ -144,6 +161,14 @@ export class Tasks {
     this.member(actor);
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
+    if (!force) {
+      const busy = this.activeOf(owner);
+      if (busy !== undefined) {
+        const busyRoom = this.store.room(busy.room_id);
+        const where = busyRoom ? `#${busyRoom.name}` : `房间 ${busy.room_id}`;
+        throw new CollabError('busy', `${this.nameOf(owner)} 已在 ${where} 有进行中任务 #${busy.id}「${busy.title}」，请换人或等其交回`);
+      }
+    }
     const now = this.now();
     const why = clip(reason);
     const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why);
@@ -218,7 +243,7 @@ export class Tasks {
     }
     const optional = v => (v == null || v === '' ? undefined : Number(v));
     switch (action) {
-      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason });
+      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason, force: Boolean(body.force) });
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });

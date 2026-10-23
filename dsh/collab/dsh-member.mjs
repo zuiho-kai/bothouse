@@ -22,7 +22,17 @@ export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
 export function memberStatus(hub) {
   const busy = new Set([...hub.thinking.values()].flatMap(s => [...s]));
-  return '【队友状态】\n' + hub.routable().map(m => `${m.name} (${m.id})：${m.online === false || m.error ? '离线' : busy.has(m.id) ? '忙碌' : '空闲'}`).join('\n');
+  const taskMap = hub.tasks?.busyMap?.() ?? new Map();
+  return '【队友状态】\n' + hub.routable().map(m => {
+    if (m.online === false || m.error) return `${m.name} (${m.id})：离线`;
+    const task = taskMap.get(m.id);
+    if (task) {
+      const room = hub.store?.room(task.room_id);
+      const where = room ? `#${room.name}` : `房间 ${task.room_id}`;
+      return `${m.name} (${m.id})：忙碌（${where} #${task.id}「${task.title}」）`;
+    }
+    return `${m.name} (${m.id})：${busy.has(m.id) ? '忙碌' : '空闲'}`;
+  }).join('\n');
 }
 import { mentions, nameCalled } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
