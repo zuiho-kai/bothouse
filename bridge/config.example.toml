@@ -816,6 +816,21 @@ name = "my-backend"
 # disabled_commands = ["*"]                                  # disable all built-in commands
 # rate_limit = { max_messages = 10, window_secs = 60 }
 
+# Cold cache fresh (maomao fork) — on by default / 缓存过期开新会话（maomao 分支）—— 默认开
+# When a session has been idle for idle_mins (the prompt cache has expired) and its
+# context is at least min_tokens, the next message starts a fresh agent session and
+# hands over the old transcript's compaction summary and recent dialogue, instead of
+# re-reading the whole uncached context. Agents with handoff support: claudecode,
+# codex, antigravity; others resume as usual.
+# 会话空闲 ≥ idle_mins（提示缓存已过期）且上下文 ≥ min_tokens 时，下一条消息不恢复旧会话，
+# 开新会话并带上旧会话的压缩摘要和最近对话。支持的 agent：claudecode、codex、antigravity。
+#
+# [projects.cold_cache_fresh]
+# enabled = false                # Leave out = on; false = upstream behaviour / 不写 = 开；false = 和上游一样
+# idle_mins = 60                 # Minutes since the last reply (default 60); keep >= agent_session_idle_timeout_mins
+#                                # 距上次回复的分钟数（默认 60）；不要小于 agent_session_idle_timeout_mins
+# min_tokens = 80000             # Context size worth leaving (default 80000) / 上下文达到多少才换新会话（默认 80000）
+
 # Heartbeat — periodic awareness check / 心跳 — 周期性巡检
 # The agent wakes up at a fixed interval to check the environment.
 # Agent 会按固定间隔唤醒，检查环境状态。

@@ -2087,19 +2087,30 @@ func wireImageFresh(engine *core.Engine, proj config.ProjectConfig) {
 	engine.SetImageFresh(true, int(mb*1e6))
 }
 
-// wireColdCacheFresh applies [projects.cold_cache_fresh] (maomao fork).
-func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
-	c := proj.ColdCacheFresh
-	if c.Enabled == nil || !*c.Enabled {
-		engine.SetColdCacheFresh(false, 0, 0)
-		return
+// coldCacheFreshSettings resolves [projects.cold_cache_fresh] (maomao fork).
+// On unless enabled = false; defaults 60 min idle / 80000 tokens come from the
+// maomao fork settings the user chose on 2026-10-14 (~/.cc-connect/config.toml
+// [projects.cold_cache_fresh]: enabled=true, idle_mins=60, min_tokens=80000).
+func coldCacheFreshSettings(c config.ColdCacheFreshConfig) (enabled bool, idleMins, minTokens int) {
+	if c.Enabled != nil && !*c.Enabled {
+		return false, 0, 0
 	}
-	idle, minTokens := 60, 80000
+	idleMins, minTokens = 60, 80000 // source: see comment above (user, 2026-10-14)
 	if c.IdleMins != nil && *c.IdleMins > 0 {
-		idle = *c.IdleMins
+		idleMins = *c.IdleMins
 	}
 	if c.MinTokens != nil && *c.MinTokens > 0 {
 		minTokens = *c.MinTokens
+	}
+	return true, idleMins, minTokens
+}
+
+// wireColdCacheFresh applies [projects.cold_cache_fresh] (maomao fork).
+func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
+	enabled, idle, minTokens := coldCacheFreshSettings(proj.ColdCacheFresh)
+	if !enabled {
+		engine.SetColdCacheFresh(false, 0, 0)
+		return
 	}
 	if t := proj.AgentSessionIdleTimeoutMins; t != nil && *t > idle {
 		slog.Warn("cold_cache_fresh: idle_mins is below agent_session_idle_timeout_mins; a still-running process is reused without the check",

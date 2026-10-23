@@ -457,7 +457,7 @@ type AutoCompressConfig struct {
 // whose prompt cache has expired, start a fresh agent session instead and hand
 // over the old transcript's compaction summary and recent dialogue.
 type ColdCacheFreshConfig struct {
-	Enabled   *bool `toml:"enabled,omitempty"`    // default false
+	Enabled   *bool `toml:"enabled,omitempty"`    // default true; false turns it off
 	IdleMins  *int  `toml:"idle_mins,omitempty"`  // minutes since the last reply (default 60); checked only when the agent process starts, so keep it >= agent_session_idle_timeout_mins
 	MinTokens *int  `toml:"min_tokens,omitempty"` // context size worth leaving (default 80000)
 }
