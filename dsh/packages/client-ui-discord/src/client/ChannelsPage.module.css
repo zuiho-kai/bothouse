@@ -253,6 +253,27 @@
   font-weight: 600;
 }
 
+/* #120 permission prompt buttons and outcome */
+.permActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.permScope {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--dsw-alias-text-secondary);
+}
+
+.permStatus {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .working {
   min-height: 20px;
   padding: 0 16px;

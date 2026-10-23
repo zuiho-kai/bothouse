@@ -11,6 +11,7 @@ import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } f
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { Avatar } from './Avatar.tsx'
+import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -33,7 +34,7 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   return null
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide }: {
   message: ChannelMessage
   member: ChannelMember | undefined
   t: T
@@ -42,10 +43,11 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onAvatar: () => void
   onCloseMenu: () => void
   onMention: (member: ChannelMember) => void
+  onDecide: ChannelActions['decidePermission']
 }) {
-  let card: { title?: string; state?: string; action?: string } | undefined
+  let card: { title?: string; state?: string; action?: string; kind?: string } | undefined
   if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
   return (
     <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
@@ -79,6 +81,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 <div className={css.cardTitle}>{card.title}</div>
                 <div className={css.text}>{message.text}</div>
                 {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
+                {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
               </div>
             )}
       </div>
@@ -138,7 +141,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, decidePermission, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
@@ -398,6 +401,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
                   onCloseMenu={() => { setAvatarMenu(undefined) }}
                   onMention={mentionFromAvatar}
+                  onDecide={decidePermission}
                 />
               ))}
         </div>

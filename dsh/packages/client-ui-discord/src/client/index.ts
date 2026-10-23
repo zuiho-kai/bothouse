@@ -47,6 +47,7 @@ export function apply(ctx: ClientContext): void {
     addMember: channels.actions.addMember,
     updateMember: channels.actions.updateMember,
     removeMember: channels.actions.removeMember,
+    decidePermission: channels.actions.decidePermission,
   })
   ctx.slots.inject('main', () => {
     const dispose = ctx.slots.register({
