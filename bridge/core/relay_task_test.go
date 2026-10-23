@@ -64,11 +64,13 @@ func taskRelayManager(t *testing.T, p *PublicProgress, platform *progressTestPla
 	a := &controllableAgent{startSessionFn: func(context.Context, string) (AgentSession, error) { starts.Add(1); return session, nil }}
 	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
 	source.publicProgress = p
-	dst := &relayVisibilityPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	dst := newProgressPlatform()
 	target := NewEngine("target", a, []Platform{dst}, "", LangEnglish)
 	rm := NewRelayManager("")
 	rm.RegisterEngine("source", source)
 	rm.RegisterEngine("target", target)
+	p.resolveReporter = source.resolveTaskReporter
+	source.SetRelayManager(rm)
 	rm.Bind("discord", "room", map[string]string{"source": "Source", "target": "Target"})
 	return rm, session
 }
@@ -136,8 +138,22 @@ func TestTaskRelayThreadProgressAndIdempotentExecution(t *testing.T) {
 		details = append(details, ev.Detail)
 	}
 	platform.pm.Unlock()
+	worker := rm.engines["target"].platforms[0].(*progressTestPlatform)
+	worker.pm.Lock()
+	for _, ev := range worker.facts {
+		details = append(details, ev.Detail)
+	}
+	worker.pm.Unlock()
 	joined := strings.Join(details, "\n")
-	for _, want := range []string{req.Message, "full child result detail", result.Response} {
+	if strings.Contains(joined, req.Message) {
+		t.Fatal("assignment text leaked to public facts")
+	}
+	for _, ev := range platform.facts {
+		if ev.ReporterProject == "target" {
+			t.Fatal("worker report posted by creator")
+		}
+	}
+	for _, want := range []string{"full child result detail", result.Response} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing thread detail %q: %s", want, joined)
 		}
@@ -276,7 +292,10 @@ func TestTaskRelayLateCompletionCannotReopenParent(t *testing.T) {
 func TestTaskRelaySilentTimeoutReturnsUnconfirmedWithoutReplaying(t *testing.T) {
 	p, platform, _, id := taskRelayFixture(t)
 	var starts atomic.Int32
-	rm, s := taskRelayManager(t, p, platform, nil, &starts)
+	tokens := make(chan string, 1)
+	rm, s := taskRelayManager(t, p, platform, func(prompt string) {
+		tokens <- progressToken(t, prompt)
+	}, &starts)
 	rm.SetTimeout(20 * time.Millisecond)
 	s.events <- Event{Type: EventText, Content: "partial response"}
 	done := make(chan error, 1)
@@ -289,18 +308,29 @@ func TestTaskRelaySilentTimeoutReturnsUnconfirmedWithoutReplaying(t *testing.T) 
 	case <-time.After(2 * time.Second):
 		t.Fatal("silent events ignored timeout")
 	}
+	if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: "discord:room:user", Run: <-tokens, Seq: 1, Kind: "update", Summary: "still executing after caller timeout"}); err != nil {
+		t.Fatal("timeout revoked a running worker's report grant", err)
+	}
 	s.events <- Event{Type: EventResult, Content: "late"}
 	select {
 	case <-s.closed:
 	case <-time.After(time.Second):
 		t.Fatal("drain did not close")
 	}
-	if _, err := rm.Send(context.Background(), taskRelayRequest(id)); err == nil {
-		t.Fatal("partial result treated as cached success")
+	deadline := time.Now().Add(time.Second)
+	for {
+		task, _ := p.Task(id)
+		if strings.Contains(task.Events[len(task.Events)-1].Detail, "late") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background completion not checkpointed")
+		}
+		time.Sleep(time.Millisecond)
 	}
-	task, _ := p.Task(id)
-	if !strings.Contains(task.Events[len(task.Events)-1].Detail, "partial response") {
-		t.Fatal("partial response lost")
+	cached, err := rm.Send(context.Background(), taskRelayRequest(id))
+	if err != nil || cached.Response != "late" {
+		t.Fatal("confirmed late result not cached", cached, err)
 	}
 	if starts.Load() != 1 {
 		t.Fatal("timed out tools reran")
@@ -333,6 +363,12 @@ func taskRelayFixture(t *testing.T) (*PublicProgress, *progressTestPlatform, str
 	p, err := NewPublicProgress(t.TempDir(), "source", []Platform{platform})
 	if err != nil {
 		t.Fatal(err)
+	}
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		if project != "target" || platformName != "discord" || session != "discord:room:user" {
+			return nil, errors.New("unbound test reporter")
+		}
+		return platform, nil
 	}
 	run := p.begin(platform, "discord:room:user", LangChinese, nil)
 	id, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: "discord:room:user", Run: run, Seq: 1, Kind: "start", Title: "local task", Summary: "start"})

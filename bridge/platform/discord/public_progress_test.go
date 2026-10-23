@@ -129,6 +129,43 @@ func TestPublicTaskWorkerUsesOwnAccountSameThread(t *testing.T) {
 	}
 }
 
+func TestPublicTaskWorkerDetailResumesAfterLostACK(t *testing.T) {
+	transport := &progressREST{messages: map[string][]*discordgo.Message{}, botID: "worker"}
+	session, _ := discordgo.New("Bot fixture-worker")
+	session.Client = &http.Client{Transport: transport}
+	session.MaxRestRetries = 0
+	worker := &Platform{session: session, botID: "worker"}
+	task := &core.Task{ID: "shared-task", ChannelID: "room", ThreadID: "shared-thread"}
+	ev := core.TaskEvent{ID: "shared-task:result", Summary: "Worker result", Detail: strings.Repeat("进展🙂", maxDiscordLen), Timestamp: time.Now()}
+	// Simulate a partial delivery: summary confirmed, first detail POST lost ACK.
+	if err := worker.publishTaskFactPart(context.Background(), task, ev, core.LangEnglish, "cc-task-event:"+ev.ID, ev.Summary); err != nil {
+		t.Fatal(err)
+	}
+	transport.loseACK = true
+	if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangEnglish); err == nil {
+		t.Fatal("lost detail ACK was not surfaced")
+	}
+	if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	parts := append([]string{ev.Summary}, core.SplitMessageCodeFenceAware(ev.Detail, maxDiscordLen)...)
+	messages := transport.messages[task.ThreadID]
+	if transport.sends != len(parts) || len(messages) != len(parts) || len(transport.messages[task.ChannelID]) != 0 {
+		t.Fatal("missing detail, duplicate delivery, or escaped shared thread")
+	}
+	for i, part := range parts {
+		m := messages[len(messages)-1-i]
+		if m.Author.ID != "worker" || m.Embeds[0].Description != part {
+			t.Fatal("worker identity or public result text lost")
+		}
+	}
+	for _, auth := range transport.seenAuth {
+		if auth != "Bot fixture-worker" {
+			t.Fatal("detail used creator account")
+		}
+	}
+}
+
 func TestPublicTaskCardLostACKReconciliation(t *testing.T) {
 	transport := &progressREST{messages: map[string][]*discordgo.Message{}, loseACK: true}
 	session, _ := discordgo.New("Bot fixture")

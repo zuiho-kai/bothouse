@@ -16987,7 +16987,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 // handleTrackedRelay owns execution and team lifecycle after the caller has
 // resolved its conversation key. Task-scoped relays can pass their scoped key
 // here to share timeout/drain behavior without sharing conversation history.
-func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool) (string, error) {
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, completion ...func(string, error)) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -17087,9 +17087,9 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived)
+			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, completion)
 			if quiet {
-				return "", ctx.Err()
+				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
 			return relayPartialResponseOrError(ctx.Err(), textParts, fromProject, e.name)
 		case <-e.ctx.Done():
@@ -17196,9 +17196,17 @@ func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, 
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs.
-func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool) {
+func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
-	defer func() { finishTeamWork(teamOutcome) }()
+	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
+	defer func() {
+		finishTeamWork(teamOutcome)
+		for _, complete := range completion {
+			if complete != nil {
+				complete(response, completionErr)
+			}
+		}
+	}()
 	// 来源：沿用既有 relay 后台 drain 的 10 分钟安全期限。
 	timer := time.NewTimer(10 * time.Minute)
 	defer timer.Stop()
@@ -17208,6 +17216,7 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 			slog.Info("relay: background drain completed (agent finished turn)",
 				"relay_key", relaySessionKey)
 			teamOutcome = teamWorkCompleted
+			completionErr = nil
 			agentSession.Close()
 			return
 		}
@@ -17220,6 +17229,7 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 			sendDone = nil
 			if err != nil {
 				slog.Warn("relay: background send failed", "relay_key", relaySessionKey, "error", err)
+				completionErr = err
 				teamOutcome = teamWorkFailed
 				agentSession.Close()
 				return
@@ -17235,9 +17245,20 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 				sessions.Save()
 			}
 			switch ev.Type {
+			case EventText:
+				if ev.Content != "" {
+					textParts = append(textParts, ev.Content)
+				}
 			case EventResult:
 				resultReceived = true
+				response = ev.Content
+				if response == "" {
+					response = strings.Join(textParts, "")
+				}
 			case EventError:
+				if ev.Error != nil {
+					completionErr = ev.Error
+				}
 				slog.Warn("relay: background drain got error",
 					"relay_key", relaySessionKey, "error", ev.Error)
 				teamOutcome = teamWorkFailed
@@ -18341,3 +18362,9 @@ func restoreActiveProviderFromSession(agent Agent, session *Session) {
 	slog.Info("restored active provider from session",
 		"session_id", session.ID, "provider", want)
 }
+
+// relayDrainingError means only the caller stopped waiting; execution still owns
+// the task receipt and reporting token until the background drain completes.
+type relayDrainingError struct{ error }
+
+func (e *relayDrainingError) Unwrap() error { return e.error }

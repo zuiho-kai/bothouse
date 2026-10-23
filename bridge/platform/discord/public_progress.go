@@ -118,14 +118,35 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 	if task.ThreadID == "" {
 		return errors.New("task thread unavailable")
 	}
-	marker := "cc-task-event:" + ev.ID
+	// Source: reuse the Discord text limit so supplementary Unicode also stays
+	// below the embed description limit. Each part has its own recovery marker.
+	parts := core.SplitMessageCodeFenceAware(ev.Summary, maxDiscordLen)
+	if len(parts) == 0 {
+		parts = []string{""}
+	}
+	if ev.Detail != "" {
+		parts = append(parts, core.SplitMessageCodeFenceAware(ev.Detail, maxDiscordLen)...)
+	}
+	for i, part := range parts {
+		marker := "cc-task-event:" + ev.ID
+		if i > 0 {
+			marker += fmt.Sprintf(":detail:%d", i)
+		}
+		if err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Platform) publishTaskFactPart(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language, marker, part string) error {
 	id, err := p.findPublicFact(ctx, task.ThreadID, marker, ev.Timestamp)
 	if err != nil || id != "" {
 		return err
 	}
 	embed := &discordgo.MessageEmbed{
 		Title:       fmt.Sprintf("📌 %s", core.NewI18n(lang).T(core.MsgTaskKeyFact)),
-		Description: ev.Summary,
+		Description: part,
 		Footer:      &discordgo.MessageEmbedFooter{Text: marker},
 		Timestamp:   ev.Timestamp.Format(time.RFC3339),
 		Color:       discordTaskColor(ev.State),

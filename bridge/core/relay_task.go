@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -29,6 +30,22 @@ type taskRelay struct {
 	name, token string
 }
 
+// Task relays share execution tracking with ordinary relays, but keep each
+// dispatch in a distinct conversation and exclude raw tools from public facts.
+func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, message, taskScope string, complete func(string, error)) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	agent, sessions, key, err := e.relayContextForSourceSessionKey(fromProject, sourceSessionKey)
+	if err != nil {
+		return "", err
+	}
+	if taskScope != "" {
+		key += ":task:" + taskScope
+	}
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", complete)
+}
+
 func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, target *Engine, name string) (*RelayResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -45,7 +62,15 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
-	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope)
+	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope, func(response string, runErr error) {
+		if err := d.finish(response, runErr); err != nil {
+			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
+		}
+	})
+	var draining *relayDrainingError
+	if errors.As(runErr, &draining) {
+		return nil, fmt.Errorf("relay: wait ended; execution continues, do not redispatch: %w", runErr)
+	}
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
 	}
@@ -115,10 +140,13 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	if !taskRelayActive(r) {
 		return nil, nil, errors.New("relay: task is not active")
 	}
+	if _, err := p.taskReporter(req.To, r.record.Platform, req.SessionKey, r.publisher); err != nil {
+		return nil, nil, fmt.Errorf("relay: reporter: %w", err)
+	}
 	old := snapshotTaskRelay(r)
 	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running"}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
-	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = req.Message
+	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
 		r.record = old
 		return nil, nil, err
@@ -168,6 +196,7 @@ func (p *PublicProgress) reportTaskRelay(d *taskRelay, req PublicProgressRequest
 	r.record.Relays[d.req.RequestID] = receipt
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayProgress, d.name), true)
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = req.Summary
+	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = d.req.To
 	if err := p.save(r); err != nil {
 		r.record = old
 		return "", err
@@ -180,9 +209,6 @@ func (d *taskRelay) finish(response string, runErr error) error {
 	p, r := d.p, d.r
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
-	p.mu.Lock()
-	delete(p.relayRuns, d.token)
-	p.mu.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	old := snapshotTaskRelay(r)
@@ -201,6 +227,9 @@ func (d *taskRelay) finish(response string, runErr error) error {
 		detail += "\n\n" + runErr.Error()
 	}
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = strings.TrimSpace(detail)
+	if runErr == nil {
+		r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = d.req.To
+	}
 	if !taskRelayActive(r) {
 		r.record.Task.LatestProgress = previousSummary
 	}
@@ -208,6 +237,9 @@ func (d *taskRelay) finish(response string, runErr error) error {
 		r.record = old
 		return err
 	}
+	p.mu.Lock()
+	delete(p.relayRuns, d.token)
+	p.mu.Unlock()
 	p.queueTaskRelay(r)
 	return nil
 }
