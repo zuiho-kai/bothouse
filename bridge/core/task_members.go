@@ -143,8 +143,11 @@ func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressReques
 	r := g.r
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Not gated on r.stopped(): the lead's turn ending (idle timeout, recycle,
+	// stop) must not orphan members. The grant itself is the lifetime; it is
+	// revoked on terminal state, acceptance and restart.
 	if req.SessionKey != g.assignment.SessionKey || r.record.Accepted ||
-		IsTerminalState(r.record.Task.State) || (r.stopped != nil && r.stopped()) {
+		IsTerminalState(r.record.Task.State) {
 		return "", errors.New("member report is not active for this task and session")
 	}
 	b, _ := json.Marshal(req)

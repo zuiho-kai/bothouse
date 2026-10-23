@@ -111,13 +111,11 @@ func (p *PublicProgress) Accept(taskID, actor string) (*Task, error) {
 	if t.State != TaskStateResultReady && t.State != TaskStateWaitingUser {
 		return nil, errors.New("only a delivered result can be accepted")
 	}
-	for _, member := range t.Members {
-		if member.Live() {
-			return nil, errors.New("task still has unfinished members")
-		}
-	}
 	old := r.record
 	old.Task = t.Clone()
+	// The human's acceptance is final: members that never reported an end are
+	// marked interrupted (grants are revoked below) instead of blocking the card.
+	interruptTaskMembers(t)
 	now := time.Now().UTC()
 	r.record.Accepted = true
 	r.record.Closed = true

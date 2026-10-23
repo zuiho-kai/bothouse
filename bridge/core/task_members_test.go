@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -89,9 +90,6 @@ func TestTaskMembersIndependentReportsOneCard(t *testing.T) {
 	}
 	p.finish(run, "result")
 	p.Flush(context.Background())
-	if _, err := p.Accept(id, "human"); err == nil {
-		t.Fatal("accepted unfinished members")
-	}
 	if _, err := p.Report(report(workerToken, 3, "result")); err != nil {
 		t.Fatal("member could not finish after lead turn", err)
 	}
@@ -166,5 +164,51 @@ func TestTaskMembersRestartAndCancellation(t *testing.T) {
 				t.Fatal("revoked capability accepted")
 			}
 		})
+	}
+}
+
+// Regression for #89 review: the lead's turn ending normally and its session
+// later being marked stopped (idle timeout, recycle, /stop) must not orphan
+// members, and a member that never reports an end must not block acceptance.
+func TestTaskMembersSurviveStoppedLead(t *testing.T) {
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stopped atomic.Bool
+	run := p.begin(platform, "room", LangChinese, stopped.Load)
+	id, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: run, Seq: 1, Kind: "start", Title: "task", Summary: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assign := func(member string) string {
+		g, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: member, Name: member, Title: "t"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return progressToken(t, g.ReportCommand)
+	}
+	done, silent := assign("done"), assign("silent")
+	for _, tok := range []string{done, silent} {
+		if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: tok, Seq: 1, Kind: "update", Summary: "go"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p.finish(run, "result")
+	stopped.Store(true)
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: done, Seq: 2, Kind: "result", Summary: "ok"}); err != nil {
+		t.Fatal("member report rejected after lead stopped:", err)
+	}
+	if _, err := p.Accept(id, "human"); err != nil {
+		t.Fatal("card with a silent member could not be accepted:", err)
+	}
+	p.Flush(context.Background())
+	members := platform.task(id).Members
+	if members[0].Status != "completed" || members[1].Status != "interrupted" || members[1].EndedAt.IsZero() {
+		t.Fatalf("member states = %s/%s, want completed/interrupted", members[0].Status, members[1].Status)
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: silent, Seq: 2, Kind: "update", Summary: "late"}); err == nil {
+		t.Fatal("interrupted member grant still accepted reports")
 	}
 }
