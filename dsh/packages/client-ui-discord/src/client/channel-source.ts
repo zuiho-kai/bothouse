@@ -61,6 +61,14 @@ export interface ModelRoute {
 export interface ChannelRoom {
   readonly id: number
   readonly name: string
+  readonly visibility?: 'public' | 'private'
+}
+
+/** Room membership record. */
+export interface RoomMemberEntry {
+  readonly member_id: string
+  readonly role: 'owner' | 'member'
+  readonly added_at: number | null
 }
 
 /** Result of stopping tasks for one member. */
@@ -117,7 +125,13 @@ export interface ChannelActions {
   /** Post one human message into the selected room; rejects with the service's reason. */
   send(text: string): Promise<void>
   /** Create a room and switch to it. */
-  createRoom(name: string): Promise<void>
+  createRoom(name: string, visibility?: 'public' | 'private', initial_members?: readonly string[]): Promise<void>
+  /** Fetch members of a private room. */
+  getRoomMembers(roomId: number): Promise<readonly RoomMemberEntry[]>
+  /** Add a member to a private room. */
+  addRoomMember(roomId: number, memberId: string): Promise<void>
+  /** Remove a member from a private room. */
+  removeRoomMember(roomId: number, memberId: string): Promise<void>
   /** Provider routes and their models for the member picker. */
   listModels(): Promise<readonly ModelRoute[]>
   /** Add a DSH member; rejects with the service's reason (name taken, model unavailable…). */
@@ -152,6 +166,8 @@ type ServiceEvent =
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
   | { readonly type: 'room_control'; readonly room_id: number; readonly stopped: number | boolean; readonly epoch?: number; readonly cutoff?: number; readonly relay_after?: number }
+  | { readonly type: 'room_updated'; readonly room: ChannelRoom }
+  | { readonly type: 'room_members_changed'; readonly room_id: number; readonly members: readonly string[]; readonly action: 'add' | 'remove'; readonly target_member_ids?: readonly string[] }
 
 const INITIAL: ChannelSnapshot = {
   phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [],
@@ -233,6 +249,15 @@ export function createChannelSource(transport: ChannelTransport): {
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
       case 'rooms': return { ...current, rooms: event.rooms }
+      case 'room_updated': {
+        const updated = event.room
+        const exists = current.rooms.some(r => r.id === updated.id)
+        const rooms = exists
+          ? current.rooms.map(r => (r.id === updated.id ? { ...r, ...updated } : r))
+          : [...current.rooms, updated]
+        return { ...current, rooms }
+      }
+      case 'room_members_changed': return current
       case 'room_control': {
         const controls = { ...(current.roomControls ?? {}) }
         controls[event.room_id] = {
@@ -388,10 +413,23 @@ export function createChannelSource(transport: ChannelTransport): {
       })
       if (lifetime === owner) onEvent({ type: 'message', message })
     },
-    async createRoom(name) {
-      const { room } = await request<{ room: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
+    async createRoom(name, visibility, initial_members) {
+      const payload: { name: string; visibility?: string; initial_members?: readonly string[] } = { name }
+      if (visibility !== undefined) payload.visibility = visibility
+      if (initial_members !== undefined && initial_members.length > 0) payload.initial_members = initial_members
+      const { room } = await request<{ room: ChannelRoom }>('collab/api/rooms', json('POST', payload))
       if (!snapshot.rooms.some(r => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] })
       await selectRoom(room.id)
+    },
+    async getRoomMembers(roomId) {
+      const { members } = await request<{ members: readonly RoomMemberEntry[] }>(`collab/api/rooms/${roomId}/members`)
+      return members
+    },
+    async addRoomMember(roomId, memberId) {
+      await request(`collab/api/rooms/${roomId}/members`, json('POST', { member_id: memberId }))
+    },
+    async removeRoomMember(roomId, memberId) {
+      await request(`collab/api/rooms/${roomId}/members/${encodeURIComponent(memberId)}`, { method: 'DELETE' })
     },
     async listModels() {
       const { routes } = await request<{ routes: ModelRoute[] }>('collab/api/models')

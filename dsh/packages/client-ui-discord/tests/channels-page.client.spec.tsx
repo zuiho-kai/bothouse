@@ -23,6 +23,9 @@ function props(
   continueRoom: ChannelsPageProps['continueRoom'] = vi.fn(async () => ({
     room_id: 1, resumed: 1, stopped: false,
   })),
+  getRoomMembers: ChannelsPageProps['getRoomMembers'] = vi.fn(async () => []),
+  addRoomMember: ChannelsPageProps['addRoomMember'] = vi.fn(async () => {}),
+  removeRoomMember: ChannelsPageProps['removeRoomMember'] = vi.fn(async () => {}),
 ): ChannelsPageProps {
   // This panel consumes only its private injected seats; unused main-panel
   // framework seats are deliberately absent so an accidental new read fails.
@@ -32,6 +35,7 @@ function props(
     createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
     stopRoom, continueRoom,
+    getRoomMembers, addRoomMember, removeRoomMember,
     t: (key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
       .reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), String(zh[key])),
   } as unknown as ChannelsPageProps
@@ -344,5 +348,105 @@ describe('channels page', () => {
     fireEvent.click(errButton)
     await act(async () => {})
     expect(screen.getByRole('alert').textContent).toContain('继续失败：Room locked')
+  })
+
+  it('creates a private channel with initial members selected in CreateRoomDialog', async () => {
+    const members = [
+      { id: 'owner', name: '我', kind: 'human' as const, online: true },
+      { id: 'ju', name: '橘', kind: 'bot' as const, online: true },
+      { id: 'ds', name: 'DeepSeek', kind: 'dsh' as const, online: true },
+    ]
+    const p = props({ ...ready, members })
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.newRoom }))
+    expect(screen.getByRole('dialog', { name: zh.createRoomModalTitle })).toBeTruthy()
+
+    // Type name
+    fireEvent.change(screen.getByRole('textbox', { name: zh.newRoom }), { target: { value: 'secret-room' } })
+
+    // Select private radio
+    fireEvent.click(screen.getByLabelText(zh.roomTypePrivate))
+
+    // Select initial member '橘'
+    const juCheck = screen.getByRole('checkbox', { name: /橘/ })
+    fireEvent.click(juCheck)
+    expect((juCheck as HTMLInputElement).checked).toBe(true)
+
+    // Submit dialog
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: zh.create }))
+    })
+
+    expect(p.createRoom).toHaveBeenCalledExactlyOnceWith('secret-room', 'private', ['ju'])
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('renders lock icon and private badge for private rooms in list and header', () => {
+    const privateState: ChannelSnapshot = {
+      ...ready,
+      rooms: [
+        { id: 1, name: 'general', visibility: 'public' },
+        { id: 2, name: 'secret', visibility: 'private' },
+      ],
+      roomId: 2,
+    }
+    const p = props(privateState)
+    render(<ChannelsPage {...p} />)
+
+    // Left room list has lock on secret room
+    const secretButton = screen.getByRole('button', { name: /secret/ })
+    expect(secretButton.textContent).toContain('🔒')
+
+    // Top header has lock and private badge
+    expect(screen.getAllByText(zh.privateBadge).length).toBeGreaterThan(0)
+  })
+
+  it('manages members in private rooms: displays room vs available members, add, and remove', async () => {
+    const privateState: ChannelSnapshot = {
+      ...ready,
+      rooms: [{ id: 1, name: 'secret', visibility: 'private' }],
+      roomId: 1,
+      members: [
+        { id: 'owner', name: '我', kind: 'human' as const, online: true },
+        { id: 'ju', name: '橘', kind: 'bot' as const, online: true },
+        { id: 'ds', name: 'DeepSeek', kind: 'dsh' as const, online: true },
+      ],
+    }
+    const getRoomMembers = vi.fn(async (_roomId: number) => [
+      { member_id: 'owner', role: 'owner' as const },
+      { member_id: 'ju', role: 'member' as const },
+    ])
+    const addRoomMember = vi.fn(async () => {})
+    const removeRoomMember = vi.fn(async () => {})
+
+    const p = props(privateState, undefined, undefined, undefined, getRoomMembers, addRoomMember, removeRoomMember)
+    render(<ChannelsPage {...p} />)
+
+    // Wait for getRoomMembers to load
+    await act(async () => {})
+    expect(getRoomMembers).toHaveBeenCalledWith(1)
+
+    // Should display 'inThisRoom' and 'availableMembers' groups
+    expect(screen.getByText(zh.inThisRoom.replace('{count}', '2'))).toBeTruthy()
+    expect(screen.getByText(zh.availableMembers.replace('{count}', '1'))).toBeTruthy()
+
+    // Owner should have ownerBadge and cannot be removed
+    expect(screen.getByText(zh.roomOwner)).toBeTruthy()
+
+    // Ju should have remove button
+    const removeBtn = screen.getByRole('button', { name: zh.removeFromRoom })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await act(async () => {
+      fireEvent.click(removeBtn)
+    })
+    expect(removeRoomMember).toHaveBeenCalledWith(1, 'ju')
+    confirmSpy.mockRestore()
+
+    // DS should have add button
+    const addBtn = screen.getByRole('button', { name: '+ ' + zh.addToRoom })
+    await act(async () => {
+      fireEvent.click(addBtn)
+    })
+    expect(addRoomMember).toHaveBeenCalledWith(1, 'ds')
   })
 })
