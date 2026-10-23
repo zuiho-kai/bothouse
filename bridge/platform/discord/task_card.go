@@ -10,6 +10,14 @@ import (
 
 // RenderTaskCardEmbed converts a core.Task into a structured Discord MessageEmbed.
 func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
+	return renderTaskCardEmbedView(task, lang, cardViewDetail)
+}
+
+// renderTaskCardEmbedView renders the card in 细节 or 简略. 简略 keeps each
+// member's name, status and time and leaves out the task text and the current
+// step (required summary, latest progress, member titles and steps).
+func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *discordgo.MessageEmbed {
+	brief := view == cardViewBrief
 	if task == nil {
 		return &discordgo.MessageEmbed{Description: " "}
 	}
@@ -34,11 +42,11 @@ func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
 	if len(task.Members) > 0 {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:  discordTaskFieldLabel("members", lang),
-			Value: renderTaskMembers(task.Members, lang),
+			Value: renderTaskMembersView(task.Members, lang, brief),
 		})
 	}
 
-	if summary := strings.TrimSpace(task.RequiredSummary); summary != "" {
+	if summary := strings.TrimSpace(task.RequiredSummary); summary != "" && !brief {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   discordTaskFieldLabel("required_summary", lang),
 			Value:  trimDiscordRunes(summary, 500),
@@ -46,7 +54,7 @@ func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
 		})
 	}
 
-	if prog := strings.TrimSpace(task.LatestProgress); prog != "" && prog != task.ResultSummary {
+	if prog := strings.TrimSpace(task.LatestProgress); prog != "" && prog != task.ResultSummary && !brief {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   discordTaskFieldLabel("latest_progress", lang),
 			Value:  trimDiscordRunes(prog, 500),
@@ -103,6 +111,10 @@ func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
 }
 
 func renderTaskMembers(members []core.TaskMember, lang string) string {
+	return renderTaskMembersView(members, lang, false)
+}
+
+func renderTaskMembersView(members []core.TaskMember, lang string, brief bool) string {
 	i18n := core.NewI18n(core.Language(lang))
 	names := make(map[string]string, len(members))
 	for _, m := range members {
@@ -129,7 +141,10 @@ func renderTaskMembers(members []core.TaskMember, lang string) string {
 		if parent := names[m.ParentID]; parent != "" {
 			name = parent + " / " + name
 		}
-		row := icon + " " + compactDiscordProgressText(name) + "｜" + compactDiscordProgressText(m.Title)
+		row := icon + " " + compactDiscordProgressText(name)
+		if !brief {
+			row += "｜" + compactDiscordProgressText(m.Title)
+		}
 		switch {
 		case m.Status == "interrupted":
 			row += "｜" + i18n.T("task_member_interrupted")
@@ -140,10 +155,10 @@ func renderTaskMembers(members []core.TaskMember, lang string) string {
 		case !m.StartedAt.IsZero():
 			row += "｜" + i18n.Tf("task_member_started", fmt.Sprintf("<t:%d:R>", m.StartedAt.Unix()))
 		}
-		if m.Live() && !m.UpdatedAt.IsZero() && m.Status != "queued" {
+		if m.Live() && !m.UpdatedAt.IsZero() && m.Status != "queued" && !brief {
 			row += " · " + i18n.Tf("task_member_updated", fmt.Sprintf("<t:%d:R>", m.UpdatedAt.Unix()))
 		}
-		if m.Summary != "" {
+		if m.Summary != "" && !brief {
 			row += "\n　└ " + trimDiscordRunes(compactDiscordProgressText(m.Summary), maxDiscordProgressLineLen)
 		}
 		// Source: Discord embed fields allow 1024 characters. Reserve the exact

@@ -13,7 +13,7 @@ function fixture() {
   const parent = { session: { id: 'parent' } }, child = {}, record = { drainUpdates: async () => {} };
   const ctx = { on: (name, fn) => listeners.set(name, fn), logger: { warn: (error) => assert.fail(error) } };
   attachSubagentUpdates(ctx, { carrierKeyOf: (carrier) => carrier.parent, ownedRecord: (p) => p === parent ? record : undefined, notify: async (update) => updates.push(update), agents: { get: () => child } });
-  return { parent, child, updates, emit: (name, data, p = parent) => listeners.get(name).call({ parent: p }, data) };
+  return { parent, child, updates, listeners, emit: (name, data, p = parent) => listeners.get(name).call({ parent: p }, data) };
 }
 
 test('native start/end carry identity and outcomes, excluding private payloads', async () => {
@@ -49,6 +49,24 @@ test('idle is waiting, not successful completion; status only follows the exact 
   // agent/status queues without blocking the native event emitter.
   await f.emit('subagent/end', { ...info, stopReason: 'aborted' });
   assert.deepEqual(f.updates.map((u) => u.update._meta['bothouse/subagent'].status), ['running','waiting','stopped']);
+});
+
+test('child label, preset and tool name become task, name and step; arguments never cross', async () => {
+  const f = fixture(), info = { id: 'child', runId: 'run', local: true };
+  const event = (id, type, data) => f.listeners.get('session/event')({ header: { id } }, { type, data });
+  // The descriptor is appended while the child is prepared, before start.
+  event('child', 'subagent/descriptor', { version: 3, mode: 'continuable', provider: 'local', label: '审查登录修复', persona: 'PRIVATE' });
+  event('child', 'agent-preset/selected', { agentPreset: 'reviewer' });
+  await f.emit('subagent/start', info);
+  event('child', 'tool/call', { name: 'shell', arguments: '{"cmd":"PRIVATE"}' });
+  event('other', 'tool/call', { name: 'PRIVATE' });
+  event('child', 'assistant/message', { message: 'PRIVATE' });
+  await f.emit('subagent/end', { ...info, stopReason: 'completed', lastAssistantMessage: 'PRIVATE' });
+  const metas = f.updates.map((u) => u.update._meta['bothouse/subagent']);
+  assert.deepEqual(metas[0], { id: 'child', runId: 'run', status: 'running', name: 'reviewer', task: '审查登录修复' });
+  assert.equal(metas[1].step, 'shell');
+  assert.equal(metas.at(-1).status, 'completed');
+  assert.ok(!JSON.stringify(f.updates).includes('PRIVATE'));
 });
 
 test('installer validates version/seam before modifying, backs up and is idempotent', async () => {

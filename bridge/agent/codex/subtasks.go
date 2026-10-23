@@ -2,6 +2,8 @@ package codex
 
 import (
 	"encoding/json"
+	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -150,8 +152,24 @@ func (s *appServerSession) handleChildNotification(method string, raw json.RawMe
 			ActiveFlags []string `json:"activeFlags"`
 		} `json:"status"`
 	}
+	if method == "thread/started" {
+		// Observe only: the thread's own start stays with the normal handler.
+		s.describeChildThread(raw)
+		return false
+	}
 	if json.Unmarshal(raw, &n) != nil || n.ThreadID == "" || n.ThreadID == s.CurrentSessionID() || !s.HasSubTask(n.ThreadID) {
 		return false
+	}
+	if method == "item/started" {
+		var item struct {
+			Item map[string]any `json:"item"`
+		}
+		if json.Unmarshal(raw, &item) == nil {
+			if step := codexChildStep(item.Item); step != "" {
+				s.DescribeSubTask(n.ThreadID, core.SubTaskInfo{Step: step})
+			}
+		}
+		return true
 	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
@@ -216,4 +234,112 @@ func (s *appServerSession) handleChildNotification(method string, raw json.RawMe
 	}
 	s.UpdateSubTask(core.SubTask{ID: n.ThreadID, Status: status, ModeUnknown: true}, method == "turn/started")
 	return true
+}
+
+// describeChildThread records a spawned child's public labels from its
+// thread/started notification: the agent nickname (or role) as its name and
+// the spawn's task_name (the last segment of agent_path) as its task. The
+// thread preview is the child's prompt and is never read.
+func (s *appServerSession) describeChildThread(raw json.RawMessage) {
+	var n struct {
+		Thread struct {
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			AgentNickname  string `json:"agentNickname"`
+			AgentRole      string `json:"agentRole"`
+			ParentThreadID string `json:"parentThreadId"`
+			Source         struct {
+				SubAgent struct {
+					ThreadSpawn struct {
+						AgentNickname  string `json:"agent_nickname"`
+						AgentRole      string `json:"agent_role"`
+						AgentPath      any    `json:"agent_path"`
+						ParentThreadID string `json:"parent_thread_id"`
+					} `json:"thread_spawn"`
+				} `json:"subAgent"`
+			} `json:"source"`
+		} `json:"thread"`
+	}
+	if json.Unmarshal(raw, &n) != nil {
+		return
+	}
+	th := n.Thread
+	spawn := th.Source.SubAgent.ThreadSpawn
+	if th.ID == "" || th.ID == s.CurrentSessionID() || (th.ParentThreadID == "" && spawn.ParentThreadID == "") {
+		return
+	}
+	name := firstNonEmpty(th.AgentNickname, spawn.AgentNickname, th.AgentRole, spawn.AgentRole)
+	task := strings.TrimSpace(th.Name)
+	if task == "" {
+		if path, ok := spawn.AgentPath.(string); ok {
+			task = path[strings.LastIndex(path, "/")+1:]
+		}
+	}
+	s.DescribeSubTask(th.ID, core.SubTaskInfo{Name: strings.TrimSpace(name), Description: strings.TrimSpace(task)})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// codexChildStep names what a child is doing from its item/started, at the
+// same grain as Claude's task_progress. Only the kind of work and a file or
+// tool name appear: no command line, arguments, reasoning or message text.
+func codexChildStep(item map[string]any) string {
+	typ, _ := item["type"].(string)
+	switch typ {
+	case "commandExecution":
+		if actions, _ := item["commandActions"].([]any); len(actions) > 0 {
+			if a, _ := actions[0].(map[string]any); a != nil {
+				switch a["type"] {
+				case "read":
+					if name, _ := a["name"].(string); name != "" {
+						return "Reading " + path.Base(name)
+					}
+					return "Reading files"
+				case "listFiles":
+					return "Listing files"
+				case "search":
+					return "Searching files"
+				}
+			}
+		}
+		return "Running command"
+	case "fileChange":
+		changes, _ := item["changes"].([]any)
+		var first string
+		if len(changes) > 0 {
+			if c, _ := changes[0].(map[string]any); c != nil {
+				first, _ = c["path"].(string)
+			}
+		}
+		if first == "" {
+			return "Editing files"
+		}
+		step := "Editing " + path.Base(first)
+		if len(changes) > 1 {
+			step += fmt.Sprintf(" +%d", len(changes)-1)
+		}
+		return step
+	case "mcpToolCall":
+		server, _ := item["server"].(string)
+		tool, _ := item["tool"].(string)
+		if server != "" && tool != "" {
+			return "Calling " + server + "." + tool
+		}
+		return "Calling tool"
+	case "dynamicToolCall":
+		if tool, _ := item["tool"].(string); tool != "" {
+			return "Calling " + tool
+		}
+		return "Calling tool"
+	case "webSearch":
+		return "Searching the web"
+	}
+	return ""
 }

@@ -14,6 +14,77 @@ type SubTaskTracker struct {
 	tasks, previous []SubTask
 	changed         chan struct{}
 	closed          bool
+	// Public labels reported before or after the row itself exists (a child's
+	// own start event may precede the parent's spawn record).
+	info map[string]SubTaskInfo
+}
+
+// SubTaskInfo is the public, short label of one child: its name, its task
+// label and its current step. Adapters must fill it only from fields the
+// backend designates for display (a nickname, a task name, a tool name) —
+// never prompts, reasoning, replies or full commands.
+type SubTaskInfo struct {
+	Name, Description, Step string
+}
+
+// DescribeSubTask records public labels for a child row. Empty fields keep the
+// previous value. Labels for an unknown ID are kept and applied when the row
+// appears. A finished row keeps its last step.
+func (t *SubTaskTracker) DescribeSubTask(id string, info SubTaskInfo) {
+	if id == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return
+	}
+	if t.info == nil {
+		t.info = make(map[string]SubTaskInfo)
+	}
+	merged := t.info[id]
+	if info.Name != "" {
+		merged.Name = info.Name
+	}
+	if info.Description != "" {
+		merged.Description = info.Description
+	}
+	if info.Step != "" {
+		merged.Step = info.Step
+	}
+	t.info[id] = merged
+	changed := false
+	for _, rows := range [][]SubTask{t.tasks, t.previous} {
+		for i := range rows {
+			if rows[i].ID == id && applySubTaskInfo(&rows[i], info) {
+				changed = true
+			}
+		}
+	}
+	if changed {
+		t.notifyLocked()
+	}
+}
+
+func (t *SubTaskTracker) clearStepLocked(id string) {
+	if info, ok := t.info[id]; ok {
+		info.Step = ""
+		t.info[id] = info
+	}
+}
+
+func applySubTaskInfo(row *SubTask, info SubTaskInfo) bool {
+	changed := false
+	if info.Name != "" && info.Name != row.Name {
+		row.Name, changed = info.Name, true
+	}
+	if info.Description != "" && info.Description != row.Description {
+		row.Description, changed = info.Description, true
+	}
+	if info.Step != "" && info.Step != row.Step && row.Live() {
+		row.Step, changed = info.Step, true
+	}
+	return changed
 }
 
 func (t *SubTaskTracker) channelLocked() chan struct{} {
@@ -87,6 +158,8 @@ search:
 			}
 			if restart && !row.Live() {
 				row.StartedAt = time.Now()
+				row.Step = "" // a new activation has no step yet
+				t.clearStepLocked(task.ID)
 			}
 			row.Status = task.Status
 			row.EndedAt = time.Time{}
@@ -100,6 +173,12 @@ search:
 	if !live {
 		t.generation++
 		t.previous, t.tasks = t.tasks, nil
+	}
+	if restart {
+		t.clearStepLocked(task.ID)
+	}
+	if info, ok := t.info[task.ID]; ok {
+		applySubTaskInfo(&task, info)
 	}
 	if task.Description == "" {
 		task.Description = task.ID

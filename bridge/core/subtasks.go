@@ -32,6 +32,7 @@ const (
 // SubTask is one row of the sub-agent table.
 type SubTask struct {
 	ID          string        `json:"id"`
+	Name        string        `json:"name,omitempty"` // who: Codex agent nickname / role; empty for Claude rows
 	Description string        `json:"description"`
 	ModeUnknown bool          `json:"mode_unknown,omitempty"` // backend does not expose foreground/background
 	Background  bool          `json:"background,omitempty"`

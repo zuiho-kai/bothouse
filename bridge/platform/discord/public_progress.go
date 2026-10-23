@@ -52,9 +52,16 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 		return errors.New("discord session is not ready")
 	}
 	marker := "cc-task:" + task.ID
-	embed := RenderTaskCardEmbed(task, string(lang))
-	embed.Footer = &discordgo.MessageEmbedFooter{Text: marker}
-	embed.Timestamp = task.UpdatedAt.Format(time.RFC3339)
+	snapshot := task.Clone()
+	render := func(v cardView) []*discordgo.MessageEmbed {
+		embed := renderTaskCardEmbedView(snapshot, string(lang), v)
+		embed.Footer = &discordgo.MessageEmbedFooter{Text: marker}
+		embed.Timestamp = snapshot.UpdatedAt.Format(time.RFC3339)
+		return []*discordgo.MessageEmbed{embed}
+	}
+	view := p.cardViews.mode(task.MessageID)
+	embeds := render(view)
+	components := cardViewComponents(view, string(lang))
 	if task.MessageID == "" {
 		id, err := p.findPublicFact(ctx, task.ChannelID, marker, task.CreatedAt)
 		if err != nil {
@@ -62,7 +69,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 		}
 		task.MessageID = id
 		if id == "" {
-			m, err := p.session.ChannelMessageSendComplex(task.ChannelID, &discordgo.MessageSend{Embeds: []*discordgo.MessageEmbed{embed}, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx))
+			m, err := p.session.ChannelMessageSendComplex(task.ChannelID, &discordgo.MessageSend{Embeds: embeds, Components: components, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx))
 			if err != nil {
 				return err
 			}
@@ -70,10 +77,14 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 		}
 	}
 	// An edit is idempotent and also updates a recovered card to the newest state.
-	_, err := p.session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: task.MessageID, Channel: task.ChannelID, Embeds: &[]*discordgo.MessageEmbed{embed}, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx))
+	view = p.cardViews.mode(task.MessageID)
+	embeds = render(view)
+	components = cardViewComponents(view, string(lang))
+	_, err := p.session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: task.MessageID, Channel: task.ChannelID, Embeds: &embeds, Components: &components, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx))
 	if err != nil {
 		return err
 	}
+	p.cardViews.remember(task.MessageID, cardRender{lang: string(lang), embeds: render})
 	if task.ThreadID != "" && task.CardURL != "" {
 		return nil
 	}

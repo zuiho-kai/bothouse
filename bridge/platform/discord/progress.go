@@ -19,7 +19,8 @@ const (
 func buildDiscordPreviewMessage(content string) *discordgo.MessageSend {
 	if table, ok := core.ParseSubTaskTablePayload(content); ok {
 		return &discordgo.MessageSend{
-			Embeds: []*discordgo.MessageEmbed{buildDiscordSubTaskEmbed(table)},
+			Embeds:     []*discordgo.MessageEmbed{buildDiscordSubTaskEmbed(table)},
+			Components: cardViewComponents(cardViewDetail, table.Lang),
 		}
 	}
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
@@ -33,10 +34,18 @@ func buildDiscordPreviewMessage(content string) *discordgo.MessageSend {
 }
 
 func buildDiscordPreviewEdit(channelID, messageID, content string) *discordgo.MessageEdit {
+	return buildDiscordPreviewEditView(channelID, messageID, content, cardViewDetail)
+}
+
+// buildDiscordPreviewEditView renders a sub-agent table in the message's
+// chosen view (细节/简略); other previews have no views.
+func buildDiscordPreviewEditView(channelID, messageID, content string, view cardView) *discordgo.MessageEdit {
 	edit := discordgo.NewMessageEdit(channelID, messageID)
 	if table, ok := core.ParseSubTaskTablePayload(content); ok {
 		edit.SetContent("")
-		edit.SetEmbeds([]*discordgo.MessageEmbed{buildDiscordSubTaskEmbed(table)})
+		edit.SetEmbeds([]*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, view)})
+		components := cardViewComponents(view, table.Lang)
+		edit.Components = &components
 		return edit
 	}
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
@@ -438,4 +447,15 @@ func buildDiscordProgressBarLine(payload *core.ProgressCardPayload, items []core
 		}
 	}
 	return head
+}
+
+// subTaskTableRender is the 细节/简略 renderer of a sub-agent table message.
+func subTaskTableRender(content string) (cardRender, bool) {
+	table, ok := core.ParseSubTaskTablePayload(content)
+	if !ok {
+		return cardRender{}, false
+	}
+	return cardRender{lang: table.Lang, embeds: func(v cardView) []*discordgo.MessageEmbed {
+		return []*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, v)}
+	}}, true
 }

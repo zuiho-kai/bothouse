@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -41,7 +42,9 @@ func (s *acpSession) handleSubTaskUpdate(raw json.RawMessage) bool {
 	if n.Update.SessionUpdate != "tool_call" && n.Update.SessionUpdate != "tool_call_update" {
 		return true
 	}
-	var edge struct{ ID, RunID, Status string }
+	// name/task/step are optional public labels (DSH: child label from its
+	// subagent/descriptor, current tool name); never prompts or tool arguments.
+	var edge struct{ ID, RunID, Status, Name, Task, Step string }
 	if json.Unmarshal(meta, &edge) != nil || edge.ID == "" || edge.RunID == "" {
 		return true
 	}
@@ -78,5 +81,6 @@ func (s *acpSession) handleSubTaskUpdate(raw json.RawMessage) bool {
 		return true
 	}
 	s.UpdateSubTask(core.SubTask{ID: edge.ID, Status: status, ModeUnknown: true}, started)
+	s.DescribeSubTask(edge.ID, core.SubTaskInfo{Name: strings.TrimSpace(edge.Name), Description: strings.TrimSpace(edge.Task), Step: strings.TrimSpace(edge.Step)})
 	return true
 }

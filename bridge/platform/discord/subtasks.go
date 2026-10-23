@@ -41,6 +41,10 @@ func (p *Platform) IsLatestMessage(ctx context.Context, previewHandle any) (bool
 var _ core.LatestMessageChecker = (*progressPlatform)(nil)
 
 func buildDiscordSubTaskEmbed(payload *core.SubTaskTablePayload) *discordgo.MessageEmbed {
+	return buildDiscordSubTaskEmbedView(payload, cardViewDetail)
+}
+
+func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardView) *discordgo.MessageEmbed {
 	zh := normalizeDiscordProgressLang(payload.Lang) == "zh"
 	title := "Sub-agents"
 	if zh {
@@ -54,7 +58,11 @@ func buildDiscordSubTaskEmbed(payload *core.SubTaskTablePayload) *discordgo.Mess
 		} else if t.Status == core.SubTaskFailed {
 			failed++
 		}
-		rows = append(rows, buildDiscordSubTaskRow(t, zh))
+		if view == cardViewBrief {
+			rows = append(rows, buildDiscordSubTaskBriefRow(t, zh))
+		} else {
+			rows = append(rows, buildDiscordSubTaskRow(t, zh))
+		}
 	}
 	// Same colors as the progress card: running / completed / failed.
 	color := 0x57F287
@@ -82,17 +90,7 @@ func buildDiscordSubTaskEmbed(payload *core.SubTaskTablePayload) *discordgo.Mess
 // A running row's time is a Discord timestamp (<t:unix:R>), which the client
 // keeps counting by itself, so "跑了多久" moves without editing the message.
 func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
-	icon := "🔄"
-	switch t.Status {
-	case core.SubTaskCompleted:
-		icon = "✅"
-	case core.SubTaskFailed:
-		icon = "❌"
-	case core.SubTaskStopped:
-		icon = "⏹️"
-	case core.SubTaskWaiting:
-		icon = "⏳"
-	}
+	icon := discordSubTaskIcon(t)
 	kind := "fg"
 	if zh {
 		kind = "前台"
@@ -109,21 +107,12 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 			kind = "子 Agent"
 		}
 	}
-	var when string
-	switch {
-	case t.Live() && !t.StartedAt.IsZero():
-		if zh {
-			when = fmt.Sprintf("开始于 <t:%d:R>", t.StartedAt.Unix())
-		} else {
-			when = fmt.Sprintf("started <t:%d:R>", t.StartedAt.Unix())
-		}
-	case !t.StartedAt.IsZero() && !t.EndedAt.IsZero():
-		when = discordDuration(int(t.EndedAt.Sub(t.StartedAt).Seconds()), zh)
-		if zh {
-			when = "用时 " + when
-		}
+	when := discordSubTaskWhen(t, zh)
+	head := icon + " " + kind + " · "
+	if name := compactDiscordProgressText(t.Name); name != "" {
+		head += trimDiscordRunes(name, maxDiscordProgressLineLen) + " · "
 	}
-	head := icon + " " + kind + " · " + trimDiscordRunes(compactDiscordProgressText(t.Description), maxDiscordProgressLineLen)
+	head += trimDiscordRunes(compactDiscordProgressText(t.Description), maxDiscordProgressLineLen)
 	if when != "" {
 		head += " · " + when
 	}
@@ -151,6 +140,53 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 		head += "\n　└ " + trimDiscordRunes(detail, maxDiscordProgressLineLen)
 	}
 	return head
+}
+
+// buildDiscordSubTaskBriefRow is the 简略 view of one sub-agent: name, status
+// and time on one line. A row without a name (Claude) uses its description.
+func buildDiscordSubTaskBriefRow(t core.SubTask, zh bool) string {
+	name := compactDiscordProgressText(t.Name)
+	if name == "" {
+		name = compactDiscordProgressText(t.Description)
+	}
+	row := discordSubTaskIcon(t) + " " + trimDiscordRunes(name, maxDiscordProgressLineLen)
+	if when := discordSubTaskWhen(t, zh); when != "" {
+		row += " · " + when
+	}
+	return row
+}
+
+func discordSubTaskIcon(t core.SubTask) string {
+	switch t.Status {
+	case core.SubTaskCompleted:
+		return "✅"
+	case core.SubTaskFailed:
+		return "❌"
+	case core.SubTaskStopped:
+		return "⏹️"
+	case core.SubTaskWaiting:
+		return "⏳"
+	}
+	return "🔄"
+}
+
+// discordSubTaskWhen is a live row's start (a Discord timestamp the client
+// keeps counting) or a finished row's duration.
+func discordSubTaskWhen(t core.SubTask, zh bool) string {
+	switch {
+	case t.Live() && !t.StartedAt.IsZero():
+		if zh {
+			return fmt.Sprintf("开始于 <t:%d:R>", t.StartedAt.Unix())
+		}
+		return fmt.Sprintf("started <t:%d:R>", t.StartedAt.Unix())
+	case !t.StartedAt.IsZero() && !t.EndedAt.IsZero():
+		when := discordDuration(int(t.EndedAt.Sub(t.StartedAt).Seconds()), zh)
+		if zh {
+			when = "用时 " + when
+		}
+		return when
+	}
+	return ""
 }
 
 // discordDuration formats seconds like the progress card head ("3分20秒" / "3m20s").
