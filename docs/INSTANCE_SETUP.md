@@ -10,7 +10,7 @@
 
 1. **移除旧生产硬编码**：
    - 不再默认读写 `~/.bothouse-maomao/` 或 `/path/to/agents-demo/journal`。
-   - 不再内置固定频道 `discord:1560320196239953953`，也不再将 `voice` 锁死在 `gge`（G哥）或将 `autonomy` 主持人锁死在 `cjiang`。
+   - 不再内置固定频道 `discord:123456789012345678`，也不再将 `voice` 锁死在 `gge`（G哥）或将 `autonomy` 主持人锁死在 `cjiang`。
 2. **关键绑定全部显式配置**：
    - `voice` 必须显式指定：`project`、`role_name`、`session_key`、`bridge_socket`、`model_path`、`data_dir`、`shared_memory_dir`。
    - `autonomy` 初始化与运行必须显式指定：`main_channel`、`leader`、`bridge_config`、`socket`、`timer_store`、`journal_dir`。

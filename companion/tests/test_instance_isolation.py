@@ -74,7 +74,7 @@ def test_no_legacy_paths_or_channels_in_defaults_or_examples():
     for example in example_files:
         raw = example.read_text(encoding='utf-8')
         assert 'cc-connect-maomao' not in raw
-        assert '1560320196239953953' not in raw
+        assert '123456789012345678' not in raw
         assert 'agents-demo' not in raw
         parsed = json.loads(raw)
         if example.name.startswith('voice-config'):
