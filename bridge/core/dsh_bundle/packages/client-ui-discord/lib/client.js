@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".XjTADa_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.XjTADa_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.XjTADa_rooms, .XjTADa_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.XjTADa_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.XjTADa_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.XjTADa_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XjTADa_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.XjTADa_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.XjTADa_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.XjTADa_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.XjTADa_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.XjTADa_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.XjTADa_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.XjTADa_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.XjTADa_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.XjTADa_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.XjTADa_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.XjTADa_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_system .XjTADa_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.XjTADa_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.XjTADa_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.XjTADa_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.XjTADa_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.XjTADa_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.XjTADa_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.XjTADa_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.XjTADa_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.XjTADa_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_messageBody {\n  min-width: 0;\n}\n\n.XjTADa_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.XjTADa_author {\n  font-weight: 600;\n}\n\n.XjTADa_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.XjTADa_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.XjTADa_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.XjTADa_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.XjTADa_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.XjTADa_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.XjTADa_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.XjTADa_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.XjTADa_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.XjTADa_message {\n  position: relative;\n}\n\n.XjTADa_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.XjTADa_quoteDeleted {\n  font-style: italic;\n}\n\n.XjTADa_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.XjTADa_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.XjTADa_message:hover .XjTADa_replyButton, .XjTADa_message:focus-within .XjTADa_replyButton, .XjTADa_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .XjTADa_replyButton {\n    opacity: 1;\n  }\n}\n\n.XjTADa_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XjTADa_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.XjTADa_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.XjTADa_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.XjTADa_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.XjTADa_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.XjTADa_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.XjTADa_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XjTADa_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.XjTADa_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.XjTADa_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.XjTADa_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.XjTADa_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_mentionName {\n  font-weight: 600;\n}\n\n.XjTADa_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.XjTADa_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.XjTADa_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.XjTADa_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.XjTADa_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XjTADa_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.XjTADa_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XjTADa_offline {\n  opacity: .5;\n}\n\n.XjTADa_memberAvatar {\n  position: relative;\n}\n\n.XjTADa_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.XjTADa_offline .XjTADa_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.XjTADa_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.XjTADa_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.XjTADa_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .XjTADa_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .XjTADa_rooms, .XjTADa_members {\n    display: none;\n  }\n}\n\n.XjTADa_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.XjTADa_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.XjTADa_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_roomInput, .XjTADa_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.XjTADa_roomInput {\n  margin: 2px 0 6px;\n}\n\n.XjTADa_roomInput:focus-visible, .XjTADa_fieldInput:focus-visible, .XjTADa_iconButton:focus-visible, .XjTADa_linkButton:focus-visible, .XjTADa_addMemberButton:focus-visible, .XjTADa_primaryButton:focus-visible, .XjTADa_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XjTADa_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.XjTADa_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.XjTADa_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_memberRow .XjTADa_member:hover {\n  background: none;\n}\n\n.XjTADa_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.XjTADa_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XjTADa_memberRow:hover .XjTADa_memberActions, .XjTADa_memberRow:focus-within .XjTADa_memberActions {\n  opacity: 1;\n}\n\n.XjTADa_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.XjTADa_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.XjTADa_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.XjTADa_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.XjTADa_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.XjTADa_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XjTADa_field textarea {\n  resize: vertical;\n}\n\n.XjTADa_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.XjTADa_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.XjTADa_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.XjTADa_primaryButton, .XjTADa_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.XjTADa_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.XjTADa_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.XjTADa_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.XjTADa_memberFailed .XjTADa_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.XjTADa_memberFailed .XjTADa_presence {\n  background: #ed4245;\n}\n\n.XjTADa_mobileButton, .XjTADa_drawerBackdrop {\n  display: none;\n}\n\n.XjTADa_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.XjTADa_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XjTADa_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .XjTADa_page.XjTADa_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .XjTADa_page.XjTADa_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .XjTADa_page.XjTADa_roomsHidden.XjTADa_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .XjTADa_roomsHidden > .XjTADa_rooms, .XjTADa_membersHidden > .XjTADa_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .XjTADa_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .XjTADa_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .XjTADa_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .XjTADa_panelToggle {\n    display: none;\n  }\n\n  .XjTADa_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .XjTADa_rooms.XjTADa_drawerOpen, .XjTADa_members.XjTADa_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .XjTADa_rooms.XjTADa_drawerOpen {\n    left: 0;\n  }\n\n  .XjTADa_members.XjTADa_drawerOpen {\n    right: 0;\n  }\n\n  .XjTADa_memberActions {\n    opacity: 1;\n  }\n\n  .XjTADa_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.XjTADa_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.XjTADa_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.XjTADa_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.XjTADa_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.XjTADa_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.XjTADa_leadControl .XjTADa_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.XjTADa_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.XjTADa_leadControl .XjTADa_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.XjTADa_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.XjTADa_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.XjTADa_leadOption:hover, .XjTADa_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.XjTADa_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.XjTADa_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XjTADa_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.XjTADa_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.XjTADa_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XjTADa_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.XjTADa_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.XjTADa_taskDone summary {\n  cursor: pointer;\n}\n\n.XjTADa_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.XjTADa_taskStatus[data-status=\"asked\"], .XjTADa_taskStatus[data-status=\"escalated\"], .XjTADa_taskStatus[data-status=\"declined\"], .XjTADa_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.XjTADa_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.XjTADa_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.XjTADa_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.XjTADa_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.XjTADa_taskMemberName {\n  font-weight: 600;\n}\n\n.XjTADa_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.XjTADa_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".XQcfia_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.XQcfia_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.XQcfia_rooms, .XQcfia_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.XQcfia_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.XQcfia_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.XQcfia_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.XQcfia_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.XQcfia_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.XQcfia_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.XQcfia_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.XQcfia_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.XQcfia_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.XQcfia_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.XQcfia_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.XQcfia_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.XQcfia_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.XQcfia_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_system .XQcfia_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.XQcfia_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.XQcfia_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.XQcfia_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.XQcfia_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.XQcfia_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.XQcfia_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.XQcfia_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.XQcfia_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.XQcfia_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_messageBody {\n  min-width: 0;\n}\n\n.XQcfia_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.XQcfia_author {\n  font-weight: 600;\n}\n\n.XQcfia_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.XQcfia_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.XQcfia_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.XQcfia_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.XQcfia_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.XQcfia_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.XQcfia_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.XQcfia_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.XQcfia_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.XQcfia_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.XQcfia_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.XQcfia_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.XQcfia_message {\n  position: relative;\n}\n\n.XQcfia_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.XQcfia_quoteDeleted {\n  font-style: italic;\n}\n\n.XQcfia_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.XQcfia_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.XQcfia_message:hover .XQcfia_replyButton, .XQcfia_message:focus-within .XQcfia_replyButton, .XQcfia_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .XQcfia_replyButton {\n    opacity: 1;\n  }\n}\n\n.XQcfia_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.XQcfia_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.XQcfia_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.XQcfia_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.XQcfia_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.XQcfia_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.XQcfia_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.XQcfia_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.XQcfia_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.XQcfia_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_mentionName {\n  font-weight: 600;\n}\n\n.XQcfia_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.XQcfia_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.XQcfia_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.XQcfia_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.XQcfia_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.XQcfia_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_offline {\n  opacity: .5;\n}\n\n.XQcfia_memberAvatar {\n  position: relative;\n}\n\n.XQcfia_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.XQcfia_offline .XQcfia_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.XQcfia_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.XQcfia_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.XQcfia_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .XQcfia_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .XQcfia_rooms, .XQcfia_members {\n    display: none;\n  }\n}\n\n.XQcfia_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.XQcfia_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.XQcfia_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_roomInput, .XQcfia_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.XQcfia_roomInput {\n  margin: 2px 0 6px;\n}\n\n.XQcfia_roomInput:focus-visible, .XQcfia_fieldInput:focus-visible, .XQcfia_iconButton:focus-visible, .XQcfia_linkButton:focus-visible, .XQcfia_addMemberButton:focus-visible, .XQcfia_primaryButton:focus-visible, .XQcfia_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.XQcfia_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.XQcfia_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_memberRow .XQcfia_member:hover {\n  background: none;\n}\n\n.XQcfia_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.XQcfia_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_memberRow:hover .XQcfia_memberActions, .XQcfia_memberRow:focus-within .XQcfia_memberActions {\n  opacity: 1;\n}\n\n.XQcfia_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.XQcfia_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.XQcfia_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.XQcfia_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.XQcfia_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.XQcfia_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_field textarea {\n  resize: vertical;\n}\n\n.XQcfia_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.XQcfia_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.XQcfia_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_primaryButton, .XQcfia_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.XQcfia_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.XQcfia_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.XQcfia_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.XQcfia_memberFailed .XQcfia_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.XQcfia_memberFailed .XQcfia_presence {\n  background: #ed4245;\n}\n\n.XQcfia_mobileButton, .XQcfia_drawerBackdrop {\n  display: none;\n}\n\n.XQcfia_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.XQcfia_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.XQcfia_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .XQcfia_page.XQcfia_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .XQcfia_page.XQcfia_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .XQcfia_page.XQcfia_roomsHidden.XQcfia_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .XQcfia_roomsHidden > .XQcfia_rooms, .XQcfia_membersHidden > .XQcfia_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .XQcfia_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .XQcfia_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .XQcfia_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .XQcfia_panelToggle {\n    display: none;\n  }\n\n  .XQcfia_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .XQcfia_rooms.XQcfia_drawerOpen, .XQcfia_members.XQcfia_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .XQcfia_rooms.XQcfia_drawerOpen {\n    left: 0;\n  }\n\n  .XQcfia_members.XQcfia_drawerOpen {\n    right: 0;\n  }\n\n  .XQcfia_memberActions {\n    opacity: 1;\n  }\n\n  .XQcfia_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.XQcfia_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.XQcfia_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.XQcfia_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.XQcfia_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.XQcfia_leadControl .XQcfia_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.XQcfia_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.XQcfia_leadControl .XQcfia_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.XQcfia_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.XQcfia_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.XQcfia_leadOption:hover, .XQcfia_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.XQcfia_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.XQcfia_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.XQcfia_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.XQcfia_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.XQcfia_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.XQcfia_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.XQcfia_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.XQcfia_taskDone summary {\n  cursor: pointer;\n}\n\n.XQcfia_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.XQcfia_taskStatus[data-status=\"asked\"], .XQcfia_taskStatus[data-status=\"escalated\"], .XQcfia_taskStatus[data-status=\"declined\"], .XQcfia_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.XQcfia_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.XQcfia_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.XQcfia_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.XQcfia_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.XQcfia_taskMemberName {\n  font-weight: 600;\n}\n\n.XQcfia_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.XQcfia_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
@@ -468,119 +468,122 @@ function cardMembers(taskId, tasks) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "XjTADa_activeBusy",
-	"activeCount": "XjTADa_activeCount",
-	"addMemberButton": "XjTADa_addMemberButton",
-	"author": "XjTADa_author",
-	"avatar": "XjTADa_avatar",
-	"avatarAnchor": "XjTADa_avatarAnchor",
-	"avatarButton": "XjTADa_avatarButton",
-	"avatarImage": "XjTADa_avatarImage",
-	"avatarMenu": "XjTADa_avatarMenu",
-	"avatarMenuItem": "XjTADa_avatarMenuItem",
-	"avatarMenuTitle": "XjTADa_avatarMenuTitle",
-	"avatarOption": "XjTADa_avatarOption",
-	"avatarPicker": "XjTADa_avatarPicker",
-	"avatarSmall": "XjTADa_avatarSmall",
-	"card": "XjTADa_card",
-	"cardTitle": "XjTADa_cardTitle",
-	"chat": "XjTADa_chat",
-	"chatHead": "XjTADa_chatHead",
-	"choice": "XjTADa_choice",
-	"choiceRow": "XjTADa_choiceRow",
-	"composer": "XjTADa_composer",
-	"composerRow": "XjTADa_composerRow",
-	"dialog": "XjTADa_dialog",
-	"dialogActions": "XjTADa_dialogActions",
-	"dialogBackdrop": "XjTADa_dialogBackdrop",
-	"dialogTitle": "XjTADa_dialogTitle",
-	"drawerBackdrop": "XjTADa_drawerBackdrop",
-	"drawerOpen": "XjTADa_drawerOpen",
-	"empty": "XjTADa_empty",
-	"field": "XjTADa_field",
-	"fieldInput": "XjTADa_fieldInput",
-	"fieldLabel": "XjTADa_fieldLabel",
-	"focused": "XjTADa_focused",
-	"groupHead": "XjTADa_groupHead",
-	"groupTitle": "XjTADa_groupTitle",
-	"guide": "XjTADa_guide",
-	"hash": "XjTADa_hash",
-	"iconButton": "XjTADa_iconButton",
-	"input": "XjTADa_input",
-	"leadControl": "XjTADa_leadControl",
-	"leadMenu": "XjTADa_leadMenu",
-	"leadOption": "XjTADa_leadOption",
-	"linkButton": "XjTADa_linkButton",
-	"log": "XjTADa_log",
-	"member": "XjTADa_member",
-	"memberActions": "XjTADa_memberActions",
-	"memberAvatar": "XjTADa_memberAvatar",
-	"memberFailed": "XjTADa_memberFailed",
-	"memberModel": "XjTADa_memberModel",
-	"memberName": "XjTADa_memberName",
-	"memberRow": "XjTADa_memberRow",
-	"members": "XjTADa_members",
-	"membersHidden": "XjTADa_membersHidden",
-	"memberStatus": "XjTADa_memberStatus",
-	"memberText": "XjTADa_memberText",
-	"mentionActive": "XjTADa_mentionActive",
-	"mentionButton": "XjTADa_mentionButton",
-	"mentionHint": "XjTADa_mentionHint",
-	"mentionItem": "XjTADa_mentionItem",
-	"mentionMeta": "XjTADa_mentionMeta",
-	"mentionName": "XjTADa_mentionName",
-	"mentionPopup": "XjTADa_mentionPopup",
-	"mentionTitle": "XjTADa_mentionTitle",
-	"message": "XjTADa_message",
-	"messageBody": "XjTADa_messageBody",
-	"messageHead": "XjTADa_messageHead",
-	"mobileButton": "XjTADa_mobileButton",
-	"notice": "XjTADa_notice",
-	"offline": "XjTADa_offline",
-	"page": "XjTADa_page",
-	"panelToggle": "XjTADa_panelToggle",
-	"panelToggleEnd": "XjTADa_panelToggleEnd",
-	"permActions": "XjTADa_permActions",
-	"permScope": "XjTADa_permScope",
-	"permStatus": "XjTADa_permStatus",
-	"presence": "XjTADa_presence",
-	"primaryButton": "XjTADa_primaryButton",
-	"quote": "XjTADa_quote",
-	"quoteAuthor": "XjTADa_quoteAuthor",
-	"quoteDeleted": "XjTADa_quoteDeleted",
-	"replyBar": "XjTADa_replyBar",
-	"replyBarText": "XjTADa_replyBarText",
-	"replyButton": "XjTADa_replyButton",
-	"replyCancel": "XjTADa_replyCancel",
-	"room": "XjTADa_room",
-	"roomActive": "XjTADa_roomActive",
-	"roomInput": "XjTADa_roomInput",
-	"roomLabel": "XjTADa_roomLabel",
-	"rooms": "XjTADa_rooms",
-	"roomsHidden": "XjTADa_roomsHidden",
-	"secondaryButton": "XjTADa_secondaryButton",
-	"sendError": "XjTADa_sendError",
-	"system": "XjTADa_system",
-	"tag": "XjTADa_tag",
-	"taskBoard": "XjTADa_taskBoard",
-	"taskCard": "XjTADa_taskCard",
-	"taskDone": "XjTADa_taskDone",
-	"taskEmpty": "XjTADa_taskEmpty",
-	"taskLine": "XjTADa_taskLine",
-	"taskLinks": "XjTADa_taskLinks",
-	"taskList": "XjTADa_taskList",
-	"taskMember": "XjTADa_taskMember",
-	"taskMemberName": "XjTADa_taskMemberName",
-	"taskMembers": "XjTADa_taskMembers",
-	"taskMeta": "XjTADa_taskMeta",
-	"taskRow": "XjTADa_taskRow",
-	"taskStatus": "XjTADa_taskStatus",
-	"taskSub": "XjTADa_taskSub",
-	"taskTitle": "XjTADa_taskTitle",
-	"text": "XjTADa_text",
-	"time": "XjTADa_time",
-	"working": "XjTADa_working",
-	"workspace": "XjTADa_workspace"
+	"activeBusy": "XQcfia_activeBusy",
+	"activeCount": "XQcfia_activeCount",
+	"addMemberButton": "XQcfia_addMemberButton",
+	"author": "XQcfia_author",
+	"avatar": "XQcfia_avatar",
+	"avatarAnchor": "XQcfia_avatarAnchor",
+	"avatarButton": "XQcfia_avatarButton",
+	"avatarImage": "XQcfia_avatarImage",
+	"avatarMenu": "XQcfia_avatarMenu",
+	"avatarMenuItem": "XQcfia_avatarMenuItem",
+	"avatarMenuTitle": "XQcfia_avatarMenuTitle",
+	"avatarOption": "XQcfia_avatarOption",
+	"avatarPicker": "XQcfia_avatarPicker",
+	"avatarSmall": "XQcfia_avatarSmall",
+	"card": "XQcfia_card",
+	"cardHead": "XQcfia_cardHead",
+	"cardTitle": "XQcfia_cardTitle",
+	"cardViewButton": "XQcfia_cardViewButton",
+	"cardViews": "XQcfia_cardViews",
+	"chat": "XQcfia_chat",
+	"chatHead": "XQcfia_chatHead",
+	"choice": "XQcfia_choice",
+	"choiceRow": "XQcfia_choiceRow",
+	"composer": "XQcfia_composer",
+	"composerRow": "XQcfia_composerRow",
+	"dialog": "XQcfia_dialog",
+	"dialogActions": "XQcfia_dialogActions",
+	"dialogBackdrop": "XQcfia_dialogBackdrop",
+	"dialogTitle": "XQcfia_dialogTitle",
+	"drawerBackdrop": "XQcfia_drawerBackdrop",
+	"drawerOpen": "XQcfia_drawerOpen",
+	"empty": "XQcfia_empty",
+	"field": "XQcfia_field",
+	"fieldInput": "XQcfia_fieldInput",
+	"fieldLabel": "XQcfia_fieldLabel",
+	"focused": "XQcfia_focused",
+	"groupHead": "XQcfia_groupHead",
+	"groupTitle": "XQcfia_groupTitle",
+	"guide": "XQcfia_guide",
+	"hash": "XQcfia_hash",
+	"iconButton": "XQcfia_iconButton",
+	"input": "XQcfia_input",
+	"leadControl": "XQcfia_leadControl",
+	"leadMenu": "XQcfia_leadMenu",
+	"leadOption": "XQcfia_leadOption",
+	"linkButton": "XQcfia_linkButton",
+	"log": "XQcfia_log",
+	"member": "XQcfia_member",
+	"memberActions": "XQcfia_memberActions",
+	"memberAvatar": "XQcfia_memberAvatar",
+	"memberFailed": "XQcfia_memberFailed",
+	"memberModel": "XQcfia_memberModel",
+	"memberName": "XQcfia_memberName",
+	"memberRow": "XQcfia_memberRow",
+	"members": "XQcfia_members",
+	"membersHidden": "XQcfia_membersHidden",
+	"memberStatus": "XQcfia_memberStatus",
+	"memberText": "XQcfia_memberText",
+	"mentionActive": "XQcfia_mentionActive",
+	"mentionButton": "XQcfia_mentionButton",
+	"mentionHint": "XQcfia_mentionHint",
+	"mentionItem": "XQcfia_mentionItem",
+	"mentionMeta": "XQcfia_mentionMeta",
+	"mentionName": "XQcfia_mentionName",
+	"mentionPopup": "XQcfia_mentionPopup",
+	"mentionTitle": "XQcfia_mentionTitle",
+	"message": "XQcfia_message",
+	"messageBody": "XQcfia_messageBody",
+	"messageHead": "XQcfia_messageHead",
+	"mobileButton": "XQcfia_mobileButton",
+	"notice": "XQcfia_notice",
+	"offline": "XQcfia_offline",
+	"page": "XQcfia_page",
+	"panelToggle": "XQcfia_panelToggle",
+	"panelToggleEnd": "XQcfia_panelToggleEnd",
+	"permActions": "XQcfia_permActions",
+	"permScope": "XQcfia_permScope",
+	"permStatus": "XQcfia_permStatus",
+	"presence": "XQcfia_presence",
+	"primaryButton": "XQcfia_primaryButton",
+	"quote": "XQcfia_quote",
+	"quoteAuthor": "XQcfia_quoteAuthor",
+	"quoteDeleted": "XQcfia_quoteDeleted",
+	"replyBar": "XQcfia_replyBar",
+	"replyBarText": "XQcfia_replyBarText",
+	"replyButton": "XQcfia_replyButton",
+	"replyCancel": "XQcfia_replyCancel",
+	"room": "XQcfia_room",
+	"roomActive": "XQcfia_roomActive",
+	"roomInput": "XQcfia_roomInput",
+	"roomLabel": "XQcfia_roomLabel",
+	"rooms": "XQcfia_rooms",
+	"roomsHidden": "XQcfia_roomsHidden",
+	"secondaryButton": "XQcfia_secondaryButton",
+	"sendError": "XQcfia_sendError",
+	"system": "XQcfia_system",
+	"tag": "XQcfia_tag",
+	"taskBoard": "XQcfia_taskBoard",
+	"taskCard": "XQcfia_taskCard",
+	"taskDone": "XQcfia_taskDone",
+	"taskEmpty": "XQcfia_taskEmpty",
+	"taskLine": "XQcfia_taskLine",
+	"taskLinks": "XQcfia_taskLinks",
+	"taskList": "XQcfia_taskList",
+	"taskMember": "XQcfia_taskMember",
+	"taskMemberName": "XQcfia_taskMemberName",
+	"taskMembers": "XQcfia_taskMembers",
+	"taskMeta": "XQcfia_taskMeta",
+	"taskRow": "XQcfia_taskRow",
+	"taskStatus": "XQcfia_taskStatus",
+	"taskSub": "XQcfia_taskSub",
+	"taskTitle": "XQcfia_taskTitle",
+	"text": "XQcfia_text",
+	"time": "XQcfia_time",
+	"working": "XQcfia_working",
+	"workspace": "XQcfia_workspace"
 };
 // src/client/TaskBoard.tsx
 function clock(seconds) {
@@ -1233,7 +1236,21 @@ function Quote({ quote, t }) {
 		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: quote.text })]
 	});
 }
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused }) {
+const CARD_VIEW_DEFAULT = "brief";
+const CARD_VIEW_KEY = "dsh-channels-card-view:";
+function loadCardView(roomId) {
+	try {
+		const v = globalThis.localStorage?.getItem(CARD_VIEW_KEY + roomId);
+		if (v === "detail" || v === "brief") return v;
+	} catch (error) {}
+	return CARD_VIEW_DEFAULT;
+}
+function saveCardView(roomId, view) {
+	try {
+		globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view);
+	} catch (error) {}
+}
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused, cardView, onCardView }) {
 	let card;
 	if (message.card !== null) try {
 		card = JSON.parse(message.card);
@@ -1319,13 +1336,29 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 						className: ChannelsPage_module_default.card,
 						"data-state": card.state,
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-								className: ChannelsPage_module_default.cardTitle,
-								children: card.title
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: ChannelsPage_module_default.cardHead,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: ChannelsPage_module_default.cardTitle,
+									children: card.title
+								}), typeof card.brief === "string" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: ChannelsPage_module_default.cardViews,
+									role: "group",
+									"aria-label": t("cardView"),
+									children: ["detail", "brief"].map((view) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ChannelsPage_module_default.cardViewButton,
+										"aria-pressed": cardView === view,
+										onClick: () => {
+											onCardView(view);
+										},
+										children: t(view === "detail" ? "cardViewDetail" : "cardViewBrief")
+									}, view))
+								})]
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: ChannelsPage_module_default.text,
-								children: message.text
+								children: typeof card.brief === "string" && cardView === "brief" ? card.brief : message.text
 							}),
 							card.action === "configure-model" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
@@ -1482,6 +1515,17 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		input.setSelectionRange(next, next);
 	});
 	const [avatarMenu, setAvatarMenu] = (0, react.useState)(void 0);
+	const [cardViews, setCardViews] = (0, react.useState)({});
+	const cardView = state.roomId === void 0 ? CARD_VIEW_DEFAULT : cardViews[state.roomId] ?? loadCardView(state.roomId);
+	const chooseCardView = (view) => {
+		if (state.roomId === void 0) return;
+		const roomId = state.roomId;
+		saveCardView(roomId, view);
+		setCardViews((views) => ({
+			...views,
+			[roomId]: view
+		}));
+	};
 	(0, react.useEffect)(() => {
 		if (avatarMenu === void 0) return;
 		const onPress = (event) => {
@@ -1869,6 +1913,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 								setModelsOpen(true);
 							},
 							menuOpen: avatarMenu === m.id,
+							cardView,
+							onCardView: chooseCardView,
 							onAvatar: () => {
 								setAvatarMenu(avatarMenu === m.id ? void 0 : m.id);
 							},
@@ -2228,6 +2274,9 @@ const zh = {
 	configMember: "来自配置文件，网页里不能修改",
 	defaultModel: "默认模型",
 	reply: "回复",
+	cardView: "卡片视图",
+	cardViewDetail: "细节",
+	cardViewBrief: "简略",
 	replyingTo: "回复 {name}",
 	replyDeleted: "原消息已删除",
 	cancelReply: "取消回复"
@@ -2329,6 +2378,9 @@ const en = {
 	configMember: "From the config file; not editable here",
 	defaultModel: "Default model",
 	reply: "Reply",
+	cardView: "Card view",
+	cardViewDetail: "Detail",
+	cardViewBrief: "Brief",
 	replyingTo: "Replying to {name}",
 	replyDeleted: "Original message was deleted",
 	cancelReply: "Cancel reply"

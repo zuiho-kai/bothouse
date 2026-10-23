@@ -275,6 +275,33 @@
   font-weight: 600;
 }
 
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cardViews {
+  display: flex;
+  gap: 4px;
+}
+
+.cardViewButton {
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cardViewButton[aria-pressed='true'] {
+  background: var(--dsw-alias-bg-base);
+  font-weight: 600;
+}
+
 /* #120 permission prompt buttons and outcome */
 .permActions {
   display: flex;

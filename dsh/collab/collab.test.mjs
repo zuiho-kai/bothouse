@@ -286,6 +286,17 @@ test('progress card payload becomes a titled card', () => {
   assert.equal(progressCard('plain'), undefined);
 });
 
+test('progress card carries a brief view: tool name and outcome per step', () => {
+  const c = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'running', steps: 3, elapsed_sec: 9, agent: 'Codex', items: [
+    { kind: 'thinking', text: 'hmm' },
+    { kind: 'tool_use', tool: 'Bash', text: 'go test' }, { kind: 'tool_result', tool: 'Bash', text: 'ok', exit_code: 0 },
+    { kind: 'tool_use', tool: 'Edit', text: 'a.go' }, { kind: 'tool_result', tool: 'Edit', text: 'boom', success: false },
+    { kind: 'tool_use', tool: 'Read', text: 'b.go' },
+  ] }));
+  assert.equal(JSON.parse(c.card).brief, '第 3 步 · 9秒\n✅ Bash · 成功\n❌ Edit · 失败\n🔧 Read · 进行中');
+  assert.match(c.text, /go test/);
+});
+
 
 /**
  * Minimal DSH runtime. Agents keep a pending inbox and a Session event log;

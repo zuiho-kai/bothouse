@@ -79,7 +79,43 @@ export function progressCard(content) {
     lines.push(`${it.kind === 'tool_use' ? '🔧' : it.kind === 'error' ? '❌' : '•'} ${tool ? tool + ' — ' : ''}${text.slice(0, 120)}`);
   }
   const agent = String(p.agent ?? 'Agent').trim() || 'Agent';
-  return { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec }) };
+  const brief = [lines[0], ...briefSteps(items, state)].join('\n');
+  return { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief }) };
+}
+
+/**
+ * The 简略 view of a progress card, one line per tool step: tool name and
+ * 成功/失败 (进行中 while the turn runs), no command text or output. Same
+ * rules as the Discord card (bridge/platform/discord/progress.go
+ * buildDiscordProgressBrief, discordProgressItemFailed).
+ */
+function briefSteps(items, state) {
+  const steps = [];
+  const open = tool => {
+    for (let i = steps.length - 1; i >= 0; i--) if (steps[i].state === 0 && (tool === '' || steps[i].tool === tool)) return i;
+    return -1;
+  };
+  const failed = it => typeof it.success === 'boolean' ? !it.success
+    : (Number.isInteger(it.exit_code) && it.exit_code !== 0) || ['failed', 'failure', 'error'].includes(String(it.status ?? '').trim().toLowerCase());
+  for (const it of items) {
+    if (it === null || typeof it !== 'object') continue;
+    const tool = String(it.tool ?? '').trim();
+    if (it.kind === 'tool_use') steps.push({ tool, state: 0 });
+    else if (it.kind === 'tool_result') {
+      const st = failed(it) ? 2 : 1;
+      const i = open(tool);
+      if (i >= 0) steps[i].state = st; else steps.push({ tool, state: st });
+    } else if (it.kind === 'error') {
+      const i = open('');
+      if (i >= 0) steps[i].state = 2;
+    }
+  }
+  return steps.map(s => {
+    const name = (s.tool || '工具').slice(0, 120);
+    if (s.state === 1) return `✅ ${name} · 成功`;
+    if (s.state === 2) return `❌ ${name} · 失败`;
+    return state === 'running' ? `🔧 ${name} · 进行中` : `🔧 ${name}`;
+  });
 }
 
 export class CloudWebGateway {

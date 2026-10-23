@@ -414,3 +414,39 @@ describe('channels page', () => {
     expect(screen.getByText(`回复 橘 · ${zh.replyDeleted}`)).toBeTruthy()
   })
 })
+
+describe('progress card detail/brief view', () => {
+  const progress = (roomId: number, id: number): ChannelSnapshot['messages'][number] => ({
+    id, room_id: roomId, author_kind: 'role', author: 'ju', name: '橘', created_at: 1, from_turn: null,
+    text: '第 2 步 · 5秒\n🔧 Bash — go test ./...',
+    card: JSON.stringify({ title: 'Codex · 处理中', state: 'running', steps: 2, elapsed_sec: 5, brief: '第 2 步 · 5秒\n🔧 Bash · 进行中' }),
+  })
+  afterEach(() => { localStorage.clear() })
+
+  it('starts brief, switches to detail, and remembers the choice per room', () => {
+    const state: ChannelSnapshot = { ...ready, messages: [progress(1, 10)] }
+    const first = render(<ChannelsPage {...props(state)} />)
+    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+    expect(screen.queryByText(/go test/)).toBeNull()
+    expect(screen.getByRole('button', { name: zh.cardViewBrief }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
+    expect(screen.getByText(/go test/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: zh.cardViewDetail }).getAttribute('aria-pressed')).toBe('true')
+    first.unmount()
+
+    // A fresh page (reload) starts in the remembered view for that room ...
+    render(<ChannelsPage {...props(state)} />)
+    expect(screen.getByText(/go test/)).toBeTruthy()
+    cleanup()
+    // ... while another room keeps the default.
+    render(<ChannelsPage {...props({ ...ready, roomId: 2, messages: [progress(2, 11)] })} />)
+    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+  })
+
+  it('cards without a brief rendering show their text and no switch', () => {
+    const card = JSON.stringify({ title: 'model', state: 'error', action: 'configure-model' })
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 2, text: 'need model', card }] })} />)
+    expect(screen.getByText('need model')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: zh.cardViewBrief })).toBeNull()
+  })
+})

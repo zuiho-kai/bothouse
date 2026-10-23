@@ -47,8 +47,32 @@ function Quote({ quote, t }: { quote: ChannelQuote; t: T }) {
   )
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused }: {
+/**
+ * 「细节」/「简略」 view of progress cards, remembered per room in the
+ * browser so a reload or a new bundle starts in the last choice. Mirrors the
+ * Discord card switch (bridge/platform/discord/card_view.go,
+ * card_view_pref.go), default 简略 as there (cardViewDefault).
+ */
+export type CardView = 'detail' | 'brief'
+const CARD_VIEW_DEFAULT: CardView = 'brief'
+const CARD_VIEW_KEY = 'dsh-channels-card-view:'
+
+export function loadCardView(roomId: number): CardView {
+  try {
+    const v = globalThis.localStorage?.getItem(CARD_VIEW_KEY + roomId)
+    if (v === 'detail' || v === 'brief') return v
+  } catch (error) { void error /* storage unavailable: use the default */ }
+  return CARD_VIEW_DEFAULT
+}
+
+function saveCardView(roomId: number, view: CardView): void {
+  try { globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view) } catch (error) { void error /* storage unavailable: keep the choice in memory */ }
+}
+
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused, cardView, onCardView }: {
   message: ChannelMessage
+  cardView: CardView
+  onCardView: (view: CardView) => void
   tasks: readonly ChannelTask[]
   focused: boolean
   member: ChannelMember | undefined
@@ -61,9 +85,9 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onDecide: ChannelActions['decidePermission']
   onReply: (message: ChannelMessage) => void
 }) {
-  let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number } | undefined
+  let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } | undefined
   if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
   const classes = [css.message, message.author_kind === 'system' ? css.system : '', focused ? css.focused : ''].filter(Boolean).join(' ')
   return (
@@ -96,8 +120,20 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           ? <div className={css.text}>{message.text}</div>
           : (
               <div className={css.card} data-state={card.state}>
-                <div className={css.cardTitle}>{card.title}</div>
-                <div className={css.text}>{message.text}</div>
+                <div className={css.cardHead}>
+                  <div className={css.cardTitle}>{card.title}</div>
+                  {/* Only progress cards carry a 简略 rendering; older cards and other kinds show their text as before. */}
+                  {typeof card.brief === 'string' && (
+                    <div className={css.cardViews} role="group" aria-label={t('cardView')}>
+                      {(['detail', 'brief'] as const).map(view => (
+                        <button key={view} type="button" className={css.cardViewButton} aria-pressed={cardView === view} onClick={() => { onCardView(view) }}>
+                          {t(view === 'detail' ? 'cardViewDetail' : 'cardViewBrief')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className={css.text}>{typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text}</div>
                 {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
@@ -225,6 +261,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
 
   // Message whose avatar menu is open (#123); keyed by message so only one row shows it.
   const [avatarMenu, setAvatarMenu] = useState<number | undefined>(undefined)
+  const [cardViews, setCardViews] = useState<Record<number, CardView>>({})
+  const cardView = state.roomId === undefined ? CARD_VIEW_DEFAULT : cardViews[state.roomId] ?? loadCardView(state.roomId)
+  const chooseCardView = (view: CardView): void => {
+    if (state.roomId === undefined) return
+    const roomId = state.roomId
+    saveCardView(roomId, view)
+    setCardViews(views => ({ ...views, [roomId]: view }))
+  }
 
   // Close the avatar menu on a press outside it (same document-press approach
   // as the @ popup); the draft is untouched and nothing is sent.
@@ -481,6 +525,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   t={t}
                   onConfigure={() => { setModelsOpen(true) }}
                   menuOpen={avatarMenu === m.id}
+                  cardView={cardView}
+                  onCardView={chooseCardView}
                   onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
                   onCloseMenu={() => { setAvatarMenu(undefined) }}
                   onMention={mentionFromAvatar}
