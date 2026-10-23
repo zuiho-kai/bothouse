@@ -17,6 +17,7 @@
 - [ ] 差异与来源已检查，无运行凭据/对话导入
 - [ ] 行为修复有回归验证，相关检查结果如实记录
 - [ ] docs/HANDOFF.md 及受影响的用法/能力说明已更新
+- [ ] 我已阅读并同意[贡献者许可协议（CLA）](https://github.com/zuiho-kai/bothouse/blob/main/CLA.md)，提交本 PR 即表示同意
 
 ## 审核与合并
 

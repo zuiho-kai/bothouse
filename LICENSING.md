@@ -4,7 +4,7 @@ bothouse 新增的内容按 [MIT](LICENSE) 授权，版权人为 zuiho-kai 和 b
 
 ## 一句话
 
-- 本项目：[MIT](LICENSE)。
+- 本项目：[MIT](LICENSE)。项目当前 MIT；维护者保留未来更换许可证的权利，已发布版本不受影响。
 - 上游 cc-connect：MIT，声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)。
 - 第三方素材和依赖：按各自许可，本项目不对它们重新授权。
 
@@ -27,4 +27,4 @@ bothouse 是接入 [cc-connect](https://github.com/chenhg5/cc-connect)、DSH 等
 
 ## 贡献
 
-贡献需在每个提交中签署 DCO（`Signed-off-by`），见 [CONTRIBUTING.md](CONTRIBUTING.md#贡献签署dco) 和 [DCO](DCO)。
+贡献需在每个提交中签署 DCO（`Signed-off-by`），见 [CONTRIBUTING.md](CONTRIBUTING.md#贡献签署dco) 和 [DCO](DCO)。提交 PR 即表示同意[贡献者许可协议（CLA）](CLA.md)。
