@@ -15,6 +15,15 @@ export const WS_PATH = '/cloud-web/ws';
 export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks'];
 // Permission decisions the Channel page and text replies may send. Values are the
 // button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
+/**
+ * Team mode E (#139): the bridge asks for a chat room's workspaces and creates the next one
+ * through `team_workspace` frames (bridge/platform/cloud-web/protocol.go), so workspaces live
+ * only here. Needs team mode A's rooms.parent_id and store.createWorkspace (PR #134); without
+ * them the capability is not advertised and a stray frame is answered "unsupported".
+ */
+export const CAP_TEAM_WORKSPACE = 'team_workspace';
+export function supportsWorkspaces(store) { return typeof store?.createWorkspace === 'function'; }
+
 export const PERM_DECISIONS = { allow: 'perm:allow', deny: 'perm:deny', allow_all: 'perm:allow_all' };
 const PERM_STATES = { allow: 'allowed', deny: 'denied', allow_all: 'allowed_all' };
 // Same vocabularies and order as bridge core/engine.go approveAllPhrases /
@@ -154,7 +163,8 @@ export class CloudWebGateway {
     const old = this.bots.get(id);
     this.bots.set(id, bot);
     if (old !== undefined) old.ws.close(WS_REPLACED, 'replaced by new connection');
-    send(ws, { type: 'register_ack', ok: true, capabilities: CAPABILITIES, server: { name: 'conest-dsh-collab' } });
+    const capabilities = supportsWorkspaces(this.hub.store) ? [...CAPABILITIES, CAP_TEAM_WORKSPACE] : CAPABILITIES;
+    send(ws, { type: 'register_ack', ok: true, capabilities, server: { name: 'conest-dsh-collab' } });
     this.hub.setMember(member);
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
     for (const room of this.hub.thinking.keys()) this.hub.setThinking(room, id, false);
@@ -217,6 +227,31 @@ export class CloudWebGateway {
     if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
     send(bot.ws, frame);
     return true;
+  }
+
+  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create. */
+  teamWorkspace(d) {
+    const { store } = this.hub;
+    if (!supportsWorkspaces(store)) return { ok: false, error: 'unsupported' };
+    const id = roomOf(d, store);
+    if (id === undefined) return { ok: false, error: 'room-missing' };
+    const self = store.room(id);
+    const view = r => ({ id: roomKey(r.id), name: r.name });
+    try {
+      if (d.op === 'list') {
+        const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.parent_id === id).map(view);
+        return { ok: true, self: view(self), rooms };
+      }
+      if (d.op === 'create') {
+        // A's createWorkspace numbers 工作区n+1 itself; the bridge takes the name it gets back.
+        const w = store.createWorkspace(id);
+        this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return { ok: true, room: view(w) };
+      }
+    } catch (error) {
+      return { ok: false, error: error?.code ?? String(error?.message ?? error) };
+    }
+    return { ok: false, error: 'bad-op' };
   }
 
   async fromBot(bot, d) {
@@ -290,6 +325,11 @@ export class CloudWebGateway {
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
         send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: handle });
+        return;
+      }
+      case 'team_workspace': {
+        if (typeof d.ref_id !== 'string') return;
+        send(bot.ws, { type: 'team_workspace_ack', ref_id: d.ref_id, ...this.teamWorkspace(d) });
         return;
       }
       case 'update_message':

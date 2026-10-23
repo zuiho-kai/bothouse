@@ -82,7 +82,7 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const ju = connect(gw, 'bot=ju&name=橘&mention_id=111');
   const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
-  assert.deepEqual(ju.of('register_ack')[0], { type: 'register_ack', ok: true, capabilities: CAPABILITIES, server: { name: 'conest-dsh-collab' } });
+  assert.deepEqual(ju.of('register_ack')[0], { type: 'register_ack', ok: true, capabilities: [...CAPABILITIES, 'team_workspace'], server: { name: 'conest-dsh-collab' } });
 
   const bad = connect(gw, 'bot=ds');
   assert.equal(bad.of('register_ack')[0].ok, false);
@@ -1575,4 +1575,49 @@ test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作�
   assert.deepEqual(last.rooms.map(r => [r.name, r.kind, r.parent_id, r.active]),
     [['general', 'chat', null, 0], ['工作区1', 'workspace', 1, 0], ['工作区2', 'workspace', 1, 0]]);
   assert.equal(workspacesRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/rooms/1/workspaces'), {}), undefined);
+});
+
+test('cloud-web: team_workspace frames (team mode E)', async () => {
+  // A store without team mode A's createWorkspace: no capability, frames answered "unsupported".
+  const hub = makeHub();
+  hub.store.createWorkspace = undefined;
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  assert.equal(ju.of('register_ack')[0].capabilities.includes('team_workspace'), false);
+  ju.frame({ type: 'team_workspace', ref_id: 'w1', op: 'list', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'w1', ok: false, error: 'unsupported' });
+});
+
+test('cloud-web: team_workspace create on the real store (A #134) makes 工作区1 and answers', async () => {
+  const hub2 = makeHub();
+  const { store } = hub2;
+  assert.deepEqual(store.rooms().filter(r => r.kind === 'workspace'), [], 'A no longer creates 工作区1 up front');
+  const events = [];
+  hub2.subscribe(e => events.push(e));
+  const gw2 = new CloudWebGateway(hub2, { token: 't', logger: quiet });
+  const ju2 = connect(gw2, 'bot=ju&name=橘');
+  assert.equal(ju2.of('register_ack')[0].capabilities.includes('team_workspace'), true);
+  ju2.frame({ type: 'team_workspace', ref_id: 'w2', op: 'list', session_key: 'cloud_web:room-1', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'w2', ok: true, self: { id: 'room-1', name: 'general' }, rooms: [] });
+  ju2.frame({ type: 'team_workspace', ref_id: 'w3', op: 'create', reply_ctx: 'room-1' });
+  await tick();
+  const ack = ju2.of('team_workspace_ack').at(-1);
+  assert.equal(ack.ok, true);
+  assert.equal(ack.room.name, '工作区1');
+  assert.ok(Number(ack.room.id.replace('room-', '')) >= 1000000, 'workspace ids start at 1000000');
+  const w = store.room(Number(ack.room.id.replace('room-', '')));
+  assert.equal(w.kind, 'workspace');
+  assert.equal(w.parent_id, 1);
+  assert.equal(events.at(-1).type, 'rooms');
+  ju2.frame({ type: 'team_workspace', ref_id: 'w4', op: 'create', reply_ctx: 'room-1' });
+  await tick();
+  assert.equal(ju2.of('team_workspace_ack').at(-1).room.name, '工作区2');
+  ju2.frame({ type: 'team_workspace', ref_id: 'w5', op: 'list', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1).rooms.map(r => r.name), ['工作区1', '工作区2']);
+  ju2.frame({ type: 'team_workspace', ref_id: 'w6', op: 'list', reply_ctx: 'room-9' });
+  await tick();
+  assert.equal(ju2.of('team_workspace_ack').at(-1).error, 'room-missing');
 });
