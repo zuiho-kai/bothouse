@@ -272,13 +272,23 @@ export class Store {
     this.db.prepare('INSERT OR IGNORE INTO room_settings (room_id) VALUES (?)').run(roomId);
   }
 
+  /** The chat channel whose setting a room uses: a workspace's parent (needs rooms.parent_id), else itself. */
+  settingsRoom(roomId) {
+    if (!this.db.prepare('PRAGMA table_info(rooms)').all().some(c => c.name === 'parent_id')) return roomId;
+    const parent = this.db.prepare('SELECT parent_id FROM rooms WHERE id = ?').get(roomId)?.parent_id;
+    return parent == null || parent === roomId ? roomId : parent;
+  }
+
+  /** Dispatch mode of a room; a workspace inherits its chat channel's (PR #138 review 6). */
   dispatchMode(roomId) {
+    roomId = this.settingsRoom(roomId);
     this.ensureRoomSettings(roomId);
     return this.db.prepare('SELECT dispatch_mode FROM room_settings WHERE room_id = ?').get(roomId).dispatch_mode;
   }
 
   setDispatchMode(roomId, mode) {
     if (!DISPATCH_MODES.includes(mode)) throw new CollabError('invalid', `dispatch mode must be ${DISPATCH_MODES.join(', ')}`);
+    roomId = this.settingsRoom(roomId); // set on a workspace = set on its chat channel
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET dispatch_mode = ? WHERE room_id = ?').run(mode, roomId);
     return mode;

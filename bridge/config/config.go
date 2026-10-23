@@ -566,6 +566,10 @@ type ProjectConfig struct {
 	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
 	// 「默认给我们频道建立工作区1」); set team_workspaces = false to opt out. Ignored on non-lead projects.
 	TeamWorkspaces *bool `toml:"team_workspaces,omitempty"`
+	// DispatchMode (team mode C): how this project's bot hands out work — "solo" (only its own
+	// subtasks), "team" (only other members), "mixed" (whoever fits; default). User 2026-10-24
+	// 01:25 「单模型多进程，完全团队模式，混合模式……默认混合模型」; same names as DSH's channel setting.
+	DispatchMode string `toml:"dispatch_mode,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who
@@ -1132,6 +1136,11 @@ func (c *Config) validateInternal(permissive bool) error {
 		}
 		if proj.Agent.Type == "" {
 			return fmt.Errorf("config: %s.agent.type is required", prefix)
+		}
+		switch proj.DispatchMode {
+		case "", "solo", "team", "mixed":
+		default:
+			return fmt.Errorf("config: %s.dispatch_mode must be \"solo\", \"team\", or \"mixed\"", prefix)
 		}
 		if len(proj.Platforms) == 0 && !permissive {
 			return fmt.Errorf("config: %s needs at least one [[projects.platforms]]", prefix)

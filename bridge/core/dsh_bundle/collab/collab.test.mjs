@@ -67,6 +67,18 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
   assert.throws(() => s.setDispatchMode(1, 'bad'), /dispatch mode/);
 });
 
+test('dispatch mode: a workspace inherits its chat channel setting (PR #138 review 6)', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  s.db.exec('ALTER TABLE rooms ADD COLUMN parent_id INTEGER');
+  s.db.prepare('INSERT INTO rooms (id, name, parent_id) VALUES (?, ?, ?)').run(2, '工作区1', 1);
+  assert.equal(s.dispatchMode(2), 'mixed');
+  s.setDispatchMode(1, 'solo');
+  assert.equal(s.dispatchMode(2), 'solo');
+  s.setDispatchMode(2, 'team');
+  assert.equal(s.dispatchMode(1), 'team', 'setting a workspace sets its chat channel');
+});
+
 test('team exit: forwards asks and returns answers to the recorded workspace', async () => {
   const hub = makeHub();
   hub.store.db.exec('ALTER TABLE rooms ADD COLUMN parent_id INTEGER');
