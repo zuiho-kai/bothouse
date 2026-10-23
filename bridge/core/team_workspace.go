@@ -38,6 +38,15 @@ type TeamChannel struct {
 // ErrNotTeamChannel: the channel cannot have workspaces (DM, thread, voice, …).
 var ErrNotTeamChannel = errors.New("not a guild text channel")
 
+// ErrTeamWorkspacePermanent marks a platform error that retrying will not fix (Discord 4xx
+// other than 429: no Manage Channels permission, channel deleted). The chat is then not
+// retried until restart (code review of PR #135, item 2: no request flood per message).
+var ErrTeamWorkspacePermanent = errors.New("permanent platform error")
+
+// ErrTeamWorkspaceNotLeadChat: "new" was asked for a channel that is not a Discord chat
+// channel of the team lead (code review of PR #135, item 3).
+var ErrTeamWorkspaceNotLeadChat = errors.New("not a discord chat channel of the team lead")
+
 // TeamWorkspaceChannels is implemented by platforms that can create workspace
 // channels (only Discord for now).
 type TeamWorkspaceChannels interface {
@@ -247,6 +256,19 @@ func (e *Engine) teamLeadChats() []string {
 	return out
 }
 
+// isTeamLeadChat: the lead has a session in chat or chat already has recorded workspaces.
+func (e *Engine) isTeamLeadChat(chat string) bool {
+	if len(e.TeamWorkspacesOf(chat)) > 0 {
+		return true
+	}
+	for _, c := range e.teamLeadChats() {
+		if c == chat {
+			return true
+		}
+	}
+	return false
+}
+
 // teamWorkspaceNoteChat ensures 「工作区1」 for a channel the lead sees for the first time.
 func (e *Engine) teamWorkspaceNoteChat(sessionKey string) {
 	ws := e.teamWS
@@ -281,6 +303,10 @@ func (e *Engine) ensureTeamWorkspace(chat string) error {
 	}
 	ws.mu.Unlock()
 	_, created, err := e.teamWorkspaceOp(chat, false)
+	if errors.Is(err, ErrTeamWorkspacePermanent) {
+		slog.Warn("team workspace: permanent failure, not retrying until restart", "chat", chat, "error", err)
+		err = nil
+	}
 	if errors.Is(err, ErrNotTeamChannel) || errors.Is(err, errTeamIsWorkspace) {
 		err = nil
 	}
@@ -306,9 +332,15 @@ func (e *Engine) NewTeamWorkspace(sessionKey string) (parent string, w TeamWorks
 	if e.teamWS == nil {
 		return "", TeamWorkspace{}, fmt.Errorf("team workspaces are off for project %q (team_workspaces, lead only)", e.name)
 	}
-	chat := teamChatKey(sessionKey)
+	if !strings.HasPrefix(sessionKey, teamWorkspacePlat+":") {
+		return "", TeamWorkspace{}, fmt.Errorf("team workspace: session key %q: %w", sessionKey, ErrTeamWorkspaceNotLeadChat)
+	}
+	chat := chatOf(sessionKey)
 	if p, ok := e.WorkspaceParent(chat); ok {
 		chat = p
+	}
+	if !e.isTeamLeadChat(chat) {
+		return chat, TeamWorkspace{}, fmt.Errorf("team workspace: %s: %w", chat, ErrTeamWorkspaceNotLeadChat)
 	}
 	_, created, err := e.teamWorkspaceOp(chat, true)
 	if errors.Is(err, errTeamIsWorkspace) {
@@ -340,6 +372,50 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	}
 
 	path := teamWorkspacePath(e.dataDir)
+	list, name, changed, err := teamWorkspacePlan(path, chat, self, guild, next)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Persist reconciling/adoption before the create, so a failed create keeps it.
+	if changed {
+		if err := teamWorkspaceStoreList(path, chat, list); err != nil {
+			return list, nil, fmt.Errorf("team workspace: save state: %w", err)
+		}
+	}
+	if name == "" {
+		return list, nil, nil
+	}
+	// The Discord request runs without teamWorkspaceStore.mu, so WorkspaceParent (reply path,
+	// team mode C) never waits on the network; teamWorkspaceOpMu keeps operations serial.
+	c, err := plat.CreateTeamWorkspaceChannel(ctx, self.ID, name)
+	if err != nil {
+		return list, nil, err
+	}
+	created := &TeamWorkspace{Name: c.Name, ID: c.ID, Created: time.Now().UTC()}
+	list = append(list, *created)
+	if err := teamWorkspaceStoreList(path, chat, list); err != nil {
+		return list, created, fmt.Errorf("team workspace: save state: %w", err)
+	}
+	return list, created, nil
+}
+
+// teamWorkspaceStoreList records chat's workspaces (none = drop the entry) and saves.
+func teamWorkspaceStoreList(path, chat string, list []TeamWorkspace) error {
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(path)
+	if len(list) == 0 {
+		delete(st.Parents, chat)
+	} else {
+		st.Parents[chat] = append([]TeamWorkspace(nil), list...)
+	}
+	return saveTeamWorkspacesLocked(path, st)
+}
+
+// teamWorkspacePlan reconciles chat's recorded workspaces with the guild listing (under
+// teamWorkspaceStore.mu, no network) and returns the list, the name to create ("" = none)
+// and whether the list differs from the record.
+func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool) (list []TeamWorkspace, name string, changed bool, err error) {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(path)
@@ -351,7 +427,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 		}
 	}
 	if _, isChild := claimed[self.ID]; isChild || teamWorkspaceName.MatchString(self.Name) {
-		return nil, nil, errTeamIsWorkspace
+		return nil, "", false, errTeamIsWorkspace
 	}
 
 	byID := map[string]TeamChannel{}
@@ -359,8 +435,6 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 		byID[c.ID] = c
 	}
 	// Drop recorded workspaces whose channel was deleted; keep the record's name up to date.
-	changed := false
-	var list []TeamWorkspace
 	for _, w := range st.Parents[chat] {
 		c, ok := byID[w.ID]
 		if !ok {
@@ -410,7 +484,6 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 		}
 	}
 
-	var name string
 	switch {
 	case !hasNum(1):
 		name = prefix + teamWorkspacePrefix + "1"
@@ -428,31 +501,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 		}
 		name = prefix + teamWorkspacePrefix + strconv.Itoa(top+1)
 	}
-	var created *TeamWorkspace
-	if name != "" {
-		c, err := plat.CreateTeamWorkspaceChannel(ctx, self.ID, name)
-		if err != nil {
-			if changed {
-				st.Parents[chat] = list
-				_ = saveTeamWorkspacesLocked(path, st)
-			}
-			return list, nil, err
-		}
-		created = &TeamWorkspace{Name: c.Name, ID: c.ID, Created: time.Now().UTC()}
-		list = append(list, *created)
-		changed = true
-	}
-	if changed {
-		if len(list) == 0 {
-			delete(st.Parents, chat)
-		} else {
-			st.Parents[chat] = list
-		}
-		if err := saveTeamWorkspacesLocked(path, st); err != nil {
-			return list, created, fmt.Errorf("team workspace: save state: %w", err)
-		}
-	}
-	return list, created, nil
+	return list, name, changed, nil
 }
 
 // teamWorkspaceNum returns n for 「工作区n」 or 「<name>-工作区n」 (1 when unnumbered), 0 otherwise.

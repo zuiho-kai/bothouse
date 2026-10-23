@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -34,7 +35,8 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, channelID string) (cor
 	if err != nil {
 		return core.TeamChannel{}, nil, err
 	}
-	return teamGuildChannels(api, channelID, discordgo.WithContext(ctx))
+	self, all, err := teamGuildChannels(api, channelID, discordgo.WithContext(ctx))
+	return self, all, workspaceErr(err)
 }
 
 func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannelID, name string) (core.TeamChannel, error) {
@@ -42,7 +44,20 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannel
 	if err != nil {
 		return core.TeamChannel{}, err
 	}
-	return createTeamWorkspaceChannel(api, besideChannelID, name, discordgo.WithContext(ctx))
+	c, err := createTeamWorkspaceChannel(api, besideChannelID, name, discordgo.WithContext(ctx))
+	return c, workspaceErr(err)
+}
+
+// workspaceErr marks Discord 4xx other than 429 (no permission, channel gone) as permanent so
+// core stops retrying them; 429 and 5xx stay retryable (code review of PR #135, item 2).
+func workspaceErr(err error) error {
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Response != nil {
+		if c := rest.Response.StatusCode; c >= 400 && c < 500 && c != http.StatusTooManyRequests {
+			return fmt.Errorf("%w: %w", core.ErrTeamWorkspacePermanent, err)
+		}
+	}
+	return err
 }
 
 func teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (core.TeamChannel, []core.TeamChannel, error) {

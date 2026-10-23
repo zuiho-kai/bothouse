@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,9 @@ type fakeWorkspaceGuild struct {
 	created   []TeamChannel
 	nextID    int
 	listCalls int
+	createErr error         // returned by every create when set
+	block     chan struct{} // create waits for it when set
+	creating  chan struct{} // closed when a create starts waiting on block
 }
 
 func (g *fakeWorkspaceGuild) TeamGuildChannels(_ context.Context, id string) (TeamChannel, []TeamChannel, error) {
@@ -46,8 +50,15 @@ func (g *fakeWorkspaceGuild) TeamGuildChannels(_ context.Context, id string) (Te
 }
 
 func (g *fakeWorkspaceGuild) CreateTeamWorkspaceChannel(_ context.Context, beside, name string) (TeamChannel, error) {
+	if g.block != nil {
+		close(g.creating)
+		<-g.block
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.createErr != nil {
+		return TeamChannel{}, g.createErr
+	}
 	var parent string
 	for _, c := range g.channels {
 		if c.ID == beside {
@@ -165,6 +176,8 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	dataDir := t.TempDir()
 	e := newWorkspaceLead(t, g, dataDir)
 	e.teamWS = &teamWorkspaces{seen: map[string]bool{}} // on, without the backfill goroutine
+	e.sessions.GetOrCreateActive("discord:100:u1")
+	e.sessions.GetOrCreateActive("discord:200")
 
 	// No 工作区1 yet: "new" makes 工作区1 first.
 	parent, w1, err := e.NewTeamWorkspace("discord:100:u1")
@@ -212,6 +225,7 @@ func TestWorkspaceParentPersisted(t *testing.T) {
 	dataDir := t.TempDir()
 	e := newWorkspaceLead(t, g, dataDir)
 	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.sessions.GetOrCreateActive("discord:100")
 	_, w, err := e.NewTeamWorkspace("discord:100")
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +281,7 @@ func TestTeamWorkspaceAPI(t *testing.T) {
 	g := newWorkspaceGuild()
 	e := newWorkspaceLead(t, g, t.TempDir())
 	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.sessions.GetOrCreateActive("discord:100:u1")
 	sub := NewEngine("sub", &stubAgent{}, nil, "", LangEnglish)
 	t.Cleanup(sub.cancel)
 	s := &APIServer{engines: map[string]*Engine{"lead": e, "sub": sub}}
@@ -282,6 +297,14 @@ func TestTeamWorkspaceAPI(t *testing.T) {
 	var l TeamWorkspaceListResult
 	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &l) != nil || l.Parent != "discord:100" || len(l.Workspaces) != 1 {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	// Not a channel of the lead (no session, no record) or not Discord: refused.
+	for _, key := range []string{"discord:200", "telegram:100"} {
+		rec = httptest.NewRecorder()
+		s.handleTeamWorkspaceNew(rec, httptest.NewRequest(http.MethodPost, "/team/workspace/new", strings.NewReader(`{"session_key":"`+key+`"}`)))
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s: %d %s, want 403", key, rec.Code, rec.Body.String())
+		}
 	}
 	off := &APIServer{engines: map[string]*Engine{"sub": sub}}
 	rec = httptest.NewRecorder()
@@ -323,5 +346,87 @@ func TestTeamWorkspacesSecondChatInCategoryPrefixed(t *testing.T) {
 	}
 	if parent, w, err := e.NewTeamWorkspace("discord:" + ws[1].ID); err != nil || parent != "discord:300" || w.Name != "闲聊-工作区3" {
 		t.Fatalf("new from workspace = %s %+v %v", parent, w, err)
+	}
+}
+
+// Review item 1: the Discord create runs without the store lock, so WorkspaceParent (reply
+// path) answers while a create is stuck on the network.
+func TestWorkspaceParentNotBlockedByCreate(t *testing.T) {
+	g := newWorkspaceGuild()
+	e := newWorkspaceLead(t, g, t.TempDir())
+	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.sessions.GetOrCreateActive("discord:200")
+	if err := e.ensureTeamWorkspace("discord:200"); err != nil { // adopts 201, no create
+		t.Fatal(err)
+	}
+	g.block, g.creating = make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() { _, _, err := e.NewTeamWorkspace("discord:200"); done <- err }()
+	<-g.creating
+	got := make(chan string, 1)
+	go func() { p, _ := e.WorkspaceParent("201"); got <- p }()
+	select {
+	case p := <-got:
+		if p != "200" {
+			t.Fatalf("WorkspaceParent(201) = %q, want 200", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WorkspaceParent blocked by an in-flight create")
+	}
+	close(g.block)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if w := e.TeamWorkspacesOf("200"); len(w) != 2 || w[1].Name != "工作区6" {
+		t.Fatalf("after create = %+v", w)
+	}
+}
+
+// Review item 2: a permanent failure (Discord 403) is not retried on every message.
+func TestTeamWorkspacePermanentFailureNotRetried(t *testing.T) {
+	g := newWorkspaceGuild()
+	g.createErr = fmt.Errorf("%w: HTTP 403 Missing Permissions", ErrTeamWorkspacePermanent)
+	e := newWorkspaceLead(t, g, t.TempDir())
+	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	if err := e.ensureTeamWorkspace("discord:100"); err != nil {
+		t.Fatalf("permanent failure must count as done: %v", err)
+	}
+	g.mu.Lock()
+	calls := g.listCalls
+	g.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		e.teamWorkspaceNoteChat("discord:100:u1")
+	}
+	time.Sleep(20 * time.Millisecond)
+	g.mu.Lock()
+	after := g.listCalls
+	g.offline = true
+	g.mu.Unlock()
+	if after != calls {
+		t.Fatalf("requests after 403: %d, want none", after-calls)
+	}
+	// A retryable error (not connected yet) still counts as pending.
+	if err := e.ensureTeamWorkspace("discord:200"); err == nil {
+		t.Fatal("retryable error must stay pending")
+	}
+}
+
+// Review item 3: "new" only for Discord chat channels of the lead.
+func TestNewTeamWorkspaceOnlyLeadDiscordChats(t *testing.T) {
+	g := newWorkspaceGuild()
+	e := newWorkspaceLead(t, g, t.TempDir())
+	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.sessions.GetOrCreateActive("telegram:100")
+	for _, key := range []string{"telegram:100", "100", "discord:100"} {
+		if _, _, err := e.NewTeamWorkspace(key); !errors.Is(err, ErrTeamWorkspaceNotLeadChat) {
+			t.Fatalf("%s: %v, want ErrTeamWorkspaceNotLeadChat", key, err)
+		}
+	}
+	if got := g.createdNames(); len(got) != 0 {
+		t.Fatalf("created = %v, want none", got)
+	}
+	e.sessions.GetOrCreateActive("discord:100:u1")
+	if _, w, err := e.NewTeamWorkspace("discord:100"); err != nil || w.Name != "工作区1" {
+		t.Fatalf("lead chat: %+v %v", w, err)
 	}
 }

@@ -24,6 +24,8 @@ func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
 	switch {
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/100":
 		body = `{"id":"100","name":"主频道","type":0,"guild_id":"g1","parent_id":"catA"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/403":
+		status, body = http.StatusForbidden, `{"code":50013,"message":"Missing Permissions"}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/900":
 		body = `{"id":"900","type":1}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/guilds/g1/channels":
@@ -75,5 +77,30 @@ func TestTeamWorkspaceChannels(t *testing.T) {
 	}
 	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catA" || rest.created[0]["type"] != float64(0) {
 		t.Fatalf("create body = %v, want same category, text type", rest.created)
+	}
+}
+
+// Review item 2: 4xx other than 429 is permanent; 429 and 5xx stay retryable.
+func TestTeamWorkspacePermanentErrors(t *testing.T) {
+	p := &Platform{}
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.Client = &http.Client{Transport: &workspaceREST{}}
+	p.mu.Lock()
+	p.session = session
+	p.mu.Unlock()
+	if _, _, err := p.TeamGuildChannels(context.Background(), "403"); !errors.Is(err, core.ErrTeamWorkspacePermanent) {
+		t.Fatalf("403: %v, want ErrTeamWorkspacePermanent", err)
+	}
+	for _, code := range []int{http.StatusTooManyRequests, http.StatusBadGateway} {
+		e := &discordgo.RESTError{Response: &http.Response{StatusCode: code}}
+		if errors.Is(workspaceErr(e), core.ErrTeamWorkspacePermanent) {
+			t.Fatalf("%d must stay retryable", code)
+		}
+	}
+	if workspaceErr(nil) != nil {
+		t.Fatal("nil error must stay nil")
 	}
 }

@@ -4,6 +4,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 )
@@ -55,6 +56,10 @@ func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	parent, ws, err := e.NewTeamWorkspace(req.SessionKey)
+	if errors.Is(err, ErrTeamWorkspaceNotLeadChat) {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
