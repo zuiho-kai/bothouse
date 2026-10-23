@@ -52,14 +52,14 @@ func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardVi
 	}
 	running, failed := 0, 0
 	rows := make([]string, 0, len(payload.Tasks))
-	for _, t := range payload.Tasks {
+	for i, t := range payload.Tasks {
 		if t.Live() {
 			running++
 		} else if t.Status == core.SubTaskFailed {
 			failed++
 		}
 		if view == cardViewBrief {
-			rows = append(rows, buildDiscordSubTaskBriefRow(t, zh))
+			rows = append(rows, buildDiscordSubTaskBriefRow(t, i+1, zh))
 		} else {
 			rows = append(rows, buildDiscordSubTaskRow(t, zh))
 		}
@@ -143,12 +143,16 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 }
 
 // buildDiscordSubTaskBriefRow is the 简略 view of one sub-agent: name, status
-// and time on one line. A row without a name (Claude) falls back to its ID, so
-// 简略 never shows task text.
-func buildDiscordSubTaskBriefRow(t core.SubTask, zh bool) string {
+// and time on one line. A row without a name (Claude) is labelled by its
+// position in this table (子任务 N; tasks keep their append order), so 简略
+// never shows task text or the internal agent ID.
+func buildDiscordSubTaskBriefRow(t core.SubTask, seq int, zh bool) string {
 	name := compactDiscordProgressText(t.Name)
 	if name == "" {
-		name = compactDiscordProgressText(t.ID)
+		name = fmt.Sprintf("Sub-task %d", seq)
+		if zh {
+			name = fmt.Sprintf("子任务 %d", seq)
+		}
 	}
 	row := discordSubTaskIcon(t) + " " + trimDiscordRunes(name, maxDiscordProgressLineLen)
 	if when := discordSubTaskWhen(t, zh); when != "" {

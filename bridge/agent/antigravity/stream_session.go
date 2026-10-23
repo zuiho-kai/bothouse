@@ -283,8 +283,10 @@ func (s *streamSession) trackToolLocked(ev agyStreamEvent) {
 	}
 	wasActive := s.activeTools[idx]
 	delete(s.activeTools, idx)
-	if wasActive && step.State != "DONE" {
-		ok := false
+	if wasActive {
+		// Report completion (DONE → success) so progress cards can mark the
+		// step 成功/失败 like other agents; the output itself stays private.
+		ok := step.State == "DONE"
 		s.emit(core.Event{Type: core.EventToolResult, ToolName: name, ToolStatus: strings.ToLower(step.State), ToolSuccess: &ok, SessionID: s.CurrentSessionID()})
 	}
 }

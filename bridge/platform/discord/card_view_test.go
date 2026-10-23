@@ -67,6 +67,44 @@ func TestCardViewSubTaskRendering(t *testing.T) {
 	}
 }
 
+// 简略 labels an unnamed sub-agent by its order in the table, never by its
+// internal agent ID; named rows keep their name and do not take a number.
+func TestCardViewSubTaskBriefUnnamedUsesSequence(t *testing.T) {
+	start := time.Unix(1700000000, 0)
+	table := &core.SubTaskTablePayload{Lang: string(core.LangChinese), Tasks: []core.SubTask{
+		{ID: "ac7ac0a860fd332e8", Description: "第一件", Status: core.SubTaskCompleted, StartedAt: start, EndedAt: start.Add(70 * time.Second)},
+		{ID: "n1", Name: "Rawls", Description: "第二件", Status: core.SubTaskRunning, StartedAt: start},
+		{ID: "bf19d2e7c4a0b55aa", Description: "第三件", Status: core.SubTaskRunning, StartedAt: start},
+	}}
+	lines := strings.Split(buildDiscordSubTaskEmbedView(table, cardViewBrief).Description, "\n")
+	if len(lines) != 3 || lines[0] != "✅ 子任务 1 · 用时 1分10秒" || !strings.Contains(lines[1], "Rawls") || !strings.HasPrefix(lines[2], "🔄 子任务 3 · ") {
+		t.Fatalf("brief rows: %q", lines)
+	}
+	for _, leak := range []string{"ac7ac0a860fd332e8", "bf19d2e7c4a0b55aa", "第一件", "第三件"} {
+		if strings.Contains(strings.Join(lines, "\n"), leak) {
+			t.Fatalf("brief shows %q: %q", leak, lines)
+		}
+	}
+}
+
+// A tool whose only result is a bare status (antigravity reports completion
+// with ToolSuccess and no output) still reads 成功/失败 in 简略.
+func TestCardViewProgressBriefStatusOnlyResult(t *testing.T) {
+	ok, bad := true, false
+	payload := &core.ProgressCardPayload{Lang: "zh", State: core.ProgressCardStateCompleted, Steps: 2, Items: []core.ProgressCardEntry{
+		{Kind: core.ProgressEntryToolUse, Tool: "run_command", Text: "sleep 1"},
+		{Kind: core.ProgressEntryToolResult, Tool: "run_command", Success: &ok},
+		{Kind: core.ProgressEntryToolUse, Tool: "view_file", Text: "x"},
+		{Kind: core.ProgressEntryToolResult, Tool: "view_file", Status: "error", Success: &bad},
+	}}
+	brief := buildDiscordProgressBrief(payload)
+	for _, want := range []string{"✅ run_command · 成功", "❌ view_file · 失败"} {
+		if !strings.Contains(brief, want) {
+			t.Fatalf("brief missing %q:\n%s", want, brief)
+		}
+	}
+}
+
 func TestCardViewTaskCardRendering(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	task := &core.Task{ID: "t1", Title: "卡片开关", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", LatestProgress: "LATEST_PROGRESS", ResultSummary: "RESULT_SUM", VerificationResult: "VERIFY_RES", DeliverableURL: "DELIV_URL", NextSteps: "NEXT_STEPS",
