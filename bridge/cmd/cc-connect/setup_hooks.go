@@ -28,7 +28,7 @@ tells the model the rules of the hooks that are on. "off" removes the hooks and 
 
 To pause hooks without uninstalling them, the user tells the bot in chat ("turn the checks off"): the
 persona block makes it run <data_dir>/hooks/run.py --role <dir> off|on [hook…], which writes
-<dir>/.claude/conest-hooks.json ({"off": ["bash-guard"]} or {"off": ["all"]}; editing it by hand works too).
+<dir>/.bothouse/conest-hooks.json ({"off": ["bash-guard"]} or {"off": ["all"]}; editing it by hand works too).
 "status" shows both.
 
 Hooks: %s
@@ -89,8 +89,20 @@ func runSetupHooks(args []string) {
 	default:
 		var on []string
 		on, err = core.AgentHooksEnabled(*cli, wd)
-		res = map[string]any{"enabled": on, "settings_file": core.AgentHookSettingsPath(*cli, wd), "hooks": core.AgentHookNames(),
-			"switched_off": core.AgentHooksSwitchedOff(wd), "switch_file": core.AgentHookSwitchFile(wd)}
+		available := core.AgentHookNames()
+		off := core.AgentHooksSwitchedOff(wd)
+		if *cli == "kimi" {
+			available = []string{"bash-guard"}
+			filtered := []string{}
+			for _, name := range off {
+				if name == "bash-guard" {
+					filtered = append(filtered, name)
+				}
+			}
+			off = filtered
+		}
+		res = map[string]any{"enabled": on, "settings_file": core.AgentHookSettingsPath(*cli, wd), "hooks": available,
+			"switched_off": off, "switch_file": core.AgentHookSwitchFile(wd)}
 	}
 	if err != nil {
 		fail(err)

@@ -338,7 +338,7 @@ func wizardHooksFor(agentType string) bool {
 // AgentHookSwitchFile is the role's on/off switch: {"off": [hook names] or ["all"]}. run.py reads it on every
 // call and writes it for "run.py off|on" (what the agent runs when its user asks in chat).
 func AgentHookSwitchFile(workDir string) string {
-	return filepath.Join(workDir, ".claude", "conest-hooks.json")
+	return filepath.Join(workDir, ".bothouse", "conest-hooks.json")
 }
 
 // AgentHooksSwitchedOff lists the hooks the switch file turns off ("all" = every hook).
@@ -347,6 +347,9 @@ func AgentHooksSwitchedOff(workDir string) []string {
 		Off []string `json:"off"`
 	}
 	b, err := os.ReadFile(AgentHookSwitchFile(workDir))
+	if os.IsNotExist(err) {
+		b, err = os.ReadFile(filepath.Join(workDir, ".claude", "conest-hooks.json"))
+	}
 	if err != nil || json.Unmarshal(b, &v) != nil {
 		return []string{}
 	}
@@ -423,6 +426,7 @@ type AgentHookOptions struct {
 
 // AgentHookResult is what was written.
 type AgentHookResult struct {
+	Warnings     []string `json:"warnings,omitempty"`
 	Enabled      []string `json:"enabled"`
 	HooksDir     string   `json:"hooks_dir,omitempty"`
 	SettingsFile string   `json:"settings_file"`

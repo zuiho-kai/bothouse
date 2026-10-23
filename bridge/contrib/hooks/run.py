@@ -2,7 +2,7 @@
 """Hook entry for Claude Code and DSH: run.py <hook name>  (e.g. run.py bash-guard).
 Switch: run.py --role <dir> off|on [hook ...] / run.py --role <dir> status  — turn hooks off or on for this role
 (no names = all). The agent runs it when its user asks in chat (the persona block says so, with the role's
---role); a person can edit the file instead. The state is the role's .claude/conest-hooks.json:
+--role); a person can edit the file instead. The state is the role's .bothouse/conest-hooks.json:
 {"off": ["bash-guard", ...]} or {"off": ["all"]}, read on every hook call, so a change applies at once.
 Without --role the role directory is the nearest directory upwards from CLAUDE_PROJECT_DIR / the payload's cwd /
 the current directory that has .claude/settings.json.
@@ -329,7 +329,8 @@ def load_state():
         return {}
 
 
-SWITCH = os.path.join(".claude", "conest-hooks.json")
+SWITCH = os.path.join(".bothouse", "conest-hooks.json")
+LEGACY_SWITCH = os.path.join(".claude", "conest-hooks.json")
 
 
 def hook_names():
@@ -344,9 +345,9 @@ def role_dir(start=None):
     d = os.path.abspath(start or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     probe = d
     while True:
-        # .gemini/settings.json: a Gemini CLI role (hooks written there; its switch file stays .claude/conest-hooks.json)
-        if (os.path.isfile(os.path.join(probe, ".claude", "settings.json"))
-                or os.path.isfile(os.path.join(probe, ".gemini", "settings.json"))):
+        if any(os.path.isfile(os.path.join(probe, p)) for p in (
+                SWITCH, ".claude/settings.json", ".gemini/settings.json", ".agents/hooks.json",
+                ".qoder/settings.json", ".iflow/settings.json", ".bothouse/kimi-home/config.toml")):
             return probe
         up = os.path.dirname(probe)
         if up == probe:
@@ -356,7 +357,10 @@ def role_dir(start=None):
 
 def load_off(d):
     try:
-        with open(os.path.join(d, SWITCH), encoding="utf-8") as f:
+        path = os.path.join(d, SWITCH)
+        if not os.path.exists(path):
+            path = os.path.join(d, LEGACY_SWITCH)
+        with open(path, encoding="utf-8") as f:
             off = json.load(f).get("off") or []
         return {str(x) for x in off} if isinstance(off, list) else set()
     except (OSError, ValueError, AttributeError):
@@ -476,6 +480,8 @@ def main():
         if payload["hook_event_name"] == "Stop":
             tmp = gemini_transcript(payload, payload["cwd"])
             payload["transcript_path"] = tmp
+    if OPTS["kimi"] and payload.get("tool_name") == "bash":
+        payload["tool_name"] = "Bash"
     tool = payload.get("tool_name")
     dsh = not gemini and isinstance(tool, str) and (tool in NAMES or tool in ("str_replace_editor", "job_output"))
     if dsh:

@@ -61,11 +61,17 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 	if off := AgentHooksSwitchedOff(wd); len(off) != 0 {
 		t.Fatalf("switched off = %v", off)
 	}
+	if err := os.MkdirAll(filepath.Dir(AgentHookSwitchFile(wd)), 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(AgentHookSwitchFile(wd), []byte(`{"off": ["all"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if off := AgentHooksSwitchedOff(wd); !slices.Equal(off, AgentHookNames()) {
 		t.Fatalf("switched off (all) = %v", off)
+	}
+	if err := os.MkdirAll(filepath.Dir(AgentHookSwitchFile(wd)), 0700); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(AgentHookSwitchFile(wd), []byte(`{"off": ["promise-guard"]}`), 0o644); err != nil {
 		t.Fatal(err)
