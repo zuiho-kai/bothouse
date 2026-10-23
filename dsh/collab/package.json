@@ -19,5 +19,8 @@
   },
   "optionalDependencies": {
     "@agentclientprotocol/codex-acp": "^2.2.2"
+  },
+  "devDependencies": {
+    "ws": "8.21.3"
   }
 }

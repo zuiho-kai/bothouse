@@ -24,7 +24,8 @@ export function split(text, members) {
   const list = aliases(members);
   if (list.length === 0) return [[text, null]];
   const lookup = new Map(list);
-  const pat = new RegExp(list.map(([a]) => escape(a)).join('|'), 'g');
+  // An alias is a complete recipient token: @foo must not select @foobar.
+  const pat = new RegExp(list.map(([a]) => a.startsWith('<') ? escape(a) : `(?<![a-zA-Z0-9_.+-])${escape(a)}(?![\\p{L}\\p{N}_-])`).join('|'), 'gu');
   const parts = [];
   text.split(FENCE).forEach((seg, i) => {
     if (i) parts.push([FENCE, null]);
@@ -42,6 +43,12 @@ export function split(text, members) {
 /** Member ids @-mentioned in text. */
 export function mentions(text, members) {
   return new Set(split(text, members).map(([, id]) => id).filter(Boolean));
+}
+
+/** Unknown explicit recipients must not fall back to the lead; ignore emails/code. */
+export function hasUnknownMention(text, members) {
+  return text.split(FENCE).some((segment, index) => index % 2 === 0 &&
+    split(segment, members).some(([plain, id]) => id === null && /(?<![a-zA-Z0-9_.+-])(?:@[\p{L}\p{N}_-]+|<@!?[^>\s]+>)/u.test(plain)));
 }
 
 /** Stored/displayed form: every mention becomes @name. */

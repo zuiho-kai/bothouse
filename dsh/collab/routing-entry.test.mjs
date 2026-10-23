@@ -2,40 +2,18 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { createRequire, registerHooks } from 'node:module';
+import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-// No installation or DSH startup: resolve only ws's code from this checkout or
-// an existing DSH executable. An explicit path also supports non-PATH installs.
-function installedWs() {
-  const entries = [
-    fileURLToPath(import.meta.url),
-    process.env.BOTHOUSE_TEST_DSH_ENTRY,
-    ...(process.env.PATH ?? '').split(delimiter).filter(Boolean).map(dir => join(dir, 'dsh')),
-  ];
-  for (const entry of entries.filter(Boolean)) {
-    if (!existsSync(entry)) continue;
-    try { return createRequire(realpathSync(entry)).resolve('ws'); } catch (error) {
-      if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    }
-  }
-  throw Error('routing entry tests require preinstalled ws; set BOTHOUSE_TEST_DSH_ENTRY to an installed DSH executable (no downloads performed)');
-}
-
-const wsPath = installedWs();
-const require = createRequire(import.meta.url);
-const { WebSocket } = require(wsPath);
+import { join } from 'node:path';
+import { WebSocket } from 'ws';
 const runtimeUrl = new URL('./test/routing-entry-runtime.mjs', import.meta.url).href;
 const hooks = registerHooks({
   resolve(specifier, context, next) {
     if (['@deepseek-ai/dsh-llm', '@agentclientprotocol/sdk'].includes(specifier)) {
       return { url: runtimeUrl, shortCircuit: true };
     }
-    if (specifier === 'ws') return { url: pathToFileURL(wsPath).href, shortCircuit: true };
     return next(specifier, context);
   },
 });

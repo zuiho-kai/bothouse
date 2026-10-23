@@ -1,5 +1,5 @@
 // DSH-native channel members. Each (member, room) owns one ordinary DSH root
-// Session that shows up in the DSH Web UI; a channel @-mention becomes one
+// Session that shows up in the DSH Web UI; a routed channel message becomes one
 // durable job. The job records the Session offset and the id of the input it
 // admits, and its reply is taken only from the turn that consumed that input,
 // so a turn started from the DSH Web UI is never posted to the channel.
@@ -7,7 +7,6 @@
 // one that was consumed is settled from the Session log. Nothing is re-sent,
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
-import { mentions, nameCalled } from './mentions.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -68,7 +67,8 @@ export function promptText(room, member, messages) {
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
     ...persona,
-    '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
+    '下面是频道里你还没看过的消息。最后一条由频道路由交给你：可能显式 @ 了你，也可能因为你是主 bot 而接收了真人的普通消息。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
+    '需要其他成员协作时，在最终频道回复中使用显式 @成员名；只写裸名字不会派工。@ 表示请求协作，不是送达回执；没有实际投递记录或对方回复时，不要宣称已送达、已派工或已完成。',
     '',
     ...lines,
   ].join('\n');
@@ -168,14 +168,11 @@ export class DshMembers {
   }
 
   /**
-   * Plan jobs for a new message inside the hub's append transaction, so an
-   * accepted @ always has its job. Returns the post-commit continuation.
+   * Plan jobs for a new message inside the hub's append transaction, so a
+   * routed native target always has its job. Returns the post-commit continuation.
    */
   plan(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null) return undefined;
-    const hit = mentions(msg.text, this.hub.routable());
-    const targets = [...this.config.keys()].filter(id => id !== msg.author
-      && (hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
+    const targets = [...this.hub.route(msg).targets].filter(id => this.config.has(id) && id !== msg.author);
     if (targets.length === 0) return undefined;
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
       return () => this.hub.post(msg.room_id, {

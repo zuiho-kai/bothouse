@@ -3,7 +3,8 @@
 // project configured for the role-household hub connects here unchanged:
 //   ws(s)://<host>/cloud-web/ws?bot=<member id>&name=<display>&mention_id=<digits>&avatar=<slug|http(s) URL>
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
-import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
+import { forDisplay, forMember } from './mentions.mjs';
+import { channelText } from './hub.mjs';
 import { checkAvatar } from './avatars.mjs';
 import { MAX_TEXT, publicMessage } from './store.mjs';
 
@@ -14,10 +15,6 @@ export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', '
 const REGISTER_TIMEOUT_MS = 10_000;
 const WS_BAD_REGISTER = 4002;
 const WS_REPLACED = 4003;
-// cc-connect status notices that teammates never see (discord.go isBotNotice).
-const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸'];
-// "model · usage" footer cc-connect appends (discord.go botFooter).
-const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
 const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败' };
@@ -144,22 +141,17 @@ export class CloudWebGateway {
 
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
+    const text = channelText(msg);
+    if (text === undefined || this.bots.size === 0) return;
     const fromAgent = msg.author_kind === 'role';
-    let text = msg.text;
-    if (fromAgent) {
-      if (NOTICE_PREFIXES.some(p => text.trimStart().startsWith(p))) return;
-      text = text.replace(FOOTER, '').trim();
-      if (!text) return;
-    }
     const members = this.hub.routable();
-    const mentioned = mentions(text, members);
+    const decision = this.hub.route(msg);
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
     for (const { ws, member } of this.bots.values()) {
       if (fromAgent && msg.author === member.id) continue;
       let content = forMember(text, member, members);
-      const hit = mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
+      const hit = decision.targets.has(member.id);
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${content}`;
       else if (hit && !content) content = BARE_MENTION;
@@ -170,7 +162,11 @@ export class CloudWebGateway {
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
-      send(ws, frame);
+      const queued = send(ws, frame, hit ? () => {
+        this.hub.setOnline(member.id, false);
+        this.hub.deliveryFailed(msg, member.id);
+      } : undefined);
+      if (hit && queued) this.logger.info?.('collab: route message=%s target=%s trigger=%s outcome=queued', msg.id, member.id, decision.reason);
     }
   }
 
@@ -234,8 +230,14 @@ export class CloudWebGateway {
   }
 }
 
-function send(ws, frame) {
-  try { ws.send(JSON.stringify(frame)); } catch { /* socket already closing; its close handler cleans up */ }
+function send(ws, frame, onError) {
+  let failed = false;
+  const fail = () => { if (!failed) { failed = true; onError?.(); } };
+  try {
+    if (ws.readyState !== undefined && ws.readyState !== 1) { fail(); return; }
+    ws.send(JSON.stringify(frame), error => { if (error) fail(); });
+  } catch { fail(); }
+  return !failed;
 }
 
 function clean(s) { return String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim(); }

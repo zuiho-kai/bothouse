@@ -38,13 +38,14 @@ test('native prompt: lead reception and explicit handoff without delivery claims
   assert.match(prompt, /【我】你好$/);
 });
 
-// This worktree intentionally has the old Hub. Stub only the agreed route
-// return value; production planning, transactions, jobs and queues stay real.
-function fixture(t, route) {
+// Production Hub/planning/jobs; only the model runner is replaced. An optional
+// route stub exercises decisions that the native planner must not override.
+function fixture(t, route, routing = { leadMember: 'ds' }) {
   const store = new Store(':memory:');
   store.ensureRoom(1, 'general');
-  const hub = new Hub(store, quiet);
-  hub.route = t.mock.fn(route);
+  const hub = new Hub(store, quiet, routing);
+  if (route) hub.route = msg => msg.author_kind === 'system' || msg.card != null
+    ? { targets: new Set(), reason: 'context' } : route(msg);
   const dsh = new DshMembers(hub, { logger: quiet }, [
     { id: 'ds', name: 'DeepSeek' },
     { id: 'writer', name: 'Writer' },
@@ -73,28 +74,26 @@ for (const scenario of cases) {
     const jobs = store.openJobs();
     assert.deepEqual(jobs.map(job => job.member_id), scenario.expected);
     assert.ok(jobs.every(job => job.state === 'pending' && job.trigger_id === message.id));
-    assert.equal(hub.route.mock.calls.length, 1);
-    assert.equal(hub.route.mock.calls[0].arguments[0].id, message.id);
-    hub.post(1, input);
-    assert.equal(hub.route.mock.calls.length, 1, 'deduplicated message does not plan again');
+    const retry = hub.post(1, input);
+    assert.equal(retry.created, false);
+    assert.equal(retry.message.id, message.id);
+    assert.deepEqual(store.openJobs(), jobs, 'deduplicated message creates no new job');
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(dsh.run.mock.calls.map(call => call.arguments[0]), jobs.map(job => job.id));
   });
 }
 
 test('native plan: hub filters cards and system notices without jobs', async (t) => {
-  const { store, hub, dsh } = fixture(t, () => ({ targets: new Set(), reason: 'context' }));
+  const { store, hub, dsh } = fixture(t);
   hub.post(1, { authorKind: 'system', author: 'system', name: 'system', text: '@DeepSeek notice' });
   hub.post(1, { authorKind: 'role', author: 'writer', name: 'Writer', text: '@DeepSeek card', card: '{}' });
-  assert.equal(dsh.plan(undefined), undefined);
-  assert.equal(dsh.plan(null), undefined);
   assert.deepEqual(store.openJobs(), []);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(dsh.run.mock.calls.length, 0);
 });
 
 test('native plan: message and all routed jobs roll back together', async (t) => {
-  const { store, hub, dsh } = fixture(t, () => ({ targets: new Set(['ds', 'writer']), reason: 'mention' }));
+  const { store, hub, dsh } = fixture(t);
   const addJob = store.addJob.bind(store);
   store.addJob = (id, ...args) => {
     if (id === 'writer') throw Error('injected job write failure');
@@ -106,3 +105,29 @@ test('native plan: message and all routed jobs roll back together', async (t) =>
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(dsh.run.mock.calls.length, 0);
 });
+
+const realCases = [
+  { name: 'plain human message only creates lead job', text: '你好', expected: ['ds'] },
+  { name: 'explicit mention overrides lead', text: '@Writer 看一下', expected: ['writer'] },
+  { name: 'bare human name still goes to lead', text: 'Writer，你来', expected: ['ds'] },
+  { name: 'bare role name creates no job', authorKind: 'role', text: 'Writer，你来', expected: [] },
+  { name: 'explicit role mention creates target job', authorKind: 'role', text: '@Writer 你来', expected: ['writer'] },
+  { name: 'unconfigured lead creates no job', text: '你好', routing: {}, expected: [] },
+];
+
+for (const scenario of realCases) {
+  test(`native jobs with real Hub.route: ${scenario.name}`, async (t) => {
+    const { store, hub, dsh } = fixture(t, undefined, scenario.routing);
+    const input = { authorKind: scenario.authorKind ?? 'user', author: scenario.authorKind === 'role' ? 'ds' : 'owner', name: 'sender', text: scenario.text, clientKey: 'real-trigger' };
+    const { message } = hub.post(1, input);
+    const jobs = store.openJobs();
+    assert.deepEqual(jobs.map(job => job.member_id), scenario.expected);
+    assert.ok(jobs.every(job => job.state === 'pending' && job.trigger_id === message.id));
+    const retry = hub.post(1, input);
+    assert.equal(retry.created, false);
+    assert.equal(retry.message.id, message.id);
+    assert.deepEqual(store.openJobs(), jobs);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(dsh.run.mock.calls.map(call => call.arguments[0]), jobs.map(job => job.id), 'each committed job is dispatched once');
+  });
+}

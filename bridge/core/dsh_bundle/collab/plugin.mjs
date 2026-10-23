@@ -3,7 +3,7 @@
 //   - insert:
 //       - id: conest-collab
 //         name: /abs/path/dsh/collab/plugin.mjs
-//         config: { dataDir, workspacePath, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay? }
+//         config: { dataDir, workspacePath, botTokenEnv?, ownerName?, rooms?, dshMembers?, leadMember?, maxRelay? }
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -54,7 +54,12 @@ export function resolveConfig(config, env = process.env) {
   if (!Number.isSafeInteger(maxRelay) || maxRelay < 0) throw Error('conest-collab: maxRelay must be a non-negative integer');
   const botTokenEnv = c.botTokenEnv ?? 'CONEST_COLLAB_BOT_TOKEN';
   const botToken = env[botTokenEnv] ?? '';
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  const leadMember = c.leadMember !== undefined ? c.leadMember : (env.CONEST_COLLAB_LEAD === '' ? undefined : env.CONEST_COLLAB_LEAD);
+  // Source: the existing dshMembers stable-id format and reserved identities above.
+  if (leadMember !== undefined && (typeof leadMember !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(leadMember) || ['user', 'system', OWNER].includes(leadMember))) {
+    throw Error('conest-collab: leadMember must be a stable member id: lowercase [a-z0-9_-], excluding owner/user/system');
+  }
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我', leadMember };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -72,7 +77,7 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   for (const room of config.rooms) store.ensureRoom(room.id, room.name.trim());
-  const hub = new Hub(store, ctx.logger);
+  const hub = new Hub(store, ctx.logger, { leadMember: config.leadMember });
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
