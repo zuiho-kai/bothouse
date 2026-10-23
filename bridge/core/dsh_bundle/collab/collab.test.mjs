@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
-import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX } from './cloudweb.mjs';
+import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason, friendlyFailure } from './dsh-member.mjs';
 import { resolveConfig } from './plugin.mjs';
 import { Roster } from './roster.mjs';
@@ -1432,8 +1432,8 @@ test('store: a v6 database gains kind/parent_id and every chat channel gets 工�
   assert.deepEqual(plain(s.rooms()), [
     { id: 1, name: 'general', kind: 'chat', parent_id: null },
     { id: 2, name: 'dev', kind: 'chat', parent_id: null },
-    { id: 3, name: '工作区1', kind: 'workspace', parent_id: 1 },
-    { id: 4, name: '工作区1', kind: 'workspace', parent_id: 2 },
+    { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 },
+    { id: 1000001, name: '工作区1', kind: 'workspace', parent_id: 2 },
   ]);
   assert.equal(s.page(1, undefined, 1)[0].text, 'kept');
   assert.deepEqual(s.ensureWorkspaces(), [], 'a chat channel that has a workspace is skipped');
@@ -1455,36 +1455,62 @@ test('store: a configured chat channel gets 工作区1 once', () => {
   assert.deepEqual(s.roomsView().map(r => r.active), [0, 0]);
 });
 
-test('store: default config, then {id:2} added — starts, and the old 工作区1 moves with its messages', async () => {
+test('store: default config, then {id:2} added — starts, workspace ids stay out of the config range', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
-  const start = rooms => { // what plugin.apply does on startup
+  const start = config => { // what plugin.apply does on startup
     const s = new Store(path);
-    for (const r of rooms) s.ensureRoom(r.id, r.name);
+    for (const r of resolveConfig({ dataDir: path, workspacePath: path, ...config }).rooms) s.ensureRoom(r.id, r.name);
     s.ensureWorkspaces();
     return s;
   };
-  const first = start([{ id: 1, name: 'general' }]);
-  const ws = first.room(2);
-  assert.deepEqual([ws.name, ws.kind, ws.parent_id], ['工作区1', 'workspace', 1]);
-  const msg = first.append(2, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
-  first.bind('m1', 2, 'sess-ws');
-  first.addJob('m1', 2, msg.id);
+  const first = start({}); // default config: one chat channel { id: 1, name: 'general' }
+  const ws = first.rooms().find(r => r.kind === 'workspace');
+  assert.deepEqual([ws.name, ws.parent_id], ['工作区1', 1]);
+  assert.ok(ws.id >= 1000000, 'workspace ids start at 1000000');
+  const key = roomKey(ws.id);
+  const msg = first.append(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
+  first.bind('m1', ws.id, 'sess-ws');
+  first.addJob('m1', ws.id, msg.id);
   first.close();
-  const second = start([{ id: 1, name: 'general' }, { id: 2, name: 'dev' }]);
-  assert.deepEqual(plain(second.rooms()), [
-    { id: 1, name: 'general', kind: 'chat', parent_id: null },
-    { id: 2, name: 'dev', kind: 'chat', parent_id: null },
-    { id: 3, name: '工作区1', kind: 'workspace', parent_id: 1 },
-    { id: 4, name: '工作区1', kind: 'workspace', parent_id: 2 },
-  ]);
-  assert.equal(second.message(msg.id).room_id, 3, 'the moved workspace keeps its messages');
-  assert.equal(second.binding('m1', 3).session_id, 'sess-ws');
-  assert.equal(second.job(1).room_id, 3);
+  // A chat channel added to the config later takes its own small id; the workspace keeps its id.
+  const second = start({ rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'dev' }] });
+  assert.deepEqual(plain(second.room(2)), { id: 2, name: 'dev', kind: 'chat', parent_id: null });
+  assert.deepEqual(plain(second.room(ws.id)), { id: ws.id, name: '工作区1', kind: 'workspace', parent_id: 1 });
+  assert.equal(second.message(msg.id).room_id, ws.id, 'the workspace keeps its messages');
+  assert.equal(second.binding('m1', ws.id).session_id, 'sess-ws');
+  assert.equal(second.job(1).room_id, ws.id);
+  assert.equal(roomKey(second.rooms().find(r => r.kind === 'workspace').id), key, 'bot session key room-<id> is unchanged');
   assert.equal(second.page(2, undefined, 10).length, 0, 'the configured channel starts empty');
+  // A config id that is inside the workspace range is refused instead of moving the workspace.
+  assert.throws(() => second.ensureRoom(ws.id, 'clash'), e => e.code === 'workspace-id-conflict');
   second.close();
+});
+
+test('store: an unreleased dev database moves old small-id workspaces into the workspace range', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  // Shape written by the previous PR revision: 工作区1 shares the config sequence at id 2.
+  old.db.exec("INSERT INTO rooms (id, name, kind, parent_id) VALUES (2, '工作区1', 'workspace', 1)");
+  const msg = old.append(2, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
+  old.bind('m1', 2, 'sess-ws');
+  old.addJob('m1', 2, msg.id);
+  old.close();
+  const s = new Store(path);
+  assert.deepEqual(plain(s.rooms()), [
+    { id: 1, name: 'general', kind: 'chat', parent_id: null },
+    { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 },
+  ]);
+  assert.equal(s.message(msg.id).room_id, 1000000);
+  assert.equal(s.binding('m1', 1000000).session_id, 'sess-ws');
+  assert.equal(s.job(1).room_id, 1000000);
+  s.close();
 });
 
 test('store: a v8 database missing reply_to (#133 shipped after) gains it on open', async () => {
@@ -1509,15 +1535,16 @@ test('store: creating a chat channel creates its 工作区1; the next workspace 
   const s = new Store(':memory:');
   const { room, workspace } = s.createRoom('ops');
   assert.deepEqual(plain(room), { id: 1, name: 'ops', kind: 'chat', parent_id: null });
-  assert.deepEqual(plain(workspace), { id: 2, name: '工作区1', kind: 'workspace', parent_id: 1 });
+  assert.deepEqual(plain(workspace), { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 });
   assert.equal(s.createWorkspace(1).name, '工作区2');
   // Called on a workspace, the new one is a sibling under the same chat channel.
-  const third = s.createWorkspace(2);
+  const third = s.createWorkspace(1000000);
   assert.deepEqual([third.name, third.parent_id], ['工作区3', 1]);
   // Numbering follows the highest existing number, not the count.
   s.db.prepare('DELETE FROM rooms WHERE id = ?').run(third.id - 1);
   assert.equal(s.createWorkspace(1).name, '工作区4');
-  assert.equal(s.createRoom('other').workspace.name, '工作区1', 'numbering is per chat channel');
+  const other = s.createRoom('other').workspace;
+  assert.deepEqual([other.name, other.id], ['工作区1', 1000005], 'numbering is per chat channel; ids keep growing in the workspace range');
   assert.throws(() => s.createWorkspace(99), e => e.code === 'room-missing');
 });
 

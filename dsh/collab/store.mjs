@@ -25,6 +25,11 @@ const COLUMNS = [
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
+// Workspaces take ids from their own range, starting at 1000000, so a configured chat
+// channel added later (users write small ids like 1, 2) can never collide with one.
+// PM-set floor, not user-specified; bot sessions are keyed room-<id> (cloudweb.mjs roomKey),
+// so a workspace id must never change once a bot has used it.
+export const WORKSPACE_ID_MIN = 1000000;
 
 export class Store {
   constructor(path) {
@@ -38,7 +43,9 @@ export class Store {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
-      createWorkspace: this.db.prepare("INSERT INTO rooms (name, kind, parent_id) VALUES (?, 'workspace', ?) RETURNING id, name, kind, parent_id"),
+      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id)
+        SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
+          ?, 'workspace', ? RETURNING id, name, kind, parent_id`),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
       insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
@@ -103,6 +110,7 @@ export class Store {
         if (!has.get(table).has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
       }
       // v8: every chat channel that has no workspace gets 「工作区1」.
+      this.migrateWorkspaceIds();
       this.fillWorkspaces();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
@@ -144,11 +152,37 @@ export class Store {
     this.db.exec('CREATE INDEX IF NOT EXISTS tasks_room ON tasks (room_id, id)');
   }
 
+  /**
+   * Move workspaces still on the old shared sequence (id < WORKSPACE_ID_MIN) into the
+   * workspace range, repointing their messages, bindings and jobs. This exists only for
+   * unreleased dev databases from before the separate range: no bot session has used
+   * them yet, and it is the only place a room id is ever changed. Released databases
+   * never hit this (no workspace was ever shipped on the shared sequence).
+   */
+  migrateWorkspaceIds() {
+    const old = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND id < ? ORDER BY id`).all(WORKSPACE_ID_MIN);
+    if (!old.length) return;
+    const next = this.db.prepare(`SELECT MAX(?, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ?), ?)) AS id`)
+      .get(WORKSPACE_ID_MIN, WORKSPACE_ID_MIN, WORKSPACE_ID_MIN).id;
+    for (const [i, { id }] of old.entries()) {
+      const to = next + i;
+      const cols = this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name).filter(c => c !== 'id');
+      this.db.prepare(`INSERT INTO rooms (id, ${cols}) SELECT ?, ${cols} FROM rooms WHERE id = ?`).run(to, id);
+      for (const table of ['messages', 'bindings', 'jobs']) this.db.prepare(`UPDATE ${table} SET room_id = ? WHERE room_id = ?`).run(to, id);
+      this.db.prepare('UPDATE rooms SET parent_id = ? WHERE parent_id = ?').run(to, id);
+      this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
+    }
+  }
+
   /** Give every chat channel without a workspace its 「工作区1」; returns the rooms created. */
   fillWorkspaces() {
     const orphans = this.db.prepare(`SELECT id FROM rooms r WHERE kind = 'chat'
       AND NOT EXISTS (SELECT 1 FROM rooms w WHERE w.kind = 'workspace' AND w.parent_id = r.id) ORDER BY id`).all();
-    const add = this.db.prepare("INSERT INTO rooms (name, kind, parent_id) VALUES (?, 'workspace', ?) RETURNING id, name, kind, parent_id");
+    if (!orphans.length) return [];
+    // Own statement: ensureSchema() runs before the shared prepared statements exist.
+    const add = this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id)
+      SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
+        ?, 'workspace', ? RETURNING id, name, kind, parent_id`);
     return orphans.map(({ id }) => add.get(`${WORKSPACE_PREFIX}1`, id));
   }
 
@@ -203,29 +237,19 @@ export class Store {
   }
 
   /**
-   * Upsert a configured chat channel. Workspaces take ids from the same sequence, so a
-   * config id added later may already be a workspace: that workspace moves to a fresh id
-   * (with its messages, bindings and jobs) and the configured channel takes the id.
+   * Upsert a configured chat channel. Config ids are user-written small numbers; workspaces
+   * live at WORKSPACE_ID_MIN and up, so a config id can only be a workspace if the database
+   * predates that range or someone configured an id inside it. Refuse loudly instead of
+   * moving the workspace: bot sessions are keyed room-<id> and must never see it change.
    */
   ensureRoom(id, name) {
     this.transaction(() => {
-      if (this.q.room.get(id)?.kind === 'workspace') this.moveRoom(id);
+      if (this.q.room.get(id)?.kind === 'workspace') {
+        throw new CollabError('workspace-id-conflict',
+          `config room id ${id} collides with workspace room ${id}; workspace ids start at ${WORKSPACE_ID_MIN} and cannot be reassigned`);
+      }
       this.q.ensureRoom.run(id, name);
     });
-  }
-  /** Give room `id` the next free id, repointing every foreign key to it; returns the new id. */
-  moveRoom(id) {
-    const to = this.db.prepare('SELECT MAX(id) + 1 AS n FROM rooms').get().n;
-    const cols = this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name).filter(c => c !== 'id');
-    this.db.prepare(`INSERT INTO rooms (id, ${cols}) SELECT ?, ${cols} FROM rooms WHERE id = ?`).run(to, id);
-    const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
-    for (const { name: table } of tables) {
-      for (const fk of this.db.prepare(`PRAGMA foreign_key_list(${table})`).all()) {
-        if (fk.table === 'rooms') this.db.prepare(`UPDATE ${table} SET ${fk.from} = ? WHERE ${fk.from} = ?`).run(to, id);
-      }
-    }
-    this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
-    return to;
   }
   /** Give configured chat channels their 「工作区1」 (call after every ensureRoom). */
   ensureWorkspaces() { return this.transaction(() => this.fillWorkspaces()); }
