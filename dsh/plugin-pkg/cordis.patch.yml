@@ -1,8 +1,11 @@
 # Applied by `dsh plugin add bothouse-dsh`: one plugin row; the channels UI is this package's ./client export.
 # Paths default to $CONEST_COLLAB_DATA / $CONEST_COLLAB_WORKSPACE, else ~/.conest-collab and the cwd.
+# Optional leadMember is a stable agent id, not its display name; explicit config wins over CONEST_COLLAB_LEAD.
+# No lead is chosen automatically. Plain human messages go to the lead; explicit @ overrides it.
 - insert:
     - id: bothouse-dsh
       name: bothouse-dsh
       config:
         dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.HOME + '/.conest-collab')
         workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
+        leadMember: !!js process.env.CONEST_COLLAB_LEAD || undefined
