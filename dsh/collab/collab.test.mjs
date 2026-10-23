@@ -29,9 +29,9 @@ class FakeWs extends EventEmitter {
   of(type) { return this.sent.filter(f => f.type === type); }
 }
 
-function connect(gateway, query) {
+function connect(gateway, query, headers = {}) {
   const ws = new FakeWs();
-  gateway.accept(ws, new URL(`http://x/cloud-web/ws?${query}`));
+  gateway.accept(ws, new URL(`http://x/cloud-web/ws?${query}`), headers);
   ws.frame({ type: 'register', platform: 'cloud_web', client: 'cc-connect', project: 'p', transport: 'ws' });
   return ws;
 }
@@ -134,14 +134,15 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.members.get('ju').online, false);
 });
 
-test('cloud-web: token check accepts bearer, header, or query', () => {
+test('cloud-web: token check reads headers only, never the query string', () => {
   const gw = new CloudWebGateway(makeHub(), { token: 'secret', logger: quiet });
-  const url = q => new URL(`http://x/cloud-web/ws${q}`);
-  assert.equal(gw.authorized({ headers: { authorization: 'Bearer secret' } }, url('')), true);
-  assert.equal(gw.authorized({ headers: { 'x-cloud-web-token': 'secret' } }, url('')), true);
-  assert.equal(gw.authorized({ headers: {} }, url('?token=secret')), true);
-  assert.equal(gw.authorized({ headers: { authorization: 'Bearer nope' } }, url('?token=secret')), false);
-  assert.equal(new CloudWebGateway(makeHub(), { token: '', logger: quiet }).authorized({ headers: {} }, url('?token=')), false);
+  assert.equal(gw.authorized({ headers: { authorization: 'Bearer secret' } }), true);
+  assert.equal(gw.authorized({ headers: { 'x-cloud-web-token': 'secret' } }), true);
+  // A token in the URL ends up in access logs, proxy logs and browser history, so it no
+  // longer authenticates anything: the credential must travel in a header.
+  assert.equal(gw.authorized({ headers: {} }), false);
+  assert.equal(gw.authorized({ headers: { authorization: 'Bearer nope' } }), false);
+  assert.equal(new CloudWebGateway(makeHub(), { token: '', logger: quiet }).authorized({ headers: {} }), false);
 });
 
 test('progress card payload becomes a titled card', () => {
@@ -790,7 +791,7 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   const v2 = new Store(path);
   v2.ensureRoom(1, 'general');
   v2.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
-  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; DROP TABLE relay_blocked; DROP TABLE room_controls; PRAGMA user_version = 1');
+  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; DROP TABLE relay_blocked; DROP TABLE room_controls; DROP TABLE room_members; ALTER TABLE rooms DROP COLUMN visibility; PRAGMA user_version = 1');
   v2.close();
   const raw = new DatabaseSync(path);
   assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);
@@ -984,6 +985,148 @@ test('cloud-web: a reply from the stopped turn epoch is dropped even without the
   assert.equal(hub.store.page(1, undefined, 1)[0].text, '定时任务：该喝水了');
 });
 
+// --- #55 private threads: credentials, room membership, per-member workspaces ---
+
+/** A hub with one public room (1) and one private room (2) that only 'ju' may see. */
+function makePrivateHub() {
+  const store = new Store(':memory:');
+  store.ensureRoom(1, 'general');
+  store.ensureRoom(2, 'secret');
+  store.setVisibility(2, 'private');
+  store.addRoomMember(2, 'ju');
+  const hub = new Hub(store, quiet);
+  hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
+  return hub;
+}
+
+test('store: a private room admits its members and the owner, nobody else', () => {
+  const store = new Store(':memory:');
+  store.ensureRoom(1, 'general');
+  store.ensureRoom(2, 'secret');
+  store.setVisibility(2, 'private');
+  store.addRoomMember(2, 'ju');
+  assert.equal(store.canAccess('owner', 2), true, 'the human owner bypasses membership');
+  assert.equal(store.canAccess('ju', 2), true);
+  assert.equal(store.canAccess('gge', 2), false);
+  assert.equal(store.canAccess('gge', 1), true, 'public rooms stay open to every member');
+  assert.equal(store.canAccess('ju', 99), false, 'an unknown room admits nobody');
+  assert.deepEqual(store.roomsFor('gge').map(r => r.id), [1]);
+  assert.deepEqual(store.roomsFor('ju').map(r => r.id), [1, 2]);
+  assert.deepEqual(store.roomsFor('owner').map(r => r.id), [1, 2]);
+});
+
+test('cloud-web: a bot credential decides identity, and a mismatched bot id is refused', () => {
+  const hub = makePrivateHub();
+  const gw = new CloudWebGateway(hub, { tokens: new Map([['ju-secret', 'ju'], ['gge-secret', 'gge']]), logger: quiet });
+  // The credential says 'ju'; the URL claiming to be 'gge' must not be believed.
+  const spoof = connect(gw, 'bot=gge&name=gg', { authorization: 'Bearer ju-secret' });
+  assert.equal(spoof.sent.at(-1).ok, false);
+  assert.equal(spoof.closed.code, 4002);
+  // The same credential with no bot= registers as the credential's member.
+  const real = connect(gw, 'name=Ju', { 'x-cloud-web-token': 'ju-secret' });
+  assert.equal(real.sent.at(-1).ok, true);
+  assert.equal(hub.members.get('ju').kind, 'bot');
+  assert.equal(hub.members.get('gge'), undefined, 'nobody registered under the spoofed id');
+});
+
+test('cloud-web: history of a private room is 403 for a non-member', async () => {
+  const hub = makePrivateHub();
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: 'secret words' });
+  const gw = new CloudWebGateway(hub, { tokens: new Map([['gge-secret', 'gge'], ['ju-secret', 'ju']]), logger: quiet });
+  assert.equal(gw.identify({ authorization: 'Bearer gge-secret' }).memberId, 'gge');
+  // The route decides; assert the predicate it uses rather than the HTTP plumbing.
+  assert.equal(hub.store.canAccess('gge', 2), false);
+  assert.equal(hub.store.canAccess('ju', 2), true);
+  const row = hub.store.page(2, undefined, 10)[0];
+  assert.equal(row.text, 'secret words');
+});
+
+test('cloud-web: a non-member receives no frames from a private room', async () => {
+  const hub = makePrivateHub();
+  const gw = new CloudWebGateway(hub, { tokens: new Map([['ju-secret', 'ju'], ['gge-secret', 'gge']]), logger: quiet });
+  const ju = connect(gw, 'name=Ju', { authorization: 'Bearer ju-secret' });
+  const gge = connect(gw, 'name=Gge', { authorization: 'Bearer gge-secret' });
+  ju.sent.length = 0;
+  gge.sent.length = 0;
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: 'only ju sees this' });
+  // Hub delivers to message listeners on the next microtask, not synchronously.
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(ju.sent.filter(f => f.type === 'message').length, 1, 'the member is told');
+  assert.equal(gge.sent.filter(f => f.type === 'message').length, 0, 'the outsider hears nothing');
+});
+
+test('cloud-web: a non-member cannot post, type or preview into a private room', async () => {
+  const hub = makePrivateHub();
+  const gw = new CloudWebGateway(hub, { tokens: new Map([['gge-secret', 'gge']]), logger: quiet });
+  const gge = connect(gw, 'name=Gge', { authorization: 'Bearer gge-secret' });
+  const before = hub.store.page(2, undefined, 50).length;
+  await gw.fromBot(gw.bots.get('gge'), { type: 'reply', content: 'sneaking in', reply_ctx: 'room-2' });
+  await gw.fromBot(gw.bots.get('gge'), { type: 'typing_start', reply_ctx: 'room-2' });
+  assert.equal(hub.store.page(2, undefined, 50).length, before, 'no message was written');
+  assert.equal(hub.thinking.get(2)?.has('gge') ?? false, false, 'no typing state was set');
+  assert.equal(gge.sent.some(f => f.type === 'message'), false);
+});
+
+test('cloud-web: a bot cannot stop a room it is not a member of', async () => {
+  const hub = makePrivateHub();
+  const gw = new CloudWebGateway(hub, { tokens: new Map([['gge-secret', 'gge']]), logger: quiet });
+  connect(gw, 'name=Gge', { authorization: 'Bearer gge-secret' });
+  await gw.fromBot(gw.bots.get('gge'), { type: 'room_control', action: 'stop', reply_ctx: 'room-2' });
+  assert.equal(hub.store.control(2).stopped, 0, 'the private room was not stopped by an outsider');
+});
+
+test('cloud-web: the shared token reaches no private room, for reading or writing', async () => {
+  const hub = makePrivateHub();
+  const gw = new CloudWebGateway(hub, { token: 'shared', logger: quiet });
+  const shared = connect(gw, 'bot=gge&name=Gge', { authorization: 'Bearer shared' });
+  assert.equal(shared.sent.at(-1).ok, true, 'the shared token still connects (compatibility)');
+  assert.equal(gw.mayAccess(gw.bots.get('gge'), 2), false, 'but private rooms are closed to it');
+  assert.equal(gw.mayAccess(gw.bots.get('gge'), 1), true, 'public rooms stay usable');
+  const before = hub.store.page(2, undefined, 50).length;
+  await gw.fromBot(gw.bots.get('gge'), { type: 'reply', content: 'nope', reply_ctx: 'room-2' });
+  assert.equal(hub.store.page(2, undefined, 50).length, before);
+});
+
+test('cloud-web: one bot cannot edit or delete another bot message', async () => {
+  const hub = makePrivateHub();
+  hub.setMember({ id: 'ju', name: 'Ju', kind: 'bot', mentionId: '', online: true });
+  const gw = new CloudWebGateway(hub, { tokens: new Map([['ju-secret', 'ju'], ['gge-secret', 'gge']]), logger: quiet });
+  connect(gw, 'name=Ju', { authorization: 'Bearer ju-secret' });
+  connect(gw, 'name=Gge', { authorization: 'Bearer gge-secret' });
+  const posted = hub.post(1, { authorKind: 'role', author: 'ju', name: 'Ju', text: 'mine' });
+  const handle = String(posted.message.id);
+  await gw.fromBot(gw.bots.get('gge'), { type: 'update_message', preview_handle: handle, content: 'hijacked' });
+  await gw.fromBot(gw.bots.get('gge'), { type: 'delete_message', preview_handle: handle });
+  const row = hub.store.message(Number(handle));
+  assert.equal(row.text, 'mine', 'the text is untouched');
+  assert.equal(row.deleted, 0, 'the message is not deleted');
+});
+
+test('dsh-member: each member Session is created in its own directory', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const made = [];
+  dsh.ctx.workspaceRegistry.create = async path => { made.push(path); return { path, async attachSession() {} }; };
+  dsh.attach(hub, [{ id: 'ju', name: 'Ju' }, { id: 'gge', name: 'Gge' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Ju 你好' });
+  await settle();
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Gge 你好' });
+  await settle();
+  assert.equal(made.length >= 2, true, `expected two workspaces, saw ${JSON.stringify(made)}`);
+  assert.equal(new Set(made).size, made.length, `no two members may share a directory: ${JSON.stringify(made)}`);
+  for (const path of made) assert.match(path, /\/(ju|gge)$/);
+});
+
+test('dsh-member: workspace names are refused, never rewritten, when they are not slugs', () => {
+  const store = new Store(':memory:');
+  const dsh = new DshMembers(makeHubFrom(store), { ctx: {}, createUserMessage: () => {}, workspacePath: '/tmp/ws-root', logger: quiet }, [], {});
+  assert.equal(dsh.workspaceFor({ id: 'ju' }), '/tmp/ws-root/ju');
+  for (const bad of ['../etc', 'a/b', '/abs', '', 'A', 'x'.repeat(33), 'a.b']) {
+    assert.throws(() => dsh.workspaceFor({ id: bad }), /workspace|member id/, `refused: ${JSON.stringify(bad)}`);
+  }
+});
+
 test('cloud-web: stop recalls the latest message ids sent to each bot, then forgets them', async () => {
   const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
@@ -1053,12 +1196,13 @@ test('room action HTTP: a thinking bot that got a recall is requested, one witho
 /** Every table and column the current code relies on. */
 function assertCompleteSchema(store) {
   const tables = store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(r => r.name);
-  for (const t of ['rooms', 'messages', 'bindings', 'jobs', 'members', 'room_controls', 'relay_blocked']) {
+  for (const t of ['rooms', 'messages', 'bindings', 'jobs', 'members', 'room_controls', 'relay_blocked', 'room_members']) {
     assert.equal(tables.includes(t), true, `missing table ${t}`);
   }
   assert.equal(store.hasColumn('jobs', 'input_id'), true, 'missing jobs.input_id');
   assert.equal(store.hasColumn('members', 'cli'), true, "missing owner's members.cli");
-  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(store.hasColumn('rooms', 'visibility'), true, 'missing rooms.visibility');
 }
 
 test('store: a fresh database gets the complete schema', () => {
@@ -1110,7 +1254,7 @@ test('store: a database stamped current but missing structure is still repaired'
   // would skip everything and the first query on the missing table would throw at runtime.
   const store = new Store(path);
   store.db.exec('DROP TABLE room_controls; DROP TABLE relay_blocked; ALTER TABLE members DROP COLUMN cli');
-  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 6);
   store.close();
   const reopened = new Store(path);
   assertCompleteSchema(reopened);

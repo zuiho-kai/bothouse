@@ -6,7 +6,10 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-const SCHEMA_VERSION = 5;
+// The human owner's member id. Written once here so the access predicate and the plugin
+// cannot disagree about who bypasses room membership.
+export const OWNER_ID = 'owner';
+const SCHEMA_VERSION = 6;
 
 export class Store {
   constructor(path) {
@@ -31,6 +34,17 @@ export class Store {
       room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
+      visibility: this.db.prepare('SELECT visibility FROM rooms WHERE id = ?'),
+      setVisibility: this.db.prepare('UPDATE rooms SET visibility = ? WHERE id = ?'),
+      isRoomMember: this.db.prepare('SELECT 1 AS ok FROM room_members WHERE room_id = ? AND member_id = ?'),
+      roomMembers: this.db.prepare('SELECT member_id, role FROM room_members WHERE room_id = ? ORDER BY added_at'),
+      addRoomMember: this.db.prepare(`INSERT INTO room_members (room_id, member_id, role, added_at)
+        VALUES (?, ?, ?, ?) ON CONFLICT(room_id, member_id) DO UPDATE SET role = excluded.role`),
+      removeRoomMember: this.db.prepare('DELETE FROM room_members WHERE room_id = ? AND member_id = ?'),
+      // Public rooms plus the private ones this member is listed in; the owner enumerates all instead.
+      roomsFor: this.db.prepare(`SELECT r.id, r.name FROM rooms r
+        LEFT JOIN room_members m ON m.room_id = r.id AND m.member_id = ?
+        WHERE r.visibility = 'public' OR m.member_id IS NOT NULL ORDER BY r.id`),
       insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
@@ -107,6 +121,20 @@ export class Store {
       CREATE TABLE IF NOT EXISTS relay_blocked (
         room_id INTEGER NOT NULL REFERENCES rooms(id), message_id INTEGER NOT NULL REFERENCES messages(id),
         PRIMARY KEY (room_id, message_id));`);
+    // v6: private threads. A room is 'public' until someone closes it; private rooms admit
+    // only listed members (plus the human owner), for reads, writes and broadcasts alike.
+    // Existing rooms stay public so upgrading does not lock anyone out of their history.
+    if (!this.hasColumn('rooms', 'visibility')) {
+      this.db.exec(`ALTER TABLE rooms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'
+        CHECK (visibility IN ('public', 'private'))`);
+    }
+    this.db.exec(`CREATE TABLE IF NOT EXISTS room_members (
+      room_id INTEGER NOT NULL REFERENCES rooms(id),
+      member_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
+      added_at REAL NOT NULL,
+      PRIMARY KEY (room_id, member_id));
+      CREATE INDEX IF NOT EXISTS room_members_member ON room_members (member_id)`);
   }
 
   createV1() {
@@ -162,6 +190,33 @@ export class Store {
 
   ensureRoom(id, name) { this.q.ensureRoom.run(id, name); }
   createRoom(name) { return this.q.createRoom.get(name); }
+
+  /**
+   * Who may see and write a room. One predicate for reads, writes and broadcasts so the
+   * three paths cannot drift apart. The human owner always passes; unknown rooms never do.
+   */
+  canAccess(memberId, roomId) {
+    if (typeof memberId !== 'string' || memberId === '') return false;
+    if (memberId === OWNER_ID) return true;
+    const room = this.q.visibility.get(roomId);
+    if (room === undefined) return false;
+    if (room.visibility === 'public') return true;
+    return this.q.isRoomMember.get(roomId, memberId) !== undefined;
+  }
+
+  /** Rooms this member may see: every public room plus the private ones it is listed in. */
+  roomsFor(memberId) {
+    if (memberId === OWNER_ID) return this.q.rooms.all();
+    return this.q.roomsFor.all(memberId);
+  }
+
+  visibility(roomId) { return this.q.visibility.get(roomId)?.visibility; }
+  setVisibility(roomId, visibility) { this.q.setVisibility.run(visibility, roomId); }
+  roomMembers(roomId) { return this.q.roomMembers.all(roomId); }
+  addRoomMember(roomId, memberId, role = 'member', now = Date.now() / 1000) {
+    this.q.addRoomMember.run(roomId, memberId, role, now);
+  }
+  removeRoomMember(roomId, memberId) { this.q.removeRoomMember.run(roomId, memberId); }
 
   /** Active DSH members, config seeds and UI-created alike. */
   members() { return this.q.members.all(); }

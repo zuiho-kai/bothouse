@@ -64,11 +64,14 @@ export function progressCard(content) {
 export class CloudWebGateway {
   /**
    * @param hub - Hub instance.
-   * @param options - { token: shared bot token (empty disables the gateway), logger }.
+   * @param options - { token: legacy shared bot token, tokens: Map<token, memberId>, logger }.
+   *   `tokens` gives each bot its own credential, so a presented token identifies the bot.
+   *   `token` alone keeps the old behaviour and cannot tell bots apart (shared mode).
    */
-  constructor(hub, { token, logger }) {
+  constructor(hub, { token, tokens, logger }) {
     this.hub = hub;
     this.token = token;
+    this.tokens = tokens ?? new Map();
     this.logger = logger;
     /** member id -> { ws, member } */
     this.bots = new Map();
@@ -77,16 +80,39 @@ export class CloudWebGateway {
     hub.onMessage(message => this.onNew(message));
   }
 
-  authorized(req, url) {
-    if (!this.token) return false;
-    const header = req.headers.authorization ?? '';
-    const bearer = header.startsWith('Bearer ') ? header.slice(7) : undefined;
-    const presented = bearer ?? req.headers['x-cloud-web-token'] ?? url.searchParams.get('token');
-    return typeof presented === 'string' && timingSafeEqualString(presented, this.token);
+  /**
+   * Who is calling, from the credential alone. Bots present it in a header; the query
+   * string is deliberately not read, so tokens stay out of URLs, logs and proxies.
+   * Returns { memberId, shared } or undefined when no configured credential matches.
+   */
+  identify(headers) {
+    const authorization = headers?.authorization ?? '';
+    const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7) : undefined;
+    const presented = bearer ?? headers?.['x-cloud-web-token'];
+    if (typeof presented !== 'string' || presented === '') return undefined;
+    for (const [secret, memberId] of this.tokens) {
+      if (timingSafeEqualString(presented, secret)) return { memberId, shared: false };
+    }
+    if (this.token && timingSafeEqualString(presented, this.token)) return { memberId: undefined, shared: true };
+    return undefined;
+  }
+
+  authorized(req) {
+    return this.identify(req.headers) !== undefined;
+  }
+
+  /**
+   * A shared credential does not say which bot is speaking, so such a connection is
+   * confined to public rooms: it can neither read nor write a private thread.
+   */
+  mayAccess(bot, roomId) {
+    if (bot.shared) return this.hub.store.visibility(roomId) === 'public';
+    return this.hub.store.canAccess(bot.member.id, roomId);
   }
 
   /** Own one upgraded socket: register handshake, then frames until close. */
-  accept(ws, url) {
+  accept(ws, url, headers) {
+    const credential = this.identify(headers);
     let bot;
     const timer = setTimeout(() => ws.close(WS_BAD_REGISTER, 'register timeout'), REGISTER_TIMEOUT_MS);
     ws.on('message', (data, isBinary) => {
@@ -96,7 +122,7 @@ export class CloudWebGateway {
       if (frame === null || typeof frame !== 'object') return;
       if (bot === undefined) {
         clearTimeout(timer);
-        bot = this.register(ws, url, frame);
+        bot = this.register(ws, url, frame, credential);
         return;
       }
       if (this.bots.get(bot.member.id) !== bot) return;
@@ -115,9 +141,20 @@ export class CloudWebGateway {
     ws.on('error', (error) => { this.logger.warn('collab: cloud-web socket error: %s', error?.message ?? error); });
   }
 
-  register(ws, url, frame) {
+  register(ws, url, frame, credential) {
     const project = typeof frame.project === 'string' ? frame.project : '';
-    const id = clean(url.searchParams.get('bot') || project).slice(0, MAX_NAME);
+    // Only ?bot= is an identity claim. `project` is a cc-connect project name and says
+    // nothing about which bot is calling, so it must not be compared with a credential.
+    const claimedParam = clean(url.searchParams.get('bot') ?? '').slice(0, MAX_NAME);
+    // With a per-bot credential the token decides who this is; the URL may only agree.
+    // In shared mode there is no identity in the credential, so the URL claim is all we have.
+    const shared = credential?.shared !== false;
+    if (!shared && claimedParam !== '' && claimedParam !== credential.memberId) {
+      send(ws, { type: 'register_ack', ok: false, error: `credential is for ${credential.memberId}, not ${claimedParam}` });
+      ws.close(WS_BAD_REGISTER, 'credential mismatch');
+      return undefined;
+    }
+    const id = shared ? (claimedParam || clean(project).slice(0, MAX_NAME)) : credential.memberId;
     const existing = this.hub.members.get(id);
     if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || (existing !== undefined && existing.kind !== 'bot')) {
       send(ws, { type: 'register_ack', ok: false, error: 'bad register' });
@@ -133,10 +170,17 @@ export class CloudWebGateway {
     }
     const mentionId = url.searchParams.get('mention_id') ?? '';
     const member = { id, name, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true };
-    const bot = { ws, member };
+    const bot = { ws, member, shared };
     const old = this.bots.get(id);
+    // A second connection may only displace its own predecessor, never a different bot's.
+    if (old !== undefined && old.shared !== bot.shared) {
+      send(ws, { type: 'register_ack', ok: false, error: `member ${id} is connected with a different credential` });
+      ws.close(WS_BAD_REGISTER, 'credential conflict');
+      return undefined;
+    }
     this.bots.set(id, bot);
     if (old !== undefined) old.ws.close(WS_REPLACED, 'replaced by new connection');
+    if (shared) this.logger.warn('collab: %s registered with the shared bot token; identity is unverified and private rooms are closed to it', id);
     send(ws, { type: 'register_ack', ok: true, capabilities: CAPABILITIES, server: { name: 'conest-dsh-collab' } });
     this.hub.setMember(member);
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
@@ -158,8 +202,11 @@ export class CloudWebGateway {
     const mentioned = mentions(text, members);
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
-    for (const { ws, member } of this.bots.values()) {
+    for (const bot of this.bots.values()) {
+      const { ws, member } = bot;
       if (fromAgent && msg.author === member.id) continue;
+      // A bot that may not read this room never hears about it: no frame, no metadata leak.
+      if (!this.mayAccess(bot, msg.room_id)) continue;
       let content = forMember(text, member, members);
       const hit = mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
       if (fromAgent && !content) continue;
@@ -192,6 +239,16 @@ export class CloudWebGateway {
     // No cancel acknowledgement exists in CWIP. Fence old output using the
     // opaque reply_ctx cc-connect echoes, even after the room continues.
     const room = roomOf(d, this.hub.store);
+    // Writing needs the same membership as reading: a bot may not post, type or open a
+    // preview in a private thread it is not listed in. Drop silently towards the channel,
+    // but keep preview_ack so cc-connect does not wait out its 10 s timeout.
+    if (room !== undefined && !this.mayAccess(bot, room)) {
+      if (d.type === 'preview_start' && typeof d.ref_id === 'string') {
+        send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: '' });
+      }
+      this.logger.warn('collab: %s dropped %s for room %d (not a member)', member.id, d.type, room);
+      return;
+    }
     // Preview edits carry a handle, not reply_ctx; validate the stored row below.
     if (room !== undefined && d.type !== 'update_message' && d.type !== 'delete_message') {
       const c = this.hub.store.control(room);
@@ -254,6 +311,12 @@ export class CloudWebGateway {
         if (typeof h !== 'string' || !/^\d+$/.test(h)) return;
         const message = this.hub.store.message(Number(h));
         if (message !== undefined && !this.hub.canDispatch(message)) return;
+        // The store only lets an author touch its own row; membership still has to hold,
+        // or a bot removed from a private thread could keep editing its old messages there.
+        if (message !== undefined && !this.mayAccess(bot, message.room_id)) {
+          this.logger.warn('collab: %s dropped %s for room %d (not a member)', member.id, d.type, message.room_id);
+          return;
+        }
         if (d.type === 'delete_message') { this.hub.remove(Number(h), 'role', member.id); return; }
         const body = this.body(d.content);
         if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);

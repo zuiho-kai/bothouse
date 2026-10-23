@@ -7,6 +7,7 @@
 // one that was consumed is settled from the Session log. Nothing is re-sent,
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
+import { resolve, join, sep } from 'node:path';
 import { mentions, nameCalled } from './mentions.mjs';
 import { CollabError } from './store.mjs';
 
@@ -402,7 +403,7 @@ export class DshMembers {
     let handle;
     let workspace;
     try {
-      workspace = await ctx.workspaceRegistry.create(this.rt.workspacePath);
+      workspace = await ctx.workspaceRegistry.create(this.workspaceFor(member));
       handle = await ctx.agents.create({
         sessionId,
         meta: { cwd: workspace.path, agentPreset: preset.id },
@@ -441,6 +442,24 @@ export class DshMembers {
   selection(member) {
     const { provider, model } = member.model ?? this.rt.ctx.agentDefaultModel.currentSelection();
     return { provider, model };
+  }
+
+  /**
+   * Each member gets its own directory under the configured root, so two threads never
+   * see each other's files or tool side effects. Member ids reach us from config and from
+   * the network, so anything that is not a plain slug is refused rather than sanitised:
+   * a silently rewritten id would land two members in the same directory.
+   */
+  workspaceFor(member) {
+    const id = String(member?.id ?? '');
+    if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(id)) throw new CollabError('bad-member-id', `member id ${JSON.stringify(id)} cannot name a workspace`);
+    const root = resolve(this.rt.workspacePath);
+    const dir = resolve(root, id);
+    // Belt and braces: the slug rule already forbids '..' and separators.
+    if (dir !== join(root, id) || !dir.startsWith(root + sep)) {
+      throw new CollabError('bad-workspace', `workspace for ${id} escapes ${root}`);
+    }
+    return dir;
   }
 
   /**
