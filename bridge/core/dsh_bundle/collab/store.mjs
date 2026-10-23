@@ -6,7 +6,10 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-const SCHEMA_VERSION = 6;
+// v7 is #133 and v8 is #139 team mode A (both open PRs); this branch (#139 team
+// mode B) takes v9. Its tasks table is ensured on every open (PRAGMA-checked), so
+// the schema comes out the same whichever of these merges first.
+const SCHEMA_VERSION = 9;
 
 export class Store {
   constructor(path) {
@@ -16,6 +19,7 @@ export class Store {
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
     if (version < SCHEMA_VERSION) this.migrate(version);
+    this.ensureTasks();
     this.q = {
       room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
@@ -85,6 +89,39 @@ export class Store {
     // never fans the same reply out twice.
     if (from < 6) this.db.exec('ALTER TABLE messages ADD COLUMN draft INTEGER NOT NULL DEFAULT 0');
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+
+  /**
+   * v9 (#139 team mode B): one row per dispatched task. Idempotent: creates the
+   * table if missing and adds any column an older copy lacks, so it is safe to run
+   * on every open regardless of user_version.
+   */
+  ensureTasks() {
+    const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get() !== undefined;
+    if (!exists) {
+      this.db.exec(`CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER NOT NULL REFERENCES rooms(id),
+        parent_task INTEGER REFERENCES tasks(id),
+        title TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework')),
+        next_check_at REAL,
+        result_msg_id INTEGER,
+        assign_msg_id INTEGER,
+        note TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        returned_at REAL)`);
+    } else {
+      const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
+      for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL']]) {
+        if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
+      }
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS tasks_room ON tasks (room_id, id)');
   }
 
   createV1() {

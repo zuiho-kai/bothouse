@@ -1,0 +1,259 @@
+// Team mode B (#139): tasks dispatched in a channel. A lead assigns a task to a
+// member, the member states 接/问/退/升 (API or the first line of its reply),
+// hands it back bound to the delivery message, and the lead accepts or sends it
+// back. Every step leaves one short system record in the task's room and, when
+// that room is a workspace, in its chat channel; records never @ anyone and
+// never start a bot turn (system rows are skipped by every router). One
+// reminder @s the owner when the check time passes without a hand-back.
+import { CollabError, MAX_TEXT } from './store.mjs';
+
+/** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
+export const STATUS = {
+  assigned: '派出', accepted: '已接', asked: '有疑问', declined: '退回',
+  escalated: '升级', returned: '交回', done: '完成', rework: '返工',
+};
+/** First-line stance marks used by the team (本机团队模式【接/问/退/升】). */
+export const STANCES = { 接: 'accepted', 问: 'asked', 退: 'declined', 升: 'escalated' };
+const STANCE_WORDS = { accept: '接', ask: '问', decline: '退', escalate: '升' };
+/** The owner's turn: the check timer runs and the task counts as in progress. */
+export const WORKING = ['assigned', 'accepted', 'asked', 'rework'];
+/** Waiting for the lead: review may close or send back. */
+const REVIEWABLE = ['returned', 'declined', 'escalated'];
+// Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
+export const CHECK_AFTER_S = 10 * 60;
+// setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
+const MAX_TIMER_MS = 2 ** 31 - 1;
+const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
+const HUMAN = 'owner';
+const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
+
+export class Tasks {
+  /**
+   * @param hub - Hub (store, members, post, emit).
+   * @param options - { now?(): seconds, setTimer?, clearTimer? } (tests drive the clock).
+   */
+  constructor(hub, { now = () => Date.now() / 1000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+    this.hub = hub;
+    this.store = hub.store;
+    this.db = hub.store.db;
+    this.now = now;
+    this.setTimer = setTimer;
+    this.clearTimer = clearTimer;
+    this.timer = undefined;
+    this.closed = false;
+    /** wake(memberId, message) -> start that member on the reminder (DSH member or cloud-web bot). */
+    this.wakers = [];
+    const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
+    // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
+    this.tree = cols.has('parent_id') && cols.has('kind');
+    this.q = {
+      get: this.db.prepare('SELECT * FROM tasks WHERE id = ?'),
+      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?) RETURNING *`),
+      set: this.db.prepare('UPDATE tasks SET status = ?, next_check_at = ?, note = ?, updated_at = ? WHERE id = ? AND status = ? RETURNING *'),
+      handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
+        WHERE id = ? AND status = ? RETURNING *`),
+      bindAssign: this.db.prepare('UPDATE tasks SET assign_msg_id = ? WHERE id = ? AND assign_msg_id IS NULL'),
+      due: this.db.prepare(`SELECT * FROM tasks WHERE next_check_at IS NOT NULL AND next_check_at <= ?
+        AND status IN (${PLACEHOLDERS}) ORDER BY next_check_at, id`),
+      unremind: this.db.prepare('UPDATE tasks SET next_check_at = NULL WHERE id = ? AND next_check_at IS NOT NULL RETURNING *'),
+      next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND status IN (${PLACEHOLDERS})`),
+      active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS})`),
+      latestOpen: this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
+      children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
+    };
+    hub.onMessage(message => this.fromMessage(message));
+    this.arm();
+  }
+
+  onWake(fn) { this.wakers.push(fn); }
+
+  close() {
+    this.closed = true;
+    if (this.timer !== undefined) this.clearTimer(this.timer);
+    this.timer = undefined;
+  }
+
+  task(id) { return this.q.get.get(id); }
+
+  /** The chat channel a room belongs to (itself unless it is a workspace). */
+  chatOf(roomId) {
+    const room = this.store.room(roomId);
+    if (room === undefined) return undefined;
+    return this.tree && room.kind === 'workspace' && room.parent_id != null ? room.parent_id : room.id;
+  }
+
+  /** Tasks on a chat channel's board: the channel itself and its workspaces, newest first. */
+  list(roomId) {
+    const chat = this.chatOf(roomId);
+    if (chat === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+    const rooms = [chat, ...(this.tree ? this.q.children.all(chat).map(r => r.id) : [])];
+    const rows = this.db.prepare(`SELECT * FROM tasks WHERE room_id IN (${rooms.map(() => '?').join(', ')}) ORDER BY id DESC`).all(...rooms);
+    return rows.map(r => this.view(r));
+  }
+
+  /** In-progress tasks in one room (the "进行中 N 件" next to it in the channel list). */
+  countActive(roomId) { return this.q.active.get(roomId, ...WORKING).n; }
+
+  /** Public task row: codes plus display names. */
+  view(t) {
+    return {
+      id: t.id, room_id: t.room_id, parent_task: t.parent_task, title: t.title,
+      owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
+      status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
+      note: t.note, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
+    };
+  }
+
+  nameOf(id) { return this.hub.members.get(id)?.name ?? id; }
+
+  /** Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`. */
+  assign({ roomId, title, owner, actor, parentTask, messageId }) {
+    const room = this.store.room(roomId);
+    if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+    const text = String(title ?? '').trim();
+    if (!text || text.length > MAX_TEXT) throw new CollabError('invalid', 'task title is empty or too long');
+    this.member(owner);
+    this.member(actor);
+    if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
+    if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
+    const now = this.now();
+    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now);
+    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）`);
+    if (messageId == null) this.q.bindAssign.run(record.id, task.id);
+    return this.changed(task.id);
+  }
+
+  /** The owner states 接/问/退/升 (also accept/ask/decline/escalate). */
+  stance(id, { actor, stance, note }) {
+    const mark = STANCES[stance] !== undefined ? stance : STANCE_WORDS[stance];
+    if (mark === undefined) throw new CollabError('invalid', 'stance must be one of 接 问 退 升');
+    const task = this.mustTask(id);
+    if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can answer task ${id}`);
+    if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, not waiting for its owner`);
+    const status = STANCES[mark];
+    // 退/升 hand the turn to the lead: the reminder is cancelled.
+    const check = status === 'declined' || status === 'escalated' ? null : task.next_check_at;
+    const row = this.q.set.get(status, check, clip(note), this.now(), id, task.status);
+    if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    const tail = row.note ? `：${row.note}` : '';
+    this.record(row, 'stance', `#${id}「${row.title}」${this.nameOf(row.owner)} 表态【${mark}】${tail}`);
+    return this.changed(id);
+  }
+
+  /** The owner hands the task back, bound to the delivery message; the reminder is cancelled. */
+  handBack(id, { actor, messageId }) {
+    const task = this.mustTask(id);
+    if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can hand back task ${id}`);
+    if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to hand back`);
+    if (messageId == null || this.store.message(messageId) === undefined) throw new CollabError('invalid', 'message_id must name the delivery message');
+    const now = this.now();
+    const row = this.q.handBack.get(messageId, now, now, id, task.status);
+    if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    this.record(row, 'return', `#${id}「${row.title}」${this.nameOf(row.owner)} 交回，用时 ${duration(row.returned_at - row.created_at)}`);
+    return this.changed(id);
+  }
+
+  /** The lead (or the human owner) closes the task or sends it back for rework. */
+  review(id, { actor, verdict, note }) {
+    const task = this.mustTask(id);
+    if (actor !== task.created_by && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.created_by)} can review task ${id}`);
+    if (!REVIEWABLE.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to review`);
+    if (verdict !== 'done' && verdict !== 'rework') throw new CollabError('invalid', 'verdict must be done or rework');
+    // Rework is a new round with the same check time as a dispatch (source above).
+    const check = verdict === 'rework' ? this.now() + CHECK_AFTER_S : null;
+    const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), id, task.status);
+    if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    const tail = clip(note) ? `：${clip(note)}` : '';
+    this.record(row, verdict, verdict === 'done'
+      ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
+      : `#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}`);
+    return this.changed(id);
+  }
+
+  /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
+  fromMessage(msg) {
+    if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
+    const first = String(msg.text).split('\n', 1)[0];
+    const m = STANCE_LINE.exec(first);
+    if (m === null) return undefined;
+    const task = m[2] !== undefined ? this.task(Number(m[2]))
+      : this.q.latestOpen.get(msg.room_id, msg.author, ...WORKING);
+    if (task === undefined || task.owner !== msg.author || !WORKING.includes(task.status)) return undefined;
+    return this.stance(task.id, { actor: msg.author, stance: m[1], note: m[3] });
+  }
+
+  /** Post the reminder for every task past its check time, once each. */
+  tick() {
+    if (this.closed) return;
+    for (const task of this.q.due.all(this.now(), ...WORKING)) {
+      // Clear first: a crash after this line loses one reminder, never sends two.
+      if (this.q.unremind.get(task.id) === undefined) continue;
+      const name = this.nameOf(task.owner);
+      const { message } = this.hub.post(task.room_id, {
+        authorKind: 'system', author: 'system', name: '任务提醒',
+        text: `@${name} 任务 #${task.id}「${task.title}」到了检查时间还没交回：请交回结果，或说明卡在哪。`,
+      });
+      for (const wake of this.wakers) {
+        try { wake(task.owner, message); } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
+      }
+      this.changed(task.id);
+    }
+    this.arm();
+  }
+
+  /** Schedule tick() for the earliest pending check time. */
+  arm() {
+    if (this.timer !== undefined) this.clearTimer(this.timer);
+    this.timer = undefined;
+    if (this.closed) return;
+    const at = this.q.next.get(...WORKING).at;
+    if (at == null) return;
+    const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));
+    this.timer = this.setTimer(() => { this.timer = undefined; this.tick(); }, ms);
+    this.timer?.unref?.();
+  }
+
+  member(id) {
+    if (id === HUMAN || this.hub.members.has(id)) return;
+    throw new CollabError('member-missing', `member ${JSON.stringify(id)} is not in this channel`);
+  }
+
+  mustTask(id) {
+    const task = this.task(id);
+    if (task === undefined) throw new CollabError('task-missing', `task ${id} does not exist`);
+    return task;
+  }
+
+  /** One system record (task card) in the task room and, for a workspace, its chat channel. */
+  record(task, event, text) {
+    const card = JSON.stringify({ kind: 'task', task_id: task.id, event });
+    const m = { authorKind: 'system', author: 'system', name: '任务', text, card };
+    const { message } = this.hub.post(task.room_id, m);
+    const chat = this.chatOf(task.room_id);
+    if (chat !== undefined && chat !== task.room_id) this.hub.post(chat, m);
+    return message;
+  }
+
+  changed(id) {
+    const task = this.view(this.task(id));
+    this.hub.emit({ type: 'task', task, chat_id: this.chatOf(task.room_id), active: this.countActive(task.room_id) });
+    this.arm();
+    return task;
+  }
+}
+
+function clip(note) {
+  const s = String(note ?? '').trim();
+  return s ? s.slice(0, MAX_TEXT) : null;
+}
+
+/** 用时 as records show it (unit conversions only). */
+export function duration(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} 秒`;
+  if (s < 3600) return `${Math.round(s / 60)} 分钟`;
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return m ? `${h} 小时 ${m} 分` : `${h} 小时`;
+}

@@ -198,6 +198,25 @@ export class CloudWebGateway {
     }
   }
 
+  /**
+   * Deliver a system message to one connected bot as a mention (#139 B task
+   * reminder); onNew never forwards system rows. False when the bot is offline.
+   */
+  nudge(memberId, msg) {
+    const bot = this.bots.get(memberId);
+    if (bot === undefined) return false;
+    const members = this.hub.routable();
+    const room = this.hub.store.room(msg.room_id);
+    const frame = {
+      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
+      user_id: msg.author, user_name: msg.name, content: forMember(msg.text, bot.member, members) || msg.text,
+      reply_ctx: roomKey(msg.room_id), mentioned: true, from_bot: false,
+    };
+    if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
+    send(bot.ws, frame);
+    return true;
+  }
+
   async fromBot(bot, d) {
     const { member } = bot;
     switch (d.type) {

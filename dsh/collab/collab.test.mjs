@@ -9,6 +9,8 @@ import { DshMembers, finalText, describeReason, friendlyFailure } from './dsh-me
 import { resolveConfig } from './plugin.mjs';
 import { Roster } from './roster.mjs';
 import { promptText } from './dsh-member.mjs';
+import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
+import { tasksRoute } from './plugin.mjs';
 
 const quiet = { warn() {}, info() {} };
 const tick = () => new Promise(r => setImmediate(r));
@@ -653,7 +655,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -736,7 +738,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -1080,4 +1082,212 @@ test('cloud-web #120: owner text with several bots pending — no @ answers all,
   await tick(); await tick();
   assert.equal(dou.of('message').at(-1).content, '等一下');
   assert.equal(state(a), 'pending');
+});
+
+// ---- #139 team mode B: tasks ----
+
+/** Hub + tasks on a hand-driven clock; the timer is captured instead of scheduled. */
+function makeTasks() {
+  const hub = makeHub();
+  const clock = { t: 1000, timer: undefined };
+  const tasks = new Tasks(hub, {
+    now: () => clock.t,
+    setTimer: (fn, ms) => { clock.timer = { fn, ms }; return clock.timer; },
+    clearTimer: (h) => { if (clock.timer === h) clock.timer = undefined; },
+  });
+  hub.setMember({ id: 'lead', name: '橘', kind: 'bot', online: true });
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  return { hub, tasks, clock };
+}
+const records = hub => hub.store.page(1, undefined, 200).filter(m => m.author_kind === 'system');
+
+test('tasks: dispatch → 接 → hand back → done, each step leaves one task record', () => {
+  const { hub, tasks, clock } = makeTasks();
+  const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
+  assert.equal(t.status, 'assigned');
+  assert.equal(t.next_check_at, 1000 + CHECK_AFTER_S, 'default check time is 10 minutes after dispatch');
+  assert.equal(clock.timer.ms, CHECK_AFTER_S * 1000);
+  assert.equal(t.assign_msg_id, records(hub)[0].id, 'without a dispatch message the record is the jump target');
+  assert.equal(tasks.stance(t.id, { actor: 'ds', stance: '接' }).status, 'accepted');
+  clock.t += 120;
+  const { message: delivery } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '登录页好了' });
+  assert.throws(() => tasks.handBack(t.id, { actor: 'lead', messageId: delivery.id }), /only DeepSeek/);
+  const back = tasks.handBack(t.id, { actor: 'ds', messageId: delivery.id });
+  assert.equal(back.status, 'returned');
+  assert.equal(back.result_msg_id, delivery.id);
+  assert.equal(back.next_check_at, null);
+  assert.throws(() => tasks.review(t.id, { actor: 'ds', verdict: 'done' }), /only 橘/);
+  assert.equal(tasks.review(t.id, { actor: 'lead', verdict: 'done' }).status, 'done');
+  const r = records(hub);
+  assert.equal(r.length, 4);
+  assert.deepEqual(r.map(m => JSON.parse(m.card).event), ['assign', 'stance', 'return', 'done']);
+  assert.match(r[0].text, /派活 #1「写登录页」→ DeepSeek（橘 派）/);
+  assert.match(r[2].text, /交回，用时 2 分钟/);
+  assert.equal(r.every(m => !m.text.includes('@')), true, 'records @ nobody');
+  assert.throws(() => tasks.review(t.id, { actor: 'lead', verdict: 'done' }), /nothing to review/);
+});
+
+test('tasks: 问 keeps the timer; 退 and 升 hand the turn to the lead; rework starts a new round', () => {
+  const { tasks, clock } = makeTasks();
+  const a = tasks.assign({ roomId: 1, title: 'a', owner: 'ds', actor: 'lead' });
+  const asked = tasks.stance(a.id, { actor: 'ds', stance: '问', note: '要不要兼容旧版？' });
+  assert.equal(asked.status, 'asked');
+  assert.equal(asked.note, '要不要兼容旧版？');
+  assert.equal(asked.next_check_at, a.next_check_at);
+  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead' });
+  assert.equal(tasks.stance(b.id, { actor: 'ds', stance: 'decline' }).status, 'declined');
+  assert.equal(tasks.task(b.id).next_check_at, null);
+  assert.throws(() => tasks.stance(b.id, { actor: 'ds', stance: '接' }), /not waiting/);
+  const c = tasks.assign({ roomId: 1, title: 'c', owner: 'ds', actor: 'lead' });
+  assert.equal(tasks.stance(c.id, { actor: 'ds', stance: '升' }).status, 'escalated');
+  assert.equal(tasks.task(c.id).next_check_at, null);
+  clock.t += 50;
+  const again = tasks.review(c.id, { actor: 'lead', verdict: 'rework', note: '拆小一点再做' });
+  assert.equal(again.status, 'rework');
+  assert.equal(again.next_check_at, 1050 + CHECK_AFTER_S);
+  assert.throws(() => tasks.stance(a.id, { actor: 'lead', stance: '接' }), /only DeepSeek/);
+  assert.throws(() => tasks.stance(a.id, { actor: 'ds', stance: '好' }), /接 问 退 升/);
+});
+
+test('tasks: a member reply whose first line is 【接】/【问】/【退】/【升】 sets its task status', async () => {
+  const { hub, tasks } = makeTasks();
+  const a = tasks.assign({ roomId: 1, title: 'a', owner: 'ds', actor: 'lead' });
+  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead' });
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【接】马上做\n细节……' });
+  await tick();
+  assert.equal(tasks.task(b.id).status, 'accepted', 'no #id: the newest open task of that member in the room');
+  assert.equal(tasks.task(b.id).note, '马上做');
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `【升】#${a.id} 需要拍板` });
+  await tick();
+  assert.equal(tasks.task(a.id).status, 'escalated');
+  hub.post(1, { authorKind: 'role', author: 'lead', name: '橘', text: `【退】#${b.id}` });
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '正文里提到【退】不算' });
+  await tick();
+  assert.equal(tasks.task(b.id).status, 'accepted', 'only the owner, only the first line');
+});
+
+test('tasks: one reminder @s the owner at the check time and wakes only it; hand-back cancels it', async () => {
+  const { hub, tasks, clock } = makeTasks();
+  const woken = [];
+  tasks.onWake((id, msg) => woken.push([id, msg.id]));
+  const late = tasks.assign({ roomId: 1, title: '迟交的', owner: 'ds', actor: 'lead' });
+  const onTime = tasks.assign({ roomId: 1, title: '准时的', owner: 'ds', actor: 'lead' });
+  clock.t += 60;
+  const { message: d } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交付' });
+  tasks.handBack(onTime.id, { actor: 'ds', messageId: d.id });
+  clock.t = late.next_check_at - 1;
+  tasks.tick();
+  assert.equal(woken.length, 0, 'not before the check time');
+  clock.t = late.next_check_at + 1;
+  clock.timer.fn();
+  const reminders = hub.store.page(1, undefined, 200).filter(m => m.name === '任务提醒');
+  assert.equal(reminders.length, 1);
+  assert.match(reminders[0].text, /^@DeepSeek 任务 #1「迟交的」/);
+  assert.deepEqual(woken, [['ds', reminders[0].id]]);
+  assert.equal(tasks.task(late.id).next_check_at, null);
+  clock.t += 3600;
+  tasks.tick();
+  assert.equal(hub.store.page(1, undefined, 200).filter(m => m.name === '任务提醒').length, 1, 'only once');
+  assert.equal(tasks.timer, undefined, 'nothing left to check');
+});
+
+test('tasks: the reminder starts a DSH owner turn with the reminder in its prompt; records start nobody', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const clock = { t: 1000 };
+  const tasks = new Tasks(hub, { now: () => clock.t, setTimer: () => ({}), clearTimer() {} });
+  // Same wiring as plugin.mjs.
+  tasks.onWake((id, msg) => members.nudge(id, msg) || gw.nudge(id, msg));
+  const t = tasks.assign({ roomId: 1, title: '跑测试', owner: 'ds', actor: 'ju' });
+  tasks.stance(t.id, { actor: 'ds', stance: '接' });
+  const t2 = tasks.assign({ roomId: 1, title: '看日志', owner: 'ju', actor: 'owner' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, 0, 'task records start no DSH job');
+  assert.equal(dsh.made.length, 0);
+  assert.equal(ju.of('message').length, 0, 'task records are not forwarded to cloud-web bots');
+  clock.t += CHECK_AFTER_S + 1;
+  tasks.tick();
+  await settle();
+  assert.equal(dsh.made.length, 1, 'the DSH owner is woken by its reminder');
+  const prompt = dsh.sessions.get(dsh.made[0]).prompts[0].content[0].text;
+  assert.match(prompt, /【任务提醒】@DeepSeek 任务 #1「跑测试」到了检查时间还没交回/);
+  const toJu = ju.of('message');
+  assert.equal(toJu.length, 1, 'the cloud-web owner gets exactly its own reminder');
+  assert.equal(toJu[0].mentioned, true);
+  assert.match(toJu[0].content, new RegExp(`任务 #${t2.id}「看日志」`));
+});
+
+test('tasks: workspace records also go to its chat channel; the board and active count span both', () => {
+  const { hub, tasks } = makeTasks();
+  // Team mode A (#134) adds rooms.kind/parent_id; emulate it here so B works before and after A merges.
+  hub.store.db.exec("ALTER TABLE rooms ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'; ALTER TABLE rooms ADD COLUMN parent_id INTEGER");
+  hub.store.db.exec("INSERT INTO rooms (id, name, kind, parent_id) VALUES (2, '工作区1', 'workspace', 1), (3, 'other', 'chat', NULL)");
+  hub.store.q.room = hub.store.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?');
+  const tree = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const inWs = tree.assign({ roomId: 2, title: '在工作区', owner: 'ds', actor: 'lead' });
+  tree.assign({ roomId: 1, title: '在聊天频道', owner: 'ds', actor: 'lead' });
+  tree.assign({ roomId: 3, title: '别的频道', owner: 'ds', actor: 'lead' });
+  const ws = hub.store.page(2, undefined, 50).filter(m => m.card);
+  const chat = hub.store.page(1, undefined, 50).filter(m => m.card);
+  assert.equal(ws.length, 1);
+  assert.equal(chat.length, 2, 'the workspace dispatch is echoed to the chat channel');
+  assert.equal(chat[0].text, ws[0].text);
+  assert.deepEqual(tree.list(1).map(t => t.title), ['在聊天频道', '在工作区']);
+  assert.deepEqual(tree.list(2).map(t => t.title), ['在聊天频道', '在工作区'], 'a workspace shows its chat channel board');
+  assert.equal(tree.countActive(2), 1);
+  const { message: d } = hub.post(2, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '好了' });
+  tree.handBack(inWs.id, { actor: 'ds', messageId: d.id });
+  assert.equal(tree.countActive(2), 0, 'returned is no longer in progress');
+  tree.close(); tasks.close();
+});
+
+test('tasks: the tasks table is ensured idempotently and survives reopen', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'tasks.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.db.exec("INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at) VALUES (1, 'kept', 'ds', 'owner', 'assigned', 1, 1)");
+  s.db.exec('ALTER TABLE tasks DROP COLUMN note; PRAGMA user_version = 8');
+  s.close();
+  const again = new Store(path);
+  again.ensureTasks();
+  const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
+  assert.equal(cols.includes('note'), true, 'a missing column is added back');
+  assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 9);
+  again.close();
+});
+
+test('tasks API: owner acts as owner, bots name themselves with the bot token, others get 401', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const call = async (method, path, body, { human = false, token } = {}) => {
+    const req = new EventEmitter();
+    req.method = method; req.url = path; req.headers = token ? { authorization: `Bearer ${token}` } : {};
+    const res = { status: 0, body: '', writeHead(s) { this.status = s; }, end(b) { this.body = b; } };
+    const p = tasksRoute(req, res, new URL(path, 'http://x'), { tasks, gateway: gw, owner: () => human });
+    if (body !== undefined) { req.emit('data', Buffer.from(JSON.stringify(body))); }
+    req.emit('end');
+    await p;
+    return { status: res.status, json: JSON.parse(res.body) };
+  };
+  assert.equal(tasksRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/state'), { tasks, gateway: gw, owner: () => true }), undefined);
+  assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'x', owner: 'ds', actor: 'lead' })).status, 401);
+  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead' }, { token: 't' });
+  assert.equal(made.status, 200);
+  assert.equal(made.json.task.created_by, 'lead');
+  const id = made.json.task.id;
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/stance`, { stance: '接', actor: 'lead' }, { token: 't' })).status, 403);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/stance`, { stance: '接', actor: 'ds' }, { token: 't' })).json.task.status, 'accepted');
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/return`, { actor: 'ds' }, { token: 't' })).status, 400);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/review`, { verdict: 'done' }, { human: true })).status, 409);
+  const board = await call('GET', '/collab/api/rooms/1/tasks', undefined, { human: true });
+  assert.deepEqual(board.json.tasks.map(t => [t.title, t.status, t.owner_name]), [['写文档', 'accepted', 'DeepSeek']]);
+  assert.equal((await call('GET', '/collab/api/tasks/99', undefined, { human: true })).status, 404);
+  assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'y', owner: 'nobody' }, { human: true })).status, 404);
 });

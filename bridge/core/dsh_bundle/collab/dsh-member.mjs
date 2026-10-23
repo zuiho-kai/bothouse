@@ -187,6 +187,18 @@ export class DshMembers {
     return () => { for (const job of jobs) this.enqueue(job, () => this.run(job.id)); };
   }
 
+  /**
+   * Start a member on a system message addressed to it (#139 B task reminder).
+   * System rows never plan jobs by themselves; this is the one explicit wake.
+   * Returns false when the id is not a DSH member.
+   */
+  nudge(memberId, msg) {
+    if (!this.config.has(memberId)) return false;
+    const job = this.store.addJob(memberId, msg.room_id, msg.id);
+    if (job) this.enqueue(job, () => this.run(job.id));
+    return true;
+  }
+
   /** Serialize work per (member, room): runs, recoveries, and Session resumes never overlap. */
   enqueue(job, task) {
     const key = `${job.member_id}\u0000${job.room_id}`;
@@ -210,7 +222,7 @@ export class DshMembers {
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null && !m.draft)
+      .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
     const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen) }], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
@@ -228,7 +240,7 @@ export class DshMembers {
     if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null && !m.draft)
+      .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     let entry = this.cliAgents.get(member.id);
