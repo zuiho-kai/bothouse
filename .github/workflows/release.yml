@@ -109,8 +109,9 @@ jobs:
           "$mount/Bothouse.app/Contents/MacOS/bothouse" --version
           hdiutil detach "$mount"
       - name: Cache release dist
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
+          enableCrossOsArchive: true
           path: dist
           key: release-dist-${{ matrix.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -123,8 +124,9 @@ jobs:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - name: Restore binaries from cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
+          enableCrossOsArchive: true
           path: dist
           key: release-dist-ubuntu-latest-${{ github.run_id }}-${{ github.run_attempt }}
           fail-on-cache-miss: true
@@ -152,14 +154,16 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Restore ubuntu binaries from cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
+          enableCrossOsArchive: true
           path: dist
           key: release-dist-ubuntu-latest-${{ github.run_id }}-${{ github.run_attempt }}
           fail-on-cache-miss: true
       - name: Restore macos binaries from cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
+          enableCrossOsArchive: true
           path: dist
           key: release-dist-macos-latest-${{ github.run_id }}-${{ github.run_attempt }}
           fail-on-cache-miss: true
