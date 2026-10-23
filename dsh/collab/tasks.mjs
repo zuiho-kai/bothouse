@@ -380,6 +380,7 @@ export class Tasks {
   changed(id) {
     const task = this.view(this.task(id));
     this.hub.emit({ type: 'task', task, chat_id: this.chatOf(task.room_id), active: this.countActive(task.room_id) });
+    this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
     this.arm();
     return task;
   }

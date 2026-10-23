@@ -314,8 +314,9 @@ export class Store {
   rooms() { return this.q.rooms.all(); }
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
   roomsView() {
-    // active: tasks in progress in this room; 0 until team mode B fills it from its tasks table (B 块填).
-    return this.rooms().map(r => ({ ...r, active: 0 }));
+    const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
+      WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
+    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0 }));
   }
 
   /**

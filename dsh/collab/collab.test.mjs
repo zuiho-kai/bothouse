@@ -1358,6 +1358,32 @@ function makeTasks() {
 }
 const records = hub => hub.store.page(1, undefined, 200).filter(m => m.author_kind === 'system');
 
+test('tasks: rooms snapshots track dispatch, return, rework and acceptance without reload', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const events = [];
+  hub.subscribe(e => { if (e.type === 'rooms') events.push(e.rooms); });
+  const counts = () => hub.store.roomsView().map(r => r.active);
+  const latest = () => events.at(-1)?.map(r => r.active);
+  assert.deepEqual(counts(), [0, 0]);
+  const task = tasks.assign({ roomId: ws.id, title: 'live counts', owner: 'ds', actor: 'lead' });
+  assert.deepEqual(counts(), [0, 1]);
+  assert.deepEqual(latest(), [0, 1]);
+  tasks.stance(task.id, { actor: 'ds', stance: '接' });
+  assert.deepEqual(latest(), [0, 1]);
+  const { message } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: 'result' });
+  tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
+  assert.deepEqual(latest(), [0, 0]);
+  tasks.review(task.id, { actor: 'lead', verdict: 'rework' });
+  assert.deepEqual(latest(), [0, 1]);
+  tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
+  tasks.review(task.id, { actor: 'lead', verdict: 'done' });
+  assert.deepEqual(counts(), [0, 0]);
+  assert.deepEqual(latest(), [0, 0]);
+  assert.equal(events.length, 6);
+  tasks.close(); hub.store.close();
+});
+
 test('tasks: dispatch → 接 → hand back → done, each step leaves one task record', () => {
   const { hub, tasks, clock } = makeTasks();
   const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
@@ -1705,10 +1731,11 @@ test('store: a configured chat channel gets no workspace until the first createW
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
   assert.deepEqual(s.rooms().map(r => r.kind), ['chat'], 'startup creates no workspace');
-  assert.deepEqual(s.roomsView().map(r => r.active), [0]);
+  s.db.prepare("INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at) VALUES (1, 'active task', 'ds', 'lead', 'assigned', 1, 1)").run();
+  assert.deepEqual(s.roomsView().map(r => r.active), [1]);
   assert.deepEqual(plain(s.createWorkspace(1)), { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 });
   assert.equal(s.createWorkspace(1).name, '工作区2');
-  assert.deepEqual(s.roomsView().map(r => r.active), [0, 0, 0]);
+  assert.deepEqual(s.roomsView().map(r => r.active), [1, 0, 0]);
 });
 
 test('store: default config, then {id:2} added — starts, workspace ids stay out of the config range', async () => {

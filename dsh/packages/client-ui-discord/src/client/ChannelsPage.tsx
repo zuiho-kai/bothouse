@@ -326,7 +326,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     ...openTaskOwners,
   ])
   const byId = new Map(state.members.map(m => [m.id, m]))
-  const busyNames = [...busy].map(id => byId.get(id)?.name ?? id)
+  const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   const mention = activeMention(draft, caret)
   const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(state.members, mention.query)
   const popupOpen = mention !== undefined && candidates.length > 0
@@ -545,7 +545,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                 />
               ))}
         </div>
-        <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
+        <div className={css.working} aria-live="polite">{typingNames.length > 0 ? t('workingList', { names: typingNames.join('、') }) : ''}</div>
         <div className={css.composer} ref={composerRef}>
           {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}

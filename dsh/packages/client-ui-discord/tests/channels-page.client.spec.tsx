@@ -83,6 +83,22 @@ describe('channels page', () => {
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
     expect(send).toHaveBeenCalledExactlyOnceWith('/')
   })
+  it('keeps task owners working in the member list without claiming they are typing', () => {
+    const state: ChannelSnapshot = { ...ready, thinking: {}, tasks: [{
+      id: 1, room_id: 1, title: 'task', owner: 'ju', owner_name: '橘', status: 'assigned',
+      created_by: 'owner', created_by_name: '我', created_at: 1, updated_at: 1,
+      parent_task: null, next_check_at: null, assign_msg_id: null, result_msg_id: null, note: null, returned_at: null,
+    }] }
+    const view = render(<ChannelsPage {...props(state)} />)
+    expect(screen.queryByText('橘 正在输入…')).toBeNull()
+    expect(screen.getAllByText(zh.working).length).toBeGreaterThan(0)
+    view.rerender(<ChannelsPage {...props({ ...state, thinking: { 1: ['ju'] } })} />)
+    expect(screen.getByText('橘 正在输入…')).toBeTruthy()
+    view.rerender(<ChannelsPage {...props({ ...state, thinking: { 2: ['ju'] } })} />)
+    expect(screen.queryByText('橘 正在输入…')).toBeNull()
+    expect(screen.getAllByText(zh.working).length).toBeGreaterThan(0)
+  })
+
   it('shows the primary-role selector and saves a changed member', async () => {
     const setLead = vi.fn(async () => {})
     const state: ChannelSnapshot = { ...ready, members: [
