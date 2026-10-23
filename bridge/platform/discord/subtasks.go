@@ -143,11 +143,12 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 }
 
 // buildDiscordSubTaskBriefRow is the 简略 view of one sub-agent: name, status
-// and time on one line. A row without a name (Claude) uses its description.
+// and time on one line. A row without a name (Claude) falls back to its ID, so
+// 简略 never shows task text.
 func buildDiscordSubTaskBriefRow(t core.SubTask, zh bool) string {
 	name := compactDiscordProgressText(t.Name)
 	if name == "" {
-		name = compactDiscordProgressText(t.Description)
+		name = compactDiscordProgressText(t.ID)
 	}
 	row := discordSubTaskIcon(t) + " " + trimDiscordRunes(name, maxDiscordProgressLineLen)
 	if when := discordSubTaskWhen(t, zh); when != "" {

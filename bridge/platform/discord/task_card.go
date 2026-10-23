@@ -62,7 +62,7 @@ func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *disco
 		})
 	}
 
-	if res := strings.TrimSpace(task.ResultSummary); res != "" {
+	if res := strings.TrimSpace(task.ResultSummary); res != "" && !brief {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   discordTaskFieldLabel("result_summary", lang),
 			Value:  trimDiscordRunes(res, 800),
@@ -70,7 +70,7 @@ func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *disco
 		})
 	}
 
-	if ver := strings.TrimSpace(task.VerificationResult); ver != "" {
+	if ver := strings.TrimSpace(task.VerificationResult); ver != "" && !brief {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   discordTaskFieldLabel("verification", lang),
 			Value:  trimDiscordRunes(ver, 500),
@@ -78,7 +78,7 @@ func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *disco
 		})
 	}
 
-	if del := strings.TrimSpace(task.DeliverableURL); del != "" {
+	if del := strings.TrimSpace(task.DeliverableURL); del != "" && !brief {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   discordTaskFieldLabel("deliverable", lang),
 			Value:  trimDiscordRunes(del, 300),
@@ -86,7 +86,7 @@ func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *disco
 		})
 	}
 
-	if next := strings.TrimSpace(task.NextSteps); next != "" {
+	if next := strings.TrimSpace(task.NextSteps); next != "" && !brief {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   discordTaskFieldLabel("next_steps", lang),
 			Value:  trimDiscordRunes(next, 500),

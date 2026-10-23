@@ -52,13 +52,13 @@ func TestCardViewSubTaskRendering(t *testing.T) {
 		}
 	}
 	brief := buildDiscordSubTaskEmbedView(table, cardViewBrief).Description
-	for _, want := range []string{"Rawls", "🔄", "<t:1700000000:R>", "✅", "1分20秒", "整理测试结果"} {
+	for _, want := range []string{"Rawls", "🔄", "<t:1700000000:R>", "✅", "1分20秒"} {
 		if !strings.Contains(brief, want) {
 			t.Fatalf("brief missing %q:\n%s", want, brief)
 		}
 	}
 	// 简略 keeps name, status and time only: no task text of a named row, no step, no report.
-	for _, leak := range []string{"核对卡片渲染", "运行命令", "读取文件", "测试都过了", "└"} {
+	for _, leak := range []string{"核对卡片渲染", "整理测试结果", "运行命令", "读取文件", "测试都过了", "└"} {
 		if strings.Contains(brief, leak) {
 			t.Fatalf("brief shows %q:\n%s", leak, brief)
 		}
@@ -67,7 +67,7 @@ func TestCardViewSubTaskRendering(t *testing.T) {
 
 func TestCardViewTaskCardRendering(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	task := &core.Task{ID: "t1", Title: "卡片开关", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", LatestProgress: "LATEST_PROGRESS",
+	task := &core.Task{ID: "t1", Title: "卡片开关", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", LatestProgress: "LATEST_PROGRESS", ResultSummary: "RESULT_SUM", VerificationResult: "VERIFY_RES", DeliverableURL: "DELIV_URL", NextSteps: "NEXT_STEPS",
 		CreatedAt: now, UpdatedAt: now,
 		Members: []core.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
 	join := func(e *discordgo.MessageEmbed) string {
@@ -88,7 +88,7 @@ func TestCardViewTaskCardRendering(t *testing.T) {
 	if !strings.Contains(brief, "龙娘") || !strings.Contains(brief, "<t:1700000000:R>") {
 		t.Fatalf("brief lost name/time:\n%s", brief)
 	}
-	for _, leak := range []string{"MEMBER_TITLE", "REQ_SUMMARY", "LATEST_PROGRESS"} {
+	for _, leak := range []string{"MEMBER_TITLE", "REQ_SUMMARY", "LATEST_PROGRESS", "RESULT_SUM", "VERIFY_RES", "DELIV_URL", "NEXT_STEPS"} {
 		if strings.Contains(brief, leak) {
 			t.Fatalf("brief shows %q:\n%s", leak, brief)
 		}
