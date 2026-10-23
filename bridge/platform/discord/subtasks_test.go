@@ -105,3 +105,17 @@ func TestDiscordIsLatestMessage(t *testing.T) {
 		t.Fatal("bad handle: want error")
 	}
 }
+
+func TestDiscordSubTaskUnknownExecutionMode(t *testing.T) {
+	row := buildDiscordSubTaskRow(core.SubTask{ID: "child", Description: "child", ModeUnknown: true, Status: core.SubTaskRunning}, true)
+	if !strings.Contains(row, "子 Agent") || strings.Contains(row, "前台") || strings.Contains(row, "后台") {
+		t.Fatalf("unknown mode guessed: %s", row)
+	}
+}
+
+func TestDiscordSubTaskUnknownWaitingReason(t *testing.T) {
+	row := buildDiscordSubTaskRow(core.SubTask{ID: "child", Description: "child", ModeUnknown: true, Status: core.SubTaskWaiting}, true)
+	if !strings.Contains(row, "等待继续") || strings.Contains(row, "自己的后台任务") {
+		t.Fatalf("guessed waiting reason: %s", row)
+	}
+}

@@ -6,6 +6,7 @@ import "github.com/chenhg5/cc-connect/core"
 // known tool identifiers and lifecycle status, never the nested payload. A
 // completed wait call means the call returned, not that its children succeeded.
 func (cs *codexSession) handleCollaboration(item map[string]any, completed bool) {
+	updateCollaborationSubTasks(&cs.subTaskTracker, item)
 	tool, _ := item["tool"].(string)
 	switch tool {
 	case "spawn_agent", "wait", "wait_agent", "send_input", "resume_agent", "close_agent":

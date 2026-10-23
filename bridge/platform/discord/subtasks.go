@@ -103,6 +103,12 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 			kind = "后台"
 		}
 	}
+	if t.ModeUnknown {
+		kind = "agent"
+		if zh {
+			kind = "子 Agent"
+		}
+	}
 	var when string
 	switch {
 	case t.Live() && !t.StartedAt.IsZero():
@@ -129,6 +135,12 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 		wait := "waiting for its own background task"
 		if zh {
 			wait = "等自己的后台任务"
+		}
+		if t.ModeUnknown {
+			wait = "waiting to continue"
+			if zh {
+				wait = "等待继续"
+			}
 		}
 		if detail = compactDiscordProgressText(detail); detail != "" {
 			wait += " — " + detail
