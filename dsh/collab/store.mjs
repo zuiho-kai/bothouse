@@ -56,6 +56,7 @@ export class Store {
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
+      lastMessagePerRoom: this.db.prepare('SELECT room_id, MAX(id) AS last_id FROM messages WHERE draft = 0 AND deleted = 0 GROUP BY room_id'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
       relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role'
@@ -278,7 +279,9 @@ export class Store {
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
   roomsView() {
     // active: tasks in progress in this room; 0 until team mode B fills it from its tasks table (B 块填).
-    return this.rooms().map(r => ({ ...r, active: 0 }));
+    // last_message_id: newest committed message in this room (#145 unread markers).
+    const lastMsg = new Map(this.q.lastMessagePerRoom.all().map(r => [r.room_id, r.last_id]));
+    return this.rooms().map(r => ({ ...r, active: 0, last_message_id: lastMsg.get(r.id) ?? null }));
   }
 
   /**
