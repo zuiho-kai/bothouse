@@ -1297,8 +1297,11 @@ test('tasks: the reminder starts a DSH owner turn with the reminder in its promp
 
 test('tasks: workspace records also go to its chat channel; the board and active count span both', () => {
   const { hub, tasks } = makeTasks();
-  // Team mode A (#134) adds rooms.kind/parent_id; emulate it here so B works before and after A merges.
-  hub.store.db.exec("ALTER TABLE rooms ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'; ALTER TABLE rooms ADD COLUMN parent_id INTEGER");
+  // Team mode A (#134) adds rooms.kind/parent_id. After the merge they exist already;
+  // add them only when this checkout predates A, so the test works before and after.
+  if (!hub.store.db.prepare('PRAGMA table_info(rooms)').all().some(c => c.name === 'kind')) {
+    hub.store.db.exec("ALTER TABLE rooms ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'; ALTER TABLE rooms ADD COLUMN parent_id INTEGER");
+  }
   hub.store.db.exec("INSERT INTO rooms (id, name, kind, parent_id) VALUES (2, '工作区1', 'workspace', 1), (3, 'other', 'chat', NULL)");
   hub.store.q.room = hub.store.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?');
   const tree = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
@@ -1409,4 +1412,91 @@ test('tasks identity: the bot token cannot impersonate the owner or review; a so
   lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3' });
   await new Promise(r => setImmediate(r));
   assert.equal(lead.of('task_ack')[1].task.created_by, 'lead');
+});
+
+// #139 team mode A: chat channels own workspaces 工作区1..n.
+const plain = v => JSON.parse(JSON.stringify(v));
+test('store: a v6 database gains kind/parent_id and every chat channel gets 工作区1 once', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v6.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  old.ensureRoom(2, 'dev');
+  old.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
+  old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
+  old.close();
+  const s = new Store(path);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.deepEqual(plain(s.rooms()), [
+    { id: 1, name: 'general', kind: 'chat', parent_id: null },
+    { id: 2, name: 'dev', kind: 'chat', parent_id: null },
+    { id: 3, name: '工作区1', kind: 'workspace', parent_id: 1 },
+    { id: 4, name: '工作区1', kind: 'workspace', parent_id: 2 },
+  ]);
+  assert.equal(s.page(1, undefined, 1)[0].text, 'kept');
+  assert.deepEqual(s.ensureWorkspaces(), [], 'a chat channel that has a workspace is skipped');
+  s.close();
+  // Columns already present (e.g. another branch migrated first): the guarded v8 step still runs once.
+  const again = new Store(path);
+  again.db.exec('PRAGMA user_version = 6');
+  again.close();
+  const third = new Store(path);
+  assert.equal(third.rooms().length, 4);
+  third.close();
+});
+
+test('store: a configured chat channel gets 工作区1 and a config id may not overwrite a workspace', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  assert.deepEqual(s.ensureWorkspaces().map(w => [w.name, w.parent_id]), [['工作区1', 1]]);
+  assert.deepEqual(s.ensureWorkspaces(), []);
+  assert.throws(() => s.ensureRoom(2, 'dev'), /already a workspace/);
+  assert.deepEqual(s.roomsView().map(r => r.active), [0, 0]);
+});
+
+test('store: creating a chat channel creates its 工作区1; the next workspace is 工作区n+1', () => {
+  const s = new Store(':memory:');
+  const { room, workspace } = s.createRoom('ops');
+  assert.deepEqual(plain(room), { id: 1, name: 'ops', kind: 'chat', parent_id: null });
+  assert.deepEqual(plain(workspace), { id: 2, name: '工作区1', kind: 'workspace', parent_id: 1 });
+  assert.equal(s.createWorkspace(1).name, '工作区2');
+  // Called on a workspace, the new one is a sibling under the same chat channel.
+  const third = s.createWorkspace(2);
+  assert.deepEqual([third.name, third.parent_id], ['工作区3', 1]);
+  // Numbering follows the highest existing number, not the count.
+  s.db.prepare('DELETE FROM rooms WHERE id = ?').run(third.id - 1);
+  assert.equal(s.createWorkspace(1).name, '工作区4');
+  assert.equal(s.createRoom('other').workspace.name, '工作区1', 'numbering is per chat channel');
+  assert.throws(() => s.createWorkspace(99), e => e.code === 'room-missing');
+});
+
+test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作区n+1, others get 401', async () => {
+  const { workspacesRoute } = await import('./plugin.mjs');
+  const hub = makeHub();
+  hub.store.ensureWorkspaces();
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = async (headers, isOwner = false, path = '/collab/api/rooms/1/workspaces') => {
+    const res = { status: 0, body: undefined, writeHead(code) { this.status = code; }, end(b) { this.body = JSON.parse(b); } };
+    const req = { method: 'POST', headers };
+    const done = workspacesRoute(req, res, new URL(path, 'http://x'), { store: hub.store, hub, gateway, owner: () => isOwner });
+    assert.notEqual(done, undefined);
+    await done;
+    return res;
+  };
+  const bot = await call({ authorization: 'Bearer secret' });
+  assert.equal(bot.status, 200);
+  assert.deepEqual([bot.body.workspace.name, bot.body.workspace.parent_id], ['工作区2', 1]);
+  const own = await call({}, true);
+  assert.equal(own.body.workspace.name, '工作区3');
+  assert.equal((await call({ authorization: 'Bearer wrong' })).status, 401);
+  assert.equal((await call({})).status, 401);
+  assert.equal((await call({ authorization: 'Bearer secret' }, false, '/collab/api/rooms/42/workspaces')).status, 404);
+  const last = events.filter(e => e.type === 'rooms').at(-1);
+  assert.deepEqual(last.rooms.map(r => [r.name, r.kind, r.parent_id, r.active]),
+    [['general', 'chat', null, 0], ['工作区1', 'workspace', 1, 0], ['工作区2', 'workspace', 1, 0], ['工作区3', 'workspace', 1, 0]]);
+  assert.equal(workspacesRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/rooms/1/workspaces'), {}), undefined);
 });

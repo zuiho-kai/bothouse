@@ -73,6 +73,7 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   for (const room of config.rooms) store.ensureRoom(room.id, room.name.trim());
+  store.ensureWorkspaces();
   const hub = new Hub(store, ctx.logger);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
@@ -141,13 +142,15 @@ export async function apply(ctx, rawConfig) {
     const path = url.pathname.replace(/\/+$/, '');
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
     if (routed !== undefined) return routed;
+    const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner });
+    if (opened !== undefined) return opened;
     if (!owner(req)) {
       if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return json(res, 401, { error: 'unauthorized' });
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
-      return json(res, 200, { me: OWNER, rooms: store.rooms(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
+      return json(res, 200, { me: OWNER, rooms: store.roomsView(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
@@ -185,9 +188,9 @@ export async function apply(ctx, rawConfig) {
       return withBody(req, res, (body) => {
         const name = String(body?.name ?? '').trim().replace(/^#/, '');
         if (!name || name.length > 32 || /\s/.test(name)) throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
-        const room = store.createRoom(name);
-        hub.emit({ type: 'rooms', rooms: store.rooms() });
-        return { room };
+        const { room, workspace } = store.createRoom(name);
+        hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return { room, workspace };
       });
     }
     if (path === '/collab/api/members' && req.method === 'POST') {
@@ -248,6 +251,23 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   if (req.method !== 'POST') return Promise.resolve(json(res, 404, { error: 'not found' }));
   if (board !== null) return withBody(req, res, body => ({ task: tasks.perform('assign', { roomId: id, body }, sender(body)) }));
   return withBody(req, res, body => ({ task: tasks.perform(one[2], { id, body }, sender(body)) }));
+}
+
+/**
+ * POST /collab/api/rooms/{id}/workspaces: the owner or any cc-connect bot (shared bot
+ * token; collab has no per-room membership, so every connected bot is in every room)
+ * opens the next 工作区<n+1> under that chat channel. Anyone else gets 401.
+ * Returns undefined when the request is not for this route, else a Promise of the reply.
+ */
+export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
+  const m = /^\/collab\/api\/rooms\/(\d+)\/workspaces\/?$/.exec(url.pathname);
+  if (m === null || req.method !== 'POST') return undefined;
+  if (!owner(req) && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  return withBody(req, res, () => {
+    const workspace = store.createWorkspace(Number(m[1]));
+    hub.emit({ type: 'rooms', rooms: store.roomsView() });
+    return { workspace };
+  }, false);
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503 };

@@ -6,10 +6,11 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-// v7 is #133 and v8 is #139 team mode A (both open PRs); this branch (#139 team
-// mode B) takes v9. Its tasks table is ensured on every open (PRAGMA-checked), so
-// the schema comes out the same whichever of these merges first.
+// v7 is #133, v8 is #139 team mode A, v9 is #139 team mode B tasks; columns are added
+// by ensureSchema()/PRAGMA on every open, so either merge order leaves the same schema.
 const SCHEMA_VERSION = 9;
+/** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
+export const WORKSPACE_PREFIX = '工作区';
 
 export class Store {
   constructor(path) {
@@ -21,8 +22,10 @@ export class Store {
     if (version < SCHEMA_VERSION) this.migrate(version);
     this.ensureTasks();
     this.q = {
-      room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
-      rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
+      room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
+      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
+      createWorkspace: this.db.prepare("INSERT INTO rooms (name, kind, parent_id) VALUES (?, 'workspace', ?) RETURNING id, name, kind, parent_id"),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
       insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
@@ -48,7 +51,7 @@ export class Store {
       openJobs: this.db.prepare("SELECT * FROM jobs WHERE state IN ('pending', 'sent') ORDER BY id"),
       sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ? WHERE id = ? AND state = 'pending' RETURNING *"),
       finish: this.db.prepare("UPDATE jobs SET state = ?, reply_id = ? WHERE id = ? AND state IN ('pending', 'sent') RETURNING *"),
-      createRoom: this.db.prepare('INSERT INTO rooms (name) VALUES (?) RETURNING id, name'),
+      createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
       seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, source, created_at, removed)
@@ -88,6 +91,17 @@ export class Store {
     // commit clears the flag. Durable, so a restart between commit and finishJob
     // never fans the same reply out twice.
     if (from < 6) this.db.exec('ALTER TABLE messages ADD COLUMN draft INTEGER NOT NULL DEFAULT 0');
+    // v7 belongs to #133.
+    // v8 (#139 team mode A): a room is a chat channel or a workspace under one chat
+    // channel; every chat channel that has no workspace gets 「工作区1」.
+    if (from < 8) {
+      const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
+      this.transaction(() => {
+        if (!cols.has('kind')) this.db.exec("ALTER TABLE rooms ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'workspace'))");
+        if (!cols.has('parent_id')) this.db.exec('ALTER TABLE rooms ADD COLUMN parent_id INTEGER REFERENCES rooms(id)');
+        this.fillWorkspaces();
+      });
+    }
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -123,6 +137,14 @@ export class Store {
       }
     }
     this.db.exec('CREATE INDEX IF NOT EXISTS tasks_room ON tasks (room_id, id)');
+  }
+
+  /** Give every chat channel without a workspace its 「工作区1」; returns the rooms created. */
+  fillWorkspaces() {
+    const orphans = this.db.prepare(`SELECT id FROM rooms r WHERE kind = 'chat'
+      AND NOT EXISTS (SELECT 1 FROM rooms w WHERE w.kind = 'workspace' AND w.parent_id = r.id) ORDER BY id`).all();
+    const add = this.db.prepare("INSERT INTO rooms (name, kind, parent_id) VALUES (?, 'workspace', ?) RETURNING id, name, kind, parent_id");
+    return orphans.map(({ id }) => add.get(`${WORKSPACE_PREFIX}1`, id));
   }
 
   createV1() {
@@ -176,8 +198,35 @@ export class Store {
     }
   }
 
-  ensureRoom(id, name) { this.q.ensureRoom.run(id, name); }
-  createRoom(name) { return this.q.createRoom.get(name); }
+  /** Upsert a configured chat channel. A configured id that is already a workspace is a config error. */
+  ensureRoom(id, name) {
+    if (this.q.room.get(id)?.kind === 'workspace') throw Error(`collab: configured room ${id} is already a workspace; pick another id`);
+    this.q.ensureRoom.run(id, name);
+  }
+  /** Give configured chat channels their 「工作区1」 (call after every ensureRoom). */
+  ensureWorkspaces() { return this.transaction(() => this.fillWorkspaces()); }
+  /** Create a chat channel together with its 「工作区1」. */
+  createRoom(name) {
+    return this.transaction(() => {
+      const room = this.q.createRoom.get(name);
+      const workspace = this.q.createWorkspace.get(`${WORKSPACE_PREFIX}1`, room.id);
+      return { room, workspace };
+    });
+  }
+  /**
+   * Create the next workspace 工作区<n+1> under a chat channel, n being the highest
+   * existing 工作区<k>. Called on a workspace, it adds a sibling under the same chat channel.
+   */
+  createWorkspace(roomId) {
+    return this.transaction(() => {
+      const room = this.q.room.get(roomId);
+      if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+      const parent = room.kind === 'workspace' ? room.parent_id : room.id;
+      const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
+      const n = Math.max(0, ...this.q.children.all(parent).map(w => Number(re.exec(w.name)?.[1] ?? 0)));
+      return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent);
+    });
+  }
 
   /** Active DSH members, config seeds and UI-created alike. */
   members() { return this.q.members.all(); }
@@ -196,6 +245,11 @@ export class Store {
   removeMember(id) { return this.q.removeMember.get(id); }
   room(id) { return this.q.room.get(id); }
   rooms() { return this.q.rooms.all(); }
+  /** Rooms for clients: each carries kind, parent_id and its open task count. */
+  roomsView() {
+    // active: tasks in progress in this room; 0 until team mode B fills it from its tasks table (B 块填).
+    return this.rooms().map(r => ({ ...r, active: 0 }));
+  }
 
   /**
    * Append one message. A repeated non-null clientKey returns the stored row
