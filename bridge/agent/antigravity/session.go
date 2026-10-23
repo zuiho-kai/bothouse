@@ -37,6 +37,36 @@ type antigravitySession struct {
 	alive            atomic.Bool
 	permissionBridge *agyPermissionBridge
 	cachedUsage      func() *core.UsageReport // account quota view from the Agent (maomao fork)
+
+	// maomao fork: the agy process of the running turn, so CancelTurn can stop
+	// just that turn (one process per turn) and keep the conversation.
+	runMu sync.Mutex
+	run   *agyRun
+}
+
+// agyRun is one launched agy process of a turn.
+type agyRun struct {
+	cancel    context.CancelFunc
+	cancelled atomic.Bool // CancelTurn stopped it
+}
+
+var _ core.AgentSessionCanceller = (*antigravitySession)(nil)
+
+// CancelTurn stops the running turn's agy process and keeps the session: the
+// conversation id stays, so the next Send resumes it with --conversation. The
+// cancelled turn ends with one EventError (logged by core, not sent: the engine
+// marks the turn cancelled first). No-op when no turn is running.
+func (as *antigravitySession) CancelTurn() error {
+	as.runMu.Lock()
+	r := as.run
+	as.runMu.Unlock()
+	if r == nil {
+		return nil
+	}
+	r.cancelled.Store(true)
+	r.cancel()
+	slog.Info("antigravitySession: turn cancelled, conversation kept", "session_id", as.CurrentSessionID())
+	return nil
 }
 
 func newAntigravitySession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string, timeout time.Duration) (*antigravitySession, error) {
@@ -186,10 +216,14 @@ func (as *antigravitySession) launch(t agyTurn) error {
 	}
 
 	started = true
+	run := &agyRun{cancel: cancel}
+	as.runMu.Lock()
+	as.run = run
+	as.runMu.Unlock()
 	as.wg.Add(1)
 	go func() {
 		defer cancel()
-		as.readLoop(ctx, cmd, stdout, &stderrBuf, t)
+		as.readLoop(ctx, cmd, stdout, &stderrBuf, t, run)
 	}()
 
 	return nil
@@ -236,7 +270,7 @@ func hasModelFlag(args []string) bool {
 	return false
 }
 
-func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, t agyTurn) {
+func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer, t agyTurn, run *agyRun) {
 	// Runs last, so a retry launched below is counted before this one is done.
 	defer as.wg.Done()
 	resultErr := ""
@@ -246,6 +280,25 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 	defer func() {
 		err := cmd.Wait()
 		failed := false // the turn ended with EventError
+		as.runMu.Lock()
+		if as.run == run {
+			as.run = nil
+		}
+		as.runMu.Unlock()
+
+		if run.cancelled.Load() {
+			// CancelTurn killed this process: end the turn with one EventError and no
+			// "⚠️ signal: killed" under a partial reply, no retry (user 10-23「取消后不报错」).
+			slog.Info("antigravitySession: cancelled turn ended", "error", err, "session_id", as.CurrentSessionID())
+			for _, f := range t.tempFiles {
+				_ = os.Remove(f)
+			}
+			select {
+			case as.events <- core.Event{Type: core.EventError, Error: fmt.Errorf("antigravity: turn cancelled")}:
+			case <-as.ctx.Done():
+			}
+			return
+		}
 
 		if err != nil || resultErr != "" {
 			// A failed result names the status; stderr says why.

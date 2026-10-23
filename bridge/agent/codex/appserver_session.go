@@ -209,6 +209,9 @@ type appServerSession struct {
 	currentTurn  string
 	preambleSent bool
 	strict       *appServerStrictTurn // local input turn; never steered into
+	// maomao fork: CancelTurn interrupted the running turn; it then ends with an
+	// EventError (core logs it), not an empty or partial reply.
+	interrupting bool
 	// maomao fork: command line of each running commandExecution item, so a
 	// write_stdin (terminalInteraction) can say which process it talks to.
 	execCommands map[string]string
@@ -530,14 +533,58 @@ func (s *appServerSession) Send(prompt string, messageID string, images []core.I
 	}
 
 	s.stateMu.Lock()
-	s.currentTurn = resp.Turn.ID
-	s.pendingMsgs = s.pendingMsgs[:0]
+	if s.currentTurn != resp.Turn.ID {
+		// maomao fork: turn/started may already have been read for this turn and
+		// its first messages buffered; clearing them again dropped the reply.
+		s.currentTurn = resp.Turn.ID
+		s.pendingMsgs = s.pendingMsgs[:0]
+	}
+	s.interrupting = false
 	s.stateMu.Unlock()
 
 	return nil
 }
 
 // buildTurnInput stages attachments and prepends the one-time preamble.
+var _ core.AgentSessionCanceller = (*appServerSession)(nil)
+
+// CancelTurn (maomao fork, user 10-23「取消后不报错」) interrupts the running turn
+// with turn/interrupt and keeps the app-server process and thread, so the next
+// Send starts a new turn in the same thread. The interrupted turn ends with one
+// EventError, which core only logs. No-op when no turn is running; a strict
+// local-input turn is not interrupted (core falls back to Close).
+func (s *appServerSession) CancelTurn() error {
+	s.stateMu.Lock()
+	turn := s.currentTurn
+	strict := s.strict != nil
+	if turn != "" && !strict {
+		s.interrupting = true
+	}
+	s.stateMu.Unlock()
+	if strict {
+		return fmt.Errorf("codex app-server: local input turn cannot be interrupted")
+	}
+	if turn == "" {
+		return nil
+	}
+	var resp map[string]any
+	err := s.request("turn/interrupt", map[string]any{"threadId": s.CurrentSessionID(), "turnId": turn}, &resp)
+	if err != nil {
+		s.stateMu.Lock()
+		ended := s.currentTurn != turn
+		if !ended {
+			s.interrupting = false
+		}
+		s.stateMu.Unlock()
+		if ended {
+			return nil // the turn ended meanwhile; nothing left to cancel
+		}
+		return fmt.Errorf("codex app-server turn/interrupt: %w", err)
+	}
+	slog.Info("codex app-server: turn interrupted", "thread_id", s.CurrentSessionID(), "turn_id", turn)
+	return nil
+}
+
 func (s *appServerSession) buildTurnInput(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) ([]map[string]any, error) {
 	if !s.alive.Load() {
 		return nil, fmt.Errorf("session is closed")
@@ -1756,6 +1803,14 @@ func (s *appServerSession) completeTurn() {
 		s.stateMu.Unlock()
 		return
 	}
+	if s.interrupting {
+		// CancelTurn: drop the partial reply, end the turn on an error core only logs.
+		s.interrupting = false
+		s.pendingMsgs = s.pendingMsgs[:0]
+		s.stateMu.Unlock()
+		s.failRunningTurn("codex app-server: turn interrupted")
+		return
+	}
 	s.currentTurn = ""
 	s.stateMu.Unlock()
 	s.flushPendingAsText()
@@ -1807,6 +1862,7 @@ func (s *appServerSession) failRunningTurn(reason string) {
 	}
 	running := s.currentTurn != ""
 	s.currentTurn = ""
+	s.interrupting = false
 	s.stateMu.Unlock()
 	if !running {
 		return

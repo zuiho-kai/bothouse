@@ -1005,6 +1005,21 @@ func (cs *codexSession) Close() error {
 	}
 }
 
+var _ core.AgentSessionCanceller = (*codexSession)(nil)
+
+// CancelTurn (maomao fork, user 10-23「取消后不报错」) stops the running turn's
+// codex exec process. The session and its thread id stay, so the next Send
+// resumes the thread; readLoop ends the cancelled turn with one EventError,
+// which core only logs. No-op when no turn is running.
+func (cs *codexSession) CancelTurn() error {
+	cmds := cs.activeCmds()
+	if len(cmds) == 0 {
+		return nil
+	}
+	slog.Info("codexSession: cancelling running turn", "thread_id", cs.CurrentSessionID())
+	return forceKillAllCmds(cmds)
+}
+
 func (cs *codexSession) addCmd(cmd *exec.Cmd) {
 	cs.cmdMu.Lock()
 	defer cs.cmdMu.Unlock()
