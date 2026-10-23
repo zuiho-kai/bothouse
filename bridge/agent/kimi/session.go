@@ -206,6 +206,12 @@ func (ks *kimiSession) Send(prompt string, messageID string, images []core.Image
 	if len(ks.extraEnv) > 0 {
 		env = core.MergeEnv(env, ks.extraEnv)
 	}
+	if home := core.KimiHookHomeIfPresent(ks.workDir); home != "" {
+		if ks.flagSupport.Print {
+			return fmt.Errorf("Kimi hooks require Kimi Code CLI; legacy kimi-cli is unsupported")
+		}
+		env = core.MergeEnv(env, []string{"KIMI_CODE_HOME=" + home})
+	}
 	cmd.Env = env
 
 	stdout, err := cmd.StdoutPipe()

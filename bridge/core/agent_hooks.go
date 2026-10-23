@@ -187,6 +187,9 @@ func ourHook(cmd string) string {
 // reads it through its bridge), .gemini/settings.json for Gemini CLI (user-level is ~/.gemini/settings.json;
 // the role's work dir is the project, so the project-level file is the one we write — never the user's home).
 func AgentHookSettingsPath(cli, workDir string) string {
+	if cli == "kimi" {
+		return KimiHookConfigPath(workDir)
+	}
 	if cli == "antigravity" {
 		return AgyHookFile(workDir)
 	}
@@ -286,6 +289,13 @@ func editHooks(m map[string]any, drop func(name string) bool, add []map[string]a
 
 // AgentHooksEnabled lists the hooks switched on in the role's settings file, in agentHooks order.
 func AgentHooksEnabled(cli, workDir string) ([]string, error) {
+	if cli == "kimi" {
+		r, err := KimiHooksStatus(workDir)
+		if err != nil {
+			return nil, err
+		}
+		return r.Enabled, nil
+	}
 	if cli == "antigravity" {
 		return agyHooksEnabled(workDir)
 	}
@@ -322,7 +332,7 @@ func AgentHooksEnabled(cli, workDir string) ([]string, error) {
 // (agent type "dsh") through its hook bridge, Gemini CLI through the same run.py translator as DSH.
 func wizardHooksFor(agentType string) bool {
 	return (agentType == "claudecode" || agentType == "dsh" || agentType == "gemini" ||
-		agentType == "antigravity") && AgentHookFS != nil
+		agentType == "antigravity" || agentType == "kimi") && AgentHookFS != nil
 }
 
 // AgentHookSwitchFile is the role's on/off switch: {"off": [hook names] or ["all"]}. run.py reads it on every
@@ -355,7 +365,7 @@ func AgentHooksSwitchedOff(workDir string) []string {
 // AgentHookCLIs are the CLIs the hooks run under: Claude Code natively, DSH and Gemini CLI through run.py
 // (each turns its own payload into Claude Code's shape), Antigravity (agy) through its own workspace hook file
 // <work_dir>/.agents/hooks.json, with run.py --agy converting payloads.
-var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity"}
+var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "kimi"}
 
 // geminiMatchers: the matcher each hook gets in Gemini CLI, whose built-in tool names differ from both Claude
 // Code's and DSH's (https://geminicli.com/docs/hooks/reference "Matchers and tool names": run_shell_command,
@@ -461,6 +471,9 @@ func (o AgentHookOptions) personaPath() (string, error) {
 
 // EnableAgentHooks installs the scripts and switches the hooks on for one role.
 func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
+	if o.CLI == "kimi" {
+		return setKimiHooks(o, true)
+	}
 	persona, err := o.personaPath()
 	if err != nil {
 		return nil, err
@@ -542,6 +555,9 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 // block; with none left the block is removed. The scripts stay. For DSH the role leaves dsh-roles.json when it
 // has no hook left, and the bridge block leaves cordis.patch.yml when no DSH role of that DSH home is left.
 func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
+	if o.CLI == "kimi" {
+		return setKimiHooks(o, false)
+	}
 	persona, err := o.personaPath()
 	if err != nil {
 		return nil, err
