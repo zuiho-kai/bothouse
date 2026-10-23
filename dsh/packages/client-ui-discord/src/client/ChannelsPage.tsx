@@ -138,6 +138,22 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const composerRef = useRef<HTMLDivElement>(null)
+  // `@` start of the popup currently shown, read by the outside-click listener.
+  const openMentionAt = useRef<number | undefined>(undefined)
+
+  // Close the @ popup on a press outside the composer, like Esc: the draft and
+  // its `@` stay. Presses inside (options, textarea, @ button) keep their own
+  // handling, so picking a member is not swallowed.
+  useEffect(() => {
+    const onPress = (event: MouseEvent): void => {
+      const at = openMentionAt.current
+      if (at === undefined || composerRef.current?.contains(event.target as Node) === true) return
+      setDismissedAt(at)
+    }
+    document.addEventListener('mousedown', onPress)
+    return () => { document.removeEventListener('mousedown', onPress) }
+  }, [])
 
   useEffect(() => {
     const input = inputRef.current
@@ -169,6 +185,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const mention = activeMention(draft, caret)
   const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(state.members, mention.query)
   const popupOpen = mention !== undefined && candidates.length > 0
+  openMentionAt.current = popupOpen ? mention.start : undefined
   const selected = Math.min(highlight, Math.max(candidates.length - 1, 0))
 
   const setDraft = (text: string, nextCaret: number): void => {
@@ -323,7 +340,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} onConfigure={() => { setModelsOpen(true) }} />)}
         </div>
         <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
-        <div className={css.composer}>
+        <div className={css.composer} ref={composerRef}>
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {popupOpen && (
             <div className={css.mentionPopup}>

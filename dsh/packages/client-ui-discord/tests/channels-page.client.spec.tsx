@@ -139,6 +139,37 @@ describe('channels page', () => {
     expect(input.value).toBe('看看 @橘 @橘 ')
   })
 
+  it('closes the @ picker on an outside press without touching the draft, and reopens (#125)', () => {
+    render(<ChannelsPage {...props({ ...ready, thinking: {} })} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '看看', selectionStart: 2, selectionEnd: 2 } })
+    const button = screen.getByRole('button', { name: zh.mentionButton })
+
+    fireEvent.click(button)
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    // Pressing an option or the textarea is inside the composer: stays open, choice still lands.
+    fireEvent.mouseDown(input)
+    fireEvent.mouseDown(screen.getByRole('option'))
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    fireEvent.click(screen.getByRole('option'))
+    expect(input.value).toBe('看看 @橘 ')
+
+    fireEvent.click(button)
+    expect(input.value).toBe('看看 @橘 @')
+    fireEvent.mouseDown(screen.getByRole('log').parentElement as HTMLElement)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input.value).toBe('看看 @橘 @')
+
+    // Reopen with the button, then Esc closes while focus stays in the input.
+    fireEvent.click(button)
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(document.activeElement).toBe(input)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('看看 @橘 @ @')
+  })
+
   it('creates a channel from the + button', async () => {
     const p = props({ ...ready, thinking: {} })
     render(<ChannelsPage {...p} />)
