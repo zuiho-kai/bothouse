@@ -138,3 +138,33 @@ func TestApplyGateBotContextNeverStartsTurn(t *testing.T) {
 		t.Fatal("without a gate, bot context must still never start a turn")
 	}
 }
+
+func TestTeamSummary_TruncatesTaskAndKeysVisibleTask(t *testing.T) {
+	e := newTestEngine()
+	e.name = "maomao"
+	e.team = &teamState{dir: t.TempDir(), name: "橘", inject: true}
+	prefix := strings.Repeat("测", 40)
+	write := func(task string, busy bool) {
+		writeTeamFile(t, e.team.dir, teamFile{Project: "longniang", Name: "龙娘", Updated: time.Now(), Sessions: []teamEntry{{Key: "discord:1", Task: task, Busy: busy, Since: time.Now(), DoneAt: time.Now()}}})
+	}
+	write(prefix+"旧尾巴", true)
+	text, key := e.teamSummary("discord:1")
+	if !strings.Contains(text, "「"+prefix+"」") || strings.Contains(text, "旧尾巴") || strings.Contains(key, "旧尾巴") {
+		t.Fatalf("task not shortened: %s / %s", text, key)
+	}
+	write(prefix+"新尾巴", true)
+	_, same := e.teamSummary("discord:1")
+	if same != key {
+		t.Fatal("invisible suffix must not resend board")
+	}
+	write("新任务", true)
+	_, changed := e.teamSummary("discord:1")
+	if changed == key {
+		t.Fatal("busy task change lost from key")
+	}
+	write("新任务", false)
+	_, done := e.teamSummary("discord:1")
+	if done == changed {
+		t.Fatal("busy state lost from key")
+	}
+}

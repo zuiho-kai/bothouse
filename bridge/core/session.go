@@ -72,8 +72,9 @@ type Session struct {
 // to another conversation, or the agent compacts. A --resume that only forks a
 // new id keeps it.
 type TurnCtxSent struct {
-	Wiki []string `json:"wiki,omitempty"`
-	Team string   `json:"team,omitempty"` // teammate status key (without elapsed times)
+	Wiki           []string  `json:"wiki,omitempty"`
+	ReferenceSince time.Time `json:"-"`              // deliberately unknown after a bridge restart
+	Team           string    `json:"team,omitempty"` // teammate status key (without elapsed times)
 }
 
 func (s *Session) TryLock() bool {
