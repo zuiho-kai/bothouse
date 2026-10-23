@@ -350,6 +350,19 @@ func (p *Platform) handleWire(raw []byte) {
 		p.handleCardAction(raw)
 	case "message_recall":
 		p.handleRecall(raw)
+	case "error":
+		// Do not log raw server fields: they may contain private message text or credentials.
+		var rejection struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(raw, &rejection) != nil {
+			return
+		}
+		if rejection.Code == "forbidden" {
+			slog.Warn("cloud_web: server rejected bot message (forbidden); check room membership and reply context", "project", p.project)
+		} else {
+			slog.Warn("cloud_web: server rejected bot message; check server permissions", "project", p.project)
+		}
 	case "ping":
 		_ = p.tp.Send(context.Background(), map[string]any{"type": "pong", "ts": time.Now().UnixMilli()})
 	default:

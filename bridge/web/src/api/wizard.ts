@@ -41,7 +41,7 @@ export interface WizardRequest {
   discord?: { guild_id: string; channel_id: string };
   feishu?: { app_id: string; app_secret: string; platform_type?: string; owner_open_id?: string; chat_id?: string };
   /** 自建平台: empty url/token = the hub this wizard started on this machine (filled in server-side) */
-  cloud_web?: { url?: string; token?: string };
+  cloud_web?: { url?: string; token?: string; collab_data_dir?: string };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
   allow_from?: string;

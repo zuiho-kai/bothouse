@@ -63,6 +63,8 @@ export default function SetupWizard() {
   const [hubBusy, setHubBusy] = useState<'' | 'detect' | 'start'>('');
   const [hubErr, setHubErr] = useState('');
   const [cwRemote, setCwRemote] = useState(false);
+  const [cwCollab, setCwCollab] = useState(false);
+  const [collabDataDir, setCollabDataDir] = useState('');
   const [cw, setCw] = useState({ url: '', token: '' });
   const [cwTest, setCwTest] = useState<{ running: boolean; key?: string; result?: CloudWebTest }>({ running: false });
   const [state, setState] = useState<SetupStateResp | null>(null);
@@ -193,17 +195,17 @@ export default function SetupWizard() {
     try { setHub(await getLocalHub(lang)); } catch (e: any) { setHubErr(e?.message || String(e)); }
     setHubBusy('');
   }, [lang]);
-  useEffect(() => { if (platform === 'cloud_web' && step === 1 && !hub) detectHub(); }, [platform, step]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (platform === 'cloud_web' && !cwCollab && step === 1 && !hub) detectHub(); }, [platform, step, cwCollab]); // eslint-disable-line react-hooks/exhaustive-deps
   const startHub = async () => {
     setHubBusy('start'); setHubErr('');
     try { setHub(await startLocalHub(lang)); } catch (e: any) { setHubErr(e?.message || String(e)); }
     setHubBusy('');
   };
   // local hub this wizard started: address and token are filled in by the server (nothing to type or test)
-  const cwLocalKnown = !cwRemote && !!hub?.running && hub.token_known;
-  const cwURL = cwRemote ? cw.url : hub?.running ? hub.url || '' : '';
+  const cwLocalKnown = !cwCollab && !cwRemote && !!hub?.running && hub.token_known;
+  const cwURL = cwCollab || cwRemote ? cw.url : hub?.running ? hub.url || '' : '';
   const cwKey = `${cwURL}|${cw.token}`;
-  const cwOK = cwLocalKnown || (cwTest.key === cwKey && cwTest.result?.ok === true);
+  const cwOK = cwCollab ? !!cw.url.trim() && !!collabDataDir.trim() : cwLocalKnown || (cwTest.key === cwKey && cwTest.result?.ok === true);
   const runCwTest = useCallback(async (url: string, token: string) => {
     const key = `${url}|${token}`;
     setCwTest({ running: true, key });
@@ -214,10 +216,10 @@ export default function SetupWizard() {
   const cwTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
     window.clearTimeout(cwTimer.current);
-    if (platform !== 'cloud_web' || cwLocalKnown || !cwURL || !cw.token) return;
+    if (platform !== 'cloud_web' || cwCollab || cwLocalKnown || !cwURL || !cw.token) return;
     cwTimer.current = window.setTimeout(() => runCwTest(cwURL, cw.token), 800); // 来源：同 jev，输入停顿后再测（无数据依据的交互延迟）
     return () => window.clearTimeout(cwTimer.current);
-  }, [platform, cwLocalKnown, cwURL, cw.token, runCwTest]);
+  }, [platform, cwCollab, cwLocalKnown, cwURL, cw.token, runCwTest]);
   const cwNames = roles.map((r) => nameOf(r));
   const cwNameTwice = cwNames.some((n, i) => cwNames.indexOf(n) !== i);
   // an existing Discord bot also joins the platform: same project (persona, CLI) — its Discord section is kept
@@ -313,7 +315,9 @@ export default function SetupWizard() {
       req.discord = { guild_id: guildID, channel_id: channelID };
       if (allowFromValue.trim()) req.allow_from = allowFromValue.trim();
     }
-    if (platform === 'cloud_web') req.cloud_web = cwLocalKnown ? {} : { url: cwURL, token: mask(cw.token, '<PLATFORM_BOT_TOKEN>') };
+    if (platform === 'cloud_web') req.cloud_web = cwCollab
+      ? { url: cwURL, collab_data_dir: collabDataDir.trim() }
+      : cwLocalKnown ? {} : { url: cwURL, token: mask(cw.token, '<PLATFORM_BOT_TOKEN>') };
     if (platform === 'feishu' && feishu) req.feishu = { ...feishu, app_secret: mask(feishu.app_secret, '<APP_SECRET>'), chat_id: chatID };
     if (wikiInfo) {
       const w: WizardWiki = {};
@@ -534,7 +538,18 @@ export default function SetupWizard() {
         {/* 1 自建平台 (cloud_web) */}
         {step === 1 && platform === 'cloud_web' && (
           <div className="space-y-4">
-            {!cwRemote && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={cwCollab} data-testid="cw-collab" onChange={(e) => { setCwCollab(e.target.checked); setCwTest({ running: false }); }} />
+              {T.cwCollab}
+            </label>
+            {cwCollab && (
+              <div className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2">
+                <Input label={T.cwURL} value={cw.url} data-testid="cw-collab-url" onChange={(e) => setCw({ ...cw, url: e.target.value.trim() })} />
+                <Input label={T.cwCollabDir} value={collabDataDir} data-testid="cw-collab-dir" onChange={(e) => setCollabDataDir(e.target.value)} />
+                <p className="text-xs text-gray-500">{T.cwCollabNote}</p>
+              </div>
+            )}
+            {!cwCollab && !cwRemote && (
               <div className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2" data-testid="cw-local">
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{T.cwLocalTitle}</p>
                 {(hubBusy === 'detect' || (!hub && !hubErr)) && <p className="text-xs text-gray-500 flex items-center gap-1"><Loader2 size={12} className="animate-spin" />{T.cwDetecting}</p>}
@@ -559,13 +574,13 @@ export default function SetupWizard() {
                 {hubErr && <p className="text-xs text-red-500 whitespace-pre-wrap flex items-start gap-1" data-testid="cw-local-error"><XCircle size={12} className="mt-0.5" />{hubErr}</p>}
               </div>
             )}
-            {cwRemote && (
+            {!cwCollab && cwRemote && (
               <div className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2" data-testid="cw-remote">
                 <Input label={T.cwURL} placeholder="https://hub.example.com" value={cw.url} data-testid="cw-url" onChange={(e) => setCw({ ...cw, url: e.target.value.trim() })} />
                 <Input type="password" label={T.cwToken} value={cw.token} data-testid="cw-token" onChange={(e) => setCw({ ...cw, token: e.target.value.trim() })} />
               </div>
             )}
-            {!cwLocalKnown && cwURL && cw.token && (
+            {!cwCollab && !cwLocalKnown && cwURL && cw.token && (
               <div className="text-sm space-y-1" data-testid="cw-test">
                 <Button size="sm" variant="secondary" disabled={cwTest.running} onClick={() => runCwTest(cwURL, cw.token)} data-testid="cw-test-btn">
                   {cwTest.running ? <Loader2 size={12} className="animate-spin" /> : null}{cwTest.running ? T.cwTesting : T.cwTest}
@@ -576,9 +591,9 @@ export default function SetupWizard() {
                     {cwTest.result.fix && <p className="text-xs text-gray-600 dark:text-gray-400">{cwTest.result.fix}</p>}</div>)}
               </div>
             )}
-            <Button size="sm" variant="ghost" data-testid="cw-toggle-remote" onClick={() => { setCwRemote(!cwRemote); setCw({ url: '', token: '' }); }}>
+            {!cwCollab && <Button size="sm" variant="ghost" data-testid="cw-toggle-remote" onClick={() => { setCwRemote(!cwRemote); setCw({ url: '', token: '' }); }}>
               {cwRemote ? T.cwUseLocal : T.cwRemote}
-            </Button>
+            </Button>}
 
             <p className="text-xs text-gray-500">{T.cwRolesNote}</p>
             {roles.map((r, idx) => (

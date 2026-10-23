@@ -14,6 +14,7 @@ import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster } from './roster.mjs';
 import { memberId, validateCredentials } from './identity.mjs';
+import { loadBotCredentials } from './credentials.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -63,6 +64,10 @@ export function resolveConfig(config, env = process.env) {
     const secret = pair.slice(at + 1).trim();
     if (overrides.has(id)) throw Error('duplicate bot identity in credentials');
     overrides.add(id);
+    byId.set(id, secret);
+  }
+  for (const [id, secret] of Object.entries(loadBotCredentials(c.dataDir))) {
+    if (byId.has(id) && byId.get(id) !== secret) throw Error('conflicting bot credentials: remove the old overlay/environment override');
     byId.set(id, secret);
   }
   const botTokens = new Map();

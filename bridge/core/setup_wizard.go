@@ -692,13 +692,23 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	// cloud_web: the platform's address and bot token; empty ones come from the hub this wizard started
 	cwBase, cwToken := "", ""
+	collabDir := collabSetupDir(req)
+	if collabDir != "" && (!cloudWeb || !filepath.IsAbs(collabDir)) {
+		return fail("cloud_web", errors.New("collab_data_dir requires cloud_web and an absolute collab server dataDir"))
+	}
 	if cloudWeb {
 		cw := WizardCloudWeb{}
 		if req.CloudWeb != nil {
 			cw = *req.CloudWeb
 		}
 		u, tok := resolveCloudWeb(env.DataDir, cw.URL, cw.Token)
-		if u == "" || tok == "" {
+		if collabDir != "" {
+			u, tok = cw.URL, "" // A collab server must never inherit a generic hub's shared token or URL.
+			if cw.Token != "" {
+				return fail("cloud_web", errors.New("collab generates dedicated credentials; remove cloud_web.token"))
+			}
+		}
+		if u == "" || (tok == "" && collabDir == "") {
 			return fail("cloud_web", errors.New(tr3(req.Language,
 				"cloud_web：要填平台地址 url 和机器人 token（本机没有向导启动的自建平台可以自动填）",
 				"cloud_web：プラットフォームのアドレス url とボットの token が必要です（ウィザードが起動したローカルのプラットフォームがないため自動では入りません）",
@@ -838,7 +848,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 		ids = append(ids, w)
 	}
-	if cloudWeb {
+	if cloudWeb && collabDir == "" {
 		// the same handshake a bot makes: a wrong address or token writes nothing; a platform that is
 		// down right now is saved with a blocking warning (the bots connect once it is up)
 		t := TestCloudWeb(ctx, cwBase, cwToken, req.Language)
@@ -853,6 +863,8 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			r := fail("cloud_web", errors.New(t.Message+" "+t.Fix))
 			return r
 		}
+	}
+	if cloudWeb {
 		seen := map[string]bool{}
 		for i, w := range ids {
 			if w.Name != "" && seen[w.Name] {
@@ -898,6 +910,11 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	pl, err := plan(snap)
 	if err != nil {
 		return fail("plan", err)
+	}
+	if collabDir != "" {
+		if err := provisionCollab(collabDir, pl, true); err != nil {
+			return fail("collab credentials", err)
+		}
 	}
 	res.Warnings = append(res.Warnings, warnAgentLogins(req.Language, pl.roles, clis)...)
 	res.Warnings = append(res.Warnings, warnReplyLanguageDefault(req.Language, pl.roles)...)
@@ -956,6 +973,11 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		if err != nil {
 			return nil, err
 		}
+		if collabDir != "" {
+			if err := provisionCollab(collabDir, p, false); err != nil {
+				return nil, err
+			}
+		}
 		pl = p
 		return p.writes, nil
 	})
@@ -963,6 +985,12 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		return fail("config", err)
 	}
 	fillRoleResults(res, pl)
+	if collabDir != "" {
+		addStep(res, "collab credentials", nil, filepath.Join(collabDir, collabCredentialsFile))
+		res.Warnings = append(res.Warnings, WizardWarning{Code: "collab_restart_required", Blocking: true,
+			Message: tr3(req.Language, "专属口令已保存，尚未验证机器人连接", "専用認証情報を保存しました。接続は未検証です", "Dedicated credentials saved; bot connections have not been verified"),
+			Fix:     tr3(req.Language, "确认 DSH 插件使用同一个 dataDir，移除冲突的旧 botTokens/环境变量后重启 DSH 和桥接，再检查连接与私有房间访问。", "DSH の dataDir を確認し、競合する旧設定を除去して DSH とブリッジを再起動し、接続と非公開ルームを確認してください。", "Use the same collab dataDir, remove conflicting botTokens/environment overrides, restart DSH and the bridge, then verify connections and private-room access.")})
+	}
 	if pl.note != "" {
 		addStep(res, "fallback_role", nil, pl.note)
 	}
@@ -1405,11 +1433,25 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		if cloudWeb {
 			pw.PlatformType = "cloud_web"
 			cur := s.projectPlatform(r.project, "cloud_web")
+			botID := r.project
+			if collabSetupDir(req) != "" {
+				if oldURL, _ := cur["ws_url"].(string); sameCloudWebHub(oldURL, cwBase) {
+					// Private-room memberships belong to the wire identity, not the local project name.
+					if oldID := cloudWebQuery(oldURL, "bot"); oldID != "" {
+						botID = oldID
+					}
+				}
+			}
 			pw.Options["transport"] = "websocket"
-			pw.Options["ws_url"] = cloudWebBotURL(cwBase, r.project, r.Name, r.mentionID)
+			pw.Options["ws_url"] = cloudWebBotURL(cwBase, botID, r.Name, r.mentionID)
 			pw.Options["token"] = cwToken
+			if collabSetupDir(req) != "" {
+				pw.Options["allow_from"] = "owner"
+			}
 			if a, _ := cur["allow_from"].(string); strings.TrimSpace(a) == "" || strings.TrimSpace(a) == AllowFromUnset {
-				pw.Options["allow_from"] = cloudWebPresets[req.Platform].AllowFrom
+				if collabSetupDir(req) == "" {
+					pw.Options["allow_from"] = cloudWebPresets[req.Platform].AllowFrom
+				}
 			}
 			// rh/cloudweb.py 文件头：hub 要求 group_reply_all = true（不然没 @ 它的消息在 gate 之前就被丢了）
 			// 和 share_session_in_channel = true（一个频道一个会话）。已有的值不改。
