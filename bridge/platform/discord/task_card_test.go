@@ -96,3 +96,41 @@ func TestTaskCardRender(t *testing.T) {
 		t.Errorf("deliverable = %q", fieldMap["交付成果"])
 	}
 }
+
+// Cards written before a re-registration reused its row hold a dead twin next to the live
+// row. The dead one sits earlier and renders as 待接单, so the card read as "nobody
+// reported". One row per name has to survive, and the live row is the one shown.
+func TestRenderTaskMembersHidesStaleTwin(t *testing.T) {
+	start := time.Date(2026, 10, 23, 5, 53, 0, 0, time.UTC)
+	members := []core.TaskMember{
+		{ID: "gge-1", Name: "G哥", Title: "私有房间", Status: "queued", AssignedAt: start, UpdatedAt: start},
+		{ID: "gge-2", Name: "G哥", Title: "私有房间与真机验收", Status: "running", AssignedAt: start.Add(time.Minute), UpdatedAt: start.Add(time.Minute)},
+	}
+	got := renderTaskMembers(members, "zh")
+	if strings.Count(got, "G哥") != 1 {
+		t.Fatalf("rows = %q, want one row per name", got)
+	}
+	if !strings.Contains(got, "私有房间与真机验收") || strings.Contains(got, "待接单") {
+		t.Fatalf("rows = %q, want the live row instead of the stale queued one", got)
+	}
+}
+
+// An old card can hold a dead queued row and a live twin that later finishes. Finished
+// and failed rows are results, not stale slots: they stay, and the dead queued twin goes.
+func TestRenderTaskMembersKeepsFinishedRowsOverStaleTwin(t *testing.T) {
+	start := time.Date(2026, 10, 23, 5, 53, 0, 0, time.UTC)
+	for _, status := range []string{"completed", "failed"} {
+		members := []core.TaskMember{
+			{ID: "gge-1", Name: "G哥", Title: "私有房间", Status: "queued", AssignedAt: start, UpdatedAt: start},
+			{ID: "gge-2", Name: "G哥", Title: "私有房间与真机验收", Status: status, Summary: "结果在这", AssignedAt: start.Add(time.Minute), UpdatedAt: start.Add(time.Minute), EndedAt: start.Add(2 * time.Minute)},
+			{ID: "gge-3", Name: "G哥", Title: "复验", Status: "running", AssignedAt: start.Add(3 * time.Minute), UpdatedAt: start.Add(3 * time.Minute)},
+		}
+		got := renderTaskMembers(members, "zh")
+		if !strings.Contains(got, "私有房间与真机验收") || !strings.Contains(got, "结果在这") || !strings.Contains(got, "复验") {
+			t.Fatalf("%s: rows = %q, want the finished row and the running row shown", status, got)
+		}
+		if strings.Contains(got, "待接单") {
+			t.Fatalf("%s: rows = %q, want the stale queued twin hidden", status, got)
+		}
+	}
+}

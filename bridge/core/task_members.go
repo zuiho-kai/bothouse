@@ -72,6 +72,17 @@ func memberIndex(t *Task, id string) int {
 	return -1
 }
 
+// memberIndexByName finds a row by display name. Source: the card renders one row per
+// name, so a re-registration has to land on the existing row instead of a twin.
+func memberIndexByName(t *Task, name string) int {
+	for i := range t.Members {
+		if strings.EqualFold(strings.TrimSpace(t.Members[i].Name), strings.TrimSpace(name)) {
+			return i
+		}
+	}
+	return -1
+}
+
 // AssignMember is authorized by the lead's live run, not by a caller-supplied
 // identity. A grant permits only one row on this card, never parent acceptance.
 func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGrant, error) {
@@ -144,7 +155,28 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		p.appendEvent(r, TaskEventCreated, req.Title, true)
 	}
 	r.record.Closed = false
-	r.record.Task.Members = append(r.record.Task.Members, TaskMember{ReporterProject: req.ReporterProject, ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Status: "queued", AssignedAt: now, UpdatedAt: now})
+	// A member whose earlier grant died (its lead turn ended and the card was released)
+	// keeps a row that never started and never can. Re-registering that same name takes
+	// the row over instead of adding a twin below it: the card used to show the dead row
+	// first as 待接单, which read as "nobody reported" while the live row reported
+	// underneath. Only a never-started queued row is taken over: a lead turn ending
+	// revokes every token, so a completed or failed row also has no live grant, and
+	// overwriting it would erase that earlier result.
+	if i := memberIndexByName(r.record.Task, req.Name); i >= 0 && memberRowReusable(r.record.Task.Members[i]) && !p.memberRowHasLiveGrant(r, r.record.Task.Members[i].ID) {
+		m := &r.record.Task.Members[i]
+		m.ReporterProject = req.ReporterProject
+		m.ID = req.MemberID
+		m.ParentID = req.ParentID
+		m.Title = req.Title
+		m.Status = "queued"
+		m.Summary = ""
+		m.StartedAt = time.Time{}
+		m.EndedAt = time.Time{}
+		m.AssignedAt = now
+		m.UpdatedAt = now
+	} else {
+		r.record.Task.Members = append(r.record.Task.Members, TaskMember{ReporterProject: req.ReporterProject, ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Status: "queued", AssignedAt: now, UpdatedAt: now})
+	}
 	p.memberEvent(r, req.Name+": "+req.Title, false)
 	if err := p.save(r); err != nil {
 		r.record = old
@@ -368,4 +400,25 @@ func (p *PublicProgress) revokeMemberRuns(r *publicRun) {
 			delete(p.memberRuns, token)
 		}
 	}
+}
+
+// memberRowReusable reports whether a row never left the queue, so taking it over loses
+// nothing. Rows that started, finished or failed keep their own history.
+func memberRowReusable(m TaskMember) bool {
+	return m.Status == "queued" && m.StartedAt.IsZero()
+}
+
+// memberRowHasLiveGrant reports whether a row still owns a usable token. A row whose run
+// ended keeps its queued status but can never report again, so it is stale, not pending.
+// Caller holds run.mu, so this only takes p.mu and compares run identity: locking the run
+// here again would deadlock the caller.
+func (p *PublicProgress) memberRowHasLiveGrant(run *publicRun, memberID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, grant := range p.memberRuns {
+		if grant.id == memberID && grant.r == run {
+			return true
+		}
+	}
+	return false
 }

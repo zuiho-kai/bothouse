@@ -110,12 +110,40 @@ func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *disco
 	}
 }
 
+// hideSupersededMemberRows drops a twin that lost its turn. Cards written before a
+// re-registration reused its row hold both: the abandoned one sits earlier and renders as
+// 待接单, so a reader saw "nobody reported" while the row below was reporting. Within one
+// display name a queued row is hidden only when another row of that name has left the
+// queue; every row that started, finished or failed stays, and rows that are all queued
+// all survive, because one batch may legitimately run several members under one name.
+func hideSupersededMemberRows(members []core.TaskMember) []core.TaskMember {
+	progressed := make(map[string]bool, len(members))
+	for _, m := range members {
+		if m.Status != "queued" {
+			progressed[memberRowKey(m)] = true
+		}
+	}
+	out := make([]core.TaskMember, 0, len(members))
+	for _, m := range members {
+		if m.Status == "queued" && progressed[memberRowKey(m)] {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func memberRowKey(m core.TaskMember) string {
+	return strings.ToLower(strings.TrimSpace(m.Name))
+}
+
 func renderTaskMembers(members []core.TaskMember, lang string) string {
 	return renderTaskMembersView(members, lang, false)
 }
 
 func renderTaskMembersView(members []core.TaskMember, lang string, brief bool) string {
 	i18n := core.NewI18n(core.Language(lang))
+	members = hideSupersededMemberRows(members)
 	names := make(map[string]string, len(members))
 	for _, m := range members {
 		names[m.ID] = m.Name

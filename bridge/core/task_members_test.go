@@ -466,3 +466,125 @@ func TestTaskMembersSurviveStoppedLead(t *testing.T) {
 		t.Fatal("interrupted member grant still accepted reports")
 	}
 }
+ 		})
+ 	}
+ }
+
+// A row whose grant died with its lead turn stays queued on the card. Re-registering the
+// same member has to take that row over: appending a twin left the dead row first as
+// 待接单, and the card read as "nobody reported" while the live row reported below.
+func TestAssignMemberReusesStaleRowWithSameName(t *testing.T) {
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "room", LangChinese, nil)
+	id, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: run, Seq: 1, Kind: "start", Title: "task", Summary: "总进度"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "私有房间"}); err != nil {
+		t.Fatal(err)
+	}
+	// The lead turn ends and the card is released: the row keeps its queued status but its
+	// token is gone, so it can never report again.
+	p.mu.Lock()
+	staleToken := ""
+	for token, grant := range p.memberRuns {
+		if grant.id == "gge-1" {
+			staleToken = token
+		}
+	}
+	p.revokeMemberRuns(p.runs[run])
+	p.mu.Unlock()
+	if staleToken == "" {
+		t.Fatal("first assignment registered no token")
+	}
+	second, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "私有房间与真机验收"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, ok := p.Task(id)
+	if !ok {
+		t.Fatal("task missing")
+	}
+	if len(task.Members) != 1 {
+		t.Fatalf("members = %d rows, want the stale row reused: %+v", len(task.Members), task.Members)
+	}
+	if task.Members[0].ID != "gge-2" || task.Members[0].Title != "私有房间与真机验收" || task.Members[0].Status != "queued" {
+		t.Fatalf("row = %+v, want the new assignment on the reused row", task.Members[0])
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: staleToken, Seq: 1, Kind: "update", Summary: "stale"}); err == nil {
+		t.Fatal("revoked token still accepted")
+	}
+	if second.TaskID != id {
+		t.Fatalf("second grant task = %q, want %q", second.TaskID, id)
+	}
+}
+
+// Two live members may legitimately share a display name; only a dead row is taken over.
+func TestAssignMemberKeepsLiveRowWithSameName(t *testing.T) {
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "room", LangChinese, nil)
+	id, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: run, Seq: 1, Kind: "start", Title: "task", Summary: "总进度"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "第一件"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "第二件"}); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := p.Task(id)
+	if len(task.Members) != 2 {
+		t.Fatalf("members = %d rows, want both live assignments kept", len(task.Members))
+	}
+}
+
+// A lead turn ending revokes every token, so a finished row has no live grant either.
+// Assigning the same bot again on the card must add a row, not wipe the earlier result.
+func TestAssignMemberKeepsCompletedRowWithSameName(t *testing.T) {
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "room", LangChinese, nil)
+	id, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: run, Seq: 1, Kind: "start", Title: "task", Summary: "总进度"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "第一件"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := progressToken(t, g.ReportCommand)
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: tok, Seq: 1, Kind: "update", Summary: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: tok, Seq: 2, Kind: "result", Summary: "第一次结果"}); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	p.revokeMemberRuns(p.runs[run])
+	p.mu.Unlock()
+	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "第二件"}); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := p.Task(id)
+	if len(task.Members) != 2 {
+		t.Fatalf("members = %d rows, want the completed row kept and a new one added: %+v", len(task.Members), task.Members)
+	}
+	if m := task.Members[0]; m.ID != "gge-1" || m.Status != "completed" || m.Summary != "第一次结果" {
+		t.Fatalf("first row = %+v, want gge-1 completed with its result", m)
+	}
+	if m := task.Members[1]; m.ID != "gge-2" || m.Status != "queued" {
+		t.Fatalf("second row = %+v, want gge-2 queued", m)
+	}
+}
