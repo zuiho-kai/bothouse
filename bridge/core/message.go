@@ -387,6 +387,7 @@ type Message struct {
 	ReplyCtx         any    // platform-specific context needed for replying
 	FromVoice        bool   // true if message originated from voice transcription
 	Mentioned        bool   // maomao fork: user explicitly @-mentioned the bot (input to the gate)
+	Direct           bool   // maomao fork: sent by the user in a private chat with this bot; always addressed, never judged by the gate
 	FromBot          bool   // maomao fork: sent by a teammate bot; without Mentioned it is context only
 	SeenUpToID       string // maomao fork: newest message folded into this one (gate burst), for channel backfill
 	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom

@@ -240,7 +240,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		slog.Info("gate: teammate context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
-	if g == nil || msg.IsPermissionResponse {
+	// maomao fork: in a private chat the user is always talking to this bot (no gate, no
+	// "overheard" context), user 2026-10-23「为什么不能私信啊？好好修一下」.
+	if g == nil || msg.IsPermissionResponse || msg.Direct {
 		if !msg.IsPermissionResponse {
 			e.teamNoteTurn(msg, session)
 		}

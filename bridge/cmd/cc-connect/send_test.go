@@ -348,3 +348,30 @@ func TestBuildSendPayload_JSONRoundTrip(t *testing.T) {
 		t.Fatalf("decoded files = %#v", decoded.Files)
 	}
 }
+
+// `--dm` targets the private chat with the owner; the current channel's CC_SESSION_KEY must not
+// leak in, and the flag reaches the server in the JSON payload.
+func TestParseSendArgs_DM(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CC_PROJECT", "maomao")
+	t.Setenv("CC_SESSION_KEY", "discord:chan:user")
+
+	req, _, err := parseSendArgs([]string{"--dm", "悄悄话"})
+	if err != nil {
+		t.Fatalf("parseSendArgs: %v", err)
+	}
+	if !req.DM || req.SessionKey != "" || req.Project != "maomao" || req.Message != "悄悄话" {
+		t.Fatalf("req = %+v", req)
+	}
+	payload, err := buildSendPayload(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"dm":true`) {
+		t.Fatalf("payload lacks dm flag: %s", payload)
+	}
+
+	if _, _, err := parseSendArgs([]string{"--dm", "-s", "discord:x:y", "hi"}); err == nil {
+		t.Fatal("--dm with --session must be rejected")
+	}
+}
