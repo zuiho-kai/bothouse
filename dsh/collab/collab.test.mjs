@@ -105,17 +105,38 @@ test('mentions: own mention removed, others rewritten, fences ignored, bare name
   assert.equal(forMember('@DeepSeek 叫 <@111>', members[1], members), '@DeepSeek(你) 叫 <@111>');
   assert.equal(forMember('@DeepSeek 你好', members[1], members), '你好');
   assert.equal(forDisplay('<@111> 你好', members), '@橘 你好');
-  // mentions.go nameCalled: only a name that opens a line calls it (#162 review 1).
-  assert.equal(nameCalled('行了橘，你来', '橘'), false);
-  assert.equal(nameCalled('橘，你来', '橘'), true);
-  assert.equal(nameCalled('我觉得橘子好吃', '橘'), false);
-  // What may follow the opening name (#162 review 2; mentions.go callFollows).
-  assert.equal(nameCalled('橘 你看下', '橘'), true);
-  assert.equal(nameCalled('橘', '橘'), true);
-  assert.equal(nameCalled('橘你来', '橘'), true);
-  assert.equal(nameCalled('橘、龙娘，一起看', '橘'), true);
-  assert.equal(nameCalled('橘和龙娘 都来', '橘'), true);
-  assert.equal(nameCalled('橘子和苹果', '橘'), false);
+  // Same cases as bridge/platform/discord/mentions_test.go TestNameCalled; the team list is
+  // passed the way cloudweb.mjs does, so name lists and "和/、/跟/与" behave like Go.
+  const team = ['龙娘', '鲸鱼娘', '彩虹猫'];
+  const cases = [
+    // a line opening with her name: a call
+    ['橘，你看这个', true],
+    ['橘 你看这个', true],
+    ['橘？', true],
+    ['橘', true],
+    ['橘你来定', true],
+    ['Claude橘：你来', true],
+    ['龙娘、橘，你们看看', true],
+    ['龙娘和橘 你们俩对一下', true],
+    ['我算完了\n橘，你核对一下', true], // a later line opening with her name
+    // the name inside a sentence: talk about her
+    ['行了橘，别贫了', false],
+    ['好的，我先等橘回复，这个你怎么看', false],
+    ['收到！橘你先忙', false],
+    ['那橘你呢', false],
+    ['橘说得对', false],
+    ['橘在忙，等她', false],
+    ['跟橘的审美一样圆', false],
+    ['橘子很好吃', false],
+    ['```\n橘，\n```', false], // code block
+    ['龙娘，你来', false],
+    // PR #162 review 2: 和/、 followed by a non-name is not a call
+    ['橘和他说过了', false],
+    ['橘、龙娘说得对', false],
+  ];
+  for (const [text, want] of cases) {
+    assert.equal(nameCalled(text, 'Claude橘', team), want, JSON.stringify(text));
+  }
 });
 
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {

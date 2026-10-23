@@ -206,7 +206,7 @@ export class DshMembers {
     const hit = mentions(msg.text, this.hub.routable());
     const only = this.hub.replyRoute(msg);
     const targets = [...this.config.keys()].filter(id => id !== msg.author && (!target || target === id)
-      && (only !== null ? only.has(id) : hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
+      && (only !== null ? only.has(id) : hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
     if (targets.length === 0) return undefined;
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
       return () => this.hub.post(msg.room_id, {
