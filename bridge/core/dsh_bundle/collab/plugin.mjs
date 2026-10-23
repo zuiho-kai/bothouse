@@ -3,7 +3,7 @@
 //   - insert:
 //       - id: conest-collab
 //         name: /abs/path/dsh/collab/plugin.mjs
-//         config: { dataDir, workspacePath, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay? }
+//         config: { dataDir, workspacePath, leadFile?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay? }
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -18,6 +18,7 @@ import { Tasks } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
+import { LeadState } from './lead-state.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -56,7 +57,9 @@ export function resolveConfig(config, env = process.env) {
   if (!Number.isSafeInteger(maxRelay) || maxRelay < 0) throw Error('conest-collab: maxRelay must be a non-negative integer');
   const botTokenEnv = c.botTokenEnv ?? 'CONEST_COLLAB_BOT_TOKEN';
   const botToken = env[botTokenEnv] ?? '';
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME ?? '.', '.bothouse'), 'lead.json');
+  if (!isAbsolute(leadFile)) throw Error('conest-collab: leadFile must be an absolute path');
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -77,10 +80,11 @@ export async function apply(ctx, rawConfig) {
     store.ensureRoom(room.id, room.name.trim());
     store.ensureRoomSettings(room.id);
   }
-  const hub = new Hub(store, ctx.logger);
+  const leadState = new LeadState(config.leadFile, ctx.logger);
+  const hub = new Hub(store, ctx.logger, leadState);
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
-  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, leadID: () => hub.primaryMember()?.id ?? '' });
+  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, leadID: () => hub.selectedPrimaryMember()?.id ?? '' });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
@@ -169,7 +173,7 @@ export async function apply(ctx, rawConfig) {
         const id = String(body?.lead_id ?? '').trim();
         const member = hub.members.get(id);
         if (member === undefined || member.kind === 'human') throw new CollabError('member-missing', `member ${id} is not a routable role`);
-        store.setPrimaryMember(id);
+        leadState.set(id, member.name);
         hub.emit({ type: 'lead', lead_id: id });
         return { lead_id: id };
       });

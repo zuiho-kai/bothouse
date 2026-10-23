@@ -7,6 +7,7 @@ import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } from './dsh-member.mjs';
 import { resolveConfig } from './plugin.mjs';
+import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
@@ -78,37 +79,46 @@ test('dispatch mode: a workspace inherits its chat channel setting (PR #138 revi
   assert.equal(s.dispatchMode(1), 'team', 'setting a workspace sets its chat channel');
 });
 
-test('store: primary role selection persists in the collab database', () => {
-  const s = new Store(':memory:');
-  assert.equal(s.primaryMember(), undefined);
-  assert.equal(s.setPrimaryMember('whale'), 'whale');
-  assert.equal(s.primaryMember(), 'whale');
-});
-
-test('primary role: fallback and unmentioned messages route to the selected role', async () => {
-  const hub = makeHub();
+test('primary role: shared lead state routes explicitly selected roles and keeps fallback display-only', async () => {
+  const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const leadPath = join(mkdtempSync(join(tmpdir(), 'collab-lead-')), 'lead.json');
+  const leadState = new LeadState(leadPath, quiet);
+  const store = new Store(':memory:');
+  store.ensureRoom(1, 'general');
+  const hub = new Hub(store, quiet, leadState);
+  hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  assert.equal(hub.selectedPrimaryMember(), undefined);
   assert.equal(hub.primaryMember().id, 'ds');
-  hub.store.setPrimaryMember('removed');
+  writeFileSync(leadPath, JSON.stringify({ lead: 'removed' }));
+  assert.equal(hub.selectedPrimaryMember(), undefined);
   assert.equal(hub.primaryMember().id, 'ds');
 
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, leadID: () => hub.primaryMember()?.id ?? '' });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, leadID: () => hub.selectedPrimaryMember()?.id ?? '' });
   const ju = connect(gw, 'bot=ju&name=橘');
 
-  hub.store.setPrimaryMember('ds');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '没有点名的消息', clientKey: 'lead-none' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, 0, 'fallback is display-only before explicit selection');
+
+  leadState.set('ds', 'DeepSeek');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '没有点名的消息', clientKey: 'lead-dsh' });
   await settle();
-  assert.equal(hub.store.openJobs().map(j => j.member_id).join(','), 'ds');
+  assert.equal(hub.store.openJobs().at(-1).member_id, 'ds');
   assert.equal(ju.of('message').at(-1).mentioned, false);
   assert.equal(ju.of('message').at(-1).lead_id, 'ds');
 
-  hub.store.setPrimaryMember('ju');
+  leadState.set('ju', '橘');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '切换后没有点名', clientKey: 'lead-bot' });
   await settle();
   assert.equal(ju.of('message').at(-1).mentioned, true);
   assert.equal(ju.of('message').at(-1).lead_id, 'ju');
+  assert.equal(JSON.parse(readFileSync(leadPath, 'utf8')).lead, 'ju');
 });
 
 test('team exit: forwards asks and returns answers to the recorded workspace', async () => {
@@ -594,8 +604,9 @@ test('turn/end reasons render as kind plus error message', () => {
 test('config: absolute paths, unique member ids, token from env only', () => {
   assert.throws(() => resolveConfig({ dataDir: 'rel', workspacePath: '/w' }), /dataDir/);
   assert.throws(() => resolveConfig({ dataDir: '/d', workspacePath: '/w', dshMembers: [{ id: 'owner', name: 'x' }] }), /unique/);
-  const c = resolveConfig({ dataDir: '/d', workspacePath: '/w', dshMembers: [{ id: 'ds', name: 'DeepSeek' }] }, { CONEST_COLLAB_BOT_TOKEN: 'tok' });
+  const c = resolveConfig({ dataDir: '/d', workspacePath: '/w', dshMembers: [{ id: 'ds', name: 'DeepSeek' }] }, { CONEST_COLLAB_BOT_TOKEN: 'tok', HOME: '/home' });
   assert.equal(c.botToken, 'tok');
+  assert.equal(c.leadFile, '/home/.bothouse/lead.json');
   assert.deepEqual(c.rooms, [{ id: 1, name: 'general' }]);
 });
 

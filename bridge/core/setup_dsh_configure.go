@@ -285,6 +285,15 @@ func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
 	}
 	defer logf.Close()
 	cmd := exec.Command(bin, "--profile", DSHProfile, "--no-open", "--port", "0")
+	dataDir := os.Getenv("BOTHOUSE_DATA_DIR")
+	if dataDir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dataDir = filepath.Join(home, ".bothouse")
+		}
+	}
+	if dataDir != "" {
+		cmd.Env = append(os.Environ(), "BOTHOUSE_DATA_DIR="+dataDir, "CONEST_LEAD_FILE="+filepath.Join(dataDir, "lead.json"), "CONEST_COLLAB_DATA="+filepath.Join(dataDir, "dsh", "collab"))
+	}
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.Stdin = nil
 	if home, err := os.UserHomeDir(); err == nil {

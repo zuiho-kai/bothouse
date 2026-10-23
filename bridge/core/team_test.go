@@ -78,6 +78,35 @@ func TestDynamicTeamLeadFollowsChannelSelection(t *testing.T) {
 	}
 }
 
+func TestSharedLeadSelectionUsesProductDataFile(t *testing.T) {
+	dir := t.TempDir()
+	e := newTestEngine()
+	e.name = "whale"
+	e.dataDir = dir
+	e.team = &teamState{dir: t.TempDir(), name: "鲸鱼娘", inject: true, seen: map[string]*teamSession{}}
+	if !e.isTeamLead() {
+		t.Fatal("configured fallback should remain active before an explicit selection")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":"ju"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e.isTeamLead() {
+		t.Fatal("a selection for another role must disable this role")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":"whale","name":"鲸鱼娘"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !e.isTeamLead() {
+		t.Fatal("a DSH-written shared selection must make bridge role lead")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":""}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !e.isTeamLead() {
+		t.Fatal("an empty selection must fall back to configured lead")
+	}
+}
+
 func TestTeamBlockOnlyWhenBoardChanges(t *testing.T) {
 	dir := t.TempDir()
 	e := newTestEngine()

@@ -214,7 +214,7 @@ export class DshMembers {
     if (mode === 'solo' && msg.author_kind === 'role') return undefined;
     const hit = mentions(msg.text, this.hub.routable());
     const only = this.hub.replyRoute(msg);
-    const leadID = this.hub.primaryMember()?.id;
+    const leadID = this.hub.selectedPrimaryMember()?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
     const targets = [...this.config.keys()].filter(id => id !== msg.author && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));

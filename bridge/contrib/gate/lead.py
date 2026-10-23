@@ -14,9 +14,15 @@
 import json, os, re, threading, time
 from pathlib import Path
 
-_SETUP = Path(os.environ.get("GATE_SETUP_DIR") or Path.home() / ".cc-connect").expanduser()
-# 当前主角色存在这里；gate 每次判定实时读
-LEAD_FILE = Path(os.environ.get("GATE_LEAD_FILE") or _SETUP / "gate-lead.json").expanduser()
+_SETUP_ENV = os.environ.get("GATE_SETUP_DIR")
+_SETUP = Path(_SETUP_ENV or Path.home() / ".cc-connect").expanduser()
+# The bridge and DSH use the product data directory even when no gate is
+# installed. Only an explicit file override may select a different location.
+_PRODUCT_DATA = Path(os.environ.get("BOTHOUSE_DATA_DIR") or Path.home() / ".bothouse").expanduser()
+if os.environ.get("GATE_LEAD_FILE"):
+    LEAD_FILE = Path(os.environ["GATE_LEAD_FILE"]).expanduser()
+else:
+    LEAD_FILE = _PRODUCT_DATA / "lead.json"
 
 KEYS, NAME, ID, ALIASES = [], {}, {}, {}
 _alias, _WHO, PATTERNS = [], "", []

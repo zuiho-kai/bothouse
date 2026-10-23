@@ -31,16 +31,46 @@ const (
 )
 
 type teamState struct {
-	dir       string
-	name      string // display name, e.g. 龙娘
-	inject    bool
-	board     bool // post a live "who is doing what" message per channel (lead only)
+	dir               string
+	name              string // display name, e.g. 龙娘
+	inject            bool
+	board             bool // post a live "who is doing what" message per channel (lead only)
 	boardEnabled      bool
 	workspacesEnabled bool
 	dynamicLead       *bool // nil until a channel host reports its current primary role
-	mu        sync.Mutex
-	seen      map[string]*teamSession // sessionKey → state
-	nextRelay uint64                  // process-local status identity; never a task/run token
+	mu                sync.Mutex
+	seen              map[string]*teamSession // sessionKey → state
+	nextRelay         uint64                  // process-local status identity; never a task/run token
+}
+
+// leadSelection is the small cross-process contract shared by the bridge,
+// DSH collab, and the optional gate. An absent or empty lead means that the
+// configured wizard fallback remains in effect.
+type leadSelection struct {
+	Lead string `json:"lead"`
+}
+
+func (e *Engine) leadStatePath() string {
+	if e.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(e.dataDir, "lead.json")
+}
+
+func (e *Engine) readLeadSelection() (string, bool) {
+	path := e.leadStatePath()
+	if path == "" {
+		return "", false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var selection leadSelection
+	if json.Unmarshal(b, &selection) != nil || strings.TrimSpace(selection.Lead) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(selection.Lead), true
 }
 
 type teamSession struct {
@@ -337,6 +367,11 @@ func (e *Engine) isTeamLead() bool {
 	t := e.team
 	if t == nil {
 		return false
+	}
+	if path := e.leadStatePath(); path != "" {
+		if selected, ok := e.readLeadSelection(); ok {
+			return selected == e.name
+		}
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()

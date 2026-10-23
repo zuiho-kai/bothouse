@@ -115,7 +115,12 @@ func dshLaunch(dshPath string) (cmd string, args []string) {
 // dshRoleLaunch is what the wizard writes for a DSH role: cmd, args and env.
 func dshRoleLaunch(dshPath, dataDir, project, workDir string, p *WizardProvider) (string, []string, map[string]string) {
 	cmd, args := dshLaunch(dshPath)
-	env := map[string]string{"UV_CACHE_DIR": filepath.Join(workDir, ".cache", "uv")}
+	env := map[string]string{
+		"UV_CACHE_DIR":       filepath.Join(workDir, ".cache", "uv"),
+		"CONEST_COLLAB_DATA": filepath.Join(dataDir, "dsh", "collab"),
+		"CONEST_LEAD_FILE":   filepath.Join(dataDir, "lead.json"),
+		"BOTHOUSE_DATA_DIR":  dataDir,
+	}
 	args = append(args, "--patch", DSHPatchPath(dataDir, project))
 	if p != nil {
 		env[DSHKeyEnv] = p.APIKey

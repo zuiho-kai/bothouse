@@ -3102,7 +3102,20 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 	defer e.messageWorkers.Done()
-	if lead, ok := p.(TeamLeadStateProvider); ok {
+	// The product data directory is the single source of truth when it is
+	// configured. Cloud-web still carries lead_id for older peers, but it must
+	// not create a second per-platform primary-role state.
+	if e.leadStatePath() != "" {
+		isLead, known := e.readLeadSelection()
+		if known {
+			e.setDynamicTeamLead(isLead == e.name)
+		} else if e.team != nil {
+			e.team.mu.Lock()
+			fallback := e.team.inject
+			e.team.mu.Unlock()
+			e.setDynamicTeamLead(fallback)
+		}
+	} else if lead, ok := p.(TeamLeadStateProvider); ok {
 		if isLead, known := lead.TeamLeadState(); known {
 			e.setDynamicTeamLead(isLead)
 		}
