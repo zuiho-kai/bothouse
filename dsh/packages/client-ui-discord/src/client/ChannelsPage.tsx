@@ -7,7 +7,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot, ChannelTask } from './channel-source.ts'
+import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { Avatar } from './Avatar.tsx'
@@ -34,8 +35,10 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   return null
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, tasks, focused }: {
   message: ChannelMessage
+  tasks: readonly ChannelTask[]
+  focused: boolean
   member: ChannelMember | undefined
   t: T
   onConfigure: () => void
@@ -45,12 +48,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onMention: (member: ChannelMember) => void
   onDecide: ChannelActions['decidePermission']
 }) {
-  let card: { title?: string; state?: string; action?: string; kind?: string } | undefined
+  let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number } | undefined
   if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
+  const classes = [css.message, message.author_kind === 'system' ? css.system : '', focused ? css.focused : ''].filter(Boolean).join(' ')
   return (
-    <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
+    <div className={classes} data-message-id={message.id}>
       {member === undefined || message.author_kind === 'system'
         ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
         : (
@@ -82,6 +86,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 <div className={css.text}>{message.text}</div>
                 {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
+                {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
               </div>
             )}
       </div>
@@ -214,6 +219,24 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     const log = logRef.current
     if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
   }, [state.messages, state.roomId])
+
+  // Task board link (#139 B): once the target room's messages are in, scroll to and mark the message.
+  const [jump, setJump] = useState<{ roomId: number; messageId: number } | undefined>(undefined)
+  const [focusedId, setFocusedId] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (jump === undefined || jump.roomId !== state.roomId) return
+    const el = logRef.current?.querySelector(`[data-message-id="${jump.messageId}"]`)
+    if (el == null) return
+    stickRef.current = false
+    el.scrollIntoView?.({ block: 'center' })
+    setFocusedId(jump.messageId)
+    setJump(undefined)
+  }, [jump, state.messages, state.roomId])
+  const openMessage = (roomId: number, messageId: number): void => {
+    setDrawer(undefined)
+    setJump({ roomId, messageId })
+    if (roomId !== state.roomId) void selectRoom(roomId)
+  }
 
   if (state.phase !== 'ready') {
     const notice = state.phase === 'unavailable' ? t('unavailable')
@@ -402,6 +425,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   onCloseMenu={() => { setAvatarMenu(undefined) }}
                   onMention={mentionFromAvatar}
                   onDecide={decidePermission}
+                  tasks={state.tasks ?? []}
+                  focused={focusedId === m.id}
                 />
               ))}
         </div>
@@ -478,6 +503,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
+        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} t={t} onOpen={openMessage} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />

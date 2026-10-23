@@ -231,7 +231,7 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   if (!human && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
   const actorOf = body => (human ? OWNER : String(body?.actor ?? ''));
   const id = Number((board ?? one)[1]);
-  if (req.method === 'GET' && board !== null) return withBody(req, res, () => ({ tasks: tasks.list(id) }), false);
+  if (req.method === 'GET' && board !== null) return withBody(req, res, () => ({ tasks: tasks.list(id), chat_id: tasks.chatOf(id) }), false);
   if (req.method === 'GET' && one !== null && one[2] === undefined) {
     return withBody(req, res, () => {
       const t = tasks.task(id);

@@ -89,6 +89,33 @@ export interface ChannelRoom {
   readonly name: string
 }
 
+/** Task statuses (dsh/collab/tasks.mjs STATUS). */
+export type TaskStatus = 'assigned' | 'accepted' | 'asked' | 'declined' | 'escalated' | 'returned' | 'done' | 'rework'
+
+/** One dispatched task (#139 team mode B), as `GET /collab/api/rooms/:id/tasks` serializes it. */
+export interface ChannelTask {
+  readonly id: number
+  /** Room the task was dispatched in (the chat channel or one of its workspaces). */
+  readonly room_id: number
+  readonly parent_task: number | null
+  readonly title: string
+  readonly owner: string
+  readonly owner_name: string
+  readonly created_by: string
+  readonly created_by_name: string
+  readonly status: TaskStatus
+  /** Unix seconds of the pending reminder, or null when none is pending. */
+  readonly next_check_at: number | null
+  /** Dispatch message (or its task record) to jump to. */
+  readonly assign_msg_id: number | null
+  /** Delivery message bound at hand-back. */
+  readonly result_msg_id: number | null
+  readonly note: string | null
+  readonly created_at: number
+  readonly updated_at: number
+  readonly returned_at: number | null
+}
+
 /** Whole panel state; `phase` says whether the service answered. */
 export interface ChannelSnapshot {
   readonly phase: 'idle' | 'loading' | 'ready' | 'unavailable' | 'unauthorized' | 'error'
@@ -100,6 +127,10 @@ export interface ChannelSnapshot {
   readonly thinking: Readonly<Record<string, readonly string[]>>
   /** Selected room's messages, ascending by id. */
   readonly messages: readonly ChannelMessage[]
+  /** Task board of the selected room's chat channel (itself and its workspaces), newest first. */
+  readonly tasks?: readonly ChannelTask[]
+  /** Chat channel the board belongs to. */
+  readonly taskChat?: number
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -146,9 +177,10 @@ type ServiceEvent =
   | { readonly type: 'members'; readonly members: readonly ChannelMember[] }
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
+  | { readonly type: 'task'; readonly task: ChannelTask; readonly chat_id: number }
 
 const INITIAL: ChannelSnapshot = {
-  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [],
+  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], tasks: [], taskChat: undefined,
 }
 
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
@@ -227,6 +259,12 @@ export function createChannelSource(transport: ChannelTransport): {
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
       case 'rooms': return { ...current, rooms: event.rooms }
+      case 'task': {
+        if (event.chat_id !== current.taskChat) return current
+        const rows = new Map((current.tasks ?? []).map(t => [t.id, t]))
+        rows.set(event.task.id, event.task)
+        return { ...current, tasks: [...rows.values()].sort((a, b) => b.id - a.id) }
+      }
       default: return current // Unknown future events leave the snapshot unchanged.
     }
   }
@@ -234,6 +272,30 @@ export function createChannelSource(transport: ChannelTransport): {
   const onEvent = (event: ServiceEvent): void => {
     pending?.events.push(event)
     set(applyEvent(snapshot, event))
+  }
+
+  // The task board is off the critical path: messages render first, and a
+  // collab service without team mode B (404) just leaves the board empty.
+  let boardRead: AbortController | undefined
+  const loadBoard = async (owner: object, roomId: number): Promise<void> => {
+    boardRead?.abort()
+    const read = new AbortController()
+    boardRead = read
+    try {
+      const board = await request<{ chat_id: number; tasks: ChannelTask[] }>(
+        'collab/api/rooms/' + roomId + '/tasks', { signal: read.signal },
+      )
+      if (lifetime !== owner || boardRead !== read || snapshot.roomId !== roomId) return
+      // Task events that arrived while the board was loading are newer than it.
+      const live = snapshot.taskChat === board.chat_id ? snapshot.tasks ?? [] : []
+      const rows = new Map(board.tasks.map(t => [t.id, t]))
+      for (const t of live) if ((rows.get(t.id)?.updated_at ?? -1) <= t.updated_at) rows.set(t.id, t)
+      set({ tasks: [...rows.values()].sort((a, b) => b.id - a.id), taskChat: board.chat_id })
+    } catch (error) {
+      void error // Optional board: a missing or failed read leaves it as it was.
+    } finally {
+      if (boardRead === read) boardRead = undefined
+    }
   }
 
   // A result belongs to one read and one subscription lifetime, even when the
@@ -270,13 +332,16 @@ export function createChannelSource(transport: ChannelTransport): {
           after = next
         }
       }
+      const keepBoard = roomId === previous.roomId
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, messages: rows,
+        tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
       }
       for (const event of read.events) next = applyEvent(next, event)
       pending = undefined
       set(next)
+      if (roomId !== undefined) void loadBoard(owner, roomId)
     } catch (error) {
       if (!current()) return
       pending = undefined
@@ -316,6 +381,8 @@ export function createChannelSource(transport: ChannelTransport): {
     lifetime = undefined
     pending?.controller.abort()
     pending = undefined
+    boardRead?.abort()
+    boardRead = undefined
     if (stream !== undefined) {
       stream.onopen = null
       stream.onmessage = null

@@ -9,6 +9,7 @@ export default {
     include: [
       'dsh/packages/client-ui-discord/tests/channel-source.client.spec.ts',
       'dsh/packages/client-ui-discord/tests/mention-complete.client.spec.ts',
+      'dsh/packages/client-ui-discord/tests/task-board.client.spec.ts',
     ],
   },
 };
