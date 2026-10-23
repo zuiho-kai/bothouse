@@ -7,9 +7,10 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot, RoomMemberEntry } from './channel-source.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
+import { CreateRoomDialog } from './CreateRoomDialog.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -109,49 +110,94 @@ function MessageRow({
   )
 }
 
-function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
+function MemberGroup({
+  title,
+  members,
+  busy,
+  onPick,
+  onEdit,
+  onRemove,
+  t,
+  onAddToRoom,
+  onRemoveFromRoom,
+  roomRole,
+}: {
   title: string
   members: readonly ChannelMember[]
   busy: ReadonlySet<string>
   onPick: (member: ChannelMember) => void
-  onEdit: (member: ChannelMember) => void
-  onRemove: (member: ChannelMember) => void
+  onEdit?: (member: ChannelMember) => void
+  onRemove?: (member: ChannelMember) => void
   t: T
+  onAddToRoom?: (member: ChannelMember) => void
+  onRemoveFromRoom?: (member: ChannelMember) => void
+  roomRole?: (member: ChannelMember) => 'owner' | 'member' | undefined
 }) {
   if (members.length === 0) return null
   return (
     <>
       <h3 className={css.groupTitle}>{title}</h3>
-      {members.map(m => (
-        <div key={m.id} className={m.online ? css.memberRow : `${css.memberRow} ${css.offline}`}>
-          <button
-            type="button"
-            className={css.member}
-            title={t('mentionPick', { name: m.name })}
-            onClick={() => { onPick(m) }}
-          >
-            <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} small />
-              <span className={css.presence} />
-            </span>
-            <span className={css.memberText}>
-              <span className={css.memberName}>{m.name}<KindTag kind={m.kind} t={t} /></span>
-              <span className={css.memberStatus}>{busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
-              {m.kind === 'dsh' && (
-                <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
-              )}
-            </span>
-          </button>
-          {m.kind === 'dsh' && (m.editable === true
-            ? (
-                <span className={css.memberActions}>
-                  <button type="button" className={css.linkButton} onClick={() => { onEdit(m) }}>{t('editMember')}</button>
-                  <button type="button" className={css.linkButton} onClick={() => { onRemove(m) }}>{t('removeMember')}</button>
-                </span>
-              )
-            : <span className={css.memberActions} title={t('configMember')}>⚙</span>)}
-        </div>
-      ))}
+      {members.map(m => {
+        const role = roomRole ? roomRole(m) : undefined
+        return (
+          <div key={m.id} className={m.online ? css.memberRow : `${css.memberRow} ${css.offline}`}>
+            <button
+              type="button"
+              className={css.member}
+              title={t('mentionPick', { name: m.name })}
+              onClick={() => { onPick(m) }}
+            >
+              <span className={css.memberAvatar}>
+                <Avatar id={m.id} name={m.name} small />
+                <span className={css.presence} />
+              </span>
+              <span className={css.memberText}>
+                <span className={css.memberName}>{m.name}<KindTag kind={m.kind} t={t} /></span>
+                <span className={css.memberStatus}>{busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
+                {m.kind === 'dsh' && (
+                  <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
+                )}
+              </span>
+            </button>
+            {onAddToRoom !== undefined && (
+              <span className={css.memberActionsAlways}>
+                <button
+                  type="button"
+                  className={css.actionButton}
+                  title={t('addToRoom')}
+                  onClick={() => { onAddToRoom(m) }}
+                >
+                  + {t('addToRoom')}
+                </button>
+              </span>
+            )}
+            {onRemoveFromRoom !== undefined && (
+              <span className={css.memberActionsAlways}>
+                {role === 'owner' || m.id === 'owner' ? (
+                  <span className={css.ownerBadge} title={t('cannotRemoveOwner')}>{t('roomOwner')}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={`${css.actionButton} ${css.removeButton}`}
+                    title={t('removeFromRoom')}
+                    onClick={() => { onRemoveFromRoom(m) }}
+                  >
+                    {t('removeFromRoom')}
+                  </button>
+                )}
+              </span>
+            )}
+            {onAddToRoom === undefined && onRemoveFromRoom === undefined && m.kind === 'dsh' && (m.editable === true
+              ? (
+                  <span className={css.memberActions}>
+                    <button type="button" className={css.linkButton} onClick={() => { onEdit?.(m) }}>{t('editMember')}</button>
+                    <button type="button" className={css.linkButton} onClick={() => { onRemove?.(m) }}>{t('removeMember')}</button>
+                  </span>
+                )
+              : <span className={css.memberActions} title={t('configMember')}>⚙</span>)}
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -162,7 +208,8 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @returns the three-column channel view.
  */
 export function ChannelsPage({
-  useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, stopRoom, continueRoom, t,
+  useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, stopRoom, continueRoom,
+  getRoomMembers, addRoomMember, removeRoomMember, t,
 }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
@@ -188,7 +235,8 @@ export function ChannelsPage({
   const pendingCaret = useRef<number | undefined>(undefined)
   // Member dialog: undefined closed, null adding, a member editing.
   const [dialog, setDialog] = useState<ChannelMember | null | undefined>(undefined)
-  const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
+  const [createRoomOpen, setCreateRoomOpen] = useState(false)
+  const [roomMembers, setRoomMembers] = useState<readonly RoomMemberEntry[]>([])
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
 
@@ -206,6 +254,22 @@ export function ChannelsPage({
     const log = logRef.current
     if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
   }, [state.messages, state.roomId])
+
+  const currentRoom = state.rooms.find(r => r.id === state.roomId)
+  useEffect(() => {
+    const rid = state.roomId
+    if (state.phase === 'ready' && rid !== undefined && currentRoom?.visibility === 'private' && typeof getRoomMembers === 'function') {
+      let cancelled = false
+      getRoomMembers(rid).then(entries => {
+        if (!cancelled) setRoomMembers(entries)
+      }).catch((err: unknown) => {
+        if (!cancelled) setMemberError(err instanceof Error ? err.message : String(err))
+      })
+      return () => { cancelled = true }
+    } else {
+      setRoomMembers([])
+    }
+  }, [state.phase, state.roomId, currentRoom?.visibility, getRoomMembers])
 
   if (state.phase !== 'ready') {
     const notice = state.phase === 'unavailable' ? t('unavailable')
@@ -244,12 +308,71 @@ export function ChannelsPage({
     setDraft(next.text, next.caret)
   }
 
-  const submitRoom = (): void => {
-    const name = (newRoom ?? '').trim()
-    if (!name) { setNewRoom(undefined); return }
+  const handleCreateRoom = async (name: string, visibility: 'public' | 'private', initialMembers?: readonly string[]): Promise<void> => {
     setRoomError(undefined)
-    createRoom(name).then(() => { setNewRoom(undefined) }).catch((error: unknown) => {
-      setRoomError(error instanceof Error ? error.message : String(error))
+    if (visibility === 'private' || (initialMembers && initialMembers.length > 0)) {
+      await createRoom(name, visibility, initialMembers)
+    } else {
+      await createRoom(name)
+    }
+  }
+
+  const roomMemberIdSet = new Set(roomMembers.map(m => m.member_id))
+  if (room?.visibility === 'private') {
+    roomMemberIdSet.add('owner')
+  }
+  const roomRoleMap = new Map<string, 'owner' | 'member'>()
+  for (const entry of roomMembers) {
+    roomRoleMap.set(entry.member_id, entry.role)
+  }
+  roomRoleMap.set('owner', 'owner')
+
+  const roomMembersList: ChannelMember[] = []
+  const availableMembersList: ChannelMember[] = []
+
+  for (const m of state.members) {
+    if (roomMemberIdSet.has(m.id)) {
+      roomMembersList.push(m)
+    } else {
+      availableMembersList.push(m)
+    }
+  }
+
+  roomMembersList.sort((a, b) => {
+    if (a.id === 'owner') return -1
+    if (b.id === 'owner') return 1
+    return 0
+  })
+
+  const handleAddToRoom = (member: ChannelMember): void => {
+    const rid = state.roomId
+    if (rid === undefined || typeof addRoomMember !== 'function') return
+    setMemberError(undefined)
+    addRoomMember(rid, member.id).then(() => {
+      if (typeof getRoomMembers === 'function') {
+        return getRoomMembers(rid).then(setRoomMembers)
+      } else {
+        setRoomMembers(prev => [...prev, { member_id: member.id, role: 'member' }])
+      }
+    }).catch((error: unknown) => {
+      setMemberError(error instanceof Error ? error.message : String(error))
+    })
+  }
+
+  const handleRemoveFromRoom = (member: ChannelMember): void => {
+    const rid = state.roomId
+    if (rid === undefined || typeof removeRoomMember !== 'function') return
+    if (member.id === 'owner' || roomRoleMap.get(member.id) === 'owner') return
+    if (!window.confirm(t('removeFromRoomConfirm', { name: member.name }))) return
+    setMemberError(undefined)
+    removeRoomMember(rid, member.id).then(() => {
+      if (typeof getRoomMembers === 'function') {
+        return getRoomMembers(rid).then(setRoomMembers)
+      } else {
+        setRoomMembers(prev => prev.filter(m => m.member_id !== member.id))
+      }
+    }).catch((error: unknown) => {
+      setMemberError(error instanceof Error ? error.message : String(error))
     })
   }
 
@@ -377,24 +500,16 @@ export function ChannelsPage({
       <nav className={css.rooms} aria-label={t('rooms')}>
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
-          <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
-        </div>
-        {newRoom !== undefined && (
-          <input
-            className={css.roomInput}
-            autoFocus
-            value={newRoom}
-            maxLength={32}
-            placeholder={t('newRoomPlaceholder')}
+          <button
+            type="button"
+            className={css.iconButton}
+            title={t('newRoom')}
             aria-label={t('newRoom')}
-            onChange={(event) => { setNewRoom(event.target.value) }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); submitRoom() }
-              if (event.key === 'Escape') { setNewRoom(undefined); setRoomError(undefined) }
-            }}
-            onBlur={() => { if ((newRoom ?? '').trim() === '') setNewRoom(undefined) }}
-          />
-        )}
+            onClick={() => { setCreateRoomOpen(true); setRoomError(undefined) }}
+          >
+            +
+          </button>
+        </div>
         {roomError !== undefined && <div className={css.sendError} role="alert">{roomError}</div>}
         {state.rooms.map(r => (
           <button
@@ -404,14 +519,25 @@ export function ChannelsPage({
             aria-current={r.id === state.roomId}
             onClick={() => { stickRef.current = true; void selectRoom(r.id) }}
           >
-            <span className={css.hash} aria-hidden>#</span>{r.name}
+            <span className={css.hash} aria-hidden>#</span>
+            {r.visibility === 'private' && (
+              <span className={css.lockIcon} title={t('privateBadge')} aria-label={t('privateBadge')}>🔒</span>
+            )}
+            {r.name}
           </button>
         ))}
       </nav>
       <section className={css.chat}>
         <header className={css.chatHead}>
           <div className={css.chatHeadTitle}>
-            <span className={css.hash} aria-hidden>#</span>{room?.name}
+            <span className={css.hash} aria-hidden>#</span>
+            {room?.visibility === 'private' && (
+              <span className={css.headerLock} title={t('privateBadge')} aria-label={t('privateBadge')}>🔒</span>
+            )}
+            {room?.name}
+            {room?.visibility === 'private' && (
+              <span className={css.privateBadge}>{t('privateBadge')}</span>
+            )}
           </div>
           {state.roomId !== undefined && (
             <div className={css.chatHeadActions}>
@@ -546,8 +672,32 @@ export function ChannelsPage({
       <aside className={css.members}>
         <button type="button" className={css.addMemberButton} onClick={() => { setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
-        <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
-        <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
+        {room?.visibility === 'private' ? (
+          <>
+            <MemberGroup
+              title={t('inThisRoom', { count: String(roomMembersList.length) })}
+              members={roomMembersList}
+              busy={busy}
+              onPick={pickFromList}
+              onRemoveFromRoom={handleRemoveFromRoom}
+              roomRole={m => roomRoleMap.get(m.id)}
+              t={t}
+            />
+            <MemberGroup
+              title={t('availableMembers', { count: String(availableMembersList.length) })}
+              members={availableMembersList}
+              busy={busy}
+              onPick={pickFromList}
+              onAddToRoom={handleAddToRoom}
+              t={t}
+            />
+          </>
+        ) : (
+          <>
+            <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
+            <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
+          </>
+        )}
       </aside>
       {dialog !== undefined && (
         <MemberDialog
@@ -555,6 +705,14 @@ export function ChannelsPage({
           listModels={listModels}
           onSubmit={input => (dialog === null ? addMember(input) : updateMember(dialog.id, input))}
           onClose={() => { setDialog(undefined) }}
+          t={t}
+        />
+      )}
+      {createRoomOpen && (
+        <CreateRoomDialog
+          members={state.members}
+          onSubmit={handleCreateRoom}
+          onClose={() => { setCreateRoomOpen(false) }}
           t={t}
         />
       )}
