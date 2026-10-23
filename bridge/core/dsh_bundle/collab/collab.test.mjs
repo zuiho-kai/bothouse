@@ -105,8 +105,17 @@ test('mentions: own mention removed, others rewritten, fences ignored, bare name
   assert.equal(forMember('@DeepSeek 叫 <@111>', members[1], members), '@DeepSeek(你) 叫 <@111>');
   assert.equal(forMember('@DeepSeek 你好', members[1], members), '你好');
   assert.equal(forDisplay('<@111> 你好', members), '@橘 你好');
-  assert.equal(nameCalled('行了橘，你来', '橘'), true);
+  // mentions.go nameCalled: only a name that opens a line calls it (#162 review 1).
+  assert.equal(nameCalled('行了橘，你来', '橘'), false);
+  assert.equal(nameCalled('橘，你来', '橘'), true);
   assert.equal(nameCalled('我觉得橘子好吃', '橘'), false);
+  // What may follow the opening name (#162 review 2; mentions.go callFollows).
+  assert.equal(nameCalled('橘 你看下', '橘'), true);
+  assert.equal(nameCalled('橘', '橘'), true);
+  assert.equal(nameCalled('橘你来', '橘'), true);
+  assert.equal(nameCalled('橘、龙娘，一起看', '橘'), true);
+  assert.equal(nameCalled('橘和龙娘 都来', '橘'), true);
+  assert.equal(nameCalled('橘子和苹果', '橘'), false);
 });
 
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {

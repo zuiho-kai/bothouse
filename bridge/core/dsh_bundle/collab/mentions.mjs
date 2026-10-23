@@ -87,15 +87,42 @@ export function nameCalled(text, name) {
 }
 
 function called(text, name) {
+  // Same rule as bridge/platform/discord/mentions.go nameCalled: only names that open a
+  // line call members, and a line opening "龙娘、橘，…" calls both. What follows the last
+  // opening name decides it (callFollows).
+  const TRIM = /^[ \t，,、和跟与/]+/;
   for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    let i = line.indexOf(name);
-    while (i >= 0) {
-      const rest = line.slice(i + name.length);
-      if (rest[0] !== undefined && CALL_PUNCT.includes(rest[0])) return true;
-      if (i === 0 && (rest === '' || /^\s/.test(rest))) return true;
-      i = line.indexOf(name, i + name.length);
+    let rest = raw.trim();
+    let sep = '';
+    let me = false;
+    for (;;) {
+      if (rest.startsWith(name)) {
+        me = true;
+        const after = rest.slice(name.length);
+        const trimmed = after.replace(TRIM, '');
+        sep += after.slice(0, after.length - trimmed.length);
+        rest = trimmed;
+        continue;
+      }
+      // "橘和龙娘 …": the connector ended a name, so this token is another name.
+      if (me && /[和跟与]$/.test(sep) && rest !== '') {
+        rest = rest.replace(/^[^ \t，,、]+/, '').replace(TRIM, '');
+        continue;
+      }
+      break;
     }
+    if (me && callFollows(rest, sep)) return true;
   }
   return false;
+}
+
+/** Calling words: "龙娘你看下" still calls her (mentions.go callWords). */
+const CALL_WORDS = ['你', '帮', '来', '看', '快', '给', '过来', '出来', '有空'];
+/** Vocative punctuation right after the name (mentions.go callFollows). */
+const CALL_PUNCT_LEAD = ':：!！?？~～.。';
+
+function callFollows(rest, sep) {
+  if (rest === '' || /[ \t，,、]/.test(sep)) return true;
+  if (CALL_PUNCT_LEAD.includes(rest[0])) return true;
+  return CALL_WORDS.some(w => rest.startsWith(w));
 }
