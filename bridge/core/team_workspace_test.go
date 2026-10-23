@@ -19,16 +19,17 @@ import (
 // fakeWorkspaceGuild is an in-memory Discord guild; no network.
 type fakeWorkspaceGuild struct {
 	stubPlatformEngine
-	mu        sync.Mutex
-	channels  []TeamChannel
-	nonText   map[string]bool // DMs, threads
-	offline   bool
-	created   []TeamChannel
-	nextID    int
-	listCalls int
-	createErr error         // returned by every create when set
-	block     chan struct{} // create waits for it when set
-	creating  chan struct{} // closed when a create starts waiting on block
+	mu          sync.Mutex
+	channels    []TeamChannel
+	nonText     map[string]bool // DMs, threads
+	offline     bool
+	created     []TeamChannel
+	nextID      int
+	listCalls   int
+	createCalls int
+	createErr   error         // returned by every create when set
+	block       chan struct{} // create waits for it when set
+	creating    chan struct{} // closed when a create starts waiting on block
 }
 
 func (g *fakeWorkspaceGuild) TeamGuildChannels(_ context.Context, id string) (TeamChannel, []TeamChannel, error) {
@@ -56,6 +57,7 @@ func (g *fakeWorkspaceGuild) CreateTeamWorkspaceChannel(_ context.Context, besid
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.createCalls++
 	if g.createErr != nil {
 		return TeamChannel{}, g.createErr
 	}
@@ -104,11 +106,11 @@ func newWorkspaceLead(t *testing.T, g *fakeWorkspaceGuild, dataDir string) *Engi
 	return e
 }
 
-func fastWorkspaceRetry(t *testing.T) {
-	t.Helper()
-	tries, every := teamWorkspaceStartTries, teamWorkspaceStartEvery
-	teamWorkspaceStartTries, teamWorkspaceStartEvery = 50, 5*time.Millisecond
-	t.Cleanup(func() { teamWorkspaceStartTries, teamWorkspaceStartEvery = tries, every })
+// ensureWorkspace1 reconciles chat and creates or adopts its 「工作区1」 if missing (the
+// planning step of the first "new"), for tests that set up a chat with one workspace.
+func ensureWorkspace1(e *Engine, chat string) error {
+	_, _, err := e.teamWorkspaceOp(chat, false)
+	return err
 }
 
 // forgetWorkspaceCache makes the next read come from disk, as after a restart.
@@ -118,56 +120,41 @@ func forgetWorkspaceCache(dataDir string) {
 	teamWorkspaceStore.mu.Unlock()
 }
 
-func TestTeamWorkspacesBackfillAtStart(t *testing.T) {
-	fastWorkspaceRetry(t)
+// User 2026-10-24「先不用，干活了再建」: turning workspaces on and the lead seeing a channel
+// create nothing; the first "new" (the first hand-off) makes 「工作区1」 or adopts an unclaimed one.
+func TestTeamWorkspacesOnlyOnFirstNew(t *testing.T) {
 	g := newWorkspaceGuild()
-	g.offline = true // platform still connecting when the backfill starts
 	dataDir := t.TempDir()
 	e := newWorkspaceLead(t, g, dataDir)
-	for _, k := range []string{"discord:100:u1", "discord:100:u2", "discord:200", "discord:201", "discord:900", "telegram:5"} {
+	for _, k := range []string{"discord:100:u1", "discord:200", "discord:900"} {
 		e.sessions.GetOrCreateActive(k)
 	}
 	e.SetTeamWorkspaces(true)
+	e.teamNoteTurn(&Message{SessionKey: "discord:100:u1", Content: "hi"}, nil)
 	time.Sleep(20 * time.Millisecond)
 	g.mu.Lock()
-	g.offline = false
+	calls := g.listCalls
 	g.mu.Unlock()
-	waitFor(t, "工作区1 of 100", func() bool { return len(e.TeamWorkspacesOf("100")) == 1 })
-	waitFor(t, "adopted 工作区1 of 200", func() bool { return len(e.TeamWorkspacesOf("200")) == 1 })
-
-	// Only #100 lacked one; #200's existing 工作区1 is adopted, the workspace itself and the DM get none.
+	if calls != 0 || len(g.createdNames()) != 0 || len(e.TeamWorkspacesOf("100")) != 0 {
+		t.Fatalf("before any new: %d platform calls, created %v", calls, g.createdNames())
+	}
+	if _, w, err := e.NewTeamWorkspace("discord:100:u1"); err != nil || w.Name != "工作区1" {
+		t.Fatalf("first new in #100 = %+v %v", w, err)
+	}
+	// #200 has an unclaimed 工作区1 (201) in its category: the first new adopts it.
+	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "201" {
+		t.Fatalf("first new in #200 = %+v %v, want adopted 201", w, err)
+	}
 	if got := g.createdNames(); len(got) != 1 || got[0] != "catA/工作区1" {
 		t.Fatalf("created = %v, want [catA/工作区1]", got)
 	}
-	if w := e.TeamWorkspacesOf("discord:200"); w[0].ID != "201" {
-		t.Fatalf("200 workspaces = %+v, want adopted 201", w)
-	}
-	if w := e.TeamWorkspacesOf("201"); len(w) != 0 {
-		t.Fatalf("a workspace must not get its own workspace: %+v", w)
-	}
-}
-
-func TestTeamWorkspacesExistingSkippedAfterRestart(t *testing.T) {
-	fastWorkspaceRetry(t)
-	g := newWorkspaceGuild()
-	dataDir := t.TempDir()
-	e := newWorkspaceLead(t, g, dataDir)
-	e.sessions.GetOrCreateActive("discord:100:u1")
-	e.SetTeamWorkspaces(true)
-	waitFor(t, "first backfill", func() bool { return len(e.TeamWorkspacesOf("100")) == 1 })
+	// After a restart the recorded 工作区1 is kept; the next new is 工作区2.
 	e.cancel()
-
 	forgetWorkspaceCache(dataDir)
 	e2 := newWorkspaceLead(t, g, dataDir)
-	e2.sessions.GetOrCreateActive("discord:100:u1")
 	e2.SetTeamWorkspaces(true)
-	waitFor(t, "second backfill", func() bool {
-		e2.teamWS.mu.Lock()
-		defer e2.teamWS.mu.Unlock()
-		return e2.teamWS.seen["discord:100"]
-	})
-	if got := g.createdNames(); len(got) != 1 {
-		t.Fatalf("restart must not create again, created = %v", got)
+	if _, w, err := e2.NewTeamWorkspace("discord:100"); err != nil || w.Name != "工作区2" {
+		t.Fatalf("new after restart = %+v %v", w, err)
 	}
 }
 
@@ -175,7 +162,7 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	g := newWorkspaceGuild()
 	dataDir := t.TempDir()
 	e := newWorkspaceLead(t, g, dataDir)
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}} // on, without the backfill goroutine
+	e.teamWS = newTeamWorkspaces() // on, without the backfill goroutine
 	e.sessions.GetOrCreateActive("discord:100:u1")
 	e.sessions.GetOrCreateActive("discord:200")
 
@@ -192,7 +179,10 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	if err != nil || parent != "discord:100" || w3.Name != "工作区3" {
 		t.Fatalf("new from workspace = %q %+v %v", parent, w3, err)
 	}
-	// #200 adopts 工作区1 and numbers past 工作区5 already in its category.
+	// #200: the first new adopts the unclaimed 工作区1, the next numbers past 工作区5 already in its category.
+	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "201" {
+		t.Fatalf("first new in #200 = %+v %v, want adopted 201", w, err)
+	}
 	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.Name != "工作区6" {
 		t.Fatalf("new in #200 = %+v %v", w, err)
 	}
@@ -208,7 +198,7 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 		}
 	}
 	g.mu.Unlock()
-	if err := e.ensureTeamWorkspace("discord:100"); err != nil {
+	if err := ensureWorkspace1(e, "discord:100"); err != nil {
 		t.Fatal(err)
 	}
 	names := map[string]bool{}
@@ -224,7 +214,7 @@ func TestWorkspaceParentPersisted(t *testing.T) {
 	g := newWorkspaceGuild()
 	dataDir := t.TempDir()
 	e := newWorkspaceLead(t, g, dataDir)
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:100")
 	_, w, err := e.NewTeamWorkspace("discord:100")
 	if err != nil {
@@ -265,22 +255,20 @@ func TestTeamWorkspacesLeadOnlyAndNewChannel(t *testing.T) {
 		t.Fatal("NewTeamWorkspace must fail when off")
 	}
 
-	// The lead sees a channel for the first time: 工作区1 is made for it.
+	// The lead seeing a channel creates nothing (user「先不用，干活了再建」).
 	e := newWorkspaceLead(t, g, t.TempDir())
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.teamWS = newTeamWorkspaces()
 	e.teamNoteTurn(&Message{SessionKey: "discord:100:u1", Content: "hi"}, nil)
-	waitFor(t, "工作区1 for a new channel", func() bool { return len(e.TeamWorkspacesOf("100")) == 1 })
-	e.teamNoteTurn(&Message{SessionKey: "discord:100:u2", Content: "again"}, nil)
 	time.Sleep(20 * time.Millisecond)
-	if got := g.createdNames(); len(got) != 1 {
-		t.Fatalf("created = %v", got)
+	if got := g.createdNames(); len(got) != 0 {
+		t.Fatalf("created = %v, want none", got)
 	}
 }
 
 func TestTeamWorkspaceAPI(t *testing.T) {
 	g := newWorkspaceGuild()
 	e := newWorkspaceLead(t, g, t.TempDir())
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:100:u1")
 	sub := NewEngine("sub", &stubAgent{}, nil, "", LangEnglish)
 	t.Cleanup(sub.cancel)
@@ -323,10 +311,10 @@ func TestTeamWorkspacesSecondChatInCategoryPrefixed(t *testing.T) {
 	e.SetTeamWorkspaces(true)
 
 	// #200 adopts the plain 工作区1 first.
-	if err := e.ensureTeamWorkspace("discord:200"); err != nil {
+	if err := ensureWorkspace1(e, "discord:200"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.ensureTeamWorkspace("discord:300"); err != nil {
+	if err := ensureWorkspace1(e, "discord:300"); err != nil {
 		t.Fatal(err)
 	}
 	if w := e.TeamWorkspacesOf("300"); len(w) != 1 || w[0].Name != "闲聊-工作区1" {
@@ -354,9 +342,9 @@ func TestTeamWorkspacesSecondChatInCategoryPrefixed(t *testing.T) {
 func TestWorkspaceParentNotBlockedByCreate(t *testing.T) {
 	g := newWorkspaceGuild()
 	e := newWorkspaceLead(t, g, t.TempDir())
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:200")
-	if err := e.ensureTeamWorkspace("discord:200"); err != nil { // adopts 201, no create
+	if err := ensureWorkspace1(e, "discord:200"); err != nil { // adopts 201, no create
 		t.Fatal(err)
 	}
 	g.block, g.creating = make(chan struct{}), make(chan struct{})
@@ -382,32 +370,53 @@ func TestWorkspaceParentNotBlockedByCreate(t *testing.T) {
 	}
 }
 
-// Review item 2: a permanent failure (Discord 403) is not retried on every message.
-func TestTeamWorkspacePermanentFailureNotRetried(t *testing.T) {
+// Review of PR #139 item 2: one operation per chat at a time, and a permanent failure (Discord
+// 403, Feishu without im:chat) is not retried until restart, so the platform's failure note
+// in the chat (Feishu) goes out once.
+func TestTeamWorkspacePermanentFailureOnce(t *testing.T) {
 	g := newWorkspaceGuild()
-	g.createErr = fmt.Errorf("%w: HTTP 403 Missing Permissions", ErrTeamWorkspacePermanent)
+	g.createErr = fmt.Errorf("%w: no im:chat", ErrTeamWorkspacePermanent)
+	g.block, g.creating = make(chan struct{}), make(chan struct{})
 	e := newWorkspaceLead(t, g, t.TempDir())
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
-	if err := e.ensureTeamWorkspace("discord:100"); err != nil {
-		t.Fatalf("permanent failure must count as done: %v", err)
+	e.teamWS = newTeamWorkspaces()
+	e.sessions.GetOrCreateActive("discord:100:u1")
+	first := make(chan error, 1)
+	go func() { _, _, err := e.NewTeamWorkspace("discord:100:u1"); first <- err }()
+	<-g.creating
+	if _, _, err := e.NewTeamWorkspace("discord:100:u2"); !errors.Is(err, ErrTeamWorkspaceBusy) {
+		t.Fatalf("concurrent new = %v, want ErrTeamWorkspaceBusy", err)
+	}
+	close(g.block)
+	if err := <-first; !errors.Is(err, ErrTeamWorkspacePermanent) {
+		t.Fatalf("first new = %v, want permanent", err)
 	}
 	g.mu.Lock()
-	calls := g.listCalls
+	g.block = nil
 	g.mu.Unlock()
 	for i := 0; i < 3; i++ {
-		e.teamWorkspaceNoteChat("discord:100:u1")
+		if _, _, err := e.NewTeamWorkspace("discord:100"); !errors.Is(err, ErrTeamWorkspacePermanent) {
+			t.Fatalf("new after permanent = %v", err)
+		}
 	}
-	time.Sleep(20 * time.Millisecond)
 	g.mu.Lock()
-	after := g.listCalls
-	g.offline = true
+	creates := g.createCalls
 	g.mu.Unlock()
-	if after != calls {
-		t.Fatalf("requests after 403: %d, want none", after-calls)
+	if creates != 1 {
+		t.Fatalf("create calls = %d, want 1 (one failure note)", creates)
 	}
-	// A retryable error (not connected yet) still counts as pending.
-	if err := e.ensureTeamWorkspace("discord:200"); err == nil {
-		t.Fatal("retryable error must stay pending")
+	// A retryable error (not connected yet) is not remembered.
+	g.mu.Lock()
+	g.offline, g.createErr = true, nil
+	g.mu.Unlock()
+	e.sessions.GetOrCreateActive("discord:200")
+	if _, _, err := e.NewTeamWorkspace("discord:200"); err == nil {
+		t.Fatal("offline must fail")
+	}
+	g.mu.Lock()
+	g.offline = false
+	g.mu.Unlock()
+	if _, _, err := e.NewTeamWorkspace("discord:200"); err != nil {
+		t.Fatalf("after reconnect: %v", err)
 	}
 }
 
@@ -415,7 +424,7 @@ func TestTeamWorkspacePermanentFailureNotRetried(t *testing.T) {
 func TestNewTeamWorkspaceOnlyLeadDiscordChats(t *testing.T) {
 	g := newWorkspaceGuild()
 	e := newWorkspaceLead(t, g, t.TempDir())
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("telegram:100")
 	for _, key := range []string{"telegram:100", "100", "discord:100"} {
 		if _, _, err := e.NewTeamWorkspace(key); !errors.Is(err, ErrTeamWorkspaceNotLeadChat) {
@@ -445,7 +454,7 @@ func TestTeamWorkspacesPerPlatform(t *testing.T) {
 	t.Cleanup(e.cancel)
 	e.SetDataDir(dataDir)
 	e.SetTeam(t.TempDir(), "橘", true)
-	e.teamWS = &teamWorkspaces{seen: map[string]bool{}}
+	e.teamWS = newTeamWorkspaces()
 	for _, k := range []string{"discord:100:u1", "feishu:100:ou_1", "feishu:oc_p2p:ou_1", "telegram:5:u"} {
 		e.sessions.GetOrCreateActive(k)
 	}
@@ -454,7 +463,7 @@ func TestTeamWorkspacesPerPlatform(t *testing.T) {
 		t.Fatalf("lead chats = %v, want discord:100, feishu:100, feishu:oc_p2p", got)
 	}
 	for _, c := range got {
-		if err := e.ensureTeamWorkspace(c); err != nil {
+		if err := ensureWorkspace1(e, c); err != nil && !errors.Is(err, ErrNotTeamChannel) {
 			t.Fatalf("ensure %s: %v", c, err)
 		}
 	}

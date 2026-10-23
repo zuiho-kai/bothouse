@@ -28,6 +28,7 @@ type gatewayTransport struct {
 
 	mu        sync.RWMutex
 	caps      map[string]bool
+	capsKnown bool // the gateway has told its capabilities (register or capabilities_changed)
 	client    *http.Client
 	server    *http.Server
 	listener  net.Listener
@@ -75,7 +76,15 @@ func (t *gatewayTransport) Capabilities() map[string]bool {
 func (t *gatewayTransport) setCaps(caps map[string]bool) {
 	t.mu.Lock()
 	t.caps = caps
+	t.capsKnown = true
 	t.mu.Unlock()
+}
+
+// CapabilitiesKnown: false until the gateway has told its capabilities.
+func (t *gatewayTransport) CapabilitiesKnown() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.capsKnown
 }
 
 func (t *gatewayTransport) Start(ctx context.Context, onInbound inboundHandler) error {

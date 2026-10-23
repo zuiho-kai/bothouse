@@ -12,19 +12,21 @@ import (
 
 // workspaceGateway answers team_workspace frames like dsh/collab: rooms with a parent.
 type workspaceGateway struct {
-	mu     sync.Mutex
-	p      *Platform
-	caps   map[string]bool
-	errOut string            // ack error for every request when set
-	parent map[string]string // room id → parent room id ("" = chat room)
-	names  map[string]string
-	frames []map[string]any
-	next   int
+	mu      sync.Mutex
+	p       *Platform
+	caps    map[string]bool
+	unknown bool              // capabilities not told yet (not registered)
+	errOut  string            // ack error for every request when set
+	parent  map[string]string // room id → parent room id ("" = chat room)
+	names   map[string]string
+	frames  []map[string]any
+	next    int
 }
 
 func (g *workspaceGateway) Start(context.Context, inboundHandler) error { return nil }
 func (g *workspaceGateway) Stop() error                                 { return nil }
 func (g *workspaceGateway) Capabilities() map[string]bool               { return g.caps }
+func (g *workspaceGateway) CapabilitiesKnown() bool                     { return !g.unknown }
 
 func (g *workspaceGateway) Send(_ context.Context, msg map[string]any) error {
 	g.mu.Lock()
@@ -98,6 +100,34 @@ func TestCloudWebTeamWorkspaceNeedsCapability(t *testing.T) {
 	}
 	if defaultCapabilities()[capTeamWorkspace] {
 		t.Fatal("team_workspace must not be assumed for gateways that list no capabilities")
+	}
+}
+
+// Review of PR #139 item 3: before the gateway has told its capabilities (register failed,
+// collab started later) the error is retryable, not "cannot have workspaces".
+func TestCloudWebTeamWorkspaceUnknownCapsRetryable(t *testing.T) {
+	p, g := newWorkspaceGateway()
+	g.unknown = true
+	_, _, err := p.TeamGuildChannels(context.Background(), "room-2")
+	if err == nil || errors.Is(err, core.ErrNotTeamChannel) || errors.Is(err, core.ErrTeamWorkspacePermanent) {
+		t.Fatalf("err = %v, want a retryable error", err)
+	}
+	if len(g.frames) != 0 {
+		t.Fatalf("frames = %v, want none", g.frames)
+	}
+	// Registered later with team_workspace: works.
+	g.unknown, g.caps = false, capabilitySet([]string{"text", capTeamWorkspace})
+	if _, _, err := p.TeamGuildChannels(context.Background(), "room-2"); err != nil {
+		t.Fatalf("after register: %v", err)
+	}
+	// A real transport starts unknown and becomes known on setCaps.
+	tp := &gatewayTransport{caps: defaultCapabilities()}
+	if tp.CapabilitiesKnown() {
+		t.Fatal("gateway transport must start with unknown capabilities")
+	}
+	tp.setCaps(defaultCapabilities())
+	if !tp.CapabilitiesKnown() {
+		t.Fatal("setCaps must mark capabilities known")
 	}
 }
 

@@ -33,6 +33,12 @@ func (p *Platform) handleTeamWorkspaceAck(raw []byte) {
 // teamWorkspaceRequest sends one team_workspace frame and waits for its ack.
 func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name string) (wireTeamWorkspaceAck, error) {
 	if !p.hasCap(capTeamWorkspace) {
+		// Not registered yet (register failed, collab started after the bridge): retryable.
+		// Only a gateway that told its capabilities without team_workspace does not support it
+		// (code review of PR #139, item 3).
+		if k, ok := p.tp.(interface{ CapabilitiesKnown() bool }); ok && !k.CapabilitiesKnown() {
+			return wireTeamWorkspaceAck{}, fmt.Errorf("cloud_web: gateway capabilities not known yet (not registered), retry later")
+		}
 		return wireTeamWorkspaceAck{}, fmt.Errorf("cloud_web: gateway has no %s capability: %w", capTeamWorkspace, core.ErrNotTeamChannel)
 	}
 	refID := fmt.Sprintf("tw-%d", time.Now().UnixNano())

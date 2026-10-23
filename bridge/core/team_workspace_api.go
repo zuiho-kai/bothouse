@@ -60,6 +60,10 @@ func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	if errors.Is(err, ErrTeamWorkspaceBusy) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

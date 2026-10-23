@@ -24,6 +24,7 @@ type pollTransport struct {
 
 	mu        sync.RWMutex
 	caps      map[string]bool
+	capsKnown bool // the gateway has told its capabilities (register or capabilities_changed)
 	client    *http.Client
 	cancel    context.CancelFunc
 	onInbound inboundHandler
@@ -66,7 +67,15 @@ func (t *pollTransport) Capabilities() map[string]bool {
 func (t *pollTransport) setCaps(caps map[string]bool) {
 	t.mu.Lock()
 	t.caps = caps
+	t.capsKnown = true
 	t.mu.Unlock()
+}
+
+// CapabilitiesKnown: false until the gateway has told its capabilities.
+func (t *pollTransport) CapabilitiesKnown() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.capsKnown
 }
 
 func (t *pollTransport) Start(ctx context.Context, onInbound inboundHandler) error {
