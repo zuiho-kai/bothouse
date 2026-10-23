@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
+import { CloudWebGateway } from './cloudweb.mjs';
 import { DshMembers, promptText } from './dsh-member.mjs';
 import { resolveConfig } from './plugin.mjs';
 
@@ -54,6 +55,25 @@ function fixture(t, route, routing = { leadMember: 'ds' }) {
   t.after(async () => { await dsh.close(); store.close(); });
   return { store, hub, dsh };
 }
+
+test('native jobs: peer permission answer is consumed before lead job planning', async t => {
+  const { store, hub, dsh } = fixture(t);
+  const gateway = new CloudWebGateway(hub, { token: 'test-token', logger: quiet });
+  const member = { id: 'peer', name: 'Peer', kind: 'bot', online: true };
+  const frames = [];
+  hub.setMember(member);
+  gateway.bots.set(member.id, { member, ws: { send: value => frames.push(JSON.parse(value)) } });
+  const { message: prompt } = hub.post(1, { authorKind: 'role', author: 'peer', name: 'Peer',
+    text: '权限请求', card: JSON.stringify({ kind: 'permission', state: 'pending' }) });
+  gateway.pendingPerms.set(prompt.id, { bot: 'peer', room: 1, sessionKey: 'cloud_web:room-1', replyCtx: 'room-1' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '允许' });
+  assert.deepEqual(store.openJobs(), [], 'permission text must not enqueue the native lead');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(dsh.run.mock.calls.length, 0);
+  assert.equal(frames.filter(frame => frame.type === 'card_action').length, 1);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '允许' });
+  assert.deepEqual(store.openJobs().map(job => job.member_id), ['ds'], 'same word without a pending prompt routes normally');
+});
 
 const cases = [
   { name: 'plain human message only wakes lead', text: '你好', targets: ['ds'], reason: 'lead', expected: ['ds'] },

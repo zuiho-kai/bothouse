@@ -464,7 +464,7 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   const v2 = new Store(path);
   v2.ensureRoom(1, 'general');
   v2.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
-  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; PRAGMA user_version = 1');
+  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; ALTER TABLE messages DROP COLUMN draft; DROP TABLE members; PRAGMA user_version = 1');
   v2.close();
   const raw = new DatabaseSync(path);
   assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);
@@ -475,6 +475,7 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   assert.equal(reopened.markSent(job.id, 's', 0, 'in-1'), true);
   assert.equal(reopened.job(job.id).input_id, 'in-1');
   assert.deepEqual(reopened.members(), [], 'v3 members table exists after migration');
+  assert.equal(reopened.page(1, undefined, 1)[0].draft, 0, 'v6 old rows are not drafts');
   reopened.close();
 });
 
@@ -649,10 +650,10 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v3.sqlite3');
   const s = new Store(path);
   s.addMember({ id: 'old', name: 'Old', model: { provider: 'relay', model: 'm1' } });
-  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; PRAGMA user_version = 3');
+  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 6);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -732,10 +733,10 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v4.sqlite3');
   const s = new Store(path);
   s.addMember({ id: 'old', name: 'Old', cli: 'claude' });
-  s.db.exec('ALTER TABLE members DROP COLUMN avatar; PRAGMA user_version = 4');
+  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 6);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -777,4 +778,307 @@ test('cloud-web: a bot announces its avatar as a slug or http(s) URL; junk is dr
   assert.equal(view.ju, 'orange');
   assert.equal(view.pack, 'http://127.0.0.1:9820/api/v1/library/avatar-image/senpai');
   assert.equal(view.junk, undefined);
+});
+
+// #121 streamed replies: a draft row is shown but not fanned out; commit fans out once.
+test('hub: a draft is shown but never fanned out; commit writes the full text and fans out once, durably', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'draft.sqlite3');
+  const store = new Store(path);
+  store.ensureRoom(1, 'general');
+  const hub = makeHubFrom(store);
+  hub.setMember({ id: 'whale', name: '鲸鱼娘', kind: 'bot', online: true });
+  const seen = []; const planned = []; const pushed = [];
+  hub.onMessage(m => seen.push(m.text));
+  hub.onPlan(m => { planned.push(m.text); });
+  hub.subscribe(e => pushed.push(e));
+  const { message: d } = hub.draft(1, { authorKind: 'role', author: 'ju', name: '橘', text: '半句', clientKey: 'k' });
+  assert.equal(d.draft, 1);
+  assert.equal(hub.draft(1, { authorKind: 'role', author: 'ju', name: '橘', text: '又', clientKey: 'k' }).created, false);
+  hub.edit(d.id, 'role', 'ju', '半句话');
+  assert.equal(hub.commit(d.id, 'role', 'whale', '冒充', true), undefined, 'only the author commits');
+  await tick();
+  assert.deepEqual([seen, planned], [[], []], 'drafts and edits reach no agent');
+  assert.deepEqual(pushed.map(e => e.message?.text), ['半句', '半句话'], 'browsers see the draft and its edit');
+  const row = hub.commit(d.id, 'role', 'ju', '整句话 @鲸鱼娘', true);
+  assert.equal(row.id, d.id);
+  assert.equal(row.text, '整句话 @鲸鱼娘');
+  assert.equal(row.from_turn, 1);
+  assert.equal(row.draft, 0);
+  await tick();
+  assert.deepEqual([seen, planned], [['整句话 @鲸鱼娘'], ['整句话 @鲸鱼娘']]);
+  store.close();
+  const again = makeHubFrom(new Store(path));
+  const seen2 = [];
+  again.onMessage(m => seen2.push(m.text));
+  assert.equal(again.commit(d.id, 'role', 'ju', '整句话 @鲸鱼娘', true).id, d.id, 'a repeat after restart keeps the row');
+  await tick();
+  assert.deepEqual(seen2, [], 'a repeat after restart fans out nothing');
+  assert.equal(again.store.page(1, undefined, 10).length, 1);
+  again.store.close();
+});
+
+function cliMembers(hub, ask) {
+  const dsh = fakeDsh();
+  const agent = { ask };
+  return new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
+}
+
+test('CLI member streams: first chunk opens a draft, later chunks edit it, the reply commits the same row and hands off', async () => {
+  const hub = makeHub();
+  let release; const gate = new Promise(r => { release = r; });
+  const snapshots = [];
+  cliMembers(hub, async (_text, _room, onText) => {
+    onText('先看');
+    onText('先看日志');
+    await tick(); await tick();
+    snapshots.push(hub.store.page(1, undefined, 10).filter(m => m.author === 'cc').map(m => m.text));
+    snapshots.push(hub.store.openJobs().map(j => j.member_id));
+    onText('先看日志，调用工具中…'); // a tool call interrupts the text; the stream continues after it
+    await gate;
+    onText('先看日志，调用工具中…查完了 @DeepSeek 你接着');
+    return '先看日志，调用工具中…查完了 @DeepSeek 你接着';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看看' });
+  await settle();
+  assert.deepEqual(snapshots, [['先看日志'], ['cc']], 'one draft row with the latest text; no teammate job while streaming');
+  release();
+  await settle();
+  const rows = hub.store.page(1, undefined, 10).filter(m => m.author === 'cc');
+  assert.equal(rows.length, 1, 'the same row becomes the reply');
+  assert.equal(rows[0].text, '先看日志，调用工具中…查完了 @DeepSeek 你接着');
+  assert.equal(rows[0].draft, 0);
+  assert.equal(hub.store.job(1).state, 'done');
+  assert.equal(hub.store.job(1).reply_id, rows[0].id);
+  assert.equal(hub.store.job(2).member_id, 'ds', 'the <@teammate> in the final text hands off');
+  assert.equal(hub.store.job(2).trigger_id, rows[0].id);
+});
+
+test('CLI member streams: an error or cancel removes the draft; no output leaves no row', async () => {
+  const hub = makeHub();
+  cliMembers(hub, async (_t, _r, onText) => { onText('写了一半'); await tick(); await tick(); throw new Error('boom'); });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看看' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 10).filter(m => m.author === 'cc').length, 0, 'error drops the partial draft');
+  assert.equal(hub.store.job(1).state, 'failed');
+
+  const hub2 = makeHub();
+  let members;
+  members = cliMembers(hub2, async (_t, _r, onText) => { onText('写了一半'); await tick(); await tick(); members.closed = true; return '写了一半'; });
+  hub2.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看看' });
+  await settle();
+  assert.equal(hub2.store.page(1, undefined, 10).filter(m => m.author === 'cc').length, 0, 'cancel drops the partial draft');
+
+  const hub3 = makeHub();
+  cliMembers(hub3, async () => '');
+  hub3.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看看' });
+  await settle();
+  assert.equal(hub3.store.page(1, undefined, 10).filter(m => m.author === 'cc').length, 0);
+  assert.equal(hub3.store.job(1).state, 'failed');
+});
+
+test('cloud-web reply_in_place: a text preview is a draft; the reply with its handle commits that row and is forwarded once', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘&mention_id=111');
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+  assert.ok(ju.of('register_ack')[0].capabilities.includes('reply_in_place'));
+  ju.frame({ type: 'preview_start', ref_id: 'r1', reply_ctx: 'room-1', content: '先看' });
+  const handle = ju.of('preview_ack').at(-1).preview_handle;
+  assert.match(handle, /^\d+$/);
+  ju.frame({ type: 'update_message', preview_handle: handle, content: '先看日志' });
+  await tick(); await tick();
+  assert.equal(whale.of('message').length, 0, 'the streaming preview is not forwarded');
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', preview_handle: handle, content: '先看日志，查完了 @鲸鱼娘 你接着', agent: true });
+  await tick(); await tick();
+  const rows = hub.store.page(1, undefined, 10).filter(m => m.author === 'ju');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, Number(handle));
+  assert.equal(rows[0].text, '先看日志，查完了 @鲸鱼娘 你接着');
+  assert.equal(whale.of('message').length, 1);
+  assert.equal(whale.of('message')[0].content, '【橘】先看日志，查完了 你接着');
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', preview_handle: handle, content: '先看日志，查完了 @鲸鱼娘 你接着', agent: true });
+  await tick(); await tick();
+  assert.equal(whale.of('message').length, 1, 'a repeated commit is not forwarded again');
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', preview_handle: '999999', content: '预览没了 @鲸鱼娘', agent: true });
+  await tick(); await tick();
+  assert.equal(hub.store.page(1, undefined, 10).filter(m => m.author === 'ju').length, 2, 'a missing preview falls back to a new row');
+  assert.equal(whale.of('message').length, 2);
+});
+
+test('a teammate draft that commits later still reaches members whose cursor moved on, and its <@handoff> carries the trigger', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  ju.frame({ type: 'preview_start', ref_id: 'r1', reply_ctx: 'room-1', content: '先看' });
+  const handle = ju.of('preview_ack').at(-1).preview_handle;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 先说别的' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, ['好']);
+  await settle();
+  assert.ok(hub.store.binding('ds', 1).context_cursor < Number(handle), 'the cursor stops before the uncommitted draft');
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', preview_handle: handle, content: '查完了 @DeepSeek 你接着', agent: true });
+  await settle();
+  const job = hub.store.openJobs().find(j => j.member_id === 'ds');
+  assert.equal(job?.trigger_id, Number(handle), 'the commit hands off with the draft row as trigger');
+  assert.match(agent.prompts.at(-1).content[0].text, /查完了/, 'the handoff prompt contains the committed reply');
+});
+
+test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a CLI job settled after restart', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const live = () => hub.store.page(1, undefined, 20).filter(m => m.draft === 1).map(m => m.author);
+  let ju = connect(gw, 'bot=ju&name=橘');
+  ju.frame({ type: 'preview_start', ref_id: 'r1', reply_ctx: 'room-1', content: '写了一半' });
+  assert.deepEqual(live(), ['ju']);
+  ju.close(1006, 'gone');
+  assert.deepEqual(live(), [], 'a dropped connection removes its text draft');
+  // A hub restart: the draft survives in the store until the bot registers again.
+  hub.draft(1, { authorKind: 'role', author: 'ju', name: '橘', text: '重启前的半句', clientKey: 'preview:ju:r2' });
+  assert.deepEqual(live(), ['ju']);
+  ju = connect(gw, 'bot=ju&name=橘');
+  assert.deepEqual(live(), [], 'a (re)register removes leftover text drafts');
+
+  const job = hub.store.addJob('cc', 1, hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看看' }).message.id);
+  hub.store.markSent(job.id, 'cli:claude', 0, undefined);
+  hub.draft(1, { authorKind: 'role', author: 'cc', name: 'CC', text: '半截', clientKey: `dsh-job-${job.id}` });
+  const members = cliMembers(hub, async () => 'unused');
+  members.recover();
+  await settle();
+  assert.equal(hub.store.job(job.id).state, 'interrupted');
+  assert.deepEqual(live(), [], 'the interrupted CLI job drops its streamed draft');
+});
+
+test('cloud-web #120: permission prompt → button → card_action → card state; duplicates, expiry, offline', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=dou&name=大豆包');
+  assert.ok(CAPABILITIES.includes('buttons'));
+  const buttons = [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }], [{ Text: '允许所有 (本次会话)', Data: 'perm:allow_all' }]];
+  const prompt = (sk = 'cloud_web:room-1') => bot.frame({ type: 'buttons', session_key: sk, reply_ctx: 'room-1', content: '⚠️ **权限请求** run_command\n回复 **允许** / **拒绝** / **允许所有**', buttons });
+  prompt();
+  await tick();
+  const first = hub.store.page(1).at(-1);
+  const card = JSON.parse(first.card);
+  assert.equal(card.kind, 'permission');
+  assert.equal(card.state, 'pending');
+  assert.deepEqual(card.actions.map(a => a.decision), ['allow', 'deny', 'allow_all']);
+
+  // A newer prompt in the same session supersedes the old one.
+  prompt();
+  await tick();
+  const second = hub.store.page(1).at(-1);
+  assert.equal(JSON.parse(hub.store.message(first.id).card).state, 'expired');
+  assert.throws(() => gw.decidePermission(first.id, 'allow'), /过期/);
+  assert.equal(bot.of('card_action').length, 0);
+
+  const out = gw.decidePermission(second.id, 'allow_all');
+  assert.equal(JSON.parse(out.card).state, 'allowed_all');
+  assert.deepEqual(bot.of('card_action'), [{ type: 'card_action', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', action: 'perm:allow_all' }]);
+  // Repeated click: rejected, nothing more sent to the bot.
+  assert.throws(() => gw.decidePermission(second.id, 'deny'), /已经处理/);
+  assert.equal(bot.of('card_action').length, 1);
+  // Not a permission prompt / unknown decision.
+  const plain = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hi' }).message;
+  assert.throws(() => gw.decidePermission(plain.id, 'allow'), /不是权限请求/);
+  assert.throws(() => gw.decidePermission(second.id, 'sudo'), /unknown decision/);
+
+  // Offline bot: the request stays pending and the click says why.
+  prompt();
+  await tick();
+  const third = hub.store.page(1).at(-1);
+  gw.bots.delete('dou');
+  assert.throws(() => gw.decidePermission(third.id, 'allow'), /断线/);
+  assert.equal(JSON.parse(hub.store.message(third.id).card).state, 'pending');
+  // Reconnect = restarted cc-connect: its pending requests expire.
+  const again = connect(gw, 'bot=dou&name=大豆包');
+  assert.equal(again.of('register_ack')[0].ok, true);
+  assert.equal(JSON.parse(hub.store.message(third.id).card).state, 'expired');
+});
+
+test('cloud-web #120: owner text reply takes the same decision path; bot text does not approve', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=dou&name=大豆包');
+  const other = connect(gw, 'bot=ju&name=橘');
+  bot.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '权限请求', buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] });
+  await tick();
+  const promptRow = hub.store.page(1).at(-1);
+  // The prompt itself is not forwarded to other bots as chat.
+  assert.equal(other.of('message').length, 0);
+  // Another bot saying "允许" does not decide anything.
+  other.frame({ type: 'reply', reply_ctx: 'room-1', content: '允许' });
+  await tick(); await tick();
+  assert.equal(JSON.parse(hub.store.message(promptRow.id).card).state, 'pending');
+  const before = bot.of('message').length;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '拒绝' });
+  await tick(); await tick();
+  const card = JSON.parse(hub.store.message(promptRow.id).card);
+  assert.equal(card.state, 'denied');
+  assert.equal(card.decided_by, 'text');
+  assert.equal(bot.of('card_action').at(-1).action, 'perm:deny');
+  // The answered bot gets the decision once (card_action), not the text too.
+  assert.equal(bot.of('message').length, before);
+});
+
+test('cloud-web #120: textDecision mirrors the bridge vocabularies', async () => {
+  const { textDecision } = await import('./cloudweb.mjs');
+  assert.equal(textDecision('允许所有'), 'allow_all');
+  assert.equal(textDecision('allow all please'), 'allow_all');
+  assert.equal(textDecision('好的，允许'), 'allow');
+  assert.equal(textDecision('拒绝'), 'deny');
+  assert.equal(textDecision('禁止允许这种'), undefined);
+  assert.equal(textDecision('看看日志'), undefined);
+  // Same separators as bridge permissionTokenSeparator: quotes, brackets, @, ·.
+  assert.equal(textDecision('“允许”'), 'allow');
+  assert.equal(textDecision('【允许】'), 'allow');
+  assert.equal(textDecision('(拒绝)'), 'deny');
+  assert.equal(textDecision('「允许」'), undefined); // not a bridge separator either
+  assert.equal(textDecision("'allow'"), 'allow');
+  assert.equal(textDecision('＠橘·允许所有'), 'allow_all');
+});
+
+test('cloud-web #120: owner text with several bots pending — no @ answers all, @ answers only that bot', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const dou = connect(gw, 'bot=dou&name=大豆包');
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const ask = async b => {
+    b.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '权限请求', buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] });
+    await tick();
+    return hub.store.page(1).at(-1).id;
+  };
+  const state = id => JSON.parse(hub.store.message(id).card).state;
+  // No @: every bot's cc-connect would act on the word, so every card takes the decision.
+  let a = await ask(dou), b = await ask(ju);
+  const msgsBefore = [dou.of('message').length, ju.of('message').length];
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '“允许”' });
+  await tick(); await tick();
+  assert.equal(state(a), 'allowed');
+  assert.equal(state(b), 'allowed');
+  assert.equal(dou.of('card_action').at(-1).action, 'perm:allow');
+  assert.equal(ju.of('card_action').at(-1).action, 'perm:allow');
+  assert.deepEqual([dou.of('message').length, ju.of('message').length], msgsBefore);
+  // @ one bot: only its card is decided; the other is not sent the text and stays pending.
+  a = await ask(dou); b = await ask(ju);
+  const douActs = dou.of('card_action').length, juMsgs = ju.of('message').length;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 拒绝' });
+  await tick(); await tick();
+  assert.equal(state(b), 'denied');
+  assert.equal(ju.of('card_action').at(-1).action, 'perm:deny');
+  assert.equal(state(a), 'pending');
+  assert.equal(dou.of('card_action').length, douActs);
+  assert.equal(dou.of('message').filter(m => /拒绝/.test(m.content)).length, 0);
+  assert.equal(ju.of('message').length, juMsgs);
+  // Text that is not a decision still reaches everyone.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '等一下' });
+  await tick(); await tick();
+  assert.equal(dou.of('message').at(-1).content, '等一下');
+  assert.equal(state(a), 'pending');
 });

@@ -77,7 +77,15 @@ async function host(t, { dataDir = mkdtempSync(join(tmpdir(), 'bothouse-routing-
   async function close() {
     if (closed) return;
     closed = true;
-    for (const ws of clients) ws.terminate();
+    // Let the gateway process disconnects while its SQLite store is still open.
+    await Promise.all([...clients].filter(ws => ws.readyState !== WebSocket.CLOSED).map(ws => new Promise(resolve => {
+      ws.once('close', resolve);
+      ws.close();
+    })));
+    if (server.listening) await until(async () => {
+      const state = await request('/collab/api/state');
+      return state.body.members.every(m => m.kind !== 'bot' || !m.online);
+    });
     for (const dispose of disposers.reverse()) await dispose?.();
     for (const socket of sockets) socket.destroy();
     if (server.listening) await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
@@ -195,6 +203,25 @@ async function routed(clients, messageId) {
   return clients.map(c => c.messages().filter(f => f.msg_id === `hub-${messageId}`));
 }
 
+test('plugin entry: permission text for a peer does not wake the configured lead', async t => {
+  const h = await host(t);
+  const clients = await team(h);
+  const peer = clients[1];
+  peer.ws.send(JSON.stringify({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1',
+    content: '权限请求', buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] }));
+  await peer.barrier();
+  const decision = await h.post('允许', 'permission-answer');
+  const delivered = await routed(clients, decision.id);
+  assert.equal(peer.frames.filter(f => f.type === 'card_action').length, 1);
+  assert.ok(delivered.flat().every(f => !f.mentioned), 'a permission answer must not start a lead conversation');
+  await h.post('允许', 'permission-answer');
+  await peer.barrier();
+  assert.equal(peer.frames.filter(f => f.type === 'card_action').length, 1, 'retry cannot approve twice');
+  const ordinary = await h.post('允许');
+  const next = await routed(clients, ordinary.id);
+  assert.equal(next[0][0].mentioned, true, 'without a pending prompt the same word is normal lead input');
+});
+
 test('plugin entry: owner auth protects POST; bot auth protects WS upgrade and history', async t => {
   const h = await host(t);
   for (const auth of ['none', 'bot']) {
@@ -285,6 +312,60 @@ test('plugin entry: a real bot reply with explicit @ activates only its handoff 
   assert.equal(frames[1][0].from_bot, true);
   assert.match(frames[1][0].content, /请接手核对/);
 });
+
+async function preview(client, content) {
+  const ref = randomUUID();
+  const ack = waitFrame(client.ws, frame => frame.type === 'preview_ack' && frame.ref_id === ref);
+  client.ws.send(JSON.stringify({ type: 'preview_start', ref_id: ref, reply_ctx: 'room-1', content }));
+  const { preview_handle: handle } = await ack;
+  assert.match(handle, /^\d+$/);
+  return handle;
+}
+
+async function finishPreview(client, handle, content) {
+  client.ws.send(JSON.stringify({ type: 'reply', reply_ctx: 'room-1', preview_handle: handle, content, agent: true }));
+  await client.barrier();
+}
+
+test('plugin entry: streamed @ is routed only on final commit and never twice', async t => {
+  const h = await host(t);
+  const clients = await team(h);
+  const handle = await preview(clients[0], '@鲸鱼娘 尚未写完');
+  const id = Number(handle);
+  assert.deepEqual(await routed(clients, id), [[], [], []], 'drafts must not dispatch work');
+  clients[0].ws.send(JSON.stringify({ type: 'update_message', preview_handle: handle, content: '@鲸鱼娘 仍在起草' }));
+  await clients[0].barrier();
+  assert.deepEqual(await routed(clients, id), [[], [], []], 'preview updates must not dispatch work');
+  await finishPreview(clients[0], handle, '@橘 请接手核对');
+  const first = await routed(clients, id);
+  assert.deepEqual(first.map(rows => rows.map(f => f.mentioned)), [[], [true], [false]]);
+  await finishPreview(clients[0], handle, '@橘 请接手核对');
+  assert.deepEqual(await routed(clients, id), first, 'duplicate final frames cannot redispatch');
+  const rows = await h.history();
+  assert.equal(rows.filter(m => m.author === 'gge').length, 1, 'final reply replaces the draft');
+  assert.equal(rows.find(m => m.id === id).text, '@橘 请接手核对');
+});
+
+for (const unavailable of ['unknown', 'offline']) {
+  test(`plugin entry: streamed handoff to ${unavailable} member gives one durable notice`, async t => {
+    const h = await host(t);
+    const clients = await team(h);
+    if (unavailable === 'offline') await clients[1].disconnect();
+    const handle = await preview(clients[0], '正在起草');
+    const text = unavailable === 'unknown' ? '@不存在 请接手' : '@橘 请接手';
+    await finishPreview(clients[0], handle, text);
+    await finishPreview(clients[0], handle, text);
+    const rows = await h.history();
+    const notices = rows.filter(m => m.author_kind === 'system');
+    assert.equal(notices.length, 1, 'final streamed reply needs visible feedback without duplicate notices');
+    assert.match(notices[0].text, unavailable === 'unknown' ? /未识别/ : /离线/);
+    const active = unavailable === 'offline' ? [clients[0], clients[2]] : clients;
+    assert.ok((await routed(active, Number(handle))).flat().every(f => !f.mentioned), 'never fall back to another bot');
+    await h.close();
+    const restarted = await host(t, { dataDir: h.dataDir });
+    assert.deepEqual(await restarted.history(), rows, 'routing feedback survives host restart');
+  });
+}
 
 for (const unavailable of ['offline', 'missing']) {
   test(`plugin entry: ${unavailable} lead gives durable feedback; client_key retries never redispatch`, async t => {

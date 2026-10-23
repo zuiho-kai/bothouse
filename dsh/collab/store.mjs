@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export class Store {
   constructor(path) {
@@ -20,11 +20,12 @@ export class Store {
       room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
-      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
+      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
@@ -33,6 +34,10 @@ export class Store {
       binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
       bind: this.db.prepare('INSERT INTO bindings (member_id, room_id, session_id, context_cursor) VALUES (?, ?, ?, 0)'),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
+      firstDraft: this.db.prepare(`SELECT MIN(id) AS id FROM messages WHERE room_id = ? AND id <= ? AND author <> ?
+        AND draft = 1 AND deleted = 0 AND card IS NULL`),
+      authorDrafts: this.db.prepare(`SELECT * FROM messages WHERE author_kind = ? AND author = ?
+        AND draft = 1 AND deleted = 0 AND card IS NULL ORDER BY id`),
       addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at)
         VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
       job: this.db.prepare('SELECT * FROM jobs WHERE id = ?'),
@@ -75,6 +80,10 @@ export class Store {
     if (from < 4) this.db.exec('ALTER TABLE members ADD COLUMN cli TEXT');
     // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
     if (from < 5) this.db.exec('ALTER TABLE members ADD COLUMN avatar TEXT');
+    // v6 (#121): a streamed reply is stored as a draft (shown, not fanned out) until
+    // commit clears the flag. Durable, so a restart between commit and finishJob
+    // never fans the same reply out twice.
+    if (from < 6) this.db.exec('ALTER TABLE messages ADD COLUMN draft INTEGER NOT NULL DEFAULT 0');
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -164,14 +173,31 @@ export class Store {
       if (existing !== undefined) return { message: existing, created: false };
     }
     const row = this.q.insert.get(roomId, m.authorKind, m.author, m.name, text, now,
-      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null);
+      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0);
     return { message: row, created: true };
   }
 
   message(id) { return this.q.byId.get(id); }
   /** Edit or delete only a row the same author wrote; returns the row or undefined. */
   edit(id, authorKind, author, text, card) { return this.q.edit.get(text, card ?? null, id, authorKind, author); }
+  /**
+   * Finish a streamed draft row with its complete text (#121). Returns
+   * { message, first }: first is true only when this call turned the draft
+   * into a reply (the caller fans out once). A row already committed gets the
+   * text and first = false. undefined if it is not that author's live text row.
+   */
+  commit(id, authorKind, author, text, fromTurn) {
+    if (!text.trim() || text.length > MAX_TEXT) return undefined;
+    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), id, authorKind, author);
+    if (row !== undefined) return { message: row, first: true };
+    const old = this.message(id);
+    if (old === undefined || old.card != null) return undefined;
+    const again = this.edit(id, authorKind, author, text);
+    return again === undefined ? undefined : { message: again, first: false };
+  }
   remove(id, authorKind, author) { return this.q.del.get(id, authorKind, author); }
+  /** One author's live text drafts (#121), oldest first. */
+  drafts(authorKind, author) { return this.q.authorDrafts.all(authorKind, author); }
 
   /** Up to `limit` messages before `beforeId` (exclusive), oldest first. */
   page(roomId, beforeId, limit) {
@@ -186,7 +212,15 @@ export class Store {
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
   bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId); }
-  advanceCursor(memberId, roomId, messageId) { this.q.cursor.run(messageId, memberId, roomId); }
+  /**
+   * Move a member's context cursor up to messageId, but never past a
+   * teammate's uncommitted text draft (#121): it keeps its old id when it
+   * commits, so a cursor beyond it would hide the final reply for good.
+   */
+  advanceCursor(memberId, roomId, messageId) {
+    const draft = this.q.firstDraft.get(roomId, messageId, memberId).id;
+    this.q.cursor.run(draft == null ? messageId : Math.min(messageId, draft - 1), memberId, roomId);
+  }
 
   /** Create the job for (member, trigger) once; a repeat returns undefined. */
   addJob(memberId, roomId, triggerId, now = Date.now() / 1000) {

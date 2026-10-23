@@ -169,6 +169,11 @@ export async function apply(ctx, rawConfig) {
         return { message: publicMessage(message) };
       });
     }
+    // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.
+    const pm = /^\/collab\/api\/messages\/(\d+)\/permission$/.exec(path);
+    if (pm !== null && req.method === 'POST') {
+      return withBody(req, res, body => ({ message: gateway.decidePermission(Number(pm[1]), String(body?.decision ?? '')) }));
+    }
     if (path === '/collab/api/clis') return clisHandler(req, res);
     if (path === '/collab/api/models' && req.method === 'GET') return json(res, 200, { routes: await roster.models() });
     if (path === '/collab/api/rooms' && req.method === 'POST') {
@@ -204,7 +209,7 @@ export async function apply(ctx, rawConfig) {
   }
 }
 
-const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, conflict: 409, 'read-only': 403 };
+const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, conflict: 409, 'read-only': 403, offline: 503 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 async function withBody(req, res, fn, parse = true) {

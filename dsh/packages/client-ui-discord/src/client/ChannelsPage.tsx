@@ -11,6 +11,7 @@ import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } f
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { Avatar } from './Avatar.tsx'
+import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -33,14 +34,40 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   return null
 }
 
-function MessageRow({ message, member, t, onConfigure }: { message: ChannelMessage; member: ChannelMember | undefined; t: T; onConfigure: () => void }) {
-  let card: { title?: string; state?: string; action?: string } | undefined
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide }: {
+  message: ChannelMessage
+  member: ChannelMember | undefined
+  t: T
+  onConfigure: () => void
+  menuOpen: boolean
+  onAvatar: () => void
+  onCloseMenu: () => void
+  onMention: (member: ChannelMember) => void
+  onDecide: ChannelActions['decidePermission']
+}) {
+  let card: { title?: string; state?: string; action?: string; kind?: string } | undefined
   if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
   return (
     <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
-      <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+      {member === undefined || message.author_kind === 'system'
+        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+        : (
+            // Avatar opens this author's member menu; `data-avatar-menu` marks the
+            // area an outside press must not land in to keep the menu open.
+            <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
+              <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
+                <Avatar id={member.id} name={message.name} avatar={member.avatar} />
+              </button>
+              {menuOpen && (
+                <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
+                  <div className={css.avatarMenuTitle}>{member.name}</div>
+                  <button type="button" role="menuitem" className={css.avatarMenuItem} onClick={() => { onMention(member) }}>{t('avatarMention')}</button>
+                </div>
+              )}
+            </span>
+          )}
       <div className={css.messageBody}>
         <div className={css.messageHead}>
           <span className={css.author}>{message.name}</span>
@@ -54,6 +81,7 @@ function MessageRow({ message, member, t, onConfigure }: { message: ChannelMessa
                 <div className={css.cardTitle}>{card.title}</div>
                 <div className={css.text}>{message.text}</div>
                 {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
+                {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
               </div>
             )}
       </div>
@@ -113,7 +141,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, decidePermission, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
@@ -135,9 +163,28 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [dialog, setDialog] = useState<ChannelMember | null | undefined>(undefined)
   const [modelsOpen, setModelsOpen] = useState(false)
   const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
+  // Wide-window side columns hidden by the user (#124); narrow windows use the drawers instead.
+  const [roomsHidden, setRoomsHidden] = useState(false)
+  const [membersHidden, setMembersHidden] = useState(false)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const composerRef = useRef<HTMLDivElement>(null)
+  // `@` start of the popup currently shown, read by the outside-click listener.
+  const openMentionAt = useRef<number | undefined>(undefined)
+
+  // Close the @ popup on a press outside the composer, like Esc: the draft and
+  // its `@` stay. Presses inside (options, textarea, @ button) keep their own
+  // handling, so picking a member is not swallowed.
+  useEffect(() => {
+    const onPress = (event: MouseEvent): void => {
+      const at = openMentionAt.current
+      if (at === undefined || composerRef.current?.contains(event.target as Node) === true) return
+      setDismissedAt(at)
+    }
+    document.addEventListener('mousedown', onPress)
+    return () => { document.removeEventListener('mousedown', onPress) }
+  }, [])
 
   useEffect(() => {
     const input = inputRef.current
@@ -147,6 +194,20 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     input.focus()
     input.setSelectionRange(next, next)
   })
+
+  // Message whose avatar menu is open (#123); keyed by message so only one row shows it.
+  const [avatarMenu, setAvatarMenu] = useState<number | undefined>(undefined)
+
+  // Close the avatar menu on a press outside it (same document-press approach
+  // as the @ popup); the draft is untouched and nothing is sent.
+  useEffect(() => {
+    if (avatarMenu === undefined) return
+    const onPress = (event: MouseEvent): void => {
+      if ((event.target as Element | null)?.closest?.('[data-avatar-menu]') == null) setAvatarMenu(undefined)
+    }
+    document.addEventListener('mousedown', onPress)
+    return () => { document.removeEventListener('mousedown', onPress) }
+  }, [avatarMenu])
 
   // Follow new messages only while the reader is already at the bottom.
   useEffect(() => {
@@ -169,6 +230,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const mention = activeMention(draft, caret)
   const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(state.members, mention.query)
   const popupOpen = mention !== undefined && candidates.length > 0
+  openMentionAt.current = popupOpen ? mention.start : undefined
   const selected = Math.min(highlight, Math.max(candidates.length - 1, 0))
 
   const setDraft = (text: string, nextCaret: number): void => {
@@ -190,6 +252,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setDrawer(undefined)
     const next = insertMention(draft, caret, member)
     setDraft(next.text, next.caret)
+  }
+
+  // Avatar menu "@": the same caret insertion as the member list, keeping the draft.
+  const mentionFromAvatar = (member: ChannelMember): void => {
+    setAvatarMenu(undefined)
+    pickFromList(member)
   }
 
   const submitRoom = (): void => {
@@ -260,7 +328,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   return (
-    <div className={css.page} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')}>
         <div className={css.groupHead}>
@@ -299,7 +367,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
       <section className={css.chat}>
         <header className={css.chatHead}>
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
+          <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
         <div
@@ -320,10 +390,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           )}
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} onConfigure={() => { setModelsOpen(true) }} />)}
+            : state.messages.map(m => (
+                <MessageRow
+                  key={m.id}
+                  message={m}
+                  member={byId.get(m.author)}
+                  t={t}
+                  onConfigure={() => { setModelsOpen(true) }}
+                  menuOpen={avatarMenu === m.id}
+                  onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
+                  onCloseMenu={() => { setAvatarMenu(undefined) }}
+                  onMention={mentionFromAvatar}
+                  onDecide={decidePermission}
+                />
+              ))}
         </div>
         <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
-        <div className={css.composer}>
+        <div className={css.composer} ref={composerRef}>
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {popupOpen && (
             <div className={css.mentionPopup}>

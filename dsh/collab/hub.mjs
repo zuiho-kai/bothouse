@@ -27,6 +27,7 @@ export class Hub {
     this.thinking = new Map();
     this.listeners = [];
     this.planners = [];
+    this.controlHandlers = [];
     this.subscribers = new Set();
     this.routing = routing;
     this.routes = new WeakMap();
@@ -42,6 +43,13 @@ export class Hub {
     const cached = this.routes.get(msg);
     if (cached) return cached;
     const decision = { targets: new Set(), reason: 'context' };
+    // Classify control input before native planners create durable jobs. The
+    // predicates are read-only; the owning transport executes it after commit.
+    if (this.controlHandlers.some(handles => handles(msg))) {
+      decision.reason = 'control';
+      this.routes.set(msg, decision);
+      return decision;
+    }
     const text = channelText(msg);
     if (text !== undefined) {
       const members = this.routable();
@@ -126,6 +134,9 @@ export class Hub {
   /** Register an async consumer of newly created messages. */
   onMessage(listener) { this.listeners.push(listener); }
 
+  /** Register a pure predicate for input handled as a control action, not chat. */
+  onControlMessage(handles) { this.controlHandlers.push(handles); }
+
   /**
    * Register a planner run inside the append transaction (durable side
    * records such as jobs); it may return a continuation run after commit.
@@ -160,6 +171,44 @@ export class Hub {
     return result;
   }
 
+  /**
+   * Streamed reply (#121): draft() stores and shows a row without telling
+   * agents; commit() writes the complete text and then fans out exactly like
+   * post() (planners, listeners), once per row (the durable draft flag, so a
+   * restart cannot fan out twice), so teammates only ever see the final text. A repeated clientKey returns the existing draft.
+   */
+  draft(roomId, m) {
+    const r = this.store.append(roomId, { ...m, draft: true });
+    if (r.created) this.emit({ type: 'message', message: publicMessage(r.message) });
+    return r;
+  }
+
+  commit(id, authorKind, author, text, fromTurn) {
+    const after = [];
+    const r = this.store.transaction(() => {
+      const c = this.store.commit(id, authorKind, author, text, fromTurn);
+      if (c?.first) for (const plan of this.planners) { const next = plan(c.message); if (next) after.push(next); }
+      return c;
+    });
+    if (r === undefined) return undefined;
+    const row = r.message;
+    this.emit({ type: 'message', message: publicMessage(row) });
+    if (!r.first) return row;
+    const decision = this.route(row);
+    if (decision.error) this.routingNotice(row, 'decision', decision.error);
+    for (const next of after) {
+      Promise.resolve().then(next).catch((error) => {
+        this.logger.warn('collab: post-commit step failed: %s', error?.stack ?? error);
+      });
+    }
+    for (const listener of this.listeners) {
+      Promise.resolve().then(() => listener(row)).catch((error) => {
+        this.logger.warn('collab: message listener failed: %s', error?.stack ?? error);
+      });
+    }
+    return row;
+  }
+
   /** Edit/delete a row the same author wrote, and tell browsers. */
   edit(id, authorKind, author, text, card) {
     const row = this.store.edit(id, authorKind, author, text, card);
@@ -171,6 +220,16 @@ export class Hub {
     const row = this.store.remove(id, authorKind, author);
     if (row !== undefined) this.emit({ type: 'deleted', id: row.id, room_id: row.room_id });
     return row;
+  }
+
+  /**
+   * Drop text drafts an interrupted stream left behind (#121): all of the
+   * author's, or only the one with clientKey. Committed rows are kept.
+   */
+  dropDrafts(authorKind, author, clientKey) {
+    for (const d of this.store.drafts(authorKind, author)) {
+      if (clientKey === undefined || d.client_key === clientKey) this.remove(d.id, authorKind, author);
+    }
   }
 
   /** Browser event streams: subscriber(event) is called for every event. */

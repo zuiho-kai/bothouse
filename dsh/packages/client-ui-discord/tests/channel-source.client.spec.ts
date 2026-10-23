@@ -197,4 +197,27 @@ describe('channel source', () => {
     await expect(actions.send('bad')).rejects.toThrow('message text is empty')
     unsubscribe()
   })
+
+  it('posts a permission decision and replaces the card with the decided one', async () => {
+    const pending = { ...message(7, '需要权限', 1), author_kind: 'bot', card: { kind: 'permission', status: 'pending' } }
+    const decided = { ...pending, card: { kind: 'permission', status: 'allow' } }
+    let posted: { url: string, body: unknown } | undefined
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (init?.method === 'POST') {
+        posted = { url, body: JSON.parse(String(init.body)) }
+        return (posted.body as { decision: string }).decision === 'deny' ? json(409, { error: 'permission already decided' }) : json(200, { message: decided })
+      }
+      return json(200, { messages: [pending] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().messages).toHaveLength(1))
+    await actions.decidePermission(7, 'allow')
+    expect(posted).toEqual({ url: '/collab/api/messages/7/permission', body: { decision: 'allow' } })
+    expect(source.getSnapshot().messages).toEqual([decided])
+    await expect(actions.decidePermission(7, 'deny')).rejects.toThrow('permission already decided')
+    expect(source.getSnapshot().messages).toEqual([decided])
+    unsubscribe()
+  })
 })

@@ -155,6 +155,53 @@
   font-size: 12px;
 }
 
+.avatarAnchor {
+  position: relative;
+  align-self: start;
+}
+
+.avatarButton {
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.avatarMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgb(0 0 0 / 0.24));
+}
+
+.avatarMenuTitle {
+  padding: 4px 8px;
+  font-weight: 700;
+}
+
+.avatarMenuItem {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.avatarMenuItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .messageBody {
   min-width: 0;
 }
@@ -202,6 +249,27 @@
 }
 
 .cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* #120 permission prompt buttons and outcome */
+.permActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.permScope {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--dsw-alias-text-secondary);
+}
+
+.permStatus {
+  margin-top: 6px;
   font-size: 13px;
   font-weight: 600;
 }
@@ -618,10 +686,22 @@
 .memberFailed .memberStatus { color: var(--dsw-alias-state-error-primary, #ed4245); }
 .memberFailed .presence { background: #ed4245; }
 .mobileButton, .drawerBackdrop { display: none; }
+/* #124: wide windows can hide either side column; the chat column takes the freed width. */
+.panelToggle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-tertiary); background: transparent; font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+.panelToggle:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.panelToggle:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
+.panelToggleEnd { margin-left: auto; }
+@media (min-width: 901px) {
+  .page.roomsHidden { grid-template-columns: minmax(0, 1fr) 240px; }
+  .page.membersHidden { grid-template-columns: 220px minmax(0, 1fr); }
+  .page.roomsHidden.membersHidden { grid-template-columns: minmax(0, 1fr); }
+  .roomsHidden > .rooms, .membersHidden > .members { display: none; }
+}
 @media (max-width: 900px) {
   .page { position: relative; overflow: hidden; }
   .mobileButton { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; border: 0; border-radius: 6px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
   .mobileButton:last-child { margin-left: auto; }
+  .panelToggle { display: none; }
   .drawerBackdrop { display: block; position: absolute; inset: 0; z-index: 4; border: 0; background: rgb(0 0 0 / .45); }
   .rooms.drawerOpen, .members.drawerOpen { display: block; position: absolute; top: 0; bottom: 0; z-index: 5; width: min(280px, 85%); box-sizing: border-box; box-shadow: 0 0 24px rgb(0 0 0 / .3); }
   .rooms.drawerOpen { left: 0; }

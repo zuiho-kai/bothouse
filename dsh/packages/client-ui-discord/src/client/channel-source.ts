@@ -120,7 +120,12 @@ export interface ChannelActions {
   updateMember(id: string, input: MemberInput): Promise<void>
   /** Remove a UI-created DSH member. */
   removeMember(id: string): Promise<void>
+  /** Answer a bot's permission prompt (#120); rejects with the service's reason (already decided, expired, offline). */
+  decidePermission(messageId: number, decision: PermissionDecision): Promise<void>
 }
+
+/** Decisions a permission prompt accepts (dsh/collab/cloudweb.mjs PERM_DECISIONS). */
+export type PermissionDecision = 'allow' | 'deny' | 'allow_all'
 
 /** Narrow EventSource surface used here, so tests can pass a fake. */
 export type EventStreamLike = Pick<EventSource, 'close'> & {
@@ -368,6 +373,11 @@ export function createChannelSource(transport: ChannelTransport): {
     },
     async removeMember(id) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+    async decidePermission(messageId, decision) {
+      const owner = lifetime
+      const { message } = await request<{ message: ChannelMessage }>(`collab/api/messages/${messageId}/permission`, json('POST', { decision }))
+      if (lifetime === owner) onEvent({ type: 'message', message })
     },
   }
 

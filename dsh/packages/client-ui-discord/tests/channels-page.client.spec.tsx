@@ -48,6 +48,44 @@ describe('channels page', () => {
     expect(screen.getByRole('status').textContent).toBe(zh.unavailable)
   })
 
+  it('opens a member menu from a message avatar and inserts @ at the caret, keeping the draft (#123)', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '你好世界', selectionStart: 2, selectionEnd: 2 } })
+    const avatar = screen.getByRole('button', { name: '橘 的成员操作' })
+
+    // Outside press closes the menu; draft untouched, nothing sent.
+    fireEvent.click(avatar)
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.mouseDown(screen.getByRole('log'))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(input.value).toBe('你好世界')
+
+    // Esc closes it too.
+    fireEvent.click(avatar)
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    // Pressing inside keeps it open; "@" inserts at the caret and closes the menu.
+    fireEvent.click(avatar)
+    const item = screen.getByRole('menuitem', { name: zh.avatarMention })
+    fireEvent.mouseDown(item)
+    fireEvent.click(item)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(input.value).toBe('你好 @橘 世界')
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('keeps system messages and departed authors as plain avatars', () => {
+    const messages = [
+      { ...ready.messages[0], id: 2, author_kind: 'system' as const },
+      { ...ready.messages[0], id: 3, author: 'gone', name: '走了' },
+    ]
+    render(<ChannelsPage {...props({ ...ready, messages, thinking: {} })} />)
+    expect(screen.queryByRole('button', { name: /的成员操作/ })).toBeNull()
+  })
+
   it('keeps the draft until acknowledgement, blocks duplicate sends and respects IME and Shift+Enter', async () => {
     let finish!: () => void
     const send = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
@@ -137,6 +175,37 @@ describe('channels page', () => {
     expect(input.value).toBe('看看 @橘 ')
     fireEvent.click(screen.getByTitle('在输入框里 @橘'))
     expect(input.value).toBe('看看 @橘 @橘 ')
+  })
+
+  it('closes the @ picker on an outside press without touching the draft, and reopens (#125)', () => {
+    render(<ChannelsPage {...props({ ...ready, thinking: {} })} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '看看', selectionStart: 2, selectionEnd: 2 } })
+    const button = screen.getByRole('button', { name: zh.mentionButton })
+
+    fireEvent.click(button)
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    // Pressing an option or the textarea is inside the composer: stays open, choice still lands.
+    fireEvent.mouseDown(input)
+    fireEvent.mouseDown(screen.getByRole('option'))
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    fireEvent.click(screen.getByRole('option'))
+    expect(input.value).toBe('看看 @橘 ')
+
+    fireEvent.click(button)
+    expect(input.value).toBe('看看 @橘 @')
+    fireEvent.mouseDown(screen.getByRole('log').parentElement as HTMLElement)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input.value).toBe('看看 @橘 @')
+
+    // Reopen with the button, then Esc closes while focus stays in the input.
+    fireEvent.click(button)
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(document.activeElement).toBe(input)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('看看 @橘 @ @')
   })
 
   it('creates a channel from the + button', async () => {
@@ -240,5 +309,31 @@ describe('channels page', () => {
   it('hides the add-member guide once a role member exists', () => {
     render(<ChannelsPage {...props(ready)} />)
     expect(screen.queryByText(zh.guideNoMembers)).toBeNull()
+  })
+  it('collapses and restores each side column independently without losing room, draft or messages (#124)', () => {
+    const selectRoom = vi.fn()
+    const view = render(<ChannelsPage {...props(ready)} selectRoom={selectRoom} />)
+    const page = view.container.firstElementChild as HTMLElement
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '草稿' } })
+    const baseline = page.className
+    fireEvent.click(screen.getByRole('button', { name: zh.collapseRooms }))
+    const roomsOnly = page.className
+    expect(screen.getByRole('button', { name: zh.expandRooms }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: zh.collapseMembers }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: zh.collapseMembers }))
+    const both = page.className
+    expect(new Set([baseline, roomsOnly, both]).size).toBe(3)
+    // Both restore buttons stay in the chat header, so the columns can always come back.
+    expect(screen.getByRole('button', { name: zh.expandRooms })).toBeTruthy()
+    expect(screen.getByRole('button', { name: zh.expandMembers })).toBeTruthy()
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('草稿')
+    expect(screen.getByText('<script>alert(1)</script>')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.expandRooms }))
+    fireEvent.click(screen.getByRole('button', { name: zh.expandMembers }))
+    expect(page.className).toBe(baseline)
+    expect(screen.getByRole('button', { name: 'general' }).getAttribute('aria-current')).toBe('true')
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('草稿')
+    expect(selectRoom).not.toHaveBeenCalled()
   })
 })
