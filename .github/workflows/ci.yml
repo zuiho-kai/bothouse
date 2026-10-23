@@ -15,6 +15,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dsh-bundle-sync:
+    # bridge/core/dsh_bundle is what the one-click installer unpacks; when it drifts
+    # from dsh/ the install silently ships an old channel plugin (#150).
+    runs-on: [self-hosted, bothouse-ci]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # the built lib/ cannot be compared with its sources, so its freshness is
+          # judged over the commit range, which needs the base commit present
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - run: node --test scripts/*.test.mjs
+      - name: dsh bundle in sync with dsh sources
+        run: node scripts/check-dsh-bundle-sync.mjs --base origin/${{ github.base_ref || 'main' }}
+
   companion:
     # Linux jobs of this private repo run on the Oracle vps-arm runners (arm64, label bothouse-ci); user 2026-10-18
     # 「把一些工作链接到甲骨文那边编译」, 2026-10-23「你就不能去甲骨文那边搞吗」.
