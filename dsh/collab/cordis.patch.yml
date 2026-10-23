@@ -1,0 +1,11 @@
+# Bundle patch applied when this package is listed in a profile's dsh.profile.bundles.
+# Paths default to $CONEST_COLLAB_DATA / $CONEST_COLLAB_WORKSPACE, else ~/.conest-collab and the cwd.
+- insert:
+    - id: conest-collab
+      name: conest-collab
+      config:
+        dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.HOME + '/.conest-collab')
+        workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
+- insert:
+    - id: conest-channels-ui
+      name: '@deepseek-ai/dsh-experimental-client-ui-discord'

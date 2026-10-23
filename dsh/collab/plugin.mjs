@@ -13,6 +13,9 @@ import { Hub } from './hub.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster } from './roster.mjs';
+import { createCliMember } from './cli-member.mjs';
+import { avatarImage, checkAvatar } from './avatars.mjs';
+import { handler as clisHandler } from './clis.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -44,6 +47,7 @@ export function resolveConfig(config, env = process.env) {
       throw Error(`conest-collab: dshMembers ${m.id} model must be { provider, model }`);
     }
     if (m.persona !== undefined && typeof m.persona !== 'string') throw Error(`conest-collab: dshMembers ${m.id} persona must be text`);
+    try { checkAvatar(m.avatar); } catch (error) { throw Error(`conest-collab: dshMembers ${m.id} ${error.message}`); }
     ids.add(m.id);
   }
   const maxRelay = c.maxRelay ?? 6;
@@ -71,10 +75,12 @@ export async function apply(ctx, rawConfig) {
   const hub = new Hub(store, ctx.logger);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
-  const dsh = new DshMembers(hub, { ctx, createUserMessage, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
+  const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
+  if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
   ctx.on('session/event', (session, event) => dsh.onSessionEvent(session, event));
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => dsh.onClaimed(agent.session.id, message.id, turn));
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
@@ -134,6 +140,13 @@ export async function apply(ctx, rawConfig) {
       return json(res, 200, { me: OWNER, rooms: store.rooms(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
+    const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
+    if (av !== null && req.method === 'GET') {
+      const png = avatarImage(av[1]);
+      if (png === undefined) return json(res, 404, { error: 'avatar not found' });
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=86400' });
+      return res.end(png);
+    }
     const m = /^\/collab\/api\/rooms\/(\d+)\/messages$/.exec(path);
     if (m !== null && req.method === 'GET') {
       const roomId = Number(m[1]);
@@ -151,6 +164,7 @@ export async function apply(ctx, rawConfig) {
         return { message: publicMessage(message) };
       });
     }
+    if (path === '/collab/api/clis') return clisHandler(req, res);
     if (path === '/collab/api/models' && req.method === 'GET') return json(res, 200, { routes: await roster.models() });
     if (path === '/collab/api/rooms' && req.method === 'POST') {
       return withBody(req, res, (body) => {

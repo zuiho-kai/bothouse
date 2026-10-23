@@ -1,5 +1,6 @@
 {
   "nav": {
+    "library": "Library",
     "dashboard": "Dashboard",
     "projects": "Projects",
     "providers": "Providers",
@@ -430,5 +431,27 @@
     "light": "Light",
     "dark": "Dark",
     "system": "System"
+  },
+  "update": {
+    "button": "Update to {{version}}",
+    "updating": "Downloading {{version}}…",
+    "restarting": "Restarting…",
+    "failed": "Update failed",
+    "openDownload": "Open download page",
+    "dev": "Development build: update check disabled",
+    "devShort": "dev build",
+    "checkFailed": "Update check failed",
+    "details": "Details",
+    "dismiss": "Got it",
+    "timeout": "The program has not come back after the update. Wait a moment and reload the page; if it still does not load, reinstall from the download page. Your data is kept.",
+    "rolledBack": "The new version {{to}} did not start, so it went back to {{from}} automatically. You can keep using it. To try again, install the new version from the download page; your data is kept.",
+    "rollbackFailed": "The new version {{to}} did not start, and going back automatically did not work. Reinstall from the download page; your data is kept.",
+    "reason": {
+      "permission": "No permission to replace the program file. It may be installed in a protected location (such as Applications or Program Files). Download the new version and install it by hand.",
+      "download": "Could not download the new version. The network or GitHub may be unreachable. Check the network and try again, or download it by hand.",
+      "checksum": "The downloaded file failed verification (incomplete or altered), so nothing was installed; the current version is untouched. Try again later or download it by hand.",
+      "restart": "The new version was downloaded, but the post-update check could not start, so the current version was kept and nothing restarted. Install the new version from the download page.",
+      "other": "The update did not finish. The current version is untouched and keeps working. Install the new version from the download page."
+    }
   }
 }

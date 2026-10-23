@@ -1,4 +1,8 @@
+2026-10-23：DSH 频道错误反馈与输入/忙状态已实现；collab 回归通过。模型设置入口浏览器验收、390px 抽屉已实现但浏览器验收与截图未完成，不能视为整条体验验收完成。
+
 # 能力与验证状态
+
+2026-10-23：DSH 平台从原 cloud_web 占位流程改为检测、安装插件、交接启动命令；中文向导实装 profile 的 locale 为 zh。当前安装器从源码目录定位（BOTHOUSE_DSH_DIR 可指定），未打入独立发布二进制；真实模型回复未验。Go、前端和隔离实跑证据见 /tmp/wiz-dsh/result.md。
 
 2026-10-23：下载入口收敛为 Mac universal dmg 一份、Windows x64 exe 一份、Linux x64/arm64 两份；安装和自更新按相同命名并校验 SHA256SUMS。Go 沙箱全量、CUJ、回归、vet、actionlint、shell 语法及 Linux 安装测试通过；v0.1.2 发布替换与 Mac 验收以 /tmp/rename/result4.md 为准。
 
@@ -34,6 +38,6 @@
 - 会话恢复、权限代批、公开进展和任务卡分别见 [会话适配代码](../bridge/agent/acp/)、[代批说明](DELEGATED_PERMISSIONS.md)、[公开进展](PUBLIC_PROGRESS.md)。
 - 电脑语音与活动模块保留，其独立部署记录不代表基础向导已自动配置。
 
-DSH 作为智能体可经 ACP 接入；DSH 网页作为聊天入口仍是后续工作。
+DSH 作为智能体可经 ACP 接入；DSH 网页插件安装与首次向导见本页 2026-10-23 记录，真实模型回复仍待验收。
 
 测试与新入口核验结果随本次 PR 更新，部署记录见 [HANDOFF.md](HANDOFF.md)。

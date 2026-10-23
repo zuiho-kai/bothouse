@@ -28,10 +28,20 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
 }
 
 describe('channels page', () => {
+  it('renders a room with a message and a configure-model card without throwing', () => {
+    // Regression: the message list once referenced a prop the page never destructured,
+    // so any room with a message threw and blanked the whole main panel.
+    const card = JSON.stringify({ title: 'model', state: 'error', action: 'configure-model' })
+    const withCard: ChannelSnapshot = { ...ready, messages: [...ready.messages, { ...ready.messages[0], id: 2, text: 'need model', card }] }
+    expect(() => render(<ChannelsPage {...props(withCard)} />)).not.toThrow()
+    expect(screen.getByText('need model')).toBeTruthy()
+    expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
+  })
+
   it('renders configured rooms, members, working state and message text without interpreting HTML', () => {
     const view = render(<ChannelsPage {...props(ready)} />)
     expect(screen.getByRole('button', { name: 'general' })).toBeTruthy()
-    expect(screen.getByText('橘 正在处理…')).toBeTruthy()
+    expect(screen.getByText('橘 正在输入…')).toBeTruthy()
     expect(screen.getByText('<script>alert(1)</script>')).toBeTruthy()
     expect(view.container.querySelector('script')).toBeNull()
     view.rerender(<ChannelsPage {...props({ ...ready, phase: 'unavailable' })} />)
@@ -153,9 +163,12 @@ describe('channels page', () => {
     fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
     fireEvent.change(screen.getByLabelText(zh.memberModel), { target: { value: 'relay\u0000deepseek-v4.1-flash' } })
     fireEvent.change(screen.getByLabelText(zh.memberPersona), { target: { value: '写代码' } })
+    expect(dialog.querySelectorAll('[role="radiogroup"][aria-labelledby="member-avatar-label"] [role="radio"]')).toHaveLength(6)
+    fireEvent.click(dialog.querySelector('[role="radio"][title="whale"]') as Element)
+    expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', persona: '写代码', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
+    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
     expect(screen.getByRole('alert').textContent).toContain('already used')
     expect((screen.getByLabelText(zh.memberName) as HTMLInputElement).value).toBe('Coder')
     await act(async () => { fireEvent.submit(dialog) })
@@ -181,5 +194,51 @@ describe('channels page', () => {
     confirm.mockRestore()
     fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
     expect((screen.getByLabelText(zh.memberPersona) as HTMLTextAreaElement).value).toBe('写代码')
+  })
+
+  it('shows member portraits in the list and on messages, and falls back to the initial when the image fails', () => {
+    const state: ChannelSnapshot = {
+      ...ready, thinking: {},
+      members: [
+        { id: 'ju', name: '橘', kind: 'bot', online: true, avatar: 'orange' },
+        { id: 'far', name: 'Far', kind: 'bot', online: true, avatar: 'http://127.0.0.1:9820/api/v1/library/avatar-image/senpai' },
+      ],
+    }
+    const { container } = render(<ChannelsPage {...props(state)} />)
+    const srcs = [...container.querySelectorAll('img')].map(i => i.getAttribute('src'))
+    expect(srcs.filter(s => s === 'collab/avatars/orange.png').length).toBeGreaterThanOrEqual(2)
+    expect(srcs).toContain('http://127.0.0.1:9820/api/v1/library/avatar-image/senpai')
+    const img = container.querySelector('img[src="collab/avatars/orange.png"]') as HTMLImageElement
+    fireEvent.error(img)
+    expect(img.isConnected).toBe(false)
+  })
+
+  it('editing a CLI member keeps its CLI and sends the new avatar', async () => {
+    const state: ChannelSnapshot = {
+      ...ready, thinking: {},
+      members: [{ id: 'cc', name: 'CC', kind: 'dsh', online: true, cli: 'claude', persona: '本地', editable: true, avatar: 'dragon' }],
+    }
+    const p = props(state)
+    ;(p as unknown as { listClis: unknown }).listClis = vi.fn(async () => [{ cli: 'claude', path: '/bin/claude' }])
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
+    const dialog = await screen.findByRole('dialog')
+    await act(async () => {})
+    expect(dialog.querySelector('[role="radio"][title="dragon"]')?.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(dialog.querySelector('[role="radio"][title="lanxi"]') as Element)
+    await act(async () => { fireEvent.submit(dialog) })
+    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '本地', avatar: 'lanxi', cli: 'claude' })
+  })
+  it('guides to add a member when the channel has no role members', async () => {
+    const p = props({ ...ready, members: [{ id: 'owner', name: '我', kind: 'human', online: true }], messages: [], thinking: {} })
+    render(<ChannelsPage {...p} />)
+    expect(screen.getByText(zh.guideNoMembers)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.addMember }))
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
+  it('hides the add-member guide once a role member exists', () => {
+    render(<ChannelsPage {...props(ready)} />)
+    expect(screen.queryByText(zh.guideNoMembers)).toBeNull()
   })
 })

@@ -91,6 +91,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 		engines:            make(map[string]*Engine),
 		maxAttachmentBytes: DefaultMaxAttachmentSize,
 	}
+	activeAPISocket.Store(sockPath)
 	s.mux.HandleFunc("/send", s.handleSend)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
 	s.mux.HandleFunc("/task", s.handleTask)
@@ -100,6 +101,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
+	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
+	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)
 	s.mux.HandleFunc("/cron/list", s.handleCronList)
 	s.mux.HandleFunc("/cron/info", s.handleCronInfo)

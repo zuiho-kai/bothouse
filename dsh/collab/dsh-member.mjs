@@ -84,6 +84,15 @@ export function describeReason(reason) {
 
 const INTERRUPTED = Symbol('interrupted');
 
+export function friendlyFailure(raw) {
+  const text = String(raw);
+  if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没有配置模型的 API Key，请先去配置模型。';
+  if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
+  if (/login|log.?in|auth|unauthorized|401|未登录/i.test(text)) return '模型或 CLI 还没有登录，或登录已过期。请先登录后再试。';
+  if (/exit|ENOENT|spawn|没有输出文字/i.test(text)) return '本机 CLI 未能正常运行或已退出，请检查安装和登录状态。';
+  return `这次没能完成，请检查配置后重试。原始错误：${text}`;
+}
+
 export class DshMembers {
   /**
    * @param hub - Hub instance.
@@ -105,22 +114,26 @@ export class DshMembers {
     this.openTurns = new Map();
     /** Agents whose request hook was installed after they were loaded by someone else. */
     this.hooked = new WeakSet();
+    /** memberId -> { cli, agent } live local CLI agents (members with a `cli` field). */
+    this.cliAgents = new Map();
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
 
   publish(m) {
-    this.hub.setMember({ id: m.id, name: m.name, kind: 'dsh', online: true, model: m.model, persona: m.persona ?? '', source: m.source ?? 'config' });
+    this.hub.setMember({ id: m.id, name: m.name, kind: 'dsh', online: true, model: m.model, ...(m.cli ? { cli: m.cli } : {}), persona: m.persona ?? '', ...(m.avatar ? { avatar: m.avatar } : {}), source: m.source ?? 'config' });
   }
 
   /** Add or replace a member at runtime; its bound Sessions pick up the new model on their next request. */
   putMember(m) {
+    if (this.cliAgents.get(m.id)?.cli !== m.cli) this.dropCli(m.id);
     this.config.set(m.id, m);
     this.publish(m);
   }
 
   /** Stop routing to a member. Pending jobs for it fail when they run; history keeps its name. */
   dropMember(id) {
+    this.dropCli(id);
     this.config.delete(id);
     this.hub.removeMember(id);
   }
@@ -191,6 +204,7 @@ export class DshMembers {
     const member = this.config.get(job.member_id);
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
+    if (member.cli !== undefined) { await this.runCli(job, member, room); return; }
     const agent = await this.ensureAgent(member, room);
     if (this.closed) return;
     this.syncSelection(agent, member);
@@ -204,12 +218,53 @@ export class DshMembers {
     await this.admitAndSettle(job, member, agent, input, seqBefore);
   }
 
+  /**
+   * A local CLI member (claude/codex/gemini over ACP): same job, cursor,
+   * thinking and relay rules as a DSH member, but the turn runs in the CLI's
+   * own ACP session for this room and its reply text is posted directly.
+   */
+  async runCli(job, member, room) {
+    const sessionId = `cli:${member.cli}`;
+    if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
+    const binding = this.store.binding(member.id, room.id);
+    const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
+      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null)
+      .slice(-CONTEXT_LIMIT);
+    if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
+    let entry = this.cliAgents.get(member.id);
+    if (entry === undefined) {
+      // Persona goes through promptText every turn, so an edit applies without restarting the CLI.
+      entry = { cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd: this.rt.workspacePath, persona: '' }) };
+      this.cliAgents.set(member.id, entry);
+    }
+    this.hub.setError(member.id, undefined);
+    this.hub.setThinking(job.room_id, member.id, true);
+    try {
+      this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
+      const text = (await entry.agent.ask(promptText(room, member, unseen), String(room.id)))?.trim();
+      if (this.closed) return;
+      if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
+      const { message } = this.hub.post(job.room_id, {
+        authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`, text,
+      });
+      this.store.finishJob(job.id, 'done', message.id);
+    } finally {
+      this.hub.setThinking(job.room_id, member.id, false);
+    }
+  }
+
+  dropCli(id) {
+    this.cliAgents.get(id)?.agent.close();
+    this.cliAgents.delete(id);
+  }
+
   /** Watch for the consuming turn, admit the input, and post the outcome. */
   async admitAndSettle(job, member, agent, input, seqBefore) {
     const sessionId = agent.session.id;
     const done = new Promise((resolve) => {
       this.watching.set(sessionId, { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve });
     });
+    this.hub.setError(member.id, undefined);
     this.hub.setThinking(job.room_id, member.id, true);
     try {
       if (input.admit !== false) agent.followup(input);
@@ -244,8 +299,11 @@ export class DshMembers {
     if (this.closed) return;
     const job = this.store.job(jobId);
     if (job === undefined || !this.store.finishJob(jobId, state)) return;
+    const error = friendlyFailure(notice);
+    this.hub.setError(job.member_id, error);
     this.hub.post(job.room_id, {
-      authorKind: 'system', author: 'system', name: 'system', text: notice, clientKey: `dsh-job-${jobId}-${state}`,
+      authorKind: 'system', author: 'system', name: 'system', text: error, clientKey: `dsh-job-${jobId}-${state}`,
+      card: JSON.stringify({ title: '成员出错', state: 'failed', action: 'configure-model' }),
     });
   }
 
@@ -353,7 +411,7 @@ export class DshMembers {
   async settleSent(job) {
     const member = this.config.get(job.member_id);
     const interrupted = (why) => this.fail(job.id, `${member?.name ?? job.member_id} 上次被重启打断，${why}，需要的话请重新 @。`, 'interrupted');
-    if (member === undefined || !job.input_id) { interrupted('这条没有完成'); return; }
+    if (member === undefined || member.cli !== undefined || !job.input_id) { interrupted('这条没有完成'); return; }
     const agent = await this.liveAgent(job.session_id, member);
     if (this.closed) return;
     const consumed = consumingTurn(agent.session.snapshotEvents(job.seq_before), job.input_id);
@@ -376,6 +434,7 @@ export class DshMembers {
     this.closed = true;
     for (const w of this.watching.values()) w.resolve(INTERRUPTED);
     this.watching.clear();
+    for (const id of [...this.cliAgents.keys()]) this.dropCli(id);
     // A queue still waiting on the host (for example a resume during shutdown) must not block unload forever.
     let timer;
     const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_TIMEOUT_MS); });

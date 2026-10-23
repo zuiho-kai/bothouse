@@ -1,0 +1,23 @@
+{
+  "name": "conest-collab",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "plugin.mjs",
+  "exports": {
+    ".": "./plugin.mjs",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@zed-industries/claude-code-acp": "^0.16.2"
+  },
+  "optionalDependencies": {
+    "@agentclientprotocol/codex-acp": "^2.2.2"
+  }
+}

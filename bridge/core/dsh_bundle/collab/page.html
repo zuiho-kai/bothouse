@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoNest 频道</title>
+<style>
+  :root { --bg: #313338; --side: #2b2d31; --rail: #1e1f22; --text: #dbdee1; --muted: #949ba4; --line: #3f4147; --accent: #5865f2; --hover: #35373c; --input: #383a40; --ok: #23a55a; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #ffffff; --side: #f2f3f5; --rail: #e3e5e8; --text: #313338; --muted: #5c5e66; --line: #e1e2e4; --hover: #ebedef; --input: #ebedef; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "PingFang SC", sans-serif; display: grid; grid-template-columns: 240px 1fr 240px; }
+  aside { background: var(--side); overflow-y: auto; }
+  .head { height: 48px; padding: 0 16px; display: flex; align-items: center; font-weight: 600; border-bottom: 1px solid var(--rail); }
+  .rooms button { all: unset; display: block; margin: 2px 8px; padding: 6px 8px; border-radius: 4px; color: var(--muted); cursor: pointer; }
+  .rooms button:hover { background: var(--hover); color: var(--text); }
+  .rooms button[aria-current="true"] { background: var(--hover); color: var(--text); }
+  main { display: flex; flex-direction: column; min-width: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
+  .msg { display: grid; grid-template-columns: 40px 1fr; gap: 0 12px; padding: 4px 16px; }
+  .msg:hover { background: rgba(127,127,127,.06); }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; position: relative; }
+  .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .who { font-weight: 600; }
+  .when { color: var(--muted); font-size: 12px; margin-left: 8px; font-weight: 400; }
+  .body { white-space: pre-wrap; word-break: break-word; }
+  .tag { font-size: 10px; background: var(--accent); color: #fff; border-radius: 3px; padding: 0 4px; margin-left: 6px; vertical-align: 2px; }
+  .system .body { color: var(--muted); font-style: italic; }
+  .card { border-left: 4px solid var(--accent); background: var(--side); padding: 6px 10px; border-radius: 4px; margin-top: 2px; }
+  .card.completed { border-color: var(--ok); } .card.failed { border-color: #f23f43; }
+  .card .title { font-weight: 600; font-size: 13px; }
+  form { padding: 0 16px 20px; }
+  textarea { width: 100%; resize: none; border: 0; border-radius: 8px; padding: 11px 14px; background: var(--input); color: var(--text); font: inherit; max-height: 40vh; }
+  textarea:focus { outline: 2px solid var(--accent); }
+  .members h3 { margin: 16px 16px 4px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+  .member { display: flex; align-items: center; gap: 10px; padding: 5px 16px; }
+  .member .avatar { width: 32px; height: 32px; font-size: 13px; position: relative; }
+  .dot { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--side); background: var(--ok); }
+  .offline { opacity: .45; } .offline .dot { background: var(--muted); }
+  .status { font-size: 12px; color: var(--muted); }
+  #thinking { min-height: 20px; padding: 0 16px 4px; color: var(--muted); font-size: 13px; }
+  @media (max-width: 760px) { body { grid-template-columns: 1fr; } aside { display: none; } }
+</style>
+</head>
+<body>
+<aside><div class="head">CoNest</div><nav class="rooms" id="rooms" aria-label="频道"></nav></aside>
+<main>
+  <div class="head" id="title"># </div>
+  <div id="log" role="log" aria-live="polite"></div>
+  <div id="thinking"></div>
+  <form id="form"><textarea id="input" rows="1" placeholder="发消息，@成员 让它干活（Enter 发送，Shift+Enter 换行）"></textarea></form>
+</main>
+<aside class="members" id="members" aria-label="成员"></aside>
+<script>
+const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0 };
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const palette = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22'];
+const color = id => palette[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % palette.length];
+const kindLabel = { dsh: 'DSH', bot: 'Agent', human: '' };
+
+const avatarSrc = v => !v ? '' : /^https?:/.test(v) ? v : '/collab/avatars/' + encodeURIComponent(v) + '.png';
+function avatar(id, name) {
+  const m = state.members.find(m => m.id === id);
+  const a = el('div', 'avatar', (name || id).slice(0, 1)); a.style.background = color(id);
+  const src = avatarSrc(m && m.avatar);
+  if (src) { const img = el('img'); img.alt = ''; img.src = src; img.onerror = () => img.remove(); a.append(img); }
+  return a;
+}
+
+function renderRooms() {
+  $('rooms').replaceChildren(...state.rooms.map(r => {
+    const b = el('button', '', '# ' + r.name);
+    b.setAttribute('aria-current', String(r.id === state.room));
+    b.onclick = () => openRoom(r.id);
+    return b;
+  }));
+  const r = state.rooms.find(r => r.id === state.room);
+  $('title').textContent = '# ' + (r ? r.name : '');
+}
+
+function renderMembers() {
+  const busy = new Set(state.thinking[state.room] || []);
+  const groups = [['Agent', state.members.filter(m => m.kind !== 'human')], ['真人', state.members.filter(m => m.kind === 'human')]];
+  const nodes = [];
+  for (const [title, list] of groups) {
+    if (!list.length) continue;
+    nodes.push(el('h3', '', `${title} — ${list.length}`));
+    for (const m of list) {
+      const row = el('div', 'member' + (m.online ? '' : ' offline'));
+      const a = avatar(m.id, m.name); a.append(el('span', 'dot'));
+      const info = el('div');
+      const name = el('div', '', m.name);
+      if (kindLabel[m.kind]) name.append(el('span', 'tag', kindLabel[m.kind]));
+      info.append(name, el('div', 'status', busy.has(m.id) ? '正在处理…' : (m.online ? '在线' : '离线')));
+      row.append(a, info);
+      nodes.push(row);
+    }
+  }
+  $('members').replaceChildren(...nodes);
+  const names = [...busy].map(id => (state.members.find(m => m.id === id) || { name: id }).name);
+  $('thinking').textContent = names.length ? `${names.join('、')} 正在处理…` : '';
+}
+
+function messageNode(m) {
+  const row = el('div', 'msg' + (m.author_kind === 'system' ? ' system' : ''));
+  row.dataset.id = m.id;
+  const member = state.members.find(x => x.id === m.author);
+  row.append(avatar(m.author, m.name));
+  const col = el('div');
+  const head = el('div', 'who', m.name);
+  if (member && kindLabel[member.kind]) head.append(el('span', 'tag', kindLabel[member.kind]));
+  head.append(el('span', 'when', new Date(m.created_at * 1000).toLocaleString()));
+  col.append(head);
+  if (m.card) {
+    let meta = {}; try { meta = JSON.parse(m.card); } catch {}
+    const card = el('div', 'card ' + (meta.state || ''));
+    card.append(el('div', 'title', meta.title || ''), el('div', 'body', m.text));
+    col.append(card);
+  } else col.append(el('div', 'body', m.text));
+  row.append(col);
+  return row;
+}
+
+function upsert(m) {
+  if (m.room_id !== state.room) return;
+  const log = $('log');
+  const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
+  const existing = log.querySelector(`[data-id="${m.id}"]`);
+  if (existing) existing.replaceWith(messageNode(m));
+  else {
+    const after = [...log.children].find(n => Number(n.dataset.id) > m.id);
+    log.insertBefore(messageNode(m), after || null);
+  }
+  if (stick) log.scrollTop = log.scrollHeight;
+}
+
+async function api(path, init) {
+  const r = await fetch(path, { credentials: 'same-origin', ...init });
+  if (!r.ok) throw Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+
+async function openRoom(id) {
+  state.room = id; state.synced = 0;
+  $('log').replaceChildren();
+  renderRooms(); renderMembers();
+  const { messages } = await api(`/collab/api/rooms/${id}/messages?limit=100`);
+  messages.forEach(upsert);
+  state.synced = messages.length ? messages[messages.length - 1].id : 0;
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+// Page from the last contiguous position until caught up; live events never move
+// this cursor, so a gap from a dropped stream is always refetched.
+async function catchUp() {
+  const room = state.room;
+  if (room == null) return;
+  for (;;) {
+    const { messages } = await api(`/collab/api/rooms/${room}/messages?after=${state.synced}&limit=200`);
+    if (state.room !== room) return;
+    messages.forEach(upsert);
+    if (messages.length) state.synced = messages[messages.length - 1].id;
+    if (messages.length < 200) return;
+  }
+}
+
+function connect() {
+  const es = new EventSource('/collab/api/events');
+  es.onopen = () => catchUp().catch(console.warn);
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'message') upsert(ev.message);
+    else if (ev.type === 'deleted') $('log').querySelector(`[data-id="${ev.id}"]`)?.remove();
+    else if (ev.type === 'members') { state.members = ev.members; renderMembers(); }
+    else if (ev.type === 'thinking') { state.thinking[ev.room_id] = ev.members; renderMembers(); }
+  };
+}
+
+$('input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('form').requestSubmit(); }
+});
+$('input').addEventListener('input', (e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; });
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('input').value.trim();
+  if (!text || state.room == null) return;
+  $('input').value = ''; $('input').style.height = 'auto';
+  try {
+    const { message } = await api(`/collab/api/rooms/${state.room}/messages`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, client_key: crypto.randomUUID() }),
+    });
+    upsert(message);
+  } catch (err) { $('input').value = text; alert('发送失败：' + err.message); }
+});
+
+(async () => {
+  const s = await api('/collab/api/state');
+  Object.assign(state, { me: s.me, rooms: s.rooms, members: s.members, thinking: s.thinking });
+  connect();
+  await openRoom(s.rooms[0].id);
+})().catch(err => { document.body.textContent = '加载失败：' + err.message; });
+</script>
+</body>
+</html>

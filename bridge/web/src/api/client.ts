@@ -52,6 +52,39 @@ class ApiClient {
   patch<T = any>(path: string, body?: any) { return this.request<T>('PATCH', path, body); }
   delete<T = any>(path: string) { return this.request<T>('DELETE', path); }
 
+  /** POST a multipart form (file uploads); the browser sets the boundary. */
+  async form<T = any>(path: string, body: FormData, params?: Record<string, string>): Promise<T> {
+    const h: HeadersInit = {};
+    if (this.token) h['Authorization'] = `Bearer ${this.token}`;
+    let url = `${API_BASE}${path}`;
+    if (params) { const qs = new URLSearchParams(params).toString(); if (qs) url += `?${qs}`; }
+    const res = await fetch(url, { method: 'POST', headers: h, body });
+    if (res.status === 401 && this.onUnauthorized) {
+      this.onUnauthorized();
+      throw new ApiError('Unauthorized', 401);
+    }
+    const json = await res.json();
+    if (!json.ok) throw new ApiError(json.error || 'Unknown error', res.status);
+    return json.data as T;
+  }
+
+  /** POST JSON and read a binary answer (downloads); a JSON error body is turned into ApiError. */
+  async blob(path: string, body: any, params?: Record<string, string>): Promise<Blob> {
+    let url = `${API_BASE}${path}`;
+    if (params) { const qs = new URLSearchParams(params).toString(); if (qs) url += `?${qs}`; }
+    const res = await fetch(url, { method: 'POST', headers: this.headers(), body: JSON.stringify(body) });
+    if (res.status === 401 && this.onUnauthorized) {
+      this.onUnauthorized();
+      throw new ApiError('Unauthorized', 401);
+    }
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch { /* not JSON: keep the status text */ }
+      throw new ApiError(msg, res.status);
+    }
+    return res.blob();
+  }
+
   /** Fetch raw text (non-JSON) from an API endpoint. */
   async raw(path: string): Promise<string> {
     const h: HeadersInit = {};

@@ -27,25 +27,51 @@ export interface MemberModel {
   readonly model: string
 }
 
-/** One channel member: the human owner, a DSH-native member, or a cc-connect bot. */
+/** One channel member: the human owner, a DSH-native member, or a bothouse bot. */
 export interface ChannelMember {
   readonly id: string
   readonly name: string
   readonly kind: 'human' | 'dsh' | 'bot'
   readonly online: boolean
+  readonly error?: string
   /** DSH members only: configured model, or null for the host default. */
   readonly model?: MemberModel | null
+  /** Local CLI members only: which CLI the member runs as. */
+  readonly cli?: 'claude' | 'codex' | 'gemini'
   /** DSH members only. */
   readonly persona?: string
   /** DSH members only: created in the UI (editable) rather than the config file. */
   readonly editable?: boolean
+  /** Built-in avatar slug or a bot's http(s) image URL; absent means the initial badge. */
+  readonly avatar?: string
 }
 
 /** Fields the UI can set on a DSH member. */
-export interface MemberInput {
+export interface DshMemberInput {
   readonly name: string
   readonly model: MemberModel | null
   readonly persona: string
+  /** Built-in avatar slug, or '' for the initial badge. */
+  readonly avatar?: string
+}
+
+/** A member backed by a CLI agent installed on this machine (Claude Code, Codex, Gemini). */
+export interface CliMemberInput {
+  readonly name: string
+  readonly persona: string
+  /** CLI id as listed by `GET /collab/api/clis`. */
+  readonly cli: string
+  /** Built-in avatar slug, or '' for the initial badge. */
+  readonly avatar?: string
+}
+
+/** Body of `POST /collab/api/members` / `PATCH /collab/api/members/:id`. */
+export type MemberInput = DshMemberInput | CliMemberInput
+
+/** One CLI agent found on this machine, from `GET /collab/api/clis`. */
+export interface LocalCli {
+  readonly cli: string
+  readonly path: string
 }
 
 /** One provider route and the models it lists, for the member picker. */
@@ -86,6 +112,8 @@ export interface ChannelActions {
   createRoom(name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
   listModels(): Promise<readonly ModelRoute[]>
+  /** CLI agents installed on this machine, for the "local CLI" member type. */
+  listClis(): Promise<readonly LocalCli[]>
   /** Add a DSH member; rejects with the service's reason (name taken, model unavailable…). */
   addMember(input: MemberInput): Promise<void>
   /** Edit a UI-created DSH member. */
@@ -328,6 +356,9 @@ export function createChannelSource(transport: ChannelTransport): {
     async listModels() {
       const { routes } = await request<{ routes: ModelRoute[] }>('collab/api/models')
       return routes
+    },
+    async listClis() {
+      return await request<LocalCli[]>('collab/api/clis')
     },
     async addMember(input) {
       await request('collab/api/members', json('POST', input))

@@ -1,5 +1,6 @@
 {
   "nav": {
+    "library": "Библиотека",
     "dashboard": "Панель",
     "projects": "Проекты",
     "providers": "Провайдеры",

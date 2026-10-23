@@ -10,9 +10,9 @@ for (const [k, v] of Object.entries({ BASE_URL, TOKEN, PROJECT, OUT })) {
   if (!v) throw new Error(`缺环境变量 ${k}`);
 }
 
-// 安装向导（PR #149）合并后在这里追加向导页。
 const pages = [
   { name: 'login', path: '/login', auth: false },
+  { name: 'setup', path: '/setup', auth: true },
   { name: 'projects', path: '/projects', auth: true },
   { name: 'project-detail', path: `/projects/${encodeURIComponent(PROJECT)}`, auth: true },
 ];

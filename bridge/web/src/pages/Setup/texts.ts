@@ -1,6 +1,10 @@
 // Setup wizard copy — all of it lives here. Language = the web UI language picked at the top right
 // (Layout/Header.tsx), which is also the default reply language written into personas.
 const zh = {
+  welcomeEyebrow: '给 AI 伙伴一个家', welcomeTitle: '从这里，成为一支队伍。',
+  welcomeIntro: '接上你常用的聊天软件，让有名字、有记忆的 AI 伙伴住进来。',
+  teamCliNames: 'Claude、Codex、Gemini、DSH（DeepSeek Harness）、MiniMax',
+  lightStyle: '明亮风格', darkStyle: '深色风格', switchStyle: '切换向导风格',
   title: 'bothouse 安装向导',
   subtitle: '选平台 → 接机器人 → 每个角色选本机 CLI → 人设 → 兜底角色 → jev。其余全部用默认值。',
   steps: ['平台', '机器人', '本机 CLI', '人设', '兜底角色', 'jev', '完成'],
@@ -8,6 +12,7 @@ const zh = {
   platformQ: '装在哪个聊天软件？',
   discordDesc: '一主多 sub、gate、角色之间交接都在 Discord 上做全。',
   feishuDesc: '扫码自动建机器人；飞书这一轮只接一个机器人。',
+  dshDesc: '装进 DeepSeek 的 DSH，角色住在 DSH 网页的频道里。',
   cloudWebLabel: '自建平台',
   cloudWebDesc: '自己的聊天网页，打开就能和角色聊（像 Grok 那样）：本机一键起一个，或者连别人的。多个角色能在同一个频道里。',
   cwLocalTitle: '本机自建平台', cwDetecting: '检测中…', cwStart: '在本机启动', cwStarting: '启动中…（第一次要下载依赖，约半分钟）',
@@ -84,6 +89,10 @@ type Texts = { [K in keyof typeof zh]: (typeof zh)[K] extends readonly string[] 
   : (typeof zh)[K] extends Record<string, string> ? Record<string, string> : string };
 
 const en: Texts = {
+  welcomeEyebrow: 'A HOME FOR YOUR AIs', welcomeTitle: 'Your team starts here.',
+  welcomeIntro: 'Connect your favorite chat app. Give your AI teammates a name, a memory, and a home.',
+  teamCliNames: 'Claude, Codex, Gemini, DSH (DeepSeek Harness), MiniMax',
+  lightStyle: 'Light style', darkStyle: 'Dark style', switchStyle: 'Switch wizard style',
   title: 'bothouse setup wizard',
   subtitle: 'Platform → bots → local CLI per role → persona → fallback role → jev. Everything else uses defaults.',
   steps: ['Platform', 'Bots', 'Local CLI', 'Persona', 'Fallback', 'jev', 'Done'],
@@ -91,6 +100,7 @@ const en: Texts = {
   platformQ: 'Which chat app?',
   discordDesc: 'Main + subs, the gate and hand-offs between roles are complete on Discord.',
   feishuDesc: 'Scan a QR code to create the bot; one bot on Feishu for now.',
+  dshDesc: 'Plugs into DeepSeek\'s DSH — your roles live in a channel on the DSH web page.',
   cloudWebLabel: 'Self-hosted',
   cloudWebDesc: 'Your own chat page — open it and talk to your roles (like Grok): start one on this machine with one click, or connect to someone else\'s. Several roles can share a channel.',
   cwLocalTitle: 'Self-hosted platform on this machine', cwDetecting: 'Detecting…', cwStart: 'Start on this machine', cwStarting: 'Starting… (the first start downloads packages, about half a minute)',
@@ -164,6 +174,10 @@ const en: Texts = {
 };
 
 const ja: Texts = {
+  welcomeEyebrow: 'AI 仲間のための家', welcomeTitle: 'ここから、ひとつのチームに。',
+  welcomeIntro: 'いつものチャットに、名前と記憶を持つ AI 仲間を迎えましょう。',
+  teamCliNames: 'Claude、Codex、Gemini、DSH（DeepSeek Harness）、MiniMax',
+  lightStyle: 'ライトスタイル', darkStyle: 'ダークスタイル', switchStyle: 'ウィザードのスタイルを切り替え',
   title: 'bothouse セットアップウィザード',
   subtitle: 'プラットフォーム → ボット → ロールごとのローカル CLI → ペルソナ → フォールバックロール → jev。それ以外はすべて既定値です。',
   steps: ['プラットフォーム', 'ボット', 'ローカル CLI', 'ペルソナ', 'フォールバック', 'jev', '完了'],
@@ -171,6 +185,7 @@ const ja: Texts = {
   platformQ: 'どのチャットアプリに入れますか？',
   discordDesc: 'メイン＋サブ、gate、ロール間の引き継ぎまで Discord ですべて動きます。',
   feishuDesc: 'QR コードを読み取るとボットを自動作成します。Feishu は今のところボット 1 体のみです。',
+  dshDesc: 'DeepSeek の DSH に組み込み、ロールは DSH ウェブページのチャンネルに住みます。',
   cloudWebLabel: '自前プラットフォーム',
   cloudWebDesc: '自分のチャットページ。開けばすぐロールと話せます（Grok のように）。このマシンにワンクリックで立てるか、他の人のものにつなぎます。複数のロールが同じチャンネルに入れます。',
   cwLocalTitle: 'このマシンの自前プラットフォーム', cwDetecting: '検出中…', cwStart: 'このマシンで起動', cwStarting: '起動中…（初回は依存をダウンロードするため 30 秒ほど）',
@@ -277,3 +292,80 @@ export const stepLabel = (T: Texts, step: string): string => {
 export const keptLangLabel = (T: Texts, p: { reply_language?: string; reply_language_line?: string } | null | undefined): string =>
   p === undefined ? T.replyLangLoading : p === null ? T.replyLangUnknown
     : p.reply_language ? langLabel(p.reply_language) : p.reply_language_line ? `“${p.reply_language_line}”` : T.replyLangNone;
+
+// Persona / avatar library and packs (components/library, pages/Library) — shared by the wizard's persona step and the Library page.
+const libZh = {
+  title: '角色库', subtitle: '人设和头像按「包」组织：默认包、你装的包、「我的」。同名时「我的」优先。',
+  tabPersonas: '人设', tabAvatars: '头像', tabPacks: '包',
+  newPersona: '新建人设', edit: '编辑', copy: '复制', remove: '删除', hide: '隐藏', show: '重新显示', reset: '恢复默认',
+  showHidden: '显示已隐藏的', hiddenTag: '已隐藏', editedTag: '已改', inUse: '在用：', packTag: '来自 {pack}',
+  pick: '用这个', picked: '已选', none: '不用人设（留空）',
+  removeConfirm: '删除「{name}」？删了可以马上撤销。', hideConfirm: '「{name}」来自 {pack}，只能隐藏，隐藏后可以在「显示已隐藏的」里找回来。',
+  removed: '已删除「{name}」', hidden: '已隐藏「{name}」', undo: '撤销', undone: '已撤销',
+  applied: '已同步到：{roles}', skipped: '这些角色的人设是手写的，没改：{roles}',
+  name: '名字', intro: '一句话简介', text: '人设全文', avatar: '头像', noAvatar: '不用头像（显示首字）', upload: '上传头像',
+  copyOf: '{name} 副本', save: '保存', cancel: '取消', close: '关闭', saving: '保存中…',
+  uploadTitle: '上传头像', dropHere: '把图片拖到这里，或点一下选图片', cropNote: '会居中裁成正方形，下面是圆形预览。',
+  avatarName: '头像名（可选）', badImage: '这不是能读的图片', emptyAvatars: '还没有头像。',
+  packs: '已装的包', builtin: '默认', mine: '我的', enabled: '启用', disabled: '已停用', uninstall: '卸载',
+  uninstallConfirm: '卸载包「{name}」？它带来的人设和头像会从库里消失，「我的」里改过的副本保留。',
+  install: '装包', installFile: '选 zip 文件', installURL: '或填 https 下载地址', previewBtn: '预览',
+  previewTitle: '装包前预览：{name}', replaces: '会替换已装的版本 {version}', conflicts: '和别的包同名（「我的」仍优先）：',
+  skippedFiles: '忽略的文件：', confirmInstall: '确认安装', installed: '已安装「{name}」',
+  exportBtn: '导出成包', exportTitle: '导出成包', packId: '包 ID（小写字母、数字、-）', packName: '包名',
+  author: '作者', version: '版本', license: '许可证（必填，如 CC-BY-4.0）', description: '说明',
+  choosePersonas: '选要导出的人设', chooseAvatars: '选要导出的头像', download: '下载 zip',
+  personaCount: '{n} 个人设', avatarCount: '{n} 张头像', loading: '读取中…', loadFailed: '读取失败：{error}',
+};
+type LibTexts = Record<keyof typeof libZh, string>;
+const libEn: LibTexts = {
+  title: 'Library', subtitle: 'Personas and avatars come in packs: the default pack, packs you installed, and "Mine". "Mine" wins on the same name.',
+  tabPersonas: 'Personas', tabAvatars: 'Avatars', tabPacks: 'Packs',
+  newPersona: 'New persona', edit: 'Edit', copy: 'Copy', remove: 'Delete', hide: 'Hide', show: 'Show again', reset: 'Restore default',
+  showHidden: 'Show hidden', hiddenTag: 'hidden', editedTag: 'edited', inUse: 'In use: ', packTag: 'from {pack}',
+  pick: 'Use this', picked: 'Selected', none: 'No persona (empty)',
+  removeConfirm: 'Delete "{name}"? You can undo right away.', hideConfirm: '"{name}" comes from {pack} and can only be hidden. Find it again under "Show hidden".',
+  removed: 'Deleted "{name}"', hidden: 'Hid "{name}"', undo: 'Undo', undone: 'Undone',
+  applied: 'Updated in: {roles}', skipped: 'Left alone (hand-written persona): {roles}',
+  name: 'Name', intro: 'One-line intro', text: 'Full persona', avatar: 'Avatar', noAvatar: 'No avatar (show initial)', upload: 'Upload avatar',
+  copyOf: '{name} copy', save: 'Save', cancel: 'Cancel', close: 'Close', saving: 'Saving…',
+  uploadTitle: 'Upload avatar', dropHere: 'Drop a picture here, or click to choose one', cropNote: 'It is cropped to a centered square; round preview below.',
+  avatarName: 'Avatar name (optional)', badImage: 'This is not a readable picture', emptyAvatars: 'No avatars yet.',
+  packs: 'Installed packs', builtin: 'default', mine: 'mine', enabled: 'On', disabled: 'Off', uninstall: 'Uninstall',
+  uninstallConfirm: 'Uninstall "{name}"? Its personas and avatars leave the library; edited copies in "Mine" stay.',
+  install: 'Install a pack', installFile: 'Choose a zip file', installURL: 'or an https download link', previewBtn: 'Preview',
+  previewTitle: 'Preview before installing: {name}', replaces: 'Replaces the installed version {version}', conflicts: 'Same names as other packs ("Mine" still wins): ',
+  skippedFiles: 'Ignored files: ', confirmInstall: 'Install', installed: 'Installed "{name}"',
+  exportBtn: 'Export as pack', exportTitle: 'Export as pack', packId: 'Pack ID (lowercase letters, digits, -)', packName: 'Pack name',
+  author: 'Author', version: 'Version', license: 'License (required, e.g. CC-BY-4.0)', description: 'Description',
+  choosePersonas: 'Personas to export', chooseAvatars: 'Avatars to export', download: 'Download zip',
+  personaCount: '{n} personas', avatarCount: '{n} avatars', loading: 'Loading…', loadFailed: 'Could not load: {error}',
+};
+const libJa: LibTexts = {
+  title: 'ライブラリ', subtitle: 'ペルソナとアイコンは「パック」単位：既定パック、入れたパック、「マイ」。同名なら「マイ」が優先。',
+  tabPersonas: 'ペルソナ', tabAvatars: 'アイコン', tabPacks: 'パック',
+  newPersona: '新規ペルソナ', edit: '編集', copy: '複製', remove: '削除', hide: '非表示', show: '再表示', reset: '既定に戻す',
+  showHidden: '非表示も表示', hiddenTag: '非表示', editedTag: '編集済み', inUse: '使用中：', packTag: '{pack} から',
+  pick: 'これを使う', picked: '選択中', none: 'ペルソナなし（空）',
+  removeConfirm: '「{name}」を削除しますか？すぐ元に戻せます。', hideConfirm: '「{name}」は {pack} のもので、非表示にしかできません。「非表示も表示」から戻せます。',
+  removed: '「{name}」を削除しました', hidden: '「{name}」を非表示にしました', undo: '元に戻す', undone: '元に戻しました',
+  applied: '反映先：{roles}', skipped: '手書きのペルソナなので変更なし：{roles}',
+  name: '名前', intro: '一言紹介', text: 'ペルソナ全文', avatar: 'アイコン', noAvatar: 'アイコンなし（頭文字）', upload: 'アイコンをアップロード',
+  copyOf: '{name} のコピー', save: '保存', cancel: 'キャンセル', close: '閉じる', saving: '保存中…',
+  uploadTitle: 'アイコンをアップロード', dropHere: '画像をここにドロップ、またはクリックして選択', cropNote: '中央で正方形に切り抜きます。下は丸いプレビューです。',
+  avatarName: 'アイコン名（任意）', badImage: '読み込めない画像です', emptyAvatars: 'アイコンはまだありません。',
+  packs: '入れたパック', builtin: '既定', mine: 'マイ', enabled: '有効', disabled: '無効', uninstall: 'アンインストール',
+  uninstallConfirm: '「{name}」をアンインストールしますか？そのペルソナとアイコンはライブラリから消えます。「マイ」で編集したコピーは残ります。',
+  install: 'パックを入れる', installFile: 'zip ファイルを選択', installURL: 'または https のダウンロード URL', previewBtn: 'プレビュー',
+  previewTitle: 'インストール前のプレビュー：{name}', replaces: '入っているバージョン {version} を置き換えます', conflicts: '他のパックと同名（「マイ」が優先）：',
+  skippedFiles: '無視したファイル：', confirmInstall: 'インストール', installed: '「{name}」を入れました',
+  exportBtn: 'パックに書き出す', exportTitle: 'パックに書き出す', packId: 'パック ID（小文字・数字・-）', packName: 'パック名',
+  author: '作者', version: 'バージョン', license: 'ライセンス（必須、例 CC-BY-4.0）', description: '説明',
+  choosePersonas: '書き出すペルソナ', chooseAvatars: '書き出すアイコン', download: 'zip をダウンロード',
+  personaCount: 'ペルソナ {n} 件', avatarCount: 'アイコン {n} 件', loading: '読み込み中…', loadFailed: '読み込めません：{error}',
+};
+const LIB_TEXTS: Record<string, LibTexts> = { zh: libZh, en: libEn, ja: libJa };
+export type LibraryTexts = LibTexts;
+export const libraryTexts = (lang: string): LibTexts => LIB_TEXTS[(lang || '').toLowerCase().split('-')[0]] ?? libEn;
+/** fill {name}-style slots */
+export const fmt = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ''));

@@ -1,0 +1,65 @@
+/* Direction: wiki role-household-oss-promo.md:33-34 (bright white).
+   Accents: README's docs/assets/demo-chat.zh.png (blurple, green, orange).
+   Keep the existing system sans stack and rounded controls; no remote fonts. */
+.setup-layout {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+}
+:root:not(.dark) .setup-layout {
+  --color-accent: 88 101 242;
+  --color-accent-dim: 71 82 196;
+  background: radial-gradient(ellipse at 15% 0%, #f0f1ff 0, transparent 45%),
+    radial-gradient(ellipse at 95% 65%, #fff6e8 0, transparent 45%), #fdfdff;
+}
+.setup-layout main { padding: 32px 24px 16px; }
+.setup-welcome { text-align: center; padding: 4px 0 8px; }
+.setup-home {
+  display: inline-flex; padding: 13px; border-radius: 20px;
+  color: rgb(var(--color-accent)); background: rgb(var(--color-accent) / .09);
+}
+.setup-eyebrow {
+  margin: 16px 0 8px; font-size: 11px; letter-spacing: .16em;
+  font-weight: 700; color: rgb(var(--color-accent));
+}
+.setup-welcome h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 750; letter-spacing: -.035em; color: #272938; }
+.setup-intro { margin: 12px auto 0; max-width: 540px; color: #676c80; font-size: 14px; line-height: 1.8; }
+.setup-team { display: flex; justify-content: center; gap: 12px; margin-top: 20px; }
+.setup-team span { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.setup-team small { font-size: 10px; color: #676c80; }
+.setup-team img {
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border: 3px solid white;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
+  transition: transform 160ms ease;
+}
+.setup-team img:hover { z-index: 1; transform: translateY(-3px) scale(1.08); }
+.dark .setup-team img { border-color: #111116; }
+.dark .setup-team small { color: #a1a5b2; }
+.setup-steps { justify-content: center; }
+.setup-steps span { padding: 7px 12px; }
+.setup-card { padding: 28px; border-radius: 24px; }
+:root:not(.dark) .setup-card {
+  background: #fff; border-color: #e5e7f2;
+  box-shadow: 0 12px 40px -16px rgb(54 60 105 / .16);
+}
+.setup-platform { min-height: 142px; border-radius: 16px; }
+.setup-platform p { line-height: 1.8; margin-top: 12px; }
+.setup-platform:hover { transform: translateY(-2px); }
+.setup-wizard :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid rgb(var(--color-accent)); outline-offset: 3px;
+}
+.setup-card > :last-child { padding-top: 20px; }
+.dark .setup-welcome h1 { color: #fff; }
+.dark .setup-intro { color: #9ca3af; }
+@media (max-width: 640px) {
+  .setup-layout main { padding: 20px 16px 12px; }
+  .setup-card { padding: 20px; }
+  .setup-platform { min-height: auto; }
+  .setup-steps { gap: 4px; }
+  .setup-steps span { padding: 5px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-wizard, .setup-wizard * { animation: none !important; transition: none !important; }
+}

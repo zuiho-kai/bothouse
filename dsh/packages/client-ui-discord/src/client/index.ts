@@ -26,7 +26,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 const PANEL_ID = 'channels' as MainPanelId
 
 /** Required browser services. */
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'layout']
 
 /**
  * Register the channel dictionaries, the main panel, and its sidebar entry.
@@ -43,16 +43,24 @@ export function apply(ctx: ClientContext): void {
     send: channels.actions.send,
     createRoom: channels.actions.createRoom,
     listModels: channels.actions.listModels,
+    listClis: channels.actions.listClis,
     addMember: channels.actions.addMember,
     updateMember: channels.actions.updateMember,
     removeMember: channels.actions.removeMember,
   })
-  ctx.slots.inject('main', () => ctx.slots.register({
-    name: 'main',
-    key: PANEL_ID,
-    locale: NS,
-    inject: injected,
-  }, ChannelsPage))
+  ctx.slots.inject('main', () => {
+    const dispose = ctx.slots.register({
+      name: 'main',
+      key: PANEL_ID,
+      locale: NS,
+      inject: injected,
+      children: { 'settings.section': { kind: 'list', scope: 'root' } },
+    }, ChannelsPage)
+    // Deep link: the setup wizard opens `…#channels` (bridge core/setup_dsh_configure.go dshChannelsHash).
+    // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
+    if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID)
+    return dispose
+  })
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,

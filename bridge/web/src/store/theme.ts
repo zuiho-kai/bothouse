@@ -30,7 +30,9 @@ export const useThemeStore = create<ThemeState>((set) => ({
     set({ theme, resolved });
   },
   init: () => {
-    const saved = (localStorage.getItem('cc_theme') as Theme) || 'dark';
+    const stored = localStorage.getItem('cc_theme');
+    const setup = window.location.pathname === '/setup' || new URLSearchParams(window.location.search).get('next') === '/setup';
+    const saved: Theme = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : setup ? 'light' : 'dark';
     const resolved = resolveTheme(saved);
     applyTheme(resolved);
     set({ theme: saved, resolved });

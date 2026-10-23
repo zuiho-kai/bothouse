@@ -590,7 +590,7 @@ func TestWithReplyLanguageIdempotent(t *testing.T) {
 	if WithReplyLanguage("x", "") != "x" {
 		t.Fatal("empty lang must not change persona")
 	}
-	if len(PersonaPresets("zh-CN")) != 5 || len(PersonaPresets("en-US")) != 5 || PersonaPresets("zh")[0].Name != "橘" || PersonaPresets("en")[0].Name != "Ju" {
+	if len(PersonaPresets("zh-CN")) != 12 || len(PersonaPresets("en-US")) != 12 || PersonaPresets("zh")[0].Name != "橘" || PersonaPresets("en")[0].Name != "Ju" {
 		t.Fatal("presets by language")
 	}
 	for _, ps := range [][]PersonaPreset{personaPresetsZH, personaPresetsEN} {

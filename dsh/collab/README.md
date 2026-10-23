@@ -7,6 +7,10 @@ Issue [#229](https://github.com/Zssan12/conest/issues/229)。一个以绝对路�
 - **外部 Agent（cc-connect）**：实现 cloud_web WebSocket 服务端（`/cloud-web/ws`）与离线补历史接口（`GET /api/rooms/{id}/messages`），协议行为照搬 `role-household/rh/cloudweb.py`，cc-connect 无需改代码。
 - **最简消息页**：`/collab`，Discord 式三栏，SSE 实时更新。用 DSH 网页的登录 cookie 鉴权，跨源请求被 DSH 的 Host/Origin 校验拒绝。
 
+## 数据存在哪里
+
+用 `install.sh` 装进 profile 时，配置来自 `cordis.patch.yml`：`dataDir` 默认取环境变量 `CONEST_COLLAB_DATA`，没设就是 `~/.conest-collab`（频道消息 `collab.sqlite3` 存在这里）；`workspacePath` 默认取 `CONEST_COLLAB_WORKSPACE`，没设就是启动 DSH 时的当前目录。测试或多开时把 `CONEST_COLLAB_DATA` 指到别的目录，免得写进默认库。
+
 ## 启用
 
 1. 生成 bot 共享 token，放进环境变量（不要写进配置文件）：`export CONEST_COLLAB_BOT_TOKEN=$(openssl rand -hex 24)`。

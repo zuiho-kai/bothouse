@@ -43,7 +43,15 @@ export class Hub {
     this.emit({ type: 'members', members: this.memberView() });
   }
 
+  setError(id, error) {
+    const member = this.members.get(id);
+    if (member === undefined) return;
+    member.error = error;
+    this.emit({ type: 'members', members: this.memberView() });
+  }
+
   setThinking(roomId, id, on) {
+    if (on) this.setError(id, undefined);
     const set = this.thinking.get(roomId) ?? new Set();
     if (on === set.has(id)) return;
     if (on) set.add(id); else set.delete(id);
@@ -52,9 +60,9 @@ export class Hub {
   }
 
   memberView() {
-    return this.memberList().map(({ id, name, kind, online, model, persona, source }) => ({
-      id, name, kind, online: online !== false,
-      ...(kind === 'dsh' ? { model: model ?? null, persona: persona ?? '', editable: source === 'ui' } : {}),
+    return this.memberList().map(({ id, name, kind, online, model, cli, persona, avatar, source, error }) => ({
+      id, name, kind, online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar } : {}),
+      ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli } : {}), persona: persona ?? '', editable: source === 'ui' } : {}),
     }));
   }
 

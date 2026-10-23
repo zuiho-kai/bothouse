@@ -21,7 +21,8 @@
   #log { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
   .msg { display: grid; grid-template-columns: 40px 1fr; gap: 0 12px; padding: 4px 16px; }
   .msg:hover { background: rgba(127,127,127,.06); }
-  .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; position: relative; }
+  .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
   .who { font-weight: 600; }
   .when { color: var(--muted); font-size: 12px; margin-left: 8px; font-weight: 400; }
   .body { white-space: pre-wrap; word-break: break-word; }
@@ -60,7 +61,14 @@ const palette = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc
 const color = id => palette[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % palette.length];
 const kindLabel = { dsh: 'DSH', bot: 'Agent', human: '' };
 
-function avatar(id, name) { const a = el('div', 'avatar', (name || id).slice(0, 1)); a.style.background = color(id); return a; }
+const avatarSrc = v => !v ? '' : /^https?:/.test(v) ? v : '/collab/avatars/' + encodeURIComponent(v) + '.png';
+function avatar(id, name) {
+  const m = state.members.find(m => m.id === id);
+  const a = el('div', 'avatar', (name || id).slice(0, 1)); a.style.background = color(id);
+  const src = avatarSrc(m && m.avatar);
+  if (src) { const img = el('img'); img.alt = ''; img.src = src; img.onerror = () => img.remove(); a.append(img); }
+  return a;
+}
 
 function renderRooms() {
   $('rooms').replaceChildren(...state.rooms.map(r => {

@@ -7,6 +7,8 @@ const setupUsage = `Usage:
   bothouse setup apply --json <file|-> [--config path] [--dry-run]
                          Configure bots in one go (same as the web setup wizard). JSON in, JSON out.
                          Run "bothouse setup apply -h" for every JSON field.
+  bothouse setup dsh [install] [--lang zh|en]
+                         Detect DSH or install the plugins into its web profile; returns the launch command.
   bothouse setup clis       Local CLIs (claude, codex, gemini, …): path, version, logged in or not
   bothouse setup matrix     Third-party API providers × CLIs: native or converted
   bothouse setup hub        The self-hosted platform (cloud_web) on this machine: running or not, can it be started

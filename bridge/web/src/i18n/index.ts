@@ -8,7 +8,7 @@ import es from './locales/es.json';
 import ko from './locales/ko.json';
 import ru from './locales/ru.json';
 
-const saved = localStorage.getItem('cc_lang') || navigator.language.split('-')[0] || 'en';
+const saved = localStorage.getItem('cc_lang') || 'zh';
 
 i18n.use(initReactI18next).init({
   resources: {
@@ -21,7 +21,7 @@ i18n.use(initReactI18next).init({
     ru: { translation: ru },
   },
   lng: saved,
-  fallbackLng: 'en',
+  fallbackLng: 'zh',
   interpolation: { escapeValue: false },
 });
 

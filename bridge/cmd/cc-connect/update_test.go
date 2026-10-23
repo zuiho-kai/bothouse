@@ -2,8 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -172,5 +177,88 @@ func TestSyncNpmPackageVersion_UpdatesWhenDifferent(t *testing.T) {
 	}
 	if pkg["version"] != "1.0.0" {
 		t.Errorf("version = %v, want 1.0.0 (updated)", pkg["version"])
+	}
+}
+
+// `bothouse update` with bothouse running hands the install to it (POST /update on the socket),
+// which goes through the same guarded update as the web button.
+func TestUpdateViaRunningPostsTag(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix socket")
+	}
+	dir, err := os.MkdirTemp("/tmp", "bhupd") // short path: unix socket names are capped near 104 bytes
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "api.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotPath, gotBody string
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotPath, gotBody = r.URL.Path, string(b)
+		w.Write([]byte(`{"status":"restarting","version":"v0.1.5"}`))
+	})}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	if err := updateViaRunning(sock, "v0.1.5"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/update" || gotBody != `{"tag":"v0.1.5"}` {
+		t.Fatalf("got %s %s", gotPath, gotBody)
+	}
+}
+
+// A leftover socket (nobody listening) or an older bothouse answering 404 must fall back to the
+// direct install, not fail the CLI update.
+func TestUpdateViaRunningFallsBack(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix socket")
+	}
+	dir, err := os.MkdirTemp("/tmp", "bhupd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+
+	stale := filepath.Join(dir, "stale.sock")
+	ln, err := net.Listen("unix", stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	ln.Close()
+	if err := updateViaRunning(stale, "v0.1.5"); !errors.Is(err, errNoRunningUpdate) {
+		t.Fatalf("stale socket: %v", err)
+	}
+
+	old := filepath.Join(dir, "old.sock")
+	ln2, err := net.Listen("unix", old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.NotFoundHandler()}
+	go srv.Serve(ln2)
+	t.Cleanup(func() { srv.Close() })
+	if err := updateViaRunning(old, "v0.1.5"); !errors.Is(err, errNoRunningUpdate) {
+		t.Fatalf("404: %v", err)
+	}
+
+	busy := filepath.Join(dir, "busy.sock")
+	ln3, err := net.Listen("unix", busy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv3 := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})}
+	go srv3.Serve(ln3)
+	t.Cleanup(func() { srv3.Close() })
+	if err := updateViaRunning(busy, "v0.1.5"); err == nil || errors.Is(err, errNoRunningUpdate) {
+		t.Fatalf("409 must be a real failure: %v", err)
 	}
 }

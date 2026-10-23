@@ -26,7 +26,8 @@ concurrency:
 
 jobs:
   shoot:
-    runs-on: ubuntu-latest
+    # 用户 2026-10-23「你把那边关联到这两个环境去编译呗」：GitHub 托管机因账号扣款失败不可用，改到甲骨文 ARM64。
+    runs-on: [self-hosted, bothouse-ci]
     # 沿用 ci.yml 里 bridge job 的上限。
     timeout-minutes: 20
     permissions:
@@ -49,21 +50,29 @@ jobs:
           npm install -g pnpm@10
           cd .github/ui-preview
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          # runner 账号没有 sudo：系统依赖（playwright install-deps chromium、fonts-noto-cjk）
+          # 已在甲骨文机上用 root 装好（2026-10-23），这里只下浏览器本体。
+          npx playwright install chromium
+      - name: Frontend lint and tests
+        working-directory: bridge/web
+        run: pnpm install --frozen-lockfile && pnpm lint && pnpm test
       - name: 构建、隔离启动、截图
         run: .github/ui-preview/run.sh . ui-preview-out
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        # artifact storage quota is shared and was full on 2026-10-23; screenshots passing is the check, the upload is best-effort
+        continue-on-error: true
         with:
           name: ui-preview
           path: ui-preview-out
           if-no-files-found: ignore
+          # artifact 额度按账号算，2026-10-23 撞过上限；评论只要 pages.json，留 1 天够用。
+          retention-days: 1
 
   comment:
     needs: shoot
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, bothouse-ci]
     permissions:
       pull-requests: write
     steps:
