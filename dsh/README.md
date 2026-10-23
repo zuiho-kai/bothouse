@@ -87,7 +87,7 @@ corepack pnpm run build:artifacts
 ## 交叉审查修正（2026-10-21，gpt-6-astra，结论已逐条对照源码核实）
 
 1. **「cc-connect 零改动接入」有条件成立。** cloud-web 不只是一条 WebSocket，服务端至少要实现：
-   - `/cloud-web/ws`，token 鉴权（客户端同时带 Bearer、`X-Cloud-Web-Token` 和查询参数）；`register → register_ack`，能力必须显式列出（空列表会被当成全部支持）；心跳。
+   - `/cloud-web/ws`，token 鉴权（凭据只走 `Authorization` / `X-Cloud-Web-Token` 请求头，查询参数不传 token；`?bot=` 只作一致性检查）；`register → register_ack`，能力必须显式列出（空列表会被当成全部支持）；心跳。
    - 入站 `message` 帧带频道、用户、回复上下文、mentioned、from_bot；出站收 `reply`。声明 preview 就要实现 `preview_start → preview_ack` 及更新/删除，客户端最多等 10 秒。
    - **隐藏耦合**：离线补历史硬编码 `GET /api/rooms/{id}/messages?before=&limit=`，房间 ID 用 `hub-` 前缀，消息字段为 `id/author_kind/author/name/text/created_at/card/from_turn`（`bridge/platform/cloud-web/history.go`）。不实现就丢离线上下文。
    - hub 还负责 @ 转换、过滤进度/状态消息、防止 bot 自回声（`role-household/rh/cloudweb.py`），不能只转发文本。

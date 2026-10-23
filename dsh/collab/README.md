@@ -9,7 +9,8 @@ Issue [#229](https://github.com/Zssan12/conest/issues/229)。一个以绝对路�
 
 ## 启用
 
-1. 生成 bot 共享 token，放进环境变量（不要写进配置文件）：`export CONEST_COLLAB_BOT_TOKEN=$(openssl rand -hex 24)`。
+1. 给每个要接入的机器人各生成一个专属密钥，写进环境变量（不要写进配置文件）：`export CONEST_COLLAB_BOT_TOKENS='ju:<key>,ds:<key>,...'`，格式是 `成员id:密钥,成员id:密钥`；也可以写 overlay 的 `botTokens: { <成员id>: <密钥> }`，同名时环境变量优先。密钥决定这个连接是谁，所以一个机器人一个密钥，别共用。
+   - 可选的旧共享 token `CONEST_COLLAB_BOT_TOKEN` 仍然认，但只读：只能通过 HTTP（`GET /api/rooms/{id}/messages`）读**公开**房间的历史；它不能注册 WebSocket 写入连接，也读不到私有房间。没配共享 token 时启动会告警；一个凭据都没配时没人连得上（WS 升级一律 401），但插件照常加载，不会把整个 DSH host 拖下去。
 2. 写一个 overlay，例如 `collab.yml`：
 
    ~~~yaml
@@ -79,7 +80,7 @@ type = "cloud_web"
 
 [projects.platforms.options]
 transport = "websocket"
-token = "${CONEST_COLLAB_BOT_TOKEN}"
+token = "${JU_BOT_SECRET}"   # 这个机器人自己的密钥：CONEST_COLLAB_BOT_TOKENS 里 ju:<密钥> 的那一半；共享 token 建不了连接
 base_url = "http://127.0.0.1:<DSH 端口>"
 ws_url = "ws://127.0.0.1:<DSH 端口>/cloud-web/ws?bot=ju&name=%E6%A9%98"   # bot=成员 id，name=显示名（URL 编码），可加 &mention_id=<数字>
 allow_from = "*"
@@ -92,7 +93,7 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 - 没有 gate：`group_reply_all = false`。只处理 @ 它的消息；代价是看不到频道里其他人的发言（离线补历史也只在 gate 路径上运行）。
 - 有 gate（线上 maomao 的做法）：`group_reply_all = true`，加 `gate_url` 与 `gate_fallback = "context"`。没 @ 的消息只听不答，被 @ 时带上频道上下文，掉线期间的消息经本插件的历史接口补回。
 
-同一个 bot id 再次连接会顶掉旧连接。成员 id 不能与 DSH 成员或 `owner`/`user`/`system` 重名。
+**身份由密钥决定。** 网关只从 `Authorization` / `X-Cloud-Web-Token` 请求头取凭据，URL 里不传 token（cc-connect 拨号前会把旧 `ws_url` 里的 `?token=` 去掉）；`?bot=` 只做一致性检查，与凭据对不上就拒绝（`4002`）。成员 id 为小写 `[a-z0-9_-]`、最多 32 字符，`owner`/`user`/`system` 和已有 DSH 成员 id 都不能用，显示名也不能与别的成员重名；id 若已是持久化成员或非机器人成员，注册被拒、不顶替那条身份。同一个密钥再次连接（例如 cc-connect 重启）会顶掉旧连接：新连接生效，旧连接以 `4003` 关闭——顶的是连接，不是身份或历史。
 
 ## 行为约定
 
@@ -122,7 +123,7 @@ cloud_web 没有停止确认协议：这里清显示状态，并按 reply_ctx �
 node --test dsh/collab/*.test.mjs
 ~~~
 
-单测覆盖存储去重与分页、@ 改写、cloud_web 帧行为、DSH 成员投递/去重/恢复、接力上限与配置校验。
+单测覆盖存储去重与分页、@ 改写、cloud_web 帧行为、DSH 成员投递/去重/恢复、接力上限与配置校验；`isolation.test.mjs` 另覆盖凭据与身份（保留 id、重名、密钥冲突、共享 token 不能建写入连接、`?bot=` 不一致即拒、重连顶替旧连接）、历史接口的请求头与私有房间 ACL、越权成员的 WS 写入与暂停后编辑/删除、房间名单撤销的即时生效，以及迁移与恢复边界。
 
 2026-10-21 在隔离的 `DSH_HOME` 上对 DSH 0.2.1-rc.2 源码做了真机联调：
 

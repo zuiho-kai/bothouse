@@ -1,5 +1,13 @@
 # 共栖当前交接
 
+2026-10-23 Issue #55/#78 认证文档同步（肥鱼接手，只改文档）：在独立 worktree `bothouse-55-auth-docs-dsh-20261023`（分支 `fix/55-auth-docs-dsh-20261023`，基线 `43bea6c`）按现有实现改 `bridge/docs/cloud-web.md`、`bridge/docs/cloud-web.zh-CN.md`、`dsh/README.md`、`dsh/collab/README.md` 与本文；未改代码、配置、CI、测试，未推送、未合并、未部署。
+
+- 删掉「查询参数 token 认证」和「客户端同时带 Bearer + `X-Cloud-Web-Token` + 查询参数」的旧说法：凭据只走 `Authorization` / `X-Cloud-Web-Token` 请求头，cc-connect 拨号前会把旧 `ws_url` 里的 `?token=` 去掉（`bridge/platform/cloud-web/ws.go` 的 `wsDialURL`），网关也不读查询参数。
+- 凭据改为每机器人专属：`CONEST_COLLAB_BOT_TOKENS=id:secret,id:secret`（overlay 的 `botTokens: { id: secret }` 同义，环境变量优先）。共享的 `CONEST_COLLAB_BOT_TOKEN` 只读：只能经 HTTP 读**公开**房间历史，不能注册 WS 写入连接、读不到私有房间。
+- `?bot=` 明确为一致性检查（与凭据不符即 `4002` 拒绝，`project` 不是身份）；保留名 `owner`/`user`/`system` 与既有 DSH 成员 id 拒绝，显示名不能与别的成员重名；id 已是持久化成员或非机器人成员时注册被拒、不顶替那条身份。
+- 与派工描述的一处差异已报告给父方：**同一个机器人 id 再次在线不是「拒绝」而是顶替**——同凭据新连接生效、旧连接以 `4003` 关闭（`dsh/collab/cloudweb.mjs` 的 `register` 与 `isolation.test.mjs`、`collab.test.mjs` 断言一致），这是 cc-connect 重启后继续收消息的前提。文档按实现写。
+- 核对方式：逐条读 `dsh/collab/{cloudweb,plugin,identity,hub,store}.mjs`、`bridge/platform/cloud-web/{ws,history,protocol}.go` 和 `dsh/collab/isolation.test.mjs` 的断言；文档改动不跑测试（该 worktree 未安装 dsh 依赖），未新增测试。示例只用占位符。5 个文件均先经 `doc-ok.py` 登记。
+
 2026-10-23：按用户「免审:小改动」授权统一下载入口，直接推 main。Mac 用 lipo 合并 arm64/amd64 为 universal，仅发布 bothouse-mac.dmg（Bothouse.app，卷名 Bothouse）；Windows 仅发布 x64 的 bothouse-windows.exe，Linux 为 bothouse-linux-x64 / bothouse-linux-arm64。安装脚本和 CLI/网页共用的更新器认新名，更新器兼容旧架构文件和历史压缩包，校验失败不回退。发布 workflow 同步构建与 smoke；打包脚本拒绝单架构输入。回归先红后绿，沙箱 Go 全量、CUJ、定向回归、vet、actionlint、shell 语法检查、Linux 安装与坏校验拒绝通过。v0.1.2 资产替换、Mac 实际启动与安装/更新提取的最终证据见 /tmp/rename/result4.md；旧资产的逐字节备份在 /tmp/rename/dist-v0.1.2。单一 Agent 实现并自查。
 
 2026-10-22 bothouse v0.1.2 改名与安装包：CLI 帮助、版本、启动消息、网页、安装脚本及当前安装文档统一使用 bothouse；module 与内部包名保留。配置默认 ~/.bothouse，仅当它不存在而旧目录存在时沿用旧目录，不迁移文件。发布产物为双架构 dmg/exe/Linux 裸文件和 SHA256SUMS，自更新先新名后历史名，v0.1.1 资产保持原状。沙箱 Go 全量、CUJ、定向回归、vet、前端构建与 actionlint 通过；目录回归已验证旧逻辑失败、新逻辑通过。额外 promise-guard 回放的两个时间/任务环境相关失败在改前改后相同，未扩大修复。用户明确要求推 main 并打 v0.1.2；发布与安装包验收的最终证据记录在 /tmp/rename/result.md。没有操作生产机器人配置、进程或频道；单一 Agent 实现和自查。
