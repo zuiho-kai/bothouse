@@ -19,6 +19,8 @@ import { activeMention, applyMention, insertMention, rankMembers } from './menti
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
 import { Avatar } from './Avatar.tsx'
+import { BellIcon } from './BellIcon.tsx'
+import { isNotificationSupported, loadNotificationPreference, requestNotificationPermission, saveNotificationPreference } from './notifications.ts'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
@@ -344,6 +346,47 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   useEffect(() => { setSettingsOpen(false) }, [state.roomId])
   const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
   useEffect(() => { setCapabilitiesDismissed(false) }, [state.roomId])
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => loadNotificationPreference())
+  const [firstUnreadPerRoom, setFirstUnreadPerRoom] = useState<Record<number, number | undefined>>({})
+  const unreadDividerRef = useRef<HTMLDivElement>(null)
+  const hasScrolledUnread = useRef<Record<number, boolean>>({})
+
+  const toggleNotifications = async (): Promise<void> => {
+    if (!notificationsEnabled) {
+      if (isNotificationSupported()) {
+        const perm = await requestNotificationPermission()
+        if (perm === 'denied') {
+          alert(t('notificationsBlocked'))
+          return
+        }
+      }
+      setNotificationsEnabled(true)
+      saveNotificationPreference(true)
+    } else {
+      setNotificationsEnabled(false)
+      saveNotificationPreference(false)
+    }
+  }
+
+  useEffect(() => {
+    const roomId = state.roomId
+    if (roomId === undefined) return
+    const unread = state.unread?.[roomId]
+    if (unread?.firstUnreadId !== undefined && firstUnreadPerRoom[roomId] === undefined) {
+      setFirstUnreadPerRoom(prev => ({ ...prev, [roomId]: unread.firstUnreadId }))
+    }
+  }, [state.roomId, state.unread, firstUnreadPerRoom])
+
+  useEffect(() => {
+    const roomId = state.roomId
+    if (roomId === undefined) return
+    if (!hasScrolledUnread.current[roomId] && unreadDividerRef.current) {
+      hasScrolledUnread.current[roomId] = true
+      stickRef.current = false
+      unreadDividerRef.current.scrollIntoView({ block: 'start' })
+    }
+  }, [state.roomId, state.messages])
+
   const composerRef = useRef<HTMLDivElement>(null)
   // `@` start of the popup currently shown, read by the outside-click listener.
   const openMentionAt = useRef<number | undefined>(undefined)
@@ -634,16 +677,34 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           // in-progress count; a chat channel shows it only when something is in progress.
           const active = r.active ?? 0
           const showActive = depth === 1 || r.kind === 'workspace' || active > 0
+          const roomUnread = state.unread?.[r.id]
+          const hasUnread = roomUnread !== undefined && roomUnread.count > 0 && r.id !== state.roomId
+          const isMention = hasUnread && roomUnread.mention
           return (
             <button
               key={r.id}
               type="button"
-              className={[css.room, depth === 1 ? css.workspace : '', r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
+              className={[
+                css.room,
+                depth === 1 ? css.workspace : '',
+                r.id === state.roomId ? css.roomActive : '',
+                hasUnread ? css.roomUnread : '',
+                isMention ? css.roomMention : '',
+              ].filter(Boolean).join(' ')}
               aria-current={r.id === state.roomId}
               onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
             >
               <span className={css.hash} aria-hidden>#</span><span className={css.roomLabel}>{r.name}</span>
               {showActive && <span className={active > 0 ? `${css.activeCount} ${css.activeBusy}` : css.activeCount}>{t('activeTasks', { count: active })}</span>}
+              {hasUnread && (
+                <span
+                  className={[css.unreadBadge, isMention ? css.unreadMention : ''].filter(Boolean).join(' ')}
+                  title={isMention ? t('unreadMentionCount', { count: roomUnread.count }) : t('unreadCount', { count: roomUnread.count })}
+                  aria-label={isMention ? t('unreadMentionCount', { count: roomUnread.count }) : t('unreadCount', { count: roomUnread.count })}
+                >
+                  {isMention ? `@ ${roomUnread.count}` : roomUnread.count}
+                </span>
+              )}
             </button>
           )
         })}
@@ -653,6 +714,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button
+            type="button"
+            className={[css.notifyToggle, notificationsEnabled ? css.notifyOn : css.notifyOff].join(' ')}
+            title={t(notificationsEnabled ? 'notificationsDisable' : 'notificationsEnable')}
+            aria-label={t(notificationsEnabled ? 'notificationsDisable' : 'notificationsEnable')}
+            aria-pressed={notificationsEnabled}
+            onClick={() => { void toggleNotifications() }}
+          >
+            <BellIcon enabled={notificationsEnabled} />
+          </button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
@@ -675,27 +746,33 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
             : state.messages.map(m => (
-                <MessageRow
-                  key={m.id}
-                  message={m}
-                  member={byId.get(m.author)}
-                  t={t}
-                  onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
-                  menuOpen={avatarMenu === m.id}
-                  cardView={cardView}
-                  onCardView={chooseCardView}
-                  onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
-                  onCloseMenu={() => { setAvatarMenu(undefined) }}
-                  onMention={mentionFromAvatar}
-                  onDecide={decidePermission}
-                  onRetry={handleRetry}
-                  retrying={retryingId === m.id}
-                  tasks={state.tasks ?? []}
-                  focused={focusedId === m.id}
-                  onReply={startReply}
-                  own={ownActions(m)}
-                />
-              ))}
+                <div key={m.id}>
+                  {state.roomId !== undefined && firstUnreadPerRoom[state.roomId] === m.id && (
+                    <div className={css.unreadDivider} ref={unreadDividerRef}>
+                      <span className={css.unreadDividerLabel}>{t('unreadDivider')}</span>
+                    </div>
+                  )}
+                  <MessageRow
+                    message={m}
+                    member={byId.get(m.author)}
+                    t={t}
+                    onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
+                    menuOpen={avatarMenu === m.id}
+                    cardView={cardView}
+                    onCardView={chooseCardView}
+                    onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
+                    onCloseMenu={() => { setAvatarMenu(undefined) }}
+                    onMention={mentionFromAvatar}
+                    onDecide={decidePermission}
+                    onRetry={handleRetry}
+                    retrying={retryingId === m.id}
+                    tasks={state.tasks ?? []}
+                    focused={focusedId === m.id}
+                    onReply={startReply}
+                    own={ownActions(m)}
+                  />
+                </div>
+             ))}
         </div>
         <div className={css.working} aria-live="polite">{typingNames.length > 0 ? t('workingList', { names: typingNames.join('、') }) : ''}</div>
         <div className={css.composer} ref={composerRef}>

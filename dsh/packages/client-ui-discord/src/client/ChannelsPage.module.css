@@ -97,6 +97,112 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.roomUnread {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  position: relative;
+}
+
+.roomUnread::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 8px;
+  border-radius: 0 4px 4px 0;
+  background: var(--dsw-alias-label-primary, #fff);
+}
+
+.roomMention::before {
+  height: 12px;
+  background: #f23f43;
+}
+
+.unreadBadge {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.15));
+  color: var(--dsw-alias-label-primary, #fff);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.unreadMention {
+  background: #f23f43;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(242, 63, 67, 0.4);
+}
+
+.notifyToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-left: auto;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, 4px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.notifyToggle:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.notifyOn {
+  color: var(--dsw-alias-label-primary);
+}
+
+.notifyOff {
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.6;
+}
+
+.unreadDivider {
+  display: flex;
+  align-items: center;
+  margin: 12px 16px;
+  position: relative;
+  text-align: center;
+}
+
+.unreadDivider::before,
+.unreadDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #f23f43;
+  opacity: 0.8;
+}
+
+.unreadDividerLabel {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: #f23f43;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin: 0 8px;
+}
+
 .hash {
   color: var(--dsw-alias-label-tertiary);
   font-size: 16px;

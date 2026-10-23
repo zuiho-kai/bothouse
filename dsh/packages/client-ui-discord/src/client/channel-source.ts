@@ -6,6 +6,8 @@
  */
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import { randomUUID } from './uuid.ts'
+import { isMentionOrReply, isWindowBackground, loadReadCursors, saveReadCursors } from './unread'
+import { notifyMessage } from './notifications'
 
 /** One stored channel message, as the collab service serializes it. */
 export interface ChannelMessage {
@@ -163,6 +165,15 @@ export interface ChannelRoom {
   readonly parent_id?: number | null
   /** Tasks in progress in this room. */
   readonly active?: number
+  /** Newest committed message in this room (#145). */
+  readonly last_message_id?: number | null
+}
+
+/** Per-room unread status (#145). */
+export interface UnreadRoomState {
+  readonly count: number
+  readonly mention: boolean
+  readonly firstUnreadId?: number
 }
 
 /** One row of the channel list: a chat channel at depth 0, its workspaces at depth 1. */
@@ -261,6 +272,10 @@ export interface ChannelSnapshot {
   readonly hasMoreOlder: boolean
   /** The selected room's messages shown before the service confirmed them, newest last. */
   readonly outbox: readonly OutboxMessage[]
+  /** Logged-in user's id (#145). */
+  readonly me?: string
+  /** Per-room unread status (#145). */
+  readonly unread: Readonly<Record<number, UnreadRoomState>>
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -339,6 +354,7 @@ type ServiceEvent =
 const INITIAL: ChannelSnapshot = {
   phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], leadId: null, tasks: [], taskChat: undefined,
   hasMoreOlder: false, outbox: [],
+  me: undefined, unread: {},
 }
 
 /** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
@@ -414,6 +430,8 @@ export function createChannelSource(transport: ChannelTransport): {
    * e.g. A → B → back to A, where the room check alone passes again.
    */
   let historyEpoch = 0
+  const readCursors: Record<number, number> = loadReadCursors()
+  let unreadState: Record<number, UnreadRoomState> = {}
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -449,10 +467,60 @@ export function createChannelSource(transport: ChannelTransport): {
   const applyEvent = (current: ChannelSnapshot, event: ServiceEvent): ChannelSnapshot => {
     switch (event.type) {
       case 'message': {
-        if (event.message.room_id !== current.roomId) return current
+        const msg = event.message
+        const isCurrent = msg.room_id === current.roomId
+        const isBackground = isWindowBackground()
+
+        if (!isCurrent) {
+          const prev = unreadState[msg.room_id] ?? { count: 0, mention: false }
+          const mention = prev.mention || isMentionOrReply(msg, current.me, current.members)
+          const nextRoomUnread: UnreadRoomState = {
+            count: prev.count + 1,
+            mention,
+            firstUnreadId: prev.firstUnreadId ?? msg.id,
+          }
+          unreadState = { ...unreadState, [msg.room_id]: nextRoomUnread }
+          if (msg.author_kind !== 'user') {
+            const roomName = current.rooms.find(r => r.id === msg.room_id)?.name ?? String(msg.room_id)
+            notifyMessage({
+              title: `#${roomName} - ${msg.name}`,
+              body: msg.text.slice(0, 120),
+              tag: `bothouse-room-${msg.room_id}`,
+              onClick: () => { void actions.selectRoom(msg.room_id) },
+            })
+          }
+          return { ...current, unread: unreadState }
+        }
+
         const rows = new Map(current.messages.map(m => [m.id, m]))
-        rows.set(event.message.id, event.message)
-        return { ...current, messages: [...rows.values()].sort((a, b) => a.id - b.id) }
+        rows.set(msg.id, msg)
+        const nextMessages = [...rows.values()].sort((a, b) => a.id - b.id)
+
+        if (isBackground) {
+          const prev = unreadState[msg.room_id] ?? { count: 0, mention: false }
+          const mention = prev.mention || isMentionOrReply(msg, current.me, current.members)
+          const nextRoomUnread: UnreadRoomState = {
+            count: prev.count + 1,
+            mention,
+            firstUnreadId: prev.firstUnreadId ?? msg.id,
+          }
+          unreadState = { ...unreadState, [msg.room_id]: nextRoomUnread }
+          if (msg.author_kind !== 'user') {
+            const roomName = current.rooms.find(r => r.id === msg.room_id)?.name ?? String(msg.room_id)
+            notifyMessage({
+              title: `#${roomName} - ${msg.name}`,
+              body: msg.text.slice(0, 120),
+              tag: `bothouse-room-${msg.room_id}`,
+              onClick: () => { void actions.selectRoom(msg.room_id) },
+            })
+          }
+        } else {
+          readCursors[msg.room_id] = Math.max(readCursors[msg.room_id] ?? 0, msg.id)
+          saveReadCursors(readCursors)
+          unreadState = { ...unreadState, [msg.room_id]: { count: 0, mention: false } }
+        }
+
+        return { ...current, messages: nextMessages, unread: unreadState }
       }
       case 'deleted':
         return event.room_id === current.roomId
@@ -524,11 +592,41 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; lead_id?: string | null; effective_lead_id?: string | null }>(
+      const state = await request<{ me?: string; rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; lead_id?: string | null; effective_lead_id?: string | null }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
       const roomId = state.rooms.some(r => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id
+      const me = state.me ?? 'owner'
+
+      for (const r of state.rooms) {
+        if (r.id === roomId) {
+          if (readCursors[r.id] === undefined && r.last_message_id != null) {
+            readCursors[r.id] = r.last_message_id
+            saveReadCursors(readCursors)
+          }
+          unreadState = { ...unreadState, [r.id]: { count: 0, mention: false } }
+        } else if (r.last_message_id != null && r.last_message_id > 0) {
+          const cursor = readCursors[r.id]
+          if (cursor === undefined) {
+            readCursors[r.id] = 0
+            saveReadCursors(readCursors)
+          }
+          const c = readCursors[r.id] ?? 0
+          if (r.last_message_id > c) {
+            const existing = unreadState[r.id]
+            unreadState = {
+              ...unreadState,
+              [r.id]: {
+                count: Math.max(existing?.count ?? 0, r.last_message_id - c),
+                mention: existing?.mention ?? false,
+                firstUnreadId: existing?.firstUnreadId,
+              },
+            }
+          }
+        }
+      }
+
       const rows: ChannelMessage[] = []
       let hasMoreOlder = false
       if (roomId !== undefined) {
@@ -589,6 +687,11 @@ export function createChannelSource(transport: ChannelTransport): {
           }
         }
       }
+      if (roomId !== undefined && rows.length > 0) {
+        const latestId = rows.at(-1)!.id
+        readCursors[roomId] = Math.max(readCursors[roomId] ?? 0, latestId)
+        saveReadCursors(readCursors)
+      }
       const keepBoard = roomId === previous.roomId
       if (!keepBoard) earlyTasks.clear()
       let next: ChannelSnapshot = {
@@ -597,6 +700,7 @@ export function createChannelSource(transport: ChannelTransport): {
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
+        me, unread: unreadState,
       }
       for (const event of read.events) next = applyEvent(next, event)
       pending = undefined
@@ -615,7 +719,10 @@ export function createChannelSource(transport: ChannelTransport): {
     // The old board is not this room's: task events wait in earlyTasks until loadBoard.
     if (roomId !== snapshot.roomId) earlyTasks.clear()
     const shown = outbox.filter(entry => entry.roomId === roomId)
-    set(roomId === snapshot.roomId ? { roomId, messages: [], outbox: shown } : { roomId, messages: [], outbox: shown, tasks: [], taskChat: undefined })
+    unreadState = { ...unreadState, [roomId]: { count: 0, mention: false } }
+    set(roomId === snapshot.roomId
+      ? { roomId, messages: [], outbox: shown, unread: unreadState }
+      : { roomId, messages: [], outbox: shown, tasks: [], taskChat: undefined, unread: unreadState })
     await refresh(false)
   }
 

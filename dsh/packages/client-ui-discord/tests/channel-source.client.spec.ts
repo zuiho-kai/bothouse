@@ -476,3 +476,50 @@ it('sends an explicit owner review and updates the task from the API response', 
   expect(calls).toContain('POST /collab/api/tasks/1/review')
   unsubscribe()
 })
+
+  it('tracks unread counts and mentions across channels (#145)', async () => {
+    const { transport, streams } = fakeTransport((url) => {
+      if (url === '/collab/api/state') {
+        return json(200, {
+          me: 'owner',
+          rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'dev' }],
+          members: [{ id: 'owner', name: '我', kind: 'human' }, { id: 'bot', name: '豆包', kind: 'bot' }],
+          thinking: {},
+        })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    expect(source.getSnapshot().roomId).toBe(1)
+
+    // Message arrives for room 2 (another room)
+    streams[0]?.onmessage?.(new MessageEvent('message', {
+      data: JSON.stringify({
+        type: 'message',
+        message: {
+          id: 50,
+          room_id: 2,
+          author_kind: 'role',
+          author: 'bot',
+          name: '豆包',
+          text: '@我 任务完成了！',
+          created_at: 10,
+          card: null,
+          from_turn: null,
+        },
+      }),
+    }))
+
+    const unread = source.getSnapshot().unread[2]
+    expect(unread?.count).toBe(1)
+    expect(unread?.mention).toBe(true)
+    expect(unread?.firstUnreadId).toBe(50)
+
+    // Select room 2: unread count clears
+    await actions.selectRoom(2)
+    expect(source.getSnapshot().roomId).toBe(2)
+    expect(source.getSnapshot().unread[2]?.count).toBe(0)
+    unsubscribe()
+  })
