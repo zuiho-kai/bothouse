@@ -153,6 +153,53 @@
   font-size: 12px;
 }
 
+.z36ABq_avatarAnchor {
+  align-self: start;
+  position: relative;
+}
+
+.z36ABq_avatarButton {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.z36ABq_avatarMenu {
+  z-index: 3;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-base);
+  min-width: 140px;
+  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);
+  flex-direction: column;
+  padding: 6px;
+  display: flex;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+}
+
+.z36ABq_avatarMenuTitle {
+  padding: 4px 8px;
+  font-weight: 700;
+}
+
+.z36ABq_avatarMenuItem {
+  border-radius: var(--dsw-radius-sm);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+}
+
+.z36ABq_avatarMenuItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .z36ABq_messageBody {
   min-width: 0;
 }
@@ -634,6 +681,53 @@
   display: none;
 }
 
+.z36ABq_panelToggle {
+  border-radius: var(--dsw-radius-sm);
+  width: 28px;
+  height: 28px;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  justify-content: center;
+  align-items: center;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+}
+
+.z36ABq_panelToggle:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.z36ABq_panelToggle:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+}
+
+.z36ABq_panelToggleEnd {
+  margin-left: auto;
+}
+
+@media (width >= 901px) {
+  .z36ABq_page.z36ABq_roomsHidden {
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+
+  .z36ABq_page.z36ABq_membersHidden {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .z36ABq_page.z36ABq_roomsHidden.z36ABq_membersHidden {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .z36ABq_roomsHidden > .z36ABq_rooms, .z36ABq_membersHidden > .z36ABq_members {
+    display: none;
+  }
+}
+
 @media (width <= 900px) {
   .z36ABq_page {
     position: relative;
@@ -656,6 +750,10 @@
 
   .z36ABq_mobileButton:last-child {
     margin-left: auto;
+  }
+
+  .z36ABq_panelToggle {
+    display: none;
   }
 
   .z36ABq_drawerBackdrop {
