@@ -953,3 +953,131 @@ test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a C
   assert.equal(hub.store.job(job.id).state, 'interrupted');
   assert.deepEqual(live(), [], 'the interrupted CLI job drops its streamed draft');
 });
+
+test('cloud-web #120: permission prompt → button → card_action → card state; duplicates, expiry, offline', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=dou&name=大豆包');
+  assert.ok(CAPABILITIES.includes('buttons'));
+  const buttons = [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }], [{ Text: '允许所有 (本次会话)', Data: 'perm:allow_all' }]];
+  const prompt = (sk = 'cloud_web:room-1') => bot.frame({ type: 'buttons', session_key: sk, reply_ctx: 'room-1', content: '⚠️ **权限请求** run_command\n回复 **允许** / **拒绝** / **允许所有**', buttons });
+  prompt();
+  await tick();
+  const first = hub.store.page(1).at(-1);
+  const card = JSON.parse(first.card);
+  assert.equal(card.kind, 'permission');
+  assert.equal(card.state, 'pending');
+  assert.deepEqual(card.actions.map(a => a.decision), ['allow', 'deny', 'allow_all']);
+
+  // A newer prompt in the same session supersedes the old one.
+  prompt();
+  await tick();
+  const second = hub.store.page(1).at(-1);
+  assert.equal(JSON.parse(hub.store.message(first.id).card).state, 'expired');
+  assert.throws(() => gw.decidePermission(first.id, 'allow'), /过期/);
+  assert.equal(bot.of('card_action').length, 0);
+
+  const out = gw.decidePermission(second.id, 'allow_all');
+  assert.equal(JSON.parse(out.card).state, 'allowed_all');
+  assert.deepEqual(bot.of('card_action'), [{ type: 'card_action', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', action: 'perm:allow_all' }]);
+  // Repeated click: rejected, nothing more sent to the bot.
+  assert.throws(() => gw.decidePermission(second.id, 'deny'), /已经处理/);
+  assert.equal(bot.of('card_action').length, 1);
+  // Not a permission prompt / unknown decision.
+  const plain = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hi' }).message;
+  assert.throws(() => gw.decidePermission(plain.id, 'allow'), /不是权限请求/);
+  assert.throws(() => gw.decidePermission(second.id, 'sudo'), /unknown decision/);
+
+  // Offline bot: the request stays pending and the click says why.
+  prompt();
+  await tick();
+  const third = hub.store.page(1).at(-1);
+  gw.bots.delete('dou');
+  assert.throws(() => gw.decidePermission(third.id, 'allow'), /断线/);
+  assert.equal(JSON.parse(hub.store.message(third.id).card).state, 'pending');
+  // Reconnect = restarted cc-connect: its pending requests expire.
+  const again = connect(gw, 'bot=dou&name=大豆包');
+  assert.equal(again.of('register_ack')[0].ok, true);
+  assert.equal(JSON.parse(hub.store.message(third.id).card).state, 'expired');
+});
+
+test('cloud-web #120: owner text reply takes the same decision path; bot text does not approve', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=dou&name=大豆包');
+  const other = connect(gw, 'bot=ju&name=橘');
+  bot.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '权限请求', buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] });
+  await tick();
+  const promptRow = hub.store.page(1).at(-1);
+  // The prompt itself is not forwarded to other bots as chat.
+  assert.equal(other.of('message').length, 0);
+  // Another bot saying "允许" does not decide anything.
+  other.frame({ type: 'reply', reply_ctx: 'room-1', content: '允许' });
+  await tick(); await tick();
+  assert.equal(JSON.parse(hub.store.message(promptRow.id).card).state, 'pending');
+  const before = bot.of('message').length;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '拒绝' });
+  await tick(); await tick();
+  const card = JSON.parse(hub.store.message(promptRow.id).card);
+  assert.equal(card.state, 'denied');
+  assert.equal(card.decided_by, 'text');
+  assert.equal(bot.of('card_action').at(-1).action, 'perm:deny');
+  // The answered bot gets the decision once (card_action), not the text too.
+  assert.equal(bot.of('message').length, before);
+});
+
+test('cloud-web #120: textDecision mirrors the bridge vocabularies', async () => {
+  const { textDecision } = await import('./cloudweb.mjs');
+  assert.equal(textDecision('允许所有'), 'allow_all');
+  assert.equal(textDecision('allow all please'), 'allow_all');
+  assert.equal(textDecision('好的，允许'), 'allow');
+  assert.equal(textDecision('拒绝'), 'deny');
+  assert.equal(textDecision('禁止允许这种'), undefined);
+  assert.equal(textDecision('看看日志'), undefined);
+  // Same separators as bridge permissionTokenSeparator: quotes, brackets, @, ·.
+  assert.equal(textDecision('“允许”'), 'allow');
+  assert.equal(textDecision('【允许】'), 'allow');
+  assert.equal(textDecision('(拒绝)'), 'deny');
+  assert.equal(textDecision('「允许」'), undefined); // not a bridge separator either
+  assert.equal(textDecision("'allow'"), 'allow');
+  assert.equal(textDecision('＠橘·允许所有'), 'allow_all');
+});
+
+test('cloud-web #120: owner text with several bots pending — no @ answers all, @ answers only that bot', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const dou = connect(gw, 'bot=dou&name=大豆包');
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const ask = async b => {
+    b.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '权限请求', buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] });
+    await tick();
+    return hub.store.page(1).at(-1).id;
+  };
+  const state = id => JSON.parse(hub.store.message(id).card).state;
+  // No @: every bot's cc-connect would act on the word, so every card takes the decision.
+  let a = await ask(dou), b = await ask(ju);
+  const msgsBefore = [dou.of('message').length, ju.of('message').length];
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '“允许”' });
+  await tick(); await tick();
+  assert.equal(state(a), 'allowed');
+  assert.equal(state(b), 'allowed');
+  assert.equal(dou.of('card_action').at(-1).action, 'perm:allow');
+  assert.equal(ju.of('card_action').at(-1).action, 'perm:allow');
+  assert.deepEqual([dou.of('message').length, ju.of('message').length], msgsBefore);
+  // @ one bot: only its card is decided; the other is not sent the text and stays pending.
+  a = await ask(dou); b = await ask(ju);
+  const douActs = dou.of('card_action').length, juMsgs = ju.of('message').length;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 拒绝' });
+  await tick(); await tick();
+  assert.equal(state(b), 'denied');
+  assert.equal(ju.of('card_action').at(-1).action, 'perm:deny');
+  assert.equal(state(a), 'pending');
+  assert.equal(dou.of('card_action').length, douActs);
+  assert.equal(dou.of('message').filter(m => /拒绝/.test(m.content)).length, 0);
+  assert.equal(ju.of('message').length, juMsgs);
+  // Text that is not a decision still reaches everyone.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '等一下' });
+  await tick(); await tick();
+  assert.equal(dou.of('message').at(-1).content, '等一下');
+  assert.equal(state(a), 'pending');
+});

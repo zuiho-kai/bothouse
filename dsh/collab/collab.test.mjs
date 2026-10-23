@@ -1034,4 +1034,50 @@ test('cloud-web #120: textDecision mirrors the bridge vocabularies', async () =>
   assert.equal(textDecision('拒绝'), 'deny');
   assert.equal(textDecision('禁止允许这种'), undefined);
   assert.equal(textDecision('看看日志'), undefined);
+  // Same separators as bridge permissionTokenSeparator: quotes, brackets, @, ·.
+  assert.equal(textDecision('“允许”'), 'allow');
+  assert.equal(textDecision('【允许】'), 'allow');
+  assert.equal(textDecision('(拒绝)'), 'deny');
+  assert.equal(textDecision('「允许」'), undefined); // not a bridge separator either
+  assert.equal(textDecision("'allow'"), 'allow');
+  assert.equal(textDecision('＠橘·允许所有'), 'allow_all');
+});
+
+test('cloud-web #120: owner text with several bots pending — no @ answers all, @ answers only that bot', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const dou = connect(gw, 'bot=dou&name=大豆包');
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const ask = async b => {
+    b.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '权限请求', buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] });
+    await tick();
+    return hub.store.page(1).at(-1).id;
+  };
+  const state = id => JSON.parse(hub.store.message(id).card).state;
+  // No @: every bot's cc-connect would act on the word, so every card takes the decision.
+  let a = await ask(dou), b = await ask(ju);
+  const msgsBefore = [dou.of('message').length, ju.of('message').length];
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '“允许”' });
+  await tick(); await tick();
+  assert.equal(state(a), 'allowed');
+  assert.equal(state(b), 'allowed');
+  assert.equal(dou.of('card_action').at(-1).action, 'perm:allow');
+  assert.equal(ju.of('card_action').at(-1).action, 'perm:allow');
+  assert.deepEqual([dou.of('message').length, ju.of('message').length], msgsBefore);
+  // @ one bot: only its card is decided; the other is not sent the text and stays pending.
+  a = await ask(dou); b = await ask(ju);
+  const douActs = dou.of('card_action').length, juMsgs = ju.of('message').length;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 拒绝' });
+  await tick(); await tick();
+  assert.equal(state(b), 'denied');
+  assert.equal(ju.of('card_action').at(-1).action, 'perm:deny');
+  assert.equal(state(a), 'pending');
+  assert.equal(dou.of('card_action').length, douActs);
+  assert.equal(dou.of('message').filter(m => /拒绝/.test(m.content)).length, 0);
+  assert.equal(ju.of('message').length, juMsgs);
+  // Text that is not a decision still reaches everyone.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '等一下' });
+  await tick(); await tick();
+  assert.equal(dou.of('message').at(-1).content, '等一下');
+  assert.equal(state(a), 'pending');
 });

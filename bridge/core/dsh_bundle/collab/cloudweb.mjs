@@ -5,12 +5,25 @@
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { checkAvatar } from './avatars.mjs';
-import { MAX_TEXT } from './store.mjs';
+import { CollabError, MAX_TEXT, publicMessage } from './store.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
-// Declared to cc-connect. Buttons/cards are not declared, so cc-connect
-// degrades them to text (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place'];
+// Declared to cc-connect. 'buttons' is declared so permission prompts arrive as
+// a `buttons` frame (bridge platform/cloud-web SendWithButtons) instead of plain
+// text (#120); cards are not declared, so cc-connect degrades them to text
+// (bridge docs/cloud-web.md "Handshake").
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons'];
+// Permission decisions the Channel page and text replies may send. Values are the
+// button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
+export const PERM_DECISIONS = { allow: 'perm:allow', deny: 'perm:deny', allow_all: 'perm:allow_all' };
+const PERM_STATES = { allow: 'allowed', deny: 'denied', allow_all: 'allowed_all' };
+// Same vocabularies and order as bridge core/engine.go approveAllPhrases /
+// approveAllSingleTokens / allowKeywords / denyKeywords, so a text reply and a
+// button click resolve to the same decision.
+const APPROVE_ALL_PHRASES = ['allow all', 'approve all', 'yes all'];
+const APPROVE_ALL_TOKENS = ['allowall', '允许所有', '允许全部', '全部允许', '所有允许', '都允许', '全部同意'];
+const ALLOW_TOKENS = ['allow', 'yes', 'y', 'ok', 'approve', '允许', '同意', '可以', '好', '好的', '是', '确认'];
+const DENY_TOKENS = ['deny', 'no', 'n', 'reject', 'cancel', '拒绝', '不允许', '不行', '不', '否', '取消'];
 const REGISTER_TIMEOUT_MS = 10_000;
 const WS_BAD_REGISTER = 4002;
 const WS_REPLACED = 4003;
@@ -70,6 +83,8 @@ export class CloudWebGateway {
     this.logger = logger;
     /** member id -> { ws, member } */
     this.bots = new Map();
+    /** permission prompt message id -> { bot, room, sessionKey, replyCtx } while undecided */
+    this.pendingPerms = new Map();
     hub.onMessage(message => this.onNew(message));
   }
 
@@ -143,6 +158,8 @@ export class CloudWebGateway {
     for (const room of this.hub.thinking.keys()) this.hub.setThinking(room, id, false);
     // ...and its half-streamed text previews (also those left by a hub restart) will never be committed.
     this.hub.dropDrafts('role', id);
+    // ...and its pending permission requests are gone with the old process.
+    for (const [msgId, p] of this.pendingPerms) if (p.bot === id) this.closePerm(msgId, 'expired');
     return bot;
   }
 
@@ -150,6 +167,8 @@ export class CloudWebGateway {
   onNew(msg) {
     if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
     const fromAgent = msg.author_kind === 'role';
+    // The owner's text reply to a pending permission prompt goes the same way as a button click.
+    const answered = msg.author_kind === 'user' ? this.answerByText(msg) : new Set();
     let text = msg.text;
     if (fromAgent) {
       if (NOTICE_PREFIXES.some(p => text.trimStart().startsWith(p))) return;
@@ -162,6 +181,7 @@ export class CloudWebGateway {
     const author = this.hub.members.get(msg.author);
     for (const { ws, member } of this.bots.values()) {
       if (fromAgent && msg.author === member.id) continue;
+      if (answered.has(member.id)) continue;
       let content = forMember(text, member, members);
       const hit = mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
       if (fromAgent && !content) continue;
@@ -191,6 +211,30 @@ export class CloudWebGateway {
         const h = d.preview_handle;
         if (typeof h === 'string' && /^\d+$/.test(h) && this.hub.commit(Number(h), 'role', member.id, text, d.agent === true) !== undefined) return;
         this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, fromTurn: d.agent === true });
+        return;
+      }
+      case 'buttons': {
+        const room = roomOf(d, this.hub.store);
+        if (typeof d.content !== 'string' || room === undefined || typeof d.session_key !== 'string' || !d.session_key) return;
+        const text = forDisplay(d.content, this.hub.routable()).trim().slice(0, MAX_TEXT);
+        const buttons = (Array.isArray(d.buttons) ? d.buttons.flat() : [])
+          .map(b => ({ label: String(b?.Text ?? b?.text ?? ''), data: String(b?.Data ?? b?.data ?? '') }))
+          .filter(b => b.label && b.data);
+        const decisions = Object.entries(PERM_DECISIONS).filter(([, data]) => buttons.some(b => b.data === data));
+        if (!text) return;
+        if (decisions.length === 0) {
+          // Not a permission prompt: keep the old text fallback.
+          this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text });
+          return;
+        }
+        // cc-connect keeps one pending permission per session: a new prompt supersedes older ones.
+        for (const [msgId, p] of this.pendingPerms) if (p.bot === member.id && p.sessionKey === d.session_key) this.closePerm(msgId, 'expired');
+        const card = {
+          kind: 'permission', title: '权限请求', state: 'pending',
+          actions: decisions.map(([decision, data]) => ({ decision, label: buttons.find(b => b.data === data).label })),
+        };
+        const { message } = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, card: JSON.stringify(card) });
+        this.pendingPerms.set(message.id, { bot: member.id, room, sessionKey: d.session_key, replyCtx: typeof d.reply_ctx === 'string' ? d.reply_ctx : roomKey(room) });
         return;
       }
       case 'typing_start':
@@ -228,6 +272,69 @@ export class CloudWebGateway {
     }
   }
 
+  /**
+   * Resolve permission prompt `msgId` with `decision` (a PERM_DECISIONS key) on
+   * behalf of the Channel owner (callers check that). Throws CollabError when the
+   * prompt is not a permission request, already decided, expired, or its bot is offline.
+   */
+  decidePermission(msgId, decision, by = 'button') {
+    if (!Object.hasOwn(PERM_DECISIONS, decision)) throw new CollabError('invalid', `unknown decision ${decision}`);
+    const row = this.hub.store.message(msgId);
+    const card = row === undefined ? undefined : parseCard(row.card);
+    if (card?.kind !== 'permission') throw new CollabError('not-permission', '这条消息不是权限请求');
+    if (card.state !== 'pending') throw new CollabError('conflict', card.state === 'expired' ? '这个权限请求已过期' : '这个权限请求已经处理过了');
+    const p = this.pendingPerms.get(msgId);
+    if (p === undefined) {
+      // Pending in the store but not in memory: collab restarted, cc-connect's side is unknown.
+      this.closePerm(msgId, 'expired', row);
+      throw new CollabError('conflict', '这个权限请求已过期');
+    }
+    const bot = this.bots.get(p.bot);
+    if (bot === undefined) throw new CollabError('offline', `${row.name} 已断线，权限请求还在等待，重连后会失效`);
+    this.closePerm(msgId, PERM_STATES[decision], row, by);
+    send(bot.ws, { type: 'card_action', session_key: p.sessionKey, reply_ctx: p.replyCtx, action: PERM_DECISIONS[decision] });
+    return publicMessage(this.hub.store.message(msgId));
+  }
+
+  /** Mark a permission prompt decided/expired and update it for browsers. */
+  closePerm(msgId, state, row = this.hub.store.message(msgId), by) {
+    this.pendingPerms.delete(msgId);
+    const card = row === undefined ? undefined : parseCard(row.card);
+    if (card?.kind !== 'permission' || card.state !== 'pending') return;
+    const next = { ...card, state, ...(by ? { decided_by: by } : {}), decided_at: Math.floor(Date.now() / 1000) };
+    this.hub.edit(row.id, 'role', row.author, row.text, JSON.stringify(next));
+  }
+
+  /**
+   * Owner text reply → decision on the room's pending prompts; returns the ids of the
+   * bots that must not also get the text (prompt answered, or withheld from them).
+   *
+   * cc-connect checks a pending permission before its gate and before any mention rule
+   * (bridge core/engine.go handleMessage → handlePendingPermission, ahead of applyGate),
+   * and hub bots run with group_reply_all (core/setup_wizard.go), so every bot with a
+   * pending prompt that receives an allow/deny word acts on it. Hence: no @ → the
+   * decision applies to every pending prompt in the room; an @ → only the @'d bots', and
+   * the other pending bots are not sent the text so their prompts stay open.
+   */
+  answerByText(msg) {
+    const answered = new Set();
+    const members = this.hub.routable();
+    const inRoom = [...this.pendingPerms].filter(([, p]) => p.room === msg.room_id && this.bots.has(p.bot));
+    if (inRoom.length === 0) return answered;
+    const mentioned = mentions(msg.text, members);
+    for (const [msgId, p] of inRoom) {
+      const decision = textDecision(forMember(msg.text, this.bots.get(p.bot).member, members));
+      if (decision === undefined) continue;
+      if (mentioned.size > 0 && !mentioned.has(p.bot)) {
+        answered.add(p.bot); // addressed to someone else: withhold it so this bot's bridge doesn't approve
+        continue;
+      }
+      try { this.decidePermission(msgId, decision, 'text'); } catch { continue; }
+      answered.add(p.bot);
+    }
+    return answered;
+  }
+
   body(content) {
     if (typeof content !== 'string') return { text: '', card: null };
     const card = progressCard(content);
@@ -238,6 +345,26 @@ export class CloudWebGateway {
   closeAll() {
     for (const { ws } of this.bots.values()) ws.close(1001, 'server shutdown');
   }
+}
+
+function parseCard(raw) {
+  if (typeof raw !== 'string') return undefined;
+  try { return JSON.parse(raw); } catch { return undefined; }
+}
+
+// Same rune set as bridge core/engine.go permissionTokenSeparator (whitespace plus these).
+const PERM_TOKEN_SEPARATORS = /[\s@＠,，.。!！?？:：;；()（）[\]【】"'“”‘’、·]+/u;
+
+/** Port of bridge core/engine.go isApproveAllResponse / isAllowResponse / isDenyResponse (checked in that order). */
+export function textDecision(text) {
+  const tokens = String(text).toLowerCase().trim().split(PERM_TOKEN_SEPARATORS).filter(Boolean);
+  if (tokens.length === 0) return undefined;
+  const joined = tokens.join(' ');
+  if (APPROVE_ALL_PHRASES.some(ph => joined === ph || ` ${joined} `.includes(` ${ph} `))) return 'allow_all';
+  if (tokens.some(t => APPROVE_ALL_TOKENS.includes(t))) return 'allow_all';
+  if (tokens.some(t => ALLOW_TOKENS.includes(t))) return 'allow';
+  if (tokens.some(t => DENY_TOKENS.includes(t))) return 'deny';
+  return undefined;
 }
 
 function send(ws, frame) {

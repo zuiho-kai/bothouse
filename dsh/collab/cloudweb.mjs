@@ -168,7 +168,7 @@ export class CloudWebGateway {
     if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
     const fromAgent = msg.author_kind === 'role';
     // The owner's text reply to a pending permission prompt goes the same way as a button click.
-    const answered = msg.author_kind === 'user' ? this.answerByText(msg) : undefined;
+    const answered = msg.author_kind === 'user' ? this.answerByText(msg) : new Set();
     let text = msg.text;
     if (fromAgent) {
       if (NOTICE_PREFIXES.some(p => text.trimStart().startsWith(p))) return;
@@ -181,7 +181,7 @@ export class CloudWebGateway {
     const author = this.hub.members.get(msg.author);
     for (const { ws, member } of this.bots.values()) {
       if (fromAgent && msg.author === member.id) continue;
-      if (answered === member.id) continue;
+      if (answered.has(member.id)) continue;
       let content = forMember(text, member, members);
       const hit = mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
       if (fromAgent && !content) continue;
@@ -305,19 +305,34 @@ export class CloudWebGateway {
     this.hub.edit(row.id, 'role', row.author, row.text, JSON.stringify(next));
   }
 
-  /** Owner text reply → decision on the room's pending prompt; returns the answered bot id. */
+  /**
+   * Owner text reply → decision on the room's pending prompts; returns the ids of the
+   * bots that must not also get the text (prompt answered, or withheld from them).
+   *
+   * cc-connect checks a pending permission before its gate and before any mention rule
+   * (bridge core/engine.go handleMessage → handlePendingPermission, ahead of applyGate),
+   * and hub bots run with group_reply_all (core/setup_wizard.go), so every bot with a
+   * pending prompt that receives an allow/deny word acts on it. Hence: no @ → the
+   * decision applies to every pending prompt in the room; an @ → only the @'d bots', and
+   * the other pending bots are not sent the text so their prompts stay open.
+   */
   answerByText(msg) {
+    const answered = new Set();
     const members = this.hub.routable();
     const inRoom = [...this.pendingPerms].filter(([, p]) => p.room === msg.room_id && this.bots.has(p.bot));
-    if (inRoom.length === 0) return undefined;
+    if (inRoom.length === 0) return answered;
     const mentioned = mentions(msg.text, members);
-    const targets = mentioned.size > 0 ? inRoom.filter(([, p]) => mentioned.has(p.bot)) : inRoom;
-    if (targets.length !== 1) return undefined;
-    const [msgId, p] = targets[0];
-    const decision = textDecision(forMember(msg.text, this.bots.get(p.bot).member, members));
-    if (decision === undefined) return undefined;
-    try { this.decidePermission(msgId, decision, 'text'); } catch { return undefined; }
-    return p.bot;
+    for (const [msgId, p] of inRoom) {
+      const decision = textDecision(forMember(msg.text, this.bots.get(p.bot).member, members));
+      if (decision === undefined) continue;
+      if (mentioned.size > 0 && !mentioned.has(p.bot)) {
+        answered.add(p.bot); // addressed to someone else: withhold it so this bot's bridge doesn't approve
+        continue;
+      }
+      try { this.decidePermission(msgId, decision, 'text'); } catch { continue; }
+      answered.add(p.bot);
+    }
+    return answered;
   }
 
   body(content) {
@@ -337,9 +352,12 @@ function parseCard(raw) {
   try { return JSON.parse(raw); } catch { return undefined; }
 }
 
+// Same rune set as bridge core/engine.go permissionTokenSeparator (whitespace plus these).
+const PERM_TOKEN_SEPARATORS = /[\s@＠,，.。!！?？:：;；()（）[\]【】"'“”‘’、·]+/u;
+
 /** Port of bridge core/engine.go isApproveAllResponse / isAllowResponse / isDenyResponse (checked in that order). */
 export function textDecision(text) {
-  const tokens = String(text).toLowerCase().trim().split(/[\s,，.。!！?？、;；:：]+/u).filter(Boolean);
+  const tokens = String(text).toLowerCase().trim().split(PERM_TOKEN_SEPARATORS).filter(Boolean);
   if (tokens.length === 0) return undefined;
   const joined = tokens.join(' ');
   if (APPROVE_ALL_PHRASES.some(ph => joined === ph || ` ${joined} `.includes(` ${ph} `))) return 'allow_all';
