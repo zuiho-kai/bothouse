@@ -3,6 +3,8 @@ package discord
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -222,8 +224,8 @@ func TestCardViewOneButtonRowPerTurn(t *testing.T) {
 	}
 }
 
-// A new turn starts in the default view (简略), whatever the last turn chose.
-func TestCardViewNewTurnStartsBrief(t *testing.T) {
+// A new turn starts in the channel's last choice; a channel with none starts 简略.
+func TestCardViewNewTurnUsesLastChoice(t *testing.T) {
 	p, rest := newCardViewPlatform(t)
 	rest.anyMentions = true
 	ctx := context.Background()
@@ -232,12 +234,78 @@ func TestCardViewNewTurnStartsBrief(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if c := rest.components[len(rest.components)-1]; !strings.Contains(c, "cardview:detail") {
+		t.Fatalf("first turn not brief: %s", c)
+	}
 	pressCardView(p, first.(*discordPreviewHandle).messageID, "detail")
-	if _, err := p.SendPreviewStart(ctx, rc, cardViewProgress(core.ProgressCardStateRunning)); err != nil {
+	second, err := p.SendPreviewStart(ctx, rc, cardViewProgress(core.ProgressCardStateRunning))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if last := rest.components[len(rest.components)-1]; !strings.Contains(last, "cardview:detail") {
-		t.Fatalf("new turn not brief: %s", last)
+	if c := rest.components[len(rest.components)-1]; !strings.Contains(c, "cardview:brief") {
+		t.Fatalf("new turn not in remembered 细节: %s", c)
+	}
+	rest.edits = nil
+	if err := p.UpdateMessage(ctx, second, cardViewProgress(core.ProgressCardStateCompleted)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rest.edits[0], "CMD_FULL_TEXT") {
+		t.Fatalf("edit of new turn lost remembered view: %s", rest.edits[0])
+	}
+	if _, err := p.SendPreviewStart(ctx, replyContext{channelID: "other"}, cardViewProgress(core.ProgressCardStateRunning)); err != nil {
+		t.Fatal(err)
+	}
+	if c := rest.components[len(rest.components)-1]; !strings.Contains(c, "cardview:detail") {
+		t.Fatalf("other channel not default brief: %s", c)
+	}
+}
+
+// The choice is written to the data dir and read back by a new process
+// (fresh store); a missing or broken file means 简略.
+func TestCardViewPrefsPersist(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, cardViewPrefFile)
+	if got := loadCardViewPrefs(path).get("room"); got != cardViewBrief {
+		t.Fatalf("no file: %v", got)
+	}
+	s := loadCardViewPrefs(path)
+	s.set("room", cardViewDetail)
+	raw, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(raw), `"room":"detail"`) {
+		t.Fatalf("file = %q, %v", raw, err)
+	}
+	if got := loadCardViewPrefs(path).get("room"); got != cardViewDetail {
+		t.Fatalf("reloaded = %v", got)
+	}
+	if got := loadCardViewPrefs(path).get("elsewhere"); got != cardViewBrief {
+		t.Fatalf("unset channel = %v", got)
+	}
+	if err := os.WriteFile(path, []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadCardViewPrefs(path).get("room"); got != cardViewBrief {
+		t.Fatalf("broken file = %v", got)
+	}
+
+	// End to end: a press on one platform, then a "restarted" platform on the
+	// same data dir starts the channel's next turn in 细节.
+	p, rest := newCardViewPlatform(t)
+	p.cardViews.prefs = loadCardViewPrefs(path)
+	rest.anyMentions = true
+	ctx := context.Background()
+	h, err := p.SendPreviewStart(ctx, replyContext{channelID: "room"}, cardViewProgress(core.ProgressCardStateRunning))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pressCardView(p, h.(*discordPreviewHandle).messageID, "detail")
+	p2, rest2 := newCardViewPlatform(t)
+	p2.cardViews.prefs = loadCardViewPrefs(path)
+	rest2.anyMentions = true
+	if _, err := p2.SendPreviewStart(ctx, replyContext{channelID: "room"}, cardViewProgress(core.ProgressCardStateRunning)); err != nil {
+		t.Fatal(err)
+	}
+	if c := rest2.components[0]; !strings.Contains(c, "cardview:brief") {
+		t.Fatalf("restarted platform ignored saved 细节: %s", c)
 	}
 }
 

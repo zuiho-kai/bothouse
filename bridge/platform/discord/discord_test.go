@@ -975,7 +975,7 @@ func TestUpdateMessage_ProgressPayloadUsesEmbed(t *testing.T) {
 		t.Fatal("BuildProgressCardPayloadV2() returned empty payload")
 	}
 
-	p.cardViews.set("msg-preview", cardViewDetail) // the 细节 view keeps the full lines
+	p.cardViews.set("msg-preview", "", cardViewDetail) // the 细节 view keeps the full lines
 	err := p.UpdateMessage(context.Background(), &discordPreviewHandle{channelID: "ch-1", messageID: "msg-preview"}, progress)
 	if err != nil {
 		t.Fatalf("UpdateMessage() error = %v", err)

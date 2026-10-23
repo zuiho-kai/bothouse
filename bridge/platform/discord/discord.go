@@ -228,6 +228,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
 		project, _ := opts["cc_project"].(string)
 		base.turnSent.load(filepath.Join(dir, "discord_turn_sent_"+project+".json"))
+		base.cardViews.prefs = cardViewPrefsFor(dir) // shared by the bots of this data dir
 	}
 	if progressStyle == "compact" || progressStyle == "card" {
 		wrapped := &progressPlatform{Platform: base}
@@ -1535,9 +1536,9 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 	origin := channelID
 	channelID = p.previewChannelFor(channelID, content)
 
-	// A new progress card starts a new turn in the default view; a table joins
-	// the newest turn of its origin channel.
-	view := cardViewDefault
+	// A new progress card starts a new turn in the channel's last chosen view
+	// (default 简略); a table joins the newest turn of its origin channel.
+	view := p.cardViews.startMode(origin)
 	if _, isTable := core.ParseSubTaskTablePayload(content); isTable {
 		view = p.cardViews.turnMode(origin)
 	}

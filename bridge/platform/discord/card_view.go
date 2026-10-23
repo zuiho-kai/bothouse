@@ -11,7 +11,8 @@ import (
 // maomao fork: one 「细节」/「简略」 button row per turn, on the progress card.
 // A press re-renders the progress card and the turn's sub-agent table and
 // task card together; those two carry no buttons of their own. The choice
-// belongs to the turn (keyed by its progress card) — in memory only.
+// belongs to the turn (keyed by its progress card); the last choice of a
+// channel is kept on disk and starts its next turns (card_view_pref.go).
 //
 //	progress card 细节: the step lines as before; 简略: head + tool name and result per step
 //	sub-agent table / task card: as defined in #114 (subtasks.go, task_card.go)
@@ -42,6 +43,8 @@ type cardViews struct {
 	members  map[string][]cardRef  // leader -> other messages of the turn
 	current  map[string]string     // origin channel -> newest progress card ID
 	chanOf   map[string]string     // progress card ID -> its channel
+	originOf map[string]string     // progress card ID -> its origin channel
+	prefs    *cardViewPrefs        // last choice per origin channel; nil = in-memory store
 }
 
 type cardRef struct{ channelID, messageID string }
@@ -60,7 +63,20 @@ func (c *cardViews) init() {
 		c.members = make(map[string][]cardRef)
 		c.current = make(map[string]string)
 		c.chanOf = make(map[string]string)
+		c.originOf = make(map[string]string)
 	}
+	if c.prefs == nil {
+		c.prefs = &cardViewPrefs{modes: map[string]cardView{}}
+	}
+}
+
+// startMode is the view a new turn of an origin channel starts in: the
+// channel's last choice, else the default.
+func (c *cardViews) startMode(origin string) cardView {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.init()
+	return c.prefs.get(origin)
 }
 
 // mode is the view of a message: its turn's choice, else the message's own
@@ -87,7 +103,8 @@ func (c *cardViews) turnMode(origin string) cardView {
 			return m
 		}
 	}
-	return cardViewDefault
+	c.init()
+	return c.prefs.get(origin)
 }
 
 // lead marks a progress card as the newest turn of an origin channel.
@@ -98,10 +115,15 @@ func (c *cardViews) lead(origin, channelID, messageID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.init()
+	_, known := c.leaderOf[messageID]
 	c.leaderOf[messageID] = messageID
 	c.chanOf[messageID] = channelID
 	if origin != "" {
 		c.current[origin] = messageID
+		c.originOf[messageID] = origin
+		if _, chosen := c.modes[messageID]; !known && !chosen {
+			c.modes[messageID] = c.prefs.get(origin)
+		}
 	}
 }
 
@@ -156,7 +178,9 @@ type cardMember struct {
 
 // set records the view chosen on a message (its whole turn) and returns the
 // message's renderer, if still known, and the turn's other messages.
-func (c *cardViews) set(messageID string, mode cardView) (cardRender, bool, []cardMember) {
+// channelID is the pressed message's channel, used as the origin when the
+// turn is unknown (pressed after a restart).
+func (c *cardViews) set(messageID, channelID string, mode cardView) (cardRender, bool, []cardMember) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.init()
@@ -165,6 +189,11 @@ func (c *cardViews) set(messageID string, mode cardView) (cardRender, bool, []ca
 		key = l
 	}
 	c.modes[key] = mode
+	origin := c.originOf[key]
+	if origin == "" {
+		origin = channelID
+	}
+	c.prefs.set(origin, mode)
 	r, ok := c.renders[messageID]
 	var others []cardMember
 	if key != messageID {
@@ -194,6 +223,7 @@ func (c *cardViews) forget(messageID string) {
 	delete(c.renders, messageID)
 	delete(c.leaderOf, messageID)
 	delete(c.chanOf, messageID)
+	delete(c.originOf, messageID)
 	if refs, ok := c.members[messageID]; ok {
 		for _, r := range refs {
 			delete(c.leaderOf, r.messageID)
@@ -258,7 +288,7 @@ func (p *Platform) handleCardViewInteraction(s *discordgo.Session, i *discordgo.
 	if i.Message == nil {
 		return
 	}
-	render, known, others := p.cardViews.set(i.Message.ID, mode)
+	render, known, others := p.cardViews.set(i.Message.ID, i.Message.ChannelID, mode)
 	lang := render.lang
 	if !known && messageHasChineseCardButtons(i.Message) {
 		lang = "zh"
