@@ -9,8 +9,9 @@ import (
 )
 
 // Codex reads hooks alongside active config layers. Only write the role's project
-// layer; never mutate CODEX_HOME, credentials or persisted hook trust. The owner
-// must trust this project and review new hooks with /hooks before normal use.
+// layer here; never mutate CODEX_HOME or credentials. Hook trust for bothouse's own
+// hooks is recorded by the app-server session (agent/codex/appserver_hooks.go);
+// the project itself must still be trusted.
 func enableCodexHookFeature(workDir string) error {
 	path := filepath.Join(workDir, ".codex", "config.toml")
 	config := map[string]any{}

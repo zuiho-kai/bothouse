@@ -256,6 +256,10 @@ func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode,
 		return nil, err
 	}
 
+	if err := s.trustBothouseHooks(); err != nil {
+		slog.Warn("codex app-server: bothouse hooks left untrusted", "error", err)
+	}
+
 	if err := s.ensureThread(resumeID); err != nil {
 		_ = s.Close()
 		return nil, err
