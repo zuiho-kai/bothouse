@@ -2082,6 +2082,8 @@ const zh = {
 	taskNextCheck: "下次看 {time}",
 	taskOpenAssign: "派工消息",
 	taskOpenResult: "交回消息",
+	lead: "谁当主",
+	leadNone: "未选择（按原配置）",
 	durSeconds: "{n} 秒",
 	durMinutes: "{n} 分钟",
 	durHours: "{h} 小时 {m} 分",

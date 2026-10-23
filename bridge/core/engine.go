@@ -890,7 +890,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 	if sp, ok := ag.(SkillProvider); ok {
 		e.skills.SetDirs(sp.SkillDirs())
 	}
-	e.board.addSource(e) // maomao fork: report to the process's channel task board
+	e.board.addSource(e)    // maomao fork: report to the process's channel task board
 	e.teamExit.resolver = e // team mode C exit: workspaces recorded by block D
 
 	return e
@@ -3102,24 +3102,6 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 	defer e.messageWorkers.Done()
-	// The product data directory is the single source of truth when it is
-	// configured. Cloud-web still carries lead_id for older peers, but it must
-	// not create a second per-platform primary-role state.
-	if e.leadStatePath() != "" {
-		isLead, known := e.readLeadSelection()
-		if known {
-			e.setDynamicTeamLead(isLead == e.name)
-		} else if e.team != nil {
-			e.team.mu.Lock()
-			fallback := e.team.inject
-			e.team.mu.Unlock()
-			e.setDynamicTeamLead(fallback)
-		}
-	} else if lead, ok := p.(TeamLeadStateProvider); ok {
-		if isLead, known := lead.TeamLeadState(); known {
-			e.setDynamicTeamLead(isLead)
-		}
-	}
 	if msg.Recalled {
 		e.handleMessageRecall(p, msg)
 		return

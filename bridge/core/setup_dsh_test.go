@@ -169,9 +169,8 @@ func TestApplyWizardDSHRole(t *testing.T) {
 	}
 	wd := filepath.Join(data, "roles", "whale")
 	if p.AgentEnv[DSHKeyEnv] != "sk-test" || p.AgentEnv["UV_CACHE_DIR"] != filepath.Join(wd, ".cache", "uv") ||
-		p.AgentEnv["CONEST_COLLAB_DATA"] != filepath.Join(data, "dsh", "collab") ||
 		p.AgentEnv["CONEST_LEAD_FILE"] != filepath.Join(data, "lead.json") ||
-		p.AgentEnv["BOTHOUSE_DATA_DIR"] != data || len(p.AgentEnv) != 5 {
+		p.AgentEnv["BOTHOUSE_DATA_DIR"] != data || len(p.AgentEnv) != 4 {
 		t.Fatalf("env = %v", p.AgentEnv)
 	}
 	b, err := os.ReadFile(patch)

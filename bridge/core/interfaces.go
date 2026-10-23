@@ -15,11 +15,10 @@ type Platform interface {
 	Stop() error
 }
 
-// TeamLeadStateProvider is implemented by gateways that receive the current
-// primary-role selection from their channel host. The bool is whether this
-// project is the selected role; false means a different role is primary.
-type TeamLeadStateProvider interface {
-	TeamLeadState() (isLead bool, known bool)
+// ConfiguredTeamLead reports whether a platform has a configured team lead.
+// It lets the local no-gate path suppress unaddressed group messages for subs.
+type ConfiguredTeamLead interface {
+	HasConfiguredTeamLead() bool
 }
 
 // ErrNotSupported indicates a platform doesn't support a particular operation.

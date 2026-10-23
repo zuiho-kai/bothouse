@@ -73,6 +73,24 @@ func (e *Engine) readLeadSelection() (string, bool) {
 	return strings.TrimSpace(selection.Lead), true
 }
 
+// suppressUnaddressedGroup prevents a no-gate team sub from starting a turn
+// for a group message that has no explicit recipient. A configured gate owns
+// this decision when present, so this is deliberately only called by the
+// local no-gate path.
+func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
+	if msg.FromBot || msg.Mentioned || msg.Direct {
+		return false
+	}
+	if selected, ok := e.readLeadSelection(); ok {
+		return selected != e.name
+	}
+	configured, ok := p.(ConfiguredTeamLead)
+	if !ok || !configured.HasConfiguredTeamLead() {
+		return false
+	}
+	return !e.isTeamLead()
+}
+
 type teamSession struct {
 	session *Session
 	chat    string

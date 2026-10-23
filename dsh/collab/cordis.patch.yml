@@ -7,6 +7,7 @@
         dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.HOME + '/.conest-collab')
         workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
         leadFile: !!js process.env.CONEST_LEAD_FILE || ((process.env.BOTHOUSE_DATA_DIR || (process.env.HOME + '/.bothouse')) + '/lead.json')
+        fallbackLead: !!js process.env.CONEST_FALLBACK_LEAD || ''
 - insert:
     - id: conest-channels-ui
       name: '@deepseek-ai/dsh-experimental-client-ui-discord'

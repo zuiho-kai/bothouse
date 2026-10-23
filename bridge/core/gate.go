@@ -254,6 +254,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	if g == nil || msg.IsPermissionResponse || ownerDM {
 		if !msg.IsPermissionResponse {
+			if g == nil && !ownerDM && e.suppressUnaddressedGroup(p, msg) {
+				return true
+			}
 			if g == nil && e.applyLocalGate(p, msg, session, interactiveKey) {
 				return true
 			}

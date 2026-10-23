@@ -18,7 +18,14 @@ _SETUP_ENV = os.environ.get("GATE_SETUP_DIR")
 _SETUP = Path(_SETUP_ENV or Path.home() / ".cc-connect").expanduser()
 # The bridge and DSH use the product data directory even when no gate is
 # installed. Only an explicit file override may select a different location.
-_PRODUCT_DATA = Path(os.environ.get("BOTHOUSE_DATA_DIR") or Path.home() / ".bothouse").expanduser()
+_PRODUCT_ENV = os.environ.get("BOTHOUSE_DATA_DIR")
+if _PRODUCT_ENV:
+    _PRODUCT_DATA = Path(_PRODUCT_ENV).expanduser()
+else:
+    _preferred = Path.home() / ".bothouse"
+    _legacy = Path.home() / ".cc-connect"
+    _PRODUCT_DATA = _preferred if _preferred.exists() or not _legacy.exists() else _legacy
+_LEGACY_LEAD_FILES = [_PRODUCT_DATA / "gate-lead.json", _SETUP / "gate-lead.json"]
 if os.environ.get("GATE_LEAD_FILE"):
     LEAD_FILE = Path(os.environ["GATE_LEAD_FILE"]).expanduser()
 else:
@@ -113,12 +120,13 @@ _lock = threading.Lock()
 
 def state():
     """→ {"lead": key, "at": 切换时间 或 ""}；没切过 / 文件坏了 = 橘（现状）。"""
-    try:
-        s = json.loads(LEAD_FILE.read_text())
-        if s.get("lead") in KEYS:
-            return {"lead": s["lead"], "at": s.get("at", "")}
-    except (OSError, ValueError):
-        pass
+    for path in (LEAD_FILE, *_LEGACY_LEAD_FILES):
+        try:
+            s = json.loads(path.read_text())
+            if s.get("lead") in KEYS:
+                return {"lead": s["lead"], "at": s.get("at", "")}
+        except (OSError, ValueError):
+            pass
     return {"lead": "", "at": ""}
 
 
@@ -147,6 +155,7 @@ def set_lead(key):
     with _lock:
         if state()["lead"] == key and LEAD_FILE.exists():
             return False
+        LEAD_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = LEAD_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps({"lead": key, "name": NAME[key], "at": time.strftime("%m-%d %H:%M:%S")}, ensure_ascii=False))
         tmp.replace(LEAD_FILE)

@@ -8,10 +8,11 @@ export class Hub {
    * @param store - Store instance.
    * @param logger - { warn(msg, ...args) }.
    */
-  constructor(store, logger, leadState = undefined) {
+  constructor(store, logger, leadState = undefined, fallbackLead = '') {
     this.store = store;
     this.logger = logger;
     this.leadState = leadState;
+    this.fallbackLead = fallbackLead;
     /** id -> { id, name, kind: 'dsh' | 'bot' | 'human', mentionId?, online } */
     this.members = new Map();
     /** roomId -> Set<memberId> currently working */
@@ -35,7 +36,8 @@ export class Hub {
 
   /** UI-only fallback; callers that route messages must use selectedPrimaryMember(). */
   primaryMember() {
-    return this.selectedPrimaryMember() ?? this.routable()[0];
+    const fallback = this.fallbackLead === '' ? undefined : this.members.get(this.fallbackLead);
+    return this.selectedPrimaryMember() ?? (fallback?.kind !== 'human' ? fallback : undefined);
   }
 
   setMember(member) {

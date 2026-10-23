@@ -116,10 +116,9 @@ func dshLaunch(dshPath string) (cmd string, args []string) {
 func dshRoleLaunch(dshPath, dataDir, project, workDir string, p *WizardProvider) (string, []string, map[string]string) {
 	cmd, args := dshLaunch(dshPath)
 	env := map[string]string{
-		"UV_CACHE_DIR":       filepath.Join(workDir, ".cache", "uv"),
-		"CONEST_COLLAB_DATA": filepath.Join(dataDir, "dsh", "collab"),
-		"CONEST_LEAD_FILE":   filepath.Join(dataDir, "lead.json"),
-		"BOTHOUSE_DATA_DIR":  dataDir,
+		"UV_CACHE_DIR":      filepath.Join(workDir, ".cache", "uv"),
+		"CONEST_LEAD_FILE":  filepath.Join(dataDir, "lead.json"),
+		"BOTHOUSE_DATA_DIR": dataDir,
 	}
 	args = append(args, "--patch", DSHPatchPath(dataDir, project))
 	if p != nil {

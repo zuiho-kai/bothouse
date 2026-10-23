@@ -107,6 +107,32 @@ func TestSharedLeadSelectionUsesProductDataFile(t *testing.T) {
 	}
 }
 
+type configuredTeamLeadTestPlatform struct{ stubPlatformEngine }
+
+func (configuredTeamLeadTestPlatform) HasConfiguredTeamLead() bool { return true }
+
+func TestNoGateSuppressesUnaddressedSubAfterLeadSelection(t *testing.T) {
+	dir := t.TempDir()
+	e := newTestEngine()
+	e.name = "sub"
+	e.dataDir = dir
+	e.team = &teamState{dir: t.TempDir(), name: "sub", inject: false, seen: map[string]*teamSession{}}
+	p := configuredTeamLeadTestPlatform{stubPlatformEngine{n: "cloud_web"}}
+	msg := &Message{Content: "群里消息", ChannelID: "room", SessionKey: "cloud_web:room"}
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":"lead"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !e.suppressUnaddressedGroup(&p, msg) {
+		t.Fatal("selected non-lead should be suppressed without a gate")
+	}
+	if err := os.Remove(filepath.Join(dir, "lead.json")); err != nil {
+		t.Fatal(err)
+	}
+	if !e.suppressUnaddressedGroup(&p, msg) {
+		t.Fatal("configured team sub should be suppressed without a gate")
+	}
+}
+
 func TestTeamBlockOnlyWhenBoardChanges(t *testing.T) {
 	dir := t.TempDir()
 	e := newTestEngine()

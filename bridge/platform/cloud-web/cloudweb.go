@@ -52,9 +52,6 @@ type Platform struct {
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
 
 	teamLead     string   // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
-	teamLeadMu   sync.RWMutex
-	dynamicLead  bool
-	dynamicKnown bool
 	leadReturned sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
 	wsAcks       sync.Map // team mode E: ref_id → chan wireTeamWorkspaceAck (workspaces.go)
 }
@@ -218,12 +215,8 @@ func pickInt(v any) int {
 
 func (p *Platform) Name() string { return p.name }
 
-// TeamLeadState reports the latest primary-role selection received from DSH.
-func (p *Platform) TeamLeadState() (bool, bool) {
-	p.teamLeadMu.RLock()
-	defer p.teamLeadMu.RUnlock()
-	return p.dynamicLead, p.dynamicKnown
-}
+// HasConfiguredTeamLead reports whether this platform belongs to a configured team.
+func (p *Platform) HasConfiguredTeamLead() bool { return p.teamLead != "" }
 
 // ProgressStyle implements core.ProgressStyleProvider (maomao fork).
 func (p *Platform) ProgressStyle() string {
@@ -378,16 +371,6 @@ func (p *Platform) handleMessage(raw []byte) {
 	}
 	if m.UserID == "" {
 		return
-	}
-	if m.LeadID != nil {
-		self := p.selfID
-		if self == "" {
-			self = p.project
-		}
-		p.teamLeadMu.Lock()
-		p.dynamicLead = strings.TrimSpace(*m.LeadID) != "" && strings.TrimSpace(*m.LeadID) == self
-		p.dynamicKnown = true
-		p.teamLeadMu.Unlock()
 	}
 	// maomao fork: teammate bots are vouched for by the gateway (same as Discord's allow_bots path),
 	// so allow_from only restricts people.

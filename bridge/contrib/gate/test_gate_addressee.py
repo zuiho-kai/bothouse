@@ -40,6 +40,7 @@ def load_gate(config_toml=None):
     os.environ["GATE_SETUP_DIR"] = str(d)
     os.environ["GATE_LOG"] = str(d / "gate.jsonl")
     os.environ["GATE_MODEL"] = "fake"
+    os.environ["BOTHOUSE_DATA_DIR"] = str(d)
     for k in ("GATE_JEV", "GATE_TEAM", "GATE_LEAD_FILE", "GATE_WIKI"):
         os.environ.pop(k, None)
     for m in ("gate", "lead", "ctxsvc"):
@@ -49,6 +50,7 @@ def load_gate(config_toml=None):
     g = importlib.util.module_from_spec(importlib.util.spec_from_loader("gate", loader))
     sys.modules["gate"] = g
     loader.exec_module(g)
+    g._test_data_dir = d
     return g
 
 
@@ -135,6 +137,16 @@ class Symptom(Base):
 
 
 class Addressee(Base):
+    def test_shared_lead_file_switches_unmentioned_route(self):
+        self.history([])
+        state = gate._test_data_dir / "lead.json"
+        state.write_text(json.dumps({"lead": "longniang"}), encoding="utf-8")
+        routed = self.all_route("没有点名的消息")
+        self.assertEqual(self.replied(routed), ["longniang"], routed)
+        state.unlink()
+        routed = self.all_route("没有点名的消息")
+        self.assertEqual(self.replied(routed), [""], routed)
+
     def test_follow_lead_report(self):  # 接着橘的汇报不 @ 说一句 → 只有橘回
         self.history([(30, "", [], self.REPORT), (400, None, [], "宣传片再改一版")])
         self.assertEqual(self.replied(self.all_route("修复推到代码仓，子agent做")), [""])
