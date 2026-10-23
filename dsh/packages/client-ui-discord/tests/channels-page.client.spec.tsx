@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -345,6 +345,88 @@ describe('channels page', () => {
     fireEvent.click(errButton)
     await act(async () => {})
     expect(screen.getByRole('alert').textContent).toContain('继续失败：Room locked')
+  })
+
+  it('renders system messages with localized author name and hides empty card boxes', () => {
+    const mixedSnapshot: ChannelSnapshot = {
+      ...ready,
+      messages: [
+        {
+          id: 10,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: '系统普通通知',
+          created_at: 100,
+          card: null,
+          from_turn: null,
+        },
+        {
+          id: 11,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: '',
+          created_at: 101,
+          card: JSON.stringify({ title: '', state: 'running' }),
+          from_turn: null,
+        },
+        {
+          id: 12,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: '正在同步',
+          created_at: 102,
+          card: JSON.stringify({ title: '进度更新', state: 'running' }),
+          from_turn: null,
+        },
+      ],
+    }
+    const view = render(<ChannelsPage {...props(mixedSnapshot)} />)
+
+    // Localized author name '系统' is displayed, raw 'system' is not
+    expect(screen.getAllByText(zh.systemAuthor)).toHaveLength(3)
+    expect(screen.queryByText('system')).toBeNull()
+
+    // Message 10 has plain text
+    expect(screen.getByText('系统普通通知')).toBeTruthy()
+
+    // Message 12 has card title and text
+    expect(screen.getByText('进度更新')).toBeTruthy()
+    expect(screen.getByText('正在同步')).toBeTruthy()
+
+    // Only 1 progress card container is rendered (Message 12), Message 11 is completely skipped
+    const cards = view.container.querySelectorAll('[data-state="running"]')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].textContent).toContain('进度更新')
+    expect(cards[0].textContent).toContain('正在同步')
+  })
+
+  it('supports English locale for system author name', () => {
+    const enProps = {
+      ...props({
+        ...ready,
+        messages: [{
+          id: 20,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: 'System notice',
+          created_at: 100,
+          card: null,
+          from_turn: null,
+        }],
+      }),
+      t: (key: keyof typeof en) => en[key],
+    }
+    render(<ChannelsPage {...(enProps as any)} />)
+    expect(screen.getByText(en.systemAuthor)).toBeTruthy()
+    expect(screen.queryByText('system')).toBeNull()
   })
 
   it('supports mobile drawer toggle, channel switching, member pick and escape closing', async () => {

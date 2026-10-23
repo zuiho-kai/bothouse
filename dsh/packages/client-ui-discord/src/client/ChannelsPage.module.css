@@ -101,18 +101,19 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0 12px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-md);
+  border-radius: var(--dsw-radius-sm);
   color: var(--dsw-alias-state-error-primary);
   background: var(--dsw-alias-bg-layer-2);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
+  box-sizing: border-box;
 }
 
 .stopButton:hover:not(:disabled) {
@@ -320,6 +321,10 @@
   border-left: 4px solid var(--dsw-alias-state-business-primary);
   border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-layer-2);
+}
+
+.card:empty {
+  display: none;
 }
 
 .card[data-state='failed'] {
@@ -586,6 +591,12 @@
   .chatHead {
     padding: 0 8px;
     height: 48px;
+  }
+
+  .stopButton {
+    height: 32px;
+    min-height: 32px;
+    padding: 0 12px;
   }
 
   .mobileNavButton {

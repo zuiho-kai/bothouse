@@ -64,6 +64,7 @@ export const zh = {
   toggleRooms: '切换频道列表',
   toggleMembers: '切换成员列表',
   closeDrawer: '关闭侧栏',
+  systemAuthor: '系统',
 } as const
 
 /** English dictionary. */
@@ -127,6 +128,7 @@ export const en: Record<keyof typeof zh, string> = {
   toggleRooms: 'Toggle channel list',
   toggleMembers: 'Toggle member list',
   closeDrawer: 'Close sidebar',
+  systemAuthor: 'System',
 }
 
 /** Keys of the channel panel dictionary. */
