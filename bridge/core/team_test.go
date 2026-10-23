@@ -109,7 +109,7 @@ func TestSharedLeadSelectionUsesProductDataFile(t *testing.T) {
 
 type configuredTeamLeadTestPlatform struct{ stubPlatformEngine }
 
-func (configuredTeamLeadTestPlatform) HasConfiguredTeamLead() bool { return true }
+func (*configuredTeamLeadTestPlatform) HasConfiguredTeamLead() bool { return true }
 
 func TestNoGateSuppressesUnaddressedSubAfterLeadSelection(t *testing.T) {
 	dir := t.TempDir()
