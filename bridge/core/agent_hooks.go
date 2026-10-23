@@ -186,12 +186,31 @@ func ourHook(cmd string) string {
 // AgentHookSettingsPath is the role's project settings file: .claude/settings.json for Claude Code and DSH (DSH
 // reads it through its bridge), .gemini/settings.json for Gemini CLI (user-level is ~/.gemini/settings.json;
 // the role's work dir is the project, so the project-level file is the one we write — never the user's home).
+//
+// Qoder (https://docs.qoder.com/cli/hooks, "Configuration File Locations"):
+//
+//	~/.qoder/settings.json                # User level, applies to all projects
+//	${project}/.qoder/settings.json       # Project level, applies to the current project; can be committed to git for team sharing
+//	${project}/.qoder/settings.local.json # Project level (local), recommended to add to .gitignore
+//
+// iFlow CLI (hooks doc, "1. Configuration Hierarchy"):
+//
+//	User Configuration: ~/.iflow/settings.json
+//	Project Configuration: ./.iflow/settings.json
+//
+// Both document a project-level file, so the role's work dir is the project and only that file is written; the
+// user-level ones are never touched (a role's HOME may be a different one, and $HOME/.qoder is not ours to edit).
 func AgentHookSettingsPath(cli, workDir string) string {
 	if cli == "antigravity" {
 		return AgyHookFile(workDir)
 	}
-	if cli == "gemini" {
+	switch cli {
+	case "gemini":
 		return filepath.Join(workDir, ".gemini", "settings.json")
+	case "qoder":
+		return filepath.Join(workDir, ".qoder", "settings.json")
+	case "iflow":
+		return filepath.Join(workDir, ".iflow", "settings.json")
 	}
 	return filepath.Join(workDir, ".claude", "settings.json")
 }
@@ -318,11 +337,10 @@ func AgentHooksEnabled(cli, workDir string) ([]string, error) {
 	return out, nil
 }
 
-// wizardHooksFor: the wizard switches hooks on for new roles of this agent type: Claude Code natively, DSH
-// (agent type "dsh") through its hook bridge, Gemini CLI through the same run.py translator as DSH.
+// wizardHooksFor: the wizard switches hooks on for new roles of this agent type — every CLI in AgentHookCLIs
+// (Claude Code natively, DSH through its hook bridge, Gemini / Qoder / iFlow CLI through run.py).
 func wizardHooksFor(agentType string) bool {
-	return (agentType == "claudecode" || agentType == "dsh" || agentType == "gemini" ||
-		agentType == "antigravity") && AgentHookFS != nil
+	return slices.Contains(AgentHookCLIs, agentType) && AgentHookFS != nil
 }
 
 // AgentHookSwitchFile is the role's on/off switch: {"off": [hook names] or ["all"]}. run.py reads it on every
@@ -352,11 +370,21 @@ func AgentHooksSwitchedOff(workDir string) []string {
 	return out
 }
 
-// AgentHookCLIs are the CLIs the hooks run under: Claude Code natively, DSH and Gemini CLI through run.py
-// (each turns its own payload into Claude Code's shape), Antigravity (agy) through its own workspace hook file
-// <work_dir>/.agents/hooks.json, with run.py --agy converting payloads.
-var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity"}
+// AgentHookCLIs are the CLIs the hooks run under: Claude Code natively, DSH, Gemini CLI, Qoder and iFlow CLI
+// through run.py (each turns its own payload into Claude Code's shape; Qoder's is already the same shape),
+// Antigravity (agy) through its own workspace hook file <work_dir>/.agents/hooks.json, with run.py --agy
+// converting payloads.
+var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "qoder", "iflow"}
 
+// iflowMatchers: the matcher each hook gets in iFlow CLI, whose built-in tool names are Gemini-like
+// (hooks doc, "Common Tool Name Reference": run_shell_command, replace, multi_edit, write_file, read_file,
+// search_file_content, list_directory, with Claude Code's names as aliases). Both names and aliases are matched,
+// so the names are listed explicitly rather than relying on the alias table.
+var iflowMatchers = map[string]string{
+	"bash-guard":            "run_shell_command|Bash|bash",
+	"param-source-guard":    "replace|multi_edit|write_file|Edit|Write|MultiEdit",
+	"dispatch-review-guard": "replace|multi_edit|write_file|Edit|Write|MultiEdit|Agent|Task|subagent",
+}
 // geminiMatchers: the matcher each hook gets in Gemini CLI, whose built-in tool names differ from both Claude
 // Code's and DSH's (https://geminicli.com/docs/hooks/reference "Matchers and tool names": run_shell_command,
 // read_file, write_file, replace, invoke_agent). Matchers there are regular expressions. The sub-agent tool is
@@ -397,6 +425,19 @@ func geminiEvent(claudeCodeEvent string) string {
 	return claudeCodeEvent
 }
 
+// Qoder and iFlow CLI need no geminiEvent-like translation: both use Claude Code's event names for the events
+// the hooks register (agentHooks), so the event is written as it is.
+//
+// Qoder (https://docs.qoder.com/cli/hooks, "Event Reference"): PreToolUse, PostToolUse, UserPromptSubmit,
+// SessionStart, Stop, Notification — the same names as Claude Code, and its payload is the same JSON on stdin
+// (session_id, transcript_path, cwd, hook_event_name, tool_name, tool_input) with the same exit codes (2 blocks,
+// stderr goes back to the agent) and the same hookSpecificOutput/permissionDecision fields.
+//
+// iFlow CLI (hooks doc, "Hook Types"): PreToolUse, PostToolUse, SetUpEnvironment, Stop, SubagentStop,
+// SessionStart, SessionEnd, UserPromptSubmit, Notification — again the same names for the events used here.
+// Its payload goes to run.py as environment variables + stdin JSON (see run.py's iflow_payload) and it blocks
+// on a non-zero exit code only, so run.py turns a Claude Code deny into exit 2.
+//
 // AgentHookOptions says which role and which hooks.
 type AgentHookOptions struct {
 	DataDir string   // cc-connect data_dir: scripts go to <data_dir>/hooks
@@ -455,6 +496,14 @@ func (o AgentHookOptions) personaPath() (string, error) {
 		return PersonaFilePath("gemini", o.WorkDir), nil // Gemini CLI reads GEMINI.md
 	case "antigravity":
 		return PersonaFilePath("antigravity", o.WorkDir), nil
+	case "qoder":
+		// Qoder's project memory file is AGENTS.md (its docs' InstructionsLoaded example: "file_path":
+		// "/abs/path/AGENTS.md", "memory_type": "project"); PersonaFilePath maps qoder -> AGENTS.md.
+		return PersonaFilePath("qoder", o.WorkDir), nil
+	case "iflow":
+		// The hooks doc says nothing about iFlow's instruction file; the repo's existing map has IFLOW.md
+		// (setup_wizard.go memoryFileOfAgent). Kept as is — no new name invented.
+		return PersonaFilePath("iflow", o.WorkDir), nil
 	}
 	return "", fmt.Errorf("hooks run under %s only, not %q", strings.Join(AgentHookCLIs, ", "), o.CLI)
 }
@@ -507,6 +556,11 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		matcher := h.Matcher
 		if o.CLI == "gemini" {
 			if m, ok := geminiMatchers[n]; ok {
+				matcher = m
+			}
+		}
+		if o.CLI == "iflow" {
+			if m, ok := iflowMatchers[n]; ok {
 				matcher = m
 			}
 		}

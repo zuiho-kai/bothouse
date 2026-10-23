@@ -66,6 +66,17 @@ permissionDecision deny) = {"decision": "deny", "reason": ...}; a Stop block = {
 Every passing exit under --agy (hook switched off, script missing, WIKI_INGEST, a crash) prints
 {"decision": "allow"}: agy's "decision" is Required.
 
+Qoder CLI (https://docs.qoder.com/cli/hooks) needs no translation at all: its events (PreToolUse, PostToolUse,
+UserPromptSubmit, SessionStart, Stop, Notification), its stdin JSON (session_id/transcript_path/cwd/
+hook_event_name/tool_name/tool_input), its exit codes and hookSpecificOutput.permissionDecision are Claude
+Code's, so its payload and output pass straight through.
+
+iFlow CLI (hooks doc "Hook Types" / "3. Return Value Processing") is translated minimally, see iflow_payload /
+iflow_output: event and tool name come from IFLOW_HOOK_EVENT_NAME / IFLOW_TOOL_NAME (or the same fields in its
+stdin JSON), tool names are Gemini-like, and it blocks only on a non-zero exit code, so a Claude Code deny
+becomes exit 2 + stderr. Stop is registered too but iFlow does not act on a hook's exit code there ("Other
+Hooks: Return code doesn't affect main flow"), so fix-claim-guard / promise-guard can only warn under iFlow.
+
 stdout / stderr / exit code of the hook are passed through.
 """
 import json
@@ -248,6 +259,58 @@ def gemini_output(out, event):
     return ""
 
 
+# iFlow CLI (hooks doc: "Hook Types", "3. Return Value Processing"). Its hooks get the event and tool names in
+# environment variables (IFLOW_HOOK_EVENT_NAME, IFLOW_TOOL_NAME, IFLOW_TOOL_ARGS, IFLOW_USER_PROMPT) and the same
+# JSON on stdin (the doc's examples read data["tool_input"]["file_path"] and data["prompt"]); its tool names are
+# Gemini-like (run_shell_command / replace / write_file / ... with Claude Code's names as aliases). It blocks a
+# tool only on a non-zero exit code ("PreToolUse Hook: Non-zero return code blocks tool execution, displays
+# error message"), and prints stdout to the user instead of parsing Claude Code's JSON, so a deny is turned into
+# exit 2 + stderr and any other output is dropped (it would only be noise in the user's terminal).
+IFLOW_EVENTS = {"PreToolUse", "PostToolUse", "SetUpEnvironment", "Stop", "SubagentStop", "SessionStart",
+                "SessionEnd", "UserPromptSubmit", "Notification"}
+IFLOW_NAMES = {"run_shell_command": "Bash", "shell": "Bash", "bash": "Bash", "Bash": "Bash",
+               "replace": "Edit", "edit": "Edit", "Edit": "Edit", "multi_edit": "MultiEdit", "MultiEdit": "MultiEdit",
+               "write_file": "Write", "write": "Write", "Write": "Write", "read_file": "Read", "read": "Read",
+               "search_file_content": "Grep", "list_directory": "LS"}
+
+
+def iflow_payload(payload):
+    """An iFlow CLI hook payload as Claude Code's shape, filling what it only passes in the environment."""
+    ev = payload.get("hook_event_name") or os.environ.get("IFLOW_HOOK_EVENT_NAME") or ""
+    out = {"session_id": payload.get("session_id") or os.environ.get("IFLOW_SESSION_ID") or "",
+           "cwd": payload.get("cwd") or os.environ.get("IFLOW_CWD") or os.getcwd(),
+           "hook_event_name": ev, "transcript_path": payload.get("transcript_path") or os.environ.get("IFLOW_TRANSCRIPT_PATH") or ""}
+    name = payload.get("tool_name") or os.environ.get("IFLOW_TOOL_NAME") or ""
+    if out["hook_event_name"] in ("PreToolUse", "PostToolUse") and name:
+        args = payload.get("tool_input")
+        if args is None:
+            try:
+                args = json.loads(os.environ.get("IFLOW_TOOL_ARGS") or "{}")
+            except ValueError:
+                args = {}
+        out["tool_name"] = IFLOW_NAMES.get(name, name)
+        out["tool_input"] = args if isinstance(args, dict) else {}
+    elif out["hook_event_name"] == "UserPromptSubmit":
+        out["prompt"] = payload.get("prompt") or os.environ.get("IFLOW_USER_PROMPT") or ""
+    elif out["hook_event_name"] == "Notification":
+        out["message"] = payload.get("message") or os.environ.get("IFLOW_NOTIFICATION_MESSAGE") or ""
+    return out
+
+
+def iflow_output(out):
+    """(stdout, stderr, exit code) for iFlow: a Claude Code deny becomes exit 2 + the reason on stderr."""
+    try:
+        d = json.loads(out or "{}")
+    except ValueError:
+        return "", "", 0
+    if not isinstance(d, dict):
+        return "", "", 0
+    hso = d.get("hookSpecificOutput") or {}
+    if hso.get("permissionDecision") == "deny" or d.get("decision") in ("block", "deny"):
+        return "", (hso.get("permissionDecisionReason") or d.get("reason") or "blocked by a bothouse hook"), 2
+    return "", "", 0
+
+
 def user_text(text):
     t = text.strip()
     if t.startswith(MODEL_HEAD):
@@ -345,8 +408,8 @@ def role_dir(start=None):
     probe = d
     while True:
         # .gemini/settings.json: a Gemini CLI role (hooks written there; its switch file stays .claude/conest-hooks.json)
-        if (os.path.isfile(os.path.join(probe, ".claude", "settings.json"))
-                or os.path.isfile(os.path.join(probe, ".gemini", "settings.json"))):
+        if any(os.path.isfile(os.path.join(probe, cli, "settings.json"))
+               for cli in (".claude", ".gemini", ".qoder", ".iflow")):
             return probe
         up = os.path.dirname(probe)
         if up == probe:
@@ -468,7 +531,13 @@ def main():
     if OPTS["agy"]:
         return run_agy(target, payload, OPTS["agy"])
     gemini = payload.get("hook_event_name") in GEMINI_EVENTS
+    # iFlow CLI: its event name comes in the environment (the hooks doc lists IFLOW_HOOK_EVENT_NAME for all hooks;
+    # its stdin JSON carries no hook_event_name, and every Claude Code / Qoder payload does, so the variable is
+    # what tells the two apart)
+    iflow = not gemini and os.environ.get("IFLOW_HOOK_EVENT_NAME") in IFLOW_EVENTS
     tmp, turn, sid = None, None, payload.get("session_id") or ""
+    if iflow:
+        payload = iflow_payload(payload)
     if gemini:
         payload = gemini_payload(payload)
         if payload["hook_event_name"] == "Stop":
@@ -533,6 +602,11 @@ def main():
             st = load_state()
             st[sid] = turn
             write_json(STATE, st)
+    if iflow:
+        out, err, code = iflow_output(proc.stdout)
+        sys.stdout.write(out)
+        sys.stderr.write(err + ("\n" if err else ""))
+        sys.exit(code or (2 if proc.returncode == 2 else 0))
     if gemini:
         sys.stdout.write(gemini_output(proc.stdout, payload.get("hook_event_name")))
     else:

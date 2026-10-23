@@ -237,6 +237,103 @@ func TestGeminiEvent(t *testing.T) {
 	}
 }
 
+// TestAgentHooksQoderIFlow: both CLIs keep Claude Code's event names (no geminiEvent-like translation), get
+// their own project settings file, and never write the user's home.
+func TestAgentHooksQoderIFlow(t *testing.T) {
+	for _, tc := range []struct{ cli, dir, persona string }{
+		{"qoder", ".qoder", "AGENTS.md"}, // https://docs.qoder.com/cli/hooks: ${project}/.qoder/settings.json
+		{"iflow", ".iflow", "IFLOW.md"},  // hooks doc: Project Configuration ./.iflow/settings.json
+	} {
+		t.Run(tc.cli, func(t *testing.T) {
+			useRepoHooks(t)
+			home := filepath.Join(t.TempDir(), "home")
+			if err := os.MkdirAll(home, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HOME", home)
+			data, wd := t.TempDir(), t.TempDir()
+			o := AgentHookOptions{DataDir: data, WorkDir: wd, CLI: tc.cli, Lang: "en"}
+			res, err := EnableAgentHooks(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := filepath.Join(wd, tc.dir, "settings.json"); res.SettingsFile != want {
+				t.Fatalf("settings file = %q, want %q", res.SettingsFile, want)
+			}
+			if res.PersonaFile != filepath.Join(wd, tc.persona) {
+				t.Fatalf("persona = %q", res.PersonaFile)
+			}
+			if !slices.Equal(res.Enabled, AgentHookNames()) {
+				t.Fatalf("enabled = %v", res.Enabled)
+			}
+			if _, err := os.Stat(filepath.Join(wd, ".claude", "settings.json")); !os.IsNotExist(err) {
+				t.Fatalf("%s must not write .claude/settings.json: %v", tc.cli, err)
+			}
+			if _, err := os.Stat(filepath.Join(home, tc.dir)); !os.IsNotExist(err) {
+				t.Fatalf("%s must not write the user's ~/%s: %v", tc.cli, tc.dir, err)
+			}
+			b, err := os.ReadFile(AgentHookSettingsPath(tc.cli, wd))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m map[string]any
+			if err := json.Unmarshal(b, &m); err != nil {
+				t.Fatal(err)
+			}
+			hooks, _ := m["hooks"].(map[string]any)
+			for _, ev := range []string{"PreToolUse", "Stop", "UserPromptSubmit"} {
+				if hooks[ev] == nil {
+					t.Fatalf("no %s group in\n%s", ev, b)
+				}
+			}
+			txt := string(b)
+			if strings.Contains(txt, "BeforeTool") || strings.Contains(txt, "AfterAgent") {
+				t.Fatalf("%s needs no event translation:\n%s", tc.cli, txt)
+			}
+			if tc.cli == "qoder" {
+				// Qoder's tool names are Claude Code's (its docs' example matcher is "Bash")
+				if !strings.Contains(txt, "Bash|bash|job_output") || strings.Contains(txt, "run_shell_command") {
+					t.Fatalf("qoder keeps Claude Code's matchers:\n%s", txt)
+				}
+			} else if !strings.Contains(txt, "run_shell_command|Bash|bash") {
+				// iFlow's own tool names come first (hooks doc "Common Tool Name Reference")
+				t.Fatalf("iflow matcher must use its tool names:\n%s", txt)
+			}
+			// both CLIs take a timeout in seconds, like Claude Code: bash-guard's 10 stays 10
+			if !strings.Contains(txt, `"timeout": 10`) {
+				t.Fatalf("timeout must stay in seconds:\n%s", txt)
+			}
+			if on, err := AgentHooksEnabled(tc.cli, wd); err != nil || !slices.Equal(on, AgentHookNames()) {
+				t.Fatalf("enabled read back = %v %v", on, err)
+			}
+			p, _ := os.ReadFile(filepath.Join(wd, tc.persona))
+			if !strings.Contains(string(p), hookRulesBegin) || !strings.Contains(string(p), "bash-guard") {
+				t.Fatalf("%s = %q", tc.persona, p)
+			}
+			// twice = no duplicate entries
+			if _, err := EnableAgentHooks(o); err != nil {
+				t.Fatal(err)
+			}
+			b, _ = os.ReadFile(res.SettingsFile)
+			if n := strings.Count(string(b), "' bash-guard\""); n != 1 {
+				t.Fatalf("bash-guard entries = %d\n%s", n, b)
+			}
+			if _, err := DisableAgentHooks(o); err != nil {
+				t.Fatal(err)
+			}
+			if on, _ := AgentHooksEnabled(tc.cli, wd); len(on) != 0 {
+				t.Fatalf("after off: %v", on)
+			}
+		})
+	}
+}
+
+func TestAgentHooksUnsupportedCLI(t *testing.T) {
+	if _, err := EnableAgentHooks(AgentHookOptions{DataDir: t.TempDir(), WorkDir: t.TempDir(), CLI: "codex"}); err == nil {
+		t.Fatal("codex has no hook support; EnableAgentHooks must refuse it")
+	}
+}
+
 func TestAgentHooksDSH(t *testing.T) {
 	useRepoHooks(t)
 	data, wd, dshHome := t.TempDir(), t.TempDir(), t.TempDir()

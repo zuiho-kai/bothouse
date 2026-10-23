@@ -124,6 +124,54 @@ class Hooks(unittest.TestCase):
         self.assertEqual(run.gemini_output(out, "BeforeTool"), "")
         self.assertNotIn("subagent", run.GEMINI_NAMES)
 
+    # ---- Qoder CLI payloads (https://docs.qoder.com/cli/hooks): Claude Code's shape, no translation ----
+    def qoder(self, event, **kw):
+        p = {"session_id": "q1", "transcript_path": "", "cwd": self.tmp, "hook_event_name": event,
+             "permission_mode": "default"}
+        p.update(kw)
+        return p
+
+    def test_qoder_pretooluse_denies(self):
+        out = self.run_hook("bash-guard", self.qoder("PreToolUse", tool_name="Bash",
+                                                    tool_input={"command": "sleep 120"}))
+        self.assertTrue(self.denied(out), out)  # passed straight through, Claude Code's own decision field
+
+    def test_qoder_pretooluse_allows(self):
+        out = self.run_hook("bash-guard", self.qoder("PreToolUse", tool_name="Bash",
+                                                    tool_input={"command": "ls -la"}))
+        self.assertEqual(out, "")
+
+    # ---- iFlow CLI payloads (hooks doc: env vars + the same JSON on stdin) ----
+    def iflow(self, event, **kw):
+        p = {"session_id": "i1", "cwd": self.tmp}
+        p.update(kw)
+        return p
+
+    def iflow_env(self, event, **kw):
+        e = dict(self.env, IFLOW_HOOK_EVENT_NAME=event, IFLOW_SESSION_ID="i1", IFLOW_CWD=self.tmp)
+        e.update({k: v for k, v in kw.items() if k.startswith("IFLOW_")})
+        return e
+
+    def test_iflow_pretooluse_denies(self):
+        # its doc's tool name is run_shell_command ("Common Tool Name Reference"), args in IFLOW_TOOL_ARGS
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "bash-guard"],
+                           input=json.dumps(self.iflow("PreToolUse")),
+                           capture_output=True, text=True, timeout=30, cwd=self.tmp,
+                           env=self.iflow_env("PreToolUse", IFLOW_TOOL_NAME="run_shell_command",
+                                              IFLOW_TOOL_ARGS=json.dumps({"command": "sleep 120"})))
+        self.assertEqual(r.returncode, 2, r.stderr)  # iFlow blocks on a non-zero exit code only
+        self.assertIn("sleep", r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
+    def test_iflow_pretooluse_allows(self):
+        # the same fields may also arrive in the stdin JSON (the doc's examples read data["tool_input"])
+        r = subprocess.run([sys.executable, "-I", os.path.join(self.hooks, "run.py"), "bash-guard"],
+                           input=json.dumps(self.iflow("PreToolUse", tool_name="run_shell_command",
+                                                       tool_input={"command": "ls -la"})),
+                           capture_output=True, text=True, timeout=30, cwd=self.tmp,
+                           env=self.iflow_env("PreToolUse"))
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, ""), r.stderr)
+
     # ---- dispatch-review-guard ----
     def test_dispatch_review_both_clis(self):
         for tool, inp in (("Agent", {"prompt": "改一下 foo"}), ("subagent", {"prompt": "改一下 foo"}),
