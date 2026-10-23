@@ -2,6 +2,7 @@ package dsh
 
 import (
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/chenhg5/cc-connect/tests/testutil"
@@ -38,5 +39,23 @@ func TestApplyDSHDefaultsKeepsUserOptions(t *testing.T) {
 func TestName(t *testing.T) {
 	if (&Agent{}).Name() != "dsh" {
 		t.Fatal("Name() must be dsh")
+	}
+}
+
+func TestDSHSessionAliasSurvivesKeyFilter(t *testing.T) {
+	original := []string{"CC_PROJECT=role", "CC_SESSION_KEY=discord:123", "CC_SESSION=stale"}
+	before := append([]string(nil), original...)
+	got := dshSessionEnv(original)
+	found := false
+	for _, v := range got {
+		if v == "CC_SESSION=discord:123" {
+			found = true
+		}
+	}
+	if !found || !reflect.DeepEqual(original, before) {
+		t.Fatalf("alias missing or input mutated: %v / %v", got, original)
+	}
+	if got := dshSessionEnv([]string{"CC_SESSION=fallback"}); len(got) != 1 || got[0] != "CC_SESSION=fallback" {
+		t.Fatalf("fallback changed: %v", got)
 	}
 }

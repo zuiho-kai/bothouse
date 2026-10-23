@@ -1,6 +1,6 @@
 #!/bin/zsh
 # 主角色用的自重启：后台等本轮回复发完再重启 cc-connect，避免把自己这轮杀掉。
-# 作者本机：二进制用固定签名后重启不再需要本机重新授权，所以放开给主角色（2026-10-13）。
+# 可选固定签名检查由 CC_SIGN_BIN / CC_SIGN_ID 配置。
 # 配置（环境变量）：
 #   CC_LOG           cc-connect 日志（默认 ~/.cc-connect/logs/cc-connect.log），等里面出现 "turn complete" 再重启
 #   CC_RESTART_LOG   本脚本的重启记录（默认 CC_LOG 同目录 safe-restart.log）
@@ -22,14 +22,14 @@ next=${2:-}
 if [[ -n ${CC_SIGN_BIN:-} && -n ${CC_SIGN_ID:-} ]]; then
   codesign -dv $CC_SIGN_BIN 2>&1 | grep -q "Identifier=$CC_SIGN_ID" || { echo "签名不是固定签名，拒绝重启（会丢授权），先重新编译签名" >&2; exit 1; }
 fi
-# 重启前检查（作者本机用来防 Codex 目录复发，2026-10-20）：失败只警告、不拦重启
+# 可配置的重启前检查：失败只警告、不拦重启
 if [[ -n ${CC_PRE_RESTART:-} ]]; then
   chk=$(zsh -c "$CC_PRE_RESTART" 2>&1) || echo "⚠️ 警告（不影响重启）：$chk" >&2
 fi
 start=$(wc -l < $LOG)
 if [[ -n $next ]]; then
   # 走 later：叫醒也上置顶任务板，用户看得见；定时挂不上 later 会自己撤掉那行（用户 2026-10-23「补，我要大家都能这样」）
-  "$here/later" 2m "重启后接着做" "桥刚重启。先查 $LOG 里每个 bot 都有 discord: connected，然后马上做：$next" >/dev/null || echo "⚠️ 重启后叫醒没挂上，重启完要自己接着做" >&2
+  "$here/later" 2m "重启后接着做" "桥刚重启。先查 $LOG 里每个已配置的平台都已连接，然后马上做：$next" >/dev/null || echo "⚠️ 重启后叫醒没挂上，重启完要自己接着做" >&2
 fi
 nohup zsh -c '
   for i in {1..60}; do

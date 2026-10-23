@@ -1,5 +1,7 @@
 2026-10-23：DSH 频道错误反馈与输入/忙状态已实现；collab 回归通过。模型设置入口浏览器验收、390px 抽屉已实现但浏览器验收与截图未完成，不能视为整条体验验收完成。
 
+2026-10-24: Collaboration tools packaging WIP: `setup lead install` embeds and installs lead/gate helpers, preserves persona instructions, and aliases DSH session identity. Includes later executable selection and board rework statistics. Not deployed or released; independent review pending.
+
 # 能力与验证状态
 
 2026-10-23 Issue #86 审核补改：DSH 安装器复用内容相同的恢复副本，拒绝覆盖不同副本；Codex exec 在普通与严格输入路径的进程退出后停止活动子 Agent 行，保留终态和 tracker 通知通道供下一轮复用。两处回归均已验证改前失败、改后通过，目标 race、构建/vet 与两版本 DSH 运行时副本校验通过；最终全量和 CI 见 PR #91。未部署。

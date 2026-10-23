@@ -53,3 +53,11 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 ## 构建与发布
 
 `make hubsrc` 把自建平台源码复制到 Go 嵌入目录，前端构建后随 cc-connect 二进制分发。安装脚本只下载当前仓库 Release 里的预编译包。发布从审核合入 main 的提交构建；提交、安装包和运行部署分别记录，见 [HANDOFF.md](HANDOFF.md)。
+
+## Collaboration helper packaging
+
+`bridge/embed_lead.go` owns the embedded lead scripts and selected gate dependencies.
+`core.InstallLeadTools` extracts their sibling layout under the configured data directory
+and adds role instructions; `setup lead install` is the explicit CLI entry.
+The DSH adapter maps runtime session identity to `CC_SESSION` before subprocess
+credential filtering. Gate services and platform credentials are configured separately.

@@ -198,3 +198,9 @@ bothouse is licensed under [MIT](LICENSE). See [LICENSING.md](LICENSING.md) (Chi
 The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to its authors and contributors. See [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for dependency licenses.
 
 - DSH 频道路线图：发图片、回复引用。
+
+### Collaboration helper scripts
+
+Install the packaged task board, timer, handoff and lead helpers for a role with
+`bothouse setup lead install --work-dir /path/to/role --agent codex`.
+See [configuration and requirements](bridge/contrib/lead/README.md).

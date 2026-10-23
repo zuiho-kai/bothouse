@@ -34,3 +34,21 @@
   `/KEY|PASSWORD|SECRET|TOKEN/i`），所以 DSH 的启动入口要加一行 `export CC_SESSION="${CC_SESSION_KEY:-}"`。
 - `safe-restart "原因" "重启后接着做的事|无"`：等本轮回复发出再用 launchd 重启 cc-connect，约 2 分钟后用 `later` 叫醒本会话接着做（叫醒也上任务板）。
   必填 `CC_LAUNCHD_LABEL`；可选 `CC_LOG`、`CC_RESTART_LOG`、`CC_SIGN_BIN`+`CC_SIGN_ID`（签名检查）、`CC_PRE_RESTART`（重启前检查，失败只警告）。
+
+## Install from the published binary
+
+Run `bothouse setup lead install --work-dir /path/to/role --agent codex`
+(optionally `--config /path/to/config.toml`). This extracts the embedded `lead/`
+and sibling `gate/` files into `<data_dir>/collaboration` and adds absolute paths
+to the role persona. Re-running refreshes tools without duplicating that block.
+Python 3 and zsh are required. Configure `GATE_TEAM` or
+`GATE_SETUP_DIR/gate-team.json`, `BOARD_DIR`, and platform credentials separately;
+the example team is only a template. The scripts are installed, not a gate service.
+
+`later` accepts `CC_BIN` for the bridge executable and otherwise searches
+`bothouse`, `cc-connect`, then `cc-connect-maomao`. DSH exports `CC_SESSION`
+from its runtime session key before its subprocess environment filter.
+`board done <id> <rework-count> "<reason>"` archives rework data;
+`board rework [days]` summarizes the last 14 days by default.
+`safe-restart` requires macOS launchctl and explicit `CC_LAUNCHD_LABEL`;
+installation does not invoke it or restart a running bridge.

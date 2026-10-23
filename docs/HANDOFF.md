@@ -1,5 +1,7 @@
 2026-10-23：feat/dsh-ux-chat 在 f8f57ac 上补频道成员错误提示、红色出错状态、模型设置入口、正在输入与忙状态；collab node --test 通过。用户限时交回：手机抽屉代码已补，390px 浏览器验证、截图及设置入口验证未完成，图片和回复引用记入 README 路线图。保留 layout 深链注入；未部署。
 
+2026-10-24: Collaboration tools packaging WIP: `setup lead install` embeds and installs lead/gate helpers, preserves persona instructions, and aliases DSH session identity. Includes later executable selection and board rework statistics. Not deployed or released; independent review pending.
+
 # 共栖当前交接
 
 2026-10-23 Issue #86 审核补改：DSH 安装器复用内容相同的恢复副本，拒绝覆盖不同副本；Codex exec 在普通与严格输入路径的进程退出后停止活动子 Agent 行，保留终态和 tracker 通知通道供下一轮复用。两处回归均已验证改前失败、改后通过，目标 race、构建/vet 与两版本 DSH 运行时副本校验通过；最终全量和 CI 见 PR #91。未部署。

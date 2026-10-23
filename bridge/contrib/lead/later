@@ -16,12 +16,15 @@ sk=${CC_SESSION_KEY:-${CC_SESSION:-}}
 export CC_SESSION_KEY=$sk   # board 按它记频道
 # 「谁」= 团队文件里的名字（../gate/lead.py 解析项目名），认不出就用项目名
 who=$(python3 -I -c 'import sys;sys.path.insert(0,sys.argv[1]);import _team;print(_team.name_of(sys.argv[2]))' "$here" "$proj")
-command -v cc-connect >/dev/null || { echo "later：PATH 上找不到 cc-connect" >&2; exit 1; }
-at=$(date -v+${mins}M '+%H:%M')
+cc=${CC_BIN:-}
+if [[ -z $cc ]]; then
+  cc=$(command -v bothouse || command -v cc-connect || command -v cc-connect-maomao) || { echo "later：找不到 bothouse / cc-connect（可设 CC_BIN）" >&2; exit 1; }
+fi
+at=$(python3 -c 'import datetime,sys;print((datetime.datetime.now()+datetime.timedelta(minutes=int(sys.argv[1]))).strftime("%H:%M"))' "$mins")
 id=$(BOARD_LATER=1 "$here/board" add "$what" "-" "等着，${at} 回来接着做" "$who" --next "$at" | grep -oE '[0-9]+' | head -1 || true)
 [[ -n $id ]] || { echo "任务板没记上，定时没挂" >&2; exit 1; }
 # 卡片上有这行 ⇔ 定时真挂上了：timer 失败就把刚记的这行撤掉再报错
-cc-connect timer add -p "$proj" -s "$sk" --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #$id「$what」：$todo。做完 board done $id；没做完先 board done $id，再用 later 挂下一次（写进度和回来时间）。" >/dev/null || {
+"$cc" timer add -p "$proj" -s "$sk" --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #$id「$what」：$todo。做完 board done $id；没做完先 board done $id，再用 later 挂下一次（写进度和回来时间）。" >/dev/null || {
   "$here/board" done "$id" >/dev/null || true
   echo "定时没挂上，已从任务板撤掉 #$id" >&2; exit 1; }
 echo "已挂：$at 回来，任务板 #$id"

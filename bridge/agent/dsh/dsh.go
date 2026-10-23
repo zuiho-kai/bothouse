@@ -62,3 +62,19 @@ func applyDSHDefaults(opts map[string]any) map[string]any {
 	}
 	return opts
 }
+
+// SetSessionEnv preserves the session across DSH's subprocess KEY/TOKEN filter.
+func (a *Agent) SetSessionEnv(env []string) {
+	a.Agent.SetSessionEnv(dshSessionEnv(env))
+}
+
+func dshSessionEnv(env []string) []string {
+	copied := append([]string(nil), env...)
+	for _, value := range env {
+		if strings.HasPrefix(value, "CC_SESSION_KEY=") {
+			copied = core.MergeEnv(copied, []string{"CC_SESSION=" + strings.TrimPrefix(value, "CC_SESSION_KEY=")})
+			break
+		}
+	}
+	return copied
+}
