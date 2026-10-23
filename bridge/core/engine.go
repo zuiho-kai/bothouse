@@ -441,6 +441,7 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	team                         *teamState                    // maomao fork: team status board (nil = off)
+	teamWS                       *teamWorkspaces               // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
 	board                        *channelBoardHub              // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
 	dirHistory                   *DirHistory

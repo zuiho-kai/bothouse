@@ -122,6 +122,7 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 
 // teamNoteTurn records that msg starts (or is folded into) a turn of session.
 func (e *Engine) teamNoteTurn(msg *Message, session *Session) {
+	e.teamWorkspaceNoteChat(msg.SessionKey)
 	t := e.team
 	if t == nil {
 		return
