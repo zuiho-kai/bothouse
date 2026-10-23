@@ -93,7 +93,7 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 - 没有 gate：`group_reply_all = false`。只处理 @ 它的消息；代价是看不到频道里其他人的发言（离线补历史也只在 gate 路径上运行）。
 - 有 gate（线上 maomao 的做法）：`group_reply_all = true`，加 `gate_url` 与 `gate_fallback = "context"`。没 @ 的消息只听不答，被 @ 时带上频道上下文，掉线期间的消息经本插件的历史接口补回。
 
-**身份由密钥决定。** 网关只从 `Authorization` / `X-Cloud-Web-Token` 请求头取凭据，URL 里不传 token（cc-connect 拨号前会把旧 `ws_url` 里的 `?token=` 去掉）；`?bot=` 只做一致性检查，与凭据对不上就拒绝（`4002`）。成员 id 为小写 `[a-z0-9_-]`、最多 32 字符，`owner`/`user`/`system` 和已有 DSH 成员 id 都不能用，显示名也不能与别的成员重名；id 若已是持久化成员或非机器人成员，注册被拒、不顶替那条身份。同一个密钥再次连接（例如 cc-connect 重启）会顶掉旧连接：新连接生效，旧连接以 `4003` 关闭——顶的是连接，不是身份或历史。
+**身份由密钥决定。** 网关只从 `Authorization` / `X-Cloud-Web-Token` 请求头取凭据，URL 里不传 token（cc-connect 拨号前会把旧 `ws_url` 里的 `?token=` 去掉）；`?bot=` 可选，只做一致性检查：不带就按凭据认证，带了对不上就拒绝（`4002`），`project` 从不参与比对。成员 id 必须匹配 `[a-z0-9][a-z0-9_-]{0,31}`（小写，1–32 字符），`owner`/`user`/`system` 和已有 DSH 成员 id 都不能用，显示名也不能与别的成员重名；id 若已是持久化成员或非机器人成员，注册被拒、不顶替那条身份。同一个密钥再次连接（例如 cc-connect 重启）会顶掉旧连接：新连接生效，旧连接以 `4003` 关闭——顶的是连接，不是身份或历史。
 
 ## 行为约定
 
@@ -113,7 +113,7 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 
 stop 返回 `{room_id, stopped:true, cancelled_jobs, unconfirmed, stopped_members, output_only, recalled}`。每个 DSH Agent 最多等待 5 秒，超时也清除 thinking，并把未确认退出的成员 id 放进 unconfirmed；这不代表其底层工具已结束。用户取消显示「已停止」，半截回答不触发下一轮接力。continue 返回 `{room_id, resumed, stopped:false}`；重复调用不会再投递或重置预算；停止请求尚在收尾时返回 409。未登录为 401、房间不存在为 404、非 POST 为 405。
 
-cloud_web 没有停止确认协议：这里清显示状态，并按 reply_ctx 的 epoch 屏蔽旧回复/typing/preview。网关为每个已连接 bot 记住每个频道最近下发的 6 条 msg_id（cc-connect 排队上限 5 条加 1 条在跑），停止时逐条发 `{type:'message_recall', msg_id:'hub-<id>', chat_id:'room-N'}`，cc-connect 据此停掉正在跑的那一轮、删掉排队中的消息，然后清空记录；bot 断开时记录也清掉。收到过撤回的 bot 列入 recalled。停止时仍显示工作中的外部 bot 列入 output_only：在 recalled 里的报 requested（已请求停止，bridge 不回确认），不在的报 unsupported（只屏蔽旧输出）。新请求的 chat_id 不变，reply_ctx 变为 `room-N:epoch-E`；客户端须原样回显。预览编辑/删除没有 reply_ctx，按原消息 id 与停止截止点校验。
+cloud_web 没有停止确认协议：这里清显示状态，并按 reply_ctx 的 epoch 屏蔽旧回复/typing/preview。网关为每个已连接 bot 记住每个频道最近下发的 6 条 msg_id（cc-connect 排队上限 5 条加 1 条在跑），停止时逐条发 `{type:'message_recall', msg_id:'hub-<id>', chat_id:'room-N'}`，cc-connect 据此停掉正在跑的那一轮、删掉排队中的消息，然后清空记录；bot 断开时记录也清掉。收到过撤回的 bot 列入 recalled。停止时仍显示工作中的外部 bot 列入 output_only：在 recalled 里的报 requested（已请求停止，bridge 不回确认），不在的报 unsupported（只屏蔽旧输出）。新请求的 chat_id 不变，reply_ctx 变为 `room-N:epoch-E`；客户端须原样回显。预览编辑/删除没有 reply_ctx，按原消息 id 与停止截止点校验。房间名单撤销（或房间转私有后该 bot 不在名单里）走同一套撤回：不再下发新帧，并对该频道最近投递的消息尽力发 `message_recall`；这只是撤回请求，不承诺抹掉对方已经读到或转发出去的内容。
 
 `GET /collab/api/state` 增加 room_controls；SSE 增加 `{type:'room_control',room_id,stopped,epoch,cutoff,relay_after}`。接力上限提示的 card 为 `{type:'relay_limit',room_id}`，供同一 PR 后续前端接继续按钮。暂停状态和接力待续消息持久化，迁移为 SQLite schema 4；回滚到旧代码需同时恢复升级前数据库备份。
 

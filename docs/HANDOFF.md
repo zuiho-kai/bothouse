@@ -2,10 +2,12 @@
 
 2026-10-23 Issue #55/#78 认证文档同步（肥鱼接手，只改文档）：在独立 worktree `bothouse-55-auth-docs-dsh-20261023`（分支 `fix/55-auth-docs-dsh-20261023`，基线 `43bea6c`）按现有实现改 `bridge/docs/cloud-web.md`、`bridge/docs/cloud-web.zh-CN.md`、`dsh/README.md`、`dsh/collab/README.md` 与本文；未改代码、配置、CI、测试，未推送、未合并、未部署。
 
-- 删掉「查询参数 token 认证」和「客户端同时带 Bearer + `X-Cloud-Web-Token` + 查询参数」的旧说法：凭据只走 `Authorization` / `X-Cloud-Web-Token` 请求头，cc-connect 拨号前会把旧 `ws_url` 里的 `?token=` 去掉（`bridge/platform/cloud-web/ws.go` 的 `wsDialURL`），网关也不读查询参数。
-- 凭据改为每机器人专属：`CONEST_COLLAB_BOT_TOKENS=id:secret,id:secret`（overlay 的 `botTokens: { id: secret }` 同义，环境变量优先）。共享的 `CONEST_COLLAB_BOT_TOKEN` 只读：只能经 HTTP 读**公开**房间历史，不能注册 WS 写入连接、读不到私有房间。
-- `?bot=` 明确为一致性检查（与凭据不符即 `4002` 拒绝，`project` 不是身份）；保留名 `owner`/`user`/`system` 与既有 DSH 成员 id 拒绝，显示名不能与别的成员重名；id 已是持久化成员或非机器人成员时注册被拒、不顶替那条身份。
+- 删掉「查询参数 token 认证」和「客户端同时带 Bearer + `X-Cloud-Web-Token` + 查询参数」的旧说法：凭据只走 `Authorization` / `X-Cloud-Web-Token` 请求头，cc-connect 拨号前会把旧 `ws_url` 里的 `?token=` 去掉（`bridge/platform/cloud-web/ws.go` 的 `wsDialURL`）。
+- 通用协议与 collab 专属契约分开写：cloud-web 文档的「认证」只描述 bothouse 怎么送凭据和 `?bot=` 只是声明，明说凭据形态、认不认全队共用 token、每份凭据能读什么都由各 Gateway 自己定；每机器人专属密钥、共享 `CONEST_COLLAB_BOT_TOKENS=id:secret,id:secret`（overlay `botTokens` 同义、环境变量优先）、共享 `CONEST_COLLAB_BOT_TOKEN` 只读（仅经 HTTP 读**公开**房间历史，不能注册 WS 写入、读不到私有房间）全部收进单独的 collab hub 小节。
+- `?bot=` 是**可选**声明：不带时凭据照常认证，带上才与凭据比对、不符即 `4002` 拒绝，`project` 从不参与比对；`name` 不填则沿用已有名字或 id。成员 id 精确格式 `[a-z0-9][a-z0-9_-]{0,31}`（小写，1–32 字符），保留名 `owner`/`user`/`system` 与既有 DSH 成员 id 拒绝，显示名不能与别的成员重名；id 已是持久化成员或非机器人成员时注册被拒、不顶替那条身份。
+- 房间名单撤销只做**尽力撤回**：停止新帧下发，并对最近投递的消息尽力发 `message_recall`（cc-connect 停掉在跑的一轮、丢掉排队的消息），不承诺抹掉对方已经读到或转发出去的内容。
 - 与派工描述的一处差异已报告给父方：**同一个机器人 id 再次在线不是「拒绝」而是顶替**——同凭据新连接生效、旧连接以 `4003` 关闭（`dsh/collab/cloudweb.mjs` 的 `register` 与 `isolation.test.mjs`、`collab.test.mjs` 断言一致），这是 cc-connect 重启后继续收消息的前提。文档按实现写。
+- G哥 2026-10-23 复核提的三点已在第二版修正：`?bot=` 缺省仍可认证（原文写「缺 `?bot=` 谁也不能认证」是错的）、id 精确格式写进正则、通用 Gateway 与 collab 契约分节（不再声称所有 Gateway 都不认 query）；重连顶替旧 socket 的描述保留。
 - 核对方式：逐条读 `dsh/collab/{cloudweb,plugin,identity,hub,store}.mjs`、`bridge/platform/cloud-web/{ws,history,protocol}.go` 和 `dsh/collab/isolation.test.mjs` 的断言；文档改动不跑测试（该 worktree 未安装 dsh 依赖），未新增测试。示例只用占位符。5 个文件均先经 `doc-ok.py` 登记。
 
 2026-10-23：按用户「免审:小改动」授权统一下载入口，直接推 main。Mac 用 lipo 合并 arm64/amd64 为 universal，仅发布 bothouse-mac.dmg（Bothouse.app，卷名 Bothouse）；Windows 仅发布 x64 的 bothouse-windows.exe，Linux 为 bothouse-linux-x64 / bothouse-linux-arm64。安装脚本和 CLI/网页共用的更新器认新名，更新器兼容旧架构文件和历史压缩包，校验失败不回退。发布 workflow 同步构建与 smoke；打包脚本拒绝单架构输入。回归先红后绿，沙箱 Go 全量、CUJ、定向回归、vet、actionlint、shell 语法检查、Linux 安装与坏校验拒绝通过。v0.1.2 资产替换、Mac 实际启动与安装/更新提取的最终证据见 /tmp/rename/result4.md；旧资产的逐字节备份在 /tmp/rename/dist-v0.1.2。单一 Agent 实现并自查。

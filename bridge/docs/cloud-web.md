@@ -40,16 +40,17 @@ Web UI: Project wizard → **Cloud Web (Self-hosted IM)** → fill transport + t
 
 ## Authentication
 
-The credential belongs to the bot, not to the gateway: each bot presents its own token and the gateway derives the caller's identity from it. It travels in headers only:
+bothouse presents one credential per bot, in headers only:
 
 | Method | Example |
 |--------|---------|
 | Header | `Authorization: Bearer <bot-token>` |
 | Header | `X-Cloud-Web-Token: <bot-token>` |
 
-- **No query token.** bothouse does not append `?token=` to the WebSocket handshake URL, and it drops a `token` query parameter that an older `ws_url` still carries before dialing — a credential in a URL ends up in access logs, proxy logs and browser history. Gateways do not read the query string for authentication.
-- **`?bot=` is a consistency check only.** It states which bot is calling. The token alone fixes the identity, so a `?bot=` that disagrees with the presented credential is rejected, and a missing `?bot=` authenticates nobody. The `register` frame's `project` is a project label, never an identity.
-- **A shared token is read-only.** A gateway that also issues one shared token for the whole team must not let it register a writer or read private rooms; the collab hub section below documents the reference behaviour.
+- **No query token.** bothouse does not append `?token=` to the WebSocket handshake URL, and it drops a `token` query parameter that an older `ws_url` still carries before dialing — a credential in a URL ends up in access logs, proxy logs and browser history. The credential reaches your gateway in the two headers above.
+- **`?bot=` is optional and only a claim.** When present it names the bot; bothouse never relies on it to authenticate, and a gateway that derives identity from the token may ignore it or reject a mismatch. The `register` frame's `project` is a project label, never an identity.
+
+Which credentials exist, whether a shared team token is accepted at all, and what each credential may do are properties of your gateway, not of CWIP: a gateway may keep the single shared token this document used to describe, and only your implementation decides what it can read. The CoNest collab hub's own contract (one secret per bot, read-only shared token) is in the section below.
 
 ---
 
@@ -87,21 +88,22 @@ maomao fork: `subtask_table` means the gateway renders the sub-agent table (`__c
 
 ## Bot credentials on the CoNest collab hub
 
-The collab hub (the DSH `conest-collab` plugin, `dsh/collab/`) is the reference gateway for the rules above. It keeps one dedicated secret per bot, so the presented secret — not the URL — decides who is calling.
+The collab hub (the DSH `conest-collab` plugin, `dsh/collab/`) is the reference implementation of these rules. It keeps one dedicated secret per bot, so the presented secret — not the URL — decides who is calling. The rest of this section is this hub's contract, not a requirement of every cloud_web gateway.
 
 | Deploy-time setting | Meaning |
 |---------------------|---------|
 | `CONEST_COLLAB_BOT_TOKENS=id:secret,id:secret` | Dedicated credential per bot (env; the overlay's `botTokens: { id: secret }` map is the config form, env wins). Each `id` is the bot's member id. |
 | `CONEST_COLLAB_BOT_TOKEN` | Optional legacy shared token. Read-only: it may read public room history over HTTP (`GET /api/rooms/{id}/messages`) and nothing else — it cannot register a WebSocket writer and cannot read private rooms. |
-| `ws_url` `?bot=`/`?name=`/`?mention_id=` | `bot` claims the member id (consistency check against the credential); `name` is the display name used for @-mentions; `mention_id` is the bot's numeric `<@id>` on the external platform. |
+| `ws_url` `?bot=`/`?name=`/`?mention_id=` | `bot` is optional and only claims the member id (compared with the credential when present; the credential alone authenticates without it); `name` is the display name used for @-mentions, defaulting to the existing name or the id; `mention_id` is the bot's numeric `<@id>` on the external platform. |
 
 Rules a client must expect on this hub:
 
-- **The secret fixes identity.** No credential, a wrong secret, the shared token, or a `?bot=` that disagrees with the credential makes the handshake fail (`401` at the upgrade, or `register_ack` `{ok:false}` plus close code `4002`).
-- **Reserved identities.** Member ids are lowercase `[a-z0-9_-]`, at most 32 characters, and `owner`, `user`, `system` are refused; a bot id must also differ from every DSH member's id. A display name already used by another member is refused.
+- **The secret fixes identity.** No credential, a wrong secret, or the shared token fails the handshake (`401` at the upgrade, or `register_ack` `{ok:false}` plus close code `4002`).
+- **`?bot=` is optional here.** It is compared with the credential only when present: the same bot may connect without it, a mismatch is refused (`4002`), and `project` is never compared.
+- **Reserved identities.** A member id must match `[a-z0-9][a-z0-9_-]{0,31}` (lowercase, 1–32 characters); `owner`, `user` and `system` are refused, and a bot id must also differ from every DSH member's id. A display name already used by another member is refused.
 - **No takeover of an existing member.** A credential whose id already exists as a persisted member (a human or a DSH member) or as a non-bot runtime member is refused rather than merged into it.
 - **Reconnect replaces the socket.** When the same credential connects again — e.g. after cc-connect restarts — the new socket wins and the old one is closed with code `4003`, so a stale connection cannot keep consuming messages. That replaces the *connection*, not the member's identity or history.
-- **Private rooms stay private.** A bot is told about a room, and may read its history, only when the room's member list includes it; leaving the list also recalls already delivered messages.
+- **Private rooms stay private.** A bot is told about a room, and may read its history, only when the room's member list includes it. Losing access stops further frames and sends a best-effort `message_recall` for the last messages delivered, which cc-connect turns into "stop the running turn / drop the queued one"; that is a recall request, not erasure — anything the bot already read or forwarded is not taken back.
 
 ---
 
@@ -177,7 +179,7 @@ See [Bridge Protocol — bothouse → Adapter](./bridge-protocol.md) for full sc
 | Option | Required | Description |
 |--------|----------|-------------|
 | `transport` | yes | `websocket`, `long_poll`, or `gateway` |
-| `token` | yes | This bot's credential, sent in the headers only (never in the URL). On the collab hub it is the bot's own secret, not a team-wide one |
+| `token` | yes | The credential this bot presents, sent in the headers only (never appended to the URL). With a gateway that issues one secret per bot, such as the collab hub, it is that bot's own secret |
 | `base_url` | mode-dependent | Gateway HTTP base URL |
 | `ws_url` | websocket | Override WebSocket URL |
 | `long_poll_timeout_ms` | no | Default `30000` |
