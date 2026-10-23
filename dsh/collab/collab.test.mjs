@@ -29,7 +29,14 @@ class FakeWs extends EventEmitter {
   of(type) { return this.sent.filter(f => f.type === type); }
 }
 
-function connect(gateway, query, headers = {}) {
+const fixtureTokens = () => new Map(['ju', 'whale', 'a', 'b', 'c', 'cw', 'cx', 'imposter'].map(id => ['test-' + id, id]));
+
+function connect(gateway, query, headers) {
+  if (headers === undefined) {
+    const id = new URLSearchParams(query).get('bot');
+    const token = [...gateway.tokens].find(([, member]) => member === id)?.[0];
+    headers = token ? { authorization: 'Bearer ' + token } : {};
+  }
   const ws = new FakeWs();
   gateway.accept(ws, new URL(`http://x/cloud-web/ws?${query}`), headers);
   ws.frame({ type: 'register', platform: 'cloud_web', client: 'cc-connect', project: 'p', transport: 'ws' });
@@ -77,7 +84,7 @@ test('mentions: own mention removed, others rewritten, fences ignored, bare name
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {
   const hub = makeHub();
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const ju = connect(gw, 'bot=ju&name=橘&mention_id=111');
   const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
   assert.deepEqual(ju.of('register_ack')[0], { type: 'register_ack', ok: true, capabilities: CAPABILITIES, server: { name: 'conest-dsh-collab' } });
@@ -346,7 +353,7 @@ test('stop: durable room fence survives reopen and prevents crash-gap job recove
 
 test('continue: cloud bot relay cap resumes delivery exactly once', async () => {
   const hub = makeHub(); hub.maxRelay = 0;
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const a = connect(gw, 'bot=a&name=Alpha'); const b = connect(gw, 'bot=b&name=Beta');
   a.frame({ type: 'reply', reply_ctx: 'room-1', content: '@Beta next', agent: true });
   await settle(); assert.equal(b.of('message').length, 0);
@@ -419,7 +426,7 @@ test('continue: relay cap resumes one delivery, without duplicate history or rep
 });
 
 test('cloud-web: the fence drops stale context, not everything while stopped', async () => {
-  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
   ask(hub, '@Bot first'); await settle();
   const before = bot.of('message').at(-1).reply_ctx;
@@ -433,7 +440,7 @@ test('cloud-web: the fence drops stale context, not everything while stopped', a
   assert.equal(hub.thinking.get(1)?.size ?? 0, 0);
   // A message carrying the room's current context is not output of the stopped turn: it lands
   // even though the room is still stopped, so a stop cannot silently eat what comes next.
-  const current = gw.replyContext(1);
+  const current = gw.replyContext(1, 'b');
   assert.notEqual(current, before, 'the stop moved the room to a new epoch');
   bot.frame({ type: 'reply', reply_ctx: current, content: '主动发的提醒' });
   await settle();
@@ -441,7 +448,7 @@ test('cloud-web: the fence drops stale context, not everything while stopped', a
 });
 
 test('cloud-web: a stop does not swallow what the bot posts on its own', async () => {
-  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
   ask(hub, '@Bot first'); await settle();
   const before = bot.of('message').at(-1).reply_ctx;
@@ -463,7 +470,7 @@ test('cloud-web: a stop does not swallow what the bot posts on its own', async (
 });
 
 test('cloud-web: stop fences old replies, typing and previews through continue', async () => {
-  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
   bot.frame({ type: 'preview_start', ref_id: 'old', reply_ctx: 'room-1', content: 'old preview' });
   const handle = bot.of('preview_ack').at(-1).preview_handle;
@@ -500,7 +507,7 @@ test('room action HTTP: stop reports one outcome per member, and says when it ca
   const hub = makeHub(); const dsh = fakeDsh();
   const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
   // A cloud-web bot is streaming output in the same room: it has no cancel protocol.
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const server = createServer((req, res) => { roomActionRoute(req, res, {
     owner: r => r.headers.authorization === 'test', dsh: members, gateway: gw,
   }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(() => { res.writeHead(500); res.end(); }); });
@@ -510,7 +517,7 @@ test('room action HTTP: stop reports one outcome per member, and says when it ca
   const posting = (body, auth = 'test') => fetch(url, { method: 'POST', headers: { authorization: auth }, body: JSON.stringify(body ?? {}) });
   // A connected cloud-web bot that is streaming output right now.
   const cw = connect(gw, 'bot=cw&name=CW');
-  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1, 'cw') });
   await settle();
   const res = await posting({});
   assert.equal(res.status, 200);
@@ -615,7 +622,7 @@ test('DSH member: a reply that @s a cloud-web bot is forwarded to it', async () 
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const ju = connect(gw, 'bot=ju&name=橘');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 让橘去跑测试' });
   await settle();
@@ -693,12 +700,13 @@ test('DSH member: the prompt always contains the trigger, however much is unread
 });
 
 /** Seed one sent job whose Session lives in `dsh`; returns the job and agent. */
-async function sentJob(hub, dsh, sessionId, text) {
+async function sentJob(hub, dsh, sessionId, text, member = 'ds') {
   const agent = (await dsh.ctx.agents.create({ sessionId })).agent;
   const t = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text }).message;
-  const job = hub.store.addJob('ds', 1, t.id);
+  const job = hub.store.addJob(member, 1, t.id);
+  hub.store.bind(member, 1, sessionId, '/w/' + member + '/room-1', job.access_stamp);
   const input = { id: `input-${sessionId}`, role: 'user', content: [{ type: 'text', text }] };
-  hub.store.markSent(job.id, sessionId, agent.session.seq, input.id);
+  hub.store.markSent(job.id, sessionId, agent.session.seq, input.id, '/w/' + member + '/room-1');
   agent.followup(input);
   return { job, agent, input };
 }
@@ -706,17 +714,17 @@ async function sentJob(hub, dsh, sessionId, text) {
 test('DSH member recovery: settles from the consuming turn, withdraws unconsumed input, never re-sends', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
-  const done = await sentJob(hub, dsh, 's-done', '@DeepSeek a');
+  const done = await sentJob(hub, dsh, 's-done', '@DeepSeek a', 'done');
   dsh.turn(done.agent, ['已完成的回答']);
   // A later Web UI turn in the same Session must not be picked up.
   dsh.turn(done.agent, ['后来网页里的私聊'], { kind: 'completed' }, { id: 'web-2', role: 'user', content: [] });
-  const cut = await sentJob(hub, dsh, 's-cut', '@DeepSeek b');
+  const cut = await sentJob(hub, dsh, 's-cut', '@DeepSeek b', 'cut');
   dsh.turn(cut.agent, ['写到一半'], { kind: 'interrupted' });
-  const queued = await sentJob(hub, dsh, 's-queued', '@DeepSeek c');
+  const queued = await sentJob(hub, dsh, 's-queued', '@DeepSeek c', 'queued');
   const legacy = hub.store.addJob('ds', 1, hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek d' }).message.id);
   hub.store.markSent(legacy.id, 's-legacy', 0, null);
 
-  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const members = dsh.attach(hub, ['done', 'cut', 'queued', 'ds'].map(id => ({ id, name: id })));
   members.recover();
   await settle();
   const texts = hub.store.page(1, undefined, 20).map(m => `${m.author_kind}:${m.text}`);
@@ -742,7 +750,8 @@ test('DSH member recovery: shares the per-member queue with new mentions', async
   members.recover();
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 新' });
   await settle();
-  assert.equal(dsh.ctx.agents.maxActive, 1, 'recovery and the new job never resume the Session concurrently');
+  assert.equal(dsh.ctx.agents.resumes, 0, 'unloaded Session with uncertain inbox is never resumed');
+  assert.equal(hub.store.sessionFenced('s-bound'), true);
   assert.equal(hub.store.job(job.id).state, 'interrupted');
   assert.equal(hub.store.openJobs().length, 1, 'the new job is admitted after recovery');
 });
@@ -760,8 +769,7 @@ test('DSH member: close drains waiting jobs before the store closes', async () =
   await closing;
   hub.store.close();
   await settle();
-  assert.equal(dsh.made.length, 1, 'the in-flight create finished but admitted nothing after close');
-  assert.equal(dsh.sessions.get(dsh.made[0]).prompts.length, 0);
+  assert.equal(dsh.made.length, 0, 'close during workspace await prevents Agent creation');
 });
 
 test('relay cap: agent-to-agent mentions stop starting DSH turns until a human speaks', async () => {
@@ -944,7 +952,7 @@ test('prompt states the member identity, model and persona', () => {
 test('cloud-web: a bot may not take a name another member already uses', () => {
   const hub = makeHub();
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const ws = connect(gw, 'bot=imposter&name=DeepSeek');
   assert.equal(ws.of('register_ack')[0].ok, false);
   assert.equal(ws.closed.code, 4002);
@@ -968,7 +976,7 @@ test('stop: an unloaded agent reports not running instead of claiming it is not 
 });
 
 test('cloud-web: a reply from the stopped turn epoch is dropped even without the agent mark', async () => {
-  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
   ask(hub, '@Bot first'); await settle();
   const before = bot.of('message').at(-1).reply_ctx;
@@ -1080,12 +1088,9 @@ test('cloud-web: the shared token reaches no private room, for reading or writin
   const hub = makePrivateHub();
   const gw = new CloudWebGateway(hub, { token: 'shared', logger: quiet });
   const shared = connect(gw, 'bot=gge&name=Gge', { authorization: 'Bearer shared' });
-  assert.equal(shared.sent.at(-1).ok, true, 'the shared token still connects (compatibility)');
-  assert.equal(gw.mayAccess(gw.bots.get('gge'), 2), false, 'but private rooms are closed to it');
-  assert.equal(gw.mayAccess(gw.bots.get('gge'), 1), true, 'public rooms stay usable');
-  const before = hub.store.page(2, undefined, 50).length;
-  await gw.fromBot(gw.bots.get('gge'), { type: 'reply', content: 'nope', reply_ctx: 'room-2' });
-  assert.equal(hub.store.page(2, undefined, 50).length, before);
+  assert.equal(shared.sent.at(-1).ok, false, 'shared credentials cannot register a writer');
+  assert.equal(gw.bots.size, 0);
+  assert.equal(gw.identify({ authorization: 'Bearer shared' }).shared, true, 'shared credentials remain available for public HTTP history');
 });
 
 test('cloud-web: one bot cannot edit or delete another bot message', async () => {
@@ -1115,20 +1120,20 @@ test('dsh-member: each member Session is created in its own directory', async ()
   await settle();
   assert.equal(made.length >= 2, true, `expected two workspaces, saw ${JSON.stringify(made)}`);
   assert.equal(new Set(made).size, made.length, `no two members may share a directory: ${JSON.stringify(made)}`);
-  for (const path of made) assert.match(path, /\/(ju|gge)$/);
+  for (const path of made) assert.match(path, /\/(ju|gge)\/room-1$/);
 });
 
 test('dsh-member: workspace names are refused, never rewritten, when they are not slugs', () => {
   const store = new Store(':memory:');
   const dsh = new DshMembers(makeHubFrom(store), { ctx: {}, createUserMessage: () => {}, workspacePath: '/tmp/ws-root', logger: quiet }, [], {});
-  assert.equal(dsh.workspaceFor({ id: 'ju' }), '/tmp/ws-root/ju');
+  assert.equal(dsh.workspaceFor({ id: 'ju' }, 1), '/tmp/ws-root/ju/room-1');
   for (const bad of ['../etc', 'a/b', '/abs', '', 'A', 'x'.repeat(33), 'a.b']) {
-    assert.throws(() => dsh.workspaceFor({ id: bad }), /workspace|member id/, `refused: ${JSON.stringify(bad)}`);
+    assert.throws(() => dsh.workspaceFor({ id: bad }, 1), /workspace|member id/, `refused: ${JSON.stringify(bad)}`);
   }
 });
 
 test('cloud-web: stop recalls the latest message ids sent to each bot, then forgets them', async () => {
-  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const bot = connect(gw, 'bot=b&name=Bot');
   const other = connect(gw, 'bot=c&name=Cee');
   for (let i = 0; i < 8; i++) ask(hub, `@Bot m${i}`);
@@ -1162,7 +1167,7 @@ test('room action HTTP: a thinking bot that got a recall is requested, one witho
   const { createServer } = await import('node:http');
   const hub = makeHub(); const dsh = fakeDsh();
   const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const gw = new CloudWebGateway(hub, { token: 't', tokens: fixtureTokens(), logger: quiet });
   const server = createServer((req, res) => { roomActionRoute(req, res, {
     owner: r => r.headers.authorization === 'test', dsh: members, gateway: gw,
   }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(() => { res.writeHead(500); res.end(); }); });
@@ -1173,8 +1178,8 @@ test('room action HTTP: a thinking bot that got a recall is requested, one witho
   const delivered = cw.of('message').at(-1).msg_id;
   // cx connects after the message went out: it is thinking, but nothing was delivered to recall.
   const cx = connect(gw, 'bot=cx&name=CX');
-  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
-  cx.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1, 'cw') });
+  cx.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1, 'cx') });
   await settle();
   const res = await fetch('http://127.0.0.1:' + server.address().port + '/collab/api/rooms/1/stop',
     { method: 'POST', headers: { authorization: 'test' }, body: '{}' });

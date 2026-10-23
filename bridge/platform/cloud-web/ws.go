@@ -114,16 +114,9 @@ func (t *wsTransport) connectLoop(ctx context.Context) {
 }
 
 func (t *wsTransport) connectOnce(ctx context.Context) error {
-	u, err := url.Parse(t.wsURL)
+	u, err := wsDialURL(t.wsURL)
 	if err != nil {
 		return fmt.Errorf("parse ws url: %w", err)
-	}
-	if t.token != "" {
-		q := u.Query()
-		if q.Get("token") == "" {
-			q.Set("token", t.token)
-			u.RawQuery = q.Encode()
-		}
 	}
 
 	header := http.Header{}
@@ -174,7 +167,7 @@ func (t *wsTransport) connectOnce(ctx context.Context) error {
 	t.conn = conn
 	t.mu.Unlock()
 
-	slog.Info("cloud_web: websocket connected", "url", t.wsURL)
+	slog.Info("cloud_web: websocket connected", "url", u.String())
 
 	connected := true
 	defer func() {
@@ -278,6 +271,30 @@ func (t *wsTransport) Send(ctx context.Context, msg map[string]any) error {
 
 func (t *wsTransport) expectPreviewAck(refID string) func(time.Duration) (string, error) {
 	return expectAck(&t.previewMu, t.previewRequests, refID)
+}
+
+// wsDialURL returns the URL to dial with any credential removed from its query
+// string. The bot token is presented in the Authorization and
+// X-Cloud-Web-Token headers only: a token in the URL ends up in access logs,
+// proxy logs and browser history, so an older ws_url carrying ?token= must not
+// keep it there. Non-sensitive parameters such as ?bot= and ?name= are kept.
+func wsDialURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		// url.Parse errors include the input URL, which may contain a token.
+		return nil, fmt.Errorf("invalid ws url")
+	}
+	// URL.Query silently drops malformed fields. Reject them instead of
+	// allowing an unparsed token to survive in RawQuery and reach the dialer.
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ws url query")
+	}
+	if q.Has("token") {
+		q.Del("token")
+		u.RawQuery = q.Encode()
+	}
+	return u, nil
 }
 
 func resolveWSURL(baseURL, wsURL string) string {

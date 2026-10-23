@@ -5,6 +5,7 @@
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { MAX_TEXT, publicMessage } from './store.mjs';
+import { memberId, validateCredentials } from './identity.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
 // Declared to cc-connect. Buttons/cards are not declared, so cc-connect
@@ -20,7 +21,6 @@ const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
 const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败' };
-const RESERVED_IDS = new Set(['user', 'system']);
 // Messages a bot may still be running or queueing per room, recalled on stop.
 // 来源：沿用 bridge/core/engine.go defaultMaxQueuedMessages = 5，加 1 条在跑
 export const MAX_RECALLABLE = 6;
@@ -34,7 +34,7 @@ export function roomOf(frame, store) {
   const candidates = [frame.reply_ctx, typeof sk === 'string' && sk.includes(':') ? sk.split(':')[1] : undefined];
   for (let raw of candidates) {
     if (typeof raw !== 'string') continue;
-    if (raw.startsWith('room-')) raw = raw.slice(5).replace(/:epoch-[0-9]+$/, '');
+    if (raw.startsWith('room-')) raw = raw.slice(5).replace(/(?::epoch-[0-9]+)?(?::acl-[0-9]+-[0-9]+)?$/, '');
     if (/^\d+$/.test(raw) && store.room(Number(raw)) !== undefined) return Number(raw);
   }
   return undefined;
@@ -66,18 +66,25 @@ export class CloudWebGateway {
    * @param hub - Hub instance.
    * @param options - { token: legacy shared bot token, tokens: Map<token, memberId>, logger }.
    *   `tokens` gives each bot its own credential, so a presented token identifies the bot.
-   *   `token` alone keeps the old behaviour and cannot tell bots apart (shared mode).
+   *   The legacy shared token only reads public HTTP history; it cannot register a writer.
    */
   constructor(hub, { token, tokens, logger }) {
     this.hub = hub;
     this.token = token;
     this.tokens = tokens ?? new Map();
+    validateCredentials(this.tokens, token, new Set([...hub.store.members().map(m => m.id), ...hub.routable().filter(m => m.kind === 'dsh').map(m => m.id)]));
+    hub.reservedBotIds = new Set(this.tokens.values());
+    hub.store.reservedBotIds = hub.reservedBotIds;
     this.logger = logger;
     /** member id -> { ws, member } */
     this.bots = new Map();
     /** member id -> (room id -> newest msg_ids sent to that bot, oldest first, at most MAX_RECALLABLE) */
     this.delivered = new Map();
-    hub.onMessage(message => this.onNew(message));
+    hub.onPlan(message => {
+      const grants = new Map([...this.bots.values()].filter(bot => this.mayAccess(bot, message.room_id))
+        .map(bot => [bot.member.id, this.hub.store.accessStamp(bot.member.id, message.room_id)]));
+      return () => this.onNew(message, grants);
+    });
   }
 
   /**
@@ -101,12 +108,8 @@ export class CloudWebGateway {
     return this.identify(req.headers) !== undefined;
   }
 
-  /**
-   * A shared credential does not say which bot is speaking, so such a connection is
-   * confined to public rooms: it can neither read nor write a private thread.
-   */
+  /** WebSocket writers always carry a dedicated credential. */
   mayAccess(bot, roomId) {
-    if (bot.shared) return this.hub.store.visibility(roomId) === 'public';
     return this.hub.store.canAccess(bot.member.id, roomId);
   }
 
@@ -142,21 +145,28 @@ export class CloudWebGateway {
   }
 
   register(ws, url, frame, credential) {
-    const project = typeof frame.project === 'string' ? frame.project : '';
+    if (!credential || credential.shared) {
+      send(ws, { type: 'register_ack', ok: false, error: 'dedicated credential required' });
+      ws.close(WS_BAD_REGISTER, 'unauthorized');
+      return undefined;
+    }
     // Only ?bot= is an identity claim. `project` is a cc-connect project name and says
     // nothing about which bot is calling, so it must not be compared with a credential.
-    const claimedParam = clean(url.searchParams.get('bot') ?? '').slice(0, MAX_NAME);
-    // With a per-bot credential the token decides who this is; the URL may only agree.
-    // In shared mode there is no identity in the credential, so the URL claim is all we have.
-    const shared = credential?.shared !== false;
-    if (!shared && claimedParam !== '' && claimedParam !== credential.memberId) {
-      send(ws, { type: 'register_ack', ok: false, error: `credential is for ${credential.memberId}, not ${claimedParam}` });
+    const claimedParam = url.searchParams.get('bot') ?? '';
+    // The token fixes identity; project is only a project label and the URL may only agree.
+    if (claimedParam !== '' && claimedParam !== credential.memberId) {
+      send(ws, { type: 'register_ack', ok: false, error: 'credential mismatch' });
       ws.close(WS_BAD_REGISTER, 'credential mismatch');
       return undefined;
     }
-    const id = shared ? (claimedParam || clean(project).slice(0, MAX_NAME)) : credential.memberId;
+    const id = credential.memberId;
+    try { memberId(id); } catch {
+      send(ws, { type: 'register_ack', ok: false, error: 'bad register' });
+      ws.close(WS_BAD_REGISTER, 'bad register');
+      return undefined;
+    }
     const existing = this.hub.members.get(id);
-    if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || (existing !== undefined && existing.kind !== 'bot')) {
+    if (frame.type !== 'register' || !id || this.hub.store.member(id) !== undefined || (existing !== undefined && existing.kind !== 'bot')) {
       send(ws, { type: 'register_ack', ok: false, error: 'bad register' });
       ws.close(WS_BAD_REGISTER, 'bad register');
       return undefined;
@@ -170,17 +180,10 @@ export class CloudWebGateway {
     }
     const mentionId = url.searchParams.get('mention_id') ?? '';
     const member = { id, name, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true };
-    const bot = { ws, member, shared };
+    const bot = { ws, member, contexts: new Map(this.hub.store.rooms().map(r => [r.id, this.replyContext(r.id, id)])) };
     const old = this.bots.get(id);
-    // A second connection may only displace its own predecessor, never a different bot's.
-    if (old !== undefined && old.shared !== bot.shared) {
-      send(ws, { type: 'register_ack', ok: false, error: `member ${id} is connected with a different credential` });
-      ws.close(WS_BAD_REGISTER, 'credential conflict');
-      return undefined;
-    }
     this.bots.set(id, bot);
     if (old !== undefined) old.ws.close(WS_REPLACED, 'replaced by new connection');
-    if (shared) this.logger.warn('collab: %s registered with the shared bot token; identity is unverified and private rooms are closed to it', id);
     send(ws, { type: 'register_ack', ok: true, capabilities: CAPABILITIES, server: { name: 'conest-dsh-collab' } });
     this.hub.setMember(member);
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
@@ -189,7 +192,7 @@ export class CloudWebGateway {
   }
 
   /** Forward one new channel message to every connected bot except its author. */
-  onNew(msg) {
+  onNew(msg, grants) {
     if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0 || !this.hub.canDispatch(msg)) return;
     const fromAgent = msg.author_kind === 'role';
     let text = msg.text;
@@ -207,6 +210,7 @@ export class CloudWebGateway {
       if (fromAgent && msg.author === member.id) continue;
       // A bot that may not read this room never hears about it: no frame, no metadata leak.
       if (!this.mayAccess(bot, msg.room_id)) continue;
+      if (grants && grants.get(member.id) !== this.hub.store.accessStamp(member.id, msg.room_id)) continue;
       let content = forMember(text, member, members);
       const hit = mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
       if (fromAgent && !content) continue;
@@ -214,12 +218,13 @@ export class CloudWebGateway {
       else if (hit && !content) content = BARE_MENTION;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content, reply_ctx: this.replyContext(msg.room_id),
+        user_id: msg.author, user_name: msg.name, content, reply_ctx: this.replyContext(msg.room_id, member.id),
         mentioned: hit, from_bot: fromAgent,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
       send(ws, frame);
+      bot.contexts.set(msg.room_id, frame.reply_ctx);
       this.remember(member.id, msg.room_id, frame.msg_id);
     }
   }
@@ -236,41 +241,22 @@ export class CloudWebGateway {
 
   async fromBot(bot, d) {
     const { member } = bot;
-    // No cancel acknowledgement exists in CWIP. Fence old output using the
-    // opaque reply_ctx cc-connect echoes, even after the room continues.
+    const mutations = ['reply', 'typing_start', 'typing_stop', 'preview_start', 'update_message', 'delete_message'];
+    if (!mutations.includes(d.type)) { if (d.type === 'ping') send(bot.ws, { type: 'pong' }); return; }
     const room = roomOf(d, this.hub.store);
-    // Writing needs the same membership as reading: a bot may not post, type or open a
-    // preview in a private thread it is not listed in. Drop silently towards the channel,
-    // but keep preview_ack so cc-connect does not wait out its 10 s timeout.
-    if (room !== undefined && !this.mayAccess(bot, room)) {
-      if (d.type === 'preview_start' && typeof d.ref_id === 'string') {
-        send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: '' });
-      }
-      this.logger.warn('collab: %s dropped %s for room %d (not a member)', member.id, d.type, room);
-      return;
-    }
-    // Preview edits carry a handle, not reply_ctx; validate the stored row below.
-    if (room !== undefined && d.type !== 'update_message' && d.type !== 'delete_message') {
+    // Handle mutations use the stored room/author, never a caller-supplied reply_ctx.
+    if (d.type !== 'update_message' && d.type !== 'delete_message') {
+      if (room === undefined || !this.mayAccess(bot, room)) return this.forbidden(bot, d);
       const c = this.hub.store.control(room);
-      // Only turn output can be late: the bridge marks it with agent:true. A message the bot
-      // starts on its own (a timer, a proactive notice) carries no such mark and is not the
-      // stopped turn's leftovers, so it must reach history instead of being silently eaten.
-      // Turn output is fenced by reply_ctx epoch; typing and previews stay fenced by `stopped`
-      // because they describe a turn that is no longer running.
-      const current = this.replyContext(room);
-      // A reply without the agent mark is proactive, but a missing mark must not waive the epoch:
-      // an old reply_ctx proves it came from the stopped turn, so it is dropped like marked output.
-      // Only a reply with no reply_ctx at all, or one already on the current epoch, gets through.
+      const current = this.replyContext(room, member.id);
+      const stamp = this.hub.store.accessStamp(member.id, room);
+      // Once policy has changed, no legacy/missing context can prove fresh authorization.
+      if (stamp !== '0:0' && d.reply_ctx !== current) return this.forbidden(bot, d);
       const proactive = d.type === 'reply' && d.agent !== true;
       const stale = proactive
         ? d.reply_ctx !== undefined && c.epoch > 0 && d.reply_ctx !== current
         : c.stopped === 1 || (c.epoch > 0 && d.reply_ctx !== current);
-      if (stale) {
-        if (d.type === 'preview_start' && typeof d.ref_id === 'string') {
-          send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: '' });
-        }
-        return;
-      }
+      if (stale) return this.forbidden(bot, d);
     }
     switch (d.type) {
       case 'ping': send(bot.ws, { type: 'pong' }); return;
@@ -296,8 +282,9 @@ export class CloudWebGateway {
         if (room !== undefined && body.text) {
           const { message } = this.hub.store.append(room, {
             authorKind: 'role', author: member.id, name: member.name, text: body.text, card: body.card,
-            clientKey: `preview:${member.id}:${d.ref_id}`,
+            clientKey: `preview:${member.id}:${this.replyContext(room, member.id)}:${d.ref_id}`,
           });
+          this.hub.store.stampMessage(message.id, this.messageStamp(member.id, room));
           this.hub.emit({ type: 'message', message: publicMessage(message) });
           handle = String(message.id);
         }
@@ -308,15 +295,12 @@ export class CloudWebGateway {
       case 'update_message':
       case 'delete_message': {
         const h = d.preview_handle;
-        if (typeof h !== 'string' || !/^\d+$/.test(h)) return;
+        if (typeof h !== 'string' || !/^\d+$/.test(h)) return this.forbidden(bot, d);
         const message = this.hub.store.message(Number(h));
-        if (message !== undefined && !this.hub.canDispatch(message)) return;
-        // The store only lets an author touch its own row; membership still has to hold,
-        // or a bot removed from a private thread could keep editing its old messages there.
-        if (message !== undefined && !this.mayAccess(bot, message.room_id)) {
-          this.logger.warn('collab: %s dropped %s for room %d (not a member)', member.id, d.type, message.room_id);
-          return;
-        }
+        if (!message || message.author_kind !== 'role' || message.author !== member.id
+          || !this.mayAccess(bot, message.room_id)
+          || message.access_stamp !== this.messageStamp(member.id, message.room_id)
+          || !this.hub.canDispatch(message)) return this.forbidden(bot, d);
         if (d.type === 'delete_message') { this.hub.remove(Number(h), 'role', member.id); return; }
         const body = this.body(d.content);
         if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
@@ -326,9 +310,31 @@ export class CloudWebGateway {
     }
   }
 
-  replyContext(roomId) {
+  forbidden(bot, frame) {
+    send(bot.ws, { type: 'error', code: 'forbidden', error: 'forbidden', ...(typeof frame.ref_id === 'string' ? { ref_id: frame.ref_id } : {}) });
+    if (frame.type === 'preview_start' && typeof frame.ref_id === 'string') send(bot.ws, { type: 'preview_ack', ref_id: frame.ref_id, preview_handle: '' });
+  }
+
+  messageStamp(memberId, roomId) {
+    return `${this.hub.store.accessStamp(memberId, roomId)}/${this.hub.store.control(roomId).epoch}`;
+  }
+
+  replyContext(roomId, memberId) {
     const epoch = this.hub.store.control(roomId).epoch;
-    return roomKey(roomId) + (epoch ? `:epoch-${epoch}` : '');
+    const stamp = this.hub.store.accessStamp(memberId, roomId);
+    return roomKey(roomId) + (epoch ? `:epoch-${epoch}` : '') + (stamp !== '0:0' ? `:acl-${stamp.replace(':', '-')}` : '');
+  }
+
+  reconcileRoom(roomId) {
+    for (const bot of this.bots.values()) {
+      const ids = this.delivered.get(bot.member.id)?.get(roomId);
+      if (!this.mayAccess(bot, roomId) || bot.contexts.get(roomId) !== this.replyContext(roomId, bot.member.id)) {
+        for (const id of ids ?? []) send(bot.ws, { type: 'message_recall', msg_id: id, chat_id: roomKey(roomId) });
+        this.delivered.get(bot.member.id)?.delete(roomId);
+        this.hub.setThinking(roomId, bot.member.id, false);
+      }
+      bot.contexts.set(roomId, this.replyContext(roomId, bot.member.id));
+    }
   }
 
   /**

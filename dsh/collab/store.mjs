@@ -4,6 +4,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { memberId as validateMemberId } from './identity.mjs';
 
 export const MAX_TEXT = 128 * 1024;
 // The human owner's member id. Written once here so the access predicate and the plugin
@@ -31,18 +32,18 @@ export class Store {
       blocked: this.db.prepare('SELECT message_id FROM relay_blocked WHERE room_id = ? ORDER BY message_id'),
       clearBlocked: this.db.prepare('DELETE FROM relay_blocked WHERE room_id = ?'),
       latest: this.db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE room_id = ?'),
-      room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
-      rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
+      room: this.db.prepare('SELECT id, name, visibility FROM rooms WHERE id = ?'),
+      rooms: this.db.prepare('SELECT id, name, visibility FROM rooms ORDER BY id'),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
       visibility: this.db.prepare('SELECT visibility FROM rooms WHERE id = ?'),
       setVisibility: this.db.prepare('UPDATE rooms SET visibility = ? WHERE id = ?'),
       isRoomMember: this.db.prepare('SELECT 1 AS ok FROM room_members WHERE room_id = ? AND member_id = ?'),
-      roomMembers: this.db.prepare('SELECT member_id, role FROM room_members WHERE room_id = ? ORDER BY added_at'),
+      roomMembers: this.db.prepare('SELECT member_id, role, added_at FROM room_members WHERE room_id = ? ORDER BY added_at, member_id'),
       addRoomMember: this.db.prepare(`INSERT INTO room_members (room_id, member_id, role, added_at)
         VALUES (?, ?, ?, ?) ON CONFLICT(room_id, member_id) DO UPDATE SET role = excluded.role`),
       removeRoomMember: this.db.prepare('DELETE FROM room_members WHERE room_id = ? AND member_id = ?'),
       // Public rooms plus the private ones this member is listed in; the owner enumerates all instead.
-      roomsFor: this.db.prepare(`SELECT r.id, r.name FROM rooms r
+      roomsFor: this.db.prepare(`SELECT r.id, r.name, r.visibility FROM rooms r
         LEFT JOIN room_members m ON m.room_id = r.id AND m.member_id = ?
         WHERE r.visibility = 'public' OR m.member_id IS NOT NULL ORDER BY r.id`),
       insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key)
@@ -56,16 +57,18 @@ export class Store {
       relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role'
         AND id > MAX(COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0),
           COALESCE((SELECT relay_after FROM room_controls WHERE room_id = ?), 0))`),
-      binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
-      bind: this.db.prepare('INSERT INTO bindings (member_id, room_id, session_id, context_cursor) VALUES (?, ?, ?, 0)'),
+      binding: this.db.prepare('SELECT session_id, context_cursor, workspace_path, access_stamp FROM bindings WHERE member_id = ? AND room_id = ?'),
+      bind: this.db.prepare(`INSERT INTO bindings (member_id, room_id, session_id, context_cursor, workspace_path, access_stamp)
+        VALUES (?, ?, ?, 0, ?, ?) ON CONFLICT(member_id, room_id) DO UPDATE SET session_id=excluded.session_id,
+        context_cursor=0, workspace_path=excluded.workspace_path, access_stamp=excluded.access_stamp`),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
-      addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at)
-        VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
+      addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at, access_stamp)
+        VALUES (?, ?, ?, 'pending', ?, ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
       job: this.db.prepare('SELECT * FROM jobs WHERE id = ?'),
       openJobs: this.db.prepare("SELECT * FROM jobs WHERE state IN ('pending', 'sent') ORDER BY id"),
-      sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ? WHERE id = ? AND state = 'pending' RETURNING *"),
+      sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ?, workspace_path = ? WHERE id = ? AND state = 'pending' RETURNING *"),
       finish: this.db.prepare("UPDATE jobs SET state = ?, reply_id = ? WHERE id = ? AND state IN ('pending', 'sent') RETURNING *"),
-      createRoom: this.db.prepare('INSERT INTO rooms (name) VALUES (?) RETURNING id, name'),
+      createRoom: this.db.prepare('INSERT INTO rooms (name) VALUES (?) RETURNING id, name, visibility'),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
       seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, persona, source, created_at, removed)
@@ -135,6 +138,17 @@ export class Store {
       added_at REAL NOT NULL,
       PRIMARY KEY (room_id, member_id));
       CREATE INDEX IF NOT EXISTS room_members_member ON room_members (member_id)`);
+    // 来源：#56 retains v6, including databases already stamped v6 with missing columns.
+    for (const table of ['bindings', 'jobs']) {
+      if (!this.hasColumn(table, 'workspace_path')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN workspace_path TEXT`);
+      if (!this.hasColumn(table, 'access_stamp')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN access_stamp TEXT`);
+    }
+    if (!this.hasColumn('rooms', 'access_epoch')) this.db.exec('ALTER TABLE rooms ADD COLUMN access_epoch INTEGER NOT NULL DEFAULT 0');
+    if (!this.hasColumn('messages', 'access_stamp')) this.db.exec('ALTER TABLE messages ADD COLUMN access_stamp TEXT');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS room_grants (
+      room_id INTEGER NOT NULL REFERENCES rooms(id), member_id TEXT NOT NULL, epoch INTEGER NOT NULL,
+      PRIMARY KEY (room_id, member_id));
+      CREATE TABLE IF NOT EXISTS session_fences (session_id TEXT PRIMARY KEY, reason TEXT NOT NULL)`);
   }
 
   createV1() {
@@ -197,9 +211,9 @@ export class Store {
    */
   canAccess(memberId, roomId) {
     if (typeof memberId !== 'string' || memberId === '') return false;
-    if (memberId === OWNER_ID) return true;
     const room = this.q.visibility.get(roomId);
     if (room === undefined) return false;
+    if (memberId === OWNER_ID) return true;
     if (room.visibility === 'public') return true;
     return this.q.isRoomMember.get(roomId, memberId) !== undefined;
   }
@@ -211,21 +225,52 @@ export class Store {
   }
 
   visibility(roomId) { return this.q.visibility.get(roomId)?.visibility; }
-  setVisibility(roomId, visibility) { this.q.setVisibility.run(visibility, roomId); }
+  setVisibility(roomId, visibility) {
+    this.db.prepare('UPDATE rooms SET visibility = ?, access_epoch = access_epoch + 1 WHERE id = ? AND visibility != ?').run(visibility, roomId, visibility);
+  }
   roomMembers(roomId) { return this.q.roomMembers.all(roomId); }
   addRoomMember(roomId, memberId, role = 'member', now = Date.now() / 1000) {
+    if (memberId !== OWNER_ID) validateMemberId(memberId);
+    if (role !== 'member' && !(role === 'owner' && memberId === OWNER_ID)) throw new CollabError('invalid', 'invalid room role');
+    if (!this.q.isRoomMember.get(roomId, memberId)) this.bumpGrant(roomId, memberId);
     this.q.addRoomMember.run(roomId, memberId, role, now);
   }
-  removeRoomMember(roomId, memberId) { this.q.removeRoomMember.run(roomId, memberId); }
+  removeRoomMember(roomId, memberId) {
+    if (memberId === OWNER_ID) throw new CollabError('invalid', 'owner cannot be removed');
+    this.bumpGrant(roomId, memberId);
+    this.q.removeRoomMember.run(roomId, memberId);
+  }
+
+  /** Persistent generations invalidate old jobs/contexts even after reauthorization. */
+  accessStamp(member, room) {
+    const policy = this.db.prepare('SELECT access_epoch FROM rooms WHERE id = ?').get(room);
+    const grant = this.db.prepare('SELECT epoch FROM room_grants WHERE room_id = ? AND member_id = ?').get(room, member);
+    return `${policy?.access_epoch ?? 0}:${grant?.epoch ?? 0}`;
+  }
+  bumpGrant(room, member) {
+    this.db.prepare(`INSERT INTO room_grants (room_id, member_id, epoch) VALUES (?, ?, 1)
+      ON CONFLICT(room_id, member_id) DO UPDATE SET epoch=epoch+1`).run(room, member);
+  }
+  fenceSession(session, reason) {
+    if (session) this.db.prepare('INSERT OR IGNORE INTO session_fences (session_id, reason) VALUES (?, ?)').run(session, reason);
+  }
+  sessionFenced(session) { return this.db.prepare('SELECT 1 FROM session_fences WHERE session_id = ?').get(session) !== undefined; }
+  stampMessage(id, stamp) { this.db.prepare('UPDATE messages SET access_stamp = ? WHERE id = ?').run(stamp, id); }
+  validateDshId(id) {
+    validateMemberId(id);
+    if (this.reservedBotIds?.has(id)) throw new CollabError('invalid', 'bot identity collision');
+  }
 
   /** Active DSH members, config seeds and UI-created alike. */
   members() { return this.q.members.all(); }
   member(id) { return this.q.member.get(id); }
   /** Upsert a config member; config always wins for its own ids. */
   seedMember(m, now = Date.now() / 1000) {
+    this.validateDshId(m.id);
     this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.persona ?? '', now);
   }
   addMember(m, now = Date.now() / 1000) {
+    this.validateDshId(m.id);
     return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.persona ?? '', now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
@@ -278,17 +323,17 @@ export class Store {
   clearBlocked(roomId) { this.q.clearBlocked.run(roomId); }
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
-  bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId); }
+  bind(memberId, roomId, sessionId, workspacePath = null, stamp = null) { this.q.bind.run(memberId, roomId, sessionId, workspacePath, stamp); }
   advanceCursor(memberId, roomId, messageId) { this.q.cursor.run(messageId, memberId, roomId); }
 
   /** Create the job for (member, trigger) once; a repeat returns undefined. */
   addJob(memberId, roomId, triggerId, now = Date.now() / 1000) {
-    return this.q.addJob.get(memberId, roomId, triggerId, now);
+    return this.q.addJob.get(memberId, roomId, triggerId, now, this.accessStamp(memberId, roomId));
   }
   job(id) { return this.q.job.get(id); }
   openJobs() { return this.q.openJobs.all(); }
   /** Record admission before the prompt reaches the Agent; false if already moved on. */
-  markSent(jobId, sessionId, seqBefore, inputId) { return this.q.sent.get(sessionId, seqBefore, inputId ?? null, jobId) !== undefined; }
+  markSent(jobId, sessionId, seqBefore, inputId, workspacePath = null) { return this.q.sent.get(sessionId, seqBefore, inputId ?? null, workspacePath, jobId) !== undefined; }
   finishJob(jobId, state, replyId = null) { return this.q.finish.get(state, replyId, jobId) !== undefined; }
 }
 
