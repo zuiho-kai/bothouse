@@ -93,12 +93,18 @@ func (l *turnSentLog) has(id string) bool {
 func (p *Platform) noteTurnSent(rc replyContext, sent *discordgo.Message) {
 	if rc.agent {
 		p.recordAgentPost(sent)
+		if sent != nil && rc.recordAgentReply != nil {
+			rc.recordAgentReply(sent.ID)
+		}
 	}
 }
 
 func (p *Platform) noteInteractionSent(rc *interactionReplyCtx, sent *discordgo.Message) {
 	if rc != nil && rc.agent {
 		p.recordAgentPost(sent)
+		if sent != nil && rc.recordAgentReply != nil {
+			rc.recordAgentReply(sent.ID)
+		}
 	}
 }
 
@@ -132,7 +138,23 @@ func (p *Platform) MarkAgentReply(replyCtx any) any {
 		if rc.parent != nil {
 			root = rc.parent
 		}
-		return &interactionReplyCtx{interaction: rc.interaction, channelID: rc.channelID, parent: root, agent: true}
+		return &interactionReplyCtx{interaction: rc.interaction, channelID: rc.channelID, parent: root, agent: true, recordAgentReply: rc.recordAgentReply}
+	}
+	return replyCtx
+}
+
+// MarkSessionAgentReply attaches the current context's delivery recorder.
+func (p *Platform) MarkSessionAgentReply(replyCtx any, record func(string)) any {
+	switch rc := replyCtx.(type) {
+	case replyContext:
+		rc.recordAgentReply = record
+		return rc
+	case *interactionReplyCtx:
+		root := rc
+		if rc.parent != nil {
+			root = rc.parent
+		}
+		return &interactionReplyCtx{interaction: rc.interaction, channelID: rc.channelID, parent: root, agent: rc.agent, recordAgentReply: record}
 	}
 	return replyCtx
 }
