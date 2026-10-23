@@ -30,6 +30,7 @@ type fakeWorkspaceGuild struct {
 	createErr   error         // returned by every create when set
 	block       chan struct{} // create waits for it when set
 	creating    chan struct{} // closed when a create starts waiting on block
+	panicOnce   bool          // next create panics (platform bug), then clears
 }
 
 func (g *fakeWorkspaceGuild) TeamGuildChannels(_ context.Context, id string) (TeamChannel, []TeamChannel, error) {
@@ -51,6 +52,13 @@ func (g *fakeWorkspaceGuild) TeamGuildChannels(_ context.Context, id string) (Te
 }
 
 func (g *fakeWorkspaceGuild) CreateTeamWorkspaceChannel(_ context.Context, beside, name string) (TeamChannel, error) {
+	g.mu.Lock()
+	p := g.panicOnce
+	g.panicOnce = false
+	g.mu.Unlock()
+	if p {
+		panic("platform bug")
+	}
 	if g.block != nil {
 		close(g.creating)
 		<-g.block
@@ -417,6 +425,27 @@ func TestTeamWorkspacePermanentFailureOnce(t *testing.T) {
 	g.mu.Unlock()
 	if _, _, err := e.NewTeamWorkspace("discord:200"); err != nil {
 		t.Fatalf("after reconnect: %v", err)
+	}
+}
+
+// Review round 2 of PR #139: a panic in platform code (net/http recovers it) must not leave
+// the chat in-flight, or every later "new" returns ErrTeamWorkspaceBusy until restart.
+func TestTeamWorkspacePanicClearsInflight(t *testing.T) {
+	g := newWorkspaceGuild()
+	g.panicOnce = true
+	e := newWorkspaceLead(t, g, t.TempDir())
+	e.teamWS = newTeamWorkspaces()
+	e.sessions.GetOrCreateActive("discord:100")
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("platform panic did not propagate")
+			}
+		}()
+		e.NewTeamWorkspace("discord:100")
+	}()
+	if _, _, err := e.NewTeamWorkspace("discord:100"); err != nil {
+		t.Fatalf("new after panic = %v, want success (not busy)", err)
 	}
 }
 

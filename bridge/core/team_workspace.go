@@ -293,14 +293,20 @@ func (e *Engine) NewTeamWorkspace(sessionKey string) (parent string, w TeamWorks
 	}
 	ws.inflight[chat] = true
 	ws.mu.Unlock()
+	// Cleared by defer so a panic in platform code (recovered by net/http) does not leave
+	// the chat busy until restart.
+	defer func() {
+		ws.mu.Lock()
+		delete(ws.inflight, chat)
+		ws.mu.Unlock()
+	}()
 	list, created, err := e.teamWorkspaceOp(chat, true)
-	ws.mu.Lock()
-	delete(ws.inflight, chat)
 	if errors.Is(err, ErrTeamWorkspacePermanent) {
+		ws.mu.Lock()
 		ws.failed[chat] = err
+		ws.mu.Unlock()
 		slog.Warn("team workspace: permanent failure, not retrying until restart", "chat", chat, "error", err)
 	}
-	ws.mu.Unlock()
 	if err == nil && created == nil {
 		// Adopted an existing unclaimed 「工作区1」: that is the workspace of this first request.
 		for _, x := range list {
