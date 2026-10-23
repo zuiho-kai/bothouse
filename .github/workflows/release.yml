@@ -11,7 +11,7 @@ on:
         description: 已存在的 tag（重新编并上传这个 tag 的包）
         required: true
 
-# Build runs with contents: write to upload release assets; verify runs with contents: read.
+# Build runs with read-only rights; only the publish job (no checkout, no third-party code) can write.
 permissions:
   contents: read
 
@@ -25,15 +25,12 @@ jobs:
       matrix:
         runner: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
     defaults:
       run:
         shell: bash
     timeout-minutes: 30
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
-      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -93,6 +90,8 @@ jobs:
               -output build/bothouse-universal
             ../.github/release-check/package-dmg.sh build/bothouse-universal ../dist/bothouse-mac.dmg "$TAG"
           fi
+          cd ../dist
+          shasum -a 256 bothouse-* > SHA256SUMS
       - name: Smoke test (linux/amd64)
         if: runner.os == 'Linux'
         run: |
@@ -109,11 +108,67 @@ jobs:
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch x86_64
           "$mount/Bothouse.app/Contents/MacOS/bothouse" --version
           hdiutil detach "$mount"
-      - name: Upload binaries to release
+      - name: Cache release dist
+        uses: actions/cache/save@v4
+        with:
+          path: dist
+          key: release-dist-${{ matrix.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # Same check as the linux/amd64 smoke test, on a real Windows machine, before anything is published.
+  smoke-windows:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Restore binaries from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: release-dist-ubuntu-latest-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Smoke test (windows/amd64)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = "bothouse-windows.exe"
+          $want = ((Get-Content dist/SHA256SUMS | Where-Object { $_ -match " $([regex]::Escape($asset))$" }) -split ' ')[0]
+          $got = (Get-FileHash -Algorithm SHA256 "dist/$asset").Hash.ToLower()
+          if ($want -ne $got) { throw "checksum mismatch: $want vs $got" }
+          ./dist/bothouse-windows.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "--version exit $LASTEXITCODE" }
+          $help = ./dist/bothouse-windows.exe setup --help | Out-String
+          if ($help -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
+
+  publish:
+    needs: [build, smoke-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Restore ubuntu binaries from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: release-dist-ubuntu-latest-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Restore macos binaries from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: release-dist-macos-latest-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          (cd dist && sha256sum bothouse-* > SHA256SUMS)
           pre=()
           case "$TAG" in *-*) pre=(--prerelease) ;; esac
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
@@ -151,69 +206,12 @@ jobs:
           Linux 下载对应架构文件，`chmod +x` 后运行。校验见 `SHA256SUMS`。
           命令行安装可用 `install.sh` / `install.ps1`，详见 README。
           NOTES
-          files=(dist/bothouse-*)
-          for i in {1..5}; do
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release upload "$TAG" "${files[@]}" --clobber && break
-            else
-              if gh release create "$TAG" "${files[@]}" --draft "${pre[@]}" --title "bothouse $TAG" --notes-file "$RUNNER_TEMP/release-notes.md"; then
-                break
-              fi
-            fi
-            sleep 2
-          done
-
-  # Same check as the linux/amd64 smoke test, on a real Windows machine, before anything is published.
-  smoke-windows:
-    needs: build
-    runs-on: windows-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
-      GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Download Windows binary from release
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          gh release download $env:TAG -p "bothouse-windows.exe" -D dist
-      - name: Smoke test (windows/amd64)
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          ./dist/bothouse-windows.exe --version
-          if ($LASTEXITCODE -ne 0) { throw "--version exit $LASTEXITCODE" }
-          $help = ./dist/bothouse-windows.exe setup --help | Out-String
-          if ($help -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
-
-  publish:
-    needs: [build, smoke-windows]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
-      GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Download binaries, upload SHA256SUMS and publish release
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          gh release download "$TAG" -p "bothouse-*" -D dist
-          for asset in bothouse-mac.dmg bothouse-windows.exe bothouse-linux-x64 bothouse-linux-arm64; do
-            if [ ! -f "dist/$asset" ]; then
-              echo "Error: missing expected asset dist/$asset" >&2
-              exit 1
-            fi
-          done
-          (cd dist && sha256sum bothouse-* > SHA256SUMS)
-          gh release upload "$TAG" dist/SHA256SUMS --clobber
-          gh release edit "$TAG" --draft=false
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* "${pre[@]}" --title "bothouse $TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
 
   # Acceptance on a clean Windows runner, through the published release: the documented one-line
   # install (private-repo form, gh + this job's read-only token), first run → wizard link → wizard
