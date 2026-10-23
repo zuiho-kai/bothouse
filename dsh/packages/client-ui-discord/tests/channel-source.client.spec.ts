@@ -10,7 +10,8 @@ function fakeTransport(routes: (url: string, init?: RequestInit) => Response | P
   const streams: EventStreamLike[] = []
   const calls: string[] = []
   const transport: ChannelTransport = {
-    fetch: (input, init) => { calls.push(`${init?.method ?? 'GET'} ${input}`); return Promise.resolve(routes(input, init)) },
+    // The state read carries this client's read cursors (#145); routes and calls see the plain path.
+    fetch: (raw, init) => { const input = raw.replace(/^(\/collab\/api\/state)\?read=[^&]*$/, '$1'); calls.push(`${init?.method ?? 'GET'} ${input}`); return Promise.resolve(routes(input, init)) },
     openEvents: () => {
       const stream: EventStreamLike = { onopen: null, onmessage: null, onerror: null, close() { closed.push(stream) } }
       streams.push(stream)
@@ -444,6 +445,109 @@ describe('channel source', () => {
     await actions.retryMessage(99)
     expect(retriedUrl).toBe('/collab/api/messages/99/retry')
     unsubscribe()
+  })
+
+  it('tracks unread counts and mentions across channels (#145)', async () => {
+    const { transport, streams } = fakeTransport((url) => {
+      if (url === '/collab/api/state') {
+        return json(200, {
+          me: 'owner',
+          rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'dev' }],
+          members: [{ id: 'owner', name: '我', kind: 'human' }, { id: 'bot', name: '豆包', kind: 'bot' }],
+          thinking: {},
+        })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    expect(source.getSnapshot().roomId).toBe(1)
+
+    // Message arrives for room 2 (another room)
+    streams[0]?.onmessage?.(new MessageEvent('message', {
+      data: JSON.stringify({
+        type: 'message',
+        message: {
+          id: 50,
+          room_id: 2,
+          author_kind: 'role',
+          author: 'bot',
+          name: '豆包',
+          text: '@我 任务完成了！',
+          created_at: 10,
+          card: null,
+          from_turn: null,
+        },
+      }),
+    }))
+
+    const unread = source.getSnapshot().unread[2]
+    expect(unread?.count).toBe(1)
+    expect(unread?.mention).toBe(true)
+    expect(unread?.firstUnreadId).toBe(50)
+
+    // Select room 2: unread count clears
+    await actions.selectRoom(2)
+    expect(source.getSnapshot().roomId).toBe(2)
+    expect(source.getSnapshot().unread[2]?.count).toBe(0)
+    unsubscribe()
+  })
+
+  it('starts a room it has never seen at zero unread and uses the server count afterwards (#145)', async () => {
+    // Read cursors persist for the whole file; these room ids are not used by other tests.
+    const reads: string[] = []
+    const state = (unread?: number) => json(200, {
+      me: 'owner',
+      rooms: [{ id: 31, name: 'general', last_message_id: 3 }, { id: 32, name: 'dev', last_message_id: unread === undefined ? 9000 : 9005, ...(unread === undefined ? {} : { unread_count: unread }) }],
+      members: [], thinking: {},
+    })
+    const first = fakeTransport((url) => url === '/collab/api/state' ? state() : json(200, { messages: [] }))
+    first.transport.fetch = ((fetch) => (input: string, init?: RequestInit) => { reads.push(input); return fetch(input, init) })(first.transport.fetch)
+    const one = createChannelSource(first.transport)
+    const stop = one.source.subscribe(() => {})
+    await vi.waitFor(() => expect(one.source.getSnapshot().phase).toBe('ready'))
+    // Message ids are global, so 9000 is not "9000 unread": a first visit has none.
+    expect(one.source.getSnapshot().unread[32]?.count ?? 0).toBe(0)
+    stop()
+    // Next open sends the saved cursors and shows the server's per-room count.
+    const second = fakeTransport((url) => url === '/collab/api/state' ? state(2) : json(200, { messages: [] }))
+    second.transport.fetch = ((fetch) => (input: string, init?: RequestInit) => { reads.push(input); return fetch(input, init) })(second.transport.fetch)
+    const two = createChannelSource(second.transport)
+    const stop2 = two.source.subscribe(() => {})
+    await vi.waitFor(() => expect(two.source.getSnapshot().phase).toBe('ready'))
+    expect(decodeURIComponent(reads.filter(r => r.startsWith('/collab/api/state')).at(-1)!)).toContain('32:9000')
+    expect(two.source.getSnapshot().unread[32]?.count).toBe(2)
+    stop2()
+  })
+
+  it('counts and notifies a streamed reply once, when it is committed (#145)', async () => {
+    const shown: string[] = []
+    vi.stubGlobal('Notification', class { static permission = 'granted'; onclick = null; constructor(title: string) { shown.push(title) } close() {} })
+    try {
+      const { transport, streams } = fakeTransport((url) => url === '/collab/api/state'
+        ? json(200, { me: 'owner', rooms: [{ id: 41, name: 'general' }, { id: 42, name: 'dev' }], members: [], thinking: {} })
+        : json(200, { messages: [] }))
+      const { source } = createChannelSource(transport)
+      const unsubscribe = source.subscribe(() => {})
+      await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+      const push = (text: string, draft: boolean) => streams[0]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify({
+        type: 'message',
+        message: { id: 70, room_id: 42, author_kind: 'role', author: 'bot', name: '豆包', text, created_at: 10, card: null, from_turn: null, ...(draft ? { draft: true } : {}) },
+      }) }))
+      push('第一段', true)
+      push('第一段第二段', true)
+      push('第一段第二段第三段', true)
+      expect(source.getSnapshot().unread[42]?.count ?? 0).toBe(0)
+      expect(shown).toHaveLength(0)
+      push('第一段第二段第三段。', false)
+      push('第一段第二段第三段。', false) // a repeated commit event
+      expect(source.getSnapshot().unread[42]?.count).toBe(1)
+      expect(shown).toHaveLength(1)
+      unsubscribe()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
