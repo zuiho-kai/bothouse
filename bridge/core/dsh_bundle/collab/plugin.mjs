@@ -73,7 +73,6 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   for (const room of config.rooms) store.ensureRoom(room.id, room.name.trim());
-  store.ensureWorkspaces();
   const hub = new Hub(store, ctx.logger);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
@@ -188,9 +187,9 @@ export async function apply(ctx, rawConfig) {
       return withBody(req, res, (body) => {
         const name = String(body?.name ?? '').trim().replace(/^#/, '');
         if (!name || name.length > 32 || /\s/.test(name)) throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
-        const { room, workspace } = store.createRoom(name);
+        const room = store.createRoom(name);
         hub.emit({ type: 'rooms', rooms: store.roomsView() });
-        return { room, workspace };
+        return { room };
       });
     }
     if (path === '/collab/api/members' && req.method === 'POST') {

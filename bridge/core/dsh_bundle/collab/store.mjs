@@ -109,9 +109,7 @@ export class Store {
         if (!has.has(table)) has.set(table, new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name)));
         if (!has.get(table).has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
       }
-      // v8: every chat channel that has no workspace gets 「工作区1」.
       this.migrateWorkspaceIds();
-      this.fillWorkspaces();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -172,18 +170,6 @@ export class Store {
       this.db.prepare('UPDATE rooms SET parent_id = ? WHERE parent_id = ?').run(to, id);
       this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
     }
-  }
-
-  /** Give every chat channel without a workspace its 「工作区1」; returns the rooms created. */
-  fillWorkspaces() {
-    const orphans = this.db.prepare(`SELECT id FROM rooms r WHERE kind = 'chat'
-      AND NOT EXISTS (SELECT 1 FROM rooms w WHERE w.kind = 'workspace' AND w.parent_id = r.id) ORDER BY id`).all();
-    if (!orphans.length) return [];
-    // Own statement: ensureSchema() runs before the shared prepared statements exist.
-    const add = this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id)
-      SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
-        ?, 'workspace', ? RETURNING id, name, kind, parent_id`);
-    return orphans.map(({ id }) => add.get(`${WORKSPACE_PREFIX}1`, id));
   }
 
   createV1() {
@@ -251,15 +237,9 @@ export class Store {
       this.q.ensureRoom.run(id, name);
     });
   }
-  /** Give configured chat channels their 「工作区1」 (call after every ensureRoom). */
-  ensureWorkspaces() { return this.transaction(() => this.fillWorkspaces()); }
-  /** Create a chat channel together with its 「工作区1」. */
+  /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
   createRoom(name) {
-    return this.transaction(() => {
-      const room = this.q.createRoom.get(name);
-      const workspace = this.q.createWorkspace.get(`${WORKSPACE_PREFIX}1`, room.id);
-      return { room, workspace };
-    });
+    return this.transaction(() => this.q.createRoom.get(name));
   }
   /**
    * Create the next workspace 工作区<n+1> under a chat channel, n being the highest
