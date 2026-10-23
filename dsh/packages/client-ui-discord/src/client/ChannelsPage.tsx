@@ -268,7 +268,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const room = state.rooms.find(r => r.id === state.roomId)
-  const busy = new Set(state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
+  const openTaskOwners = new Set(
+    (state.tasks ?? []).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status)).map(t => t.owner)
+  )
+  const busy = new Set([
+    ...(state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []),
+    ...openTaskOwners,
+  ])
   const byId = new Map(state.members.map(m => [m.id, m]))
   const busyNames = [...busy].map(id => byId.get(id)?.name ?? id)
   const mention = activeMention(draft, caret)
