@@ -385,6 +385,7 @@ var iflowMatchers = map[string]string{
 	"param-source-guard":    "replace|multi_edit|write_file|Edit|Write|MultiEdit",
 	"dispatch-review-guard": "replace|multi_edit|write_file|Edit|Write|MultiEdit|Agent|Task|subagent",
 }
+
 // geminiMatchers: the matcher each hook gets in Gemini CLI, whose built-in tool names differ from both Claude
 // Code's and DSH's (https://geminicli.com/docs/hooks/reference "Matchers and tool names": run_shell_command,
 // read_file, write_file, replace, invoke_agent). Matchers there are regular expressions. The sub-agent tool is
