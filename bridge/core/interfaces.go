@@ -38,6 +38,14 @@ type ReplyContextReconstructor interface {
 	ReconstructReplyCtx(sessionKey string) (any, error)
 }
 
+// DirectMessageOpener is an optional interface for platforms that can open (or
+// reuse) a private chat with a user and return the session key of that chat, so
+// the bot can message the user privately without an incoming message first
+// (maomao fork, `cc-connect send --dm`).
+type DirectMessageOpener interface {
+	OpenDM(userID string) (sessionKey string, err error)
+}
+
 // RelayGroupVisibilityTarget is an optional interface for platforms that
 // want to customise the session key used when echoing relay request /
 // response messages into the group chat for visibility.  Platforms that
