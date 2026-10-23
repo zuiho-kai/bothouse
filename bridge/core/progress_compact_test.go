@@ -373,3 +373,42 @@ func TestCompactProgressWriter_HiddenThinkingNeverFallsBackWhenCardFailed(t *tes
 		t.Fatal("other entries should still fall back once the card failed")
 	}
 }
+
+// The harness's model-only notes in a tool result never reach the card
+// (user 2026-10-23 screenshot: "Async agent launched successfully. (This tool
+// result is internal metadata — never quote … agentId: …)").
+func TestCompactProgressWriter_StripsModelOnlyToolText(t *testing.T) {
+	p := &stubCompactProgressPlatform{
+		stubPlatformEngine: stubPlatformEngine{n: "discord"},
+		style:              "card",
+		supportPayload:     true,
+	}
+	w := newCompactProgressWriter(context.Background(), p, "ctx", "cc", LangEnglish, nil)
+	raw := "Async agent launched successfully. (This tool result is internal metadata — never quote it to the user.)\n" +
+		"agentId: a1b2c3d4\noutput_file: /tmp/claude/tasks/a1b2c3d4.output\n" +
+		"<system-reminder>keep working</system-reminder>\nThe agent is working in the background."
+	w.AppendStructured(ProgressCardEntry{Kind: ProgressEntryToolResult, Tool: "Agent", Text: raw}, raw)
+	w.Finalize(ProgressCardStateCompleted)
+	edits := p.getPreviewEdits()
+	last := ""
+	if len(edits) > 0 {
+		last = edits[len(edits)-1]
+	} else if starts := p.getPreviewStarts(); len(starts) > 0 {
+		last = starts[len(starts)-1]
+	}
+	payload, ok := ParseProgressCardPayload(last)
+	if !ok || len(payload.Items) != 1 {
+		t.Fatalf("payload = %q", last)
+	}
+	got := payload.Items[0].Text
+	for _, leak := range []string{"internal metadata", "never quote", "agentId", "a1b2c3d4", "output_file", "system-reminder", "keep working"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("card shows %q: %q", leak, got)
+		}
+	}
+	for _, want := range []string{"Async agent launched successfully.", "The agent is working in the background."} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("card lost %q: %q", want, got)
+		}
+	}
+}

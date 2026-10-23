@@ -59,9 +59,17 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 		embed.Timestamp = snapshot.UpdatedAt.Format(time.RFC3339)
 		return []*discordgo.MessageEmbed{embed}
 	}
+	// maomao fork: the task card follows its turn's 细节/简略 choice and carries
+	// no buttons of its own; the turn's progress card holds them (card_view.go).
+	if task.MessageID != "" {
+		p.cardViews.join(task.ChannelID, task.ChannelID, task.MessageID)
+	}
 	view := p.cardViews.mode(task.MessageID)
+	if task.MessageID == "" {
+		view = p.cardViews.turnMode(task.ChannelID)
+	}
 	embeds := render(view)
-	components := cardViewComponents(view, string(lang))
+	components := []discordgo.MessageComponent{}
 	if task.MessageID == "" {
 		id, err := p.findPublicFact(ctx, task.ChannelID, marker, task.CreatedAt)
 		if err != nil {
@@ -77,9 +85,9 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 		}
 	}
 	// An edit is idempotent and also updates a recovered card to the newest state.
+	p.cardViews.join(task.ChannelID, task.ChannelID, task.MessageID)
 	view = p.cardViews.mode(task.MessageID)
 	embeds = render(view)
-	components = cardViewComponents(view, string(lang))
 	_, err := p.session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: task.MessageID, Channel: task.ChannelID, Embeds: &embeds, Components: &components, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx))
 	if err != nil {
 		return err

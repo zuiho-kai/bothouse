@@ -17,15 +17,22 @@ const (
 )
 
 func buildDiscordPreviewMessage(content string) *discordgo.MessageSend {
+	return buildDiscordPreviewMessageView(content, cardViewDetail)
+}
+
+// buildDiscordPreviewMessageView renders a preview in a view (细节/简略). Only
+// the progress card carries the buttons; the sub-agent table follows the
+// progress card's choice (card_view.go).
+func buildDiscordPreviewMessageView(content string, view cardView) *discordgo.MessageSend {
 	if table, ok := core.ParseSubTaskTablePayload(content); ok {
 		return &discordgo.MessageSend{
-			Embeds:     []*discordgo.MessageEmbed{buildDiscordSubTaskEmbed(table)},
-			Components: cardViewComponents(cardViewDetail, table.Lang),
+			Embeds: []*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, view)},
 		}
 	}
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
 		return &discordgo.MessageSend{
-			Embeds: []*discordgo.MessageEmbed{buildDiscordProgressEmbed(payload)},
+			Embeds:     []*discordgo.MessageEmbed{buildDiscordProgressEmbedView(payload, view)},
+			Components: cardViewComponents(view, payload.Lang),
 		}
 	}
 	return &discordgo.MessageSend{
@@ -37,20 +44,23 @@ func buildDiscordPreviewEdit(channelID, messageID, content string) *discordgo.Me
 	return buildDiscordPreviewEditView(channelID, messageID, content, cardViewDetail)
 }
 
-// buildDiscordPreviewEditView renders a sub-agent table in the message's
-// chosen view (细节/简略); other previews have no views.
+// buildDiscordPreviewEditView renders a progress card or sub-agent table in
+// the turn's chosen view. Every progress card edit carries the buttons, so
+// they never drop off; a table edit clears any old buttons it had.
 func buildDiscordPreviewEditView(channelID, messageID, content string, view cardView) *discordgo.MessageEdit {
 	edit := discordgo.NewMessageEdit(channelID, messageID)
 	if table, ok := core.ParseSubTaskTablePayload(content); ok {
 		edit.SetContent("")
 		edit.SetEmbeds([]*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, view)})
-		components := cardViewComponents(view, table.Lang)
+		components := []discordgo.MessageComponent{}
 		edit.Components = &components
 		return edit
 	}
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
 		edit.SetContent("")
-		edit.SetEmbeds([]*discordgo.MessageEmbed{buildDiscordProgressEmbed(payload)})
+		edit.SetEmbeds([]*discordgo.MessageEmbed{buildDiscordProgressEmbedView(payload, view)})
+		components := cardViewComponents(view, payload.Lang)
+		edit.Components = &components
 		return edit
 	}
 	edit.SetContent(trimDiscordRunes(content, maxDiscordLen))
@@ -59,14 +69,22 @@ func buildDiscordPreviewEditView(channelID, messageID, content string, view card
 }
 
 func buildDiscordProgressEmbed(payload *core.ProgressCardPayload) *discordgo.MessageEmbed {
+	return buildDiscordProgressEmbedView(payload, cardViewDetail)
+}
+
+func buildDiscordProgressEmbedView(payload *core.ProgressCardPayload, view cardView) *discordgo.MessageEmbed {
 	if payload == nil {
 		return &discordgo.MessageEmbed{Description: " "}
 	}
 	agent := discordProgressAgentLabel(payload.Agent)
 	title, color, footer := discordProgressStateMeta(payload.State, payload.Lang, agent)
+	desc := buildDiscordProgressDescription(payload)
+	if view == cardViewBrief {
+		desc = buildDiscordProgressBrief(payload)
+	}
 	embed := &discordgo.MessageEmbed{
 		Title:       trimDiscordRunes(title, maxDiscordEmbedTitleLen),
-		Description: buildDiscordProgressDescription(payload),
+		Description: desc,
 		Color:       color,
 	}
 	if footer = strings.TrimSpace(footer); footer != "" {
@@ -75,6 +93,104 @@ func buildDiscordProgressEmbed(payload *core.ProgressCardPayload) *discordgo.Mes
 		}
 	}
 	return embed
+}
+
+// buildDiscordProgressBrief is the 简略 progress card: the 「第N步 · 用时」 head,
+// then one line per tool step — tool name and 成功/失败 (进行中 while it runs).
+// No thinking, prompt, command text or tool output.
+func buildDiscordProgressBrief(payload *core.ProgressCardPayload) string {
+	type step struct {
+		tool  string
+		state int // 0 running, 1 ok, 2 failed
+	}
+	var steps []step
+	open := func(tool string) int {
+		for i := len(steps) - 1; i >= 0; i-- {
+			if steps[i].state == 0 && (tool == "" || steps[i].tool == tool) {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, item := range discordProgressItems(payload) {
+		tool := strings.TrimSpace(item.Tool)
+		switch item.Kind {
+		case core.ProgressEntryToolUse:
+			steps = append(steps, step{tool: tool})
+		case core.ProgressEntryToolResult:
+			st := 1
+			if discordProgressItemFailed(item) {
+				st = 2
+			}
+			if i := open(tool); i >= 0 {
+				steps[i].state = st
+			} else {
+				steps = append(steps, step{tool: tool, state: st})
+			}
+		case core.ProgressEntryError:
+			if i := open(""); i >= 0 {
+				steps[i].state = 2
+			}
+		}
+	}
+	lines := []string{buildDiscordProgressBarLine(&core.ProgressCardPayload{
+		Lang: payload.Lang, Steps: payload.Steps, ElapsedSec: payload.ElapsedSec,
+	}, nil)}
+	zh := normalizeDiscordProgressLang(payload.Lang) == "zh"
+	running := payload.State == core.ProgressCardStateRunning || payload.State == ""
+	for _, s := range steps {
+		name := s.tool
+		if name == "" {
+			name = discordProgressToolLabel(payload.Lang)
+		}
+		name = trimDiscordRunes(name, maxDiscordProgressLineLen)
+		switch {
+		case s.state == 1 && zh:
+			lines = append(lines, "✅ "+name+" · 成功")
+		case s.state == 1:
+			lines = append(lines, "✅ "+name+" · ok")
+		case s.state == 2 && zh:
+			lines = append(lines, "❌ "+name+" · 失败")
+		case s.state == 2:
+			lines = append(lines, "❌ "+name+" · failed")
+		case running && zh:
+			lines = append(lines, "🔧 "+name+" · 进行中")
+		case running:
+			lines = append(lines, "🔧 "+name+" · running")
+		default:
+			lines = append(lines, "🔧 "+name)
+		}
+	}
+	desc := trimDiscordRunes(strings.Join(lines, "\n"), maxDiscordProgressDescLen)
+	if strings.TrimSpace(desc) == "" {
+		return " "
+	}
+	return desc
+}
+
+func discordProgressItemFailed(item core.ProgressCardEntry) bool {
+	if item.Success != nil {
+		return !*item.Success
+	}
+	if item.ExitCode != nil && *item.ExitCode != 0 {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(item.Status)) {
+	case "failed", "failure", "error":
+		return true
+	}
+	return false
+}
+
+// progressCardRender is the 细节/简略 renderer of a progress card message.
+func progressCardRender(content string) (cardRender, bool) {
+	payload, ok := core.ParseProgressCardPayload(content)
+	if !ok {
+		return cardRender{}, false
+	}
+	return cardRender{lang: payload.Lang, embeds: func(v cardView) []*discordgo.MessageEmbed {
+		return []*discordgo.MessageEmbed{buildDiscordProgressEmbedView(payload, v)}
+	}}, true
 }
 
 func buildDiscordProgressDescription(payload *core.ProgressCardPayload) string {

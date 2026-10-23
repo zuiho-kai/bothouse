@@ -8,31 +8,43 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// maomao fork: the 「细节」/「简略」 buttons under a task card and a sub-agent
-// table. A press re-renders that one message on the spot; the choice belongs
-// to the message only — it is not kept per channel and not persisted.
+// maomao fork: one 「细节」/「简略」 button row per turn, on the progress card.
+// A press re-renders the progress card and the turn's sub-agent table and
+// task card together; those two carry no buttons of their own. The choice
+// belongs to the turn (keyed by its progress card) — in memory only.
 //
-//	细节: name, task, current step, status, elapsed time
-//	简略: name, status, elapsed time
+//	progress card 细节: the step lines as before; 简略: head + tool name and result per step
+//	sub-agent table / task card: as defined in #114 (subtasks.go, task_card.go)
 
 type cardView string
 
 const (
-	// Default is 细节 so a card looks as it did before the buttons existed
-	// (source: review ~/.claude/reviews/card-detail-brief-toggle.md, "默认「细节」可以保留").
+	// Default is 简略. Source: user 2026-10-23 「严重不符合预期，这些没有说」 —
+	// the long progress card had no switch and showed everything; 橘 chose
+	// brief as the default (an added setting, listed in the delivery).
+	cardViewDefault = cardViewBrief
+
 	cardViewDetail cardView = "detail"
 	cardViewBrief  cardView = "brief"
 
 	cardViewCustomIDPrefix = "cardview:"
 )
 
-// cardViews remembers, per Discord message, the chosen view and how to render
-// the message's latest content in either view. In memory only.
+// cardViews keeps, per turn, the chosen view and how to render each of the
+// turn's messages in either view. A turn is led by its progress card; the
+// sub-agent tables and task cards sent or edited in the same origin channel
+// while that card is the newest one join it. In memory only.
 type cardViews struct {
-	mu      sync.Mutex
-	modes   map[string]cardView
-	renders map[string]cardRender
+	mu       sync.Mutex
+	modes    map[string]cardView   // leader (progress card) message ID -> view
+	renders  map[string]cardRender // message ID -> renderer of its latest content
+	leaderOf map[string]string     // message ID -> its turn's progress card ID
+	members  map[string][]cardRef  // leader -> other messages of the turn
+	current  map[string]string     // origin channel -> newest progress card ID
+	chanOf   map[string]string     // progress card ID -> its channel
 }
+
+type cardRef struct{ channelID, messageID string }
 
 // cardRender renders a message's latest content in either view.
 type cardRender struct {
@@ -40,13 +52,89 @@ type cardRender struct {
 	embeds func(cardView) []*discordgo.MessageEmbed
 }
 
+func (c *cardViews) init() {
+	if c.modes == nil {
+		c.modes = make(map[string]cardView)
+		c.renders = make(map[string]cardRender)
+		c.leaderOf = make(map[string]string)
+		c.members = make(map[string][]cardRef)
+		c.current = make(map[string]string)
+		c.chanOf = make(map[string]string)
+	}
+}
+
+// mode is the view of a message: its turn's choice, else the message's own
+// (pressed before a restart), else the default.
 func (c *cardViews) mode(messageID string) cardView {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if m, ok := c.modes[messageID]; ok {
+	key := messageID
+	if l, ok := c.leaderOf[messageID]; ok {
+		key = l
+	}
+	if m, ok := c.modes[key]; ok {
 		return m
 	}
-	return cardViewDetail
+	return cardViewDefault
+}
+
+// turnMode is the view of the origin channel's newest turn.
+func (c *cardViews) turnMode(origin string) cardView {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if l, ok := c.current[origin]; ok {
+		if m, ok := c.modes[l]; ok {
+			return m
+		}
+	}
+	return cardViewDefault
+}
+
+// lead marks a progress card as the newest turn of an origin channel.
+func (c *cardViews) lead(origin, channelID, messageID string) {
+	if messageID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.init()
+	c.leaderOf[messageID] = messageID
+	c.chanOf[messageID] = channelID
+	if origin != "" {
+		c.current[origin] = messageID
+	}
+}
+
+// join adds a sub-agent table or task card to the origin channel's newest turn.
+func (c *cardViews) join(origin, channelID, messageID string) {
+	if origin == "" || messageID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.init()
+	leader, ok := c.current[origin]
+	if !ok || leader == messageID {
+		return
+	}
+	if old, ok := c.leaderOf[messageID]; ok {
+		if old == leader {
+			return
+		}
+		c.dropMember(old, messageID)
+	}
+	c.leaderOf[messageID] = leader
+	c.members[leader] = append(c.members[leader], cardRef{channelID: channelID, messageID: messageID})
+}
+
+func (c *cardViews) dropMember(leader, messageID string) {
+	refs := c.members[leader]
+	for i, r := range refs {
+		if r.messageID == messageID {
+			c.members[leader] = append(refs[:i:i], refs[i+1:]...)
+			return
+		}
+	}
 }
 
 // remember stores the renderer of a message's latest content.
@@ -56,34 +144,67 @@ func (c *cardViews) remember(messageID string, render cardRender) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.renders == nil {
-		c.renders = make(map[string]cardRender)
-	}
+	c.init()
 	c.renders[messageID] = render
 }
 
-// set records the view chosen for a message and returns its renderer, if the
-// message's content is still known to this process.
-func (c *cardViews) set(messageID string, mode cardView) (cardRender, bool) {
+type cardMember struct {
+	ref    cardRef
+	leader bool // the turn's progress card: keeps the buttons
+	render cardRender
+}
+
+// set records the view chosen on a message (its whole turn) and returns the
+// message's renderer, if still known, and the turn's other messages.
+func (c *cardViews) set(messageID string, mode cardView) (cardRender, bool, []cardMember) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.modes == nil {
-		c.modes = make(map[string]cardView)
+	c.init()
+	key := messageID
+	if l, ok := c.leaderOf[messageID]; ok {
+		key = l
 	}
-	if mode == cardViewDetail {
-		delete(c.modes, messageID)
-	} else {
-		c.modes[messageID] = mode
-	}
+	c.modes[key] = mode
 	r, ok := c.renders[messageID]
-	return r, ok
+	var others []cardMember
+	if key != messageID {
+		if lr, ok := c.renders[key]; ok {
+			others = append(others, cardMember{ref: cardRef{channelID: c.chanOf[key], messageID: key}, render: lr, leader: true})
+		}
+	}
+	for _, ref := range c.members[key] {
+		if ref.messageID == messageID {
+			continue
+		}
+		if mr, ok := c.renders[ref.messageID]; ok {
+			others = append(others, cardMember{ref: ref, render: mr})
+		}
+	}
+	return r, ok, others
 }
 
 func (c *cardViews) forget(messageID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.init()
+	if l, ok := c.leaderOf[messageID]; ok && l != messageID {
+		c.dropMember(l, messageID)
+	}
 	delete(c.modes, messageID)
 	delete(c.renders, messageID)
+	delete(c.leaderOf, messageID)
+	delete(c.chanOf, messageID)
+	if refs, ok := c.members[messageID]; ok {
+		for _, r := range refs {
+			delete(c.leaderOf, r.messageID)
+		}
+		delete(c.members, messageID)
+	}
+	for origin, l := range c.current {
+		if l == messageID {
+			delete(c.current, origin)
+		}
+	}
 }
 
 func parseCardViewCustomID(customID string) (cardView, bool) {
@@ -131,12 +252,13 @@ func cardViewComponents(mode cardView, lang string) []discordgo.MessageComponent
 	}}}
 }
 
-// handleCardViewInteraction switches one message between the two views.
+// handleCardViewInteraction switches the pressed card and the rest of its
+// turn between the two views.
 func (p *Platform) handleCardViewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, mode cardView) {
 	if i.Message == nil {
 		return
 	}
-	render, known := p.cardViews.set(i.Message.ID, mode)
+	render, known, others := p.cardViews.set(i.Message.ID, mode)
 	lang := render.lang
 	if !known && messageHasChineseCardButtons(i.Message) {
 		lang = "zh"
@@ -154,6 +276,24 @@ func (p *Platform) handleCardViewInteraction(s *discordgo.Session, i *discordgo.
 		Data: data,
 	}); err != nil {
 		slog.Debug("discord: card view update failed", "error", err)
+	}
+	for _, m := range others {
+		channelID := m.ref.channelID
+		if channelID == "" {
+			channelID = i.Message.ChannelID
+		}
+		embeds := m.render.embeds(mode)
+		edit := &discordgo.MessageEdit{ID: m.ref.messageID, Channel: channelID, Embeds: &embeds}
+		if m.leader { // the turn's progress card keeps the buttons
+			components := cardViewComponents(mode, m.render.lang)
+			edit.Components = &components
+		} else { // tables and task cards carry none
+			empty := []discordgo.MessageComponent{}
+			edit.Components = &empty
+		}
+		if _, err := s.ChannelMessageEditComplex(edit); err != nil {
+			slog.Debug("discord: card view member update failed", "message", m.ref.messageID, "error", err)
+		}
 	}
 }
 

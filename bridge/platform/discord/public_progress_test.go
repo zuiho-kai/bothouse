@@ -29,6 +29,7 @@ type progressREST struct {
 	components  []string // raw components of each POST
 	edits       []string // raw body of each PATCH
 	callbacks   []string // raw body of each interaction callback
+	anyMentions bool     // accept sends that do not suppress mentions (preview cards)
 }
 
 func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -64,7 +65,7 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err := json.NewDecoder(req.Body).Decode(&data); err != nil {
 			return nil, err
 		}
-		if data.AllowedMentions == nil || len(data.AllowedMentions.Parse) > 0 || len(data.AllowedMentions.Users) > 0 {
+		if !r.anyMentions && (data.AllowedMentions == nil || len(data.AllowedMentions.Parse) > 0 || len(data.AllowedMentions.Users) > 0) {
 			return nil, errors.New("mentions not suppressed")
 		}
 		if r.postStatus != 0 {
