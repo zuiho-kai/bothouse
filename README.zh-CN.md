@@ -192,7 +192,7 @@ Discord / 飞书 / 自建网页频道
 
 ## 许可
 
-bothouse 按 [MIT](LICENSE) 授权，详见[许可说明](LICENSING.md)。
+bothouse 按 [Apache-2.0](LICENSE) 授权，详见[许可说明](LICENSING.md)。
 
 随附桥接组件的上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，感谢原作者和贡献者。第三方依赖许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
 
