@@ -325,8 +325,8 @@ func TestAgentHooksDSH(t *testing.T) {
 	if roles, _ := readDSHRoles(AgentHooksDir(data)); len(roles) != 0 {
 		t.Fatalf("dsh roles after off = %+v", roles)
 	}
-	if _, err := EnableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "codex"}); err == nil {
-		t.Fatal("codex must be refused")
+	if _, err := EnableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "unsupported-cli"}); err == nil {
+		t.Fatal("unsupported CLI must be refused")
 	}
 	if _, err := EnableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "dsh", Only: []string{"nope"}}); err == nil {
 		t.Fatal("unknown hook must be refused")

@@ -112,7 +112,7 @@ GEMINI_TO_CLAUDE_EVENT = {"BeforeTool": "PreToolUse", "AfterTool": "PostToolUse"
                           "AfterAgent": "Stop"}
 STATE = os.path.join(HERE, "state", "dsh-stop.json")
 DSH_ROLES = os.path.join(HERE, "dsh-roles.json")  # {role work_dir: {"hooks": [...], "dsh_home": ...}}
-OPTS = {"role": None, "dsh_home": None, "dsh_global": False, "agy": None}  # {session_id: turn already blocked once}
+OPTS = {"role": None, "dsh_home": None, "dsh_global": False, "agy": None, "codex": False}  # {session_id: turn already blocked once}
 # 来源：实测，验收时日志在钩子开始后约 0.15 秒内写到；留足余量又不拖住回复（Stop 超时设的是 30 秒）
 STOP_WAIT = 3.0
 MODEL_HEAD, MODEL_END = "[bothouse model-control instructions]", "[/bothouse model-control instructions]"
@@ -334,7 +334,7 @@ SWITCH = os.path.join(".claude", "conest-hooks.json")
 
 def hook_names():
     return sorted(f[:-3] for f in os.listdir(HERE)
-                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py")
+                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "codex-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py")
                   and not f.startswith("test_"))
 
 
@@ -397,6 +397,8 @@ def parse_args(argv):
             continue
         if a == "--dsh-global":
             OPTS["dsh_global"] = True
+        elif a == "--codex":
+            OPTS["codex"] = True
         elif a != "--conest-hook":
             rest.append(a)
         i += 1
@@ -467,6 +469,13 @@ def main():
         pass_exit()  # switched off for this role (run.py off): pass without running the hook
     if OPTS["agy"]:
         return run_agy(target, payload, OPTS["agy"])
+    codex_tmp = None
+    if OPTS["codex"]:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("codex_compat", os.path.join(HERE, "codex-compat.py"))
+        compat = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(compat)
+        payload, codex_tmp = compat.adapt(payload)
     gemini = payload.get("hook_event_name") in GEMINI_EVENTS
     tmp, turn, sid = None, None, payload.get("session_id") or ""
     if gemini:
@@ -480,7 +489,7 @@ def main():
         payload["tool_name"], payload["tool_input"] = tool_input(tool, payload.get("tool_input"))
     stop = payload.get("hook_event_name") == "Stop"
     # Claude Code always gives a transcript; an empty one is the DSH bridge (dsh-hooks-claude-code base())
-    bridge = not gemini and (dsh or OPTS["dsh_global"] or not payload.get("transcript_path"))
+    bridge = not gemini and not OPTS["codex"] and (dsh or OPTS["dsh_global"] or not payload.get("transcript_path"))
     path = session_file(payload.get("session_id") or "") if bridge else None
     # only the first record (session header) is needed here; the whole log is read for Stop alone
     first = records(read_lines(path, head=True)) if path else []
@@ -524,6 +533,8 @@ def main():
     finally:
         if tmp:
             os.unlink(tmp)
+        if codex_tmp:
+            os.unlink(codex_tmp)
     if turn is not None:
         try:
             blocked = json.loads(proc.stdout or "{}").get("decision") == "block"

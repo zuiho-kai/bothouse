@@ -53,7 +53,7 @@ func runSetupHooks(args []string) {
 		fs.PrintDefaults()
 	}
 	workDir := fs.String("work-dir", "", "the role's work_dir (REQUIRED)")
-	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity")
+	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity | codex")
 	only := fs.String("only", "", "comma-separated hooks to switch on/off (default: all)")
 	lang := fs.String("lang", "", "language of the persona block: zh | en (default: the persona's reply language, else system)")
 	dshHome := fs.String("dsh-home", "", "DSH home for --cli dsh (default: $DSH_HOME, else ~/.dsh)")

@@ -99,3 +99,11 @@ cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|
 ```
 
 `test_promise_guard.py` 用固定时钟、临时 HOME 和定时任务夹具。新增 `test_bash_guard_nowait.py`、`test_bash_guard_speed.py` 可直接通过 python3 -I 运行；只把命令作为 hook 输入，不执行被测 shell 命令。DSH 辅助文件不单独注册，既有 run.py 复用它的会话字段读取。
+
+## Codex roles
+
+`bothouse setup hooks on --cli codex --work-dir <role>` installs only `bash-guard` and `fix-claim-guard` in `<role>/.codex/hooks.json`, with `[features] hooks = true` in that role's `.codex/config.toml`. The wizard also prepares these two hooks for new Codex roles. Existing custom hook entries/config values are retained (TOML formatting/comments may be normalized). `off` removes only managed entries; `status --cli codex` reads the Codex file.
+
+Codex loads hooks beside active config layers, including project `.codex` and the user config under CODEX_HOME. Project layers require project trust, and new/changed hook commands require review through `/hooks`. Setup reports `review_required: true`; configuration written is not proof of activation. We never write global CODEX_HOME or trust hashes and never add a trust-bypass flag to production launches. Restart an existing session after configuration changes.
+
+`run.py --codex` normalizes shell inputs and translates Codex response_item chat records for Stop. `stop_hook_active` is preserved. Other hooks are explicitly rejected until adapted. Tested CLI version: 0.163.0-alpha.11.1; transcript format is not a stable public API. Source: https://learn.chatgpt.com/docs/hooks .

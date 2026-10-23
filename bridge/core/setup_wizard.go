@@ -1049,7 +1049,14 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			if err != nil {
 				addStep(res, hs, err, "")
 			} else {
-				addStep(res, hs, nil, stepHooksOn(req.Language, h.Enabled, hookSettingsShown(r.AgentType, r.workDir, h)))
+				if h.ReviewRequired {
+					addStep(res, hs, nil, tr3(req.Language,
+						"Codex hook 配置已写入；请在角色目录启动 Codex，信任项目并用 /hooks 审核后生效。",
+						"Codex hooks を保存しました。ロールのディレクトリでプロジェクトを信頼し、/hooks で確認してください。",
+						"Codex hook configuration written; start Codex in this role directory, trust the project and review /hooks to activate."))
+				} else {
+					addStep(res, hs, nil, stepHooksOn(req.Language, h.Enabled, hookSettingsShown(r.AgentType, r.workDir, h)))
+				}
 			}
 		}
 		if !r.reused && AgentToolFS != nil {
