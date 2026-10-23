@@ -317,9 +317,13 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 			} else if s.Chat == "" {
 				where = "私聊/别处"
 			}
+			taskText := s.Task
+			if chars := []rune(taskText); len(chars) > 40 {
+				taskText = string(chars[:40])
+			}
 			task := ""
-			if s.Task != "" {
-				task = "「" + s.Task + "」"
+			if taskText != "" {
+				task = "「" + taskText + "」"
 			}
 			if s.Busy {
 				lines = append(lines, fmt.Sprintf("%s：在%s忙了 %s %s", f.Name, where, roundDur(now.Sub(s.Since)), task))
@@ -333,7 +337,7 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 				}
 				lines = append(lines, fmt.Sprintf("%s：%s前在%s%s %s", f.Name, roundDur(now.Sub(s.DoneAt)), where, ended, task))
 			}
-			keys = append(keys, fmt.Sprintf("%s|%s|%t|%s", f.Name, where, s.Busy, s.Task))
+			keys = append(keys, fmt.Sprintf("%s|%s|%t|%s", f.Name, where, s.Busy, taskText))
 		}
 	}
 	if len(lines) == 0 {

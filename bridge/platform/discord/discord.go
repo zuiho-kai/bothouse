@@ -27,6 +27,7 @@ func init() {
 const maxDiscordLen = 1900
 
 type replyContext struct {
+	recordAgentReply func(string)
 	channelID string
 	messageID string
 	threadID  string
@@ -40,6 +41,7 @@ type replyContext struct {
 // responses. The first reply edits the deferred interaction response;
 // subsequent replies use followup messages.
 type interactionReplyCtx struct {
+	recordAgentReply func(string)
 	interaction *discordgo.Interaction
 	channelID   string
 	mu          sync.Mutex
@@ -883,6 +885,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 
 	msg := &core.Message{
 		SessionKey: sessionKey, ChannelKey: channelKey, Platform: "discord",
+		Reference: p.messageReference(m.ReferencedMessage),
 		ChannelID: m.ChannelID,
 		MessageID: m.ID,
 		UserID:    m.Author.ID, UserName: m.Author.Username,
@@ -906,10 +909,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		if text == "" && len(images) == 0 && len(files) == 0 {
 			return // e.g. a footer-only chunk of a long reply
 		}
-		// maomao fork: a teammate calling this bot by name ("行了橘，…") counts like an @, so
+		// maomao fork: a teammate opening a line with this bot's name ("橘，…") counts like an @, so
 		// chat between bots can go on. No hop/round cap (user 2026-10-18「去掉模型聊天限制，
-		// 模型可以持续对话，没有限制」).
-		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName)
+		// 模型可以持续对话，没有限制」). A name mid-sentence does not (mentions.go nameCalled).
+		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName, teamBotNames(p.botID)...)
 		msg.Content = "【" + discordDisplayName(m) + "】" + text
 		p.holdBotMessage(s, m, msg, downloadURL)
 		return
@@ -1991,4 +1994,23 @@ func discordDisplayName(m *discordgo.MessageCreate) string {
 		return m.Author.GlobalName
 	}
 	return m.Author.Username
+}
+
+// messageReference only proposes shortening this bot's known agent output.
+// Session.renderReference checks the current context again at actual delivery.
+func (p *Platform) messageReference(ref *discordgo.Message) *core.MessageReference {
+	if ref == nil || ref.Author == nil || p.botID == "" || ref.Author.ID != p.botID || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
+		return nil
+	}
+	text := []rune(ref.Content)
+	if len(text) > 80 {
+		text = text[:80]
+	}
+	prefix := "[replying to " + ref.Author.Username + ": "
+	return &core.MessageReference{
+		ID: ref.ID,
+		Full:   prefix + ref.Content + "]\n",
+		Short:  prefix + string(text) + "（你自己的上一条，已在上文）]\n",
+		SentAt: ref.Timestamp,
+	}
 }

@@ -197,6 +197,7 @@ func queuedToMessage(q queuedMessage) Message {
 		MessageID:    q.messageID,
 		ReplyCtx:     q.replyCtx,
 		Content:      q.content,
+		Reference:    q.reference,
 		Images:       q.images,
 		Files:        q.files,
 		FromVoice:    q.fromVoice,

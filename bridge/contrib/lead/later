@@ -1,0 +1,18 @@
+#!/bin/zsh
+# 我要过一会儿才回来时用：挂定时 + 在频道置顶任务板上记一行「下次看 几点」，用户看得见。
+# 用户原话（2026-10-23）：「比如说你要10分钟之后才会回来，看那种你搞的定时任务，并且我可见的，否则我不知道」
+# 用法：later <延时如 10m/1h> "<事情>" "<到点要做什么>"
+set -eu
+here=${0:A:h}
+[[ $# -eq 3 ]] || { echo '用法：later <延时如 10m> "<事情>" "<到点要做什么>"' >&2; exit 1; }
+delay=$1 what=$2 todo=$3
+mins=$(python3 -c 'import re,sys;s=sys.argv[1];print(sum(int(n)*{"h":60,"m":1}[u] for n,u in re.findall(r"(\d+)([hm])",s)))' "$delay")
+[[ $mins -gt 0 ]] || { echo "延时要写成 10m、1h30m 这样" >&2; exit 1; }
+at=$(date -v+${mins}M '+%H:%M')
+id=$(BOARD_LATER=1 "$here/board" add "$what" "-" "等着，${at} 回来接着做" "${CC_PROJECT:-?}" --next "$at" | grep -oE '[0-9]+' | head -1 || true)
+[[ -n $id ]] || { echo "任务板没记上，定时没挂" >&2; exit 1; }
+# 卡片上有这行 ⇔ 定时真挂上了：timer 失败就把刚记的这行撤掉再报错
+cc-connect timer add --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #$id「$what」：$todo。做完 board done $id；没做完先 board done $id，再用 later 挂下一次（写进度和回来时间）。" >/dev/null || {
+  "$here/board" done "$id" >/dev/null || true
+  echo "定时没挂上，已从任务板撤掉 #$id" >&2; exit 1; }
+echo "已挂：$at 回来，任务板 #$id"

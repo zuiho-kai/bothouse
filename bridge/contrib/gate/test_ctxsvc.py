@@ -20,11 +20,14 @@ def make_wiki(d):
 class T(unittest.TestCase):
     def setUp(self):
         self.old = ctxsvc.WIKI
+        # 这里只测 wiki 页；任务板注入在 test_board.py，置空免得读到本机默认 BOARD_DIR 的板子
+        self.old_board, ctxsvc.board = ctxsvc.board, None
         if ctxsvc.lead:  # 这里只测 wiki 页；主角色工作手册的注入在 test_lead_playbook.py
             self.old_pb, ctxsvc.lead.PLAYBOOK = ctxsvc.lead.PLAYBOOK, None
 
     def tearDown(self):
         ctxsvc.WIKI, ctxsvc._idx = self.old, None
+        ctxsvc.board = self.old_board
         if ctxsvc.lead:
             ctxsvc.lead.PLAYBOOK = self.old_pb
 

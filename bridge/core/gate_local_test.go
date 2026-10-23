@@ -163,6 +163,7 @@ func TestLocalGate_GateServiceWins(t *testing.T) {
 	e.SetGate(srv.URL, 1000, "reply")
 	msg := localMsg("暂停")
 	msg.Mentioned = true
+	e.gate.released[msg] = true // its burst window has passed (busy bots hold bursts too)
 	if !e.applyGate(p, msg, s, "k") {
 		t.Fatal("the gate said context: the message is buffered")
 	}

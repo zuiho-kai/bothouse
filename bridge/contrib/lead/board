@@ -1,0 +1,4 @@
+#!/bin/sh
+# 任务板命令：实现和用法见 ../gate/board.py（gate 不在 ../gate 时设 GATE_DIR）
+d=$(cd "$(dirname "$0")" && pwd)
+exec python3 -I "${GATE_DIR:-$d/../gate}/board.py" "$@"

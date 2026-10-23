@@ -410,3 +410,128 @@ func TestProgressCard_WaitLineSingleAndRemovedAfterSubAgent(t *testing.T) {
 		t.Fatal("turn did not end")
 	}
 }
+
+// latestSubTablePlatform also answers "is this table still the newest message
+// in the channel?"; handles in buried are not.
+type latestSubTablePlatform struct {
+	*subTablePlatform
+	lmu    sync.Mutex
+	buried map[string]bool
+	checks int
+}
+
+func (p *latestSubTablePlatform) IsLatestMessage(_ context.Context, h any) (bool, error) {
+	p.lmu.Lock()
+	defer p.lmu.Unlock()
+	p.checks++
+	k, _ := h.(string)
+	return !p.buried[k], nil
+}
+
+func (p *latestSubTablePlatform) bury(h string) {
+	p.lmu.Lock()
+	defer p.lmu.Unlock()
+	p.buried[h] = true
+}
+
+func (p *latestSubTablePlatform) checkCount() int {
+	p.lmu.Lock()
+	defer p.lmu.Unlock()
+	return p.checks
+}
+
+func newLatestSubTable(t *testing.T) (*latestSubTablePlatform, *subTaskSession) {
+	t.Helper()
+	p := &latestSubTablePlatform{subTablePlatform: newSubTablePlatform(), buried: map[string]bool{}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangChinese)
+	t.Cleanup(func() { _ = e.Stop() })
+	sess := newSubTaskSession()
+	state := &interactiveState{agentSession: sess, platform: p, replyCtx: "ctx-1"}
+	e.ensureSubTaskTable(state)
+	return p, sess
+}
+
+func tableStarts(p *latestSubTablePlatform) int {
+	return len(onlyPrefix(p.getPreviewStarts(), SubTaskTablePayloadPrefix))
+}
+
+// The table is still the newest message: a new row is edited in.
+func TestSubTaskTable_NewRowAtBottomEdits(t *testing.T) {
+	p, sess := newLatestSubTable(t)
+	a1 := SubTask{ID: "a1", Description: "一", Status: SubTaskRunning, StartedAt: time.Now()}
+	sess.set(1, a1)
+	waitSub(t, "first table", func() bool { return p.lastOn("h1") != nil })
+
+	a2 := SubTask{ID: "a2", Description: "二", Status: SubTaskRunning, StartedAt: time.Now()}
+	sess.set(1, a1, a2)
+	waitSub(t, "row edited in", func() bool { tab := p.lastOn("h1"); return tab != nil && len(tab.Tasks) == 2 })
+	if n := tableStarts(p); n != 1 {
+		t.Fatalf("table messages = %d, want 1", n)
+	}
+	if p.checkCount() == 0 {
+		t.Fatal("new row did not check whether the table is the newest message")
+	}
+}
+
+// Chat pushed the table up: a new row reposts the whole table at the bottom,
+// and the old one is never edited again.
+func TestSubTaskTable_NewRowWhenBuriedReposts(t *testing.T) {
+	p, sess := newLatestSubTable(t)
+	a1 := SubTask{ID: "a1", Description: "一", Status: SubTaskRunning, StartedAt: time.Now()}
+	sess.set(1, a1)
+	waitSub(t, "first table", func() bool { return p.lastOn("h1") != nil })
+	p.bury("h1")
+
+	a2 := SubTask{ID: "a2", Description: "二", Status: SubTaskRunning, StartedAt: time.Now()}
+	sess.set(1, a1, a2)
+	waitSub(t, "reposted table", func() bool { return p.lastOn("h2") != nil })
+	if tab := p.lastOn("h2"); len(tab.Tasks) != 2 || tab.Tasks[0].ID != "a1" || tab.Tasks[1].ID != "a2" {
+		t.Fatalf("new table rows = %+v, want a1,a2", tab.Tasks)
+	}
+	if tab := p.lastOn("h1"); len(tab.Tasks) != 1 {
+		t.Fatalf("old table got the new row: %+v", tab.Tasks)
+	}
+
+	// Later changes go to the new table only.
+	old := len(p.byHandle("h1"))
+	a2.Step = "Running go test"
+	sess.set(1, a1, a2)
+	waitSub(t, "step on new table", func() bool { return p.lastOn("h2").Tasks[1].Step == "Running go test" })
+	if n := len(p.byHandle("h1")); n != old {
+		t.Fatalf("old table edited after repost (%d -> %d)", old, n)
+	}
+	if n := tableStarts(p); n != 2 {
+		t.Fatalf("table messages = %d, want 2", n)
+	}
+}
+
+// Step updates never repost, even when the table is buried.
+func TestSubTaskTable_StepUpdateNeverReposts(t *testing.T) {
+	p, sess := newLatestSubTable(t)
+	a1 := SubTask{ID: "a1", Description: "一", Status: SubTaskRunning, StartedAt: time.Now()}
+	sess.set(1, a1)
+	waitSub(t, "first table", func() bool { return p.lastOn("h1") != nil })
+	p.bury("h1")
+
+	for _, s := range []string{"s1", "s2", "s3"} {
+		a1.Step = s
+		sess.set(1, a1)
+		want := s
+		waitSub(t, "step "+s, func() bool { return p.lastOn("h1").Tasks[0].Step == want })
+	}
+	a1.Status, a1.EndedAt = SubTaskCompleted, time.Now()
+	sess.set(1, a1)
+	waitSub(t, "completed", func() bool { return p.lastOn("h1").Tasks[0].Status == SubTaskCompleted })
+	if n := tableStarts(p); n != 1 {
+		t.Fatalf("table messages = %d, want 1 (step updates must not repost)", n)
+	}
+	if c := p.checkCount(); c != 0 {
+		t.Fatalf("latest-message checks = %d, want 0 for step updates", c)
+	}
+}
+
+func (p *subTablePlatform) byHandle(h string) []string {
+	p.hmu.Lock()
+	defer p.hmu.Unlock()
+	return append([]string(nil), p.byHand[h]...)
+}

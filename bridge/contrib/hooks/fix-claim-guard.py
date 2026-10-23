@@ -15,10 +15,30 @@ FIX_ASK = re.compile(r"修|bug|报错|错误|出错|坏了|挂了|失败|不对|
 SYS_BLOCK = ("（队友状态", "（可能相关的 wiki 页", "（频道里你上次看到之后的消息")
 HEADER = re.compile(r"^(?=.*\|)(?=.*入口)(?=.*(修复|核对)).*$", re.M)
 
+# 2026-10-23 误拦 3 次（用户要求「改成不拦」）：只有"我已修完"才算宣称，下面三种不算。
+# 1) 后面接将来/条件：「修好以后发新版时……」「修完再跑」「修完后」
+LATER = re.compile(r"\s*(以后|之后|后|再|才)")
+# 2) 同一分句里是将来/条件：「要等……修完」「还没……修好」「等到……修好」
+#    （单字"不/没"只看前 2 字，见 NEG；整分句里查会把「空间不够那一处也已经修完」这种真宣称放走）
+WHEN = re.compile(r"以后|之后|要等|等到|还没|尚未|待会")
+# 3) 讲别人做的：「发现已经有人先修好了」「龙娘说她修完了」「子 agent 修好了」
+#    橘自己报「也已经并行修完、推上去了」主语是自己，仍要拦。
+OTHER = re.compile(r"有人|别人|他人|她|队友|龙娘|鲸鱼娘|彩虹猫|子\s*agent|subagent|sub\b", re.I)
+CLAUSE_END = re.compile(r"[，,。.；;！!？?\n|：:]")
+
+def is_claim(text, m):
+    if NEG.search(text[max(0, m.start() - 2):m.start()]):  # "还没有修完""等修完再测"
+        return False
+    if LATER.match(text, m.end()):
+        return False
+    head = text[:m.start()]
+    ends = list(CLAUSE_END.finditer(head))
+    clause = head[ends[-1].end():] if ends else head
+    return not (WHEN.search(clause) or OTHER.search(clause))
+
 def claims(text):
     text = QUOTED.sub("", text)
-    # 否定只看前 2 个字："还没有修完""等修完再测"不算宣称
-    return any(not NEG.search(text[max(0, m.start() - 2):m.start()]) for m in CLAIM.finditer(text))
+    return any(is_claim(text, m) for m in CLAIM.finditer(text))
 
 def user_words(t):
     """从拼好的用户消息里取出用户自己说的话。"""

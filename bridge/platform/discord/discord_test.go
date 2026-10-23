@@ -1842,3 +1842,29 @@ func TestNewParsesGroupReplyAllChannels(t *testing.T) {
 		t.Fatalf("channels = %v", got)
 	}
 }
+
+func TestReferencedMessage_OnlyKnownOwnOutputCanShorten(t *testing.T) {
+	p := &Platform{botID: "self"}
+	ref := &discordgo.Message{ID: "post", ChannelID: "chan", Author: &discordgo.User{ID: "self", Username: "橘"}, Content: strings.Repeat("字", 90), Timestamp: time.Now()}
+	if p.messageReference(ref) != nil {
+		t.Fatal("unseen cron/status output must stay full")
+	}
+	p.turnSent.add("chan", "post")
+	proposal := p.messageReference(ref)
+	full, _ := applyReferencedMessage(ref, "request", nil, nil)
+	if proposal == nil || proposal.Full+"request" != full {
+		t.Fatal("sender wrapper changed")
+	}
+	if want := "[replying to 橘: " + strings.Repeat("字", 80) + "（你自己的上一条，已在上文）]\n"; proposal.Short != want {
+		t.Fatalf("short reference = %q", proposal.Short)
+	}
+	ref.Author.ID = "other"
+	if p.messageReference(ref) != nil {
+		t.Fatal("teammate reference shortened")
+	}
+	ref.Author.ID = "self"
+	ref.Timestamp = time.Time{}
+	if p.messageReference(ref) != nil {
+		t.Fatal("unknown timestamp shortened")
+	}
+}

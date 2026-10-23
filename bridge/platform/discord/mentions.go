@@ -2,6 +2,7 @@ package discord
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -101,35 +102,86 @@ func labelSelfMention(text, botID, botRoleID, name string) string {
 
 var codeFenceRe = regexp.MustCompile("(?s)```.*?```")
 
-// nameCalled reports whether a teammate's text addresses this bot by name without an @:
-// the name followed by vocative punctuation ("行了橘，…", "橘？"), or opening a line followed
-// by a space. A name inside a sentence ("橘说得对", "那橘你呢") is only talk about her.
-func nameCalled(text, botName string) bool {
-	if botName == "" {
+// nameCalled reports whether a teammate's text calls this bot by name without an @: a line that
+// opens with her name (alone or among teammates' names, "橘，…" / "龙娘、橘 你们看看"), followed by
+// the end, a space, vocative punctuation or a word that calls her ("橘你来", "橘帮我看"). The same
+// opening rule the gate uses for a person's message (contrib/gate gate.py LEADING); a name later
+// in the line ("行了橘，…", "这个鲸鱼娘你来看看") is talk about her, not a call — a bot naming a
+// teammate mid-sentence made her answer what was said to someone else (user 2026-10-23「我都艾特你了，
+// 他还在判断」). "说/在/呢/去" from LEADING are left out:
+// in a bot's line "橘说得对" / "橘在忙" are about her. Text inside ``` fences is ignored.
+func nameCalled(text, botName string, team ...string) bool {
+	mine := botNames(botName)
+	if len(mine) == 0 {
 		return false
 	}
+	all := append([]string(nil), mine...)
+	for _, n := range team {
+		all = append(all, botNames(n)...)
+	}
+	sort.Slice(all, func(i, j int) bool { return len(all[i]) > len(all[j]) }) // longest first: "Claude橘" before "橘"
 	text = codeFenceRe.ReplaceAllString(text, "")
+	for _, line := range strings.Split(text, "\n") {
+		rest, sep, me := strings.TrimSpace(line), "", false
+		for matched := true; matched; {
+			matched = false
+			for _, n := range all {
+				if strings.HasPrefix(rest, n) {
+					me = me || slices.Contains(mine, n)
+					after := rest[len(n):]
+					rest = strings.TrimLeft(after, " \t，,、和跟与/")
+					sep, matched = after[:len(after)-len(rest)], true
+					break
+				}
+			}
+		}
+		if me && callFollows(rest, sep) {
+			return true
+		}
+	}
+	return false
+}
+
+// teamBotNames lists the usernames of the other bots running in this process, so a line opening
+// "龙娘、橘，…" is read as calling both.
+func teamBotNames(selfID string) []string {
+	var names []string
+	teamPlatforms.Range(func(k, v any) bool {
+		id, _ := k.(string)
+		if p, _ := v.(*Platform); id != "" && id != selfID && p != nil && p.botName != "" {
+			names = append(names, p.botName)
+		}
+		return true
+	})
+	return names
+}
+
+// botNames is a bot's username and the same without its leading ASCII part ("Claude橘" → "橘").
+func botNames(botName string) []string {
+	if botName == "" {
+		return nil
+	}
 	names := []string{botName}
 	if short := strings.TrimLeftFunc(botName, func(r rune) bool { return r < unicode.MaxASCII }); short != "" && short != botName {
 		names = append(names, short)
 	}
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		for _, name := range names {
-			for i := strings.Index(line, name); i >= 0; {
-				rest := []rune(line[i+len(name):])
-				if len(rest) > 0 && strings.ContainsRune("，,：:！!？?、～~", rest[0]) {
-					return true
-				}
-				if i == 0 && (len(rest) == 0 || unicode.IsSpace(rest[0])) {
-					return true
-				}
-				j := strings.Index(line[i+len(name):], name)
-				if j < 0 {
-					break
-				}
-				i += len(name) + j
-			}
+	return names
+}
+
+// callFollows: what comes after the opening names makes it a call — the end of the line, a space
+// or vocative punctuation (sep is what was trimmed after the last name), or a calling word.
+var callWords = []string{"你", "帮", "来", "看", "快", "给", "过来", "出来", "有空"}
+
+func callFollows(rest, sep string) bool {
+	if rest == "" || strings.ContainsAny(sep, " \t，,、") {
+		return true
+	}
+	if strings.ContainsRune(":：!！?？~～.。", []rune(rest)[0]) {
+		return true
+	}
+	for _, w := range callWords {
+		if strings.HasPrefix(rest, w) {
+			return true
 		}
 	}
 	return false

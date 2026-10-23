@@ -59,6 +59,11 @@ type AgentReplyMarker interface {
 	MarkAgentReply(replyCtx any) any
 }
 
+// SessionAgentReplyMarker records delivered agent output in its owning context.
+type SessionAgentReplyMarker interface {
+	MarkSessionAgentReply(replyCtx any, record func(string)) any
+}
+
 // FinalReplyMarker is implemented by platforms that treat a turn's final answer differently from
 // its interim posts (maomao fork: a sub's final answer to lead-dispatched work pings the lead).
 type FinalReplyMarker interface {
@@ -88,8 +93,8 @@ func mergeInjectedReplies(p Platform, replyCtx any, injected []*injectedReply) a
 }
 
 // markFinalReply marks replyCtx as carrying the turn's final answer (and agent output).
-func markFinalReply(p Platform, replyCtx any) any {
-	replyCtx = markAgentReply(p, replyCtx)
+func markFinalReply(p Platform, replyCtx any, sessions ...*Session) any {
+	replyCtx = markAgentReply(p, replyCtx, sessions...)
 	if m, ok := p.(FinalReplyMarker); ok {
 		return m.MarkFinalReply(replyCtx)
 	}
@@ -97,7 +102,10 @@ func markFinalReply(p Platform, replyCtx any) any {
 }
 
 // markAgentReply marks replyCtx as carrying agent output when p supports it.
-func markAgentReply(p Platform, replyCtx any) any {
+func markAgentReply(p Platform, replyCtx any, sessions ...*Session) any {
+	if m, ok := p.(SessionAgentReplyMarker); ok && len(sessions) > 0 && sessions[0] != nil {
+		replyCtx = m.MarkSessionAgentReply(replyCtx, sessions[0].AgentReplyRecorder())
+	}
 	if m, ok := p.(AgentReplyMarker); ok {
 		return m.MarkAgentReply(replyCtx)
 	}

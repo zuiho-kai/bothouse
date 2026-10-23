@@ -82,3 +82,16 @@ func TestGateBufferContext_PreservesTeammateAttribution(t *testing.T) {
 		t.Fatal("gate classification input changed")
 	}
 }
+
+func TestIdentity_ConfigSwitchPreservesOtherBots(t *testing.T) {
+	e := newTestEngine()
+	e.SetTeam(t.TempDir(), "橘", false)
+	e.SetAgentIdentityEnabled(false)
+	if got := e.withAgentIdentity("request"); got != "request" {
+		t.Fatalf("identity still injected: %q", got)
+	}
+	e.SetAgentIdentityEnabled(true)
+	if got := e.withAgentIdentity("request"); !strings.Contains(got, "[Bridge identity — current responder]") {
+		t.Fatal("identity not restored")
+	}
+}
