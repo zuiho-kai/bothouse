@@ -42,7 +42,7 @@ Run `bothouse setup lead install --work-dir /path/to/role --agent codex`
 and sibling `gate/` files into `<data_dir>/collaboration` and adds absolute paths
 to the role persona. Re-running refreshes tools without duplicating that block;
 installed files you edited are skipped and listed unless you pass `--force`.
-Python 3 and zsh are required. Configure `GATE_TEAM` or
+Python 3 and a POSIX-compatible shell are required. Configure `GATE_TEAM` or
 `GATE_SETUP_DIR/gate-team.json`, `BOARD_DIR`, and platform credentials separately;
 the example team is only a template. The scripts are installed, not a gate service.
 
