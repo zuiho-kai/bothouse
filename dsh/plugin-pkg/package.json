@@ -1,0 +1,57 @@
+{
+  "name": "bothouse-dsh",
+  "version": "0.1.0",
+  "description": "BotHouse channels for DeepSeek Harness: Discord-style rooms where DSH models and local CLIs (Claude Code, Codex, Gemini) are members",
+  "type": "module",
+  "main": "./collab/plugin.mjs",
+  "exports": {
+    ".": "./collab/plugin.mjs",
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "keywords": ["dsh", "deepseek", "harness", "plugin", "bothouse"],
+  "repository": { "type": "git", "url": "https://github.com/zuiho-kai/bothouse", "directory": "dsh/plugin-pkg" },
+  "license": "Apache-2.0",
+  "files": [
+    "collab/*.mjs",
+    "collab/page.html",
+    "collab/avatars/*.png",
+    "client/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0",
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "pack": "node scripts/build.mjs && npm pack"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@zed-industries/claude-code-acp": "^0.16.2"
+  },
+  "optionalDependencies": {
+    "@agentclientprotocol/codex-acp": "^2.2.2"
+  }
+}

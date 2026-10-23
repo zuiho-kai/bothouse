@@ -207,6 +207,10 @@ var topLevelCommandHandlers = map[string]func([]string){
 		fmt.Print(ccconnect.ConfigExampleTOML)
 	},
 	"config": runConfig,
+	// Post-update self-check, started by the web update from the old (backup) binary.
+	core.UpdateGuardArg: func(_ []string) {
+		os.Exit(core.RunUpdateGuard())
+	},
 	"update": func(_ []string) {
 		runUpdate()
 	},
@@ -235,6 +239,10 @@ var topLevelCommandHandlers = map[string]func([]string){
 }
 
 func main() {
+	// First of all: a new version that did not pass its update self-check last start goes back to
+	// the old binary here, before anything that can make startup exit (flags, config, lock).
+	core.RecoverPendingUpdate(version)
+
 	// Agy hooks require stdout to contain only the final JSON decision. Handle
 	// this internal command before update checks, logging, or normal CLI setup.
 	if len(os.Args) > 1 && os.Args[1] == "_agy-permission-hook" {
@@ -322,6 +330,17 @@ func main() {
 	}
 	slog.Info("acquired instance lock", "path", instanceLock.Path())
 
+	// After an upgrade, bring ~/.bothouse/dsh plugin code up to this version (user files kept).
+	// In the background: when its dependencies changed it runs pnpm install, which must not hold
+	// up startup (the post-update self-check waits for /status).
+	go func() {
+		if refreshed, err := core.RefreshEmbeddedDSH("", version); err != nil {
+			slog.Warn("dsh plugin refresh failed", "error", err)
+		} else if refreshed {
+			slog.Info("dsh plugin code refreshed", "version", version)
+		}
+	}()
+
 	// conest: no config, or one without any bot ([[projects]]) — e.g. the [log]-only file an older
 	// `setup apply --dry-run` left behind → serve the setup wizard instead of asking for TOML.
 	// Same test as `cc-connect web` (needsSetup).
@@ -359,6 +378,8 @@ func main() {
 
 	// the self-hosted platform the setup wizard started on this machine (<data_dir>/hub/hub.json):
 	// start it again if it is not running (after a reboot); the cloud_web bots reconnect on their own
+	core.UpdateStateDir = cfg.DataDir
+	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
 	engines := make([]*core.Engine, 0, len(cfg.Projects))

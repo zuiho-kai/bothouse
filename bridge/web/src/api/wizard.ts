@@ -35,6 +35,8 @@ export interface WizardRole {
   project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
   provider?: { vendor: string; base_url?: string; api_key?: string; model?: string };
+  /** library persona slug / avatar slug; omitted = keep what setup state has, "" = clear */
+  persona_preset?: string; avatar?: string;
 }
 export interface WizardRequest {
   platform: 'discord' | 'feishu' | 'lark' | 'cloud_web'; language?: string;
@@ -105,3 +107,50 @@ export async function applyWizard(req: WizardRequest): Promise<WizardResult> {
   if (json.data) return json.data as WizardResult;
   throw new Error(json.error || `HTTP ${res.status}`);
 }
+
+export interface DSHStatus {
+  found: boolean; version?: string; plugin_installed: boolean; profile: string;
+  open_command: string; log?: string; has_deepseek_key?: boolean;
+}
+export const getDSHStatus = () => api.get<DSHStatus>('/setup/dsh/status');
+
+/** One line of the POST /setup/dsh/install NDJSON stream (core/setup_dsh_platform.go handleSetupDSHInstall). */
+export interface DSHInstallEvent { step?: string; line?: string; done?: boolean; status?: DSHStatus; error?: string; log?: string }
+
+/** Runs the plugin install, calling onEvent per streamed line; resolves with the final status or throws the readable error. */
+export async function installDSHPlugin(lang: string, onEvent: (e: DSHInstallEvent) => void): Promise<DSHStatus> {
+  const res = await fetch('/api/v1/setup/dsh/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {}) },
+    body: JSON.stringify({ lang }),
+  });
+  if (!res.ok || !res.body) {
+    const text = await res.text();
+    let msg = text;
+    try { msg = JSON.parse(text).error || text; } catch { /* plain-text body */ }
+    throw new Error(msg || `HTTP ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buf += dec.decode(value, { stream: !done });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (!line) continue;
+      const ev = JSON.parse(line) as DSHInstallEvent;
+      onEvent(ev);
+      if (ev.error) throw Object.assign(new Error(ev.error), { log: ev.log });
+      if (ev.done && ev.status) return ev.status;
+    }
+    if (done) throw new Error('install stream ended without a result');
+  }
+}
+
+export interface DSHMember { name: string; cli?: 'claude' | 'codex' | 'gemini'; persona?: string }
+export const configureDSH = (body: { deepseek_api_key?: string; members: DSHMember[] }) =>
+  api.post<{ key_saved: boolean; members_file: string; members: number }>('/setup/dsh/configure', body);
+export const openDSHWeb = () => api.post<{ url: string; pid: number; log: string }>('/setup/dsh/open', {});

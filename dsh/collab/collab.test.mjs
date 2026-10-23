@@ -5,7 +5,7 @@ import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX } from './cloudweb.mjs';
-import { DshMembers, finalText, describeReason } from './dsh-member.mjs';
+import { DshMembers, finalText, describeReason, friendlyFailure } from './dsh-member.mjs';
 import { resolveConfig } from './plugin.mjs';
 import { Roster } from './roster.mjs';
 import { promptText } from './dsh-member.mjs';
@@ -336,6 +336,8 @@ test('DSH member: a failed admission reports the error and leaves no stale watch
   const last = hub.store.page(1, undefined, 1)[0];
   assert.equal(last.author_kind, 'system');
   assert.match(last.text, /inbox closed/);
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /inbox closed/);
+  assert.equal(JSON.parse(last.card).action, 'configure-model');
   assert.equal(hub.thinking.get(1).has('ds'), false);
 });
 
@@ -619,4 +621,160 @@ test('cloud-web: a bot may not take a name another member already uses', () => {
   const ws = connect(gw, 'bot=imposter&name=DeepSeek');
   assert.equal(ws.of('register_ack')[0].ok, false);
   assert.equal(ws.closed.code, 4002);
+});
+
+test('roster: a local CLI member is created without a model check and survives reload', async () => {
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const llm = fakeLlm();
+  llm.resolveModelInfo = async () => { throw new Error('model check must be skipped for cli members'); };
+  const roster = new Roster(hub, members, llm);
+  roster.load([]);
+  const cc = await roster.create({ name: 'CC', cli: 'claude', persona: '本地' });
+  assert.deepEqual(cc, { id: 'cc', name: 'CC', cli: 'claude', persona: '本地', source: 'ui' });
+  assert.equal(hub.store.member('cc').cli, 'claude');
+  assert.equal(hub.memberView().find(m => m.id === 'cc').cli, 'claude');
+  await assert.rejects(roster.create({ name: 'Bad', cli: 'vim' }), /cli must be one of/);
+  const edited = await roster.update('cc', { name: 'CC', cli: 'codex' });
+  assert.equal(edited.cli, 'codex');
+  const reloaded = fakeDsh().attach(makeHubFrom(hub.store), []);
+  new Roster(reloaded.hub, reloaded, fakeLlm()).load([]);
+  assert.equal(reloaded.config.get('cc').cli, 'codex');
+});
+
+test('store: a v3 database gains the cli column and keeps its members', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v3.sqlite3');
+  const s = new Store(path);
+  s.addMember({ id: 'old', name: 'Old', model: { provider: 'relay', model: 'm1' } });
+  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; PRAGMA user_version = 3');
+  s.close();
+  const up = new Store(path);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(up.member('old').cli, null);
+  assert.equal(up.member('old').model, 'm1');
+  assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
+  assert.deepEqual(up.members().map(m => m.id), ['old', 'gm']);
+  up.close();
+});
+
+test('clis: detection lists installed CLIs in order; handler answers GET with [{cli, path}]', async () => {
+  const { detectClis, handler } = await import('./clis.mjs');
+  const paths = { codex: '/usr/local/bin/codex', claude: '/opt/bin/claude' };
+  const lookup = async name => paths[name];
+  assert.deepEqual(await detectClis(lookup), [{ cli: 'claude', path: '/opt/bin/claude' }, { cli: 'codex', path: '/usr/local/bin/codex' }]);
+  const res = { writeHead(status, headers) { this.status = status; this.headers = headers; }, end(body) { this.body = body; } };
+  await handler({ method: 'GET' }, res, lookup);
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(res.body), [{ cli: 'claude', path: '/opt/bin/claude' }, { cli: 'codex', path: '/usr/local/bin/codex' }]);
+  await handler({ method: 'POST' }, res, lookup);
+  assert.equal(res.status, 405);
+  const real = await detectClis();
+  for (const c of real) assert.ok(c.path.startsWith('/'), `real which gives absolute path for ${c.cli}`);
+});
+
+test('roster: wizard roles are imported once, existing names skipped', async () => {
+  const { mkdtempSync, writeFileSync, existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const file = join(dir, 'wizard-members.json');
+  writeFileSync(file, JSON.stringify({ members: [{ name: '橘', cli: 'claude', persona: '大姐头', avatar: 'orange' }, { name: 'DeepSeek' }, { name: '鲸鱼娘' }] }));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  roster.load([{ id: 'ds', name: 'DeepSeek' }]);
+  assert.deepEqual(await roster.importWizard(file), ['橘', '鲸鱼娘']);
+  const ju = hub.memberView().find(m => m.name === '橘');
+  assert.equal(members.config.get(ju.id).cli, 'claude');
+  assert.equal(members.config.get(ju.id).persona, '大姐头');
+  assert.equal(members.config.get(ju.id).avatar, 'orange');
+  assert.equal(existsSync(file), false);
+  assert.equal(existsSync(join(dir, 'wizard-members.imported.json')), true);
+  assert.deepEqual(await roster.importWizard(file), []);
+});
+
+
+test('member failure publishes actionable error and clears it on retry', () => {
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const trigger = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
+  const job = hub.store.addJob('ds', 1, trigger.id);
+  members.fail(job.id, 'No API key configured');
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /没有配置.*Key/);
+  assert.equal(hub.memberView().find(m => m.id === 'ds').online, false);
+  const notice = hub.store.page(1, undefined, 1)[0];
+  assert.equal(JSON.parse(notice.card).action, 'configure-model');
+  hub.setThinking(1, 'ds', true);
+  assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
+});
+
+test('member errors explain setup failures and publish error presence', () => {
+  assert.match(friendlyFailure('no API key configured'), /API Key/);
+  assert.match(friendlyFailure('model not found'), /模型暂时不可用/);
+  assert.match(friendlyFailure('CLI login required'), /登录/);
+  assert.match(friendlyFailure('process exited 1'), /CLI/);
+  assert.match(friendlyFailure('inbox closed'), /原始错误：inbox closed/);
+  const hub = makeHub();
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setError('ds', 'missing key');
+  assert.equal(hub.memberView().find(m => m.id === 'ds').error, 'missing key');
+  hub.setError('ds', undefined);
+  assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
+});
+
+test('store: a v4 database gains the avatar column and keeps its members', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v4.sqlite3');
+  const s = new Store(path);
+  s.addMember({ id: 'old', name: 'Old', cli: 'claude' });
+  s.db.exec('ALTER TABLE members DROP COLUMN avatar; PRAGMA user_version = 4');
+  s.close();
+  const up = new Store(path);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(up.member('old').avatar, null);
+  assert.equal(up.member('old').cli, 'claude');
+  assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
+  up.close();
+});
+
+test('avatars: members pick one of the five built-in avatars; it survives reload and reaches memberView', async () => {
+  const { AVATARS, avatarImage } = await import('./avatars.mjs');
+  assert.deepEqual(AVATARS, ['orange', 'whale', 'dragon', 'rainbow', 'lanxi']);
+  for (const slug of AVATARS) assert.equal(avatarImage(slug).subarray(1, 4).toString(), 'PNG');
+  assert.equal(avatarImage('../plugin'), undefined);
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  roster.load([{ id: 'ds', name: 'DeepSeek', avatar: 'whale' }]);
+  assert.equal(hub.memberView().find(m => m.id === 'ds').avatar, 'whale');
+  const cc = await roster.create({ name: 'CC', cli: 'claude', avatar: 'orange' });
+  assert.equal(cc.avatar, 'orange');
+  assert.equal(hub.memberView().find(m => m.id === 'cc').avatar, 'orange');
+  await assert.rejects(roster.create({ name: 'Bad', avatar: 'robot' }), /avatar must be one of/);
+  await assert.rejects(roster.create({ name: 'Bad', avatar: 'https://example.com/a.png' }), /avatar must be one of/);
+  const plain = await roster.update('cc', { name: 'CC', cli: 'claude', avatar: '' });
+  assert.equal(plain.avatar, undefined, 'clearing the avatar falls back to the initial badge');
+  assert.equal('avatar' in hub.memberView().find(m => m.id === 'cc'), false);
+  await roster.update('cc', { name: 'CC', cli: 'claude', avatar: 'dragon' });
+  const reloaded = fakeDsh().attach(makeHubFrom(hub.store), []);
+  new Roster(reloaded.hub, reloaded, fakeLlm()).load([]);
+  assert.equal(reloaded.hub.memberView().find(m => m.id === 'cc').avatar, 'dragon');
+  assert.throws(() => resolveConfig({ dataDir: '/d', workspacePath: '/w', dshMembers: [{ id: 'x', name: 'X', avatar: 'nope' }] }, {}), /avatar must be/);
+});
+
+test('cloud-web: a bot announces its avatar as a slug or http(s) URL; junk is dropped', () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  connect(gw, 'bot=ju&name=橘&avatar=orange');
+  connect(gw, 'bot=pack&name=Pack&avatar=' + encodeURIComponent('http://127.0.0.1:9820/api/v1/library/avatar-image/senpai'));
+  connect(gw, 'bot=junk&name=Junk&avatar=' + encodeURIComponent('javascript:alert(1)'));
+  const view = Object.fromEntries(hub.memberView().map(m => [m.id, m.avatar]));
+  assert.equal(view.ju, 'orange');
+  assert.equal(view.pack, 'http://127.0.0.1:9820/api/v1/library/avatar-image/senpai');
+  assert.equal(view.junk, undefined);
 });

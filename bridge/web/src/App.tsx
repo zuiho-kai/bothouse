@@ -9,6 +9,7 @@ import ChatList from '@/pages/Chat/ChatList';
 import ChatView from '@/pages/Chat/ChatView';
 import CronList from '@/pages/Cron/CronList';
 import SystemConfig from '@/pages/System/Config';
+import LibraryPage from './pages/Library/LibraryPage';
 import ProviderList from '@/pages/Providers/ProviderList';
 import SkillList from '@/pages/Skills/SkillList';
 import SetupWizard from '@/pages/Setup/SetupWizard';
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="chat" element={<ChatList />} />
         <Route path="chat/:name" element={<ChatView />} />
         <Route path="cron" element={<CronList />} />
+        <Route path="library" element={<LibraryPage />} />
         <Route path="system" element={<SystemConfig />} />
       </Route>
     </Routes>

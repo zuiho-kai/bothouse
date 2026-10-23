@@ -2,12 +2,16 @@
 // in the UI), UI members are created, edited and removed here. Names must be
 // unique across every channel member (DSH members and cc-connect bots alike)
 // because @-mentions are matched by name.
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { CollabError } from './store.mjs';
+import { checkAvatar } from './avatars.mjs';
 
 const MAX_NAME = 32;
 const MAX_PERSONA = 4000;
 const RESERVED = new Set(['owner', 'user', 'system']);
 const MODEL_LIST_TIMEOUT_MS = 5_000;
+/** Local CLI agents a member may run as (task spec 2026-10-23: cli: 'claude' | 'codex' | 'gemini'). */
+export const CLIS = ['claude', 'codex', 'gemini'];
 
 /** Store row → the member shape DshMembers and the hub use. */
 export function rowToMember(row) {
@@ -15,7 +19,9 @@ export function rowToMember(row) {
     id: row.id,
     name: row.name,
     ...(row.provider && row.model ? { model: { provider: row.provider, model: row.model } } : {}),
+    ...(row.cli ? { cli: row.cli } : {}),
     persona: row.persona ?? '',
+    ...(row.avatar ? { avatar: row.avatar } : {}),
     source: row.source,
   };
 }
@@ -37,6 +43,36 @@ export class Roster {
   load(configMembers) {
     this.store.transaction(() => { for (const m of configMembers) this.store.seedMember(m); });
     for (const row of this.store.members()) this.dsh.putMember(rowToMember(row));
+  }
+
+  /**
+   * Add the roles the setup wizard wrote (bridge core/setup_dsh_configure.go: {"members":[{name,cli?,persona?}]})
+   * as UI members, once: names already in the channel are skipped, then the file becomes *.imported.json.
+   * Returns the names added.
+   */
+  async importWizard(path, logger) {
+    if (!existsSync(path)) return [];
+    let members = [];
+    try {
+      members = JSON.parse(readFileSync(path, 'utf8'))?.members ?? [];
+    } catch (error) {
+      logger?.warn?.('conest-collab: cannot read %s: %s', path, error?.message ?? error);
+      return [];
+    }
+    const added = [];
+    for (const m of Array.isArray(members) ? members : []) {
+      const name = String(m?.name ?? '').trim();
+      if (this.hub.memberList().some(x => x.name.toLowerCase() === name.toLowerCase())) continue;
+      try {
+        const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
+        await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(avatar ? { avatar } : {}) });
+        added.push(name);
+      } catch (error) {
+        logger?.warn?.('conest-collab: wizard member %s not added: %s', name, error?.message ?? error);
+      }
+    }
+    renameSync(path, path.replace(/\.json$/, '') + '.imported.json');
+    return added;
   }
 
   /** Provider routes and their models, for the add-member picker. Slow or failing routes are reported, not fatal. */
@@ -90,6 +126,14 @@ export class Roster {
     if (clash !== undefined) throw new CollabError('conflict', `name ${name} is already used by ${clash.name}`);
     const persona = String(input?.persona ?? '');
     if (persona.length > MAX_PERSONA) throw new CollabError('invalid', `persona exceeds ${MAX_PERSONA} characters`);
+    let avatar;
+    try { avatar = checkAvatar(input?.avatar); } catch (error) { throw new CollabError('invalid', error.message); }
+    if (input?.cli != null) {
+      // A local CLI member brings its own model; no provider route to check.
+      const cli = String(input.cli);
+      if (!CLIS.includes(cli)) throw new CollabError('invalid', `cli must be one of ${CLIS.join(', ')}`);
+      return { name, persona, avatar, cli };
+    }
     let model;
     if (input?.model != null) {
       const provider = String(input.model.provider ?? '');
@@ -104,7 +148,7 @@ export class Roster {
       }
       model = { provider, model: id };
     }
-    return { name, persona, ...(model === undefined ? {} : { model }) };
+    return { name, persona, avatar, ...(model === undefined ? {} : { model }) };
   }
 
   /** A stable, unused member id derived from the name (ASCII) or a short random suffix. */

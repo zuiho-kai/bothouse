@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -189,6 +190,29 @@ func runUpdate() {
 		label += " (pre-release)"
 	}
 	fmt.Printf("New version available: %s → %s\n", version, label)
+
+	viaRunning := false
+	// bothouse is running: let it install the update itself, so the CLI gets the same
+	// self-check as the web button (restart, and put the old version back if the new one does not come up).
+	if sock := resolveSocketPath(""); fileExistsCmd(sock) {
+		err := updateViaRunning(sock, latest)
+		viaRunning = err == nil
+		if errors.Is(err, errNoRunningUpdate) {
+			// Leftover socket (bothouse was killed / crashed) or an older bothouse without /update:
+			// install directly below, as before this self-check existed.
+			fmt.Fprintf(os.Stderr, "Running bothouse cannot install the update (%v); installing directly.\n", err)
+		} else if err != nil {
+			fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if viaRunning {
+		if execPath, err := os.Executable(); err == nil {
+			syncNpmPackageVersion(core.BinaryFromBackupPath(execPath), strings.TrimPrefix(latest, "v"))
+		}
+		fmt.Printf("Updated to %s, bothouse is restarting. If the new version does not start, it goes back to %s by itself.\n", latest, version)
+		return
+	}
 
 	tmpFile, err := downloadUpdateAsset(downloadBase, latest)
 	if err != nil {
@@ -670,4 +694,38 @@ func syncNpmPackageVersion(execPath, newVer string) {
 	} else {
 		slog.Debug("update: synced npm package.json version", "old", oldVer, "new", newVer)
 	}
+}
+
+// errNoRunningUpdate: the running bothouse cannot take the update (socket dead, or a version
+// without /update); the CLI then installs directly.
+var errNoRunningUpdate = errors.New("no running bothouse to install the update")
+
+// updateViaRunning asks the running bothouse (local API socket, POST /update) to install tag
+// through its guarded update. Swappable in tests.
+var updateViaRunning = func(sockPath, tag string) error {
+	payload, _ := json.Marshal(map[string]string{"tag": tag})
+	resp, err := apiPost(sockPath, "/update", payload)
+	if err != nil {
+		// Nobody listening on the socket (stale file left by a crash or kill -9).
+		return fmt.Errorf("%w: contact running bothouse: %v", errNoRunningUpdate, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("%w: running bothouse has no /update (older version)", errNoRunningUpdate)
+	}
+	var body struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("running bothouse: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return fmt.Errorf("running bothouse: bad reply %q", raw)
+	}
+	if body.Status != "restarting" {
+		return fmt.Errorf("running bothouse: %s", body.Error)
+	}
+	return nil
 }

@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
+import { Avatar } from './Avatar.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -23,40 +24,27 @@ export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInject
 
 type T = TranslateNS<typeof NS>
 
-const PALETTE = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22']
+const CLI_TAG = { claude: 'kindClaude', codex: 'kindCodex', gemini: 'kindGemini' } as const
 
-function color(id: string): string {
-  let h = 7
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return PALETTE[h % PALETTE.length] as string
-}
-
-function Avatar({ id, name, small }: { id: string; name: string; small?: boolean }) {
-  return (
-    <span className={small === true ? `${css.avatar} ${css.avatarSmall}` : css.avatar} style={{ background: color(id) }} aria-hidden>
-      {(name || id).slice(0, 1)}
-    </span>
-  )
-}
-
-function KindTag({ kind, t }: { kind: ChannelMember['kind'] | undefined; t: T }) {
+function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cli?: ChannelMember['cli']; t: T }) {
+  if (cli !== undefined) return <span className={css.tag}>{t(CLI_TAG[cli])}</span>
   if (kind === 'dsh') return <span className={css.tag}>{t('kindDsh')}</span>
   if (kind === 'bot') return <span className={css.tag}>{t('kindBot')}</span>
   return null
 }
 
-function MessageRow({ message, member, t }: { message: ChannelMessage; member: ChannelMember | undefined; t: T }) {
-  let card: { title?: string; state?: string } | undefined
+function MessageRow({ message, member, t, onConfigure }: { message: ChannelMessage; member: ChannelMember | undefined; t: T; onConfigure: () => void }) {
+  let card: { title?: string; state?: string; action?: string } | undefined
   if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
   return (
     <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
-      <Avatar id={message.author} name={message.name} />
+      <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
       <div className={css.messageBody}>
         <div className={css.messageHead}>
           <span className={css.author}>{message.name}</span>
-          <KindTag kind={member?.kind} t={t} />
+          <KindTag kind={member?.kind} cli={member?.cli} t={t} />
           <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
         </div>
         {card === undefined
@@ -65,6 +53,7 @@ function MessageRow({ message, member, t }: { message: ChannelMessage; member: C
               <div className={css.card} data-state={card.state}>
                 <div className={css.cardTitle}>{card.title}</div>
                 <div className={css.text}>{message.text}</div>
+                {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
               </div>
             )}
       </div>
@@ -86,7 +75,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
     <>
       <h3 className={css.groupTitle}>{title}</h3>
       {members.map(m => (
-        <div key={m.id} className={m.online ? css.memberRow : `${css.memberRow} ${css.offline}`}>
+        <div key={m.id} className={`${css.memberRow} ${m.error ? css.memberFailed : m.online ? '' : css.offline}`}>
           <button
             type="button"
             className={css.member}
@@ -94,13 +83,13 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
             onClick={() => { onPick(m) }}
           >
             <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} small />
-              <span className={css.presence} />
+              <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+              <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />
             </span>
             <span className={css.memberText}>
-              <span className={css.memberName}>{m.name}<KindTag kind={m.kind} t={t} /></span>
-              <span className={css.memberStatus}>{busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
-              {m.kind === 'dsh' && (
+              <span className={css.memberName}>{m.name}<KindTag kind={m.kind} cli={m.cli} t={t} /></span>
+              <span className={css.memberStatus}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
+              {m.kind === 'dsh' && m.cli === undefined && (
                 <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
               )}
             </span>
@@ -124,7 +113,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
@@ -144,6 +133,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const pendingCaret = useRef<number | undefined>(undefined)
   // Member dialog: undefined closed, null adding, a member editing.
   const [dialog, setDialog] = useState<ChannelMember | null | undefined>(undefined)
+  const [modelsOpen, setModelsOpen] = useState(false)
+  const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
@@ -196,6 +187,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const pickFromList = (member: ChannelMember): void => {
+    setDrawer(undefined)
     const next = insertMention(draft, caret, member)
     setDraft(next.text, next.caret)
   }
@@ -268,8 +260,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   return (
-    <div className={css.page}>
-      <nav className={css.rooms} aria-label={t('rooms')}>
+    <div className={css.page} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
+      {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
+      <nav className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')}>
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
           <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
@@ -297,14 +290,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             type="button"
             className={r.id === state.roomId ? `${css.room} ${css.roomActive}` : css.room}
             aria-current={r.id === state.roomId}
-            onClick={() => { stickRef.current = true; void selectRoom(r.id) }}
+            onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
           >
             <span className={css.hash} aria-hidden>#</span>{r.name}
           </button>
         ))}
       </nav>
       <section className={css.chat}>
-        <header className={css.chatHead}><span className={css.hash} aria-hidden>#</span>{room?.name}</header>
+        <header className={css.chatHead}>
+          <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
+          <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
+        </header>
         <div
           ref={logRef}
           className={css.log}
@@ -315,9 +312,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
           }}
         >
+          {!state.members.some(m => m.kind !== 'human') && (
+            <div className={css.guide}>
+              <div>{t('guideNoMembers')}</div>
+              <button type="button" className={css.primaryButton} onClick={() => { setDialog(null) }}>{t('addMember')}</button>
+            </div>
+          )}
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} />)}
+            : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} onConfigure={() => { setModelsOpen(true) }} />)}
         </div>
         <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
         <div className={css.composer}>
@@ -341,13 +344,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                     onClick={() => { choose(m) }}
                   >
                     <span className={css.memberAvatar}>
-                      <Avatar id={m.id} name={m.name} small />
-                      {m.online && <span className={css.presence} />}
+                      <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+                      {m.online && <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />}
                     </span>
                     <span className={css.mentionName}>{m.name}</span>
-                    <KindTag kind={m.kind} t={t} />
+                    <KindTag kind={m.kind} cli={m.cli} t={t} />
                     <span className={css.mentionMeta}>
-                      {busy.has(m.id) ? t('working') : m.online ? `@${m.id}` : t('offline')}
+                      {m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? `@${m.id}` : t('offline')}
                     </span>
                   </div>
                 ))}
@@ -391,16 +394,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           </div>
         </div>
       </section>
-      <aside className={css.members}>
-        <button type="button" className={css.addMemberButton} onClick={() => { setDialog(null) }}>+ {t('addMember')}</button>
+      <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
+        <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
+      {modelsOpen && <div className={css.dialogBackdrop} onClick={() => { setModelsOpen(false) }}>
+        <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('configureModel')} onClick={event => { event.stopPropagation() }}>
+          <button type="button" className={css.secondaryButton} onClick={() => { setModelsOpen(false) }}>{t('close')}</button>
+          {renderSlot('settings.section', { close: () => { setModelsOpen(false) } }, { only: 'models' })}
+        </section>
+      </div>}
       {dialog !== undefined && (
         <MemberDialog
           member={dialog ?? undefined}
           listModels={listModels}
+          listClis={listClis}
           onSubmit={input => (dialog === null ? addMember(input) : updateMember(dialog.id, input))}
           onClose={() => { setDialog(undefined) }}
           t={t}

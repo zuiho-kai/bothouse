@@ -1,5 +1,6 @@
 {
   "nav": {
+    "library": "Biblioteca",
     "dashboard": "Panel",
     "projects": "Proyectos",
     "providers": "Proveedores",

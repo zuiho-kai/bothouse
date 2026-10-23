@@ -6,6 +6,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useThemeStore } from '@/store/theme';
 import { useAuthStore } from '@/store/auth';
+import { useLocation } from 'react-router-dom';
+import { wizardTexts } from '@/pages/Setup/texts';
 
 const languages = [
   { code: 'en', label: 'EN' },
@@ -19,7 +21,9 @@ const languages = [
 
 export default function Header() {
   const { t, i18n } = useTranslation();
-  const { theme, setTheme } = useThemeStore();
+  const { theme, resolved, setTheme } = useThemeStore();
+  const isSetup = useLocation().pathname === '/setup';
+  const T = wizardTexts(i18n.language);
   const logout = useAuthStore((s) => s.logout);
   const [spinning, setSpinning] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
@@ -63,6 +67,7 @@ export default function Header() {
         'bg-white/70 backdrop-blur-xl dark:bg-[rgba(0,0,0,0.72)]',
       )}
     >
+      {isSetup && <span className="mr-auto text-base font-bold tracking-tight text-gray-900 dark:text-white">bothouse<span className="text-accent">.</span></span>}
       <button type="button" onClick={handleRefresh} className={btnCls} aria-label={t('common.refresh')}>
         <RefreshCw size={16} className={spinning ? 'animate-spin' : ''} />
       </button>
@@ -99,8 +104,11 @@ export default function Header() {
       </div>
 
       {/* Theme */}
-      <button type="button" onClick={() => setTheme(nextTheme[theme])} className={btnCls} aria-label="Theme">
+      <button type="button" onClick={() => setTheme(isSetup ? (resolved === 'dark' ? 'light' : 'dark') : nextTheme[theme])}
+        className={cn(btnCls, isSetup && 'flex items-center gap-2 text-xs border border-gray-200 dark:border-white/10')}
+        aria-label={isSetup ? T.switchStyle : 'Theme'} data-testid="theme-toggle">
         <ThemeIcon size={16} />
+        {isSetup && <span>{resolved === 'dark' ? T.lightStyle : T.darkStyle}</span>}
       </button>
 
       {/* Logout */}

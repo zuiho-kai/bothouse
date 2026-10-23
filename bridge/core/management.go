@@ -218,6 +218,7 @@ func (m *ManagementServer) Start() {
 			slog.Error("management api server error", "error", err)
 		}
 	}()
+	activeMgmt.Store(m)
 	slog.Info("management api started", "port", m.port)
 }
 
@@ -227,6 +228,9 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// System
 	mux.HandleFunc(prefix+"/status", m.wrap(m.handleStatus))
 	mux.HandleFunc(prefix+"/restart", m.wrap(m.handleRestart))
+	mux.HandleFunc(prefix+"/update", m.wrap(m.handleUpdate))
+	mux.HandleFunc(prefix+"/update/apply", m.wrap(m.handleUpdateApply))
+	mux.HandleFunc(prefix+"/update/ack", m.wrap(m.handleUpdateAck))
 	mux.HandleFunc(prefix+"/reload", m.wrap(m.handleReload))
 	mux.HandleFunc(prefix+"/config", m.wrap(m.handleConfig))
 	mux.HandleFunc(prefix+"/settings", m.wrap(m.handleGlobalSettings))
@@ -251,6 +255,10 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/weixin/save", m.wrap(m.handleSetupWeixinSave))
 
 	// Setup wizard (conest): local CLIs, API×CLI matrix, Discord/Feishu pickers, 自建平台 (cloud_web) local hub + test, jev test, one-shot apply
+	mux.HandleFunc(prefix+"/setup/dsh/status", m.wrap(m.handleSetupDSHStatus))
+	mux.HandleFunc(prefix+"/setup/dsh/install", m.wrap(m.handleSetupDSHInstall))
+	mux.HandleFunc(prefix+"/setup/dsh/configure", m.wrap(m.handleSetupDSHConfigure))
+	mux.HandleFunc(prefix+"/setup/dsh/open", m.wrap(m.handleSetupDSHOpen))
 	mux.HandleFunc(prefix+"/setup/state", m.wrap(m.handleSetupState))
 	mux.HandleFunc(prefix+"/setup/clis", m.wrap(m.handleSetupCLIs))
 	mux.HandleFunc(prefix+"/setup/matrix", m.wrap(m.handleSetupMatrix))
@@ -266,6 +274,9 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/jev/test", m.wrap(m.handleSetupJevTest))
 	mux.HandleFunc(prefix+"/setup/jev/save", m.wrap(m.handleSetupJevSave))
 	mux.HandleFunc(prefix+"/setup/apply", m.wrap(m.handleSetupApply))
+
+	// Avatar / persona library (packs)
+	m.registerLibraryRoutes(mux, prefix)
 
 	// Global Providers
 	mux.HandleFunc(prefix+"/providers", m.wrap(m.handleGlobalProviders))

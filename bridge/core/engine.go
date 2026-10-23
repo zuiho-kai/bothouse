@@ -110,6 +110,8 @@ var ErrAttachmentSendDisabled = errors.New("attachment send is disabled by confi
 type RestartRequest struct {
 	SessionKey string `json:"session_key"`
 	Platform   string `json:"platform"`
+	// Text replaces the "restart successful" message (the update self-check sets it on rollback).
+	Text string `json:"text,omitempty"`
 }
 
 type replyFooterUsageKey struct {
@@ -301,9 +303,12 @@ func (e *Engine) dispatchRestartNotify(req *RestartRequest) error {
 	if err != nil {
 		return fmt.Errorf("reconstruct reply ctx: %w", err)
 	}
-	text := e.i18n.T(MsgRestartSuccess)
-	if CurrentVersion != "" {
-		text += fmt.Sprintf(" (%s)", CurrentVersion)
+	text := req.Text
+	if text == "" {
+		text = e.i18n.T(MsgRestartSuccess)
+		if CurrentVersion != "" {
+			text += fmt.Sprintf(" (%s)", CurrentVersion)
+		}
 	}
 
 	backoffs := []time.Duration{0, 500 * time.Millisecond, 1500 * time.Millisecond}
@@ -16413,7 +16418,7 @@ func (e *Engine) cmdUpgradeConfirm(p Platform, msg *Message) {
 	}
 
 	useGitee := e.i18n.IsZhLike()
-	release, err := CheckForUpdate(cur, useGitee)
+	release, err := updateCheckFn(cur, useGitee)
 	if err != nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err))
 		return
@@ -16422,24 +16427,30 @@ func (e *Engine) cmdUpgradeConfirm(p Platform, msg *Message) {
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgUpgradeUpToDate), cur))
 		return
 	}
+	if !updateMu.TryLock() {
+		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, "update already in progress"))
+		return
+	}
+	defer updateMu.Unlock()
 
 	e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgUpgradeDownloading), release.TagName))
 
-	if err := SelfUpdate(release.TagName, useGitee); err != nil {
+	if err := selfUpdateFn(release.TagName, useGitee); err != nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err))
+		return
+	}
+
+	// Same self-check as the web update; a rollback is reported back to this chat.
+	req := RestartRequest{SessionKey: msg.SessionKey, Platform: p.Name()}
+	if err := armUpdateGuard(activeMgmt.Load(), release.TagName, &req); err != nil {
+		e.reply(p, msg.ReplyCtx, fmt.Sprintf("新版 %s 没能启动自检，已退回 %s：%v", release.TagName, cur, err))
 		return
 	}
 
 	e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgUpgradeSuccess), release.TagName))
 
 	// Auto-restart to apply the update
-	select {
-	case RestartCh <- RestartRequest{
-		SessionKey: msg.SessionKey,
-		Platform:   p.Name(),
-	}:
-	default:
-	}
+	requestRestart(req)
 }
 
 func (e *Engine) cmdConfigReload(p Platform, msg *Message) {

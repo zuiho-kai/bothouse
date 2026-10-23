@@ -1,9 +1,10 @@
 // cc-connect cloud_web gateway (server side of bridge/platform/cloud-web, WS
 // transport). Ported from role-household/rh/cloudweb.py so a cc-connect
 // project configured for the role-household hub connects here unchanged:
-//   ws(s)://<host>/cloud-web/ws?bot=<member id>&name=<display>&mention_id=<digits>
+//   ws(s)://<host>/cloud-web/ws?bot=<member id>&name=<display>&mention_id=<digits>&avatar=<slug|http(s) URL>
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
+import { checkAvatar } from './avatars.mjs';
 import { MAX_TEXT, publicMessage } from './store.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
@@ -126,7 +127,10 @@ export class CloudWebGateway {
       return undefined;
     }
     const mentionId = url.searchParams.get('mention_id') ?? '';
-    const member = { id, name, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true };
+    // avatar=<built-in slug> or an http(s) image URL (cc-connect's own library); anything else falls back to the initial badge.
+    let avatar = '';
+    try { avatar = checkAvatar(url.searchParams.get('avatar'), { allowUrl: true }); } catch { avatar = ''; }
+    const member = { id, name, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}) };
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);

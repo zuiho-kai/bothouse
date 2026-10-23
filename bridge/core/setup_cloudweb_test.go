@@ -96,7 +96,7 @@ func TestCloudWebWSBase(t *testing.T) {
 	if got := cloudWebPageURL("wss://example.com/hub/cloud-web/ws"); got != "https://example.com/hub/" {
 		t.Errorf("page url = %q", got)
 	}
-	if got := cloudWebBotURL("wss://h/cloud-web/ws", "juzi", "橘", "123"); got != "wss://h/cloud-web/ws?bot=juzi&name=%E6%A9%98&mention_id=123" {
+	if got := cloudWebBotURL("wss://h/cloud-web/ws", "juzi", "橘", "123", ""); got != "wss://h/cloud-web/ws?bot=juzi&name=%E6%A9%98&mention_id=123" {
 		t.Errorf("bot url = %q", got)
 	}
 }

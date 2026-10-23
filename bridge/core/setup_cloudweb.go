@@ -124,8 +124,9 @@ func cloudWebPageURL(wsBase string) string {
 }
 
 // cloudWebBotURL is the ws_url of one role: ?bot=<project>&name=<display name>[&mention_id=<Discord bot ID>]
-// (rh/cloudweb.py 文件头「连接」). mention_id lets teammates' <@id> written for Discord @ it on the hub too.
-func cloudWebBotURL(wsBase, project, name, mentionID string) string {
+// [&avatar=<default-library slug or picture URL>] (rh/cloudweb.py 文件头「连接」). mention_id lets
+// teammates' <@id> written for Discord @ it on the hub too.
+func cloudWebBotURL(wsBase, project, name, mentionID, avatar string) string {
 	// written by hand rather than url.Values.Encode (which sorts keys): bot first, like the hand-made configs
 	q := "bot=" + url.QueryEscape(project)
 	if name != "" && name != project {
@@ -134,7 +135,26 @@ func cloudWebBotURL(wsBase, project, name, mentionID string) string {
 	if mentionID != "" {
 		q += "&mention_id=" + url.QueryEscape(mentionID)
 	}
+	if avatar != "" {
+		q += "&avatar=" + url.QueryEscape(avatar)
+	}
 	return wsBase + "?" + q
+}
+
+// cloudWebAvatar: the hub's avatar param for a library picture — the slug when it is a picture of
+// the default pack (the hub ships those five), else its URL on this management page.
+func cloudWebAvatar(dataDir, host, slug string) string {
+	if slug == "" {
+		return ""
+	}
+	_, pack, ok := LibraryAvatarImage(dataDir, slug)
+	if (ok && pack == LibraryDefaultPack) || (!ok && IsAvatar(slug)) {
+		return slug
+	}
+	if !ok || host == "" {
+		return ""
+	}
+	return "http://" + host + "/api/v1/library/avatar-image/" + url.PathEscape(slug)
 }
 
 // sameCloudWebHub: two addresses lead to the same platform (scheme, host and path; query ignored).

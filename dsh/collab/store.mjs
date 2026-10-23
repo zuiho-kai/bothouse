@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 5;
 
 export class Store {
   constructor(path) {
@@ -42,13 +42,13 @@ export class Store {
       createRoom: this.db.prepare('INSERT INTO rooms (name) VALUES (?) RETURNING id, name'),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
-      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, persona, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, 'config', ?, 0)
+      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, provider = excluded.provider, model = excluded.model,
-          persona = excluded.persona, source = 'config', removed = 0`),
-      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, persona, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
-      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, persona = ?
+          cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, source = 'config', removed = 0`),
+      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
+      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?
         WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *`),
       removeMember: this.db.prepare("UPDATE members SET removed = 1 WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *"),
     };
@@ -71,6 +71,10 @@ export class Store {
         created_at REAL NOT NULL,
         removed INTEGER NOT NULL DEFAULT 0)`);
     }
+    // v4: a member may be a local CLI agent (claude | codex | gemini) instead of a model route.
+    if (from < 4) this.db.exec('ALTER TABLE members ADD COLUMN cli TEXT');
+    // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
+    if (from < 5) this.db.exec('ALTER TABLE members ADD COLUMN avatar TEXT');
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -133,14 +137,14 @@ export class Store {
   member(id) { return this.q.member.get(id); }
   /** Upsert a config member; config always wins for its own ids. */
   seedMember(m, now = Date.now() / 1000) {
-    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.persona ?? '', now);
+    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, now);
   }
   addMember(m, now = Date.now() / 1000) {
-    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.persona ?? '', now);
+    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
   updateMember(id, m) {
-    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.persona ?? '', id);
+    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
   room(id) { return this.q.room.get(id); }

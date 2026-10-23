@@ -32,3 +32,4 @@ bridge/internal/rhhub/src/rh/
 
 # vitest cache from running dsh/vitest.config.mjs at the repo root
 node_modules/
+/dsh/packages/client-ui-discord/node_modules

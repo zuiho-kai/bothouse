@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -36,6 +37,7 @@ type ReleaseInfo struct {
 	Body       string `json:"body"`
 	Prerelease bool   `json:"prerelease"`
 	CreatedAt  string `json:"created_at"`
+	HTMLURL    string `json:"html_url"`
 }
 
 // CheckForUpdate queries GitHub/Gitee for newer releases.
@@ -126,6 +128,12 @@ func fetchReleasesFrom(apiURL string) ([]ReleaseInfo, error) {
 	return releases, nil
 }
 
+// Update failure kinds, so the web page can say why in plain words (errors.Is).
+var (
+	ErrUpdateDownload = errors.New("download failed")
+	ErrUpdateChecksum = errors.New("checksum mismatch")
+)
+
 // SelfUpdate downloads and installs the given release version.
 // If preferGitee is true, tries Gitee download first.
 func SelfUpdate(tag string, preferGitee bool) error {
@@ -193,7 +201,7 @@ func DownloadReleaseAsset(bases []string, tag, goos, goarch string) ([]byte, str
 			}
 			sums, err := downloadFile(from + checksumName)
 			if err != nil {
-				return nil, "", fmt.Errorf("download %s: %w", checksumName, err)
+				return nil, "", fmt.Errorf("%w: %s: %w", ErrUpdateDownload, checksumName, err)
 			}
 			if err := VerifyReleaseChecksum(data, sums, filename); err != nil {
 				return nil, "", err
@@ -201,7 +209,7 @@ func DownloadReleaseAsset(bases []string, tag, goos, goarch string) ([]byte, str
 			return data, filename, nil
 		}
 	}
-	return nil, "", fmt.Errorf("download failed from all sources: %w", lastErr)
+	return nil, "", fmt.Errorf("%w from all sources: %w", ErrUpdateDownload, lastErr)
 }
 
 // ExtractReleaseBinary accepts the release's native format and legacy archives.
@@ -342,6 +350,7 @@ func replaceBinary(newBinary []byte) error {
 
 	RemoveBinaryBackups(execPath)
 	oldPath := BinaryBackupPath(execPath)
+	lastBinaryBackup = ""
 
 	if err := os.Rename(execPath, oldPath); err != nil {
 		os.Remove(tmpPath)
@@ -359,6 +368,7 @@ func replaceBinary(newBinary []byte) error {
 	// Don't remove the backup now: the running process may still need it for os.Executable()
 	// to work correctly after restart. RemoveBinaryBackups clears it on the next update.
 
+	lastBinaryBackup = oldPath
 	slog.Info("updater: binary replaced successfully", "path", execPath)
 	return nil
 }
@@ -444,11 +454,11 @@ func VerifyReleaseChecksum(data, checksums []byte, name string) error {
 		}
 	}
 	if want == "" {
-		return fmt.Errorf("checksum: %s is not listed in checksums.txt; not installing it", name)
+		return fmt.Errorf("%w: %s is not listed in checksums.txt; not installing it", ErrUpdateChecksum, name)
 	}
 	sum := sha256.Sum256(data)
 	if got := hex.EncodeToString(sum[:]); got != want {
-		return fmt.Errorf("checksum mismatch for %s (got %s, want %s); not installing it", name, got, want)
+		return fmt.Errorf("%w for %s (got %s, want %s); not installing it", ErrUpdateChecksum, name, got, want)
 	}
 	return nil
 }

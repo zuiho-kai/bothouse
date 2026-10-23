@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, Loader2, MessageSquare, Plus, RefreshCw, Smartphone, Trash2, XCircle } from 'lucide-react';
+import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, House, Loader2, Puzzle, MessageSquare, Plus, RefreshCw, Smartphone, Trash2, XCircle } from 'lucide-react';
+import { useThemeStore } from '@/store/theme';
+import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
 import PlatformSetupQR from '@/pages/Projects/PlatformSetupQR';
 import { restartSystem } from '@/api/status';
 import {
-  applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getPersonas, getSetupState, listChannels, listFeishuChats,
+  applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
   startLocalHub, testCloudWeb, testJev, saveJev,
-  type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell, type PersonaPreset,
+  type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
-import { isZhLang, keptLangLabel, langLabel, replyLangOptions, stepLabel, wizardTexts } from './texts';
+import DSHSetup from './DSHSetup';
+import { PersonaLibrary, useLibrary } from '@/components/library';
+import type { LibraryPersona } from '@/api/library';
+import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
 
 interface RoleDraft {
   key: number;
@@ -25,6 +30,9 @@ interface RoleDraft {
   useProvider: boolean;
   provider: { vendor: string; base_url: string; api_key: string; model: string };
   persona: string;
+  // library picks: undefined = not touched (the server keeps what it has); '' = cleared
+  personaSlug?: string;
+  avatar?: string;
   reply_language: string;
   replyTouched?: boolean; // picked by hand for this role: the language picker no longer changes it
   // existing bot (reuse_project): its persona file is only written when editPersona is ticked
@@ -49,6 +57,10 @@ const selectCls = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-300 da
 let keySeq = 1;
 
 export default function SetupWizard() {
+  useEffect(() => {
+    // Also cover entering setup from an already-open management page.
+    if (!localStorage.getItem('cc_theme')) useThemeStore.getState().setTheme('light');
+  }, []);
   const { i18n } = useTranslation();
   const lang = i18n.language || 'en';
   const zh = isZhLang(lang);
@@ -57,7 +69,8 @@ export default function SetupWizard() {
   const sysReply = lang;
 
   const [step, setStep] = useState(0);
-  const [platform, setPlatform] = useState<'discord' | 'feishu' | 'cloud_web'>('discord');
+  const [picked, setPlatform] = useState<'discord' | 'feishu' | 'cloud_web' | 'dsh'>('discord');
+  const platform = picked;
   // 自建平台 (cloud_web): the hub on this machine, or someone else's (address + token, tested)
   const [hub, setHub] = useState<LocalHubStatus | null>(null);
   const [hubBusy, setHubBusy] = useState<'' | 'detect' | 'start'>('');
@@ -69,7 +82,8 @@ export default function SetupWizard() {
   const [clis, setClis] = useState<LocalCLI[] | null>(null);
   const [vendors, setVendors] = useState<WizardVendor[]>([]);
   const [matrix, setMatrix] = useState<MatrixCell[]>([]);
-  const [presets, setPresets] = useState<PersonaPreset[]>([]);
+  const LT = libraryTexts(lang);
+  const { lib, error: libError, reload: reloadLib } = useLibrary(lang);
   const [existing, setExisting] = useState<ExistingBot[]>([]);
   const newRole = useCallback((): RoleDraft => ({
     key: keySeq++, token: '', agent_type: '', useProvider: false,
@@ -108,7 +122,6 @@ export default function SetupWizard() {
   }, [lang]);
   // refresh the jev hint with the fallback bot's name when reaching the jev step
   useEffect(() => { if (step === 5) getSetupState(lang, fallbackName).then(setState).catch(() => {}); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { getPersonas(lang).then((r) => setPresets(r.presets)).catch(() => {}); }, [lang]);
 
   // default CLI: first installed one that is logged in, else first supported
   const defaultAgent = useMemo(() => {
@@ -260,7 +273,7 @@ export default function SetupWizard() {
       }
     }, 800); // 来源：输入停顿后再测，免得每敲一个字发一次请求（无数据依据的交互延迟，可改）
     return () => window.clearTimeout(jevTimer.current);
-  }, [jev.base_url, jev.api_key, jev.model, lang, fallbackName, jevUnchanged]);
+  }, [jev, lang, fallbackName, jevUnchanged]);
 
   // 下一步 on the jev step: unchanged → keep; empty → remove; tested usable → save. 跳过 → remove.
   // 下一步 / 跳过 never remove a working jev: skipping (or leaving the boxes empty) keeps the one in
@@ -289,6 +302,7 @@ export default function SetupWizard() {
 
   // ── request ──
   const buildRequest = (maskSecrets = false): WizardRequest => {
+    if (platform === 'dsh') throw new Error('DSH uses the plugin installer');
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
     const req: WizardRequest = {
       platform: platform === 'feishu' ? ((feishu?.platform_type as 'feishu' | 'lark') || 'feishu') : platform,
@@ -300,6 +314,8 @@ export default function SetupWizard() {
         agent_type: r.agent_type,
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
+        ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
+        ...(r.avatar !== undefined ? { avatar: r.avatar } : {}),
         ...(r.useProvider ? { provider: { vendor: r.provider.vendor, base_url: r.provider.base_url || undefined,
           api_key: mask(r.provider.api_key, '<API_KEY>'), model: r.provider.model || undefined } } : {}),
       })),
@@ -386,13 +402,35 @@ export default function SetupWizard() {
     c.login === 'logged_in' ? <Badge variant="success">{T.loggedIn}</Badge>
       : c.login === 'not_logged_in' ? <Badge variant="warning">{T.notLoggedIn}</Badge> : <Badge>{T.unknownLogin}</Badge>;
 
+  if (picked === 'dsh' && step > 0) return <DSHSetup lang={lang} onBack={() => setStep(0)} />;
+
   return (
-    <div className="animate-fade-in space-y-4 max-w-3xl" data-testid="setup-wizard">
+    <div className="setup-wizard animate-fade-in space-y-6 w-full max-w-4xl mx-auto" data-testid="setup-wizard">
+      <div className="setup-welcome">
+        <span className="setup-home" aria-hidden="true"><House size={26} strokeWidth={1.7} /></span>
+        <p className="setup-eyebrow">{T.welcomeEyebrow}</p>
+        <h1>{T.welcomeTitle}</h1>
+        <p className="setup-intro">{T.welcomeIntro}</p>
+        <div className="setup-team" aria-label={T.teamCliNames}>
+          {[
+            { src: '/avatars/orange.png', name: 'Claude' },
+            { src: '/avatars/dragon.png', name: 'Codex' },
+            { src: '/avatars/rainbow.png', name: 'Gemini' },
+            { src: '/avatars/whale.png', name: 'DSH (DeepSeek Harness)' },
+            { src: '/avatars/lanxi.png', name: 'MiniMax' },
+          ].map(({ src, name }) => (
+            <span key={name} title={name}>
+              <img src={src} alt={name} width={42} height={42} />
+              <small>{name.startsWith('DSH') ? 'DSH' : name}</small>
+            </span>
+          ))}
+        </div>
+      </div>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">{T.title}</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{T.subtitle}</p>
-          {roles.some((r) => !keptLang(r)) && (
+          <p className="text-sm text-gray-500 dark:text-gray-400">{picked === 'dsh' ? (zh ? '检测 dsh → 安装插件 → 打开 DSH 网页。角色、CLI 和人设在 DSH 页面上配置。' : 'Detect dsh → install plugins → open DSH web. Configure roles, CLIs and personas in DSH.') : T.subtitle}</p>
+          {picked !== 'dsh' && roles.some((r) => !keptLang(r)) && (
             <p className="text-sm text-gray-700 dark:text-gray-300 mt-1" data-testid="reply-lang-line">{T.replyLangLine}<b>{langLabel(lang)}</b><span className="text-xs text-gray-500">{T.replyLangHow}</span></p>
           )}
           {keptRoles.length > 0 && (
@@ -405,29 +443,29 @@ export default function SetupWizard() {
       </div>
 
       {/* stepper */}
-      <div className="flex flex-wrap gap-1.5">
-        {visibleSteps.map((s, i) => (
-          <span key={s} className={`px-2.5 py-1 rounded-full text-xs ${s === step ? 'bg-accent text-white dark:text-black' : i < pos ? 'bg-accent/15 text-accent' : 'bg-gray-100 dark:bg-white/[0.06] text-gray-500'}`}>
+      <div className="setup-steps flex flex-wrap gap-1.5" aria-label={T.title}>
+        {(picked === 'dsh' ? [0] : visibleSteps).map((s, i) => (
+          <span key={s} aria-current={s === step ? 'step' : undefined} className={`px-2.5 py-1 rounded-full text-xs ${s === step ? 'bg-accent text-white dark:text-black' : i < pos ? 'bg-accent/15 text-accent' : 'bg-gray-100 dark:bg-white/[0.06] text-gray-500'}`}>
             {i + 1}. {T.steps[s]}
           </span>
         ))}
       </div>
 
-      <Card className="space-y-4 text-gray-800 dark:text-gray-200">
+      <Card className="setup-card space-y-6 text-gray-800 dark:text-gray-200">
         {/* 0 platform */}
         {step === 0 && (
           <div className="space-y-3">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{T.platformQ}</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([['discord', 'Discord', T.discordDesc, MessageSquare], ['feishu', zh ? '飞书 / Lark' : 'Feishu / Lark', T.feishuDesc, Smartphone],
-                ['cloud_web', T.cloudWebLabel, T.cloudWebDesc, Globe]] as const).map(([k, label, desc, Icon]) => (
-                <button key={k} data-testid={`platform-${k}`} onClick={() => {
+                ['dsh', 'DSH', T.dshDesc, Puzzle], ['cloud_web', T.cloudWebLabel, T.cloudWebDesc, Globe]] as const).map(([k, label, desc, Icon]) => (
+                <button key={k} aria-pressed={picked === k} data-testid={`platform-${k}`} onClick={() => {
                   setPlatform(k);
                   if (k === 'feishu') setRoles((rs) => rs.slice(0, 1));
-                  if (k === 'cloud_web') setRoles((rs) => rs.map((r, i) => (i === 0 && !r.name && !r.reuse_project ? { ...r, name: T.cwDefaultName } : r)));
+                  if (k === 'cloud_web' || k === 'dsh') setRoles((rs) => rs.map((r, i) => (i === 0 && !r.name && !r.reuse_project ? { ...r, name: T.cwDefaultName } : r)));
                 }}
-                  className={`text-left p-4 rounded-xl border transition-all ${platform === k ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
-                  <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white"><Icon size={16} />{label}{platform === k && <Check size={14} className="text-accent" />}</div>
+                  className={`setup-platform text-left p-4 rounded-xl border transition-all ${picked === k ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
+                  <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white"><Icon size={16} />{label}{picked === k && <Check size={14} className="text-accent" />}</div>
                   <p className="text-xs text-gray-500 mt-1">{desc}</p>
                 </button>
               ))}
@@ -693,13 +731,14 @@ export default function SetupWizard() {
                 )}
                 {(!r.reuse_project || r.editPersona) ? (
                   <>
-                    <div className="flex flex-wrap gap-1.5">
-                      {presets.map((p) => (
-                        <Button key={p.id} size="sm" variant="secondary" onClick={() => patchRole(r.key, { persona: p.text })} data-testid={`preset-${idx}-${p.id}`}>
-                          {p.name}<span className="opacity-60">· {p.model}</span>{p.new && <Badge variant="info">{T.personaNew}</Badge>}
-                        </Button>
-                      ))}
-                    </div>
+                    {lib ? (
+                      <PersonaLibrary lib={lib} lang={lang} T={LT} reload={reloadLib} selected={r.personaSlug}
+                        onPick={(p: LibraryPersona | null) => patchRole(r.key, p
+                          ? { persona: p.text, personaSlug: p.slug, avatar: p.avatar || '' }
+                          : { personaSlug: '', avatar: '' })} />
+                    ) : (
+                      <p className="text-xs text-gray-500">{libError ? fmt(LT.loadFailed, { error: libError }) : LT.loading}</p>
+                    )}
                     <Textarea rows={8} value={r.persona} onChange={(e) => patchRole(r.key, { persona: e.target.value })} data-testid={`persona-${idx}`} />
                     <div className="flex items-center gap-2">
                       <label className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{T.replyLang}</label>

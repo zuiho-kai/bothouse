@@ -1,8 +1,13 @@
+2026-10-23：feat/dsh-ux-chat 在 f8f57ac 上补频道成员错误提示、红色出错状态、模型设置入口、正在输入与忙状态；collab node --test 通过。用户限时交回：手机抽屉代码已补，390px 浏览器验证、截图及设置入口验证未完成，图片和回复引用记入 README 路线图。保留 layout 深链注入；未部署。
+
 # 共栖当前交接
 
 2026-10-23 Issue #86 审核补改：DSH 安装器复用内容相同的恢复副本，拒绝覆盖不同副本；Codex exec 在普通与严格输入路径的进程退出后停止活动子 Agent 行，保留终态和 tracker 通知通道供下一轮复用。两处回归均已验证改前失败、改后通过，目标 race、构建/vet 与两版本 DSH 运行时副本校验通过；最终全量和 CI 见 PR #91。未部署。
 
 2026-10-23 Issue #86：Codex（app_server / exec）与 DSH（ACP 原生生命周期扩展）接入独立子进程表，复用渲染；补齐身份/代次隔离、后台跨轮与关闭状态。适配器回归旧 main 红、实现绿；目标 race、构建/vet 与 DSH 两版本真实运行时副本校验通过。macOS 全量 48 个测试包通过，仅安装向导 TestSetupCLIsHint 失败，改前 main 同样复现。子 Agent 审出旧 turn 完成覆盖新回合、send_input 重派未重开、等待标记未采集三项 P2，已补先红后绿回归修复；最终复审/CI 见 [PR #91](https://github.com/zuiho-kai/bothouse/pull/91)。未部署、未做真实模型/Discord 验收；DSH 需另安装转发层，exec 无跨进程实时事件。用法和边界见[说明](../integrations/dsh-acp-subtasks/README.md)。
+2026-10-23：Issue #52，分支 feat/wizard-theme。安装向导增加白底蓝紫强调色的明亮风格，保留黑底荧光绿深色；右上角按钮通过 cc_theme 记住用户选择。Setup 隐藏管理侧栏，新增品牌欢迎区与圆角卡片。前端 lint、7 项 Vitest、构建与沙箱 Go 全量（49 个包）通过；临时 HOME=/tmp/themetest 下构建二进制的真实向导通过 Chromium 桌面/手机检查。截图、配色 wiki 行号和验证说明见 [wizard-theme](verification/wizard-theme.md)，draft PR 与最终验证结果记录在 /tmp/theme/result.md。单一 Agent 实现与自查，未部署、未合并，没有操作发布目录。
+
+2026-10-23：按用户「免审:小改动」在 feat/wizard-dsh-platform 完成 DSH 专用三步向导；已合入 origin/feat/dsh-plugin-pkg。新增 setup dsh [install] 和管理 API，调用 install.sh web --lang，角色配置留在 DSH。保留原有 DSH 智能体功能。隔离 HOME 与 /tmp/wiz-dsh/dsh-home 实装成功，profile 含 collab/UI，locale=zh；测试和最终提交证据见 /tmp/wiz-dsh/result.md。DSH 回归、CUJ、前端 build、vet、浏览器三步验证通过。Go 全量在 core 包长时间无输出，受用户 10 分钟上限中断并保留堆栈，不能宣称全量通过。用户要求只提交推送本分支，不开 PR；未部署。
 
 2026-10-23：按用户「免审:小改动」授权统一下载入口，直接推 main。Mac 用 lipo 合并 arm64/amd64 为 universal，仅发布 bothouse-mac.dmg（Bothouse.app，卷名 Bothouse）；Windows 仅发布 x64 的 bothouse-windows.exe，Linux 为 bothouse-linux-x64 / bothouse-linux-arm64。安装脚本和 CLI/网页共用的更新器认新名，更新器兼容旧架构文件和历史压缩包，校验失败不回退。发布 workflow 同步构建与 smoke；打包脚本拒绝单架构输入。回归先红后绿，沙箱 Go 全量、CUJ、定向回归、vet、actionlint、shell 语法检查、Linux 安装与坏校验拒绝通过。v0.1.2 资产替换、Mac 实际启动与安装/更新提取的最终证据见 /tmp/rename/result4.md；旧资产的逐字节备份在 /tmp/rename/dist-v0.1.2。单一 Agent 实现并自查。
 
@@ -723,6 +728,13 @@ PR #10只补充工作流文档、PR模板及仓库设置，已合并；Issue #3�
 - 明确接纳失败的503带 submission=not_sent；companion 按此证据提示未发送，普通503/丢失确认仍只查回执。存储故障不能证明历史请求未发送，不带该标记。
 - ACP合成协议与启动失败测试先红后绿；竞态/CUJ通过，companion476通过/3跳过。Go全量/vet/build见PR最新验证记录。真实CLI、设备、频道未测试。
 - #135旧产物与校验和保留，#139依旧草稿；早上需重新构建匹配服务，夜间未部署、未重启、未刷板。
+
+## 2026-10-23 Issue #54 向导头像与品牌收尾
+
+- 首页五个字母圆标改为五个 bot 的 Discord 当前头像静态 PNG；Claude/Codex/Gemini/DSH/MiniMax 标签及悬停 CLI 名称可见。
+- 登录后侧栏展开显示 bothouse、收起显示 bh；清理服务商卡片旧品牌宣传与 Slack 应用模板。上游依赖、历史文档和第三方邀请链接保留原值。
+- 作者先前隔离验证：前端 lint、7 项测试、build 和 Go 沙箱全量测试通过；旧版本复现字母圆标及侧栏旧名，新版本验证 5 张头像、DSH 标签、明暗主题、390px 无横向溢出。
+- 本轮按橘派活提交并集成 release/v0.1.3；集成后前端重新构建。尚未部署，最终验收交橘。
 
 ## 2026-10-23：本机 hook 同步（Issue #59）
 

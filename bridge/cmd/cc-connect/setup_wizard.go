@@ -355,6 +355,11 @@ func runSetup(args []string) {
 	dryRun := fs.Bool("dry-run", false, "validate and print the plan without writing")
 	lang := fs.String("lang", "", "personas: language of the examples (zh|en; default: system). apply: reply language of the bots (zh|en|ja|…), same as \"language\" in the request")
 	rest, hubStart := args[1:], false
+	dshInstall := false
+	if sub == "dsh" && len(rest) > 0 && rest[0] == "install" {
+		dshInstall = true
+		rest = rest[1:]
+	}
 	if sub == "hub" { // "setup hub start [--config path]": the word may come before or after the flags
 		rest = nil
 		for _, a := range args[1:] {
@@ -377,6 +382,18 @@ func runSetup(args []string) {
 		}
 	case "matrix":
 		_ = enc.Encode(map[string]any{"vendors": core.WizardVendors, "matrix": core.VendorMatrix()})
+	case "dsh":
+		if dshInstall {
+			st, err := core.InstallDSHPlugin(context.Background(), *lang, nil)
+			if err != nil {
+				fail(err)
+				return
+			}
+			_ = enc.Encode(st)
+		} else {
+			_ = enc.Encode(core.GetDSHStatus(context.Background()))
+		}
+		return
 	case "hub":
 		// the self-hosted platform on this machine (core/setup_cloudweb.go); "start" starts it
 		initConfigPath(*configFile)

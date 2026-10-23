@@ -1,5 +1,7 @@
 # bothouse 软件架构
 
+DSH 首次向导另走 /setup/dsh/status 与 /setup/dsh/install，复用 dsh/install.sh 安装 web profile；不写 bridge 的机器人/CLI/人设配置。安装后交接 dsh web 启动命令，后续配置归 DSH 页面。安装器及插件资源当前从源码目录定位。
+
 bothouse 把聊天平台与本机智能体连接起来，在会话层增加团队协作、进展反馈与可选的共享记忆。平台入口、模型后端和记忆目录分别配置。
 
 ## 消息如何流动
@@ -18,7 +20,7 @@ flowchart LR
   G <--> W[共享 wiki]
 ```
 
-接入 DSH 智能体的 ACP 协议与接入 DSH 网页聊天入口是两个方向；后者目前尚未完成。
+接入 DSH 智能体的 ACP 协议与接入 DSH 网页聊天入口是两个方向；后者通过 DSH 原生插件安装，向导负责首次安装与交接启动命令。
 
 DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补丁，对端握手声明 `dsh/steer` 后适配器才走插话，否则排队。
 
