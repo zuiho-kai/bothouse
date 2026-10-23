@@ -33,12 +33,17 @@ export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInject
  * @returns the three-column channel view.
  */
 export function ChannelsPage({
-  useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, loadOlder, t,
+  useChannels, selectRoom, send, createRoom, listModels, addMember, updateMember, removeMember, loadOlder, stopRoom, continueRoom, t,
 }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
+  const [stoppingRoom, setStoppingRoom] = useState<Record<number, boolean>>({})
+  const [stopNotice, setStopNotice] = useState<Record<number, string | undefined>>({})
+  const [continuingMessages, setContinuingMessages] = useState<Record<number, boolean>>({})
+  const [resumedMessages, setResumedMessages] = useState<Record<number, boolean>>({})
+  const [relayErrors, setRelayErrors] = useState<Record<number, string | undefined>>({})
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
@@ -178,6 +183,54 @@ export function ChannelsPage({
     })
   }
 
+  const handleStop = (roomId: number): void => {
+    if (stoppingRoom[roomId] === true) return
+    const currentlyBusy = new Set(state.thinking[String(roomId)] ?? [])
+    setStoppingRoom(previous => ({ ...previous, [roomId]: true }))
+    setStopNotice(previous => ({ ...previous, [roomId]: undefined }))
+    stopRoom(roomId).then((res) => {
+      if (res.stopped_members.length === 0) {
+        setStopNotice(previous => ({ ...previous, [roomId]: t('stopNone') }))
+        return
+      }
+      const names = (members: readonly { member: string }[]): string => members.map(m => byId.get(m.member)?.name ?? m.member).join('、')
+      const confirmed = res.stopped_members.filter(m => m.outcome === 'confirmed')
+      const stopped = confirmed.filter(m => currentlyBusy.has(m.member))
+      const notRunning = confirmed.filter(m => !currentlyBusy.has(m.member))
+      const requested = res.stopped_members.filter(m => m.outcome === 'requested')
+      const unsupported = res.stopped_members.filter(m => m.outcome === 'unsupported')
+      const parts: string[] = []
+      if (stopped.length > 0) parts.push(t('stopConfirmed', { names: names(stopped) }))
+      if (requested.length > 0) parts.push(t('stopRequested', { names: names(requested) }))
+      if (unsupported.length > 0) parts.push(t('stopUnsupported', { names: names(unsupported) }))
+      if (notRunning.length > 0) parts.push(t('stopNotRunning', { names: names(notRunning) }))
+      setStopNotice(previous => ({ ...previous, [roomId]: parts.length ? parts.join('；') : t('stopNone') }))
+    }).catch((error: unknown) => {
+      setStopNotice(previous => ({
+        ...previous,
+        [roomId]: t('stopFailed', { message: error instanceof Error ? error.message : String(error) }),
+      }))
+    }).finally(() => {
+      setStoppingRoom(previous => ({ ...previous, [roomId]: false }))
+    })
+  }
+
+  const handleContinue = (targetRoomId: number, messageId: number): void => {
+    if (continuingMessages[messageId] === true || resumedMessages[messageId] === true) return
+    setContinuingMessages(previous => ({ ...previous, [messageId]: true }))
+    setRelayErrors(previous => ({ ...previous, [messageId]: undefined }))
+    continueRoom(targetRoomId).then(() => {
+      setResumedMessages(previous => ({ ...previous, [messageId]: true }))
+    }).catch((error: unknown) => {
+      setRelayErrors(previous => ({
+        ...previous,
+        [messageId]: t('continueFailed', { message: error instanceof Error ? error.message : String(error) }),
+      }))
+    }).finally(() => {
+      setContinuingMessages(previous => ({ ...previous, [messageId]: false }))
+    })
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (popupOpen && !event.nativeEvent.isComposing) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -273,6 +326,19 @@ export function ChannelsPage({
         onOpenPicker={openPicker}
         onSelectCandidate={choose}
         onHighlightCandidate={setHighlight}
+        stopping={state.roomId !== undefined && stoppingRoom[state.roomId] === true}
+        stopNotice={state.roomId === undefined ? undefined : stopNotice[state.roomId]}
+        onStop={() => { if (state.roomId !== undefined) handleStop(state.roomId) }}
+        onCloseNotice={() => {
+          const rid = state.roomId
+          if (rid !== undefined) setStopNotice(previous => ({ ...previous, [rid]: undefined }))
+        }}
+        relayState={messageId => ({
+          continuing: continuingMessages[messageId] === true,
+          resumed: resumedMessages[messageId] === true,
+          error: relayErrors[messageId],
+        })}
+        onContinue={handleContinue}
         t={t}
       />
       <MemberPanel

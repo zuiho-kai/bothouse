@@ -2,7 +2,7 @@ import type { RefObject, UIEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelMember, ChannelMessage } from '../channel-source.ts'
 import type { NS } from '../locales.ts'
-import { MessageRow } from './MessageRow.tsx'
+import { MessageRow, type RelayState } from './MessageRow.tsx'
 import css from '../ChannelsPage.module.css'
 
 type T = TranslateNS<typeof NS>
@@ -13,10 +13,12 @@ export interface MessageListProps {
   membersById: ReadonlyMap<string, ChannelMember>
   busyNames: readonly string[]
   onScroll: (event: UIEvent<HTMLDivElement>) => void
+  relayState: (messageId: number) => RelayState
+  onContinue: (roomId: number, messageId: number) => void
   t: T
 }
 
-export function MessageList({ logRef, messages, membersById, busyNames, onScroll, t }: MessageListProps) {
+export function MessageList({ logRef, messages, membersById, busyNames, onScroll, relayState, onContinue, t }: MessageListProps) {
   return (
     <>
       <div
@@ -33,6 +35,8 @@ export function MessageList({ logRef, messages, membersById, busyNames, onScroll
                 key={m.id}
                 message={m}
                 member={membersById.get(m.author)}
+                relay={relayState(m.id)}
+                onContinue={onContinue}
                 t={t}
               />
             ))}

@@ -9,10 +9,13 @@ export interface RoomHeaderProps {
   drawer: 'rooms' | 'members' | undefined
   onToggleRooms: () => void
   onToggleMembers: () => void
+  /** Shown only when a room is open. */
+  onStop: (() => void) | undefined
+  stopping: boolean
   t: T
 }
 
-export function RoomHeader({ roomName, drawer, onToggleRooms, onToggleMembers, t }: RoomHeaderProps) {
+export function RoomHeader({ roomName, drawer, onToggleRooms, onToggleMembers, onStop, stopping, t }: RoomHeaderProps) {
   return (
     <header className={css.chatHead}>
       <button
@@ -26,6 +29,21 @@ export function RoomHeader({ roomName, drawer, onToggleRooms, onToggleMembers, t
         ☰
       </button>
       <span className={css.chatTitle}><span className={css.hash} aria-hidden>#</span>{roomName}</span>
+      {onStop !== undefined && (
+        <div className={css.chatHeadActions}>
+          <button
+            type="button"
+            className={css.stopButton}
+            title={t('stopRoomTitle')}
+            aria-label={t('stopRoom')}
+            disabled={stopping}
+            onClick={onStop}
+          >
+            <span className={css.stopIcon} aria-hidden />
+            <span>{stopping ? t('stoppingRoom') : t('stopRoom')}</span>
+          </button>
+        </div>
+      )}
       <button
         type="button"
         className={css.mobileNavButton}

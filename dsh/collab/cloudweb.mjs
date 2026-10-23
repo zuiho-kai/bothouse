@@ -21,6 +21,9 @@ const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息�
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败' };
 const RESERVED_IDS = new Set(['user', 'system']);
+// Messages a bot may still be running or queueing per room, recalled on stop.
+// 来源：沿用 bridge/core/engine.go defaultMaxQueuedMessages = 5，加 1 条在跑
+export const MAX_RECALLABLE = 6;
 const MAX_NAME = 64;
 
 export function roomKey(roomId) { return `room-${roomId}`; }
@@ -31,7 +34,7 @@ export function roomOf(frame, store) {
   const candidates = [frame.reply_ctx, typeof sk === 'string' && sk.includes(':') ? sk.split(':')[1] : undefined];
   for (let raw of candidates) {
     if (typeof raw !== 'string') continue;
-    if (raw.startsWith('room-')) raw = raw.slice(5);
+    if (raw.startsWith('room-')) raw = raw.slice(5).replace(/:epoch-[0-9]+$/, '');
     if (/^\d+$/.test(raw) && store.room(Number(raw)) !== undefined) return Number(raw);
   }
   return undefined;
@@ -69,6 +72,8 @@ export class CloudWebGateway {
     this.logger = logger;
     /** member id -> { ws, member } */
     this.bots = new Map();
+    /** member id -> (room id -> newest msg_ids sent to that bot, oldest first, at most MAX_RECALLABLE) */
+    this.delivered = new Map();
     hub.onMessage(message => this.onNew(message));
   }
 
@@ -103,6 +108,7 @@ export class CloudWebGateway {
       clearTimeout(timer);
       if (bot !== undefined && this.bots.get(bot.member.id) === bot) {
         this.bots.delete(bot.member.id);
+        this.delivered.delete(bot.member.id);
         this.hub.setOnline(bot.member.id, false);
       }
     });
@@ -140,7 +146,7 @@ export class CloudWebGateway {
 
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
+    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0 || !this.hub.canDispatch(msg)) return;
     const fromAgent = msg.author_kind === 'role';
     let text = msg.text;
     if (fromAgent) {
@@ -161,17 +167,54 @@ export class CloudWebGateway {
       else if (hit && !content) content = BARE_MENTION;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
+        user_id: msg.author, user_name: msg.name, content, reply_ctx: this.replyContext(msg.room_id),
         mentioned: hit, from_bot: fromAgent,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
       send(ws, frame);
+      this.remember(member.id, msg.room_id, frame.msg_id);
     }
+  }
+
+  /** Keep the newest MAX_RECALLABLE msg_ids sent to a bot in a room, so stop can recall them. */
+  remember(botId, roomId, msgId) {
+    let rooms = this.delivered.get(botId);
+    if (rooms === undefined) this.delivered.set(botId, rooms = new Map());
+    const ids = rooms.get(roomId) ?? [];
+    ids.push(msgId);
+    if (ids.length > MAX_RECALLABLE) ids.splice(0, ids.length - MAX_RECALLABLE);
+    rooms.set(roomId, ids);
   }
 
   async fromBot(bot, d) {
     const { member } = bot;
+    // No cancel acknowledgement exists in CWIP. Fence old output using the
+    // opaque reply_ctx cc-connect echoes, even after the room continues.
+    const room = roomOf(d, this.hub.store);
+    // Preview edits carry a handle, not reply_ctx; validate the stored row below.
+    if (room !== undefined && d.type !== 'update_message' && d.type !== 'delete_message') {
+      const c = this.hub.store.control(room);
+      // Only turn output can be late: the bridge marks it with agent:true. A message the bot
+      // starts on its own (a timer, a proactive notice) carries no such mark and is not the
+      // stopped turn's leftovers, so it must reach history instead of being silently eaten.
+      // Turn output is fenced by reply_ctx epoch; typing and previews stay fenced by `stopped`
+      // because they describe a turn that is no longer running.
+      const current = this.replyContext(room);
+      // A reply without the agent mark is proactive, but a missing mark must not waive the epoch:
+      // an old reply_ctx proves it came from the stopped turn, so it is dropped like marked output.
+      // Only a reply with no reply_ctx at all, or one already on the current epoch, gets through.
+      const proactive = d.type === 'reply' && d.agent !== true;
+      const stale = proactive
+        ? d.reply_ctx !== undefined && c.epoch > 0 && d.reply_ctx !== current
+        : c.stopped === 1 || (c.epoch > 0 && d.reply_ctx !== current);
+      if (stale) {
+        if (d.type === 'preview_start' && typeof d.ref_id === 'string') {
+          send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: '' });
+        }
+        return;
+      }
+    }
     switch (d.type) {
       case 'ping': send(bot.ws, { type: 'pong' }); return;
       case 'reply': {
@@ -209,6 +252,8 @@ export class CloudWebGateway {
       case 'delete_message': {
         const h = d.preview_handle;
         if (typeof h !== 'string' || !/^\d+$/.test(h)) return;
+        const message = this.hub.store.message(Number(h));
+        if (message !== undefined && !this.hub.canDispatch(message)) return;
         if (d.type === 'delete_message') { this.hub.remove(Number(h), 'role', member.id); return; }
         const body = this.body(d.content);
         if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
@@ -216,6 +261,31 @@ export class CloudWebGateway {
       }
       default:
     }
+  }
+
+  replyContext(roomId) {
+    const epoch = this.hub.store.control(roomId).epoch;
+    return roomKey(roomId) + (epoch ? `:epoch-${epoch}` : '');
+  }
+
+  /**
+   * Stop a room for every connected bot: recall the messages it may still be running or
+   * queueing (cc-connect stops the running turn or drops the queued one; it sends no ack),
+   * and clear thinking. outputOnly = bots that were thinking; recalled = bots sent a recall.
+   */
+  stopRoom(roomId) {
+    const outputOnly = [...this.bots.keys()].filter(id => this.hub.thinking.get(roomId)?.has(id));
+    const recalled = [];
+    for (const { ws, member } of this.bots.values()) {
+      this.hub.setThinking(roomId, member.id, false);
+      const rooms = this.delivered.get(member.id);
+      const ids = rooms?.get(roomId);
+      if (ids === undefined || ids.length === 0) continue;
+      for (const msgId of ids) send(ws, { type: 'message_recall', msg_id: msgId, chat_id: roomKey(roomId) });
+      rooms.delete(roomId);
+      recalled.push(member.id);
+    }
+    return { outputOnly, recalled };
   }
 
   body(content) {

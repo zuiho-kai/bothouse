@@ -12,6 +12,14 @@ Release 流程改为 Windows 双架构裸 exe、macOS runner 用 hdiutil 生成�
 
 本机 no_web 沙箱全量 48 个测试包、CUJ、更新下载与校验回归、目标 vet 通过。把下载顺序恢复为旧名优先的 overlay 后，回归报 legacy archive 被当作 native 接受；修复顺序后通过。两个 dmg 均经新更新器挂载并精确提取原二进制；arm64 dmg 用 open 启动 App，隔离配置下 Chrome 前台进入 /setup，网页与 setup/state API 都是 HTTP 200，不接真实平台或模型。Windows 两架构 PE/机器码及交叉构建已检查；本机无 Wine，Windows --version 和桌面双击未验。macOS 签名／公证未做。单一 Codex 实现和自查，无子 Agent、无独立审核；最终 main commit、CI、下载到 bothouse-trial 的文件及未验项见 result.md。
 
+## 2026-10-22：Issue #8，停止/继续后端草稿（G哥，未部署）
+
+草稿 PR #20，分支 feat/8-room-stop-continue；后端实现提交 2fb951753a2871574dc4f7615c1b6c16e2afbc7d。仅实现 dsh/collab 后端，不改其他人的组件/数据源。新增 owner 登录保护的 stop/continue POST，保留 Web UI inbox、撤回频道输入、5 秒取消等待上限、已停止文案、持久房间暂停/接力预算、cloud_web 旧输出隔离。接口和暂停语义见 dsh/collab/README.md。schema 3→4 升级在事务中执行，旧版本回滚需要数据库备份。
+
+实际验证：Node v26.11.1 下后端 40/40（含本地 HTTP 入口、SQLite 重开、取消超时、迟到回复、外部 bot 接力）；现有前端数据源/提及 vitest 11/11。开发中回归先失败：已 claimed 未记 user/message 时 cancellation 次数 0≠1；重复 continue 将 relay_after 改成 3≠2，修后均通过。Go 全量命令 go test -tags no_web -p 1 -count=1 ./... 已结束，退出码 1：46 包通过、cmd/cc-connect 1 包失败、6 包无测试；唯一失败 TestSetupCLIsHint，macOS 固定路径探测到真实 CLI，与下面 Issue #13 记录一致。相对基线 bridge/ 无差异，未修改或跳过该测试，不能记为全量通过。
+
+这是作者自查，没有独立审核。DSH Agent 和 WebSocket 使用测试替身，未在真实 DSH host/模型或浏览器验收。前端停止/继续按钮等待 #6 组件结构，在同一 PR 补齐；Issue #8 未完成。所有 PR 等 owner 审核，禁止合并、部署。
+
 ## 2026-10-22：工具拦截 hook 进仓库（Claude Code + DSH）
 
 作者本机的 hook（bash-guard、param-source-guard、dispatch-review-guard、fix-claim-guard、promise-guard、wiki-context）去掉私人路径后放进 `bridge/contrib/hooks/`，随二进制发布（`embed.go`）。向导新建的 Claude Code 角色默认全开，人设末尾带规则说明；`cc-connect setup hooks on|off|status` 给已有角色和 DSH 角色开关。DSH 通过自带的 `dsh-hooks-claude-code` 桥读同一份 `<work_dir>/.claude/settings.json`。用户在聊天里说「把检查关了/打开检查」，机器人按人设说明运行 `run.py off|on [hook]`，写角色目录的 `.claude/conest-hooks.json`，立即生效。说明见 `bridge/contrib/hooks/README.md`。验收：干净 HOME 里向导建 Claude Code 角色、命令开 DSH 角色；真实 DSH（假模型）里 pkill、未审派活、无来源数字被拒，【免审:小改动】放行，Stop 在 zstd 记录上拦一次。未部署，作者本机线上 hook 没动。

@@ -8,11 +8,12 @@
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
 import { mentions, nameCalled } from './mentions.mjs';
+import { CollabError } from './store.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
 // Agent-to-agent relay cap: after this many agent messages in a row without a
-// human message, agent mentions stop starting DSH turns (prevents loops with bots).
+// human message, agent mentions stop dispatching turns (including external bots).
 export const DEFAULT_MAX_RELAY = 6;
 
 /** Final reply text of a turn: the last non-empty assistant message's text blocks. */
@@ -82,6 +83,34 @@ export function describeReason(reason) {
   return `${reason.kind ?? 'unknown'}${detail ? `：${String(detail).replace(/\s+/g, ' ').slice(0, 200)}` : ''}`;
 }
 
+/** Driver outcome -> the three results the stop API is allowed to report. */
+const OUTCOME = { idle: 'confirmed', withdrawn: 'confirmed', timeout: 'requested', error: 'requested',
+  // No Agent loaded means no turn was running, so nothing is left running either: the room is
+  // stopped for that member, which is a confirmed stop. Reporting it as unsupported used to tell
+  // a DSH member "you are not a DSH task", which was simply false.
+  'not-loaded': 'confirmed' };
+/** Stronger result wins when two jobs share a member. */
+const STRENGTH = { confirmed: 3, requested: 2, unsupported: 1 };
+
+/** System line for one stop, per the three results above. */
+export function stopNotice(stopped, notRunning = [], nameOf = id => id) {
+  // A member whose Agent was not loaded had no turn to stop: saying "已停止" would claim we
+  // stopped something. It gets its own line, and is kept out of the other buckets.
+  const idle = new Set(notRunning);
+  // Users read names in the channel, so never show a bare member id here.
+  const by = state => stopped.filter(r => r.outcome === state && !idle.has(r.member)).map(r => nameOf(r.member));
+  const parts = [];
+  const confirmed = by('confirmed'); const requested = by('requested'); const unsupported = by('unsupported');
+  if (confirmed.length) parts.push(`已停止：${confirmed.join('、')}`);
+  if (requested.length) parts.push(`已请求停止、未确认退出：${requested.join('、')}（迟到回复将被忽略）`);
+  if (unsupported.length) parts.push(`不支持终止、只屏蔽旧输出：${unsupported.join('、')}`);
+  const wasIdle = stopped.filter(r => idle.has(r.member)).map(r => nameOf(r.member));
+  if (wasIdle.length) parts.push(`本来就没在跑：${wasIdle.join('、')}`);
+  return parts.length ? `${parts.join('；')}。` : '已停止。';
+}
+
+/** Reason DSH reports when the user cancels the running turn. */
+const STOPPED_REASON = { kind: 'aborted', reason: { kind: 'user' } };
 const INTERRUPTED = Symbol('interrupted');
 
 export class DshMembers {
@@ -89,10 +118,12 @@ export class DshMembers {
    * @param hub - Hub instance.
    * @param runtime - { ctx, createUserMessage, workspacePath, logger }.
    * @param members - [{ id, name, agentPreset?, permissionPreset?, model?: { provider, model } }].
-   * @param options - { maxRelay? }.
+   * @param options - { maxRelay?, stopTimeoutMs? }.
    */
-  constructor(hub, runtime, members, { maxRelay = DEFAULT_MAX_RELAY } = {}) {
-    this.maxRelay = maxRelay;
+  constructor(hub, runtime, members, { maxRelay = DEFAULT_MAX_RELAY, stopTimeoutMs = 5_000 } = {}) {
+    hub.maxRelay = maxRelay;
+    this.stopTimeoutMs = stopTimeoutMs;
+    this.stopping = new Map();
     this.hub = hub;
     this.store = hub.store;
     this.rt = runtime;
@@ -159,17 +190,11 @@ export class DshMembers {
    * accepted @ always has its job. Returns the post-commit continuation.
    */
   plan(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null) return undefined;
+    if (msg.author_kind === 'system' || msg.card !== null || !this.hub.canDispatch(msg)) return undefined;
     const hit = mentions(msg.text, this.hub.routable());
     const targets = [...this.config.keys()].filter(id => id !== msg.author
       && (hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
     if (targets.length === 0) return undefined;
-    if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
-      return () => this.hub.post(msg.room_id, {
-        authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
-        text: `Agent 之间已经连续接力 ${this.maxRelay} 次以上，暂停自动接力；需要继续请人来 @。`,
-      });
-    }
     const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
     return () => { for (const job of jobs) this.enqueue(job, () => this.run(job.id)); };
   }
@@ -192,7 +217,7 @@ export class DshMembers {
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
     const agent = await this.ensureAgent(member, room);
-    if (this.closed) return;
+    if (this.closed || this.store.job(jobId)?.state !== 'pending') return;
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
@@ -226,9 +251,14 @@ export class DshMembers {
   }
 
   finish(job, member, { events, reason }) {
+    if (!['pending', 'sent'].includes(this.store.job(job.id)?.state)) return;
+    // A user stop keeps the text the turn already produced; the marker says why it stopped.
+    const cancelled = reason?.kind === 'aborted' && reason.reason?.kind === 'user';
     const text = finalText(events);
     if (text === undefined) {
-      this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
+      // Same wording as the HTTP stop path, so both entries say the same thing.
+      if (cancelled) this.fail(job.id, `已停止：${member.name}。`, 'interrupted');
+      else this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
       return;
     }
     const kind = reason?.kind;
@@ -237,7 +267,7 @@ export class DshMembers {
       authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`,
       text: complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`,
     });
-    this.store.finishJob(job.id, 'done', message.id);
+    this.store.finishJob(job.id, cancelled ? 'interrupted' : 'done', message.id);
   }
 
   fail(jobId, notice, state = 'failed') {
@@ -247,6 +277,118 @@ export class DshMembers {
     this.hub.post(job.room_id, {
       authorKind: 'system', author: 'system', name: 'system', text: notice, clientKey: `dsh-job-${jobId}-${state}`,
     });
+  }
+
+  /** Member id -> the name the channel shows. Users never see bare ids in these lines. */
+  nameOf = id => this.config.get(id)?.name ?? this.hub.members.get(id)?.name ?? id;
+
+  /** Members that only had their output fenced: name them, or the user reads silence as success. */
+  unsupportedNotice(stopped) {
+    const names = stopped.map(r => this.nameOf(r.member)).join('、');
+    return `停止只发生在频道里：${names} 这些成员不是 DSH 任务，不支持终止，只屏蔽它们的旧输出。`;
+  }
+
+  requireRoom(roomId) {
+    if (this.store.room(roomId) === undefined) throw new CollabError('room-missing', 'room not found');
+  }
+
+  stopRoom(roomId, { outputOnly = [], recalled = [] } = {}) {
+    this.requireRoom(roomId);
+    if (this.stopping.has(roomId)) return this.stopping.get(roomId);
+    this.hub.stopRoom(roomId);
+    const stopping = this.cancelRoomJobs(roomId, outputOnly, recalled).finally(() => this.stopping.delete(roomId));
+    this.stopping.set(roomId, stopping);
+    return stopping;
+  }
+
+  async cancelRoomJobs(roomId, outputOnly = [], recalled = []) {
+    const jobs = this.store.openJobs().filter(j => j.room_id === roomId);
+    // Do this synchronously, before callbacks or awaits can release a queued job.
+    this.store.transaction(() => { for (const job of jobs) this.store.finishJob(job.id, 'interrupted'); });
+    const results = await Promise.all(jobs.filter(j => j.state === 'sent').map(async job => {
+      const agent = this.rt.ctx.agents.get(job.session_id);
+      const watcher = this.watching.get(job.session_id);
+      const name = this.config.get(job.member_id)?.name ?? job.member_id;
+      let timer;
+      try {
+        if (agent === undefined) return { member: job.member_id, name, job: job.id, outcome: 'not-loaded' };
+        const events = agent.session.snapshotEvents(job.seq_before);
+        const consumed = consumingTurn(events, job.input_id);
+        // inbox/claimed precedes user/message while input assembly awaits I/O.
+        const claimedTurn = watcher?.jobId === job.id ? watcher.turn : undefined;
+        const active = consumed ? consumed.end === undefined : claimedTurn !== undefined
+          && !events.some(e => e.type === 'turn/end' && e.data?.turn === claimedTurn);
+        // Withdraw only our input. Never clear the Web UI's queued messages.
+        agent.inbox.remove(job.input_id);
+        // Nothing ran for our input: this channel turn produced no text, and the events since
+        // seq_before may belong to a Web UI turn in the same session, so publish nothing.
+        if (!active) return { member: job.member_id, name, job: job.id, outcome: 'withdrawn' };
+        agent.cancel({ kind: 'user' }, { keepInbox: true });
+        const idle = Promise.resolve(agent.whenIdle()).then(() => 'idle');
+        const timeout = new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), this.stopTimeoutMs); });
+        const outcome = await Promise.race([idle, timeout]);
+        // Read the text only now: whatever the turn wrote up to the moment it went idle counts,
+        // not just what existed when cancel() was called. Restrict it to the turn we stopped —
+        // another turn can start in the same Session (Web UI), and its words are not ours.
+        const finished = agent.session.snapshotEvents(job.seq_before);
+        const stoppedTurn = consumingTurn(events, job.input_id)?.turn ?? claimedTurn;
+        const partial = finalText(stoppedTurn === undefined ? events : turnEvents(finished, stoppedTurn));
+        return { member: job.member_id, name, job: job.id, outcome, partial };
+      } catch (error) {
+        this.rt.logger.warn('collab: stop job %d failed: %s', job.id, error?.message ?? error);
+        return { member: job.member_id, name, job: job.id, outcome: 'error' };
+      } finally {
+        clearTimeout(timer);
+        if (watcher?.jobId === job.id) {
+          if (this.watching.get(job.session_id) === watcher) this.watching.delete(job.session_id);
+          watcher.resolve(INTERRUPTED);
+        }
+        this.hub.setThinking(roomId, job.member_id, false);
+      }
+    }));
+    for (const id of this.config.keys()) this.hub.setThinking(roomId, id, false);
+    // A member whose Agent was not loaded was never running, so there is nothing left unconfirmed
+    // (and no late output to fence): only a cancel we could not confirm inside the deadline counts.
+    const unconfirmed = results.filter(r => ['timeout', 'error'].includes(r.outcome)).map(r => r.member);
+    // A member counts as "was not running" only when every job of theirs found no live Agent;
+    // mixing that with a real turn must not hide the turn that was actually stopped.
+    const notRunning = [...new Set(results.map(r => r.member))]
+      .filter(m => results.filter(r => r.member === m).every(r => r.outcome === 'not-loaded'));
+    // Publish what each stopped turn had already written, so a stop loses no text.
+    const partials = results.filter(r => r.partial !== undefined);
+    for (const r of partials) {
+      if (this.closed) break;
+      this.hub.post(roomId, {
+        authorKind: 'role', author: r.member, name: r.name, clientKey: `dsh-job-${r.job}-interrupted`,
+        text: `${r.partial}\n\n（这一轮没有正常结束：${describeReason(STOPPED_REASON)}）`,
+      });
+    }
+    // One entry per member: confirmed (the turn really ended), requested (cancel sent, not
+    // confirmed within stopTimeoutMs) or unsupported (nothing to cancel here).
+    const byMember = new Map();
+    for (const r of results) {
+      const outcome = OUTCOME[r.outcome] ?? 'unsupported';
+      const seen = byMember.get(r.member);
+      if (seen === undefined || STRENGTH[outcome] > STRENGTH[seen]) byMember.set(r.member, outcome);
+    }
+    const stopped = [...byMember].map(([member, outcome]) => ({ member, outcome }));
+    // A recalled bot was asked to stop (cc-connect sends no ack): requested. Without a recall
+    // only the output fence is running for it: that is not a stop, and must be said.
+    for (const id of outputOnly) {
+      if (!stopped.some(r => r.member === id)) stopped.push({ member: id, outcome: recalled.includes(id) ? 'requested' : 'unsupported' });
+    }
+    const allUnsupported = stopped.length > 0 && stopped.every(r => r.outcome === 'unsupported');
+    // Silence would read as "stopped"; say either what stopped, what could not, or that nothing ran.
+    const notice = stopped.length === 0 ? '没有在跑的任务。'
+      : allUnsupported ? this.unsupportedNotice(stopped) : stopNotice(stopped, notRunning, this.nameOf);
+    if (!this.closed) this.hub.post(roomId, { authorKind: 'system', author: 'system', name: 'system', text: notice });
+    return { room_id: roomId, stopped: true, cancelled_jobs: jobs.length, unconfirmed, stopped_members: stopped };
+  }
+
+  continueRoom(roomId) {
+    this.requireRoom(roomId);
+    if (this.stopping.has(roomId)) throw new CollabError('conflict', 'room is still stopping');
+    return this.hub.continueRoom(roomId);
   }
 
   /** Live Agent for (member, room): loaded, resumed, or newly created and bound. */
@@ -345,17 +487,24 @@ export class DshMembers {
    */
   recover() {
     for (const job of this.store.openJobs()) {
+      // A crash may occur after the durable room fence but before job cleanup.
+      // Never resume those inputs simply because their job row is still open.
+      if (!this.hub.canDispatch({ room_id: job.room_id, id: job.trigger_id })) {
+        this.store.finishJob(job.id, 'interrupted');
+        continue;
+      }
       this.enqueue(job, () => (job.state === 'pending' ? this.run(job.id) : this.settleSent(job)));
     }
   }
 
   /** Settle one job that was sent before a restart, without sending it again. */
   async settleSent(job) {
+    if (this.store.job(job.id)?.state !== 'sent') return;
     const member = this.config.get(job.member_id);
     const interrupted = (why) => this.fail(job.id, `${member?.name ?? job.member_id} 上次被重启打断，${why}，需要的话请重新 @。`, 'interrupted');
     if (member === undefined || !job.input_id) { interrupted('这条没有完成'); return; }
     const agent = await this.liveAgent(job.session_id, member);
-    if (this.closed) return;
+    if (this.closed || this.store.job(job.id)?.state !== 'sent') return;
     const consumed = consumingTurn(agent.session.snapshotEvents(job.seq_before), job.input_id);
     if (consumed === undefined) {
       // Not consumed: withdraw it if still pending. Only a running Agent can be
@@ -374,6 +523,9 @@ export class DshMembers {
   /** Stop taking work and release waiters; open jobs stay for the next start's recovery. */
   async close() {
     this.closed = true;
+    // Stop operations have their own bounded deadline; let their store access
+    // finish before the plugin closes SQLite.
+    await Promise.allSettled(this.stopping.values());
     for (const w of this.watching.values()) w.resolve(INTERRUPTED);
     this.watching.clear();
     // A queue still waiting on the host (for example a resume during shutdown) must not block unload forever.

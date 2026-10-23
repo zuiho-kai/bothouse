@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -15,7 +15,16 @@ const ready: ChannelSnapshot = {
   hasMoreOlder: false, outbox: [],
 }
 
-function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async () => {}): ChannelsPageProps {
+function props(
+  state: ChannelSnapshot,
+  send: ChannelsPageProps['send'] = async () => {},
+  stopRoom: ChannelsPageProps['stopRoom'] = vi.fn(async () => ({
+    room_id: 1, stopped: true, cancelled_jobs: 0, unconfirmed: [], stopped_members: [],
+  })),
+  continueRoom: ChannelsPageProps['continueRoom'] = vi.fn(async () => ({
+    room_id: 1, resumed: 1, stopped: false,
+  })),
+): ChannelsPageProps {
   // This panel consumes only its private injected seats; unused main-panel
   // framework seats are deliberately absent so an accidental new read fails.
   return {
@@ -23,6 +32,7 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
     selectRoom: vi.fn(), send,
     createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
+    stopRoom, continueRoom,
     t: (key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
       .reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), String(zh[key])),
   } as unknown as ChannelsPageProps
@@ -182,6 +192,241 @@ describe('channels page', () => {
     confirm.mockRestore()
     fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
     expect((screen.getByLabelText(zh.memberPersona) as HTMLTextAreaElement).value).toBe('写代码')
+  })
+
+  it('stops running room tasks and presents the three-state feedback and errors in the top notice', async () => {
+    let resolveStop!: (val: { room_id: number; stopped: boolean; cancelled_jobs: number; unconfirmed: string[]; stopped_members: { member: string; outcome: 'confirmed' | 'requested' | 'unsupported' }[] }) => void
+    const stopRoom = vi.fn(() => new Promise<{ room_id: number; stopped: boolean; cancelled_jobs: number; unconfirmed: string[]; stopped_members: { member: string; outcome: 'confirmed' | 'requested' | 'unsupported' }[] }>(resolve => {
+      resolveStop = resolve
+    }))
+    const p = props(ready, undefined, stopRoom)
+    render(<ChannelsPage {...p} />)
+
+    const stopButton = screen.getByRole('button', { name: zh.stopRoom })
+    expect(stopButton).toBeTruthy()
+    fireEvent.click(stopButton)
+    expect(stopRoom).toHaveBeenCalledExactlyOnceWith(1)
+    expect(stopButton.textContent).toContain(zh.stoppingRoom)
+    expect((stopButton as HTMLButtonElement).disabled).toBe(true)
+
+    // Three states breakdown: confirmed, requested, unsupported
+    await act(async () => {
+      resolveStop({
+        room_id: 1,
+        stopped: true,
+        cancelled_jobs: 3,
+        unconfirmed: [],
+        stopped_members: [
+          { member: 'ju', outcome: 'confirmed' },
+        ],
+      })
+    })
+    expect(stopButton.textContent).toContain(zh.stopRoom)
+    expect((stopButton as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByRole('status').textContent).toContain('已停止：橘')
+
+    // Dismiss notice
+    fireEvent.click(screen.getByRole('button', { name: zh.closeNotice }))
+    expect(screen.queryByRole('status')).toBeNull()
+
+    // Empty result (idle room)
+    ;(stopRoom as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      room_id: 1, stopped: true, cancelled_jobs: 0, unconfirmed: [], stopped_members: [],
+    })
+    fireEvent.click(stopButton)
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain(zh.stopNone)
+
+    // Multi-member mixed 3-state breakdown
+    ;(stopRoom as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      room_id: 1, stopped: true, cancelled_jobs: 2, unconfirmed: ['bot2'],
+      stopped_members: [
+        { member: 'ju', outcome: 'requested' },
+        { member: 'ext', outcome: 'unsupported' },
+      ],
+    })
+    fireEvent.click(stopButton)
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain('已请求停止：橘')
+    expect(screen.getByRole('status').textContent).toContain('不支持终止，只屏蔽旧输出：ext')
+
+    // Member not in thinking (not running / not loaded) displays "本来就没在跑"
+    ;(stopRoom as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      room_id: 1, stopped: true, cancelled_jobs: 0, unconfirmed: [],
+      stopped_members: [
+        { member: 'ds', outcome: 'confirmed' },
+      ],
+    })
+    fireEvent.click(stopButton)
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain('本来就没在跑：ds')
+
+    // Mixed: one member busy (stopped), one member not running
+    ;(stopRoom as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      room_id: 1, stopped: true, cancelled_jobs: 1, unconfirmed: [],
+      stopped_members: [
+        { member: 'ju', outcome: 'confirmed' },
+        { member: 'ds', outcome: 'confirmed' },
+      ],
+    })
+    fireEvent.click(stopButton)
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain('已停止：橘')
+    expect(screen.getByRole('status').textContent).toContain('本来就没在跑：ds')
+
+    // Failure case
+    ;(stopRoom as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'))
+    fireEvent.click(stopButton)
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain('停止失败：Network error')
+  })
+
+  it('renders relay_limit card without title and triggers continueRoom with debouncing and error feedback', async () => {
+    let resolveContinue!: (val: { room_id: number; resumed: number; stopped: boolean }) => void
+    const continueRoom = vi.fn(() => new Promise<{ room_id: number; resumed: number; stopped: boolean }>(resolve => {
+      resolveContinue = resolve
+    }))
+    const relayCardState: ChannelSnapshot = {
+      ...ready,
+      messages: [{
+        id: 10,
+        room_id: 1,
+        author_kind: 'system',
+        author: 'system',
+        name: 'system',
+        text: 'Agent 之间已经连续接力 6 次以上，暂停自动接力；点击继续或请人来 @。',
+        created_at: 100,
+        card: JSON.stringify({ type: 'relay_limit', room_id: 1 }),
+        from_turn: null,
+      }],
+    }
+    const p = props(relayCardState, undefined, undefined, continueRoom)
+    render(<ChannelsPage {...p} />)
+
+    expect(screen.getByText('Agent 之间已经连续接力 6 次以上，暂停自动接力；点击继续或请人来 @。')).toBeTruthy()
+    const continueButton = screen.getByRole('button', { name: zh.continueRoom })
+    expect(continueButton).toBeTruthy()
+
+    fireEvent.click(continueButton)
+    expect(continueRoom).toHaveBeenCalledExactlyOnceWith(1)
+    expect(continueButton.textContent).toContain(zh.continuingRoom)
+    expect((continueButton as HTMLButtonElement).disabled).toBe(true)
+
+    // Repeat click while pending should not invoke continueRoom again
+    fireEvent.click(continueButton)
+    expect(continueRoom).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveContinue({ room_id: 1, resumed: 1, stopped: false })
+    })
+    expect(continueButton.textContent).toContain(zh.continueResumed)
+    expect((continueButton as HTMLButtonElement).disabled).toBe(true)
+
+    // Error case
+    cleanup()
+    const errorCardState: ChannelSnapshot = {
+      ...ready,
+      messages: [{
+        id: 11,
+        room_id: 1,
+        author_kind: 'system',
+        author: 'system',
+        name: 'system',
+        text: '接力受限',
+        created_at: 101,
+        card: JSON.stringify({ type: 'relay_limit', room_id: 1 }),
+        from_turn: null,
+      }],
+    }
+    const failContinue = vi.fn().mockRejectedValueOnce(new Error('Room locked'))
+    const pErr = props(errorCardState, undefined, undefined, failContinue)
+    render(<ChannelsPage {...pErr} />)
+    const errButton = screen.getByRole('button', { name: zh.continueRoom })
+    fireEvent.click(errButton)
+    await act(async () => {})
+    expect(screen.getByRole('alert').textContent).toContain('继续失败：Room locked')
+  })
+
+  it('renders system messages with localized author name and hides empty card boxes', () => {
+    const mixedSnapshot: ChannelSnapshot = {
+      ...ready,
+      messages: [
+        {
+          id: 10,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: '系统普通通知',
+          created_at: 100,
+          card: null,
+          from_turn: null,
+        },
+        {
+          id: 11,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: '',
+          created_at: 101,
+          card: JSON.stringify({ title: '', state: 'running' }),
+          from_turn: null,
+        },
+        {
+          id: 12,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: '正在同步',
+          created_at: 102,
+          card: JSON.stringify({ title: '进度更新', state: 'running' }),
+          from_turn: null,
+        },
+      ],
+    }
+    const view = render(<ChannelsPage {...props(mixedSnapshot)} />)
+
+    // Localized author name '系统' is displayed, raw 'system' is not
+    expect(screen.getAllByText(zh.systemAuthor)).toHaveLength(3)
+    expect(screen.queryByText('system')).toBeNull()
+
+    // Message 10 has plain text
+    expect(screen.getByText('系统普通通知')).toBeTruthy()
+
+    // Message 12 has card title and text
+    expect(screen.getByText('进度更新')).toBeTruthy()
+    expect(screen.getByText('正在同步')).toBeTruthy()
+
+    // Only 1 progress card container is rendered (Message 12), Message 11 is completely skipped
+    const cards = view.container.querySelectorAll('[data-state="running"]')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].textContent).toContain('进度更新')
+    expect(cards[0].textContent).toContain('正在同步')
+  })
+
+  it('supports English locale for system author name', () => {
+    const enProps = {
+      ...props({
+        ...ready,
+        messages: [{
+          id: 20,
+          room_id: 1,
+          author_kind: 'system',
+          author: 'system',
+          name: 'system',
+          text: 'System notice',
+          created_at: 100,
+          card: null,
+          from_turn: null,
+        }],
+      }),
+      t: (key: keyof typeof en) => en[key],
+    }
+    render(<ChannelsPage {...(enProps as any)} />)
+    expect(screen.getByText(en.systemAuthor)).toBeTruthy()
+    expect(screen.queryByText('system')).toBeNull()
   })
 
   it('supports mobile drawer toggle, channel switching, member pick and escape closing', async () => {

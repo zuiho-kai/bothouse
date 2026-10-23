@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 5;
 
 export class Store {
   constructor(path) {
@@ -15,8 +15,19 @@ export class Store {
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
-    if (version < SCHEMA_VERSION) this.migrate(version);
+    // Run the structural pass even when the version already matches: a database stamped 5 by
+    // a branch that meant something else must still get the columns and tables it lacks.
+    if (version < SCHEMA_VERSION) this.transaction(() => this.migrate(version));
+    else this.transaction(() => this.ensureStructure());
     this.q = {
+      control: this.db.prepare('SELECT * FROM room_controls WHERE room_id = ?'),
+      controlWrite: this.db.prepare(`INSERT INTO room_controls (room_id, stopped, epoch, cutoff, relay_after)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET stopped=excluded.stopped,
+        epoch=excluded.epoch, cutoff=excluded.cutoff, relay_after=excluded.relay_after`),
+      block: this.db.prepare('INSERT OR IGNORE INTO relay_blocked (room_id, message_id) VALUES (?, ?)'),
+      blocked: this.db.prepare('SELECT message_id FROM relay_blocked WHERE room_id = ? ORDER BY message_id'),
+      clearBlocked: this.db.prepare('DELETE FROM relay_blocked WHERE room_id = ?'),
+      latest: this.db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE room_id = ?'),
       room: this.db.prepare('SELECT id, name FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name FROM rooms ORDER BY id'),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
@@ -29,7 +40,8 @@ export class Store {
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
       relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role'
-        AND id > COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0)`),
+        AND id > MAX(COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0),
+          COALESCE((SELECT relay_after FROM room_controls WHERE room_id = ?), 0))`),
       binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
       bind: this.db.prepare('INSERT INTO bindings (member_id, room_id, session_id, context_cursor) VALUES (?, ?, ?, 0)'),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
@@ -56,26 +68,49 @@ export class Store {
 
   migrate(from) {
     if (from < 1) this.createV1();
-    // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
-    if (from < 2) this.db.exec('ALTER TABLE jobs ADD COLUMN input_id TEXT');
-    // v3: DSH members live in the database; config rows are seeds the UI cannot edit.
-    // A removed member keeps its row (and id) so old messages and bindings stay attributable.
-    if (from < 3) {
-      this.db.exec(`CREATE TABLE members (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        provider TEXT,
-        model TEXT,
-        persona TEXT NOT NULL DEFAULT '',
-        source TEXT NOT NULL CHECK (source IN ('config', 'ui')),
-        created_at REAL NOT NULL,
-        removed INTEGER NOT NULL DEFAULT 0)`);
-    }
+    // Version numbers are bookkeeping, not evidence. owner's feat/collab-cli-member-b and
+    // this branch both shipped a "v4" with different contents (a members.cli column there,
+    // the room_controls/relay_blocked tables here), so a database can legitimately claim 4
+    // and still be missing half of it. Every step below asks the database what it has.
+    this.ensureStructure();
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
+  /** Whether `table` already has `column`. Table names here are literals, never user input. */
+  hasColumn(table, column) {
+    return this.db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === column);
+  }
+
+  /** Bring the schema to the shape this code expects, idempotently. */
+  ensureStructure() {
+    // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
+    if (!this.hasColumn('jobs', 'input_id')) this.db.exec('ALTER TABLE jobs ADD COLUMN input_id TEXT');
+    // v3: DSH members live in the database; config rows are seeds the UI cannot edit.
+    // A removed member keeps its row (and id) so old messages and bindings stay attributable.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS members (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider TEXT,
+      model TEXT,
+      persona TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL CHECK (source IN ('config', 'ui')),
+      created_at REAL NOT NULL,
+      removed INTEGER NOT NULL DEFAULT 0)`);
+    // owner's v4: a DSH member may be backed by a local CLI. Added here too, so it does not
+    // matter whether their change lands before or after ours.
+    if (!this.hasColumn('members', 'cli')) this.db.exec('ALTER TABLE members ADD COLUMN cli TEXT');
+    // our v4 (now v5): per-room stop/continue bookkeeping.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS room_controls (
+        room_id INTEGER PRIMARY KEY REFERENCES rooms(id), stopped INTEGER NOT NULL,
+        epoch INTEGER NOT NULL, cutoff INTEGER NOT NULL, relay_after INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS relay_blocked (
+        room_id INTEGER NOT NULL REFERENCES rooms(id), message_id INTEGER NOT NULL REFERENCES messages(id),
+        PRIMARY KEY (room_id, message_id));`);
+  }
+
   createV1() {
-    this.db.exec(`BEGIN;
+    this.db.exec(`
       CREATE TABLE rooms (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
       CREATE TABLE messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,7 +142,7 @@ export class Store {
         reply_id INTEGER,
         created_at REAL NOT NULL,
         UNIQUE (member_id, trigger_id));
-      COMMIT;`);
+      `);
   }
 
   close() { this.db.close(); }
@@ -178,7 +213,14 @@ export class Store {
   since(roomId, afterId, limit) { return this.q.after.all(roomId, afterId ?? 0, clampLimit(limit)); }
 
   /** Agent messages posted since the last human message, up to and including messageId. */
-  relayDepth(roomId, messageId) { return this.q.relay.get(roomId, messageId, roomId, messageId).n; }
+  relayDepth(roomId, messageId) { return this.q.relay.get(roomId, messageId, roomId, messageId, roomId).n; }
+
+  control(roomId) { return this.q.control.get(roomId) ?? { room_id: roomId, stopped: 0, epoch: 0, cutoff: 0, relay_after: 0 }; }
+  writeControl(c) { this.q.controlWrite.run(c.room_id, c.stopped, c.epoch, c.cutoff, c.relay_after); }
+  latestId(roomId) { return this.q.latest.get(roomId).id; }
+  blockRelay(roomId, messageId) { this.q.block.run(roomId, messageId); }
+  blocked(roomId) { return this.q.blocked.all(roomId).map(r => this.message(r.message_id)).filter(Boolean); }
+  clearBlocked(roomId) { this.q.clearBlocked.run(roomId); }
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
   bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId); }

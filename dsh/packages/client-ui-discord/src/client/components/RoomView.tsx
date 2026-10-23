@@ -5,6 +5,7 @@ import type { NS } from '../locales.ts'
 import { RoomHeader } from './RoomHeader.tsx'
 import { MessageList } from './MessageList.tsx'
 import { Composer } from './Composer.tsx'
+import type { RelayState } from './MessageRow.tsx'
 import css from '../ChannelsPage.module.css'
 
 type T = TranslateNS<typeof NS>
@@ -36,6 +37,12 @@ export interface RoomViewProps {
   onOpenPicker: () => void
   onSelectCandidate: (member: ChannelMember) => void
   onHighlightCandidate: (index: number) => void
+  stopping: boolean
+  stopNotice: string | undefined
+  onStop: () => void
+  onCloseNotice: () => void
+  relayState: (messageId: number) => RelayState
+  onContinue: (roomId: number, messageId: number) => void
   t: T
 }
 
@@ -66,6 +73,12 @@ export function RoomView({
   onOpenPicker,
   onSelectCandidate,
   onHighlightCandidate,
+  stopping,
+  stopNotice,
+  onStop,
+  onCloseNotice,
+  relayState,
+  onContinue,
   t,
 }: RoomViewProps) {
   return (
@@ -75,15 +88,33 @@ export function RoomView({
         drawer={drawer}
         onToggleRooms={onToggleRooms}
         onToggleMembers={onToggleMembers}
+        onStop={roomId === undefined ? undefined : onStop}
+        stopping={stopping}
         t={t}
       />
       {reconnecting && <div className={css.reconnecting} role="status">{t('reconnecting')}</div>}
+      {stopNotice !== undefined && (
+        <div className={css.roomNotice} role="status" aria-live="polite">
+          <span className={css.roomNoticeText}>{stopNotice}</span>
+          <button
+            type="button"
+            className={css.noticeClose}
+            title={t('closeNotice')}
+            aria-label={t('closeNotice')}
+            onClick={onCloseNotice}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <MessageList
         logRef={logRef}
         messages={messages}
         membersById={membersById}
         busyNames={busyNames}
         onScroll={onScroll}
+        relayState={relayState}
+        onContinue={onContinue}
         t={t}
       />
       <Composer

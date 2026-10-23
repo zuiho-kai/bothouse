@@ -63,6 +63,38 @@ export interface ChannelRoom {
   readonly name: string
 }
 
+/** Result of stopping tasks for one member. */
+export interface StopMemberOutcome {
+  readonly member: string
+  readonly outcome: 'confirmed' | 'requested' | 'unsupported'
+}
+
+/** Result of stopping tasks in a room. */
+export interface StopRoomResult {
+  readonly room_id: number
+  readonly stopped: boolean
+  readonly cancelled_jobs: number
+  readonly unconfirmed: readonly string[]
+  readonly stopped_members: readonly StopMemberOutcome[]
+  readonly output_only?: readonly string[]
+}
+
+/** Result of continuing relay in a room. */
+export interface ContinueRoomResult {
+  readonly room_id: number
+  readonly resumed: number | boolean
+  readonly stopped: boolean
+}
+
+/** Control state for one room. */
+export interface ChannelRoomControl {
+  readonly room_id: number
+  readonly stopped: boolean
+  readonly epoch: number
+  readonly cutoff: number
+  readonly relay_after: number
+}
+
 /** One message the human sent that the service has not confirmed yet. */
 export interface OutboxMessage {
   /** Idempotency key sent as `client_key`; a retry reuses it so the service dedupes. */
@@ -90,6 +122,8 @@ export interface ChannelSnapshot {
   readonly hasMoreOlder: boolean
   /** The selected room's messages shown before the service confirmed them, newest last. */
   readonly outbox: readonly OutboxMessage[]
+  /** Room id → room control state. */
+  readonly roomControls?: Readonly<Record<number, ChannelRoomControl>>
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -114,6 +148,10 @@ export interface ChannelActions {
   removeMember(id: string): Promise<void>
   /** Page further back in the selected room; resolves with how many rows arrived. */
   loadOlder(): Promise<number>
+  /** Stop running tasks in the room (defaults to selected room). */
+  stopRoom(roomId?: number): Promise<StopRoomResult>
+  /** Resume relay continuation in the room (defaults to selected room). */
+  continueRoom(roomId?: number): Promise<ContinueRoomResult>
 }
 
 /** Narrow EventSource surface used here, so tests can pass a fake. */
@@ -139,6 +177,7 @@ type ServiceEvent =
   | { readonly type: 'members'; readonly members: readonly ChannelMember[] }
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
+  | { readonly type: 'room_control'; readonly room_id: number; readonly stopped: number | boolean; readonly epoch?: number; readonly cutoff?: number; readonly relay_after?: number }
 
 const INITIAL: ChannelSnapshot = {
   phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], hasMoreOlder: false,
@@ -260,6 +299,17 @@ export function createChannelSource(transport: ChannelTransport): {
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
       case 'rooms': return { ...current, rooms: event.rooms }
+      case 'room_control': {
+        const controls = { ...(current.roomControls ?? {}) }
+        controls[event.room_id] = {
+          room_id: event.room_id,
+          stopped: Boolean(event.stopped),
+          epoch: event.epoch ?? 0,
+          cutoff: event.cutoff ?? 0,
+          relay_after: event.relay_after ?? 0,
+        }
+        return { ...current, roomControls: controls }
+      }
       default: return current // Unknown future events leave the snapshot unchanged.
     }
   }
@@ -280,7 +330,12 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]> }>(
+      const state = await request<{
+        rooms: ChannelRoom[]
+        members: ChannelMember[]
+        thinking: Record<string, string[]>
+        room_controls?: readonly { room_id: number; stopped: number | boolean; epoch: number; cutoff: number; relay_after: number }[]
+      }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
@@ -345,10 +400,23 @@ export function createChannelSource(transport: ChannelTransport): {
           }
         }
       }
+      const controls: Record<number, ChannelRoomControl> = {}
+      if (Array.isArray(state.room_controls)) {
+        for (const c of state.room_controls) {
+          controls[c.room_id] = {
+            room_id: c.room_id,
+            stopped: Boolean(c.stopped),
+            epoch: c.epoch ?? 0,
+            cutoff: c.cutoff ?? 0,
+            relay_after: c.relay_after ?? 0,
+          }
+        }
+      }
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, messages: rows, hasMoreOlder,
         outbox: outbox.filter(entry => entry.roomId === roomId),
+        roomControls: controls,
       }
       for (const event of read.events) next = applyEvent(next, event)
       pending = undefined
@@ -538,6 +606,16 @@ export function createChannelSource(transport: ChannelTransport): {
     },
     async removeMember(id) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+    async stopRoom(roomId?: number) {
+      const target = roomId ?? snapshot.roomId
+      if (target === undefined) throw new Error('No channel is open')
+      return await request<StopRoomResult>(`collab/api/rooms/${target}/stop`, { method: 'POST' })
+    },
+    async continueRoom(roomId?: number) {
+      const target = roomId ?? snapshot.roomId
+      if (target === undefined) throw new Error('No channel is open')
+      return await request<ContinueRoomResult>(`collab/api/rooms/${target}/continue`, { method: 'POST' })
     },
     async loadOlder() {
       const roomId = snapshot.roomId

@@ -6,7 +6,7 @@ import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason } from './dsh-member.mjs';
-import { resolveConfig } from './plugin.mjs';
+import { resolveConfig, roomActionRoute } from './plugin.mjs';
 import { Roster } from './roster.mjs';
 import { promptText } from './dsh-member.mjs';
 
@@ -158,7 +158,7 @@ test('progress card payload becomes a titled card', () => {
  * user/message (same id), assistant messages, turn/end — and feeds each event
  * to the driver like the root session/event listener does.
  */
-function fakeDsh() {
+function fakeDsh({ emitDiscarded = false } = {}) {
   const sessions = new Map();
   const made = [];
   let ids = 0;
@@ -167,9 +167,14 @@ function fakeDsh() {
     const session = { id, events: [], get seq() { return this.events.length; }, snapshotEvents(from = 0) { return this.events.slice(from); }, requestHeader() { return undefined; } };
     const pending = [];
     const agent = {
-      session, prompts: [], turns: 0, ctx: { on() {} },
+      session, prompts: [], turns: 0, cancellations: [], ctx: { on() {} },
+      cancel(cause, options) {
+        this.cancellations.push({ cause, options });
+        emit(this, 'turn/end', { turn: this.turns, reason: { kind: 'aborted', reason: cause } });
+      },
+      async whenIdle() {},
       followup(m) { this.prompts.push(m); pending.push(m); },
-      inbox: { get nextTurn() { return pending; }, remove(id) { const i = pending.findIndex(m => m.id === id); if (i < 0) return false; pending.splice(i, 1); return true; } },
+      inbox: { get nextTurn() { return pending; }, remove(id) { const i = pending.findIndex(m => m.id === id); if (i < 0) return false; pending.splice(i, 1); if (emitDiscarded) members?.onDiscarded(session.id, id); return true; } },
     };
     sessions.set(id, agent);
     return agent;
@@ -203,7 +208,7 @@ function fakeDsh() {
     const n = ++agent.turns;
     emit(agent, 'turn/start', { turn: n });
     if (input !== undefined) {
-      agent.inbox.remove(input.id);
+      agent.inbox.nextTurn.splice(agent.inbox.nextTurn.findIndex(m => m.id === input.id), 1);
       members?.onClaimed(agent.session.id, input.id, n);
       emit(agent, 'user/message', input);
     }
@@ -219,6 +224,329 @@ function fakeDsh() {
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+
+const ask = (hub, text = '@DeepSeek work', room = 1) => hub.post(room, { authorKind: 'user', author: 'owner', name: '我', text });
+
+test('stop: cancels active and queued channel jobs, preserves Web UI inbox and other rooms', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const dsh = fakeDsh(); const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, ['partial @DeepSeek'], null);
+  agent.followup({ id: 'web-ui', content: [] });
+  ask(hub); ask(hub, '@DeepSeek other', 2); await settle();
+  const stopping = members.stopRoom(1);
+  assert.equal(members.stopRoom(1), stopping);
+  assert.throws(() => members.continueRoom(1), /still stopping/);
+  const result = await stopping; await settle();
+  assert.equal(result.cancelled_jobs, 2); assert.deepEqual(result.unconfirmed, []);
+  assert.deepEqual(agent.cancellations, [{ cause: { kind: 'user' }, options: { keepInbox: true } }]);
+  assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), ['web-ui']);
+  assert.equal(agent.prompts.length, 2, 'pending channel job was never admitted');
+  assert.equal(hub.thinking.get(1).size, 0); assert.equal(hub.thinking.get(2).has('ds'), true);
+  // A stop keeps the text the turn had already produced, flagged with the reason.
+  const stopped = hub.store.page(1, undefined, 50).find(m => m.text.includes('partial'));
+  assert.equal(stopped.text, 'partial @DeepSeek\n\n（这一轮没有正常结束：aborted：user）');
+  await members.close();
+});
+
+test('stop: withdrawing queued input receives discarded, never cancels unrelated Web UI turn', async () => {
+  const hub = makeHub(); const dsh = fakeDsh({ emitDiscarded: true });
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.emit(agent, 'turn/start', { turn: 99 });
+  dsh.emit(agent, 'user/message', { id: 'web-active' });
+  agent.followup({ id: 'web-pending' });
+  let discarded = 0;
+  const realDiscard = members.onDiscarded.bind(members);
+  members.onDiscarded = (...args) => { discarded++; realDiscard(...args); };
+  await members.stopRoom(1); await settle();
+  assert.equal(discarded, 1); assert.equal(agent.cancellations.length, 0);
+  assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), ['web-pending']);
+  assert.equal(members.watching.size, 0); assert.equal(hub.store.openJobs().length, 0);
+  // The channel line shows the member's name, not its id.
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '已停止：DeepSeek。', 'the notice names the confirmed member');
+  await members.close();
+});
+
+test('stop: publishes only the stopped turn, never the next turn in the same session', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  const input = agent.inbox.nextTurn[0];
+  agent.turns = 1;
+  dsh.emit(agent, 'turn/start', { turn: 1 });
+  dsh.emit(agent, 'user/message', { id: input.id });
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: '第一段' }] } });
+  // Stop while that turn is running; cancel() ends turn 1, then a Web UI turn starts at once.
+  const stopping = members.stopRoom(1);
+  agent.turns = 2;
+  dsh.emit(agent, 'turn/start', { turn: 2 });
+  dsh.emit(agent, 'user/message', { id: 'web-turn' });
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: 'Web UI 那一轮' }] } });
+  await stopping; await settle();
+  const mine = hub.store.page(1, undefined, 50).filter(m => m.author === 'ds').map(m => m.text);
+  assert.deepEqual(mine, ['第一段\n\n（这一轮没有正常结束：aborted：user）'], 'the next turn stayed out of the channel');
+});
+
+test('stop: an idle room says so instead of staying silent', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const result = await members.stopRoom(1); await settle();
+  assert.deepEqual(result.stopped_members, [], 'no job ran, so no member stopped');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '没有在跑的任务。');
+  assert.equal(hub.store.control(1).stopped, 1, 'the room is still paused for later work');
+  await members.close();
+});
+
+test('stop: claimed input before user/message logging is still cancelled', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.emit(agent, 'turn/start', { turn: ++agent.turns });
+  const input = agent.inbox.nextTurn.shift();
+  members.onClaimed(agent.session.id, input.id, agent.turns);
+  await members.stopRoom(1);
+  assert.equal(agent.cancellations.length, 1);
+  await members.close();
+});
+
+test('stop: inbox.remove without a discarded event still releases the waiter', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  await members.stopRoom(1); await settle();
+  assert.equal(agent.inbox.nextTurn.length, 0);
+  assert.equal(members.watching.size, 0);
+  assert.equal(hub.thinking.get(1).size, 0);
+  await members.close();
+});
+
+test('stop: durable room fence survives reopen and prevents crash-gap job recovery', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-stop-')), 'store.sqlite');
+  const store = new Store(path); store.ensureRoom(1, 'general');
+  const hub = makeHubFrom(store);
+  const trigger = ask(hub).message;
+  store.addJob('ds', 1, trigger.id);
+  hub.stopRoom(1); store.close();
+  const reopened = new Store(path); const h2 = makeHubFrom(reopened);
+  assert.equal(reopened.control(1).stopped, 1);
+  const dsh = fakeDsh(); const members = dsh.attach(h2, [{ id: 'ds', name: 'DeepSeek' }]);
+  members.recover(); await settle();
+  assert.equal(reopened.openJobs().length, 0); assert.equal(dsh.made.length, 0);
+  assert.equal(dsh.ctx.agents.resumes, 0);
+  members.continueRoom(1); ask(h2); await settle(); assert.equal(dsh.made.length, 1);
+  await members.close(); reopened.close();
+});
+
+test('continue: cloud bot relay cap resumes delivery exactly once', async () => {
+  const hub = makeHub(); hub.maxRelay = 0;
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const a = connect(gw, 'bot=a&name=Alpha'); const b = connect(gw, 'bot=b&name=Beta');
+  a.frame({ type: 'reply', reply_ctx: 'room-1', content: '@Beta next', agent: true });
+  await settle(); assert.equal(b.of('message').length, 0);
+  assert.equal(hub.continueRoom(1).resumed, 1); await settle();
+  assert.equal(b.of('message').length, 1); assert.equal(b.of('message')[0].mentioned, true);
+  hub.continueRoom(1); await settle(); assert.equal(b.of('message').length, 1);
+});
+
+test('stop: shutdown waits for bounded cancellation before SQLite closes', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 20 });
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null); agent.cancel = () => {}; agent.whenIdle = () => new Promise(() => {});
+  const stopping = members.stopRoom(1);
+  await members.close(); hub.store.close();
+  assert.deepEqual((await stopping).unconfirmed, ['ds']);
+});
+
+test('stop: cancellation timeout clears thinking within budget and fences late output', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 25 });
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null);
+  agent.cancel = () => {}; agent.whenIdle = () => new Promise(() => {});
+  const start = Date.now(); const result = await members.stopRoom(1);
+  assert.ok(Date.now() - start < 1000); assert.deepEqual(result.unconfirmed, ['ds']);
+  assert.equal(hub.thinking.get(1).size, 0);
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: 'late @DeepSeek' }] } });
+  dsh.emit(agent, 'turn/end', { turn: 1, reason: { kind: 'completed' } });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === 'late @DeepSeek'), false);
+  assert.equal(hub.store.openJobs().length, 0);
+  await members.close();
+});
+
+test('stop: unloaded agent is not resumed and an in-flight create cannot admit cancelled work', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  dsh.sessions.delete(dsh.made[0]);
+  // Nothing was running, so there is nothing left unconfirmed either.
+  assert.deepEqual((await members.stopRoom(1)).unconfirmed, []);
+  assert.equal(dsh.ctx.agents.resumes, 0);
+  await members.close();
+  const h2 = makeHub(); const d2 = fakeDsh(); const m2 = d2.attach(h2, [{ id: 'ds', name: 'DeepSeek' }]);
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const create = d2.ctx.agents.create.bind(d2.ctx.agents);
+  d2.ctx.agents.create = async o => { const a = await create(o); await gate; return a; };
+  ask(h2); await settle(); await m2.stopRoom(1); release(); await settle();
+  assert.equal(d2.sessions.get(d2.made[0]).prompts.length, 0);
+  await m2.close();
+});
+
+test('continue: relay cap resumes one delivery, without duplicate history or repeat budget resets', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { maxRelay: 0 });
+  hub.setMember({ id: 'bot', name: 'Bot', kind: 'bot' });
+  hub.post(1, { authorKind: 'role', author: 'bot', name: 'Bot', text: '@DeepSeek resume me' });
+  await settle(); assert.equal(dsh.made.length, 0);
+  const history = hub.store.page(1, undefined, 50);
+  assert.equal(members.continueRoom(1).resumed, 1); await settle();
+  assert.equal(dsh.sessions.get(dsh.made[0]).prompts.length, 1);
+  const control = hub.store.control(1);
+  hub.post(1, { authorKind: 'system', author: 'system', name: 'system', text: 'notice' });
+  assert.equal(members.continueRoom(1).resumed, 0);
+  assert.equal(hub.store.control(1).relay_after, control.relay_after);
+  assert.deepEqual(hub.store.page(1, undefined, 50).slice(0, history.length), history);
+  await members.close();
+});
+
+test('cloud-web: the fence drops stale context, not everything while stopped', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  ask(hub, '@Bot first'); await settle();
+  const before = bot.of('message').at(-1).reply_ctx;
+  hub.stopRoom(1); gw.stopRoom(1);
+  await settle();
+  // Output still echoing the pre-stop context stays fenced.
+  bot.frame({ type: 'reply', reply_ctx: before, agent: true, content: 'stale reply' });
+  bot.frame({ type: 'typing_start', reply_ctx: before });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === 'stale reply'), false);
+  assert.equal(hub.thinking.get(1)?.size ?? 0, 0);
+  // A message carrying the room's current context is not output of the stopped turn: it lands
+  // even though the room is still stopped, so a stop cannot silently eat what comes next.
+  const current = gw.replyContext(1);
+  assert.notEqual(current, before, 'the stop moved the room to a new epoch');
+  bot.frame({ type: 'reply', reply_ctx: current, content: '主动发的提醒' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '主动发的提醒');
+});
+
+test('cloud-web: a stop does not swallow what the bot posts on its own', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  ask(hub, '@Bot first'); await settle();
+  const before = bot.of('message').at(-1).reply_ctx;
+  // A turn is running when the user stops the room.
+  bot.frame({ type: 'typing_start', reply_ctx: before });
+  hub.stopRoom(1); gw.stopRoom(1);
+  await settle();
+  // The stopped turn's late output is still fenced (the bridge marks turn output agent:true).
+  bot.frame({ type: 'reply', reply_ctx: before, agent: true, content: '停之前那轮的迟到输出' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text === '停之前那轮的迟到输出'), false);
+  // A timer or proactive notice is not turn output and carries no epoch: it must land, or a
+  // stop silently eats it. (Riding the stopped turn's old reply_ctx would look like its output.)
+  bot.frame({ type: 'reply', session_key: 'p:room-1', content: '定时任务：该喝水了' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '定时任务：该喝水了');
+  // Landing in history is not permission to keep relaying: the room is still stopped.
+  assert.equal(hub.store.control(1).stopped, 1);
+});
+
+test('cloud-web: stop fences old replies, typing and previews through continue', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  bot.frame({ type: 'preview_start', ref_id: 'old', reply_ctx: 'room-1', content: 'old preview' });
+  const handle = bot.of('preview_ack').at(-1).preview_handle;
+  bot.frame({ type: 'typing_start', reply_ctx: 'room-1' });
+  hub.stopRoom(1); gw.stopRoom(1);
+  for (const continuing of [false, true]) {
+    if (continuing) hub.continueRoom(1);
+    bot.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: 'stale reply' });
+    bot.frame({ type: 'typing_start', reply_ctx: 'room-1' });
+    bot.frame({ type: 'preview_start', ref_id: 'late', reply_ctx: 'room-1', content: 'late preview' });
+    bot.frame({ type: 'update_message', preview_handle: handle, content: 'stale edit' });
+    await settle();
+    assert.equal(hub.thinking.get(1).size, 0);
+    assert.equal(bot.of('preview_ack').at(-1).preview_handle, '');
+    assert.deepEqual(hub.store.page(1, undefined, 50).map(m => m.text), ['old preview']);
+  }
+  ask(hub, '@Bot new'); await settle();
+  const ctx = bot.of('message').at(-1).reply_ctx;
+  assert.equal(ctx, 'room-1:epoch-1');
+  bot.frame({ type: 'reply', reply_ctx: ctx, agent: true, content: 'fresh reply' }); await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, 'fresh reply');
+  bot.frame({ type: 'preview_start', ref_id: 'fresh', reply_ctx: ctx, content: 'new preview' });
+  const freshHandle = bot.of('preview_ack').at(-1).preview_handle;
+  bot.frame({ type: 'update_message', session_key: 'cloud_web:room-1:owner', preview_handle: freshHandle, content: 'new edit' });
+  await settle();
+  assert.equal(hub.store.message(Number(freshHandle)).text, 'new edit');
+  bot.frame({ type: 'delete_message', session_key: 'cloud_web:room-1:owner', preview_handle: freshHandle });
+  await settle();
+  assert.equal(hub.store.message(Number(freshHandle)), undefined);
+});
+
+test('room action HTTP: stop reports one outcome per member, and says when it cannot stop', async t => {
+  const { createServer } = await import('node:http');
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
+  // A cloud-web bot is streaming output in the same room: it has no cancel protocol.
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const server = createServer((req, res) => { roomActionRoute(req, res, {
+    owner: r => r.headers.authorization === 'test', dsh: members, gateway: gw,
+  }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(() => { res.writeHead(500); res.end(); }); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await members.close(); });
+  const url = 'http://127.0.0.1:' + server.address().port + '/collab/api/rooms/1/stop';
+  const posting = (body, auth = 'test') => fetch(url, { method: 'POST', headers: { authorization: auth }, body: JSON.stringify(body ?? {}) });
+  // A connected cloud-web bot that is streaming output right now.
+  const cw = connect(gw, 'bot=cw&name=CW');
+  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  await settle();
+  const res = await posting({});
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.output_only, ['cw'], 'the gateway names the member it can only fence');
+  assert.deepEqual(body.stopped_members, [{ member: 'cw', outcome: 'unsupported' }]);
+  assert.equal(body.cancelled_jobs, 0);
+  const notices = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system').map(m => m.text);
+  assert.equal(notices.at(-1).includes('不支持终止'), true, 'silence would read as a real stop');
+  await gw.closeAll();
+});
+
+test('room action HTTP: auth, method, missing room, empty POST, stop/continue conflict', async t => {
+  const { createServer } = await import('node:http');
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
+  const server = createServer((req, res) => { roomActionRoute(req, res, {
+    owner: r => r.headers.authorization === 'test', dsh: members, gateway: { stopRoom() {} },
+  }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(e => { res.writeHead(500); res.end(String(e)); }); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await members.close(); });
+  const url = 'http://127.0.0.1:' + server.address().port + '/collab/api/rooms/';
+  const call = (path, options = {}) => fetch(url + path, { method: 'POST', headers: { authorization: 'test' }, ...options });
+  assert.equal((await call('1/stop', { headers: {} })).status, 401);
+  assert.equal((await call('1/stop', { method: 'GET' })).status, 405);
+  assert.equal((await call('99/stop')).status, 404);
+  ask(hub); await settle(); const agent = dsh.sessions.get(dsh.made[0]); dsh.turn(agent, [], null);
+  agent.cancel = () => {}; agent.whenIdle = () => new Promise(() => {});
+  const stopping = call('1/stop');
+  const deadline = Date.now() + 2000;
+  while (!members.stopping.has(1) && Date.now() < deadline) await tick();
+  assert.equal(members.stopping.has(1), true, 'HTTP stop reached the driver');
+  assert.equal((await call('1/continue')).status, 409);
+  assert.deepEqual((await (await stopping).json()).unconfirmed, ['ds']);
+  assert.equal((await call('1/continue')).status, 200);
+  assert.equal((await call('1/stop')).status, 200);
+});
 
 test('DSH member: @ admits one prompt, its turn posts the reply, duplicates never re-run', async () => {
   const hub = makeHub();
@@ -313,7 +641,7 @@ test('DSH member: a discarded input ends its job and frees the queue', async () 
   assert.equal(agent.prompts.length, 2, 'the next job still runs');
 });
 
-test('DSH member: partial text of an aborted turn is posted with an unfinished marker', async () => {
+test('DSH member: user cancellation preserves partial text and aborted reason', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
@@ -462,7 +790,7 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   const v2 = new Store(path);
   v2.ensureRoom(1, 'general');
   v2.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
-  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; PRAGMA user_version = 1');
+  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; DROP TABLE relay_blocked; DROP TABLE room_controls; PRAGMA user_version = 1');
   v2.close();
   const raw = new DatabaseSync(path);
   assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);
@@ -619,4 +947,174 @@ test('cloud-web: a bot may not take a name another member already uses', () => {
   const ws = connect(gw, 'bot=imposter&name=DeepSeek');
   assert.equal(ws.of('register_ack')[0].ok, false);
   assert.equal(ws.closed.code, 4002);
+});
+
+test('stop: an unloaded agent reports not running instead of claiming it is not a DSH task', async () => {
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  ask(hub); await settle();
+  // The Agent is gone: nothing was running for this member, so nothing was cancelled.
+  dsh.sessions.delete(dsh.made[0]);
+  const result = await members.stopRoom(1);
+  await settle();
+  // Nothing to confirm does not mean "could not confirm": it was never running.
+  assert.deepEqual(result.unconfirmed, []);
+  const notice = hub.store.page(1, undefined, 50).filter(m => m.name === 'system').at(-1);
+  assert.match(notice.text, /本来就没在跑/);
+  // A DSH member never gets the mislabeled "not a DSH task" line.
+  assert.doesNotMatch(notice.text, /不是 DSH 任务/);
+  await members.close();
+});
+
+test('cloud-web: a reply from the stopped turn epoch is dropped even without the agent mark', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  ask(hub, '@Bot first'); await settle();
+  const before = bot.of('message').at(-1).reply_ctx;
+  bot.frame({ type: 'typing_start', reply_ctx: before });
+  hub.stopRoom(1); gw.stopRoom(1);
+  await settle();
+  // The bridge failed to mark turn output, but the old epoch still proves it is the stopped turn's.
+  bot.frame({ type: 'reply', reply_ctx: before, content: '迟到输出，没标 agent' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 50).some(m => m.text.startsWith('迟到输出，没标 agent')), false);
+  // A proactive message carries no epoch at all: it is not the stopped turn and must land.
+  bot.frame({ type: 'reply', session_key: 'p:room-1', content: '定时任务：该喝水了' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '定时任务：该喝水了');
+});
+
+test('cloud-web: stop recalls the latest message ids sent to each bot, then forgets them', async () => {
+  const hub = makeHub(); const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=b&name=Bot');
+  const other = connect(gw, 'bot=c&name=Cee');
+  for (let i = 0; i < 8; i++) ask(hub, `@Bot m${i}`);
+  await settle();
+  const sent = bot.of('message').map(f => f.msg_id);
+  assert.equal(sent.length, 8);
+  assert.match(sent[0], /^hub-\d+$/);
+  const result = gw.stopRoom(1);
+  // Only the newest six can still be running or queued in cc-connect (queue 5 + 1 running).
+  const recalls = bot.of('message_recall');
+  assert.deepEqual(recalls.map(f => f.msg_id), sent.slice(-6));
+  assert.ok(recalls.every(f => f.chat_id === 'room-1'));
+  assert.deepEqual(other.of('message_recall').map(f => f.msg_id), other.of('message').map(f => f.msg_id).slice(-6));
+  assert.deepEqual([...result.recalled].sort(), ['b', 'c']);
+  assert.deepEqual(result.outputOnly, []);
+  // The records are spent: a second stop recalls nothing.
+  const again = gw.stopRoom(1);
+  assert.deepEqual(again.recalled, []);
+  assert.equal(bot.of('message_recall').length, 6);
+  // A bot that disconnects takes its records with it.
+  hub.continueRoom(1);
+  ask(hub, '@Bot after continue'); await settle();
+  bot.close();
+  const back = connect(gw, 'bot=b&name=Bot');
+  const third = gw.stopRoom(1);
+  assert.deepEqual(back.of('message_recall'), []);
+  assert.deepEqual(third.recalled, ['c']);
+});
+
+test('room action HTTP: a thinking bot that got a recall is requested, one without records is unsupported', async t => {
+  const { createServer } = await import('node:http');
+  const hub = makeHub(); const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { stopTimeoutMs: 100 });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const server = createServer((req, res) => { roomActionRoute(req, res, {
+    owner: r => r.headers.authorization === 'test', dsh: members, gateway: gw,
+  }).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }).catch(() => { res.writeHead(500); res.end(); }); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await members.close(); });
+  const cw = connect(gw, 'bot=cw&name=CW');
+  ask(hub, '@CW go'); await settle();
+  const delivered = cw.of('message').at(-1).msg_id;
+  // cx connects after the message went out: it is thinking, but nothing was delivered to recall.
+  const cx = connect(gw, 'bot=cx&name=CX');
+  cw.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  cx.frame({ type: 'typing_start', reply_ctx: gw.replyContext(1) });
+  await settle();
+  const res = await fetch('http://127.0.0.1:' + server.address().port + '/collab/api/rooms/1/stop',
+    { method: 'POST', headers: { authorization: 'test' }, body: '{}' });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.recalled, ['cw']);
+  assert.deepEqual(cw.of('message_recall').map(f => f.msg_id), [delivered]);
+  assert.deepEqual(cx.of('message_recall'), []);
+  const outcome = Object.fromEntries(body.stopped_members.map(r => [r.member, r.outcome]));
+  assert.deepEqual(outcome, { cw: 'requested', cx: 'unsupported' });
+  const notice = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system').at(-1).text;
+  assert.match(notice, /已请求停止、未确认退出：CW/);
+  assert.match(notice, /不支持终止、只屏蔽旧输出：CX/);
+  await gw.closeAll();
+});
+
+// --- schema migrations must be structural, not version-gated ---
+
+/** Every table and column the current code relies on. */
+function assertCompleteSchema(store) {
+  const tables = store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(r => r.name);
+  for (const t of ['rooms', 'messages', 'bindings', 'jobs', 'members', 'room_controls', 'relay_blocked']) {
+    assert.equal(tables.includes(t), true, `missing table ${t}`);
+  }
+  assert.equal(store.hasColumn('jobs', 'input_id'), true, 'missing jobs.input_id');
+  assert.equal(store.hasColumn('members', 'cli'), true, "missing owner's members.cli");
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 5);
+}
+
+test('store: a fresh database gets the complete schema', () => {
+  const store = new Store(':memory:');
+  assertCompleteSchema(store);
+  store.close();
+});
+
+test("store: a database stopped at owner's v4 (cli column, no room tables) upgrades", async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'ownerv4.sqlite3');
+  // Build their v4: members already carries cli, the room tables were never created.
+  const store = new Store(path);
+  store.db.exec('DROP TABLE room_controls; DROP TABLE relay_blocked; PRAGMA user_version = 4');
+  store.close();
+  const reopened = new Store(path);
+  assertCompleteSchema(reopened);
+  // The upgraded database must actually work, not merely look right.
+  reopened.ensureRoom(1, 'general');
+  assert.equal(reopened.control(1).stopped, 0);
+  reopened.close();
+});
+
+test('store: a database stopped at our old v4 (room tables, no cli column) upgrades', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'ourv4.sqlite3');
+  const store = new Store(path);
+  store.db.exec('ALTER TABLE members DROP COLUMN cli; PRAGMA user_version = 4');
+  store.close();
+  const reopened = new Store(path);
+  assertCompleteSchema(reopened);
+  reopened.ensureRoom(1, 'general');
+  // Exercise the columns the two v4 variants disagreed about.
+  reopened.seedMember({ id: 'ds', name: 'DeepSeek' });
+  assert.equal(reopened.member('ds').name, 'DeepSeek');
+  reopened.close();
+});
+
+test('store: a database stamped current but missing structure is still repaired', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'stamped.sqlite3');
+  // The dangerous case: the version number is already ours, so a version-gated migration
+  // would skip everything and the first query on the missing table would throw at runtime.
+  const store = new Store(path);
+  store.db.exec('DROP TABLE room_controls; DROP TABLE relay_blocked; ALTER TABLE members DROP COLUMN cli');
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 5);
+  store.close();
+  const reopened = new Store(path);
+  assertCompleteSchema(reopened);
+  reopened.ensureRoom(1, 'general');
+  assert.equal(reopened.control(1).stopped, 0);
+  reopened.close();
 });

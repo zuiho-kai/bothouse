@@ -123,6 +123,7 @@ export async function apply(ctx, rawConfig) {
   }
 
   async function browserRoute(req, res) {
+    if (await roomActionRoute(req, res, { owner, dsh, gateway })) return;
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
     if (!owner(req)) {
@@ -131,7 +132,7 @@ export async function apply(ctx, rawConfig) {
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
-      return json(res, 200, { me: OWNER, rooms: store.rooms(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
+      return json(res, 200, { me: OWNER, rooms: store.rooms(), members: hub.memberView(), thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])), room_controls: store.rooms().map(r => store.control(r.id)) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     const m = /^\/collab\/api\/rooms\/(\d+)\/messages$/.exec(path);
@@ -186,6 +187,28 @@ export async function apply(ctx, rawConfig) {
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, conflict: 409, 'read-only': 403 };
+
+/** Owner-only actions, shared by the HTTP host and isolated integration tests. */
+export async function roomActionRoute(req, res, { owner, dsh, gateway }) {
+  const path = new URL(req.url ?? '/', 'http://collab.invalid').pathname.replace(/[/]+$/, '');
+  const match = /^[/]collab[/]api[/]rooms[/]([0-9]+)[/](stop|continue)$/.exec(path);
+  if (match === null) return false;
+  if (!owner(req)) { json(res, 401, { error: 'unauthorized' }); return true; }
+  if (req.method !== 'POST') { json(res, 405, { error: 'method not allowed' }); return true; }
+  await withBody(req, res, async () => {
+    const roomId = Number(match[1]);
+    dsh.requireRoom(roomId);
+    if (match[2] === 'continue') return dsh.continueRoom(roomId);
+    // Ask the gateway first: it knows which non-DSH members are streaming output right now.
+    // Older gateways returned just the outputOnly array (or nothing).
+    const result = gateway.stopRoom(roomId);
+    const outputOnly = Array.isArray(result) ? result : result?.outputOnly ?? [];
+    const recalled = Array.isArray(result) ? [] : result?.recalled ?? [];
+    const stopping = dsh.stopRoom(roomId, { outputOnly, recalled });
+    return { ...await stopping, output_only: outputOnly, recalled };
+  }, false);
+  return true;
+}
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 async function withBody(req, res, fn, parse = true) {

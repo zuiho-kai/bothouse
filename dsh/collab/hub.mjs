@@ -1,6 +1,7 @@
 // Room hub: one place that appends a message and fans it out — to browser
 // event streams, to connected cc-connect bots, and to DSH member drivers.
 import { publicMessage } from './store.mjs';
+import { mentions, nameCalled } from './mentions.mjs';
 
 export class Hub {
   /**
@@ -12,6 +13,7 @@ export class Hub {
     this.logger = logger;
     /** id -> { id, name, kind: 'dsh' | 'bot' | 'human', mentionId?, online } */
     this.members = new Map();
+    this.maxRelay = 6;
     /** roomId -> Set<memberId> currently working */
     this.thinking = new Map();
     this.listeners = [];
@@ -73,9 +75,20 @@ export class Hub {
    */
   post(roomId, m) {
     const after = [];
+    let route = false;
+    let capped = false;
     const result = this.store.transaction(() => {
       const r = this.store.append(roomId, m);
-      if (r.created) for (const plan of this.planners) { const next = plan(r.message); if (next) after.push(next); }
+      if (r.created) {
+        route = !this.store.control(roomId).stopped;
+        const hit = mentions(r.message.text, this.routable());
+        capped = route && r.message.author_kind === 'role' && r.message.card === null
+          && this.routable().some(member => member.id !== r.message.author && (hit.has(member.id) || nameCalled(r.message.text, member.name)))
+          && this.store.relayDepth(roomId, r.message.id) > this.maxRelay;
+        if (capped) { this.store.blockRelay(roomId, r.message.id); route = false; }
+        if (r.message.author_kind === 'user') this.store.clearBlocked(roomId);
+      }
+      if (r.created && route) for (const plan of this.planners) { const next = plan(r.message); if (next) after.push(next); }
       return r;
     });
     if (!result.created) return result;
@@ -85,12 +98,54 @@ export class Hub {
       });
     }
     this.emit({ type: 'message', message: publicMessage(result.message) });
-    for (const listener of this.listeners) {
+    if (capped) this.post(roomId, {
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${result.message.id}`,
+      text: `Agent 之间已经连续接力 ${this.maxRelay} 次以上，暂停自动接力；点击继续或请人来 @。`,
+      card: JSON.stringify({ type: 'relay_limit', room_id: roomId }),
+    });
+    if (route) for (const listener of this.listeners) {
       Promise.resolve().then(() => listener(result.message)).catch((error) => {
         this.logger.warn('collab: message listener failed: %s', error?.stack ?? error);
       });
     }
     return result;
+  }
+
+  /** Fence delayed dispatches before cancelling any running work. */
+  stopRoom(roomId) {
+    this.store.transaction(() => {
+      const c = this.store.control(roomId);
+      if (!c.stopped) this.store.writeControl({ ...c, stopped: 1, epoch: c.epoch + 1, cutoff: this.store.latestId(roomId) });
+      this.store.clearBlocked(roomId);
+    });
+    this.emit({ type: 'room_control', ...this.store.control(roomId) });
+  }
+
+  canDispatch(message) {
+    const c = this.store.control(message.room_id);
+    return !c.stopped && message.id > c.cutoff;
+  }
+
+  /** Reset the budget and resume capped messages once, without duplicating history. */
+  continueRoom(roomId) {
+    const after = [];
+    const messages = this.store.transaction(() => {
+      const c = this.store.control(roomId);
+      const blocked = this.store.blocked(roomId);
+      if (!c.stopped && blocked.length === 0) return [];
+      this.store.writeControl({ ...c, stopped: 0, relay_after: this.store.latestId(roomId) });
+      this.store.clearBlocked(roomId);
+      for (const message of blocked) for (const plan of this.planners) {
+        const next = plan(message); if (next) after.push(next);
+      }
+      return blocked;
+    });
+    for (const next of after) Promise.resolve().then(next).catch(e => this.logger.warn('collab: continue failed: %s', e));
+    for (const message of messages) for (const listener of this.listeners) {
+      Promise.resolve().then(() => listener(message)).catch(e => this.logger.warn('collab: continue delivery failed: %s', e));
+    }
+    this.emit({ type: 'room_control', ...this.store.control(roomId) });
+    return { room_id: roomId, resumed: messages.length, stopped: false };
   }
 
   /** Edit/delete a row the same author wrote, and tell browsers. */
