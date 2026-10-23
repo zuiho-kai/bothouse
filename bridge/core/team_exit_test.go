@@ -237,3 +237,26 @@ func TestTeamModeRulesOnlyCurrentMode(t *testing.T) {
 		t.Fatal("team and mixed share one section")
 	}
 }
+
+// The three collaboration conventions must reach every bot in every dispatch mode: a
+// teammate has to know the four stances, how to call another member, and that task
+// dispatch already reminds the owner. Sources: task stances dsh/collab/tasks.mjs
+// (STANCE_LINE), mention forms dsh/collab/mentions.mjs (CALL_PUNCT), auto reminder
+// tasks.mjs CHECK_AFTER_S in assign().
+func TestTeamModeRulesCarryCollaborationConventions(t *testing.T) {
+	for _, mode := range []string{DispatchSolo, DispatchTeam, DispatchMixed} {
+		r := teamModeRulesFor(mode)
+		for _, want := range []string{
+			"【接】", "【问】", "【退】", "【升】", // the four stances
+			"@名字", "行首", // how to call a teammate
+			"自动催", "不用自己再挂计时", // dispatch already reminds; only task dispatch does
+		} {
+			if !strings.Contains(r, want) {
+				t.Fatalf("%s rules missing %q:\n%s", mode, want, r)
+			}
+		}
+		if strings.Contains(r, "每个平台") || strings.Contains(r, "所有平台") {
+			t.Fatalf("%s rules claim every platform reminds: %q", mode, r)
+		}
+	}
+}
