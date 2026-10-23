@@ -28,15 +28,11 @@ import (
 // records are for the user to read).
 
 // WorkspaceParentResolver tells whether a channel is a workspace and which
-// chat channel it belongs to. Block D (Discord workspaces) supplies the real
-// one; until then the default reports no parent and the exit stays off.
+// chat channel it belongs to. NewEngine installs the engine itself (block D's
+// recorded workspaces, team_workspace.go WorkspaceParent); tests may swap it.
 type WorkspaceParentResolver interface {
 	WorkspaceParent(channelID string) (parentID string, ok bool)
 }
-
-type noWorkspaceParent struct{}
-
-func (noWorkspaceParent) WorkspaceParent(string) (string, bool) { return "", false }
 
 // teamAsk is one forwarded [ask] waiting for the user's answer.
 type teamAsk struct {

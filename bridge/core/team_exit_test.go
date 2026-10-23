@@ -160,13 +160,34 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 }
 
 func TestNoParentNoForward(t *testing.T) {
-	e, a, p := exitFixture(t, nil) // default: D not wired, exit off
+	e, a, p := exitFixture(t, nil) // default resolver: no recorded workspace, exit off
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
 	inputDone(a, "[ask]\n问一下")
 	inputWait(t, func() bool { return len(p.sentTo(exitWSKey)) == 1 })
 	if len(p.out) != 1 {
 		t.Fatalf("forwarded without a parent: %+v", p.out)
+	}
+}
+
+// The default resolver is the engine itself: a workspace recorded by block D
+// forwards without any SetWorkspaceParentResolver call (PR #138 review 1).
+func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
+	e, a, p := exitFixture(t, nil)
+	teamWorkspaceStore.mu.Lock()
+	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
+		"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
+	}})
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitSay(e, p, exitWSKey, "ws1", "开工")
+	inputPrompt(t, a)
+	inputDone(a, "[report]\n第一阶段做完")
+	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
+	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "第一阶段做完") {
+		t.Fatalf("forward = %q", fwd)
 	}
 }
 

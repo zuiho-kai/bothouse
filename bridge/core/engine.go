@@ -890,6 +890,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		e.skills.SetDirs(sp.SkillDirs())
 	}
 	e.board.addSource(e) // maomao fork: report to the process's channel task board
+	e.teamExit.resolver = e // team mode C exit: workspaces recorded by block D
 
 	return e
 }
