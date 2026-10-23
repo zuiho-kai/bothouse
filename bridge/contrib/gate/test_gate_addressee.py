@@ -367,6 +367,40 @@ class Talk(Base):
         self.assertEqual(self.replied({b: v[0] for b, v in self.route_plain("那合进去吧").items()}), ["jingyu"])
 
 
+class Stop(Base):
+    """她正忙、用户没 @ 她只说一句停止词：jev 判给她或超时兜底给她，都要 abort 打断手上那一轮（用户原话「我说暂停，还要等个40分钟」）。
+    词表同 core/gate_local.go:29 localStopWords。"""
+
+    def ask(self, text, busy=True, bot="longniang"):
+        self.clear()
+        return gate.route({"content": text, "mentioned": False, "busy": busy, "session_key": CHAT}, bot)
+
+    def test_busy_stop_jev_judged_aborts(self):  # jev 判给正忙的龙娘
+        for text in ("暂停", "停一下", "别做了", "Stop", "pause!", "暂停。", " 停一下！"):
+            self.history([(30, "longniang", [], "我在跑脚本")])
+            a, why = self.ask(text)[:2]
+            self.assertEqual(a, "abort", (text, why))
+            self.assertIn("rule: 停止词", why)
+
+    def test_busy_stop_jev_timeout_aborts(self):  # jev 超时，兜底交给正在对话的龙娘
+        self.jev_timeout()
+        gate._talk[CHAT] = ("longniang", time.time() - 30)
+        self.history([(30, "longniang", [], "我在跑脚本")])
+        a, why = self.ask("暂停")[:2]
+        self.assertEqual(a, "abort", why)
+        self.assertIn("jev 超时", why)
+
+    def test_busy_lead_stop_aborts(self):  # 判给的是正忙的主角色橘，同样打断
+        self.history([(30, "", [], "我在跑脚本")])
+        self.assertEqual(self.ask("别做了", bot="")[0], "abort")
+
+    def test_not_stop_or_not_busy_unchanged(self):  # 不忙、句子里只是含停止词、停止词只在引用里：照旧 reply
+        self.history([(30, "longniang", [], "我在跑脚本")])
+        self.assertEqual(self.ask("暂停", busy=False)[:2], ("reply", "jev: 判给我；rule: jev 判给我"))
+        self.assertEqual(self.ask("暂停的那个脚本结果呢")[0], "reply")
+        self.assertEqual(self.ask("[replying to 龙娘: 暂停]\n继续跑")[0], "reply")
+
+
 @unittest.skipIf(sys.version_info < (3, 11), "config.toml 要 tomllib（Python 3.11+）")
 class Config(unittest.TestCase):
     """token、用户 ID、team_status_dir 都从 cc-connect 现有的 config.toml 读；bot 认法用团队文件。"""

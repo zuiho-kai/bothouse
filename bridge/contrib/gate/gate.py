@@ -83,6 +83,9 @@ def _member_text(t, k):
 SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复 / D 打断）："  # 末尾重提选项：不加的话偏向 A
 
 ACTIONS = ["silent", "insert", "reply", "abort"]  # abort：忙时叫停/暂停/换事 → cc-connect 先取消当前一轮再按 reply 投递（用户原话「我说暂停，还要等个40分钟」）
+# 忙时整句只是停止词就叫停：词表照 core/gate_local.go:29 的 localStopWords（暂停、停一下、别做了、stop、pause），
+# 去掉首尾空白和 isLocalStopWord 那组标点后整句匹配、不分大小写（用户原话「我说暂停，还要等个40分钟」）
+STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:暂停|停一下|别做了|stop|pause)[\s　。.!！~～、,，…]*", re.IGNORECASE)
 # 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
 NO_JEV = """gate 没法启动：没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）。
 gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
@@ -644,6 +647,8 @@ def _route(req, bot=""):
         if bot != addr:
             return "context", f"{why}: 判给{lead.NAME[addr]}", asc
         current_task[(bot, req.get("session_key") or "")] = own[-500:]
+        if req.get("busy") and STOP_WORDS.fullmatch(own):  # 判给她且她正忙、整句是停止词：直接打断，不调模型（下面 model=False 会回 reply，打断不了）
+            return "abort", f"{why}: 判给我；rule: 停止词", asc
         # 收件人只跑主角色那套的规则部分，不再串一次 judge：jev 已判给她，再打分要多等一次模型，
         # 加上拉历史和 jev 会超过 cc-connect 的 gate_timeout_ms（默认 3000ms），兜底成 context 就没人回了
         action, reason, sc = _decide_lead(req, bot, model=False)
