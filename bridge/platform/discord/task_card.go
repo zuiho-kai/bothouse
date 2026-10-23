@@ -31,6 +31,12 @@ func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
 			Inline: true,
 		},
 	}
+	if len(task.Members) > 0 {
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  discordTaskFieldLabel("members", lang),
+			Value: renderTaskMembers(task.Members, lang),
+		})
+	}
 
 	if summary := strings.TrimSpace(task.RequiredSummary); summary != "" {
 		fields = append(fields, &discordgo.MessageEmbedField{
@@ -94,6 +100,66 @@ func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
 			Text: trimDiscordRunes(footerText, maxDiscordProgressFooterLen),
 		},
 	}
+}
+
+func renderTaskMembers(members []core.TaskMember, lang string) string {
+	i18n := core.NewI18n(core.Language(lang))
+	names := make(map[string]string, len(members))
+	for _, m := range members {
+		names[m.ID] = m.Name
+	}
+	rows := make([]string, 0, len(members))
+	for _, m := range members {
+		icon := "🔄"
+		switch m.Status {
+		case "queued":
+			icon = "🕓"
+		case "waiting":
+			icon = "⏳"
+		case "completed":
+			icon = "✅"
+		case "failed":
+			icon = "❌"
+		case "cancelled":
+			icon = "⏹️"
+		case "interrupted":
+			icon = "⚠️"
+		}
+		name := m.Name
+		if parent := names[m.ParentID]; parent != "" {
+			name = parent + " / " + name
+		}
+		row := icon + " " + compactDiscordProgressText(name) + "｜" + compactDiscordProgressText(m.Title)
+		switch {
+		case m.Status == "interrupted":
+			row += "｜" + i18n.T("task_member_interrupted")
+		case m.Status == "queued":
+			row += "｜" + i18n.T("task_member_queued")
+		case !m.StartedAt.IsZero() && !m.EndedAt.IsZero():
+			row += "｜" + i18n.Tf("task_member_duration", discordDuration(int(m.EndedAt.Sub(m.StartedAt).Seconds()), normalizeDiscordProgressLang(lang) == "zh"))
+		case !m.StartedAt.IsZero():
+			row += "｜" + i18n.Tf("task_member_started", fmt.Sprintf("<t:%d:R>", m.StartedAt.Unix()))
+		}
+		if m.Live() && !m.UpdatedAt.IsZero() && m.Status != "queued" {
+			row += " · " + i18n.Tf("task_member_updated", fmt.Sprintf("<t:%d:R>", m.UpdatedAt.Unix()))
+		}
+		if m.Summary != "" {
+			row += "\n　└ " + trimDiscordRunes(compactDiscordProgressText(m.Summary), maxDiscordProgressLineLen)
+		}
+		// Source: Discord embed fields allow 1024 characters. Reserve the exact
+		// localized overflow footer so rows and relative timestamps stay whole.
+		candidate := strings.Join(append(rows, row), "\n")
+		remaining := len(members) - len(rows) - 1
+		if remaining > 0 {
+			candidate += "\n" + i18n.Tf("task_member_more", remaining)
+		}
+		if len([]rune(candidate)) > 1024 {
+			rows = append(rows, i18n.Tf("task_member_more", len(members)-len(rows)))
+			break
+		}
+		rows = append(rows, row)
+	}
+	return strings.Join(rows, "\n")
 }
 
 func discordTaskColor(state core.TaskState) int {

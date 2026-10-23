@@ -710,6 +710,27 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Se necesita su decisión. Consulte la tarjeta.",
 	},
 
+	"task_members": {
+		LangEnglish: "Team progress", LangChinese: "分工进度", LangTraditionalChinese: "分工進度", LangJapanese: "担当別の進捗", LangSpanish: "Progreso del equipo",
+	},
+	"task_member_queued": {
+		LangEnglish: "Awaiting start", LangChinese: "待接单", LangTraditionalChinese: "待接單", LangJapanese: "開始待ち", LangSpanish: "Pendiente de inicio",
+	},
+	"task_member_interrupted": {
+		LangEnglish: "Tracking interrupted", LangChinese: "追踪中断", LangTraditionalChinese: "追蹤中斷", LangJapanese: "追跡中断", LangSpanish: "Seguimiento interrumpido",
+	},
+	"task_member_duration": {
+		LangEnglish: "Took %s", LangChinese: "耗时 %s", LangTraditionalChinese: "耗時 %s", LangJapanese: "所要時間 %s", LangSpanish: "Duración %s",
+	},
+	"task_member_started": {
+		LangEnglish: "Started %s", LangChinese: "开始于 %s", LangTraditionalChinese: "開始於 %s", LangJapanese: "開始 %s", LangSpanish: "Inicio %s",
+	},
+	"task_member_updated": {
+		LangEnglish: "Progress %s", LangChinese: "进展 %s", LangTraditionalChinese: "進展 %s", LangJapanese: "進捗 %s", LangSpanish: "Avance %s",
+	},
+	"task_member_more": {
+		LangEnglish: "… %d more (see task details)", LangChinese: "… 另有 %d 项（见任务详情）", LangTraditionalChinese: "… 另有 %d 項（見任務詳情）", LangJapanese: "… 他 %d 件（タスク詳細）", LangSpanish: "… %d más (ver detalles)",
+	},
 	"task_executor": {
 		LangEnglish:            "Executor",
 		LangChinese:            "执行者",

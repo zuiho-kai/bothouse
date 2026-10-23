@@ -111,6 +111,11 @@ func (p *PublicProgress) Accept(taskID, actor string) (*Task, error) {
 	if t.State != TaskStateResultReady && t.State != TaskStateWaitingUser {
 		return nil, errors.New("only a delivered result can be accepted")
 	}
+	for _, member := range t.Members {
+		if member.Live() {
+			return nil, errors.New("task still has unfinished members")
+		}
+	}
 	old := r.record
 	old.Task = t.Clone()
 	now := time.Now().UTC()
@@ -132,6 +137,7 @@ func (p *PublicProgress) Accept(taskID, actor string) (*Task, error) {
 	}
 	p.pending[t.ID] = r
 	p.indexRun(r)
+	p.revokeMemberRuns(r)
 	p.mu.Unlock()
 	return t.Clone(), nil
 }

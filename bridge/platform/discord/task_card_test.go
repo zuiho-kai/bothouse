@@ -1,10 +1,49 @@
 package discord
 
 import (
+	"fmt"
 	"github.com/chenhg5/cc-connect/core"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestTaskCardMembersRuntime(t *testing.T) {
+	start := time.Date(2026, 10, 23, 6, 0, 0, 0, time.UTC)
+	task := &core.Task{Title: "Shared task", Members: []core.TaskMember{
+		{ID: "worker", Name: "肥鱼", Title: "测试", Status: "running", StartedAt: start, UpdatedAt: start.Add(time.Minute)},
+		{ID: "child", ParentID: "worker", Name: "子agent A", Title: "文档", Status: "completed", StartedAt: start, EndedAt: start.Add(155 * time.Second)},
+		{ID: "queued", Name: "大豆包", Title: "检查", Status: "queued"},
+	}}
+	embed := RenderTaskCardEmbed(task, "zh")
+	var members string
+	for _, field := range embed.Fields {
+		if field.Name == "分工进度" {
+			members = field.Value
+		}
+	}
+	for _, text := range []string{fmt.Sprintf("<t:%d:R>", start.Unix()), fmt.Sprintf("<t:%d:R>", start.Add(time.Minute).Unix()), "肥鱼 / 子agent A", "耗时 2分35秒", "待接单"} {
+		if !strings.Contains(members, text) {
+			t.Fatalf("missing %q: %s", text, members)
+		}
+	}
+	for _, line := range strings.Split(members, "\n") {
+		if strings.Contains(line, "子agent A") && strings.Contains(line, "<t:") {
+			t.Fatal("completed clock still running")
+		}
+	}
+	clone := task.Clone()
+	clone.Members[0].Name = "changed"
+	if task.Members[0].Name != "肥鱼" {
+		t.Fatal("clone aliases member state")
+	}
+	for i := 0; i < 20; i++ {
+		task.Members = append(task.Members, task.Members[0])
+	}
+	if got := renderTaskMembers(task.Members, "zh"); len([]rune(got)) > 1024 || !strings.Contains(got, "详情") {
+		t.Fatalf("overflow: %s", got)
+	}
+}
 
 func TestTaskCardRender(t *testing.T) {
 

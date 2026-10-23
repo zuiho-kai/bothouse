@@ -46,7 +46,7 @@ func (r PublicProgressRequest) Validate() error {
 		return errors.New("invalid run")
 	}
 	switch r.Kind {
-	case "start", "update", "milestone", "waiting", "result":
+	case "start", "update", "milestone", "waiting", "result", "failed", "cancelled":
 	default:
 		return errors.New("invalid public progress kind")
 	}
@@ -95,6 +95,7 @@ type PublicProgress struct {
 	dataDir      string
 	project      string
 	runs         map[string]*publicRun
+	memberRuns   map[string]*taskMemberRun
 	// records indexes every task this project has ever journalled, so a task can
 	// be queried or accepted by id without walking the journal directory.
 	records map[string]*publicRun
@@ -145,6 +146,12 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			return nil, errors.New("public progress journal platform unavailable")
 		}
 		r := &publicRun{record: rec, publisher: sink}
+		if interruptTaskMembers(r.record.Task) {
+			p.memberEvent(r, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
+			if err := p.save(r); err != nil {
+				return nil, err
+			}
+		}
 		if !rec.Closed {
 			r.record.Closed = true
 			r.record.Task.State = TaskStateFailed
@@ -232,7 +239,14 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	p.mu.Lock()
 	r := p.runs[req.Run]
+	member := p.memberRuns[req.Run]
 	p.mu.Unlock()
+	if member != nil {
+		return p.reportMember(member, req)
+	}
+	if req.Kind == "failed" || req.Kind == "cancelled" {
+		return "", errors.New("kind is only available for member reports")
+	}
 	if r == nil {
 		return "", errors.New("run is not active")
 	}
@@ -344,6 +358,9 @@ func (p *PublicProgress) finish(token, outcome string) {
 		t.State = TaskStateFailed
 		p.appendEvent(r, TaskEventFailed, i.T(MsgPublicInterrupted), true)
 	}
+	if IsTerminalState(t.State) {
+		interruptTaskMembers(t)
+	}
 	if err := p.save(r); err != nil {
 		slog.Error("public progress terminal persistence failed", "error", err)
 	}
@@ -353,6 +370,9 @@ func (p *PublicProgress) finish(token, outcome string) {
 	}
 	p.pending[t.ID] = r
 	p.indexRun(r)
+	if IsTerminalState(t.State) {
+		p.revokeMemberRuns(r)
+	}
 	p.mu.Unlock()
 }
 
@@ -479,10 +499,13 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	}
 	return strings.NewReplacer(
 		"COMMAND", prefix,
+		"ASSIGN_COMMAND", quote(command)+" task assign --project "+quote(e.name)+" --session "+quote(session)+" --data-dir "+quote(e.publicProgress.dataDir),
 		"RUN_TOKEN", token,
 		"RESUME_NOTE", resumeNote,
-	).Replace(publicProgressPrompt) + prompt
+	).Replace(publicProgressPrompt+publicTaskMembersPrompt) + prompt
 }
+
+const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, keep all participants on this one task card. Before handing off, register each AI or child with ASSIGN_COMMAND --run RUN_TOKEN --id TASK_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' (optional --parent existing-member-id for a child). Pass only its returned report_command to that participant. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
 
 const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'.RESUME_NOTE Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history.\n[/Public progress channel]\n\n"
 
