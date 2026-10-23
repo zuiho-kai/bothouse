@@ -8,7 +8,7 @@ import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey }
 import { DshMembers, finalText, describeReason, friendlyFailure } from './dsh-member.mjs';
 import { resolveConfig } from './plugin.mjs';
 import { Roster } from './roster.mjs';
-import { promptText } from './dsh-member.mjs';
+import { promptText, teamModeRules } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -61,7 +61,7 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
   assert.equal(s.finishJob(job.id, 'done', 1), true);
   assert.equal(s.finishJob(job.id, 'failed'), false);
   assert.deepEqual(s.openJobs(), []);
-  assert.equal(s.dispatchMode(1), 'hybrid');
+  assert.equal(s.dispatchMode(1), 'mixed');
   assert.equal(s.setDispatchMode(1, 'team'), 'team');
   assert.equal(s.dispatchMode(1), 'team');
   assert.throws(() => s.setDispatchMode(1, 'bad'), /dispatch mode/);
@@ -640,6 +640,31 @@ test('prompt states the member identity, model and persona', () => {
   assert.match(text, /不是你/);
   assert.match(text, /你的人设：\n你是严谨的审稿人/);
   assert.match(text, /【橘】我是 Claude$/);
+});
+
+test('team rules: a prompt carries only the room mode section (PR #138 review 4, 5)', () => {
+  const room = { name: 'general' }, member = { name: 'DeepSeek' };
+  const solo = promptText(room, member, [], '', 'solo');
+  const team = promptText(room, member, [], '', 'team');
+  const mixed = promptText(room, member, []);
+  for (const text of [solo, team, mixed]) {
+    assert.match(text, /\[团队模式规矩/);
+    assert.match(text, /默认达到 3 件就算忙/);
+    assert.match(text, /拿不准的设定，不要自己定：在工作区用 \[ask\] 转到聊天频道问用户/);
+    assert.match(text, /主角色拿不准也一样/);
+    assert.match(text, /写的人不验收自己的活/);
+    assert.doesNotMatch(text, /^## /m);
+  }
+  assert.match(solo, /单模型多进程/);
+  assert.doesNotMatch(solo, /先当面派给成员|完全团队|混合/);
+  assert.match(team, /完全团队/);
+  assert.match(team, /成员空着时先当面派给成员/);
+  assert.match(team, /reason 字段/);
+  assert.doesNotMatch(team, /单模型多进程|混合/);
+  assert.match(mixed, /混合。按这件活谁更合适选人/);
+  assert.match(mixed, /成员空着时先当面派给成员/);
+  assert.match(mixed, /为什么选这个人/);
+  assert.equal(teamModeRules('bogus'), teamModeRules('mixed'));
 });
 
 test('cloud-web: a bot may not take a name another member already uses', () => {

@@ -48,14 +48,14 @@
 <body>
 <aside><div class="head">CoNest</div><nav class="rooms" id="rooms" aria-label="频道"></nav></aside>
 <main>
-  <div class="head"><span id="title"># </span><select id="mode" class="mode" aria-label="派活方式"><option value="hybrid">混合</option><option value="solo">单模型多进程</option><option value="team">完全团队</option></select></div>
+  <div class="head"><span id="title"># </span><select id="mode" class="mode" aria-label="派活方式"><option value="mixed">混合</option><option value="solo">单模型多进程</option><option value="team">完全团队</option></select></div>
   <div id="log" role="log" aria-live="polite"></div>
   <div id="thinking"></div>
   <form id="form"><textarea id="input" rows="1" placeholder="发消息，@成员 让它干活（Enter 发送，Shift+Enter 换行）"></textarea></form>
 </main>
 <aside class="members" id="members" aria-label="成员"></aside>
 <script>
-const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0, mode: 'hybrid' };
+const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0, mode: 'mixed' };
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 const palette = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22'];

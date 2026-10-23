@@ -561,7 +561,8 @@ type Engine struct {
 	publicProgress *PublicProgress
 
 	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
-	teamExit teamExitState
+	teamExit     teamExitState
+	dispatchMode dispatchModeSetting // team mode C: solo / team / mixed (team_mode.go)
 }
 
 // workspaceInitFlow tracks a channel that is being onboarded to a workspace.

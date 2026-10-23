@@ -6,6 +6,10 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const MAX_TEXT = 128 * 1024;
+// Per chat channel dispatch mode (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合,
+// 「默认混合模型」); the same names as the bridge's dispatch_mode config.
+export const DISPATCH_MODES = ['solo', 'team', 'mixed'];
+export const DEFAULT_DISPATCH_MODE = 'mixed';
 // v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks; columns are
 // added by ensureSchema() on every open (checked with PRAGMA table_info), so either merge
 // or release order ends with every column; user_version only records the newest schema known.
@@ -116,8 +120,8 @@ export class Store {
       this.ensureTasks();
       this.db.exec(`CREATE TABLE IF NOT EXISTS room_settings (
         room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
-        dispatch_mode TEXT NOT NULL DEFAULT 'hybrid'
-          CHECK (dispatch_mode IN ('solo', 'team', 'hybrid')))`);
+        dispatch_mode TEXT NOT NULL DEFAULT '${DEFAULT_DISPATCH_MODE}'
+          CHECK (dispatch_mode IN (${DISPATCH_MODES.map(m => `'${m}'`).join(', ')})))`);
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     });
   }
@@ -274,11 +278,10 @@ export class Store {
   }
 
   setDispatchMode(roomId, mode) {
-    if (!['solo', 'team', 'hybrid'].includes(mode)) throw new CollabError('invalid', 'dispatch mode must be solo, team, or hybrid');
+    if (!DISPATCH_MODES.includes(mode)) throw new CollabError('invalid', `dispatch mode must be ${DISPATCH_MODES.join(', ')}`);
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET dispatch_mode = ? WHERE room_id = ?').run(mode, roomId);
     return mode;
-  }
   }
 
   /** Active DSH members, config seeds and UI-created alike. */

@@ -71,7 +71,7 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 	e.SetTeam(t.TempDir(), "橘", false)
 	exitSay(e, p, exitWSKey, "ws1", "开始")
 	prompt := inputPrompt(t, a)
-	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "工作区 n+1", "/collab/api/rooms/{聊天频道 id}/workspaces", "主角色或正在干活的角色决定", "达到 6 件", "[ask]", "[report]"} {
+	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "工作区 n+1", "/collab/api/rooms/{聊天频道 id}/workspaces", "主角色或正在干活的角色决定", "默认达到 3 件就算忙", "拿不准的设定", "主角色拿不准也一样", "写的人不验收自己的活", "派活方式：混合", "[ask]", "[report]"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("team rules missing %q in %q", want, prompt)
 		}
@@ -82,7 +82,7 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(src)) != teamModeRules {
+	if string(src) != teamModeRulesText {
 		t.Fatal("dsh/collab/team-mode-rules.md and the embedded dsh_bundle copy differ")
 	}
 }
@@ -214,5 +214,26 @@ func TestParseExitKind(t *testing.T) {
 		if k != want {
 			t.Errorf("parseExitKind(%q) = %q, want %q", in, k, want)
 		}
+	}
+}
+
+// Only the configured mode's section is injected (PR #138 review 4).
+func TestTeamModeRulesOnlyCurrentMode(t *testing.T) {
+	e, a, p := exitFixture(t, nil)
+	e.SetDispatchMode(DispatchSolo)
+	exitSay(e, p, exitWSKey, "ws1", "开始")
+	prompt := inputPrompt(t, a)
+	inputDone(a, "ok")
+	if !strings.Contains(prompt, "单模型多进程") || strings.Contains(prompt, "先当面派给成员") || strings.Contains(prompt, "## ") {
+		t.Fatalf("solo prompt: %q", prompt)
+	}
+	for mode, want := range map[string]string{DispatchTeam: "派活方式：完全团队", DispatchMixed: "派活方式：混合", "bogus": "派活方式：混合"} {
+		r := teamModeRulesFor(mode)
+		if !strings.Contains(r, want) || !strings.Contains(r, "成员空着时先当面派给成员") || !strings.Contains(r, "reason 字段") {
+			t.Fatalf("%s rules: %q", mode, r)
+		}
+	}
+	if teamModeRulesFor(DispatchTeam) == teamModeRulesFor(DispatchMixed) {
+		t.Fatal("team and mixed share one section")
 	}
 }
