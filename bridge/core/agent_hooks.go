@@ -319,10 +319,11 @@ func AgentHooksEnabled(cli, workDir string) ([]string, error) {
 }
 
 // wizardHooksFor: the wizard switches hooks on for new roles of this agent type: Claude Code natively, DSH
-// (agent type "dsh") through its hook bridge, Gemini CLI through the same run.py translator as DSH.
+// (agent type "dsh") through its hook bridge, Gemini CLI through the same run.py translator as DSH, OpenCode
+// through its .opencode/plugins hook plugin.
 func wizardHooksFor(agentType string) bool {
 	return (agentType == "claudecode" || agentType == "dsh" || agentType == "gemini" ||
-		agentType == "antigravity") && AgentHookFS != nil
+		agentType == "antigravity" || agentType == "opencode") && AgentHookFS != nil
 }
 
 // AgentHookSwitchFile is the role's on/off switch: {"off": [hook names] or ["all"]}. run.py reads it on every
@@ -354,8 +355,9 @@ func AgentHooksSwitchedOff(workDir string) []string {
 
 // AgentHookCLIs are the CLIs the hooks run under: Claude Code natively, DSH and Gemini CLI through run.py
 // (each turns its own payload into Claude Code's shape), Antigravity (agy) through its own workspace hook file
-// <work_dir>/.agents/hooks.json, with run.py --agy converting payloads.
-var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity"}
+// <work_dir>/.agents/hooks.json, with run.py --agy converting payloads, and OpenCode through a
+// tool.execute.before plugin in <work_dir>/.opencode/plugins that runs the role's .claude/settings.json hooks.
+var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "opencode"}
 
 // geminiMatchers: the matcher each hook gets in Gemini CLI, whose built-in tool names differ from both Claude
 // Code's and DSH's (https://geminicli.com/docs/hooks/reference "Matchers and tool names": run_shell_command,
@@ -401,7 +403,7 @@ func geminiEvent(claudeCodeEvent string) string {
 type AgentHookOptions struct {
 	DataDir string   // cc-connect data_dir: scripts go to <data_dir>/hooks
 	WorkDir string   // the role's work_dir
-	CLI     string   // "claudecode" | "dsh"
+	CLI     string   // "claudecode" | "dsh" | "opencode"
 	Lang    string   // language of the persona block (zh* = Chinese, else English); "" = the persona's reply language, else system
 	Only    []string // hooks to switch on/off; empty = all
 	DSHHome string   // DSH only: "" = $DSH_HOME, else ~/.dsh (dsh-home-paths)
@@ -413,11 +415,12 @@ type AgentHookOptions struct {
 
 // AgentHookResult is what was written.
 type AgentHookResult struct {
-	Enabled      []string `json:"enabled"`
-	HooksDir     string   `json:"hooks_dir,omitempty"`
-	SettingsFile string   `json:"settings_file"`
-	PersonaFile  string   `json:"persona_file"`
-	DSHPatchFile string   `json:"dsh_patch_file,omitempty"`
+	Enabled            []string `json:"enabled"`
+	HooksDir           string   `json:"hooks_dir,omitempty"`
+	SettingsFile       string   `json:"settings_file"`
+	PersonaFile        string   `json:"persona_file"`
+	DSHPatchFile       string   `json:"dsh_patch_file,omitempty"`
+	OpenCodePluginFile string   `json:"opencode_plugin_file,omitempty"`
 }
 
 func (o AgentHookOptions) dshPatch() string {
@@ -455,6 +458,8 @@ func (o AgentHookOptions) personaPath() (string, error) {
 		return PersonaFilePath("gemini", o.WorkDir), nil // Gemini CLI reads GEMINI.md
 	case "antigravity":
 		return PersonaFilePath("antigravity", o.WorkDir), nil
+	case "opencode":
+		return filepath.Join(o.WorkDir, "AGENTS.md"), nil // OpenCode reads AGENTS.md
 	}
 	return "", fmt.Errorf("hooks run under %s only, not %q", strings.Join(AgentHookCLIs, ", "), o.CLI)
 }
@@ -535,6 +540,11 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 			return nil, err
 		}
 	}
+	if o.CLI == "opencode" {
+		if res.OpenCodePluginFile, err = EnsureOpenCodeHookPlugin(o.WorkDir); err != nil {
+			return nil, err
+		}
+	}
 	return res, nil
 }
 
@@ -585,6 +595,11 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 			if err := RemoveDSHHookBridge(o.dshPatch(), o.WorkDir); err != nil {
 				return nil, err
 			}
+		}
+	}
+	if o.CLI == "opencode" && len(res.Enabled) == 0 {
+		if err := RemoveOpenCodeHookPlugin(o.WorkDir); err != nil {
+			return nil, err
 		}
 	}
 	return res, nil

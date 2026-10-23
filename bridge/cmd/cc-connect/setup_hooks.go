@@ -21,8 +21,12 @@ Tool hooks for one role (the role's work_dir). Claude Code reads them from <dir>
 DSH reads them through @deepseek-ai/dsh-hooks-claude-code, which "on --cli dsh" mounts in the role's own
 overlay (dsh --patch, <data_dir>/dsh/<role>.patch.yml) with <dir>/.claude/conest-dsh-hooks.json; the user's
 $DSH_HOME is not written. Those hooks run only in the roles set up with --cli dsh (listed in
-<data_dir>/hooks/dsh-roles.json). "off --cli dsh" with no hook left removes that block again. Restart DSH (for bothouse's roles: restart bothouse) after on/off --cli dsh. The scripts are installed into <data_dir>/hooks; the persona file
-(CLAUDE.md for claudecode, AGENTS.md for dsh) gets a block between <!-- conest:hooks --> markers that
+<data_dir>/hooks/dsh-roles.json). "off --cli dsh" with no hook left removes that block again. Restart DSH (for bothouse's roles: restart bothouse) after on/off --cli dsh.
+OpenCode: "on --cli opencode" writes <dir>/.opencode/plugins/bothouse-hooks.js, which OpenCode loads by itself and
+which runs the PreToolUse hooks of <dir>/.claude/settings.json before each tool call (apply_patch, what GPT
+models get instead of edit/write, is checked as Write/Edit per file); "off --cli opencode" with no hook left
+removes it. The scripts are installed into <data_dir>/hooks; the persona file
+(CLAUDE.md for claudecode, AGENTS.md for dsh and opencode) gets a block between <!-- conest:hooks --> markers that
 tells the model the rules of the hooks that are on. "off" removes the hooks and that block (or, with
 --only, just those hooks and their lines); other hooks and the rest of both files are left as they are.
 
@@ -53,7 +57,7 @@ func runSetupHooks(args []string) {
 		fs.PrintDefaults()
 	}
 	workDir := fs.String("work-dir", "", "the role's work_dir (REQUIRED)")
-	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity")
+	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity | opencode")
 	only := fs.String("only", "", "comma-separated hooks to switch on/off (default: all)")
 	lang := fs.String("lang", "", "language of the persona block: zh | en (default: the persona's reply language, else system)")
 	dshHome := fs.String("dsh-home", "", "DSH home for --cli dsh (default: $DSH_HOME, else ~/.dsh)")
