@@ -20,9 +20,18 @@ export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
 }
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
-export function memberStatus(hub) {
-  const busy = new Set([...hub.thinking.values()].flatMap(s => [...s]));
-  return '【队友状态】\n' + hub.routable().map(m => `${m.name} (${m.id})：${m.online === false || m.error ? '离线' : busy.has(m.id) ? '忙碌' : '空闲'}`).join('\n');
+export function memberStatus(hub, tasks = hub?.tasks) {
+  const thinking = new Set([...(hub?.thinking?.values() ?? [])].flatMap(s => [...s]));
+  const busyMap = tasks?.busyMap?.() ?? new Map();
+  return '【队友状态】\n' + hub.routable().map(m => {
+    if (m.online === false || m.error) return `${m.name} (${m.id})：离线`;
+    const taskBusy = busyMap.get(m.id);
+    if (taskBusy) {
+      return `${m.name} (${m.id})：在${taskBusy.roomName}忙碌（任务 #${taskBusy.task.id}「${taskBusy.task.title}」，已用时 ${taskBusy.durationText}）`;
+    }
+    if (thinking.has(m.id)) return `${m.name} (${m.id})：忙碌`;
+    return `${m.name} (${m.id})：空闲`;
+  }).join('\n');
 }
 import { mentions, nameCalled } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';

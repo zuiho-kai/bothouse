@@ -5,7 +5,7 @@ import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
-import { DshMembers, finalText, describeReason, friendlyFailure } from './dsh-member.mjs';
+import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } from './dsh-member.mjs';
 import { resolveConfig } from './plugin.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules } from './dsh-member.mjs';
@@ -1309,11 +1309,11 @@ test('tasks: 问 keeps the timer; 退 and 升 hand the turn to the lead; rework 
   assert.equal(asked.status, 'asked');
   assert.equal(asked.note, '要不要兼容旧版？');
   assert.equal(asked.next_check_at, a.next_check_at);
-  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead' });
+  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead', force: true });
   assert.equal(tasks.stance(b.id, { actor: 'ds', stance: 'decline' }).status, 'declined');
   assert.equal(tasks.task(b.id).next_check_at, null);
   assert.throws(() => tasks.stance(b.id, { actor: 'ds', stance: '接' }), /not waiting/);
-  const c = tasks.assign({ roomId: 1, title: 'c', owner: 'ds', actor: 'lead' });
+  const c = tasks.assign({ roomId: 1, title: 'c', owner: 'ds', actor: 'lead', force: true });
   assert.equal(tasks.stance(c.id, { actor: 'ds', stance: '升' }).status, 'escalated');
   assert.equal(tasks.task(c.id).next_check_at, null);
   clock.t += 50;
@@ -1327,7 +1327,7 @@ test('tasks: 问 keeps the timer; 退 and 升 hand the turn to the lead; rework 
 test('tasks: a member reply whose first line is 【接】/【问】/【退】/【升】 sets its task status', async () => {
   const { hub, tasks } = makeTasks();
   const a = tasks.assign({ roomId: 1, title: 'a', owner: 'ds', actor: 'lead' });
-  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead' });
+  const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead', force: true });
   hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【接】马上做\n细节……' });
   await tick();
   assert.equal(tasks.task(b.id).status, 'accepted', 'no #id: the newest open task of that member in the room');
@@ -1346,7 +1346,7 @@ test('tasks: one reminder @s the owner at the check time and wakes only it; hand
   const woken = [];
   tasks.onWake((id, msg) => woken.push([id, msg.id]));
   const late = tasks.assign({ roomId: 1, title: '迟交的', owner: 'ds', actor: 'lead' });
-  const onTime = tasks.assign({ roomId: 1, title: '准时的', owner: 'ds', actor: 'lead' });
+  const onTime = tasks.assign({ roomId: 1, title: '准时的', owner: 'ds', actor: 'lead', force: true });
   clock.t += 60;
   const { message: d } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交付' });
   tasks.handBack(onTime.id, { actor: 'ds', messageId: d.id });
@@ -1481,8 +1481,8 @@ test('tasks: workspace records also go to its chat channel; the board and active
   hub.store.q.room = hub.store.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?');
   const tree = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   const inWs = tree.assign({ roomId: 2, title: '在工作区', owner: 'ds', actor: 'lead' });
-  tree.assign({ roomId: 1, title: '在聊天频道', owner: 'ds', actor: 'lead' });
-  tree.assign({ roomId: 3, title: '别的频道', owner: 'ds', actor: 'lead' });
+  tree.assign({ roomId: 1, title: '在聊天频道', owner: 'ds', actor: 'lead', force: true });
+  tree.assign({ roomId: 3, title: '别的频道', owner: 'ds', actor: 'lead', force: true });
   const ws = hub.store.page(2, undefined, 50).filter(m => m.card);
   const chat = hub.store.page(1, undefined, 50).filter(m => m.card);
   assert.equal(ws.length, 1);
@@ -1815,4 +1815,51 @@ test('dispatch mode mixed: @ a member does not post an automated reason note (PR
   await settle();
   const notes = hub.store.page(1, undefined, 20).filter(m => m.text.includes('混合派活') || m.text.includes('原因：'));
   assert.equal(notes.length, 0, 'no automated reason note is posted in mixed mode');
+});
+
+test('tasks: cross-workspace busy check rejects dispatch unless force: true', () => {
+  const { hub, tasks, clock } = makeTasks();
+  hub.store.ensureRoom(2, '工作区1');
+  // Dispatch in room 1 to ds
+  const t1 = tasks.assign({ roomId: 1, title: '写前台代码', owner: 'ds', actor: 'lead' });
+  assert.equal(t1.status, 'assigned');
+
+  // Attempting to dispatch to ds in room 2 without force fails
+  assert.throws(
+    () => tasks.assign({ roomId: 2, title: '写后端接口', owner: 'ds', actor: 'lead' }),
+    (err) => err.code === 'member-busy' && err.message.includes('DeepSeek 在「#general」已有进行中的任务')
+  );
+
+  // Dispatching with force: true succeeds and adds busy note
+  const t2 = tasks.assign({ roomId: 2, title: '写后端接口', owner: 'ds', actor: 'lead', force: true });
+  assert.equal(t2.status, 'assigned');
+  const record2 = hub.store.message(t2.assign_msg_id);
+  assert.match(record2.text, /注：该成员在「#general」已有进行中任务 #1/);
+
+  // When task 1 is finished (returned and done), ds is still busy with task 2
+  tasks.stance(t1.id, { actor: 'ds', stance: '接' });
+  const { message: deliv } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '前台完工' });
+  tasks.handBack(t1.id, { actor: 'ds', messageId: deliv.id });
+  tasks.review(t1.id, { actor: 'lead', verdict: 'done' });
+
+  // ds is still busy because t2 is in progress
+  assert.throws(
+    () => tasks.assign({ roomId: 1, title: '第三个活', owner: 'ds', actor: 'lead' }),
+    (err) => err.code === 'member-busy' && err.message.includes('在「#工作区1」已有进行中的任务 #2')
+  );
+});
+
+test('memberStatus: displays cross-workspace busy task and duration', () => {
+  const { hub, tasks, clock } = makeTasks();
+  hub.store.ensureRoom(2, '工作区1');
+  tasks.assign({ roomId: 2, title: '实现忙碌检查', owner: 'ds', actor: 'lead' });
+
+  const statusStr = memberStatus(hub, tasks);
+  assert.match(statusStr, /DeepSeek \(ds\)：在#工作区1忙碌（任务 #1「实现忙碌检查」，已用时 0 秒）/);
+  assert.match(statusStr, /橘 \(lead\)：空闲/);
+
+  // Advance clock by 3 minutes
+  clock.t += 180;
+  const statusAfter3m = memberStatus(hub, tasks);
+  assert.match(statusAfter3m, /已用时 3 分钟/);
 });

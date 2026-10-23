@@ -70,6 +70,8 @@ export class Tasks {
       putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND status IN (${PLACEHOLDERS})`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS})`),
+      busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND status IN (${PLACEHOLDERS}) ORDER BY updated_at DESC`),
+      allBusy: this.db.prepare(`SELECT * FROM tasks WHERE status IN (${PLACEHOLDERS}) ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
       latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
@@ -131,11 +133,51 @@ export class Tasks {
 
   nameOf(id) { return this.hub.members.get(id)?.name ?? id; }
 
+  /** Active (working) tasks for a member across all rooms. */
+  activeTasksOf(owner) {
+    return this.q.busyOfOwner.all(owner, ...WORKING);
+  }
+
+  /** Busy info of a member across all rooms. */
+  busyInfo(owner) {
+    const tasks = this.activeTasksOf(owner);
+    if (!tasks || tasks.length === 0) return { busy: false };
+    const task = tasks[0];
+    const room = this.store.room(task.room_id);
+    const roomName = room ? (room.name ? `#${room.name}` : `房间 ${task.room_id}`) : `房间 ${task.room_id}`;
+    const dur = duration(this.now() - (task.created_at ?? this.now()));
+    return {
+      busy: true,
+      task: this.view(task),
+      roomName,
+      durationText: dur,
+    };
+  }
+
+  /** Map of memberId -> busy info for all active tasks across all rooms. */
+  busyMap() {
+    const rows = this.q.allBusy.all(...WORKING);
+    const map = new Map();
+    for (const r of rows) {
+      if (map.has(r.owner)) continue;
+      const room = this.store.room(r.room_id);
+      const roomName = room ? (room.name ? `#${room.name}` : `房间 ${r.room_id}`) : `房间 ${r.room_id}`;
+      const dur = duration(this.now() - (r.created_at ?? this.now()));
+      map.set(r.owner, {
+        task: this.view(r),
+        roomName,
+        durationText: dur,
+      });
+    }
+    return map;
+  }
+
   /**
    * Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`.
    * `reason` is the dispatcher's own one-line why-this-member, shown in the record (team mode C).
+   * `force` allows assigning even if the member has an in-progress task in any room.
    */
-  assign({ roomId, title, owner, actor, parentTask, messageId, reason }) {
+  assign({ roomId, title, owner, actor, parentTask, messageId, reason, force = false }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const text = String(title ?? '').trim();
@@ -144,10 +186,16 @@ export class Tasks {
     this.member(actor);
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
+    const busy = this.busyInfo(owner);
+    if (busy.busy && !force) {
+      const targetName = this.nameOf(owner);
+      throw new CollabError('member-busy', `${targetName} 在「${busy.roomName}」已有进行中的任务 #${busy.task.id}「${busy.task.title}」（已用时 ${busy.durationText}），请换人或稍后再派`);
+    }
     const now = this.now();
     const why = clip(reason);
     const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why);
-    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}`);
+    const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
+    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${busyNote ? ` ${busyNote}` : ''}`);
     if (messageId == null) this.q.bindAssign.run(record.id, task.id);
     return this.changed(task.id);
   }
@@ -218,7 +266,7 @@ export class Tasks {
     }
     const optional = v => (v == null || v === '' ? undefined : Number(v));
     switch (action) {
-      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason });
+      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason, force: Boolean(body.force) });
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });

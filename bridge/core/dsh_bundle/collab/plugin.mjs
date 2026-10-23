@@ -86,6 +86,7 @@ export async function apply(ctx, rawConfig) {
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
   // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
   const tasks = new Tasks(hub, { start: false });
+  hub.tasks = tasks;
   gateway.tasks = tasks;
   tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
@@ -286,7 +287,7 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
   }, false);
 }
 
-const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503 };
+const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 async function withBody(req, res, fn, parse = true) {
