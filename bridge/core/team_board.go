@@ -250,7 +250,17 @@ func renderTeamBoard(files []teamFile, chat string) string {
 			case chatOf(s.Key) == chat:
 				r = 2
 			}
-			if r > rank {
+			// Entries come from a map snapshot. Prefer the latest work within
+			// the same rank so an older success cannot hide a newer failure.
+			newer := false
+			if best != nil {
+				if s.Busy {
+					newer = s.Since.After(best.Since)
+				} else {
+					newer = s.DoneAt.After(best.DoneAt)
+				}
+			}
+			if r > rank || (r == rank && newer) {
 				best, rank = s, r
 			}
 		}
@@ -267,7 +277,14 @@ func renderTeamBoard(files []teamFile, chat string) string {
 				}
 				line = fmt.Sprintf("🔧 在%s忙（%s 起）", where, best.Since.Local().Format("15:04"))
 			case 2:
-				line = fmt.Sprintf("✅ 做完：%s（%s）", task, best.DoneAt.Local().Format("15:04"))
+				switch best.Outcome {
+				case teamWorkFailed:
+					line = fmt.Sprintf("❌ %s（%s）", task, best.DoneAt.Local().Format("15:04"))
+				case teamWorkUnconfirmed:
+					line = fmt.Sprintf("⚠️ %s（%s）", task, best.DoneAt.Local().Format("15:04"))
+				default:
+					line = fmt.Sprintf("✅ 做完：%s（%s）", task, best.DoneAt.Local().Format("15:04"))
+				}
 			}
 		}
 		lines = append(lines, fmt.Sprintf("**%s**　%s", f.Name, line))

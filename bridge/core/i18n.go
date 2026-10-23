@@ -534,6 +534,10 @@ const (
 	MsgWhoamiPlatform  MsgKey = "whoami_platform"
 	MsgWhoamiUsage     MsgKey = "whoami_usage"
 
+	MsgRelayWork            MsgKey = "relay_work"
+	MsgRelayWorkFailed      MsgKey = "relay_work_failed"
+	MsgRelayWorkUnconfirmed MsgKey = "relay_work_unconfirmed"
+
 	MsgRelayNoBinding     MsgKey = "relay_no_binding"
 	MsgRelayBound         MsgKey = "relay_bound"
 	MsgRelayBindRemoved   MsgKey = "relay_bind_removed"
@@ -3799,6 +3803,27 @@ var messages = map[MsgKey]map[Language]string{
 	MsgRelayNoTarget: {
 		LangEnglish: "Project %q not found. No other projects are configured.",
 		LangChinese: "项目 %q 不存在。没有配置其他项目。",
+	},
+	MsgRelayWork: {
+		LangEnglish:            "teammate assignment",
+		LangChinese:            "处理队友派工",
+		LangTraditionalChinese: "處理隊友派工",
+		LangJapanese:           "チームメイトからの依頼に対応中",
+		LangSpanish:            "Trabajando en un encargo del equipo",
+	},
+	MsgRelayWorkFailed: {
+		LangEnglish:            "teammate assignment failed",
+		LangChinese:            "队友派工失败",
+		LangTraditionalChinese: "隊友派工失敗",
+		LangJapanese:           "チームメイトからの依頼に失敗",
+		LangSpanish:            "El encargo del equipo falló",
+	},
+	MsgRelayWorkUnconfirmed: {
+		LangEnglish:            "teammate assignment result unconfirmed",
+		LangChinese:            "队友派工结果未确认",
+		LangTraditionalChinese: "隊友派工結果未確認",
+		LangJapanese:           "チームメイトからの依頼の結果は未確認",
+		LangSpanish:            "Resultado del encargo del equipo sin confirmar",
 	},
 	MsgRelayBindRemoved: {
 		LangEnglish:            "✅ Removed %s from binding",
