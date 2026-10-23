@@ -95,76 +95,149 @@ func TestCardViewTaskCardRendering(t *testing.T) {
 	}
 }
 
-// A press switches only the pressed message, and later edits keep its choice.
-func TestCardViewToggleIsPerMessageAndSticks(t *testing.T) {
-	p, rest := newCardViewPlatform(t)
-	ctx := context.Background()
-	a := &discordPreviewHandle{channelID: "room", messageID: "A"}
-	b := &discordPreviewHandle{channelID: "room", messageID: "B"}
-	content := cardViewSubTasks()
-	for _, h := range []any{a, b} {
-		if err := p.UpdateMessage(ctx, h, content); err != nil {
-			t.Fatal(err)
+func cardViewProgress(state core.ProgressCardState) string {
+	ok, bad := true, false
+	return core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
+		{Kind: core.ProgressEntryThinking, Text: "THINK_TEXT"},
+		{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "CMD_FULL_TEXT"},
+		{Kind: core.ProgressEntryToolResult, Tool: "Bash", Text: "TOOL_OUTPUT", Success: &ok},
+		{Kind: core.ProgressEntryToolUse, Tool: "Agent", Text: "PROMPT_TEXT"},
+		{Kind: core.ProgressEntryToolResult, Tool: "Agent", Text: "AGENT_OUT", Success: &bad},
+		{Kind: core.ProgressEntryToolUse, Tool: "Read", Text: "READ_PATH"},
+	}, false, "Claude", core.LangChinese, state)
+}
+
+// 简略 progress card: head plus tool name and result per step, nothing else;
+// 细节 keeps the old content.
+func TestCardViewProgressBriefAndDetail(t *testing.T) {
+	payload, ok := core.ParseProgressCardPayload(cardViewProgress(core.ProgressCardStateRunning))
+	if !ok {
+		t.Fatal("progress payload")
+	}
+	brief := buildDiscordProgressEmbedView(payload, cardViewBrief).Description
+	for _, want := range []string{"第 ", "步 · ", "Bash · 成功", "Agent · 失败", "Read · 进行中"} {
+		if !strings.Contains(brief, want) {
+			t.Fatalf("brief missing %q:\n%s", want, brief)
 		}
 	}
-	if strings.Contains(rest.edits[0], "核对卡片渲染") == false || !strings.Contains(rest.edits[0], "cardview:brief") {
-		t.Fatalf("first edit not detail with buttons: %s", rest.edits[0])
-	}
-
-	pressCardView(p, "A", "brief")
-	if len(rest.callbacks) != 1 {
-		t.Fatalf("callbacks = %d", len(rest.callbacks))
-	}
-	cb := rest.callbacks[0]
-	if !strings.Contains(cb, "Rawls") || strings.Contains(cb, "核对卡片渲染") || strings.Contains(cb, "运行命令") {
-		t.Fatalf("callback not brief: %s", cb)
-	}
-	if p.cardViews.mode("A") != cardViewBrief || p.cardViews.mode("B") != cardViewDetail {
-		t.Fatal("press changed another message")
-	}
-
-	rest.edits = nil
-	for _, h := range []any{a, b} {
-		if err := p.UpdateMessage(ctx, h, content); err != nil {
-			t.Fatal(err)
+	for _, leak := range []string{"💭", "THINK_TEXT", "CMD_FULL_TEXT", "TOOL_OUTPUT", "PROMPT_TEXT", "AGENT_OUT", "READ_PATH"} {
+		if strings.Contains(brief, leak) {
+			t.Fatalf("brief shows %q:\n%s", leak, brief)
 		}
 	}
-	if strings.Contains(rest.edits[0], "核对卡片渲染") || !strings.Contains(rest.edits[0], "Rawls") {
-		t.Fatalf("A lost brief after edit: %s", rest.edits[0])
-	}
-	if !strings.Contains(rest.edits[1], "核对卡片渲染") {
-		t.Fatalf("B not detail: %s", rest.edits[1])
-	}
-
-	pressCardView(p, "A", "detail")
-	if cb := rest.callbacks[1]; !strings.Contains(cb, "核对卡片渲染") || !strings.Contains(cb, "运行命令") {
-		t.Fatalf("back to detail failed: %s", cb)
+	detail := buildDiscordProgressEmbedView(payload, cardViewDetail).Description
+	for _, want := range []string{"THINK_TEXT", "CMD_FULL_TEXT", "PROMPT_TEXT"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("detail missing %q:\n%s", want, detail)
+		}
 	}
 }
 
-// The task card follows the same toggle and keeps it across EnsureTaskCard edits.
-func TestCardViewTaskCardToggleSticks(t *testing.T) {
+// One button row per turn, on the progress card: the table and the task card
+// carry none, a press on the progress card switches all three, and the
+// buttons survive every edit, including the final one.
+func TestCardViewOneButtonRowPerTurn(t *testing.T) {
 	p, rest := newCardViewPlatform(t)
-	now := time.Now()
+	rest.anyMentions = true
+	ctx := context.Background()
+	rc := replyContext{channelID: "room"}
+	cardAny, err := p.SendPreviewStart(ctx, rc, cardViewProgress(core.ProgressCardStateRunning))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tableAny, err := p.SendPreviewStart(ctx, rc, cardViewSubTasks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0)
 	task := &core.Task{ID: "t2", Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
 		Members: []core.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
-	if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err != nil {
+	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
 		t.Fatal(err)
 	}
-	if len(rest.components) != 1 || !strings.Contains(rest.components[0], "cardview:detail") {
-		t.Fatalf("card sent without buttons: %v", rest.components)
+	if len(rest.components) < 3 {
+		t.Fatalf("sends = %v", rest.components)
 	}
-	pressCardView(p, task.MessageID, "brief")
-	if len(rest.callbacks) != 1 || strings.Contains(rest.callbacks[0], "REQ_SUMMARY") || strings.Contains(rest.callbacks[0], "MEMBER_TITLE") || !strings.Contains(rest.callbacks[0], "龙娘") {
-		t.Fatalf("card callback not brief: %v", rest.callbacks)
+	// Default 简略; only the progress card has the buttons.
+	if !strings.Contains(rest.components[0], "cardview:detail") {
+		t.Fatalf("progress card sent without buttons: %s", rest.components[0])
+	}
+	for _, c := range rest.components[1:] {
+		if strings.Contains(c, "cardview:") {
+			t.Fatalf("table/task card has its own buttons: %v", rest.components)
+		}
+	}
+	for _, e := range rest.edits {
+		if strings.Contains(e, "cardview:") {
+			t.Fatalf("task card edit has buttons: %s", e)
+		}
+	}
+	card := cardAny.(*discordPreviewHandle)
+	table := tableAny.(*discordPreviewHandle)
+
+	rest.edits = nil
+	pressCardView(p, card.messageID, "detail")
+	if len(rest.callbacks) != 1 || !strings.Contains(rest.callbacks[0], "CMD_FULL_TEXT") {
+		t.Fatalf("progress card callback not detail: %v", rest.callbacks)
+	}
+	var tableEdit, taskEdit string
+	for _, e := range rest.edits {
+		switch {
+		case strings.Contains(e, `"ID":"`+table.messageID+`"`) || strings.Contains(e, "Rawls"):
+			tableEdit = e
+		case strings.Contains(e, "龙娘"):
+			taskEdit = e
+		}
+	}
+	if !strings.Contains(tableEdit, "核对卡片渲染") || strings.Contains(tableEdit, "cardview:") {
+		t.Fatalf("table not switched to detail without buttons: %q (edits %v)", tableEdit, rest.edits)
+	}
+	if !strings.Contains(taskEdit, "REQ_SUMMARY") || strings.Contains(taskEdit, "cardview:") {
+		t.Fatalf("task card not switched to detail without buttons: %q", taskEdit)
+	}
+
+	// Later edits keep the turn's choice and the buttons, also after the turn ends.
+	rest.edits = nil
+	if err := p.UpdateMessage(ctx, card, cardViewProgress(core.ProgressCardStateCompleted)); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.UpdateMessage(ctx, table, cardViewSubTasks()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rest.edits[0], "CMD_FULL_TEXT") || !strings.Contains(rest.edits[0], "cardview:brief") {
+		t.Fatalf("final progress edit lost view or buttons: %s", rest.edits[0])
+	}
+	if !strings.Contains(rest.edits[1], "核对卡片渲染") || strings.Contains(rest.edits[1], "cardview:") {
+		t.Fatalf("table edit: %s", rest.edits[1])
 	}
 	rest.edits = nil
-	task.UpdatedAt = now.Add(time.Second)
-	if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err != nil {
+	pressCardView(p, card.messageID, "brief")
+	if cb := rest.callbacks[1]; strings.Contains(cb, "CMD_FULL_TEXT") || !strings.Contains(cb, "Bash · 成功") || !strings.Contains(cb, "cardview:detail") {
+		t.Fatalf("press after the turn ended: %s", cb)
+	}
+	for _, e := range rest.edits {
+		if strings.Contains(e, "核对卡片渲染") || strings.Contains(e, "REQ_SUMMARY") {
+			t.Fatalf("member not back to brief: %s", e)
+		}
+	}
+}
+
+// A new turn starts in the default view (简略), whatever the last turn chose.
+func TestCardViewNewTurnStartsBrief(t *testing.T) {
+	p, rest := newCardViewPlatform(t)
+	rest.anyMentions = true
+	ctx := context.Background()
+	rc := replyContext{channelID: "room"}
+	first, err := p.SendPreviewStart(ctx, rc, cardViewProgress(core.ProgressCardStateRunning))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rest.edits) == 0 || strings.Contains(rest.edits[0], "REQ_SUMMARY") || !strings.Contains(rest.edits[0], "龙娘") {
-		t.Fatalf("card edit lost brief: %v", rest.edits)
+	pressCardView(p, first.(*discordPreviewHandle).messageID, "detail")
+	if _, err := p.SendPreviewStart(ctx, rc, cardViewProgress(core.ProgressCardStateRunning)); err != nil {
+		t.Fatal(err)
+	}
+	if last := rest.components[len(rest.components)-1]; !strings.Contains(last, "cardview:detail") {
+		t.Fatalf("new turn not brief: %s", last)
 	}
 }
 

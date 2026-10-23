@@ -1489,6 +1489,7 @@ func (p *Platform) ResolveCronReplyTarget(sessionKey string, title string) (stri
 type discordPreviewHandle struct {
 	channelID string
 	messageID string
+	origin    string // maomao fork: the turn's own channel (before the log-channel redirect), groups its cards (card_view.go)
 }
 
 // SendPreviewStart sends a new message and returns a handle for subsequent edits.
@@ -1505,9 +1506,16 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 	// maomao fork: the progress card and the sub-agent table go to the log channel
 	// when the target channel has one; the handle keeps that channel, so the
 	// edits and the delete follow it (see aux_channels.go).
+	origin := channelID
 	channelID = p.previewChannelFor(channelID, content)
 
-	msg := buildDiscordPreviewMessage(content)
+	// A new progress card starts a new turn in the default view; a table joins
+	// the newest turn of its origin channel.
+	view := cardViewDefault
+	if _, isTable := core.ParseSubTaskTablePayload(content); isTable {
+		view = p.cardViews.turnMode(origin)
+	}
+	msg := buildDiscordPreviewMessageView(content, view)
 	sent, err := p.session.ChannelMessageSendComplex(channelID, msg)
 	if err != nil {
 		return nil, fmt.Errorf("discord: send preview: %w", err)
@@ -1518,10 +1526,8 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 	case *interactionReplyCtx:
 		p.noteInteractionSent(rc, sent)
 	}
-	if render, ok := subTaskTableRender(content); ok {
-		p.cardViews.remember(sent.ID, render)
-	}
-	return &discordPreviewHandle{channelID: channelID, messageID: sent.ID}, nil
+	p.rememberPreview(origin, channelID, sent.ID, content)
+	return &discordPreviewHandle{channelID: channelID, messageID: sent.ID, origin: origin}, nil
 }
 
 // UpdateMessage edits an existing message identified by previewHandle.
@@ -1530,14 +1536,26 @@ func (p *Platform) UpdateMessage(ctx context.Context, previewHandle any, content
 	if !ok {
 		return fmt.Errorf("discord: invalid preview handle type %T", previewHandle)
 	}
+	p.rememberPreview(h.origin, h.channelID, h.messageID, content)
 	_, err := p.session.ChannelMessageEditComplex(buildDiscordPreviewEditView(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID)))
 	if err != nil {
 		return fmt.Errorf("discord: edit message: %w", err)
 	}
-	if render, ok := subTaskTableRender(content); ok {
-		p.cardViews.remember(h.messageID, render)
-	}
 	return nil
+}
+
+// rememberPreview files a progress card or sub-agent table under its turn and
+// keeps its renderer for the 细节/简略 buttons (card_view.go).
+func (p *Platform) rememberPreview(origin, channelID, messageID, content string) {
+	if render, ok := progressCardRender(content); ok {
+		p.cardViews.lead(origin, channelID, messageID)
+		p.cardViews.remember(messageID, render)
+		return
+	}
+	if render, ok := subTaskTableRender(content); ok {
+		p.cardViews.join(origin, channelID, messageID)
+		p.cardViews.remember(messageID, render)
+	}
 }
 
 // DeletePreviewMessage removes the preview message so the final response can
