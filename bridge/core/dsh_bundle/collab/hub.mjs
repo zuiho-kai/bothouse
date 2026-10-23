@@ -101,6 +101,42 @@ export class Hub {
     return result;
   }
 
+  /**
+   * Streamed reply (#121): draft() stores and shows a row without telling
+   * agents; commit() writes the complete text and then fans out exactly like
+   * post() (planners, listeners), once per row (the durable draft flag, so a
+   * restart cannot fan out twice), so teammates only ever see the final text. A repeated clientKey returns the existing draft.
+   */
+  draft(roomId, m) {
+    const r = this.store.append(roomId, { ...m, draft: true });
+    if (r.created) this.emit({ type: 'message', message: publicMessage(r.message) });
+    return r;
+  }
+
+  commit(id, authorKind, author, text, fromTurn) {
+    const after = [];
+    const r = this.store.transaction(() => {
+      const c = this.store.commit(id, authorKind, author, text, fromTurn);
+      if (c?.first) for (const plan of this.planners) { const next = plan(c.message); if (next) after.push(next); }
+      return c;
+    });
+    if (r === undefined) return undefined;
+    const row = r.message;
+    this.emit({ type: 'message', message: publicMessage(row) });
+    if (!r.first) return row;
+    for (const next of after) {
+      Promise.resolve().then(next).catch((error) => {
+        this.logger.warn('collab: post-commit step failed: %s', error?.stack ?? error);
+      });
+    }
+    for (const listener of this.listeners) {
+      Promise.resolve().then(() => listener(row)).catch((error) => {
+        this.logger.warn('collab: message listener failed: %s', error?.stack ?? error);
+      });
+    }
+    return row;
+  }
+
   /** Edit/delete a row the same author wrote, and tell browsers. */
   edit(id, authorKind, author, text, card) {
     const row = this.store.edit(id, authorKind, author, text, card);

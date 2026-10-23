@@ -210,7 +210,7 @@ export class DshMembers {
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null)
+      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
     const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen) }], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
@@ -228,7 +228,7 @@ export class DshMembers {
     if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null)
+      .filter(m => m.id > binding.context_cursor && m.author !== member.id && m.author_kind !== 'system' && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     let entry = this.cliAgents.get(member.id);
@@ -239,16 +239,39 @@ export class DshMembers {
     }
     this.hub.setError(member.id, undefined);
     this.hub.setThinking(job.room_id, member.id, true);
+    // #121: the first public chunk opens a draft row, later chunks edit it in place
+    // (one store write per event-loop turn), and the full reply commits that same row.
+    const clientKey = `dsh-job-${job.id}`;
+    let draft;
+    let latest = '';
+    let flushing = false;
+    const flush = () => {
+      flushing = false;
+      const text = latest.trim();
+      if (this.closed || !text) return;
+      if (draft === undefined) draft = this.hub.draft(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text }).message;
+      // A rerun after a restart finds its row already committed: leave it alone.
+      else if (draft.draft && draft.text !== text) draft = this.hub.edit(draft.id, 'role', member.id, text) ?? draft;
+    };
+    const onText = (full) => {
+      latest = full;
+      if (!flushing) { flushing = true; setImmediate(flush); }
+    };
+    let done = false;
     try {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
-      const text = (await entry.agent.ask(promptText(room, member, unseen), String(room.id)))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen), String(room.id), onText))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
-      const { message } = this.hub.post(job.room_id, {
-        authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`, text,
-      });
+      latest = '';
+      const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, text);
+      const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text }).message;
+      done = true;
       this.store.finishJob(job.id, 'done', message.id);
     } finally {
+      latest = '';
+      // Error, cancel or empty turn: drop the partial draft so the room never keeps a cut-off reply.
+      if (!done && draft?.draft) this.hub.remove(draft.id, 'role', member.id);
       this.hub.setThinking(job.room_id, member.id, false);
     }
   }

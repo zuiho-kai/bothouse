@@ -35,11 +35,14 @@ const (
 	// maomao fork: the gateway renders the sub-agent table payload
 	// (core.SubTaskTablePayloadPrefix). Without it the table is not sent.
 	capSubTaskTable = "subtask_table"
+	// maomao fork (#121): a reply frame with preview_handle overwrites that streamed
+	// preview and is then relayed like any reply. Enables text stream previews.
+	capReplyInPlace = "reply_in_place"
 )
 
 var allCapabilities = []string{
 	capText, capImage, capFile, capAudio, capCard, capButtons,
-	capTyping, capUpdateMessage, capPreview, capDeleteMessage, capReconstructReply, capSubTaskTable,
+	capTyping, capUpdateMessage, capPreview, capDeleteMessage, capReconstructReply, capSubTaskTable, capReplyInPlace,
 }
 
 func capabilitySet(list []string) map[string]bool {

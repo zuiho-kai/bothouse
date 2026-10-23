@@ -5,12 +5,12 @@
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { checkAvatar } from './avatars.mjs';
-import { MAX_TEXT, publicMessage } from './store.mjs';
+import { MAX_TEXT } from './store.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
 // Declared to cc-connect. Buttons/cards are not declared, so cc-connect
 // degrades them to text (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message'];
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place'];
 const REGISTER_TIMEOUT_MS = 10_000;
 const WS_BAD_REGISTER = 4002;
 const WS_REPLACED = 4003;
@@ -183,6 +183,9 @@ export class CloudWebGateway {
         if (typeof d.content !== 'string' || room === undefined) return;
         const text = forDisplay(d.content, this.hub.routable()).trim();
         if (!text || text.length > MAX_TEXT) return;
+        // reply_in_place (#121): the streamed preview becomes this reply; fall back to a new row if it is gone.
+        const h = d.preview_handle;
+        if (typeof h === 'string' && /^\d+$/.test(h) && this.hub.commit(Number(h), 'role', member.id, text, d.agent === true) !== undefined) return;
         this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, fromTurn: d.agent === true });
         return;
       }
@@ -198,11 +201,10 @@ export class CloudWebGateway {
         const body = this.body(d.content);
         let handle = '';
         if (room !== undefined && body.text) {
-          const { message } = this.hub.store.append(room, {
+          const { message } = this.hub.draft(room, {
             authorKind: 'role', author: member.id, name: member.name, text: body.text, card: body.card,
             clientKey: `preview:${member.id}:${d.ref_id}`,
           });
-          this.hub.emit({ type: 'message', message: publicMessage(message) });
           handle = String(message.id);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
