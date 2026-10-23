@@ -975,6 +975,7 @@ func TestUpdateMessage_ProgressPayloadUsesEmbed(t *testing.T) {
 		t.Fatal("BuildProgressCardPayloadV2() returned empty payload")
 	}
 
+	p.cardViews.lead("ch-1", "ch-1", "msg-preview")    // a known turn; an unknown one only keeps the channel choice
 	p.cardViews.set("msg-preview", "", cardViewDetail) // the 细节 view keeps the full lines
 	err := p.UpdateMessage(context.Background(), &discordPreviewHandle{channelID: "ch-1", messageID: "msg-preview"}, progress)
 	if err != nil {
