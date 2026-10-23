@@ -1,6 +1,9 @@
 package core
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrTaskFactUndeliverable marks a permanent refusal (e.g. Discord 403/404)
 // to publish a fact with a given account. Retrying cannot succeed, so the
@@ -42,13 +45,19 @@ func (rm *RelayManager) ResolveTaskReporter(source, project, platform, session s
 		return nil, errors.New("task reporter engine unavailable")
 	}
 	if binding == nil || binding.Platform != platform {
-		return nil, errors.New("task reporter is not bound in this channel")
+		// Bindings are loaded with the relay manager, so this is permanent
+		// (e.g. runtime `/bind -<worker>`), not a startup race: retrying
+		// would block every later fact of the card.
+		return nil, fmt.Errorf("%w: task reporter is not bound in this channel", ErrTaskFactUndeliverable)
 	}
 	if _, ok := binding.Bots[source]; !ok {
 		return nil, errors.New("task creator is not bound in this channel")
 	}
 	if _, ok := binding.Bots[project]; !ok {
-		return nil, errors.New("task reporter is not bound in this channel")
+		// Bindings are loaded with the relay manager, so this is permanent
+		// (e.g. runtime `/bind -<worker>`), not a startup race: retrying
+		// would block every later fact of the card.
+		return nil, fmt.Errorf("%w: task reporter is not bound in this channel", ErrTaskFactUndeliverable)
 	}
 	for _, candidate := range target.platforms {
 		if candidate.Name() != platform {

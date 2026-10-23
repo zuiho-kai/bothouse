@@ -250,6 +250,37 @@ func TestTaskMemberRefusedFactDoesNotBlockCard(t *testing.T) {
 	}
 }
 
+// Runtime `/bind -gjiang` while the worker grant is still live: the resolver
+// refusal is permanent, so the creator posts a note and later facts still land.
+func TestTaskMemberUnboundWorkerDoesNotBlockCard(t *testing.T) {
+	p, lead, worker, api, rm := memberIdentityFixture(t)
+	session := "discord:room:user"
+	run, id := startCard(t, p, lead, session, "Task")
+	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
+		t.Fatal("assign failed", status)
+	}
+	tok := relayedMemberTokens(t, p, id, "gjiang")["worker"]
+	rm.RemoveFromBind("room", "gjiang")
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: session, Run: tok, Seq: 1, Kind: "update", Summary: "worker started"}); err != nil {
+		t.Fatal("worker report:", err)
+	}
+	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: session, Run: run, TaskID: id, Seq: 2, Kind: "result", Summary: "lead final"}); err != nil {
+		t.Fatal(err)
+	}
+	p.Flush(context.Background())
+	var note, later bool
+	for _, fact := range lead.facts {
+		note = note || strings.Contains(fact.Summary, "gjiang 无法在线程发言")
+		later = later || strings.Contains(fact.Summary, "lead final")
+	}
+	if !note || !later || len(worker.facts) != 0 {
+		t.Fatalf("unbound worker fact blocked card or was silent: note=%v later=%v lead=%v", note, later, lead.facts)
+	}
+	if len(p.pending) != 0 {
+		t.Fatal("unbound worker fact left the card pending forever")
+	}
+}
+
 func TestTaskMemberReporterRequiresBoundProject(t *testing.T) {
 	p, lead, _, api, rm := memberIdentityFixture(t)
 	session := "discord:room:user"

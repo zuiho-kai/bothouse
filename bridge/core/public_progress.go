@@ -519,10 +519,9 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 		}
 		if ev.IsKeyFact {
 			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.SessionKey, r.publisher)
-			if err != nil {
-				return err
+			if err == nil {
+				err = publisher.PublishTaskFact(ctx, task, ev, lang)
 			}
-			err = publisher.PublishTaskFact(ctx, task, ev, lang)
 			if errors.Is(err, ErrTaskFactUndeliverable) && ev.ReporterProject != "" && ev.ReporterProject != p.project {
 				// Persist the replacement first so a retry never goes back to the
 				// refusing account; the creator then posts it in order.
