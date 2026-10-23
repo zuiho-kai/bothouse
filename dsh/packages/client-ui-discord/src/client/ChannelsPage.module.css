@@ -840,6 +840,58 @@
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
+.leadControl {
+  margin: 0 0 10px;
+  padding: 0 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.leadControl .field {
+  gap: 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.leadControl .fieldInput {
+  width: 100%;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.leadMenu {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-base);
+}
+
+.leadOption {
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-primary);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.leadOption:hover,
+.leadOption[aria-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .taskList {
   margin: 0;
   padding: 0;

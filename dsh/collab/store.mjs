@@ -10,10 +10,11 @@ export const MAX_TEXT = 128 * 1024;
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
 export const DISPATCH_MODES = ['solo', 'team', 'mixed'];
 export const DEFAULT_DISPATCH_MODE = 'mixed';
-// v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks; columns are
+// v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks, v10 is the
+// persisted primary member selected from the Channels page; columns are
 // added by ensureSchema() on every open (checked with PRAGMA table_info), so either merge
 // or release order ends with every column; user_version only records the newest schema known.
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
@@ -77,6 +78,8 @@ export class Store {
       openJobs: this.db.prepare("SELECT * FROM jobs WHERE state IN ('pending', 'sent') ORDER BY id"),
       sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ? WHERE id = ? AND state = 'pending' RETURNING *"),
       finish: this.db.prepare("UPDATE jobs SET state = ?, reply_id = ? WHERE id = ? AND state IN ('pending', 'sent') RETURNING *"),
+      primaryMember: this.db.prepare("SELECT value FROM collab_settings WHERE key = 'primary_member_id'"),
+      setPrimaryMember: this.db.prepare("INSERT INTO collab_settings (key, value) VALUES ('primary_member_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"),
       createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
@@ -122,6 +125,12 @@ export class Store {
         room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
         dispatch_mode TEXT NOT NULL DEFAULT '${DEFAULT_DISPATCH_MODE}'
           CHECK (dispatch_mode IN (${DISPATCH_MODES.map(m => `'${m}'`).join(', ')})))`);
+      // Team-wide settings are separate from room settings: a workspace and its
+      // parent channel share dispatch mode, while the selected primary member is
+      // one durable choice for the whole collab service.
+      this.db.exec(`CREATE TABLE IF NOT EXISTS collab_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL)`);
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     });
   }
@@ -293,6 +302,15 @@ export class Store {
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET dispatch_mode = ? WHERE room_id = ?').run(mode, roomId);
     return mode;
+  }
+
+  /** The member selected as the team's primary role, or undefined before the first choice. */
+  primaryMember() { return this.q.primaryMember.get()?.value; }
+
+  /** Persist the primary role without touching gate/lead.json or any host config. */
+  setPrimaryMember(id) {
+    this.q.setPrimaryMember.run(id);
+    return id;
   }
 
   /** Active DSH members, config seeds and UI-created alike. */

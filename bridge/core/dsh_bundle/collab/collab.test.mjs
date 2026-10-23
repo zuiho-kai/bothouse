@@ -78,6 +78,13 @@ test('dispatch mode: a workspace inherits its chat channel setting (PR #138 revi
   assert.equal(s.dispatchMode(1), 'team', 'setting a workspace sets its chat channel');
 });
 
+test('store: primary role selection persists in the collab database', () => {
+  const s = new Store(':memory:');
+  assert.equal(s.primaryMember(), undefined);
+  assert.equal(s.setPrimaryMember('whale'), 'whale');
+  assert.equal(s.primaryMember(), 'whale');
+});
+
 test('team exit: forwards asks and returns answers to the recorded workspace', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
@@ -743,7 +750,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -826,7 +833,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -1206,7 +1213,7 @@ test('reply: a v6 database gains reply_to and keeps its messages', async () => {
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   const old = up.page(1, undefined, 1)[0];
   assert.equal(old.text, '老消息');
   assert.equal(old.reply_to, null);
@@ -1512,7 +1519,7 @@ test('tasks: the tasks table is ensured idempotently and survives reopen', async
   const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
   assert.equal(cols.includes('note'), true, 'a missing column is added back');
   assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
-  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 10);
   again.close();
 });
 
@@ -1603,7 +1610,7 @@ test('store: a v6 database gains kind/parent_id; opening it creates no workspace
   old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
   old.close();
   const s = new Store(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.deepEqual(plain(s.rooms()), [
     { id: 1, name: 'general', kind: 'chat', parent_id: null },
     { id: 2, name: 'dev', kind: 'chat', parent_id: null },
@@ -1696,11 +1703,11 @@ test('store: a v8 database missing reply_to (#133 shipped after) gains it on ope
   s.ensureRoom(1, 'general');
   s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
   s.close();
   const up = new Store(path);
   assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
   assert.equal(up.page(1, undefined, 1)[0].text, 'old');
   up.close();
 });

@@ -170,6 +170,8 @@ export interface ChannelSnapshot {
   readonly thinking: Readonly<Record<string, readonly string[]>>
   /** Selected room's messages, ascending by id. */
   readonly messages: readonly ChannelMessage[]
+  /** The selected primary role for the collab service, or null when no role is connected. */
+  readonly leadId: string | null
   /** Task board of the selected room's chat channel (itself and its workspaces), newest first. */
   readonly tasks?: readonly ChannelTask[]
   /** Chat channel the board belongs to. */
@@ -194,6 +196,8 @@ export interface ChannelActions {
   updateMember(id: string, input: MemberInput): Promise<void>
   /** Remove a UI-created DSH member. */
   removeMember(id: string): Promise<void>
+  /** Select the member that owns the primary-role slot for this collab service. */
+  setLead(id: string): Promise<void>
   /** Answer a bot's permission prompt (#120); rejects with the service's reason (already decided, expired, offline). */
   decidePermission(messageId: number, decision: PermissionDecision): Promise<void>
 }
@@ -221,9 +225,10 @@ type ServiceEvent =
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
   | { readonly type: 'task'; readonly task: ChannelTask; readonly chat_id: number }
+  | { readonly type: 'lead'; readonly lead_id: string | null }
 
 const INITIAL: ChannelSnapshot = {
-  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], tasks: [], taskChat: undefined,
+  phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], leadId: null, tasks: [], taskChat: undefined,
 }
 
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
@@ -312,6 +317,7 @@ export function createChannelSource(transport: ChannelTransport): {
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
       case 'rooms': return { ...current, rooms: event.rooms }
+      case 'lead': return { ...current, leadId: event.lead_id }
       case 'task': {
         if (current.taskChat === undefined) {
           if (newer(earlyTasks.get(event.task.id)?.task, event.task)) earlyTasks.set(event.task.id, { chat: event.chat_id, task: event.task })
@@ -368,7 +374,7 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]> }>(
+      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; lead_id?: string | null }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
@@ -396,6 +402,7 @@ export function createChannelSource(transport: ChannelTransport): {
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, messages: rows,
+        leadId: state.lead_id ?? null,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
       }
       for (const event of read.events) next = applyEvent(next, event)
@@ -503,6 +510,10 @@ export function createChannelSource(transport: ChannelTransport): {
     },
     async removeMember(id) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+    async setLead(id) {
+      const result = await request<{ lead_id: string }>('collab/api/lead', json('PATCH', { lead_id: id }))
+      if (lifetime !== undefined) onEvent({ type: 'lead', lead_id: result.lead_id })
     },
     async decidePermission(messageId, decision) {
       const owner = lifetime

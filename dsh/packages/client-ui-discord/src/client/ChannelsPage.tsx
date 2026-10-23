@@ -164,7 +164,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, decidePermission, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, decidePermission, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
@@ -195,6 +195,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const [leadSaving, setLeadSaving] = useState(false)
+  const [leadOpen, setLeadOpen] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
   // `@` start of the popup currently shown, read by the outside-click listener.
   const openMentionAt = useRef<number | undefined>(undefined)
@@ -325,6 +327,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     removeMember(member.id).catch((error: unknown) => {
       setMemberError(error instanceof Error ? error.message : String(error))
     })
+  }
+
+  const changeLead = (id: string): void => {
+    setLeadOpen(false)
+    if (!id || id === state.leadId || leadSaving) return
+    setMemberError(undefined)
+    setLeadSaving(true)
+    setLead(id).catch((error: unknown) => {
+      setMemberError(error instanceof Error ? error.message : String(error))
+    }).finally(() => { setLeadSaving(false) })
   }
 
   const openPicker = (): void => {
@@ -562,6 +574,25 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
         <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} t={t} onOpen={openMessage} />
+        <div className={css.leadControl}>
+          <span className={css.fieldLabel}>{t('lead')}</span>
+          <button
+            type="button"
+            className={css.fieldInput}
+            aria-haspopup="listbox"
+            aria-expanded={leadOpen}
+            aria-label={t('lead')}
+            disabled={leadSaving || state.members.every(m => m.kind === 'human')}
+            onClick={() => { setLeadOpen(!leadOpen) }}
+          >
+            {state.members.find(m => m.id === state.leadId)?.name ?? t('leadNone')}
+          </button>
+          {leadOpen && <div className={css.leadMenu} role="listbox" aria-label={t('lead')}>
+            {state.members.filter(m => m.kind !== 'human').map(m => (
+              <button key={m.id} type="button" role="option" aria-selected={m.id === state.leadId} className={css.leadOption} onClick={() => { changeLead(m.id) }}>{m.name}</button>
+            ))}
+          </div>}
+        </div>
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />

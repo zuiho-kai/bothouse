@@ -11,6 +11,7 @@ const ready: ChannelSnapshot = {
   phase: 'ready', error: undefined,
   rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], roomId: 1,
   members: [{ id: 'ju', name: '橘', kind: 'bot', online: true }], thinking: { 1: ['ju'] },
+  leadId: 'ju',
   messages: [{ id: 1, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '<script>alert(1)</script>', created_at: 1, card: null, from_turn: null }],
 }
 
@@ -22,12 +23,27 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
     selectRoom: vi.fn(), send,
     createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
+    setLead: vi.fn(async () => {}),
     t: (key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
       .reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), String(zh[key])),
   } as unknown as ChannelsPageProps
 }
 
 describe('channels page', () => {
+  it('shows the primary-role selector and saves a changed member', async () => {
+    const setLead = vi.fn(async () => {})
+    const state: ChannelSnapshot = { ...ready, members: [
+      { id: 'ju', name: '橘', kind: 'bot', online: true },
+      { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true },
+    ] }
+    render(<ChannelsPage {...props(state)} setLead={setLead} />)
+    const trigger = screen.getByRole('button', { name: zh.lead })
+    expect(trigger.textContent).toContain('橘')
+    fireEvent.click(trigger)
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '鲸鱼娘' })) })
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ds')
+  })
+
   it('renders a room with a message and a configure-model card without throwing', () => {
     // Regression: the message list once referenced a prop the page never destructured,
     // so any room with a message threw and blanked the whole main panel.
