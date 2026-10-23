@@ -155,6 +155,53 @@
   font-size: 12px;
 }
 
+.avatarAnchor {
+  position: relative;
+  align-self: start;
+}
+
+.avatarButton {
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.avatarMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgb(0 0 0 / 0.24));
+}
+
+.avatarMenuTitle {
+  padding: 4px 8px;
+  font-weight: 700;
+}
+
+.avatarMenuItem {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.avatarMenuItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .messageBody {
   min-width: 0;
 }

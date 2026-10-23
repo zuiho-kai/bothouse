@@ -33,14 +33,39 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   return null
 }
 
-function MessageRow({ message, member, t, onConfigure }: { message: ChannelMessage; member: ChannelMember | undefined; t: T; onConfigure: () => void }) {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention }: {
+  message: ChannelMessage
+  member: ChannelMember | undefined
+  t: T
+  onConfigure: () => void
+  menuOpen: boolean
+  onAvatar: () => void
+  onCloseMenu: () => void
+  onMention: (member: ChannelMember) => void
+}) {
   let card: { title?: string; state?: string; action?: string } | undefined
   if (message.card !== null) {
     try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
   return (
     <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
-      <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+      {member === undefined || message.author_kind === 'system'
+        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+        : (
+            // Avatar opens this author's member menu; `data-avatar-menu` marks the
+            // area an outside press must not land in to keep the menu open.
+            <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
+              <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
+                <Avatar id={member.id} name={message.name} avatar={member.avatar} />
+              </button>
+              {menuOpen && (
+                <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
+                  <div className={css.avatarMenuTitle}>{member.name}</div>
+                  <button type="button" role="menuitem" className={css.avatarMenuItem} onClick={() => { onMention(member) }}>{t('avatarMention')}</button>
+                </div>
+              )}
+            </span>
+          )}
       <div className={css.messageBody}>
         <div className={css.messageHead}>
           <span className={css.author}>{message.name}</span>
@@ -148,6 +173,20 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     input.setSelectionRange(next, next)
   })
 
+  // Message whose avatar menu is open (#123); keyed by message so only one row shows it.
+  const [avatarMenu, setAvatarMenu] = useState<number | undefined>(undefined)
+
+  // Close the avatar menu on a press outside it (same document-press approach
+  // as the @ popup); the draft is untouched and nothing is sent.
+  useEffect(() => {
+    if (avatarMenu === undefined) return
+    const onPress = (event: MouseEvent): void => {
+      if ((event.target as Element | null)?.closest?.('[data-avatar-menu]') == null) setAvatarMenu(undefined)
+    }
+    document.addEventListener('mousedown', onPress)
+    return () => { document.removeEventListener('mousedown', onPress) }
+  }, [avatarMenu])
+
   // Follow new messages only while the reader is already at the bottom.
   useEffect(() => {
     const log = logRef.current
@@ -190,6 +229,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setDrawer(undefined)
     const next = insertMention(draft, caret, member)
     setDraft(next.text, next.caret)
+  }
+
+  // Avatar menu "@": the same caret insertion as the member list, keeping the draft.
+  const mentionFromAvatar = (member: ChannelMember): void => {
+    setAvatarMenu(undefined)
+    pickFromList(member)
   }
 
   const submitRoom = (): void => {
@@ -320,7 +365,19 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           )}
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} onConfigure={() => { setModelsOpen(true) }} />)}
+            : state.messages.map(m => (
+                <MessageRow
+                  key={m.id}
+                  message={m}
+                  member={byId.get(m.author)}
+                  t={t}
+                  onConfigure={() => { setModelsOpen(true) }}
+                  menuOpen={avatarMenu === m.id}
+                  onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
+                  onCloseMenu={() => { setAvatarMenu(undefined) }}
+                  onMention={mentionFromAvatar}
+                />
+              ))}
         </div>
         <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
         <div className={css.composer}>

@@ -48,6 +48,44 @@ describe('channels page', () => {
     expect(screen.getByRole('status').textContent).toBe(zh.unavailable)
   })
 
+  it('opens a member menu from a message avatar and inserts @ at the caret, keeping the draft (#123)', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '你好世界', selectionStart: 2, selectionEnd: 2 } })
+    const avatar = screen.getByRole('button', { name: '橘 的成员操作' })
+
+    // Outside press closes the menu; draft untouched, nothing sent.
+    fireEvent.click(avatar)
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.mouseDown(screen.getByRole('log'))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(input.value).toBe('你好世界')
+
+    // Esc closes it too.
+    fireEvent.click(avatar)
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    // Pressing inside keeps it open; "@" inserts at the caret and closes the menu.
+    fireEvent.click(avatar)
+    const item = screen.getByRole('menuitem', { name: zh.avatarMention })
+    fireEvent.mouseDown(item)
+    fireEvent.click(item)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(input.value).toBe('你好 @橘 世界')
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('keeps system messages and departed authors as plain avatars', () => {
+    const messages = [
+      { ...ready.messages[0], id: 2, author_kind: 'system' as const },
+      { ...ready.messages[0], id: 3, author: 'gone', name: '走了' },
+    ]
+    render(<ChannelsPage {...props({ ...ready, messages, thinking: {} })} />)
+    expect(screen.queryByRole('button', { name: /的成员操作/ })).toBeNull()
+  })
+
   it('keeps the draft until acknowledgement, blocks duplicate sends and respects IME and Shift+Enter', async () => {
     let finish!: () => void
     const send = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
