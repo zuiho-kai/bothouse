@@ -1,6 +1,6 @@
 # DSH Discord：在 DeepSeek Harness 里做「Discord + 多种 AI + 外接设备」
 
-Issue [#229](https://github.com/Zssan12/conest/issues/229)。基于 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（MIT），钉在 `687f282e86`（0.2.1-rc.2，2026-10-17），见 [upstream.pin.json](upstream.pin.json)。本仓库的 cc-connect 桥接（`bridge/`）、语音陪伴（`companion/`）和设备协议（`role-household/`）是复用来源。
+上游 DSH 项目（未公开）的 Issue #229。基于 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（MIT），钉在 `687f282e86`（0.2.1-rc.2，2026-10-17），见 [upstream.pin.json](upstream.pin.json)。本仓库的 cc-connect 桥接（`bridge/`）、语音陪伴（`companion/`）和设备协议（`role-household/`）是复用来源。
 
 ## 目录与用法
 

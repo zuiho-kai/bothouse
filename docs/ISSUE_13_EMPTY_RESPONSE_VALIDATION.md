@@ -110,4 +110,4 @@ go build -tags no_web ./...
 - race-network-current-main.log：QQ、MAX、飞书、测试HTTP边界全包race。
 - vet-current-main.log、build-current-main.log：全包vet与no_web构建。
 
-前一次Codex启动等待超时仍无唯一根因，不能以本轮全绿覆盖旧记录；已拆出[Issue #23](https://github.com/Zssan12/conest/issues/23)跟踪。Ubuntu最终检查以PR #20当前完整SHA的GitHub Actions结果为准；本机记录不替代Linux检查。
+前一次Codex启动等待超时仍无唯一根因，不能以本轮全绿覆盖旧记录；已拆出上游 DSH 项目（未公开）的 Issue #23 跟踪。Ubuntu最终检查以PR #20当前完整SHA的GitHub Actions结果为准；本机记录不替代Linux检查。

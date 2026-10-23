@@ -1,6 +1,6 @@
 # collab：DSH 里的频道服务（阶段 1 最小纵切）
 
-Issue [#229](https://github.com/Zssan12/conest/issues/229)。一个以绝对路径加载的 DSH Host 插件（纯 ESM，无需构建），在 DSH Web 进程里提供：
+上游 DSH 项目（未公开）的 Issue #229。一个以绝对路径加载的 DSH Host 插件（纯 ESM，无需构建），在 DSH Web 进程里提供：
 
 - **频道**：消息存在 `dataDir/collab.sqlite3`，重启不丢；数字消息 ID 与 role-household hub 一致。
 - **DSH 原生成员**：每个「成员 × 频道」绑定一条普通 DSH Session（在 DSH 网页里也能打开，标题 `#频道 · 成员名`）。被 @ 时把频道里它没看过的消息作为一条用户消息投递，取这一轮最后一条非空回复写回频道。模型可按成员指定，默认用 DSH 当前默认模型。

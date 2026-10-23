@@ -29,7 +29,7 @@
 
 macOS全量 go test -tags no_web -count=1 ./... 已通过（退出码0，不使用-p 1）。最终OpenCode整包及Antigravity/Codex相关进程回归的-race检查也通过。
 
-Linux Ubuntu [CI run 38894302371](https://github.com/Zssan12/conest/actions/runs/38894302371) 在代码提交 8c860baf8fd541a0cb6d2f3a9a3a63835e6d7cfd 上通过：go mod verify、go build -tags no_web ./...、go test -tags no_web -p 1 -count=1 ./...，companion检查也成功。本次没有更改CI并发策略或放宽门禁。最终提交检查、自查与合并证据在 [PR #14](https://github.com/Zssan12/conest/pull/14)。
+Linux Ubuntu 上游 DSH 项目（未公开）的 CI run 38894302371 在代码提交 8c860baf8fd541a0cb6d2f3a9a3a63835e6d7cfd 上通过：go mod verify、go build -tags no_web ./...、go test -tags no_web -p 1 -count=1 ./...，companion检查也成功。本次没有更改CI并发策略或放宽门禁。最终提交检查、自查与合并证据在 PR #14。
 
 ## 本机证据索引
 
