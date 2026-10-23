@@ -31,12 +31,13 @@ const (
 )
 
 type teamState struct {
-	dir    string
-	name   string // display name, e.g. 龙娘
-	inject bool
-	board  bool // post a live "who is doing what" message per channel (lead only)
-	mu     sync.Mutex
-	seen   map[string]*teamSession // sessionKey → state
+	dir       string
+	name      string // display name, e.g. 龙娘
+	inject    bool
+	board     bool // post a live "who is doing what" message per channel (lead only)
+	mu        sync.Mutex
+	seen      map[string]*teamSession // sessionKey → state
+	nextRelay uint64                  // process-local status identity; never a task/run token
 }
 
 type teamSession struct {
@@ -47,16 +48,31 @@ type teamSession struct {
 	worked  bool // this turn used a tool, so it is real work rather than a chat reply
 	since   time.Time
 	doneAt  time.Time
+	relay   *teamRelayWork // independent lifecycle; survives team configuration reload
 }
 
+type teamRelayWork struct {
+	mu    sync.Mutex
+	entry teamEntry
+}
+
+type teamWorkOutcome string
+
+const (
+	teamWorkCompleted   teamWorkOutcome = "completed"
+	teamWorkFailed      teamWorkOutcome = "failed"
+	teamWorkUnconfirmed teamWorkOutcome = "unconfirmed"
+)
+
 type teamEntry struct {
-	Key    string    `json:"key"`
-	Chat   string    `json:"chat,omitempty"`
-	Task   string    `json:"task,omitempty"`
-	Busy   bool      `json:"busy"`
-	Worked bool      `json:"worked,omitempty"`
-	Since  time.Time `json:"since,omitzero"`
-	DoneAt time.Time `json:"done_at,omitzero"`
+	Outcome teamWorkOutcome `json:"outcome,omitempty"`
+	Key     string          `json:"key"`
+	Chat    string          `json:"chat,omitempty"`
+	Task    string          `json:"task,omitempty"`
+	Busy    bool            `json:"busy"`
+	Worked  bool            `json:"worked,omitempty"`
+	Since   time.Time       `json:"since,omitzero"`
+	DoneAt  time.Time       `json:"done_at,omitzero"`
 }
 
 type teamFile struct {
@@ -93,6 +109,7 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 	if old != nil { // config reload: keep what we know
 		old.mu.Lock()
 		t.seen = old.seen
+		t.nextRelay = old.nextRelay
 		t.board = old.board
 		old.mu.Unlock()
 	}
@@ -143,6 +160,44 @@ func (e *Engine) teamNoteWork(sessionKey string) {
 	t.mu.Unlock()
 }
 
+// teamBeginRelay registers accepted work before starting the external agent.
+// Keep each invocation independent of chat turns and of other relays, even
+// when they resume the same underlying conversation. Only a fixed description
+// and the source channel are published; prompts, errors and run IDs stay out.
+func (e *Engine) teamBeginRelay(sourceSessionKey string) func(teamWorkOutcome) {
+	t := e.team
+	if t == nil {
+		return func(teamWorkOutcome) {}
+	}
+	t.mu.Lock()
+	t.nextRelay++
+	key := fmt.Sprintf("%s:relay-work-%d", chatOf(sourceSessionKey), t.nextRelay)
+	work := &teamRelayWork{entry: teamEntry{
+		Key: key, Task: e.i18n.T(MsgRelayWork),
+		Busy: true, Worked: true, Since: time.Now(),
+	}}
+	t.seen[key] = &teamSession{relay: work}
+	t.mu.Unlock()
+	var once sync.Once
+	return func(outcome teamWorkOutcome) {
+		once.Do(func() {
+			// SetTeam can replace teamState and its mutex while a relay drains.
+			// Synchronize on the lifecycle object shared across those states.
+			work.mu.Lock()
+			work.entry.Busy = false
+			work.entry.DoneAt = time.Now()
+			work.entry.Outcome = outcome
+			switch outcome {
+			case teamWorkFailed:
+				work.entry.Task = e.i18n.T(MsgRelayWorkFailed)
+			case teamWorkUnconfirmed:
+				work.entry.Task = e.i18n.T(MsgRelayWorkUnconfirmed)
+			}
+			work.mu.Unlock()
+		})
+	}
+}
+
 func (e *Engine) runTeamWriter() {
 	tick := time.NewTicker(teamPollInterval)
 	defer tick.Stop()
@@ -162,6 +217,17 @@ func (e *Engine) runTeamWriter() {
 		f := teamFile{Project: e.name, Name: t.name}
 		t.mu.Lock()
 		for key, ts := range t.seen {
+			if ts.relay != nil {
+				ts.relay.mu.Lock()
+				en := ts.relay.entry
+				ts.relay.mu.Unlock()
+				if !en.Busy && now.Sub(en.DoneAt) > teamRecentDone {
+					delete(t.seen, key)
+					continue
+				}
+				f.Sessions = append(f.Sessions, en)
+				continue
+			}
 			busy := ts.session != nil && ts.session.Busy()
 			if busy && !ts.busy {
 				ts.since = now
@@ -258,7 +324,14 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 			if s.Busy {
 				lines = append(lines, fmt.Sprintf("%s：在%s忙了 %s %s", f.Name, where, roundDur(now.Sub(s.Since)), task))
 			} else {
-				lines = append(lines, fmt.Sprintf("%s：%s前在%s做完 %s", f.Name, roundDur(now.Sub(s.DoneAt)), where, task))
+				ended := "做完" // preserve legacy entries with an empty outcome
+				switch s.Outcome {
+				case teamWorkFailed:
+					ended = "派工失败"
+				case teamWorkUnconfirmed:
+					ended = "结束，结果未确认"
+				}
+				lines = append(lines, fmt.Sprintf("%s：%s前在%s%s %s", f.Name, roundDur(now.Sub(s.DoneAt)), where, ended, task))
 			}
 			keys = append(keys, fmt.Sprintf("%s|%s|%t|%s", f.Name, where, s.Busy, s.Task))
 		}

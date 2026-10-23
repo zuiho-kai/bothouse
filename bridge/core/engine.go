@@ -16966,6 +16966,14 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 		return "", err
 	}
 	session := sessions.GetOrCreateActive(relaySessionKey)
+	finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	teamOutcome := teamWorkUnconfirmed
+	draining := false
+	defer func() {
+		if !draining {
+			finishTeamWork(teamOutcome)
+		}
+	}()
 
 	if inj, ok := agent.(SessionEnvInjector); ok {
 		envVars := []string{
@@ -16998,6 +17006,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 			agentSession, err = agent.StartSession(e.ctx, "")
 		}
 		if err != nil {
+			teamOutcome = teamWorkFailed
 			return "", fmt.Errorf("start relay session: %w", err)
 		}
 	}
@@ -17026,6 +17035,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	saveRelaySessionID(agentSession.CurrentSessionID(), false)
 
 	if err := agentSession.Send(e.withAgentInstructions(message, "", true), "", nil, nil); err != nil {
+		teamOutcome = teamWorkFailed
 		agentSession.Close()
 		return "", fmt.Errorf("send relay message: %w", err)
 	}
@@ -17065,10 +17075,12 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 				resp = "(empty response)"
 			}
 			slog.Info("relay: turn complete", "from", fromProject, "to", e.name, "response_len", len(resp))
+			teamOutcome = teamWorkCompleted
 			agentSession.Close()
 			return resp, nil
 		case EventError:
 			agentSession.Close()
+			teamOutcome = teamWorkFailed
 			if event.Error != nil {
 				return "", event.Error
 			}
@@ -17084,7 +17096,8 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 			// Relay timed out. Let the agent finish its turn in the
 			// background so the session state is saved cleanly and the
 			// session remains resumable for the next relay call.
-			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey)
+			draining = true
+			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork)
 			return relayPartialResponseOrError(ctx.Err(), textParts, fromProject, e.name)
 		}
 	}
@@ -17121,7 +17134,9 @@ func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, 
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs.
-func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string) {
+func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome)) {
+	teamOutcome := teamWorkUnconfirmed
+	defer func() { finishTeamWork(teamOutcome) }()
 	timer := time.NewTimer(10 * time.Minute)
 	defer timer.Stop()
 
@@ -17141,11 +17156,13 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 			case EventResult:
 				slog.Info("relay: background drain completed (agent finished turn)",
 					"relay_key", relaySessionKey)
+				teamOutcome = teamWorkCompleted
 				agentSession.Close()
 				return
 			case EventError:
 				slog.Warn("relay: background drain got error",
 					"relay_key", relaySessionKey, "error", ev.Error)
+				teamOutcome = teamWorkFailed
 				agentSession.Close()
 				return
 			case EventPermissionRequest:

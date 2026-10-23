@@ -536,23 +536,26 @@ const (
 	MsgWhoamiPlatform  MsgKey = "whoami_platform"
 	MsgWhoamiUsage     MsgKey = "whoami_usage"
 
-	MsgRelayNoBinding     MsgKey = "relay_no_binding"
-	MsgRelayBound         MsgKey = "relay_bound"
-	MsgRelayBindRemoved   MsgKey = "relay_bind_removed"
-	MsgRelayBindNotFound  MsgKey = "relay_bind_not_found"
-	MsgRelayBindSuccess   MsgKey = "relay_bind_success"
-	MsgRelayUsage         MsgKey = "relay_usage"
-	MsgRelayNotAvailable  MsgKey = "relay_not_available"
-	MsgRelayUnbound       MsgKey = "relay_unbound"
-	MsgRelayBindSelf      MsgKey = "relay_bind_self"
-	MsgRelayNotFound      MsgKey = "relay_not_found"
-	MsgRelayNoTarget      MsgKey = "relay_no_target"
-	MsgRelaySetupHint     MsgKey = "relay_setup_hint"
-	MsgRelaySetupOK       MsgKey = "relay_setup_ok"
-	MsgRelaySetupExists   MsgKey = "relay_setup_exists"
-	MsgRelaySetupNoMemory MsgKey = "relay_setup_no_memory"
-	MsgSetupNative        MsgKey = "setup_native"
-	MsgCronSetupOK        MsgKey = "cron_setup_ok"
+	MsgRelayNoBinding       MsgKey = "relay_no_binding"
+	MsgRelayWork            MsgKey = "relay_work"
+	MsgRelayWorkFailed      MsgKey = "relay_work_failed"
+	MsgRelayWorkUnconfirmed MsgKey = "relay_work_unconfirmed"
+	MsgRelayBound           MsgKey = "relay_bound"
+	MsgRelayBindRemoved     MsgKey = "relay_bind_removed"
+	MsgRelayBindNotFound    MsgKey = "relay_bind_not_found"
+	MsgRelayBindSuccess     MsgKey = "relay_bind_success"
+	MsgRelayUsage           MsgKey = "relay_usage"
+	MsgRelayNotAvailable    MsgKey = "relay_not_available"
+	MsgRelayUnbound         MsgKey = "relay_unbound"
+	MsgRelayBindSelf        MsgKey = "relay_bind_self"
+	MsgRelayNotFound        MsgKey = "relay_not_found"
+	MsgRelayNoTarget        MsgKey = "relay_no_target"
+	MsgRelaySetupHint       MsgKey = "relay_setup_hint"
+	MsgRelaySetupOK         MsgKey = "relay_setup_ok"
+	MsgRelaySetupExists     MsgKey = "relay_setup_exists"
+	MsgRelaySetupNoMemory   MsgKey = "relay_setup_no_memory"
+	MsgSetupNative          MsgKey = "setup_native"
+	MsgCronSetupOK          MsgKey = "cron_setup_ok"
 
 	MsgSearchUsage    MsgKey = "search_usage"
 	MsgSearchError    MsgKey = "search_error"
@@ -3779,6 +3782,27 @@ var messages = map[MsgKey]map[Language]string{
 	MsgRelayNoTarget: {
 		LangEnglish: "Project %q not found. No other projects are configured.",
 		LangChinese: "项目 %q 不存在。没有配置其他项目。",
+	},
+	MsgRelayWork: {
+		LangEnglish:            "teammate assignment",
+		LangChinese:            "处理队友派工",
+		LangTraditionalChinese: "處理隊友派工",
+		LangJapanese:           "チームメイトからの依頼に対応中",
+		LangSpanish:            "Trabajando en un encargo del equipo",
+	},
+	MsgRelayWorkFailed: {
+		LangEnglish:            "teammate assignment failed",
+		LangChinese:            "队友派工失败",
+		LangTraditionalChinese: "隊友派工失敗",
+		LangJapanese:           "チームメイトからの依頼に失敗",
+		LangSpanish:            "El encargo del equipo falló",
+	},
+	MsgRelayWorkUnconfirmed: {
+		LangEnglish:            "teammate assignment result unconfirmed",
+		LangChinese:            "队友派工结果未确认",
+		LangTraditionalChinese: "隊友派工結果未確認",
+		LangJapanese:           "チームメイトからの依頼の結果は未確認",
+		LangSpanish:            "Resultado del encargo del equipo sin confirmar",
 	},
 	MsgRelayBindRemoved: {
 		LangEnglish:            "✅ Removed %s from binding",
