@@ -40,13 +40,14 @@
 Run `bothouse setup lead install --work-dir /path/to/role --agent codex`
 (optionally `--config /path/to/config.toml`). This extracts the embedded `lead/`
 and sibling `gate/` files into `<data_dir>/collaboration` and adds absolute paths
-to the role persona. Re-running refreshes tools without duplicating that block.
+to the role persona. Re-running refreshes tools without duplicating that block;
+installed files you edited are skipped and listed unless you pass `--force`.
 Python 3 and zsh are required. Configure `GATE_TEAM` or
 `GATE_SETUP_DIR/gate-team.json`, `BOARD_DIR`, and platform credentials separately;
 the example team is only a template. The scripts are installed, not a gate service.
 
 `later` accepts `CC_BIN` for the bridge executable and otherwise searches
-`bothouse`, `cc-connect`, then `cc-connect-maomao`. DSH exports `CC_SESSION`
+`bothouse`, then `cc-connect`. DSH exports `CC_SESSION`
 from its runtime session key before its subprocess environment filter.
 `board done <id> <rework-count> "<reason>"` archives rework data;
 `board rework [days]` summarizes the last 14 days by default.

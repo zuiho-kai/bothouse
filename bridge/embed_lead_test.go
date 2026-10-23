@@ -30,7 +30,7 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 	var result map[string]string
 	for i := 0; i < 2; i++ {
 		var err error
-		result, err = core.InstallLeadTools(filepath.Join(home, "data"), work, "codex")
+		result, _, err = core.InstallLeadTools(filepath.Join(home, "data"), work, "codex", false)
 		if err != nil {
 			t.Fatal(err)
 		}

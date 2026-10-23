@@ -18,7 +18,7 @@ export CC_SESSION_KEY=$sk   # board 按它记频道
 who=$(python3 -I -c 'import sys;sys.path.insert(0,sys.argv[1]);import _team;print(_team.name_of(sys.argv[2]))' "$here" "$proj")
 cc=${CC_BIN:-}
 if [[ -z $cc ]]; then
-  cc=$(command -v bothouse || command -v cc-connect || command -v cc-connect-maomao) || { echo "later：找不到 bothouse / cc-connect（可设 CC_BIN）" >&2; exit 1; }
+  cc=$(command -v bothouse || command -v cc-connect) || { echo "later：找不到 bothouse / cc-connect（可设 CC_BIN）" >&2; exit 1; }
 fi
 at=$(python3 -c 'import datetime,sys;print((datetime.datetime.now()+datetime.timedelta(minutes=int(sys.argv[1]))).strftime("%H:%M"))' "$mins")
 id=$(BOARD_LATER=1 "$here/board" add "$what" "-" "等着，${at} 回来接着做" "$who" --next "$at" | grep -oE '[0-9]+' | head -1 || true)
