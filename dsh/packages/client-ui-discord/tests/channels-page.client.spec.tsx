@@ -65,6 +65,24 @@ describe('channels page', () => {
     fireEvent.change(input, { target: { value: '/ordinary' } })
     expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
   })
+  it('closes the capability list on an outside press and preserves the slash draft', () => {
+    render(<ChannelsPage {...props(ready)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/' } })
+    expect(screen.getByRole('region', { name: zh.capabilities })).toBeTruthy()
+    fireEvent.mouseDown(screen.getByRole('log').parentElement as HTMLElement)
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    expect(input.value).toBe('/')
+  })
+  it('sends the slash draft with Enter after the capability list is dismissed', async () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/' } })
+    fireEvent.click(within(screen.getByRole('region', { name: zh.capabilities })).getByRole('button', { name: zh.close }))
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('/')
+  })
   it('shows the primary-role selector and saves a changed member', async () => {
     const setLead = vi.fn(async () => {})
     const state: ChannelSnapshot = { ...ready, members: [

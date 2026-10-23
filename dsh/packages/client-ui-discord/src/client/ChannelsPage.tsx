@@ -246,12 +246,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   useEffect(() => {
     const onPress = (event: MouseEvent): void => {
       const at = openMentionAt.current
-      if (at === undefined || composerRef.current?.contains(event.target as Node) === true) return
-      setDismissedAt(at)
+      if (composerRef.current?.contains(event.target as Node) === true) return
+      if (at !== undefined) setDismissedAt(at)
+      if (draft === '/' && !capabilitiesDismissed) setCapabilitiesDismissed(true)
     }
     document.addEventListener('mousedown', onPress)
     return () => { document.removeEventListener('mousedown', onPress) }
-  }, [])
+  }, [draft, capabilitiesDismissed])
 
   useEffect(() => {
     const input = inputRef.current
@@ -426,7 +427,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (draft === '/' && !event.nativeEvent.isComposing) {
+    if (draft === '/' && !capabilitiesDismissed && !event.nativeEvent.isComposing) {
       if (event.key === 'Escape') { event.preventDefault(); setCapabilitiesDismissed(true); return }
       if (event.key === 'Enter') { event.preventDefault(); return }
     }
