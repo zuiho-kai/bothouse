@@ -27,6 +27,7 @@ func init() {
 const maxDiscordLen = 1900
 
 type replyContext struct {
+	recordAgentReply func(string)
 	channelID string
 	messageID string
 	threadID  string
@@ -40,6 +41,7 @@ type replyContext struct {
 // responses. The first reply edits the deferred interaction response;
 // subsequent replies use followup messages.
 type interactionReplyCtx struct {
+	recordAgentReply func(string)
 	interaction *discordgo.Interaction
 	channelID   string
 	mu          sync.Mutex
@@ -2005,6 +2007,7 @@ func (p *Platform) messageReference(ref *discordgo.Message) *core.MessageReferen
 	}
 	prefix := "[replying to " + ref.Author.Username + ": "
 	return &core.MessageReference{
+		ID: ref.ID,
 		Full:   prefix + ref.Content + "]\n",
 		Short:  prefix + string(text) + "（你自己的上一条，已在上文）]\n",
 		SentAt: ref.Timestamp,

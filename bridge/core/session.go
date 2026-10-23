@@ -74,6 +74,7 @@ type Session struct {
 type TurnCtxSent struct {
 	Wiki           []string  `json:"wiki,omitempty"`
 	ReferenceSince time.Time `json:"-"`              // deliberately unknown after a bridge restart
+	ReferenceIDs map[string]bool `json:"-"` // agent output sent by this context only
 	Team           string    `json:"team,omitempty"` // teammate status key (without elapsed times)
 }
 
@@ -172,6 +173,12 @@ func (t *TurnCtxSent) clone() *TurnCtxSent {
 	}
 	c := *t
 	c.Wiki = append([]string(nil), t.Wiki...)
+	if t.ReferenceIDs != nil {
+		c.ReferenceIDs = make(map[string]bool, len(t.ReferenceIDs))
+		for id, sent := range t.ReferenceIDs {
+			c.ReferenceIDs[id] = sent
+		}
+	}
 	return &c
 }
 
