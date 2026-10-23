@@ -789,13 +789,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 			return
 		}
 	}
-	// maomao fork: a private chat has no third party, so whatever the user says there is
-	// addressed to this bot and must not be judged as overheard chatter by the gate
-	// (user 2026-10-23「为什么不能私信啊？好好修一下」, plan ~/im-bridge/claude/notes/dm-plan.md).
+	// A human's message in a private chat is marked Direct. Core decides whether it bypasses
+	// the gate: only the owner's DMs do (see Engine.isDMOwner); other DMs are gated normally.
 	direct := !fromBot && m.GuildID == ""
-	if direct {
-		mentioned = true
-	}
 	if fromBot {
 		// Only an explicit <@me> in the text counts; reply pings ("↪ 已插入" quoting a message)
 		// and role/everyone mentions from bots are ignored. Everything else a teammate says

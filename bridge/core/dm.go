@@ -6,8 +6,8 @@ import (
 )
 
 // dmUser is the person `bothouse send --dm` writes to: the first explicit ID in
-// admin_from, the project owner already configured there (maomao fork; user 2026-10-23
-// 「平时你们有什么想跟我悄悄说的，也能私信我」). No new config key; "*" names no one.
+// admin_from, i.e. the project owner already configured there. No new config key; "*"
+// names no one.
 func (e *Engine) dmUser() string {
 	e.userRolesMu.RLock()
 	af := e.adminFrom
@@ -18,6 +18,24 @@ func (e *Engine) dmUser() string {
 		}
 	}
 	return ""
+}
+
+// isDMOwner reports whether userID is named explicitly in admin_from (the DM owner is the
+// first such ID). Unlike isAdmin, "*" grants nothing: a wildcard would let anyone who can
+// DM the bot bypass the gate.
+func (e *Engine) isDMOwner(userID string) bool {
+	if userID == "" {
+		return false
+	}
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, id := range strings.Split(af, ",") {
+		if id = strings.TrimSpace(id); id != "" && id != "*" && strings.EqualFold(id, userID) {
+			return true
+		}
+	}
+	return false
 }
 
 // OpenDMSession opens (or reuses) the private chat between this bot and the user named by

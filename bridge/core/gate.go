@@ -245,9 +245,14 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		slog.Info("gate: teammate context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
-	// maomao fork: in a private chat the user is always talking to this bot (no gate, no
-	// "overheard" context), user 2026-10-23「为什么不能私信啊？好好修一下」.
-	if g == nil || msg.IsPermissionResponse || msg.Direct {
+	// A private chat with the owner (an explicit admin_from ID) has no third party: whatever
+	// the owner says there is addressed to this bot, so it skips the gate and is never filed as
+	// overheard context. DMs from anyone else go through the gate like any other message.
+	ownerDM := msg.Direct && !msg.FromBot && e.isDMOwner(msg.UserID)
+	if ownerDM {
+		msg.Mentioned = true
+	}
+	if g == nil || msg.IsPermissionResponse || ownerDM {
 		if !msg.IsPermissionResponse {
 			if g == nil && e.applyLocalGate(p, msg, session, interactiveKey) {
 				return true

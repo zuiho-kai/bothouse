@@ -42,14 +42,14 @@ func TestOpenDM_ResolvesPrivateChannelAndSends(t *testing.T) {
 	t.Cleanup(func() { discordgo.EndpointUsers = oldUsers })
 
 	p := &Platform{session: session, botID: "bot"}
-	key, err := p.OpenDM("727153614614822942")
+	key, err := p.OpenDM("100000000000000001")
 	if err != nil {
 		t.Fatalf("OpenDM: %v", err)
 	}
-	if openedFor != "727153614614822942" {
+	if openedFor != "100000000000000001" {
 		t.Fatalf("opened DM for %q", openedFor)
 	}
-	if want := p.makeSessionKey("dm-chan", "727153614614822942"); key != want {
+	if want := p.makeSessionKey("dm-chan", "100000000000000001"); key != want {
 		t.Fatalf("key = %q, want %q (the key an incoming DM gets)", key, want)
 	}
 	rctx, err := p.ReconstructReplyCtx(key)
@@ -64,8 +64,8 @@ func TestOpenDM_ResolvesPrivateChannelAndSends(t *testing.T) {
 	}
 }
 
-// A user's message in a private chat carries no @, but it is addressed to this bot and marked
-// Direct so the gate never files it as overheard context.
+// A user's message in a private chat carries no @; it is marked Direct and core decides
+// (by owner) whether it bypasses the gate.
 func TestDirectMessageIsAddressed(t *testing.T) {
 	var got []*core.Message
 	p := &Platform{botID: "bot", botName: "bot", allowFrom: "user"}
@@ -78,8 +78,8 @@ func TestDirectMessageIsAddressed(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("delivered %d messages", len(got))
 	}
-	if !got[0].Mentioned || !got[0].Direct {
-		t.Fatalf("DM must be addressed and direct: mentioned=%v direct=%v", got[0].Mentioned, got[0].Direct)
+	if !got[0].Direct {
+		t.Fatalf("DM must be marked direct: direct=%v", got[0].Direct)
 	}
 	if got[0].SessionKey != p.makeSessionKey("dm-chan", "user") {
 		t.Fatalf("session key %q", got[0].SessionKey)
