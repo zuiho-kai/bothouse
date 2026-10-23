@@ -3,11 +3,160 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".F9s7dG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.F9s7dG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.F9s7dG_rooms, .F9s7dG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.F9s7dG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.F9s7dG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.F9s7dG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.F9s7dG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.F9s7dG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.F9s7dG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.F9s7dG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.F9s7dG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.F9s7dG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.F9s7dG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.F9s7dG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.F9s7dG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.F9s7dG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.F9s7dG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_system .F9s7dG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.F9s7dG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.F9s7dG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.F9s7dG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.F9s7dG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.F9s7dG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.F9s7dG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.F9s7dG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.F9s7dG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.F9s7dG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_messageBody {\n  min-width: 0;\n}\n\n.F9s7dG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.F9s7dG_author {\n  font-weight: 600;\n}\n\n.F9s7dG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.F9s7dG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.F9s7dG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.F9s7dG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.F9s7dG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.F9s7dG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.F9s7dG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.F9s7dG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.F9s7dG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.F9s7dG_message {\n  position: relative;\n}\n\n.F9s7dG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.F9s7dG_quoteDeleted {\n  font-style: italic;\n}\n\n.F9s7dG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.F9s7dG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.F9s7dG_message:hover .F9s7dG_replyButton, .F9s7dG_message:focus-within .F9s7dG_replyButton, .F9s7dG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .F9s7dG_replyButton {\n    opacity: 1;\n  }\n}\n\n.F9s7dG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.F9s7dG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.F9s7dG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.F9s7dG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.F9s7dG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.F9s7dG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.F9s7dG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.F9s7dG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.F9s7dG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.F9s7dG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.F9s7dG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.F9s7dG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_mentionName {\n  font-weight: 600;\n}\n\n.F9s7dG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.F9s7dG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.F9s7dG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.F9s7dG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.F9s7dG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.F9s7dG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_offline {\n  opacity: .5;\n}\n\n.F9s7dG_memberAvatar {\n  position: relative;\n}\n\n.F9s7dG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.F9s7dG_offline .F9s7dG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.F9s7dG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.F9s7dG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.F9s7dG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .F9s7dG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .F9s7dG_rooms, .F9s7dG_members {\n    display: none;\n  }\n}\n\n.F9s7dG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.F9s7dG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.F9s7dG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_roomInput, .F9s7dG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.F9s7dG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.F9s7dG_roomInput:focus-visible, .F9s7dG_fieldInput:focus-visible, .F9s7dG_iconButton:focus-visible, .F9s7dG_linkButton:focus-visible, .F9s7dG_addMemberButton:focus-visible, .F9s7dG_primaryButton:focus-visible, .F9s7dG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.F9s7dG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.F9s7dG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_memberRow .F9s7dG_member:hover {\n  background: none;\n}\n\n.F9s7dG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.F9s7dG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.F9s7dG_memberRow:hover .F9s7dG_memberActions, .F9s7dG_memberRow:focus-within .F9s7dG_memberActions {\n  opacity: 1;\n}\n\n.F9s7dG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.F9s7dG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.F9s7dG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.F9s7dG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.F9s7dG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.F9s7dG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.F9s7dG_field textarea {\n  resize: vertical;\n}\n\n.F9s7dG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.F9s7dG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.F9s7dG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.F9s7dG_primaryButton, .F9s7dG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.F9s7dG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.F9s7dG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.F9s7dG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.F9s7dG_memberFailed .F9s7dG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.F9s7dG_memberFailed .F9s7dG_presence {\n  background: #ed4245;\n}\n\n.F9s7dG_mobileButton, .F9s7dG_drawerBackdrop {\n  display: none;\n}\n\n.F9s7dG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.F9s7dG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .F9s7dG_page.F9s7dG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .F9s7dG_page.F9s7dG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .F9s7dG_page.F9s7dG_roomsHidden.F9s7dG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .F9s7dG_roomsHidden > .F9s7dG_rooms, .F9s7dG_membersHidden > .F9s7dG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .F9s7dG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .F9s7dG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .F9s7dG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .F9s7dG_panelToggle {\n    display: none;\n  }\n\n  .F9s7dG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .F9s7dG_rooms.F9s7dG_drawerOpen, .F9s7dG_members.F9s7dG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .F9s7dG_rooms.F9s7dG_drawerOpen {\n    left: 0;\n  }\n\n  .F9s7dG_members.F9s7dG_drawerOpen {\n    right: 0;\n  }\n\n  .F9s7dG_memberActions {\n    opacity: 1;\n  }\n\n  .F9s7dG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.F9s7dG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.F9s7dG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.F9s7dG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.F9s7dG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.F9s7dG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.F9s7dG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.F9s7dG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.F9s7dG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.F9s7dG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.F9s7dG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.F9s7dG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.F9s7dG_taskDone summary {\n  cursor: pointer;\n}\n\n.F9s7dG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.F9s7dG_taskStatus[data-status=\"asked\"], .F9s7dG_taskStatus[data-status=\"escalated\"], .F9s7dG_taskStatus[data-status=\"declined\"], .F9s7dG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.F9s7dG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.F9s7dG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.F9s7dG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.F9s7dG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.F9s7dG_taskMemberName {\n  font-weight: 600;\n}\n\n.F9s7dG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.F9s7dG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".RqGPwG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.RqGPwG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.RqGPwG_rooms, .RqGPwG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.RqGPwG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.RqGPwG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.RqGPwG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqGPwG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.RqGPwG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.RqGPwG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.RqGPwG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.RqGPwG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_roomUnread {\n  color: var(--dsw-alias-label-primary);\n  font-weight: 600;\n  position: relative;\n}\n\n.RqGPwG_roomUnread:before {\n  content: \"\";\n  background: var(--dsw-alias-label-primary, #fff);\n  border-radius: 0 4px 4px 0;\n  width: 4px;\n  height: 8px;\n  position: absolute;\n  top: 50%;\n  left: -2px;\n  transform: translateY(-50%);\n}\n\n.RqGPwG_roomMention:before {\n  background: #f23f43;\n  height: 12px;\n}\n\n.RqGPwG_unreadBadge {\n  background: var(--dsw-alias-interactive-bg-hover, #ffffff26);\n  min-width: 18px;\n  height: 18px;\n  color: var(--dsw-alias-label-primary, #fff);\n  box-sizing: border-box;\n  border-radius: 9px;\n  flex-shrink: 0;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0 5px;\n  font-size: 11px;\n  font-weight: 700;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.RqGPwG_unreadMention {\n  color: #fff;\n  background: #f23f43;\n  box-shadow: 0 1px 4px #f23f4366;\n}\n\n.RqGPwG_notifyToggle {\n  border-radius: var(--dsw-radius-sm, 4px);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  transition: color .15s, background-color .15s;\n  display: inline-flex;\n}\n\n.RqGPwG_notifyToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_notifyOn {\n  color: var(--dsw-alias-label-primary);\n}\n\n.RqGPwG_notifyOff {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: .6;\n}\n\n.RqGPwG_unreadDivider {\n  text-align: center;\n  align-items: center;\n  margin: 12px 16px;\n  display: flex;\n  position: relative;\n}\n\n.RqGPwG_unreadDivider:before, .RqGPwG_unreadDivider:after {\n  content: \"\";\n  opacity: .8;\n  background: #f23f43;\n  flex: 1;\n  height: 1px;\n}\n\n.RqGPwG_unreadDividerLabel {\n  color: #fff;\n  letter-spacing: .5px;\n  text-transform: uppercase;\n  background: #f23f43;\n  border-radius: 4px;\n  margin: 0 8px;\n  padding: 2px 8px;\n  font-size: 11px;\n  font-weight: 700;\n}\n\n.RqGPwG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.RqGPwG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.RqGPwG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.RqGPwG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.RqGPwG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.RqGPwG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.RqGPwG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.RqGPwG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_system .RqGPwG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.RqGPwG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.RqGPwG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.RqGPwG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.RqGPwG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.RqGPwG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.RqGPwG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.RqGPwG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.RqGPwG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.RqGPwG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_messageBody {\n  min-width: 0;\n}\n\n.RqGPwG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.RqGPwG_author {\n  font-weight: 600;\n}\n\n.RqGPwG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.RqGPwG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.RqGPwG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.RqGPwG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.RqGPwG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.RqGPwG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.RqGPwG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.RqGPwG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.RqGPwG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.RqGPwG_message {\n  position: relative;\n}\n\n.RqGPwG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.RqGPwG_quoteDeleted {\n  font-style: italic;\n}\n\n.RqGPwG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.RqGPwG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.RqGPwG_message:hover .RqGPwG_replyButton, .RqGPwG_message:focus-within .RqGPwG_replyButton, .RqGPwG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .RqGPwG_replyButton {\n    opacity: 1;\n  }\n}\n\n.RqGPwG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqGPwG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.RqGPwG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.RqGPwG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.RqGPwG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.RqGPwG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.RqGPwG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.RqGPwG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqGPwG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.RqGPwG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.RqGPwG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.RqGPwG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.RqGPwG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_mentionName {\n  font-weight: 600;\n}\n\n.RqGPwG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.RqGPwG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.RqGPwG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.RqGPwG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.RqGPwG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqGPwG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.RqGPwG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqGPwG_offline {\n  opacity: .5;\n}\n\n.RqGPwG_memberAvatar {\n  position: relative;\n}\n\n.RqGPwG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.RqGPwG_offline .RqGPwG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.RqGPwG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.RqGPwG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.RqGPwG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .RqGPwG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .RqGPwG_rooms, .RqGPwG_members {\n    display: none;\n  }\n}\n\n.RqGPwG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.RqGPwG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.RqGPwG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_roomInput, .RqGPwG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.RqGPwG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.RqGPwG_roomInput:focus-visible, .RqGPwG_fieldInput:focus-visible, .RqGPwG_iconButton:focus-visible, .RqGPwG_linkButton:focus-visible, .RqGPwG_addMemberButton:focus-visible, .RqGPwG_primaryButton:focus-visible, .RqGPwG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqGPwG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.RqGPwG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.RqGPwG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_memberRow .RqGPwG_member:hover {\n  background: none;\n}\n\n.RqGPwG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.RqGPwG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqGPwG_memberRow:hover .RqGPwG_memberActions, .RqGPwG_memberRow:focus-within .RqGPwG_memberActions {\n  opacity: 1;\n}\n\n.RqGPwG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.RqGPwG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.RqGPwG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.RqGPwG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.RqGPwG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.RqGPwG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqGPwG_field textarea {\n  resize: vertical;\n}\n\n.RqGPwG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.RqGPwG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.RqGPwG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.RqGPwG_primaryButton, .RqGPwG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.RqGPwG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.RqGPwG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.RqGPwG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.RqGPwG_memberFailed .RqGPwG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.RqGPwG_memberFailed .RqGPwG_presence {\n  background: #ed4245;\n}\n\n.RqGPwG_mobileButton, .RqGPwG_drawerBackdrop {\n  display: none;\n}\n\n.RqGPwG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.RqGPwG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqGPwG_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .RqGPwG_page.RqGPwG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .RqGPwG_page.RqGPwG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .RqGPwG_page.RqGPwG_roomsHidden.RqGPwG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .RqGPwG_roomsHidden > .RqGPwG_rooms, .RqGPwG_membersHidden > .RqGPwG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .RqGPwG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .RqGPwG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .RqGPwG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .RqGPwG_panelToggle {\n    display: none;\n  }\n\n  .RqGPwG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .RqGPwG_rooms.RqGPwG_drawerOpen, .RqGPwG_members.RqGPwG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .RqGPwG_rooms.RqGPwG_drawerOpen {\n    left: 0;\n  }\n\n  .RqGPwG_members.RqGPwG_drawerOpen {\n    right: 0;\n  }\n\n  .RqGPwG_memberActions {\n    opacity: 1;\n  }\n\n  .RqGPwG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.RqGPwG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.RqGPwG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.RqGPwG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.RqGPwG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.RqGPwG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.RqGPwG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.RqGPwG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqGPwG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.RqGPwG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.RqGPwG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqGPwG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.RqGPwG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.RqGPwG_taskDone summary {\n  cursor: pointer;\n}\n\n.RqGPwG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.RqGPwG_taskStatus[data-status=\"asked\"], .RqGPwG_taskStatus[data-status=\"escalated\"], .RqGPwG_taskStatus[data-status=\"declined\"], .RqGPwG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.RqGPwG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.RqGPwG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.RqGPwG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.RqGPwG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.RqGPwG_taskMemberName {\n  font-weight: 600;\n}\n\n.RqGPwG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.RqGPwG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
+// src/client/unread.ts
+const STORAGE_KEY_CURSORS = "bothouse:channel_read_cursors";
+let memoryStorage$1;
+function getStorage$1() {
+	try {
+		if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+		if (typeof localStorage !== "undefined") {
+			localStorage.getItem("__test__");
+			return localStorage;
+		}
+	} catch {}
+	if (!memoryStorage$1) memoryStorage$1 = {};
+	return {
+		getItem: (k) => memoryStorage$1[k] ?? null,
+		setItem: (k, v) => {
+			memoryStorage$1[k] = v;
+		}
+	};
+}
+/** Load per-room read cursors from localStorage (room_id -> highest read message_id). */
+function loadReadCursors() {
+	const storage = getStorage$1();
+	if (!storage) return {};
+	try {
+		const raw = storage.getItem(STORAGE_KEY_CURSORS);
+		if (!raw) return {};
+		return JSON.parse(raw);
+	} catch {
+		return {};
+	}
+}
+/** Persist per-room read cursors to localStorage. */
+function saveReadCursors(cursors) {
+	const storage = getStorage$1();
+	if (!storage) return;
+	try {
+		storage.setItem(STORAGE_KEY_CURSORS, JSON.stringify(cursors));
+	} catch {}
+}
+/** Whether the current document is in the background or hidden. */
+function isWindowBackground() {
+	if (typeof document === "undefined") return false;
+	return document.visibilityState === "hidden";
+}
+function escapeRegExp(s) {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+/**
+* Determine whether a message mentions the human owner or is an AI reply to the owner.
+* Mirrored from mention rules and reply routing:
+* 1. AI reply to a user message (`reply_to.author_kind === 'user'` or `reply_to.author === meId`);
+* 2. @-mention in text addressing the user's name or id.
+*/
+function isMentionOrReply(msg, meId, members) {
+	if (msg.author_kind === "user") return false;
+	if (msg.reply_to !== void 0 && msg.reply_to.deleted !== true) {
+		const q = msg.reply_to;
+		if (q.author_kind === "user" || q.author === "owner" || meId !== void 0 && q.author === meId) return true;
+	}
+	const targetId = meId ?? "owner";
+	const me = members.find((m) => m.id === targetId || m.kind === "human");
+	const names = /* @__PURE__ */ new Set();
+	names.add("owner");
+	if (targetId) names.add(targetId);
+	if (me?.name) names.add(me.name);
+	const text = msg.text;
+	for (const name of names) {
+		if (!name) continue;
+		const escaped = escapeRegExp(name);
+		if (new RegExp(`(?:^|\\s|[<（(])@!?${escaped}(?:[>）)，,：:！!？?、～~\\s]|$)`, "i").test(text)) return true;
+	}
+	return false;
+}
+// src/client/notifications.ts
+/**
+* Desktop Notification API wrapper and preference persistence (#145).
+*/
+const STORAGE_KEY_NOTIFY = "bothouse:channel_notifications_enabled";
+let memoryStorage;
+function getStorage() {
+	try {
+		if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+		if (typeof localStorage !== "undefined") {
+			localStorage.getItem("__test__");
+			return localStorage;
+		}
+	} catch {}
+	if (!memoryStorage) memoryStorage = {};
+	return {
+		getItem: (k) => memoryStorage[k] ?? null,
+		setItem: (k, v) => {
+			memoryStorage[k] = v;
+		}
+	};
+}
+/** Whether browser desktop notifications are supported in this environment. */
+function isNotificationSupported() {
+	return typeof window !== "undefined" && "Notification" in window || typeof Notification !== "undefined";
+}
+/** Load notification toggle preference (default: true). */
+function loadNotificationPreference() {
+	const storage = getStorage();
+	if (!storage) return true;
+	try {
+		const val = storage.getItem(STORAGE_KEY_NOTIFY);
+		return val === null ? true : val === "true";
+	} catch {
+		return true;
+	}
+}
+/** Save notification toggle preference. */
+function saveNotificationPreference(enabled) {
+	const storage = getStorage();
+	if (!storage) return;
+	try {
+		storage.setItem(STORAGE_KEY_NOTIFY, String(enabled));
+	} catch {}
+}
+/** Request notification permission if not yet decided. */
+async function requestNotificationPermission() {
+	if (!isNotificationSupported()) return "unsupported";
+	try {
+		return await Notification.requestPermission();
+	} catch {
+		return Notification.permission;
+	}
+}
+/**
+* Dispatch a system notification if enabled and permitted.
+*/
+function notifyMessage(options) {
+	if (!isNotificationSupported()) return void 0;
+	if (typeof Notification === "undefined" || Notification.permission !== "granted") return void 0;
+	if (!loadNotificationPreference()) return void 0;
+	try {
+		const n = new Notification(options.title, {
+			body: options.body,
+			tag: options.tag
+		});
+		if (options.onClick) n.onclick = () => {
+			if (typeof window !== "undefined") window.focus?.();
+			options.onClick?.();
+			n.close();
+		};
+		return n;
+	} catch {
+		return;
+	}
+}
 // src/client/channel-source.ts
 /**
 * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
@@ -42,7 +191,9 @@ const INITIAL = {
 	thinking: {},
 	messages: [],
 	tasks: [],
-	taskChat: void 0
+	taskChat: void 0,
+	me: void 0,
+	unread: {}
 };
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 var ServiceError = class extends Error {
@@ -85,6 +236,8 @@ function createChannelSource(transport) {
 	let stream;
 	let lifetime;
 	let pending;
+	const readCursors = loadReadCursors();
+	let unreadState = {};
 	const set = (next) => {
 		snapshot = {
 			...snapshot,
@@ -119,12 +272,78 @@ function createChannelSource(transport) {
 	const applyEvent = (current, event) => {
 		switch (event.type) {
 			case "message": {
-				if (event.message.room_id !== current.roomId) return current;
+				const msg = event.message;
+				const isCurrent = msg.room_id === current.roomId;
+				const isBackground = isWindowBackground();
+				if (!isCurrent) {
+					const prev = unreadState[msg.room_id] ?? {
+						count: 0,
+						mention: false
+					};
+					const mention = prev.mention || isMentionOrReply(msg, current.me, current.members);
+					const nextRoomUnread = {
+						count: prev.count + 1,
+						mention,
+						firstUnreadId: prev.firstUnreadId ?? msg.id
+					};
+					unreadState = {
+						...unreadState,
+						[msg.room_id]: nextRoomUnread
+					};
+					if (msg.author_kind !== "user") notifyMessage({
+						title: `#${current.rooms.find((r) => r.id === msg.room_id)?.name ?? String(msg.room_id)} - ${msg.name}`,
+						body: msg.text.slice(0, 120),
+						tag: `bothouse-room-${msg.room_id}`,
+						onClick: () => {
+							actions.selectRoom(msg.room_id);
+						}
+					});
+					return {
+						...current,
+						unread: unreadState
+					};
+				}
 				const rows = new Map(current.messages.map((m) => [m.id, m]));
-				rows.set(event.message.id, event.message);
+				rows.set(msg.id, msg);
+				const nextMessages = [...rows.values()].sort((a, b) => a.id - b.id);
+				if (isBackground) {
+					const prev = unreadState[msg.room_id] ?? {
+						count: 0,
+						mention: false
+					};
+					const mention = prev.mention || isMentionOrReply(msg, current.me, current.members);
+					const nextRoomUnread = {
+						count: prev.count + 1,
+						mention,
+						firstUnreadId: prev.firstUnreadId ?? msg.id
+					};
+					unreadState = {
+						...unreadState,
+						[msg.room_id]: nextRoomUnread
+					};
+					if (msg.author_kind !== "user") notifyMessage({
+						title: `#${current.rooms.find((r) => r.id === msg.room_id)?.name ?? String(msg.room_id)} - ${msg.name}`,
+						body: msg.text.slice(0, 120),
+						tag: `bothouse-room-${msg.room_id}`,
+						onClick: () => {
+							actions.selectRoom(msg.room_id);
+						}
+					});
+				} else {
+					readCursors[msg.room_id] = Math.max(readCursors[msg.room_id] ?? 0, msg.id);
+					saveReadCursors(readCursors);
+					unreadState = {
+						...unreadState,
+						[msg.room_id]: {
+							count: 0,
+							mention: false
+						}
+					};
+				}
 				return {
 					...current,
-					messages: [...rows.values()].sort((a, b) => a.id - b.id)
+					messages: nextMessages,
+					unread: unreadState
 				};
 			}
 			case "deleted": return event.room_id === current.roomId ? {
@@ -211,6 +430,37 @@ function createChannelSource(transport) {
 			const state = await request("collab/api/state", { signal: read.controller.signal });
 			if (!current()) return;
 			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id;
+			const me = state.me ?? "owner";
+			for (const r of state.rooms) if (r.id === roomId) {
+				if (readCursors[r.id] === void 0 && r.last_message_id != null) {
+					readCursors[r.id] = r.last_message_id;
+					saveReadCursors(readCursors);
+				}
+				unreadState = {
+					...unreadState,
+					[r.id]: {
+						count: 0,
+						mention: false
+					}
+				};
+			} else if (r.last_message_id != null && r.last_message_id > 0) {
+				if (readCursors[r.id] === void 0) {
+					readCursors[r.id] = 0;
+					saveReadCursors(readCursors);
+				}
+				const c = readCursors[r.id] ?? 0;
+				if (r.last_message_id > c) {
+					const existing = unreadState[r.id];
+					unreadState = {
+						...unreadState,
+						[r.id]: {
+							count: Math.max(existing?.count ?? 0, r.last_message_id - c),
+							mention: existing?.mention ?? false,
+							firstUnreadId: existing?.firstUnreadId
+						}
+					};
+				}
+			}
 			const rows = [];
 			if (roomId !== void 0) {
 				let after = resume && roomId === previous.roomId ? (previous.messages[0]?.id ?? 1) - 1 : void 0;
@@ -225,6 +475,11 @@ function createChannelSource(transport) {
 					after = next;
 				}
 			}
+			if (roomId !== void 0 && rows.length > 0) {
+				const latestId = rows.at(-1).id;
+				readCursors[roomId] = Math.max(readCursors[roomId] ?? 0, latestId);
+				saveReadCursors(readCursors);
+			}
 			const keepBoard = roomId === previous.roomId;
 			if (!keepBoard) earlyTasks.clear();
 			let next = {
@@ -236,7 +491,9 @@ function createChannelSource(transport) {
 				thinking: state.thinking,
 				messages: rows,
 				tasks: keepBoard ? previous.tasks : [],
-				taskChat: keepBoard ? previous.taskChat : void 0
+				taskChat: keepBoard ? previous.taskChat : void 0,
+				me,
+				unread: unreadState
 			};
 			for (const event of read.events) next = applyEvent(next, event);
 			pending = void 0;
@@ -250,14 +507,23 @@ function createChannelSource(transport) {
 	};
 	const selectRoom = async (roomId) => {
 		if (roomId !== snapshot.roomId) earlyTasks.clear();
+		unreadState = {
+			...unreadState,
+			[roomId]: {
+				count: 0,
+				mention: false
+			}
+		};
 		set(roomId === snapshot.roomId ? {
 			roomId,
-			messages: []
+			messages: [],
+			unread: unreadState
 		} : {
 			roomId,
 			messages: [],
 			tasks: [],
-			taskChat: void 0
+			taskChat: void 0,
+			unread: unreadState
 		});
 		await refresh(false);
 	};
@@ -307,75 +573,77 @@ function createChannelSource(transport) {
 			stream = void 0;
 		}
 	};
+	const source = {
+		getSnapshot: () => snapshot,
+		subscribe(listener) {
+			listeners.add(listener);
+			if (lifetime === void 0) {
+				lifetime = {};
+				start(lifetime);
+			}
+			return () => {
+				listeners.delete(listener);
+				if (listeners.size === 0) stop();
+			};
+		}
+	};
+	const actions = {
+		selectRoom,
+		async send(text, replyTo) {
+			const roomId = snapshot.roomId;
+			const owner = lifetime;
+			if (roomId === void 0 || owner === void 0) throw new Error("No channel is open");
+			const { message } = await request(`collab/api/rooms/${roomId}/messages`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(replyTo === void 0 ? {
+					text,
+					client_key: crypto.randomUUID()
+				} : {
+					text,
+					client_key: crypto.randomUUID(),
+					reply_to: replyTo
+				})
+			});
+			if (lifetime === owner) onEvent({
+				type: "message",
+				message
+			});
+		},
+		async createRoom(name) {
+			const { room, workspace } = await request("collab/api/rooms", json("POST", { name }));
+			const added = [room, workspace].filter((r) => r !== void 0 && !snapshot.rooms.some((s) => s.id === r.id));
+			if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] });
+			await selectRoom(room.id);
+		},
+		async listModels() {
+			const { routes } = await request("collab/api/models");
+			return routes;
+		},
+		async listClis() {
+			return await request("collab/api/clis");
+		},
+		async addMember(input) {
+			await request("collab/api/members", json("POST", input));
+		},
+		async updateMember(id, input) {
+			await request(`collab/api/members/${encodeURIComponent(id)}`, json("PATCH", input));
+		},
+		async removeMember(id) {
+			await request(`collab/api/members/${encodeURIComponent(id)}`, { method: "DELETE" });
+		},
+		async decidePermission(messageId, decision) {
+			const owner = lifetime;
+			const { message } = await request(`collab/api/messages/${messageId}/permission`, json("POST", { decision }));
+			if (lifetime === owner) onEvent({
+				type: "message",
+				message
+			});
+		}
+	};
 	return {
-		source: {
-			getSnapshot: () => snapshot,
-			subscribe(listener) {
-				listeners.add(listener);
-				if (lifetime === void 0) {
-					lifetime = {};
-					start(lifetime);
-				}
-				return () => {
-					listeners.delete(listener);
-					if (listeners.size === 0) stop();
-				};
-			}
-		},
-		actions: {
-			selectRoom,
-			async send(text, replyTo) {
-				const roomId = snapshot.roomId;
-				const owner = lifetime;
-				if (roomId === void 0 || owner === void 0) throw new Error("No channel is open");
-				const { message } = await request(`collab/api/rooms/${roomId}/messages`, {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(replyTo === void 0 ? {
-						text,
-						client_key: crypto.randomUUID()
-					} : {
-						text,
-						client_key: crypto.randomUUID(),
-						reply_to: replyTo
-					})
-				});
-				if (lifetime === owner) onEvent({
-					type: "message",
-					message
-				});
-			},
-			async createRoom(name) {
-				const { room, workspace } = await request("collab/api/rooms", json("POST", { name }));
-				const added = [room, workspace].filter((r) => r !== void 0 && !snapshot.rooms.some((s) => s.id === r.id));
-				if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] });
-				await selectRoom(room.id);
-			},
-			async listModels() {
-				const { routes } = await request("collab/api/models");
-				return routes;
-			},
-			async listClis() {
-				return await request("collab/api/clis");
-			},
-			async addMember(input) {
-				await request("collab/api/members", json("POST", input));
-			},
-			async updateMember(id, input) {
-				await request(`collab/api/members/${encodeURIComponent(id)}`, json("PATCH", input));
-			},
-			async removeMember(id) {
-				await request(`collab/api/members/${encodeURIComponent(id)}`, { method: "DELETE" });
-			},
-			async decidePermission(messageId, decision) {
-				const owner = lifetime;
-				const { message } = await request(`collab/api/messages/${messageId}/permission`, json("POST", { decision }));
-				if (lifetime === owner) onEvent({
-					type: "message",
-					message
-				});
-			}
-		},
+		source,
+		actions,
 		dispose: stop
 	};
 }
@@ -452,115 +720,124 @@ function cardMembers(taskId, tasks) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "F9s7dG_activeBusy",
-	"activeCount": "F9s7dG_activeCount",
-	"addMemberButton": "F9s7dG_addMemberButton",
-	"author": "F9s7dG_author",
-	"avatar": "F9s7dG_avatar",
-	"avatarAnchor": "F9s7dG_avatarAnchor",
-	"avatarButton": "F9s7dG_avatarButton",
-	"avatarImage": "F9s7dG_avatarImage",
-	"avatarMenu": "F9s7dG_avatarMenu",
-	"avatarMenuItem": "F9s7dG_avatarMenuItem",
-	"avatarMenuTitle": "F9s7dG_avatarMenuTitle",
-	"avatarOption": "F9s7dG_avatarOption",
-	"avatarPicker": "F9s7dG_avatarPicker",
-	"avatarSmall": "F9s7dG_avatarSmall",
-	"card": "F9s7dG_card",
-	"cardTitle": "F9s7dG_cardTitle",
-	"chat": "F9s7dG_chat",
-	"chatHead": "F9s7dG_chatHead",
-	"choice": "F9s7dG_choice",
-	"choiceRow": "F9s7dG_choiceRow",
-	"composer": "F9s7dG_composer",
-	"composerRow": "F9s7dG_composerRow",
-	"dialog": "F9s7dG_dialog",
-	"dialogActions": "F9s7dG_dialogActions",
-	"dialogBackdrop": "F9s7dG_dialogBackdrop",
-	"dialogTitle": "F9s7dG_dialogTitle",
-	"drawerBackdrop": "F9s7dG_drawerBackdrop",
-	"drawerOpen": "F9s7dG_drawerOpen",
-	"empty": "F9s7dG_empty",
-	"field": "F9s7dG_field",
-	"fieldInput": "F9s7dG_fieldInput",
-	"focused": "F9s7dG_focused",
-	"groupHead": "F9s7dG_groupHead",
-	"groupTitle": "F9s7dG_groupTitle",
-	"guide": "F9s7dG_guide",
-	"hash": "F9s7dG_hash",
-	"iconButton": "F9s7dG_iconButton",
-	"input": "F9s7dG_input",
-	"linkButton": "F9s7dG_linkButton",
-	"log": "F9s7dG_log",
-	"member": "F9s7dG_member",
-	"memberActions": "F9s7dG_memberActions",
-	"memberAvatar": "F9s7dG_memberAvatar",
-	"memberFailed": "F9s7dG_memberFailed",
-	"memberModel": "F9s7dG_memberModel",
-	"memberName": "F9s7dG_memberName",
-	"memberRow": "F9s7dG_memberRow",
-	"members": "F9s7dG_members",
-	"membersHidden": "F9s7dG_membersHidden",
-	"memberStatus": "F9s7dG_memberStatus",
-	"memberText": "F9s7dG_memberText",
-	"mentionActive": "F9s7dG_mentionActive",
-	"mentionButton": "F9s7dG_mentionButton",
-	"mentionHint": "F9s7dG_mentionHint",
-	"mentionItem": "F9s7dG_mentionItem",
-	"mentionMeta": "F9s7dG_mentionMeta",
-	"mentionName": "F9s7dG_mentionName",
-	"mentionPopup": "F9s7dG_mentionPopup",
-	"mentionTitle": "F9s7dG_mentionTitle",
-	"message": "F9s7dG_message",
-	"messageBody": "F9s7dG_messageBody",
-	"messageHead": "F9s7dG_messageHead",
-	"mobileButton": "F9s7dG_mobileButton",
-	"notice": "F9s7dG_notice",
-	"offline": "F9s7dG_offline",
-	"page": "F9s7dG_page",
-	"panelToggle": "F9s7dG_panelToggle",
-	"panelToggleEnd": "F9s7dG_panelToggleEnd",
-	"permActions": "F9s7dG_permActions",
-	"permScope": "F9s7dG_permScope",
-	"permStatus": "F9s7dG_permStatus",
-	"presence": "F9s7dG_presence",
-	"primaryButton": "F9s7dG_primaryButton",
-	"quote": "F9s7dG_quote",
-	"quoteAuthor": "F9s7dG_quoteAuthor",
-	"quoteDeleted": "F9s7dG_quoteDeleted",
-	"replyBar": "F9s7dG_replyBar",
-	"replyBarText": "F9s7dG_replyBarText",
-	"replyButton": "F9s7dG_replyButton",
-	"replyCancel": "F9s7dG_replyCancel",
-	"room": "F9s7dG_room",
-	"roomActive": "F9s7dG_roomActive",
-	"roomInput": "F9s7dG_roomInput",
-	"roomLabel": "F9s7dG_roomLabel",
-	"rooms": "F9s7dG_rooms",
-	"roomsHidden": "F9s7dG_roomsHidden",
-	"secondaryButton": "F9s7dG_secondaryButton",
-	"sendError": "F9s7dG_sendError",
-	"system": "F9s7dG_system",
-	"tag": "F9s7dG_tag",
-	"taskBoard": "F9s7dG_taskBoard",
-	"taskCard": "F9s7dG_taskCard",
-	"taskDone": "F9s7dG_taskDone",
-	"taskEmpty": "F9s7dG_taskEmpty",
-	"taskLine": "F9s7dG_taskLine",
-	"taskLinks": "F9s7dG_taskLinks",
-	"taskList": "F9s7dG_taskList",
-	"taskMember": "F9s7dG_taskMember",
-	"taskMemberName": "F9s7dG_taskMemberName",
-	"taskMembers": "F9s7dG_taskMembers",
-	"taskMeta": "F9s7dG_taskMeta",
-	"taskRow": "F9s7dG_taskRow",
-	"taskStatus": "F9s7dG_taskStatus",
-	"taskSub": "F9s7dG_taskSub",
-	"taskTitle": "F9s7dG_taskTitle",
-	"text": "F9s7dG_text",
-	"time": "F9s7dG_time",
-	"working": "F9s7dG_working",
-	"workspace": "F9s7dG_workspace"
+	"activeBusy": "RqGPwG_activeBusy",
+	"activeCount": "RqGPwG_activeCount",
+	"addMemberButton": "RqGPwG_addMemberButton",
+	"author": "RqGPwG_author",
+	"avatar": "RqGPwG_avatar",
+	"avatarAnchor": "RqGPwG_avatarAnchor",
+	"avatarButton": "RqGPwG_avatarButton",
+	"avatarImage": "RqGPwG_avatarImage",
+	"avatarMenu": "RqGPwG_avatarMenu",
+	"avatarMenuItem": "RqGPwG_avatarMenuItem",
+	"avatarMenuTitle": "RqGPwG_avatarMenuTitle",
+	"avatarOption": "RqGPwG_avatarOption",
+	"avatarPicker": "RqGPwG_avatarPicker",
+	"avatarSmall": "RqGPwG_avatarSmall",
+	"card": "RqGPwG_card",
+	"cardTitle": "RqGPwG_cardTitle",
+	"chat": "RqGPwG_chat",
+	"chatHead": "RqGPwG_chatHead",
+	"choice": "RqGPwG_choice",
+	"choiceRow": "RqGPwG_choiceRow",
+	"composer": "RqGPwG_composer",
+	"composerRow": "RqGPwG_composerRow",
+	"dialog": "RqGPwG_dialog",
+	"dialogActions": "RqGPwG_dialogActions",
+	"dialogBackdrop": "RqGPwG_dialogBackdrop",
+	"dialogTitle": "RqGPwG_dialogTitle",
+	"drawerBackdrop": "RqGPwG_drawerBackdrop",
+	"drawerOpen": "RqGPwG_drawerOpen",
+	"empty": "RqGPwG_empty",
+	"field": "RqGPwG_field",
+	"fieldInput": "RqGPwG_fieldInput",
+	"focused": "RqGPwG_focused",
+	"groupHead": "RqGPwG_groupHead",
+	"groupTitle": "RqGPwG_groupTitle",
+	"guide": "RqGPwG_guide",
+	"hash": "RqGPwG_hash",
+	"iconButton": "RqGPwG_iconButton",
+	"input": "RqGPwG_input",
+	"linkButton": "RqGPwG_linkButton",
+	"log": "RqGPwG_log",
+	"member": "RqGPwG_member",
+	"memberActions": "RqGPwG_memberActions",
+	"memberAvatar": "RqGPwG_memberAvatar",
+	"memberFailed": "RqGPwG_memberFailed",
+	"memberModel": "RqGPwG_memberModel",
+	"memberName": "RqGPwG_memberName",
+	"memberRow": "RqGPwG_memberRow",
+	"members": "RqGPwG_members",
+	"membersHidden": "RqGPwG_membersHidden",
+	"memberStatus": "RqGPwG_memberStatus",
+	"memberText": "RqGPwG_memberText",
+	"mentionActive": "RqGPwG_mentionActive",
+	"mentionButton": "RqGPwG_mentionButton",
+	"mentionHint": "RqGPwG_mentionHint",
+	"mentionItem": "RqGPwG_mentionItem",
+	"mentionMeta": "RqGPwG_mentionMeta",
+	"mentionName": "RqGPwG_mentionName",
+	"mentionPopup": "RqGPwG_mentionPopup",
+	"mentionTitle": "RqGPwG_mentionTitle",
+	"message": "RqGPwG_message",
+	"messageBody": "RqGPwG_messageBody",
+	"messageHead": "RqGPwG_messageHead",
+	"mobileButton": "RqGPwG_mobileButton",
+	"notice": "RqGPwG_notice",
+	"notifyOff": "RqGPwG_notifyOff",
+	"notifyOn": "RqGPwG_notifyOn",
+	"notifyToggle": "RqGPwG_notifyToggle",
+	"offline": "RqGPwG_offline",
+	"page": "RqGPwG_page",
+	"panelToggle": "RqGPwG_panelToggle",
+	"panelToggleEnd": "RqGPwG_panelToggleEnd",
+	"permActions": "RqGPwG_permActions",
+	"permScope": "RqGPwG_permScope",
+	"permStatus": "RqGPwG_permStatus",
+	"presence": "RqGPwG_presence",
+	"primaryButton": "RqGPwG_primaryButton",
+	"quote": "RqGPwG_quote",
+	"quoteAuthor": "RqGPwG_quoteAuthor",
+	"quoteDeleted": "RqGPwG_quoteDeleted",
+	"replyBar": "RqGPwG_replyBar",
+	"replyBarText": "RqGPwG_replyBarText",
+	"replyButton": "RqGPwG_replyButton",
+	"replyCancel": "RqGPwG_replyCancel",
+	"room": "RqGPwG_room",
+	"roomActive": "RqGPwG_roomActive",
+	"roomInput": "RqGPwG_roomInput",
+	"roomLabel": "RqGPwG_roomLabel",
+	"roomMention": "RqGPwG_roomMention",
+	"rooms": "RqGPwG_rooms",
+	"roomsHidden": "RqGPwG_roomsHidden",
+	"roomUnread": "RqGPwG_roomUnread",
+	"secondaryButton": "RqGPwG_secondaryButton",
+	"sendError": "RqGPwG_sendError",
+	"system": "RqGPwG_system",
+	"tag": "RqGPwG_tag",
+	"taskBoard": "RqGPwG_taskBoard",
+	"taskCard": "RqGPwG_taskCard",
+	"taskDone": "RqGPwG_taskDone",
+	"taskEmpty": "RqGPwG_taskEmpty",
+	"taskLine": "RqGPwG_taskLine",
+	"taskLinks": "RqGPwG_taskLinks",
+	"taskList": "RqGPwG_taskList",
+	"taskMember": "RqGPwG_taskMember",
+	"taskMemberName": "RqGPwG_taskMemberName",
+	"taskMembers": "RqGPwG_taskMembers",
+	"taskMeta": "RqGPwG_taskMeta",
+	"taskRow": "RqGPwG_taskRow",
+	"taskStatus": "RqGPwG_taskStatus",
+	"taskSub": "RqGPwG_taskSub",
+	"taskTitle": "RqGPwG_taskTitle",
+	"text": "RqGPwG_text",
+	"time": "RqGPwG_time",
+	"unreadBadge": "RqGPwG_unreadBadge",
+	"unreadDivider": "RqGPwG_unreadDivider",
+	"unreadDividerLabel": "RqGPwG_unreadDividerLabel",
+	"unreadMention": "RqGPwG_unreadMention",
+	"working": "RqGPwG_working",
+	"workspace": "RqGPwG_workspace"
 };
 // src/client/TaskBoard.tsx
 function clock(seconds) {
@@ -1118,6 +1395,28 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 		})
 	});
 }
+// src/client/BellIcon.tsx
+/**
+* Bell icon indicating notification toggle state (#145).
+*/
+function BellIcon({ enabled }) {
+	if (enabled) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+		width: "18",
+		height: "18",
+		viewBox: "0 0 24 24",
+		fill: "currentColor",
+		"aria-hidden": "true",
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z" })
+	});
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+		width: "18",
+		height: "18",
+		viewBox: "0 0 24 24",
+		fill: "currentColor",
+		"aria-hidden": "true",
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M20 18.69L7.84 6.53 4.27 2.96 3 4.23l2.84 2.84C5.33 8.16 5 9.54 5 11v5l-2 2v1h15.46l2.31 2.31 1.27-1.27L20 18.69zM7 17v-6c0-.77.16-1.51.44-2.18l8.18 8.18H7zm5 5c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6.5-6.32V11c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68c-.76.18-1.46.49-2.09.89l1.45 1.45C11 7.02 11.48 7 12 7c2.49 0 4.5 2.01 4.5 4.5v3.88l2 2z" })
+	});
+}
 // src/client/PermissionCard.tsx
 /**
 * Buttons for a cloud-web bot's permission prompt (#120). The card JSON is
@@ -1438,6 +1737,47 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 	const [newRoom, setNewRoom] = (0, react.useState)(void 0);
 	const [roomError, setRoomError] = (0, react.useState)(void 0);
 	const [memberError, setMemberError] = (0, react.useState)(void 0);
+	const [notificationsEnabled, setNotificationsEnabled] = (0, react.useState)(() => loadNotificationPreference());
+	const [firstUnreadPerRoom, setFirstUnreadPerRoom] = (0, react.useState)({});
+	const unreadDividerRef = (0, react.useRef)(null);
+	const hasScrolledUnread = (0, react.useRef)({});
+	const toggleNotifications = async () => {
+		if (!notificationsEnabled) {
+			if (isNotificationSupported()) {
+				if (await requestNotificationPermission() === "denied") {
+					alert(t("notificationsBlocked"));
+					return;
+				}
+			}
+			setNotificationsEnabled(true);
+			saveNotificationPreference(true);
+		} else {
+			setNotificationsEnabled(false);
+			saveNotificationPreference(false);
+		}
+	};
+	(0, react.useEffect)(() => {
+		const roomId = state.roomId;
+		if (roomId === void 0) return;
+		const unread = state.unread?.[roomId];
+		if (unread?.firstUnreadId !== void 0 && firstUnreadPerRoom[roomId] === void 0) setFirstUnreadPerRoom((prev) => ({
+			...prev,
+			[roomId]: unread.firstUnreadId
+		}));
+	}, [
+		state.roomId,
+		state.unread,
+		firstUnreadPerRoom
+	]);
+	(0, react.useEffect)(() => {
+		const roomId = state.roomId;
+		if (roomId === void 0) return;
+		if (!hasScrolledUnread.current[roomId] && unreadDividerRef.current) {
+			hasScrolledUnread.current[roomId] = true;
+			stickRef.current = false;
+			unreadDividerRef.current.scrollIntoView({ block: "start" });
+		}
+	}, [state.roomId, state.messages]);
 	const composerRef = (0, react.useRef)(null);
 	const openMentionAt = (0, react.useRef)(void 0);
 	(0, react.useEffect)(() => {
@@ -1713,12 +2053,17 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 					groupRooms(state.rooms).map(({ room: r, depth }) => {
 						const active = r.active ?? 0;
 						const showActive = depth === 1 || r.kind === "workspace" || active > 0;
+						const roomUnread = state.unread?.[r.id];
+						const hasUnread = roomUnread !== void 0 && roomUnread.count > 0 && r.id !== state.roomId;
+						const isMention = hasUnread && roomUnread.mention;
 						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 							type: "button",
 							className: [
 								ChannelsPage_module_default.room,
 								depth === 1 ? ChannelsPage_module_default.workspace : "",
-								r.id === state.roomId ? ChannelsPage_module_default.roomActive : ""
+								r.id === state.roomId ? ChannelsPage_module_default.roomActive : "",
+								hasUnread ? ChannelsPage_module_default.roomUnread : "",
+								isMention ? ChannelsPage_module_default.roomMention : ""
 							].filter(Boolean).join(" "),
 							"aria-current": r.id === state.roomId,
 							onClick: () => {
@@ -1739,6 +2084,12 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 								showActive && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: active > 0 ? `${ChannelsPage_module_default.activeCount} ${ChannelsPage_module_default.activeBusy}` : ChannelsPage_module_default.activeCount,
 									children: t("activeTasks", { count: active })
+								}),
+								hasUnread && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: [ChannelsPage_module_default.unreadBadge, isMention ? ChannelsPage_module_default.unreadMention : ""].filter(Boolean).join(" "),
+									title: isMention ? t("unreadMentionCount", { count: roomUnread.count }) : t("unreadCount", { count: roomUnread.count }),
+									"aria-label": isMention ? t("unreadMentionCount", { count: roomUnread.count }) : t("unreadCount", { count: roomUnread.count }),
+									children: isMention ? `@ ${roomUnread.count}` : roomUnread.count
 								})
 							]
 						}, r.id);
@@ -1778,6 +2129,17 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.roomName,
 								children: room?.name
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: [ChannelsPage_module_default.notifyToggle, notificationsEnabled ? ChannelsPage_module_default.notifyOn : ChannelsPage_module_default.notifyOff].join(" "),
+								title: t(notificationsEnabled ? "notificationsDisable" : "notificationsEnable"),
+								"aria-label": t(notificationsEnabled ? "notificationsDisable" : "notificationsEnable"),
+								"aria-pressed": notificationsEnabled,
+								onClick: () => {
+									toggleNotifications();
+								},
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(BellIcon, { enabled: notificationsEnabled })
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
@@ -1822,7 +2184,14 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						}), state.messages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 							className: ChannelsPage_module_default.empty,
 							children: t("empty")
-						}) : state.messages.map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MessageRow, {
+						}) : state.messages.map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [state.roomId !== void 0 && firstUnreadPerRoom[state.roomId] === m.id && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.unreadDivider,
+							ref: unreadDividerRef,
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.unreadDividerLabel,
+								children: t("unreadDivider")
+							})
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MessageRow, {
 							message: m,
 							member: byId.get(m.author),
 							t,
@@ -1841,7 +2210,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							tasks: state.tasks ?? [],
 							focused: focusedId === m.id,
 							onReply: startReply
-						}, m.id))]
+						})] }, m.id))]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: ChannelsPage_module_default.working,
@@ -2153,7 +2522,13 @@ const zh = {
 	reply: "回复",
 	replyingTo: "回复 {name}",
 	replyDeleted: "原消息已删除",
-	cancelReply: "取消回复"
+	cancelReply: "取消回复",
+	notificationsEnable: "开启桌面通知",
+	notificationsDisable: "关闭桌面通知",
+	notificationsBlocked: "通知已被浏览器拦截，请在浏览器权限设置中允许",
+	unreadDivider: "以下是新消息",
+	unreadCount: "{count} 条未读",
+	unreadMentionCount: "@ {count} 条提及"
 };
 /** English dictionary. */
 const en = {
@@ -2252,7 +2627,13 @@ const en = {
 	reply: "Reply",
 	replyingTo: "Replying to {name}",
 	replyDeleted: "Original message was deleted",
-	cancelReply: "Cancel reply"
+	cancelReply: "Cancel reply",
+	notificationsEnable: "Enable desktop notifications",
+	notificationsDisable: "Disable desktop notifications",
+	notificationsBlocked: "Notifications blocked by browser permissions",
+	unreadDivider: "New Messages",
+	unreadCount: "{count} unread",
+	unreadMentionCount: "@ {count} mentions"
 };
 // src/client/index.ts
 const PANEL_ID = "channels";

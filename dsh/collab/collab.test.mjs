@@ -1541,6 +1541,23 @@ test('store: a configured chat channel gets no workspace until the first createW
   assert.deepEqual(s.roomsView().map(r => r.active), [0, 0, 0]);
 });
 
+test('store: roomsView reports last_message_id for unread tracking (#145)', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  s.ensureRoom(2, 'random');
+  assert.equal(s.roomsView().find(r => r.id === 1)?.last_message_id, null);
+  const m1 = s.append(1, { authorKind: 'user', author: 'owner', name: 'User', text: 'hello' });
+  assert.equal(s.roomsView().find(r => r.id === 1)?.last_message_id, m1.message.id);
+  assert.equal(s.roomsView().find(r => r.id === 2)?.last_message_id, null);
+  const m2 = s.append(2, { authorKind: 'role', author: 'bot', name: 'Bot', text: 'hi' });
+  assert.equal(s.roomsView().find(r => r.id === 2)?.last_message_id, m2.message.id);
+  // Drafts do not advance last_message_id until committed
+  const draft = s.append(1, { authorKind: 'role', author: 'bot', name: 'Bot', text: 'thinking...', draft: true });
+  assert.equal(s.roomsView().find(r => r.id === 1)?.last_message_id, m1.message.id);
+  s.commit(draft.message.id, 'role', 'bot', 'answer', null);
+  assert.equal(s.roomsView().find(r => r.id === 1)?.last_message_id, draft.message.id);
+});
+
 test('store: default config, then {id:2} added — starts, workspace ids stay out of the config range', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { join } = await import('node:path');

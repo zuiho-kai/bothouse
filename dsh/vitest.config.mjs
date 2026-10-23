@@ -26,6 +26,8 @@ export default {
       'dsh/packages/client-ui-discord/tests/mention-complete.client.spec.ts',
       'dsh/packages/client-ui-discord/tests/task-board.client.spec.ts',
       'dsh/packages/client-ui-discord/tests/channels-page.client.spec.tsx',
+      'dsh/packages/client-ui-discord/tests/unread.client.spec.ts',
+      'dsh/packages/client-ui-discord/tests/notifications.client.spec.ts',
     ],
   },
 };
