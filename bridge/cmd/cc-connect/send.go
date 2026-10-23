@@ -149,6 +149,8 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 			}
 		case "--at-all":
 			req.AtAll = true
+		case "--dm":
+			req.DM = true
 		case "--data-dir":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("--data-dir requires a value")
@@ -172,7 +174,11 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 	if req.Project == "" {
 		req.Project = strings.TrimSpace(os.Getenv("CC_PROJECT"))
 	}
-	if req.SessionKey == "" {
+	if req.DM {
+		if req.SessionKey != "" {
+			return req, "", fmt.Errorf("--dm cannot be combined with --session")
+		}
+	} else if req.SessionKey == "" {
 		req.SessionKey = strings.TrimSpace(os.Getenv("CC_SESSION_KEY"))
 	}
 	if req.Message == "" {
@@ -382,6 +388,7 @@ Options:
       --stdin              Read message from stdin (best for long/special-char messages)
       --at-users <ids>     @ user IDs, comma-separated (DingTalk)
       --at-all             @ everyone (DingTalk)
+      --dm                 Send privately to the project owner (first ID in admin_from) (Discord)
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
       --data-dir <path>    Data directory (default: ~/.cc-connect)
@@ -395,6 +402,7 @@ Examples:
   cc-connect send --video /tmp/demo.mp4
   cc-connect send --audio /tmp/voice.opus
   cc-connect send --tts "Hello from cc-connect"
+  cc-connect send --dm "A word just for you"
   cc-connect send --stdin <<'EOF'
     Long message with "special" chars, $variables, and newlines
   EOF`)

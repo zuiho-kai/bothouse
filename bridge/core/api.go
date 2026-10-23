@@ -62,6 +62,9 @@ type SendRequest struct {
 	Videos     []FileAttachment  `json:"videos,omitempty"`
 	AtUsers    []string          `json:"at_users,omitempty"`
 	AtAll      bool              `json:"at_all,omitempty"`
+	// DM (maomao fork): send to the private chat with the user in admin_from instead of
+	// SessionKey; the server opens or reuses that chat first.
+	DM bool `json:"dm,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -261,6 +264,18 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	workDir := req.WorkDir
 	if workDir == "" {
 		workDir = req.CWD
+	}
+	if req.DM {
+		if workDir != "" {
+			http.Error(w, "--dm cannot be combined with --cwd", http.StatusBadRequest)
+			return
+		}
+		key, err := engine.OpenDMSession()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.SessionKey = key
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll}); err != nil {
