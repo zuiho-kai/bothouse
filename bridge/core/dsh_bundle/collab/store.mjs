@@ -30,6 +30,8 @@ export const WORKSPACE_PREFIX = '工作区';
 // PM-set floor, not user-specified; bot sessions are keyed room-<id> (cloudweb.mjs roomKey),
 // so a workspace id must never change once a bot has used it.
 export const WORKSPACE_ID_MIN = 1000000;
+// Quote excerpt length, same as Discord history (bridge/platform/discord/discord.go:1645-1650).
+export const QUOTE_CHARS = 40;
 
 export class Store {
   constructor(path) {
@@ -47,8 +49,8 @@ export class Store {
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
           ?, 'workspace', ? RETURNING id, name, kind, parent_id`),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
-      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -292,12 +294,33 @@ export class Store {
       const existing = this.q.byKey.get(m.clientKey);
       if (existing !== undefined) return { message: existing, created: false };
     }
+    let replyTo = null;
+    if (m.replyTo != null) {
+      const ref = this.message(Number(m.replyTo));
+      // Only a live message of the same room can be quoted; anything else would leak or dangle.
+      if (ref === undefined || ref.room_id !== roomId) throw new CollabError('reply-missing', 'the message being replied to does not exist');
+      replyTo = ref.id;
+    }
     const row = this.q.insert.get(roomId, m.authorKind, m.author, m.name, text, now,
-      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0);
+      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0, replyTo);
     return { message: row, created: true };
   }
 
   message(id) { return this.q.byId.get(id); }
+
+  /**
+   * What a reply quotes: undefined for a plain message; `{ id, deleted: true }`
+   * when the original is gone (no author or text leaks); else id, author, and
+   * a QUOTE_CHARS excerpt.
+   */
+  quote(row) {
+    if (row.reply_to == null) return undefined;
+    const ref = this.message(row.reply_to);
+    if (ref === undefined || ref.room_id !== row.room_id) return { id: row.reply_to, deleted: true };
+    const chars = [...ref.text];
+    const text = chars.length > QUOTE_CHARS ? chars.slice(0, QUOTE_CHARS).join('') + '…' : ref.text;
+    return { id: ref.id, author_kind: ref.author_kind, author: ref.author, name: ref.name, text };
+  }
   /** Edit or delete only a row the same author wrote; returns the row or undefined. */
   edit(id, authorKind, author, text, card) { return this.q.edit.get(text, card ?? null, id, authorKind, author); }
   /**
@@ -362,10 +385,23 @@ function clampLimit(limit) {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 50;
 }
 
-/** Public JSON row for browsers and the cloud-web history endpoint (rh/hub.py field names). */
-export function publicMessage(row) {
-  return {
+/**
+ * Public JSON row for browsers and the cloud-web history endpoint (rh/hub.py field names).
+ * With a store, a reply carries `reply_to` = store.quote(row).
+ */
+export function publicMessage(row, store) {
+  const out = {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
   };
+  const quote = store?.quote(row);
+  if (quote !== undefined) out.reply_to = quote;
+  return out;
+}
+
+/** Discord-style quote prefix for agent prompts: `[回复 作者：前40字…] ` (discord.go:1645-1650). */
+export function quotePrefix(quote) {
+  if (quote === undefined) return '';
+  if (quote.deleted) return '[回复 原消息已删除] ';
+  return `[回复 ${quote.name}：${quote.text}] `;
 }

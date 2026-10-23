@@ -97,6 +97,10 @@ export const zh = {
   cancel: '取消',
   configMember: '来自配置文件，网页里不能修改',
   defaultModel: '默认模型',
+  reply: '回复',
+  replyingTo: '回复 {name}',
+  replyDeleted: '原消息已删除',
+  cancelReply: '取消回复',
 } as const
 
 /** English dictionary. */
@@ -193,6 +197,10 @@ export const en: Record<keyof typeof zh, string> = {
   cancel: 'Cancel',
   configMember: 'From the config file; not editable here',
   defaultModel: 'Default model',
+  reply: 'Reply',
+  replyingTo: 'Replying to {name}',
+  replyDeleted: 'Original message was deleted',
+  cancelReply: 'Cancel reply',
 }
 
 /** Keys of the channel panel dictionary. */

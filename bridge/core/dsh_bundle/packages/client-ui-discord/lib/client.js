@@ -3,36 +3,12 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".RqojmG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.RqojmG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.RqojmG_rooms, .RqojmG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.RqojmG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.RqojmG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.RqojmG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.RqojmG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.RqojmG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.RqojmG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.RqojmG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.RqojmG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.RqojmG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.RqojmG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.RqojmG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.RqojmG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.RqojmG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.RqojmG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_system .RqojmG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.RqojmG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.RqojmG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.RqojmG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.RqojmG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.RqojmG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.RqojmG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.RqojmG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.RqojmG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.RqojmG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_messageBody {\n  min-width: 0;\n}\n\n.RqojmG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.RqojmG_author {\n  font-weight: 600;\n}\n\n.RqojmG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.RqojmG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.RqojmG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.RqojmG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.RqojmG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.RqojmG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.RqojmG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.RqojmG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.RqojmG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.RqojmG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.RqojmG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.RqojmG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.RqojmG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.RqojmG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.RqojmG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.RqojmG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.RqojmG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_mentionName {\n  font-weight: 600;\n}\n\n.RqojmG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.RqojmG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.RqojmG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.RqojmG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.RqojmG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.RqojmG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_offline {\n  opacity: .5;\n}\n\n.RqojmG_memberAvatar {\n  position: relative;\n}\n\n.RqojmG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.RqojmG_offline .RqojmG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.RqojmG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.RqojmG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.RqojmG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .RqojmG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .RqojmG_rooms, .RqojmG_members {\n    display: none;\n  }\n}\n\n.RqojmG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.RqojmG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.RqojmG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_roomInput, .RqojmG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.RqojmG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.RqojmG_roomInput:focus-visible, .RqojmG_fieldInput:focus-visible, .RqojmG_iconButton:focus-visible, .RqojmG_linkButton:focus-visible, .RqojmG_addMemberButton:focus-visible, .RqojmG_primaryButton:focus-visible, .RqojmG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.RqojmG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.RqojmG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_memberRow .RqojmG_member:hover {\n  background: none;\n}\n\n.RqojmG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.RqojmG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqojmG_memberRow:hover .RqojmG_memberActions, .RqojmG_memberRow:focus-within .RqojmG_memberActions {\n  opacity: 1;\n}\n\n.RqojmG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.RqojmG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.RqojmG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.RqojmG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.RqojmG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.RqojmG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqojmG_field textarea {\n  resize: vertical;\n}\n\n.RqojmG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.RqojmG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.RqojmG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_primaryButton, .RqojmG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.RqojmG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.RqojmG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.RqojmG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.RqojmG_memberFailed .RqojmG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.RqojmG_memberFailed .RqojmG_presence {\n  background: #ed4245;\n}\n\n.RqojmG_mobileButton, .RqojmG_drawerBackdrop {\n  display: none;\n}\n\n.RqojmG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.RqojmG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.RqojmG_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .RqojmG_page.RqojmG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .RqojmG_page.RqojmG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .RqojmG_page.RqojmG_roomsHidden.RqojmG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .RqojmG_roomsHidden > .RqojmG_rooms, .RqojmG_membersHidden > .RqojmG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .RqojmG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .RqojmG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .RqojmG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .RqojmG_panelToggle {\n    display: none;\n  }\n\n  .RqojmG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .RqojmG_rooms.RqojmG_drawerOpen, .RqojmG_members.RqojmG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .RqojmG_rooms.RqojmG_drawerOpen {\n    left: 0;\n  }\n\n  .RqojmG_members.RqojmG_drawerOpen {\n    right: 0;\n  }\n\n  .RqojmG_memberActions {\n    opacity: 1;\n  }\n\n  .RqojmG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.RqojmG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.RqojmG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.RqojmG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.RqojmG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.RqojmG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.RqojmG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.RqojmG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.RqojmG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.RqojmG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.RqojmG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.RqojmG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.RqojmG_taskDone summary {\n  cursor: pointer;\n}\n\n.RqojmG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.RqojmG_taskStatus[data-status=\"asked\"], .RqojmG_taskStatus[data-status=\"escalated\"], .RqojmG_taskStatus[data-status=\"declined\"], .RqojmG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.RqojmG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.RqojmG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.RqojmG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.RqojmG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.RqojmG_taskMemberName {\n  font-weight: 600;\n}\n\n.RqojmG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.RqojmG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".F9s7dG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.F9s7dG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.F9s7dG_rooms, .F9s7dG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.F9s7dG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.F9s7dG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.F9s7dG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.F9s7dG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.F9s7dG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.F9s7dG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.F9s7dG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.F9s7dG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.F9s7dG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.F9s7dG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_system .F9s7dG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.F9s7dG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.F9s7dG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.F9s7dG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.F9s7dG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.F9s7dG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.F9s7dG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.F9s7dG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.F9s7dG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.F9s7dG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_messageBody {\n  min-width: 0;\n}\n\n.F9s7dG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.F9s7dG_author {\n  font-weight: 600;\n}\n\n.F9s7dG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.F9s7dG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.F9s7dG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.F9s7dG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.F9s7dG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.F9s7dG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.F9s7dG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.F9s7dG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.F9s7dG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.F9s7dG_message {\n  position: relative;\n}\n\n.F9s7dG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.F9s7dG_quoteDeleted {\n  font-style: italic;\n}\n\n.F9s7dG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.F9s7dG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.F9s7dG_message:hover .F9s7dG_replyButton, .F9s7dG_message:focus-within .F9s7dG_replyButton, .F9s7dG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .F9s7dG_replyButton {\n    opacity: 1;\n  }\n}\n\n.F9s7dG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.F9s7dG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.F9s7dG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.F9s7dG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.F9s7dG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.F9s7dG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.F9s7dG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.F9s7dG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.F9s7dG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.F9s7dG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.F9s7dG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.F9s7dG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_mentionName {\n  font-weight: 600;\n}\n\n.F9s7dG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.F9s7dG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.F9s7dG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.F9s7dG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.F9s7dG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.F9s7dG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_offline {\n  opacity: .5;\n}\n\n.F9s7dG_memberAvatar {\n  position: relative;\n}\n\n.F9s7dG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.F9s7dG_offline .F9s7dG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.F9s7dG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.F9s7dG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.F9s7dG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .F9s7dG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .F9s7dG_rooms, .F9s7dG_members {\n    display: none;\n  }\n}\n\n.F9s7dG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.F9s7dG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.F9s7dG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_roomInput, .F9s7dG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.F9s7dG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.F9s7dG_roomInput:focus-visible, .F9s7dG_fieldInput:focus-visible, .F9s7dG_iconButton:focus-visible, .F9s7dG_linkButton:focus-visible, .F9s7dG_addMemberButton:focus-visible, .F9s7dG_primaryButton:focus-visible, .F9s7dG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.F9s7dG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.F9s7dG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_memberRow .F9s7dG_member:hover {\n  background: none;\n}\n\n.F9s7dG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.F9s7dG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.F9s7dG_memberRow:hover .F9s7dG_memberActions, .F9s7dG_memberRow:focus-within .F9s7dG_memberActions {\n  opacity: 1;\n}\n\n.F9s7dG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.F9s7dG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.F9s7dG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.F9s7dG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.F9s7dG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.F9s7dG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.F9s7dG_field textarea {\n  resize: vertical;\n}\n\n.F9s7dG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.F9s7dG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.F9s7dG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.F9s7dG_primaryButton, .F9s7dG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.F9s7dG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.F9s7dG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.F9s7dG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.F9s7dG_memberFailed .F9s7dG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.F9s7dG_memberFailed .F9s7dG_presence {\n  background: #ed4245;\n}\n\n.F9s7dG_mobileButton, .F9s7dG_drawerBackdrop {\n  display: none;\n}\n\n.F9s7dG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.F9s7dG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.F9s7dG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.F9s7dG_panelToggleEnd {\n  margin-left: auto;\n}\n\n@media (width >= 901px) {\n  .F9s7dG_page.F9s7dG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .F9s7dG_page.F9s7dG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .F9s7dG_page.F9s7dG_roomsHidden.F9s7dG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .F9s7dG_roomsHidden > .F9s7dG_rooms, .F9s7dG_membersHidden > .F9s7dG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .F9s7dG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .F9s7dG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .F9s7dG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .F9s7dG_panelToggle {\n    display: none;\n  }\n\n  .F9s7dG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .F9s7dG_rooms.F9s7dG_drawerOpen, .F9s7dG_members.F9s7dG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .F9s7dG_rooms.F9s7dG_drawerOpen {\n    left: 0;\n  }\n\n  .F9s7dG_members.F9s7dG_drawerOpen {\n    right: 0;\n  }\n\n  .F9s7dG_memberActions {\n    opacity: 1;\n  }\n\n  .F9s7dG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.F9s7dG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.F9s7dG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.F9s7dG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
 // src/client/channel-source.ts
-/**
-* Order rooms as chat channel, then its workspaces, in id order. A workspace whose
-* chat channel is missing is shown at the top level so it stays reachable.
-*/
-function groupRooms(rooms) {
-	const chats = new Set(rooms.filter((r) => r.kind !== "workspace").map((r) => r.id));
-	const under = /* @__PURE__ */ new Map();
-	for (const r of rooms) if (r.kind === "workspace" && r.parent_id != null && chats.has(r.parent_id)) under.set(r.parent_id, [...under.get(r.parent_id) ?? [], r]);
-	const rows = [];
-	for (const r of rooms) if (r.kind !== "workspace") {
-		rows.push({
-			room: r,
-			depth: 0
-		});
-		for (const w of under.get(r.id) ?? []) rows.push({
-			room: w,
-			depth: 1
-		});
-	} else if (r.parent_id == null || !chats.has(r.parent_id)) rows.push({
-		room: r,
-		depth: 0
-	});
-	return rows;
-}
 const INITIAL = {
 	phase: "idle",
 	error: void 0,
@@ -40,9 +16,7 @@ const INITIAL = {
 	roomId: void 0,
 	members: [],
 	thinking: {},
-	messages: [],
-	tasks: [],
-	taskChat: void 0
+	messages: []
 };
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 var ServiceError = class extends Error {
@@ -114,8 +88,6 @@ function createChannelSource(transport) {
 			error: error instanceof Error ? error.message : String(error)
 		});
 	};
-	const earlyTasks = /* @__PURE__ */ new Map();
-	const newer = (a, b) => (a?.updated_at ?? -Infinity) <= b.updated_at;
 	const applyEvent = (current, event) => {
 		switch (event.type) {
 			case "message": {
@@ -129,7 +101,13 @@ function createChannelSource(transport) {
 			}
 			case "deleted": return event.room_id === current.roomId ? {
 				...current,
-				messages: current.messages.filter((m) => m.id !== event.id)
+				messages: current.messages.filter((m) => m.id !== event.id).map((m) => m.reply_to?.id === event.id ? {
+					...m,
+					reply_to: {
+						id: event.id,
+						deleted: true
+					}
+				} : m)
 			} : current;
 			case "members": return {
 				...current,
@@ -146,49 +124,12 @@ function createChannelSource(transport) {
 				...current,
 				rooms: event.rooms
 			};
-			case "task": {
-				if (current.taskChat === void 0) {
-					if (newer(earlyTasks.get(event.task.id)?.task, event.task)) earlyTasks.set(event.task.id, {
-						chat: event.chat_id,
-						task: event.task
-					});
-					return current;
-				}
-				if (event.chat_id !== current.taskChat) return current;
-				const rows = new Map((current.tasks ?? []).map((t) => [t.id, t]));
-				rows.set(event.task.id, event.task);
-				return {
-					...current,
-					tasks: [...rows.values()].sort((a, b) => b.id - a.id)
-				};
-			}
 			default: return current;
 		}
 	};
 	const onEvent = (event) => {
 		pending?.events.push(event);
 		set(applyEvent(snapshot, event));
-	};
-	let boardRead;
-	const loadBoard = async (owner, roomId) => {
-		boardRead?.abort();
-		const read = new AbortController();
-		boardRead = read;
-		try {
-			const board = await request("collab/api/rooms/" + roomId + "/tasks", { signal: read.signal });
-			if (lifetime !== owner || boardRead !== read || snapshot.roomId !== roomId) return;
-			const live = snapshot.taskChat === board.chat_id ? snapshot.tasks ?? [] : [];
-			const early = [...earlyTasks.values()].filter((e) => e.chat === board.chat_id).map((e) => e.task);
-			earlyTasks.clear();
-			const rows = new Map(board.tasks.map((t) => [t.id, t]));
-			for (const t of [...live, ...early]) if (newer(rows.get(t.id), t)) rows.set(t.id, t);
-			set({
-				tasks: [...rows.values()].sort((a, b) => b.id - a.id),
-				taskChat: board.chat_id
-			});
-		} catch (error) {} finally {
-			if (boardRead === read) boardRead = void 0;
-		}
 	};
 	const refresh = async (resume) => {
 		const owner = lifetime;
@@ -219,8 +160,6 @@ function createChannelSource(transport) {
 					after = next;
 				}
 			}
-			const keepBoard = roomId === previous.roomId;
-			if (!keepBoard) earlyTasks.clear();
 			let next = {
 				phase: "ready",
 				error: void 0,
@@ -228,14 +167,11 @@ function createChannelSource(transport) {
 				roomId,
 				members: state.members,
 				thinking: state.thinking,
-				messages: rows,
-				tasks: keepBoard ? previous.tasks : [],
-				taskChat: keepBoard ? previous.taskChat : void 0
+				messages: rows
 			};
 			for (const event of read.events) next = applyEvent(next, event);
 			pending = void 0;
 			set(next);
-			if (roomId !== void 0) loadBoard(owner, roomId);
 		} catch (error) {
 			if (!current()) return;
 			pending = void 0;
@@ -243,15 +179,9 @@ function createChannelSource(transport) {
 		}
 	};
 	const selectRoom = async (roomId) => {
-		if (roomId !== snapshot.roomId) earlyTasks.clear();
-		set(roomId === snapshot.roomId ? {
+		set({
 			roomId,
 			messages: []
-		} : {
-			roomId,
-			messages: [],
-			tasks: [],
-			taskChat: void 0
 		});
 		await refresh(false);
 	};
@@ -291,8 +221,6 @@ function createChannelSource(transport) {
 		lifetime = void 0;
 		pending?.controller.abort();
 		pending = void 0;
-		boardRead?.abort();
-		boardRead = void 0;
 		if (stream !== void 0) {
 			stream.onopen = null;
 			stream.onmessage = null;
@@ -318,16 +246,20 @@ function createChannelSource(transport) {
 		},
 		actions: {
 			selectRoom,
-			async send(text) {
+			async send(text, replyTo) {
 				const roomId = snapshot.roomId;
 				const owner = lifetime;
 				if (roomId === void 0 || owner === void 0) throw new Error("No channel is open");
 				const { message } = await request(`collab/api/rooms/${roomId}/messages`, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
+					body: JSON.stringify(replyTo === void 0 ? {
 						text,
 						client_key: crypto.randomUUID()
+					} : {
+						text,
+						client_key: crypto.randomUUID(),
+						reply_to: replyTo
 					})
 				});
 				if (lifetime === owner) onEvent({
@@ -336,9 +268,8 @@ function createChannelSource(transport) {
 				});
 			},
 			async createRoom(name) {
-				const { room, workspace } = await request("collab/api/rooms", json("POST", { name }));
-				const added = [room, workspace].filter((r) => r !== void 0 && !snapshot.rooms.some((s) => s.id === r.id));
-				if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] });
+				const { room } = await request("collab/api/rooms", json("POST", { name }));
+				if (!snapshot.rooms.some((r) => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] });
 				await selectRoom(room.id);
 			},
 			async listModels() {
@@ -378,325 +309,6 @@ function createChannelSource(transport) {
 */
 function ChannelsIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUsersOutlineRegular, { size });
-}
-// src/client/task-board.ts
-/** Locale key of each status label (dsh/collab/tasks.mjs STATUS). */
-const STATUS_KEY = {
-	assigned: "taskAssigned",
-	accepted: "taskAccepted",
-	asked: "taskAsked",
-	declined: "taskDeclined",
-	escalated: "taskEscalated",
-	returned: "taskReturned",
-	done: "taskDone",
-	rework: "taskRework"
-};
-/** Board order: the owner's turn first (tasks.mjs WORKING), then waiting for the lead, then finished. */
-const GROUPS = [
-	[
-		"assigned",
-		"accepted",
-		"asked",
-		"rework"
-	],
-	[
-		"returned",
-		"declined",
-		"escalated"
-	],
-	["done"]
-];
-const groupOf = (status) => GROUPS.findIndex((g) => g.includes(status));
-/** Board rows, grouped as above and newest first inside a group. */
-function boardOrder(tasks) {
-	return [...tasks].sort((a, b) => groupOf(a.status) - groupOf(b.status) || b.id - a.id);
-}
-/** Seconds a task has taken: until hand-back, until it closed, or until now. */
-function elapsed(task, now) {
-	const end = task.returned_at ?? (task.status === "done" ? task.updated_at : now);
-	return Math.max(0, end - task.created_at);
-}
-/** Elapsed time as words (unit conversions only). */
-function formatDuration(seconds, t) {
-	const s = Math.round(seconds);
-	if (s < 60) return t("durSeconds", { n: String(s) });
-	if (s < 3600) return t("durMinutes", { n: String(Math.round(s / 60)) });
-	return t("durHours", {
-		h: String(Math.floor(s / 3600)),
-		m: String(Math.round(s % 3600 / 60))
-	});
-}
-/** Board sections: open tasks (owner's turn, then waiting for the lead) and finished ones. */
-function boardGroups(tasks) {
-	const rows = boardOrder(tasks);
-	return {
-		open: rows.filter((task) => task.status !== "done"),
-		done: rows.filter((task) => task.status === "done")
-	};
-}
-/** Task-card rows: the task's owner first, then each sub-task in dispatch order. */
-function cardMembers(taskId, tasks) {
-	const task = tasks.find((x) => x.id === taskId);
-	if (task === void 0) return [];
-	return [task, ...tasks.filter((x) => x.parent_task === task.id).sort((a, b) => a.id - b.id)];
-}
-// src/client/ChannelsPage.module.css
-var ChannelsPage_module_default = {
-	"activeBusy": "RqojmG_activeBusy",
-	"activeCount": "RqojmG_activeCount",
-	"addMemberButton": "RqojmG_addMemberButton",
-	"author": "RqojmG_author",
-	"avatar": "RqojmG_avatar",
-	"avatarAnchor": "RqojmG_avatarAnchor",
-	"avatarButton": "RqojmG_avatarButton",
-	"avatarImage": "RqojmG_avatarImage",
-	"avatarMenu": "RqojmG_avatarMenu",
-	"avatarMenuItem": "RqojmG_avatarMenuItem",
-	"avatarMenuTitle": "RqojmG_avatarMenuTitle",
-	"avatarOption": "RqojmG_avatarOption",
-	"avatarPicker": "RqojmG_avatarPicker",
-	"avatarSmall": "RqojmG_avatarSmall",
-	"card": "RqojmG_card",
-	"cardTitle": "RqojmG_cardTitle",
-	"chat": "RqojmG_chat",
-	"chatHead": "RqojmG_chatHead",
-	"choice": "RqojmG_choice",
-	"choiceRow": "RqojmG_choiceRow",
-	"composer": "RqojmG_composer",
-	"composerRow": "RqojmG_composerRow",
-	"dialog": "RqojmG_dialog",
-	"dialogActions": "RqojmG_dialogActions",
-	"dialogBackdrop": "RqojmG_dialogBackdrop",
-	"dialogTitle": "RqojmG_dialogTitle",
-	"drawerBackdrop": "RqojmG_drawerBackdrop",
-	"drawerOpen": "RqojmG_drawerOpen",
-	"empty": "RqojmG_empty",
-	"field": "RqojmG_field",
-	"fieldInput": "RqojmG_fieldInput",
-	"focused": "RqojmG_focused",
-	"groupHead": "RqojmG_groupHead",
-	"groupTitle": "RqojmG_groupTitle",
-	"guide": "RqojmG_guide",
-	"hash": "RqojmG_hash",
-	"iconButton": "RqojmG_iconButton",
-	"input": "RqojmG_input",
-	"linkButton": "RqojmG_linkButton",
-	"log": "RqojmG_log",
-	"member": "RqojmG_member",
-	"memberActions": "RqojmG_memberActions",
-	"memberAvatar": "RqojmG_memberAvatar",
-	"memberFailed": "RqojmG_memberFailed",
-	"memberModel": "RqojmG_memberModel",
-	"memberName": "RqojmG_memberName",
-	"memberRow": "RqojmG_memberRow",
-	"members": "RqojmG_members",
-	"membersHidden": "RqojmG_membersHidden",
-	"memberStatus": "RqojmG_memberStatus",
-	"memberText": "RqojmG_memberText",
-	"mentionActive": "RqojmG_mentionActive",
-	"mentionButton": "RqojmG_mentionButton",
-	"mentionHint": "RqojmG_mentionHint",
-	"mentionItem": "RqojmG_mentionItem",
-	"mentionMeta": "RqojmG_mentionMeta",
-	"mentionName": "RqojmG_mentionName",
-	"mentionPopup": "RqojmG_mentionPopup",
-	"mentionTitle": "RqojmG_mentionTitle",
-	"message": "RqojmG_message",
-	"messageBody": "RqojmG_messageBody",
-	"messageHead": "RqojmG_messageHead",
-	"mobileButton": "RqojmG_mobileButton",
-	"notice": "RqojmG_notice",
-	"offline": "RqojmG_offline",
-	"page": "RqojmG_page",
-	"panelToggle": "RqojmG_panelToggle",
-	"panelToggleEnd": "RqojmG_panelToggleEnd",
-	"permActions": "RqojmG_permActions",
-	"permScope": "RqojmG_permScope",
-	"permStatus": "RqojmG_permStatus",
-	"presence": "RqojmG_presence",
-	"primaryButton": "RqojmG_primaryButton",
-	"room": "RqojmG_room",
-	"roomActive": "RqojmG_roomActive",
-	"roomInput": "RqojmG_roomInput",
-	"roomLabel": "RqojmG_roomLabel",
-	"rooms": "RqojmG_rooms",
-	"roomsHidden": "RqojmG_roomsHidden",
-	"secondaryButton": "RqojmG_secondaryButton",
-	"sendError": "RqojmG_sendError",
-	"system": "RqojmG_system",
-	"tag": "RqojmG_tag",
-	"taskBoard": "RqojmG_taskBoard",
-	"taskCard": "RqojmG_taskCard",
-	"taskDone": "RqojmG_taskDone",
-	"taskEmpty": "RqojmG_taskEmpty",
-	"taskLine": "RqojmG_taskLine",
-	"taskLinks": "RqojmG_taskLinks",
-	"taskList": "RqojmG_taskList",
-	"taskMember": "RqojmG_taskMember",
-	"taskMemberName": "RqojmG_taskMemberName",
-	"taskMembers": "RqojmG_taskMembers",
-	"taskMeta": "RqojmG_taskMeta",
-	"taskRow": "RqojmG_taskRow",
-	"taskStatus": "RqojmG_taskStatus",
-	"taskSub": "RqojmG_taskSub",
-	"taskTitle": "RqojmG_taskTitle",
-	"text": "RqojmG_text",
-	"time": "RqojmG_time",
-	"working": "RqojmG_working",
-	"workspace": "RqojmG_workspace"
-};
-// src/client/TaskBoard.tsx
-function clock(seconds) {
-	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleTimeString([], {
-		hour: "2-digit",
-		minute: "2-digit"
-	});
-}
-function Status({ status, t }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-		className: ChannelsPage_module_default.taskStatus,
-		"data-status": status,
-		children: t(STATUS_KEY[status])
-	});
-}
-/**
-* Right-column board for the selected chat channel.
-* @param onOpen - jump to a message in a room (dispatch or delivery).
-*/
-function TaskBoard({ tasks, rooms, chatId, t, onOpen }) {
-	const now = Date.now() / 1e3;
-	const names = new Map(rooms.map((r) => [r.id, r.name]));
-	const { open, done } = boardGroups(tasks);
-	const total = open.length + done.length;
-	const row = (task) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-		className: ChannelsPage_module_default.taskRow,
-		"data-task-id": task.id,
-		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.taskLine,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Status, {
-					status: task.status,
-					t
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: ChannelsPage_module_default.taskTitle,
-					children: [
-						"#",
-						task.id,
-						" ",
-						task.title
-					]
-				})]
-			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.taskMeta,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: task.owner_name }),
-					task.room_id !== chatId && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskIn", { room: names.get(task.room_id) ?? String(task.room_id) }) }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskElapsed", { d: formatDuration(elapsed(task, now), t) }) }),
-					task.next_check_at !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskNextCheck", { time: clock(task.next_check_at) }) })
-				]
-			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.taskLinks,
-				children: [task.assign_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.linkButton,
-					onClick: () => {
-						onOpen(task.room_id, task.assign_msg_id);
-					},
-					children: t("taskOpenAssign")
-				}), task.result_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.linkButton,
-					onClick: () => {
-						onOpen(task.room_id, task.result_msg_id);
-					},
-					children: t("taskOpenResult")
-				})]
-			})
-		]
-	}, task.id);
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-		className: ChannelsPage_module_default.taskBoard,
-		"aria-label": t("taskBoard"),
-		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-				className: ChannelsPage_module_default.groupTitle,
-				children: t("taskBoardTitle", { count: String(open.length) })
-			}),
-			total === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.taskEmpty,
-				children: t("taskBoardEmpty")
-			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-				className: ChannelsPage_module_default.taskList,
-				children: open.map(row)
-			}),
-			done.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
-				className: ChannelsPage_module_default.taskDone,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", {
-					className: ChannelsPage_module_default.groupTitle,
-					children: t("taskDoneGroup", { count: String(done.length) })
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-					className: ChannelsPage_module_default.taskList,
-					children: done.map(row)
-				})]
-			})
-		]
-	});
-}
-/**
-* Card for a task record in the message stream: the task and one row per
-* member (owner of the task and of each sub-task) with status and elapsed time.
-* Renders nothing when the task is not on the loaded board.
-*/
-function TaskCard({ taskId, tasks, t }) {
-	const members = cardMembers(taskId, tasks);
-	const task = members[0];
-	if (task === void 0) return null;
-	const now = Date.now() / 1e3;
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-		className: ChannelsPage_module_default.taskCard,
-		"data-status": task.status,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: ChannelsPage_module_default.taskLine,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-				className: ChannelsPage_module_default.cardTitle,
-				children: [
-					"#",
-					task.id,
-					" ",
-					task.title
-				]
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Status, {
-				status: task.status,
-				t
-			})]
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-			className: ChannelsPage_module_default.taskMembers,
-			children: members.map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-				className: ChannelsPage_module_default.taskMember,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ChannelsPage_module_default.taskMemberName,
-						children: m.owner_name
-					}),
-					m.id !== task.id && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ChannelsPage_module_default.taskSub,
-						children: m.title
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Status, {
-						status: m.status,
-						t
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ChannelsPage_module_default.taskMeta,
-						children: formatDuration(elapsed(m, now), t)
-					})
-				]
-			}, m.id))
-		})]
-	});
 }
 // src/client/mention-complete.ts
 /** Characters that may sit right before an `@` that starts a mention. */
@@ -797,6 +409,98 @@ function avatarSrc(avatar) {
 	if (/^https?:\/\//.test(avatar)) return avatar;
 	return AVATARS.includes(avatar) ? `collab/avatars/${avatar}.png` : void 0;
 }
+// src/client/ChannelsPage.module.css
+var ChannelsPage_module_default = {
+	"addMemberButton": "F9s7dG_addMemberButton",
+	"author": "F9s7dG_author",
+	"avatar": "F9s7dG_avatar",
+	"avatarAnchor": "F9s7dG_avatarAnchor",
+	"avatarButton": "F9s7dG_avatarButton",
+	"avatarImage": "F9s7dG_avatarImage",
+	"avatarMenu": "F9s7dG_avatarMenu",
+	"avatarMenuItem": "F9s7dG_avatarMenuItem",
+	"avatarMenuTitle": "F9s7dG_avatarMenuTitle",
+	"avatarOption": "F9s7dG_avatarOption",
+	"avatarPicker": "F9s7dG_avatarPicker",
+	"avatarSmall": "F9s7dG_avatarSmall",
+	"card": "F9s7dG_card",
+	"cardTitle": "F9s7dG_cardTitle",
+	"chat": "F9s7dG_chat",
+	"chatHead": "F9s7dG_chatHead",
+	"choice": "F9s7dG_choice",
+	"choiceRow": "F9s7dG_choiceRow",
+	"composer": "F9s7dG_composer",
+	"composerRow": "F9s7dG_composerRow",
+	"dialog": "F9s7dG_dialog",
+	"dialogActions": "F9s7dG_dialogActions",
+	"dialogBackdrop": "F9s7dG_dialogBackdrop",
+	"dialogTitle": "F9s7dG_dialogTitle",
+	"drawerBackdrop": "F9s7dG_drawerBackdrop",
+	"drawerOpen": "F9s7dG_drawerOpen",
+	"empty": "F9s7dG_empty",
+	"field": "F9s7dG_field",
+	"fieldInput": "F9s7dG_fieldInput",
+	"groupHead": "F9s7dG_groupHead",
+	"groupTitle": "F9s7dG_groupTitle",
+	"guide": "F9s7dG_guide",
+	"hash": "F9s7dG_hash",
+	"iconButton": "F9s7dG_iconButton",
+	"input": "F9s7dG_input",
+	"linkButton": "F9s7dG_linkButton",
+	"log": "F9s7dG_log",
+	"member": "F9s7dG_member",
+	"memberActions": "F9s7dG_memberActions",
+	"memberAvatar": "F9s7dG_memberAvatar",
+	"memberFailed": "F9s7dG_memberFailed",
+	"memberModel": "F9s7dG_memberModel",
+	"memberName": "F9s7dG_memberName",
+	"memberRow": "F9s7dG_memberRow",
+	"members": "F9s7dG_members",
+	"membersHidden": "F9s7dG_membersHidden",
+	"memberStatus": "F9s7dG_memberStatus",
+	"memberText": "F9s7dG_memberText",
+	"mentionActive": "F9s7dG_mentionActive",
+	"mentionButton": "F9s7dG_mentionButton",
+	"mentionHint": "F9s7dG_mentionHint",
+	"mentionItem": "F9s7dG_mentionItem",
+	"mentionMeta": "F9s7dG_mentionMeta",
+	"mentionName": "F9s7dG_mentionName",
+	"mentionPopup": "F9s7dG_mentionPopup",
+	"mentionTitle": "F9s7dG_mentionTitle",
+	"message": "F9s7dG_message",
+	"messageBody": "F9s7dG_messageBody",
+	"messageHead": "F9s7dG_messageHead",
+	"mobileButton": "F9s7dG_mobileButton",
+	"notice": "F9s7dG_notice",
+	"offline": "F9s7dG_offline",
+	"page": "F9s7dG_page",
+	"panelToggle": "F9s7dG_panelToggle",
+	"panelToggleEnd": "F9s7dG_panelToggleEnd",
+	"permActions": "F9s7dG_permActions",
+	"permScope": "F9s7dG_permScope",
+	"permStatus": "F9s7dG_permStatus",
+	"presence": "F9s7dG_presence",
+	"primaryButton": "F9s7dG_primaryButton",
+	"quote": "F9s7dG_quote",
+	"quoteAuthor": "F9s7dG_quoteAuthor",
+	"quoteDeleted": "F9s7dG_quoteDeleted",
+	"replyBar": "F9s7dG_replyBar",
+	"replyBarText": "F9s7dG_replyBarText",
+	"replyButton": "F9s7dG_replyButton",
+	"replyCancel": "F9s7dG_replyCancel",
+	"room": "F9s7dG_room",
+	"roomActive": "F9s7dG_roomActive",
+	"roomInput": "F9s7dG_roomInput",
+	"rooms": "F9s7dG_rooms",
+	"roomsHidden": "F9s7dG_roomsHidden",
+	"secondaryButton": "F9s7dG_secondaryButton",
+	"sendError": "F9s7dG_sendError",
+	"system": "F9s7dG_system",
+	"tag": "F9s7dG_tag",
+	"text": "F9s7dG_text",
+	"time": "F9s7dG_time",
+	"working": "F9s7dG_working"
+};
 // src/client/Avatar.tsx
 /** Member portrait: a built-in or bot-announced image over a colored initial badge. */
 const PALETTE = [
@@ -1182,112 +886,135 @@ function KindTag({ kind, cli, t }) {
 	});
 	return null;
 }
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, tasks, focused }) {
+/** The quoted original above a reply; a deleted original shows only a placeholder. */
+function Quote({ quote, t }) {
+	if (quote.deleted === true) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: `${ChannelsPage_module_default.quote} ${ChannelsPage_module_default.quoteDeleted}`,
+		children: t("replyDeleted")
+	});
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.quote,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: ChannelsPage_module_default.quoteAuthor,
+			children: quote.name
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: quote.text })]
+	});
+}
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply }) {
 	let card;
 	if (message.card !== null) try {
 		card = JSON.parse(message.card);
 	} catch (error) {}
-	const classes = [
-		ChannelsPage_module_default.message,
-		message.author_kind === "system" ? ChannelsPage_module_default.system : "",
-		focused ? ChannelsPage_module_default.focused : ""
-	].filter(Boolean).join(" ");
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-		className: classes,
-		"data-message-id": message.id,
-		children: [member === void 0 || message.author_kind === "system" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-			id: message.author,
-			name: message.name,
-			avatar: member?.avatar
-		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-			className: ChannelsPage_module_default.avatarAnchor,
-			"data-avatar-menu": true,
-			onKeyDown: (event) => {
-				if (event.key === "Escape") onCloseMenu();
-			},
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: ChannelsPage_module_default.avatarButton,
-				"aria-label": t("memberMenu", { name: member.name }),
-				"aria-haspopup": "menu",
-				"aria-expanded": menuOpen,
-				onClick: onAvatar,
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-					id: member.id,
-					name: message.name,
-					avatar: member.avatar
-				})
-			}), menuOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.avatarMenu,
-				role: "menu",
-				"aria-label": t("memberMenu", { name: member.name }),
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: ChannelsPage_module_default.avatarMenuTitle,
-					children: member.name
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+		className: message.author_kind === "system" ? `${ChannelsPage_module_default.message} ${ChannelsPage_module_default.system}` : ChannelsPage_module_default.message,
+		children: [
+			member === void 0 || message.author_kind === "system" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+				id: message.author,
+				name: message.name,
+				avatar: member?.avatar
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				className: ChannelsPage_module_default.avatarAnchor,
+				"data-avatar-menu": true,
+				onKeyDown: (event) => {
+					if (event.key === "Escape") onCloseMenu();
+				},
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 					type: "button",
-					role: "menuitem",
-					className: ChannelsPage_module_default.avatarMenuItem,
-					onClick: () => {
-						onMention(member);
-					},
-					children: t("avatarMention")
+					className: ChannelsPage_module_default.avatarButton,
+					"aria-label": t("memberMenu", { name: member.name }),
+					"aria-haspopup": "menu",
+					"aria-expanded": menuOpen,
+					onClick: onAvatar,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+						id: member.id,
+						name: message.name,
+						avatar: member.avatar
+					})
+				}), menuOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.avatarMenu,
+					role: "menu",
+					"aria-label": t("memberMenu", { name: member.name }),
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.avatarMenuTitle,
+						children: member.name
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						role: "menuitem",
+						className: ChannelsPage_module_default.avatarMenuItem,
+						onClick: () => {
+							onMention(member);
+						},
+						children: t("avatarMention")
+					})]
 				})]
-			})]
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: ChannelsPage_module_default.messageBody,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.messageHead,
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: ChannelsPage_module_default.messageBody,
 				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ChannelsPage_module_default.author,
-						children: message.name
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
-						kind: member?.kind,
-						cli: member?.cli,
+					message.reply_to !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Quote, {
+						quote: message.reply_to,
 						t
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
-						className: ChannelsPage_module_default.time,
-						children: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString()
-					})
-				]
-			}), card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.text,
-				children: message.text
-			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.card,
-				"data-state": card.state,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: ChannelsPage_module_default.cardTitle,
-						children: card.title
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.messageHead,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.author,
+								children: message.name
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
+								kind: member?.kind,
+								cli: member?.cli,
+								t
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
+								className: ChannelsPage_module_default.time,
+								children: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString()
+							})
+						]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: ChannelsPage_module_default.text,
 						children: message.text
-					}),
-					card.action === "configure-model" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: ChannelsPage_module_default.secondaryButton,
-						onClick: onConfigure,
-						children: t("configureModel")
-					}),
-					card.kind === "permission" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermissionCard, {
-						messageId: message.id,
-						card,
-						t,
-						onDecide
-					}),
-					card.kind === "task" && typeof card.task_id === "number" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskCard, {
-						taskId: card.task_id,
-						tasks,
-						t
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.card,
+						"data-state": card.state,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: ChannelsPage_module_default.cardTitle,
+								children: card.title
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: ChannelsPage_module_default.text,
+								children: message.text
+							}),
+							card.action === "configure-model" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.secondaryButton,
+								onClick: onConfigure,
+								children: t("configureModel")
+							}),
+							card.kind === "permission" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermissionCard, {
+								messageId: message.id,
+								card,
+								t,
+								onDecide
+							})
+						]
 					})
 				]
-			})]
-		})]
+			}),
+			message.author_kind !== "system" && card === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.replyButton,
+				title: t("reply"),
+				"aria-label": t("reply"),
+				onClick: () => {
+					onReply(message);
+				},
+				children: "↩"
+			})
+		]
 	});
 }
 function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
@@ -1367,9 +1094,11 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 	const [drafts, setDrafts] = (0, react.useState)({});
 	const [errors, setErrors] = (0, react.useState)({});
 	const [sending, setSending] = (0, react.useState)({});
+	const [replies, setReplies] = (0, react.useState)({});
 	const pendingRooms = (0, react.useRef)(/* @__PURE__ */ new Set());
 	const draft = state.roomId === void 0 ? "" : drafts[state.roomId] ?? "";
 	const sendError = state.roomId === void 0 ? void 0 : errors[state.roomId];
+	const replying = state.roomId === void 0 ? void 0 : replies[state.roomId];
 	const logRef = (0, react.useRef)(null);
 	const stickRef = (0, react.useRef)(true);
 	const inputRef = (0, react.useRef)(null);
@@ -1421,29 +1150,6 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		const log = logRef.current;
 		if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight;
 	}, [state.messages, state.roomId]);
-	const [jump, setJump] = (0, react.useState)(void 0);
-	const [focusedId, setFocusedId] = (0, react.useState)(void 0);
-	(0, react.useEffect)(() => {
-		if (jump === void 0 || jump.roomId !== state.roomId) return;
-		const el = logRef.current?.querySelector(`[data-message-id="${jump.messageId}"]`);
-		if (el == null) return;
-		stickRef.current = false;
-		el.scrollIntoView?.({ block: "center" });
-		setFocusedId(jump.messageId);
-		setJump(void 0);
-	}, [
-		jump,
-		state.messages,
-		state.roomId
-	]);
-	const openMessage = (roomId, messageId) => {
-		setDrawer(void 0);
-		setJump({
-			roomId,
-			messageId
-		});
-		if (roomId !== state.roomId) selectRoom(roomId);
-	};
 	if (state.phase !== "ready") {
 		const notice = state.phase === "unavailable" ? t("unavailable") : state.phase === "unauthorized" ? t("unauthorized") : state.phase === "error" ? t("error", { message: state.error ?? "" }) : t("loading");
 		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -1529,10 +1235,15 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 			[roomId]: void 0
 		}));
 		stickRef.current = true;
-		send(text).then(() => {
+		const replyTo = replies[roomId]?.id;
+		(replyTo === void 0 ? send(text) : send(text, replyTo)).then(() => {
 			setDrafts((previous) => ({
 				...previous,
 				[roomId]: ""
+			}));
+			setReplies((previous) => ({
+				...previous,
+				[roomId]: void 0
 			}));
 		}).catch((error) => {
 			setErrors((previous) => ({
@@ -1546,6 +1257,22 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				[roomId]: false
 			}));
 		});
+	};
+	const startReply = (message) => {
+		const roomId = state.roomId;
+		if (roomId === void 0) return;
+		setReplies((previous) => ({
+			...previous,
+			[roomId]: message
+		}));
+		pendingCaret.current = caret;
+	};
+	const cancelReply = () => {
+		const roomId = state.roomId;
+		if (roomId !== void 0) setReplies((previous) => ({
+			...previous,
+			[roomId]: void 0
+		}));
 	};
 	const onKeyDown = (event) => {
 		if (popupOpen && !event.nativeEvent.isComposing) {
@@ -1636,39 +1363,21 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						role: "alert",
 						children: roomError
 					}),
-					groupRooms(state.rooms).map(({ room: r, depth }) => {
-						const active = r.active ?? 0;
-						const showActive = depth === 1 || r.kind === "workspace" || active > 0;
-						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-							type: "button",
-							className: [
-								ChannelsPage_module_default.room,
-								depth === 1 ? ChannelsPage_module_default.workspace : "",
-								r.id === state.roomId ? ChannelsPage_module_default.roomActive : ""
-							].filter(Boolean).join(" "),
-							"aria-current": r.id === state.roomId,
-							onClick: () => {
-								stickRef.current = true;
-								setDrawer(void 0);
-								selectRoom(r.id);
-							},
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ChannelsPage_module_default.hash,
-									"aria-hidden": true,
-									children: "#"
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ChannelsPage_module_default.roomLabel,
-									children: r.name
-								}),
-								showActive && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: active > 0 ? `${ChannelsPage_module_default.activeCount} ${ChannelsPage_module_default.activeBusy}` : ChannelsPage_module_default.activeCount,
-									children: t("activeTasks", { count: active })
-								})
-							]
-						}, r.id);
-					})
+					state.rooms.map((r) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+						type: "button",
+						className: r.id === state.roomId ? `${ChannelsPage_module_default.room} ${ChannelsPage_module_default.roomActive}` : ChannelsPage_module_default.room,
+						"aria-current": r.id === state.roomId,
+						onClick: () => {
+							stickRef.current = true;
+							setDrawer(void 0);
+							selectRoom(r.id);
+						},
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ChannelsPage_module_default.hash,
+							"aria-hidden": true,
+							children: "#"
+						}), r.name]
+					}, r.id))
 				]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -1764,8 +1473,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							},
 							onMention: mentionFromAvatar,
 							onDecide: decidePermission,
-							tasks: state.tasks ?? [],
-							focused: focusedId === m.id
+							onReply: startReply
 						}, m.id))]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -1839,6 +1547,20 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 									})
 								]
 							}),
+							replying !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: ChannelsPage_module_default.replyBar,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: ChannelsPage_module_default.replyBarText,
+									children: [t("replyingTo", { name: replying.name }), state.messages.some((m) => m.id === replying.id) ? "" : ` · ${t("replyDeleted")}`]
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ChannelsPage_module_default.replyCancel,
+									title: t("cancelReply"),
+									"aria-label": t("cancelReply"),
+									onClick: cancelReply,
+									children: "×"
+								})]
+							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: ChannelsPage_module_default.composerRow,
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
@@ -1884,13 +1606,6 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("aside", {
 				className: drawer === "members" ? `${ChannelsPage_module_default.members} ${ChannelsPage_module_default.drawerOpen}` : ChannelsPage_module_default.members,
 				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskBoard, {
-						tasks: state.tasks ?? [],
-						rooms: state.rooms,
-						chatId: state.taskChat,
-						t,
-						onOpen: openMessage
-					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						type: "button",
 						className: ChannelsPage_module_default.addMemberButton,
@@ -1970,26 +1685,6 @@ const NS = "discord-channels";
 /** Simplified Chinese dictionary and key source. */
 const zh = {
 	panel: "频道",
-	taskBoard: "任务板",
-	taskBoardTitle: "任务板 — 进行中 {count}",
-	taskBoardEmpty: "还没有派出的任务",
-	taskDoneGroup: "已完成 — {count}",
-	taskAssigned: "派出",
-	taskAccepted: "已接",
-	taskAsked: "有疑问",
-	taskDeclined: "退回",
-	taskEscalated: "升级",
-	taskReturned: "交回",
-	taskDone: "完成",
-	taskRework: "返工",
-	taskIn: "在 #{room}",
-	taskElapsed: "用时 {d}",
-	taskNextCheck: "下次看 {time}",
-	taskOpenAssign: "派工消息",
-	taskOpenResult: "交回消息",
-	durSeconds: "{n} 秒",
-	durMinutes: "{n} 分钟",
-	durHours: "{h} 小时 {m} 分",
 	configureModel: "去配置模型",
 	permAllowed: "已允许",
 	permDenied: "已拒绝",
@@ -2036,7 +1731,6 @@ const zh = {
 	avatarMention: "@ TA",
 	newRoom: "新建频道",
 	newRoomPlaceholder: "频道名，回车创建",
-	activeTasks: "进行中 {count} 件",
 	addMember: "添加成员",
 	editMember: "编辑",
 	removeMember: "移除",
@@ -2060,30 +1754,14 @@ const zh = {
 	save: "保存",
 	cancel: "取消",
 	configMember: "来自配置文件，网页里不能修改",
-	defaultModel: "默认模型"
+	defaultModel: "默认模型",
+	reply: "回复",
+	replyingTo: "回复 {name}",
+	replyDeleted: "原消息已删除",
+	cancelReply: "取消回复"
 };
 /** English dictionary. */
 const en = {
-	taskBoard: "Task board",
-	taskBoardTitle: "Tasks — {count} in progress",
-	taskBoardEmpty: "No tasks dispatched yet",
-	taskDoneGroup: "Done — {count}",
-	taskAssigned: "Assigned",
-	taskAccepted: "Accepted",
-	taskAsked: "Question",
-	taskDeclined: "Declined",
-	taskEscalated: "Escalated",
-	taskReturned: "Handed back",
-	taskDone: "Done",
-	taskRework: "Rework",
-	taskIn: "in #{room}",
-	taskElapsed: "took {d}",
-	taskNextCheck: "next check {time}",
-	taskOpenAssign: "Dispatch",
-	taskOpenResult: "Delivery",
-	durSeconds: "{n}s",
-	durMinutes: "{n} min",
-	durHours: "{h} h {m} min",
 	panel: "Channels",
 	configureModel: "Configure model",
 	permAllowed: "Allowed",
@@ -2131,7 +1809,6 @@ const en = {
 	avatarMention: "Mention",
 	newRoom: "New channel",
 	newRoomPlaceholder: "Channel name, Enter to create",
-	activeTasks: "{count} in progress",
 	addMember: "Add member",
 	editMember: "Edit",
 	removeMember: "Remove",
@@ -2155,7 +1832,11 @@ const en = {
 	save: "Save",
 	cancel: "Cancel",
 	configMember: "From the config file; not editable here",
-	defaultModel: "Default model"
+	defaultModel: "Default model",
+	reply: "Reply",
+	replyingTo: "Replying to {name}",
+	replyDeleted: "Original message was deleted",
+	cancelReply: "Cancel reply"
 };
 // src/client/index.ts
 const PANEL_ID = "channels";

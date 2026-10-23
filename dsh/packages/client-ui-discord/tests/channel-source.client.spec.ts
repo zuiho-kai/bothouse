@@ -283,4 +283,23 @@ describe('channel source', () => {
     expect(source.getSnapshot().roomId).toBe(2)
     unsubscribe()
   })
+
+  it('sends reply_to only for a reply and degrades a quote whose original is deleted', async () => {
+    const posted: unknown[] = []
+    const { transport, streams } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (init?.method === 'POST') { posted.push(JSON.parse(String(init.body))); return json(200, { message: message(7, 'r') }) }
+      return json(200, { messages: [message(1, 'orig'), { ...message(2, 'reply'), reply_to: { id: 1, author_kind: 'user', author: 'owner', name: '我', text: 'orig' } }] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().messages).toHaveLength(2))
+    await actions.send('plain')
+    await actions.send('re', 1)
+    expect(posted[0]).not.toHaveProperty('reply_to')
+    expect(posted[1]).toMatchObject({ text: 're', reply_to: 1 })
+    streams[0]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'deleted', id: 1, room_id: 1 }) }))
+    expect(source.getSnapshot().messages.find(m => m.id === 2)?.reply_to).toEqual({ id: 1, deleted: true })
+    unsubscribe()
+  })
 })

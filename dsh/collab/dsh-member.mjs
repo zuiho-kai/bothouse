@@ -8,6 +8,7 @@
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
 import { mentions, nameCalled } from './mentions.mjs';
+import { quotePrefix } from './store.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -61,8 +62,8 @@ export function consumingTurn(events, inputId) {
  * unseen channel messages up to the trigger. Identity is restated every time
  * because other members' messages in the same history name themselves.
  */
-export function promptText(room, member, messages) {
-  const lines = messages.map(m => `【${m.name}】${m.text}`);
+export function promptText(room, member, messages, store) {
+  const lines = messages.map(m => `【${m.name}】${quotePrefix(store?.quote(m))}${m.text}`);
   const model = member.model === undefined ? '' : `你底层用的模型是 ${member.model.provider}/${member.model.model}。`;
   const persona = member.persona?.trim() ? ['你的人设：', member.persona.trim(), ''] : [];
   return [
@@ -174,8 +175,9 @@ export class DshMembers {
   plan(msg) {
     if (msg.author_kind === 'system' || msg.card !== null) return undefined;
     const hit = mentions(msg.text, this.hub.routable());
-    const targets = [...this.config.keys()].filter(id => id !== msg.author
-      && (hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
+    const only = this.hub.replyRoute(msg);
+    const targets = [...this.config.keys()].filter(id => id !== msg.author && (only !== null ? only.has(id)
+      : hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
     if (targets.length === 0) return undefined;
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
       return () => this.hub.post(msg.room_id, {
@@ -224,7 +226,7 @@ export class DshMembers {
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen) }], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, this.store) }], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     await this.admitAndSettle(job, member, agent, input, seqBefore);
@@ -272,7 +274,7 @@ export class DshMembers {
     let done = false;
     try {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
-      const text = (await entry.agent.ask(promptText(room, member, unseen), String(room.id), onText))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen, this.store), String(room.id), onText))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';

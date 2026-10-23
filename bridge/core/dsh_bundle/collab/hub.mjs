@@ -1,6 +1,7 @@
 // Room hub: one place that appends a message and fans it out — to browser
 // event streams, to connected cc-connect bots, and to DSH member drivers.
 import { publicMessage } from './store.mjs';
+import { mentions } from './mentions.mjs';
 
 export class Hub {
   /**
@@ -66,6 +67,24 @@ export class Hub {
     }));
   }
 
+  /**
+   * Who a human reply addresses, mirroring bridge/platform/discord/reply_routing.go:
+   * null = not a reply to settle (normal @ rules apply); otherwise the only
+   * member ids that may take it. With an explicit @, the @-ed members plus the
+   * replied-to agent; without one, only the replied-to agent; a deleted
+   * original names nobody (no guessing); a reply to a human keeps normal rules.
+   */
+  replyRoute(msg) {
+    if (msg.reply_to == null || msg.author_kind !== 'user') return null;
+    const ref = this.store.message(msg.reply_to);
+    const refAgent = ref !== undefined && ref.room_id === msg.room_id && ref.author_kind === 'role' ? ref.author : undefined;
+    const explicit = mentions(msg.text, this.routable());
+    if (explicit.size > 0) return refAgent === undefined ? explicit : new Set([...explicit, refAgent]);
+    if (ref === undefined || ref.room_id !== msg.room_id) return new Set();
+    if (refAgent !== undefined) return new Set([refAgent]);
+    return null;
+  }
+
   /** Register an async consumer of newly created messages. */
   onMessage(listener) { this.listeners.push(listener); }
 
@@ -92,7 +111,7 @@ export class Hub {
         this.logger.warn('collab: post-commit step failed: %s', error?.stack ?? error);
       });
     }
-    this.emit({ type: 'message', message: publicMessage(result.message) });
+    this.emit({ type: 'message', message: publicMessage(result.message, this.store) });
     for (const listener of this.listeners) {
       Promise.resolve().then(() => listener(result.message)).catch((error) => {
         this.logger.warn('collab: message listener failed: %s', error?.stack ?? error);
@@ -109,7 +128,7 @@ export class Hub {
    */
   draft(roomId, m) {
     const r = this.store.append(roomId, { ...m, draft: true });
-    if (r.created) this.emit({ type: 'message', message: publicMessage(r.message) });
+    if (r.created) this.emit({ type: 'message', message: publicMessage(r.message, this.store) });
     return r;
   }
 
@@ -122,7 +141,7 @@ export class Hub {
     });
     if (r === undefined) return undefined;
     const row = r.message;
-    this.emit({ type: 'message', message: publicMessage(row) });
+    this.emit({ type: 'message', message: publicMessage(row, this.store) });
     if (!r.first) return row;
     for (const next of after) {
       Promise.resolve().then(next).catch((error) => {
@@ -140,7 +159,7 @@ export class Hub {
   /** Edit/delete a row the same author wrote, and tell browsers. */
   edit(id, authorKind, author, text, card) {
     const row = this.store.edit(id, authorKind, author, text, card);
-    if (row !== undefined) this.emit({ type: 'message', message: publicMessage(row) });
+    if (row !== undefined) this.emit({ type: 'message', message: publicMessage(row, this.store) });
     return row;
   }
 

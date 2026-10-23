@@ -466,7 +466,7 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   const v2 = new Store(path);
   v2.ensureRoom(1, 'general');
   v2.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'kept' });
-  v2.db.exec('ALTER TABLE jobs DROP COLUMN input_id; ALTER TABLE messages DROP COLUMN draft; DROP TABLE members; PRAGMA user_version = 1');
+  v2.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE jobs DROP COLUMN input_id; DROP TABLE members; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 1');
   v2.close();
   const raw = new DatabaseSync(path);
   assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 1);
@@ -652,7 +652,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v3.sqlite3');
   const s = new Store(path);
   s.addMember({ id: 'old', name: 'Old', model: { provider: 'relay', model: 'm1' } });
-  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
   assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
@@ -735,7 +735,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v4.sqlite3');
   const s = new Store(path);
   s.addMember({ id: 'old', name: 'Old', cli: 'claude' });
-  s.db.exec('ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
   assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
@@ -1082,6 +1082,93 @@ test('cloud-web #120: owner text with several bots pending — no @ answers all,
   await tick(); await tick();
   assert.equal(dou.of('message').at(-1).content, '等一下');
   assert.equal(state(a), 'pending');
+});
+
+// Issue #122: a channel message may reply to one earlier message.
+test('reply: the quote is stored and served; a deleted original degrades without leaking it', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const { message: orig } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '一'.repeat(50) });
+  const { message: reply } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '收到', replyTo: orig.id });
+  assert.equal(reply.reply_to, orig.id);
+  const { publicMessage } = await import('./store.mjs');
+  const pub = publicMessage(reply, hub.store);
+  assert.deepEqual(pub.reply_to, { id: orig.id, author_kind: 'role', author: 'ju', name: '橘', text: '一'.repeat(40) + '…' });
+  assert.deepEqual(events.at(-1).message.reply_to, pub.reply_to, 'the live event carries the quote');
+  assert.equal(publicMessage(orig, hub.store).reply_to, undefined, 'a plain message has no quote');
+  assert.throws(() => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'x', replyTo: 999 }), { code: 'reply-missing' });
+  const { message: elsewhere } = hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '别处' });
+  assert.throws(() => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'x', replyTo: elsewhere.id }), { code: 'reply-missing' }, 'only the same room');
+  hub.remove(orig.id, 'role', 'ju');
+  const gone = publicMessage(hub.store.message(reply.id), hub.store);
+  assert.deepEqual(gone.reply_to, { id: orig.id, deleted: true });
+  assert.doesNotMatch(JSON.stringify(gone), /一一/, 'deleted text never leaks');
+});
+
+test('reply: a v6 database gains reply_to and keeps its messages', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'v6.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '老消息' });
+  s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
+  s.close();
+  const up = new Store(path);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 9);
+  const old = up.page(1, undefined, 1)[0];
+  assert.equal(old.text, '老消息');
+  assert.equal(old.reply_to, null);
+  assert.equal(up.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '回', replyTo: old.id }).message.reply_to, old.id);
+  up.close();
+});
+
+test('reply routing (reply_routing.go): the replied-to bot is called, others are not woken; deleted names nobody', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+  const { message: juSaid } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '日志看完了，一切正常' });
+  await settle();
+  const whaleBefore = whale.of('message').length;
+
+  // Reply to 橘 with no @: only 橘 takes it, with the Discord-style quote prefix.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '再看一遍', replyTo: juSaid.id });
+  await settle();
+  const toJu = ju.of('message').at(-1);
+  assert.equal(toJu.mentioned, true);
+  assert.equal(toJu.content, '[回复 橘：日志看完了，一切正常] 再看一遍');
+  assert.equal(whale.of('message').length, whaleBefore, 'another bot is not woken');
+  assert.equal(hub.store.openJobs().length, 0, 'no DSH job either');
+
+  // Reply to 橘 while @-ing DeepSeek: both are called, 鲸鱼娘 still is not.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你也看看', replyTo: juSaid.id });
+  await settle();
+  assert.equal(ju.of('message').at(-1).mentioned, true);
+  assert.equal(whale.of('message').length, whaleBefore);
+  assert.equal(dsh.made.length, 1);
+  const prompt = dsh.sessions.get(dsh.made[0]).prompts[0].content[0].text;
+  assert.match(prompt, /【我】\[回复 橘：日志看完了，一切正常\] @DeepSeek 你也看看$/);
+
+  // Original deleted: a reply without @ establishes no recipient, and the bot sees no original text.
+  const { message: gone } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '机密内容' });
+  await settle();
+  const { message: late } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '占位' });
+  hub.store.db.prepare('UPDATE messages SET reply_to = ? WHERE id = ?').run(gone.id, late.id);
+  hub.remove(gone.id, 'role', 'ju');
+  const juBefore = ju.of('message').length;
+  const whaleNow = whale.of('message').length;
+  gw.onNew(hub.store.message(late.id));
+  assert.equal(ju.of('message').length, juBefore, 'no guessed recipient');
+  assert.equal(whale.of('message').length, whaleNow);
+  assert.equal(hub.replyRoute(hub.store.message(late.id)).size, 0);
+  const { quotePrefix } = await import('./store.mjs');
+  assert.equal(quotePrefix(hub.store.quote(hub.store.message(late.id))), '[回复 原消息已删除] ');
 });
 
 // ---- #139 team mode B: tasks ----

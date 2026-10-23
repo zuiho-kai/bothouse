@@ -296,6 +296,88 @@
   font-weight: 600;
 }
 
+/* Reply (issue #122): the quoted original above a reply, and the composer's reply bar. */
+.message {
+  position: relative;
+}
+
+.quote {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quoteDeleted {
+  font-style: italic;
+}
+
+.quoteAuthor {
+  flex: none;
+  font-weight: 600;
+}
+
+.replyButton {
+  position: absolute;
+  top: 4px;
+  right: 16px;
+  opacity: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-2);
+  cursor: pointer;
+}
+
+.message:hover .replyButton,
+.message:focus-within .replyButton,
+.replyButton:focus-visible {
+  opacity: 1;
+}
+
+/* Touch screens have no hover: keep the reply entry visible. */
+@media (hover: none) {
+  .replyButton {
+    opacity: 1;
+  }
+}
+
+.replyBar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+}
+
+.replyBarText {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.replyCancel {
+  flex: none;
+  border: 0;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+
 .working {
   min-height: 20px;
   padding: 0 16px;

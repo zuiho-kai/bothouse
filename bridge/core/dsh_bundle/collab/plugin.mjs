@@ -133,7 +133,7 @@ export async function apply(ctx, rawConfig) {
     if (store.room(Number(m[1])) === undefined) return json(res, 404, { error: 'room not found' });
     const before = url.searchParams.get('before');
     const rows = store.page(Number(m[1]), before === null ? undefined : Number(before), url.searchParams.get('limit'));
-    return json(res, 200, { messages: rows.map(publicMessage) });
+    return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
   }
 
   async function browserRoute(req, res) {
@@ -167,13 +167,14 @@ export async function apply(ctx, rawConfig) {
       const before = url.searchParams.get('before');
       const rows = after !== null ? store.since(roomId, Number(after), url.searchParams.get('limit'))
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
-      return json(res, 200, { messages: rows.map(publicMessage) });
+      return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
     if (m !== null && req.method === 'POST') {
       return withBody(req, res, (body) => {
         const clientKey = typeof body?.client_key === 'string' && body.client_key ? `web:${body.client_key.slice(0, 64)}` : undefined;
-        const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey });
-        return { message: publicMessage(message) };
+        const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey,
+          replyTo: Number.isInteger(body?.reply_to) ? body.reply_to : undefined });
+        return { message: publicMessage(message, store) };
       });
     }
     // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.

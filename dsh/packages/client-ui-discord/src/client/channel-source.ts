@@ -19,7 +19,14 @@ export interface ChannelMessage {
   /** Progress-card JSON (`title`, `state`), or null for an ordinary message. */
   readonly card: string | null
   readonly from_turn: number | null
+  /** What this message replies to; absent for a plain message. */
+  readonly reply_to?: ChannelQuote
 }
+
+/** The quoted original of a reply: an excerpt, or only its id once it was deleted. */
+export type ChannelQuote =
+  | { readonly id: number; readonly deleted: true }
+  | { readonly id: number; readonly deleted?: undefined; readonly author_kind: ChannelMessage['author_kind']; readonly author: string; readonly name: string; readonly text: string }
 
 /** A provider route and model a DSH member runs on. */
 export interface MemberModel {
@@ -173,8 +180,8 @@ export interface ChannelSnapshot {
 export interface ChannelActions {
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
-  /** Post one human message into the selected room; rejects with the service's reason. */
-  send(text: string): Promise<void>
+  /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
+  send(text: string, replyTo?: number): Promise<void>
   /** Create a room and switch to it. */
   createRoom(name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -295,7 +302,12 @@ export function createChannelSource(transport: ChannelTransport): {
       }
       case 'deleted':
         return event.room_id === current.roomId
-          ? { ...current, messages: current.messages.filter(m => m.id !== event.id) }
+          ? {
+              ...current,
+              // Replies to the removed message keep only its id, so its text stops showing.
+              messages: current.messages.filter(m => m.id !== event.id)
+                .map(m => (m.reply_to?.id === event.id ? { ...m, reply_to: { id: event.id, deleted: true as const } } : m)),
+            }
           : current
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
@@ -459,14 +471,14 @@ export function createChannelSource(transport: ChannelTransport): {
 
   const actions: ChannelActions = {
     selectRoom,
-    async send(text) {
+    async send(text, replyTo) {
       const roomId = snapshot.roomId
       const owner = lifetime
       if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
       const { message } = await request<{ message: ChannelMessage }>(`collab/api/rooms/${roomId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text, client_key: crypto.randomUUID() }),
+        body: JSON.stringify(replyTo === undefined ? { text, client_key: crypto.randomUUID() } : { text, client_key: crypto.randomUUID(), reply_to: replyTo }),
       })
       if (lifetime === owner) onEvent({ type: 'message', message })
     },

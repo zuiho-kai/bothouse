@@ -5,7 +5,7 @@
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { checkAvatar } from './avatars.mjs';
-import { CollabError, MAX_TEXT, publicMessage } from './store.mjs';
+import { CollabError, MAX_TEXT, publicMessage, quotePrefix } from './store.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
 // Declared to cc-connect. 'buttons' is declared so permission prompts arrive as
@@ -181,14 +181,19 @@ export class CloudWebGateway {
     const mentioned = mentions(text, members);
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
+    const only = this.hub.replyRoute(msg);
+    const quote = quotePrefix(this.hub.store.quote(msg));
     for (const { ws, member } of this.bots.values()) {
       if (fromAgent && msg.author === member.id) continue;
       if (answered.has(member.id)) continue;
+      // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
+      if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
-      const hit = mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
+      const hit = only !== null || mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
       if (fromAgent && !content) continue;
-      if (fromAgent) content = `【${msg.name}】${content}`;
-      else if (hit && !content) content = BARE_MENTION;
+      if (fromAgent) content = `【${msg.name}】${quote}${content}`;
+      else if (hit && !content) content = quote + BARE_MENTION;
+      else content = quote + content;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
         user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
@@ -326,7 +331,7 @@ export class CloudWebGateway {
     if (bot === undefined) throw new CollabError('offline', `${row.name} 已断线，权限请求还在等待，重连后会失效`);
     this.closePerm(msgId, PERM_STATES[decision], row, by);
     send(bot.ws, { type: 'card_action', session_key: p.sessionKey, reply_ctx: p.replyCtx, action: PERM_DECISIONS[decision] });
-    return publicMessage(this.hub.store.message(msgId));
+    return publicMessage(this.hub.store.message(msgId), this.hub.store);
   }
 
   /** Mark a permission prompt decided/expired and update it for browsers. */

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot, ChannelTask } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask } from './channel-source.ts'
 import { groupRooms } from './channel-source.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
@@ -36,7 +36,18 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   return null
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, tasks, focused }: {
+/** The quoted original above a reply; a deleted original shows only a placeholder. */
+function Quote({ quote, t }: { quote: ChannelQuote; t: T }) {
+  if (quote.deleted === true) return <div className={`${css.quote} ${css.quoteDeleted}`}>{t('replyDeleted')}</div>
+  return (
+    <div className={css.quote}>
+      <span className={css.quoteAuthor}>{quote.name}</span>
+      <span>{quote.text}</span>
+    </div>
+  )
+}
+
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused }: {
   message: ChannelMessage
   tasks: readonly ChannelTask[]
   focused: boolean
@@ -48,6 +59,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onCloseMenu: () => void
   onMention: (member: ChannelMember) => void
   onDecide: ChannelActions['decidePermission']
+  onReply: (message: ChannelMessage) => void
 }) {
   let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number } | undefined
   if (message.card !== null) {
@@ -74,6 +86,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
             </span>
           )}
       <div className={css.messageBody}>
+        {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} />}
         <div className={css.messageHead}>
           <span className={css.author}>{message.name}</span>
           <KindTag kind={member?.kind} cli={member?.cli} t={t} />
@@ -91,6 +104,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               </div>
             )}
       </div>
+      {/* System notices and progress cards are not conversation turns, so they take no reply. */}
+      {message.author_kind !== 'system' && card === undefined && (
+        <button type="button" className={css.replyButton} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩</button>
+      )}
     </div>
   )
 }
@@ -152,9 +169,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
+  // Per room: the message the next send replies to.
+  const [replies, setReplies] = useState<Record<number, ChannelMessage | undefined>>({})
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
+  const replying = state.roomId === undefined ? undefined : replies[state.roomId]
   const logRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -316,14 +336,28 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
-    send(text).then(() => {
+    const replyTo = replies[roomId]?.id
+    ;(replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
       setDrafts(previous => ({ ...previous, [roomId]: '' }))
+      setReplies(previous => ({ ...previous, [roomId]: undefined }))
     }).catch((error: unknown) => {
       setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
     }).finally(() => {
       pendingRooms.current.delete(roomId)
       setSending(previous => ({ ...previous, [roomId]: false }))
     })
+  }
+
+  const startReply = (message: ChannelMessage): void => {
+    const roomId = state.roomId
+    if (roomId === undefined) return
+    setReplies(previous => ({ ...previous, [roomId]: message }))
+    pendingCaret.current = caret
+  }
+
+  const cancelReply = (): void => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setReplies(previous => ({ ...previous, [roomId]: undefined }))
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -435,6 +469,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   onDecide={decidePermission}
                   tasks={state.tasks ?? []}
                   focused={focusedId === m.id}
+                  onReply={startReply}
                 />
               ))}
         </div>
@@ -472,6 +507,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                 ))}
               </div>
               <div className={css.mentionHint}>{t('mentionHint')}</div>
+            </div>
+          )}
+          {replying !== undefined && (
+            <div className={css.replyBar}>
+              <span className={css.replyBarText}>
+                {t('replyingTo', { name: replying.name })}
+                {state.messages.some(m => m.id === replying.id) ? '' : ` · ${t('replyDeleted')}`}
+              </span>
+              <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
             </div>
           )}
           <div className={css.composerRow}>
