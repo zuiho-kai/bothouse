@@ -83,6 +83,7 @@
   .msg:hover { background:#2e3035; }
   .msg.cont { margin-top:0; }
   .msg.cont .av, .msg.cont .hdr { display:none; }
+  .msg[data-member] > .av { cursor:pointer; }   /* 点消息头像出成员小菜单（@ 他），issue #123 */
   .msg .gut { width:40px; flex:none; }
   .msg:not(.cont) .gut { display:none; }
   .msg.cont .gut { font-size:11px; color:var(--faint); text-align:center; padding-top:3px; visibility:hidden; }
@@ -591,7 +592,8 @@ function msgHTML(x, prev, color) {
       `<button type="button" data-act="edit">编辑</button><button type="button" data-act="delete">删除</button>` : ""}</div>`;
     const edited = x.author_kind === "user" && !x.local && x.updated_at > x.created_at ? " edited" : "";   // 用户消息只有改正文才动 updated_at（rh/hub.py update）
     const mentioned = text.includes('<span class="mention me">') ? " mentioned" : "";
-    return `<div class="msg ${x.status}${cont ? " cont" : ""}${mentioned}${edited}${x.local ? " " + (x.local.state === "sending" ? "pending" : "failed") : ""}">${avatarHTML(x.author, x.name, color[x.author])}<div class="gut">${hhmm(x.created_at)}</div>
+    const who = mentionTarget(x.author);   // 能 @ 的成员（按成员 ID）才让点头像
+    return `<div class="msg ${x.status}${cont ? " cont" : ""}${mentioned}${edited}${x.local ? " " + (x.local.state === "sending" ? "pending" : "failed") : ""}"${who ? ` data-member="${esc(who.id)}"` : ""}>${avatarHTML(x.author, x.name, color[x.author])}<div class="gut">${hhmm(x.created_at)}</div>
       <div class="body"><div class="hdr"><span class="who" style="color:${color[x.author] || "var(--head)"}">${esc(shownName(x))}</span>${isBot(x.author) ? `<span class="tag">BOT</span>` : ""}<span class="t" title="${fmt(x.created_at)}">${shortTime(x.created_at)}</span></div>
       <div class="text">${text}</div>${st}</div>${acts}</div>`;
 }
@@ -681,12 +683,22 @@ function mentionQuery() {
   const m = before.match(/@([^\s@]*)$/);
   return m ? {start: before.length - m[0].length, q: m[1].toLowerCase()} : null;
 }
-function updatePop() {
-  const mq = mentionQuery();
-  // 能 @ 的：主机上的角色 + 接进来的 bot（龙娘只有 bot），同名只列一次（验收清单第 12 条）。打 id 开头也能筛，但不显示 id
+// 能 @ 的：主机上的角色 + 接进来的 bot（龙娘只有 bot），同名只列一次（验收清单第 12 条）；名字带空格的 @ 不出来，不列
+function mentionables() {
   const all = [], seen = new Set();
   for (const m of [...members.filter(m => m.kind === "role"), ...bots])
     if (!/\s/.test(m.name) && !seen.has(m.name)) { seen.add(m.name); all.push(m); }
+  return all;
+}
+// 消息作者（成员 ID）→ 能 @ 的那个成员；名字按 ID 现查，不用消息里存的 name（改过名也 @ 对人）。issue #123
+function mentionTarget(id) {
+  const m = members.find(x => x.id === id && x.kind === "role") || bots.find(x => x.id === id);
+  return m && mentionables().find(x => x.name === m.name) || null;
+}
+function updatePop() {
+  const mq = mentionQuery();
+  // 打 id 开头也能筛，但不显示 id
+  const all = mentionables();
   const items = mq ? all.filter(m => m.name.toLowerCase().includes(mq.q) || m.id.toLowerCase().startsWith(mq.q)) : [];
   if (!items.length) return closePop();
   pop = {start: mq.start, items, sel: pop ? Math.min(pop.sel, items.length - 1) : 0};
@@ -721,6 +733,14 @@ $("in").addEventListener("keydown", (e) => {
   if (e.key === "Escape" && editing) { e.preventDefault(); return stopEdit(); }
   if (e.key === "Enter" && !e.shiftKey && !coarse.matches) { e.preventDefault(); $("f").requestSubmit(); }
 });
+// 点消息头像 @ 他：插在输入框光标处（有选中就替换选中），草稿其余部分不动；前面紧挨着字时补一个空格。只改输入框，不发送
+function insertMention(name) {
+  const t = $("in"), s = t.selectionStart, e = t.selectionEnd, pre = t.value.slice(0, s);
+  const ins = (pre && !/\s$/.test(pre) ? " " : "") + "@" + name + " ";
+  t.value = pre + ins + t.value.slice(e);
+  t.selectionStart = t.selectionEnd = s + ins.length;
+  fitInput(); t.focus();
+}
 $("mention-pop").addEventListener("mousedown", (e) => e.preventDefault());   // 点选时不让输入框失焦
 $("mention-pop").addEventListener("click", (e) => {
   const o = e.target.closest("[role=option]"); if (o && pop) pickMention(Number(o.dataset.i));
@@ -763,6 +783,8 @@ async function act(id, what) {
   }
 }
 $("log").addEventListener("click", (e) => {
+  const av = e.target.closest(".msg[data-member] > .av");
+  if (av) return openMemberMenu(av.parentElement.dataset.member);
   const b = e.target.closest(".acts [data-act]"); if (!b) return;
   act(Number(b.closest(".msg").dataset.id), b.dataset.act);
 });
@@ -773,10 +795,17 @@ function openMenu(id) {
     (mine ? `<button data-act="edit">编辑消息</button><button data-act="delete">删除消息</button>` : "") + `<button data-act="">取消</button>`;
   $("msgmenu").dataset.id = id; $("msgmenu").classList.add("on");
 }
-function closeMenu() { $("msgmenu").classList.remove("on"); }
+// 成员小菜单：借消息菜单的底板（点外面、点取消都关，不发消息）。只有「@ 他」，# 的动作用户还没定（issue #123）
+function openMemberMenu(id) {
+  const m = mentionTarget(id); if (!m) return;
+  $("msgmenu").firstElementChild.innerHTML = `<button data-act="mention">@ ${esc(m.name)}</button><button data-act="">取消</button>`;
+  delete $("msgmenu").dataset.id; $("msgmenu").dataset.member = m.id; $("msgmenu").classList.add("on");
+}
+function closeMenu() { $("msgmenu").classList.remove("on"); delete $("msgmenu").dataset.member; }
 $("msgmenu").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-act]");
-  if (b && b.dataset.act) act(Number($("msgmenu").dataset.id), b.dataset.act); else closeMenu();
+  const b = e.target.closest("[data-act]"), mm = $("msgmenu").dataset.member;
+  if (b && b.dataset.act === "mention" && mm) { const m = mentionTarget(mm); closeMenu(); if (m) insertMention(m.name); }
+  else if (b && b.dataset.act) act(Number($("msgmenu").dataset.id), b.dataset.act); else closeMenu();
 });
 // 长按（触屏）出菜单：按住不动这么多毫秒。来源：实现者定，接近 iOS/Android 系统长按约 500ms。
 const LONG_PRESS_MS = 500;

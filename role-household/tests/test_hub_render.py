@@ -220,6 +220,32 @@ class RenderDesktop(RenderWeb):
         await self.page.click("#mention-pop [role=option]")
         self.assertTrue((await self.page.input_value("#in")).endswith("@鲸鱼娘 "))
 
+    async def test_avatar_click_mentions_member(self):
+        """issue #123：点消息头像出成员小菜单，「@ 他」按成员 ID 取名、插在光标处、草稿不丢；点外面关、不发消息；自己的头像不出菜单。"""
+        self.hub.set_members([{"id": "ju", "name": "橘"}, {"id": "long", "name": "龙娘"}])
+        self.hub.create(1, {"text": "我说的"})
+        self.hub.create(1, {"text": "橘说的", "author_kind": "role", "author": "ju", "name": "旧名字", "status": "done"})
+        await self.open()
+        user_msg, role_msg = self.page.locator(".msg").nth(0), self.page.locator(".msg").nth(1)
+        await self.page.fill("#in", "你好世界")
+        await self.page.evaluate("document.getElementById('in').setSelectionRange(2, 2)")
+        await user_msg.locator(".av").click()
+        self.assertFalse(await self.page.is_visible("#msgmenu"))   # 自己的头像不出
+        await role_msg.locator(".av").click()
+        self.assertTrue(await self.page.is_visible("#msgmenu"))
+        self.assertEqual(await self.page.locator("#msgmenu button").all_inner_texts(), ["@ 橘", "取消"])
+        await self.page.mouse.click(5, 5)   # 点菜单外面：关掉，草稿不动
+        self.assertFalse(await self.page.is_visible("#msgmenu"))
+        self.assertEqual(await self.page.input_value("#in"), "你好世界")
+        await role_msg.locator(".av").click()
+        await self.page.click("#msgmenu [data-act=mention]")
+        self.assertFalse(await self.page.is_visible("#msgmenu"))
+        self.assertEqual(await self.page.input_value("#in"), "你好 @橘 世界")
+        self.assertEqual(await self.page.evaluate("document.getElementById('in').selectionStart"), len("你好 @橘 "))
+        self.assertTrue(await self.page.evaluate("document.activeElement.id === 'in'"))
+        await asyncio.sleep(0.3)
+        self.assertEqual(len(self.rows(author_kind="user")), 1)   # 只有原来那条，没误发
+
     async def test_edit_delete_copy_own_message(self):
         self.hub.set_members([{"id": "ju", "name": "橘"}])
         self.hub.create(1, {"text": "原话"})
