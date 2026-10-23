@@ -68,6 +68,11 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      A reused Discord bot (reuse_project) keeps its Discord settings and also joins the platform.
                      Wrong address or token: nothing is written (error says how to fix). Platform down right
                      now: saved with the blocking warning cloud_web_unreachable.
+                     Local DSH collab: use {"url", "collab_data_dir"} instead (absolute plugin dataDir, no token).
+                     Generates a distinct bot credential per project in <collab_data_dir>/cloud-web-bot-tokens.json
+                     and saves matching client tokens. Repeated saves keep existing tokens. Dry-run writes nothing.
+                     Restart DSH and bridge after removing conflicting botTokens/env overrides, then verify
+                     connections and private-room access (blocking warning collab_restart_required).
   wiki               optional {"daily", "night", "split"}: models of the memory wiki (~/wiki or $WIKI_DIR with
                      bin/ingest.py). daily = every 30 minutes, new sessions into the wiki; night = nightly review,
                      reflection and the weekly lint; split = splitting pages/domains that are full. Values: haiku |

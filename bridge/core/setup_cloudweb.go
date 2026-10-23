@@ -36,6 +36,9 @@ import (
 type WizardCloudWeb struct {
 	URL   string `json:"url,omitempty"`   // http(s)://host[:port] of the platform (or its ws(s)://…/cloud-web/ws)
 	Token string `json:"token,omitempty"` // the platform's bot token
+	// CollabDataDir opts into local DSH collab provisioning instead of the generic hub token.
+	// Must be the same absolute dataDir used by the collab plugin.
+	CollabDataDir string `json:"collab_data_dir,omitempty"`
 }
 
 // cloudWebPreset is what differs between CWIP platforms; the rest of the options are the same.

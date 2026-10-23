@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,17 +11,34 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
-// useRepoHooks points AgentHookFS at the scripts in this checkout (the same paths package ccconnect embeds).
+// useRepoHooks uses the same embedded assets as the setup command, excluding the
+// checkout's source tree and any installed frontend dependencies.
 func useRepoHooks(t *testing.T) {
 	t.Helper()
 	if _, err := FindPython(); err != nil {
 		t.Skip(err)
 	}
 	old := AgentHookFS
-	AgentHookFS = os.DirFS("..")
+	AgentHookFS = ccconnect.AgentHookFiles
 	t.Cleanup(func() { AgentHookFS = old })
+}
+
+func TestRepoHookFixtureContainsOnlyHookAssets(t *testing.T) {
+	useRepoHooks(t)
+	for _, path := range []string{"contrib/hooks/run.py", "contrib/hooks/rules/_head.zh.md", "contrib/gate/ctxsvc.py", "contrib/gate/wiki_search.py"} {
+		if _, err := fs.Stat(AgentHookFS, path); err != nil {
+			t.Fatalf("fixture is missing embedded asset %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{"go.mod", "core", "web"} {
+		if _, err := fs.Stat(AgentHookFS, path); err == nil {
+			t.Fatalf("fixture must not include source or dependencies: %s", path)
+		}
+	}
 }
 
 func readSettingsT(t *testing.T, workDir string) map[string]any {
