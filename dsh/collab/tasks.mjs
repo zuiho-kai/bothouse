@@ -53,8 +53,8 @@ export class Tasks {
     this.tree = cols.has('parent_id') && cols.has('kind');
     this.q = {
       get: this.db.prepare('SELECT * FROM tasks WHERE id = ?'),
-      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?) RETURNING *`),
+      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason)
+        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?) RETURNING *`),
       // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
       set: this.db.prepare('UPDATE tasks SET status = ?, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
       handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
@@ -125,14 +125,17 @@ export class Tasks {
       id: t.id, room_id: t.room_id, parent_task: t.parent_task, title: t.title,
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
-      note: t.note, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
+      note: t.note, reason: t.reason, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
     };
   }
 
   nameOf(id) { return this.hub.members.get(id)?.name ?? id; }
 
-  /** Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`. */
-  assign({ roomId, title, owner, actor, parentTask, messageId }) {
+  /**
+   * Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`.
+   * `reason` is the dispatcher's own one-line why-this-member, shown in the record (team mode C).
+   */
+  assign({ roomId, title, owner, actor, parentTask, messageId, reason }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const text = String(title ?? '').trim();
@@ -142,8 +145,9 @@ export class Tasks {
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
     const now = this.now();
-    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now);
-    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）`);
+    const why = clip(reason);
+    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why);
+    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}`);
     if (messageId == null) this.q.bindAssign.run(record.id, task.id);
     return this.changed(task.id);
   }
@@ -214,7 +218,7 @@ export class Tasks {
     }
     const optional = v => (v == null || v === '' ? undefined : Number(v));
     switch (action) {
-      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id) });
+      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason });
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });

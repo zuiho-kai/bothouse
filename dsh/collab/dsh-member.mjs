@@ -204,6 +204,7 @@ export class DshMembers {
     // an explicit user mention still routes to the named DSH member.
     if (mode === 'solo' && msg.author_kind === 'role') return undefined;
     const hit = mentions(msg.text, this.hub.routable());
+    const only = this.hub.replyRoute(msg);
     const targets = [...this.config.keys()].filter(id => id !== msg.author && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name))));
     if (targets.length === 0) return undefined;
@@ -216,14 +217,6 @@ export class DshMembers {
     const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
     return () => {
       for (const job of jobs) this.enqueue(job, () => this.run(job.id));
-      if (mode === 'mixed' && msg.author_kind === 'user') {
-        const chosen = targets.map(id => this.config.get(id)?.name).filter(Boolean).join('、');
-        this.hub.post(msg.room_id, {
-          authorKind: 'system', author: 'system', name: 'system',
-          clientKey: `dispatch-note:${msg.id}`,
-          text: `📤 混合派活：交给 ${chosen}，原因：按当前成员能力与空闲状态选择。`,
-        });
-      }
     };
   }
 

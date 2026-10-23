@@ -70,31 +70,27 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
 test('dispatch mode: a workspace inherits its chat channel setting (PR #138 review 6)', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
-  s.db.exec('ALTER TABLE rooms ADD COLUMN parent_id INTEGER');
-  s.db.prepare('INSERT INTO rooms (id, name, parent_id) VALUES (?, ?, ?)').run(2, '工作区1', 1);
-  assert.equal(s.dispatchMode(2), 'mixed');
+  const ws = s.createWorkspace(1);
+  assert.equal(s.dispatchMode(ws.id), 'mixed');
   s.setDispatchMode(1, 'solo');
-  assert.equal(s.dispatchMode(2), 'solo');
-  s.setDispatchMode(2, 'team');
+  assert.equal(s.dispatchMode(ws.id), 'solo');
+  s.setDispatchMode(ws.id, 'team');
   assert.equal(s.dispatchMode(1), 'team', 'setting a workspace sets its chat channel');
 });
 
 test('team exit: forwards asks and returns answers to the recorded workspace', async () => {
   const hub = makeHub();
-  hub.store.db.exec('ALTER TABLE rooms ADD COLUMN parent_id INTEGER');
-  hub.store.db.exec('ALTER TABLE rooms ADD COLUMN kind TEXT');
-  hub.store.db.prepare('UPDATE rooms SET kind = ? WHERE id = 1').run('chat');
-  hub.store.db.prepare('INSERT INTO rooms (id, name, parent_id, kind) VALUES (?, ?, ?, ?)').run(1000000, '工作区1', 1, 'workspace');
+  const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   new TeamExit(hub);
-  hub.post(1000000, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案' });
   await tick();
   const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
   assert.ok(forwarded);
   assert.match(forwarded.text, /ask-[0-9a-f]{8}/);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: `${forwarded.text.match(/ask-[0-9a-f]{8}/)[0]} 答案是 42` });
   await tick();
-  const answer = hub.store.page(1000000, undefined, 10).find(m => m.author_kind === 'user');
+  const answer = hub.store.page(ws.id, undefined, 10).find(m => m.author_kind === 'user');
   assert.match(answer.text, /答案是 42/);
   assert.match(answer.text, /@ds/);
 });
@@ -1769,4 +1765,24 @@ test('cloud-web: team_workspace create on the real store (A #134) makes 工作�
   ju2.frame({ type: 'team_workspace', ref_id: 'w6', op: 'list', reply_ctx: 'room-9' });
   await tick();
   assert.equal(ju2.of('team_workspace_ack').at(-1).error, 'room-missing');
+});
+
+test('tasks: assign with reason shows reason in the record (team mode C)', () => {
+  const { hub, tasks } = makeTasks();
+  const t = tasks.assign({ roomId: 1, title: '写测试', owner: 'ds', actor: 'lead', reason: '按文字功底选定' });
+  assert.equal(t.reason, '按文字功底选定');
+  const record = hub.store.message(t.assign_msg_id);
+  assert.ok(record);
+  assert.match(record.text, /理由：按文字功底选定/);
+});
+
+test('dispatch mode mixed: @ a member does not post an automated reason note (PR #138 review 8)', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  assert.equal(hub.store.dispatchMode(1), 'mixed');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 帮忙写个小脚本' });
+  await settle();
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.text.includes('混合派活') || m.text.includes('原因：'));
+  assert.equal(notes.length, 0, 'no automated reason note is posted in mixed mode');
 });

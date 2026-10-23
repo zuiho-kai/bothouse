@@ -149,11 +149,12 @@ export class Store {
         created_at REAL NOT NULL,
         updated_at REAL NOT NULL,
         returned_at REAL,
-        remind_msg_id INTEGER)`);
+        remind_msg_id INTEGER,
+        reason TEXT)`);
     } else {
       const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
       for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER']]) {
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
       }
     }
