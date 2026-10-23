@@ -119,6 +119,13 @@ func (c *cardViews) lead(origin, channelID, messageID string) {
 	c.leaderOf[messageID] = messageID
 	c.chanOf[messageID] = channelID
 	if origin != "" {
+		// Only the newest turn of a channel is kept: an earlier one is dropped
+		// with its tables and task cards (no other bound, so memory does not
+		// grow with the number of turns). Its buttons then only update the
+		// channel's remembered choice (set).
+		if old, ok := c.current[origin]; ok && old != messageID {
+			c.dropTurn(old)
+		}
 		c.current[origin] = messageID
 		c.originOf[messageID] = origin
 		if _, chosen := c.modes[messageID]; !known && !chosen {
@@ -178,22 +185,27 @@ type cardMember struct {
 
 // set records the view chosen on a message (its whole turn) and returns the
 // message's renderer, if still known, and the turn's other messages.
-// channelID is the pressed message's channel, used as the origin when the
-// turn is unknown (pressed after a restart).
-func (c *cardViews) set(messageID, channelID string, mode cardView) (cardRender, bool, []cardMember) {
+// fallbackOrigin is the origin channel used when the turn is unknown (pressed
+// after a restart, or on a dropped earlier turn); then only the channel's
+// remembered choice changes.
+func (c *cardViews) set(messageID, fallbackOrigin string, mode cardView) (cardRender, bool, []cardMember) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.init()
 	key := messageID
-	if l, ok := c.leaderOf[messageID]; ok {
+	l, turnKnown := c.leaderOf[messageID]
+	if turnKnown {
 		key = l
+		c.modes[key] = mode
 	}
-	c.modes[key] = mode
 	origin := c.originOf[key]
 	if origin == "" {
-		origin = channelID
+		origin = fallbackOrigin
 	}
 	c.prefs.set(origin, mode)
+	if !turnKnown {
+		return cardRender{}, false, nil
+	}
 	r, ok := c.renders[messageID]
 	var others []cardMember
 	if key != messageID {
@@ -210,6 +222,29 @@ func (c *cardViews) set(messageID, channelID string, mode cardView) (cardRender,
 		}
 	}
 	return r, ok, others
+}
+
+// dropTurn removes a turn: its progress card and every table and task card
+// filed under it. Caller holds mu.
+func (c *cardViews) dropTurn(leader string) {
+	for _, r := range c.members[leader] {
+		if c.leaderOf[r.messageID] == leader {
+			delete(c.leaderOf, r.messageID)
+			delete(c.renders, r.messageID)
+			delete(c.modes, r.messageID)
+		}
+	}
+	delete(c.members, leader)
+	delete(c.modes, leader)
+	delete(c.renders, leader)
+	delete(c.leaderOf, leader)
+	delete(c.chanOf, leader)
+	delete(c.originOf, leader)
+	for origin, l := range c.current {
+		if l == leader {
+			delete(c.current, origin)
+		}
+	}
 }
 
 func (c *cardViews) forget(messageID string) {
@@ -288,7 +323,7 @@ func (p *Platform) handleCardViewInteraction(s *discordgo.Session, i *discordgo.
 	if i.Message == nil {
 		return
 	}
-	render, known, others := p.cardViews.set(i.Message.ID, i.Message.ChannelID, mode)
+	render, known, others := p.cardViews.set(i.Message.ID, p.originChannelFor(i.Message.ChannelID), mode)
 	lang := render.lang
 	if !known && messageHasChineseCardButtons(i.Message) {
 		lang = "zh"

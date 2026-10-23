@@ -362,3 +362,103 @@ func TestCardViewUnknownMessageSwitchesButtonsOnly(t *testing.T) {
 		t.Fatalf("next edit ignored chosen view: %s", rest.edits[0])
 	}
 }
+
+// Only a channel's newest turn is kept: a new progress card drops the earlier
+// turn with its table and task card; a press on the dropped card only changes
+// the channel's remembered choice (no member edits, the new turn untouched).
+func TestCardViewNewTurnDropsEarlierTurn(t *testing.T) {
+	p, rest := newCardViewPlatform(t)
+	rest.anyMentions = true
+	ctx := context.Background()
+	rc := replyContext{channelID: "room"}
+	firstAny, err := p.SendPreviewStart(ctx, rc, cardViewProgress(core.ProgressCardStateRunning))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tableAny, err := p.SendPreviewStart(ctx, rc, cardViewSubTasks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0)
+	task := &core.Task{ID: "t3", Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
+		Members: []core.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
+	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
+		t.Fatal(err)
+	}
+	first := firstAny.(*discordPreviewHandle).messageID
+	table := tableAny.(*discordPreviewHandle).messageID
+	secondAny, err := p.SendPreviewStart(ctx, rc, cardViewProgress(core.ProgressCardStateRunning))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := secondAny.(*discordPreviewHandle).messageID
+
+	c := &p.cardViews
+	for _, id := range []string{first, table, task.MessageID} {
+		if _, ok := c.renders[id]; ok {
+			t.Fatalf("renders kept %s of the earlier turn", id)
+		}
+		if _, ok := c.leaderOf[id]; ok {
+			t.Fatalf("leaderOf kept %s of the earlier turn", id)
+		}
+		if _, ok := c.modes[id]; ok {
+			t.Fatalf("modes kept %s of the earlier turn", id)
+		}
+	}
+	if _, ok := c.members[first]; ok {
+		t.Fatal("members kept the earlier turn")
+	}
+	if _, ok := c.chanOf[first]; ok {
+		t.Fatal("chanOf kept the earlier turn")
+	}
+	if _, ok := c.originOf[first]; ok {
+		t.Fatal("originOf kept the earlier turn")
+	}
+	if len(c.renders) != 1 || len(c.modes) != 1 || c.current["room"] != second {
+		t.Fatalf("state after second turn: renders=%d modes=%d current=%q", len(c.renders), len(c.modes), c.current["room"])
+	}
+
+	rest.edits = nil
+	pressCardView(p, first, "detail", &discordgo.MessageEmbed{Description: "OLD_CARD"})
+	if len(rest.callbacks) != 1 || !strings.Contains(rest.callbacks[0], "OLD_CARD") {
+		t.Fatalf("press on dropped card not answered with its own embeds: %v", rest.callbacks)
+	}
+	if len(rest.edits) != 0 {
+		t.Fatalf("press on dropped card edited messages: %v", rest.edits)
+	}
+	if got := c.prefs.get("room"); got != cardViewDetail {
+		t.Fatalf("remembered choice = %v", got)
+	}
+	if got := c.modes[second]; got != cardViewBrief {
+		t.Fatalf("newest turn changed by a press on the old card: %v", got)
+	}
+	if _, ok := c.modes[first]; ok {
+		t.Fatal("press on dropped card re-added its state")
+	}
+}
+
+// After a restart a press on a card in the log channel records the choice for
+// the main channel, which the next turn reads.
+func TestCardViewUnknownPressInLogChannelUsesMainChannel(t *testing.T) {
+	p, rest := newCardViewPlatform(t)
+	rest.anyMentions = true
+	p.auxChannels = map[string]string{"room": "roomlog"}
+	i := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		ID: "i-log", Token: "tok", AppID: "app", Type: discordgo.InteractionMessageComponent,
+		Message: &discordgo.Message{ID: "OLD", ChannelID: "roomlog", Embeds: []*discordgo.MessageEmbed{{Description: "OLD_CARD"}}},
+		Data:    discordgo.MessageComponentInteractionData{CustomID: cardViewCustomIDPrefix + "detail", ComponentType: discordgo.ButtonComponent},
+	}}
+	p.handleComponentInteraction(p.session, i, "u", "user")
+	if got := p.cardViews.prefs.get("room"); got != cardViewDetail {
+		t.Fatalf("main channel choice = %v", got)
+	}
+	if got := p.cardViews.prefs.get("roomlog"); got != cardViewBrief {
+		t.Fatalf("choice recorded on the log channel: %v", got)
+	}
+	if _, err := p.SendPreviewStart(context.Background(), replyContext{channelID: "room"}, cardViewProgress(core.ProgressCardStateRunning)); err != nil {
+		t.Fatal(err)
+	}
+	if c := rest.components[len(rest.components)-1]; !strings.Contains(c, "cardview:brief") {
+		t.Fatalf("next turn not in 细节: %s", c)
+	}
+}

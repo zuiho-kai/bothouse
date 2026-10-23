@@ -63,6 +63,20 @@ func (p *Platform) auxChannelFor(channelID string) (string, bool) {
 	return aux, ok && aux != ""
 }
 
+// originChannelFor maps a log channel back to its main channel; any other
+// channel is its own origin.
+func (p *Platform) originChannelFor(channelID string) string {
+	if p == nil {
+		return channelID
+	}
+	for main, aux := range p.auxChannels {
+		if aux == channelID && main != "" {
+			return main
+		}
+	}
+	return channelID
+}
+
 // isDiscordLogPayload reports whether a preview message is the progress card
 // or the sub-agent table (as opposed to a streamed text preview of the reply).
 func isDiscordLogPayload(content string) bool {
