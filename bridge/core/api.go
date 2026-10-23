@@ -784,6 +784,12 @@ func (s *APIServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Mode == "voice" {
+		// Voice relays carry their own request_id for idempotent retries; only a task
+		// scope is incompatible with voice mode.
+		if req.TaskID != "" {
+			inputHTTPError(w, http.StatusBadRequest, fmt.Errorf("task scope cannot be combined with voice mode"))
+			return
+		}
 		result, code, err := s.relay.submitVoice(req)
 		if err != nil {
 			// Admission 503s occur before the worker is launched. Transport errors

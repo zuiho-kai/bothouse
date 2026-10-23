@@ -61,15 +61,16 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	Task     *Task            `json:"task"`
-	Platform string           `json:"platform"`
-	Lang     Language         `json:"lang"`
-	Closed   bool             `json:"closed"`
-	Accepted bool             `json:"accepted,omitempty"`
-	Reports  map[int64]string `json:"reports"`
-	LastSeq  int64            `json:"last_seq"`
-	CardSeq  int64            `json:"card_seq"`
-	FactSeq  int64            `json:"fact_seq"`
+	Relays   map[string]taskRelayRecord `json:"relays,omitempty"`
+	Task     *Task                      `json:"task"`
+	Platform string                     `json:"platform"`
+	Lang     Language                   `json:"lang"`
+	Closed   bool                       `json:"closed"`
+	Accepted bool                       `json:"accepted,omitempty"`
+	Reports  map[int64]string           `json:"reports"`
+	LastSeq  int64                      `json:"last_seq"`
+	CardSeq  int64                      `json:"card_seq"`
+	FactSeq  int64                      `json:"fact_seq"`
 }
 
 type publicRun struct {
@@ -96,6 +97,7 @@ type PublicProgress struct {
 	dataDir      string
 	project      string
 	runs         map[string]*publicRun
+	relayRuns    map[string]*taskRelay
 	memberRuns   map[string]*taskMemberRun
 	// Batch keys belong to the authorizing turn, never the session's open slot.
 	delegations map[string]map[string]*publicRun
@@ -243,6 +245,7 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	p.mu.Lock()
 	r := p.runs[req.Run]
 	lead := r
+	child := p.relayRuns[req.Run]
 	member := p.memberRuns[req.Run]
 	var adopt *publicRun
 	if r != nil && req.TaskID != "" && r.record.Task.ID != req.TaskID {
@@ -262,6 +265,9 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	p.mu.Unlock()
 	if member != nil {
 		return p.reportMember(member, req)
+	}
+	if child != nil {
+		return p.reportTaskRelay(child, req)
 	}
 	if (req.Kind == "failed" || req.Kind == "cancelled") && req.TaskID == "" {
 		return "", errors.New("kind is only available for member reports")

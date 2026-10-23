@@ -666,6 +666,10 @@ const (
 	MsgPublicEnded       MsgKey = "MsgPublicEnded"
 	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
 	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
+	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
+	MsgTaskRelayProgress MsgKey = "MsgTaskRelayProgress"
+	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
+	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
 )
 
 const (
@@ -675,6 +679,19 @@ const (
 )
 
 var messages = map[MsgKey]map[Language]string{
+	MsgTaskRelayAssigned: {
+		LangEnglish: "Assigned to %s", LangChinese: "已派给 %s", LangTraditionalChinese: "已派給 %s", LangJapanese: "%s に依頼しました", LangSpanish: "Asignado a %s",
+	},
+	MsgTaskRelayProgress: {
+		LangEnglish: "Progress from %s — see task thread", LangChinese: "%s 更新了进度，详见任务线程", LangTraditionalChinese: "%s 更新了進度，詳見任務討論串", LangJapanese: "%s の進捗：タスクスレッドを参照", LangSpanish: "Avance de %s: consulte el hilo",
+	},
+	MsgTaskRelayResult: {
+		LangEnglish: "Response from %s — see task thread", LangChinese: "已收到 %s 的回复，详见任务线程", LangTraditionalChinese: "已收到 %s 的回覆，詳見任務討論串", LangJapanese: "%s の回答：タスクスレッドを参照", LangSpanish: "Respuesta de %s: consulte el hilo",
+	},
+	MsgTaskRelayFailed: {
+		LangEnglish: "Relay to %s failed or incomplete — inspect task thread before retrying", LangChinese: "派给 %s 的任务失败或结果未确认，重试前请检查任务线程", LangTraditionalChinese: "派給 %s 的任務失敗或結果未確認，重試前請檢查任務討論串", LangJapanese: "%s への依頼が失敗または未完了：再試行前にスレッドを確認", LangSpanish: "Envío a %s fallido o incompleto: revise el hilo antes de reintentar",
+	},
+
 	MsgBoardTasksRunning: {
 		LangEnglish: "In progress", LangChinese: "进行中", LangTraditionalChinese: "進行中", LangJapanese: "進行中", LangSpanish: "En curso",
 	},
