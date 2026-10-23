@@ -187,13 +187,16 @@ func ourHook(cmd string) string {
 // reads it through its bridge), .gemini/settings.json for Gemini CLI (user-level is ~/.gemini/settings.json;
 // the role's work dir is the project, so the project-level file is the one we write — never the user's home).
 func AgentHookSettingsPath(cli, workDir string) string {
-	if cli == "antigravity" {
+	switch cli {
+	case "antigravity":
 		return AgyHookFile(workDir)
-	}
-	if cli == "gemini" {
+	case "gemini":
 		return filepath.Join(workDir, ".gemini", "settings.json")
+	case "cursor":
+		return CursorHookSettingsPath(workDir)
+	default:
+		return filepath.Join(workDir, ".claude", "settings.json")
 	}
-	return filepath.Join(workDir, ".claude", "settings.json")
 }
 
 func readSettings(p string) (map[string]any, error) {
@@ -289,6 +292,9 @@ func AgentHooksEnabled(cli, workDir string) ([]string, error) {
 	if cli == "antigravity" {
 		return agyHooksEnabled(workDir)
 	}
+	if cli == "cursor" {
+		return readCursorHooksEnabled(workDir)
+	}
 	m, err := readSettings(AgentHookSettingsPath(cli, workDir))
 	if err != nil {
 		return nil, err
@@ -322,7 +328,7 @@ func AgentHooksEnabled(cli, workDir string) ([]string, error) {
 // (agent type "dsh") through its hook bridge, Gemini CLI through the same run.py translator as DSH.
 func wizardHooksFor(agentType string) bool {
 	return (agentType == "claudecode" || agentType == "dsh" || agentType == "gemini" ||
-		agentType == "antigravity") && AgentHookFS != nil
+		agentType == "antigravity" || agentType == "cursor") && AgentHookFS != nil
 }
 
 // AgentHookSwitchFile is the role's on/off switch: {"off": [hook names] or ["all"]}. run.py reads it on every
@@ -355,7 +361,7 @@ func AgentHooksSwitchedOff(workDir string) []string {
 // AgentHookCLIs are the CLIs the hooks run under: Claude Code natively, DSH and Gemini CLI through run.py
 // (each turns its own payload into Claude Code's shape), Antigravity (agy) through its own workspace hook file
 // <work_dir>/.agents/hooks.json, with run.py --agy converting payloads.
-var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity"}
+var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "cursor"}
 
 // geminiMatchers: the matcher each hook gets in Gemini CLI, whose built-in tool names differ from both Claude
 // Code's and DSH's (https://geminicli.com/docs/hooks/reference "Matchers and tool names": run_shell_command,
@@ -455,6 +461,8 @@ func (o AgentHookOptions) personaPath() (string, error) {
 		return PersonaFilePath("gemini", o.WorkDir), nil // Gemini CLI reads GEMINI.md
 	case "antigravity":
 		return PersonaFilePath("antigravity", o.WorkDir), nil
+	case "cursor":
+		return filepath.Join(o.WorkDir, "AGENTS.md"), nil
 	}
 	return "", fmt.Errorf("hooks run under %s only, not %q", strings.Join(AgentHookCLIs, ", "), o.CLI)
 }
@@ -482,6 +490,9 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	}
 	if o.CLI == "antigravity" {
 		return enableAgyHooks(o, names, persona, python, dir)
+	}
+	if o.CLI == "cursor" {
+		return enableCursorHooks(o, names, persona, python, dir)
 	}
 	sp := AgentHookSettingsPath(o.CLI, o.WorkDir)
 	m, err := readSettings(sp)
@@ -552,6 +563,9 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	}
 	if o.CLI == "antigravity" {
 		return disableAgyHooks(o, names, persona)
+	}
+	if o.CLI == "cursor" {
+		return disableCursorHooks(o, names, persona)
 	}
 	sp := AgentHookSettingsPath(o.CLI, o.WorkDir)
 	m, err := readSettings(sp)

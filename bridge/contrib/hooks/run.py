@@ -112,7 +112,7 @@ GEMINI_TO_CLAUDE_EVENT = {"BeforeTool": "PreToolUse", "AfterTool": "PostToolUse"
                           "AfterAgent": "Stop"}
 STATE = os.path.join(HERE, "state", "dsh-stop.json")
 DSH_ROLES = os.path.join(HERE, "dsh-roles.json")  # {role work_dir: {"hooks": [...], "dsh_home": ...}}
-OPTS = {"role": None, "dsh_home": None, "dsh_global": False, "agy": None}  # {session_id: turn already blocked once}
+OPTS = {"role": None, "dsh_home": None, "dsh_global": False, "agy": None, "cursor": False}  # {session_id: turn already blocked once}
 # 来源：实测，验收时日志在钩子开始后约 0.15 秒内写到；留足余量又不拖住回复（Stop 超时设的是 30 秒）
 STOP_WAIT = 3.0
 MODEL_HEAD, MODEL_END = "[bothouse model-control instructions]", "[/bothouse model-control instructions]"
@@ -346,7 +346,8 @@ def role_dir(start=None):
     while True:
         # .gemini/settings.json: a Gemini CLI role (hooks written there; its switch file stays .claude/conest-hooks.json)
         if (os.path.isfile(os.path.join(probe, ".claude", "settings.json"))
-                or os.path.isfile(os.path.join(probe, ".gemini", "settings.json"))):
+                or os.path.isfile(os.path.join(probe, ".gemini", "settings.json"))
+                or os.path.isfile(os.path.join(probe, ".cursor", "hooks.json"))):
             return probe
         up = os.path.dirname(probe)
         if up == probe:
@@ -397,6 +398,8 @@ def parse_args(argv):
             continue
         if a == "--dsh-global":
             OPTS["dsh_global"] = True
+        elif a == "--cursor":
+            OPTS["cursor"] = True
         elif a != "--conest-hook":
             rest.append(a)
         i += 1
@@ -467,7 +470,16 @@ def main():
         pass_exit()  # switched off for this role (run.py off): pass without running the hook
     if OPTS["agy"]:
         return run_agy(target, payload, OPTS["agy"])
-    gemini = payload.get("hook_event_name") in GEMINI_EVENTS
+    cursor = OPTS["cursor"] or payload.get("hook_event_name") == "beforeShellExecution"
+    if cursor:
+        OPTS["cursor"] = True
+        payload["session_id"] = payload.get("conversation_id") or payload.get("session_id") or ""
+        payload["cwd"] = payload.get("cwd") or os.getcwd()
+        payload["hook_event_name"] = "PreToolUse"
+        payload["tool_name"] = "Bash"
+        payload["tool_input"] = {"command": payload.get("command") or payload.get("tool_input", {}).get("command") or ""}
+        payload["transcript_path"] = payload.get("transcript_path") or "none"
+    gemini = not cursor and payload.get("hook_event_name") in GEMINI_EVENTS
     tmp, turn, sid = None, None, payload.get("session_id") or ""
     if gemini:
         payload = gemini_payload(payload)
@@ -475,12 +487,12 @@ def main():
             tmp = gemini_transcript(payload, payload["cwd"])
             payload["transcript_path"] = tmp
     tool = payload.get("tool_name")
-    dsh = not gemini and isinstance(tool, str) and (tool in NAMES or tool in ("str_replace_editor", "job_output"))
+    dsh = not cursor and not gemini and isinstance(tool, str) and (tool in NAMES or tool in ("str_replace_editor", "job_output"))
     if dsh:
         payload["tool_name"], payload["tool_input"] = tool_input(tool, payload.get("tool_input"))
     stop = payload.get("hook_event_name") == "Stop"
     # Claude Code always gives a transcript; an empty one is the DSH bridge (dsh-hooks-claude-code base())
-    bridge = not gemini and (dsh or OPTS["dsh_global"] or not payload.get("transcript_path"))
+    bridge = not cursor and not gemini and (dsh or OPTS["dsh_global"] or not payload.get("transcript_path"))
     path = session_file(payload.get("session_id") or "") if bridge else None
     # only the first record (session header) is needed here; the whole log is read for Stop alone
     first = records(read_lines(path, head=True)) if path else []
@@ -533,6 +545,19 @@ def main():
             st = load_state()
             st[sid] = turn
             write_json(STATE, st)
+    if cursor:
+        try:
+            d = json.loads(proc.stdout or "{}")
+        except ValueError:
+            d = {}
+        hso = d.get("hookSpecificOutput") or {}
+        if hso.get("permissionDecision") == "deny" or d.get("decision") == "block" or proc.returncode == 2:
+            reason = hso.get("permissionDecisionReason") or d.get("reason") or (proc.stderr or "").strip() or "blocked by bothouse hook"
+            sys.stdout.write(json.dumps({"permission": "deny", "agent_message": reason}, ensure_ascii=False) + "\n")
+            sys.stderr.write(reason + "\n")
+            sys.exit(2)
+        sys.stdout.write(json.dumps({"permission": "allow"}, ensure_ascii=False) + "\n")
+        sys.exit(0)
     if gemini:
         sys.stdout.write(gemini_output(proc.stdout, payload.get("hook_event_name")))
     else:
