@@ -21,6 +21,8 @@ _SETUP = Path(_SETUP_ENV or Path.home() / ".cc-connect").expanduser()
 _PRODUCT_ENV = os.environ.get("BOTHOUSE_DATA_DIR")
 if _PRODUCT_ENV:
     _PRODUCT_DATA = Path(_PRODUCT_ENV).expanduser()
+elif _SETUP_ENV:
+    _PRODUCT_DATA = _SETUP
 else:
     _preferred = Path.home() / ".bothouse"
     _legacy = Path.home() / ".cc-connect"
@@ -120,13 +122,42 @@ _lock = threading.Lock()
 
 def state():
     """→ {"lead": key, "at": 切换时间 或 ""}；没切过 / 文件坏了 = 橘（现状）。"""
-    for path in (LEAD_FILE, *_LEGACY_LEAD_FILES):
+    def canonical(value):
+        value = str(value or "").strip()
+        if value in KEYS:
+            return value
+        for key, aliases in ALIASES.items():
+            if value == NAME.get(key) or value in aliases:
+                return key
+        return None
+
+    def read(path):
         try:
-            s = json.loads(path.read_text())
-            if s.get("lead") in KEYS:
-                return {"lead": s["lead"], "at": s.get("at", "")}
+            raw = json.loads(path.read_text())
         except (OSError, ValueError):
-            pass
+            return None
+        key = canonical(raw.get("lead"))
+        return None if key is None else {"lead": key, "at": raw.get("at", "")}
+
+    # Once the product file exists it is the sole source of truth. This also
+    # prevents a stale legacy choice from overriding an explicit fallback.
+    if LEAD_FILE.exists():
+        return read(LEAD_FILE) or {"lead": "", "at": ""}
+
+    # Migrate the first valid legacy selection once, so bridge and DSH read it.
+    for path in _LEGACY_LEAD_FILES:
+        if path == LEAD_FILE:
+            continue
+        selected = read(path)
+        if selected is None:
+            continue
+        LEAD_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"lead": selected["lead"], "name": NAME.get(selected["lead"], ""),
+                   "at": selected["at"]}
+        tmp = LEAD_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False))
+        tmp.replace(LEAD_FILE)
+        return selected
     return {"lead": "", "at": ""}
 
 

@@ -147,6 +147,36 @@ class Addressee(Base):
         routed = self.all_route("没有点名的消息")
         self.assertEqual(self.replied(routed), [""], routed)
 
+    def test_legacy_lead_file_migrates_once_and_new_file_wins(self):
+        self.history([])
+        state = gate._test_data_dir / "lead.json"
+        legacy = gate._test_data_dir / "gate-lead.json"
+        legacy.write_text(json.dumps({"lead": "maomao"}), encoding="utf-8")
+        self.assertEqual(gate.lead.current(), "")
+        self.assertEqual(json.loads(state.read_text(encoding="utf-8"))["lead"], "")
+        state.write_text(json.dumps({"lead": "longniang"}), encoding="utf-8")
+        self.assertEqual(gate.lead.current(), "longniang")
+        state.write_text(json.dumps({"lead": "maomao"}), encoding="utf-8")
+        self.assertEqual(gate.lead.current(), "")
+
+    def test_gate_setup_dir_is_shared_product_data_dir_without_bridge_env(self):
+        src = HERE / "lead.py"
+        old_setup, old_product = os.environ.get("GATE_SETUP_DIR"), os.environ.pop("BOTHOUSE_DATA_DIR", None)
+        try:
+            os.environ["GATE_SETUP_DIR"] = str(gate._test_data_dir)
+            loader = importlib.machinery.SourceFileLoader("lead_setup_path_test", str(src))
+            mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("lead_setup_path_test", loader))
+            loader.exec_module(mod)
+            mod.configure(TEAM)
+            self.assertEqual(mod.LEAD_FILE, gate._test_data_dir / "lead.json")
+        finally:
+            if old_setup is None:
+                os.environ.pop("GATE_SETUP_DIR", None)
+            else:
+                os.environ["GATE_SETUP_DIR"] = old_setup
+            if old_product is not None:
+                os.environ["BOTHOUSE_DATA_DIR"] = old_product
+
     def test_follow_lead_report(self):  # 接着橘的汇报不 @ 说一句 → 只有橘回
         self.history([(30, "", [], self.REPORT), (400, None, [], "宣传片再改一版")])
         self.assertEqual(self.replied(self.all_route("修复推到代码仓，子agent做")), [""])

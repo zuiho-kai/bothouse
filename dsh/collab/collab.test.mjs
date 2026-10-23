@@ -216,6 +216,11 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(toWhale.user_mention_id, '111');
   assert.equal(ju.of('message').length, 1, 'author never receives its own reply');
 
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '橘，你看看这个' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).mentioned, true, 'a bare name at line start calls the role');
+  assert.equal(whale.of('message').at(-1).mentioned, false);
+
   const before = whale.of('message').length;
   ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '✅ 已完成' });
   await tick(); await tick();

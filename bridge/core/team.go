@@ -78,6 +78,9 @@ func (e *Engine) readLeadSelection() (string, bool) {
 // this decision when present, so this is deliberately only called by the
 // local no-gate path.
 func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
+	if e.team == nil {
+		return false
+	}
 	if msg.FromBot || msg.Mentioned || msg.Direct {
 		return false
 	}
@@ -390,6 +393,8 @@ func (e *Engine) isTeamLead() bool {
 		if selected, ok := e.readLeadSelection(); ok {
 			return selected == e.name
 		}
+		// No explicit selection means the configured wizard lead remains active.
+		return t.inject
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()

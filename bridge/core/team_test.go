@@ -122,6 +122,11 @@ func TestNoGateSuppressesUnaddressedSubAfterLeadSelection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":"lead"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	e.name, e.team.name = "lead", "lead"
+	if e.suppressUnaddressedGroup(&p, msg) {
+		t.Fatal("the selected lead must receive an unmentioned message")
+	}
+	e.name, e.team.name = "sub", "sub"
 	if !e.suppressUnaddressedGroup(&p, msg) {
 		t.Fatal("selected non-lead should be suppressed without a gate")
 	}
@@ -130,6 +135,57 @@ func TestNoGateSuppressesUnaddressedSubAfterLeadSelection(t *testing.T) {
 	}
 	if !e.suppressUnaddressedGroup(&p, msg) {
 		t.Fatal("configured team sub should be suppressed without a gate")
+	}
+}
+
+func TestNoGateRoutingHonorsExplicitNameAndSoloProject(t *testing.T) {
+	dir := t.TempDir()
+	e := newTestEngine()
+	e.name = "sub"
+	e.dataDir = dir
+	e.team = &teamState{dir: t.TempDir(), name: "sub", inject: false, seen: map[string]*teamSession{}}
+	p := configuredTeamLeadTestPlatform{stubPlatformEngine{n: "cloud_web"}}
+	msg := &Message{Content: "群里消息", ChannelID: "room", SessionKey: "cloud_web:room"}
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":"lead"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !e.suppressUnaddressedGroup(&p, msg) {
+		t.Fatal("non-selected sub should be suppressed")
+	}
+	msg.Mentioned = true
+	if e.suppressUnaddressedGroup(&p, msg) {
+		t.Fatal("an explicitly addressed member must not be suppressed")
+	}
+	e.team = nil
+	msg.Mentioned = false
+	if e.suppressUnaddressedGroup(&p, msg) {
+		t.Fatal("a single-project engine must not be suppressed by shared lead state")
+	}
+}
+
+func TestDynamicTeamLeadRefreshesWorkspaceOwnership(t *testing.T) {
+	dir := t.TempDir()
+	newEngine := func(name string, configured bool) *Engine {
+		e := newTestEngine()
+		e.name, e.dataDir = name, dir
+		e.team = &teamState{dir: t.TempDir(), name: name, inject: configured, seen: map[string]*teamSession{}}
+		e.SetTeamWorkspaces(true)
+		return e
+	}
+	old := newEngine("old", true)
+	newLead := newEngine("new", false)
+	defer old.cancel()
+	defer newLead.cancel()
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":"new"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old.handleMessage(old.platforms[0], &Message{SessionKey: "test:room", Platform: "test"})
+	newLead.handleMessage(newLead.platforms[0], &Message{SessionKey: "test:room", Platform: "test"})
+	if old.teamWS != nil {
+		t.Fatal("old lead must release team workspaces after selection changes")
+	}
+	if newLead.teamWS == nil {
+		t.Fatal("new lead must enable team workspaces after selection changes")
 	}
 }
 

@@ -201,7 +201,7 @@ export class CloudWebGateway {
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
       if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
-      const hit = target === member.id || only !== null || mentioned.has(member.id) || (fromAgent && nameCalled(text, member.name));
+      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name);
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${quote}${content}`;
       else if (hit && !content) content = quote + BARE_MENTION;

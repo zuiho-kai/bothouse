@@ -11,7 +11,7 @@ const ready: ChannelSnapshot = {
   phase: 'ready', error: undefined,
   rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], roomId: 1,
   members: [{ id: 'ju', name: '橘', kind: 'bot', online: true }], thinking: { 1: ['ju'] },
-  leadId: 'ju',
+  leadId: 'ju', effectiveLeadId: 'ju',
   messages: [{ id: 1, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '<script>alert(1)</script>', created_at: 1, card: null, from_turn: null }],
 }
 
@@ -42,6 +42,15 @@ describe('channels page', () => {
     fireEvent.click(trigger)
     await act(async () => { fireEvent.click(screen.getByRole('option', { name: '鲸鱼娘' })) })
     expect(setLead).toHaveBeenCalledExactlyOnceWith('ds')
+  })
+
+  it('allows making the configured effective role explicit', async () => {
+    const setLead = vi.fn(async () => {})
+    const state: ChannelSnapshot = { ...ready, leadId: null, effectiveLeadId: 'ju' }
+    render(<ChannelsPage {...props(state)} setLead={setLead} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.lead }))
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '橘' })) })
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ju')
   })
 
   it('renders a room with a message and a configure-model card without throwing', () => {

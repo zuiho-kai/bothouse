@@ -585,7 +585,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             disabled={leadSaving || state.members.every(m => m.kind === 'human')}
             onClick={() => { setLeadOpen(!leadOpen) }}
           >
-            {state.members.find(m => m.id === state.leadId)?.name ?? t('leadNone')}
+            {state.members.find(m => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t('leadNone')}
           </button>
           {leadOpen && <div className={css.leadMenu} role="listbox" aria-label={t('lead')}>
             {state.members.filter(m => m.kind !== 'human').map(m => (

@@ -160,14 +160,15 @@ export async function apply(ctx, rawConfig) {
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
-      return json(res, 200, { me: OWNER, lead_id: hub.primaryMember()?.id ?? null,
+      return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,
+        effective_lead_id: hub.primaryMember()?.id ?? null,
         rooms: store.roomsView().map(r => ({ ...r, dispatch_mode: store.dispatchMode(r.id) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {
-      const member = hub.primaryMember();
-      return json(res, 200, { lead_id: member?.id ?? null });
+      return json(res, 200, { lead_id: hub.selectedPrimaryMember()?.id ?? null,
+        effective_lead_id: hub.primaryMember()?.id ?? null });
     }
     if (path === '/collab/api/lead' && req.method === 'PATCH') {
       return withBody(req, res, body => {
@@ -175,8 +176,8 @@ export async function apply(ctx, rawConfig) {
         const member = hub.members.get(id);
         if (member === undefined || member.kind === 'human') throw new CollabError('member-missing', `member ${id} is not a routable role`);
         leadState.set(id, member.name);
-        hub.emit({ type: 'lead', lead_id: id });
-        return { lead_id: id };
+        hub.emit({ type: 'lead', lead_id: id, effective_lead_id: hub.primaryMember()?.id ?? null });
+        return { lead_id: id, effective_lead_id: hub.primaryMember()?.id ?? null };
       });
     }
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
