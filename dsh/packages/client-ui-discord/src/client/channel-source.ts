@@ -83,10 +83,46 @@ export interface ModelRoute {
   readonly error?: string
 }
 
-/** One configured room. */
+/** One room: a chat channel, or a workspace under one chat channel (#139). */
 export interface ChannelRoom {
   readonly id: number
   readonly name: string
+  /** Absent from older services: treated as a chat channel. */
+  readonly kind?: 'chat' | 'workspace'
+  /** The chat channel a workspace belongs to; null for chat channels. */
+  readonly parent_id?: number | null
+  /** Tasks in progress in this room. */
+  readonly active?: number
+}
+
+/** One row of the channel list: a chat channel at depth 0, its workspaces at depth 1. */
+export interface RoomRow {
+  readonly room: ChannelRoom
+  readonly depth: 0 | 1
+}
+
+/**
+ * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
+ * chat channel is missing is shown at the top level so it stays reachable.
+ */
+export function groupRooms(rooms: readonly ChannelRoom[]): RoomRow[] {
+  const chats = new Set(rooms.filter(r => r.kind !== 'workspace').map(r => r.id))
+  const under = new Map<number, ChannelRoom[]>()
+  for (const r of rooms) {
+    if (r.kind === 'workspace' && r.parent_id != null && chats.has(r.parent_id)) {
+      under.set(r.parent_id, [...(under.get(r.parent_id) ?? []), r])
+    }
+  }
+  const rows: RoomRow[] = []
+  for (const r of rooms) {
+    if (r.kind !== 'workspace') {
+      rows.push({ room: r, depth: 0 })
+      for (const w of under.get(r.id) ?? []) rows.push({ room: w, depth: 1 })
+    } else if (r.parent_id == null || !chats.has(r.parent_id)) {
+      rows.push({ room: r, depth: 0 })
+    }
+  }
+  return rows
 }
 
 /** Task statuses (dsh/collab/tasks.mjs STATUS). */
@@ -435,8 +471,9 @@ export function createChannelSource(transport: ChannelTransport): {
       if (lifetime === owner) onEvent({ type: 'message', message })
     },
     async createRoom(name) {
-      const { room } = await request<{ room: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
-      if (!snapshot.rooms.some(r => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] })
+      const { room, workspace } = await request<{ room: ChannelRoom; workspace?: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
+      const added = [room, workspace].filter((r): r is ChannelRoom => r !== undefined && !snapshot.rooms.some(s => s.id === r.id))
+      if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] })
       await selectRoom(room.id)
     },
     async listModels() {

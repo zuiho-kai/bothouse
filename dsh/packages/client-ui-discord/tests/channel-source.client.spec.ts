@@ -1,6 +1,6 @@
 import { setImmediate } from 'node:timers/promises'
 import { describe, expect, it, vi } from 'vitest'
-import { createChannelSource, type ChannelTransport, type EventStreamLike } from '../src/client/channel-source.ts'
+import { createChannelSource, groupRooms, type ChannelRoom, type ChannelTransport, type EventStreamLike } from '../src/client/channel-source.ts'
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -248,6 +248,39 @@ describe('channel source', () => {
     expect(source.getSnapshot().messages).toEqual([decided])
     await expect(actions.decidePermission(7, 'deny')).rejects.toThrow('permission already decided')
     expect(source.getSnapshot().messages).toEqual([decided])
+    unsubscribe()
+  })
+
+  it('groups each chat channel with its workspaces; orphans and old services stay top level (#139)', () => {
+    const rooms: ChannelRoom[] = [
+      { id: 1, name: 'general', kind: 'chat', parent_id: null },
+      { id: 2, name: 'dev', kind: 'chat', parent_id: null },
+      { id: 3, name: '工作区1', kind: 'workspace', parent_id: 1 },
+      { id: 4, name: '工作区1', kind: 'workspace', parent_id: 2 },
+      { id: 5, name: '工作区2', kind: 'workspace', parent_id: 1 },
+      { id: 6, name: '工作区1', kind: 'workspace', parent_id: 99 },
+      { id: 7, name: 'legacy' },
+    ]
+    expect(groupRooms(rooms).map(r => [r.room.id, r.depth])).toEqual([[1, 0], [3, 1], [5, 1], [2, 0], [4, 1], [6, 0], [7, 0]])
+  })
+
+  it('adds a new chat channel and its 工作区1 to the list, then selects the channel (#139)', async () => {
+    let posted = false
+    const created = { room: { id: 2, name: 'ops', kind: 'chat', parent_id: null }, workspace: { id: 3, name: '工作区1', kind: 'workspace', parent_id: 2 } }
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') {
+        const rooms = [{ id: 1, name: 'general', kind: 'chat', parent_id: null }, ...(posted ? [created.room, created.workspace] : [])]
+        return json(200, { me: 'owner', rooms, members: [], thinking: {} })
+      }
+      if (url === '/collab/api/rooms' && init?.method === 'POST') { posted = true; return json(200, created) }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    await actions.createRoom('ops')
+    expect(source.getSnapshot().rooms.map(r => r.name)).toEqual(['general', 'ops', '工作区1'])
+    expect(source.getSnapshot().roomId).toBe(2)
     unsubscribe()
   })
 })

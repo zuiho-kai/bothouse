@@ -8,6 +8,7 @@ import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepse
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot, ChannelTask } from './channel-source.ts'
+import { groupRooms } from './channel-source.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
@@ -375,17 +376,24 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           />
         )}
         {roomError !== undefined && <div className={css.sendError} role="alert">{roomError}</div>}
-        {state.rooms.map(r => (
-          <button
-            key={r.id}
-            type="button"
-            className={r.id === state.roomId ? `${css.room} ${css.roomActive}` : css.room}
-            aria-current={r.id === state.roomId}
-            onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
-          >
-            <span className={css.hash} aria-hidden>#</span>{r.name}
-          </button>
-        ))}
+        {groupRooms(state.rooms).map(({ room: r, depth }) => {
+          // #139: workspaces sit indented under their chat channel and always show their
+          // in-progress count; a chat channel shows it only when something is in progress.
+          const active = r.active ?? 0
+          const showActive = depth === 1 || r.kind === 'workspace' || active > 0
+          return (
+            <button
+              key={r.id}
+              type="button"
+              className={[css.room, depth === 1 ? css.workspace : '', r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
+              aria-current={r.id === state.roomId}
+              onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
+            >
+              <span className={css.hash} aria-hidden>#</span><span className={css.roomLabel}>{r.name}</span>
+              {showActive && <span className={active > 0 ? `${css.activeCount} ${css.activeBusy}` : css.activeCount}>{t('activeTasks', { count: active })}</span>}
+            </button>
+          )
+        })}
       </nav>
       <section className={css.chat}>
         <header className={css.chatHead}>

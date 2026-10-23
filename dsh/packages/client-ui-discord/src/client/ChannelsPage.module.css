@@ -61,6 +61,28 @@
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
 }
 
+.workspace {
+  padding-left: 22px;
+  font-size: 0.95em;
+}
+
+.roomLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeCount {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.activeBusy {
+  color: var(--dsw-alias-label-primary);
+}
+
 .roomActive {
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-interactive-bg-hover);
