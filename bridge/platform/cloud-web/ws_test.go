@@ -125,6 +125,50 @@ func TestAllowFromFilter(t *testing.T) {
 	}
 }
 
+func TestWebSocketMalformedQueryFailsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{name: "semicolon hides token", query: "token=query-secret;bot=x"},
+		{name: "invalid value escape", query: "token=query-secret%zz"},
+		{name: "invalid key escape", query: "%zz=query-secret"},
+		{name: "valid token with malformed parameter", query: "token=query-secret&name=%zz"},
+		{name: "control character in query", query: "token=query-secret\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := make(chan struct{}, 1)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests <- struct{}{}
+				http.Error(w, "unexpected dial", http.StatusBadRequest)
+			}))
+			defer srv.Close()
+
+			wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/cloud-web/ws?" + tc.query
+			tp := newWSTransport(wsURL, "header-secret", "bot", "project")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := tp.connectOnce(ctx)
+			if err == nil {
+				t.Error("malformed query accepted")
+			} else {
+				if !strings.HasPrefix(err.Error(), "parse ws url: ") {
+					t.Errorf("malformed query was not rejected before dialing: %v", err)
+				}
+				// connectLoop logs this error verbatim, so it must not contain the URL secret.
+				if strings.Contains(err.Error(), "query-secret") {
+					t.Errorf("connection error leaks query secret: %v", err)
+				}
+			}
+			select {
+			case <-requests:
+				t.Error("malformed query reached the HTTP handshake")
+			default:
+			}
+		})
+	}
+}
+
 // TestWebSocketHandshakeDoesNotLeakToken is the regression test for the client
 // credential leak: the bot token travels in the Authorization and
 // X-Cloud-Web-Token headers only. Neither the transport's own injection nor a

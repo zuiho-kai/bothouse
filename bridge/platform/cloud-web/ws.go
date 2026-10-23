@@ -281,9 +281,15 @@ func (t *wsTransport) expectPreviewAck(refID string) func(time.Duration) (string
 func wsDialURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, err
+		// url.Parse errors include the input URL, which may contain a token.
+		return nil, fmt.Errorf("invalid ws url")
 	}
-	q := u.Query()
+	// URL.Query silently drops malformed fields. Reject them instead of
+	// allowing an unparsed token to survive in RawQuery and reach the dialer.
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ws url query")
+	}
 	if q.Has("token") {
 		q.Del("token")
 		u.RawQuery = q.Encode()
