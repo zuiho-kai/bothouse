@@ -112,6 +112,9 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 }
 
 func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {
+	if p.session == nil || p.botID == "" {
+		return errors.New("discord session is not ready")
+	}
 	if task.ThreadID == "" {
 		return errors.New("task thread unavailable")
 	}

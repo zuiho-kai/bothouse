@@ -86,6 +86,10 @@ func TestTaskCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	var assigned bytes.Buffer
+	if err := call(append(append([]string{"assign"}, base...), append(run, "--id", started.TaskID, "--member", "forged", "--reporter-project", "unregistered", "--title", "Review")...), &assigned); err == nil || !strings.Contains(err.Error(), "HTTP 409") {
+		t.Fatal("CLI reporter project did not reach server-side identity validation", err)
+	}
+	assigned.Reset()
 	if err := call(append(append([]string{"assign"}, base...), append(run, "--id", started.TaskID, "--member", "reviewer", "--name", "Reviewer", "--title", "Review")...), &assigned); err != nil {
 		t.Fatal(err)
 	}

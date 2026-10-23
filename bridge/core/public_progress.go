@@ -92,13 +92,14 @@ type PublicProgress struct {
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu sync.Mutex
-	mu           sync.Mutex
-	dir          string
-	dataDir      string
-	project      string
-	runs         map[string]*publicRun
-	relayRuns    map[string]*taskRelay
-	memberRuns   map[string]*taskMemberRun
+	mu sync.Mutex
+	dir string
+	dataDir string
+	project string
+	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
+	runs map[string]*publicRun
+	relayRuns map[string]*taskRelay
+	memberRuns map[string]*taskMemberRun
 	// Batch keys belong to the authorizing turn, never the session's open slot.
 	delegations map[string]map[string]*publicRun
 	// records indexes every task this project has ever journalled, so a task can
@@ -220,7 +221,7 @@ func (p *PublicProgress) appendEvent(r *publicRun, kind TaskEventKind, summary s
 	t.Seq++
 	t.UpdatedAt = time.Now().UTC()
 	t.LatestProgress = summary
-	t.Events = append(t.Events, TaskEvent{ID: fmt.Sprintf("%s:%d", t.ID, t.Seq), TaskID: t.ID, Seq: t.Seq, Kind: kind, State: t.State, FactStage: t.FactStage, Summary: summary, IsKeyFact: key, Timestamp: t.UpdatedAt})
+	t.Events = append(t.Events, TaskEvent{ReporterProject: p.project, ID: fmt.Sprintf("%s:%d", t.ID, t.Seq), TaskID: t.ID, Seq: t.Seq, Kind: kind, State: t.State, FactStage: t.FactStage, Summary: summary, IsKeyFact: key, Timestamp: t.UpdatedAt})
 }
 
 func (p *PublicProgress) save(r *publicRun) error {
@@ -488,6 +489,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 	r.mu.Lock()
 	err := p.save(r) // retries a failed terminal-state checkpoint before sending
 	task, cardSeq, factSeq, lang := r.record.Task.Clone(), r.record.CardSeq, r.record.FactSeq, r.record.Lang
+	platform := r.record.Platform
 	r.mu.Unlock()
 	if err != nil {
 		return err
@@ -516,7 +518,11 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 			continue
 		}
 		if ev.IsKeyFact {
-			if err := r.publisher.PublishTaskFact(ctx, task, ev, lang); err != nil {
+			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.SessionKey, r.publisher)
+			if err != nil {
+				return err
+			}
+			if err := publisher.PublishTaskFact(ctx, task, ev, lang); err != nil {
 				return err
 			}
 		}
@@ -537,6 +543,7 @@ func (e *Engine) EnablePublicProgress() error {
 		return err
 	}
 	e.publicProgress = p
+	p.resolveReporter = e.resolveTaskReporter
 	return nil
 }
 
@@ -580,7 +587,7 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	).Replace(publicProgressPrompt+publicTaskMembersPrompt) + prompt
 }
 
-const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' (optional --parent existing-member-id for a child). Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
+const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' (for a configured bot, use --reporter-project EXACT_BOUND_PROJECT_ID; its name comes from that project, never from --name). Native children use --name 'explicit child name' and optional --parent existing-member-id; they inherit their owning bot account. Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
 
 const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'.RESUME_NOTE Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history.\n[/Public progress channel]\n\n"
 

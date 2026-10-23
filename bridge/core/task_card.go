@@ -46,16 +46,17 @@ const (
 
 // TaskEvent records an audit entry for key task events.
 type TaskEvent struct {
-	ID        string        `json:"id"`
-	TaskID    string        `json:"task_id"`
-	Seq       int64         `json:"seq"`
-	Kind      TaskEventKind `json:"kind"`
-	State     TaskState     `json:"state"`
-	FactStage FactStage     `json:"fact_stage"`
-	Summary   string        `json:"summary"`
-	Detail    string        `json:"detail,omitempty"`
-	IsKeyFact bool          `json:"is_key_fact"`
-	Timestamp time.Time     `json:"timestamp"`
+	ReporterProject string        `json:"reporter_project,omitempty"` // immutable sender selected when the public fact is recorded
+	ID              string        `json:"id"`
+	TaskID          string        `json:"task_id"`
+	Seq             int64         `json:"seq"`
+	Kind            TaskEventKind `json:"kind"`
+	State           TaskState     `json:"state"`
+	FactStage       FactStage     `json:"fact_stage"`
+	Summary         string        `json:"summary"`
+	Detail          string        `json:"detail,omitempty"`
+	IsKeyFact       bool          `json:"is_key_fact"`
+	Timestamp       time.Time     `json:"timestamp"`
 }
 
 // Task represents a persistent, trackable task unit with Discord card and thread bindings.

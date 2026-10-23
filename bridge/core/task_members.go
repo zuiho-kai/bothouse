@@ -14,16 +14,17 @@ import (
 // TaskMember is deliberately public. Capability tokens are kept only in memory.
 // Assignment is not execution: StartedAt is set by the member's first report.
 type TaskMember struct {
-	ID         string    `json:"id"`
-	ParentID   string    `json:"parent_id,omitempty"`
-	Name       string    `json:"name"`
-	Title      string    `json:"title"`
-	Status     string    `json:"status"`
-	Summary    string    `json:"summary,omitempty"`
-	AssignedAt time.Time `json:"assigned_at"`
-	StartedAt  time.Time `json:"started_at,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	EndedAt    time.Time `json:"ended_at,omitempty"`
+	ReporterProject string    `json:"reporter_project,omitempty"`
+	ID              string    `json:"id"`
+	ParentID        string    `json:"parent_id,omitempty"`
+	Name            string    `json:"name"`
+	Title           string    `json:"title"`
+	Status          string    `json:"status"`
+	Summary         string    `json:"summary,omitempty"`
+	AssignedAt      time.Time `json:"assigned_at"`
+	StartedAt       time.Time `json:"started_at,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	EndedAt         time.Time `json:"ended_at,omitempty"`
 }
 
 func (m TaskMember) Live() bool {
@@ -31,15 +32,16 @@ func (m TaskMember) Live() bool {
 }
 
 type TaskMemberAssignment struct {
-	Project    string `json:"project"`
-	SessionKey string `json:"session_key"`
-	Run        string `json:"run"`
-	TaskID     string `json:"task_id"`
-	BatchID    string `json:"batch_id,omitempty"`
-	MemberID   string `json:"member_id"`
-	ParentID   string `json:"parent_id,omitempty"`
-	Name       string `json:"name"`
-	Title      string `json:"title"`
+	ReporterProject string `json:"reporter_project,omitempty"` // configured project id, never a display name
+	Project         string `json:"project"`
+	SessionKey      string `json:"session_key"`
+	Run             string `json:"run"`
+	TaskID          string `json:"task_id"`
+	BatchID         string `json:"batch_id,omitempty"`
+	MemberID        string `json:"member_id"`
+	ParentID        string `json:"parent_id,omitempty"`
+	Name            string `json:"name"`
+	Title           string `json:"title"`
 }
 
 type TaskMemberGrant struct {
@@ -77,7 +79,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		(req.TaskID != "" && req.BatchID != "") ||
 		utf8.RuneCountInString(req.BatchID) > 60 ||
 		strings.TrimSpace(req.MemberID) == "" || utf8.RuneCountInString(req.MemberID) > 60 ||
-		strings.TrimSpace(req.Name) == "" || utf8.RuneCountInString(req.Name) > 60 ||
+		((req.ReporterProject == "" || req.ParentID != "") && strings.TrimSpace(req.Name) == "") || utf8.RuneCountInString(req.Name) > 60 || utf8.RuneCountInString(req.ReporterProject) > 60 ||
 		strings.TrimSpace(req.Title) == "" || utf8.RuneCountInString(req.Title) > 60 {
 		return nil, errors.New("project, session, active run, batch or task, member, name and title required (1..60 characters)")
 	}
@@ -92,6 +94,27 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	req.TaskID, req.BatchID = r.record.Task.ID, ""
 	if req.ParentID != "" && memberIndex(r.record.Task, req.ParentID) < 0 {
 		return nil, errors.New("unknown parent member")
+	}
+	// Native children inherit their owning bot; an explicit project selects a
+	// real configured bot and its canonical id instead of a caller's nickname.
+	if req.ParentID != "" {
+		parent := r.record.Task.Members[memberIndex(r.record.Task, req.ParentID)]
+		owner := parent.ReporterProject
+		if owner == "" {
+			owner = p.project // legacy/native member belongs to the creator
+		}
+		if req.ReporterProject != "" && req.ReporterProject != owner {
+			return nil, errors.New("child reporter must match its owning bot")
+		}
+		req.ReporterProject = owner
+	} else if req.ReporterProject != "" {
+		req.Name = req.ReporterProject
+	}
+	if req.ReporterProject == "" {
+		req.ReporterProject = p.project
+	}
+	if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, req.SessionKey, r.publisher); err != nil {
+		return nil, err
 	}
 	if memberIndex(r.record.Task, req.MemberID) >= 0 {
 		p.mu.Lock()
@@ -113,7 +136,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		p.appendEvent(r, TaskEventCreated, req.Title, true)
 	}
 	r.record.Closed = false
-	r.record.Task.Members = append(r.record.Task.Members, TaskMember{ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Status: "queued", AssignedAt: now, UpdatedAt: now})
+	r.record.Task.Members = append(r.record.Task.Members, TaskMember{ReporterProject: req.ReporterProject, ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Status: "queued", AssignedAt: now, UpdatedAt: now})
 	p.memberEvent(r, req.Name+": "+req.Title, false)
 	if err := p.save(r); err != nil {
 		r.record = old
@@ -265,7 +288,8 @@ func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressReques
 	case "failed", "cancelled":
 		m.Status, m.EndedAt = req.Kind, now
 	}
-	p.memberEvent(r, m.Name+": "+m.Summary, req.Kind != "update" && req.Kind != "start")
+	p.memberEvent(r, m.Name+": "+m.Summary, true)
+	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = m.ReporterProject
 	if err := p.save(r); err != nil {
 		r.record.Task = old
 		return "", err

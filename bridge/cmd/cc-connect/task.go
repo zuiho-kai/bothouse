@@ -81,6 +81,7 @@ func taskCommand(args []string, out io.Writer) error {
 	run := f.String("run", "", "lead's current run token (assign only)")
 	member := f.String("member", "", "unique member execution id (assign only)")
 	name := f.String("name", "", "member display name (assign only)")
+	reporter := f.String("reporter-project", "", "configured bot project id; native children inherit their owning bot (assign only)")
 	title := f.String("title", "", "short member assignment (assign only)")
 	parent := f.String("parent", "", "parent member id for a child agent (assign only)")
 	limit := f.Int("limit", 10, "how many tasks to list")
@@ -99,7 +100,7 @@ func taskCommand(args []string, out io.Writer) error {
 
 	switch action {
 	case "assign":
-		body, err := json.Marshal(core.TaskMemberAssignment{Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title})
+		body, err := json.Marshal(core.TaskMemberAssignment{ReporterProject: *reporter, Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title})
 		if err != nil {
 			return err
 		}

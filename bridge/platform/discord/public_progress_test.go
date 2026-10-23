@@ -16,6 +16,8 @@ import (
 )
 
 type progressREST struct {
+	botID       string
+	seenAuth    []string
 	messages    map[string][]*discordgo.Message
 	thread      bool
 	loseACK     bool
@@ -26,6 +28,7 @@ type progressREST struct {
 }
 
 func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.seenAuth = append(r.seenAuth, req.Header.Get("Authorization"))
 	if err := req.Context().Err(); err != nil {
 		return nil, err
 	}
@@ -57,6 +60,9 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		r.sends++
 		m := &discordgo.Message{ID: fmt.Sprint(r.sends + 100), ChannelID: channel, Author: &discordgo.User{ID: "bot"}, Embeds: data.Embeds, Timestamp: time.Now()}
+		if r.botID != "" {
+			m.Author.ID = r.botID
+		}
 		r.messages[channel] = append([]*discordgo.Message{m}, r.messages[channel]...)
 		body = m
 		if r.loseACK {
@@ -80,6 +86,47 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	b, _ := json.Marshal(body)
 	return &http.Response{StatusCode: code, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(b))), Request: req}, nil
+}
+
+func TestPublicTaskWorkerUsesOwnAccountSameThread(t *testing.T) {
+	transport := &progressREST{messages: map[string][]*discordgo.Message{}}
+	newPlatform := func(id, token string) *Platform {
+		session, err := discordgo.New(token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session.Client = &http.Client{Transport: transport}
+		session.MaxRestRetries = 0
+		return &Platform{session: session, botID: id}
+	}
+	lead, worker := newPlatform("lead", "Bot fixture-lead"), newPlatform("worker", "Bot fixture-worker")
+	task := &core.Task{ID: "task-member", Title: "Task", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	transport.botID = "lead"
+	if err := lead.EnsureTaskCard(context.Background(), task, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	for _, auth := range transport.seenAuth {
+		if auth != "Bot fixture-lead" {
+			t.Fatal("card used wrong account")
+		}
+	}
+	transport.seenAuth = nil
+	transport.botID, transport.loseACK = "worker", true
+	ev := core.TaskEvent{ID: "task-member:2", Summary: "gjiang: Started", ReporterProject: "gjiang", Timestamp: time.Now(), IsKeyFact: true}
+	if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangEnglish); err == nil {
+		t.Fatal("lost ACK was not surfaced")
+	}
+	if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	if transport.sends != 2 || len(transport.messages[task.ThreadID]) != 1 || transport.messages[task.ThreadID][0].Author.ID != "worker" {
+		t.Fatal("worker fact duplicated or sent outside shared thread")
+	}
+	for _, auth := range transport.seenAuth {
+		if auth != "Bot fixture-worker" {
+			t.Fatal("worker fact used creator account")
+		}
+	}
 }
 
 func TestPublicTaskCardLostACKReconciliation(t *testing.T) {
