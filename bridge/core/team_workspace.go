@@ -55,8 +55,11 @@ const (
 	teamWorkspacePlat   = "discord"
 )
 
-// 「工作区」 without a number is the name the old ws-handoff script used.
-var teamWorkspaceName = regexp.MustCompile(`^` + teamWorkspacePrefix + `(\d*)$`)
+// 「工作区」 without a number is the name the old ws-handoff script used. A second chat channel in
+// a category whose plain 「工作区n」 already belong to another chat channel gets
+// 「<chat channel name>-工作区n」 instead, so two channels never share a workspace name
+// (PM decision 2026-10-24 on team mode D, item 4: avoid same-name confusion).
+var teamWorkspaceName = regexp.MustCompile(`^(?:(.+)-)?` + teamWorkspacePrefix + `(\d*)$`)
 
 // Retry while the platform is still connecting at start (same bound as the board retirement).
 var (
@@ -377,10 +380,28 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 		}
 		return false
 	}
-	// Adopt an unclaimed 「工作区1」 already in the same category (e.g. made by ws-handoff).
+	// Name prefix of this chat's workspaces: the one it already uses; else plain 「工作区n」 unless
+	// another chat channel of the category already owns plain ones, then 「<name>-工作区n」.
+	prefix := ""
+	if len(list) > 0 {
+		prefix, _ = teamWorkspaceNameParts(list[0].Name)
+	} else {
+		for _, c := range guild {
+			if c.ParentID != self.ParentID {
+				continue
+			}
+			if p, n := teamWorkspaceNameParts(c.Name); n > 0 && p == "" && claimed[c.ID] != "" && claimed[c.ID] != chat {
+				prefix = self.Name + "-"
+				break
+			}
+		}
+	}
+	// Adopt an unclaimed 「工作区1」 (with this chat's prefix) already in the same category
+	// (e.g. made by ws-handoff).
 	if !hasNum(1) {
 		for _, c := range guild {
-			if c.ParentID == self.ParentID && c.ID != self.ID && claimed[c.ID] == "" && teamWorkspaceNum(c.Name) == 1 {
+			p, n := teamWorkspaceNameParts(c.Name)
+			if c.ParentID == self.ParentID && c.ID != self.ID && claimed[c.ID] == "" && n == 1 && p == prefix {
 				list = append(list, TeamWorkspace{Name: c.Name, ID: c.ID})
 				claimed[c.ID] = chat
 				changed = true
@@ -392,19 +413,20 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	var name string
 	switch {
 	case !hasNum(1):
-		name = teamWorkspacePrefix + "1"
+		name = prefix + teamWorkspacePrefix + "1"
 	case next:
-		// n+1 over this chat's workspaces and every 「工作区n」 in the category, so names don't clash.
+		// n+1 over this chat's workspaces and every same-prefix 「工作区n」 in the category,
+		// so names don't clash.
 		top := 0
 		for _, w := range list {
 			top = max(top, teamWorkspaceNum(w.Name))
 		}
 		for _, c := range guild {
-			if c.ParentID == self.ParentID {
-				top = max(top, teamWorkspaceNum(c.Name))
+			if p, n := teamWorkspaceNameParts(c.Name); c.ParentID == self.ParentID && p == prefix {
+				top = max(top, n)
 			}
 		}
-		name = teamWorkspacePrefix + strconv.Itoa(top+1)
+		name = prefix + teamWorkspacePrefix + strconv.Itoa(top+1)
 	}
 	var created *TeamWorkspace
 	if name != "" {
@@ -433,15 +455,25 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	return list, created, nil
 }
 
-// teamWorkspaceNum returns n for 「工作区n」 (1 for the unnumbered 「工作区」), 0 otherwise.
+// teamWorkspaceNum returns n for 「工作区n」 or 「<name>-工作区n」 (1 when unnumbered), 0 otherwise.
 func teamWorkspaceNum(name string) int {
+	_, n := teamWorkspaceNameParts(name)
+	return n
+}
+
+// teamWorkspaceNameParts splits 「<name>-工作区n」 into ("<name>-", n) and 「工作区n」 into ("", n);
+// n is 0 when name is not a workspace name.
+func teamWorkspaceNameParts(name string) (prefix string, n int) {
 	m := teamWorkspaceName.FindStringSubmatch(name)
 	if m == nil {
-		return 0
+		return "", 0
 	}
-	if m[1] == "" {
-		return 1
+	if m[1] != "" {
+		prefix = m[1] + "-"
 	}
-	n, _ := strconv.Atoi(m[1])
-	return n
+	if m[2] == "" {
+		return prefix, 1
+	}
+	n, _ = strconv.Atoi(m[2])
+	return prefix, n
 }

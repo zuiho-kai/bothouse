@@ -75,7 +75,7 @@ func printWorkspaceUsage() {
   new    create the next 「工作区n+1」 for this chat channel (from a workspace: for its chat channel)
   list   list this chat channel's workspaces
 
-Needs team_workspaces = true on the team lead project (Discord only).`)
+On by default for the team lead project (Discord only); team_workspaces = false turns it off.`)
 }
 
 func workspaceFail(err error) {

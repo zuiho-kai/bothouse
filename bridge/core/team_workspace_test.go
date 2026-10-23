@@ -290,3 +290,38 @@ func TestTeamWorkspaceAPI(t *testing.T) {
 		t.Fatalf("off: %d", rec.Code)
 	}
 }
+
+// A second chat channel in a category whose plain 工作区n belong to another chat channel gets
+// 「<name>-工作区n」 (PM decision item 4), and its n+1 keeps that prefix.
+func TestTeamWorkspacesSecondChatInCategoryPrefixed(t *testing.T) {
+	g := newWorkspaceGuild()
+	g.channels = append(g.channels, TeamChannel{ID: "300", Name: "闲聊", ParentID: "catB"})
+	e := newWorkspaceLead(t, g, t.TempDir())
+	e.SetTeamWorkspaces(true)
+
+	// #200 adopts the plain 工作区1 first.
+	if err := e.ensureTeamWorkspace("discord:200"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ensureTeamWorkspace("discord:300"); err != nil {
+		t.Fatal(err)
+	}
+	if w := e.TeamWorkspacesOf("300"); len(w) != 1 || w[0].Name != "闲聊-工作区1" {
+		t.Fatalf("300 workspaces = %+v, want [闲聊-工作区1]", w)
+	}
+	if _, w, err := e.NewTeamWorkspace("discord:300"); err != nil || w.Name != "闲聊-工作区2" {
+		t.Fatalf("300 new = %+v, %v; want 闲聊-工作区2", w, err)
+	}
+	// #200 still numbers its plain names past 工作区5, ignoring the prefixed ones.
+	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.Name != "工作区6" {
+		t.Fatalf("200 new = %+v, %v; want 工作区6", w, err)
+	}
+	// From a prefixed workspace, "new" goes to its chat channel.
+	ws := e.TeamWorkspacesOf("300")
+	if p, ok := e.WorkspaceParent(ws[0].ID); !ok || p != "300" {
+		t.Fatalf("parent of %s = %q,%v; want 300", ws[0].ID, p, ok)
+	}
+	if parent, w, err := e.NewTeamWorkspace("discord:" + ws[1].ID); err != nil || parent != "discord:300" || w.Name != "闲聊-工作区3" {
+		t.Fatalf("new from workspace = %s %+v %v", parent, w, err)
+	}
+}

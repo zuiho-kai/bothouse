@@ -51,7 +51,7 @@ func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Reques
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (set team_workspaces = true on the team lead project)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
 		return
 	}
 	parent, ws, err := e.NewTeamWorkspace(req.SessionKey)
@@ -76,7 +76,7 @@ func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Reque
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (set team_workspaces = true on the team lead project)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
 		return
 	}
 	parent := teamChatKey(key)
