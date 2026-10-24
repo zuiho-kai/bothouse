@@ -1,12 +1,16 @@
 package core
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 )
 
 func (m *ManagementServer) SetUsageLedger(l *UsageLedger) { m.usageLedger = l }
+
+// SetUsageImporter makes usage queries first pull new entries from CLI logs.
+func (m *ManagementServer) SetUsageImporter(im *UsageImporter) { m.usageImporter = im }
 func (m *ManagementServer) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -44,6 +48,9 @@ func (m *ManagementServer) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if from.After(to) || to.After(from.AddDate(1, 0, 0)) {
 		http.Error(w, "date range must be at most one year", 400)
 		return
+	}
+	if err := m.usageImporter.Sync(); err != nil {
+		slog.Warn("usage import", "error", err) // serve what was imported
 	}
 	rows, err := m.usageLedger.Query(from, to, group, r.URL.Query().Get("role"), r.URL.Query().Get("model"))
 	if err != nil {

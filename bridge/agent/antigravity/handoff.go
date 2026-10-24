@@ -3,7 +3,6 @@ package antigravity
 import (
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -292,73 +291,4 @@ func pbTime(msg []byte, num protowire.Number) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(int64(sec), int64(nanos))
-}
-
-// turnUsage sums ModelUsageStats over the model calls of the newest turn: the
-// planner responses after the last user input. output_tokens already includes
-// thinking (data: local steps had output 250 = thinking 75 + response 175), and
-// input_tokens excludes cache reads, matching core's usage fields.
-type turnUsage struct {
-	Input, Output, CacheRead, CacheWrite int
-}
-
-func readTurnUsageDB(path string) (turnUsage, bool, error) {
-	var u turnUsage
-	// busy_timeout: same value as readHandoffDB above.
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(1000)")
-	if err != nil {
-		return u, false, err
-	}
-	defer db.Close()
-	rows, err := db.Query(`SELECT step_type, step_payload FROM steps WHERE step_type IN (?, ?) ORDER BY idx`,
-		stepTypeUserInput, stepTypePlannerResponse)
-	if err != nil {
-		return u, false, err
-	}
-	defer rows.Close()
-	known := false
-	for rows.Next() {
-		var typ int
-		var payload []byte
-		if err := rows.Scan(&typ, &payload); err != nil {
-			return u, false, err
-		}
-		if typ == stepTypeUserInput {
-			u, known = turnUsage{}, false
-			continue
-		}
-		usage := pbBytes(pbBytes(payload, stepFieldMetadata), metaFieldModelUsage)
-		if len(usage) == 0 {
-			continue
-		}
-		known = true
-		u.Input += int(pbUint(usage, usageFieldInputTokens))
-		u.Output += int(pbUint(usage, usageFieldOutputTokens))
-		u.CacheRead += int(pbUint(usage, usageFieldCacheReadTokens))
-		u.CacheWrite += int(pbUint(usage, usageFieldCacheWriteTokens))
-	}
-	if err := rows.Err(); err != nil {
-		return u, false, err
-	}
-	return u, known, nil
-}
-
-// withTurnUsage fills a turn's EventResult with the token usage agy stored for
-// the conversation. Without a readable record the result stays usage-unknown.
-func withTurnUsage(ev core.Event) core.Event {
-	path, err := conversationDBPath(ev.SessionID)
-	if err != nil {
-		return ev
-	}
-	u, known, err := readTurnUsageDB(path)
-	if err != nil {
-		slog.Debug("antigravity: read turn usage", "error", err)
-		return ev
-	}
-	if known {
-		ev.UsageKnown = true
-		ev.InputTokens, ev.OutputTokens = u.Input, u.Output
-		ev.CacheReadInputTokens, ev.CacheCreationInputTokens = u.CacheRead, u.CacheWrite
-	}
-	return ev
 }

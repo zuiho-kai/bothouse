@@ -36,6 +36,7 @@ type ProjectSettingsUpdate struct {
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
 	usageLedger *UsageLedger
+	usageImporter *UsageImporter
 	port        int
 	host        string // "" = all interfaces
 	token       string

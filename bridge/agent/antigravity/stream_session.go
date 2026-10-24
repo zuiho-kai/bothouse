@@ -340,6 +340,6 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 			s.emit(core.Event{Type: core.EventError, Error: core.ErrEmptyAgentResponse, SessionID: s.CurrentSessionID()})
 			return
 		}
-		s.emit(withTurnUsage(core.Event{Type: core.EventResult, Content: content, SessionID: s.CurrentSessionID(), Done: true}))
+		s.emit(core.Event{Type: core.EventResult, Content: content, SessionID: s.CurrentSessionID(), Done: true})
 	}
 }

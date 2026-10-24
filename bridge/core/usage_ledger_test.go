@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -119,61 +118,6 @@ func TestUsageManagementHTTP(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
-func TestUsageRecordsOnlyTerminalResults(t *testing.T) {
-	e := NewEngine("role-a", &stubAgent{}, nil, "", LangEnglish)
-	e.SetUsageLedger(NewUsageLedger(t.TempDir(), nil))
-	e.recordUsage(Event{InputTokens: 100}, nil)
-	e.recordUsage(Event{Done: true, UsageKnown: true, InputTokens: 10, OutputTokens: 3, CacheReadInputTokens: 2}, nil)
-	e.usageLedger.Flush()
-	rows, err := e.usageLedger.Query(time.Now(), time.Now(), "roles", "", "")
-	if err != nil || len(rows) != 1 || rows[0].Responses != 1 || rows[0].Total != 15 {
-		t.Fatalf("%+v %v", rows, err)
-	}
-}
-
-func TestCUJ_U1_CompletedRepliesAppearInUsageAPI(t *testing.T) {
-	env := newCUJEnv(t)
-	ledger := NewUsageLedger(env.tempDir, nil)
-	env.engine.SetUsageLedger(ledger)
-	env.agent.setNextSessionEvents([]Event{
-		{Type: EventResult, Done: false, InputTokens: 900},
-		{Type: EventResult, Done: true, UsageKnown: true, InputTokens: 100, OutputTokens: 30, CacheReadInputTokens: 70, Content: "first usage reply"},
-	}, 0)
-	env.userSends("usage-user", "first question")
-	env.waitFor("first reply", 5*time.Second, func() bool { return strings.Contains(strings.Join(env.plat.getSent(), "\n"), "first usage reply") })
-	env.agent.mu.Lock()
-	s := env.agent.sessions[0]
-	env.agent.mu.Unlock()
-	s.mu.Lock()
-	s.nextEventOverride = &Event{Type: EventResult, Done: true, Content: "unknown usage reply"}
-	s.mu.Unlock()
-	env.userSends("usage-user", "second question")
-	env.waitFor("second reply", 5*time.Second, func() bool { return strings.Contains(strings.Join(env.plat.getSent(), "\n"), "unknown usage reply") })
-	ledger.Flush()
-	// The dashboard is a client of the same authenticated HTTP handler.
-	m := NewManagementServer(0, "secret", nil)
-	m.SetUsageLedger(NewUsageLedger(env.tempDir, nil))
-	r := httptest.NewRequest("GET", "/api/v1/usage/daily", nil)
-	r.Header.Set("Authorization", "Bearer secret")
-	w := httptest.NewRecorder()
-	m.buildHandler(http.NewServeMux()).ServeHTTP(w, r)
-	var body struct {
-		Data struct {
-			Items []UsageAggregate `json:"items"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if w.Code != 200 || len(body.Data.Items) != 1 {
-		t.Fatalf("%d %s", w.Code, w.Body.String())
-	}
-	got := body.Data.Items[0]
-	if got.Responses != 2 || got.Unknown != 1 || got.Total != 200 {
-		t.Fatalf("%+v", got)
-	}
-}
-
 func TestUsageHoursAreSortedNumerically(t *testing.T) {
 	l := NewUsageLedger(t.TempDir(), nil)
 	day := time.Date(2026, 10, 24, 0, 0, 0, 0, time.Local)
@@ -189,88 +133,3 @@ func TestUsageHoursAreSortedNumerically(t *testing.T) {
 }
 
 // A reply's usage record must not wait for disk writes or dashboard queries.
-func TestUsageRecordDoesNotBlockOnQueryOrWriter(t *testing.T) {
-	e := NewEngine("role-a", &stubAgent{}, nil, "", LangEnglish)
-	l := NewUsageLedger(t.TempDir(), nil)
-	e.SetUsageLedger(l)
-	day := time.Now()
-	for i := 0; i < 3; i++ {
-		if err := l.Record(UsageRecord{Time: day, Role: "role-a", Model: "m", Input: 1, Known: true}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Hold the writer lock as a slow disk write would; the background
-	// writer stalls behind it, the queue fills, and queries keep running.
-	l.mu.Lock()
-	stop := make(chan struct{})
-	queryErr := make(chan error, 1)
-	go func() {
-		for {
-			select {
-			case <-stop:
-				queryErr <- nil
-				return
-			default:
-			}
-			if _, err := l.Query(day.AddDate(0, 0, -365), day, "daily", "", ""); err != nil {
-				queryErr <- err
-				return
-			}
-		}
-	}()
-	queryDone := make(chan struct{})
-	go func() {
-		_, _ = l.Query(day, day, "roles", "", "")
-		close(queryDone)
-	}()
-	select {
-	case <-queryDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Query waited on the writer lock")
-	}
-	start := time.Now()
-	for i := 0; i < 10; i++ {
-		e.recordUsage(Event{Done: true, UsageKnown: true, InputTokens: 1}, nil)
-	}
-	if d := time.Since(start); d > time.Second {
-		t.Fatalf("recordUsage blocked for %v while a query ran and the writer was stuck", d)
-	}
-	close(stop)
-	if err := <-queryErr; err != nil {
-		t.Fatal(err)
-	}
-	l.mu.Unlock()
-	l.Flush()
-	rows, err := l.Query(day, day, "roles", "", "")
-	if err != nil || len(rows) != 1 || rows[0].Responses != 13 {
-		t.Fatalf("%+v %v", rows, err)
-	}
-}
-
-// A full queue must not drop records, and replies must still return quickly.
-func TestUsageLedgerFullQueueKeepsEveryRecord(t *testing.T) {
-	e := NewEngine("role-a", &stubAgent{}, nil, "", LangEnglish)
-	l := NewUsageLedger(t.TempDir(), nil)
-	e.SetUsageLedger(l)
-	// Keep the background writer parked so the queue fills deterministically.
-	l.startOnce.Do(func() {})
-	const calls = usageQueueSize + 10
-	start := time.Now()
-	for i := 0; i < calls; i++ {
-		e.recordUsage(Event{Done: true, UsageKnown: true, InputTokens: 1}, nil)
-	}
-	// Generous CI bound: the 10 overflow calls are small local writes.
-	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("recordUsage took %v with a full queue", d)
-	}
-	go l.run()
-	l.Flush()
-	day := time.Now()
-	rows, err := l.Query(day, day, "roles", "", "")
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("%+v %v", rows, err)
-	}
-	if got := rows[0].Responses; got != calls {
-		t.Fatalf("responses = %d, want %d", got, calls)
-	}
-}

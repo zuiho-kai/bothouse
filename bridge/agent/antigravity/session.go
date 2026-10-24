@@ -366,7 +366,7 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 		// Finalize turn.
 		sid := as.CurrentSessionID()
 		select {
-		case as.events <- withTurnUsage(core.Event{Type: core.EventResult, SessionID: sid, Done: true}):
+		case as.events <- core.Event{Type: core.EventResult, SessionID: sid, Done: true}:
 		case <-as.ctx.Done():
 		}
 	}()

@@ -467,7 +467,6 @@ func main() {
 		engine.SetBaseWorkDir(workDir)
 		engine.SetProjectStateStore(projectState)
 		engine.SetDataDir(cfg.DataDir)
-		engine.SetUsageLedger(usageLedger)
 		if proj.PublicProgress {
 			if err := engine.EnablePublicProgress(); err != nil {
 				slog.Error("public progress initialization failed", "error", err)
@@ -1163,6 +1162,7 @@ func main() {
 		mgmtSrv = core.NewManagementServer(port, cfg.Management.Token, cfg.Management.CORSOrigins)
 		mgmtSrv.SetHost(cfg.Management.Host)
 		mgmtSrv.SetUsageLedger(usageLedger)
+		mgmtSrv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources()...))
 		for i, e := range engines {
 			mgmtSrv.RegisterEngine(cfg.Projects[i].Name, e)
 		}
@@ -2160,4 +2160,24 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 			"project", proj.Name, "idle_mins", idle, "agent_session_idle_timeout_mins", *t)
 	}
 	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
+}
+
+// usageLogSources lists the CLI session logs the usage page reads.
+func usageLogSources() []core.UsageLogSource {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	claudeDir := filepath.Join(home, ".claude")
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		claudeDir = d
+	}
+	codexHome := filepath.Join(home, ".codex")
+	if d := os.Getenv("CODEX_HOME"); d != "" {
+		codexHome = d
+	}
+	return []core.UsageLogSource{
+		core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")},
+		core.CodexUsageSource{Home: codexHome},
+	}
 }

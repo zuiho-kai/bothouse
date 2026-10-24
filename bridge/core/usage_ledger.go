@@ -3,7 +3,6 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -40,6 +39,10 @@ type UsageRecord struct {
 	CacheRead  int64     `json:"cache_read_tokens"`
 	CacheWrite int64     `json:"cache_write_tokens"`
 	Known      bool      `json:"usage_known"`
+	// Key identifies one model response in its source log (for example
+	// "claudecode:<message.id>"). Upsert replaces a record with the same key,
+	// so re-reading a log never counts a response twice.
+	Key string `json:"key,omitempty"`
 }
 type UsageAggregate struct {
 	Date          string   `json:"date,omitempty"`
@@ -64,70 +67,16 @@ type UsageLedger struct {
 	mu     sync.Mutex // serializes writers only; readers rely on atomic rename
 	dir    string
 	prices map[string]TokenPrice
-
-	startOnce sync.Once
-	queue     chan usageJob
 }
-
-// usageJob is one record to persist, or (flushed != nil) a marker that is
-// closed once every record queued before it has been written.
-type usageJob struct {
-	r       UsageRecord
-	flushed chan struct{}
-}
-
-// usageQueueSize bounds records waiting for the writer goroutine. Estimate
-// sized so replies never wait on disk: each finished turn enqueues one record,
-// and even a few dozen concurrent sessions finishing together stay far below
-// 256. If it does fill, Enqueue writes that record synchronously, so none is lost.
-const usageQueueSize = 256
 
 func NewUsageLedger(dataDir string, prices map[string]TokenPrice) *UsageLedger {
 	p := make(map[string]TokenPrice, len(prices))
 	for k, v := range prices {
 		p[k] = v
 	}
-	return &UsageLedger{dir: filepath.Join(dataDir, "usage"), prices: p, queue: make(chan usageJob, usageQueueSize)}
+	return &UsageLedger{dir: filepath.Join(dataDir, "usage"), prices: p}
 }
 
-func (l *UsageLedger) start() {
-	l.startOnce.Do(func() { go l.run() })
-}
-
-func (l *UsageLedger) run() {
-	for job := range l.queue {
-		if job.flushed != nil {
-			close(job.flushed)
-			continue
-		}
-		l.persist(job.r)
-	}
-}
-
-func (l *UsageLedger) persist(r UsageRecord) {
-	if err := l.Record(r); err != nil {
-		slog.Error("persist turn usage", "role", r.Role, "error", err)
-	}
-}
-
-// Enqueue hands a record to the background writer without blocking. When the
-// queue is full the record is written synchronously instead, so none is lost.
-func (l *UsageLedger) Enqueue(r UsageRecord) {
-	l.start()
-	select {
-	case l.queue <- usageJob{r: r}:
-	default:
-		l.persist(r)
-	}
-}
-
-// Flush blocks until every record enqueued before the call is written.
-func (l *UsageLedger) Flush() {
-	l.start()
-	done := make(chan struct{})
-	l.queue <- usageJob{flushed: done}
-	<-done
-}
 func (l *UsageLedger) readDay(date string) (usageDay, error) {
 	var day usageDay
 	b, err := os.ReadFile(filepath.Join(l.dir, date+".json"))
@@ -140,24 +89,73 @@ func (l *UsageLedger) readDay(date string) (usageDay, error) {
 	err = json.Unmarshal(b, &day)
 	return day, err
 }
-// Record writes synchronously; reply paths use Enqueue instead.
+// Record appends one record synchronously.
 func (l *UsageLedger) Record(r UsageRecord) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if r.Time.IsZero() {
 		r.Time = time.Now()
 	}
-	if r.Input < 0 || r.Output < 0 || r.CacheRead < 0 || r.CacheWrite < 0 {
-		return fmt.Errorf("negative token usage")
+	return l.Upsert([]UsageRecord{r})
+}
+
+// Upsert writes records grouped by local date. A record whose Key matches an
+// existing record of that day replaces it, keeping the larger value of each
+// token field (a log can repeat one response with partial then final usage).
+// Records without a Key are always appended.
+func (l *UsageLedger) Upsert(records []UsageRecord) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	byDate := map[string][]UsageRecord{}
+	var dates []string
+	for _, r := range records {
+		if r.Time.IsZero() {
+			return fmt.Errorf("usage record without time")
+		}
+		if r.Input < 0 || r.Output < 0 || r.CacheRead < 0 || r.CacheWrite < 0 {
+			return fmt.Errorf("negative token usage")
+		}
+		date := r.Time.Format("2006-01-02")
+		if _, ok := byDate[date]; !ok {
+			dates = append(dates, date)
+		}
+		byDate[date] = append(byDate[date], r)
 	}
-	date := r.Time.Format("2006-01-02")
-	day, err := l.readDay(date)
-	if err != nil {
-		return fmt.Errorf("read usage: %w", err)
+	for _, date := range dates {
+		day, err := l.readDay(date)
+		if err != nil {
+			return fmt.Errorf("read usage: %w", err)
+		}
+		index := map[string]int{}
+		for i, r := range day.Records {
+			if r.Key != "" {
+				index[r.Key] = i
+			}
+		}
+		for _, r := range byDate[date] {
+			if i, ok := index[r.Key]; ok && r.Key != "" {
+				old := day.Records[i]
+				r.Input = max(r.Input, old.Input)
+				r.Output = max(r.Output, old.Output)
+				r.CacheRead = max(r.CacheRead, old.CacheRead)
+				r.CacheWrite = max(r.CacheWrite, old.CacheWrite)
+				r.Known = r.Known || old.Known
+				day.Records[i] = r
+				continue
+			}
+			if r.Key != "" {
+				index[r.Key] = len(day.Records)
+			}
+			day.Records = append(day.Records, r)
+		}
+		day.Buckets = l.aggregate(day.Records, "buckets")
+		if err := l.writeDay(date, day); err != nil {
+			return err
+		}
 	}
-	day.Records = append(day.Records, r)
-	day.Buckets = l.aggregate(day.Records, "buckets")
-	if err = os.MkdirAll(l.dir, 0700); err != nil {
+	return nil
+}
+
+func (l *UsageLedger) writeDay(date string, day usageDay) error {
+	if err := os.MkdirAll(l.dir, 0700); err != nil {
 		return err
 	}
 	b, err := json.Marshal(day)
@@ -270,15 +268,3 @@ func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]Us
 	}
 	return l.aggregate(records, group), nil
 }
-func (e *Engine) recordUsage(event Event, session AgentSession) {
-	if e.usageLedger == nil || !event.Done {
-		return
-	}
-	model := replyFooterModel(session, e.agent)
-	if model == "" {
-		model = "unknown"
-	}
-	r := UsageRecord{Time: time.Now(), Role: e.name, Model: model, Input: int64(event.InputTokens), Output: int64(event.OutputTokens), CacheRead: int64(event.CacheReadInputTokens), CacheWrite: int64(event.CacheCreationInputTokens), Known: event.UsageKnown}
-	e.usageLedger.Enqueue(r)
-}
-func (e *Engine) SetUsageLedger(l *UsageLedger) { e.usageLedger = l }
