@@ -119,7 +119,7 @@ export async function apply(ctx, rawConfig) {
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: BOT_WS_MAX_PAYLOAD });
   const streams = new Set();
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab', handler: (req, res) => browserRoute(req, res) }), 'conest-collab: /collab');
@@ -197,10 +197,7 @@ export async function apply(ctx, rawConfig) {
       const row = store.attachmentMeta(att[1]);
       const bytes = row === undefined ? undefined : files.read(att[1]);
       if (bytes === undefined) return json(res, 404, { error: 'attachment not found' });
-      res.writeHead(200, { 'content-type': row.mime, 'content-length': bytes.length,
-        'content-disposition': `${INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
-        'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400' });
-      return res.end(bytes);
+      return sendAttachment(req, res, row, bytes);
     }
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
     if (av !== null && req.method === 'GET') {
@@ -436,6 +433,49 @@ const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 class BodyTooLarge extends Error {}
+
+// cc-connect send accepts attachments up to 50 MiB by default (DefaultMaxAttachmentSize in
+// bridge/core/api.go). Bot frames carry them base64-encoded (x4/3) plus JSON fields; 1 MiB of
+// headroom covers those. A smaller cap makes ws close the bot with 1009 after the sender
+// already reported success.
+const MAX_BOT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+export const BOT_WS_MAX_PAYLOAD = Math.ceil(MAX_BOT_ATTACHMENT_BYTES / 3) * 4 + 1024 * 1024;
+
+/** Parses a single `bytes=` range against size: undefined = serve whole body, null = unsatisfiable. */
+export function parseRange(header, size) {
+  if (typeof header !== 'string') return undefined;
+  const m = /^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$/.exec(header);
+  if (m === null || (m[1] === '' && m[2] === '')) return undefined;
+  if (m[1] === '') {
+    const n = Number(m[2]);
+    if (n === 0 || size === 0) return null;
+    return { start: Math.max(0, size - n), end: size - 1 };
+  }
+  const start = Number(m[1]);
+  if (m[2] !== '' && Number(m[2]) < start) return undefined;
+  if (start >= size) return null;
+  return { start, end: m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1) };
+}
+
+/** Serves a stored attachment; honours single byte ranges so iOS Safari can play audio. */
+export function sendAttachment(req, res, row, bytes) {
+  const headers = { 'content-type': row.mime, 'accept-ranges': 'bytes',
+    'content-disposition': `${INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+    'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400' };
+  const range = parseRange(req.headers?.range, bytes.length);
+  if (range === null) {
+    res.writeHead(416, { ...headers, 'content-range': `bytes */${bytes.length}`, 'content-length': 0 });
+    return res.end();
+  }
+  if (range === undefined) {
+    res.writeHead(200, { ...headers, 'content-length': bytes.length });
+    return res.end(bytes);
+  }
+  const part = bytes.subarray(range.start, range.end + 1);
+  res.writeHead(206, { ...headers, 'content-length': part.length,
+    'content-range': `bytes ${range.start}-${range.end}/${bytes.length}` });
+  return res.end(part);
+}
 
 export async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
   let body;

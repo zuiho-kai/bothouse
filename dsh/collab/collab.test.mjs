@@ -2467,6 +2467,64 @@ test('bot image/file/audio frames become channel attachments; media capabilities
   assert.equal(audioMime(''), 'audio/mpeg');
 });
 
+test('bot websocket cap fits a default 50 MiB cc-connect attachment; a 7 MiB file frame is stored', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const { publicMessage } = await import('./store.mjs');
+  const { BOT_WS_MAX_PAYLOAD } = await import('./plugin.mjs');
+  const frameFor = (n) => JSON.stringify({ type: 'file', session_key: 'cloud_web:room-1', reply_ctx: 'room-1',
+    data: Buffer.alloc(n).toString('base64'), mime_type: 'application/octet-stream', file_name: 'big.bin' });
+  assert.ok(Buffer.byteLength(frameFor(50 * 1024 * 1024)) <= BOT_WS_MAX_PAYLOAD);
+
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-big-')), 'attachments'));
+  const hub = makeHub();
+  const ju = connect(new CloudWebGateway(hub, { token: 't', logger: quiet, files }), 'bot=ju&name=橘');
+  await settle();
+  const big = Buffer.alloc(7 * 1024 * 1024, 7);
+  ju.frame({ type: 'file', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', data: big.toString('base64'),
+    mime_type: 'application/octet-stream', file_name: 'big.bin' });
+  await settle();
+  const [row] = hub.store.page(1, undefined, 10).map(r => publicMessage(r, hub.store));
+  assert.deepEqual(row.attachments.map(a => [a.name, a.size]), [['big.bin', big.length]]);
+  assert.ok(files.read(row.attachments[0].id).equals(big));
+});
+
+test('attachment download: 200 without Range, 206 for byte ranges, 416 out of range', async () => {
+  const { createServer } = await import('node:http');
+  const { sendAttachment, parseRange } = await import('./plugin.mjs');
+  const bytes = Buffer.from('0123456789');
+  const server = createServer((req, res) => sendAttachment(req, res, { mime: 'audio/mpeg', name: 'voice.mp3' }, bytes));
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const get = (range) => fetch(`http://127.0.0.1:${server.address().port}/`, range === undefined ? {} : { headers: { range } });
+  try {
+    const all = await get();
+    assert.equal(all.status, 200);
+    assert.equal(all.headers.get('accept-ranges'), 'bytes');
+    assert.equal(all.headers.get('content-length'), '10');
+    assert.equal(all.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(await all.text(), '0123456789');
+    for (const [range, body, cr] of [['bytes=2-4', '234', 'bytes 2-4/10'], ['bytes=7-', '789', 'bytes 7-9/10'],
+      ['bytes=-3', '789', 'bytes 7-9/10'], ['bytes=0-99', '0123456789', 'bytes 0-9/10'], ['bytes=0-1', '01', 'bytes 0-1/10']]) {
+      const res = await get(range);
+      assert.equal(res.status, 206, range);
+      assert.equal(res.headers.get('content-range'), cr, range);
+      assert.equal(res.headers.get('content-length'), String(body.length), range);
+      assert.equal(res.headers.get('accept-ranges'), 'bytes', range);
+      assert.equal(await res.text(), body, range);
+    }
+    for (const range of ['bytes=10-', 'bytes=99-120', 'bytes=-0']) {
+      const res = await get(range);
+      assert.equal(res.status, 416, range);
+      assert.equal(res.headers.get('content-range'), 'bytes */10', range);
+      await res.arrayBuffer();
+    }
+    assert.equal((await get('items=0-1')).status, 200);
+    assert.equal(parseRange('bytes=0-1,4-5', 10), undefined);
+  } finally { server.close(); }
+});
+
 test('#144 oversized POST body gets a 413 response instead of a dropped connection', async () => {
   const { createServer } = await import('node:http');
   const { withBody } = await import('./plugin.mjs');
