@@ -4180,6 +4180,27 @@ var (
 	}
 )
 
+// isYoloModeStr reports whether a mode string represents YOLO / full-auto permission mode.
+func isYoloModeStr(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "yolo", "bypasspermissions", "bypass-permissions", "bypass_permissions", "force":
+		return true
+	default:
+		return false
+	}
+}
+
+// isYoloMode reports whether an Agent's currently configured mode represents YOLO / full-auto permission mode.
+func isYoloMode(a Agent) bool {
+	if a == nil {
+		return false
+	}
+	if ma, ok := a.(interface{ GetMode() string }); ok {
+		return isYoloModeStr(ma.GetMode())
+	}
+	return false
+}
+
 // isApproveAllResponse reports whether s expresses "allow all" intent.
 // Multi-token phrases (e.g. "allow all") are matched first; single-token
 // CJK forms (e.g. "允许所有") are matched per-token so a leading or
@@ -4609,6 +4630,9 @@ func adoptPendingFromPlaceholder(existing, newState *interactiveState) {
 		return
 	}
 	existing.mu.Lock()
+	if existing.approveAll {
+		newState.approveAll = true
+	}
 	if len(existing.pendingMessages) > 0 {
 		newState.pendingMessages = existing.pendingMessages
 		existing.pendingMessages = nil
@@ -4885,6 +4909,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		replyCtx:         replyCtx,
 		agent:            agent,
 		eventsNeedResync: true,
+		approveAll:       isYoloMode(agent),
 	}
 	adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
 	state = newState
@@ -5468,7 +5493,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				// reader iterations fast (stopUnsolicitedReader relies on a
 				// bounded wait for the reader to exit).
 				state.mu.Lock()
-				autoApprove := state.approveAll
+				autoApprove := state.approveAll || isYoloMode(state.agent)
 				state.mu.Unlock()
 
 				result := PermissionResult{Behavior: "deny", Message: "denied: no active user turn"}
@@ -6309,7 +6334,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				event.ToolName == "extension_select") && len(event.Questions) > 0
 
 			state.mu.Lock()
-			autoApprove := state.approveAll
+			autoApprove := state.approveAll || isYoloMode(state.agent)
 			state.mu.Unlock()
 
 			if autoApprove && !isAskQuestion {
@@ -11354,7 +11379,13 @@ func (e *Engine) applyLiveModeChange(sessionKey, mode string) bool {
 	e.interactiveMu.Lock()
 	state, ok := e.interactiveStates[iKey]
 	e.interactiveMu.Unlock()
-	if !ok || state == nil || state.agentSession == nil || !state.agentSession.Alive() {
+	if !ok || state == nil {
+		return false
+	}
+	state.mu.Lock()
+	state.approveAll = isYoloModeStr(mode)
+	state.mu.Unlock()
+	if state.agentSession == nil || !state.agentSession.Alive() {
 		return false
 	}
 	switcher, ok := state.agentSession.(LiveModeSwitcher)

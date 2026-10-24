@@ -59,3 +59,18 @@ func TestDSHSessionAliasSurvivesKeyFilter(t *testing.T) {
 		t.Fatalf("fallback changed: %v", got)
 	}
 }
+
+func TestDSHAgent_DefaultYoloMode(t *testing.T) {
+	opts := applyDSHDefaults(map[string]any{"mode": "yolo"})
+	agent, err := New(opts)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	ma, ok := agent.(interface{ GetMode() string })
+	if !ok {
+		t.Fatalf("agent does not implement GetMode")
+	}
+	if got := ma.GetMode(); got != "yolo" {
+		t.Fatalf("GetMode() = %q, want yolo", got)
+	}
+}

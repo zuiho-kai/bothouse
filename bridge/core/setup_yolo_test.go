@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestDefaultAgentYoloMode(t *testing.T) {
@@ -157,5 +159,122 @@ func TestApplyWizard_PreservesExistingRoleMode(t *testing.T) {
 	// New bot gets "yolo"
 	if p := store.projects["new-bot"]; p.AgentOptions["mode"] != "yolo" {
 		t.Fatalf("new role mode = %v, want yolo", p.AgentOptions["mode"])
+	}
+}
+
+type dshTestAgentSession struct {
+	stubAgentSession
+	events  chan Event
+	mu      sync.Mutex
+	calls   int
+	lastID  string
+	lastRes PermissionResult
+}
+
+func (s *dshTestAgentSession) Events() <-chan Event { return s.events }
+func (s *dshTestAgentSession) RespondPermission(id string, res PermissionResult) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	s.lastID = id
+	s.lastRes = res
+	return nil
+}
+
+// TestDSH_DefaultYoloAutoApprovesPermission verifies that a new DSH role gets mode="yolo"
+// from wizard defaults and automatically approves permission requests during interactive turns.
+func TestDSH_DefaultYoloAutoApprovesPermission(t *testing.T) {
+	noHardware(t)
+	noLocalHub(t)
+	hub := fakeHub(t, "bot-secret")
+	store := newMemStore()
+	dir := t.TempDir()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+
+	// 1. Wizard creates DSH role
+	RegisterAgent("dsh", func(opts map[string]any) (Agent, error) {
+		mode, _ := opts["mode"].(string)
+		return &stubModelModeAgent{mode: mode}, nil
+	})
+	req := cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "dsh-bot", AgentType: "dsh"})
+	res := ApplyWizard(context.Background(), env, req)
+	if !res.Saved {
+		t.Fatalf("wizard failed: %+v", res)
+	}
+
+	pCfg := store.projects["dsh-bot"]
+	if pCfg == nil || pCfg.AgentOptions["mode"] != "yolo" {
+		t.Fatalf("expected DSH role to default to yolo mode, got: %v", pCfg)
+	}
+
+	// 2. Instantiate DSH agent with the options produced by wizard
+	dshAgent, err := CreateAgent("dsh", pCfg.AgentOptions)
+	if err != nil {
+		t.Fatalf("CreateAgent(dsh) failed: %v", err)
+	}
+
+	if !isYoloMode(dshAgent) {
+		t.Fatalf("expected isYoloMode(dshAgent) == true, got false")
+	}
+
+	// 3. Run interactive turn with dshAgent; verify EventPermissionRequest is auto-approved
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", dshAgent, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+
+	sess := &dshTestAgentSession{events: make(chan Event, 8)}
+	key := "test:dsh-session"
+	session := e.sessions.GetOrCreateActive(key)
+	state := &interactiveState{
+		agentSession: sess,
+		platform:     p,
+		replyCtx:     "ctx",
+		agent:        dshAgent,
+		approveAll:   isYoloMode(dshAgent),
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = state
+	e.interactiveMu.Unlock()
+
+	sendDone := make(chan error, 1)
+	sendDone <- nil
+	done := make(chan struct{})
+	go func() {
+		e.processInteractiveEvents(state, session, e.sessions, key, "m1", time.Now(), nil, sendDone, nil)
+		close(done)
+	}()
+
+	// Emit a permission request
+	sess.events <- Event{
+		Type:         EventPermissionRequest,
+		RequestID:    "req-dsh-1",
+		ToolName:     "bash",
+		ToolInput:    "rm -rf /tmp/test",
+		ToolInputRaw: map[string]any{"cmd": "rm -rf /tmp/test"},
+	}
+
+	// Emit result to finish turn
+	sess.events <- Event{Type: EventResult, Content: "finished", Done: true}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("turn timed out")
+	}
+
+	sess.mu.Lock()
+	calls := sess.calls
+	lastID := sess.lastID
+	lastRes := sess.lastRes
+	sess.mu.Unlock()
+
+	if calls != 1 {
+		t.Fatalf("expected 1 auto-approved RespondPermission call, got %d", calls)
+	}
+	if lastID != "req-dsh-1" {
+		t.Fatalf("expected request ID req-dsh-1, got %q", lastID)
+	}
+	if lastRes.Behavior != "allow" {
+		t.Fatalf("expected behavior allow, got %q", lastRes.Behavior)
 	}
 }
