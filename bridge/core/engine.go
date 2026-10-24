@@ -435,9 +435,11 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	voiceDesk                    voiceDeskState                // maomao fork: voice desk (voice_desk.go)
-	team                         *teamState                    // maomao fork: team status board (nil = off)
-	board                        *channelBoardHub              // maomao fork: channel task board (channel_board.go); shared by the process
-	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	pendingResetMu               sync.Mutex
+	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
+	team                         *teamState       // maomao fork: team status board (nil = off)
+	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
+	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
 	projectState                 *ProjectStateStore
@@ -4103,6 +4105,13 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if msg.inputTurn != nil {
 		defer msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("input turn ended without a terminal result")})
 	}
+	// `cc-connect session new --after-turn`: runs after the unlock below,
+	// i.e. once this turn (and anything queued behind it) has replied.
+	resetKey := msg.SessionKey
+	if ccSessionKey != "" {
+		resetKey = ccSessionKey
+	}
+	defer e.applyPendingReset(resetKey)
 	// session.Unlock() is NOT deferred here — it is called explicitly in
 	// the drain loop below while holding state.mu to close the race window
 	// between "queue is empty" and "session unlocked". A deferred fallback
@@ -7863,38 +7872,45 @@ func (e *Engine) cmdNew(p Platform, msg *Message, args []string) {
 		return
 	}
 
-	slog.Info("cmdNew: cleaning up old session", "session_key", msg.SessionKey)
+	name := ""
+	if len(args) > 0 {
+		name = strings.Join(args, " ")
+	}
+	e.startFreshSession(sessions, interactiveKey, msg.SessionKey, name, "用户发了 /new")
+	if name != "" {
+		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgNewSessionCreatedName), name))
+	} else {
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgNewSessionCreated))
+	}
+}
+
+// startFreshSession is the state change behind /new: stop the live agent
+// session, retire the old conversation and open a fresh one that inherits the
+// old transcript's tail. Also used by `cc-connect session new --after-turn`.
+func (e *Engine) startFreshSession(sessions *SessionManager, interactiveKey, sessionKey, name, handoffReason string) {
+	slog.Info("cmdNew: cleaning up old session", "session_key", sessionKey)
 	e.cleanupInteractiveState(interactiveKey)
-	slog.Info("cmdNew: cleanup done, creating new session", "session_key", msg.SessionKey)
+	slog.Info("cmdNew: cleanup done, creating new session", "session_key", sessionKey)
 
 	// Clear old session's agent session ID so it cannot be resumed
-	old := sessions.GetOrCreateActive(msg.SessionKey)
+	old := sessions.GetOrCreateActive(sessionKey)
 	oldAgentID := old.GetAgentSessionID()
 	pendingFrom, pendingReason := old.TakeHandoffFrom() // /new twice before a turn
 	old.SetAgentSessionID("", "")
 	old.ClearHistory()
 	sessions.Save()
 
-	name := ""
-	if len(args) > 0 {
-		name = strings.Join(args, " ")
-	}
-	fresh := sessions.NewSession(msg.SessionKey, name)
+	fresh := sessions.NewSession(sessionKey, name)
 	// maomao fork: the fresh context inherits the old transcript's tail. The
 	// channel backfill keeps its own window: a message marked seen may never
 	// have reached the old context (dropped from the queue by this /new).
 	if _, ok := e.agent.(SessionHandoffReader); ok {
 		if oldAgentID != "" && oldAgentID != ContinueSession {
-			fresh.SetHandoffFrom(oldAgentID, "用户发了 /new")
+			fresh.SetHandoffFrom(oldAgentID, handoffReason)
 		} else if pendingFrom != "" {
 			fresh.SetHandoffFrom(pendingFrom, pendingReason)
 		}
 		sessions.Save()
-	}
-	if name != "" {
-		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgNewSessionCreatedName), name))
-	} else {
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgNewSessionCreated))
 	}
 }
 

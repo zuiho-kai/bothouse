@@ -223,6 +223,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"at":        runTimer,
 	"relay":     runRelay,
 	"sessions":  runSessions,
+	"session":   runSession,
 	"agent-sid": runAgentSID,
 	"daemon":    runDaemon,
 	"feishu":    runFeishu,
@@ -1622,6 +1623,7 @@ Commands:
   sessions           Browse session history
     list             List all sessions (pipe-friendly)
     show <id>        Show session messages (-n N for last N)
+  session new        Reset this agent session after the current turn (--after-turn)
 
   agent-sid          Print the agent session ID for the current session
 
