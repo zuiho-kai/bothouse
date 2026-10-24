@@ -716,7 +716,7 @@ level = "info" # debug, info, warn, error
 
 [[projects]]
 name = "my-backend"
-# public_progress = false  # Explicit public task reports to Discord cards; default off, restart required. See docs/PUBLIC_PROGRESS.md.
+# public_progress = false  # Optional opt-out: public task cards are on by default; restart required. See docs/PUBLIC_PROGRESS.md.
 #
 # ---- maomao fork: gate / main + subs / team status (see docs/ccm-and-wiki.md) ----
 # ---- maomao 分支：快脑闸门、一主多 sub、队友状态（说明见仓库根目录 docs/ccm-and-wiki.md）----

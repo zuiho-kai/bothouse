@@ -487,7 +487,9 @@ type ReferenceConfig struct {
 
 // ProjectConfig binds one agent (with a specific work_dir) to one or more platforms.
 type ProjectConfig struct {
-	PublicProgress bool   `toml:"public_progress,omitempty"` // explicit public reports; default off
+	// PublicProgress is enabled when omitted so a main bot's first delegation
+	// can create its task card automatically. Set it to false to opt out.
+	PublicProgress *bool  `toml:"public_progress,omitempty"`
 	Name           string `toml:"name"`
 	Mode           string `toml:"mode,omitempty"`     // "" or "multi-workspace"
 	BaseDir        string `toml:"base_dir,omitempty"` // parent dir for workspaces
@@ -649,6 +651,12 @@ type ProjectConfig struct {
 	Shell string `toml:"shell,omitempty"`
 	// ShellProfile overrides the global shell_profile for this project.
 	ShellProfile string `toml:"shell_profile,omitempty"`
+}
+
+// PublicProgressEnabled reports whether public task cards are available for
+// this project. Unset keeps the team default on; false is an explicit opt-out.
+func (p ProjectConfig) PublicProgressEnabled() bool {
+	return p.PublicProgress == nil || *p.PublicProgress
 }
 
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user

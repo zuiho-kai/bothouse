@@ -466,7 +466,7 @@ func main() {
 		engine.SetBaseWorkDir(workDir)
 		engine.SetProjectStateStore(projectState)
 		engine.SetDataDir(cfg.DataDir)
-		if proj.PublicProgress {
+		if proj.PublicProgressEnabled() {
 			if err := engine.EnablePublicProgress(); err != nil {
 				slog.Error("public progress initialization failed", "error", err)
 				os.Exit(1)
