@@ -1,16 +1,17 @@
 package core
 
 import (
-	"errors"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -1202,5 +1203,200 @@ func TestApplyWizardDiscordGateToggle(t *testing.T) {
 	}
 	if str(ju.GateURL) != hand {
 		t.Errorf("gate on again: hand-written gate_url = %q, want %q", str(ju.GateURL), hand)
+	}
+}
+
+// wizardGateTestEnv: no gate on this machine's 9930, no python for the gate; returns a nil-safe
+// *string reader.
+func wizardGateTestEnv(t *testing.T) func(*string) string {
+	t.Helper()
+	noHardware(t)
+	oldAddr, oldFind := gateAddr, findPythonForGate
+	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
+	gateAddr = "127.0.0.1:1" // nothing listens: never the gate running on this machine
+	findPythonForGate = func() (string, error) { return "", errors.New("no python") }
+	return func(p *string) string {
+		if p == nil {
+			return "<unset>"
+		}
+		return *p
+	}
+}
+
+func readGateTeam(t *testing.T, dir string) (lead string, aliases []string, subs []string) {
+	t.Helper()
+	var gt struct {
+		Lead struct {
+			Name    string   `json:"name"`
+			Aliases []string `json:"aliases"`
+		} `json:"lead"`
+		Subs map[string]any `json:"subs"`
+	}
+	if !readJSONFile(filepath.Join(dir, gateTeamFile), &gt) {
+		t.Fatalf("gate-team.json missing or unreadable")
+	}
+	for k := range gt.Subs {
+		subs = append(subs, k)
+	}
+	sort.Strings(subs)
+	return gt.Lead.Name, gt.Lead.Aliases, subs
+}
+
+func TestApplyWizardCloudWebGateToggle(t *testing.T) {
+	str := wizardGateTestEnv(t)
+	noLocalHub(t)
+	hub := fakeHub(t, "bot-secret")
+	dir := t.TempDir()
+	store := newMemStore()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	run := func(gate *WizardGate) *WizardResult {
+		t.Helper()
+		req := cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Juzi"}, WizardRole{Name: "Whale"})
+		req.FallbackRole, req.Gate = "Juzi", gate
+		res := ApplyWizard(context.Background(), env, req)
+		if !res.Saved {
+			t.Fatalf("apply (gate=%+v) failed: %+v", gate, res)
+		}
+		return res
+	}
+
+	// 1. old request, no gate field: on
+	res := run(nil)
+	ju, whale := store.projects["juzi"], store.projects["whale"]
+	if ju == nil || whale == nil {
+		t.Fatalf("projects = %v", store.order)
+	}
+	if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" ||
+		str(whale.GateURL) != defaultGateURL+"?bot=whale" || str(whale.GateFallback) != "context" {
+		t.Fatalf("default gate: juzi %s/%s whale %s/%s", str(ju.GateURL), str(ju.GateFallback), str(whale.GateURL), str(whale.GateFallback))
+	}
+	if lead, aliases, subs := readGateTeam(t, dir); lead != "Juzi" || len(aliases) != 1 || aliases[0] != "juzi" || len(subs) != 1 || subs[0] != "whale" {
+		t.Errorf("gate-team.json: lead=%q aliases=%v subs=%v", lead, aliases, subs)
+	}
+	if res.GateStatus != GateStatusPythonMissing || res.GateHint == "" {
+		t.Errorf("gate status = %q hint = %q", res.GateStatus, res.GateHint)
+	}
+
+	// a hand-written gate elsewhere on whale
+	hand := "http://10.0.0.5:9930/decide?bot=whale"
+	store.projects["whale"].GateURL = &hand
+
+	// 2. switched off: the wizard's values cleared, the hand-written one kept, no gate-team.json
+	os.Remove(filepath.Join(dir, gateTeamFile))
+	res = run(&WizardGate{Enabled: false})
+	ju, whale = store.projects["juzi"], store.projects["whale"]
+	if str(ju.GateURL) != "" || str(ju.GateFallback) != "" {
+		t.Errorf("gate off: juzi gate = %q/%q, want cleared", str(ju.GateURL), str(ju.GateFallback))
+	}
+	if str(whale.GateURL) != hand {
+		t.Errorf("gate off: hand-written gate_url = %q, want %q", str(whale.GateURL), hand)
+	}
+	if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); !os.IsNotExist(err) {
+		t.Errorf("gate-team.json written with the gate off: %v", err)
+	}
+	if res.GateStatus != GateStatusOff {
+		t.Errorf("gate off: status = %q", res.GateStatus)
+	}
+	// the team wiring that does not depend on the gate stays
+	if whale.Options["team_lead_bot"] == nil || whale.Options["group_reply_all"] != true {
+		t.Errorf("gate off dropped the team wiring: %v", whale.Options)
+	}
+
+	// 3. on again: the wizard's gate back, the hand-written one still kept
+	run(&WizardGate{Enabled: true})
+	ju, whale = store.projects["juzi"], store.projects["whale"]
+	if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" {
+		t.Errorf("gate on again: juzi gate = %q/%q", str(ju.GateURL), str(ju.GateFallback))
+	}
+	if str(whale.GateURL) != hand {
+		t.Errorf("gate on again: hand-written gate_url = %q, want %q", str(whale.GateURL), hand)
+	}
+}
+
+// Feishu / Lark: one bot per run; the second run joins the first bot (found again from the state),
+// the first bot stays the lead, both get the gate and group_reply_all / share_session_in_channel.
+func TestApplyWizardFeishuLarkGateTwoRuns(t *testing.T) {
+	for _, pt := range []string{"feishu", "lark"} {
+		t.Run(pt, func(t *testing.T) {
+			str := wizardGateTestEnv(t)
+			dir := t.TempDir()
+			store := newMemStore()
+			env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+			run := func(appID, name string, gate *WizardGate) *WizardResult {
+				t.Helper()
+				f := &WizardFeishu{AppID: appID, AppSecret: "s-" + appID, ChatID: "oc_1"}
+				if pt == "lark" {
+					f.PlatformType = "lark"
+				}
+				res := ApplyWizard(context.Background(), env, WizardRequest{Platform: pt, Language: "zh", Feishu: f,
+					Roles: []WizardRole{{Name: name}}, Gate: gate})
+				if !res.OK && !res.Saved {
+					t.Fatalf("%s run %s failed: %+v", pt, name, res)
+				}
+				return res
+			}
+
+			// run 1: one bot, no team yet, so no gate fields and no gate-team.json
+			run("cli_a", "Juzi", nil)
+			ju := store.projects["juzi"]
+			if ju == nil || ju.PlatformType != pt || ju.Options["app_id"] != "cli_a" {
+				t.Fatalf("run 1: %v %+v", store.order, ju)
+			}
+			if ju.GateURL != nil {
+				t.Errorf("run 1 (one bot) wrote a gate: %q", str(ju.GateURL))
+			}
+			if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); !os.IsNotExist(err) {
+				t.Errorf("run 1 (one bot) wrote gate-team.json: %v", err)
+			}
+			// the user set this one by hand: kept
+			ju.Options["share_session_in_channel"] = false
+
+			// run 2: a second bot, old request (no gate field) = on; joins the first one, which stays the lead
+			res := run("cli_b", "Whale", nil)
+			ju, whale := store.projects["juzi"], store.projects["whale"]
+			if whale == nil || whale.PlatformType != pt || len(store.order) != 2 {
+				t.Fatalf("run 2: %v %+v", store.order, whale)
+			}
+			if res.FallbackRole != "juzi" {
+				t.Errorf("run 2 lead = %q, want the first bot juzi", res.FallbackRole)
+			}
+			if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" ||
+				str(whale.GateURL) != defaultGateURL+"?bot=whale" || str(whale.GateFallback) != "context" {
+				t.Errorf("run 2 gate: juzi %s/%s whale %s/%s", str(ju.GateURL), str(ju.GateFallback), str(whale.GateURL), str(whale.GateFallback))
+			}
+			if ju.Options["group_reply_all"] != true || ju.Options["share_session_in_channel"] != false ||
+				whale.Options["group_reply_all"] != true || whale.Options["share_session_in_channel"] != true {
+				t.Errorf("run 2 options: juzi %v whale %v", ju.Options, whale.Options)
+			}
+			if ju.PlatformType != pt { // the lead, not in this run, keeps its own platform type
+				t.Errorf("lead platform_type = %q, want %q", ju.PlatformType, pt)
+			}
+			if lead, aliases, subs := readGateTeam(t, dir); lead != "Juzi" || len(aliases) != 1 || aliases[0] != "juzi" || len(subs) != 1 || subs[0] != "whale" {
+				t.Errorf("gate-team.json: lead=%q aliases=%v subs=%v", lead, aliases, subs)
+			}
+			if res.GateStatus != GateStatusPythonMissing || res.GateHint == "" {
+				t.Errorf("gate status = %q hint = %q", res.GateStatus, res.GateHint)
+			}
+
+			// run 3: the first app again = the same bot, not a third project; lead unchanged
+			res = run("cli_a", "Juzi", nil)
+			if len(store.order) != 2 || res.FallbackRole != "juzi" || !res.Roles[0].Reused {
+				t.Errorf("run 3 (same app): order=%v lead=%q roles=%+v", store.order, res.FallbackRole, res.Roles)
+			}
+
+			// run 4: gate off clears what the wizard wrote and writes no gate-team.json
+			os.Remove(filepath.Join(dir, gateTeamFile))
+			res = run("cli_b", "Whale", &WizardGate{Enabled: false})
+			ju, whale = store.projects["juzi"], store.projects["whale"]
+			if str(ju.GateURL) != "" || str(ju.GateFallback) != "" || str(whale.GateURL) != "" || str(whale.GateFallback) != "" {
+				t.Errorf("gate off: juzi %q/%q whale %q/%q", str(ju.GateURL), str(ju.GateFallback), str(whale.GateURL), str(whale.GateFallback))
+			}
+			if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); !os.IsNotExist(err) {
+				t.Errorf("gate-team.json written with the gate off: %v", err)
+			}
+			if res.GateStatus != GateStatusOff {
+				t.Errorf("gate off: status = %q", res.GateStatus)
+			}
+		})
 	}
 }
