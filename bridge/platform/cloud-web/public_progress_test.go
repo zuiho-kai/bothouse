@@ -29,6 +29,9 @@ func TestTaskCardCreatedThenEdited(t *testing.T) {
 	if first["type"] != "preview_start" || first["ref_id"] != "taskcard-task-1" || first["reply_ctx"] != "room-2" || !strings.Contains(first["content"].(string), "整理日志") {
 		t.Fatalf("create frame = %#v", first)
 	}
+	if !strings.HasPrefix(first["content"].(string), core.ProgressCardPayloadPrefix) {
+		t.Fatalf("task card must use the progress-card payload so the gateway keeps it across reconnects: %q", first["content"])
+	}
 	if task.MessageID != "hub-42" {
 		t.Fatalf("MessageID = %q", task.MessageID)
 	}

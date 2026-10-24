@@ -80,18 +80,22 @@ func (p *Platform) PublishTaskFact(context.Context, *core.Task, core.TaskEvent, 
 	return nil
 }
 
+// renderTaskCardText encodes the card as a progress-card payload, the same
+// path as the turn progress card (gateway body() -> progressCard()). The
+// gateway then stores it with a card, which keeps it out of the text-draft
+// cleanup that runs when a bot disconnects or registers again (#119 review):
+// a plain-text preview would be dropped there and later edits would miss.
 func renderTaskCardText(task *core.Task) string {
-	var b strings.Builder
 	title := strings.TrimSpace(task.Title)
 	if title == "" {
 		title = task.ID
 	}
-	fmt.Fprintf(&b, "📋 **%s** · %s", title, task.State)
+	items := []core.ProgressCardEntry{{Kind: core.ProgressEntryInfo, Text: fmt.Sprintf("📋 %s · %s", title, task.State)}}
 	if s := strings.TrimSpace(task.LatestProgress); s != "" {
-		b.WriteString("\n" + s)
+		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: s})
 	}
 	for _, m := range task.Members {
-		line := "\n- " + m.Name
+		line := m.Name
 		if m.Title != "" {
 			line += "：" + m.Title
 		}
@@ -101,7 +105,17 @@ func renderTaskCardText(task *core.Task) string {
 		if m.Summary != "" {
 			line += " " + m.Summary
 		}
-		b.WriteString(line)
+		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: line})
 	}
-	return b.String()
+	return core.BuildProgressCardPayloadV2(items, false, "📋 "+title, "", taskCardState(task.State))
+}
+
+func taskCardState(s core.TaskState) core.ProgressCardState {
+	switch s {
+	case core.TaskStateCompleted, core.TaskStateResultReady:
+		return core.ProgressCardStateCompleted
+	case core.TaskStateFailed, core.TaskStateCancelled:
+		return core.ProgressCardStateFailed
+	}
+	return core.ProgressCardStateRunning
 }

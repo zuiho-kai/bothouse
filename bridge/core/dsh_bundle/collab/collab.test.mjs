@@ -1101,6 +1101,28 @@ test('a teammate draft that commits later still reaches members whose cursor mov
   assert.match(agent.prompts.at(-1).content[0].text, /查完了/, 'the handoff prompt contains the committed reply');
 });
 
+test('cloud-web #119 task card survives disconnect/reconnect and keeps editing the same row', () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const card = (state, text) => PROGRESS_PREFIX + JSON.stringify({ version: 2, agent: '📋 整理日志', state, items: [{ kind: 'info', text }] });
+  let ju = connect(gw, 'bot=ju&name=橘');
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+  const before = whale.of('message').length;
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '开始') });
+  const handle = ju.of('preview_ack').at(-1).preview_handle;
+  assert.match(handle, /^\d+$/);
+  assert.equal(whale.of('message').length, before, 'the task card is not broadcast to other bots');
+  ju.close(1006, 'gone');
+  assert.ok(hub.store.message(Number(handle)), 'a dropped connection keeps the task card');
+  ju = connect(gw, 'bot=ju&name=橘');
+  assert.ok(hub.store.message(Number(handle)), 're-registering keeps the task card');
+  ju.frame({ type: 'update_message', preview_handle: handle, content: card('completed', '完成一半') });
+  const row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成一半/, 'later edits land on the same row');
+  assert.equal(JSON.parse(row.card).state, 'completed');
+  assert.equal(whale.of('message').length, before, 'edits are not broadcast either');
+});
+
 test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a CLI job settled after restart', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
