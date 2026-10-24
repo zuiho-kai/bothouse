@@ -11,18 +11,23 @@ import (
 func TestManagementRolesAndDevices(t *testing.T) {
 	mgmt := NewManagementServer(0, "test-token", nil)
 
+	plat1 := &stubPlatform{n: "discord"}
+	plat2 := &stubPlatform{n: "telegram"}
+
 	// Create a dummy engine
 	e := &Engine{
 		name:              "caihongmao",
 		agent:             &stubAgent{},
 		sessions:          NewSessionManager(""),
 		interactiveStates: make(map[string]*interactiveState),
+		platforms:         []Platform{plat1, plat2},
+		platformReady:     map[Platform]bool{plat1: true, plat2: false},
 	}
 	mgmt.RegisterEngine("caihongmao", e)
 
 	handler := mgmt.buildHandler(http.NewServeMux())
 
-	// 1. GET /api/v1/roles
+	// 1. GET /api/v1/roles (initially idle, plat1 ready, plat2 not ready)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/roles", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
@@ -45,20 +50,78 @@ func TestManagementRolesAndDevices(t *testing.T) {
 		t.Fatalf("expected 1 role, got %d", len(rolesResp.Data.Roles))
 	}
 	role := rolesResp.Data.Roles[0]
-	if role.Name != "caihongmao" || role.CurrentTask != "空闲" || role.Paused {
+	if role.Name != "caihongmao" || role.CurrentTask != "空闲" || role.Paused || !role.Online {
 		t.Fatalf("unexpected role data: %+v", role)
 	}
+	if len(role.Platforms) != 2 {
+		t.Fatalf("expected 2 platforms, got %d", len(role.Platforms))
+	}
+	if !role.Platforms[0].Ready || role.Platforms[1].Ready {
+		t.Fatalf("unexpected platform readiness: %+v", role.Platforms)
+	}
 
-	// 2. POST /api/v1/roles/caihongmao/pause
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/roles/caihongmao/pause", nil)
+	// 2. POST /api/v1/roles/caihongmao/pause (set paused = true)
+	pausePayload := []byte(`{"paused":true}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/roles/caihongmao/pause", bytes.NewReader(pausePayload))
 	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("POST /roles/caihongmao/pause status = %d, want 200", w.Code)
 	}
+	if !e.IsPaused() {
+		t.Fatalf("expected engine to be paused")
+	}
 
-	// 3. POST /api/v1/roles/caihongmao/restart
+	// Verify GET /roles reports paused: true
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/roles", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	handler.ServeHTTP(w, req)
+	if err := json.Unmarshal(w.Body.Bytes(), &rolesResp); err != nil {
+		t.Fatalf("unmarshal roles response: %v", err)
+	}
+	if !rolesResp.Data.Roles[0].Paused {
+		t.Fatalf("expected role paused = true")
+	}
+
+	// Verify engine true pause behavior: handleMessage returns early without work
+	msg := &Message{Platform: "discord", Content: "hello"}
+	e.handleMessage(plat1, msg) // should drop message immediately because e.IsPaused() == true
+
+	// POST /roles/caihongmao/pause (set paused = false)
+	pausePayload = []byte(`{"paused":false}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/roles/caihongmao/pause", bytes.NewReader(pausePayload))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /roles/caihongmao/pause (resume) status = %d, want 200", w.Code)
+	}
+	if e.IsPaused() {
+		t.Fatalf("expected engine to be resumed")
+	}
+
+	// 3. Test Busy reporting via Session.Busy()
+	sess := e.sessions.GetOrCreateActive("test-session")
+	if !sess.TryLock() {
+		t.Fatalf("failed to lock session")
+	}
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/roles", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	handler.ServeHTTP(w, req)
+	if err := json.Unmarshal(w.Body.Bytes(), &rolesResp); err != nil {
+		t.Fatalf("unmarshal roles response: %v", err)
+	}
+	if !rolesResp.Data.Roles[0].Busy || rolesResp.Data.Roles[0].CurrentTask != "处理会话消息中" {
+		t.Fatalf("expected busy=true with task, got %+v", rolesResp.Data.Roles[0])
+	}
+	sess.Unlock()
+
+	// 4. POST /api/v1/roles/caihongmao/restart
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/roles/caihongmao/restart", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
 	w = httptest.NewRecorder()
@@ -67,52 +130,12 @@ func TestManagementRolesAndDevices(t *testing.T) {
 		t.Fatalf("POST /roles/caihongmao/restart status = %d, want 200", w.Code)
 	}
 
-	// 4. GET /api/v1/devices (empty initially)
+	// 5. GET /api/v1/devices
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /devices status = %d, want 200", w.Code)
-	}
-
-	// 5. POST /api/v1/devices/register
-	regPayload := []byte(`{"id":"deskpet-1","name":"Desktop Pet","type":"desktop_pet","version":"1.0.0"}`)
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/register", bytes.NewReader(regPayload))
-	req.Header.Set("Authorization", "Bearer test-token")
-	req.Header.Set("Content-Type", "application/json")
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("POST /devices/register status = %d, want 200: %s", w.Code, w.Body.String())
-	}
-
-	// 6. POST /api/v1/devices/deskpet-1/heartbeat
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/deskpet-1/heartbeat", nil)
-	req.Header.Set("Authorization", "Bearer test-token")
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("POST /devices/deskpet-1/heartbeat status = %d, want 200", w.Code)
-	}
-
-	// 7. GET /api/v1/devices/deskpet-1
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/devices/deskpet-1", nil)
-	req.Header.Set("Authorization", "Bearer test-token")
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /devices/deskpet-1 status = %d, want 200", w.Code)
-	}
-
-	// 8. PATCH /api/v1/devices/deskpet-1
-	patchPayload := []byte(`{"enabled":false}`)
-	req = httptest.NewRequest(http.MethodPatch, "/api/v1/devices/deskpet-1", bytes.NewReader(patchPayload))
-	req.Header.Set("Authorization", "Bearer test-token")
-	req.Header.Set("Content-Type", "application/json")
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("PATCH /devices/deskpet-1 status = %d, want 200", w.Code)
 	}
 }

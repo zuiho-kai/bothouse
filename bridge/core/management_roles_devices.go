@@ -5,33 +5,25 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
-// Device represents an external client or pet device connected to bothouse.
-type Device struct {
-	ID           string         `json:"id"`
-	Name         string         `json:"name"`
-	Type         string         `json:"type"` // e.g. "desktop_pet", "mobile", "tray"
-	Version      string         `json:"version"`
-	Enabled      bool           `json:"enabled"`
-	Status       string         `json:"status"` // "online", "offline"
-	LastSeen     time.Time      `json:"last_seen"`
-	RegisteredAt time.Time      `json:"registered_at"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
+// PlatformStatus represents the readiness of a platform connected to an engine.
+type PlatformStatus struct {
+	Name  string `json:"name"`
+	Ready bool   `json:"ready"`
 }
 
 // RoleInfo represents the status of a role/engine in bothouse.
 type RoleInfo struct {
-	Name          string   `json:"name"`
-	AgentType     string   `json:"agent_type"`
-	Model         string   `json:"model"`
-	Online        bool     `json:"online"`
-	Busy          bool     `json:"busy"`
-	CurrentTask   string   `json:"current_task"`
-	Paused        bool     `json:"paused"`
-	Platforms     []string `json:"platforms"`
-	SessionsCount int      `json:"sessions_count"`
+	Name          string           `json:"name"`
+	AgentType     string           `json:"agent_type"`
+	Model         string           `json:"model"`
+	Online        bool             `json:"online"`
+	Busy          bool             `json:"busy"`
+	CurrentTask   string           `json:"current_task"`
+	Paused        bool             `json:"paused"`
+	Platforms     []PlatformStatus `json:"platforms"`
+	SessionsCount int              `json:"sessions_count"`
 }
 
 // ── Roles API ──────────────────────────────────────────────────
@@ -44,37 +36,89 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	m.rolesMu.RLock()
-	defer m.rolesMu.RUnlock()
 
 	roles := make([]RoleInfo, 0, len(m.engines))
 	for name, e := range m.engines {
-		platNames := make([]string, len(e.platforms))
-		for i, p := range e.platforms {
-			platNames[i] = p.Name()
+		// 1. Online status and per-platform readiness
+		online := false
+		var platforms []PlatformStatus
+		e.platformLifecycleMu.Lock()
+		for _, p := range e.platforms {
+			ready := e.platformReady[p]
+			if ready {
+				online = true
+			}
+			platforms = append(platforms, PlatformStatus{
+				Name:  p.Name(),
+				Ready: ready,
+			})
+		}
+		e.platformLifecycleMu.Unlock()
+		if platforms == nil {
+			platforms = []PlatformStatus{}
 		}
 
-		model := e.agent.Name()
-		if ms, ok := e.agent.(ModelSwitcher); ok {
-			if cur := ms.GetModel(); cur != "" {
-				model = cur
+		// 2. Active model resolution via replyFooterModel
+		var activeSession AgentSession
+		e.interactiveMu.Lock()
+		for _, state := range e.interactiveStates {
+			if state == nil {
+				continue
+			}
+			state.mu.Lock()
+			sess := state.agentSession
+			state.mu.Unlock()
+			if sess != nil {
+				activeSession = sess
+				break
 			}
 		}
+		e.interactiveMu.Unlock()
 
+		model := replyFooterModel(activeSession, e.agent)
+		if model == "" {
+			model = "未知"
+		}
+
+		// 3. Busy status & current task from Session.Busy()
 		busy := false
 		currentTask := "空闲"
 
-		// Check active interactive sessions or sessions marked busy
-		e.interactiveMu.Lock()
-		activeCount := len(e.interactiveStates)
-		e.interactiveMu.Unlock()
+		if e.team != nil {
+			e.team.mu.Lock()
+			for _, ts := range e.team.seen {
+				if ts.relay != nil {
+					ts.relay.mu.Lock()
+					relayBusy := ts.relay.entry.Busy
+					relayTask := ts.relay.entry.Task
+					ts.relay.mu.Unlock()
+					if relayBusy {
+						busy = true
+						if relayTask != "" {
+							currentTask = relayTask
+						} else {
+							currentTask = "忙碌中"
+						}
+						break
+					}
+					continue
+				}
 
-		if activeCount > 0 {
-			busy = true
-			currentTask = "处理交互任务中"
-		} else {
-			allSessions := e.sessions.AllSessions()
-			for _, sess := range allSessions {
+				if ts.session != nil && ts.session.Busy() {
+					busy = true
+					if ts.task != "" {
+						currentTask = ts.task
+					} else {
+						currentTask = "处理会话消息中"
+					}
+					break
+				}
+			}
+			e.team.mu.Unlock()
+		}
+
+		if !busy {
+			for _, sess := range e.sessions.AllSessions() {
 				if sess.Busy() {
 					busy = true
 					currentTask = "处理会话消息中"
@@ -83,25 +127,7 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Also check team status if available
-		if e.team != nil {
-			e.team.mu.Lock()
-			for _, s := range e.team.seen {
-				if s.busy {
-					busy = true
-					if s.task != "" {
-						currentTask = s.task
-					} else {
-						currentTask = "忙碌中"
-					}
-					break
-				}
-			}
-			e.team.mu.Unlock()
-		}
-
-		online := len(e.platforms) > 0 || !e.startedAt.IsZero()
-		paused := m.pausedRoles[name]
+		paused := e.IsPaused()
 
 		roles = append(roles, RoleInfo{
 			Name:          name,
@@ -111,7 +137,7 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 			Busy:          busy,
 			CurrentTask:   currentTask,
 			Paused:        paused,
-			Platforms:     platNames,
+			Platforms:     platforms,
 			SessionsCount: len(e.sessions.AllSessions()),
 		})
 	}
@@ -120,26 +146,23 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Request) {
-	// Parse: /api/v1/roles/{name}/{action}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/roles/")
 	parts := strings.Split(path, "/")
-	if len(parts) == 0 || parts[0] == "" {
-		mgmtError(w, http.StatusBadRequest, "role name required")
+	if len(parts) != 2 {
+		mgmtError(w, http.StatusNotFound, "not found")
 		return
 	}
 
 	roleName := parts[0]
-	m.mu.RLock()
-	engine, exists := m.engines[roleName]
-	m.mu.RUnlock()
-	if !exists {
-		mgmtError(w, http.StatusNotFound, fmt.Sprintf("role not found: %s", roleName))
-		return
-	}
+	action := parts[1]
 
-	action := ""
-	if len(parts) > 1 {
-		action = parts[1]
+	m.mu.RLock()
+	e, ok := m.engines[roleName]
+	m.mu.RUnlock()
+
+	if !ok {
+		mgmtError(w, http.StatusNotFound, fmt.Sprintf("role %q not found", roleName))
+		return
 	}
 
 	switch action {
@@ -149,15 +172,17 @@ func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// Close existing interactive sessions to force restart
-		engine.interactiveMu.Lock()
-		for key, state := range engine.interactiveStates {
-			if state.agentSession != nil {
-				_ = state.agentSession.Close()
-			}
-			delete(engine.interactiveStates, key)
+		// Clean up interactive states safely via cleanupInteractiveState without holding interactiveMu during teardown
+		e.interactiveMu.Lock()
+		keys := make([]string, 0, len(e.interactiveStates))
+		for k := range e.interactiveStates {
+			keys = append(keys, k)
 		}
-		engine.interactiveMu.Unlock()
+		e.interactiveMu.Unlock()
+
+		for _, k := range keys {
+			e.cleanupInteractiveState(k)
+		}
 
 		mgmtJSON(w, http.StatusOK, map[string]any{
 			"role":    roleName,
@@ -171,14 +196,19 @@ func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		m.rolesMu.Lock()
-		m.pausedRoles[roleName] = !m.pausedRoles[roleName]
-		isPaused := m.pausedRoles[roleName]
-		m.rolesMu.Unlock()
+		var req struct {
+			Paused bool `json:"paused"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			mgmtError(w, http.StatusBadRequest, "invalid request body: expected JSON with paused boolean")
+			return
+		}
 
-		// If heartbeat scheduler exists, pause or resume as well
+		e.SetPaused(req.Paused)
+
+		// Also update heartbeat scheduler if configured
 		if m.heartbeatScheduler != nil {
-			if isPaused {
+			if req.Paused {
 				_ = m.heartbeatScheduler.Pause(roleName)
 			} else {
 				_ = m.heartbeatScheduler.Resume(roleName)
@@ -187,8 +217,8 @@ func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Reque
 
 		mgmtJSON(w, http.StatusOK, map[string]any{
 			"role":    roleName,
-			"paused":  isPaused,
-			"message": fmt.Sprintf("role %s pause state set to %v", roleName, isPaused),
+			"paused":  req.Paused,
+			"message": fmt.Sprintf("role %s pause state set to %v", roleName, req.Paused),
 		})
 
 	default:
@@ -196,189 +226,18 @@ func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// ── Devices API ────────────────────────────────────────────────
+// ── Devices API (Adapter listing from bridge server) ────────────
 
 func (m *ManagementServer) handleDevices(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		m.devicesMu.RLock()
-		defer m.devicesMu.RUnlock()
-
-		now := time.Now()
-		list := make([]Device, 0, len(m.devices))
-		for _, dev := range m.devices {
-			dCopy := *dev
-			// If not seen for over 3 minutes, report as offline
-			if now.Sub(dCopy.LastSeen) > 3*time.Minute {
-				dCopy.Status = "offline"
-			}
-			list = append(list, dCopy)
-		}
-		mgmtJSON(w, http.StatusOK, map[string]any{"devices": list})
-
-	case http.MethodPost:
-		m.handleDeviceRegister(w, r)
-
-	default:
-		mgmtError(w, http.StatusMethodNotAllowed, "GET or POST only")
-	}
-}
-
-func (m *ManagementServer) handleDeviceRegister(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID       string         `json:"id"`
-		Name     string         `json:"name"`
-		Type     string         `json:"type"`
-		Version  string         `json:"version"`
-		Metadata map[string]any `json:"metadata"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+	if r.Method != http.MethodGet {
+		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
 		return
 	}
 
-	if req.ID == "" {
-		req.ID = fmt.Sprintf("dev-%d", time.Now().UnixNano())
-	}
-	if req.Name == "" {
-		req.Name = req.ID
-	}
-	if req.Type == "" {
-		req.Type = "external"
+	adapters := m.listBridgeAdapters()
+	if adapters == nil {
+		adapters = []map[string]any{}
 	}
 
-	now := time.Now()
-	m.devicesMu.Lock()
-	existing, ok := m.devices[req.ID]
-	if ok {
-		existing.Name = req.Name
-		existing.Type = req.Type
-		if req.Version != "" {
-			existing.Version = req.Version
-		}
-		existing.LastSeen = now
-		existing.Status = "online"
-		if req.Metadata != nil {
-			existing.Metadata = req.Metadata
-		}
-	} else {
-		existing = &Device{
-			ID:           req.ID,
-			Name:         req.Name,
-			Type:         req.Type,
-			Version:      req.Version,
-			Enabled:      true,
-			Status:       "online",
-			LastSeen:     now,
-			RegisteredAt: now,
-			Metadata:     req.Metadata,
-		}
-		m.devices[req.ID] = existing
-	}
-	dCopy := *existing
-	m.devicesMu.Unlock()
-
-	mgmtJSON(w, http.StatusOK, map[string]any{
-		"device":  dCopy,
-		"message": "device registered",
-	})
-}
-
-func (m *ManagementServer) handleDeviceRoutes(w http.ResponseWriter, r *http.Request) {
-	// Parse: /api/v1/devices/{id}[/{action}]
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/devices/")
-	parts := strings.Split(path, "/")
-	if len(parts) == 0 || parts[0] == "" {
-		mgmtError(w, http.StatusBadRequest, "device id required")
-		return
-	}
-
-	if parts[0] == "register" {
-		if r.Method != http.MethodPost {
-			mgmtError(w, http.StatusMethodNotAllowed, "POST only")
-			return
-		}
-		m.handleDeviceRegister(w, r)
-		return
-	}
-
-	deviceID := parts[0]
-	action := ""
-	if len(parts) > 1 {
-		action = parts[1]
-	}
-
-	m.devicesMu.Lock()
-	dev, ok := m.devices[deviceID]
-	if !ok {
-		m.devicesMu.Unlock()
-		mgmtError(w, http.StatusNotFound, fmt.Sprintf("device not found: %s", deviceID))
-		return
-	}
-
-	switch action {
-	case "heartbeat":
-		if r.Method != http.MethodPost {
-			m.devicesMu.Unlock()
-			mgmtError(w, http.StatusMethodNotAllowed, "POST only")
-			return
-		}
-		dev.LastSeen = time.Now()
-		dev.Status = "online"
-		dCopy := *dev
-		m.devicesMu.Unlock()
-
-		mgmtJSON(w, http.StatusOK, map[string]any{
-			"device":  dCopy,
-			"message": "heartbeat acknowledged",
-		})
-
-	case "":
-		switch r.Method {
-		case http.MethodGet:
-			dCopy := *dev
-			if time.Since(dCopy.LastSeen) > 3*time.Minute {
-				dCopy.Status = "offline"
-			}
-			m.devicesMu.Unlock()
-			mgmtJSON(w, http.StatusOK, map[string]any{"device": dCopy})
-
-		case http.MethodPatch:
-			var patch struct {
-				Enabled  *bool          `json:"enabled"`
-				Name     *string        `json:"name"`
-				Metadata map[string]any `json:"metadata"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
-				m.devicesMu.Unlock()
-				mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-				return
-			}
-			if patch.Enabled != nil {
-				dev.Enabled = *patch.Enabled
-			}
-			if patch.Name != nil && *patch.Name != "" {
-				dev.Name = *patch.Name
-			}
-			if patch.Metadata != nil {
-				dev.Metadata = patch.Metadata
-			}
-			dCopy := *dev
-			m.devicesMu.Unlock()
-			mgmtJSON(w, http.StatusOK, map[string]any{"device": dCopy, "message": "device updated"})
-
-		case http.MethodDelete:
-			delete(m.devices, deviceID)
-			m.devicesMu.Unlock()
-			mgmtOK(w, "device deleted")
-
-		default:
-			m.devicesMu.Unlock()
-			mgmtError(w, http.StatusMethodNotAllowed, "GET, PATCH or DELETE only")
-		}
-
-	default:
-		m.devicesMu.Unlock()
-		mgmtError(w, http.StatusNotFound, "unknown device action")
-	}
+	mgmtJSON(w, http.StatusOK, map[string]any{"devices": adapters})
 }

@@ -1,5 +1,10 @@
 import api from './client';
 
+export interface PlatformStatus {
+  name: string;
+  ready: boolean;
+}
+
 export interface RoleInfo {
   name: string;
   agent_type: string;
@@ -8,7 +13,7 @@ export interface RoleInfo {
   busy: boolean;
   current_task: string;
   paused: boolean;
-  platforms: string[];
+  platforms: PlatformStatus[];
   sessions_count: number;
 }
 
@@ -20,6 +25,6 @@ export async function restartRole(name: string): Promise<{ role: string; status:
   return api.post(`/roles/${name}/restart`);
 }
 
-export async function togglePauseRole(name: string): Promise<{ role: string; paused: boolean; message: string }> {
-  return api.post(`/roles/${name}/pause`);
+export async function setRolePaused(name: string, paused: boolean): Promise<{ role: string; paused: boolean; message: string }> {
+  return api.post(`/roles/${name}/pause`, { paused });
 }

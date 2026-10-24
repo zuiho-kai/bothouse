@@ -9,12 +9,11 @@ import {
   Bot,
   Cpu,
   Layers,
-  Sparkles,
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
 import { Card, Badge, Button, EmptyState } from '@/components/ui';
-import { listRoles, restartRole, togglePauseRole, type RoleInfo } from '@/api/roles';
+import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
 
 export default function RoleList() {
   const { t } = useTranslation();
@@ -55,17 +54,18 @@ export default function RoleList() {
     }
   };
 
-  const handleTogglePause = async (name: string) => {
+  const handleTogglePause = async (role: RoleInfo) => {
     try {
-      setActionLoading((prev) => ({ ...prev, [`pause-${name}`]: true }));
+      setActionLoading((prev) => ({ ...prev, [`pause-${role.name}`]: true }));
       setMsg('');
-      const res = await togglePauseRole(name);
-      setMsg(res.message || `Role ${name} updated`);
+      const targetPaused = !role.paused;
+      const res = await setRolePaused(role.name, targetPaused);
+      setMsg(res.message || `Role ${role.name} updated`);
       await fetchRoles();
     } catch (e: any) {
       setError(e.message || 'Toggle pause failed');
     } finally {
-      setActionLoading((prev) => ({ ...prev, [`pause-${name}`]: false }));
+      setActionLoading((prev) => ({ ...prev, [`pause-${role.name}`]: false }));
     }
   };
 
@@ -176,14 +176,26 @@ export default function RoleList() {
                     </div>
 
                     {/* Platforms */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1.5 shrink-0">
                         <Layers size={13} className="text-gray-400" />
                         连接平台：
                       </span>
-                      <span className="text-gray-600 dark:text-gray-400">
-                        {role.platforms?.length > 0 ? role.platforms.join(', ') : '无'}
-                      </span>
+                      <div className="flex flex-wrap gap-1.5 justify-end">
+                        {role.platforms && role.platforms.length > 0 ? (
+                          role.platforms.map((p) => (
+                            <span
+                              key={p.name}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.05] text-[11px] text-gray-700 dark:text-gray-300"
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${p.ready ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                              {p.name}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-gray-400">无</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -194,7 +206,7 @@ export default function RoleList() {
                     variant="secondary"
                     size="sm"
                     className="flex-1 gap-1.5 text-xs"
-                    onClick={() => handleTogglePause(role.name)}
+                    onClick={() => handleTogglePause(role)}
                     disabled={isPausing}
                   >
                     {role.paused ? <Play size={13} className="text-emerald-500" /> : <Pause size={13} className="text-amber-500" />}

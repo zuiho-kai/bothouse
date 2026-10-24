@@ -409,6 +409,7 @@ type Engine struct {
 
 	commands *CommandRegistry
 	skills   *SkillRegistry
+	paused   atomic.Bool
 	aliases  map[string]string // trigger → command (e.g. "帮助" → "/help")
 	aliasMu  sync.RWMutex
 
@@ -3172,7 +3173,20 @@ func (e *Engine) startMessageRecallMonitor(sessionKey string) context.CancelFunc
 	return cancel
 }
 
+// IsPaused reports whether the engine is currently paused.
+func (e *Engine) IsPaused() bool {
+	return e.paused.Load()
+}
+
+// SetPaused toggles the engine paused state.
+func (e *Engine) SetPaused(v bool) {
+	e.paused.Store(v)
+}
+
 func (e *Engine) handleMessage(p Platform, msg *Message) {
+	if e.IsPaused() {
+		return
+	}
 	if !e.beginMessageWork() {
 		return
 	}
