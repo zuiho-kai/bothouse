@@ -115,6 +115,88 @@ AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode �
 也可以给 CLI 挂第三方 API（硅基流动、OpenRouter、DeepSeek、MiniMax、本机模型、任意 OpenAI 兼容接口），
 对应关系见[接入文档](docs/connect-discord-feishu.md#4-第三方-api--本机-cli)。
 
+## 多端访问（Tailscale）
+
+bothouse 跑在你自己这台机器上，管理面板是个网页。装好 Tailscale，手机、平板、另一台电脑打开同一个网页，
+就能看团队现在的状态、每个角色今天花了多少，也能在对话页里补一句话、派一件新活。
+不用再装一个 App，不用把机器搬到云上。
+
+### 一，装 Tailscale
+
+在跑 bothouse 的这台机器上装 Tailscale 并登录，手机或另一台电脑上装同一个客户端、登同一个账号。
+两端进了同一个 tailnet，设备之间就直接通了。
+
+```sh
+# macOS
+brew install --cask tailscale
+# Linux
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+装好后拿这台机器的 Tailscale 地址，记下输出里那个 `100.x.y.z`：
+
+```sh
+tailscale ip -4
+```
+
+### 二，让面板听在 Tailscale 地址上
+
+面板配置在 `config.toml` 的 `[management]` 段。文件默认是 `~/.cc-connect/config.toml`；
+当前目录下如果有 `config.toml`，用的就是当前目录这个（`bridge/cmd/cc-connect/main.go:1607-1619`）。
+
+```toml
+[management]
+enabled = true
+host = "100.x.y.z"        # 换成上一步 tailscale ip -4 的输出
+port = 9820               # 面板端口，默认就是 9820
+token = "换成一串足够长的随机串"
+```
+
+`host` 填这台机器的 Tailscale 地址，面板就只在这个地址上监听，不在公网和局域网的其他网卡上露面，端口也只开这一个。
+不写 `host` 的时候，正常运行的 bothouse 在所有网卡上监听（`bridge/config/config.go:184` 的字段注释，
+实际绑定用的是 `<host>:<port>`，见 `bridge/core/management.go:214-216`）；只有还没配置任何平台、停在安装向导时，
+默认才只听本机 `127.0.0.1`（`bridge/cmd/cc-connect/setup_wizard.go:129-133`）。所以远程访问要显式写 `host`，别指望默认值。
+
+端口默认 9820（`bridge/config/config.go:183`、`bridge/cmd/cc-connect/web.go:43-46`）。
+面板、接口和对话页用的那条实时连接共用一个端口，放行 9820 一个就够了
+（`bridge/core/management.go:330-333` 把 `/bridge/ws` 挂在同一个服务上）。
+
+Tailscale 要在 bothouse 启动前就起来，机器重启后也是这个顺序。改完配置保存，重启 bothouse 生效。
+
+### 三，面板令牌在哪拿
+
+登录面板要令牌，就是 `[management]` 里的 `token`。三种拿法：
+
+- **在频道里要。** 对机器人发 `/web setup`，它把面板地址和令牌一起回给你；没启用过的会顺手生成一个
+  （`bridge/core/engine.go:18589-18595`，回话文案在 `bridge/core/i18n.go:3467-3478`）。
+- **在终端里看。** 在跑 bothouse 的机器上执行 `bothouse web --no-browser`，它打印面板地址和令牌，不弹浏览器
+  （`bridge/cmd/cc-connect/web.go:65-77`）。没启用过管理面板的话，这个命令会先帮你打开它，然后提示重启一次。
+- **直接看配置。** 打开 `config.toml` 的 `[management]` 段，`token` 那一行就是。
+
+拿到令牌，手机上打开 `http://100.x.y.z:9820/`：登录页第一格填令牌，第二格「服务器地址」是选填的，
+默认就指向打开它的这个地址（`bridge/web/src/pages/Login.tsx:125-144`）。填一次，浏览器记住，下次直接进。
+
+### 四，手机上能做什么
+
+登录进去，左边那排就是全部能力（`bridge/web/src/App.tsx:40-53`、`bridge/web/src/components/Layout/Sidebar.tsx:27-40`）：
+
+- **概览、用量**：版本、运行时长、连着哪些平台、几个项目；今天和这个月各花了多少 token，按角色、按模型拆开看，还有一张按天按小时的用量热力图。
+- **角色、项目、技能、服务商、设备**：加一个角色、改人设、切模型，手机上就能改，改完在系统页里点重启。
+- **对话**：挑一个项目，看完整对话线，接着往下说。你补的这句话会当成一条消息直接送到角色手上那件事里，
+  和你在 Discord 里说话是一回事（`bridge/web/src/pages/Chat/ChatView.tsx:513-526`、
+  `bridge/web/src/hooks/useBridgeSocket.ts:48-60`）。
+- **定时、库、系统**：看排着的定时任务，翻存下来的东西，改全局设置。
+
+页面带了手机视口设置（`bridge/web/index.html:6`），手机浏览器打开就能点。屏幕窄的时候点侧栏底下那个箭头，
+把它收成只有图标的一条（`bridge/web/src/components/Layout/Sidebar.tsx:44-49`、`:99`），正文能占满。
+
+开会时想派个活、通勤路上想看看夜里跑到哪了，掏手机就行。
+
+### 五，换台电脑也一样
+
+另一台电脑上不用重装：装好 Tailscale、连上同一个 tailnet，浏览器打开同一个地址，
+照样能进对话、能派活、能看用量。家里一台常驻的机器当大脑，笔记本和手机当窗口，在哪都能接管同一支团队。
+
 ## 特性
 
 ### 聊天频道 + 工作区：聊天不被活堵住

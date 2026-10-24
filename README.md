@@ -110,6 +110,99 @@ Plug into DSH and our guardrails and tools install through DSH's own plugin syst
 On the AI side: Claude Code, Codex, Gemini CLI, OpenCode and other CLIs you're already logged into work directly; agents like DSH connect over a standard protocol (ACP).
 You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek, MiniMax, a local model, any OpenAI-compatible endpoint); see the [matrix](docs/connect-discord-feishu.md#4-第三方-api--本机-cli) (Chinese).
 
+## Anywhere access (Tailscale)
+
+bothouse runs on your own machine, and its control panel is a web page. Install Tailscale and your phone, tablet
+or another laptop opens that same page: see how the team is doing, what each role spent today, and drop a line
+or hand over a new job right in the chat page. No extra app, no moving the machine into someone else's cloud.
+
+### 1. Install Tailscale
+
+Install and sign in on the machine running bothouse, then install the same client and sign in with the same
+account on your phone or the other computer. Once both ends are in the same tailnet they can reach each other.
+
+```sh
+# macOS
+brew install --cask tailscale
+# Linux
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+Then get this machine's Tailscale address — note the `100.x.y.z` it prints:
+
+```sh
+tailscale ip -4
+```
+
+### 2. Point the panel at the Tailscale address
+
+The panel is configured in the `[management]` section of `config.toml`. The default file is
+`~/.cc-connect/config.toml`; if there is a `config.toml` in the current directory, that one wins
+(`bridge/cmd/cc-connect/main.go:1607-1619`).
+
+```toml
+[management]
+enabled = true
+host = "100.x.y.z"        # the output of tailscale ip -4 above
+port = 9820               # panel port, 9820 by default
+token = "replace-with-a-long-random-secret"
+```
+
+With `host` set to this machine's Tailscale address, the panel listens on that address only: nothing on the
+public or LAN interfaces, and only this one port is open. Leave `host` empty and a normally running bothouse
+listens on every interface (`bridge/config/config.go:184`, and the bind uses `<host>:<port>`, see
+`bridge/core/management.go:214-216`); only setup mode, before any platform is configured, defaults to loopback
+`127.0.0.1` (`bridge/cmd/cc-connect/setup_wizard.go:129-133`). So set `host` explicitly for remote access — don't
+count on the default.
+
+The port is 9820 by default (`bridge/config/config.go:183`, `bridge/cmd/cc-connect/web.go:43-46`). The panel, the
+API and the live connection the chat page uses all share that one port, so opening 9820 is enough
+(`bridge/core/management.go:330-333` mounts `/bridge/ws` on the same server).
+
+Tailscale has to be up before bothouse starts, including after a reboot. Save the config and restart bothouse.
+
+### 3. Where the panel token comes from
+
+Signing in takes a token: the `token` in `[management]`. Three ways to get it:
+
+- **Ask in the channel.** Send `/web setup` to the bot; it replies with the panel URL and the token, generating
+  one if the panel was never enabled (`bridge/core/engine.go:18589-18595`, strings at
+  `bridge/core/i18n.go:3467-3478`).
+- **Read it in the terminal.** On the machine running bothouse, run `bothouse web --no-browser`: it prints the URL
+  and the token without opening a browser (`bridge/cmd/cc-connect/web.go:65-77`). If the panel was never enabled,
+  that command turns it on first and asks you to restart once.
+- **Open the config.** The `token` line under `[management]` in `config.toml`.
+
+With the token in hand, open `http://100.x.y.z:9820/` on your phone. The first field is the token; the second,
+"server URL", is optional and already points at the address you opened the page from
+(`bridge/web/src/pages/Login.tsx:125-144`). Fill it in once and the browser remembers it.
+
+### 4. What you can do from a phone
+
+Everything is in the sidebar once you are signed in (`bridge/web/src/App.tsx:40-53`,
+`bridge/web/src/components/Layout/Sidebar.tsx:27-40`):
+
+- **Dashboard and usage**: version, uptime, which platforms are connected, how many projects; tokens spent today
+  and this month, split by role and by model, plus a heatmap by day and hour.
+- **Roles, projects, skills, providers, devices**: add a role, edit a persona, switch a model from the phone, then
+  restart on the system page.
+- **Chat**: pick a project, read the whole conversation, and keep talking. What you type goes in as a message to the
+  role in the middle of its job, exactly like speaking to it in Discord
+  (`bridge/web/src/pages/Chat/ChatView.tsx:513-526`, `bridge/web/src/hooks/useBridgeSocket.ts:48-60`).
+- **Cron, library, system**: see scheduled jobs, browse the library, change global settings.
+
+The page ships a mobile viewport (`bridge/web/index.html:6`), so a phone browser works as-is. On a narrow screen,
+tap the arrow at the bottom of the sidebar to collapse it to icons only
+(`bridge/web/src/components/Layout/Sidebar.tsx:44-49`, `:99`) and give the content the full width.
+
+Hand over a job between meetings, or check how far the night shift got on the way home — it is all in your pocket.
+
+### 5. Same thing from another computer
+
+No reinstall on the other laptop: install Tailscale, join the same tailnet, open the same URL, and you can chat,
+hand over work and read usage there too. One always-on machine is the brain; laptops and phones are windows onto
+the same team.
+
 ## Features
 
 ### Chat channel + workspaces: the chat never gets blocked
