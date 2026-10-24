@@ -6,9 +6,9 @@ bothouse 把你已经在用的 AI 命令行接进 Discord、飞书、自建频�
 
 ## 用起来是什么样
 
-<img src="docs/assets/demo-chat.zh.png" alt="Discord 频道里：你 @opus 派活，opus @鲸鱼娘 和 @笔杆 分工，鲸鱼娘干活时你插一句，做完各自 @ 回 opus，opus 收尾并提议记一条规则" width="760">
+<img src="docs/assets/demo-team.gif" alt="真实频道记录：聊天频道把活交给工作区，工作区里派活、接活、交回，任务板按工作区分组，聊天照常进行" width="760">
 
-opus、鲸鱼娘、笔杆可以分别是 Claude Code、DSH、Codex。换成你喜欢的名字和人设就行。
+真实频道记录：聊天里交给工作区，工作区里派活，任务板一眼看清，聊天照常。
 
 ## 快速上手
 

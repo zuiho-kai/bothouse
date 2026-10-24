@@ -6,9 +6,9 @@ bothouse connects the AI CLIs you already use to Discord, Feishu, self-hosted ch
 
 ## What it looks like
 
-<img src="docs/assets/demo-chat.en.png" alt="In a Discord channel: you @opus with a task, opus splits it to @Whale and @Writer, you interrupt Whale mid-task, both report back to opus, opus wraps up and offers to add a rule" width="760">
+<img src="docs/assets/demo-team.gif" alt="Real channel footage: the chat channel hands work to workspaces, tasks are dispatched, accepted and handed back there, the task board groups them, and chat carries on" width="760">
 
-opus, Whale and Writer can be Claude Code, DSH and Codex. Give them the names and personas you like.
+Real channel footage: chat hands work to a workspace, the workspace dispatches it, the task board shows it all at a glance, and chat carries on.
 
 ## Quick start
 
