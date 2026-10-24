@@ -40,7 +40,7 @@ func runTimer(args []string) {
 func runTimerAdd(args []string) {
 	var project, sessionKey, delay, atTime, prompt, execCmd, desc, dataDir, sessionMode string
 	var timeoutMins *int
-	var mute, injectIfBusy bool
+	var mute, silent, injectIfBusy bool
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -102,6 +102,8 @@ func runTimerAdd(args []string) {
 			}
 		case "--mute":
 			mute = true
+		case "--silent":
+			silent = true
 		case "--inject-if-busy":
 			injectIfBusy = true
 		case "--help", "-h":
@@ -159,6 +161,9 @@ func runTimerAdd(args []string) {
 		"exec":        execCmd,
 		"description": desc,
 		"mute":        mute,
+	}
+	if silent {
+		body["silent"] = true
 	}
 	if sessionMode != "" {
 		body["session_mode"] = sessionMode
@@ -420,6 +425,7 @@ Options:
       --session-mode <mode>  reuse (default) or new-per-run
       --timeout-mins <n>     Max minutes to wait per run (0 = no limit; default 30)
       --mute                 Suppress all messages (start + result)
+      --silent               Suppress timer start notification (result still sent)
       --inject-if-busy       If the session is mid-turn, add the prompt to that turn instead of queuing
       --data-dir <path>      Data directory (default: ~/.bothouse)
   -h, --help                 Show this help
