@@ -183,6 +183,8 @@ const (
 	MsgToolAllowFailed           MsgKey = "tool_allow_failed"
 	MsgToolAllowedNew            MsgKey = "tool_allowed_new"
 	MsgError                     MsgKey = "error"
+	MsgQuotaExhausted            MsgKey = "quota_exhausted"
+	MsgQuotaExhaustedResets      MsgKey = "quota_exhausted_resets"
 	MsgAnswerWithFailure         MsgKey = "answer_with_failure"
 	MsgTaskAlreadyCompleted      MsgKey = "task_already_completed"
 	MsgSessionNotFound           MsgKey = "session_not_found"
@@ -1094,6 +1096,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "❌ 錯誤: %v",
 		LangJapanese:           "❌ エラー: %v",
 		LangSpanish:            "❌ Error: %v",
+	},
+	MsgQuotaExhausted: {
+		LangEnglish:            "⚠️ %s has run out of quota",
+		LangChinese:            "⚠️ %s 额度已用完",
+		LangTraditionalChinese: "⚠️ %s 額度已用完",
+		LangJapanese:           "⚠️ %s の利用枠を使い切りました",
+		LangSpanish:            "⚠️ %s se ha quedado sin cuota",
+	},
+	MsgQuotaExhaustedResets: {
+		LangEnglish:            "⚠️ %s has run out of quota; resets %s",
+		LangChinese:            "⚠️ %s 额度已用完，%s 恢复",
+		LangTraditionalChinese: "⚠️ %s 額度已用完，%s 恢復",
+		LangJapanese:           "⚠️ %s の利用枠を使い切りました（%s に回復）",
+		LangSpanish:            "⚠️ %s se ha quedado sin cuota; se restablece %s",
 	},
 	MsgAnswerWithFailure: {
 		LangEnglish:            "⚠️ An operation failed this turn. The reply above does not mean every operation succeeded: %v",

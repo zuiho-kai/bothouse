@@ -493,6 +493,33 @@ type Event struct {
 // agent compacted its context (maomao fork).
 const MetaContextCompacted = "context_compacted"
 
+// MetaQuotaExhausted marks a turn-ending Event (EventResult or EventError) whose
+// turn ended because the agent's account/model quota is used up (maomao fork).
+// The value is the reset time as the CLI printed it (string, may be empty).
+// Agent adapters own the CLI-specific detection; the engine words the notice
+// so that it names the bot and model.
+const MetaQuotaExhausted = "quota_exhausted"
+
+// WithQuotaExhausted returns meta with the quota-exhausted mark set.
+func WithQuotaExhausted(meta map[string]any, reset string) map[string]any {
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	meta[MetaQuotaExhausted] = reset
+	return meta
+}
+
+// QuotaExhaustedReset reports whether ev carries the quota-exhausted mark and
+// the reset time the CLI gave (empty when it gave none).
+func QuotaExhaustedReset(ev Event) (reset string, ok bool) {
+	v, ok := ev.Metadata[MetaQuotaExhausted]
+	if !ok {
+		return "", false
+	}
+	reset, _ = v.(string)
+	return reset, true
+}
+
 // HistoryEntry is one turn in a conversation.
 type HistoryEntry struct {
 	Role      string    `json:"role"` // "user" or "assistant"

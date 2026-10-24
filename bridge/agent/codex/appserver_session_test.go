@@ -480,6 +480,19 @@ func TestAppServerSession_ErrorNotificationSurfacesNestedMessage(t *testing.T) {
 	if ev.Type != core.EventError || ev.Error == nil || !strings.Contains(ev.Error.Error(), "usage limit") {
 		t.Fatalf("event = %+v", ev)
 	}
+	if reset, ok := core.QuotaExhaustedReset(ev); !ok || reset != "4:13 AM" {
+		t.Fatalf("quota mark = %q, %v", reset, ok)
+	}
+}
+
+func TestAppServerSession_OtherErrorHasNoQuotaMark(t *testing.T) {
+	s := &appServerSession{events: make(chan core.Event, 4), currentTurn: "turn-1"}
+	s.handleNotification("error", json.RawMessage(`{"error":{"message":"stream disconnected","codexErrorInfo":{"responseStreamDisconnected":{"httpStatusCode":502}}},"willRetry":false}`))
+	if ev := <-s.events; ev.Type != core.EventError {
+		t.Fatalf("event = %+v", ev)
+	} else if _, ok := core.QuotaExhaustedReset(ev); ok {
+		t.Fatalf("non-quota error marked as quota: %+v", ev)
+	}
 }
 
 func TestAppServerSession_ErrorNotificationIgnoresRetry(t *testing.T) {
