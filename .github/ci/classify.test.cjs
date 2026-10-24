@@ -46,7 +46,10 @@ test('workflow uses one classifier and fails open when changes fails', () => {
     const next = workflow.slice(start + 4).search(/\n  \S/);
     const end = next === -1 ? -1 : start + 4 + next;
     const block = workflow.slice(start, end === -1 ? undefined : end);
-    assert.match(block, /!cancelled\(\)/, job);
+    // bridge / bridge-fork aggregate shard results and must run even when the run is
+    // cancelled, otherwise a skipped required check counts as passing.
+    const guard = job.startsWith('bridge') ? /always\(\)/ : /!cancelled\(\)/;
+    assert.match(block, guard, job);
     assert.match(block, /needs\.changes\.result != 'success'/, job);
   }
 });

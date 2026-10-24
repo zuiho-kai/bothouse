@@ -234,7 +234,7 @@ jobs:
 
   bridge:
     needs: [changes, bridge-checks, bridge-go]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -273,7 +273,7 @@ jobs:
 
   bridge-fork:
     needs: [changes, bridge-checks, bridge-go]
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
+    if: ${{ always() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
