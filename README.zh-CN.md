@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="320"></p>
+
 # bothouse
 
 [English](README.md) | 中文
