@@ -1367,12 +1367,14 @@ func runMain() {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
 	handleDumpSignal() // maomao fork: `kill -USR1 <pid>` logs goroutine stacks (unix only)
 
 	var restartReq *core.RestartRequest
 	select {
 	case <-sigCh:
+	case <-desktopShutdown:
 	case req := <-core.RestartCh:
 		restartReq = &req
 		slog.Info("restart requested via /restart command", "session", req.SessionKey, "platform", req.Platform)

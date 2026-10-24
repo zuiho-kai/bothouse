@@ -127,8 +127,18 @@ jobs:
             exe=bothouse; [ "$os" = windows ] && exe=bothouse.exe
             mkdir -p "build/${native}"
             binary="build/${native}/${exe}"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
-              -ldflags "-s -w -X main.version=${TAG} -X main.commit=${commit} -X main.buildTime=${built}" \
+            cgo=0
+            cc="${CC:-cc}"
+            ldflags="-s -w -X main.version=${TAG} -X main.commit=${commit} -X main.buildTime=${built}"
+            if [ "$os" = darwin ]; then
+              cgo=1
+              cpu=$arch; [ "$arch" != amd64 ] || cpu=x86_64
+              cc="clang -arch $cpu"
+            elif [ "$os" = windows ]; then
+              ldflags="$ldflags -H=windowsgui"
+            fi
+            CGO_ENABLED=$cgo CC="$cc" GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
+              -ldflags "$ldflags" \
               -o "$binary" ./cmd/cc-connect
             case "$os" in
               windows)

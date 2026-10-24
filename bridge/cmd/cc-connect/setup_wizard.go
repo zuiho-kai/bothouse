@@ -146,7 +146,11 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	announceSetupWizard(link, linkFile, port, os.Getenv("CC_LOG_FILE") == "" && !overSSH())
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	select {
+	case <-desktopShutdown:
+		srv.Stop()
+		release()
 	case <-sigCh:
 		srv.Stop()
 		release()

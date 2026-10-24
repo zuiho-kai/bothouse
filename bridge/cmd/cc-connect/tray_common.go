@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/chenhg5/cc-connect/config"
@@ -101,9 +100,7 @@ func onTrayReady() {
 					trayUpdate.SetTitle("升级：请求失败")
 				}
 			case <-trayQuit.ClickedCh:
-				p, _ := os.FindProcess(os.Getpid())
-				_ = p.Signal(syscall.SIGTERM)
-				systray.Quit()
+				requestDesktopShutdown()
 				return
 			}
 		}
