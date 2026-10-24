@@ -19,6 +19,7 @@ type workspaceGateway struct {
 	errOut  string            // ack error for every request when set
 	parent  map[string]string // room id → parent room id ("" = chat room)
 	names   map[string]string
+	active  map[string]int // tasks in progress per workspace (list)
 	frames  []map[string]any
 	next    int
 }
@@ -39,10 +40,10 @@ func (g *workspaceGateway) Send(_ context.Context, msg map[string]any) error {
 	case msg["op"] == "dispatch_mode":
 		ack["ok"], ack["dispatch_mode"], ack["dispatch_explicit"] = true, "team", true
 	case msg["op"] == "list":
-		var rooms []map[string]string
+		var rooms []map[string]any
 		for id, par := range g.parent {
 			if par == chat {
-				rooms = append(rooms, map[string]string{"id": id, "name": g.names[id]})
+				rooms = append(rooms, map[string]any{"id": id, "name": g.names[id], "parent_id": par, "active": g.active[id]})
 			}
 		}
 		ack["ok"], ack["self"], ack["rooms"] = true, map[string]string{"id": chat, "name": g.names[chat]}, rooms
@@ -63,6 +64,7 @@ func newWorkspaceGateway(caps ...string) (*Platform, *workspaceGateway) {
 		caps:   capabilitySet(caps),
 		parent: map[string]string{"room-2": "", "room-1000000": "room-2", "room-3": ""},
 		names:  map[string]string{"room-2": "主频道", "room-1000000": "工作区1", "room-3": "量化"},
+		active: map[string]int{"room-1000000": 2},
 	}
 	p := &Platform{name: "cloud_web", tp: g, replyCtxs: map[string]string{}}
 	g.p = p
@@ -75,7 +77,7 @@ func TestCloudWebTeamWorkspaceListAndCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if self.ID != "room-2" || self.Name != "主频道" || len(all) != 2 || all[1].ID != "room-1000000" || all[1].ParentID != "" {
+	if self.ID != "room-2" || self.Name != "主频道" || len(all) != 2 || all[1].ID != "room-1000000" || all[1].ParentID != "" || all[1].Active != 2 {
 		t.Fatalf("self=%+v all=%+v (want the room and only its own workspaces)", self, all)
 	}
 	c, err := p.CreateTeamWorkspaceChannel(context.Background(), "room-2", "工作区2")

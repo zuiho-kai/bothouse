@@ -829,3 +829,30 @@ func TestTeamWorkspaceClaimAPI(t *testing.T) {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// cloud_web/DSH: the bridge's record does not know that chat A (#200) is using 工作区1 (the
+// gateway does: 2 tasks in progress). Chat B (#300) must not adopt it; it takes the idle
+// 工作区5 and claims it.
+func TestTeamWorkspaceAdoptSkipsBusy(t *testing.T) {
+	g := &claimingGuild{fakeWorkspaceGuild: newWorkspaceGuild()}
+	g.channels = append(g.channels, TeamChannel{ID: "300", Name: "闲聊", ParentID: "catB"})
+	g.channels[2].Active = 2 // 201 工作区1, parent #200 on the gateway
+	e := NewEngine("lead", &stubAgent{}, []Platform{g}, "", LangEnglish)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.teamWS = newTeamWorkspaces()
+	e.sessions.GetOrCreateActive("discord:300")
+	if err := ensureWorkspace1(e, "discord:300"); err != nil {
+		t.Fatal(err)
+	}
+	if w := e.TeamWorkspacesOf("300"); len(w) != 1 || w[0].ID != "205" {
+		t.Fatalf("300 workspaces = %+v, want the idle 205, not the busy 201", w)
+	}
+	if got := strings.Join(g.claims, ","); got != "300→205" {
+		t.Fatalf("claims = %s, want 300→205", got)
+	}
+	if p, _ := e.WorkspaceParent("201"); p != "" {
+		t.Fatalf("busy 201 got parent %q", p)
+	}
+}

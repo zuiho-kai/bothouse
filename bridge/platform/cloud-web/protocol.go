@@ -329,8 +329,10 @@ const (
 )
 
 type wireTeamWorkspaceRoom struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ParentID string `json:"parent_id,omitempty"` // list: chat room that handed off to it last
+	Active   int    `json:"active,omitempty"`    // list: tasks in progress in the workspace
 }
 
 type wireTeamWorkspaceAck struct {

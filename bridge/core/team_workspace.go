@@ -36,6 +36,9 @@ type TeamChannel struct {
 	ID       string
 	Name     string
 	ParentID string // category ("" = no category)
+	// Active is the number of tasks in progress in the channel, where the platform knows it
+	// (cloud_web/DSH); 0 elsewhere (Discord, Feishu rely on the caller's busy check).
+	Active int
 }
 
 // ErrNotTeamChannel: the channel cannot have workspaces (DM, thread, voice, …).
@@ -466,11 +469,13 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 	}
 	// Adopt the lowest unclaimed 「工作区n」 already in the same category (e.g. made by
 	// ws-handoff) when this chat has none; adopting counts as this request's workspace.
+	// The pool is shared, so a workspace with tasks in progress (another chat is using it) is
+	// skipped; an idle one may be taken and is then claimed for this chat.
 	if len(list) == 0 {
 		var pick *TeamChannel
 		for i, c := range guild {
 			n := teamWorkspaceNum(c.Name)
-			if c.ParentID == self.ParentID && c.ID != self.ID && claimed[c.ID] == "" && n > 0 &&
+			if c.ParentID == self.ParentID && c.ID != self.ID && claimed[c.ID] == "" && n > 0 && c.Active == 0 &&
 				(pick == nil || n < teamWorkspaceNum(pick.Name)) {
 				pick = &guild[i]
 			}

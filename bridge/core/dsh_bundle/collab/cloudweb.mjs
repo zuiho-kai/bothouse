@@ -284,7 +284,12 @@ export class CloudWebGateway {
       if (d.op === 'dispatch_mode') return { ok: true, ...store.dispatchSetting(id) };
       if (d.op === 'list') {
         // One shared pool per server: every workspace, whichever chat channel handed off to it last.
-        const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.id !== id).map(view);
+        // parent_id and active (tasks in progress, tasks.mjs countActive) let the bridge skip a
+        // workspace another chat is using when it adopts one from the pool.
+        const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.id !== id).map(r => ({
+          ...view(r), parent_id: r.parent_id == null ? '' : roomKey(r.parent_id),
+          active: this.tasks?.countActive(r.id) ?? 0,
+        }));
         return { ok: true, self: view(self), rooms };
       }
       if (d.op === 'claim') {

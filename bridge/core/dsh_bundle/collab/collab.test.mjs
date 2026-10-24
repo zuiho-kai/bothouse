@@ -1971,6 +1971,12 @@ test('cloud-web: team_workspace create on the real store (A #134) makes 工作�
   ju2.frame({ type: 'team_workspace', ref_id: 'w5', op: 'list', reply_ctx: 'room-1' });
   await tick();
   assert.deepEqual(ju2.of('team_workspace_ack').at(-1).rooms.map(r => r.name), ['工作区1', '工作区2']);
+  // The list carries each workspace's parent and tasks in progress, so the bridge skips busy ones.
+  gw2.tasks = { countActive: id => (id === w.id ? 2 : 0) };
+  ju2.frame({ type: 'team_workspace', ref_id: 'w5a', op: 'list', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.parent_id, r.active]),
+    [['工作区1', 'room-1', 2], ['工作区2', 'room-1', 0]]);
   // Another chat channel sees the whole pool, not only the workspaces it created.
   store.ensureRoom(2, 'dev');
   ju2.frame({ type: 'team_workspace', ref_id: 'w5b', op: 'list', reply_ctx: 'room-2' });
