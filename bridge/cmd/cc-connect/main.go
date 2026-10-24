@@ -1354,6 +1354,8 @@ func runMain() {
 		apiSrv.Start()
 	}
 
+	gateSup := startGate(cfg)
+
 	slog.Info("bothouse is running", "projects", len(engines))
 
 	// After startup, check if we were restarted and queue the success
@@ -1411,6 +1413,7 @@ func runMain() {
 			slog.Error("shutdown error", "error", err)
 		}
 	}
+	gateSup.Stop()
 	if logCloser != nil {
 		logCloser.Close()
 	}
