@@ -21,12 +21,7 @@ export default {
   oxc: { tsconfig: false },
   resolve: { alias },
   test: {
-    include: [
-      'dsh/packages/client-ui-discord/tests/channel-source.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/mention-complete.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/task-board.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/channels-page.client.spec.tsx',
-      'dsh/packages/client-ui-discord/tests/client-injection.client.spec.ts',
-    ],
+    // Every channel client spec runs here; a new spec needs no edit to this list.
+    include: ['dsh/packages/client-ui-discord/tests/*.client.spec.{ts,tsx}'],
   },
 };
