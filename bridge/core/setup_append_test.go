@@ -202,3 +202,46 @@ func TestApplyWizardAppendOnlyDisplayNameAndBackend(t *testing.T) {
 		}
 	}
 }
+
+// The first-run wizard (not append_only) treats a non-ASCII name the same way: the project is
+// role-N, team_name keeps the name the user typed, and the project list shows that name.
+func TestApplyWizardFirstRunDisplayName(t *testing.T) {
+	noHardware(t)
+	noLocalHub(t)
+	hub := fakeHub(t, "bot-secret")
+	store := newMemStore()
+	dir := t.TempDir()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	res := ApplyWizard(context.Background(), env, cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "鲸鱼娘"}))
+	if !res.Saved || res.Roles[0].Reused {
+		t.Fatalf("first run: %+v", res)
+	}
+	proj := res.Roles[0].Project
+	if proj == "鲸鱼娘" {
+		t.Fatalf("non-ASCII name used as project name")
+	}
+	w := store.projects[proj]
+	if w == nil || w.DisplayName != "鲸鱼娘" {
+		t.Fatalf("%s → %+v, want team_name 鲸鱼娘", proj, w)
+	}
+
+	m := NewManagementServer(0, "", nil)
+	m.SetWizard(store, dir)
+	e := NewEngine(proj, &stubAgent{}, nil, "", LangEnglish)
+	e.sessions = NewSessionManager("")
+	e.SetTeam("", w.DisplayName, false) // what main.go does with the project's team_name
+	m.RegisterEngine(proj, e)
+	rec := httptest.NewRecorder()
+	m.handleProjects(rec, httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil))
+	var list struct {
+		Data struct {
+			Projects []map[string]any `json:"projects"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Data.Projects) != 1 || list.Data.Projects[0]["name"] != proj || list.Data.Projects[0]["display_name"] != "鲸鱼娘" {
+		t.Fatalf("project list: %v", list.Data.Projects)
+	}
+}

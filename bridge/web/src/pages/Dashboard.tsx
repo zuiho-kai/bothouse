@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { StatCard, Badge, EmptyState } from '@/components/ui';
 import { getStatus, type SystemStatus } from '@/api/status';
-import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
+import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 import { formatUptime, formatTime } from '@/lib/utils';
 
@@ -150,7 +150,7 @@ export default function Dashboard() {
                     {sess.name || sess.id}
                   </p>
                 </div>
-                <Badge className="text-xs mb-2">{sess.project}</Badge>
+                <Badge className="text-xs mb-2">{shownNames(projects)(sess.project)}</Badge>
                 {sess.last_message && (
                   <p className="text-xs text-gray-400 truncate mb-2">
                     {sess.last_message.content.slice(0, 60)}

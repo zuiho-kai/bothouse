@@ -7,6 +7,7 @@ import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
 import PlatformSetupQR from '@/pages/Projects/PlatformSetupQR';
 import { restartSystem, waitForService } from '@/api/status';
+import { shownNames } from '@/api/projects';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
   startLocalHub, testCloudWeb, testJev, saveJev,
@@ -79,6 +80,11 @@ export default function SetupWizard() {
   const [cw, setCw] = useState({ url: '', token: '' });
   const [cwTest, setCwTest] = useState<{ running: boolean; key?: string; result?: CloudWebTest }>({ running: false });
   const [state, setState] = useState<SetupStateResp | null>(null);
+  // project name → the name the user gave the role (team_name), from the setup state
+  const shownProject = useMemo(
+    () => shownNames((state?.projects || []).map((name, i) => ({ name, display_name: state?.project_display_names?.[i] }))),
+    [state],
+  );
   const [clis, setClis] = useState<LocalCLI[] | null>(null);
   const [vendors, setVendors] = useState<WizardVendor[]>([]);
   const [matrix, setMatrix] = useState<MatrixCell[]>([]);
@@ -511,7 +517,7 @@ export default function SetupWizard() {
                         return (
                           <Button key={b.project} size="sm" variant={sel ? 'primary' : 'secondary'} disabled={taken || !!b.error}
                             onClick={() => check(r, { reuse_project: b.project })}>
-                            {sel ? <Check size={12} /> : null}{b.username || b.project}<span className="opacity-60">({b.project})</span>
+                            {sel ? <Check size={12} /> : null}{b.username || shownProject(b.project)}<span className="opacity-60">({shownProject(b.project)})</span>
                           </Button>
                         );
                       })}
@@ -653,7 +659,7 @@ export default function SetupWizard() {
                         return (
                           <Button key={b.project} size="sm" variant={sel ? 'primary' : 'secondary'} disabled={taken}
                             onClick={() => (sel ? patchRole(r.key, { reuse_project: undefined, name: '', existingPersona: undefined, existingWorkDir: undefined }) : pickExisting(r, b))}>
-                            {sel ? <Check size={12} /> : null}{b.username || b.project}<span className="opacity-60">({b.project})</span>
+                            {sel ? <Check size={12} /> : null}{b.username || shownProject(b.project)}<span className="opacity-60">({shownProject(b.project)})</span>
                           </Button>
                         );
                       })}
