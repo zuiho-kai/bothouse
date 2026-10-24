@@ -39,7 +39,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 **开始前准备：** 一个 Discord 服务器（或飞书企业），加上至少一个本机已登录的 AI 命令行工具（Claude Code / Codex / Gemini CLI 任一）。机器人怎么建，向导会一步步带你。
 
 1. **装**：运行上面那一行命令。
-2. **配**：运行 `bothouse`，浏览器里会打开向导：选平台 → 接机器人 → 每个角色选本机 CLI → 人设 → 保存。
+2. **配**：运行 `bothouse`，浏览器里会打开向导：选平台 → 接机器人 → 每个角色选本机 CLI → 人设 → 保存（新建角色默认启用全自动 YOLO 权限模式，可在面板项目设置中改回）。
    也可以对你的 Claude Code / Codex 说「帮我把 bothouse 配好接上 Discord」，它会一次问齐要的东西。
 3. **用**：保存后点「重启生效」，去频道里 @ 一个角色说句话。
 

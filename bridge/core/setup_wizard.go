@@ -1214,6 +1214,20 @@ func fillRoleResults(res *WizardResult, pl *wizardPlan) {
 	}
 }
 
+// DefaultAgentYoloMode returns the full-auto / YOLO permission mode string for the given agent type.
+func DefaultAgentYoloMode(agentType string) string {
+	switch strings.ToLower(strings.TrimSpace(agentType)) {
+	case "claudecode", "copilot":
+		return "bypassPermissions"
+	case "cursor":
+		return "force"
+	case "codex", "gemini", "antigravity", "pi", "qoder", "opencode", "kimi", "iflow", "reasonix":
+		return "yolo"
+	default:
+		return "yolo"
+	}
+}
+
 // planWizard fixes project names against the snapshot, fills defaults and builds
 // the config writes, merging the team wiring with what each project already has.
 func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state SetupState, dataDir, defaultAgent string,
@@ -1470,10 +1484,14 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		}
 		if !exists {
 			pw.AgentArgs, pw.AgentEnv = r.agentArgs, r.agentEnv
+			pw.AgentOptions = map[string]any{}
+			if mode := DefaultAgentYoloMode(r.AgentType); mode != "" {
+				pw.AgentOptions["mode"] = mode
+			}
 			if r.AgentType == "codex" {
 				// The exec backend has no approval path: a command outside its read-only sandbox
 				// is refused with no card to click. app_server asks through a permission card.
-				pw.AgentOptions = map[string]any{"backend": "app_server"}
+				pw.AgentOptions["backend"] = "app_server"
 				if pw.Provider != nil && strings.TrimSpace(pw.Provider.Model) != "" {
 					pw.AgentOptions["model"] = strings.TrimSpace(pw.Provider.Model)
 				}

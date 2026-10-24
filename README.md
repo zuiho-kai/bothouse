@@ -35,7 +35,7 @@ Release downloads: `bothouse-mac.dmg` (universal Bothouse.app for Apple Silicon 
 **You'll need:** a Discord server (or a Feishu workspace) and at least one AI CLI you're already logged into (Claude Code, Codex or Gemini CLI). The wizard walks you through creating the bot.
 
 1. **Install**: download and open the app, or run the one-liner above.
-2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save.
+2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save (new roles default to YOLO / auto-approve permission mode, adjustable in project settings).
    Or tell your Claude Code / Codex "set up bothouse and connect it to Discord"; it asks for everything once.
 3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
 

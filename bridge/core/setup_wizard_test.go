@@ -396,11 +396,11 @@ func TestApplyWizardDiscordTeam(t *testing.T) {
 		ju.Options["allow_bots"] != "222" || ju.Options["group_reply_all"] != true {
 		t.Errorf("ju team opts = %v gate=%v/%v", ju.Options, *ju.GateURL, *ju.GateFallback)
 	}
-	// codex role: app_server (approval cards) and its model in the agent options
-	if whale.AgentOptions["backend"] != "app_server" || whale.AgentOptions["model"] == nil || whale.AgentOptions["model"] != whale.Provider.Model {
+	// codex role: app_server (approval cards), yolo mode, and its model in the agent options
+	if whale.AgentOptions["backend"] != "app_server" || whale.AgentOptions["model"] == nil || whale.AgentOptions["model"] != whale.Provider.Model || whale.AgentOptions["mode"] != "yolo" {
 		t.Errorf("whale agent options = %v (provider model %q)", whale.AgentOptions, whale.Provider.Model)
 	}
-	if ju.AgentOptions != nil {
+	if ju.AgentOptions["mode"] != "bypassPermissions" {
 		t.Errorf("non-codex agent options = %v", ju.AgentOptions)
 	}
 	// provider: deepseek × codex is native Responses
