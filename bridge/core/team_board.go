@@ -231,13 +231,22 @@ func readTeamFiles(dir string, now time.Time) []teamFile {
 // renderTeamBoard renders one line per teammate for the board in chat. Times are wall-clock
 // ("10:42 起") rather than elapsed, so the text only changes when someone's state changes.
 // Task text from another channel is never shown here; only that the teammate is busy elsewhere.
+// renderTeamBoard is the pre-task-card entry point; production goes through
+// renderTeamBoardWithTasks, which passes the engine's language. Kept Chinese-only
+// so its callers keep the text they have always produced.
 func renderTeamBoard(files []teamFile, chat string) string {
-	return renderTeamBoardMembers(files, chat, nil)
+	return renderTeamBoardMembers(files, chat, nil, LangChinese)
 }
 
-var teamMemberStatus = map[string]string{
-	"queued": "待开始", "running": "进行中", "waiting": "等待中",
-	"completed": "已完成", "failed": "失败", "cancelled": "已取消", "interrupted": "已中断",
+// memberStatusKey maps a task-member state to its localised label.
+var memberStatusKey = map[string]MsgKey{
+	"queued":      MsgMemberStatusQueued,
+	"running":     MsgMemberStatusRunning,
+	"waiting":     MsgMemberStatusWaiting,
+	"completed":   MsgMemberStatusCompleted,
+	"failed":      MsgMemberStatusFailed,
+	"cancelled":   MsgMemberStatusCancelled,
+	"interrupted": MsgMemberStatusInterrupted,
 }
 
 // boardMember picks the teammate's task-card row in this chat: live rows
@@ -268,8 +277,9 @@ func (m *teamTaskMember) live() bool {
 	return m.Status == "queued" || m.Status == "running" || m.Status == "waiting"
 }
 
-func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMember) string {
-	lines := []string{"**谁在干啥**"}
+func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMember, lang Language) string {
+	i18n := NewI18n(lang)
+	lines := []string{"**" + i18n.T(MsgTeamBoardTitle) + "**"}
 	for _, f := range files {
 		var best *teamEntry
 		rank := 0
@@ -301,26 +311,26 @@ func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMem
 				best, rank = s, r
 			}
 		}
-		line := "💤 空闲"
+		line := i18n.T(MsgTeamBoardIdle)
 		if best != nil {
 			task := boardTask(best.Task)
 			switch rank {
 			case 4:
-				line = fmt.Sprintf("🔧 %s（%s 起）", task, best.Since.Local().Format("15:04"))
+				line = i18n.Tf(MsgTeamBoardBusyHere, task, best.Since.Local().Format("15:04"))
 			case 3:
-				where := "别的频道"
+				where := i18n.T(MsgTeamBoardOtherChannel)
 				if best.Chat != "" {
 					where = "#" + best.Chat
 				}
-				line = fmt.Sprintf("🔧 在%s忙（%s 起）", where, best.Since.Local().Format("15:04"))
+				line = i18n.Tf(MsgTeamBoardBusyElsewhere, where, best.Since.Local().Format("15:04"))
 			case 2:
 				switch best.Outcome {
 				case teamWorkFailed:
-					line = fmt.Sprintf("❌ %s（%s）", task, best.DoneAt.Local().Format("15:04"))
+					line = i18n.Tf(MsgTeamBoardFailed, task, best.DoneAt.Local().Format("15:04"))
 				case teamWorkUnconfirmed:
-					line = fmt.Sprintf("⚠️ %s（%s）", task, best.DoneAt.Local().Format("15:04"))
+					line = i18n.Tf(MsgTeamBoardUnconfirmed, task, best.DoneAt.Local().Format("15:04"))
 				default:
-					line = fmt.Sprintf("✅ 做完：%s（%s）", task, best.DoneAt.Local().Format("15:04"))
+					line = i18n.Tf(MsgTeamBoardDone, task, best.DoneAt.Local().Format("15:04"))
 				}
 			}
 		}
@@ -336,11 +346,14 @@ func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMem
 			case "waiting":
 				icon = "⏳"
 			}
-			status := teamMemberStatus[m.Status]
+			status := ""
+			if key, ok := memberStatusKey[m.Status]; ok {
+				status = i18n.T(key)
+			}
 			if status == "" {
 				status = taskIndexLabel(m.Status, 12)
 			}
-			line = fmt.Sprintf("%s %s（%s · %s）", icon, boardTask(taskIndexLabel(m.Title, teamBoardTaskRunes*2)), status, m.UpdatedAt.Local().Format("15:04"))
+			line = i18n.Tf(MsgTeamBoardMemberLine, icon, boardTask(taskIndexLabel(m.Title, teamBoardTaskRunes*2)), status, m.UpdatedAt.Local().Format("15:04"))
 		}
 		lines = append(lines, fmt.Sprintf("**%s**　%s", f.Name, line))
 	}

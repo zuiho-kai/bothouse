@@ -111,7 +111,7 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 	for _, task := range tasks {
 		members = append(members, task.Members...)
 	}
-	board := renderTeamBoardMembers(files, chat, members)
+	board := renderTeamBoardMembers(files, chat, members, lang)
 	if len(tasks) == 0 {
 		return board
 	}

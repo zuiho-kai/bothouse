@@ -116,7 +116,7 @@ func assertExistingRelayBoard(t *testing.T, files []teamFile) {
 	lead := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
 	defer lead.cancel()
 	boards := map[string]*boardChat{"discord:room": {SessionKey: "discord:room", MessageID: "existing-pin"}}
-	if !lead.updateTeamBoards(files, boards) || p.content["discord:room"] != renderTeamBoard(files, "discord:room") || boards["discord:room"].MessageID != "existing-pin" {
+	if !lead.updateTeamBoards(files, boards) || p.content["discord:room"] != renderTeamBoardMembers(files, "discord:room", nil, LangEnglish) || boards["discord:room"].MessageID != "existing-pin" {
 		t.Fatalf("existing pinned board was not updated: %+v, %v", boards, p.content)
 	}
 	// HandleRelay has no ChatName. Do not invent one or publish a new board

@@ -60,3 +60,29 @@ func TestTeamBoardBusySessionBeatsMemberRow(t *testing.T) {
 		t.Fatalf("live session in this chat should win:\n%s", text)
 	}
 }
+
+// The pinned board followed the engine language for its task sections but kept the
+// member section Chinese-only, so an English channel showed 进行中 next to English
+// headings (raised in review of #142).
+func TestTeamBoardMemberSectionFollowsLanguage(t *testing.T) {
+	at := time.Date(2026, 10, 23, 23, 45, 0, 0, time.Local)
+	files := memberBoardFiles(at, "running")
+
+	en := renderTeamBoardWithTasks(files, "discord:111", LangEnglish)
+	if !strings.Contains(en, "Who is doing what") {
+		t.Fatalf("english board should carry the english title, got:\n%s", en)
+	}
+	if !strings.Contains(en, "running") {
+		t.Fatalf("english board should show the english member status, got:\n%s", en)
+	}
+	for _, zh := range []string{"谁在干啥", "进行中", "待开始", "💤 空闲"} {
+		if strings.Contains(en, zh) {
+			t.Fatalf("english board still contains %q:\n%s", zh, en)
+		}
+	}
+
+	zh := renderTeamBoardWithTasks(files, "discord:111", LangChinese)
+	if !strings.Contains(zh, "谁在干啥") || !strings.Contains(zh, "进行中") {
+		t.Fatalf("chinese board should stay chinese, got:\n%s", zh)
+	}
+}

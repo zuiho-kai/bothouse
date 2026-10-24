@@ -685,7 +685,74 @@ const (
 	MsgPublicAccepted     MsgKey = "MsgPublicAccepted"
 )
 
+const (
+	MsgTeamBoardTitle          MsgKey = "MsgTeamBoardTitle"
+	MsgTeamBoardIdle           MsgKey = "MsgTeamBoardIdle"
+	MsgTeamBoardBusyHere       MsgKey = "MsgTeamBoardBusyHere"
+	MsgTeamBoardBusyElsewhere  MsgKey = "MsgTeamBoardBusyElsewhere"
+	MsgTeamBoardOtherChannel   MsgKey = "MsgTeamBoardOtherChannel"
+	MsgTeamBoardDone           MsgKey = "MsgTeamBoardDone"
+	MsgTeamBoardFailed         MsgKey = "MsgTeamBoardFailed"
+	MsgTeamBoardUnconfirmed    MsgKey = "MsgTeamBoardUnconfirmed"
+	MsgTeamBoardMemberLine     MsgKey = "MsgTeamBoardMemberLine"
+	MsgMemberStatusQueued      MsgKey = "MsgMemberStatusQueued"
+	MsgMemberStatusRunning     MsgKey = "MsgMemberStatusRunning"
+	MsgMemberStatusWaiting     MsgKey = "MsgMemberStatusWaiting"
+	MsgMemberStatusCompleted   MsgKey = "MsgMemberStatusCompleted"
+	MsgMemberStatusFailed      MsgKey = "MsgMemberStatusFailed"
+	MsgMemberStatusCancelled   MsgKey = "MsgMemberStatusCancelled"
+	MsgMemberStatusInterrupted MsgKey = "MsgMemberStatusInterrupted"
+)
+
 var messages = map[MsgKey]map[Language]string{
+	MsgTeamBoardTitle: {
+		LangEnglish: "Who is doing what", LangChinese: "谁在干啥", LangTraditionalChinese: "誰在幹啥", LangJapanese: "誰が何をしているか", LangSpanish: "Quién hace qué",
+	},
+	MsgTeamBoardIdle: {
+		LangEnglish: "💤 Idle", LangChinese: "💤 空闲", LangTraditionalChinese: "💤 空閒", LangJapanese: "💤 アイドル", LangSpanish: "💤 Inactivo",
+	},
+	MsgTeamBoardBusyHere: {
+		LangEnglish: "🔧 %s (since %s)", LangChinese: "🔧 %s（%s 起）", LangTraditionalChinese: "🔧 %s（%s 起）", LangJapanese: "🔧 %s（%s から）", LangSpanish: "🔧 %s (desde %s)",
+	},
+	MsgTeamBoardBusyElsewhere: {
+		LangEnglish: "🔧 Busy in %s (since %s)", LangChinese: "🔧 在%s忙（%s 起）", LangTraditionalChinese: "🔧 在%s忙（%s 起）", LangJapanese: "🔧 %s で作業中（%s から）", LangSpanish: "🔧 Ocupado en %s (desde %s)",
+	},
+	MsgTeamBoardOtherChannel: {
+		LangEnglish: "another channel", LangChinese: "别的频道", LangTraditionalChinese: "別的頻道", LangJapanese: "別のチャンネル", LangSpanish: "otro canal",
+	},
+	MsgTeamBoardDone: {
+		LangEnglish: "✅ Done: %s (%s)", LangChinese: "✅ 做完：%s（%s）", LangTraditionalChinese: "✅ 做完：%s（%s）", LangJapanese: "✅ 完了：%s（%s）", LangSpanish: "✅ Hecho: %s (%s)",
+	},
+	MsgTeamBoardFailed: {
+		LangEnglish: "❌ %s (%s)", LangChinese: "❌ %s（%s）", LangTraditionalChinese: "❌ %s（%s）", LangJapanese: "❌ %s（%s）", LangSpanish: "❌ %s (%s)",
+	},
+	MsgTeamBoardUnconfirmed: {
+		LangEnglish: "⚠️ %s (%s)", LangChinese: "⚠️ %s（%s）", LangTraditionalChinese: "⚠️ %s（%s）", LangJapanese: "⚠️ %s（%s）", LangSpanish: "⚠️ %s (%s)",
+	},
+	MsgTeamBoardMemberLine: {
+		LangEnglish: "%s %s (%s · %s)", LangChinese: "%s %s（%s · %s）", LangTraditionalChinese: "%s %s（%s · %s）", LangJapanese: "%s %s（%s · %s）", LangSpanish: "%s %s (%s · %s)",
+	},
+	MsgMemberStatusQueued: {
+		LangEnglish: "queued", LangChinese: "待开始", LangTraditionalChinese: "待開始", LangJapanese: "待機中", LangSpanish: "en cola",
+	},
+	MsgMemberStatusRunning: {
+		LangEnglish: "running", LangChinese: "进行中", LangTraditionalChinese: "進行中", LangJapanese: "実行中", LangSpanish: "en curso",
+	},
+	MsgMemberStatusWaiting: {
+		LangEnglish: "waiting", LangChinese: "等待中", LangTraditionalChinese: "等待中", LangJapanese: "待機中", LangSpanish: "esperando",
+	},
+	MsgMemberStatusCompleted: {
+		LangEnglish: "done", LangChinese: "已完成", LangTraditionalChinese: "已完成", LangJapanese: "完了", LangSpanish: "completado",
+	},
+	MsgMemberStatusFailed: {
+		LangEnglish: "failed", LangChinese: "失败", LangTraditionalChinese: "失敗", LangJapanese: "失敗", LangSpanish: "falló",
+	},
+	MsgMemberStatusCancelled: {
+		LangEnglish: "cancelled", LangChinese: "已取消", LangTraditionalChinese: "已取消", LangJapanese: "取消済み", LangSpanish: "cancelado",
+	},
+	MsgMemberStatusInterrupted: {
+		LangEnglish: "interrupted", LangChinese: "已中断", LangTraditionalChinese: "已中斷", LangJapanese: "中断", LangSpanish: "interrumpido",
+	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",
 	},

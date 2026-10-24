@@ -107,7 +107,8 @@ func TestUpdateTeamBoards(t *testing.T) {
 	if !e.updateTeamBoards(idle, boards) || p.posts != 4 {
 		t.Fatalf("idle update: posts = %d, want 4", p.posts)
 	}
-	if got := boards["discord:111"].Content; !strings.Contains(got, "💤 空闲") {
+	// The board follows the engine language; this engine is English.
+	if got := boards["discord:111"].Content; !strings.Contains(got, NewI18n(LangEnglish).T(MsgTeamBoardIdle)) {
 		t.Fatalf("idle board = %q", got)
 	}
 	if boards["discord:111"].MessageID != "m-discord:111" {
