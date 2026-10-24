@@ -385,14 +385,16 @@ export class Tasks {
   }
 
   /**
-   * A workspace whose tasks are all handed back or done has finished its work: release it to
-   * the shared pool for any chat channel and clear its sessions (store.releaseWorkspace), so
-   * the next chat channel's [ask]/[report] never go to this one. A claim no task followed yet
-   * (a new handoff, not worked on) keeps it owned.
+   * A workspace whose handoff (the chat channel's task, store.handoffDone) is handed back or
+   * done and has no other task in work has finished: release it to the shared pool for any chat
+   * channel and clear its sessions (store.releaseWorkspace), so the next chat channel's
+   * [ask]/[report] never go to this one. A subtask handed back while the handoff is open (the
+   * lead still summing up), a claim no task followed yet, or a bridge claim (released only by
+   * the bridge's op release) keeps it owned.
    */
   releaseIfDone(roomId) {
     if (!this.tree || this.store.room(roomId)?.kind !== 'workspace') return;
-    if (this.countActive(roomId) > 0 || this.store.claimPending(roomId)) return;
+    if (this.countActive(roomId) > 0 || !this.store.handoffDone(roomId)) return;
     this.release(roomId);
   }
 

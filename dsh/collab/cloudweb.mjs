@@ -302,7 +302,7 @@ export class CloudWebGateway {
         // channel owns is refused (error workspace-owned).
         const raw = String(d.workspace_id ?? '').replace(/^room-/, '');
         if (!/^\d+$/.test(raw)) return { ok: false, error: 'room-missing' };
-        const w = store.claimWorkspace(id, Number(raw));
+        const w = store.claimWorkspace(id, Number(raw), { bridge: true });
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(w) };
       }
@@ -316,7 +316,7 @@ export class CloudWebGateway {
       }
       if (d.op === 'create') {
         // A's createWorkspace numbers 工作区n+1 itself; the bridge takes the name it gets back.
-        const w = store.createWorkspace(id);
+        const w = store.createWorkspace(id, { bridge: true });
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(w) };
       }

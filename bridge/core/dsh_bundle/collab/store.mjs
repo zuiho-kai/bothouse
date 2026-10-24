@@ -30,6 +30,9 @@ const COLUMNS = [
   // The room's highest task id when its owner last claimed it; a claim no task followed
   // yet (the handoff is not worked on) keeps it owned when an earlier task ends (Tasks.releaseIfDone).
   ['rooms', 'claim_task', 'INTEGER'],
+  // 1 = the bridge claimed it (cloudweb.mjs op claim/create): its lead is a bridge session, so
+  // only the bridge's op release (lead reset) frees it, never Tasks.releaseIfDone.
+  ['rooms', 'claim_bridge', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -53,9 +56,10 @@ export class Store {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
-      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id)
+      // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
+      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge)
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
-          ?, 'workspace', ? RETURNING id, name, kind, parent_id`),
+          ?, 'workspace', ?, 0, ? RETURNING id, name, kind, parent_id`),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
       insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
@@ -117,14 +121,25 @@ export class Store {
         created_at REAL NOT NULL,
         removed INTEGER NOT NULL DEFAULT 0)`);
       const has = new Map();
+      const added = new Set();
       for (const [table, column, definition] of COLUMNS) {
         if (!has.has(table)) has.set(table, new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name)));
-        if (!has.get(table).has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+        if (!has.get(table).has(column)) {
+          this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+          added.add(`${table}.${column}`);
+        }
       }
       this.migrateWorkspaceIds();
       this.dedupeWorkspaceNames();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
+      // Team mode C upgrade: before it a workspace's parent_id only named the last chat channel
+      // that handed off, never cleared. A workspace with no task in work then is done: put it in
+      // the pool, else it would belong to that channel forever (no task left to release it).
+      if (added.has('rooms.free')) {
+        this.db.exec(`UPDATE rooms SET free = 1 WHERE kind = 'workspace' AND NOT EXISTS (SELECT 1 FROM tasks
+          WHERE tasks.room_id = rooms.id AND status IN ('assigned', 'accepted', 'asked', 'rework'))`);
+      }
       // Team mode C: where a released workspace's fresh sessions start reading (releaseWorkspace).
       this.db.exec(`CREATE TABLE IF NOT EXISTS room_resets (
         room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
@@ -297,7 +312,7 @@ export class Store {
    * 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (one shared pool,
    * unique numbers). Called on a workspace, it works for that workspace's chat channel.
    */
-  createWorkspace(roomId) {
+  createWorkspace(roomId, { bridge = false } = {}) {
     return this.transaction(() => {
       const room = this.q.room.get(roomId);
       if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
@@ -308,12 +323,12 @@ export class Store {
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
       const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
-        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0,
+        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?,
           claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
-          .get(parent, free.id, free.id);
+          .get(parent, bridge ? 1 : 0, free.id, free.id);
       }
       const n = Math.max(0, ...all.map(num));
-      return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent);
+      return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
     });
   }
 
@@ -322,9 +337,10 @@ export class Store {
    * by rooms.parent_id) sends its asks and reports there. A workspace belongs to one chat
    * channel at a time: one another chat channel owns (not free) is refused with
    * 'workspace-owned' until it is released after its last task (releaseWorkspace).
-   * chatId may be a workspace (then its chat channel is used). Returns the workspace room.
+   * chatId may be a workspace (then its chat channel is used). bridge: the claim comes from the
+   * bridge (cloudweb.mjs), whose lead session the bridge releases itself. Returns the workspace room.
    */
-  claimWorkspace(chatId, workspaceId) {
+  claimWorkspace(chatId, workspaceId, { bridge = false } = {}) {
     return this.transaction(() => {
       const chat = this.q.room.get(chatId);
       const ws = this.q.room.get(workspaceId);
@@ -335,9 +351,9 @@ export class Store {
       if (owner != null && owner !== parent) {
         throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
       }
-      return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0,
+      return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?,
         claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
-        .get(parent, ws.id, ws.id);
+        .get(parent, bridge ? 1 : 0, ws.id, ws.id);
     });
   }
 
@@ -347,11 +363,19 @@ export class Store {
     return r === undefined || r.free ? null : r.parent_id;
   }
 
-  /** True while a claim of workspace roomId has no task dispatched after it yet. */
-  claimPending(roomId) {
-    const r = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(roomId);
-    if (r?.claim_task == null) return false;
-    return this.db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM tasks WHERE room_id = ?').get(roomId).n <= r.claim_task;
+  /**
+   * True once the handoff of the current claim of workspace roomId is finished: the first task
+   * dispatched there after the claim (the work the chat channel handed off; later ones are its
+   * subtasks) is handed back or done. False while no task followed the claim yet, and for a
+   * bridge claim (its handoff is the bridge lead's work, no task here). A claim from before
+   * claim_task existed has no recorded handoff: true.
+   */
+  handoffDone(roomId) {
+    const r = this.db.prepare('SELECT claim_task, claim_bridge FROM rooms WHERE id = ?').get(roomId);
+    if (r === undefined || r.claim_bridge) return false;
+    if (r.claim_task == null) return true;
+    const handoff = this.db.prepare('SELECT status FROM tasks WHERE room_id = ? AND id > ? ORDER BY id LIMIT 1').get(roomId, r.claim_task);
+    return handoff !== undefined && (handoff.status === 'returned' || handoff.status === 'done');
   }
 
   /** Tasks in work in roomId (same statuses as tasks.mjs WORKING). */
@@ -372,7 +396,7 @@ export class Store {
       if (ws === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
       if (ws.kind !== 'workspace' || this.workspaceOwner(ws.id) == null) return false;
       if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
-      this.db.prepare('UPDATE rooms SET free = 1, claim_task = NULL WHERE id = ?').run(ws.id);
+      this.db.prepare('UPDATE rooms SET free = 1, claim_task = NULL, claim_bridge = 0 WHERE id = ?').run(ws.id);
       this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(ws.id);
       const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(ws.id).id ?? 0;
       this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)

@@ -2182,3 +2182,65 @@ test('dispatch settings: migration distinguishes generated mixed rows and persis
   assert.deepEqual(gateway.teamWorkspace({ op: 'dispatch_mode', reply_ctx: roomKey(ws.id) }), { ok: true, dispatch_mode: 'mixed', dispatch_explicit: true });
   s.close();
 });
+
+test('store: upgrading to single owner puts old workspaces with no task in work in the pool', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  old.ensureRoom(2, 'dev');
+  const idle = old.createWorkspace(1);
+  const busy = old.createWorkspace(1);
+  old.db.prepare(`INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at)
+    VALUES (?, '旧活', 'ds', 'lead', ?, 1, 1)`).run(idle.id, 'done');
+  old.db.prepare(`INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at)
+    VALUES (?, '还在做', 'ds', 'lead', ?, 1, 1)`).run(busy.id, 'accepted');
+  // Shape before single owner: no free / claim_task / claim_bridge columns.
+  for (const c of ['free', 'claim_task', 'claim_bridge']) old.db.exec(`ALTER TABLE rooms DROP COLUMN ${c}`);
+  old.close();
+  const s = new Store(path);
+  assert.equal(s.workspaceOwner(idle.id), null, 'done before the upgrade: free');
+  assert.equal(s.claimWorkspace(2, idle.id).parent_id, 2, 'another chat channel claims it');
+  assert.equal(s.workspaceOwner(busy.id), 1, 'a task still in work keeps its owner');
+  assert.throws(() => s.claimWorkspace(2, busy.id), e => e.code === 'workspace-owned');
+  s.close();
+  const again = new Store(path); // the migration runs once: dev keeps what it claimed
+  assert.equal(again.workspaceOwner(idle.id), 2);
+  again.close();
+});
+
+test('tasks: a subtask handed back while the handoff is open keeps the workspace; the handoff done releases it', () => {
+  const { hub } = makeTasks();
+  const s = hub.store;
+  s.ensureRoom(2, 'dev');
+  const w = s.createWorkspace(1);
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const released = [];
+  tasks.onRelease(id => released.push(id));
+  const msg = () => s.append(w.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交回' }).message.id;
+  const handoff = tasks.assign({ roomId: w.id, title: '整块活', owner: 'lead', actor: 'owner' });
+  const sub = tasks.assign({ roomId: w.id, title: '子任务', owner: 'ds', actor: 'lead', parentTask: handoff.id, force: true });
+  tasks.handBack(sub.id, { actor: 'ds', messageId: msg() });
+  tasks.review(sub.id, { actor: 'lead', verdict: 'done' });
+  assert.equal(s.workspaceOwner(w.id), 1, 'the lead is still summing up: owned');
+  assert.throws(() => s.claimWorkspace(2, w.id), e => e.code === 'workspace-owned');
+  tasks.handBack(handoff.id, { actor: 'lead', messageId: msg() });
+  assert.equal(s.workspaceOwner(w.id), null, 'handoff handed back, nothing in work: released');
+  assert.deepEqual(released, [w.id]);
+});
+
+test('tasks: a bridge-claimed workspace is never auto-released; only the bridge release frees it', () => {
+  const { hub } = makeTasks();
+  const s = hub.store;
+  s.ensureRoom(2, 'dev');
+  const w = s.createWorkspace(1, { bridge: true });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const t = tasks.assign({ roomId: w.id, title: '子任务', owner: 'ds', actor: 'lead' });
+  tasks.handBack(t.id, { actor: 'ds', messageId: s.append(w.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交回' }).message.id });
+  tasks.review(t.id, { actor: 'lead', verdict: 'done' });
+  assert.equal(s.workspaceOwner(w.id), 1, 'the bridge lead may still be working');
+  assert.equal(tasks.release(w.id), true);
+  assert.equal(s.claimWorkspace(2, w.id, { bridge: true }).parent_id, 2);
+});
