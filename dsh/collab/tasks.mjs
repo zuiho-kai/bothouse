@@ -28,6 +28,10 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
 const HUMAN = 'owner';
 const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
+// A paused task (park: the bridge released its workspace with the task stopped at a clean
+// point) keeps its status but is not in progress: no check timer, not counted. Any status
+// change by its owner or the lead (stance, hand-back, review) resumes it.
+const LIVE = `status IN (${PLACEHOLDERS}) AND paused_at IS NULL`;
 
 export class Tasks {
   /**
@@ -58,22 +62,24 @@ export class Tasks {
       add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason)
         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?) RETURNING *`),
       // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
-      set: this.db.prepare('UPDATE tasks SET status = ?, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
-      handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
+      set: this.db.prepare('UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
+      handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', paused_at = NULL, next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
         WHERE id = ? AND status = ? RETURNING *`),
       bindAssign: this.db.prepare('UPDATE tasks SET assign_msg_id = ? WHERE id = ? AND assign_msg_id IS NULL'),
       due: this.db.prepare(`SELECT * FROM tasks WHERE next_check_at IS NOT NULL AND next_check_at <= ?
-        AND status IN (${PLACEHOLDERS}) ORDER BY next_check_at, id`),
+        AND ${LIVE} ORDER BY next_check_at, id`),
       // Posting the reminder and marking it undelivered is one step; the check time is spent.
       unremind: this.db.prepare('UPDATE tasks SET next_check_at = NULL, remind_msg_id = ? WHERE id = ? AND next_check_at IS NOT NULL RETURNING *'),
-      undelivered: this.db.prepare(`SELECT * FROM tasks WHERE remind_msg_id IS NOT NULL AND status IN (${PLACEHOLDERS}) ORDER BY id`),
+      undelivered: this.db.prepare(`SELECT * FROM tasks WHERE remind_msg_id IS NOT NULL AND ${LIVE} ORDER BY id`),
       // Clear before waking (a success is never re-sent); restore only if nobody took it.
       takeRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? RETURNING *'),
       putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
-      next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND status IN (${PLACEHOLDERS})`),
-      active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS})`),
-      busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND status IN (${PLACEHOLDERS}) ORDER BY updated_at DESC`),
-      allBusy: this.db.prepare(`SELECT * FROM tasks WHERE status IN (${PLACEHOLDERS}) ORDER BY updated_at DESC`),
+      next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
+      active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
+      paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
+      park: this.db.prepare(`UPDATE tasks SET paused_at = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
+      busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
+      allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
       latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
@@ -125,6 +131,9 @@ export class Tasks {
 
   /** In-progress tasks in one room (the "进行中 N 件" next to it in the channel list). */
   countActive(roomId) { return this.q.active.get(roomId, ...WORKING).n; }
+
+  /** Paused tasks in roomId (park): not counted by countActive. */
+  countPaused(roomId) { return this.q.paused.get(roomId, ...WORKING).n; }
 
   /** Public task row: codes plus display names. */
   view(t) {
@@ -409,6 +418,23 @@ export class Tasks {
       try { released(roomId); } catch (error) { this.hub.logger?.warn?.('collab: workspace release hook failed', error); }
     }
     return true;
+  }
+
+  /**
+   * Park workspace roomId (the bridge's op release with park, core ParkTeamWorkspace): its tasks
+   * in work are marked paused (still the owner's, resumed by any status change) and the workspace
+   * is released to the pool like release() (same claim check, 'stale-claim' before anything is
+   * paused). Returns whether it was released now.
+   */
+  park(roomId, claim = null) {
+    if (this.store.room(roomId)?.kind !== 'workspace' || this.store.workspaceOwner(roomId) == null) return false;
+    if (claim != null && String(claim) !== this.store.claimId(roomId)) {
+      throw new CollabError('stale-claim', `workspace ${roomId} was claimed again since claim ${claim}`);
+    }
+    this.q.park.run(this.now(), roomId, ...WORKING);
+    const released = this.release(roomId, claim);
+    this.arm();
+    return released;
   }
 
   changed(id) {

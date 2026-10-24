@@ -152,6 +152,28 @@ type TeamWorkspace struct {
 	// stays, so asks and reports still go to this chat; the release is retried on the next reset
 	// and before every claim, create or pool listing on the platform (retryTeamWorkspaceReleases).
 	ReleasePending bool `json:"release_pending,omitempty"`
+	// Park: the pending release comes from ParkTeamWorkspace (its tasks were paused, not
+	// finished). A platform that keeps its own task count (TeamWorkspaceParker: cloud_web/DSH)
+	// is asked to pause them and release; without it the plain release is tried and retried.
+	Park bool `json:"park,omitempty"`
+	// Open and Parked: in TeamWorkspacePool only, the handoffs to the workspace that are in
+	// work (not closed, not paused) and the paused ones, from the bridge's own record.
+	Open   int `json:"open,omitempty"`
+	Parked int `json:"parked,omitempty"`
+}
+
+// teamWorkspaceBusy: a workspace with this many tasks in work counts as busy; a new handoff
+// does not adopt it. Source: dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认达到
+// 3 件就算忙」(team mode rules, user 2026-10-24).
+const teamWorkspaceBusy = 3
+
+// TeamWorkspaceParker is implemented by platforms that count a workspace's tasks themselves
+// (cloud_web: the DSH gateway). ParkTeamWorkspace's release asks it to mark the workspace's
+// tasks in work as paused (no longer counted) and release the workspace, naming the claim
+// being ended like TeamWorkspaceReleaser. An older gateway without it answers like a plain
+// release (busy while tasks are in work): the release stays pending and is retried.
+type TeamWorkspaceParker interface {
+	ParkTeamWorkspaceChannel(ctx context.Context, workspaceID, claim string) error
 }
 
 // A workspace belongs to one chat channel at a time (team mode C, single owner): the chat that
@@ -185,7 +207,7 @@ func teamWorkspaceMigrateOwners(st *teamWorkspaceState) bool {
 		var keep []TeamWorkspace
 		for _, w := range list {
 			for _, h := range st.Handoffs[plat+":"+w.ID] {
-				if h.Closed.IsZero() {
+				if teamHandoffOpen(h) {
 					keep = append(keep, w)
 					break
 				}
@@ -207,6 +229,28 @@ type TeamHandoff struct {
 	At   time.Time `json:"at,omitzero"`
 	// Closed: when the task ended (the workspace session was reset after working on it).
 	Closed time.Time `json:"closed,omitzero"`
+	// Parked: when the task was paused (ParkTeamWorkspace: stopped at a clean point, waiting
+	// for the user or someone else). A parked task does not keep the workspace: it is the chat
+	// channel's to-do and is handed off again (to any free workspace) when it resumes.
+	Parked time.Time `json:"parked,omitzero"`
+}
+
+// teamHandoffOpen: the handoff is in work (neither closed nor paused).
+func teamHandoffOpen(h TeamHandoff) bool { return h.Closed.IsZero() && h.Parked.IsZero() }
+
+// teamWorkspaceCountsLocked returns the open and the paused handoffs to workspace key
+// ("<platform>:<workspace id>"); caller holds teamWorkspaceStore.mu.
+func teamWorkspaceCountsLocked(st *teamWorkspaceState, key string) (open, parked int) {
+	for _, h := range st.Handoffs[key] {
+		switch {
+		case !h.Closed.IsZero():
+		case !h.Parked.IsZero():
+			parked++
+		default:
+			open++
+		}
+	}
+	return open, parked
 }
 
 type teamWorkspaces struct {
@@ -596,7 +640,12 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 		var pick *TeamChannel
 		for i, c := range guild {
 			n := teamWorkspaceNum(c.Name)
-			if c.ParentID == self.ParentID && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && c.Active == 0 &&
+			busy := c.Active > 0
+			if !c.ActiveKnown { // Discord, Feishu: the bridge's own count of tasks in work
+				open, _ := teamWorkspaceCountsLocked(st, plat+":"+c.ID)
+				busy = busy || open >= teamWorkspaceBusy
+			}
+			if c.ParentID == self.ParentID && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && !busy &&
 				(pick == nil || n < teamWorkspaceNum(pick.Name)) {
 				pick = &guild[i]
 			}
@@ -794,7 +843,7 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 	if owner == "" {
 		w = TeamWorkspace{ID: wsID, Name: name}
 	}
-	w.ReleasePending = false
+	w.ReleasePending, w.Park = false, false
 	if w.Name == "" {
 		w.Name = name
 	}
@@ -849,6 +898,7 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 		if x.ID == wsID {
 			found = true
 			st.Parents[chat][i].ReleasePending = false
+			st.Parents[chat][i].Park = false
 			if w.Claim != "" {
 				st.Parents[chat][i].Claim = w.Claim
 			}
@@ -901,7 +951,7 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	}
 	now := time.Now()
 	for i, h := range st.Handoffs[key] {
-		if !h.Closed.IsZero() {
+		if !teamHandoffOpen(h) { // closed, or paused (stays paused, does not keep the workspace)
 			continue
 		}
 		if h.At.After(lastActive) {
@@ -943,6 +993,112 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	return true
 }
 
+// ErrTeamWorkspaceNotOwned: park named a workspace no chat channel owns (already free).
+var ErrTeamWorkspaceNotOwned = errors.New("workspace is not owned by any chat channel")
+
+// ParkTeamWorkspace pauses one task of workspace ("<platform>:<id>[:user]", or a bare Discord
+// id): the oldest handoff still in work is marked Parked. A paused task stopped at a clean
+// point (waiting for the user's feedback or someone else's change); its handoff file, branch and
+// PR stay, it becomes the chat channel's to-do and is handed off again with claim/new when it
+// resumes, to whichever workspace is free then. When no other task is in work there, the
+// workspace goes back to the pool right away (the same release as after its last task, through
+// the platform where it records the owner itself, asking it to pause its own tasks:
+// TeamWorkspaceParker) and the lead's sessions there are reset, so the next task does not
+// continue the paused one's context. Pausing is explicit (board pause, `bothouse workspace
+// park`); nothing decides by itself that a task stopped. Returns whether the workspace was freed
+// (or its release is pending on the platform).
+func (e *Engine) ParkTeamWorkspace(workspace string) (freed bool, err error) {
+	if e == nil || e.dataDir == "" || workspace == "" {
+		return false, errors.New("team workspace park: workspace is required")
+	}
+	key := teamChatKey(workspace)
+	plat, _, _ := strings.Cut(key, ":")
+	wsID := teamChannelID(key)
+	path := teamWorkspacePath(e.dataDir)
+	_, platformReleases := e.platformForName(plat).(TeamWorkspaceReleaser)
+
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(path)
+	owner, _ := teamWorkspaceOwnerLocked(st, plat, wsID)
+	if owner == "" {
+		teamWorkspaceStore.mu.Unlock()
+		return false, fmt.Errorf("team workspace park: %s: %w", key, ErrTeamWorkspaceNotOwned)
+	}
+	now := time.Now()
+	parked, open := false, 0
+	for i, h := range st.Handoffs[key] {
+		if !teamHandoffOpen(h) {
+			continue
+		}
+		if !parked {
+			st.Handoffs[key][i].Parked, parked = now, true
+			continue
+		}
+		open++
+	}
+	if open == 0 {
+		if platformReleases {
+			for i, x := range st.Parents[owner] {
+				if x.ID == wsID {
+					st.Parents[owner][i].ReleasePending = true
+					st.Parents[owner][i].Park = true
+				}
+			}
+		} else {
+			teamWorkspaceDropLocked(st, owner, wsID)
+		}
+	}
+	err = saveTeamWorkspacesLocked(path, st)
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		return false, fmt.Errorf("team workspace park: %s: save: %w", key, err)
+	}
+	if open > 0 {
+		slog.Info("team workspace: task paused; other tasks keep the workspace", "workspace", key, "owner", owner, "open", open)
+		return false, nil
+	}
+	e.ResetTeamWorkspaceSessions(key)
+	slog.Info("team workspace: released, its tasks are paused", "workspace", key, "owner", owner)
+	if platformReleases {
+		go func() {
+			teamWorkspaceOpMu.Lock()
+			defer teamWorkspaceOpMu.Unlock()
+			e.retryTeamWorkspaceReleases(key)
+		}()
+	}
+	return true, nil
+}
+
+// ResetTeamWorkspaceSessions gives every session of this engine in workspace key
+// ("<platform>:<id>") a fresh, empty context: the running agent is stopped and the old
+// transcript is not handed on (unlike /new), so the next task there starts clean. Used when a
+// workspace is released with its tasks paused (ParkTeamWorkspace; the API server calls it on
+// the teammates' engines too). Returns how many sessions were reset.
+func (e *Engine) ResetTeamWorkspaceSessions(key string) int {
+	if e == nil || e.sessions == nil {
+		return 0
+	}
+	n := 0
+	for _, k := range e.sessions.UserKeys() {
+		if chatOf(k) != key {
+			continue
+		}
+		_, sessions := e.sessionContextForKey(k)
+		if sessions == nil {
+			continue
+		}
+		e.cleanupInteractiveState(e.interactiveKeyForSessionKey(k))
+		old := sessions.GetOrCreateActive(k)
+		old.SetAgentSessionID("", "")
+		old.ClearHistory()
+		old.TakeHandoffFrom()
+		sessions.NewSession(k, "")
+		sessions.Save()
+		n++
+	}
+	return n
+}
+
 // retryTeamWorkspaceReleases asks the platform of chat ("<platform>:<id>") to release every
 // workspace of that platform whose release is pending (ReleasePending), naming the claim being
 // ended, and drops the record of each one the platform released (or that it says was claimed
@@ -958,7 +1114,10 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 		return
 	}
 	path := teamWorkspacePath(e.dataDir)
-	type pending struct{ owner, id, claim string }
+	type pending struct {
+		owner, id, claim string
+		park             bool
+	}
 	var todo []pending
 	teamWorkspaceStore.mu.Lock()
 	for parent, list := range loadTeamWorkspacesLocked(path).Parents {
@@ -967,14 +1126,19 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 		}
 		for _, w := range list {
 			if w.ReleasePending {
-				todo = append(todo, pending{parent, w.ID, w.Claim})
+				todo = append(todo, pending{parent, w.ID, w.Claim, w.Park})
 			}
 		}
 	}
 	teamWorkspaceStore.mu.Unlock()
 	for _, x := range todo {
 		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
-		err := r.ReleaseTeamWorkspaceChannel(ctx, x.id, x.claim)
+		var err error
+		if pk, ok := r.(TeamWorkspaceParker); ok && x.park {
+			err = pk.ParkTeamWorkspaceChannel(ctx, x.id, x.claim)
+		} else {
+			err = r.ReleaseTeamWorkspaceChannel(ctx, x.id, x.claim)
+		}
 		cancel()
 		key := plat + ":" + x.id
 		if err != nil && !errors.Is(err, ErrTeamWorkspaceStaleClaim) {
@@ -1023,9 +1187,17 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	}
 	pname, _, _ := strings.Cut(chat, ":")
 	owners := map[string]string{}
+	counts := map[string][2]int{} // workspace id → open, parked handoffs
 	if e.dataDir != "" {
 		teamWorkspaceStore.mu.Lock()
-		for parent, list := range loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Parents {
+		st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+		for key := range st.Handoffs {
+			if p, id, _ := strings.Cut(key, ":"); p == pname {
+				open, parked := teamWorkspaceCountsLocked(st, key)
+				counts[id] = [2]int{open, parked}
+			}
+		}
+		for parent, list := range st.Parents {
 			if p, _, _ := strings.Cut(parent, ":"); p == pname {
 				for _, w := range list {
 					owners[w.ID] = parent
@@ -1044,7 +1216,9 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 					owner = pname + ":" + c.Owner
 				}
 			}
-			out = append(out, TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner})
+			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner}
+			w.Open, w.Parked = counts[c.ID][0], counts[c.ID][1]
+			out = append(out, w)
 		}
 	}
 	order := func(name string) int {

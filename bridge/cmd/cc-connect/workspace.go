@@ -65,6 +65,33 @@ func runWorkspace(args []string) {
 			workspaceFail(fmt.Errorf("%s", strings.TrimSpace(string(data))))
 		}
 		fmt.Println(strings.TrimSpace(string(data)))
+	case "park":
+		// Optional <workspace id>; without it the session (CC_SESSION_KEY) is the workspace.
+		req := map[string]string{"session_key": *session}
+		if fs.NArg() > 0 {
+			req["workspace_id"] = fs.Arg(0)
+		}
+		body, _ := json.Marshal(req)
+		resp, err := apiPost(sock, "/team/workspace/park", body)
+		if err != nil {
+			workspaceFail(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			workspaceFail(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+		}
+		var r core.TeamWorkspaceParkResult
+		_ = json.Unmarshal(data, &r)
+		if *jsonOut {
+			printModelJSON(r)
+			return
+		}
+		if r.Freed {
+			fmt.Printf("%s\tfreed\n", r.Workspace)
+		} else {
+			fmt.Printf("%s\tkept (other tasks in work)\n", r.Workspace)
+		}
 	case "list":
 		var r core.TeamWorkspaceListResult
 		if err := modelAPIGet(sock, "/team/workspace/list?"+url.Values{"session_key": {*session}}.Encode(), &r); err != nil {
@@ -81,7 +108,7 @@ func runWorkspace(args []string) {
 		if len(r.Pool) > 0 {
 			fmt.Println("pool")
 			for _, w := range r.Pool {
-				fmt.Printf("%s\t%s\n", w.ID, w.Name)
+				fmt.Printf("%s\t%s\towner=%s\topen=%d\tparked=%d\n", w.ID, w.Name, w.Owner, w.Open, w.Parked)
 			}
 		}
 	default:
@@ -91,11 +118,13 @@ func runWorkspace(args []string) {
 }
 
 func printWorkspaceUsage() {
-	fmt.Println(`Usage: bothouse workspace <new|list|claim> [<workspace id>] [--session-key discord:<channel id>] [--json]
+	fmt.Println(`Usage: bothouse workspace <new|list|claim|park> [<workspace id>] [--session-key discord:<channel id>] [--json]
 
   new    create 「工作区(max+1)」 in the category's shared pool for this chat channel
   list   list this chat channel's workspaces and the category's shared pool
-  claim  record this chat channel as the one handing off to <workspace id> (last handoff wins)
+  claim  record this chat channel as the one handing off to <workspace id> (also resumes a paused task)
+  park   pause one task of <workspace id> (default: this workspace); with no other task in
+         work there the workspace goes back to the pool and its sessions are reset
 
 On by default for the primary role project (Discord only); team_workspaces = false turns it off.`)
 }

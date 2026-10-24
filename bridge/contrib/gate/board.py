@@ -17,7 +17,9 @@
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
   board done <编号> [返工次数 [原因]]      # 结束：移出任务板，记进 board-done.jsonl
   board rework [天数]                    # 最近 14 天的返工次数和原因
-  board pause <编号> [原因]               # 暂停：留在板上、卡片单列「暂停」块，不算做完、不进 board-done.jsonl
+  board pause <编号> [原因]               # 暂停：留在板上、卡片单列「暂停」块，不算做完、不进 board-done.jsonl；
+                                         #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
+                                         #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），卡片那行末尾出「[卡](链接)」
   board refresh                          # 只重画所有已有的置顶卡（让「已过」到点就出现，可由定时调用）
@@ -115,7 +117,8 @@ def _deadline(hhmm, ref=None):
     return int(ts + 86400 if ts < ref - NEXT_GRACE else ts)
 
 
-def add(what, where, status, who, nxt=None):
+def add(what, where, status, who, nxt=None, ws=None):
+    """ws：ws-handoff 交活时建的条目绑到这个工作区（<平台>:<id>，桥里那一件交接）；pause、把「谁」改走时放掉那一件。"""
     with _locked():
         cur = _read()
         nid = max([i["id"] for i in cur + _read("board-done.jsonl")] + [0]) + 1
@@ -124,6 +127,14 @@ def add(what, where, status, who, nxt=None):
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():
             it["ch"] = _cur_channel()
+        sk = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+        if ":" in sk:  # 完整会话 key（飞书、DSH、网页版也有），pause 时按它找工作区
+            it["sk"] = ":".join(sk.split(":", 2)[:2])
+        if ws:
+            it["ws"] = it["sk"] = ws
+            it.pop("ch", None)
+            if ws.startswith("discord:"):
+                it["ch"] = ws.split(":", 1)[1]
         cur.append(it)
         _write(cur)
     return nid
@@ -135,7 +146,10 @@ def update(nid, status, where=None, who=None, nxt=None):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
+        before = dict(hit)
         hit["status"], hit["at"] = status, _now()
+        if who and hit.get("ws") and who != before.get("who"):
+            hit.pop("ws")  # 「谁」改走：这件不再算在那个工作区（main 里 park 掉它的交接）
         if where:
             hit["where"] = where
         if who:
@@ -145,7 +159,7 @@ def update(nid, status, where=None, who=None, nxt=None):
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
-    return True
+    return before
 
 
 CARD_RE = re.compile(r"https://discord\.com/channels/\d+/\d+/\d+")  # Discord 消息链接：/channels/<服务器>/<频道>/<消息>
@@ -172,12 +186,48 @@ def pause(nid, why=None):
         if hit is None:
             return False
         hit["paused"] = hit["at"] = _now()
+        ws = hit.pop("ws", None)  # 交接已放回桥（main 里 park）：恢复后重新 ws-handoff，再绑新的
         if why:
             hit["pause_why"] = why
         else:
             hit.pop("pause_why", None)
         _write(cur)
-    return True
+    return {**hit, "ws": ws} if ws else hit
+
+
+def _ws_key(it):
+    """条目所在频道的会话 key（<平台>:<id>）：add 时记的 sk，老条目退回 discord:<ch>。"""
+    return it.get("sk") or (f"discord:{it['ch']}" if it.get("ch") else "")
+
+
+def _park_once(cc, sk):
+    """<桥> workspace park 一次：True 放回了 / False 那里还有活 / None 不在工作区、早已放回或失败（失败写 stderr）。"""
+    try:
+        p = subprocess.run([cc, "workspace", "park", "--session-key", sk, "--json"],
+                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"board: 工作区没放回（{e}），pause 照常记", file=sys.stderr)
+        return None
+    if p.returncode != 0:
+        if "not owned" not in p.stderr:  # 不在工作区里（聊天频道）或工作区早已空：不用放
+            print(f"board: 工作区没放回（{p.stderr.strip()[:200]}），pause 照常记", file=sys.stderr)
+        return None
+    try:
+        return bool(json.loads(p.stdout).get("freed"))
+    except ValueError:
+        return None
+
+
+def park_workspace(it):
+    """暂停即放回（用户同意的「停着的活挪到待办列表」）：条目是 ws-handoff 交活时建、绑了工作区的（it["ws"]），
+    <桥> workspace park 放掉它在那里的那一件交接；那里没别的活在做，桥就把工作区放回池子并清掉会话
+    （core/team_workspace.go ParkTeamWorkspace）。只按绑定的条目放：没绑的（在工作区里手动 add 的）不动桥，
+    免得把刚交、还没上板的活一起放掉、串频道（审查 ~/.claude/reviews/ws-stale-local-code.md 第二轮）。
+    返回 True 放回了 / False 还有别的活留着 / None 没绑工作区、没桥或失败（失败写 stderr，不拦 pause）。"""
+    cc = _cc_bin()
+    if not it.get("ws") or not cc:
+        return None
+    return _park_once(cc, it["ws"])
 
 
 def resume(nid):
@@ -527,9 +577,14 @@ def main(argv):
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "update" and 3 <= len(argv) <= 5:
             nid = int(argv[1].lstrip("#"))
-            if not update(nid, argv[2], *argv[3:5], nxt=nxt):
+            before = update(nid, argv[2], *argv[3:5], nxt=nxt)
+            if not before:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已更新")
+            if before.get("ws") and not any(i["id"] == nid and i.get("ws") for i in items()):
+                freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
+                if freed:
+                    print("工作区已放回池子，会话已清")
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "done" and 2 <= len(argv) <= 4:
             nid = int(argv[1].lstrip("#"))
@@ -545,9 +600,13 @@ def main(argv):
                 print(hint)
         elif cmd == "pause" and 2 <= len(argv) <= 3:
             nid = int(argv[1].lstrip("#"))
-            if not pause(nid, argv[2] if len(argv) > 2 else None):
+            hit = pause(nid, argv[2] if len(argv) > 2 else None)
+            if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已暂停")
+            freed = park_workspace(hit)
+            if freed is not None:
+                print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))

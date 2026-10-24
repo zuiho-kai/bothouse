@@ -104,7 +104,7 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(self.handoff(notes[1], "B", key="test:200").returncode, 0)
         last = json.loads(self.last.read_text(encoding="utf-8"))
         self.assertEqual(last["file"], notes[1])
-        self.assertEqual(last["tasks"][notes[0]], {"channel": "900", "chat": "test:100", "task": "A"})
+        self.assertEqual(last["tasks"][notes[0]], {"channel": "900", "chat": "test:100", "task": "A", "board": [1]})
         # 工作区 900 报回交 a 进来的聊天频道
         self.assertEqual(self.run_tool("ws-up", "done", key="test:900").returncode, 0)
         argv = self.timers()[-1]
@@ -117,6 +117,154 @@ class WsUpTest(unittest.TestCase):
         self.assertIn("用户说选 A", Path(notes[0]).read_text(encoding="utf-8"))
         self.assertNotIn("用户说选 A", Path(notes[1]).read_text(encoding="utf-8"))
 
+
+
+FAKE_POOL = r"""
+import json, sys
+st_path, calls = sys.argv[0] + ".json", sys.argv[0] + ".calls"
+a = sys.argv[1:]
+open(calls, "a").write(json.dumps(a) + "\n")
+st = json.load(open(st_path))
+def save(): json.dump(st, open(st_path, "w"))
+if a[:2] == ["timer", "add"]:
+    print("timer-1"); sys.exit(0)
+if a[0] != "workspace":
+    sys.exit(1)
+sk = a[a.index("--session-key") + 1]
+plat, chat = sk.split(":")[0], sk
+ws = {w["id"]: w for w in st["ws"]}
+if a[1] == "list":
+    print(json.dumps({"parent": chat, "pool": st["ws"]}))
+elif a[1] == "claim":
+    w = ws[a[2]]
+    if w["owner"] not in ("", chat):
+        print("claimed by another chat", file=sys.stderr); sys.exit(1)
+    w["owner"], w["open"] = chat, w["open"] + 1; save()
+elif a[1] == "new":
+    n = len(st["ws"]) + 1
+    w = {"id": str(n), "name": f"工作区{n}", "owner": "", "open": 0, "parked": 0}
+    st["ws"].append(w); save(); print(json.dumps({"workspace": w}))
+elif a[1] == "park":
+    w = ws.get(sk.split(":")[1])
+    if not w or not w["owner"] or not w["open"]:
+        print("workspace is not owned by any chat channel", file=sys.stderr); sys.exit(1)
+    w["open"], w["parked"] = w["open"] - 1, w["parked"] + 1
+    if not w["open"]:
+        w["owner"] = ""
+    save(); print(json.dumps({"freed": not w["open"]}))
+"""
+
+
+class WsPoolTest(unittest.TestCase):
+    """没配 WS_CHANNEL：走桥的共享池（list/claim/new/park），假桥把池子记在 JSON 里。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "setup").mkdir()
+        self.fake = self.tmp / "bothouse"
+        self.fake.write_text(f"#!{sys.executable}\n" + FAKE_POOL)
+        self.fake.chmod(0o755)
+        self.env = {"PATH": "/usr/bin:/bin", "HOME": str(self.tmp), "GATE_SETUP_DIR": str(self.tmp / "setup"),
+                    "BOARD_DIR": str(self.tmp / "board"), "CC_BIN": str(self.fake), "CC_PROJECT": "lead-proj"}
+        self.pool([])
+
+    def pool(self, ws=None):
+        f = Path(str(self.fake) + ".json")
+        if ws is not None:
+            f.write_text(json.dumps({"ws": ws}))
+        return {w["name"]: w for w in json.loads(f.read_text())["ws"]}
+
+    def note(self, n):
+        p = self.tmp / f"{n}.md"
+        p.write_text("# 用户原话\n# 进度\n# 规矩\n", encoding="utf-8")
+        return str(p)
+
+    def handoff(self, notes, task, chat="test:100"):
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task], capture_output=True, text=True,
+                           env={**self.env, "CC_SESSION_KEY": chat})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = [json.loads(l) for l in Path(str(self.fake) + ".calls").read_text().splitlines()][-1]
+        return argv[argv.index("-s") + 1]
+
+    def board(self, *args):
+        r = subprocess.run([str(HERE / "board"), *args], capture_output=True, text=True, env=self.env)
+        return r.returncode, r.stdout + r.stderr
+
+    def items(self):
+        f = self.tmp / "board" / "board.jsonl"
+        return [json.loads(l) for l in f.read_text().splitlines()] if f.exists() else []
+
+    def test_fills_to_busy_then_next(self):  # 方案 9：满 3 件后第 4 件落到下一个，不全进同一个
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        got = [self.handoff(self.note(f"n{k}"), f"T{k}") for k in range(5)]
+        self.assertEqual(got, ["test:1", "test:1", "test:1", "test:2", "test:2"])
+        self.assertNotIn("工作区3", self.pool())
+        self.assertEqual([i["ws"] for i in self.items()], got)  # 每块都上板、绑工作区
+
+    def test_same_notes_twice_both_bound(self):  # 方案 10：同一交接文件连交 2 件，两条都在
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        n = self.note("a")
+        self.handoff(n, "A"); self.handoff(n, "B")
+        rec = json.loads((self.tmp / "setup" / "ws-handoff-last.json").read_text())["tasks"][n]
+        self.assertEqual(rec["board"], [1, 2])
+        self.assertEqual(rec["more"], ["A"])
+        self.assertEqual([i["what"] for i in self.items()], ["A", "B"])
+
+    def test_paused_old_workspace_reused(self):  # 方案 11：暂停放回的旧号 + 一个满的：新活落到旧号，不新建
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0},
+                   {"id": "2", "name": "工作区2", "owner": "test:100", "open": 3, "parked": 0}])
+        self.assertEqual(self.handoff(self.note("old"), "旧活"), "test:1")
+        code, out = self.board("pause", "1", "等用户")
+        self.assertEqual(code, 0, out)
+        self.assertIn("工作区已放回池子", out)
+        self.assertEqual(self.pool()["工作区1"]["owner"], "")
+        self.assertEqual(self.handoff(self.note("new"), "新活", chat="test:200"), "test:1")
+        self.assertNotIn("工作区3", self.pool())
+
+    def test_pause_keeps_just_handed_task(self):  # 审查第二轮：先交 B，再停旧活，B 照旧占着，别的频道不挑它
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        self.handoff(self.note("x"), "旧活 X")
+        self.handoff(self.note("b"), "新活 B")
+        code, out = self.board("pause", "1")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("放回池子", out)
+        w = self.pool()["工作区1"]
+        self.assertEqual((w["owner"], w["open"]), ("test:100", 1))
+        self.assertEqual(self.handoff(self.note("c"), "C", chat="test:200"), "test:2")
+
+    def test_manual_item_in_workspace_does_not_park(self):  # 没绑工作区的条目（工作区里手动 add 的）暂停不动桥
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        self.handoff(self.note("x"), "X")
+        r = subprocess.run([str(HERE / "board"), "add", "顺手的事", "-", "s", "工作区1主角色"], capture_output=True,
+                           text=True, env={**self.env, "CC_SESSION_KEY": "test:1"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.board("pause", "2")
+        self.assertEqual(self.pool()["工作区1"]["open"], 1)
+
+    def test_who_moved_out_parks(self):  # 「谁」改走（如改成待接手）：它那件交接放回
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        self.handoff(self.note("x"), "X")
+        code, out = self.board("update", "1", "等人接", "-", "待接手")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.pool()["工作区1"]["owner"], "")
+        self.assertNotIn("ws", self.items()[0])
+
+    def test_migrates_unbound_once(self):  # 升级前没绑编号的旧交接：名下没有在做条目的工作区放回，有的不动；只迁一次
+        self.pool([{"id": "1", "name": "工作区1", "owner": "test:100", "open": 2, "parked": 0},
+                   {"id": "2", "name": "工作区2", "owner": "test:100", "open": 1, "parked": 0},
+                   {"id": "3", "name": "工作区3", "owner": "test:100", "open": 3, "parked": 0}])
+        r = subprocess.run([str(HERE / "board"), "add", "还在做", "-", "s", "工作区2主角色"], capture_output=True,
+                           text=True, env={**self.env, "CC_SESSION_KEY": "test:2"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.handoff(self.note("a"), "A"), "test:1")
+        p = self.pool()
+        self.assertEqual((p["工作区1"]["open"], p["工作区1"]["parked"]), (1, 2))
+        self.assertEqual(p["工作区2"]["open"], 1)
+        self.assertEqual(p["工作区3"]["open"], 0)  # 只剩旧交接、板上没在做的：放回
+        p3 = {**p["工作区3"], "owner": "test:100", "open": 3}
+        self.pool([p["工作区1"], p["工作区2"], p3])
+        self.handoff(self.note("b"), "B")
+        self.assertEqual(self.pool()["工作区3"]["open"], 3)  # 迁过一次就不再迁
 
 if __name__ == "__main__":
     unittest.main()

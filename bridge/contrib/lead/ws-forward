@@ -27,7 +27,7 @@ def append_result(path: str, summary: str, now: str):
 
 
 def timer_cmd(ws: str, path: str):
-    return ["cc-connect", "timer", "add", "-s", f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
+    return ["cc-connect", "timer", "add", "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
             "--desc", "工作区转交", "--prompt", f"主频道转来新结果，读 {path} 末尾「转交结果」节最新一条，接着推进"]
 
 
@@ -42,10 +42,14 @@ def main(argv):
     last = json.loads(_team.LAST.read_text(encoding="utf-8"))
     if notes:
         path = os.path.abspath(os.path.expanduser(notes))
-        rec = (last.get("tasks") or {}).get(path)
-        if not isinstance(rec, dict) or not rec.get("channel"):
+        tasks = {k: v for k, v in (last.get("tasks") or {}).items() if isinstance(v, dict) and v.get("channel")}
+        rec = tasks.get(path)
+        alts = [k for k, v in tasks.items() if v.get("file") == path]
+        if rec is not None and alts:  # 同一份交接交给了几个工作区：要写明是哪个
+            sys.exit(f"ws-forward: {path} 交给了几个工作区，用 --notes 写明：{'；'.join([path, *alts])}")
+        if rec is None:
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
-        last = {"file": path, "channel": rec["channel"]}
+        last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"]}
     append_result(last["file"], argv[0], time.strftime("%Y-%m-%d %H:%M:%S"))
     r = subprocess.run(timer_cmd(last["channel"], last["file"]), capture_output=True, text=True)
     if r.returncode != 0:

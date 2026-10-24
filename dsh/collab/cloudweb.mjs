@@ -296,6 +296,7 @@ export class CloudWebGateway {
             ...view(r), parent_id: r.parent_id == null ? '' : roomKey(r.parent_id),
             owner: owner == null ? '' : roomKey(owner),
             active: this.tasks?.countActive(r.id) ?? 0,
+            paused: this.tasks?.countPaused?.(r.id) ?? 0,
           };
         });
         return { ok: true, self: view(self), rooms };
@@ -316,7 +317,9 @@ export class CloudWebGateway {
         // stale-claim) when d.claim names an earlier claim than the current one.
         if (self.kind !== 'workspace') return { ok: false, error: 'not-workspace' };
         const claim = d.claim == null || d.claim === '' ? null : String(d.claim);
-        const released = this.tasks ? this.tasks.release(id, claim) : store.releaseWorkspace(id, claim);
+        // park (core ParkTeamWorkspace): its tasks are paused, not finished; they stop counting first.
+        const released = !this.tasks ? store.releaseWorkspace(id, claim)
+          : d.park ? this.tasks.park(id, claim) : this.tasks.release(id, claim);
         if (released) this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
       }

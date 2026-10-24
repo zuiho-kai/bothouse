@@ -198,11 +198,12 @@ export class Store {
         updated_at REAL NOT NULL,
         returned_at REAL,
         remind_msg_id INTEGER,
-        reason TEXT)`);
+        reason TEXT,
+        paused_at REAL)`);
     } else {
       const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
       for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT']]) {
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
       }
     }
@@ -398,10 +399,10 @@ export class Store {
     return handoff !== undefined && (handoff.status === 'returned' || handoff.status === 'done');
   }
 
-  /** Tasks in work in roomId (same statuses as tasks.mjs WORKING). */
+  /** Tasks in work in roomId (same statuses as tasks.mjs WORKING; paused ones do not count). */
   activeTasks(roomId) {
     return this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ?
-      AND status IN ('assigned', 'accepted', 'asked', 'rework')`).get(roomId).n;
+      AND status IN ('assigned', 'accepted', 'asked', 'rework') AND paused_at IS NULL`).get(roomId).n;
   }
 
   /**

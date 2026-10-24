@@ -2037,6 +2037,63 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c3', ok: false, error: 'not-workspace' });
 });
 
+test('team workspace park: paused tasks stop counting, the workspace goes back to the pool and is reused before a new one', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'dev');
+  const ws = hub.store.createWorkspace(1); // general owns 工作区1
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  gw.tasks = tasks;
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const t1 = tasks.assign({ roomId: ws.id, title: '停在干净点的活', owner: 'ds', actor: 'ju' });
+  tasks.stance(t1.id, { actor: 'ds', stance: 'ask', note: '等用户反馈' }); // asked: still in work
+  // A plain release is refused while a task is in work (unchanged).
+  ju.frame({ type: 'team_workspace', ref_id: 'r1', op: 'release', reply_ctx: roomKey(ws.id) });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'r1', ok: false, error: 'busy' });
+  // A stale claim pauses nothing.
+  ju.frame({ type: 'team_workspace', ref_id: 'p0', op: 'release', park: true, claim: '999', reply_ctx: roomKey(ws.id) });
+  await tick();
+  assert.equal(ju.of('team_workspace_ack').at(-1).error, 'stale-claim');
+  assert.equal(tasks.countActive(ws.id), 1);
+  // park: the task is paused (not counted), the workspace is free.
+  ju.frame({ type: 'team_workspace', ref_id: 'p1', op: 'release', park: true, claim: hub.store.claimId(ws.id), reply_ctx: roomKey(ws.id) });
+  await tick();
+  assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  assert.equal(tasks.countActive(ws.id), 0);
+  assert.equal(hub.store.activeTasks(ws.id), 0);
+  assert.equal(tasks.countPaused(ws.id), 1);
+  assert.equal(tasks.task(t1.id).status, 'asked', 'status kept, only paused');
+  ju.frame({ type: 'team_workspace', ref_id: 'l1', op: 'list', reply_ctx: 'room-2' });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner, r.active, r.paused]), [['工作区1', '', 0, 1]]);
+  // dev's next workspace is the freed 工作区1, not 工作区2.
+  assert.equal(hub.store.createWorkspace(2).name, '工作区1');
+  // The paused task resumes on its owner's next stance: in work again.
+  tasks.stance(t1.id, { actor: 'ds', stance: 'accept' });
+  assert.equal(tasks.countActive(ws.id), 1);
+  assert.equal(tasks.countPaused(ws.id), 0);
+});
+
+test('team workspace park: a workspace with one paused and one accepted task stays busy for a plain release', async () => {
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  gw.tasks = tasks;
+  connect(gw, 'bot=ju&name=橘');
+  const a = tasks.assign({ roomId: ws.id, title: 'A', owner: 'ds', actor: 'ju' });
+  tasks.db.prepare('UPDATE tasks SET paused_at = 1 WHERE id = ?').run(a.id);
+  const b = tasks.assign({ roomId: ws.id, title: 'B', owner: 'ds', actor: 'ju' });
+  tasks.stance(b.id, { actor: 'ds', stance: 'accept' });
+  assert.equal(tasks.countActive(ws.id), 1);
+  assert.throws(() => tasks.release(ws.id), /tasks in work/);
+  assert.notEqual(hub.store.workspaceOwner(ws.id), null);
+});
+
 test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作区n+1, others get 401', async () => {
   const { workspacesRoute } = await import('./plugin.mjs');
   const hub = makeHub();

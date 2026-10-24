@@ -33,6 +33,8 @@ Write the handoff as a file with at least the sections "用户原话" (user's wo
 
 - `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start.
 - `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.
+- ws-handoff reuses a free workspace, or one of this channel's with fewer than 3 tasks in work, and creates a new one only when all are busy. It also adds a board entry (owner: the workspace's lead) bound to this handoff.
+- A stalled task (waiting for the user or someone else, untouched this hour) is paused at the hourly wrap-up: `board pause <id>`. Its handoff is released; with nothing else in work there, the workspace goes back to the pool and its sessions are reset. Reassigning it (`board update <id> <status> - <who>`) does the same. To resume, hand it off again with `ws-handoff`.
 
 The primary role in a workspace does not ask the user directly. The chat channel that handed the task over is the single outlet:
 

@@ -18,7 +18,11 @@
   - `t10 <pid>`：后台活满 10 分钟连子进程一起停。
   - `d10 <队友名字/别名/ID> "<简称>"`：10 分钟后队友没交回，就以调用者（`CC_PROJECT`，即当主角色）的身份在当前频道（`CC_SESSION_KEY`）发「暂停」；队友 ID 从团队文件的 `"id"` 读。到点由 `d10-fire` 判断。
   - `ws-handoff <交接文件> "<任务>"` / `ws-forward "<摘要>"`：把大活交给「工作区」频道里的主角色、之后转结果。
-    工作区频道 ID 读 `WS_CHANNEL` 或团队文件顶层 `"workspace"`；都没有就在当前频道同分类下新建一个。
+    工作区：配了 `WS_CHANNEL` 或团队文件顶层 `"workspace"` 就固定用它（频道已删时在当前频道同分类下新建）；
+    没配就走桥的共享池（`<桥> workspace list/claim/new`，Discord、飞书、DSH、网页版同一套）：空着或本频道名下
+    进行中不到 3 件的先用（件数少、编号小的先），都忙才 `new`。交活时在任务板上记一条并绑这个工作区（`ws`），
+    编号记进交接记录的 `board`。升级前没绑编号的旧交接：每个聊天频道第一次 ws-handoff 时迁移一次，名下已没有
+    在做条目的工作区放回池子（记在 `<GATE_SETUP_DIR>/ws-park-migrated.json`）。
     Discord token 读 `DISCORD_BOT_TOKEN` 或 `<GATE_SETUP_DIR>/secrets.env`。
     ws-handoff 按交接文件把来源聊天频道（`CC_SESSION_KEY`）记进 `<GATE_SETUP_DIR>/ws-handoff-last.json` 的 `tasks`；
     `ws-forward --notes <交接文件>` 按它转给那份交接的工作区。
@@ -29,7 +33,9 @@
 ## 任务板、过会儿回来、安全重启
 
 - `board`（实现在 `../gate/board.py`）：谁手上有哪件事、做在哪、做到哪。`board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看]`、
-  `board update <编号> <状态> …`、`board done <编号>`。板子存 `BOARD_DIR`（默认 `<GATE_SETUP_DIR>/team`），
+  `board update <编号> <状态> …`、`board done <编号>`、`board pause <编号> [原因]` / `board resume <编号>`。
+  ws-handoff 建的条目绑着工作区：`board pause`，或 `board update` 把「谁」改成别人时，跑 `<桥> workspace park`
+  放掉它在那里的那件交接；那里没别的活在做，桥把工作区放回池子并清会话。手动 add 的条目不动桥。板子存 `BOARD_DIR`（默认 `<GATE_SETUP_DIR>/team`），
   `../gate/ctxsvc.py` 把整张板附进每个 bot 每轮的上下文（板子变了才重推，没用过任务板不附）。
   每次增改结束后，在条目所在频道（`CC_SESSION_KEY`）把「还没做完的事」编辑进同一条置顶消息；
   Discord token 读 `DISCORD_BOT_TOKEN` 或 `<GATE_SETUP_DIR>/secrets.env`，读不到只警告。

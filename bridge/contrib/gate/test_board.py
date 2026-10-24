@@ -189,6 +189,30 @@ class Increments(unittest.TestCase):
         self.assertNotEqual(cli("pause", "9")[0], 0)
         self.assertNotEqual(cli("resume", "9")[0], 0)
 
+    def test_pause_parks_only_bound_item(self):
+        """ws-handoff 建的条目绑了工作区（ws）：pause 时 <桥> workspace park 一次、解绑；没绑的不动桥。"""
+        log = Path(TMP) / "park.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakepark"
+        fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="feishu:oc_1")
+            os.environ["CC_SESSION_KEY"] = "feishu:oc_1:u1"
+            board.add("顺手的事", "-", "s", "工作区1主角色")
+            os.environ.pop("CC_SESSION_KEY")
+            self.assertEqual(board.items()[1]["sk"], "feishu:oc_1")  # 会话 key 去掉用户段
+            board.main(["pause", "2"])
+            self.assertEqual(log.read_text(), "")
+            board.main(["pause", "1"])
+            self.assertEqual(log.read_text().split(), ["workspace", "park", "--session-key", "feishu:oc_1", "--json"])
+            self.assertNotIn("ws", board.items()[0])
+            board.main(["resume", "1"]); board.main(["pause", "1"])
+            self.assertEqual(len(log.read_text().splitlines()), 1)  # 已放回过：恢复后再停不重复放
+        finally:
+            os.environ["CC_BIN"] = "false"
+
     def test_link(self):
         cli("add", "x", "-", "s", "橘")
         url = "https://discord.com/channels/1/2/3"

@@ -162,3 +162,17 @@ func (p *Platform) ReleaseTeamWorkspaceChannel(ctx context.Context, workspaceID,
 	_, err := p.teamWorkspaceRequest(ctx, "release", workspaceID, "", extra)
 	return err
 }
+
+// ParkTeamWorkspaceChannel tells the gateway that workspaceID's tasks are paused (core
+// ParkTeamWorkspace): the gateway marks its tasks in work there as paused, so they no longer
+// count, and releases the workspace like ReleaseTeamWorkspaceChannel (same claim check). An
+// older gateway ignores park and answers busy while tasks are in work; core keeps the release
+// pending and retries it.
+func (p *Platform) ParkTeamWorkspaceChannel(ctx context.Context, workspaceID, claim string) error {
+	extra := map[string]any{"workspace_id": workspaceID, "park": true}
+	if claim != "" {
+		extra["claim"] = claim
+	}
+	_, err := p.teamWorkspaceRequest(ctx, "release", workspaceID, "", extra)
+	return err
+}

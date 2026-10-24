@@ -2,17 +2,30 @@
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
 # 用法：ws-handoff <交接文件> "<一句话任务>"
 #   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行）。
-#   工作区频道：WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）；没配或频道已删时，
+#   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
+#   core/team_workspace.go，Discord、飞书、DSH、网页版同一套）：本频道名下或空着、进行中不到 3 件的
+#   工作区里挑（件数少的先，同件数编号小的先），都忙才 new（桥先复用空号，没有才建 工作区n+1），再 claim
+#   记一件交接（桥按件计数，连交时刚交的也算）。暂停的活（board pause → <桥> workspace park）不算件数，
+#   它的工作区已放回池子，会被先复用。
+#   配了 WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）就固定用它；配的频道已删时，
 #   用 Discord API 在当前频道（CC_SESSION_KEY）同分类下建「工作区」文字频道，并提示把 ID 写进团队文件。
 # 来源：用户 2026-10-23「如果你觉得已经开始管不过来了，你可以去开新的频道，就叫工作区，然后把任务整个大颗粒度的交给那边的橘」
 #   「方便任意人当主角色，并且也能放到仓库」。
-import json, os, subprocess, sys, urllib.error, urllib.request
+import json, os, re, shutil, subprocess, sys, urllib.error, urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 
+sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
+import board  # noqa: E402  任务板：交活时建条目、绑工作区（../gate/board.py）
+
+MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
+
 REQUIRED = ["用户原话", "进度", "规矩"]
+# 一个工作区进行中的活达到这么多件就算忙。来源：dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认
+# 达到 3 件就算忙」（团队模式规矩，用户 2026-10-24）；桥里同值 core/team_workspace.go teamWorkspaceBusy。
+BUSY = 3
 API = "https://discord.com/api/v10"
 
 
@@ -51,21 +64,118 @@ def ensure_channel() -> str:
     return new["id"]
 
 
+def cc_bin() -> str:
+    return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect") or "cc-connect"
+
+
+def ws_cmd(chat: str, *args):
+    """<桥> workspace <args> --session-key <chat> --json；失败 sys.exit 带桥的原话。"""
+    r = subprocess.run([cc_bin(), "workspace", *args, "--session-key", chat, "--json"], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"ws-handoff: workspace {args[0]} 失败：{r.stderr.strip() or r.stdout.strip()}")
+    try:
+        return json.loads(r.stdout or "{}")
+    except ValueError:
+        sys.exit(f"ws-handoff: workspace {args[0]} 回的不是 JSON：{r.stdout.strip()[:200]}")
+
+
+def num(name: str) -> int:
+    m = re.fullmatch(r"工作区(\d+)", str(name or ""))
+    return int(m.group(1)) if m else 10 ** 9
+
+
+def _park_until_freed(key: str) -> int:
+    """<桥> workspace park 到工作区放回（每次放一件），返回放了几件。"""
+    n = 0
+    while True:
+        p = subprocess.run([cc_bin(), "workspace", "park", "--session-key", key, "--json"], capture_output=True, text=True)
+        if p.returncode != 0:
+            return n
+        n += 1
+        try:
+            if json.loads(p.stdout or "{}").get("freed"):
+                return n
+        except ValueError:
+            return n
+
+
+def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
+    """一次性迁移（每个聊天频道只做一次）：升级前交的活在桥里记了交接、任务板上没绑编号；本频道占着的工作区里，
+    任务板上已没有在做的条目（暂停的、later 回查的不算）时，把这些旧交接放回，工作区回池子。之后的交接都绑编号
+    （main 建条目），放回只看绑定条目（board pause / 把「谁」改走）。还有在做条目的工作区不动，等那些条目收尾。
+    来源：本机止血审查第二轮（~/.claude/reviews/ws-stale-local-code.md）后的根因方案（notes/ws-stale-occupy-1025.md）。
+    返回是否放回了工作区（要重新 list）。"""
+    try:
+        done = set(json.loads(MIGRATED.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        done = set()
+    if parent in done:
+        return False
+    live = {board._ws_key(i) for i in board.items() if not i.get("paused") and not i.get("next")}
+    freed = False
+    for w in pool:
+        key = f"{plat}:{w.get('id')}"
+        if isinstance(w, dict) and str(w.get("owner") or "") == parent and int(w.get("open") or 0) > 0 and key not in live:
+            n = _park_until_freed(key)
+            print(f"ws-handoff: {w.get('name') or w.get('id')} 只剩升级前没绑任务板的交接，放回 {n} 件", file=sys.stderr)
+            freed = freed or n > 0
+    MIGRATED.parent.mkdir(parents=True, exist_ok=True)
+    MIGRATED.write_text(json.dumps(sorted(done | {parent}), ensure_ascii=False), encoding="utf-8")
+    return freed
+
+
+def pick_pool(chat: str):
+    """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名）。"""
+    plat = chat.split(":", 1)[0]
+    r = ws_cmd(chat, "list")
+    parent = str(r.get("parent") or chat)
+    if migrate_unbound(chat, plat, parent, r.get("pool") or []):
+        r = ws_cmd(chat, "list")
+    ok = [w for w in r.get("pool") or [] if isinstance(w, dict) and w.get("id")
+          and str(w.get("owner") or "") in ("", parent) and int(w.get("open") or 0) < BUSY]
+    ok.sort(key=lambda w: (int(w.get("open") or 0), num(w.get("name"))))
+    for w in ok:
+        c = subprocess.run([cc_bin(), "workspace", "claim", str(w["id"]), "--session-key", chat],
+                           capture_output=True, text=True)
+        if c.returncode == 0:
+            return f"{plat}:{w['id']}", str(w.get("name") or w["id"])
+        print(f"ws-handoff: {w.get('name')} 认领不了（{c.stderr.strip()}），换下一个", file=sys.stderr)
+    w = (ws_cmd(chat, "new").get("workspace") or {})
+    if not w.get("id"):
+        sys.exit("ws-handoff: workspace new 没回工作区")
+    ws_cmd(chat, "claim", str(w["id"]))
+    print(f"ws-handoff: 池里没有不忙的工作区，用 {w.get('name') or w['id']}", file=sys.stderr)
+    return f"{plat}:{w['id']}", str(w.get("name") or w["id"])
+
+
 def timer_cmd(ws: str, path: str, task: str):
     prompt = (f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
               f"先读交接 {path}，接手后发五段式说明，并把还没派的活当场派出去")
-    return ["cc-connect", "timer", "add", "-s", f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
+    key = ws if ":" in ws else f"discord:{ws}"
+    return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
             "--desc", "工作区接手", "--prompt", prompt]
 
 
-def record_last(path: str, ws: str, task: str, chat: str):
+def record_last(path: str, ws: str, task: str, chat: str, nid=None):
     """记最近一次交接（ws-forward 默认转给它），并按交接文件记来源聊天频道（ws-up 按它报回、ws-forward --notes 按它转）。"""
     try:
         last = json.loads(_team.LAST.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         last = {}
     tasks = last.get("tasks") if isinstance(last, dict) and isinstance(last.get("tasks"), dict) else {}
-    tasks[path] = {"channel": ws, "chat": chat, "task": task}
+    rec = {"channel": ws.split(":", 1)[-1], "chat": chat, "task": task, "board": [nid] if nid else []}
+    if ":" in ws:
+        rec["ws_key"] = ws
+    old = tasks.get(path)
+    key = path
+    if isinstance(old, dict) and str(old.get("channel") or "") != rec["channel"]:
+        # 同一份交接交给另一个工作区：另记一条（ws-up/ws-forward 用 --notes <文件>@ws<id> 认），不覆盖前一条
+        key, rec["file"] = f"{path}@ws{rec['channel']}", path
+    elif isinstance(old, dict) and old.get("task") != task:
+        rec["more"] = [*(old.get("more") or []), old.get("task")]  # 同一工作区再交一块：前面的块留在 more
+    if isinstance(old, dict) and key == path:
+        rec["board"] = [*(old.get("board") or []), *rec["board"]]  # 每块各建各绑
+    tasks[key] = rec
     _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "tasks": tasks},
                                      ensure_ascii=False), encoding="utf-8")
 
@@ -80,11 +190,21 @@ def main(argv):
         miss = missing_sections(fh.read())
     if miss:
         sys.exit(f"ws-handoff: 交接文件缺小节：{'、'.join(miss)}")
-    ws = ensure_channel()
+    chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    if _team.workspace() or ":" not in chat:
+        ws, name = ensure_channel(), "工作区"
+    else:
+        ws, name = pick_pool(chat)
     r = subprocess.run(timer_cmd(ws, path, task), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-handoff: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
-    record_last(path, ws, task, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
+    # 交活时就上任务板、绑这个工作区：放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做
+    key = ws if ":" in ws else f"discord:{ws}"
+    lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
+    nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key)
+    board.refresh({board._chan_of(nid), board._cur_channel()})
+    record_last(path, ws, task, chat, nid)
+    print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 
