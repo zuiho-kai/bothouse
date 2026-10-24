@@ -2120,12 +2120,37 @@ test('team workspace park: paused tasks stop counting, the workspace goes back t
   ju.frame({ type: 'team_workspace', ref_id: 'l1', op: 'list', reply_ctx: 'room-2' });
   await tick();
   assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner, r.active, r.paused]), [['工作区1', '', 0, 1]]);
-  // dev's next workspace is the freed 工作区1, not 工作区2.
-  assert.equal(hub.store.createWorkspace(2).name, '工作区1');
-  // The paused task resumes on its owner's next stance: in work again.
+  // Not claimed by anyone yet: the paused task resumes on its owner's next stance, and the
+  // workspace is claimed back for general (the chat channel it was paused under).
   tasks.stance(t1.id, { actor: 'ds', stance: 'accept' });
   assert.equal(tasks.countActive(ws.id), 1);
   assert.equal(tasks.countPaused(ws.id), 0);
+  assert.equal(hub.store.workspaceOwner(ws.id), 1);
+});
+
+test('team workspace park: a paused task does not resume into a workspace another chat channel claimed since', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'dev');
+  const ws = hub.store.createWorkspace(1); // general owns 工作区1
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const t1 = tasks.assign({ roomId: ws.id, title: '停在干净点的活', owner: 'ds', actor: 'ju' });
+  tasks.stance(t1.id, { actor: 'ds', stance: 'ask', note: '等用户反馈' });
+  assert.equal(tasks.park(ws.id), true);
+  // dev's next workspace is the freed 工作区1, not 工作区2.
+  assert.equal(hub.store.createWorkspace(2).name, '工作区1');
+  assert.equal(hub.store.workspaceOwner(ws.id), 2);
+  // Resuming would make 工作区1 serve two chat channels: refused, nothing changes.
+  assert.throws(() => tasks.stance(t1.id, { actor: 'ds', stance: 'accept' }), e => e.code === 'workspace-owned');
+  assert.equal(tasks.task(t1.id).status, 'asked');
+  assert.ok(tasks.task(t1.id).paused_at != null, 'still paused, still listed');
+  assert.equal(tasks.countPaused(ws.id), 1);
+  assert.equal(tasks.countActive(ws.id), 0);
+  assert.equal(hub.store.workspaceOwner(ws.id), 2, 'dev keeps it');
+  // The paused task stays on general's board (a to-do is not lost), not on dev's.
+  assert.deepEqual(tasks.list(1).map(t => [t.id, t.paused_at != null]), [[t1.id, true]]);
+  assert.deepEqual(tasks.list(2).map(t => t.id), []);
 });
 
 test('team workspace park: a workspace with one paused and one accepted task stays busy for a plain release', async () => {
@@ -2756,3 +2781,113 @@ function route(hub, gateway, dsh) {
     return { status: res.status, json: JSON.parse(res.body) };
   };
 }
+
+test('tasks: the lead @-ing teammates opens board tasks; their reply to the lead hands back; the lead\'s next message accepts', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.fallbackLead = 'lead';
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
+  const dispatch = say('lead', '橘', '@龙娘 @DeepSeek 把登录页写完\n细节见上');
+  await tick();
+  let list = tasks.list(1);
+  assert.deepEqual(list.map(t => [t.owner, t.status, t.title, t.assign_msg_id]).sort(),
+    [['ds', 'assigned', '把登录页写完', dispatch.id], ['gpt', 'assigned', '把登录页写完', dispatch.id]]);
+  // A second @ to an owner with an open task from the lead is a follow-up, not a new task.
+  say('lead', '橘', '@龙娘 记得加测试');
+  await tick();
+  assert.equal(tasks.list(1).length, 2);
+  // Stance after the lead's @ (bridge lead_return form) still counts as a stance, not a hand-back.
+  say('gpt', '龙娘', '@橘 【接】 开工');
+  await tick();
+  assert.equal(tasks.list(1).find(t => t.owner === 'gpt').status, 'accepted');
+  // Bridge status notices never hand back.
+  say('gpt', '龙娘', '⏳ @橘 还在跑');
+  const result = say('gpt', '龙娘', '@橘 登录页写好了');
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual([list.find(t => t.owner === 'gpt').status, list.find(t => t.owner === 'gpt').result_msg_id], ['returned', result.id]);
+  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
+  say('lead', '橘', '收到，龙娘这份可以');
+  await tick();
+  list = tasks.list(1);
+  assert.equal(list.find(t => t.owner === 'gpt').status, 'done');
+  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
+  // Teammates' own @s and plain chat never open tasks; API tasks are never auto-accepted.
+  say('gpt', '龙娘', '@DeepSeek 你那边呢');
+  const api = tasks.assign({ roomId: 1, title: 'api', owner: 'gpt', actor: 'lead' });
+  tasks.handBack(api.id, { actor: 'gpt', messageId: result.id });
+  say('lead', '橘', '好');
+  await tick();
+  assert.equal(tasks.task(api.id).status, 'returned');
+  assert.equal(tasks.list(1).length, 3);
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: bridge task card members open and hand back board tasks (cloud-web task_members)', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 'tok', logger: quiet });
+  gw.tasks = tasks;
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const ws = new FakeWs();
+  gw.accept(ws, new URL('ws://x/?bot=lead&name=橘'));
+  ws.frame({ type: 'register', project: 'lead' });
+  // Statuses as core.TaskMember writes them (task_members.go: report result -> completed);
+  // the sub-row shares the teammate's reporter_project, as the bridge sends it.
+  const card = (status, child = status) => PROGRESS_PREFIX + JSON.stringify({ state: 'running', items: [{ kind: 'info', text: '📋 t' }],
+    task_members: [{ reporter_project: 'gpt', id: 'm1', name: '龙娘', title: '修 bug', status },
+      { reporter_project: 'gpt', id: 'c1', parent_id: 'm1', name: 'subagent', title: 'x', status: child }] });
+  ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
+  await tick();
+  const handle = ws.of('preview_ack')[0].preview_handle;
+  let list = tasks.list(1);
+  assert.deepEqual(list.map(t => [t.owner, t.created_by, t.status, t.title]), [['gpt', 'lead', 'assigned', '修 bug']]);
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running'), seq: 2 });
+  await tick();
+  assert.equal(tasks.list(1).length, 1);
+  // A finished sub-row neither hands back the teammate's task nor lets the next frame reopen one.
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running', 'completed'), seq: 3 });
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running', 'completed'), seq: 4 });
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual(list.map(t => t.status), ['assigned'], 'sub-rows are ignored');
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('completed'), seq: 5 });
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual([list[0].status, list[0].result_msg_id], ['returned', Number(handle)]);
+  // A retried preview_start arriving late (older seq, member still queued) must not reopen a task.
+  ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
+  await tick();
+  assert.deepEqual(tasks.list(1).map(t => t.status), ['returned'], 'late preview_start reopened a task');
+  // Every other ending core.TaskMember can reach hands back too.
+  for (const [i, end] of ['failed', 'cancelled', 'interrupted'].entries()) {
+    const ref = `taskcard-${i + 2}`;
+    ws.frame({ type: 'preview_start', ref_id: ref, reply_ctx: 'room-1', content: card('running'), seq: 1 });
+    await tick();
+    const h = ws.of('preview_ack').at(-1).preview_handle;
+    ws.frame({ type: 'update_message', preview_handle: h, content: card(end), seq: 2 });
+    await tick();
+    const t = tasks.list(1).find(x => x.assign_msg_id === Number(h));
+    assert.equal(t?.status, 'returned', `${end} hands back`);
+  }
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: a 【问】【退】【升】 reply to the lead with no task to answer is not a hand-back', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.fallbackLead = 'lead';
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
+  say('lead', '橘', '@龙娘 把登录页写完');
+  await tick();
+  say('gpt', '龙娘', '@橘 【接】 开工');
+  await tick();
+  for (const text of ['@橘 【问】接口用哪个版本', '@橘 【退】这个不归我', '@橘 【升】范围太大']) {
+    say('gpt', '龙娘', text);
+    await tick();
+    assert.equal(tasks.list(1)[0].status, 'accepted', text);
+  }
+  say('lead', '橘', '用 v2');
+  await tick();
+  assert.equal(tasks.list(1)[0].status, 'accepted', 'the lead answering a question does not accept the task');
+  tasks.close(); hub.store.close();
+});
