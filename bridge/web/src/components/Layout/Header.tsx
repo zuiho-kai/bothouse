@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useEffect } from 'react';
 import {
-  RefreshCw, Sun, Moon, Monitor, LogOut, Languages, ChevronDown,
+  RefreshCw, Sun, Moon, Monitor, LogOut, Languages, Menu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useThemeStore } from '@/store/theme';
@@ -19,7 +19,7 @@ const languages = [
   { code: 'ru', label: 'RU' },
 ];
 
-export default function Header() {
+export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { t, i18n } = useTranslation();
   const { theme, resolved, setTheme } = useThemeStore();
   const isSetup = useLocation().pathname === '/setup';
@@ -67,6 +67,18 @@ export default function Header() {
         'bg-white/70 backdrop-blur-xl dark:bg-[rgba(0,0,0,0.72)]',
       )}
     >
+      {!isSetup && (
+        <button
+          type="button"
+          onClick={onMenuClick}
+          className={cn(btnCls, 'mr-auto md:hidden')}
+          aria-label="Open navigation menu"
+          aria-controls="mobile-navigation"
+          data-testid="mobile-menu-button"
+        >
+          <Menu size={20} />
+        </button>
+      )}
       {isSetup && <span className="mr-auto text-base font-bold tracking-tight text-gray-900 dark:text-white">bothouse<span className="text-accent">.</span></span>}
       <button type="button" onClick={handleRefresh} className={btnCls} aria-label={t('common.refresh')}>
         <RefreshCw size={16} className={spinning ? 'animate-spin' : ''} />

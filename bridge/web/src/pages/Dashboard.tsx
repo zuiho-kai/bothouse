@@ -67,7 +67,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-8 animate-fade-in ">
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label={t('dashboard.version')} value={status?.version || '-'} accent />
         <StatCard label={t('dashboard.uptime')} value={status ? formatUptime(status.uptime_seconds) : '-'} />
         <StatCard label={t('dashboard.platforms')} value={status?.connected_platforms?.length ?? 0} />
@@ -90,12 +90,12 @@ export default function Dashboard() {
             <EmptyState message={t('projects.noProjects')} icon={Layers} />
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
             {projects.slice(0, MAX_ITEMS).map((p) => (
               <Link
                 key={p.name}
                 to={`/chat/${p.name}`}
-                className="block p-4 rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] hover:border-accent/40 hover:shadow-md hover:shadow-accent/5 transition-all"
+                className="block min-w-0 overflow-hidden p-4 rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] hover:border-accent/40 hover:shadow-md hover:shadow-accent/5 transition-all"
               >
                 <div className="flex items-center gap-2.5 mb-3">
                   <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
@@ -103,7 +103,7 @@ export default function Dashboard() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{shownName(p)}</p>
-                    <p className="text-xs text-gray-400 font-mono">{p.agent_type}</p>
+                    <p className="text-xs text-gray-400 font-mono truncate">{p.agent_type}</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1 mb-2">
@@ -137,12 +137,12 @@ export default function Dashboard() {
             <p className="text-xs text-gray-400 text-center">{t('sessions.noSessions')}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
             {recentSessions.map((sess) => (
               <Link
                 key={`${sess.project}-${sess.id}`}
                 to={`/chat/${sess.project}`}
-                className="block p-4 rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] hover:border-accent/40 hover:shadow-md hover:shadow-accent/5 transition-all"
+                className="block min-w-0 overflow-hidden p-4 rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] hover:border-accent/40 hover:shadow-md hover:shadow-accent/5 transition-all"
               >
                 <div className="flex items-center gap-2.5 mb-3">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${sess.active ? 'bg-green-400' : 'bg-gray-300 dark:bg-gray-600'}`} />
