@@ -150,7 +150,7 @@ func TestApplyWizardStepsFollowLanguage(t *testing.T) {
 	if r := withOldJev("ja", "接続できません：x。", "m @ u"); !strings.Contains(r, "前のもの（m @ u）") {
 		t.Errorf("withOldJev ja = %q", r)
 	}
-	if h := GateHint("ja", false, "Juzi"); !strings.Contains(h, "フォールバックロール「Juzi」") {
+	if h := GateHint("ja", GateStatusJevMissing, "Juzi"); !strings.Contains(h, "メインのボット「Juzi」") {
 		t.Errorf("GateHint ja = %q", h)
 	}
 }

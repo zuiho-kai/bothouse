@@ -76,11 +76,15 @@ func (rm *RelayManager) ResolveTaskReporter(source, project, platform, session s
 }
 
 // taskReporterName is project's bot name as bound in session's channel, or "".
+// A binding made by /bind stores the project id as the name; then the project's
+// configured name (team_name) is used instead.
 func (e *Engine) taskReporterName(project, session string) string {
-	if e.relayManager == nil {
-		return ""
+	if e.relayManager != nil {
+		if name := e.relayManager.BoundBotName(project, session); name != "" && name != project {
+			return name
+		}
 	}
-	return e.relayManager.BoundBotName(project, session)
+	return e.projectDisplayName(project)
 }
 
 // BoundBotName is the display name the channel binding gives project's bot, or "".
@@ -95,4 +99,44 @@ func (rm *RelayManager) BoundBotName(project, session string) string {
 		return b.Bots[project]
 	}
 	return ""
+}
+
+// projectDisplayName is a configured project's name for people (Engine.DisplayName:
+// team_name, else the project id), or "" when no such project runs in this process.
+func (e *Engine) projectDisplayName(project string) string {
+	if project == e.name {
+		return e.DisplayName()
+	}
+	if e.relayManager == nil {
+		return ""
+	}
+	e.relayManager.mu.RLock()
+	target := e.relayManager.engines[project]
+	e.relayManager.mu.RUnlock()
+	if target == nil {
+		return ""
+	}
+	return target.DisplayName()
+}
+
+// displayNames replaces project ids on a card snapshot with the projects' names for
+// people: the executor (Task.Agent) and bot member rows whose name fell back to the
+// id (also rows stored before names were resolved). Unknown projects keep the id.
+// Only the outgoing snapshot changes; the stored record keeps its ids.
+func (p *PublicProgress) displayNames(t *Task) {
+	if t == nil || p.projectName == nil {
+		return
+	}
+	if name := p.projectName(t.Agent); name != "" {
+		t.Agent = name
+	}
+	for i := range t.Members {
+		m := &t.Members[i]
+		if m.ReporterProject == "" || m.Name != m.ReporterProject {
+			continue
+		}
+		if name := p.projectName(m.ReporterProject); name != "" {
+			m.Name = name
+		}
+	}
 }

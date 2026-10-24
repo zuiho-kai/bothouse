@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // validRunAsUserName is the portable-username character set plus digits.
@@ -84,8 +85,9 @@ var configMu configLock
 var ConfigPath string
 
 type Config struct {
-	DataDir        string `toml:"data_dir"` // session store directory, default ~/.cc-connect
-	AttachmentSend string `toml:"attachment_send"`
+	UsagePrices    map[string]core.TokenPrice `toml:"usage_prices"`
+	DataDir        string                     `toml:"data_dir"` // session store directory, default ~/.cc-connect
+	AttachmentSend string                     `toml:"attachment_send"`
 	// Quiet is legacy: when true and [display] does not set thinking_messages / tool_messages,
 	// engines behave as if those flags were false. Per-project quiet overrides when set.
 	Quiet              *bool                   `toml:"quiet,omitempty"`
@@ -487,7 +489,9 @@ type ReferenceConfig struct {
 
 // ProjectConfig binds one agent (with a specific work_dir) to one or more platforms.
 type ProjectConfig struct {
-	PublicProgress bool   `toml:"public_progress,omitempty"` // explicit public reports; default off
+	// PublicProgress is enabled when omitted so a main bot's first delegation
+	// can create its task card automatically. Set it to false to opt out.
+	PublicProgress *bool  `toml:"public_progress,omitempty"`
 	Name           string `toml:"name"`
 	Mode           string `toml:"mode,omitempty"`     // "" or "multi-workspace"
 	BaseDir        string `toml:"base_dir,omitempty"` // parent dir for workspaces
@@ -649,6 +653,12 @@ type ProjectConfig struct {
 	Shell string `toml:"shell,omitempty"`
 	// ShellProfile overrides the global shell_profile for this project.
 	ShellProfile string `toml:"shell_profile,omitempty"`
+}
+
+// PublicProgressEnabled reports whether public task cards are available for
+// this project. Unset keeps the team default on; false is an explicit opt-out.
+func (p ProjectConfig) PublicProgressEnabled() bool {
+	return p.PublicProgress == nil || *p.PublicProgress
 }
 
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
@@ -1113,6 +1123,12 @@ func (c *Config) validate() error {
 }
 
 func (c *Config) validateInternal(permissive bool) error {
+	for model, price := range c.UsagePrices {
+		if err := price.Validate(); err != nil {
+			return fmt.Errorf("config: usage_prices.%s: %w", model, err)
+		}
+	}
+
 	if err := validateDisplayConfig("display", &c.Display); err != nil {
 		return err
 	}

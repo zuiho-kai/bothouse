@@ -16127,3 +16127,102 @@ func TestProcessInteractiveEvents_StreamingCard_BareNoReply_Suppressed(t *testin
 		t.Fatalf("silent reply leaked NO_REPLY into the streaming card: %q", card.finalContent())
 	}
 }
+
+// TestUnsolicitedReader_PermissionAllowInYoloProject verifies that a
+// background permission request is granted when the project's permission mode
+// already auto-approves everything, even without a per-session /yolo.
+func TestUnsolicitedReader_PermissionAllowInYoloProject(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &stubModelModeAgent{mode: "bypassPermissions"}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+
+	sess := newControllableSession("unsol-perm-yolo")
+	permRecorder := &permRecordingSession{controllableAgentSession: *sess}
+	session := e.sessions.GetOrCreateActive("test:perm:u2")
+	state := &interactiveState{agentSession: permRecorder, platform: p, replyCtx: "ctx"}
+
+	e.startUnsolicitedReader(state, session, e.sessions, "test:perm:u2", "")
+	defer e.stopUnsolicitedReader(state)
+
+	permRecorder.events <- Event{Type: EventPermissionRequest, RequestID: "req-1", ToolName: "Bash"}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		permRecorder.mu.Lock()
+		calls, result := permRecorder.permCalls, permRecorder.lastPermResult
+		permRecorder.mu.Unlock()
+		if calls > 0 {
+			if result.Behavior != "allow" {
+				t.Fatalf("expected allow in bypassPermissions project, got %q", result.Behavior)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for permission response")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestTurnAutoApproves(t *testing.T) {
+	cases := map[string]bool{
+		"bypassPermissions": true, "yolo": true, "YOLO": true, "bypass-permissions": true, "force": true,
+		"default": false, "": false, "acceptEdits": false, "plan": false, "full-auto": false,
+	}
+	for mode, want := range cases {
+		e := NewEngine("test", &stubModelModeAgent{mode: mode}, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+		if got := e.turnAutoApproves(&interactiveState{}); got != want {
+			t.Errorf("mode %q: turnAutoApproves() = %v, want %v", mode, got, want)
+		}
+		e.Stop()
+	}
+	e := newTestEngine()
+	defer e.Stop()
+	if e.turnAutoApproves(&interactiveState{}) {
+		t.Error("agent without GetMode must not auto-approve")
+	}
+}
+
+// A cron job with its own non-bypass Mode must not be auto-approved just
+// because the project default is bypassPermissions.
+func TestTurnAutoApproves_CronJobModeOverridesProjectDefault(t *testing.T) {
+	e := NewEngine("test", &stubModelModeAgent{mode: "bypassPermissions"}, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	defer e.Stop()
+	for _, mode := range []string{"default", "plan"} {
+		state := &interactiveState{agent: e.agent}
+		e.setTurnMode(state, &stubLiveModeSession{}, mode)
+		if e.turnAutoApproves(state) {
+			t.Errorf("cron mode %q under bypassPermissions project: must not auto-approve", mode)
+		}
+		e.restoreTurnMode(state)
+		if !e.turnAutoApproves(state) {
+			t.Errorf("after restoring cron mode %q: project default bypassPermissions should auto-approve", mode)
+		}
+	}
+}
+
+// With multi-workspace, /mode changes the workspace agent, not e.agent; the
+// session's own agent decides.
+func TestTurnAutoApproves_UsesSessionWorkspaceAgent(t *testing.T) {
+	e := NewEngine("test", &stubModelModeAgent{mode: "yolo"}, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	defer e.Stop()
+	wsAgent := &stubModelModeAgent{mode: "default"}
+	if e.turnAutoApproves(&interactiveState{agent: wsAgent}) {
+		t.Error("workspace agent in default mode under yolo project: must not auto-approve")
+	}
+}
+
+// Ending a cron/timer turn's mode override on a session that runs on a
+// workspace agent restores that agent's mode, not e.agent's.
+func TestRestoreTurnMode_RestoresSessionWorkspaceAgentMode(t *testing.T) {
+	e := NewEngine("test", &stubModelModeAgent{mode: "yolo"}, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	defer e.Stop()
+	sess := &stubLiveModeSession{}
+	state := &interactiveState{agent: &stubModelModeAgent{mode: "acceptEdits"}}
+	e.setTurnMode(state, sess, "plan")
+	e.restoreTurnMode(state)
+	if got, want := strings.Join(sess.modes, ","), "plan,acceptEdits"; got != want {
+		t.Errorf("SetLiveMode calls = %q, want %q", got, want)
+	}
+}

@@ -281,7 +281,11 @@ func (p *Platform) handleMessage(ctx context.Context, evt *event.Event) {
 	isDM := p.isDMRoom(ctx, roomID)
 
 	// Group mention check
-	if !isDM && !p.groupReplyAll {
+	// "/stop all" from a user reaches every bot in the room, mentioned or not.
+	// Matrix has no bot flag: this bot's own messages are dropped above, and
+	// only m.text counts (bots conventionally post m.notice).
+	stopAll := content.MsgType == event.MsgText && core.IsStopAllCommand(content.Body)
+	if !isDM && !p.groupReplyAll && !stopAll {
 		if !p.isDirectedAtBot(content, selfID) {
 			return
 		}

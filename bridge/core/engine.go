@@ -409,6 +409,7 @@ type Engine struct {
 
 	commands *CommandRegistry
 	skills   *SkillRegistry
+	paused   atomic.Bool
 	aliases  map[string]string // trigger → command (e.g. "帮助" → "/help")
 	aliasMu  sync.RWMutex
 
@@ -445,6 +446,7 @@ type Engine struct {
 	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
 	resetTurns                   map[string]int   // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
 	team                         *teamState       // maomao fork: team status board (nil = off)
+	displayName                  atomic.Pointer[string] // team_name from config ("" / nil = the project name); see DisplayName
 	teamWS                       *teamWorkspaces  // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
 	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
@@ -463,6 +465,8 @@ type Engine struct {
 	autoCompressEnabled   bool
 	autoCompressMaxTokens int
 	autoCompressMinGap    time.Duration
+	// nativeAutoCompactAt: last auto native compaction per interactive key, guarded by interactiveMu (native_compact.go).
+	nativeAutoCompactAt map[string]time.Time
 	// Cold-cache fresh start (maomao fork, see handoff.go)
 	coldFreshEnabled   bool
 	coldFreshIdle      time.Duration
@@ -537,6 +541,7 @@ type Engine struct {
 
 	platformLifecycleMu sync.Mutex
 	platformReady       map[Platform]bool
+	platformConnectErr  map[Platform]error // last connect error an async platform reported (WaitPlatformsReady)
 	stopping            bool
 	messageWorkers      sync.WaitGroup // admission is serialized with Stop by platformLifecycleMu
 	replyFooterMu       sync.Mutex
@@ -615,6 +620,7 @@ type interactiveState struct {
 	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
+	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
 	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
@@ -641,6 +647,9 @@ type interactiveState struct {
 	pendingProviderAdd       *pendingProviderAddState
 	lastAutoCompressAt       time.Time
 	lastAutoCompressTokens   int
+	// autoCompactDue: the auto-compress check passed at a turn's end for an agent
+	// with native compaction; applyPendingAutoCompact runs it once the session is free.
+	autoCompactDue bool
 
 	// Unsolicited event reader: a background goroutine that consumes agent
 	// events between user-initiated turns (e.g. background task completions).
@@ -873,6 +882,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		interactiveStates:     make(map[string]*interactiveState),
 		sendWorkDirs:          make(map[string]string),
 		platformReady:         make(map[Platform]bool),
+		platformConnectErr:    make(map[Platform]error),
 		startedAt:             time.Now(),
 		streamPreview:         DefaultStreamPreviewCfg(),
 		references:            DefaultReferenceRenderCfg(),
@@ -1234,6 +1244,11 @@ func (e *Engine) AddPlatform(p Platform) {
 	e.platforms = append(e.platforms, p)
 }
 
+// Platforms returns a copy of the engine's platform list.
+func (e *Engine) Platforms() []Platform {
+	return append([]Platform(nil), e.platforms...)
+}
+
 func (e *Engine) SetCronScheduler(cs *CronScheduler) {
 	e.cronScheduler = cs
 }
@@ -1263,6 +1278,37 @@ type ConfigReloadResult struct {
 	DisplayUpdated   bool
 	ProvidersUpdated int
 	CommandsUpdated  int
+	// RestartKeys lists platform options ("<platform>.<key>") that changed in config.toml
+	// but only take effect after a restart.
+	RestartKeys []string
+}
+
+// OptionsReloader is implemented by platforms that can take some options from a
+// reloaded config.toml while running. ReloadOptions returns the changed keys that still
+// need a restart.
+type OptionsReloader interface {
+	ReloadOptions(opts map[string]any) []string
+}
+
+// ReloadPlatformOptions hands each running platform its options from the reloaded config
+// (keyed by platform type). It returns "<type>.<key>" for every change that needs a restart;
+// a platform without OptionsReloader reports "<type>" when its options changed at all.
+func (e *Engine) ReloadPlatformOptions(byType map[string]map[string]any, started map[string]map[string]any) []string {
+	var restart []string
+	for _, p := range e.platforms {
+		opts, ok := byType[p.Name()]
+		if !ok {
+			continue
+		}
+		if r, ok := p.(OptionsReloader); ok {
+			for _, k := range r.ReloadOptions(opts) {
+				restart = append(restart, p.Name()+"."+k)
+			}
+		} else if started != nil && fmt.Sprint(started[p.Name()]) != fmt.Sprint(opts) {
+			restart = append(restart, p.Name())
+		}
+	}
+	return restart
 }
 
 func (e *Engine) SetConfigReloadFunc(fn func() (*ConfigReloadResult, error)) {
@@ -1633,6 +1679,9 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
+	if e.IsPaused() {
+		return fmt.Errorf("engine %q is paused", e.name)
+	}
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventCronTriggered,
 		SessionKey: job.SessionKey,
@@ -1891,7 +1940,49 @@ func (e *Engine) waitTimerPlatformReady(p Platform) error {
 	return nil
 }
 
+// WaitPlatformsReady is for a project loaded into a running service: Start returns before an async
+// platform (Discord, cloud_web, …) has connected, so this waits until every async platform reports
+// ready. It fails on the first connect error one of them reports (startup would keep retrying in
+// the background; a role added from the panel should say why it is not online instead), or when
+// one is still not ready after timeout.
+func (e *Engine) WaitPlatformsReady(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		var waiting Platform
+		e.platformLifecycleMu.Lock()
+		for _, p := range e.platforms {
+			if _, async := p.(AsyncRecoverablePlatform); !async || e.platformReady[p] {
+				continue
+			}
+			if err := e.platformConnectErr[p]; err != nil {
+				e.platformLifecycleMu.Unlock()
+				return fmt.Errorf("platform %s: %w", p.Name(), err)
+			}
+			waiting = p
+			break
+		}
+		e.platformLifecycleMu.Unlock()
+		if waiting == nil {
+			return nil
+		}
+		if e.ctx.Err() != nil {
+			return fmt.Errorf("engine stopping before platform %q was ready", waiting.Name())
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("platform %q not connected after %s", waiting.Name(), timeout)
+		}
+		time.Sleep(200 * time.Millisecond) // source: the poll interval of waitTimerPlatformReady above
+	}
+}
+
+// PlatformReadyTimeout is how long WaitPlatformsReady is given by hot loading: the same wait a
+// timer job gives an async platform (timerPlatformReadyTimeout).
+func PlatformReadyTimeout() time.Duration { return timerPlatformReadyTimeout }
+
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
+	if e.IsPaused() {
+		return fmt.Errorf("engine %q is paused", e.name)
+	}
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventTimerTriggered,
 		SessionKey: job.SessionKey,
@@ -2104,10 +2195,11 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	return nil
 }
 
-// queueScheduledTurn queues a cron/timer turn whose session is busy behind the running turn,
+// queueScheduledTurn queues a cron/timer (or heartbeat/webhook) turn whose session is busy behind the running turn,
 // through the same queue a user message uses. The new_per_run paths never get here: each run
 // takes a fresh side session (NewSideSession), which no one else holds, so its TryLock succeeds.
-// p is where replies go (muted for a muted job); target is the real platform, for the backfill.
+// p is where replies go (muted for a muted job); target is the real platform, for the backfill
+// (nil for heartbeat/webhook, which run without one).
 func (e *Engine) queueScheduledTurn(p, target Platform, msg *Message, session *Session, sessions *SessionManager, iKey string, agent Agent, workspaceDir string) queueOutcome {
 	// Same as the user-message path: a turn that is still starting has no state to queue into yet.
 	e.ensureInteractiveStateForQueueing(iKey, p, msg.ReplyCtx)
@@ -2146,11 +2238,39 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 // messages chained after it).
 func (e *Engine) setTurnMode(state *interactiveState, as AgentSession, mode string) {
 	e.restoreTurnMode(state)
-	if restore := e.applyLiveModeOverride(as, mode); restore != nil {
+	state.mu.Lock()
+	agent := state.agent
+	state.mu.Unlock()
+	if restore := e.applyLiveModeOverride(agent, as, mode); restore != nil {
 		state.mu.Lock()
 		state.modeRestore = restore
+		state.turnMode = mode
 		state.mu.Unlock()
 	}
+}
+
+// turnAutoApproves reports whether the permission mode in effect for state's
+// current turn already grants every tool call, so permission requests that
+// reach the engine without a user to ask (cron/timer turns, background events
+// after a turn ends) follow it instead of being denied unconditionally. The
+// turn's own override (a cron job's Mode, applied by setTurnMode) wins;
+// otherwise the mode of the agent the session actually runs on (a workspace
+// agent changed by /mode, not necessarily e.agent).
+func (e *Engine) turnAutoApproves(state *interactiveState) bool {
+	state.mu.Lock()
+	turnMode, agent := state.turnMode, state.agent
+	state.mu.Unlock()
+	if turnMode != "" {
+		return isYoloModeStr(turnMode)
+	}
+	if agent == nil {
+		agent = e.agent
+	}
+	ma, ok := agent.(interface{ GetMode() string })
+	if !ok {
+		return false
+	}
+	return isYoloModeStr(ma.GetMode())
 }
 
 // restoreTurnMode switches back to the default mode if a turn's override is still on.
@@ -2158,6 +2278,7 @@ func (e *Engine) restoreTurnMode(state *interactiveState) {
 	state.mu.Lock()
 	restore := state.modeRestore
 	state.modeRestore = nil
+	state.turnMode = ""
 	state.mu.Unlock()
 	if restore != nil {
 		restore()
@@ -2165,8 +2286,10 @@ func (e *Engine) restoreTurnMode(state *interactiveState) {
 }
 
 // applyLiveModeOverride switches the live agent session to mode and returns the function that
-// switches it back to the agent's default; nil when mode is empty or the switch did not happen.
-func (e *Engine) applyLiveModeOverride(as AgentSession, mode string) (restore func()) {
+// switches it back to the default mode of agent, the agent the session runs on (a workspace
+// agent may differ from e.agent; nil falls back to e.agent); nil when mode is empty or the
+// switch did not happen.
+func (e *Engine) applyLiveModeOverride(agent Agent, as AgentSession, mode string) (restore func()) {
 	if mode == "" || as == nil {
 		return nil
 	}
@@ -2176,7 +2299,10 @@ func (e *Engine) applyLiveModeOverride(as AgentSession, mode string) (restore fu
 	}
 	return func() {
 		defaultMode := "default"
-		if ma, ok := e.agent.(interface{ GetMode() string }); ok {
+		if agent == nil {
+			agent = e.agent
+		}
+		if ma, ok := agent.(interface{ GetMode() string }); ok {
 			if m := ma.GetMode(); m != "" {
 				defaultMode = m
 			}
@@ -2580,6 +2706,9 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	if e.IsPaused() {
+		return fmt.Errorf("engine %q is paused", e.name)
+	}
 	platformName := ""
 	if idx := strings.Index(sessionKey, ":"); idx > 0 {
 		platformName = sessionKey[:idx]
@@ -2635,6 +2764,15 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 
 	session := e.sessions.GetOrCreateActive(sessionKey)
 	if !session.TryLock() {
+		// maomao fork: queued behind the running turn like a cron/timer job (see ExecuteTimerJob),
+		// instead of skipping this beat. No scheduledFrom: a direct heartbeat turn has no backfill.
+		switch e.queueScheduledTurn(targetPlatform, nil, msg, session, e.sessions, sessionKey, e.agent, "") {
+		case queueAccepted:
+			slog.Info("heartbeat: session busy, queued after current turn", "session", sessionKey)
+			return nil
+		case queueRejected:
+			return fmt.Errorf("session %q is busy and its queue is full", sessionKey)
+		}
 		return fmt.Errorf("session %q is busy", sessionKey)
 	}
 
@@ -2761,6 +2899,14 @@ func (e *Engine) OnPlatformReady(p Platform) {
 
 // OnPlatformUnavailable marks an async platform as unavailable.
 func (e *Engine) OnPlatformUnavailable(p Platform, err error) {
+	if err != nil {
+		e.platformLifecycleMu.Lock()
+		if e.platformConnectErr == nil {
+			e.platformConnectErr = make(map[Platform]error)
+		}
+		e.platformConnectErr[p] = err
+		e.platformLifecycleMu.Unlock()
+	}
 	if !e.markPlatformUnavailable(p) {
 		return
 	}
@@ -3157,7 +3303,20 @@ func (e *Engine) startMessageRecallMonitor(sessionKey string) context.CancelFunc
 	return cancel
 }
 
+// IsPaused reports whether the engine is currently paused.
+func (e *Engine) IsPaused() bool {
+	return e.paused.Load()
+}
+
+// SetPaused toggles the engine paused state.
+func (e *Engine) SetPaused(v bool) {
+	e.paused.Store(v)
+}
+
 func (e *Engine) handleMessage(p Platform, msg *Message) {
+	if e.IsPaused() {
+		return
+	}
 	if !e.beginMessageWork() {
 		return
 	}
@@ -3173,6 +3332,12 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 	// #139 C: a user reply to a forwarded workspace [ask] goes back to that workspace.
 	if e.routeWorkspaceAnswer(p, msg) {
+		return
+	}
+	// "/stop all" stops this bot's work in the whole channel. It runs before
+	// any mention/gate filtering so every bot in the channel honours it.
+	if !msg.FromBot && len(msg.Images) == 0 && IsStopAllCommand(msg.Content) {
+		e.cmdStopAll(p, msg)
 		return
 	}
 
@@ -3399,7 +3564,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
-	if e.nativeCompactRunning(interactiveKey) {
+	if e.nativeCompactRejectsUser(interactiveKey) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
 		return
 	}
@@ -3553,7 +3718,8 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	e.interactiveMu.Lock()
 	// A running native /compact holds the session lock; what queues here runs
 	// when it ends (drainQueuedAfterNativeCompact). New user messages are
-	// turned away before this (nativeCompactRunning in handleMessage).
+	// turned away before this during a user /compact (nativeCompactRejectsUser
+	// in handleMessage), and queue here during an auto compaction.
 	behindCompact := e.nativeCompactions[interactiveKey] != nil
 	state, hasState := e.interactiveStates[interactiveKey]
 	if !hasState || state == nil {
@@ -4140,6 +4306,27 @@ var (
 	}
 )
 
+// isYoloModeStr reports whether a mode string represents YOLO / full-auto permission mode.
+func isYoloModeStr(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "yolo", "bypasspermissions", "bypass-permissions", "bypass_permissions", "force":
+		return true
+	default:
+		return false
+	}
+}
+
+// isYoloMode reports whether an Agent's currently configured mode represents YOLO / full-auto permission mode.
+func isYoloMode(a Agent) bool {
+	if a == nil {
+		return false
+	}
+	if ma, ok := a.(interface{ GetMode() string }); ok {
+		return isYoloModeStr(ma.GetMode())
+	}
+	return false
+}
+
 // isApproveAllResponse reports whether s expresses "allow all" intent.
 // Multi-token phrases (e.g. "allow all") are matched first; single-token
 // CJK forms (e.g. "允许所有") are matched per-token so a leading or
@@ -4174,6 +4361,11 @@ func (e *Engine) processInteractiveMessage(p Platform, msg *Message, session *Se
 // and workspaceDir so that multi-workspace mode can route to per-workspace agents.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY in the agent env; otherwise interactiveKey is used.
 func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string, ccSessionKey string) {
+	if e.IsPaused() {
+		session.Unlock()
+		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine %q is paused", e.name)})
+		return
+	}
 	if !e.beginMessageWork() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine stopped")})
@@ -4197,6 +4389,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	defer func() {
 		e.endResetTurn(resetKey)
 		e.applyPendingReset(resetKey)
+		e.applyPendingAutoCompact(interactiveKey, msg.SessionKey, session, sessions, agent, workspaceDir)
 	}()
 	// session.Unlock() is NOT deferred here — it is called explicitly in
 	// the drain loop below while holding state.mu to close the race window
@@ -4563,6 +4756,9 @@ func adoptPendingFromPlaceholder(existing, newState *interactiveState) {
 		return
 	}
 	existing.mu.Lock()
+	if existing.approveAll {
+		newState.approveAll = true
+	}
 	if len(existing.pendingMessages) > 0 {
 		newState.pendingMessages = existing.pendingMessages
 		existing.pendingMessages = nil
@@ -4839,6 +5035,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		replyCtx:         replyCtx,
 		agent:            agent,
 		eventsNeedResync: true,
+		approveAll:       isYoloMode(agent),
 	}
 	adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
 	state = newState
@@ -5357,6 +5554,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				if fullResponse == "" && len(textParts) > 0 {
 					fullResponse = strings.Join(textParts, "")
 				}
+				if reset, ok := QuotaExhaustedReset(event); ok {
+					fullResponse = e.quotaExhaustedMessage(reset, agentSession, nil)
+				}
 
 				// Honour the NO_REPLY marker here too: background task
 				// notifications often end in a bare NO_REPLY, which must not
@@ -5422,8 +5622,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				// reader iterations fast (stopUnsolicitedReader relies on a
 				// bounded wait for the reader to exit).
 				state.mu.Lock()
-				autoApprove := state.approveAll
+				autoApprove := state.approveAll || isYoloMode(state.agent)
 				state.mu.Unlock()
+				autoApprove = autoApprove || e.turnAutoApproves(state)
 
 				result := PermissionResult{Behavior: "deny", Message: "denied: no active user turn"}
 				if autoApprove {
@@ -5457,9 +5658,12 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 			case EventError:
 				if event.Error != nil {
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
-					userMsg := fmt.Sprintf(e.i18n.T(MsgError), event.Error)
+					userMsg := e.agentErrorMessage(event.Error)
 					if errors.Is(event.Error, ErrNoPublicAnswer) {
 						userMsg = e.i18n.T(MsgNoPublicAnswer)
+					}
+					if reset, ok := QuotaExhaustedReset(event); ok {
+						userMsg = e.quotaExhaustedMessage(reset, agentSession, nil)
 					}
 					e.send(p, replyCtx, userMsg)
 				}
@@ -6263,8 +6467,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				event.ToolName == "extension_select") && len(event.Questions) > 0
 
 			state.mu.Lock()
-			autoApprove := state.approveAll
+			autoApprove := state.approveAll || isYoloMode(state.agent)
 			state.mu.Unlock()
+			autoApprove = autoApprove || e.turnAutoApproves(state)
 
 			if autoApprove && !isAskQuestion {
 				slog.Debug("auto-approving (approve-all)", "request_id", event.RequestID, "tool", event.ToolName)
@@ -6432,6 +6637,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				fullResponse = strings.Join(textParts, "")
 			} else if fullResponse == "" && len(textParts) > 0 {
 				fullResponse = strings.Join(textParts, "")
+			}
+			// The adapter marked an exhausted quota; say which bot/model ran out so
+			// other bots in the channel are not blamed.
+			if reset, ok := QuotaExhaustedReset(event); ok {
+				fullResponse = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
 			}
 			if input != nil && strings.TrimSpace(fullResponse) == "" {
 				state.mu.Lock()
@@ -6779,8 +6989,22 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			// Auto-compress after finishing a turn, before sending any queued messages.
 			if triggerAutoCompress {
-				compressor, ok := e.agent.(ContextCompressor)
-				if ok && compressor.CompressCommand() != "" {
+				// Agents with native compaction (codex) compact on their own transport,
+				// which needs the session free: queue it for after this turn and the
+				// turns queued behind it (applyPendingAutoCompact), as /compact does.
+				state.mu.Lock()
+				autoAgent := state.agent
+				if autoAgent == nil {
+					autoAgent = e.agent
+				}
+				_, native := autoAgent.(NativeContextCompressor)
+				if native {
+					state.autoCompactDue = true
+				}
+				state.mu.Unlock()
+				if native {
+					slog.Info("auto-compress: native compaction queued for after the turn", "session", sessionKey)
+				} else if compressor, ok := e.agent.(ContextCompressor); ok && compressor.CompressCommand() != "" {
 					if pendingSend != nil {
 						if err := <-pendingSend; err != nil {
 							slog.Debug("async send error before compress", "error", err)
@@ -7075,7 +7299,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if errors.Is(event.Error, ErrTaskAlreadyCompleted) {
 						detail = e.i18n.T(MsgTaskAlreadyCompleted)
 					}
-					userMsg := fmt.Sprintf(e.i18n.T(MsgError), detail)
+					userMsg := e.agentErrorMessage(detail)
 					if errors.Is(event.Error, ErrEmptyAgentResponse) {
 						userMsg = e.i18n.T(MsgEmptyAgentResponse)
 					}
@@ -7087,6 +7311,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							userMsg = e.i18n.T(h.msgKey)
 							break
 						}
+					}
+					if reset, ok := QuotaExhaustedReset(event); ok {
+						userMsg = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
 					}
 					if errorAnswer != "" {
 						if !errorAnswerDelivered {
@@ -8511,13 +8738,13 @@ func formatElapsed(d time.Duration, streaming bool, lang Language) string {
 func replyFooterModel(session AgentSession, agent Agent) string {
 	if session != nil {
 		if getter, ok := session.(interface{ GetModel() string }); ok {
-			if model := strings.TrimSpace(getter.GetModel()); model != "" {
+			if model := displayModelName(getter.GetModel()); model != "" {
 				return model
 			}
 		}
 	}
 	if getter, ok := agent.(interface{ GetModel() string }); ok {
-		return strings.TrimSpace(getter.GetModel())
+		return displayModelName(getter.GetModel())
 	}
 	return ""
 }
@@ -11294,7 +11521,13 @@ func (e *Engine) applyLiveModeChange(sessionKey, mode string) bool {
 	e.interactiveMu.Lock()
 	state, ok := e.interactiveStates[iKey]
 	e.interactiveMu.Unlock()
-	if !ok || state == nil || state.agentSession == nil || !state.agentSession.Alive() {
+	if !ok || state == nil {
+		return false
+	}
+	state.mu.Lock()
+	state.approveAll = isYoloModeStr(mode)
+	state.mu.Unlock()
+	if state.agentSession == nil || !state.agentSession.Alive() {
 		return false
 	}
 	switcher, ok := state.agentSession.(LiveModeSwitcher)
@@ -17121,6 +17354,9 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 // resolved its conversation key. Task-scoped relays can pass their scoped key
 // here to share timeout/drain behavior without sharing conversation history.
 func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, completion ...func(string, error)) (string, error) {
+	if e.IsPaused() {
+		return "", fmt.Errorf("engine %q is paused", e.name)
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

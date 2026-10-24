@@ -1,14 +1,55 @@
+<p align="center"><img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="320"></p>
+
 # bothouse
 
 English | [中文](README.zh-CN.md)
 
-bothouse connects the AI CLIs you already use to Discord, Feishu, self-hosted channels, and DSH. You talk to one lead role; it hands the work out, collects the results, and keeps the team memory. Roles can be Claude Code, Codex, Gemini, or DeepSeek.
+**Tell it before bed. Collect the result when you wake up.**
+bothouse puts a crew of AIs on the night shift: several jobs moving at once, all night long, and none of them drifting off script.
+
+> While everyone else is making wishes at a chat box, you're running a team that never clocks out.
+
+**All night, many jobs at once, still on script.**
+Every handoff carries your own words down the line, so whoever picks the job up, at whatever stage, works from what you actually said. The people who do the work don't sign it off — a fresh AI checks it instead. When a sub-agent runs out of context it writes a handoff first; a session that has sat idle too long gets a handoff and a fresh start too. No slow slide into confusion. And the team shares one memory, so what was settled today still counts tomorrow.
+
+**You sleep. It works.**
+Scheduled jobs and long jobs sit in the background and keep moving overnight. In the morning the channel has your report: what got done, how it was checked, what's still stuck.
+
+**Several jobs in parallel, still under control.**
+The lead role breaks the job up and spreads it across workspaces, one owner per job. Who's on what, how far along, where it's stuck — all on the same task card, readable at a glance.
+
+**Expensive models, only where the work is hard.**
+Chat and small chores go to a cheap model; the hard jobs get the expensive one. Which channel uses which model is fixed in config, so the money goes where it counts.
+
+**Control it from anywhere.**
+Discord gets the full team, Feishu starts with a single role, and the self-hosted web channel runs on your own machine. Add a line from your phone and Claude Code or Codex picks it up mid-task, as do ACP roles like DSH that support it; other CLIs such as codex exec take it next turn.
 
 ## What it looks like
 
 <img src="docs/assets/demo-team.en.gif" alt="Real channel footage: the chat channel hands work to workspaces, tasks are dispatched, accepted and handed back there, the task board groups them, and chat carries on" width="760">
 
 Real channel footage: chat hands work to a workspace, the workspace dispatches it, the task board shows it all at a glance, and chat carries on.
+
+## How you use it
+
+**One, you say it once.**
+In the channel you tell the lead role: build me a dashboard — I want to see what each role spent today.
+
+**Two, it splits the work and hands it out.**
+The lead breaks the job into pieces — a stats page, a menu-bar icon, a roles panel, and an interface for plugging in desktop pets later — and gives them to several AIs at once. Who took what, which piece they're on, where they're stuck — all on one task card, in the channel. You don't go window to window asking "how's it going".
+
+**Three, you come back for the result.**
+Each piece goes back to the lead when it's done. The lead checks it, then sends you one reply: what changed, how it was verified, what didn't get done.
+
+You can cut in at any point. On Claude Code and Codex (app-server), what you add while an AI is working lands in the task it's already holding; ACP agents such as DSH do the same when they report support at handshake. Other CLIs, such as codex exec, queue it instead: the AI picks it up after the current turn ends.
+
+## Why not just another chat window
+
+In a one-to-one chat, you are the one holding the context: how far this got, why it was changed last time, what's still untouched. Close the window and it's gone.
+
+bothouse gives that to the lead: every task has an owner, a source, and a result; the AIs share one memory, so what was decided today is still there tomorrow; the task card shows who's busy with what.
+
+The AIs are the ones you already have. Your local Claude Code, Codex and Gemini become roles as they are — same account, same subscription.
 
 ## Quick start
 
@@ -35,7 +76,7 @@ Release downloads: `bothouse-mac.dmg` (universal Bothouse.app for Apple Silicon 
 **You'll need:** a Discord server (or a Feishu workspace) and at least one AI CLI you're already logged into (Claude Code, Codex or Gemini CLI). The wizard walks you through creating the bot.
 
 1. **Install**: download and open the app, or run the one-liner above.
-2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save.
+2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save (new roles default to YOLO / auto-approve permission mode, adjustable in project settings).
    Or tell your Claude Code / Codex "set up bothouse and connect it to Discord"; it asks for everything once.
 3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
 
@@ -69,20 +110,99 @@ Plug into DSH and our guardrails and tools install through DSH's own plugin syst
 On the AI side: Claude Code, Codex, Gemini CLI, OpenCode and other CLIs you're already logged into work directly; agents like DSH connect over a standard protocol (ACP).
 You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek, MiniMax, a local model, any OpenAI-compatible endpoint); see the [matrix](docs/connect-discord-feishu.md#4-第三方-api--本机-cli) (Chinese).
 
-## Why
+## Anywhere access (Tailscale)
 
-Working with AI today looks like this: open a window, explain the background, do one thing, close it. Open another window, explain the background again.
-Want two AIs at once? Switch between two windows. Want to check in from your phone? Good luck.
+bothouse runs on your own machine, and its control panel is a web page. Install Tailscale and your phone, tablet
+or another laptop opens that same page: see how the team is doing, what each role spent today, and drop a line
+or hand over a new job right in the chat page. No extra app, no moving the machine into someone else's cloud.
 
-What we want is what a team has:
+### 1. Install Tailscale
 
-- Everyone has a fixed name and a job. You never re-explain who does what.
-- You say one thing. The right person answers. Nobody talks over each other.
-- Every task has an owner. When something breaks, you hear about it.
-- Everyone keeps the same notebook. What was learned today is still there tomorrow.
-- You can reach them anywhere: desktop, phone, browser.
+Install and sign in on the machine running bothouse, then install the same client and sign in with the same
+account on your phone or the other computer. Once both ends are in the same tailnet they can reach each other.
 
-None of this should be locked inside one vendor's app. So bothouse is a plugin: it connects the AIs you already use to the chat apps you already use.
+```sh
+# macOS
+brew install --cask tailscale
+# Linux
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+Then get this machine's Tailscale address — note the `100.x.y.z` it prints:
+
+```sh
+tailscale ip -4
+```
+
+### 2. Point the panel at the Tailscale address
+
+The easy way is to let bothouse do it: send `/web setup` to the bot in a channel, or run `bothouse web` on the
+machine running bothouse. Either one turns on both the panel and the channel the chat page talks over, generates
+a token, and asks you to restart once.
+
+To write the config yourself, edit `config.toml`. The default file is `~/.bothouse/config.toml`; if there is a
+`config.toml` in the current directory, that one wins.
+
+```toml
+[management]
+enabled = true
+host = "100.x.y.z"        # the output of tailscale ip -4 above
+port = 9820               # panel port, 9820 by default
+token = "replace-with-a-long-random-secret"
+
+[bridge]
+enabled = true            # the chat page needs this; without it you can look but not talk
+```
+
+With `host` set to this machine's Tailscale address, the panel waits for you on that address only. Leave `host`
+empty and a normally running bothouse listens on every interface; only setup mode, before any platform is
+configured, defaults to loopback `127.0.0.1`. So set `host` explicitly for remote access — don't count on the
+default.
+
+The chat page also needs `[bridge]` on: the panel alone does not carry its live connection, and only with
+`[bridge] enabled = true` does it connect. With it on, that channel is reachable both through the panel port and
+separately on port 9810 across every interface, outside the `host` setting above — so if you want only your tailnet
+to reach it, cover 9810 in your firewall or Tailscale access rules too.
+
+Tailscale has to be up before bothouse starts, including after a reboot. Save the config and restart bothouse.
+
+### 3. Where the panel token comes from
+
+Signing in takes a token: the `token` in `[management]`. Three ways to get it:
+
+- **Ask in the channel.** Send `/web setup` to the bot; it replies with the panel URL and the token, generating
+  one if the panel was never enabled.
+- **Read it in the terminal.** On the machine running bothouse, run `bothouse web --no-browser`: it prints the URL
+  and the token without opening a browser. If the panel was never enabled, that command turns it on first and asks
+  you to restart once.
+- **Open the config.** The `token` line under `[management]` in `config.toml`.
+
+With the token in hand, open `http://100.x.y.z:9820/` on your phone. The first field is the token; the second,
+"server URL", is optional and already points at the address you opened the page from. Fill it in once and the
+browser remembers it.
+
+### 4. What you can do from a phone
+
+Everything is in the sidebar once you are signed in:
+
+- **Dashboard and usage**: version, uptime, which platforms are connected, how many projects; tokens spent today
+  and this month, split by role and by model, plus a heatmap by day and hour.
+- **Roles, projects, skills, providers, devices**: add a role, edit a persona, switch a model from the phone, then
+  restart on the system page.
+- **Chat**: pick a project, read the whole conversation, and keep talking. What you type goes in as a message to the
+  role in the middle of its job, exactly like speaking to it in Discord.
+- **Cron, library, system**: see scheduled jobs, browse the library, change global settings.
+
+The page ships a mobile viewport, so a phone browser works as-is. On a narrow screen, tap the arrow at the bottom of
+the sidebar to collapse it to icons only and give the content the full width.
+
+Hand over a job between meetings, or check how far the night shift got on the way home — it is all in your pocket.
+
+### 5. Same thing from another computer
+
+No reinstall on the other laptop: install Tailscale, join the same tailnet, open the same URL, and you can chat,
+hand over work and read usage there too. One always-on machine is the brain; laptops and phones are windows onto
+the same team.
 
 ## Features
 
@@ -123,6 +243,12 @@ Memory is a directory of markdown files you can open and edit. The team shares o
 
 The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). It remembers one person and one assistant. bothouse shares it across several roles, records what Claude, Codex and DSH each did, hands the relevant pages to a role with every message, and reviews it nightly.
 
+### Guardrails and small tools included
+
+- **Guardrails:** dangerous commands are stopped first. If an AI says "fixed" with no proof, it gets sent back. If it promises to "check back later" without setting a timer, same thing. Claude Code and DSH share one set.
+- **Small tools:** see what each teammate is doing right now, turn a video into text and frames, free web search.
+- Don't want one? Tell the bot in the chat: "turn the checks off."
+
 ### A review every night
 
 - **Day, a cheap fast model.** When a session ends, sits idle for 30 minutes, or hits a problem mid-session, the new content is distilled into the wiki.
@@ -130,12 +256,6 @@ The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). 
 - The last step each night is the dream: it reads only what you said during the day, turns the things you kept correcting into rule candidates, and writes a short "today's reflection".
 - Every quote in a candidate is checked word for word against what you actually said, so nothing made up gets in. A candidate becomes a rule only when you say yes; it never changes your rules behind your back.
 - After the dream, the lead gets a turn in the channel, so the next morning you can see what the team learned yesterday.
-
-### Guardrails and small tools included
-
-- **Guardrails:** dangerous commands are stopped first. If an AI says "fixed" with no proof, it gets sent back. If it promises to "check back later" without setting a timer, same thing. Claude Code and DSH share one set.
-- **Small tools:** see what each teammate is doing right now, turn a video into text and frames, free web search.
-- Don't want one? Tell the bot in the chat: "turn the checks off."
 
 ## How it compares
 
@@ -201,6 +321,10 @@ Modules and data flow: [Architecture](docs/ARCHITECTURE.md) (Chinese).
 
 Contributors: start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
+Source builds with the web management dashboard must build the frontend before
+Go compilation and omit `no_web`. See [dashboard builds and private remote
+access](docs/dashboard-source-build.md).
+
 ### Collaboration helper scripts
 
 Install the packaged task board, timer, handoff and lead helpers for a role with
@@ -212,3 +336,7 @@ See [configuration and requirements](bridge/contrib/lead/README.md).
 bothouse is licensed under [Apache-2.0](LICENSE). See [LICENSING.md](LICENSING.md) (Chinese) for details.
 
 The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to its authors and contributors. See [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for dependency licenses.
+
+### Local token usage
+
+The management API exposes daily, hourly, role, and model usage totals, with optional configured price estimates. Accounting starts from installation; backends without complete billing usage remain explicitly unknown. See [usage API and pricing](docs/api/usage.md).

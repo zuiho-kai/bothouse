@@ -99,9 +99,12 @@ type PublicProgress struct {
 	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
 	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
 	reporterName func(project, session string) string
-	runs         map[string]*publicRun
-	relayRuns    map[string]*taskRelay
-	memberRuns   map[string]*taskMemberRun
+	// projectName is a configured project's name for people (team_name, e.g. 橘 for
+	// maomao), "" if the project is unknown. Cards show it instead of the project id.
+	projectName func(project string) string
+	runs        map[string]*publicRun
+	relayRuns   map[string]*taskRelay
+	memberRuns  map[string]*taskMemberRun
 	// Batch keys belong to the authorizing turn, never the session's open slot.
 	delegations map[string]map[string]*publicRun
 	// records indexes every task this project has ever journalled, so a task can
@@ -201,10 +204,12 @@ func (p *PublicProgress) begin(platform Platform, session string, lang Language,
 	defer p.transitionMu.Unlock()
 	sink, ok := platform.(TaskCardPublisher)
 	if !ok {
+		slog.Warn("public progress: no turn token, platform cannot publish task cards", "platform", fmt.Sprintf("%T", platform), "session", session)
 		return ""
 	}
 	channel, err := sink.TaskCardDestination(session)
 	if err != nil {
+		slog.Warn("public progress: no turn token, task card destination unresolved", "platform", platform.Name(), "session", session, "error", err)
 		return ""
 	}
 	token := randomProgressID(32)
@@ -493,6 +498,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 	task, cardSeq, factSeq, lang := r.record.Task.Clone(), r.record.CardSeq, r.record.FactSeq, r.record.Lang
 	platform := r.record.Platform
 	r.mu.Unlock()
+	p.displayNames(task)
 	if err != nil {
 		return err
 	}
@@ -567,6 +573,7 @@ func (e *Engine) EnablePublicProgress() error {
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
 	p.reporterName = e.taskReporterName
+	p.projectName = e.projectDisplayName
 	return nil
 }
 
@@ -599,8 +606,11 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 	prefix := quote(command) + " progress --project " + quote(e.name) + " --session " + quote(session) + " --data-dir " + quote(e.publicProgress.dataDir)
 	resumeNote := ""
-	if taskID, resumeSeq, ok := e.publicProgress.runStart(token); ok {
-		resumeNote = " If this turn continues the work on the card opened earlier (" + taskID + "), do not start again: use --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update and keep that title. New work still starts its own card at --seq 1."
+	if taskID, resumeSeq, state, title, ok := e.publicProgress.resumeHint(token); ok {
+		// Naming the state is the point: an owner who asked for something new
+		// must not lose the card for it to an earlier card that already
+		// delivered a result, which is the most common wrong continuation.
+		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
 	}
 	return strings.NewReplacer(
 		"COMMAND", prefix,

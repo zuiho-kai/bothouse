@@ -103,3 +103,50 @@ func platformOf(t *testing.T, pl any) *Platform {
 	t.Fatalf("platform type = %T", pl)
 	return nil
 }
+
+func TestReloadOptionsAppliesAllowBotsLive(t *testing.T) {
+	p := &Platform{allowBots: "100", allowBotsFile: newAllowBotsFile("")}
+	if p.botAllowed("200") {
+		t.Fatal("200 allowed before reload")
+	}
+	if r := p.ReloadOptions(map[string]any{"allow_bots": "100,200", "team_lead_bot": "300"}); len(r) != 0 {
+		t.Fatalf("restart keys = %v, want none", r)
+	}
+	if !p.botAllowed("200") || p.lead() != "300" {
+		t.Fatal("allow_bots / team_lead_bot not applied")
+	}
+}
+
+// The first wizard run writes a lone Discord role without group_reply_all / share_session_in_channel
+// (only group_reply_all_channels); adding a second role sets both to true on it. That must apply live.
+func TestReloadOptionsAppliesGroupReplyAllAndShareLive(t *testing.T) {
+	first := map[string]any{"token": "x", "allow_from": "1", "group_reply_all_channels": "C-home"}
+	g, c := parseGroupReplyAll(first)
+	p := &Platform{allowBotsFile: newAllowBotsFile(""), groupReplyAllGuilds: g, groupReplyAllChannels: c}
+	if p.replyAllHere("G", "C-home", "") {
+		t.Fatal("replying to all before reload")
+	}
+	if k := p.makeSessionKey("C-home", "u1"); k != buildSessionKey("C-home", "u1", false) {
+		t.Fatalf("session key before reload = %q", k)
+	}
+	added := map[string]any{"token": "x", "allow_from": "1", "group_reply_all_channels": "C-home",
+		"allow_bots": "200", "team_lead_bot": "100", "group_reply_all": true, "share_session_in_channel": true}
+	if r := p.ReloadOptions(added); len(r) != 0 {
+		t.Fatalf("restart keys = %v, want none", r)
+	}
+	if !p.replyAllHere("G", "C-home", "") || p.replyAllHere("G", "C-other", "") {
+		t.Fatal("group_reply_all (limited to group_reply_all_channels) not applied")
+	}
+	if k := p.makeSessionKey("C-home", "u1"); k != buildSessionKey("C-home", "u1", true) {
+		t.Fatalf("share_session_in_channel not applied: key %q", k)
+	}
+
+	// permission_approvers needs share_session_in_channel (New refuses otherwise): keep it, ask for a restart
+	p.permissionApprovers = []string{"101"}
+	if r := p.ReloadOptions(map[string]any{"group_reply_all": true}); len(r) != 1 || r[0] != "share_session_in_channel" {
+		t.Fatalf("restart keys = %v, want share_session_in_channel", r)
+	}
+	if !p.shareInChannel() {
+		t.Fatal("share_session_in_channel dropped while permission_approvers is set")
+	}
+}

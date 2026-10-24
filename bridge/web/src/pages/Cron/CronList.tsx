@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { Button, Badge, Modal, Input, Textarea, EmptyState } from '@/components/ui';
 import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, triggerCronJob, type CronJob } from '@/api/cron';
-import { listProjects, type ProjectSummary } from '@/api/projects';
+import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 import { formatTime, cn } from '@/lib/utils';
 
@@ -192,7 +192,7 @@ export default function CronList() {
   const isEdit = !!editJob;
 
   const projectOptions = useMemo(
-    () => projects.map(p => ({ value: p.name, label: p.name })),
+    () => projects.map(p => ({ value: p.name, label: shownName(p) })),
     [projects],
   );
 
@@ -367,7 +367,7 @@ export default function CronList() {
               <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium w-12 shrink-0 text-gray-400">{t('cron.project')}</span>
-                  <span className="truncate">{job.project}</span>
+                  <span className="truncate">{shownNames(projects)(job.project)}</span>
                 </div>
                 {job.prompt && (
                   <div className="flex items-start gap-1.5">

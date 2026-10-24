@@ -172,6 +172,8 @@ describe('channel source', () => {
     const { transport, streams, closed, calls } = fakeTransport((url) => {
       if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (url.startsWith('/collab/api/rooms/1/messages?limit')) return json(200, { messages: [message(1, 'a')] })
+      // Reconnect reconciles the whole cached window from its oldest held id
+      // (design §4.3), so edits and deletions inside the cache are reconciled.
       if (url.startsWith('/collab/api/rooms/1/messages?after=0')) return json(200, { messages: [message(1, 'a'), message(2, 'b')] })
       return json(404, { error: 'not found' })
     })
@@ -251,6 +253,31 @@ describe('channel source', () => {
     unsubscribe()
   })
 
+  it('edits and withdraws your own message, reporting members that already started (#148)', async () => {
+    const mine = message(3, '打错字')
+    const edited = { ...mine, text: '改好了', edited_at: 2 }
+    const sent: string[] = []
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (init?.method === 'PATCH') {
+        sent.push(`PATCH ${url} ${String(init.body)}`)
+        return JSON.parse(String(init.body)).text === 'x' ? json(403, { error: 'only your own plain messages can be edited' }) : json(200, { message: edited })
+      }
+      if (init?.method === 'DELETE') { sent.push(`DELETE ${url}`); return json(200, { ok: true, recalled: ['ju'], stopped: ['Qwen'], still_running: ['DeepSeek'] }) }
+      return json(200, { messages: [mine, message(4, '别的')] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().messages).toHaveLength(2))
+    await actions.editMessage(3, '改好了')
+    expect(source.getSnapshot().messages[0]).toEqual(edited)
+    await expect(actions.editMessage(3, 'x')).rejects.toThrow('only your own plain messages can be edited')
+    expect(await actions.withdrawMessage(3)).toEqual({ stopped: ['Qwen'], stillRunning: ['DeepSeek'] })
+    expect(source.getSnapshot().messages.map(m => m.id)).toEqual([4])
+    expect(sent).toEqual(['PATCH /collab/api/messages/3 {"text":"改好了"}', 'PATCH /collab/api/messages/3 {"text":"x"}', 'DELETE /collab/api/messages/3'])
+    unsubscribe()
+  })
+
   it('groups each chat channel with its workspaces; orphans and old services stay top level (#139)', () => {
     const rooms: ChannelRoom[] = [
       { id: 1, name: 'general', kind: 'chat', parent_id: null },
@@ -301,5 +328,56 @@ describe('channel source', () => {
     streams[0]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'deleted', id: 1, room_id: 1 }) }))
     expect(source.getSnapshot().messages.find(m => m.id === 2)?.reply_to).toEqual({ id: 1, deleted: true })
     unsubscribe()
+  })
+  it('#144 posts attachments with the message and keeps them for a retry', async () => {
+    const posted: unknown[] = []
+    let fail = true
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (init?.method === 'POST') {
+        posted.push(JSON.parse(String(init.body)))
+        if (fail) { fail = false; return json(500, { error: 'boom' }) }
+        return json(200, { message: message(7, '') })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().roomId).toBe(1))
+    const file = { name: 'a.png', mime: 'image/png', data: 'iVBORw==' }
+    await expect(actions.send('', undefined, [file])).rejects.toThrow()
+    const key = source.getSnapshot().outbox?.[0]?.clientKey ?? (posted[0] as { client_key: string }).client_key
+    await actions.retrySend(key)
+    expect(posted[0]).toMatchObject({ text: '', attachments: [file] })
+    expect(posted[1]).toMatchObject({ client_key: key, attachments: [file] })
+    expect(posted[0]).not.toHaveProperty('reply_to')
+    unsubscribe()
+  })
+
+  it('posts a retry request to /collab/api/messages/:id/retry (#146)', async () => {
+    let retriedUrl: string | undefined
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url === '/collab/api/messages/99/retry' && init?.method === 'POST') {
+        retriedUrl = url
+        return json(200, { ok: true, member_id: 'ds', trigger_id: 1 })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    await actions.retryMessage(99)
+    expect(retriedUrl).toBe('/collab/api/messages/99/retry')
+    unsubscribe()
+  })
+})
+
+describe('messageTooLarge (#144)', () => {
+  it('flags attachments over the server body cap before any request is sent', async () => {
+    const { MAX_MESSAGE_BODY, messageTooLarge } = await import('../src/client/channel-source.ts')
+    const file = (chars: number) => ({ name: 'a.bin', mime: 'application/octet-stream', data: 'A'.repeat(chars) })
+    expect(messageTooLarge('hi', [file(1024)])).toBe(false)
+    expect(messageTooLarge('hi', [file(MAX_MESSAGE_BODY / 2), file(MAX_MESSAGE_BODY / 2)])).toBe(true)
   })
 })

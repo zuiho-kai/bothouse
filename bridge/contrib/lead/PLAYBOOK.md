@@ -32,7 +32,14 @@ Reference only: more than about 6 parallel threads, or more than half of your co
 Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls). Then:
 
 - `ws-handoff <file> "<one-line task>"` tells the lead in the workspace to start.
-- `ws-forward "<summary>"` forwards later results there. This channel stops managing that task.
+- `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.
+
+The lead in a workspace does not ask the user directly. The chat channel that handed the task over is the single outlet:
+
+- `ws-up "<progress>"` reports a milestone; the lead in the chat channel relays it to the user.
+- `ws-up "<question + options + recommendation>" --ask` asks for a decision or missing information. The chat-channel lead asks the user and sends the answer back with `ws-forward --notes <file> "<answer>"`. While waiting, do the parts the answer does not affect.
+- If the workspace holds tasks from more than one chat channel, add `--notes <file>` to say which task; without it ws-up fails and lists the choices instead of guessing.
+- Decisions that narrow or change the scope of the user's words, and settings you are unsure of, also go through `--ask`. Decide pure technical details yourself.
 
 (User, 2026-10-23: "if you feel you can't manage any more, open a new channel called workspace and hand the whole task, at a coarse grain, to the lead there".)
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -26,14 +27,11 @@ func newTestSession(mode string) *cursorSession {
 	return cs
 }
 
-// connectStdinPipe wires an in-memory pipe as the session's stdin and returns
-// the reader end so tests can inspect what was written.
-func connectStdinPipe(cs *cursorSession) io.Reader {
+// connectStdinPipe creates a fake process whose stdin is an in-memory pipe and
+// returns it with the reader end so tests can inspect what was written.
+func connectStdinPipe(cs *cursorSession) (*cursorProc, io.Reader) {
 	r, w := io.Pipe()
-	cs.stdinMu.Lock()
-	cs.stdin = w
-	cs.stdinMu.Unlock()
-	return r
+	return &cursorProc{stdin: w}, r
 }
 
 // readInteractionResponse reads one JSON line from the reader.
@@ -88,9 +86,9 @@ func shellInteractionRequest(id int, cmd string, skipApproval bool) map[string]a
 func TestHandleInteractionQuery_DefaultMode_EmitsPermissionRequest(t *testing.T) {
 	cs := newTestSession("default")
 	defer cs.cancel()
-	_ = connectStdinPipe(cs)
+	proc, _ := connectStdinPipe(cs)
 
-	cs.handleInteractionQuery(webFetchInteractionRequest(0, "https://example.com", false))
+	cs.handleInteractionQuery(proc, webFetchInteractionRequest(0, "https://example.com", false))
 
 	select {
 	case evt := <-cs.events:
@@ -116,9 +114,9 @@ func TestHandleInteractionQuery_DefaultMode_EmitsPermissionRequest(t *testing.T)
 func TestHandleInteractionQuery_DefaultMode_ShellEmitsPermissionRequest(t *testing.T) {
 	cs := newTestSession("default")
 	defer cs.cancel()
-	_ = connectStdinPipe(cs)
+	proc, _ := connectStdinPipe(cs)
 
-	cs.handleInteractionQuery(shellInteractionRequest(1, "git clone https://example.com", false))
+	cs.handleInteractionQuery(proc, shellInteractionRequest(1, "git clone https://example.com", false))
 
 	select {
 	case evt := <-cs.events:
@@ -138,14 +136,14 @@ func TestHandleInteractionQuery_DefaultMode_ShellEmitsPermissionRequest(t *testi
 func TestHandleInteractionQuery_SkipApproval_AutoApproves(t *testing.T) {
 	cs := newTestSession("default")
 	defer cs.cancel()
-	r := connectStdinPipe(cs)
+	proc, r := connectStdinPipe(cs)
 
 	done := make(chan map[string]any, 1)
 	go func() {
 		done <- readInteractionResponse(t, r)
 	}()
 
-	cs.handleInteractionQuery(webFetchInteractionRequest(3, "https://example.com", true))
+	cs.handleInteractionQuery(proc, webFetchInteractionRequest(3, "https://example.com", true))
 
 	resp := <-done
 	if resp["subtype"] != "response" {
@@ -165,14 +163,14 @@ func TestHandleInteractionQuery_NonDefaultMode_AutoDenies(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			cs := newTestSession(mode)
 			defer cs.cancel()
-			r := connectStdinPipe(cs)
+			proc, r := connectStdinPipe(cs)
 
 			done := make(chan map[string]any, 1)
 			go func() {
 				done <- readInteractionResponse(t, r)
 			}()
 
-			cs.handleInteractionQuery(webFetchInteractionRequest(0, "https://example.com", false))
+			cs.handleInteractionQuery(proc, webFetchInteractionRequest(0, "https://example.com", false))
 
 			resp := <-done
 			response, _ := resp["response"].(map[string]any)
@@ -196,11 +194,11 @@ func TestHandleInteractionQuery_NonDefaultMode_AutoDenies(t *testing.T) {
 func TestRespondPermission_Approve(t *testing.T) {
 	cs := newTestSession("default")
 	defer cs.cancel()
-	r := connectStdinPipe(cs)
+	proc, r := connectStdinPipe(cs)
 
 	// Simulate a pending interaction query (as would be set by handleInteractionQuery).
 	cs.pendingMu.Lock()
-	cs.pending = &pendingInteractionQuery{id: 7, queryType: "webFetchRequestQuery"}
+	cs.pending = &pendingInteractionQuery{id: 7, queryType: "webFetchRequestQuery", proc: proc}
 	cs.pendingMu.Unlock()
 
 	done := make(chan map[string]any, 1)
@@ -244,10 +242,10 @@ func TestRespondPermission_Approve(t *testing.T) {
 func TestRespondPermission_Deny(t *testing.T) {
 	cs := newTestSession("default")
 	defer cs.cancel()
-	r := connectStdinPipe(cs)
+	proc, r := connectStdinPipe(cs)
 
 	cs.pendingMu.Lock()
-	cs.pending = &pendingInteractionQuery{id: 2, queryType: "shellRequestQuery"}
+	cs.pending = &pendingInteractionQuery{id: 2, queryType: "shellRequestQuery", proc: proc}
 	cs.pendingMu.Unlock()
 
 	done := make(chan map[string]any, 1)
@@ -301,7 +299,7 @@ func TestWriteInteractionResponse_ResponseFormat(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cs := newTestSession("default")
 			defer cs.cancel()
-			r := connectStdinPipe(cs)
+			proc, r := connectStdinPipe(cs)
 
 			done := make(chan string, 1)
 			go func() {
@@ -311,12 +309,85 @@ func TestWriteInteractionResponse_ResponseFormat(t *testing.T) {
 				}
 			}()
 
-			cs.writeInteractionResponse(0, tc.queryType, tc.approved, "test reason")
+			cs.writeInteractionResponse(proc, 0, tc.queryType, tc.approved, "test reason")
 
 			line := <-done
 			if !strings.Contains(line, tc.wantKey) {
 				t.Errorf("response JSON does not contain %q: %s", tc.wantKey, line)
 			}
 		})
+	}
+}
+
+// TestOldProcessExitKeepsNewProcessStdin reproduces the race where a previous
+// Cursor process finishes after a new Send() has started: the old process must
+// only close its own stdin, and a permission request from the new process must
+// still be answerable.
+func TestOldProcessExitKeepsNewProcessStdin(t *testing.T) {
+	cs := newTestSession("default")
+	defer cs.cancel()
+
+	oldProc, oldR := connectStdinPipe(cs)
+	newProc, newR := connectStdinPipe(cs)
+
+	// Drain the old pipe so closing it does not block.
+	oldDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, oldR)
+		close(oldDone)
+	}()
+
+	// New process asks for permission.
+	cs.handleInteractionQuery(newProc, webFetchInteractionRequest(5, "https://example.com", false))
+	<-cs.events
+
+	// Old process exits concurrently with the user's decision.
+	newDone := make(chan map[string]any, 1)
+	go func() { newDone <- readInteractionResponse(t, newR) }()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); cs.dropProc(oldProc) }()
+	go func() {
+		defer wg.Done()
+		if err := cs.RespondPermission("webFetchRequestQuery:5", core.PermissionResult{Behavior: "allow"}); err != nil {
+			t.Errorf("RespondPermission: %v", err)
+		}
+	}()
+	wg.Wait()
+	<-oldDone
+
+	resp := <-newDone
+	response, _ := resp["response"].(map[string]any)
+	if idVal, _ := response["id"].(float64); int(idVal) != 5 {
+		t.Errorf("response.id = %v, want 5", response["id"])
+	}
+
+	newProc.mu.Lock()
+	stillOpen := newProc.stdin != nil
+	newProc.mu.Unlock()
+	if !stillOpen {
+		t.Error("new process stdin was closed by the old process exiting")
+	}
+}
+
+// TestDropProcClearsOnlyOwnPending checks that an exiting process clears its own
+// pending query but leaves a newer process's pending query alone.
+func TestDropProcClearsOnlyOwnPending(t *testing.T) {
+	cs := newTestSession("default")
+	defer cs.cancel()
+
+	oldProc, _ := connectStdinPipe(cs)
+	newProc, _ := connectStdinPipe(cs)
+
+	cs.pending = &pendingInteractionQuery{id: 1, queryType: "shellRequestQuery", proc: newProc}
+	cs.dropProc(oldProc)
+	if cs.pending == nil {
+		t.Fatal("old process exit cleared the new process's pending query")
+	}
+
+	cs.dropProc(newProc)
+	if cs.pending != nil {
+		t.Error("pending query should be cleared when its own process exits")
 	}
 }

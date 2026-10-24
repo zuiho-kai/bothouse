@@ -37,19 +37,51 @@ type cursorSession struct {
 
 	thinkingBuf strings.Builder // accumulate thinking deltas
 
-	// Permission handling: each Send() creates a new process whose stdin is used
-	// to respond to interaction_query permission requests.
-	stdinMu sync.Mutex
-	stdin   io.WriteCloser // current process stdin; nil when no process is running
-
 	pendingMu sync.Mutex
 	pending   *pendingInteractionQuery // most recent unresolved interaction_query/request
 }
 
+// cursorProc is the per-process state for one Send(). Each Cursor CLI process
+// owns its own stdin, so a process that exits only closes its own input stream
+// and never the stdin of a newer process started by a later Send().
+type cursorProc struct {
+	mu    sync.Mutex
+	stdin io.WriteCloser // nil once the process has exited
+}
+
+// write sends b to this process's stdin. It is a no-op (with a warning) once
+// the process has exited.
+func (p *cursorProc) write(b []byte) {
+	if p == nil {
+		slog.Warn("cursorSession: no process, cannot write interaction response")
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stdin == nil {
+		slog.Warn("cursorSession: stdin unavailable, cannot write interaction response")
+		return
+	}
+	if _, err := p.stdin.Write(b); err != nil {
+		slog.Warn("cursorSession: write interaction response", "error", err)
+	}
+}
+
+// closeStdin closes this process's stdin. Safe to call more than once.
+func (p *cursorProc) closeStdin() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stdin != nil {
+		_ = p.stdin.Close()
+		p.stdin = nil
+	}
+}
+
 // pendingInteractionQuery holds the info needed to write a response back to Cursor.
 type pendingInteractionQuery struct {
-	id        int    // query["id"] value from the original request
-	queryType string // e.g. "webFetchRequestQuery", "shellRequestQuery"
+	id        int         // query["id"] value from the original request
+	queryType string      // e.g. "webFetchRequestQuery", "shellRequestQuery"
+	proc      *cursorProc // the process that asked; the response goes to its stdin
 }
 
 func newCursorSession(ctx context.Context, cmd string, extraArgs []string, workDir, model, mode, resumeID string, extraEnv []string) (*cursorSession, error) {
@@ -142,27 +174,18 @@ func (cs *cursorSession) Send(prompt string, messageID string, images []core.Ima
 		return fmt.Errorf("cursorSession: start: %w", err)
 	}
 
-	cs.stdinMu.Lock()
-	cs.stdin = stdin
-	cs.stdinMu.Unlock()
+	proc := &cursorProc{stdin: stdin}
 
 	cs.wg.Add(1)
-	go cs.readLoop(cmd, stdout, &stderrBuf)
+	go cs.readLoop(proc, cmd, stdout, &stderrBuf)
 
 	return nil
 }
 
-func (cs *cursorSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer) {
+func (cs *cursorSession) readLoop(proc *cursorProc, cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf *bytes.Buffer) {
 	defer cs.wg.Done()
-	defer func() {
-		// Close stdin so Cursor knows the input stream is finished.
-		cs.stdinMu.Lock()
-		if cs.stdin != nil {
-			_ = cs.stdin.Close()
-			cs.stdin = nil
-		}
-		cs.stdinMu.Unlock()
-	}()
+	// Close this process's own stdin so Cursor knows the input stream is finished.
+	defer cs.dropProc(proc)
 	defer func() {
 		if err := cmd.Wait(); err != nil {
 			stderrMsg := strings.TrimSpace(stderrBuf.String())
@@ -195,7 +218,7 @@ func (cs *cursorSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf
 			continue
 		}
 
-		cs.handleEvent(raw)
+		cs.handleEvent(proc, raw)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -209,7 +232,7 @@ func (cs *cursorSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf
 	}
 }
 
-func (cs *cursorSession) handleEvent(raw map[string]any) {
+func (cs *cursorSession) handleEvent(proc *cursorProc, raw map[string]any) {
 	eventType, _ := raw["type"].(string)
 
 	switch eventType {
@@ -229,7 +252,7 @@ func (cs *cursorSession) handleEvent(raw map[string]any) {
 		cs.handleToolCall(raw)
 
 	case "interaction_query":
-		cs.handleInteractionQuery(raw)
+		cs.handleInteractionQuery(proc, raw)
 
 	case "result":
 		cs.handleResult(raw)
@@ -328,7 +351,7 @@ func (cs *cursorSession) handleToolCall(raw map[string]any) {
 	}
 }
 
-func (cs *cursorSession) handleInteractionQuery(raw map[string]any) {
+func (cs *cursorSession) handleInteractionQuery(proc *cursorProc, raw map[string]any) {
 	subtype, _ := raw["subtype"].(string)
 	if subtype != "request" {
 		return
@@ -347,25 +370,25 @@ func (cs *cursorSession) handleInteractionQuery(raw map[string]any) {
 	toolName, inputStr := extractInteractionQueryInfo(queryType, query)
 	if toolName == "" {
 		// Unknown query type — deny immediately to unblock Cursor.
-		cs.writeInteractionResponse(queryID, queryType, false, "unsupported query type")
+		cs.writeInteractionResponse(proc, queryID, queryType, false, "unsupported query type")
 		return
 	}
 
 	// Check skipApproval flag: some queries are pre-approved by Cursor itself.
 	if skipApproval := extractSkipApproval(queryType, query); skipApproval {
-		cs.writeInteractionResponse(queryID, queryType, true, "")
+		cs.writeInteractionResponse(proc, queryID, queryType, true, "")
 		return
 	}
 
 	// In non-default modes there is no interactive approval path; deny to unblock.
 	if cs.mode != "default" {
-		cs.writeInteractionResponse(queryID, queryType, false, "permission mode does not allow interactive approval")
+		cs.writeInteractionResponse(proc, queryID, queryType, false, "permission mode does not allow interactive approval")
 		return
 	}
 
 	// Store pending query so RespondPermission can write the right response.
 	cs.pendingMu.Lock()
-	cs.pending = &pendingInteractionQuery{id: queryID, queryType: queryType}
+	cs.pending = &pendingInteractionQuery{id: queryID, queryType: queryType, proc: proc}
 	cs.pendingMu.Unlock()
 
 	// Build a stable requestID that the engine passes back to RespondPermission.
@@ -386,8 +409,8 @@ func (cs *cursorSession) handleInteractionQuery(raw map[string]any) {
 }
 
 // writeInteractionResponse writes a Cursor interaction_query response JSON line to the
-// current process stdin.  approved=true → {"approved":{}}; false → {"rejected":{"reason":...}}.
-func (cs *cursorSession) writeInteractionResponse(queryID int, queryType string, approved bool, reason string) {
+// stdin of proc.  approved=true → {"approved":{}}; false → {"rejected":{"reason":...}}.
+func (cs *cursorSession) writeInteractionResponse(proc *cursorProc, queryID int, queryType string, approved bool, reason string) {
 	// Derive the response field name from the request query type.
 	// "webFetchRequestQuery" → "webFetchRequestResponse"
 	// "shellRequestQuery"   → "shellRequestResponse"
@@ -417,15 +440,18 @@ func (cs *cursorSession) writeInteractionResponse(queryID int, queryType string,
 	}
 	b = append(b, '\n')
 
-	cs.stdinMu.Lock()
-	defer cs.stdinMu.Unlock()
-	if cs.stdin == nil {
-		slog.Warn("cursorSession: stdin unavailable, cannot write interaction response")
-		return
+	proc.write(b)
+}
+
+// dropProc closes proc's stdin and clears a pending query that belongs to it,
+// leaving any newer process and its pending query untouched.
+func (cs *cursorSession) dropProc(proc *cursorProc) {
+	proc.closeStdin()
+	cs.pendingMu.Lock()
+	if cs.pending != nil && cs.pending.proc == proc {
+		cs.pending = nil
 	}
-	if _, err := cs.stdin.Write(b); err != nil {
-		slog.Warn("cursorSession: write interaction response", "error", err)
-	}
+	cs.pendingMu.Unlock()
 }
 
 // extractSkipApproval returns true when Cursor marks a query as pre-approved.
@@ -576,7 +602,7 @@ func (cs *cursorSession) RespondPermission(_ string, result core.PermissionResul
 	if !approved && reason == "" {
 		reason = "User denied"
 	}
-	cs.writeInteractionResponse(pq.id, pq.queryType, approved, reason)
+	cs.writeInteractionResponse(pq.proc, pq.id, pq.queryType, approved, reason)
 	return nil
 }
 

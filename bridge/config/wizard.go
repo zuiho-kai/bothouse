@@ -28,6 +28,7 @@ type WizardProjectOptions struct {
 	AgentArgs    []string          // agent option args (nil = leave)
 	AgentOptions map[string]any    // set in the agent's options (nil = leave)
 	AgentEnv     map[string]string // merged into agent option env
+	DisplayName  string            // team_name: the name shown for the project ("" = leave)
 }
 
 // UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
@@ -43,6 +44,7 @@ type WizardProjectSnapshot struct {
 	Name, AgentType, WorkDir, AgentCmd string
 	Platforms                          map[string]map[string]any // type → options of the first platform of that type
 	GateURL, GateFallback              string
+	TeamName                           string // the name shown for the project ("" = its name)
 }
 
 // WizardSnapshot reads config.toml's projects (under the config lock, released on return).
@@ -62,7 +64,7 @@ func snapshotOf(cfg *Config) []WizardProjectSnapshot {
 		wd, _ := p.Agent.Options["work_dir"].(string)
 		cmd, _ := p.Agent.Options["cmd"].(string)
 		ps := WizardProjectSnapshot{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd, AgentCmd: cmd,
-			Platforms: map[string]map[string]any{}, GateURL: p.GateURL, GateFallback: p.GateFallback}
+			Platforms: map[string]map[string]any{}, GateURL: p.GateURL, GateFallback: p.GateFallback, TeamName: p.TeamName}
 		for _, pl := range p.Platforms {
 			if _, seen := ps.Platforms[pl.Type]; !seen {
 				ps.Platforms[pl.Type] = pl.Options
@@ -115,6 +117,49 @@ func ApplyWizardProjects(plan func([]WizardProjectSnapshot) ([]WizardProjectOpti
 		return "", fmt.Errorf("backup config: %w", err)
 	}
 	return backup, saveConfig(doc)
+}
+
+// RemoveWizardProjects takes the named projects out of config.toml (one read-modify-write
+// under configMu, on the TOML document like ApplyWizardProjects so unknown keys survive). The
+// setup wizard uses it to undo a role it just added that could not start: left in the file it
+// would stop the next start (main exits on a project that fails to build). It returns the
+// names actually removed.
+func RemoveWizardProjects(names []string) ([]string, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if ConfigPath == "" {
+		return nil, fmt.Errorf("config path not set")
+	}
+	raw, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	projects, err := tableList(doc, "projects")
+	if err != nil {
+		return nil, err
+	}
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[n] = true
+	}
+	var kept []map[string]any
+	var removed []string
+	for _, p := range projects {
+		if n, _ := p["name"].(string); drop[n] {
+			removed = append(removed, n)
+			continue
+		}
+		kept = append(kept, p)
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	doc["projects"] = kept
+	return removed, saveConfig(doc)
 }
 
 // backupPath is config.toml.bak-20261020-121500, with -2, -3 … if that name exists.
@@ -272,6 +317,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 				opts["allow_from"] = merged
 			}
 		}
+	}
+	if o.DisplayName != "" {
+		p["team_name"] = o.DisplayName
 	}
 	if o.GateURL != nil {
 		p["gate_url"] = *o.GateURL

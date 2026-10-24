@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { listSessions, getSession, type Session, type SessionDetail } from '@/api/sessions';
+import { getProject, shownName } from '@/api/projects';
 import {
   useBridgeSocket, fetchBridgeConfig,
   type BridgeConfig, type BridgeIncoming, type BridgeStatus,
@@ -290,6 +291,11 @@ function MsgCopyButton({ text }: { text: string }) {
 export default function ChatView() {
   const { t } = useTranslation();
   const { name: projectName } = useParams<{ name: string }>();
+  const [shown, setShown] = useState('');
+  useEffect(() => {
+    setShown('');
+    if (projectName) getProject(projectName).then((p) => setShown(shownName(p))).catch(() => {});
+  }, [projectName]);
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -581,7 +587,7 @@ export default function ChatView() {
           </Link>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{projectName}</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{shown || projectName}</h2>
               <StatusBadge status={bridgeStatus} />
             </div>
             <button

@@ -24,17 +24,18 @@ const leadReturnTTL = 24 * time.Hour // same as platform/discord/lead_return.go
 // the lead together (issue #182). The gateway writes the lead's @ as <@team_lead_bot> for every bot
 // but the lead (rh/cloudweb.py for_bot).
 func (p *Platform) dispatchedBy(m wireInboundMessage) string {
-	if m.Mentioned == nil || !*m.Mentioned || p.teamLead == "" {
+	lead := p.lead()
+	if m.Mentioned == nil || !*m.Mentioned || lead == "" {
 		return ""
 	}
 	if m.FromBot {
-		if m.UserMentionID == p.teamLead {
-			return p.teamLead
+		if m.UserMentionID == lead {
+			return lead
 		}
 		return ""
 	}
-	if strings.Contains(m.Content, "<@"+p.teamLead+">") || strings.Contains(m.Content, "<@!"+p.teamLead+">") {
-		return p.teamLead
+	if strings.Contains(m.Content, "<@"+lead+">") || strings.Contains(m.Content, "<@!"+lead+">") {
+		return lead
 	}
 	return ""
 }

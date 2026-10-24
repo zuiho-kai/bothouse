@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import PersonaPanel from './PersonaPanel';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
-import { getProject, updateProject, deleteProject, listAgentTypes, type ProjectDetail as ProjectDetailType } from '@/api/projects';
+import { getProject, updateProject, deleteProject, listAgentTypes, shownName, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
 import { getHeartbeat, pauseHeartbeat, resumeHeartbeat, triggerHeartbeat, setHeartbeatInterval, type HeartbeatStatus } from '@/api/heartbeat';
 import { restartSystem } from '@/api/status';
@@ -51,9 +51,48 @@ const CODEX_MODE_OPTIONS: { value: string; label: string }[] = [
   { value: 'full-auto', label: 'full-auto' },
   { value: 'yolo', label: 'yolo (bypass)' },
 ];
+const GEMINI_MODE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'default', label: 'default' },
+  { value: 'auto_edit', label: 'auto_edit' },
+  { value: 'yolo', label: 'yolo' },
+  { value: 'plan', label: 'plan' },
+];
+const CURSOR_MODE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'default', label: 'default' },
+  { value: 'force', label: 'force (yolo)' },
+  { value: 'plan', label: 'plan' },
+  { value: 'ask', label: 'ask' },
+];
+const GENERIC_YOLO_MODE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'default', label: 'default' },
+  { value: 'yolo', label: 'yolo' },
+];
 const MODE_OPTIONS_BY_AGENT: Record<string, { value: string; label: string }[]> = {
   claudecode: CLAUDECODE_MODE_OPTIONS,
+  copilot: CLAUDECODE_MODE_OPTIONS,
   codex: CODEX_MODE_OPTIONS,
+  gemini: GEMINI_MODE_OPTIONS,
+  cursor: CURSOR_MODE_OPTIONS,
+  antigravity: [
+    { value: 'default', label: 'default' },
+    { value: 'yolo', label: 'yolo' },
+    { value: 'plan', label: 'plan' },
+  ],
+  pi: GENERIC_YOLO_MODE_OPTIONS,
+  qoder: GENERIC_YOLO_MODE_OPTIONS,
+  opencode: GENERIC_YOLO_MODE_OPTIONS,
+  kimi: GENERIC_YOLO_MODE_OPTIONS,
+  iflow: [
+    { value: 'default', label: 'default' },
+    { value: 'auto-edit', label: 'auto-edit' },
+    { value: 'plan', label: 'plan' },
+    { value: 'yolo', label: 'yolo' },
+  ],
+  reasonix: [
+    { value: 'default', label: 'default' },
+    { value: 'yolo', label: 'yolo' },
+    { value: 'plan', label: 'plan' },
+  ],
 };
 
 const isQRPlatform = (type: string) => type === 'feishu' || type === 'lark' || type === 'weixin';
@@ -269,7 +308,7 @@ export default function ProjectDetail() {
         <Link to="/projects" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
           <ArrowLeft size={18} className="text-gray-400" />
         </Link>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">{name}</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">{shownName(project) || name}</h2>
         {project && <Badge variant="info">{project.agent_type}</Badge>}
       </div>
 

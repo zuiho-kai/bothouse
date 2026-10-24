@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +77,10 @@ type claudeSession struct {
 	apiErrTimer  *time.Timer
 	apiErrFired  bool
 	apiErrClosed bool // events channel closed; guarded by apiErrMu
+	// quotaPending/quotaReset: this turn's API error was an exhausted quota; the
+	// turn-ending result carries core.MetaQuotaExhausted. Guarded by apiErrMu.
+	quotaPending bool
+	quotaReset   string
 
 	// gracefulStopTimeout is how long Close() waits for a clean exit
 	// (stdin close → Stop hooks → process exit) before escalating to
@@ -721,24 +726,17 @@ func (cs *claudeSession) armAPIErrorFallback(raw map[string]any) {
 		}
 		return
 	}
-	var text string
-	if msg, ok := raw["message"].(map[string]any); ok {
-		if arr, ok := msg["content"].([]any); ok {
-			for _, it := range arr {
-				if m, ok := it.(map[string]any); ok {
-					if t, _ := m["text"].(string); t != "" {
-						text += t
-					}
-				}
-			}
-		}
-	}
+	msg, _ := raw["message"].(map[string]any)
+	text := assistantText(msg)
 	errKind, _ := raw["error"].(string)
 	slog.Warn("claudeSession: API error message, arming result fallback", "error", errKind, "text", text)
 	cs.apiErrMu.Lock()
 	defer cs.apiErrMu.Unlock()
 	if cs.apiErrTimer != nil {
 		cs.apiErrTimer.Stop()
+	}
+	if reset, ok := claudeQuotaExhausted(errKind, text); ok {
+		cs.quotaPending, cs.quotaReset = true, reset
 	}
 	cs.apiErrTimer = time.AfterFunc(apiErrorResultGrace, func() {
 		// Hold apiErrMu while sending so finishReadLoop cannot close the
@@ -753,10 +751,67 @@ func (cs *claudeSession) armAPIErrorFallback(raw map[string]any) {
 		cs.apiErrFired = true
 		slog.Warn("claudeSession: no result after API error, synthesizing turn end", "error", errKind)
 		select {
-		case cs.events <- core.Event{Type: core.EventResult, Content: text, SessionID: cs.CurrentSessionID(), Done: true}:
+		case cs.events <- core.Event{Type: core.EventResult, Content: text, SessionID: cs.CurrentSessionID(), Done: true, Metadata: cs.takeQuotaMetaLocked(nil)}:
 		case <-cs.ctx.Done():
 		}
 	})
+}
+
+// assistantText joins the text blocks of an assistant message.
+func assistantText(msg map[string]any) string {
+	var text string
+	if arr, ok := msg["content"].([]any); ok {
+		for _, it := range arr {
+			if m, ok := it.(map[string]any); ok {
+				if t, _ := m["text"].(string); t != "" {
+					text += t
+				}
+			}
+		}
+	}
+	return text
+}
+
+// claudeQuotaPhrases are lower-cased fragments of the API error text Claude Code
+// prints when the plan quota is used up. Source: actual stream-json assistant
+// events with is_api_error_message=true and error="rate_limit" in local CLI
+// transcripts (claude 2.1.x):
+//   - "You've hit your session limit · resets 10pm (Asia/Tokyo)"
+//   - "You've hit your weekly limit · resets <time> (<tz>)"
+//   - "API Error: Request rejected (429) · usage limit ..."
+var claudeQuotaPhrases = []string{"hit your session limit", "hit your weekly limit", "usage limit"}
+
+// claudeQuotaResetRe captures the reset time after " · resets " in the notices
+// above, e.g. "10pm (Asia/Tokyo)".
+var claudeQuotaResetRe = regexp.MustCompile(`(?i)\bresets\s+(.+?)\s*$`)
+
+// claudeQuotaExhausted reports whether an API error message (error kind and
+// text) is Claude Code's quota-exhausted notice, and the reset time it gives.
+func claudeQuotaExhausted(errKind, text string) (reset string, ok bool) {
+	if errKind != "rate_limit" {
+		return "", false
+	}
+	lower := strings.ToLower(text)
+	for _, p := range claudeQuotaPhrases {
+		if strings.Contains(lower, p) {
+			if m := claudeQuotaResetRe.FindStringSubmatch(strings.TrimSpace(text)); m != nil {
+				reset = m[1]
+			}
+			return reset, true
+		}
+	}
+	return "", false
+}
+
+// takeQuotaMetaLocked adds the quota-exhausted mark to meta if this turn hit
+// the quota, and clears it. Caller holds apiErrMu.
+func (cs *claudeSession) takeQuotaMetaLocked(meta map[string]any) map[string]any {
+	if !cs.quotaPending {
+		return meta
+	}
+	meta = core.WithQuotaExhausted(meta, cs.quotaReset)
+	cs.quotaPending, cs.quotaReset = false, ""
+	return meta
 }
 
 // takeAPIErrorFallback disarms the fallback when the real result arrives and
@@ -792,6 +847,13 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 		return
 	}
 	if isErr, _ := raw["is_api_error_message"].(bool); isErr {
+		errKind, _ := raw["error"].(string)
+		if _, quota := claudeQuotaExhausted(errKind, assistantText(msg)); quota {
+			// The notice is not a reply: the turn-ending result carries the quota
+			// mark and the engine words it, so do not stream the raw text.
+			cs.armAPIErrorFallback(raw)
+			return
+		}
 		defer cs.armAPIErrorFallback(raw)
 	}
 
@@ -942,6 +1004,13 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		slog.Info("claudeSession: dropping late result, turn already ended by API error fallback")
 		return
 	}
+	// Taken before any early return so the mark cannot leak into the next turn.
+	var quotaMeta map[string]any
+	if !isCompactionResult(raw) {
+		cs.apiErrMu.Lock()
+		quotaMeta = cs.takeQuotaMetaLocked(nil)
+		cs.apiErrMu.Unlock()
+	}
 	var content string
 	if result, ok := raw["result"].(string); ok {
 		content = result
@@ -1015,6 +1084,8 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 	var meta map[string]any
 	if isCompaction {
 		meta = map[string]any{core.MetaContextCompacted: true}
+	} else {
+		meta = quotaMeta
 	}
 	evt := core.Event{
 		Type:                     core.EventResult,
@@ -1022,6 +1093,7 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		SessionID:                cs.CurrentSessionID(),
 		Done:                     !isCompaction,
 		Metadata:                 meta,
+		UsageKnown:               raw["usage"] != nil,
 		InputTokens:              inputTokens,
 		OutputTokens:             outputTokens,
 		CacheCreationInputTokens: cacheCreationTokens,
@@ -1125,7 +1197,7 @@ func (cs *claudeSession) Send(prompt string, messageID string, images []core.Ima
 	if !cs.alive.Load() {
 		return fmt.Errorf("session process is not running")
 	}
-	cs.takeAPIErrorFallback() // new turn: a stale fallback must not end it
+	cs.takeAPIErrorFallback()    // new turn: a stale fallback must not end it
 	cs.interrupting.Store(false) // an interrupt sent while idle must not end this turn
 
 	if len(images) == 0 && len(files) == 0 {

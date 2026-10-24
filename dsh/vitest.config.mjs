@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 // without such an install (local dsh/node_modules), fall back to normal resolution.
 const fromVitest = createRequire(process.argv[1] ?? import.meta.url);
 const alias = [];
-for (const name of ['react-dom', 'react', '@testing-library/react', '@testing-library/dom']) {
+for (const name of ['react-dom', 'react', '@testing-library/react', '@testing-library/dom', '@deepseek-ai/dsh-client-ui-primitives']) {
   try {
     const dir = dirname(fromVitest.resolve(`${name}/package.json`));
     alias.push({ find: new RegExp(`^${name.replace('/', '\\/')}(?=/|$)`), replacement: dir });
@@ -21,12 +21,8 @@ export default {
   oxc: { tsconfig: false },
   resolve: { alias },
   test: {
-    include: [
-      'dsh/packages/client-ui-discord/tests/channel-source.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/mention-complete.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/task-board.client.spec.ts',
-      'dsh/packages/client-ui-discord/tests/channels-page.client.spec.tsx',
-      'dsh/packages/client-ui-discord/tests/client-injection.client.spec.ts',
-    ],
+    server: { deps: { inline: [/@deepseek-ai/] } },
+    // Every channel client spec runs here; a new spec needs no edit to this list.
+    include: ['dsh/packages/client-ui-discord/tests/*.client.spec.{ts,tsx}'],
   },
 };

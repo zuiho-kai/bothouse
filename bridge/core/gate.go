@@ -246,13 +246,22 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	// A private chat with the owner (an explicit admin_from ID) has no third party: whatever
-	// the owner says there is addressed to this bot, so it skips the gate and is never filed as
-	// overheard context. DMs from anyone else go through the gate like any other message.
+	// the owner says there is addressed to this bot, so it is never filed as overheard context.
+	// While idle it skips the gate (nothing to judge). While a turn is running it goes through
+	// the gate like a group @-mention, so "stop / do X instead" aborts the turn and anything
+	// else is inserted, the same as in a group. DMs from anyone else always go through the gate.
 	ownerDM := msg.Direct && !msg.FromBot && e.isDMOwner(msg.UserID)
 	if ownerDM {
 		msg.Mentioned = true
 	}
-	if g == nil || msg.IsPermissionResponse || ownerDM {
+	busy := session.Busy()
+	if g == nil || msg.IsPermissionResponse || (ownerDM && !busy) {
+		if g != nil && ownerDM {
+			// Held while busy, handed back after the turn ended: nothing left to judge.
+			g.mu.Lock()
+			delete(g.released, msg)
+			g.mu.Unlock()
+		}
 		if !msg.IsPermissionResponse {
 			if g == nil && !ownerDM && e.suppressUnaddressedGroup(p, msg) {
 				return true
@@ -264,7 +273,6 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		}
 		return false
 	}
-	busy := session.Busy()
 
 	g.mu.Lock()
 	if g.released[msg] {
@@ -323,6 +331,10 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
 
+	if ownerDM && (dec.Action == "silent" || dec.Action == "context") {
+		// The owner's private chat is always addressed to this bot (see above): never drop it.
+		dec.Action = "reply"
+	}
 	// Attachments can't be buffered as text; never silence them.
 	if dec.Action == "silent" && (len(msg.Images) > 0 || len(msg.Files) > 0) {
 		dec.Action = "insert"

@@ -8,6 +8,7 @@ import {
   listSkills, fetchSkillPresets,
   type ProjectSkills, type SkillPreset,
 } from '@/api/skills';
+import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
 import { cn } from '@/lib/utils';
 
 type Tab = 'local' | 'recommended';
@@ -20,6 +21,10 @@ export default function SkillList() {
   const [loading, setLoading] = useState(true);
   const [presetsLoading, setPresetsLoading] = useState(false);
   const [activeProject, setActiveProject] = useState('');
+  const [summaries, setSummaries] = useState<ProjectSummary[]>([]);
+  useEffect(() => {
+    listProjects().then((p) => setSummaries(p.projects || [])).catch(() => {});
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -89,6 +94,7 @@ export default function SkillList() {
       {tab === 'local' && (
         <LocalSkills
           projects={projects}
+          shown={shownNames(summaries)}
           current={current}
           activeProject={activeProject}
           onSelectProject={setActiveProject}
@@ -112,9 +118,10 @@ export default function SkillList() {
 /* ── Local Skills ── */
 
 function LocalSkills({
-  projects, current, activeProject, onSelectProject, loading, t,
+  projects, shown, current, activeProject, onSelectProject, loading, t,
 }: {
   projects: ProjectSkills[];
+  shown: (name: string) => string;
   current?: ProjectSkills;
   activeProject: string;
   onSelectProject: (name: string) => void;
@@ -159,7 +166,7 @@ function LocalSkills({
             >
               <FolderOpen size={15} className="shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="truncate">{p.project}</div>
+                <div className="truncate">{shown(p.project)}</div>
                 <div className="text-[11px] text-gray-400 dark:text-gray-500">{p.agent_type}</div>
               </div>
               <Badge variant="outline" className="text-[10px] shrink-0">{p.skills?.length || 0}</Badge>
@@ -173,7 +180,7 @@ function LocalSkills({
           <>
             <div className="flex items-center gap-2 mb-4">
               <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-                {current.project}
+                {shown(current.project)}
               </h2>
               <Badge variant="info">{current.agent_type}</Badge>
               <span className="text-xs text-gray-400">

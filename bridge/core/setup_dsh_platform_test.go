@@ -85,3 +85,61 @@ func TestLookDSHAndBash(t *testing.T) {
 		t.Logf("LookBash: %v", err)
 	}
 }
+
+// Issue #92: on Windows the WSL launcher (System32\bash.exe) is often first on PATH; it must be
+// skipped for Git Bash, and the script path handed to bash must survive MSYS argument handling.
+func TestPickWindowsBash(t *testing.T) {
+	env := map[string]string{
+		"ProgramFiles": `C:\Program Files`,
+		"LOCALAPPDATA": `C:\Users\a b\AppData\Local`,
+	}
+	getenv := func(k string) string { return env[k] }
+	have := func(paths ...string) func(string) bool {
+		return func(p string) bool {
+			for _, x := range paths {
+				if strings.EqualFold(x, p) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	const gitBash = `C:\Program Files\Git\bin\bash.exe`
+	cases := []struct {
+		name, pathBash, gitExe string
+		exists                 func(string) bool
+		want                   string
+		wantErr                string
+	}{
+		{"git bash on PATH", `C:\Program Files\Git\usr\bin\bash.exe`, "", have(), `C:\Program Files\Git\usr\bin\bash.exe`, ""},
+		{"WSL launcher first, Git Bash installed", `C:\Windows\System32\bash.exe`, "", have(gitBash), gitBash, ""},
+		{"WSL launcher lowercase", `c:\windows\system32\BASH.EXE`, "", have(gitBash), gitBash, ""},
+		{"WindowsApps alias", `C:\Users\a b\AppData\Local\Microsoft\WindowsApps\bash.exe`, "", have(gitBash), gitBash, ""},
+		{"Git in custom dir via git on PATH", `C:\Windows\System32\bash.exe`, `D:\Tools\Git\cmd\git.exe`, have(`D:\Tools\Git\bin\bash.exe`, gitBash), `D:\Tools\Git\bin\bash.exe`, ""},
+		{"mingw64 git", "", `D:\Git\mingw64\bin\git.exe`, have(`D:\Git\bin\bash.exe`), `D:\Git\bin\bash.exe`, ""},
+		{"per-user Git install", "", "", have(`C:\Users\a b\AppData\Local\Programs\Git\bin\bash.exe`), `C:\Users\a b\AppData\Local\Programs\Git\bin\bash.exe`, ""},
+		{"only WSL", `C:\Windows\System32\bash.exe`, "", have(), "", "WSL"},
+		{"nothing", "", "", have(), "", "Git for Windows"},
+	}
+	for _, c := range cases {
+		got, err := pickWindowsBash(c.pathBash, c.gitExe, getenv, c.exists)
+		if c.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("%s: got %q, err %v; want error containing %q", c.name, got, err, c.wantErr)
+			}
+			continue
+		}
+		if err != nil || got != c.want {
+			t.Errorf("%s: got %q, err %v; want %q", c.name, got, err, c.want)
+		}
+	}
+}
+
+func TestBashScriptArg(t *testing.T) {
+	if got := bashScriptArg("windows", `C:\Users\a b\.bothouse\dsh\install.sh`); got != `C:/Users/a b/.bothouse/dsh/install.sh` {
+		t.Fatalf("windows: %q", got)
+	}
+	if got := bashScriptArg("darwin", "/Users/a b/.bothouse/dsh/install.sh"); got != "/Users/a b/.bothouse/dsh/install.sh" {
+		t.Fatalf("darwin: %q", got)
+	}
+}

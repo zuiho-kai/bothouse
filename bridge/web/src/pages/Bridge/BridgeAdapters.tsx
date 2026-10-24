@@ -3,18 +3,21 @@ import { useTranslation } from 'react-i18next';
 import { Cable, Wifi } from 'lucide-react';
 import { Card, Badge, EmptyState } from '@/components/ui';
 import { listBridgeAdapters, type BridgeAdapter } from '@/api/bridge';
+import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
 import { formatTime } from '@/lib/utils';
 
 export default function BridgeAdapters() {
   const { t } = useTranslation();
   const [adapters, setAdapters] = useState<BridgeAdapter[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await listBridgeAdapters();
+      const [data, p] = await Promise.all([listBridgeAdapters(), listProjects().catch(() => null)]);
       setAdapters(data.adapters || []);
+      if (p) setProjects(p.projects || []);
     } finally {
       setLoading(false);
     }
@@ -47,7 +50,7 @@ export default function BridgeAdapters() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-gray-900 dark:text-white">{a.platform}</span>
-                  <Badge variant="info">{a.project}</Badge>
+                  <Badge variant="info">{shownNames(projects)(a.project)}</Badge>
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1">
                   {a.capabilities?.map((c) => <Badge key={c} variant="default">{c}</Badge>)}

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +13,23 @@ import (
 	"time"
 )
 
-const relayTimeout = 120 * time.Second
+// relayTimeout bounds how long a dispatch waits for the target's answer.
+// 来源：主人 2026-10-23 给的实测分布——大部分任务几分钟，一部分十几分钟，
+// 少数要跑个把小时。20 分钟覆盖前两类，少数长任务靠 ErrRelayNoReplyYet 的
+// 「仍在处理」语义处理，而不是把默认值抬到一小时，否则卡死的派工毫无反馈。
+const relayTimeout = 20 * time.Minute
+
+// ErrRelayNoReplyYet marks a dispatch whose target was reached but had not
+// answered when the wait expired. The target may still be working, so this is
+// not a failure: callers must not treat it as one, must not retry the same
+// assignment, and should read the answer from the target's task thread.
+var ErrRelayNoReplyYet = errors.New("relay: no reply yet")
+
+// Relay response statuses reported to the dispatch caller.
+const (
+	RelayStatusDone    = "done"
+	RelayStatusWaiting = "waiting"
+)
 
 const (
 	RelayVisibilityFull    = "full"
@@ -207,6 +224,13 @@ type RelayRequest struct {
 // RelayResponse is the result of a relay send.
 type RelayResponse struct {
 	Response string `json:"response"`
+	// Status is "done" when the target answered, "waiting" when it was reached
+	// but the wait expired first. A caller that records "failed" for "waiting"
+	// reports a healthy long task as broken.
+	Status string `json:"status,omitempty"`
+	// Partial is true when Status is "waiting" and Response still holds the
+	// text the target had already produced before the wait expired.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // Send delivers a message from one bot to another and returns the response.
@@ -273,6 +297,9 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 
 	response, err := targetEngine.HandleRelay(relayCtx, req.From, req.SessionKey, req.Message)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(relayCtx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("%w within %s; the target was reached and may still be working, so this is not a failure and the same assignment must not be resent: read its answer from the target's task thread or card", ErrRelayNoReplyYet, rm.configuredTimeout())
+		}
 		return nil, fmt.Errorf("relay: %w", err)
 	}
 
@@ -282,7 +309,15 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 		rm.sendToGroup(ctx, targetEngine, platform, groupSessionKey, label)
 	}
 
-	return &RelayResponse{Response: response}, nil
+	resp := &RelayResponse{Response: response, Status: RelayStatusDone}
+	if relayCtx.Err() != nil {
+		// HandleRelay hands back what the target had produced when the wait
+		// expired. That answer is useful but the turn is not finished, and
+		// calling it "done" is what made a healthy long task look broken.
+		resp.Status = RelayStatusWaiting
+		resp.Partial = true
+	}
+	return resp, nil
 }
 
 // sendToGroup sends a message to the group chat for visibility.
@@ -342,6 +377,14 @@ func relayVisibilityResponseLabel(mode, toName, response string) string {
 		return fmt.Sprintf("[%s] relay response ready (%d chars)", toName, len([]rune(response)))
 	}
 	return fmt.Sprintf("[%s] %s", toName, truncateRelay(response, 2000))
+}
+
+// configuredTimeout reports the wait actually in force, for messages that must
+// name it.
+func (rm *RelayManager) configuredTimeout() time.Duration {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	return rm.timeout
 }
 
 func (rm *RelayManager) relayContext(ctx context.Context) (context.Context, context.CancelFunc) {

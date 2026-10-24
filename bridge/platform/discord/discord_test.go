@@ -1356,6 +1356,29 @@ func TestIsDiscordBotMention_Everyone(t *testing.T) {
 	}
 }
 
+func TestIsDiscordBotMention_ManagedRole(t *testing.T) {
+	tests := []struct {
+		name       string
+		content    string
+		mentionIDs []string
+		want       bool
+	}{
+		{"self managed role in content", "<@&role1> please review", nil, true},
+		{"self managed role metadata", "please review", []string{"role1"}, true},
+		{"another bot role", "<@&role2> please review", []string{"role2"}, false},
+		{"everyone is not an addressed bot", "@everyone please review", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &discordgo.MessageCreate{Message: &discordgo.Message{Content: tt.content}}
+			m.MentionRoles = tt.mentionIDs
+			if got := isDiscordBotMention(m, "bot1", "role1", false); got != tt.want {
+				t.Errorf("isDiscordBotMention() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // ── Mention tests ────────────────────────────────────────────
 
 // TestStripDiscordMention verifies mention stripping helper.

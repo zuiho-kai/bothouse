@@ -530,4 +530,65 @@ describe('progress card detail/brief view', () => {
     expect(screen.getByText('need model')).toBeTruthy()
     expect(screen.queryByRole('button', { name: zh.cardViewBrief })).toBeNull()
   })
+  it('#144 shows message attachments and sends a pasted image without text', async () => {
+    const withFiles: ChannelSnapshot = { ...ready, messages: [{ ...ready.messages[0], id: 2, text: '', attachments: [
+      { id: '11111111-1111-1111-1111-111111111111', name: 'shot.png', mime: 'image/png', size: 4 },
+      { id: '22222222-2222-2222-2222-222222222222', name: 'run.log', mime: 'text/plain', size: 2048 },
+    ] }] }
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(withFiles, send)} />)
+    expect((screen.getByAltText('shot.png') as HTMLImageElement).getAttribute('src')).toBe('collab/api/attachments/11111111-1111-1111-1111-111111111111')
+    expect(screen.getByText(/run\.log/).closest('a')?.getAttribute('download')).toBe('run.log')
+
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const file = new File([new Uint8Array([1, 2, 3])], 'paste.png', { type: 'image/png' })
+    await act(async () => { fireEvent.paste(input, { clipboardData: { files: [file], types: ['Files'] } }) })
+    await vi.waitFor(() => expect(screen.getByAltText('paste.png')).toBeTruthy())
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ name: 'paste.png', mime: 'image/png', data: 'AQID' }])
+  })
+})
+
+// #118: exercise the host renderer, rather than mocking Markdown into plain text.
+it('renders Markdown and KaTeX for history, incremental replies and permission text (#118)', () => {
+  const body = '| name | value |'+String.fromCharCode(10)+'| --- | --- |'+String.fromCharCode(10)+'| row | cell |'+String.fromCharCode(10,10)+'**bold**\n\n- item\n\n$7^3 = 7 \\times 7 \\times 7 = 343$'
+  const message = { ...ready.messages[0], text: body }
+  const view = render(<ChannelsPage {...props({ ...ready, messages: [message] })} />)
+  expect(view.container.querySelector('strong')?.textContent).toBe('bold')
+  expect(view.container.querySelector('table td')?.textContent).toBe('row')
+  expect(view.container.querySelector('li')?.textContent).toBe('item')
+  expect(view.container.querySelector('.katex')).not.toBeNull()
+  view.rerender(<ChannelsPage {...props({ ...ready, messages: [{ ...message, text: '**new**' }] })} />)
+  expect(view.container.querySelector('strong')?.textContent).toBe('new')
+  view.rerender(<ChannelsPage {...props({ ...ready, messages: [{ ...message, card: JSON.stringify({ title: 'approval' }) }] })} />)
+  expect(view.container.querySelector('.katex')).not.toBeNull()
+})
+
+it('keeps code dollars literal and blocks raw HTML and unsafe links (#118)', () => {
+  const body = ['~~~sh', 'echo "$HOME"', '~~~', '', '<script>alert(1)</script>', '', '[bad](javascript:alert(1))', '', '$\\notacommand$'].join('\n')
+  const view = render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], text: body }] })} />)
+  expect(view.container.querySelector('pre code')?.textContent).toContain('$HOME')
+  expect(view.container.querySelector('pre .katex')).toBeNull()
+  expect(view.container.querySelector('script')).toBeNull()
+  expect(view.container.querySelector('a[href^="javascript:"]')).toBeNull()
+  expect(view.container.textContent).toContain('notacommand')
+})
+
+// #146: the retry label must end. "Retrying" is shown only while the request is in
+// flight; once it settles the server marks the card 'retried' and the button goes away.
+it('shows retrying only while the retry request is pending, then hides the button (#146)', async () => {
+  let finish: () => void = () => {}
+  const retryMessage = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+  const card = JSON.stringify({ title: 'err', state: 'failed', action: 'configure-model' })
+  const failed: ChannelSnapshot = { ...ready, messages: [{ ...ready.messages[0], id: 2, text: 'boom', card }] }
+  const view = render(<ChannelsPage {...{ ...props(failed), retryMessage }} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.retry }))
+  expect(screen.getByRole('button', { name: zh.retrying })).toBeTruthy()
+  await act(async () => { finish() })
+  expect(screen.queryByRole('button', { name: zh.retrying })).toBeNull()
+  const settled = { ...failed, messages: [{ ...failed.messages[0], card: JSON.stringify({ title: 'err', state: 'retried', action: 'configure-model' }) }] }
+  view.rerender(<ChannelsPage {...{ ...props(settled), retryMessage }} />)
+  expect(screen.queryByRole('button', { name: zh.retry })).toBeNull()
+  expect(screen.queryByRole('button', { name: zh.retrying })).toBeNull()
+  expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
 })

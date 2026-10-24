@@ -651,3 +651,51 @@ func TestAgyHookCommandMissingRunPy(t *testing.T) {
 		t.Fatalf("non-agy pass must stay silent: %q %v", out, err)
 	}
 }
+
+// subagent-ctx-hook is on by default: one PreToolUse group without matcher (all tools) in Claude Code; Codex,
+// whose adapted hooks are bash-guard and fix-claim-guard only, does not get it.
+func TestSubagentCtxHookDefault(t *testing.T) {
+	useRepoHooks(t)
+	data, wd := t.TempDir(), t.TempDir()
+	if _, err := EnableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "claudecode", Lang: "zh"}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := readSettings(AgentHookSettingsPath("claudecode", wd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks, _ := m["hooks"].(map[string]any)
+	found := 0
+	for ev, v := range hooks {
+		groups, _ := v.([]any)
+		for _, g := range groups {
+			gm, _ := g.(map[string]any)
+			hs, _ := gm["hooks"].([]any)
+			for _, h := range hs {
+				hm, _ := h.(map[string]any)
+				cmd, _ := hm["command"].(string)
+				if ourHook(cmd) != "subagent-ctx-hook" {
+					continue
+				}
+				found++
+				if ev != "PreToolUse" {
+					t.Fatalf("subagent-ctx-hook under %s", ev)
+				}
+				if _, ok := gm["matcher"]; ok {
+					t.Fatalf("subagent-ctx-hook matcher = %v, want none", gm["matcher"])
+				}
+			}
+		}
+	}
+	if found != 1 {
+		t.Fatalf("subagent-ctx-hook groups = %d, want 1", found)
+	}
+	wd2 := t.TempDir()
+	res, err := EnableAgentHooks(AgentHookOptions{DataDir: data, WorkDir: wd2, CLI: "codex", Lang: "zh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(res.Enabled, "subagent-ctx-hook") {
+		t.Fatalf("codex enabled = %v", res.Enabled)
+	}
+}

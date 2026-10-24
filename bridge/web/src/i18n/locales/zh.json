@@ -1,7 +1,10 @@
 {
   "nav": {
+    "addRole": "添加角色/模型",
     "library": "角色库",
     "dashboard": "概览",
+    "roles": "角色",
+    "devices": "设备",
     "projects": "项目",
     "providers": "服务商",
     "sessions": "会话",
@@ -9,7 +12,8 @@
     "cron": "定时任务",
     "bridge": "桥接",
     "skills": "技能",
-    "system": "系统"
+    "system": "系统",
+    "usage": "用量"
   },
   "dashboard": {
     "title": "概览",
@@ -453,5 +457,39 @@
       "restart": "新版已下载，但没能启动更新后的自检，已退回旧版，没有重启。请从下载页手动装新版。",
       "other": "更新没能完成，旧版没动，可以照常用。请从下载页手动装新版。"
     }
+  },
+  "usage": {
+    "title": "用量",
+    "subtitle": "每一天的消耗，每一小时的节奏。",
+    "roles": "按角色 · 近一年",
+    "models": "按模型 · 近一年",
+    "allRoles": "全部角色",
+    "allModels": "全部模型",
+    "refresh": "刷新",
+    "todayTokens": "今日 token",
+    "todayResponses": "今日回复数",
+    "yearTokens": "近一年 token",
+    "cost": "开销估算 · 美元",
+    "unpriced": "未配置单价",
+    "heatmap": "每日用量 · 近一年",
+    "clickDay": "点击日期查看小时分布 · 橙边表示有用量暂不可得的回复",
+    "less": "少",
+    "more": "多",
+    "hourly": "按小时分布",
+    "peak": "峰值时段",
+    "day": "日期",
+    "todayRoles": "今日 · 各角色",
+    "name": "名称",
+    "replies": "回复数",
+    "requests": "请求数",
+    "input": "输入",
+    "output": "输出",
+    "cache": "缓存读 / 写",
+    "tokens": "总 token",
+    "unknown": "用量暂不可得",
+    "unavailable": "暂不可得",
+    "unavailableWhy": "该 agent 的协议目前不提供每轮用量（如 ACP），不做估算。",
+    "empty": "暂无记录",
+    "note": "从启用记账开始累计，不回填历史。用量暂不可得 {{unknown}} 次（其协议目前不提供每轮用量，如 ACP；不做估算，也不代表零消耗）；缺少单价或用量 {{unpriced}} 次。图表只含已上报的 token。金额仅为已定价部分的估算，* 表示尚有未计价回复。"
   }
 }

@@ -20,6 +20,11 @@
   - `ws-handoff <交接文件> "<任务>"` / `ws-forward "<摘要>"`：把大活交给「工作区」频道里的主角色、之后转结果。
     工作区频道 ID 读 `WS_CHANNEL` 或团队文件顶层 `"workspace"`；都没有就在当前频道同分类下新建一个。
     Discord token 读 `DISCORD_BOT_TOKEN` 或 `<GATE_SETUP_DIR>/secrets.env`。
+    ws-handoff 按交接文件把来源聊天频道（`CC_SESSION_KEY`）记进 `<GATE_SETUP_DIR>/ws-handoff-last.json` 的 `tasks`；
+    `ws-forward --notes <交接文件>` 按它转给那份交接的工作区。
+  - `ws-up [--notes <交接文件>] "<内容>" [--ask]`：工作区里的主角色往交活进来的聊天频道上报（默认）或提问（`--ask`），
+    以调用者的 `CC_PROJECT` 用 timer 叫醒那边；活来自多个聊天频道时必须给 `--notes`。Discord 工作区里另发一条不 @ 人的短消息。
+    timer 命令读 `CC_BIN`，否则找 `bothouse`、`cc-connect`。测试：`python3 -I test_ws_up.py`（临时目录、假 timer，不走网络）。
 
 ## 任务板、过会儿回来、安全重启
 

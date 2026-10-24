@@ -6,12 +6,12 @@ Grok 与肥鱼共用 ACP 入口，大豆包使用 Antigravity；三者都收到�
 
 ## 启用
 
-构建并部署包含本功能的 bridge 后，在需要启用的**现有**项目块加入：
+构建并部署包含本功能的 bridge 后，公开任务卡默认开启；如需显式关闭，在项目块加入：
 
 ~~~toml
 [[projects]]
 name = "已有项目名"
-public_progress = true
+public_progress = false
 # 保留现有 agent/platform 配置
 
 [projects.display]
@@ -19,7 +19,7 @@ thinking_messages = false
 tool_messages = false
 ~~~
 
-public_progress 默认关闭，需要重启 bridge 后生效。只对实现 TaskCardPublisher 的平台生效；目前是 Discord。机器人需要当前频道的读历史、发消息、嵌入链接和创建/发送公开讨论串能力；已在讨论串内时直接在那里留痕。缺权限时本地保留待投递记录并记录错误，不给它增加管理员权限。
+public_progress 默认开启；显式设为 false 后需要重启 bridge 才生效。主 bot 派工须先调用 `task assign --batch ...`，首次登记自动创建分工卡，无需先上报 start；同批成员进入同一张卡。派工提示要求先登记，再通过 task relay 派发。普通聊天、定时器和其他 bot 的后台消息不会自动开卡；直接发 @ 文本不经过登记接口，不能保证开卡。只对实现 TaskCardPublisher 的平台生效；目前是 Discord。机器人需要当前频道的读历史、发消息、嵌入链接和创建/发送公开讨论串能力；已在讨论串内时直接在那里留痕。缺权限时本地保留待投递记录并记录错误，不给它增加管理员权限。
 
 每个真正进入执行的真人请求得到独立临时 run token，包括排队和本地语音续接。普通聊天不会自动开卡；模型只有接受多步骤任务才报告 start。此版本不向其他 bot 发来的请求注入开卡命令，避免后台闲聊开卡。它没有给任务授予新的工具权限。
 
@@ -58,10 +58,10 @@ accept 走 POST /task/accept，只允许 result_ready / waiting_user；只有真
 沿用已有项目配置：
 
 ~~~toml
-# 所有参与项目使用同一个 team_status_dir；保留现有角色名和其他配置。
+# 所有参与项目使用同一个 team_status_dir；保留现有角色名和其他配置。公开任务卡默认开启。
 team_status_dir = "~/example-team"
 team_name = "当前角色显示名"
-public_progress = true
+# public_progress = false  # 如需关闭公开任务卡
 
 # 仅主 bot 开启以下两项。它可以汇总其他项目的任务卡，
 # 不要求主 bot 自己也打开 public_progress。

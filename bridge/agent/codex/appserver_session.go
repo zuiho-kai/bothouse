@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -85,11 +86,34 @@ type itemNotification struct {
 // The top-level Message is kept for older app-server builds.
 type errorNotification struct {
 	Error *struct {
-		Message           string `json:"message"`
-		AdditionalDetails string `json:"additionalDetails"`
+		Message           string          `json:"message"`
+		AdditionalDetails string          `json:"additionalDetails"`
+		CodexErrorInfo    json.RawMessage `json:"codexErrorInfo"`
 	} `json:"error"`
 	WillRetry bool   `json:"willRetry"`
 	Message   string `json:"message"`
+}
+
+// codexQuotaResetRe captures the reset time in codex's usage-limit message.
+// Source: app-server `error` notification seen from codex,
+// {"error":{"message":"You've hit your usage limit. Try again at 4:13 AM.",
+// "codexErrorInfo":"usageLimitExceeded"},"willRetry":false,...}.
+var codexQuotaResetRe = regexp.MustCompile(`(?i)\btry again at\s+(.+?)\.?\s*$`)
+
+// quotaExhausted reports whether the error is codex's usage-limit error
+// (codexErrorInfo "usageLimitExceeded"), and the reset time its message gives.
+func (n errorNotification) quotaExhausted() (reset string, ok bool) {
+	if n.Error == nil {
+		return "", false
+	}
+	var info string
+	if json.Unmarshal(n.Error.CodexErrorInfo, &info) != nil || info != "usageLimitExceeded" {
+		return "", false
+	}
+	if m := codexQuotaResetRe.FindStringSubmatch(strings.TrimSpace(n.Error.Message)); m != nil {
+		reset = m[1]
+	}
+	return reset, true
 }
 
 func (n errorNotification) text() string {
@@ -160,6 +184,10 @@ type appServerRequestUserInputAnswer struct {
 
 type appServerSession struct {
 	subTaskTracker
+	billingMu     sync.Mutex
+	billingTotal  *codexTokenUsage
+	billingTurn   codexTokenUsage
+	billingKnown  bool
 	url           string
 	workDir       string
 	model         string
@@ -1272,6 +1300,7 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 			s.pendingMsgs = s.pendingMsgs[:0]
 			s.stateMu.Unlock()
 			s.storeContextUsage(nil)
+			s.resetBillingTurn()
 		}
 
 	case "item/started":
@@ -1337,6 +1366,7 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 		var notif appServerThreadTokenUsageNotification
 		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
 			s.storeContextUsage(mapAppServerTokenUsage(notif))
+			s.updateBilling(notif)
 		}
 
 	case "error":
@@ -1353,6 +1383,10 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 			return
 		}
 		// Ends the turn so the turn/completed that follows is a no-op.
+		if reset, ok := notif.quotaExhausted(); ok {
+			s.failRunningTurnWith(msg, core.WithQuotaExhausted(nil, reset))
+			return
+		}
 		s.failRunningTurn(msg)
 	}
 }
@@ -1814,7 +1848,7 @@ func (s *appServerSession) completeTurn() {
 	s.currentTurn = ""
 	s.stateMu.Unlock()
 	s.flushPendingAsText()
-	s.emit(core.Event{Type: core.EventResult, SessionID: s.CurrentSessionID(), Done: true})
+	s.emit(s.billingResult())
 }
 
 func (s *appServerSession) flushPendingAsThinking() {
@@ -1854,6 +1888,12 @@ func (s *appServerSession) emit(event core.Event) {
 // failRunningTurn ends an in-flight turn with an error event; no-op when idle,
 // so a turn that reports its error twice (error + failed turn/completed) emits once.
 func (s *appServerSession) failRunningTurn(reason string) {
+	s.failRunningTurnWith(reason, nil)
+}
+
+// failRunningTurnWith is failRunningTurn with event metadata (e.g. the
+// quota-exhausted mark) on the error event.
+func (s *appServerSession) failRunningTurnWith(reason string, meta map[string]any) {
 	s.stateMu.Lock()
 	if st := s.strict; st != nil {
 		s.stateMu.Unlock()
@@ -1868,7 +1908,7 @@ func (s *appServerSession) failRunningTurn(reason string) {
 		return
 	}
 	slog.Warn("codex app-server: turn failed", "reason", reason)
-	s.emitError(errors.New(reason))
+	s.emit(core.Event{Type: core.EventError, Error: errors.New(reason), Metadata: meta})
 }
 
 func (s *appServerSession) emitError(err error) {

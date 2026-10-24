@@ -1405,6 +1405,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 			case p.threadIsolation && isAttachmentMsgType(msgType) && p.isActiveThreadSession(sessionKey):
 				slog.Debug(p.tag()+": passing attachment through active thread without mention",
 					"chat_id", chatID, "session_key", sessionKey, "msg_type", msgType, "message_id", messageID)
+			// "/stop all" from a user reaches every bot in the chat, mentioned or not.
+			case isStopAllEvent(sender, msgType, msg.Content):
+				slog.Debug(p.tag()+": passing /stop all without mention", "chat_id", chatID)
 			default:
 				slog.Debug(p.tag()+": ignoring group message without bot mention", "chat_id", chatID)
 				return nil
@@ -6768,4 +6771,21 @@ func (p *Platform) SetPreviewStatus(previewHandle any, status core.CardStatus) {
 	if !resp.Success() {
 		slog.Debug("feishu: set preview status patch failed", "code", resp.Code, "msg", resp.Msg)
 	}
+}
+
+// isStopAllEvent reports whether a Feishu event is a user's plain-text "/stop all".
+func isStopAllEvent(sender *larkim.EventSender, msgType string, content *string) bool {
+	if msgType != "text" || content == nil {
+		return false
+	}
+	if sender != nil && sender.SenderType != nil && *sender.SenderType == "app" {
+		return false
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal([]byte(*content), &body) != nil {
+		return false
+	}
+	return core.IsStopAllCommand(body.Text)
 }

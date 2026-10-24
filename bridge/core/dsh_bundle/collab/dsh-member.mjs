@@ -193,6 +193,35 @@ export class DshMembers {
     if (w !== undefined && w.inputId === messageId) w.turn = turn;
   }
 
+  /**
+   * #148: the owner withdrew trigger message triggerId. Every job it planned
+   * ends quietly, with no reply and no failure card: a queued one is closed, an
+   * input still waiting in the member's inbox is taken back, and a turn already
+   * running is cancelled the way DSH's stop button does (keepInbox, so the
+   * member's later inputs still run). Jobs this cannot reach (a CLI member's
+   * ask) keep running.
+   * @returns { stopped, running } member ids whose turn was cancelled / left running.
+   */
+  recall(triggerId) {
+    const stopped = [];
+    const running = [];
+    for (const job of this.store.openJobs()) {
+      if (job.trigger_id !== triggerId) continue;
+      if (job.state === 'pending') { this.store.finishJob(job.id, 'interrupted'); continue; }
+      const w = this.watching.get(job.session_id);
+      const agent = job.input_id ? this.rt.ctx.agents.get(job.session_id) : undefined;
+      if (w?.jobId !== job.id || agent === undefined) { running.push(job.member_id); continue; }
+      // Close the job first, so neither the discarded listener nor the settle path posts a card or a reply.
+      this.store.finishJob(job.id, 'interrupted');
+      if (w.turn === undefined && agent.inbox.remove(job.input_id)) continue;
+      this.watching.delete(job.session_id);
+      w.resolve(INTERRUPTED);
+      agent.cancel({ kind: 'user' }, { keepInbox: true });
+      stopped.push(job.member_id);
+    }
+    return { stopped, running };
+  }
+
   /** Root agent/inbox/discarded listener: a withdrawn input ends its job. */
   onDiscarded(sessionId, messageId) {
     const w = this.watching.get(sessionId);
@@ -241,6 +270,21 @@ export class DshMembers {
     const job = this.store.addJob(memberId, msg.room_id, msg.id);
     if (job) this.enqueue(job, () => this.run(job.id));
     return true;
+  }
+
+  /**
+   * Retry a previous failed turn for (memberId, msg).
+   * Wakes the member with the original trigger message and resets its job.
+   */
+  retry(memberId, msg) {
+    if (!this.config.has(memberId)) return false;
+    const job = this.store.retryJob(memberId, msg.room_id, msg.id);
+    if (job) {
+      this.hub.setError(memberId, undefined);
+      this.enqueue(job, () => this.run(job.id));
+      return true;
+    }
+    return false;
   }
 
   /** Serialize work per (member, room): runs, recoveries, and Session resumes never overlap. */
@@ -386,8 +430,15 @@ export class DshMembers {
     const error = friendlyFailure(notice);
     this.hub.setError(job.member_id, error);
     this.hub.post(job.room_id, {
-      authorKind: 'system', author: 'system', name: 'system', text: error, clientKey: `dsh-job-${jobId}-${state}`,
-      card: JSON.stringify({ title: '成员出错', state: 'failed', action: 'configure-model' }),
+      authorKind: 'system', author: 'system', name: 'system', text: error, clientKey: `dsh-job-${jobId}-${state}-${Date.now()}`,
+      card: JSON.stringify({
+        title: '成员出错',
+        state: 'failed',
+        action: 'configure-model',
+        job_id: jobId,
+        member_id: job.member_id,
+        trigger_id: job.trigger_id,
+      }),
     });
   }
 

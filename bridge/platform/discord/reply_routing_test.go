@@ -53,6 +53,107 @@ func TestReplyRouting_OtherBotDoesNotTriggerMain(t *testing.T) {
 	}
 }
 
+func TestReplyRouting_BotMessagesRequireExplicitBodyMention(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		replyAll  bool
+		wantBurst bool
+		wantPing  bool
+	}{
+		{name: "managed_role_mention_in_body", content: "<@&role-200> please take this", wantBurst: true, wantPing: true},
+		// Without group_reply_all an unaddressed guild message is dropped before batching.
+		{name: "reply_notification_only", content: "Here is the result"},
+		// With group_reply_all it is still collected, but the reply ping does not count as a mention.
+		{name: "reply_notification_only_reply_all", content: "Here is the result", replyAll: true, wantBurst: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Platform{
+				botID: "200", botName: "main", allowFrom: "*", allowBots: "100",
+			}
+			if tt.replyAll {
+				p.groupReplyAllGuilds = []string{"guild"}
+			}
+			p.botRoleIDs.Store("guild", "role-200")
+			p.channelNameCache.Store("channel", "test")
+			p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "bot-" + tt.name, GuildID: "guild", ChannelID: "channel",
+				Author: &discordgo.User{ID: "100", Bot: true}, Timestamp: time.Now(),
+				Type: discordgo.MessageTypeReply, Content: tt.content,
+				Mentions:          []*discordgo.User{{ID: "200", Bot: true}},
+				MessageReference:  &discordgo.MessageReference{MessageID: "prior"},
+				ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: "200", Bot: true}, Content: "prior reply"},
+			}})
+			p.botBurstMu.Lock()
+			burst := p.botBursts["channel:100"]
+			if !tt.wantBurst {
+				p.botBurstMu.Unlock()
+				if burst != nil {
+					t.Fatal("unaddressed bot reply should not be delivered")
+				}
+				return
+			}
+			if burst == nil {
+				p.botBurstMu.Unlock()
+				t.Fatal("expected bot message to be collected into a burst")
+			}
+			if burst.timer != nil {
+				burst.timer.Stop()
+			}
+			delete(p.botBursts, "channel:100")
+			p.botBurstMu.Unlock()
+			got := burst.msg.Mentioned
+			if got != tt.wantPing {
+				t.Errorf("Mentioned = %v, want %v", got, tt.wantPing)
+			}
+			if !burst.msg.FromBot {
+				t.Error("message should remain marked as bot-authored")
+			}
+		})
+	}
+}
+
+func TestReplyRouting_LeadingNameDispatchSurvivesBurstMerge(t *testing.T) {
+	p := &Platform{
+		botID: "200", botName: "橘", teamLead: "100", allowFrom: "*", allowBots: "100",
+		// A name call without a Discord mention only reaches batching in group_reply_all guilds.
+		groupReplyAllGuilds: []string{"guild"},
+	}
+	p.channelNameCache.Store("channel", "test")
+	deliver := func(id, content string) {
+		p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+			ID: id, GuildID: "guild", ChannelID: "channel",
+			Author: &discordgo.User{ID: "100", Bot: true, Username: "lead"}, Timestamp: time.Now(),
+			Content: content,
+		}})
+	}
+	deliver("lead-call", "橘，接手这件事")
+	deliver("lead-followup", "补充一点背景")
+
+	p.botBurstMu.Lock()
+	burst := p.botBursts["channel:100"]
+	if burst == nil {
+		p.botBurstMu.Unlock()
+		t.Fatal("expected bot messages to be collected into a burst")
+	}
+	ctx, ok := burst.msg.ReplyCtx.(replyContext)
+	if burst.timer != nil {
+		burst.timer.Stop()
+	}
+	delete(p.botBursts, "channel:100")
+	p.botBurstMu.Unlock()
+	if !ok {
+		t.Fatalf("ReplyCtx has unexpected type %T", burst.msg.ReplyCtx)
+	}
+	if ctx.lead != "100" {
+		t.Fatalf("burst lost lead dispatch: %+v", ctx)
+	}
+	if !burst.msg.Mentioned {
+		t.Fatal("leading-name call should mark the bot message as addressed")
+	}
+}
+
 func TestReplyRouting_RecipientMatrix(t *testing.T) {
 	tests := []struct {
 		name, content, target                                 string

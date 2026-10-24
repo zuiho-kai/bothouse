@@ -474,3 +474,46 @@ func TestScheduledQueued_DeferredByCooldown_BackfillsOnRedelivery(t *testing.T) 
 		t.Fatalf("re-delivered cron prompt = %q, want the backfill with marker", prompts)
 	}
 }
+
+// A heartbeat or webhook prompt that arrives while the session's turn is running is queued the
+// same way and runs when that turn ends, instead of being dropped ("session is busy" / "skipped").
+
+func TestExecuteHeartbeat_BusySessionQueuesAndDeliversAfterTurn(t *testing.T) {
+	p := &stubCronReplyTargetPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	as := newResultAgentSession("heartbeat done")
+	e := NewEngine("test", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
+	defer e.cancel()
+
+	key := "discord:channel-1:user-1"
+	session, state := busySessionWithLiveState(t, e, p, key, as)
+
+	if err := e.ExecuteHeartbeat(key, "look around", true); err != nil {
+		t.Fatalf("ExecuteHeartbeat() on a busy session = %v, want nil (queued)", err)
+	}
+	assertQueuedThenDelivered(t, e, p, session, state, key, "look around", "heartbeat done")
+	if len(as.sentPrompts) != 1 || !strings.Contains(as.sentPrompts[0], "look around") {
+		t.Fatalf("agent prompts = %#v, want the heartbeat prompt", as.sentPrompts)
+	}
+}
+
+func TestWebhookExecutePrompt_BusySessionQueuesAndDeliversAfterTurn(t *testing.T) {
+	p := &stubCronReplyTargetPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	as := newResultAgentSession("webhook done")
+	e := NewEngine("test", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
+	defer e.cancel()
+
+	key := "discord:channel-1:user-1"
+	session, state := busySessionWithLiveState(t, e, p, key, as)
+
+	ws := &WebhookServer{engines: map[string]*Engine{"test": e}}
+	ws.executePrompt(e, key, "build finished", false, "ci")
+	for _, s := range p.getSent() {
+		if strings.Contains(s, "skipped") {
+			t.Fatalf("sent = %#v, want no \"skipped\" notice for a queued prompt", p.getSent())
+		}
+	}
+	assertQueuedThenDelivered(t, e, p, session, state, key, "build finished", "webhook done")
+	if len(as.sentPrompts) != 1 || !strings.Contains(as.sentPrompts[0], "build finished") {
+		t.Fatalf("agent prompts = %#v, want the webhook prompt", as.sentPrompts)
+	}
+}

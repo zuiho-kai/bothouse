@@ -3,12 +3,33 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".I3dDmG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.I3dDmG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.I3dDmG_rooms, .I3dDmG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.I3dDmG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.I3dDmG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.I3dDmG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.I3dDmG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.I3dDmG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.I3dDmG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.I3dDmG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.I3dDmG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.I3dDmG_chatHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.I3dDmG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.I3dDmG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.I3dDmG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.I3dDmG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.I3dDmG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_system .I3dDmG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.I3dDmG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.I3dDmG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.I3dDmG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.I3dDmG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.I3dDmG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.I3dDmG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.I3dDmG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.I3dDmG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.I3dDmG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_messageBody {\n  min-width: 0;\n}\n\n.I3dDmG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.I3dDmG_author {\n  font-weight: 600;\n}\n\n.I3dDmG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.I3dDmG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.I3dDmG_text {\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.I3dDmG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.I3dDmG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.I3dDmG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.I3dDmG_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.I3dDmG_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.I3dDmG_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.I3dDmG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.I3dDmG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.I3dDmG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.I3dDmG_message {\n  position: relative;\n}\n\n.I3dDmG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.I3dDmG_quoteDeleted {\n  font-style: italic;\n}\n\n.I3dDmG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.I3dDmG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.I3dDmG_message:hover .I3dDmG_replyButton, .I3dDmG_message:focus-within .I3dDmG_replyButton, .I3dDmG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .I3dDmG_replyButton {\n    opacity: 1;\n  }\n}\n\n.I3dDmG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.I3dDmG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.I3dDmG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.I3dDmG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.I3dDmG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.I3dDmG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.I3dDmG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.I3dDmG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.I3dDmG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.I3dDmG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_mentionName {\n  font-weight: 600;\n}\n\n.I3dDmG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.I3dDmG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.I3dDmG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.I3dDmG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.I3dDmG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.I3dDmG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_offline {\n  opacity: .5;\n}\n\n.I3dDmG_memberAvatar {\n  position: relative;\n}\n\n.I3dDmG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.I3dDmG_offline .I3dDmG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.I3dDmG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.I3dDmG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.I3dDmG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .I3dDmG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .I3dDmG_rooms, .I3dDmG_members {\n    display: none;\n  }\n}\n\n.I3dDmG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.I3dDmG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.I3dDmG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_roomInput, .I3dDmG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.I3dDmG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.I3dDmG_roomInput:focus-visible, .I3dDmG_fieldInput:focus-visible, .I3dDmG_iconButton:focus-visible, .I3dDmG_linkButton:focus-visible, .I3dDmG_addMemberButton:focus-visible, .I3dDmG_primaryButton:focus-visible, .I3dDmG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.I3dDmG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.I3dDmG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_memberRow .I3dDmG_member:hover {\n  background: none;\n}\n\n.I3dDmG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.I3dDmG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_memberRow:hover .I3dDmG_memberActions, .I3dDmG_memberRow:focus-within .I3dDmG_memberActions {\n  opacity: 1;\n}\n\n.I3dDmG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.I3dDmG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.I3dDmG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.I3dDmG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.I3dDmG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.I3dDmG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_field textarea {\n  resize: vertical;\n}\n\n.I3dDmG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.I3dDmG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.I3dDmG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_primaryButton, .I3dDmG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.I3dDmG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.I3dDmG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.I3dDmG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.I3dDmG_memberFailed .I3dDmG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.I3dDmG_memberFailed .I3dDmG_presence {\n  background: #ed4245;\n}\n\n.I3dDmG_mobileButton, .I3dDmG_drawerBackdrop {\n  display: none;\n}\n\n.I3dDmG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.I3dDmG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_panelToggleEnd {\n  margin-left: auto;\n}\n\n.I3dDmG_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.I3dDmG_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.I3dDmG_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.I3dDmG_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .I3dDmG_page.I3dDmG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .I3dDmG_page.I3dDmG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .I3dDmG_page.I3dDmG_roomsHidden.I3dDmG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .I3dDmG_roomsHidden > .I3dDmG_rooms, .I3dDmG_membersHidden > .I3dDmG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .I3dDmG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .I3dDmG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .I3dDmG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .I3dDmG_panelToggle {\n    display: none;\n  }\n\n  .I3dDmG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .I3dDmG_rooms.I3dDmG_drawerOpen, .I3dDmG_members.I3dDmG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .I3dDmG_rooms.I3dDmG_drawerOpen {\n    left: 0;\n  }\n\n  .I3dDmG_members.I3dDmG_drawerOpen {\n    right: 0;\n  }\n\n  .I3dDmG_memberActions {\n    opacity: 1;\n  }\n\n  .I3dDmG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.I3dDmG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.I3dDmG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.I3dDmG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.I3dDmG_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.I3dDmG_leadControl .I3dDmG_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.I3dDmG_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.I3dDmG_leadControl .I3dDmG_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.I3dDmG_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.I3dDmG_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.I3dDmG_leadOption:hover, .I3dDmG_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_taskSection + .I3dDmG_taskSection {\n  margin-top: 8px;\n}\n\n.I3dDmG_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.I3dDmG_taskOwnerGroup + .I3dDmG_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.I3dDmG_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.I3dDmG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.I3dDmG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.I3dDmG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.I3dDmG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.I3dDmG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.I3dDmG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.I3dDmG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.I3dDmG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.I3dDmG_taskDone summary {\n  cursor: pointer;\n}\n\n.I3dDmG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.I3dDmG_taskStatus[data-status=\"asked\"], .I3dDmG_taskStatus[data-status=\"escalated\"], .I3dDmG_taskStatus[data-status=\"declined\"], .I3dDmG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.I3dDmG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.I3dDmG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.I3dDmG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.I3dDmG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.I3dDmG_taskMemberName {\n  font-weight: 600;\n}\n\n.I3dDmG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.I3dDmG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".Ah8iqq_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.Ah8iqq_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.Ah8iqq_rooms, .Ah8iqq_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.Ah8iqq_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.Ah8iqq_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.Ah8iqq_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.Ah8iqq_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.Ah8iqq_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.Ah8iqq_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.Ah8iqq_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.Ah8iqq_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.Ah8iqq_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.Ah8iqq_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.Ah8iqq_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.Ah8iqq_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.Ah8iqq_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.Ah8iqq_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_system .Ah8iqq_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.Ah8iqq_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.Ah8iqq_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.Ah8iqq_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.Ah8iqq_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.Ah8iqq_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.Ah8iqq_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.Ah8iqq_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.Ah8iqq_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.Ah8iqq_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_messageBody {\n  min-width: 0;\n}\n\n.Ah8iqq_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.Ah8iqq_author {\n  font-weight: 600;\n}\n\n.Ah8iqq_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.Ah8iqq_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.Ah8iqq_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.Ah8iqq_ownActions {\n  opacity: 0;\n  gap: 8px;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.Ah8iqq_message:hover .Ah8iqq_ownActions, .Ah8iqq_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .Ah8iqq_ownActions {\n    opacity: 1;\n  }\n}\n\n.Ah8iqq_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.Ah8iqq_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.Ah8iqq_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_editBar .Ah8iqq_time {\n  margin-right: auto;\n}\n\n.Ah8iqq_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.Ah8iqq_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.Ah8iqq_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.Ah8iqq_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.Ah8iqq_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.Ah8iqq_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.Ah8iqq_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.Ah8iqq_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.Ah8iqq_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.Ah8iqq_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.Ah8iqq_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.Ah8iqq_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.Ah8iqq_message {\n  position: relative;\n}\n\n.Ah8iqq_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.Ah8iqq_quoteDeleted {\n  font-style: italic;\n}\n\n.Ah8iqq_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.Ah8iqq_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.Ah8iqq_message:hover .Ah8iqq_replyButton, .Ah8iqq_message:focus-within .Ah8iqq_replyButton, .Ah8iqq_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .Ah8iqq_replyButton {\n    opacity: 1;\n  }\n}\n\n.Ah8iqq_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.Ah8iqq_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.Ah8iqq_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.Ah8iqq_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.Ah8iqq_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.Ah8iqq_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.Ah8iqq_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.Ah8iqq_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.Ah8iqq_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.Ah8iqq_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_mentionName {\n  font-weight: 600;\n}\n\n.Ah8iqq_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.Ah8iqq_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.Ah8iqq_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.Ah8iqq_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.Ah8iqq_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.Ah8iqq_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_offline {\n  opacity: .5;\n}\n\n.Ah8iqq_memberAvatar {\n  position: relative;\n}\n\n.Ah8iqq_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.Ah8iqq_offline .Ah8iqq_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.Ah8iqq_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.Ah8iqq_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.Ah8iqq_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .Ah8iqq_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .Ah8iqq_rooms, .Ah8iqq_members {\n    display: none;\n  }\n}\n\n.Ah8iqq_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.Ah8iqq_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.Ah8iqq_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_roomInput, .Ah8iqq_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.Ah8iqq_roomInput {\n  margin: 2px 0 6px;\n}\n\n.Ah8iqq_roomInput:focus-visible, .Ah8iqq_fieldInput:focus-visible, .Ah8iqq_iconButton:focus-visible, .Ah8iqq_linkButton:focus-visible, .Ah8iqq_addMemberButton:focus-visible, .Ah8iqq_primaryButton:focus-visible, .Ah8iqq_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.Ah8iqq_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.Ah8iqq_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_memberRow .Ah8iqq_member:hover {\n  background: none;\n}\n\n.Ah8iqq_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.Ah8iqq_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_memberRow:hover .Ah8iqq_memberActions, .Ah8iqq_memberRow:focus-within .Ah8iqq_memberActions {\n  opacity: 1;\n}\n\n.Ah8iqq_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.Ah8iqq_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.Ah8iqq_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.Ah8iqq_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.Ah8iqq_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.Ah8iqq_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_field textarea {\n  resize: vertical;\n}\n\n.Ah8iqq_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.Ah8iqq_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.Ah8iqq_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_primaryButton, .Ah8iqq_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.Ah8iqq_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.Ah8iqq_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.Ah8iqq_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.Ah8iqq_memberFailed .Ah8iqq_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.Ah8iqq_memberFailed .Ah8iqq_presence {\n  background: #ed4245;\n}\n\n.Ah8iqq_mobileButton, .Ah8iqq_drawerBackdrop {\n  display: none;\n}\n\n.Ah8iqq_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.Ah8iqq_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_panelToggleEnd {\n  margin-left: auto;\n}\n\n.Ah8iqq_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.Ah8iqq_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.Ah8iqq_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .Ah8iqq_page.Ah8iqq_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .Ah8iqq_page.Ah8iqq_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .Ah8iqq_page.Ah8iqq_roomsHidden.Ah8iqq_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .Ah8iqq_roomsHidden > .Ah8iqq_rooms, .Ah8iqq_membersHidden > .Ah8iqq_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .Ah8iqq_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .Ah8iqq_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .Ah8iqq_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .Ah8iqq_panelToggle {\n    display: none;\n  }\n\n  .Ah8iqq_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .Ah8iqq_rooms.Ah8iqq_drawerOpen, .Ah8iqq_members.Ah8iqq_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .Ah8iqq_rooms.Ah8iqq_drawerOpen {\n    left: 0;\n  }\n\n  .Ah8iqq_members.Ah8iqq_drawerOpen {\n    right: 0;\n  }\n\n  .Ah8iqq_memberActions {\n    opacity: 1;\n  }\n\n  .Ah8iqq_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.Ah8iqq_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.Ah8iqq_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.Ah8iqq_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.Ah8iqq_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.Ah8iqq_leadControl .Ah8iqq_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.Ah8iqq_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.Ah8iqq_leadControl .Ah8iqq_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.Ah8iqq_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.Ah8iqq_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.Ah8iqq_leadOption:hover, .Ah8iqq_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_taskSection + .Ah8iqq_taskSection {\n  margin-top: 8px;\n}\n\n.Ah8iqq_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.Ah8iqq_taskOwnerGroup + .Ah8iqq_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.Ah8iqq_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.Ah8iqq_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.Ah8iqq_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.Ah8iqq_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.Ah8iqq_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.Ah8iqq_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.Ah8iqq_taskDone summary {\n  cursor: pointer;\n}\n\n.Ah8iqq_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.Ah8iqq_taskStatus[data-status=\"asked\"], .Ah8iqq_taskStatus[data-status=\"escalated\"], .Ah8iqq_taskStatus[data-status=\"declined\"], .Ah8iqq_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.Ah8iqq_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.Ah8iqq_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.Ah8iqq_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.Ah8iqq_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.Ah8iqq_taskMemberName {\n  font-weight: 600;\n}\n\n.Ah8iqq_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.Ah8iqq_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.Ah8iqq_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.Ah8iqq_attachmentImage {\n  border-radius: 4px;\n  max-width: 320px;\n  max-height: 240px;\n  display: block;\n}\n\n.Ah8iqq_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.Ah8iqq_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.Ah8iqq_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.Ah8iqq_chatHead button, .Ah8iqq_chatHead input, .Ah8iqq_chatHead select, .Ah8iqq_chatHead a, .Ah8iqq_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.Ah8iqq_text pre, .Ah8iqq_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
 // src/client/channel-source.ts
+/** Relative URL of a stored attachment (same base as the other collab requests). */
+const attachmentUrl = (id) => `collab/api/attachments/${encodeURIComponent(id)}`;
+/** Read a browser File into the POST form. */
+const MAX_MESSAGE_BODY = 8388608;
+/** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
+const messageTooLarge = (text, attachments) => new TextEncoder().encode(JSON.stringify({
+	text,
+	client_key: crypto.randomUUID(),
+	reply_to: Number.MAX_SAFE_INTEGER,
+	attachments
+})).length > MAX_MESSAGE_BODY;
+const readAttachment = async (file) => {
+	const bytes = new Uint8Array(await file.arrayBuffer());
+	let binary = "";
+	for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+	return {
+		name: file.name || "pasted",
+		mime: file.type || "application/octet-stream",
+		data: btoa(binary)
+	};
+};
 /**
 * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
 * chat channel is missing is shown at the top level so it stays reachable.
@@ -43,8 +64,16 @@ const INITIAL = {
 	messages: [],
 	leadId: null,
 	tasks: [],
-	taskChat: void 0
+	taskChat: void 0,
+	hasMoreOlder: false,
+	outbox: []
 };
+/** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
+const MAX_BACKOFF_MS = 3e4;
+/** Messages requested per page, both for the first read and for `loadOlder`. */
+const PAGE_SIZE = 100;
+/** Messages requested per catch-up read after a reconnect. */
+const CATCH_UP_LIMIT = 200;
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 var ServiceError = class extends Error {
 	status;
@@ -72,7 +101,9 @@ function browserTransport() {
 			...init
 		}),
 		openEvents: (url) => new EventSource(url, { withCredentials: true }),
-		url: (path) => new URL(path, document.baseURI).toString()
+		url: (path) => new URL(path, document.baseURI).toString(),
+		delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+		random: () => Math.random()
 	};
 }
 /**
@@ -86,12 +117,39 @@ function createChannelSource(transport) {
 	let stream;
 	let lifetime;
 	let pending;
+	/** Consecutive reconnect attempts since the stream last opened. */
+	let attempt = 0;
+	/** Identifies the scheduled retry, so a stop() or a newer retry cancels it. */
+	let reconnectToken;
+	/** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
+	let outbox = [];
+	/**
+	* Page-back request in flight per room, tagged with the ticket and the epoch
+	* it was issued under. Only a latch from the current epoch blocks a new page:
+	* after a window rebuild (A → B → A, reconnect) the old request is aborted and
+	* can no longer hold the room hostage until it returns.
+	*/
+	const paging = /* @__PURE__ */ new Map();
+	/** Ticket of the newest page-back request per room, so a page that lost its race is dropped. */
+	const pageTicket = /* @__PURE__ */ new Map();
+	let nextPageTicket = 0;
+	/**
+	* Bumped whenever the cached window is rebuilt (room switch or reconnect
+	* reconcile). A page-back response captured under an older epoch describes a
+	* window that no longer exists, so merging it would resurrect stale rows —
+	* e.g. A → B → back to A, where the room check alone passes again.
+	*/
+	let historyEpoch = 0;
 	const set = (next) => {
 		snapshot = {
 			...snapshot,
 			...next
 		};
 		for (const listener of listeners) listener();
+	};
+	/** Re-publishes the outbox, narrowed to the selected room. */
+	const publishOutbox = () => {
+		set({ outbox: outbox.filter((entry) => entry.roomId === snapshot.roomId) });
 	};
 	const request = async (path, init) => {
 		const response = await transport.fetch(transport.url(path), init);
@@ -218,17 +276,45 @@ function createChannelSource(transport) {
 			if (!current()) return;
 			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id;
 			const rows = [];
+			let hasMoreOlder = false;
 			if (roomId !== void 0) {
-				let after = resume && roomId === previous.roomId ? (previous.messages[0]?.id ?? 1) - 1 : void 0;
-				while (current()) {
-					const query = after === void 0 ? "limit=100" : "after=" + after + "&limit=200";
-					const { messages } = await request("collab/api/rooms/" + roomId + "/messages?" + query, { signal: read.controller.signal });
-					if (!current()) return;
-					rows.push(...messages);
-					if (after === void 0 || messages.length < 200) break;
-					const next = messages.at(-1)?.id;
-					if (next === void 0 || next <= after) throw new Error("Channel history cursor did not advance");
-					after = next;
+				if (resume && roomId === previous.roomId && previous.messages.length > 0) {
+					const merged = new Map(previous.messages.map((m) => [m.id, m]));
+					const oldest = previous.messages[0].id;
+					const present = /* @__PURE__ */ new Set();
+					let cursor = oldest - 1;
+					while (current()) {
+						const { messages } = await request("collab/api/rooms/" + roomId + "/messages?after=" + cursor + "&limit=200", { signal: read.controller.signal });
+						if (!current()) return;
+						for (const row of messages) {
+							merged.set(row.id, row);
+							present.add(row.id);
+						}
+						if (messages.length < CATCH_UP_LIMIT) break;
+						const next = messages.at(-1)?.id;
+						if (next === void 0 || next <= cursor) throw new Error("Channel history cursor did not advance");
+						cursor = next;
+					}
+					for (const id of [...merged.keys()]) if (id >= oldest && !present.has(id)) merged.delete(id);
+					historyEpoch += 1;
+					rows.push(...[...merged.values()].sort((a, b) => a.id - b.id));
+					hasMoreOlder = previous.hasMoreOlder;
+				} else {
+					let after;
+					while (current()) {
+						const query = after === void 0 ? "limit=100" : "after=" + after + "&limit=200";
+						const { messages } = await request("collab/api/rooms/" + roomId + "/messages?" + query, { signal: read.controller.signal });
+						if (!current()) return;
+						rows.push(...messages);
+						if (after === void 0) {
+							hasMoreOlder = messages.length >= PAGE_SIZE;
+							break;
+						}
+						if (messages.length < CATCH_UP_LIMIT) break;
+						const next = messages.at(-1)?.id;
+						if (next === void 0 || next <= after) throw new Error("Channel history cursor did not advance");
+						after = next;
+					}
 				}
 			}
 			const keepBoard = roomId === previous.roomId;
@@ -241,10 +327,12 @@ function createChannelSource(transport) {
 				members: state.members,
 				thinking: state.thinking,
 				messages: rows,
+				hasMoreOlder,
 				leadId: state.lead_id ?? null,
 				effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
 				tasks: keepBoard ? previous.tasks : [],
-				taskChat: keepBoard ? previous.taskChat : void 0
+				taskChat: keepBoard ? previous.taskChat : void 0,
+				outbox: outbox.filter((entry) => entry.roomId === roomId)
 			};
 			for (const event of read.events) next = applyEvent(next, event);
 			pending = void 0;
@@ -257,17 +345,81 @@ function createChannelSource(transport) {
 		}
 	};
 	const selectRoom = async (roomId) => {
+		historyEpoch += 1;
 		if (roomId !== snapshot.roomId) earlyTasks.clear();
+		const shown = outbox.filter((entry) => entry.roomId === roomId);
 		set(roomId === snapshot.roomId ? {
 			roomId,
-			messages: []
+			messages: [],
+			outbox: shown
 		} : {
 			roomId,
 			messages: [],
+			outbox: shown,
 			tasks: [],
 			taskChat: void 0
 		});
 		await refresh(false);
+	};
+	/** Wait before the next attempt; tests inject a fake so no clock is needed. */
+	const pause = (ms) => transport.delay === void 0 ? Promise.resolve() : transport.delay(ms);
+	/** Jitter source in `[0, 1)`. */
+	const random = () => transport.random?.() ?? .5;
+	/** Backoff before retry `attempt`: 1, 2, 4, 8… seconds, capped, then jittered. */
+	const backoffMs = (attempt) => {
+		const base = Math.min(1e3 * 2 ** attempt, MAX_BACKOFF_MS);
+		return Math.round(base / 2 + random() * (base / 2));
+	};
+	/** Opens the live stream; `onerror` schedules a backoff retry (design §4.3). */
+	const listen = (owner) => {
+		if (lifetime !== owner || listeners.size === 0) return;
+		let events;
+		try {
+			events = transport.openEvents(transport.url("collab/api/events"));
+		} catch (error) {
+			fail(error);
+			return;
+		}
+		stream = events;
+		events.onopen = () => {
+			if (lifetime !== owner || stream !== events) return;
+			attempt = 0;
+			refresh(true);
+		};
+		events.onerror = () => {
+			if (lifetime !== owner || stream !== events) return;
+			stream = void 0;
+			events.onopen = null;
+			events.onmessage = null;
+			events.onerror = null;
+			events.close();
+			pending?.controller.abort();
+			pending = void 0;
+			retry(owner);
+		};
+		events.onmessage = (event) => {
+			if (lifetime !== owner || stream !== events) return;
+			try {
+				onEvent(JSON.parse(event.data));
+			} catch (error) {}
+		};
+	};
+	/** Enters `reconnecting` and resumes the stream after a jittered backoff. */
+	const retry = (owner) => {
+		if (lifetime !== owner) return;
+		const token = { attempt };
+		reconnectToken = token;
+		const wait = backoffMs(attempt);
+		attempt += 1;
+		set({
+			phase: "reconnecting",
+			error: void 0
+		});
+		pause(wait).then(() => {
+			if (lifetime !== owner || reconnectToken !== token) return;
+			reconnectToken = void 0;
+			listen(owner);
+		});
 	};
 	const start = async (owner) => {
 		set({
@@ -276,33 +428,15 @@ function createChannelSource(transport) {
 		});
 		await refresh(false);
 		if (lifetime !== owner || listeners.size === 0 || snapshot.phase !== "ready") return;
-		try {
-			const events = transport.openEvents(transport.url("collab/api/events"));
-			stream = events;
-			events.onopen = () => {
-				if (lifetime === owner) refresh(true);
-			};
-			events.onerror = () => {
-				if (lifetime !== owner) return;
-				pending?.controller.abort();
-				pending = void 0;
-				set({
-					phase: "loading",
-					error: void 0
-				});
-			};
-			events.onmessage = (event) => {
-				if (lifetime !== owner) return;
-				try {
-					onEvent(JSON.parse(event.data));
-				} catch (error) {}
-			};
-		} catch (error) {
-			if (lifetime === owner) fail(error);
-		}
+		listen(owner);
 	};
 	const stop = () => {
 		lifetime = void 0;
+		reconnectToken = void 0;
+		attempt = 0;
+		for (const latch of paging.values()) latch.controller.abort();
+		paging.clear();
+		pageTicket.clear();
 		pending?.controller.abort();
 		pending = void 0;
 		boardRead?.abort();
@@ -315,43 +449,83 @@ function createChannelSource(transport) {
 			stream = void 0;
 		}
 	};
-	return {
-		source: {
-			getSnapshot: () => snapshot,
-			subscribe(listener) {
-				listeners.add(listener);
-				if (lifetime === void 0) {
-					lifetime = {};
-					start(lifetime);
-				}
-				return () => {
-					listeners.delete(listener);
-					if (listeners.size === 0) stop();
-				};
+	const source = {
+		getSnapshot: () => snapshot,
+		subscribe(listener) {
+			listeners.add(listener);
+			if (lifetime === void 0) {
+				lifetime = {};
+				start(lifetime);
 			}
-		},
+			return () => {
+				listeners.delete(listener);
+				if (listeners.size === 0) stop();
+			};
+		}
+	};
+	/**
+	* Posts one message under a stable `client_key`, showing it in the outbox
+	* first (design §4.3). A retry reuses the key, so the service dedupes a
+	* resend whose first attempt actually landed.
+	*/
+	const post = async (roomId, clientKey, text, replyTo, attachments) => {
+		const files = attachments !== void 0 && attachments.length > 0 ? attachments : void 0;
+		const owner = lifetime;
+		if (owner === void 0) throw new Error("No channel is open");
+		const show = (state, error) => {
+			outbox = [...outbox.filter((entry) => entry.clientKey !== clientKey), {
+				clientKey,
+				roomId,
+				text,
+				...replyTo === void 0 ? {} : { replyTo },
+				...files === void 0 ? {} : { attachments: files },
+				state,
+				...error === void 0 ? {} : { error }
+			}];
+			publishOutbox();
+		};
+		show("sending");
+		try {
+			const { message } = await request(`collab/api/rooms/${roomId}/messages`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					text,
+					client_key: clientKey,
+					...replyTo === void 0 ? {} : { reply_to: replyTo },
+					...files === void 0 ? {} : { attachments: files }
+				})
+			});
+			if (lifetime !== owner) return;
+			outbox = outbox.filter((entry) => entry.clientKey !== clientKey);
+			publishOutbox();
+			onEvent({
+				type: "message",
+				message
+			});
+		} catch (error) {
+			if (lifetime === owner) show("failed", error instanceof Error ? error.message : String(error));
+			throw error;
+		}
+	};
+	return {
+		source,
 		actions: {
 			selectRoom,
-			async send(text, replyTo) {
+			async send(text, replyTo, attachments) {
 				const roomId = snapshot.roomId;
-				const owner = lifetime;
-				if (roomId === void 0 || owner === void 0) throw new Error("No channel is open");
-				const { message } = await request(`collab/api/rooms/${roomId}/messages`, {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(replyTo === void 0 ? {
-						text,
-						client_key: crypto.randomUUID()
-					} : {
-						text,
-						client_key: crypto.randomUUID(),
-						reply_to: replyTo
-					})
-				});
-				if (lifetime === owner) onEvent({
-					type: "message",
-					message
-				});
+				if (roomId === void 0) throw new Error("No channel is open");
+				await post(roomId, crypto.randomUUID(), text, replyTo, attachments);
+			},
+			async retrySend(clientKey) {
+				const roomId = snapshot.roomId;
+				const entry = outbox.find((row) => row.clientKey === clientKey);
+				if (entry === void 0 || roomId === void 0 || entry.roomId !== roomId) throw new Error("That message does not belong to the selected channel");
+				await post(entry.roomId, entry.clientKey, entry.text, entry.replyTo, entry.attachments);
+			},
+			dismissSend(clientKey) {
+				outbox = outbox.filter((entry) => entry.clientKey !== clientKey);
+				publishOutbox();
 			},
 			async createRoom(name) {
 				const { room, workspace } = await request("collab/api/rooms", json("POST", { name }));
@@ -398,6 +572,71 @@ function createChannelSource(transport) {
 					type: "message",
 					message
 				});
+			},
+			async loadOlder() {
+				const roomId = snapshot.roomId;
+				const owner = lifetime;
+				const oldest = snapshot.messages[0]?.id;
+				if (roomId === void 0 || owner === void 0) throw new Error("No channel is open");
+				const held = paging.get(roomId);
+				if (held !== void 0 && held.epoch === historyEpoch) return 0;
+				if (oldest === void 0 || !snapshot.hasMoreOlder) return 0;
+				held?.controller.abort();
+				const ticket = ++nextPageTicket;
+				const epoch = historyEpoch;
+				const controller = new AbortController();
+				paging.set(roomId, {
+					ticket,
+					epoch,
+					controller
+				});
+				pageTicket.set(roomId, ticket);
+				try {
+					let messages;
+					try {
+						({messages} = await request(`collab/api/rooms/${roomId}/messages?before=${oldest}&limit=${PAGE_SIZE}`, { signal: controller.signal }));
+					} catch (error) {
+						if (controller.signal.aborted) return 0;
+						throw error;
+					}
+					if (controller.signal.aborted) return 0;
+					if (lifetime !== owner || snapshot.roomId !== roomId) return 0;
+					if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0;
+					const merged = new Map(snapshot.messages.map((m) => [m.id, m]));
+					for (const row of messages) merged.set(row.id, row);
+					set({
+						messages: [...merged.values()].sort((a, b) => a.id - b.id),
+						hasMoreOlder: messages.length >= PAGE_SIZE
+					});
+					return messages.length;
+				} finally {
+					if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId);
+				}
+			},
+			async retryMessage(messageId) {
+				await request(`collab/api/messages/${messageId}/retry`, { method: "POST" });
+			},
+			async editMessage(messageId, text) {
+				const owner = lifetime;
+				const { message } = await request(`collab/api/messages/${messageId}`, json("PATCH", { text }));
+				if (lifetime === owner) onEvent({
+					type: "message",
+					message
+				});
+			},
+			async withdrawMessage(messageId) {
+				const owner = lifetime;
+				const roomId = snapshot.roomId;
+				const { stopped, still_running } = await request(`collab/api/messages/${messageId}`, { method: "DELETE" });
+				if (lifetime === owner && roomId !== void 0) onEvent({
+					type: "deleted",
+					id: messageId,
+					room_id: roomId
+				});
+				return {
+					stopped: stopped ?? [],
+					stillRunning: still_running ?? []
+				};
 			}
 		},
 		dispose: stop
@@ -412,6 +651,257 @@ function createChannelSource(transport) {
 */
 function ChannelsIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUsersOutlineRegular, { size });
+}
+// src/client/ChannelsPage.module.css
+var ChannelsPage_module_default = {
+	"activeBusy": "Ah8iqq_activeBusy",
+	"activeCount": "Ah8iqq_activeCount",
+	"addMemberButton": "Ah8iqq_addMemberButton",
+	"attachmentFile": "Ah8iqq_attachmentFile",
+	"attachmentImage": "Ah8iqq_attachmentImage",
+	"attachments": "Ah8iqq_attachments",
+	"attachmentSize": "Ah8iqq_attachmentSize",
+	"attachmentThumb": "Ah8iqq_attachmentThumb",
+	"author": "Ah8iqq_author",
+	"avatar": "Ah8iqq_avatar",
+	"avatarAnchor": "Ah8iqq_avatarAnchor",
+	"avatarButton": "Ah8iqq_avatarButton",
+	"avatarImage": "Ah8iqq_avatarImage",
+	"avatarMenu": "Ah8iqq_avatarMenu",
+	"avatarMenuItem": "Ah8iqq_avatarMenuItem",
+	"avatarMenuTitle": "Ah8iqq_avatarMenuTitle",
+	"avatarOption": "Ah8iqq_avatarOption",
+	"avatarPicker": "Ah8iqq_avatarPicker",
+	"avatarSmall": "Ah8iqq_avatarSmall",
+	"capabilityHelp": "Ah8iqq_capabilityHelp",
+	"capabilityItem": "Ah8iqq_capabilityItem",
+	"capabilityMenu": "Ah8iqq_capabilityMenu",
+	"card": "Ah8iqq_card",
+	"cardButtons": "Ah8iqq_cardButtons",
+	"cardHead": "Ah8iqq_cardHead",
+	"cardTitle": "Ah8iqq_cardTitle",
+	"cardViewButton": "Ah8iqq_cardViewButton",
+	"cardViews": "Ah8iqq_cardViews",
+	"chat": "Ah8iqq_chat",
+	"chatHead": "Ah8iqq_chatHead",
+	"choice": "Ah8iqq_choice",
+	"choiceRow": "Ah8iqq_choiceRow",
+	"composer": "Ah8iqq_composer",
+	"composerRow": "Ah8iqq_composerRow",
+	"dialog": "Ah8iqq_dialog",
+	"dialogActions": "Ah8iqq_dialogActions",
+	"dialogBackdrop": "Ah8iqq_dialogBackdrop",
+	"dialogTitle": "Ah8iqq_dialogTitle",
+	"drawerBackdrop": "Ah8iqq_drawerBackdrop",
+	"drawerOpen": "Ah8iqq_drawerOpen",
+	"editBar": "Ah8iqq_editBar",
+	"editBox": "Ah8iqq_editBox",
+	"edited": "Ah8iqq_edited",
+	"editInput": "Ah8iqq_editInput",
+	"empty": "Ah8iqq_empty",
+	"field": "Ah8iqq_field",
+	"fieldInput": "Ah8iqq_fieldInput",
+	"fieldLabel": "Ah8iqq_fieldLabel",
+	"focused": "Ah8iqq_focused",
+	"groupHead": "Ah8iqq_groupHead",
+	"groupTitle": "Ah8iqq_groupTitle",
+	"guide": "Ah8iqq_guide",
+	"hash": "Ah8iqq_hash",
+	"iconButton": "Ah8iqq_iconButton",
+	"input": "Ah8iqq_input",
+	"leadControl": "Ah8iqq_leadControl",
+	"leadMenu": "Ah8iqq_leadMenu",
+	"leadOption": "Ah8iqq_leadOption",
+	"linkButton": "Ah8iqq_linkButton",
+	"log": "Ah8iqq_log",
+	"member": "Ah8iqq_member",
+	"memberActions": "Ah8iqq_memberActions",
+	"memberAvatar": "Ah8iqq_memberAvatar",
+	"memberFailed": "Ah8iqq_memberFailed",
+	"memberModel": "Ah8iqq_memberModel",
+	"memberName": "Ah8iqq_memberName",
+	"memberRow": "Ah8iqq_memberRow",
+	"members": "Ah8iqq_members",
+	"membersHidden": "Ah8iqq_membersHidden",
+	"memberStatus": "Ah8iqq_memberStatus",
+	"memberText": "Ah8iqq_memberText",
+	"mentionActive": "Ah8iqq_mentionActive",
+	"mentionButton": "Ah8iqq_mentionButton",
+	"mentionHint": "Ah8iqq_mentionHint",
+	"mentionItem": "Ah8iqq_mentionItem",
+	"mentionMeta": "Ah8iqq_mentionMeta",
+	"mentionName": "Ah8iqq_mentionName",
+	"mentionPopup": "Ah8iqq_mentionPopup",
+	"mentionTitle": "Ah8iqq_mentionTitle",
+	"message": "Ah8iqq_message",
+	"messageBody": "Ah8iqq_messageBody",
+	"messageHead": "Ah8iqq_messageHead",
+	"mobileButton": "Ah8iqq_mobileButton",
+	"notice": "Ah8iqq_notice",
+	"offline": "Ah8iqq_offline",
+	"ownActions": "Ah8iqq_ownActions",
+	"page": "Ah8iqq_page",
+	"panelToggle": "Ah8iqq_panelToggle",
+	"panelToggleEnd": "Ah8iqq_panelToggleEnd",
+	"permActions": "Ah8iqq_permActions",
+	"permScope": "Ah8iqq_permScope",
+	"permStatus": "Ah8iqq_permStatus",
+	"presence": "Ah8iqq_presence",
+	"primaryButton": "Ah8iqq_primaryButton",
+	"quote": "Ah8iqq_quote",
+	"quoteAuthor": "Ah8iqq_quoteAuthor",
+	"quoteDeleted": "Ah8iqq_quoteDeleted",
+	"replyBar": "Ah8iqq_replyBar",
+	"replyBarText": "Ah8iqq_replyBarText",
+	"replyButton": "Ah8iqq_replyButton",
+	"replyCancel": "Ah8iqq_replyCancel",
+	"room": "Ah8iqq_room",
+	"roomActive": "Ah8iqq_roomActive",
+	"roomInput": "Ah8iqq_roomInput",
+	"roomLabel": "Ah8iqq_roomLabel",
+	"rooms": "Ah8iqq_rooms",
+	"roomsHidden": "Ah8iqq_roomsHidden",
+	"secondaryButton": "Ah8iqq_secondaryButton",
+	"sendError": "Ah8iqq_sendError",
+	"system": "Ah8iqq_system",
+	"tag": "Ah8iqq_tag",
+	"taskBoard": "Ah8iqq_taskBoard",
+	"taskCard": "Ah8iqq_taskCard",
+	"taskDone": "Ah8iqq_taskDone",
+	"taskEmpty": "Ah8iqq_taskEmpty",
+	"taskLine": "Ah8iqq_taskLine",
+	"taskLinks": "Ah8iqq_taskLinks",
+	"taskList": "Ah8iqq_taskList",
+	"taskMember": "Ah8iqq_taskMember",
+	"taskMemberName": "Ah8iqq_taskMemberName",
+	"taskMembers": "Ah8iqq_taskMembers",
+	"taskMeta": "Ah8iqq_taskMeta",
+	"taskOwnerGroup": "Ah8iqq_taskOwnerGroup",
+	"taskOwnerName": "Ah8iqq_taskOwnerName",
+	"taskRow": "Ah8iqq_taskRow",
+	"taskSection": "Ah8iqq_taskSection",
+	"taskSectionTitle": "Ah8iqq_taskSectionTitle",
+	"taskStatus": "Ah8iqq_taskStatus",
+	"taskSub": "Ah8iqq_taskSub",
+	"taskTitle": "Ah8iqq_taskTitle",
+	"text": "Ah8iqq_text",
+	"time": "Ah8iqq_time",
+	"working": "Ah8iqq_working",
+	"workspace": "Ah8iqq_workspace"
+};
+// src/client/Attachments.tsx
+const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
+const size = (bytes) => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+/** Thumbnails for images, a download card for other files. */
+function AttachmentList({ attachments }) {
+	if (attachments === void 0 || attachments.length === 0) return null;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: ChannelsPage_module_default.attachments,
+		children: attachments.map((a) => isImage(a.mime) ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+			href: attachmentUrl(a.id),
+			target: "_blank",
+			rel: "noreferrer",
+			title: a.name,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+				className: ChannelsPage_module_default.attachmentImage,
+				src: attachmentUrl(a.id),
+				alt: a.name,
+				loading: "lazy"
+			})
+		}, a.id) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("a", {
+			className: ChannelsPage_module_default.attachmentFile,
+			href: attachmentUrl(a.id),
+			download: a.name,
+			children: [
+				"📎 ",
+				a.name,
+				" ",
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.attachmentSize,
+					children: size(a.size)
+				})
+			]
+		}, a.id))
+	});
+}
+/** Files carried by a paste or drop event (empty when it is plain text). */
+const eventFiles = (list) => list === null ? [] : Array.from(list.files);
+/**
+* Composer helpers: an attach button with its hidden file input, the pending
+* list with remove buttons, and paste/drop handlers for the textarea.
+*/
+function useComposerAttachments(add, onError) {
+	const inputRef = (0, react.useRef)(null);
+	const take = (files) => {
+		if (files.length === 0) return;
+		Promise.all(files.map(readAttachment)).then(add).catch((error) => {
+			onError(error instanceof Error ? error.message : String(error));
+		});
+	};
+	return {
+		onPaste(event) {
+			const files = eventFiles(event.clipboardData);
+			if (files.length === 0) return;
+			event.preventDefault();
+			take(files);
+		},
+		onDragOver(event) {
+			if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+		},
+		onDrop(event) {
+			const files = eventFiles(event.dataTransfer);
+			if (files.length === 0) return;
+			event.preventDefault();
+			take(files);
+		},
+		button(label, disabled) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+				ref: inputRef,
+				type: "file",
+				multiple: true,
+				hidden: true,
+				onChange: (event) => {
+					take(Array.from(event.target.files ?? []));
+					event.target.value = "";
+				}
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.mentionButton,
+				title: label,
+				"aria-label": label,
+				disabled,
+				onClick: () => inputRef.current?.click(),
+				children: "📎"
+			})] });
+		}
+	};
+}
+/** Files waiting to be sent with the next message. */
+function PendingAttachments({ files, onRemove, removeLabel }) {
+	if (files.length === 0) return null;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: ChannelsPage_module_default.attachments,
+		children: files.map((f, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+			className: ChannelsPage_module_default.attachmentFile,
+			children: [
+				isImage(f.mime) ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+					className: ChannelsPage_module_default.attachmentThumb,
+					src: `data:${f.mime};base64,${f.data}`,
+					alt: f.name
+				}) : "📎",
+				" ",
+				f.name,
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: ChannelsPage_module_default.replyCancel,
+					title: removeLabel,
+					"aria-label": removeLabel,
+					onClick: () => onRemove(i),
+					children: "×"
+				})
+			]
+		}, `${i}-${f.name}`))
+	});
 }
 // src/client/task-board.ts
 /** Locale key of each status label (dsh/collab/tasks.mjs STATUS). */
@@ -526,132 +1016,6 @@ function boardSections(tasks, rooms, chatId, roomId) {
 	}
 	return sections;
 }
-// src/client/ChannelsPage.module.css
-var ChannelsPage_module_default = {
-	"activeBusy": "I3dDmG_activeBusy",
-	"activeCount": "I3dDmG_activeCount",
-	"addMemberButton": "I3dDmG_addMemberButton",
-	"author": "I3dDmG_author",
-	"avatar": "I3dDmG_avatar",
-	"avatarAnchor": "I3dDmG_avatarAnchor",
-	"avatarButton": "I3dDmG_avatarButton",
-	"avatarImage": "I3dDmG_avatarImage",
-	"avatarMenu": "I3dDmG_avatarMenu",
-	"avatarMenuItem": "I3dDmG_avatarMenuItem",
-	"avatarMenuTitle": "I3dDmG_avatarMenuTitle",
-	"avatarOption": "I3dDmG_avatarOption",
-	"avatarPicker": "I3dDmG_avatarPicker",
-	"avatarSmall": "I3dDmG_avatarSmall",
-	"capabilityHelp": "I3dDmG_capabilityHelp",
-	"capabilityItem": "I3dDmG_capabilityItem",
-	"capabilityMenu": "I3dDmG_capabilityMenu",
-	"card": "I3dDmG_card",
-	"cardHead": "I3dDmG_cardHead",
-	"cardTitle": "I3dDmG_cardTitle",
-	"cardViewButton": "I3dDmG_cardViewButton",
-	"cardViews": "I3dDmG_cardViews",
-	"chat": "I3dDmG_chat",
-	"chatHead": "I3dDmG_chatHead",
-	"choice": "I3dDmG_choice",
-	"choiceRow": "I3dDmG_choiceRow",
-	"composer": "I3dDmG_composer",
-	"composerRow": "I3dDmG_composerRow",
-	"dialog": "I3dDmG_dialog",
-	"dialogActions": "I3dDmG_dialogActions",
-	"dialogBackdrop": "I3dDmG_dialogBackdrop",
-	"dialogTitle": "I3dDmG_dialogTitle",
-	"drawerBackdrop": "I3dDmG_drawerBackdrop",
-	"drawerOpen": "I3dDmG_drawerOpen",
-	"empty": "I3dDmG_empty",
-	"field": "I3dDmG_field",
-	"fieldInput": "I3dDmG_fieldInput",
-	"fieldLabel": "I3dDmG_fieldLabel",
-	"focused": "I3dDmG_focused",
-	"groupHead": "I3dDmG_groupHead",
-	"groupTitle": "I3dDmG_groupTitle",
-	"guide": "I3dDmG_guide",
-	"hash": "I3dDmG_hash",
-	"iconButton": "I3dDmG_iconButton",
-	"input": "I3dDmG_input",
-	"leadControl": "I3dDmG_leadControl",
-	"leadMenu": "I3dDmG_leadMenu",
-	"leadOption": "I3dDmG_leadOption",
-	"linkButton": "I3dDmG_linkButton",
-	"log": "I3dDmG_log",
-	"member": "I3dDmG_member",
-	"memberActions": "I3dDmG_memberActions",
-	"memberAvatar": "I3dDmG_memberAvatar",
-	"memberFailed": "I3dDmG_memberFailed",
-	"memberModel": "I3dDmG_memberModel",
-	"memberName": "I3dDmG_memberName",
-	"memberRow": "I3dDmG_memberRow",
-	"members": "I3dDmG_members",
-	"membersHidden": "I3dDmG_membersHidden",
-	"memberStatus": "I3dDmG_memberStatus",
-	"memberText": "I3dDmG_memberText",
-	"mentionActive": "I3dDmG_mentionActive",
-	"mentionButton": "I3dDmG_mentionButton",
-	"mentionHint": "I3dDmG_mentionHint",
-	"mentionItem": "I3dDmG_mentionItem",
-	"mentionMeta": "I3dDmG_mentionMeta",
-	"mentionName": "I3dDmG_mentionName",
-	"mentionPopup": "I3dDmG_mentionPopup",
-	"mentionTitle": "I3dDmG_mentionTitle",
-	"message": "I3dDmG_message",
-	"messageBody": "I3dDmG_messageBody",
-	"messageHead": "I3dDmG_messageHead",
-	"mobileButton": "I3dDmG_mobileButton",
-	"notice": "I3dDmG_notice",
-	"offline": "I3dDmG_offline",
-	"page": "I3dDmG_page",
-	"panelToggle": "I3dDmG_panelToggle",
-	"panelToggleEnd": "I3dDmG_panelToggleEnd",
-	"permActions": "I3dDmG_permActions",
-	"permScope": "I3dDmG_permScope",
-	"permStatus": "I3dDmG_permStatus",
-	"presence": "I3dDmG_presence",
-	"primaryButton": "I3dDmG_primaryButton",
-	"quote": "I3dDmG_quote",
-	"quoteAuthor": "I3dDmG_quoteAuthor",
-	"quoteDeleted": "I3dDmG_quoteDeleted",
-	"replyBar": "I3dDmG_replyBar",
-	"replyBarText": "I3dDmG_replyBarText",
-	"replyButton": "I3dDmG_replyButton",
-	"replyCancel": "I3dDmG_replyCancel",
-	"room": "I3dDmG_room",
-	"roomActive": "I3dDmG_roomActive",
-	"roomInput": "I3dDmG_roomInput",
-	"roomLabel": "I3dDmG_roomLabel",
-	"rooms": "I3dDmG_rooms",
-	"roomsHidden": "I3dDmG_roomsHidden",
-	"secondaryButton": "I3dDmG_secondaryButton",
-	"sendError": "I3dDmG_sendError",
-	"system": "I3dDmG_system",
-	"tag": "I3dDmG_tag",
-	"taskBoard": "I3dDmG_taskBoard",
-	"taskCard": "I3dDmG_taskCard",
-	"taskDone": "I3dDmG_taskDone",
-	"taskEmpty": "I3dDmG_taskEmpty",
-	"taskLine": "I3dDmG_taskLine",
-	"taskLinks": "I3dDmG_taskLinks",
-	"taskList": "I3dDmG_taskList",
-	"taskMember": "I3dDmG_taskMember",
-	"taskMemberName": "I3dDmG_taskMemberName",
-	"taskMembers": "I3dDmG_taskMembers",
-	"taskMeta": "I3dDmG_taskMeta",
-	"taskOwnerGroup": "I3dDmG_taskOwnerGroup",
-	"taskOwnerName": "I3dDmG_taskOwnerName",
-	"taskRow": "I3dDmG_taskRow",
-	"taskSection": "I3dDmG_taskSection",
-	"taskSectionTitle": "I3dDmG_taskSectionTitle",
-	"taskStatus": "I3dDmG_taskStatus",
-	"taskSub": "I3dDmG_taskSub",
-	"taskTitle": "I3dDmG_taskTitle",
-	"text": "I3dDmG_text",
-	"time": "I3dDmG_time",
-	"working": "I3dDmG_working",
-	"workspace": "I3dDmG_workspace"
-};
 // src/client/TaskBoard.tsx
 function clock(seconds) {
 	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleTimeString([], {
@@ -1379,7 +1743,14 @@ function saveCardView(roomId, view) {
 		globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view);
 	} catch (error) {}
 }
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused, cardView, onCardView }) {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own }) {
+	const labels = (0, react.useMemo)(() => ({
+		code: {
+			copyLabel: t("copyCode"),
+			copiedLabel: t("copiedCode")
+		},
+		footnotes: t("footnotes")
+	}), [t]);
 	let card;
 	if (message.card !== null) try {
 		card = JSON.parse(message.card);
@@ -1455,13 +1826,76 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
 								className: ChannelsPage_module_default.time,
 								children: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString()
+							}),
+							message.edited_at !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.edited,
+								title: (/* @__PURE__ */ new Date(message.edited_at * 1e3)).toLocaleString(),
+								children: t("messageEdited")
+							}),
+							own !== void 0 && own.editing === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: ChannelsPage_module_default.ownActions,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ChannelsPage_module_default.linkButton,
+									onClick: own.onStartEdit,
+									children: t("messageEdit")
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ChannelsPage_module_default.linkButton,
+									onClick: own.onWithdraw,
+									children: t("messageWithdraw")
+								})]
 							})
 						]
 					}),
-					card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					own?.editing !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.editBox,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+							className: ChannelsPage_module_default.editInput,
+							value: own.editing,
+							"aria-label": t("messageEdit"),
+							autoFocus: true,
+							onChange: (event) => {
+								own.onEditChange(event.target.value);
+							},
+							onKeyDown: (event) => {
+								if (event.key === "Escape") {
+									event.preventDefault();
+									own.onEditCancel();
+								} else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+									event.preventDefault();
+									own.onEditSave();
+								}
+							}
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.editBar,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ChannelsPage_module_default.time,
+									children: t("messageEditHint")
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ChannelsPage_module_default.secondaryButton,
+									onClick: own.onEditCancel,
+									children: t("messageCancel")
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ChannelsPage_module_default.primaryButton,
+									disabled: !own.editing.trim(),
+									onClick: own.onEditSave,
+									children: t("messageSave")
+								})
+							]
+						})]
+					}) : card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: ChannelsPage_module_default.text,
-						children: message.text
-					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+							text: message.text,
+							labels
+						})
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, { attachments: message.attachments })] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.card,
 						"data-state": card.state,
 						children: [
@@ -1487,13 +1921,25 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: ChannelsPage_module_default.text,
-								children: typeof card.brief === "string" && cardView === "brief" ? card.brief : message.text
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+									text: typeof card.brief === "string" && cardView === "brief" ? card.brief : message.text,
+									labels
+								})
 							}),
-							card.action === "configure-model" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: ChannelsPage_module_default.secondaryButton,
-								onClick: onConfigure,
-								children: t("configureModel")
+							(card.state === "failed" || card.action === "configure-model") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: ChannelsPage_module_default.cardButtons,
+								children: [card.state !== "retried" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ChannelsPage_module_default.secondaryButton,
+									disabled: retrying,
+									onClick: () => onRetry(message.id),
+									children: retrying ? t("retrying") : t("retry")
+								}), card.action === "configure-model" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ChannelsPage_module_default.secondaryButton,
+									onClick: onConfigure,
+									children: t("configureModel")
+								})]
 							}),
 							card.kind === "permission" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermissionCard, {
 								messageId: message.id,
@@ -1595,12 +2041,37 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, renderSlot, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, renderSlot, t }) {
 	const state = useChannels((snapshot) => snapshot);
+	const [editing, setEditing] = (0, react.useState)(void 0);
+	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
 	const [drafts, setDrafts] = (0, react.useState)({});
 	const [errors, setErrors] = (0, react.useState)({});
 	const [sending, setSending] = (0, react.useState)({});
 	const [replies, setReplies] = (0, react.useState)({});
+	const [pendingFiles, setPendingFiles] = (0, react.useState)({});
+	const attach = useComposerAttachments((files) => {
+		const roomId = state.roomId;
+		if (roomId === void 0) return;
+		const next = [...pendingFiles[roomId] ?? [], ...files];
+		if (messageTooLarge(drafts[roomId] ?? "", next)) {
+			setErrors((previous) => ({
+				...previous,
+				[roomId]: t("attachmentsTooLarge", { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` })
+			}));
+			return;
+		}
+		setPendingFiles((previous) => ({
+			...previous,
+			[roomId]: next
+		}));
+	}, (message) => {
+		const roomId = state.roomId;
+		if (roomId !== void 0) setErrors((previous) => ({
+			...previous,
+			[roomId]: t("sendFailed", { message })
+		}));
+	});
 	const pendingRooms = (0, react.useRef)(/* @__PURE__ */ new Set());
 	const draft = state.roomId === void 0 ? "" : drafts[state.roomId] ?? "";
 	const sendError = state.roomId === void 0 ? void 0 : errors[state.roomId];
@@ -1620,6 +2091,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 	const [newRoom, setNewRoom] = (0, react.useState)(void 0);
 	const [roomError, setRoomError] = (0, react.useState)(void 0);
 	const [memberError, setMemberError] = (0, react.useState)(void 0);
+	const [retryingId, setRetryingId] = (0, react.useState)(void 0);
 	const [modeSaving, setModeSaving] = (0, react.useState)(false);
 	const [modeError, setModeError] = (0, react.useState)(void 0);
 	const [leadSaving, setLeadSaving] = (0, react.useState)(false);
@@ -1763,6 +2235,50 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 			setRoomError(error instanceof Error ? error.message : String(error));
 		});
 	};
+	const ownActions = (m) => {
+		if (m.author_kind !== "user" || m.card !== null) return void 0;
+		return {
+			editing: editing?.id === m.id ? editing.text : void 0,
+			onStartEdit: () => {
+				setOwnNotice(void 0);
+				setEditing({
+					id: m.id,
+					text: m.text
+				});
+			},
+			onEditChange: (text) => {
+				setEditing({
+					id: m.id,
+					text
+				});
+			},
+			onEditCancel: () => {
+				setEditing(void 0);
+			},
+			onEditSave: () => {
+				if (editing?.id !== m.id || !editing.text.trim()) return;
+				if (editing.text === m.text) {
+					setEditing(void 0);
+					return;
+				}
+				editMessage(m.id, editing.text).then(() => {
+					setEditing(void 0);
+				}, (error) => {
+					setOwnNotice(error instanceof Error ? error.message : String(error));
+				});
+			},
+			onWithdraw: () => {
+				if (!window.confirm(t("withdrawConfirm"))) return;
+				setOwnNotice(void 0);
+				withdrawMessage(m.id).then(({ stopped, stillRunning }) => {
+					const notes = [...stopped.length > 0 ? [t("withdrawStopped", { names: stopped.join("、") })] : [], ...stillRunning.length > 0 ? [t("withdrawRunning", { names: stillRunning.join("、") })] : []];
+					if (notes.length > 0) setOwnNotice(notes.join("；"));
+				}, (error) => {
+					setOwnNotice(error instanceof Error ? error.message : String(error));
+				});
+			}
+		};
+	};
 	const confirmRemove = (member) => {
 		if (!window.confirm(t("removeConfirm", { name: member.name }))) return;
 		setMemberError(void 0);
@@ -1787,10 +2303,31 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		setDismissedAt(void 0);
 		setDraft(before + insert + draft.slice(caret), caret + insert.length);
 	};
+	const handleRetry = (messageId) => {
+		setRetryingId(messageId);
+		retryMessage(messageId).catch((error) => {
+			const msg = error instanceof Error ? error.message : String(error);
+			const roomId = state.roomId;
+			if (roomId !== void 0) setErrors((previous) => ({
+				...previous,
+				[roomId]: msg
+			}));
+		}).finally(() => {
+			setRetryingId(void 0);
+		});
+	};
 	const submit = () => {
 		const roomId = state.roomId;
 		const text = draft.trim();
-		if (!text || roomId === void 0 || pendingRooms.current.has(roomId)) return;
+		const files = roomId === void 0 ? [] : pendingFiles[roomId] ?? [];
+		if (!text && files.length === 0 || roomId === void 0 || pendingRooms.current.has(roomId)) return;
+		if (files.length > 0 && messageTooLarge(text, files)) {
+			setErrors((previous) => ({
+				...previous,
+				[roomId]: t("attachmentsTooLarge", { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` })
+			}));
+			return;
+		}
 		pendingRooms.current.add(roomId);
 		setSending((previous) => ({
 			...previous,
@@ -1802,10 +2339,14 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		}));
 		stickRef.current = true;
 		const replyTo = replies[roomId]?.id;
-		(replyTo === void 0 ? send(text) : send(text, replyTo)).then(() => {
+		(files.length > 0 ? send(text, replyTo, files) : replyTo === void 0 ? send(text) : send(text, replyTo)).then(() => {
 			setDrafts((previous) => ({
 				...previous,
 				[roomId]: ""
+			}));
+			setPendingFiles((previous) => ({
+				...previous,
+				[roomId]: []
 			}));
 			setReplies((previous) => ({
 				...previous,
@@ -2070,9 +2611,12 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							},
 							onMention: mentionFromAvatar,
 							onDecide: decidePermission,
+							onRetry: handleRetry,
+							retrying: retryingId === m.id,
 							tasks: state.tasks ?? [],
 							focused: focusedId === m.id,
-							onReply: startReply
+							onReply: startReply,
+							own: ownActions(m)
 						}, m.id))]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -2094,6 +2638,11 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 								className: ChannelsPage_module_default.sendError,
 								role: "alert",
 								children: sendError
+							}),
+							ownNotice !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: ChannelsPage_module_default.sendError,
+								role: "status",
+								children: ownNotice
 							}),
 							popupOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: ChannelsPage_module_default.mentionPopup,
@@ -2166,44 +2715,62 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 									children: "×"
 								})]
 							}),
+							state.roomId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PendingAttachments, {
+								files: pendingFiles[state.roomId] ?? [],
+								removeLabel: t("removeAttachment"),
+								onRemove: (index) => {
+									const roomId = state.roomId;
+									setPendingFiles((previous) => ({
+										...previous,
+										[roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index)
+									}));
+								}
+							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: ChannelsPage_module_default.composerRow,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
-									ref: inputRef,
-									className: ChannelsPage_module_default.input,
-									rows: 1,
-									value: draft,
-									disabled: state.roomId === void 0 || sending[state.roomId] === true,
-									placeholder: t("placeholder", { room: room?.name ?? "" }),
-									role: "combobox",
-									"aria-expanded": popupOpen,
-									"aria-controls": "channel-mention-list",
-									"aria-autocomplete": "list",
-									"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : void 0,
-									onChange: (event) => {
-										const roomId = state.roomId;
-										const value = event.target.value;
-										if (roomId !== void 0) setDrafts((previous) => ({
-											...previous,
-											[roomId]: value
-										}));
-										setCapabilitiesDismissed(false);
-										setCaret(event.target.selectionStart);
-										setHighlight(0);
-									},
-									onSelect: (event) => {
-										setCaret(event.currentTarget.selectionStart);
-									},
-									onKeyDown
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ChannelsPage_module_default.mentionButton,
-									title: t("mentionButton"),
-									"aria-label": t("mentionButton"),
-									disabled: state.roomId === void 0 || sending[state.roomId] === true,
-									onClick: openPicker,
-									children: "@"
-								})]
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+										ref: inputRef,
+										className: ChannelsPage_module_default.input,
+										rows: 1,
+										value: draft,
+										disabled: state.roomId === void 0 || sending[state.roomId] === true,
+										placeholder: t("placeholder", { room: room?.name ?? "" }),
+										role: "combobox",
+										"aria-expanded": popupOpen,
+										"aria-controls": "channel-mention-list",
+										"aria-autocomplete": "list",
+										"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : void 0,
+										onChange: (event) => {
+											const roomId = state.roomId;
+											const value = event.target.value;
+											if (roomId !== void 0) setDrafts((previous) => ({
+												...previous,
+												[roomId]: value
+											}));
+											setCapabilitiesDismissed(false);
+											setCaret(event.target.selectionStart);
+											setHighlight(0);
+										},
+										onSelect: (event) => {
+											setCaret(event.currentTarget.selectionStart);
+										},
+										onKeyDown,
+										onPaste: attach.onPaste,
+										onDragOver: attach.onDragOver,
+										onDrop: attach.onDrop
+									}),
+									attach.button(t("attachButton"), state.roomId === void 0 || sending[state.roomId] === true),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ChannelsPage_module_default.mentionButton,
+										title: t("mentionButton"),
+										"aria-label": t("mentionButton"),
+										disabled: state.roomId === void 0 || sending[state.roomId] === true,
+										onClick: openPicker,
+										children: "@"
+									})
+								]
 							})
 						]
 					})
@@ -2366,6 +2933,9 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 const NS = "discord-channels";
 /** Simplified Chinese dictionary and key source. */
 const zh = {
+	copyCode: "复制代码",
+	copiedCode: "已复制",
+	footnotes: "脚注",
 	panel: "频道",
 	capabilities: "能力清单",
 	capabilityTaskBoard: "任务板",
@@ -2410,6 +2980,8 @@ const zh = {
 	durMinutes: "{n} 分钟",
 	durHours: "{h} 小时 {m} 分",
 	configureModel: "去配置模型",
+	retry: "重试",
+	retrying: "重试中…",
 	permAllowed: "已允许",
 	permDenied: "已拒绝",
 	permAllowedAll: "已允许（本会话后续请求自动允许）",
@@ -2450,6 +3022,9 @@ const zh = {
 	mentionTitleQuery: "匹配「{query}」的成员",
 	mentionHint: "↑↓ 选择 · Enter / Tab 确认 · Esc 关闭",
 	mentionButton: "@ 一个成员",
+	attachButton: "添加图片或文件",
+	removeAttachment: "移除附件",
+	attachmentsTooLarge: "附件太大：一条消息合计不能超过 {limit}",
 	mentionPick: "在输入框里 @{name}",
 	memberMenu: "{name} 的成员操作",
 	avatarMention: "@ TA",
@@ -2460,6 +3035,15 @@ const zh = {
 	editMember: "编辑",
 	removeMember: "移除",
 	removeConfirm: "移除成员「{name}」？历史消息会保留。",
+	messageEdit: "编辑",
+	messageWithdraw: "撤回",
+	messageEdited: "（已编辑）",
+	messageSave: "保存",
+	messageCancel: "取消",
+	messageEditHint: "Enter 保存，Esc 取消；已经读过的成员不会重新回复",
+	withdrawConfirm: "撤回这条消息？成员对它的处理也会停下。",
+	withdrawStopped: "已撤回，并停下了 {names} 对它的处理",
+	withdrawRunning: "已撤回；{names} 已经在处理这条，没能停下",
 	memberDialogAdd: "添加 DSH 成员",
 	memberDialogEdit: "编辑成员「{name}」",
 	memberName: "名字（@ 时用，不能有空格）",
@@ -2494,6 +3078,9 @@ const en = {
 	dispatchSolo: "Single model, multiple processes — separate tasks on one model",
 	dispatchTeam: "Full team — delegate to team members",
 	dispatchMixed: "Mixed — choose models and members for each task",
+	copyCode: "Copy code",
+	copiedCode: "Copied",
+	footnotes: "Footnotes",
 	taskBoard: "Task board",
 	taskBoardTitle: "Tasks — {count} in progress",
 	taskBoardEmpty: "No tasks dispatched yet",
@@ -2534,6 +3121,8 @@ const en = {
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
 	capabilityDmHelp: "Open a private conversation with a role on a supported platform. Roles can also message the configured owner. The DSH Channels page currently has no private-chat entry.",
 	configureModel: "Configure model",
+	retry: "Retry",
+	retrying: "Retrying…",
 	permAllowed: "Allowed",
 	permDenied: "Denied",
 	permAllowedAll: "Allowed (later requests in this session are auto-approved)",
@@ -2574,6 +3163,9 @@ const en = {
 	mentionTitleQuery: "Members matching \"{query}\"",
 	mentionHint: "↑↓ select · Enter / Tab confirm · Esc close",
 	mentionButton: "Mention a member",
+	attachButton: "Attach images or files",
+	removeAttachment: "Remove attachment",
+	attachmentsTooLarge: "Attachments too large: one message can carry at most {limit} in total",
 	mentionPick: "Mention {name} in the message box",
 	memberMenu: "Member actions for {name}",
 	avatarMention: "Mention",
@@ -2584,6 +3176,15 @@ const en = {
 	editMember: "Edit",
 	removeMember: "Remove",
 	removeConfirm: "Remove member \"{name}\"? Their messages stay.",
+	messageEdit: "Edit",
+	messageWithdraw: "Withdraw",
+	messageEdited: "(edited)",
+	messageSave: "Save",
+	messageCancel: "Cancel",
+	messageEditHint: "Enter to save, Esc to cancel; members that already read it will not reply again",
+	withdrawConfirm: "Withdraw this message? Members working on it will stop.",
+	withdrawStopped: "Withdrawn, and stopped {names} working on it",
+	withdrawRunning: "Withdrawn; {names} had already started on it and could not be stopped",
 	memberDialogAdd: "Add a DSH member",
 	memberDialogEdit: "Edit member \"{name}\"",
 	memberName: "Name (used for @, no spaces)",
@@ -2636,6 +3237,9 @@ function apply(ctx) {
 		hooks: { channels: channels.source },
 		selectRoom: channels.actions.selectRoom,
 		send: channels.actions.send,
+		retrySend: channels.actions.retrySend,
+		dismissSend: channels.actions.dismissSend,
+		loadOlder: channels.actions.loadOlder,
 		createRoom: channels.actions.createRoom,
 		listModels: channels.actions.listModels,
 		listClis: channels.actions.listClis,
@@ -2644,7 +3248,10 @@ function apply(ctx) {
 		removeMember: channels.actions.removeMember,
 		setDispatchMode: channels.actions.setDispatchMode,
 		setLead: channels.actions.setLead,
-		decidePermission: channels.actions.decidePermission
+		decidePermission: channels.actions.decidePermission,
+		retryMessage: channels.actions.retryMessage,
+		editMessage: channels.actions.editMessage,
+		withdrawMessage: channels.actions.withdrawMessage
 	});
 	ctx.slots.inject("main", () => {
 		const dispose = ctx.slots.register({

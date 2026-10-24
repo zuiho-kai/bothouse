@@ -41,6 +41,9 @@ export function apply(ctx: ClientContext): void {
     hooks: { channels: channels.source },
     selectRoom: channels.actions.selectRoom,
     send: channels.actions.send,
+    retrySend: channels.actions.retrySend,
+    dismissSend: channels.actions.dismissSend,
+    loadOlder: channels.actions.loadOlder,
     createRoom: channels.actions.createRoom,
     listModels: channels.actions.listModels,
     listClis: channels.actions.listClis,
@@ -50,6 +53,9 @@ export function apply(ctx: ClientContext): void {
     setDispatchMode: channels.actions.setDispatchMode,
     setLead: channels.actions.setLead,
     decidePermission: channels.actions.decidePermission,
+    retryMessage: channels.actions.retryMessage,
+    editMessage: channels.actions.editMessage,
+    withdrawMessage: channels.actions.withdrawMessage,
   })
   ctx.slots.inject('main', () => {
     const dispose = ctx.slots.register({

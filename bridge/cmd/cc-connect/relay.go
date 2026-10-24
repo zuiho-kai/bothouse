@@ -143,6 +143,19 @@ func relaySendCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("read relay response: %w", err)
 	}
+	if resp.StatusCode == http.StatusAccepted {
+		// Delivered, but the target had not answered yet. Returning an error
+		// would report a working long task as broken and invite a resend.
+		var waiting struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(body, &waiting)
+		if waiting.Message == "" {
+			waiting.Message = "relay: no reply yet; the target was reached and may still be working"
+		}
+		fmt.Fprintf(os.Stderr, "Waiting: %s\n", waiting.Message)
+		return nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s", strings.TrimSpace(string(body)))
 	}

@@ -3,12 +3,19 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 )
 
 // A separate operation record lets /stop cancel even while the native transport
 // is starting, without pretending it is a normal chat session or queuing prompts.
-type nativeCompaction struct{ cancel context.CancelFunc }
+// auto marks a [projects.auto_compress] run: the user did not ask for it, so
+// their messages queue behind it instead of being turned away.
+type nativeCompaction struct {
+	cancel context.CancelFunc
+	auto   bool
+}
 
 const nativeCompactionTimeout = 5 * time.Minute
 
@@ -18,15 +25,31 @@ func (e *Engine) cmdNativeCompact(agent Agent, native NativeContextCompressor, s
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
 		return
 	}
+	e.startNativeCompact(agent, native, session, sessions, key, msg.SessionKey, workspaceDir, p, msg.ReplyCtx, e.i18n.T(MsgCompressing), false)
+}
+
+// startNativeCompact runs a native compaction on session, which the caller has
+// locked; it takes over that lock. notice is the "compressing" message sent
+// before it starts. auto (the [projects.auto_compress] trigger) keeps the chat
+// quiet apart from notice, like runCompress(auto=true): problems are logged,
+// and no completion message is sent.
+func (e *Engine) startNativeCompact(agent Agent, native NativeContextCompressor, session *Session, sessions *SessionManager, key, sessionKey, workspaceDir string, p Platform, replyCtx any, notice string, auto bool) {
+	reply := func(content string) {
+		if auto {
+			slog.Warn("auto-compress (native) failed", "session", sessionKey, "reason", content)
+			return
+		}
+		e.reply(p, replyCtx, content)
+	}
 	id := session.GetAgentSessionID()
 	if id == "" || id == ContinueSession {
 		session.UnlockWithoutUpdate()
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgCompressNoSession))
+		reply(e.i18n.T(MsgCompressNoSession))
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(e.ctx, nativeCompactionTimeout)
-	op := &nativeCompaction{cancel: cancel}
+	op := &nativeCompaction{cancel: cancel, auto: auto}
 	// Reserve the key before any teardown. /new may select a different Session,
 	// but must not permit two native transports on the same conversation key.
 	e.interactiveMu.Lock()
@@ -34,7 +57,7 @@ func (e *Engine) cmdNativeCompact(agent Agent, native NativeContextCompressor, s
 		e.interactiveMu.Unlock()
 		cancel()
 		session.UnlockWithoutUpdate()
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
+		reply(e.i18n.T(MsgPreviousProcessing))
 		return
 	}
 	if e.nativeCompactions == nil {
@@ -53,15 +76,15 @@ func (e *Engine) cmdNativeCompact(agent Agent, native NativeContextCompressor, s
 		// Turns queued meanwhile (cron/timer, capacity re-delivery) run now.
 		e.drainQueuedAfterNativeCompact(session, sessions, key, agent, workspaceDir)
 	}
-	if err := e.applyPendingSwitchOnAgent(agent, key, msg.SessionKey); err != nil {
+	if err := e.applyPendingSwitchOnAgent(agent, key, sessionKey); err != nil {
 		finish()
-		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err))
+		reply(e.i18n.Tf(MsgError, err))
 		return
 	}
 	// Explicit nil closes any idle reader without cancelling our own operation.
 	// External /new, /model, /switch and /stop still cancel through normal cleanup.
 	e.cleanupInteractiveState(key, nil)
-	e.send(p, msg.ReplyCtx, e.i18n.T(MsgCompressing))
+	e.send(p, replyCtx, notice)
 	if !e.startMessageWorker(func() {
 		defer finish()
 		// This session's [projects.session_models] / [projects.session_instructions]
@@ -69,7 +92,7 @@ func (e *Engine) cmdNativeCompact(agent Agent, native NativeContextCompressor, s
 		// a session start on another channel (applySessionModel before StartSession).
 		var err error
 		if scoped, ok := native.(SessionScopedCompressor); ok {
-			err = scoped.CompactSessionWith(ctx, id, e.sessionSettingsFor(msg.SessionKey))
+			err = scoped.CompactSessionWith(ctx, id, e.sessionSettingsFor(sessionKey))
 		} else {
 			err = native.CompactSession(ctx, id)
 		}
@@ -78,22 +101,31 @@ func (e *Engine) cmdNativeCompact(agent Agent, native NativeContextCompressor, s
 		}
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
-				e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err))
+				reply(e.i18n.Tf(MsgError, err))
 			}
 			return
 		}
 		session.ResetTurnCtx()
 		sessions.Save()
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgCompressDone))
+		if auto {
+			slog.Info("auto-compress (native): done", "session", sessionKey)
+			return
+		}
+		e.reply(p, replyCtx, e.i18n.T(MsgCompressDone))
 	}) {
 		finish()
 	}
 }
 
-func (e *Engine) nativeCompactRunning(key string) bool {
+// nativeCompactRejectsUser reports whether a user /compact runs on key, so new
+// user messages are turned away. An auto compaction does not count: messages
+// arriving then queue (enqueueForBusySession) and run when it ends
+// (drainQueuedAfterNativeCompact).
+func (e *Engine) nativeCompactRejectsUser(key string) bool {
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
-	return e.nativeCompactions[key] != nil
+	op := e.nativeCompactions[key]
+	return op != nil && !op.auto
 }
 
 // compactDrainRetry is how long drainQueuedAfterNativeCompact waits before
@@ -128,4 +160,68 @@ func (e *Engine) drainQueuedAfterNativeCompact(session *Session, sessions *Sessi
 	if !e.startMessageWorker(func() { e.drainOrphanedQueue(session, sessions, key, agent, workspaceDir) }) {
 		session.Unlock()
 	}
+}
+
+// applyPendingAutoCompact runs the native compaction that the
+// [projects.auto_compress] check queued on iKey's state (autoCompactDue) at the
+// end of a turn. It is called after that turn, and the turns queued behind it,
+// released the session, so it never interrupts a running turn. If someone holds
+// the session again, it is skipped: the next turn's end checks the threshold anew.
+// turnSession is the session the turn ran on; when it is not sessionKey's active
+// session (a use_new_session cron side session, torn down right after its run),
+// the compaction is skipped rather than run on the main session.
+func (e *Engine) applyPendingAutoCompact(iKey, sessionKey string, turnSession *Session, sessions *SessionManager, agent Agent, workspaceDir string) {
+	e.interactiveMu.Lock()
+	state := e.interactiveStates[iKey]
+	e.interactiveMu.Unlock()
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	due := state.autoCompactDue
+	state.autoCompactDue = false
+	tokens := state.lastAutoCompressTokens
+	p, replyCtx := state.platform, state.replyCtx
+	if state.agent != nil {
+		agent = state.agent
+	}
+	state.mu.Unlock()
+	if !due || p == nil {
+		return
+	}
+	if agent == nil {
+		agent = e.agent
+	}
+	native, ok := agent.(NativeContextCompressor)
+	if !ok {
+		return
+	}
+	// The compaction tears the interactive state down (cleanupInteractiveState),
+	// so its lastAutoCompressAt is lost; min_gap_mins is kept per key here.
+	now := time.Now()
+	e.interactiveMu.Lock()
+	last := e.nativeAutoCompactAt[iKey]
+	e.interactiveMu.Unlock()
+	if !last.IsZero() && now.Sub(last) < e.autoCompressMinGap {
+		return
+	}
+	session := sessions.GetOrCreateActive(sessionKey)
+	if turnSession != nil && session != turnSession {
+		return
+	}
+	if !session.TryLock() {
+		return
+	}
+	e.interactiveMu.Lock()
+	if e.nativeAutoCompactAt == nil {
+		e.nativeAutoCompactAt = make(map[string]time.Time)
+	}
+	e.nativeAutoCompactAt[iKey] = now
+	e.interactiveMu.Unlock()
+	slog.Info("auto-compress (native): triggering", "session", sessionKey)
+	notice := e.i18n.T(MsgCompressing)
+	if tokens > 0 {
+		notice = fmt.Sprintf("%s (~%dk tokens)", notice, tokens/1000)
+	}
+	e.startNativeCompact(agent, native, session, sessions, iKey, sessionKey, workspaceDir, p, replyCtx, notice, true)
 }

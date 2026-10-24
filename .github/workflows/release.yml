@@ -1,9 +1,9 @@
 name: Release bothouse
 
 # Native bothouse downloads. DMGs are built on macOS.
-# Runs on our own machines (user 2026-10-23「你甲骨文和我们mac，不都是编译环境吗，你把那边关联到这两个环境去编译呗」):
-# the Mac Studio runner (label bothouse-mac) builds the dmg; the Oracle vps-arm runners (arm64, label bothouse-ci)
-# cross-compile Linux x64/arm64 and the Windows exe (CGO_ENABLED=0, so no C toolchain) and publish.
+# The Mac Studio runner (label bothouse-mac) builds the dmg (lipo, hdiutil, package-dmg.sh need macOS).
+# Everything else runs on GitHub-hosted ubuntu-latest (free for this public repo, so releases do not queue
+# behind PR checks): it cross-compiles Linux x64/arm64 and the Windows exe (CGO_ENABLED=0, so no C toolchain) and publishes.
 # Windows 真机验装暂时没有：家里 Windows 机离线（windows-local、sanxin-hk 都连不上）；用户 2026-10-23「那就没必要先搞验证，
 # 就先编译吧」。上线后把 smoke-windows / verify-windows 加回来，跑在 self-hosted windows runner 上（见 git 历史里的这两个 job）。
 
@@ -25,12 +25,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preempt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    outputs:
+      runs: ${{ steps.cancel.outputs.runs }}
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        id: cancel
+        with:
+          script: |
+            const cancelled = [];
+            try {
+              // Limit preemption to PR checks; branch pushes and releases are untouched.
+              for (const workflow_id of ['ci.yml', 'ui-preview.yml']) {
+                for (const status of ['queued', 'in_progress']) {
+                  const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                    ...context.repo, workflow_id, event: 'pull_request', status, per_page: 100
+                  });
+                  for (const run of runs) {
+                    if (run.event !== 'pull_request' || cancelled.some(r => r.id === run.id)) continue;
+                    try {
+                      await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: run.id });
+                      cancelled.push({ id: run.id, workflow_id, sha: run.head_sha,
+                        branch: run.head_branch, created_at: run.created_at,
+                        repository: run.head_repository?.id });
+                    } catch (error) {
+                      // A run can complete between listing it and requesting cancellation.
+                      const current = (await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: run.id })).data;
+                      if (current.status !== 'completed') throw error;
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              // Publishing must not be blocked if the Actions control plane is unavailable.
+              core.warning(`Could not preempt every PR run: ${error.message}`);
+            } finally {
+              // Persist partial success even if a later API call fails.
+              core.setOutput('runs', JSON.stringify(cancelled));
+              core.info(`Preempted ${cancelled.length} PR runs`);
+            }
+
   build:
+    needs: preempt
     strategy:
       matrix:
         include:
           - name: linux
-            labels: [self-hosted, bothouse-ci]
+            labels: ubuntu-latest
           - name: macos
             labels: [self-hosted, bothouse-mac]
     runs-on: ${{ matrix.labels }}
@@ -48,8 +93,9 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: bridge/go.mod
-          # self-hosted runners keep GOMODCACHE/GOCACHE on disk; the Actions cache download is ~1 MB/s on vps-arm (see ci.yml)
-          cache: false
+          cache-dependency-path: bridge/go.sum
+          # the self-hosted Mac keeps GOMODCACHE/GOCACHE on disk; the hosted Linux runner uses the Actions cache
+          cache: ${{ matrix.name == 'linux' }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -82,8 +128,18 @@ jobs:
             exe=bothouse; [ "$os" = windows ] && exe=bothouse.exe
             mkdir -p "build/${native}"
             binary="build/${native}/${exe}"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
-              -ldflags "-s -w -X main.version=${TAG} -X main.commit=${commit} -X main.buildTime=${built}" \
+            cgo=0
+            cc="${CC:-cc}"
+            ldflags="-s -w -X main.version=${TAG} -X main.commit=${commit} -X main.buildTime=${built}"
+            if [ "$os" = darwin ]; then
+              cgo=1
+              cpu=$arch; [ "$arch" != amd64 ] || cpu=x86_64
+              cc="clang -arch $cpu"
+            elif [ "$os" = windows ]; then
+              ldflags="$ldflags -H=windowsgui"
+            fi
+            CGO_ENABLED=$cgo CC="$cc" GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
+              -ldflags "$ldflags" \
               -o "$binary" ./cmd/cc-connect
             case "$os" in
               windows)
@@ -102,14 +158,13 @@ jobs:
           fi
           cd ../dist
           shasum -a 256 bothouse-* > SHA256SUMS
-      - name: Smoke test (linux arm64 native; linux x64 and windows exe headers)
+      - name: Smoke test (linux x64 native; linux arm64 and windows exe headers)
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          dist/bothouse-linux-arm64 --version
-          dist/bothouse-linux-arm64 setup --help | grep -q 'setup apply'
-          # x64 is not run here: Go binaries crash under qemu-user on vps-arm (run 39931609247); header check only
-          file dist/bothouse-linux-x64 | tee /dev/stderr | grep -q 'ELF 64-bit.*x86-64'
+          dist/bothouse-linux-x64 --version
+          dist/bothouse-linux-x64 setup --help | grep -q 'setup apply'
+          file dist/bothouse-linux-arm64 | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
           file dist/bothouse-windows.exe | tee /dev/stderr | grep -q 'PE32+ executable.*x86-64'
       - name: Smoke test (macOS app bundle)
         if: runner.os == 'macOS'
@@ -159,7 +214,7 @@ jobs:
 
   publish:
     needs: build
-    runs-on: [self-hosted, bothouse-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
@@ -186,9 +241,10 @@ jobs:
           key: release-dist-macos-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: release-dist-macos-${{ github.run_id }}-
           fail-on-cache-miss: true
-      - name: gh CLI (vps-arm has none; kept in the runner tool cache)
+      - name: gh CLI (preinstalled on hosted runners; otherwise kept in the runner tool cache)
         run: |
           set -euo pipefail
+          if command -v gh >/dev/null; then exit 0; fi
           v=2.103.0
           d="$RUNNER_TOOL_CACHE/gh/$v"
           if [ ! -x "$d/bin/gh" ]; then
@@ -227,7 +283,8 @@ jobs:
   # The built outputs (plugin-pkg/collab, plugin-pkg/client) are gitignored on main, so each release force-pushes
   # a one-commit `dsh-plugin` branch holding only the packed files. Runs in parallel with the binary builds.
   dsh-plugin:
-    runs-on: [self-hosted, bothouse-ci]
+    needs: preempt
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
@@ -263,3 +320,46 @@ jobs:
           git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
             commit -qm "dsh-plugin: bothouse-dsh built from $TAG ($(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD))"
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dsh-plugin
+
+  resume-pr-checks:
+    needs: [preempt, build, publish, dsh-plugin]
+    if: always() && needs.preempt.outputs.runs != '' && needs.preempt.outputs.runs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PREEMPTED_RUNS: ${{ needs.preempt.outputs.runs }}
+        with:
+          script: |
+            const failed = [];
+            for (const run of JSON.parse(process.env.PREEMPTED_RUNS)) {
+              try {
+                let current;
+                for (let attempt = 0; attempt < 20; attempt++) {
+                  current = (await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: run.id })).data;
+                  if (current.status === 'completed') break;
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                if (current.status !== 'completed') throw new Error('cancellation has not completed');
+                if (current.conclusion !== 'cancelled') continue;
+                const recent = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                  ...context.repo, workflow_id: run.workflow_id, event: 'pull_request',
+                  branch: run.branch, per_page: 100
+                });
+                // A subsequent push already supersedes the cancelled check.
+                if (recent.some(r => r.id !== run.id && r.created_at > run.created_at &&
+                    r.head_repository?.id === run.repository)) {
+                  core.info(`Run ${run.id} was superseded; keeping the newer check`);
+                  continue;
+                }
+                await github.rest.actions.reRunWorkflow({ ...context.repo, run_id: run.id });
+                core.info(`Restarted PR run ${run.id}`);
+              } catch (error) {
+                core.error(`Could not restart run ${run.id}: ${error.message}`);
+                failed.push(run.id);
+              }
+            }
+            if (failed.length) core.setFailed(`PR checks requiring retry: ${failed.join(', ')}`);

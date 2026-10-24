@@ -6,7 +6,7 @@ import { exitTarget } from './team-exit.mjs';
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { checkAvatar } from './avatars.mjs';
-import { CollabError, MAX_TEXT, publicMessage, quotePrefix } from './store.mjs';
+import { CollabError, MAX_TEXT, messageAttachments, publicMessage, quotePrefix } from './store.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
 // Declared to cc-connect. 'buttons' is declared so permission prompts arrive as
@@ -123,8 +123,10 @@ export class CloudWebGateway {
    * @param hub - Hub instance.
    * @param options - { token: shared bot token (empty disables the gateway), logger }.
    */
-  constructor(hub, { token, logger }) {
+  constructor(hub, { token, logger, files }) {
     this.hub = hub;
+    /** #144: Attachments store; its wire() adds images/files to a forwarded message. */
+    this.files = files;
     this.token = token;
     this.logger = logger;
     /** member id -> { ws, member } */
@@ -230,6 +232,8 @@ export class CloudWebGateway {
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
     const only = this.hub.replyRoute(msg);
+    const metas = messageAttachments(msg);
+    const attached = metas.length && this.files ? this.files.wire(metas) : {};
     const quote = quotePrefix(this.hub.store.quote(msg));
     for (const { ws, member } of this.bots.values()) {
       if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
@@ -245,7 +249,7 @@ export class CloudWebGateway {
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
         user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
-        mentioned: hit, from_bot: fromAgent,
+        mentioned: hit, from_bot: fromAgent, ...attached,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
@@ -328,6 +332,31 @@ export class CloudWebGateway {
     return { ok: false, error: 'bad-op' };
   }
 
+  /**
+   * Retry a previous trigger for a connected bot (#146). Clears error and delivers the message.
+   */
+  retry(memberId, msg) {
+    const bot = this.bots.get(memberId);
+    if (bot === undefined) return false;
+    this.hub.setError(memberId, undefined);
+    return this.nudge(memberId, msg);
+  }
+
+  /**
+   * #148: the owner withdrew a message. Every connected bot gets a recall for
+   * it; a bridge stops the turn that message started, or drops it from its
+   * queue, and ignores it otherwise (core/engine.go handleMessageRecall).
+   * Returns the ids of the bots told.
+   */
+  recall(msgId) {
+    const told = [];
+    for (const [id, { ws }] of this.bots) {
+      send(ws, { type: 'message_recall', msg_id: `hub-${msgId}` });
+      told.push(id);
+    }
+    return told;
+  }
+
   async fromBot(bot, d) {
     const { member } = bot;
     switch (d.type) {
@@ -389,13 +418,17 @@ export class CloudWebGateway {
       case 'preview_start': {
         if (typeof d.ref_id !== 'string') return;
         const room = roomOf(d, this.hub.store);
-        const body = this.body(d.content);
+        const seq = cardSeq(d);
+        const body = withSeq(this.body(d.content), seq);
         let handle = '';
         if (room !== undefined && body.text) {
-          const { message } = this.hub.draft(room, {
+          const { message, created } = this.hub.draft(room, {
             authorKind: 'role', author: member.id, name: member.name, text: body.text, card: body.card,
             clientKey: `preview:${member.id}:${d.ref_id}`,
           });
+          // #119: a task card create retried after a lost ack finds the row it
+          // made before; show the newer content instead of the first one.
+          if (!created && newerSeq(message, seq)) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
           handle = String(message.id);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
@@ -412,7 +445,10 @@ export class CloudWebGateway {
         const h = d.preview_handle;
         if (typeof h !== 'string' || !/^\d+$/.test(h)) return;
         if (d.type === 'delete_message') { this.hub.remove(Number(h), 'role', member.id); return; }
-        const body = this.body(d.content);
+        const seq = cardSeq(d);
+        // #119: a delayed older task card frame must not roll the card back.
+        if (seq !== undefined && !newerSeq(this.hub.store.message(Number(h)), seq)) return;
+        const body = withSeq(this.body(d.content), seq);
         if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
         return;
       }
@@ -493,6 +529,25 @@ export class CloudWebGateway {
   closeAll() {
     for (const { ws } of this.bots.values()) ws.close(1001, 'server shutdown');
   }
+}
+
+/** The task card sequence a frame carries (bridge cloud-web EnsureTaskCard), or undefined. */
+function cardSeq(d) {
+  return Number.isSafeInteger(d.seq) && d.seq >= 0 ? d.seq : undefined;
+}
+
+/** Record seq in the stored card so later frames can be compared with it. */
+function withSeq(body, seq) {
+  if (seq === undefined || body.card == null) return body;
+  const card = parseCard(body.card);
+  return card === undefined ? body : { ...body, card: JSON.stringify({ ...card, seq }) };
+}
+
+/** True when seq is newer than what row's card was last written with (rows without one count as older). */
+function newerSeq(row, seq) {
+  if (row === undefined || seq === undefined) return false;
+  const stored = parseCard(row.card)?.seq;
+  return !Number.isSafeInteger(stored) || seq > stored;
 }
 
 function parseCard(raw) {

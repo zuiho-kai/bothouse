@@ -25,7 +25,8 @@ import ctxsvc
 from scorer_remote import RemoteScorer, load_jev
 import lead
 
-PORT = 9930
+# bothouse 拉起 gate 时用 GATE_PORT 告诉它听哪个端口（core/gate_proc.go，同 gateAddr）；手动跑不设就是 9930
+PORT = int(os.environ.get("GATE_PORT") or 9930)
 # 本机模型只在显式设了 GATE_MODEL 时用（GPU 机器上 start_gate_wsl.sh 那种部署），没有默认值、不自动下载
 MODEL = os.environ.get("GATE_MODEL", "")
 LOG = Path(os.environ.get("GATE_LOG", Path.home() / ".cc-connect/gate.jsonl"))
@@ -657,6 +658,32 @@ def _route(req, bot=""):
     return action, (f"{why}；{reason}" if why else reason), sc or asc
 
 
+def _other_mention(me):
+    """原文里 @ 了除 me 以外的成员，只按团队文件里写的 id 认；认不出的 <@id> 一律当没 @ 队友。
+    一个 id 都没写时返回 None，不做同时 @ 判定（否则用户「@主bot @朋友」会被判 context，没人回）。"""
+    ids = [i for k, i in lead.ID.items() if k != me]
+    return re.compile(r"<@!?(?:" + "|".join(map(re.escape, ids)) + r")>") if ids else None
+
+
+def co_mention(req, me=""):
+    """用户同一条消息同时 @ 了 me 和别的成员。按单条原始消息判：空闲时连发的几条会被 core 合并，
+    parts 是合并前的每一条（各自的原文、有没有 @me、是不是 bot 发的；单条消息不带 parts）。
+    @ 了 me 的每一条都同时 @ 了别的成员、都是人发的、都不是回复 me 的消息，才算；
+    有一条只 @ me、是 bot @ me（队友交回/报错），或回复的是 me 的消息，就是在叫 me 本人。"""
+    other = _other_mention(me)
+    if other is None:
+        return False
+    parts = req.get("parts") or [{"content": req.get("content") or "", "mentioned": req.get("mentioned"),
+                                  "from_bot": req.get("from_bot")}]
+    called = [p for p in parts if p.get("mentioned")]
+
+    def ok(p):
+        to, own = split_reply((p.get("content") or "").strip())
+        return not p.get("from_bot") and to != me and bool(other.search(own))
+
+    return bool(called) and all(ok(p) for p in called)
+
+
 def decide(req, me=""):
     action, reason, sc = _decide_lead(req, me)
     if action == "reply" and req.get("busy"):  # @主角色/叫她名字且她正忙：是不是叫停，同 decide_sub（用户原话「艾特她的时候，不要只有insert插入，而是还有abort插入」）
@@ -673,6 +700,11 @@ def _decide_lead(req, me="", model=True):
     buffered = req.get("buffered") or []
     busy = bool(req.get("busy"))
     if req.get("mentioned"):
+        # 同一条消息同时 @ 了主角色和队友：队友干活，做完的回复会 @ 主角色（core lead_return 交回），主角色那时再核对；
+        # 这一轮不回，免得拿旧消息当她的答案。回 context 不回 silent：带图时 silent 会被 core 改成 insert
+        # （core/gate.go 附件不能按文字缓冲），context 把图记成文字（core/gate_comention_test.go）。
+        if co_mention(req, me):
+            return "context", "rule: 同时 @ 了队友，等她回复 @主角色", None
         return "reply", f"rule: @{lead.NAME[me]}", None
     to, own = split_reply(content)  # 下面的规则只看用户自己写的部分，引用里的名字、@、问号不算
     # 回复的是别的成员的消息、开头也没叫我：回复谁就是在跟谁说。回 context 不回 silent：带图时 silent 会被 cc-connect

@@ -80,7 +80,7 @@ func (f *allowBotsFile) has(id string) bool {
 // botAllowed: a message from another bot (or a webhook) gets through when its
 // author ID is in allow_bots or in allow_bots_file.
 func (p *Platform) botAllowed(id string) bool {
-	if p.allowBots != "" && core.AllowList(p.allowBots, id) {
+	if ab := p.allowBotsCSV(); ab != "" && core.AllowList(ab, id) {
 		return true
 	}
 	return p.allowBotsFile.has(id)

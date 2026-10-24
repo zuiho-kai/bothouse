@@ -440,7 +440,9 @@ func (p *Platform) handleMessage(ctx context.Context, msg *models.Message) {
 		chatName = msg.Chat.Title
 	}
 
-	if isGroup && !p.groupReplyAll {
+	// "/stop all" from a user reaches every bot in the group, mentioned or not.
+	stopAll := !msg.From.IsBot && core.IsStopAllCommand(msg.Text)
+	if isGroup && !p.groupReplyAll && !stopAll {
 		slog.Debug("telegram: checking group message", "text", msg.Text, "is_command", isCommand(msg))
 		if !p.isDirectedAtBot(msg) {
 			return

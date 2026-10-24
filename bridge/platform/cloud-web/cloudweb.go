@@ -51,9 +51,11 @@ type Platform struct {
 	replyCtxMu sync.RWMutex
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
 
-	teamLead     string   // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
-	leadReturned sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
-	wsAcks       sync.Map // team mode E: ref_id → chan wireTeamWorkspaceAck (workspaces.go)
+	liveMu       sync.RWMutex   // guards teamLead, which ReloadOptions swaps while running
+	teamLead     string         // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
+	startOpts    map[string]any // options as read in New; ReloadOptions reports other changed keys for a restart
+	leadReturned sync.Map       // maomao fork: trigger message ID → time the reply was routed back to the lead
+	wsAcks       sync.Map       // team mode E: ref_id → chan wireTeamWorkspaceAck (workspaces.go)
 }
 
 // Compile-time interface checks.
@@ -190,6 +192,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		historyBase:      historyBaseURL(baseURL, wsURL),
 		selfID:           hubBotID(wsURL, project),
 		teamLead:         strings.TrimSpace(teamLead),
+		startOpts:        copyOpts(opts),
 	}, nil
 }
 
@@ -216,7 +219,7 @@ func pickInt(v any) int {
 func (p *Platform) Name() string { return p.name }
 
 // HasConfiguredTeamLead reports whether this platform belongs to a configured team.
-func (p *Platform) HasConfiguredTeamLead() bool { return p.teamLead != "" }
+func (p *Platform) HasConfiguredTeamLead() bool { return p.lead() != "" }
 
 // ProgressStyle implements core.ProgressStyleProvider (maomao fork).
 func (p *Platform) ProgressStyle() string {
@@ -378,7 +381,9 @@ func (p *Platform) handleMessage(raw []byte) {
 		slog.Debug("cloud_web: unauthorized user", "user", m.UserID)
 		return
 	}
-	if isGroupChat(m.ChatType) && !p.groupReplyAll {
+	// "/stop all" from a user reaches every bot in the chat, mentioned or not.
+	stopAll := !m.FromBot && core.IsStopAllCommand(m.Content)
+	if isGroupChat(m.ChatType) && !p.groupReplyAll && !stopAll {
 		// Require explicit mention in group chats unless group_reply_all is enabled.
 		if m.Mentioned == nil || !*m.Mentioned {
 			return

@@ -255,3 +255,72 @@ func TestUpsertWizardProjectAgentArgsEnv(t *testing.T) {
 		t.Fatalf("agent options = %v", o)
 	}
 }
+
+// A role whose project name had to be role-N keeps the user's name as team_name, which the
+// running project and the wizard snapshot both read back.
+func TestUpsertWizardProjectDisplayName(t *testing.T) {
+	dir := t.TempDir()
+	old := ConfigPath
+	ConfigPath = filepath.Join(dir, "config.toml")
+	defer func() { ConfigPath = old }()
+	if err := os.WriteFile(ConfigPath, []byte("[log]\nlevel = \"info\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "role-1", AgentType: "dsh", PlatformType: "cloud_web",
+		Options: map[string]any{"ws_url": "ws://x"}, DisplayName: "鲸鱼娘"}); err != nil {
+		t.Fatal(err)
+	}
+	// a later write without a display name leaves it alone
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "role-1", PlatformType: "cloud_web", Options: map[string]any{"ws_url": "ws://y"}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadPermissive(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := cfg.Projects[0]; p.TeamName != "鲸鱼娘" || p.Agent.Type != "dsh" {
+		t.Fatalf("project = %+v", p)
+	}
+	snap, err := WizardSnapshot()
+	if err != nil || len(snap) != 1 || snap[0].TeamName != "鲸鱼娘" {
+		t.Fatalf("snapshot = %+v %v", snap, err)
+	}
+}
+
+// A role the wizard added that did not start is taken out again; the other projects and keys this
+// build does not know stay.
+func TestRemoveWizardProjects(t *testing.T) {
+	dir := t.TempDir()
+	old := ConfigPath
+	ConfigPath = filepath.Join(dir, "config.toml")
+	defer func() { ConfigPath = old }()
+	src := `memory_index = "keep-me"
+
+[[projects]]
+name = "old-role"
+[projects.agent]
+type = "claudecode"
+
+[[projects]]
+name = "delta"
+[projects.agent]
+type = "no-such-agent"
+
+[[projects]]
+name = "eta"
+[projects.agent]
+type = "codex"
+`
+	if err := os.WriteFile(ConfigPath, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := RemoveWizardProjects([]string{"delta", "missing"})
+	if err != nil || len(removed) != 1 || removed[0] != "delta" {
+		t.Fatalf("removed = %v, err = %v", removed, err)
+	}
+	b, _ := os.ReadFile(ConfigPath)
+	got := string(b)
+	if strings.Contains(got, "delta") || !strings.Contains(got, "old-role") || !strings.Contains(got, "eta") || !strings.Contains(got, "keep-me") {
+		t.Fatalf("config after removal:\n%s", got)
+	}
+}

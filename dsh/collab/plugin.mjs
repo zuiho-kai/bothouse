@@ -19,6 +19,7 @@ import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
+import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -27,6 +28,10 @@ export const inject = [
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
 const MAX_BODY = 256 * 1024;
+// #144: a message POST may carry base64 attachments. Same cap as the bot WebSocket
+// maxPayload below (8 MiB), so a message that is accepted here still fits in the frame
+// that forwards it to a bot.
+const MAX_MESSAGE_BODY = 8 * 1024 * 1024;
 const OWNER = 'owner';
 
 /** Validate the overlay config; misconfiguration fails at load. */
@@ -85,7 +90,8 @@ export async function apply(ctx, rawConfig) {
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
-  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
+  const files = new Attachments(join(config.dataDir, 'attachments'));
+  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
@@ -186,6 +192,16 @@ export async function apply(ctx, rawConfig) {
         return { lead_id: id, effective_lead_id: hub.primaryMember()?.id ?? null };
       });
     }
+    const att = /^\/collab\/api\/attachments\/([0-9a-f-]{36})$/.exec(path);
+    if (att !== null && req.method === 'GET') {
+      const row = store.attachmentMeta(att[1]);
+      const bytes = row === undefined ? undefined : files.read(att[1]);
+      if (bytes === undefined) return json(res, 404, { error: 'attachment not found' });
+      res.writeHead(200, { 'content-type': row.mime, 'content-length': bytes.length,
+        'content-disposition': `${INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+        'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400' });
+      return res.end(bytes);
+    }
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
     if (av !== null && req.method === 'GET') {
       const png = avatarImage(av[1]);
@@ -221,15 +237,77 @@ export async function apply(ctx, rawConfig) {
     if (m !== null && req.method === 'POST') {
       return withBody(req, res, (body) => {
         const clientKey = typeof body?.client_key === 'string' && body.client_key ? `web:${body.client_key.slice(0, 64)}` : undefined;
-        const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey,
-          replyTo: Number.isInteger(body?.reply_to) ? body.reply_to : undefined });
+        const roomId = Number(m[1]);
+        if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+        const attachments = files.save(body?.attachments);
+        const { message } = hub.post(roomId, { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey,
+          replyTo: Number.isInteger(body?.reply_to) ? body.reply_to : undefined, attachments });
         return { message: publicMessage(message, store) };
-      });
+      }, true, MAX_MESSAGE_BODY);
     }
+    const edited = ownMessageRoute(req, res, path, { store, hub, gateway, dsh });
+    if (edited !== undefined) return edited;
     // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.
     const pm = /^\/collab\/api\/messages\/(\d+)\/permission$/.exec(path);
     if (pm !== null && req.method === 'POST') {
       return withBody(req, res, body => ({ message: gateway.decidePermission(Number(pm[1]), String(body?.decision ?? '')) }));
+    }
+    // #146: owner-only (checked above) retry on a failed message or error card.
+    const rm = /^\/collab\/api\/messages\/(\d+)\/retry$/.exec(path);
+    if (rm !== null && req.method === 'POST') {
+      return withBody(req, res, () => {
+        const messageId = Number(rm[1]);
+        const message = store.message(messageId);
+        if (message === undefined) throw new CollabError('not-found', 'message not found');
+        let card;
+        if (message.card) {
+          try { card = JSON.parse(message.card); } catch {}
+        }
+        let memberId = card?.member_id;
+        let triggerId = card?.trigger_id;
+        if (!memberId && typeof message.client_key === 'string') {
+          const jm = /^dsh-job-(\d+)/.exec(message.client_key);
+          if (jm !== null) {
+            const job = store.job(Number(jm[1]));
+            if (job !== undefined) {
+              memberId = job.member_id;
+              triggerId = job.trigger_id;
+            }
+          }
+        }
+        if (!memberId && message.author_kind === 'role') {
+          memberId = message.author;
+          triggerId = message.from_turn ?? store.lastUserMessage(message.room_id, message.id)?.id;
+        }
+        if (!memberId || triggerId == null) {
+          throw new CollabError('invalid', 'cannot determine member or trigger message for retry');
+        }
+        const trigger = store.message(triggerId);
+        if (trigger === undefined) {
+          throw new CollabError('invalid', 'trigger message not found');
+        }
+        const member = hub.members.get(memberId);
+        if (member === undefined) {
+          throw new CollabError('invalid', `member ${memberId} not found`);
+        }
+        if (member.online === false) {
+          throw new CollabError('offline', `${member.name} 当前不在线，无法重试`);
+        }
+        hub.setError(memberId, undefined);
+        hub.setThinking(message.room_id, memberId, true);
+        const retried = dsh.retry(memberId, trigger) || gateway.retry(memberId, trigger);
+        if (!retried) {
+          hub.setThinking(message.room_id, memberId, false);
+          throw new CollabError('failed', 'failed to dispatch retry');
+        }
+        // The card is settled once the retry is dispatched: the outcome arrives as the
+        // member's reply or as a new error card with its own retry button. A transient
+        // 'retrying' state here was never cleared, so the card stayed "retrying" forever.
+        if (card && (card.state === 'failed' || card.action === 'configure-model')) {
+          hub.edit(message.id, message.author_kind, message.author, message.text, JSON.stringify({ ...card, state: 'retried' }));
+        }
+        return { ok: true, member_id: memberId, trigger_id: triggerId };
+      }, false);
     }
     if (path === '/collab/api/clis') return clisHandler(req, res);
     if (path === '/collab/api/models' && req.method === 'GET') return json(res, 200, { routes: await roster.models() });
@@ -264,6 +342,41 @@ export async function apply(ctx, rawConfig) {
     streams.add(end);
     req.on('close', end);
   }
+}
+
+/**
+ * #148: the owner edits or withdraws a message they wrote (callers check the
+ * owner). An edit changes the text only; members that already read it are not
+ * asked again. Withdrawing also stops the work it started: cloud-web bots get a
+ * recall (their bridge stops that turn or drops it from its queue), DSH jobs end
+ * and a DSH turn already running is cancelled.
+ *   PATCH  /collab/api/messages/{id}  { text }
+ *   DELETE /collab/api/messages/{id}  -> { recalled: [bot ids], stopped: [names], still_running: [names] }
+ */
+export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
+  const m = /^\/collab\/api\/messages\/(\d+)$/.exec(path);
+  if (m === null) return undefined;
+  const id = Number(m[1]);
+  if (req.method === 'PATCH') {
+    return withBody(req, res, (body) => {
+      const row = store.editUser(id, OWNER, body?.text);
+      if (row === undefined) throw new CollabError('forbidden', 'only your own plain messages can be edited');
+      const message = publicMessage(row, store); // with the store, so a reply keeps its quote
+      hub.emit({ type: 'message', message });
+      return { message };
+    });
+  }
+  if (req.method === 'DELETE') {
+    return withBody(req, res, () => {
+      const row = hub.remove(id, 'user', OWNER);
+      if (row === undefined) throw new CollabError('forbidden', 'only your own messages can be withdrawn');
+      const recalled = gateway.recall(row.id);
+      const name = who => hub.members.get(who)?.name ?? who;
+      const { stopped, running } = dsh.recall(row.id);
+      return { ok: true, recalled, stopped: stopped.map(name), still_running: running.map(name) };
+    }, false);
+  }
+  return undefined;
 }
 
 /**
@@ -322,10 +435,18 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
-async function withBody(req, res, fn, parse = true) {
+class BodyTooLarge extends Error {}
+
+export async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
   let body;
   if (parse) {
-    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { error: 'invalid JSON body' }); }
+    let raw;
+    try { raw = await readBody(req, limit); } catch (error) {
+      if (!(error instanceof BodyTooLarge)) return json(res, 400, { error: 'request body aborted' });
+      res.setHeader('connection', 'close');
+      return json(res, 413, { error: `request body exceeds ${limit / 1024 / 1024} MiB`, code: 'too-large' });
+    }
+    try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'invalid JSON body' }); }
   }
   try {
     return json(res, 200, await fn(body));
@@ -342,16 +463,18 @@ function text(res, status, type, body) {
   res.end(body);
 }
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    // Past the limit, keep reading but drop the bytes: destroying the socket here
+    // makes the browser see a network error ("Failed to fetch") instead of the 413.
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY) { reject(Error('body too large')); req.destroy(); return; }
+      if (size > limit) { chunks.length = 0; return; }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => (size > limit ? reject(new BodyTooLarge()) : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
 }

@@ -119,6 +119,9 @@ func dshRoleLaunch(dshPath, dataDir, project, workDir string, p *WizardProvider)
 		"UV_CACHE_DIR":      filepath.Join(workDir, ".cache", "uv"),
 		"CONEST_LEAD_FILE":  filepath.Join(dataDir, "lead.json"),
 		"BOTHOUSE_DATA_DIR": dataDir,
+		// the home this DSH uses now ($DSH_HOME, else ~/.dsh), written down so the
+		// usage page reads this role's session logs without asking the user
+		"DSH_HOME": DSHHome(""),
 	}
 	args = append(args, "--patch", DSHPatchPath(dataDir, project))
 	if p != nil {

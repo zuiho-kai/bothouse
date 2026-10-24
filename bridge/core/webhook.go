@@ -199,6 +199,10 @@ func (ws *WebhookServer) resolveEngine(project string) (*Engine, error) {
 }
 
 func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string, silent bool, event string) {
+	if engine.IsPaused() {
+		slog.Warn("webhook: engine is paused, prompt dropped", "project", engine.name, "event", event)
+		return
+	}
 	platformName := ""
 	if idx := strings.Index(sessionKey, ":"); idx > 0 {
 		platformName = sessionKey[:idx]
@@ -243,6 +247,16 @@ func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string
 
 	session := engine.sessions.GetOrCreateActive(sessionKey)
 	if !session.TryLock() {
+		// maomao fork: queued behind the running turn like a cron/timer job (see ExecuteTimerJob);
+		// dropped only when there is no live state to queue into.
+		switch engine.queueScheduledTurn(targetPlatform, nil, msg, session, engine.sessions, sessionKey, engine.agent, "") {
+		case queueAccepted:
+			slog.Info("webhook: session busy, prompt queued after current turn", "event", event, "session_key", sessionKey)
+			return
+		case queueRejected:
+			slog.Warn("webhook: session busy and queue full, prompt dropped", "event", event, "session_key", sessionKey)
+			return
+		}
 		slog.Warn("webhook: session busy, queued prompt dropped", "event", event, "session_key", sessionKey)
 		if !silent {
 			engine.send(targetPlatform, replyCtx, fmt.Sprintf("🪝 ⚠️ session busy, skipped: %s", event))
@@ -257,6 +271,10 @@ func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string
 const webhookShellTimeout = 5 * time.Minute
 
 func (ws *WebhookServer) executeShell(engine *Engine, req WebhookRequest, event string) {
+	if engine.IsPaused() {
+		slog.Warn("webhook: engine is paused, shell dropped", "project", engine.name, "event", event)
+		return
+	}
 	sessionKey := req.SessionKey
 	platformName := ""
 	if idx := strings.Index(sessionKey, ":"); idx > 0 {

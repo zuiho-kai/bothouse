@@ -11,7 +11,7 @@ import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
-import { tasksRoute } from './plugin.mjs';
+import { tasksRoute, ownMessageRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
 
 const quiet = { warn() {}, info() {} };
@@ -313,8 +313,9 @@ function fakeDsh() {
     const session = { id, events: [], get seq() { return this.events.length; }, snapshotEvents(from = 0) { return this.events.slice(from); }, requestHeader() { return undefined; } };
     const pending = [];
     const agent = {
-      session, prompts: [], turns: 0, ctx: { on() {} },
+      session, prompts: [], turns: 0, cancels: [], ctx: { on() {} },
       followup(m) { this.prompts.push(m); pending.push(m); },
+      cancel(cause, options) { this.cancels.push([cause, options]); },
       inbox: { get nextTurn() { return pending; }, remove(id) { const i = pending.findIndex(m => m.id === id); if (i < 0) return false; pending.splice(i, 1); return true; } },
     };
     sessions.set(id, agent);
@@ -825,7 +826,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -908,7 +909,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -1101,6 +1102,53 @@ test('a teammate draft that commits later still reaches members whose cursor mov
   assert.match(agent.prompts.at(-1).content[0].text, /查完了/, 'the handoff prompt contains the committed reply');
 });
 
+test('cloud-web #119 task card survives disconnect/reconnect and keeps editing the same row', () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const card = (state, text) => PROGRESS_PREFIX + JSON.stringify({ version: 2, agent: '📋 整理日志', state, items: [{ kind: 'info', text }] });
+  let ju = connect(gw, 'bot=ju&name=橘');
+  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
+  const before = whale.of('message').length;
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '开始') });
+  const handle = ju.of('preview_ack').at(-1).preview_handle;
+  assert.match(handle, /^\d+$/);
+  assert.equal(whale.of('message').length, before, 'the task card is not broadcast to other bots');
+  ju.close(1006, 'gone');
+  assert.ok(hub.store.message(Number(handle)), 'a dropped connection keeps the task card');
+  ju = connect(gw, 'bot=ju&name=橘');
+  assert.ok(hub.store.message(Number(handle)), 're-registering keeps the task card');
+  ju.frame({ type: 'update_message', preview_handle: handle, content: card('completed', '完成一半') });
+  const row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成一半/, 'later edits land on the same row');
+  assert.equal(JSON.parse(row.card).state, 'completed');
+  assert.equal(whale.of('message').length, before, 'edits are not broadcast either');
+});
+
+test('cloud-web #119 task card seq: a retried create refreshes the row, an older frame cannot roll it back', () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const card = (state, text) => PROGRESS_PREFIX + JSON.stringify({ version: 2, agent: '📋 整理日志', state, items: [{ kind: 'info', text }] });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '开始'), seq: 1 });
+  const handle = ju.of('preview_ack').at(-1).preview_handle;
+  // The ack was lost; the bridge retries the create later with newer content.
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '完成一半'), seq: 3 });
+  assert.equal(ju.of('preview_ack').at(-1).preview_handle, handle, 'the retry returns the same row');
+  let row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成一半/, 'the retried create shows its newer content');
+  assert.equal(JSON.parse(row.card).seq, 3);
+  ju.frame({ type: 'update_message', preview_handle: handle, content: card('running', '旧进度'), seq: 2 });
+  row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成一半/, 'an older frame is ignored');
+  ju.frame({ type: 'update_message', preview_handle: handle, content: card('completed', '完成'), seq: 4 });
+  row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成/);
+  assert.equal(JSON.parse(row.card).state, 'completed');
+  assert.equal(JSON.parse(row.card).seq, 4);
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '开始'), seq: 1 });
+  assert.equal(JSON.parse(hub.store.message(Number(handle)).card).state, 'completed', 'a delayed first create does not reopen a finished card');
+});
+
 test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a CLI job settled after restart', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
@@ -1288,7 +1336,7 @@ test('reply: a v6 database gains reply_to and keeps its messages', async () => {
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   const old = up.page(1, undefined, 1)[0];
   assert.equal(old.text, '老消息');
   assert.equal(old.reply_to, null);
@@ -1620,7 +1668,7 @@ test('tasks: the tasks table is ensured idempotently and survives reopen', async
   const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
   assert.equal(cols.includes('note'), true, 'a missing column is added back');
   assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
-  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 11);
   again.close();
 });
 
@@ -1711,7 +1759,7 @@ test('store: a v6 database gains kind/parent_id; opening it creates no workspace
   old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
   old.close();
   const s = new Store(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.deepEqual(plain(s.rooms()), [
     { id: 1, name: 'general', kind: 'chat', parent_id: null },
     { id: 2, name: 'dev', kind: 'chat', parent_id: null },
@@ -1805,11 +1853,11 @@ test('store: a v8 database missing reply_to (#133 shipped after) gains it on ope
   s.ensureRoom(1, 'general');
   s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
   s.close();
   const up = new Store(path);
   assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.equal(up.page(1, undefined, 1)[0].text, 'old');
   up.close();
 });
@@ -2274,3 +2322,233 @@ test('cloud_web release names the claim it ends: a late release does not free a 
   assert.equal(ack().ok, true);
   assert.equal(hub.store.workspaceOwner(ws.id), null);
 });
+
+test('#144 attachments: stored on the message, shown publicly, forwarded to bots as images/files', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const { publicMessage } = await import('./store.mjs');
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-att-')), 'attachments'));
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, files });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  await settle();
+
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const attachments = files.save([
+    { name: 'shot.png', mime: 'image/png', data: png.toString('base64') },
+    { name: 'run.log', mime: 'text/plain', data: Buffer.from('boom').toString('base64') },
+  ]);
+  assert.equal(attachments.length, 2);
+  assert.deepEqual(files.read(attachments[0].id), png);
+  assert.equal(files.read('../etc/passwd'), undefined);
+
+  // A message may carry only attachments.
+  const { message } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '', attachments });
+  const view = publicMessage(message, hub.store);
+  assert.deepEqual(view.attachments.map(a => [a.name, a.mime, a.size]), [['shot.png', 'image/png', 4], ['run.log', 'text/plain', 4]]);
+  assert.equal(hub.store.attachmentMeta(attachments[1].id).name, 'run.log');
+  assert.equal(hub.store.attachmentMeta('00000000-0000-0000-0000-000000000000'), undefined);
+
+  await settle();
+  const frame = ju.of('message').at(-1);
+  assert.deepEqual(frame.images, [{ mime_type: 'image/png', data: png.toString('base64'), file_name: 'shot.png' }]);
+  assert.deepEqual(frame.files, [{ mime_type: 'text/plain', data: Buffer.from('boom').toString('base64'), file_name: 'run.log' }]);
+
+  assert.throws(() => files.save([{ name: 'x', mime: 'text/plain', data: '' }]), /empty/);
+  assert.throws(() => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '' }), /empty/);
+});
+
+test('#144 attachments: only png/jpeg/gif/webp up to 5 MB go to bots as images, the rest as files', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments, MAX_IMAGE_BYTES } = await import('./attachments.mjs');
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-att-')), 'attachments'));
+  const b64 = (buf) => buf.toString('base64');
+  const saved = files.save([
+    { name: 'a.png', mime: 'image/png', data: b64(Buffer.from('png')) },
+    { name: 'b.svg', mime: 'image/svg+xml', data: b64(Buffer.from('<svg/>')) },
+    { name: 'c.heic', mime: 'image/heic', data: b64(Buffer.from('heic')) },
+    { name: 'd.jpg', mime: 'image/jpeg', data: b64(Buffer.alloc(MAX_IMAGE_BYTES + 1, 1)) },
+  ]);
+  const wire = files.wire(saved);
+  assert.deepEqual(wire.images.map(i => i.file_name), ['a.png']);
+  assert.deepEqual(wire.files.map(f => f.file_name), ['b.svg', 'c.heic', 'd.jpg']);
+});
+
+test('#144 oversized POST body gets a 413 response instead of a dropped connection', async () => {
+  const { createServer } = await import('node:http');
+  const { withBody } = await import('./plugin.mjs');
+  const server = createServer((req, res) => { withBody(req, res, async () => ({ ok: true }), true, 1024); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/`, { method: 'POST', body: 'x'.repeat(256 * 1024) });
+    assert.equal(res.status, 413);
+    assert.equal((await res.json()).code, 'too-large');
+  } finally { server.close(); }
+});
+
+test('retry failed message (#146): store.retryJob resets a failed job, DshMembers.retry re-queues and clears error', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const realCreate = dsh.ctx.agents.create.bind(dsh.ctx.agents);
+  let shouldFail = true;
+  dsh.ctx.agents.create = async (o) => {
+    const h = await realCreate(o);
+    const origFollowup = h.agent.followup.bind(h.agent);
+    h.agent.followup = (m) => {
+      if (shouldFail) throw Error('quota exhausted');
+      return origFollowup(m);
+    };
+    return h;
+  };
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek run' });
+  await settle();
+
+  // It should have failed and left a system error card
+  const failedMsg = hub.store.page(1, undefined, 1)[0];
+  assert.equal(failedMsg.author_kind, 'system');
+  assert.match(failedMsg.text, /quota exhausted/);
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /quota exhausted/);
+  const cardData = JSON.parse(failedMsg.card);
+  assert.equal(cardData.state, 'failed');
+  assert.equal(cardData.member_id, 'ds');
+
+  // Now trigger retry
+  shouldFail = false;
+  const userTrigger = hub.store.message(cardData.trigger_id);
+  assert.ok(userTrigger);
+  const retried = members.retry('ds', userTrigger);
+  assert.equal(retried, true);
+  // Error should be cleared
+  assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
+  await settle();
+
+  // DSH turn succeeded now
+  dsh.turn(dsh.sessions.get(dsh.made[0]), ['重试成功']);
+  await settle();
+  const latest = hub.store.page(1, undefined, 1)[0];
+  assert.equal(latest.author, 'ds');
+  assert.equal(latest.text, '重试成功');
+});
+
+
+test('#148 editing a reply keeps its quote for the edit response and the browser event', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = route(hub, gw, { recall: () => [] });
+  const { message: quoted } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '原话' });
+  const { message: reply } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '回一句', replyTo: quoted.id });
+  const ok = await call('PATCH', `/collab/api/messages/${reply.id}`, { text: '改过的回复' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.message.reply_to?.id, quoted.id, 'the edited reply still quotes its message');
+  assert.equal(events.at(-1).message.reply_to?.id, quoted.id);
+});
+
+test('#148 owner edits own message: text and edited_at change, others and cards are refused, browsers told', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = route(hub, gw, { recall: () => [] });
+  const { message: mine } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '打错字了' });
+  const { message: bot } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '收到' });
+  const ok = await call('PATCH', `/collab/api/messages/${mine.id}`, { text: '改好了' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.message.text, '改好了');
+  assert.equal(typeof ok.json.message.edited_at, 'number');
+  assert.equal(hub.store.message(mine.id).text, '改好了');
+  assert.equal(events.at(-1).type, 'message');
+  assert.equal(events.at(-1).message.edited_at, ok.json.message.edited_at);
+  assert.equal((await call('PATCH', `/collab/api/messages/${bot.id}`, { text: 'x' })).status, 403, 'not the owner\'s message');
+  assert.equal(hub.store.message(bot.id).text, '收到');
+  assert.equal((await call('PATCH', `/collab/api/messages/${mine.id}`, { text: '  ' })).status, 400, 'empty text');
+  assert.equal((await call('PATCH', '/collab/api/messages/999', { text: 'x' })).status, 403);
+  assert.equal(hub.store.page(1).find(m => m.id === bot.id).edited_at, null, 'an unedited row has no edited_at');
+});
+
+test('#148 owner withdraws own message: row hidden, bots get message_recall, DSH jobs not started end quietly', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = route(hub, gw, members);
+
+  // DeepSeek is busy with an earlier turn, so this @ waits in its queue (pending); Qwen admits it (sent, not yet in a turn).
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 先做这个' });
+  await settle();
+  const { message: wrong } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek @Qwen @橘 发错了' });
+  await settle();
+  assert.equal(ju.of('message').at(-1).msg_id, `hub-${wrong.id}`);
+  const qwen = dsh.sessions.get(hub.store.binding('qw', 1).session_id);
+  assert.equal(qwen.inbox.nextTurn.length, 1);
+
+  const res = await call('DELETE', `/collab/api/messages/${wrong.id}`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.recalled, ['ju']);
+  assert.deepEqual(res.json.still_running, []);
+  assert.deepEqual(res.json.stopped, []);
+  assert.deepEqual(ju.of('message_recall').at(-1), { type: 'message_recall', msg_id: `hub-${wrong.id}` });
+  assert.equal(hub.store.message(wrong.id), undefined, 'hidden from history');
+  assert.deepEqual(events.find(e => e.type === 'deleted'), { type: 'deleted', id: wrong.id, room_id: 1 });
+  assert.equal(qwen.inbox.nextTurn.length, 0, 'the input waiting in Qwen\'s inbox is taken back');
+  members.onDiscarded(qwen.session.id, qwen.prompts[0].id);
+  // DeepSeek finishes its earlier turn; the withdrawn job must not start.
+  const ds = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(ds, ['第一件做完了']);
+  await settle();
+  assert.equal(ds.prompts.length, 1, 'the queued job for the withdrawn message never runs');
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.equal(hub.store.page(1).filter(m => m.author_kind === 'system').length, 0, 'no failure card for a withdrawal');
+  assert.equal(hub.thinking.get(1).has('qw'), false);
+});
+
+test('#148 withdrawing stops a DSH turn already running, keeps its queue, posts nothing; others\' messages stay', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const call = route(hub, gw, members);
+  const { message: m } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 跑起来' });
+  await settle();
+  const ds = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(ds, [], null); // the turn takes the input and is still running
+  assert.equal(hub.thinking.get(1).has('ds'), true);
+  const res = await call('DELETE', `/collab/api/messages/${m.id}`);
+  assert.deepEqual(res.json.stopped, ['DeepSeek']);
+  assert.deepEqual(res.json.still_running, []);
+  assert.deepEqual(ds.cancels, [[{ kind: 'user' }, { keepInbox: true }]], 'cancelled like DSH\'s stop button');
+  await settle();
+  // The cancelled turn ends with partial text; it must not become a reply or a failure card.
+  dsh.emit(ds, 'assistant/message', { message: { content: [{ type: 'text', text: '半截' }] } });
+  dsh.emit(ds, 'turn/end', { turn: 1, reason: { kind: 'cancelled' } });
+  await settle();
+  assert.equal(hub.store.page(1).filter(r => r.author_kind !== 'user').length, 0);
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.equal(hub.thinking.get(1).has('ds'), false);
+  const { message: bot } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '回复' });
+  assert.equal((await call('DELETE', `/collab/api/messages/${bot.id}`)).status, 403);
+  assert.notEqual(hub.store.message(bot.id), undefined);
+});
+
+function route(hub, gateway, dsh) {
+  return async (method, path, body) => {
+    const req = new EventEmitter();
+    req.method = method; req.url = path; req.headers = {};
+    const res = { status: 0, body: '', writeHead(s) { this.status = s; }, end(b) { this.body = b; } };
+    const p = ownMessageRoute(req, res, path, { store: hub.store, hub, gateway, dsh });
+    if (body !== undefined) req.emit('data', Buffer.from(JSON.stringify(body)));
+    req.emit('end');
+    await p;
+    return { status: res.status, json: JSON.parse(res.body) };
+  };
+}

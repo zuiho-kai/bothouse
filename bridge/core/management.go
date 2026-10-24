@@ -35,6 +35,8 @@ type ProjectSettingsUpdate struct {
 // ManagementServer provides an HTTP REST API for external management tools
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
+	usageLedger *UsageLedger
+	usageImporter *UsageImporter
 	port        int
 	host        string // "" = all interfaces
 	token       string
@@ -54,6 +56,7 @@ type ManagementServer struct {
 	setupFeishuSave      func(req FeishuSetupSaveRequest) error
 	setupWeixinSave      func(req WeixinSetupSaveRequest) error
 	addPlatformToProject func(projectName, platType string, opts map[string]any, workDir, agentType string) error
+	hotLoad              func() HotLoadResult // starts the projects in config.toml that are not running yet
 	removeProject        func(projectName string) error
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
 	getProjectConfig     func(projectName string) map[string]any
@@ -110,6 +113,28 @@ func (m *ManagementServer) SetSetupWeixinSave(fn func(WeixinSetupSaveRequest) er
 	m.setupWeixinSave = fn
 }
 
+// HotLoadResult: what one hot load did. Added: projects now online. Failed: project name → why it
+// did not come online (nothing of it is left running). Error: the load as a whole did not run.
+//
+// The setup wizard's save fills the rest: Removed are failed roles it added and took back out of
+// config.toml (RollbackError: why that did not work); RestartKeys ("<project>: <option>") and
+// ReloadError say why the running roles still need a restart.
+type HotLoadResult struct {
+	Added         []string          `json:"projects_added"`
+	Failed        map[string]string `json:"projects_failed,omitempty"`
+	Error         string            `json:"hot_load_error,omitempty"`
+	Removed       []string          `json:"projects_removed,omitempty"`
+	RollbackError string            `json:"rollback_error,omitempty"`
+	RestartKeys   []string          `json:"restart_keys,omitempty"`
+	ReloadError   string            `json:"reload_error,omitempty"`
+}
+
+// SetHotLoadFunc wires /reload and the setup wizard's save to start projects that were added to
+// config.toml while the service runs (cmd/cc-connect projectRuntime.HotLoad).
+func (m *ManagementServer) SetHotLoadFunc(fn func() HotLoadResult) {
+	m.hotLoad = fn
+}
+
 func (m *ManagementServer) SetAddPlatformToProject(fn func(string, string, map[string]any, string, string) error) {
 	m.addPlatformToProject = fn
 }
@@ -155,10 +180,10 @@ type GlobalProviderInfo struct {
 		Model string `json:"model"`
 		Alias string `json:"alias,omitempty"`
 	} `json:"models,omitempty"`
-	Endpoints       map[string]string              `json:"endpoints,omitempty"`
-	AgentModels     map[string]string              `json:"agent_models,omitempty"`
-	AgentModelLists map[string][]GlobalModelEntry   `json:"agent_model_lists,omitempty"`
-	Codex           *GlobalCodexConfig              `json:"codex,omitempty"`
+	Endpoints       map[string]string             `json:"endpoints,omitempty"`
+	AgentModels     map[string]string             `json:"agent_models,omitempty"`
+	AgentModelLists map[string][]GlobalModelEntry `json:"agent_model_lists,omitempty"`
+	Codex           *GlobalCodexConfig            `json:"codex,omitempty"`
 }
 
 // GlobalModelEntry is a model entry inside AgentModelLists.
@@ -225,6 +250,8 @@ func (m *ManagementServer) Start() {
 func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	prefix := "/api/v1"
 
+	mux.HandleFunc(prefix+"/usage/", m.wrap(m.handleUsage))
+
 	// System
 	mux.HandleFunc(prefix+"/status", m.wrap(m.handleStatus))
 	mux.HandleFunc(prefix+"/restart", m.wrap(m.handleRestart))
@@ -285,6 +312,13 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// Skills
 	mux.HandleFunc(prefix+"/skills", m.wrap(m.handleSkills))
 	mux.HandleFunc(prefix+"/skills/presets", m.wrap(m.handleSkillPresets))
+
+	// Roles
+	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
+	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
+
+	// Devices (adapters from bridge server)
+	mux.HandleFunc(prefix+"/devices", m.wrap(m.handleDevices))
 
 	// Bridge
 	mux.HandleFunc(prefix+"/bridge/adapters", m.wrap(m.handleBridgeAdapters))
@@ -504,30 +538,70 @@ func (m *ManagementServer) handleRestart(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// reloadRunning re-reads config.toml into every running project. It returns the
+// "<project>: <option>" entries that changed but need a restart.
+func (m *ManagementServer) reloadRunning() ([]string, error) {
+	var pending []string
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for name, e := range m.engines {
+		if e.configReloadFunc == nil {
+			continue
+		}
+		r, err := e.configReloadFunc()
+		if err != nil {
+			return pending, fmt.Errorf("reload %s: %v", name, err)
+		}
+		for _, k := range r.RestartKeys {
+			pending = append(pending, name+": "+k)
+		}
+	}
+	return pending, nil
+}
+
 func (m *ManagementServer) handleReload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		mgmtError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	var updated []string
+	var reloadErr error
+	m.mu.RLock()
 	for name, e := range m.engines {
 		if e.configReloadFunc != nil {
 			if _, err := e.configReloadFunc(); err != nil {
-				mgmtError(w, http.StatusInternalServerError, fmt.Sprintf("reload %s: %v", name, err))
-				return
+				reloadErr = fmt.Errorf("reload %s: %v", name, err)
+				break
 			}
 			updated = append(updated, name)
 		}
 	}
+	m.mu.RUnlock()
+	if reloadErr != nil {
+		mgmtError(w, http.StatusInternalServerError, reloadErr.Error())
+		return
+	}
 
-	mgmtJSON(w, http.StatusOK, map[string]any{
+	// after the read lock: a hot-loaded project registers itself here (RegisterEngine takes m.mu)
+	resp := map[string]any{
 		"message":          "config reloaded",
 		"projects_updated": updated,
-	})
+		"projects_added":   []string{},
+	}
+	if m.hotLoad != nil {
+		hl := m.hotLoad()
+		if hl.Added != nil {
+			resp["projects_added"] = hl.Added
+		}
+		if len(hl.Failed) > 0 {
+			resp["projects_failed"] = hl.Failed
+		}
+		if hl.Error != "" {
+			resp["hot_load_error"] = hl.Error
+		}
+	}
+	mgmtJSON(w, http.StatusOK, resp)
 }
 
 func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -613,6 +687,7 @@ func (m *ManagementServer) handleProjects(w http.ResponseWriter, r *http.Request
 
 		projects = append(projects, map[string]any{
 			"name":              name,
+			"display_name":      e.DisplayName(),
 			"agent_type":        e.agent.Name(),
 			"platforms":         platNames,
 			"sessions_count":    sessCount,
@@ -706,6 +781,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 
 		data := map[string]any{
 			"name":                name,
+			"display_name":        e.DisplayName(),
 			"agent_type":          e.agent.Name(),
 			"platforms":           platInfos,
 			"sessions_count":      sessCount,
@@ -1961,10 +2037,10 @@ func (m *ManagementServer) handleCCSwitchProviders(w http.ResponseWriter, r *htt
 // applying per-agent-type overrides for base_url, model, and models.
 func resolveGlobalProviderForAgent(g GlobalProviderInfo, agentType string) ProviderConfig {
 	pc := ProviderConfig{
-		Name:   g.Name,
-		APIKey: g.APIKey,
+		Name:    g.Name,
+		APIKey:  g.APIKey,
 		BaseURL: g.BaseURL,
-		Model:  g.Model,
+		Model:   g.Model,
 	}
 	if ep, ok := g.Endpoints[agentType]; ok && ep != "" {
 		pc.BaseURL = ep

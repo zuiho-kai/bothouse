@@ -10,8 +10,12 @@ export const MAX_TEXT = 128 * 1024;
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
 export const DISPATCH_MODES = ['solo', 'team', 'mixed'];
 export const DEFAULT_DISPATCH_MODE = 'mixed';
-// v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks.
-const SCHEMA_VERSION = 10;
+// v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks, v10 is #177
+// (room_settings.dispatch_explicit); columns are added by ensureSchema() on every open
+// (checked with PRAGMA table_info), so either merge or release order ends with every column;
+// user_version only records the newest schema known.
+// v11 is #148 (edited_at).
+const SCHEMA_VERSION = 11;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
@@ -21,6 +25,8 @@ const COLUMNS = [
   // clears the flag. Durable, so a restart between commit and finishJob never fans it out twice.
   ['messages', 'draft', 'INTEGER NOT NULL DEFAULT 0'],
   ['messages', 'reply_to', 'INTEGER'], // v7 (#133): the message a user reply quotes.
+  // #144: JSON list of uploaded files ({id, name, mime, size}); bytes live under dataDir/attachments.
+  ['messages', 'attachments', 'TEXT'],
   // v8 (#139 team mode A): a room is a chat channel or a workspace under one chat channel.
   ['rooms', 'kind', "TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'workspace'))"],
   ['rooms', 'parent_id', 'INTEGER REFERENCES rooms(id)'],
@@ -36,6 +42,7 @@ const COLUMNS = [
   // Id of the current claim, bumped by every claim (claimWorkspace, createWorkspace): a release
   // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
+  ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -64,12 +71,14 @@ export class Store {
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
           ?, 'workspace', ?, 0, ? RETURNING id, name, kind, parent_id`),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
-      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to, attachments)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
+        AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
@@ -87,6 +96,9 @@ export class Store {
       addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at)
         VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
       job: this.db.prepare('SELECT * FROM jobs WHERE id = ?'),
+      jobByTrigger: this.db.prepare('SELECT * FROM jobs WHERE member_id = ? AND trigger_id = ?'),
+      resetJob: this.db.prepare("UPDATE jobs SET state = ?, created_at = ?, reply_id = NULL, session_id = NULL, seq_before = NULL, input_id = NULL WHERE id = ? RETURNING *"),
+      lastUserMessage: this.db.prepare("SELECT * FROM messages WHERE room_id = ? AND id < ? AND author_kind = 'user' AND deleted = 0 ORDER BY id DESC LIMIT 1"),
       openJobs: this.db.prepare("SELECT * FROM jobs WHERE state IN ('pending', 'sent') ORDER BY id"),
       sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ? WHERE id = ? AND state = 'pending' RETURNING *"),
       finish: this.db.prepare("UPDATE jobs SET state = ?, reply_id = ? WHERE id = ? AND state IN ('pending', 'sent') RETURNING *"),
@@ -482,7 +494,8 @@ export class Store {
   append(roomId, m, now = Date.now() / 1000) {
     if (this.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const text = String(m.text ?? '');
-    if (!text.trim() && m.card == null) throw new CollabError('empty', 'message text is empty');
+    const attachments = Array.isArray(m.attachments) && m.attachments.length ? m.attachments : null;
+    if (!text.trim() && m.card == null && attachments === null) throw new CollabError('empty', 'message text is empty');
     if (text.length > MAX_TEXT) throw new CollabError('too-long', `message exceeds ${MAX_TEXT} characters`);
     if (m.clientKey != null) {
       const existing = this.q.byKey.get(m.clientKey);
@@ -496,7 +509,8 @@ export class Store {
       replyTo = ref.id;
     }
     const row = this.q.insert.get(roomId, m.authorKind, m.author, m.name, text, now,
-      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0, replyTo);
+      m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0, replyTo,
+      attachments === null ? null : JSON.stringify(attachments));
     return { message: row, created: true };
   }
 
@@ -516,6 +530,12 @@ export class Store {
     return { id: ref.id, author_kind: ref.author_kind, author: ref.author, name: ref.name, text };
   }
   /** Edit or delete only a row the same author wrote; returns the row or undefined. */
+  /** #144: {id, name, mime, size} of a stored attachment, or undefined when no live message carries it. */
+  attachmentMeta(id) {
+    const row = this.db.prepare("SELECT attachments FROM messages WHERE deleted = 0 AND attachments LIKE ? LIMIT 1").get(`%"${id}"%`);
+    return messageAttachments(row).find(a => a.id === id);
+  }
+
   edit(id, authorKind, author, text, card) { return this.q.edit.get(text, card ?? null, id, authorKind, author); }
   /**
    * Finish a streamed draft row with its complete text (#121). Returns
@@ -531,6 +551,13 @@ export class Store {
     if (old === undefined || old.card != null) return undefined;
     const again = this.edit(id, authorKind, author, text);
     return again === undefined ? undefined : { message: again, first: false };
+  }
+  /** #148: a person edits their own plain message; returns the row, or undefined if it is not theirs. */
+  editUser(id, author, text, now = Date.now() / 1000) {
+    text = String(text ?? '');
+    if (!text.trim()) throw new CollabError('empty', 'message text is empty');
+    if (text.length > MAX_TEXT) throw new CollabError('too-long', `message exceeds ${MAX_TEXT} characters`);
+    return this.q.editUser.get(text, now, id, author);
   }
   remove(id, authorKind, author) { return this.q.del.get(id, authorKind, author); }
   /** One author's live text drafts (#121), oldest first. */
@@ -563,6 +590,19 @@ export class Store {
   addJob(memberId, roomId, triggerId, now = Date.now() / 1000) {
     return this.q.addJob.get(memberId, roomId, triggerId, now);
   }
+  jobByTrigger(memberId, triggerId) {
+    return this.q.jobByTrigger.get(memberId, triggerId);
+  }
+  retryJob(memberId, roomId, triggerId, now = Date.now() / 1000) {
+    const existing = this.jobByTrigger(memberId, triggerId);
+    if (existing !== undefined) {
+      return this.q.resetJob.get('pending', now, existing.id);
+    }
+    return this.addJob(memberId, roomId, triggerId, now);
+  }
+  lastUserMessage(roomId, beforeId) {
+    return this.q.lastUserMessage.get(roomId, beforeId);
+  }
   job(id) { return this.q.job.get(id); }
   openJobs() { return this.q.openJobs.all(); }
   /** Record admission before the prompt reaches the Agent; false if already moved on. */
@@ -587,10 +627,19 @@ export function publicMessage(row, store) {
   const out = {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
+    ...(row.edited_at != null ? { edited_at: row.edited_at } : {}),
   };
   const quote = store?.quote(row);
   if (quote !== undefined) out.reply_to = quote;
+  const attachments = messageAttachments(row);
+  if (attachments.length) out.attachments = attachments;
   return out;
+}
+
+/** #144: the uploaded files a message carries ([] when none or unreadable). */
+export function messageAttachments(row) {
+  if (!row?.attachments) return [];
+  try { const list = JSON.parse(row.attachments); return Array.isArray(list) ? list : []; } catch { return []; }
 }
 
 /** Discord-style quote prefix for agent prompts: `[回复 作者：前40字…] ` (discord.go:1645-1650). */

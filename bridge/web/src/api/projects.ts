@@ -2,11 +2,20 @@ import api from './client';
 
 export interface ProjectSummary {
   name: string;
+  /** the name people see: team_name, e.g. the user's 鲸鱼娘 for project role-1 (falls back to name) */
+  display_name?: string;
   agent_type: string;
   platforms: string[];
   sessions_count: number;
   heartbeat_enabled: boolean;
 }
+
+/** The project's name for people (display_name), else its project name. */
+export const shownName = (p?: { name: string; display_name?: string } | null) => p?.display_name || p?.name || '';
+
+/** project name → shown name, for places that only hold the project name. */
+export const shownNames = (ps: { name: string; display_name?: string }[]) => (n: string) =>
+  shownName(ps.find((p) => p.name === n)) || n;
 
 export interface PlatformConfigInfo {
   type: string;
@@ -15,6 +24,7 @@ export interface PlatformConfigInfo {
 
 export interface ProjectDetail {
   name: string;
+  display_name?: string;
   agent_type: string;
   work_dir?: string;
   agent_mode?: string;

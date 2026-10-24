@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { MessageSquare, Circle, Filter, User, Bot } from 'lucide-react';
 import { Badge, EmptyState } from '@/components/ui';
-import { listProjects, type ProjectSummary } from '@/api/projects';
+import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 import { cn } from '@/lib/utils';
 
@@ -83,7 +83,7 @@ export default function SessionList() {
         >
           <option value="">{t('sessions.allProjects')}</option>
           {projects.map((p) => (
-            <option key={p.name} value={p.name}>{p.name}</option>
+            <option key={p.name} value={p.name}>{shownName(p)}</option>
           ))}
         </select>
         <span className="text-xs text-gray-400">
@@ -135,7 +135,7 @@ export default function SessionList() {
 
                 {/* Bottom: badges + count */}
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <Badge>{s._project}</Badge>
+                  <Badge>{shownNames(projects)(s._project)}</Badge>
                   {s.platform && <Badge variant="info">{s.platform}</Badge>}
                   <span className="text-[10px] text-gray-400 ml-auto">{s.history_count} msgs</span>
                 </div>

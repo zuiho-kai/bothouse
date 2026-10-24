@@ -19,11 +19,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +47,9 @@ type WizardRequest struct {
 	FallbackRole  string          `json:"fallback_role,omitempty"`   // project name; default = first role
 	FallbackBotID string          `json:"fallback_bot_id,omitempty"` // or the Discord bot ID (wins; the web wizard sends this)
 	Jev           *WizardJev      `json:"jev,omitempty"`
+	// Gate: one lead bot routes the team's messages (the gate, core/gate_proc.go). nil = on, so a
+	// request without it (AI, curl, `setup apply`) gets the default.
+	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
 	// Not given = the owner of each bot's Discord application (looked up with the token).
 	// Written to new bots and to existing bots whose allow_from is still empty; a non-empty one is kept.
@@ -53,7 +58,20 @@ type WizardRequest struct {
 	// (~/wiki/bin/ingest.py), the wizard also adds its scheduled runs as muted cron jobs.
 	Wiki   *WizardWiki `json:"wiki,omitempty"`
 	DryRun bool        `json:"dry_run,omitempty"`
+	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
+	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
+	AppendOnly bool `json:"append_only,omitempty"`
 }
+
+// WizardGate: enabled = a team of bots gets gate_url / gate_fallback (lead "reply", the others
+// "context") and gate-team.json, and bothouse starts the gate when python and a jev are there;
+// without them core/gate.go fallbackFor still lets only the lead answer what names no one.
+// false = no gate: the wizard's own gate_url / gate_fallback are cleared, hand-written ones kept.
+type WizardGate struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (r WizardRequest) gateOn() bool { return r.Gate == nil || r.Gate.Enabled }
 
 type WizardFeishu struct {
 	AppID        string `json:"app_id"`
@@ -135,29 +153,36 @@ type WizardWarning struct {
 type WizardResult struct {
 	// OK: nothing failed and nothing blocking is left for the user. A saved config with a
 	// blocking warning (intent off, bot not in the server) is saved=true, ok=false.
-	OK              bool                `json:"ok"`
-	Saved           bool                `json:"saved"`
-	NeedsUserAction bool                `json:"needs_user_action"`
-	Warnings        []WizardWarning     `json:"warnings"`
-	InviteURLs      []string            `json:"invite_urls,omitempty"` // bots not in the server yet: open each link to add it
-	AllowFrom       string              `json:"allow_from,omitempty"`  // who the new bots take orders from
-	GateRunning     *bool               `json:"gate_running,omitempty"`
-	GateHint        string              `json:"gate_hint,omitempty"`
-	NextSteps       []string            `json:"next_steps,omitempty"` // how to start / restart (filled by the caller that knows)
-	DryRun          bool                `json:"dry_run"`
-	Steps           []WizardStep        `json:"steps"`
-	Roles           []WizardRoleResult  `json:"roles"`
-	FallbackRole    string              `json:"fallback_role,omitempty"`
-	Jev             *JevTestResult      `json:"jev_test,omitempty"`
-	JevOK           bool                `json:"jev_ok"`               // a jev that returns probabilities is saved (now or earlier)
-	JevReason       string              `json:"jev_reason,omitempty"` // why the jev in this request was not saved
-	JevInUse        string              `json:"jev_in_use,omitempty"` // "model @ url" of the jev in effect after this request ("" = none)
-	JevHint         string              `json:"jev_hint"`
-	Hardware        bool                `json:"hardware"`
-	RestartRequired bool                `json:"restart_required"`
-	ConfigBackup    string              `json:"config_backup,omitempty"` // copy of config.toml taken before the write
-	CloudWeb        *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
-	Error           string              `json:"error,omitempty"`
+	OK              bool            `json:"ok"`
+	Saved           bool            `json:"saved"`
+	NeedsUserAction bool            `json:"needs_user_action"`
+	Warnings        []WizardWarning `json:"warnings"`
+	InviteURLs      []string        `json:"invite_urls,omitempty"` // bots not in the server yet: open each link to add it
+	AllowFrom       string          `json:"allow_from,omitempty"`  // who the new bots take orders from
+	GateRunning     *bool           `json:"gate_running,omitempty"`
+	GateHint        string          `json:"gate_hint,omitempty"`
+	// GateStatus (a team of bots): off | running | starting (bothouse starts it now or on its restart) |
+	// python_missing | python_too_old | jev_missing (not started: the lead answers what names no one)
+	GateStatus      string             `json:"gate_status,omitempty"`
+	dataDir         string             // where the gate's jev.json is (GatePrereq)
+	NextSteps       []string           `json:"next_steps,omitempty"` // how to start / restart (filled by the caller that knows)
+	DryRun          bool               `json:"dry_run"`
+	Steps           []WizardStep       `json:"steps"`
+	Roles           []WizardRoleResult `json:"roles"`
+	FallbackRole    string             `json:"fallback_role,omitempty"`
+	Jev             *JevTestResult     `json:"jev_test,omitempty"`
+	JevOK           bool               `json:"jev_ok"`               // a jev that returns probabilities is saved (now or earlier)
+	JevReason       string             `json:"jev_reason,omitempty"` // why the jev in this request was not saved
+	JevInUse        string             `json:"jev_in_use,omitempty"` // "model @ url" of the jev in effect after this request ("" = none)
+	JevHint         string             `json:"jev_hint"`
+	Hardware        bool               `json:"hardware"`
+	RestartRequired bool               `json:"restart_required"`
+	// HotLoad: a running service started the roles this save added (handleSetupApply), so no restart
+	// is needed for them. nil = not tried (dry run, wizard outside a running service).
+	HotLoad      *HotLoadResult      `json:"hot_load,omitempty"`
+	ConfigBackup string              `json:"config_backup,omitempty"` // copy of config.toml taken before the write
+	CloudWeb     *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
+	Error        string              `json:"error,omitempty"`
 }
 
 // ── store (implemented in cmd/cc-connect on top of config/) ─────
@@ -172,6 +197,9 @@ type WizardProjectWrite struct {
 	GateURL, GateFallback                  *string
 	Provider                               *ProviderConfig
 	FeishuOwnerOpenID                      string // feishu: merged into allow_from when it is empty
+	// DisplayName is the name the user gave the role when it differs from the project name (a
+	// non-ASCII name maps to role-N); written as team_name, which the panel shows. "" = leave
+	DisplayName string
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -180,6 +208,7 @@ type WizardExistingProject struct {
 	Name, AgentType, WorkDir, AgentCmd string
 	Platforms                          map[string]map[string]any // platform type → options (first of each type)
 	GateURL, GateFallback              string
+	DisplayName                        string // team_name ("" = Name)
 }
 
 // WizardSnapshot is config.toml's projects at one moment.
@@ -264,6 +293,12 @@ type WizardStore interface {
 	// current config, calls plan with it, applies the returned writes and saves once
 	// (temp file + rename). It returns the path of the backup taken before writing.
 	ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite, error)) (backup string, err error)
+}
+
+// WizardProjectRemover is implemented by stores that can take projects back out of config.toml:
+// a role the wizard just added that did not start in the running service is removed again.
+type WizardProjectRemover interface {
+	RemoveProjects(names []string) (removed []string, err error)
 }
 
 // WizardEnv carries what ApplyWizard needs besides the request.
@@ -663,7 +698,7 @@ type wizardPlan struct {
 
 // ApplyWizard validates, fills defaults and (unless DryRun) writes everything.
 func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardResult {
-	res := &WizardResult{DryRun: req.DryRun, Roles: []WizardRoleResult{}, Steps: []WizardStep{}, Warnings: []WizardWarning{}}
+	res := &WizardResult{DryRun: req.DryRun, Roles: []WizardRoleResult{}, Steps: []WizardStep{}, Warnings: []WizardWarning{}, dataDir: env.DataDir}
 	fail := func(step string, err error) *WizardResult {
 		addStep(res, step, err, "")
 		res.Error = err.Error()
@@ -1105,7 +1140,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
 	}
 
-	if (req.Platform == "discord" || cloudWeb) && len(pl.team) > 1 {
+	if (req.Platform == "discord" || cloudWeb || isFeishu) && len(pl.team) > 1 && req.gateOn() {
 		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
 		for _, t := range pl.team {
 			if t.Project != pl.fallback {
@@ -1167,6 +1202,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	applyWizardWiki(res, env, req, pl.fallback, wikiSession)
 	res.RestartRequired = true
 	res.Saved = true
+	if after, err := env.Store.Snapshot(); err == nil {
+		reloadGateAfterWizard(env.DataDir, after) // the service in this process starts / restarts its gate now
+	}
 	finishWizardResult(res, req, pl, usable)
 	return res
 }
@@ -1207,6 +1245,20 @@ func fillRoleResults(res *WizardResult, pl *wizardPlan) {
 	}
 }
 
+// DefaultAgentYoloMode returns the full-auto / YOLO permission mode string for the given agent type.
+func DefaultAgentYoloMode(agentType string) string {
+	switch strings.ToLower(strings.TrimSpace(agentType)) {
+	case "claudecode", "copilot":
+		return "bypassPermissions"
+	case "cursor":
+		return "force"
+	case "codex", "gemini", "antigravity", "pi", "qoder", "opencode", "kimi", "iflow", "reasonix":
+		return "yolo"
+	default:
+		return "yolo"
+	}
+}
+
 // planWizard fixes project names against the snapshot, fills defaults and builds
 // the config writes, merging the team wiring with what each project already has.
 func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state SetupState, dataDir, defaultAgent string,
@@ -1228,6 +1280,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	used := map[string]bool{}
 	for i, w := range ids {
 		r := plannedRole{wizardIdentity: w}
+		renamed := false // a new bot's name was taken and got -N
 		switch {
 		case w.reuse != "":
 			if _, ok := s.project(w.reuse); !ok {
@@ -1237,6 +1290,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		case req.Platform == "discord" && w.botID != "" && byBotID[w.botID] != "":
 			// the same bot is already configured (matched by its bot ID): update that project (H2)
 			r.project, r.reused = byBotID[w.botID], true
+		case isFeishuPlatform(req.Platform) && sameFeishuApp(s, req.Feishu, used) != "":
+			// the same Feishu / Lark app is already configured: update it, don't add a second project
+			r.project, r.reused = sameFeishuApp(s, req.Feishu, used), true
 		case cloudWeb && sameCloudWebMember(s, cwBase, w, used) != "":
 			// the same member of the same platform is already configured: update it, don't add name-2
 			r.project, r.reused = sameCloudWebMember(s, cwBase, w, used), true
@@ -1264,12 +1320,20 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			raw := base
 			base = cleanProjectName(base)
 			noASCII := base == "" && raw != ""
-			if base == "" {
-				base = fmt.Sprintf("role-%d", i+1)
-			}
 			name := base
-			for n := 2; taken[name] || used[name]; n++ {
-				name = fmt.Sprintf("%s-%d", base, n)
+			if base == "" {
+				// a generated role-N says nothing about the user's name: if it is taken (an earlier
+				// add made role-1), move on to the next free number rather than role-1-2 or refusing
+				for n := i + 1; ; n++ {
+					if name = fmt.Sprintf("role-%d", n); !taken[name] && !used[name] {
+						break
+					}
+				}
+			} else {
+				for n := 2; taken[name] || used[name]; n++ {
+					name = fmt.Sprintf("%s-%d", base, n)
+				}
+				renamed = name != base
 			}
 			if noASCII {
 				// project names are a-z 0-9 _ - (they go into paths, URLs and gate_url ?bot=); said
@@ -1277,6 +1341,16 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				r.nameNote = nameNote(req.Language, raw, name)
 			}
 			r.project = name
+		}
+		if req.AppendOnly && (r.reused || renamed) {
+			given := w.Name // the name the user typed, not the project name it maps to
+			if given == "" {
+				given = w.Project
+			}
+			if given == "" {
+				given = r.project
+			}
+			return nil, fmt.Errorf("a role named %q already exists; pick another name (adding never changes existing roles)", given)
 		}
 		if used[r.project] {
 			return nil, fmt.Errorf("bot %q is used twice in this request", r.project)
@@ -1346,6 +1420,18 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 		}
 	}
+	// Feishu / Lark make one bot per wizard run: a later run adds its bot to the earlier ones still in
+	// config, and the lead recorded then stays the lead unless this request names another
+	if isFeishuPlatform(req.Platform) && isFeishuPlatform(state.Platform) {
+		if req.FallbackRole == "" && req.FallbackBotID == "" {
+			req.FallbackRole = state.FallbackRole
+		}
+		for _, t := range state.Team {
+			if p, still := s.project(t.Project); still && !inRun[t.Project] && feishuPlatformOf(p) != "" {
+				pl.team = append(pl.team, t)
+			}
+		}
+	}
 	if cloudWeb && sameCloudWebHub(state.CloudWebURL, cwBase) {
 		if req.FallbackRole == "" {
 			req.FallbackRole = state.CloudWebFallback
@@ -1379,9 +1465,19 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		pl.team = append(pl.team, e)
 	}
 
+	// adding a role never moves the lead: keep the recorded fallback of this platform/hub, whatever
+	// the request says; only with no recorded one (nothing in the team) does the new role take it
+	if req.AppendOnly {
+		req.FallbackRole, req.FallbackBotID = "", ""
+		if req.Platform == "discord" && state.Platform == "discord" {
+			req.FallbackRole = state.FallbackRole
+		} else if cloudWeb && sameCloudWebHub(state.CloudWebURL, cwBase) {
+			req.FallbackRole = state.CloudWebFallback
+		}
+	}
 	// fallback role (unit = bot): one of the team's bots, else the first bot of this run (L3)
 	pl.fallback = req.FallbackRole
-	if cloudWeb && req.FallbackRole != "" {
+	if cloudWeb && req.FallbackRole != "" && !req.AppendOnly { // append: a recorded project name, not a display name
 		// the web wizard names the fallback by display name: its guess of a project name can differ
 		// from the one planned here (an existing member of the same name is reused, sameCloudWebMember)
 		for _, r := range pl.roles {
@@ -1421,6 +1517,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		ex, exists := s.project(r.project)
 		if !r.reused {
 			pw.WorkDir = r.workDir
+			if r.Name != r.project {
+				pw.DisplayName = r.Name
+			}
 		}
 		if r.agentCmd != "" && (!exists || ex.AgentCmd == "") {
 			pw.AgentCmd = r.agentCmd
@@ -1431,10 +1530,14 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		}
 		if !exists {
 			pw.AgentArgs, pw.AgentEnv = r.agentArgs, r.agentEnv
+			pw.AgentOptions = map[string]any{}
+			if mode := DefaultAgentYoloMode(r.AgentType); mode != "" {
+				pw.AgentOptions["mode"] = mode
+			}
 			if r.AgentType == "codex" {
 				// The exec backend has no approval path: a command outside its read-only sandbox
 				// is refused with no card to click. app_server asks through a permission card.
-				pw.AgentOptions = map[string]any{"backend": "app_server"}
+				pw.AgentOptions["backend"] = "app_server"
 				if pw.Provider != nil && strings.TrimSpace(pw.Provider.Model) != "" {
 					pw.AgentOptions["model"] = strings.TrimSpace(pw.Provider.Model)
 				}
@@ -1496,10 +1599,13 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		pl.writes = append(pl.writes, pw)
 	}
 	if req.Platform == "discord" && len(pl.team) > 1 {
-		pl.writes = mergeTeamWrites(pl.writes, pl.team, byProject, pl.fallback, pl.fallbackBot)
+		pl.writes = mergeTeamWrites(pl.writes, pl.team, byProject, pl.fallback, pl.fallbackBot, req.gateOn())
 	}
 	if cloudWeb && len(pl.team) > 1 {
-		pl.writes = cloudWebTeamWrites(pl.writes, pl.team, s, pl.fallback, cwBase)
+		pl.writes = cloudWebTeamWrites(pl.writes, pl.team, s, pl.fallback, cwBase, req.gateOn())
+	}
+	if isFeishuPlatform(req.Platform) && len(pl.team) > 1 {
+		pl.writes = feishuTeamWrites(pl.writes, pl.team, s, pl.fallback, req.gateOn())
 	}
 	return pl, nil
 }
@@ -1578,7 +1684,7 @@ func isDigits(s string) bool {
 //     listen unless named ("context"); an @-mentioned role always answers (core/gate.go fallbackFor).
 //     They are project-wide, so a project that already has a gate_url from its Discord team or set
 //     by hand keeps it.
-func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s WizardSnapshot, fallback, cwBase string) []WizardProjectWrite {
+func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s WizardSnapshot, fallback, cwBase string, gateOn bool) []WizardProjectWrite {
 	idx := map[string]int{}
 	for i, w := range writes {
 		idx[w.Name] = i
@@ -1634,11 +1740,111 @@ func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wi
 		if ex.GateURL != "" && (hasDiscord || !isWizardGateURL(ex.GateURL)) {
 			continue
 		}
+		if !gateOn {
+			clearWizardGate(w, ex.GateURL, ex.GateFallback)
+			continue
+		}
 		gate, fb := defaultGateURL+"?bot="+t.Project, "context"
 		if t.Project == fallback {
 			gate, fb = defaultGateURL, "reply"
 		}
 		w.GateURL, w.GateFallback = &gate, &fb
+	}
+	return writes
+}
+
+// clearWizardGate: the gate turned off in the wizard clears the gate_url / gate_fallback the wizard
+// wrote before (core/gate.go: an empty gate_url = no gate); unset or hand-written ones are left.
+func clearWizardGate(w *WizardProjectWrite, gateURL, gateFallback string) {
+	if !isWizardGateURL(gateURL) {
+		return
+	}
+	empty, emptyFb := "", ""
+	w.GateURL = &empty
+	if gateFallback == "reply" || gateFallback == "context" {
+		w.GateFallback = &emptyFb
+	}
+}
+
+func isFeishuPlatform(p string) bool { return p == "feishu" || p == "lark" }
+
+// feishuPlatformOf: "feishu" / "lark" when the project has one of them (first found), else "".
+func feishuPlatformOf(p WizardExistingProject) string {
+	for _, t := range []string{"feishu", "lark"} {
+		if _, ok := p.Platforms[t]; ok {
+			return t
+		}
+	}
+	return ""
+}
+
+// sameFeishuApp: the project that already runs this Feishu / Lark app (same app_id), else "".
+func sameFeishuApp(s WizardSnapshot, f *WizardFeishu, used map[string]bool) string {
+	if f == nil || strings.TrimSpace(f.AppID) == "" {
+		return ""
+	}
+	for _, p := range s.Projects {
+		if t := feishuPlatformOf(p); t != "" && !used[p.Name] && fmt.Sprint(p.Platforms[t]["app_id"]) == strings.TrimSpace(f.AppID) {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+// feishuTeamWrites wires a Feishu / Lark team made over several wizard runs (one bot each): with the
+// gate on, the lead gets gate_url + gate_fallback "reply", the others ?bot=<project> + "context", and,
+// as on Discord and cloud_web, group_reply_all and share_session_in_channel when unset (without
+// group_reply_all a bot never sees a message that does not @ it, so the lead could not answer those).
+// gate_url / gate_fallback are only (re)written when unset or written by the wizard (H3.2).
+func feishuTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s WizardSnapshot, fallback string, gateOn bool) []WizardProjectWrite {
+	idx := map[string]int{}
+	for i, w := range writes {
+		idx[w.Name] = i
+	}
+	for _, t := range team {
+		ex, ok := s.project(t.Project)
+		pt := feishuPlatformOf(ex)
+		i, has := idx[t.Project]
+		if !has {
+			if pt == "" {
+				pt = "feishu"
+			}
+			writes = append(writes, WizardProjectWrite{Name: t.Project, PlatformType: pt, Options: map[string]any{}})
+			i = len(writes) - 1
+			idx[t.Project] = i
+		}
+		w := &writes[i]
+		if !gateOn {
+			clearWizardGate(w, ex.GateURL, ex.GateFallback)
+			continue
+		}
+		cur := map[string]any{}
+		if ok && pt != "" {
+			cur = ex.Platforms[pt]
+		}
+		for _, k := range []string{"group_reply_all", "share_session_in_channel"} {
+			if _, set := cur[k]; !set {
+				if _, nm := cur["require_mention"]; k == "group_reply_all" && nm { // platform/feishu: require_mention = false means the same
+					continue
+				}
+				w.Options[k] = true
+			}
+		}
+		isLead := t.Project == fallback
+		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
+			gate := defaultGateURL + "?bot=" + t.Project
+			if isLead {
+				gate = defaultGateURL
+			}
+			w.GateURL = &gate
+		}
+		if ex.GateFallback == "" || (isWizardGateURL(ex.GateURL) && (ex.GateFallback == "reply" || ex.GateFallback == "context")) {
+			fb := "context"
+			if isLead {
+				fb = "reply"
+			}
+			w.GateFallback = &fb
+		}
 	}
 	return writes
 }
@@ -1679,7 +1885,7 @@ func csvSet(s string) []string {
 // previously written by the wizard; group_reply_all and share_session_in_channel
 // only when unset (group_reply_all also not when group_reply_all_guilds is set).
 // A reused bot's token may be "${VAR}": it is expanded for the API calls only, never written back.
-func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existing map[string]WizardExistingBot, fallback, fallbackBot string) []WizardProjectWrite {
+func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existing map[string]WizardExistingBot, fallback, fallbackBot string, gateOn bool) []WizardProjectWrite {
 	idx := map[string]int{}
 	for i, w := range writes {
 		idx[w.Name] = i
@@ -1733,6 +1939,10 @@ func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existin
 		// p.botID == p.teamLead to know it is the lead (H3.1). A custom value outside the team is kept.
 		if lb, _ := cur["team_lead_bot"].(string); (lb == "" || teamIDs[lb]) && fallbackBot != "" {
 			w.Options["team_lead_bot"] = fallbackBot
+		}
+		if !gateOn {
+			clearWizardGate(w, ex.GateURL, ex.GateFallback)
+			continue
 		}
 		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
 			gate := defaultGateURL + "?bot=" + t.Project
@@ -1807,11 +2017,17 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	m.mu.RUnlock()
 	if m.wizardStore != nil {
 		if snap, err := m.wizardStore.Snapshot(); err == nil {
-			names := []string{}
+			names, shown := []string{}, []string{}
 			for _, p := range snap.Projects {
 				names = append(names, p.Name)
+				if p.DisplayName != "" {
+					shown = append(shown, p.DisplayName)
+				} else {
+					shown = append(shown, p.Name)
+				}
 			}
-			out["projects"] = names // the web wizard avoids these names for new bots (same rule as planWizard)
+			out["projects"] = names              // the web wizard avoids these names for new bots (same rule as planWizard)
+			out["project_display_names"] = shown // what the panel lists as existing roles (team_name, else name)
 		}
 	}
 	fb := r.URL.Query().Get("fallback_name") // the wizard passes the bot it is about to pick
@@ -2014,7 +2230,35 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 		env.Cron = CronOfScheduler(m.cronScheduler)
 	}
 	req.libraryHost = r.Host
+	// the projects config.toml had before this save: only the ones it adds may be rolled back
+	before := map[string]bool{}
+	if snap, err := m.wizardStore.Snapshot(); err == nil {
+		for _, p := range snap.Projects {
+			before[p.Name] = true
+		}
+	}
 	res := ApplyWizard(r.Context(), env, req)
+	if res.Saved && !res.DryRun && m.hotLoad != nil {
+		// adding a role also rewrites the running roles' allow_bots / team_lead_bot / gate: reload
+		// them first (outside m.mu before hotLoad, which registers new engines under it)
+		pending, reloadErr := m.reloadRunning()
+		hl := m.hotLoad()
+		if reloadErr != nil {
+			hl.ReloadError = reloadErr.Error()
+			slog.Warn("setup apply: running roles not reloaded, restart needed", "error", reloadErr)
+		}
+		if len(pending) > 0 {
+			hl.RestartKeys = pending
+			slog.Warn("setup apply: options need a restart", "keys", strings.Join(pending, "; "))
+		}
+		unremoved := m.rollBackFailedRoles(&hl, before)
+		res.HotLoad = &hl
+		// restart only when something could not be applied live; a role that failed and was taken
+		// back out of config.toml would not start after a restart either
+		if req.AppendOnly && hl.Error == "" && unremoved == 0 && reloadErr == nil && len(pending) == 0 {
+			res.RestartRequired = false
+		}
+	}
 	status := http.StatusOK
 	if !res.OK && !res.Saved { // saved with warnings is still a 200: the config was written
 		status = http.StatusBadRequest
@@ -2022,6 +2266,38 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": res.OK, "data": res, "error": res.Error})
+}
+
+// rollBackFailedRoles takes the roles this save added that did not start (hl.Failed, not in
+// before) out of config.toml again; left there, every save retries them and the next start
+// exits on them. Roles that were already in the file are left alone. It returns how many failed
+// roles are still in config.toml.
+func (m *ManagementServer) rollBackFailedRoles(hl *HotLoadResult, before map[string]bool) int {
+	var added []string
+	for name := range hl.Failed {
+		if !before[name] {
+			added = append(added, name)
+		}
+	}
+	sort.Strings(added)
+	if len(added) == 0 {
+		return len(hl.Failed)
+	}
+	rm, ok := m.wizardStore.(WizardProjectRemover)
+	if !ok {
+		return len(hl.Failed)
+	}
+	removed, err := rm.RemoveProjects(added)
+	if err != nil {
+		slog.Error("setup apply: failed roles not removed from config", "projects", strings.Join(added, ","), "error", err)
+		hl.RollbackError = err.Error()
+		return len(hl.Failed)
+	}
+	for _, n := range removed {
+		slog.Warn("setup apply: role did not start, removed from config", "project", n, "error", hl.Failed[n])
+	}
+	hl.Removed = removed
+	return len(hl.Failed) - len(removed)
 }
 
 // handleSetupPersona: GET ?agent_type=&work_dir= → the persona file a new role would use.

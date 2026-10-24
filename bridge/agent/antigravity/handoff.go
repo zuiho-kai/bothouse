@@ -43,8 +43,10 @@ const (
 	metaFieldModelUsage           = 9 // SPEC: CortexStepMetadata.model_usage
 
 	// exa.codeium_common_pb.ModelUsageStats
-	usageFieldInputTokens     = 2 // SPEC: ModelUsageStats.input_tokens
-	usageFieldCacheReadTokens = 5 // SPEC: ModelUsageStats.cache_read_tokens
+	usageFieldInputTokens      = 2 // SPEC: ModelUsageStats.input_tokens
+	usageFieldOutputTokens     = 3 // SPEC: ModelUsageStats.output_tokens
+	usageFieldCacheWriteTokens = 4 // SPEC: ModelUsageStats.cache_write_tokens
+	usageFieldCacheReadTokens  = 5 // SPEC: ModelUsageStats.cache_read_tokens
 
 	// exa.cortex_pb.CortexStepUserInput
 	userFieldQuery        = 1 // SPEC: CortexStepUserInput.query
@@ -75,11 +77,11 @@ func conversationDBPath(conversationID string) (string, error) {
 	if !conversationIDPattern.MatchString(conversationID) {
 		return "", fmt.Errorf("antigravity: %q is not a conversation id", conversationID)
 	}
-	home, err := os.UserHomeDir()
+	dir, err := antigravityCLIDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".gemini", "antigravity-cli", "conversations", conversationID+".db"), nil
+	return filepath.Join(dir, "conversations", conversationID+".db"), nil
 }
 
 // ReadSessionHandoff reads what a fresh context needs from an agy

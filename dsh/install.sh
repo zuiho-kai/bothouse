@@ -47,6 +47,15 @@ if [ -n "$DSH_BIN" ]; then
     fi
   fi
 fi
+# On Windows npm writes `dsh` as a plain shim file, not a symlink, so realpath above lands in the
+# npm prefix rather than the package; look the package up under the global node_modules instead.
+if [ -z "$WEB_APP" ] && command -v npm >/dev/null; then
+  NPM_ROOT="$(npm root -g 2>/dev/null || true)"
+  if [ -n "$NPM_ROOT" ] && [ -d "$NPM_ROOT/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app" ]; then
+    DSH_DIR="$NPM_ROOT/@deepseek-ai/dsh"
+    WEB_APP="$DSH_DIR/node_modules/@deepseek-ai/dsh-web-app"
+  fi
+fi
 
 echo "== step: deps"
 # Reinstall when deps are missing or package.json/pnpm-lock.yaml changed since the last install

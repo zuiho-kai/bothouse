@@ -61,8 +61,21 @@ bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记
 | fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
 | promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
 | wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；bothouse 起的 bot 跳过，因为 gate 已经推了 |
+| subagent-ctx-hook | PreToolUse（所有工具） | 子 agent 上下文到 15 万 token 后还在调工具 | 不放行：拒绝理由里要求写交接（做到哪、文件在哪、下一步）后收工；主会话不管 |
 
 fix-claim-guard 和 promise-guard 认的是中文措辞。
+
+### subagent-ctx-hook（默认开）
+
+`subagent-ctx-hook` 管子 agent 的上下文：子 agent 的上下文到 15 万 token 后，PreToolUse 拒绝它之后的每次工具调用，拒绝理由里要求它写简短交接（做到哪、文件在哪、下一步）作为最终回复后收工；主会话（hook 输入里没有 `agent_id`）不管。上下文取子 agent 转录里最新一条 assistant 的 usage（Codex 子线程取 rollout 里最后一条 token_count，DSH 用 dsh-cc-compat 补的 `context_tokens`）。出错一律放行。
+
+`setup hooks on` 和向导默认装上它（只挂 PreToolUse、matcher 留空即所有工具）。没有子 agent 的 CLI 收不到 `agent_id`，装上也直接放行；Codex、Cursor、Kimi、Antigravity 只装各自适配过的那几条，不含它。脚本里也保留了 PostToolUse 分支（additionalContext 提醒），想要提前提醒可以自己在 settings 里再挂一个 PostToolUse。
+
+关掉：
+
+```sh
+bothouse setup hooks off --work-dir <角色目录> --only subagent-ctx-hook
+```
 
 ## 可选设置（环境变量）
 
@@ -95,6 +108,7 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
 python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
 python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
+python3 -I bridge/contrib/hooks/test_subagent_ctx_hook.py  # subagent-ctx-hook：阈值上下、主会话不管、Codex/context_tokens、经 run.py 跑一次
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```
 

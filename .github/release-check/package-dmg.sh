@@ -11,12 +11,15 @@ app="$stage/Bothouse.app"
 mkdir -p "$app/Contents/MacOS"
 cp "$binary" "$app/Contents/MacOS/bothouse"
 chmod 755 "$app/Contents/MacOS/bothouse"
+mkdir -p "$app/Contents/Resources"
+cp "$(cd "$(dirname "$0")/../.." && pwd)/bridge/assets/brand/bothouse.icns" "$app/Contents/Resources/bothouse.icns"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>bothouse</string>
 <key>CFBundleIdentifier</key><string>ai.bothouse.desktop</string>
+<key>CFBundleIconFile</key><string>bothouse</string>
 <key>CFBundleName</key><string>Bothouse</string>
 <key>CFBundleDisplayName</key><string>Bothouse</string>
 <key>CFBundlePackageType</key><string>APPL</string>

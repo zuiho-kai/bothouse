@@ -3,11 +3,14 @@
  * list, in a Discord-style three-column layout. All data arrives through the
  * injected `useChannels` hook; posting goes through the injected actions.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
+import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
+import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { groupRooms } from './channel-source.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
@@ -70,10 +73,22 @@ function saveCardView(roomId: number, view: CardView): void {
   try { globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view) } catch (error) { void error /* storage unavailable: keep the choice in memory */ }
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused, cardView, onCardView }: {
+/** #148: inline editor state for one of your own messages. */
+interface OwnActions {
+  editing: string | undefined
+  onStartEdit: () => void
+  onEditChange: (text: string) => void
+  onEditSave: () => void
+  onEditCancel: () => void
+  onWithdraw: () => void
+}
+
+
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own }: {
   message: ChannelMessage
   cardView: CardView
   onCardView: (view: CardView) => void
+  own: OwnActions | undefined
   tasks: readonly ChannelTask[]
   focused: boolean
   member: ChannelMember | undefined
@@ -85,7 +100,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onMention: (member: ChannelMember) => void
   onDecide: ChannelActions['decidePermission']
   onReply: (message: ChannelMessage) => void
+  onRetry: (messageId: number) => void
+  retrying: boolean
 }) {
+  const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } | undefined
   if (message.card !== null) {
     try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
@@ -116,9 +134,37 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           <span className={css.author}>{message.name}</span>
           <KindTag kind={member?.kind} cli={member?.cli} t={t} />
           <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
+          {message.edited_at !== undefined && <span className={css.edited} title={new Date(message.edited_at * 1000).toLocaleString()}>{t('messageEdited')}</span>}
+          {own !== undefined && own.editing === undefined && (
+            <span className={css.ownActions}>
+              <button type="button" className={css.linkButton} onClick={own.onStartEdit}>{t('messageEdit')}</button>
+              <button type="button" className={css.linkButton} onClick={own.onWithdraw}>{t('messageWithdraw')}</button>
+            </span>
+          )}
         </div>
-        {card === undefined
-          ? <div className={css.text}>{message.text}</div>
+        {own?.editing !== undefined
+          ? (
+              <div className={css.editBox}>
+                <textarea
+                  className={css.editInput}
+                  value={own.editing}
+                  aria-label={t('messageEdit')}
+                  autoFocus
+                  onChange={(event) => { own.onEditChange(event.target.value) }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') { event.preventDefault(); own.onEditCancel() }
+                    else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); own.onEditSave() }
+                  }}
+                />
+                <div className={css.editBar}>
+                  <span className={css.time}>{t('messageEditHint')}</span>
+                  <button type="button" className={css.secondaryButton} onClick={own.onEditCancel}>{t('messageCancel')}</button>
+                  <button type="button" className={css.primaryButton} disabled={!own.editing.trim()} onClick={own.onEditSave}>{t('messageSave')}</button>
+                </div>
+              </div>
+            )
+          : card === undefined
+          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={message.text} labels={labels} /></div>}<AttachmentList attachments={message.attachments} /></>
           : (
               <div className={css.card} data-state={card.state}>
                 <div className={css.cardHead}>
@@ -134,8 +180,21 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     </div>
                   )}
                 </div>
-                <div className={css.text}>{typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text}</div>
-                {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
+                <div className={css.text}><MarkdownText text={typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text} labels={labels} /></div>
+                {(card.state === 'failed' || card.action === 'configure-model') && (
+                  <div className={css.cardButtons}>
+                    {card.state !== 'retried' && (
+                      <button type="button" className={css.secondaryButton} disabled={retrying} onClick={() => onRetry(message.id)}>
+                        {retrying ? t('retrying') : t('retry')}
+                      </button>
+                    )}
+                    {card.action === 'configure-model' && (
+                      <button type="button" className={css.secondaryButton} onClick={onConfigure}>
+                        {t('configureModel')}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
               </div>
@@ -201,13 +260,31 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
+  // #148: the own message being edited, and the last edit/withdraw outcome to show.
+  const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
+  const [ownNotice, setOwnNotice] = useState<string | undefined>(undefined)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
   // Per room: the message the next send replies to.
   const [replies, setReplies] = useState<Record<number, ChannelMessage | undefined>>({})
+  // Per room: images/files waiting to go out with the next send (#144).
+  const [pendingFiles, setPendingFiles] = useState<Record<number, readonly OutgoingAttachment[]>>({})
+  const attach = useComposerAttachments((files) => {
+    const roomId = state.roomId
+    if (roomId === undefined) return
+    const next = [...(pendingFiles[roomId] ?? []), ...files]
+    if (messageTooLarge(drafts[roomId] ?? '', next)) {
+      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
+      return
+    }
+    setPendingFiles(previous => ({ ...previous, [roomId]: next }))
+  }, (message) => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message }) }))
+  })
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
@@ -232,6 +309,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const [retryingId, setRetryingId] = useState<number | undefined>(undefined)
   const [modeSaving, setModeSaving] = useState(false)
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
@@ -371,6 +449,36 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     })
   }
 
+  const ownActions = (m: ChannelMessage): OwnActions | undefined => {
+    if (m.author_kind !== 'user' || m.card !== null) return undefined
+    return {
+      editing: editing?.id === m.id ? editing.text : undefined,
+      onStartEdit: () => { setOwnNotice(undefined); setEditing({ id: m.id, text: m.text }) },
+      onEditChange: (text) => { setEditing({ id: m.id, text }) },
+      onEditCancel: () => { setEditing(undefined) },
+      onEditSave: () => {
+        if (editing?.id !== m.id || !editing.text.trim()) return
+        if (editing.text === m.text) { setEditing(undefined); return }
+        editMessage(m.id, editing.text).then(() => { setEditing(undefined) }, (error: unknown) => {
+          setOwnNotice(error instanceof Error ? error.message : String(error))
+        })
+      },
+      onWithdraw: () => {
+        if (!window.confirm(t('withdrawConfirm'))) return
+        setOwnNotice(undefined)
+        withdrawMessage(m.id).then(({ stopped, stillRunning }) => {
+          const notes = [
+            ...(stopped.length > 0 ? [t('withdrawStopped', { names: stopped.join('、') })] : []),
+            ...(stillRunning.length > 0 ? [t('withdrawRunning', { names: stillRunning.join('、') })] : []),
+          ]
+          if (notes.length > 0) setOwnNotice(notes.join('；'))
+        }, (error: unknown) => {
+          setOwnNotice(error instanceof Error ? error.message : String(error))
+        })
+      },
+    }
+  }
+
   const confirmRemove = (member: ChannelMember): void => {
     if (!window.confirm(t('removeConfirm', { name: member.name }))) return
     setMemberError(undefined)
@@ -396,17 +504,34 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setDraft(before + insert + draft.slice(caret), caret + insert.length)
   }
 
+  const handleRetry = (messageId: number): void => {
+    setRetryingId(messageId)
+    retryMessage(messageId).catch((error: unknown) => {
+      const msg = error instanceof Error ? error.message : String(error)
+      const roomId = state.roomId
+      if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: msg }))
+    }).finally(() => {
+      setRetryingId(undefined)
+    })
+  }
+
   const submit = (): void => {
     const roomId = state.roomId
     const text = draft.trim()
-    if (!text || roomId === undefined || pendingRooms.current.has(roomId)) return
+    const files = roomId === undefined ? [] : pendingFiles[roomId] ?? []
+    if ((!text && files.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
+    if (files.length > 0 && messageTooLarge(text, files)) {
+      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
+      return
+    }
     pendingRooms.current.add(roomId)
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
     const replyTo = replies[roomId]?.id
-    ;(replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
+    ;(files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
       setDrafts(previous => ({ ...previous, [roomId]: '' }))
+      setPendingFiles(previous => ({ ...previous, [roomId]: [] }))
       setReplies(previous => ({ ...previous, [roomId]: undefined }))
     }).catch((error: unknown) => {
       setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
@@ -541,9 +666,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   onCloseMenu={() => { setAvatarMenu(undefined) }}
                   onMention={mentionFromAvatar}
                   onDecide={decidePermission}
+                  onRetry={handleRetry}
+                  retrying={retryingId === m.id}
                   tasks={state.tasks ?? []}
                   focused={focusedId === m.id}
                   onReply={startReply}
+                  own={ownActions(m)}
                 />
               ))}
         </div>
@@ -551,6 +679,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         <div className={css.composer} ref={composerRef}>
           {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
+          {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
             <div className={css.mentionPopup}>
               <div className={css.mentionTitle}>
@@ -593,6 +722,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
             </div>
           )}
+          {state.roomId !== undefined && (
+            <PendingAttachments
+              files={pendingFiles[state.roomId] ?? []}
+              removeLabel={t('removeAttachment')}
+              onRemove={(index) => {
+                const roomId = state.roomId as number
+                setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
+              }}
+            />
+          )}
           <div className={css.composerRow}>
             <textarea
               ref={inputRef}
@@ -616,7 +755,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               }}
               onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
               onKeyDown={onKeyDown}
+              onPaste={attach.onPaste}
+              onDragOver={attach.onDragOver}
+              onDrop={attach.onDrop}
             />
+            {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
             <button
               type="button"
               className={css.mentionButton}
