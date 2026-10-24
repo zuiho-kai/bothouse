@@ -20,6 +20,23 @@ const steps = [
   { name: '主角色汇总', author: 'ju', match: (t) => t.includes('收到队友交回的结果 42') },
 ];
 
+// 全新 HOME 下 dsh 首次打开会依次弹两层引导：「预览版说明」（点「继续」）和「开始使用」（登录/添加 API Key，
+// 点右上角「关闭」，不登录不填 Key）。遮罩会拦住后面的点击，所以出现就点掉；不出现只等一小会儿就跳过。
+// 等待上限 5 秒：派活要求「短超时可选等待」；第二层在点完第一层后才出现，要留出渲染时间。
+const ONBOARDING_WAIT_MS = 5000;
+async function dismissOnboarding(page) {
+  const layers = [
+    page.getByRole('button', { name: '继续', exact: true }),
+    page.getByRole('dialog').filter({ hasText: '开始使用' }).getByRole('button', { name: '关闭', exact: true }),
+  ];
+  for (const btn of layers.map((l) => l.first())) {
+    if (await btn.waitFor({ state: 'visible', timeout: ONBOARDING_WAIT_MS }).then(() => true, () => false)) {
+      await btn.click();
+      await btn.waitFor({ state: 'hidden', timeout: ONBOARDING_WAIT_MS }).catch(() => {});
+    }
+  }
+}
+
 const checks = [];
 const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail }); console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`); };
 
@@ -32,6 +49,7 @@ try {
   const page = await desk.newPage();
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(LOGIN_URL, { waitUntil: 'networkidle' });
+  await dismissOnboarding(page);
   await page.getByRole('button', { name: '频道', exact: true }).first().click();
   // cc-connect 刚起，两个 bot 连上频道页要一两秒。
   let state = {};
@@ -83,6 +101,7 @@ try {
   const mp = await mob.newPage();
   mp.on('pageerror', (e) => errors.push(String(e)));
   await mp.goto(LOGIN_URL, { waitUntil: 'networkidle' });
+  await dismissOnboarding(mp);
   await mp.getByRole('button', { name: '频道', exact: true }).first().click();
   const mobVisible = await mp.getByText('收到队友交回的结果 42').first().waitFor({ timeout: 10000 }).then(() => true, () => false);
   check('手机 390x844 频道页上看得到汇总', mobVisible);
