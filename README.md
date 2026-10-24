@@ -212,3 +212,4 @@ See [configuration and requirements](bridge/contrib/lead/README.md).
 bothouse is licensed under [Apache-2.0](LICENSE). See [LICENSING.md](LICENSING.md) (Chinese) for details.
 
 The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to its authors and contributors. See [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for dependency licenses.
+
