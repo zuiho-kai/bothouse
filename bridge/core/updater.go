@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -152,56 +154,43 @@ func SelfUpdate(tag string, preferGitee bool) error {
 	return replaceBinary(binary)
 }
 
-// ReleaseAssetNames prefers the platform download, then historical native files and archives.
+// ReleaseAssetNames lists the platform download that .github/workflows/release.yml publishes.
+// Every bothouse release (v0.1.2 onward) carries exactly bothouse-mac.dmg, bothouse-windows.exe,
+// bothouse-linux-x64, bothouse-linux-arm64 and SHA256SUMS, so older per-arch or cc-connect-* names
+// are not requested: they only produced 404s that hid the real download error.
 func ReleaseAssetNames(tag, goos, goarch string) []string {
-	oldNative := fmt.Sprintf("bothouse-%s-%s", goos, goarch)
-	name := oldNative
-	ext := ".tar.gz"
+	name := fmt.Sprintf("bothouse-%s-%s", goos, goarch)
 	switch goos {
 	case "windows":
 		name = "bothouse-windows.exe"
-		oldNative += ".exe"
-		ext = ".zip"
 	case "darwin":
 		name = "bothouse-mac.dmg"
-		oldNative += ".dmg"
 	case "linux":
 		if goarch == "amd64" {
 			name = "bothouse-linux-x64"
 		}
 	}
-	legacy := fmt.Sprintf("cc-connect-%s-%s-%s", tag, goos, goarch)
-	historical := legacy
-	if goos == "windows" {
-		historical += ".exe"
-	}
-	names := []string{name}
-	if oldNative != name {
-		names = append(names, oldNative)
-	}
-	return append(names, legacy+ext, historical)
+	return []string{name}
 }
 
 // DownloadReleaseAsset verifies the exact downloaded name. A checksum failure is fatal:
-// it must never silently downgrade to a different package.
+// it must never silently downgrade to a different package. If every source fails, the
+// error lists each attempted URL with its own cause.
 func DownloadReleaseAsset(bases []string, tag, goos, goarch string) ([]byte, string, error) {
-	var lastErr error
+	var errs []error
 	for _, filename := range ReleaseAssetNames(tag, goos, goarch) {
 		for _, base := range bases {
 			from := fmt.Sprintf("%s/%s/", base, tag)
 			slog.Info("updater: downloading", "url", from+filename)
 			data, err := downloadFile(from + filename)
 			if err != nil {
-				lastErr = err
+				slog.Warn("updater: download failed", "url", from+filename, "error", err)
+				errs = append(errs, fmt.Errorf("%s: %w", from+filename, err))
 				continue
 			}
-			checksumName := "checksums.txt"
-			if strings.HasPrefix(filename, "bothouse-") {
-				checksumName = "SHA256SUMS"
-			}
-			sums, err := downloadFile(from + checksumName)
+			sums, err := downloadFile(from + "SHA256SUMS")
 			if err != nil {
-				return nil, "", fmt.Errorf("%w: %s: %w", ErrUpdateDownload, checksumName, err)
+				return nil, "", fmt.Errorf("%w: SHA256SUMS: %w", ErrUpdateDownload, err)
 			}
 			if err := VerifyReleaseChecksum(data, sums, filename); err != nil {
 				return nil, "", err
@@ -209,7 +198,7 @@ func DownloadReleaseAsset(bases []string, tag, goos, goarch string) ([]byte, str
 			return data, filename, nil
 		}
 	}
-	return nil, "", fmt.Errorf("%w from all sources: %w", ErrUpdateDownload, lastErr)
+	return nil, "", fmt.Errorf("%w from all sources: %w", ErrUpdateDownload, errors.Join(errs...))
 }
 
 // ExtractReleaseBinary accepts the release's native format and legacy archives.
@@ -246,9 +235,34 @@ func ExtractReleaseBinary(data []byte, filename string) ([]byte, error) {
 	}
 }
 
+// downloadIdleTimeout fails a download only when no new bytes arrive for this long; there is
+// no cap on total duration. Source: on a ~100KB/s link the 43MB bothouse-mac.dmg needs ~7 minutes,
+// so the old fixed 5-minute client timeout always cut it off (handoff updater-timeout-1024).
+// At 100KB/s a read returns data every fraction of a second; 60s of silence is a real stall.
+var downloadIdleTimeout = 60 * time.Second
+
+// errDownloadStalled marks a download aborted by downloadIdleTimeout.
+var errDownloadStalled = errors.New("download stalled")
+
 func downloadFile(url string) ([]byte, error) {
+	idle := downloadIdleTimeout
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stalled atomic.Bool
+	// The timer also covers connect and response headers; every received chunk re-arms it.
+	timer := time.AfterFunc(idle, func() {
+		stalled.Store(true)
+		cancel()
+	})
+	defer timer.Stop()
+	wrap := func(err error) error {
+		if stalled.Load() {
+			return fmt.Errorf("%w: no data for %s", errDownloadStalled, idle)
+		}
+		return err
+	}
+
 	client := &http.Client{
-		Timeout: 5 * time.Minute,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > 10 {
 				return fmt.Errorf("too many redirects")
@@ -256,7 +270,7 @@ func downloadFile(url string) ([]byte, error) {
 			return nil
 		},
 	}
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -264,15 +278,29 @@ func downloadFile(url string) ([]byte, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, wrap(err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	return io.ReadAll(resp.Body)
+	var buf bytes.Buffer
+	chunk := make([]byte, 32*1024)
+	for {
+		n, err := resp.Body.Read(chunk)
+		if n > 0 {
+			timer.Reset(idle)
+			buf.Write(chunk[:n])
+		}
+		if err == io.EOF {
+			return buf.Bytes(), nil
+		}
+		if err != nil {
+			return nil, wrap(err)
+		}
+	}
 }
 
 func extractBinaryFromTarGz(data []byte) ([]byte, error) {

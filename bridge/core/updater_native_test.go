@@ -29,50 +29,24 @@ func TestReleaseAssetNamesSingleDownload(t *testing.T) {
 	}
 }
 
-func TestBothouseUpdateNativeAndLegacyFallback(t *testing.T) {
+func TestBothouseUpdateNativeDownload(t *testing.T) {
 	for _, goos := range []string{"linux", "windows", "darwin"} {
 		for _, arch := range []string{"amd64", "arm64"} {
-			for _, scenario := range []string{"native", "old-native", "legacy", "tampered", "missing-sums", "unlisted"} {
+			for _, scenario := range []string{"native", "tampered", "missing-sums", "unlisted"} {
 				t.Run(goos+"/"+arch+"/"+scenario, func(t *testing.T) {
 					native := map[string]string{"darwin": "bothouse-mac.dmg", "windows": "bothouse-windows.exe", "linux": "bothouse-linux-" + arch}[goos]
 					if goos == "linux" && arch == "amd64" {
 						native = "bothouse-linux-x64"
 					}
-					oldNative := "bothouse-" + goos + "-" + arch
-					legacy := "cc-connect-v0.1.1-" + goos + "-" + arch + ".tar.gz"
-					if goos == "windows" {
-						oldNative += ".exe"
-						legacy = "cc-connect-v0.1.1-windows-" + arch + ".zip"
-					}
-					if goos == "darwin" {
-						oldNative += ".dmg"
-					}
-					selected := native
-					attempted := []string{native}
-					if scenario == "old-native" || scenario == "legacy" {
-						if oldNative != native {
-							attempted = append(attempted, oldNative)
-						}
-						selected = oldNative
-					}
-					if scenario == "legacy" {
-						selected = legacy
-						attempted = append(attempted, legacy)
-					}
-					sumsName := "SHA256SUMS"
 					payload := "native executable"
-					if selected == legacy {
-						sumsName = "checksums.txt"
-						payload = "legacy archive"
-					}
 					var requests []string
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						name := strings.TrimPrefix(r.URL.Path, "/v0.1.1/")
 						requests = append(requests, name)
 						switch name {
-						case selected:
+						case native:
 							fmt.Fprint(w, payload)
-						case sumsName:
+						case "SHA256SUMS":
 							if scenario == "missing-sums" {
 								http.NotFound(w, r)
 								return
@@ -81,7 +55,7 @@ func TestBothouseUpdateNativeAndLegacyFallback(t *testing.T) {
 							if scenario == "tampered" {
 								data = "unmodified executable"
 							}
-							sumName := selected
+							sumName := native
 							if scenario == "unlisted" {
 								sumName = "other-file"
 							}
@@ -92,19 +66,16 @@ func TestBothouseUpdateNativeAndLegacyFallback(t *testing.T) {
 					}))
 					defer server.Close()
 					data, name, err := DownloadReleaseAsset([]string{server.URL}, "v0.1.1", goos, arch)
-					switch scenario {
-					case "native", "old-native", "legacy":
-						if err != nil || name != selected || string(data) != payload {
+					if scenario == "native" {
+						if err != nil || name != native || string(data) != payload {
 							t.Fatalf("%q %q %v", data, name, err)
 						}
-					default:
-						if err == nil {
-							t.Fatal("unverified executable accepted")
-						}
+					} else if err == nil {
+						t.Fatal("unverified executable accepted")
 					}
-					wantRequests := append(attempted, sumsName)
-					if !reflect.DeepEqual(requests, wantRequests) {
-						t.Fatalf("requests = %v, want %v", requests, wantRequests)
+					// Only names the release workflow publishes are requested.
+					if want := []string{native, "SHA256SUMS"}; !reflect.DeepEqual(requests, want) {
+						t.Fatalf("requests = %v, want %v", requests, want)
 					}
 				})
 			}
