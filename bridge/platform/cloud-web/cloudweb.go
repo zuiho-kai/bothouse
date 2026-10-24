@@ -52,6 +52,7 @@ type Platform struct {
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
 
 	liveMu       sync.RWMutex   // guards teamLead, which ReloadOptions swaps while running
+	botName      string         // maomao fork: the hub's name for this bot, for leading-name calls (name_call.go)
 	teamLead     string         // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
 	startOpts    map[string]any // options as read in New; ReloadOptions reports other changed keys for a restart
 	leadReturned sync.Map       // maomao fork: trigger message ID → time the reply was routed back to the lead
@@ -191,6 +192,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		replyCtxs:        make(map[string]string),
 		historyBase:      historyBaseURL(baseURL, wsURL),
 		selfID:           hubBotID(wsURL, project),
+		botName:          hubBotName(wsURL),
 		teamLead:         strings.TrimSpace(teamLead),
 		startOpts:        copyOpts(opts),
 	}, nil
@@ -267,6 +269,7 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 	}
 	p.handler = handler
 	ctx, cancel := context.WithCancel(context.Background())
+	teamPlatforms.Store(p, struct{}{})
 	p.cancel = cancel
 	p.mu.Unlock()
 
@@ -314,6 +317,7 @@ func (p *Platform) Stop() error {
 	p.stopping = true
 	cancel := p.cancel
 	p.mu.Unlock()
+	teamPlatforms.Delete(p)
 	if cancel != nil {
 		cancel()
 	}
@@ -383,9 +387,13 @@ func (p *Platform) handleMessage(raw []byte) {
 	}
 	// "/stop all" from a user reaches every bot in the chat, mentioned or not.
 	stopAll := !m.FromBot && core.IsStopAllCommand(m.Content)
+	// maomao fork: a line opening with this bot's name counts as an @ (name_call.go).
+	explicit := m.Mentioned != nil && *m.Mentioned
+	calledByName := !explicit && p.calledByName(m)
+	mentioned := explicit || calledByName
 	if isGroupChat(m.ChatType) && !p.groupReplyAll && !stopAll {
 		// Require explicit mention in group chats unless group_reply_all is enabled.
-		if m.Mentioned == nil || !*m.Mentioned {
+		if !mentioned {
 			return
 		}
 	}
@@ -412,7 +420,9 @@ func (p *Platform) handleMessage(raw []byte) {
 	p.storeReplyCtx(sessionKey, replyCtx)
 
 	rc := replyContext{SessionKey: sessionKey, ReplyCtx: replyCtx, MsgID: msgID}
-	rc.lead = p.dispatchedBy(m) // maomao fork: the lead's turn to hand back (lead_return.go)
+	// maomao fork: the lead's turn to hand back (lead_return.go). A teammate bot's name-call counts
+	// as its @ here, as on Discord; a person's needs the explicit @ (issue #182 co-mention rule).
+	rc.lead = p.dispatchedBy(m, explicit || (m.FromBot && calledByName))
 	msg := &core.Message{
 		SessionKey: sessionKey,
 		Platform:   p.name,
@@ -427,7 +437,7 @@ func (p *Platform) handleMessage(raw []byte) {
 		Audio:      decodeAudio(m.Audio),
 		ReplyCtx:   rc,
 		// maomao fork: the gate decides who answers from these (core/gate.go).
-		Mentioned: m.Mentioned != nil && *m.Mentioned,
+		Mentioned: mentioned,
 		FromBot:   m.FromBot,
 		// A private chat calls the bot (core/gate_local.go built-in busy rules). Only the documented
 		// chat_type "direct" (docs/cloud-web.md); a missing chat_type is not taken as a DM.

@@ -23,9 +23,10 @@ const leadReturnTTL = 24 * time.Hour // same as platform/discord/lead_return.go
 // platform/discord dispatchedBy: the lead @-ing this sub, or a person's message that @-s this sub and
 // the lead together (issue #182). The gateway writes the lead's @ as <@team_lead_bot> for every bot
 // but the lead (rh/cloudweb.py for_bot).
-func (p *Platform) dispatchedBy(m wireInboundMessage) string {
+// mentioned is the gateway's flag or a leading-name call (name_call.go), worked out before this.
+func (p *Platform) dispatchedBy(m wireInboundMessage, mentioned bool) string {
 	lead := p.lead()
-	if m.Mentioned == nil || !*m.Mentioned || lead == "" {
+	if !mentioned || lead == "" {
 		return ""
 	}
 	if m.FromBot {
