@@ -1892,12 +1892,24 @@ test('team exit: after a claim, asks and reports go to the chat channel that han
   await tick();
   assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches dev');
   assert.equal(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system'), false, 'not the creating channel');
-  // general hands off again: last handoff wins.
+  const devTask = ack.task;
+  assert.match(devTask, /^task-[0-9a-f]{8}$/);
+  // general hands off a second task: each task's ask/report goes back to its own chat.
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
   await tick();
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案' });
+  const genTask = ju.of('team_workspace_ack').at(-1).task;
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask]\n${genTask} 要答案` });
   await tick();
   assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches general');
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report]\n${devTask} dev 的活好了` });
+  await tick();
+  assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /dev 的活好了/.test(m.text)), 'dev task report reaches dev, not the last claimer');
+  assert.equal(hub.store.page(1, undefined, 10).some(m => /dev 的活好了/.test(m.text)), false);
+  // No task id while two chats have tasks here: nothing is forwarded, the workspace is told.
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n没写编号' });
+  await tick();
+  assert.equal([1, 2].some(r => hub.store.page(r, undefined, 10).some(m => /没写编号/.test(m.text))), false, 'ambiguous report not guessed');
+  assert.ok(hub.store.page(ws.id, undefined, 10).some(m => m.author_kind === 'system' && m.text.includes(devTask) && m.text.includes(genTask)), 'workspace notice lists tasks');
   ju.frame({ type: 'team_workspace', ref_id: 'c3', op: 'claim', reply_ctx: 'room-1', workspace_id: 'room-1' });
   await tick();
   assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c3', ok: false, error: 'not-workspace' });

@@ -116,6 +116,17 @@ type TeamWorkspace struct {
 type teamWorkspaceState struct {
 	// Parents: "<platform>:<chat channel id>" → its workspaces in creation order.
 	Parents map[string][]TeamWorkspace `json:"parents"`
+	// Handoffs: "<platform>:<workspace id>" → every handoff to it, oldest first. Each records the
+	// chat channel that handed off that task, so a report or ask goes back to the chat of its own
+	// task, not to whichever chat claimed the workspace last (team mode C).
+	Handoffs map[string][]TeamHandoff `json:"handoffs,omitempty"`
+}
+
+// TeamHandoff is one task handed from a chat channel to a pool workspace.
+type TeamHandoff struct {
+	ID   string    `json:"id"`   // "task-<8 hex>", quoted by the workspace's [ask]/[report]
+	Chat string    `json:"chat"` // "<platform>:<chat channel id>"
+	At   time.Time `json:"at,omitzero"`
 }
 
 type teamWorkspaces struct {
@@ -603,21 +614,30 @@ func teamWorkspaceNum(name string) int {
 
 // ClaimTeamWorkspace records chat (bare ID or session key) as the chat channel that handed
 // off to workspace wsID last: the record moves from its previous chat, so asks and reports
-// (WorkspaceParent, team mode C) go back to the chat that handed off (last handoff wins). On a
+// (WorkspaceParent) default to the chat that handed off last; each handoff is also recorded as a
+// task (ClaimTeamWorkspaceTask, WorkspaceOrigin) so reports follow their own task's chat. On a
 // platform that records the parent itself (TeamWorkspaceClaimer: cloud_web/DSH) the platform
 // is told first. name is the workspace's channel name, kept when it is not recorded yet.
 // Runs under teamWorkspaceOpMu like teamWorkspaceOp, so a claim never interleaves with a
 // create that is saving a listing taken before the claim.
 func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
+	_, err := e.ClaimTeamWorkspaceTask(channel, wsID, name)
+	return err
+}
+
+// ClaimTeamWorkspaceTask is ClaimTeamWorkspace that also records the handoff as one task of
+// the workspace and returns its id ("task-<8 hex>"). The workspace quotes the id in [ask] and
+// [report] so they return to this chat even after another chat claimed the workspace.
+func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name string) (string, error) {
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
-		return errors.New("team workspace claim: chat channel and workspace id are required")
+		return "", errors.New("team workspace claim: chat channel and workspace id are required")
 	}
 	chat := teamChatKey(channel)
 	if p, ok := e.WorkspaceParent(chat); ok {
 		chat = p
 	}
 	if teamChannelID(chat) == wsID {
-		return fmt.Errorf("team workspace claim: %s cannot hand off to itself", chat)
+		return "", fmt.Errorf("team workspace claim: %s cannot hand off to itself", chat)
 	}
 	plat, _, _ := strings.Cut(chat, ":")
 	path := teamWorkspacePath(e.dataDir)
@@ -644,7 +664,7 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 		w.Name = name
 	}
 	if !isTeamWorkspaceName(w.Name) {
-		return fmt.Errorf("team workspace claim: %q is not a 「%sn」 channel", w.Name, teamWorkspacePrefix)
+		return "", fmt.Errorf("team workspace claim: %q is not a 「%sn」 channel", w.Name, teamWorkspacePrefix)
 	}
 
 	// The platform request runs without teamWorkspaceStore.mu (WorkspaceParent never waits on it).
@@ -654,7 +674,7 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 			err := c.ClaimTeamWorkspaceChannel(ctx, teamChannelID(chat), wsID)
 			cancel()
 			if err != nil {
-				return fmt.Errorf("team workspace claim: %s → %s: %w", chat, wsID, err)
+				return "", fmt.Errorf("team workspace claim: %s → %s: %w", chat, wsID, err)
 			}
 		}
 	}
@@ -678,13 +698,76 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 			}
 		}
 	}
+	found := false
 	for _, x := range st.Parents[chat] {
 		if x.ID == wsID {
-			return saveTeamWorkspacesLocked(path, st)
+			found = true
 		}
 	}
-	st.Parents[chat] = append(st.Parents[chat], w)
-	return saveTeamWorkspacesLocked(path, st)
+	if !found {
+		st.Parents[chat] = append(st.Parents[chat], w)
+	}
+	if st.Handoffs == nil {
+		st.Handoffs = map[string][]TeamHandoff{}
+	}
+	h := TeamHandoff{ID: newTaskID(), Chat: chat, At: time.Now()}
+	wk := plat + ":" + wsID
+	st.Handoffs[wk] = append(st.Handoffs[wk], h)
+	if err := saveTeamWorkspacesLocked(path, st); err != nil {
+		return "", err
+	}
+	return h.ID, nil
+}
+
+var taskRef = regexp.MustCompile(`\btask-[0-9a-f]{8}\b`)
+
+func newTaskID() string {
+	return "task-" + strings.TrimPrefix(newAskID(), "ask-")
+}
+
+// WorkspaceOrigin resolves the chat channel a workspace's [ask]/[report] text goes to: the
+// chat of the handoff whose id the text quotes; else, when every recorded handoff to the
+// workspace came from one chat, that chat. ok is false when the workspace has handoffs from
+// more than one chat and the text names none of them; candidates then lists them, newest
+// first, and nothing is guessed. A workspace without recorded handoffs (claimed before they
+// were recorded) falls back to WorkspaceParent. channelID and parentID use the same form as
+// WorkspaceParent (bare ID in, bare ID out).
+func (e *Engine) WorkspaceOrigin(channelID, text string) (parentID string, candidates []TeamHandoff, ok bool) {
+	parent, isWS := e.WorkspaceParent(channelID)
+	if !isWS {
+		return "", nil, false
+	}
+	key := teamChatKey(channelID)
+	teamWorkspaceStore.mu.Lock()
+	hs := append([]TeamHandoff(nil), loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]...)
+	teamWorkspaceStore.mu.Unlock()
+	out := func(chat string) string {
+		if strings.Contains(channelID, ":") {
+			return chat
+		}
+		return teamChannelID(chat)
+	}
+	for _, ref := range taskRef.FindAllString(text, -1) {
+		for _, h := range hs {
+			if h.ID == ref {
+				return out(h.Chat), nil, true
+			}
+		}
+	}
+	chats := map[string]bool{}
+	for _, h := range hs {
+		chats[h.Chat] = true
+	}
+	switch len(chats) {
+	case 0:
+		return parent, nil, true
+	case 1:
+		return out(hs[0].Chat), nil, true
+	}
+	for i := len(hs) - 1; i >= 0; i-- {
+		candidates = append(candidates, hs[i])
+	}
+	return "", candidates, false
 }
 
 // TeamWorkspacePool returns every workspace in the server/category of chat, 「工作区n」 lowest

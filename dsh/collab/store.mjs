@@ -4,6 +4,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
+
+/** One row per handoff of a task to a pool workspace (claimWorkspace), read by team-exit.mjs. */
+export const TEAM_HANDOFFS_DDL = `CREATE TABLE IF NOT EXISTS team_exit_handoffs (
+  id TEXT PRIMARY KEY, workspace_id INTEGER NOT NULL, parent_id INTEGER NOT NULL)`;
 
 export const MAX_TEXT = 128 * 1024;
 // Per chat channel dispatch mode (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合,
@@ -308,8 +313,14 @@ export class Store {
       if (chat === undefined || ws === undefined) throw new CollabError('room-missing', `room ${chat === undefined ? chatId : workspaceId} does not exist`);
       if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
       const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
-      if (ws.parent_id === parent) return ws;
-      return this.db.prepare('UPDATE rooms SET parent_id = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(parent, ws.id);
+      // Each handoff is one task with the chat that handed it off, so the unified exit
+      // (team-exit.mjs) sends a report back to its own task's chat, not to the last claimer.
+      const task = `task-${randomBytes(4).toString('hex')}`;
+      this.db.prepare(TEAM_HANDOFFS_DDL).run();
+      this.db.prepare('INSERT INTO team_exit_handoffs (id, workspace_id, parent_id) VALUES (?, ?, ?)').run(task, ws.id, parent);
+      const row = ws.parent_id === parent ? ws
+        : this.db.prepare('UPDATE rooms SET parent_id = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(parent, ws.id);
+      return { ...row, task };
     });
   }
 

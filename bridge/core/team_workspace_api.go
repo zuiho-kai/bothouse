@@ -78,6 +78,8 @@ type TeamWorkspaceListResult struct {
 	Workspaces []TeamWorkspace `json:"workspaces"`
 	// Pool: every 「工作区n」 of the server/category, lowest first (shared by all chat channels).
 	Pool []TeamWorkspace `json:"pool,omitempty"`
+	// Task: the handoff id a claim recorded; the workspace quotes it in [ask]/[report].
+	Task string `json:"task,omitempty"`
 }
 
 func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +105,7 @@ func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Reque
 }
 
 // handleTeamWorkspaceClaim records the chat channel handing off to a pool workspace, so its
-// asks and reports return there (last handoff wins).
+// asks and reports return there. The response's task id ties later [ask]/[report] to this chat.
 func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -132,11 +134,12 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
-	if err := e.ClaimTeamWorkspace(req.SessionKey, req.WorkspaceID, req.Name); err != nil {
+	task, err := e.ClaimTeamWorkspaceTask(req.SessionKey, req.WorkspaceID, req.Name)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	plat, _, _ := strings.Cut(teamChatKey(req.SessionKey), ":")
 	parent, _ := e.WorkspaceParent(plat + ":" + req.WorkspaceID)
-	apiJSON(w, http.StatusOK, TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent)})
+	apiJSON(w, http.StatusOK, TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent), Task: task})
 }
