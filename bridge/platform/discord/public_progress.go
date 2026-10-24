@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -94,7 +95,8 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	}
 	p.cardViews.remember(task.MessageID, cardRender{lang: string(lang), embeds: render})
 	if task.ThreadID != "" && task.CardURL != "" {
-		return p.syncTaskThreadName(ctx, task)
+		p.syncTaskThreadName(ctx, task)
+		return nil
 	}
 	ch, err := p.session.Channel(task.ChannelID, discordgo.WithContext(ctx))
 	if err != nil {
@@ -133,17 +135,20 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 // syncTaskThreadName renames the card's thread when the card title changed
 // after the thread was opened (a batch card is titled by its first member
 // until the lead reports a start title). A thread the card merely lives in
-// is the user's own and is never renamed.
-func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) error {
+// is the user's own and is never renamed. The rename is cosmetic: a refusal
+// (archived/locked thread, rename rate limit) is only logged and never blocks
+// the card or the thread's messages. Each title is tried once, and a rate
+// limit fails fast instead of sleeping through the delivery's deadline.
+func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
 	name := truncateDiscordThreadName(task.Title, 90)
 	if task.ThreadID == task.ChannelID || name == "" || name == task.ThreadTitle {
-		return nil
-	}
-	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Name: name}, discordgo.WithContext(ctx)); err != nil {
-		return err
+		return
 	}
 	task.ThreadTitle = name
-	return nil
+	unarchive := false
+	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Name: name, Archived: &unarchive}, discordgo.WithContext(ctx), discordgo.WithRetryOnRatelimit(false)); err != nil {
+		slog.Warn("discord: task thread rename failed", "task_id", task.ID, "thread", task.ThreadID, "error", err)
+	}
 }
 
 func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {
@@ -161,7 +166,7 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 		parts = []string{""}
 	}
 	for i, part := range parts {
-		marker := taskFactMarker(ev, i, len(parts))
+		marker := taskFactMarker(task, ev, i, len(parts))
 		if err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part); err != nil {
 			// Missing access or thread is permanent for this account; core
 			// reports it visibly instead of blocking later facts on retries.
@@ -176,11 +181,14 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 }
 
 // taskFactMarker is the small footer that lets a retry find an event already
-// posted in this thread: "#<seq>" (one thread per task, so the sequence is
-// unique there), with "·n/m" for the parts of an over-long event.
-func taskFactMarker(ev core.TaskEvent, i, n int) string {
+// posted in this thread: "#<seq>" in the card's own thread (one thread per
+// task, so the sequence is unique there), with "·n/m" for the parts of an
+// over-long event. When the card lives in the user's thread, several cards
+// share it and each counts from 1, so the footer carries the event ID, which
+// includes the card's ID.
+func taskFactMarker(task *core.Task, ev core.TaskEvent, i, n int) string {
 	marker := "#" + ev.ID
-	if ev.Seq > 0 {
+	if ev.Seq > 0 && (task.ThreadID != task.ChannelID || ev.ID == "") {
 		marker = fmt.Sprintf("#%d", ev.Seq)
 	}
 	if n > 1 {

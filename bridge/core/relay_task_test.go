@@ -377,3 +377,21 @@ func taskRelayFixture(t *testing.T) (*PublicProgress, *progressTestPlatform, str
 	}
 	return p, platform, run, id
 }
+
+// A bot dispatched twice on one card: the row it finished for the first
+// dispatch must not swallow the second dispatch's reply.
+func TestMemberReportedOnlyCountsThisDispatch(t *testing.T) {
+	first := time.Now().UTC().Add(-time.Hour)
+	second := first.Add(30 * time.Minute)
+	task := &Task{Members: []TaskMember{{ReporterProject: "gjiang", ID: "m1", Status: "completed", EndedAt: first.Add(time.Minute)}}}
+	if !memberReported(task, "gjiang", first) {
+		t.Fatal("row finished during the first dispatch not recognized")
+	}
+	if memberReported(task, "gjiang", second) {
+		t.Fatal("row from the earlier dispatch counted as this dispatch's report")
+	}
+	task.Members = append(task.Members, TaskMember{ReporterProject: "gjiang", ID: "m2", Status: "completed", EndedAt: second.Add(time.Minute)})
+	if !memberReported(task, "gjiang", second) {
+		t.Fatal("row finished during the second dispatch not recognized")
+	}
+}
