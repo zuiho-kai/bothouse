@@ -563,11 +563,12 @@ class CoMention(unittest.TestCase):
         self.assertTrue(gate.co_mention({"content": "@龙娘(你) " + f"<@{IDS['']}> 一起看", "mentioned": True}, "longniang"))
         self.assertFalse(gate.co_mention({"content": "@龙娘(你) " + f"<@{IDS['longniang']}> 看", "mentioned": True}, "longniang"))
 
-    def test_no_ids_configured(self):  # 团队文件没写 id：剩下的任何 <@id> 都算别人
+    def test_no_ids_configured(self):  # 团队文件没写 id：不做同时 @ 判定，认不出的 <@id> 当没 @ 队友，照原规则 reply
         saved = dict(gate.lead.ID)
         gate.lead.ID.clear()
         try:
-            self.assertEqual(self.lead(content=self.LEAD_AT + "<@42> 帮我算", mentioned=True), "context")
+            self.assertIsNone(gate._other_mention(""))
+            self.assertEqual(self.lead(content=self.LEAD_AT + "<@42> 帮我算", mentioned=True), "reply")
             self.assertEqual(self.lead(content=self.LEAD_AT + "帮我算", mentioned=True), "reply")
         finally:
             gate.lead.ID.update(saved)

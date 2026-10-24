@@ -658,11 +658,9 @@ def _route(req, bot=""):
 
 
 def _other_mention(me):
-    """原文里 @ 了除 me 以外的成员。团队文件写了 id 就按 id 认；一个 id 都没写时，任何 <@id> 都算别人
-    （me 自己的 @ 已被 core 换成 "@名字(你)"，剩下的 <@id> 不会是 me）。"""
+    """原文里 @ 了除 me 以外的成员，只按团队文件里写的 id 认；认不出的 <@id> 一律当没 @ 队友。
+    一个 id 都没写时返回 None，不做同时 @ 判定（否则用户「@主bot @朋友」会被判 context，没人回）。"""
     ids = [i for k, i in lead.ID.items() if k != me]
-    if not ids and not lead.ID:
-        return re.compile(r"<@!?&?\d+>")
     return re.compile(r"<@!?(?:" + "|".join(map(re.escape, ids)) + r")>") if ids else None
 
 
