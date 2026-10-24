@@ -1124,6 +1124,31 @@ test('cloud-web #119 task card survives disconnect/reconnect and keeps editing t
   assert.equal(whale.of('message').length, before, 'edits are not broadcast either');
 });
 
+test('cloud-web #119 task card seq: a retried create refreshes the row, an older frame cannot roll it back', () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const card = (state, text) => PROGRESS_PREFIX + JSON.stringify({ version: 2, agent: '📋 整理日志', state, items: [{ kind: 'info', text }] });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '开始'), seq: 1 });
+  const handle = ju.of('preview_ack').at(-1).preview_handle;
+  // The ack was lost; the bridge retries the create later with newer content.
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '完成一半'), seq: 3 });
+  assert.equal(ju.of('preview_ack').at(-1).preview_handle, handle, 'the retry returns the same row');
+  let row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成一半/, 'the retried create shows its newer content');
+  assert.equal(JSON.parse(row.card).seq, 3);
+  ju.frame({ type: 'update_message', preview_handle: handle, content: card('running', '旧进度'), seq: 2 });
+  row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成一半/, 'an older frame is ignored');
+  ju.frame({ type: 'update_message', preview_handle: handle, content: card('completed', '完成'), seq: 4 });
+  row = hub.store.message(Number(handle));
+  assert.match(row.text, /完成/);
+  assert.equal(JSON.parse(row.card).state, 'completed');
+  assert.equal(JSON.parse(row.card).seq, 4);
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: card('running', '开始'), seq: 1 });
+  assert.equal(JSON.parse(hub.store.message(Number(handle)).card).state, 'completed', 'a delayed first create does not reopen a finished card');
+});
+
 test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a CLI job settled after restart', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });

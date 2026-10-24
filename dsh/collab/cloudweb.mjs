@@ -418,13 +418,17 @@ export class CloudWebGateway {
       case 'preview_start': {
         if (typeof d.ref_id !== 'string') return;
         const room = roomOf(d, this.hub.store);
-        const body = this.body(d.content);
+        const seq = cardSeq(d);
+        const body = withSeq(this.body(d.content), seq);
         let handle = '';
         if (room !== undefined && body.text) {
-          const { message } = this.hub.draft(room, {
+          const { message, created } = this.hub.draft(room, {
             authorKind: 'role', author: member.id, name: member.name, text: body.text, card: body.card,
             clientKey: `preview:${member.id}:${d.ref_id}`,
           });
+          // #119: a task card create retried after a lost ack finds the row it
+          // made before; show the newer content instead of the first one.
+          if (!created && newerSeq(message, seq)) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
           handle = String(message.id);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
@@ -441,7 +445,10 @@ export class CloudWebGateway {
         const h = d.preview_handle;
         if (typeof h !== 'string' || !/^\d+$/.test(h)) return;
         if (d.type === 'delete_message') { this.hub.remove(Number(h), 'role', member.id); return; }
-        const body = this.body(d.content);
+        const seq = cardSeq(d);
+        // #119: a delayed older task card frame must not roll the card back.
+        if (seq !== undefined && !newerSeq(this.hub.store.message(Number(h)), seq)) return;
+        const body = withSeq(this.body(d.content), seq);
         if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
         return;
       }
@@ -522,6 +529,25 @@ export class CloudWebGateway {
   closeAll() {
     for (const { ws } of this.bots.values()) ws.close(1001, 'server shutdown');
   }
+}
+
+/** The task card sequence a frame carries (bridge cloud-web EnsureTaskCard), or undefined. */
+function cardSeq(d) {
+  return Number.isSafeInteger(d.seq) && d.seq >= 0 ? d.seq : undefined;
+}
+
+/** Record seq in the stored card so later frames can be compared with it. */
+function withSeq(body, seq) {
+  if (seq === undefined || body.card == null) return body;
+  const card = parseCard(body.card);
+  return card === undefined ? body : { ...body, card: JSON.stringify({ ...card, seq }) };
+}
+
+/** True when seq is newer than what row's card was last written with (rows without one count as older). */
+function newerSeq(row, seq) {
+  if (row === undefined || seq === undefined) return false;
+  const stored = parseCard(row.card)?.seq;
+  return !Number.isSafeInteger(stored) || seq > stored;
 }
 
 function parseCard(raw) {

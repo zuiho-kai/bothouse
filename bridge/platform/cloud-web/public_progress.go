@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,20 +21,47 @@ var _ core.TaskCardPublisher = (*Platform)(nil)
 const taskCardAckTimeout = 10 * time.Second
 
 // TaskCardDestination accepts a session the gateway can post to and edit in.
+// The reply context is only known after an inbound message, so after a restart
+// a turn that did not start from one (heartbeat, cron, relay) would get no
+// card; a room session key ("<name>:room-<id>[:<user>]") names its room, so
+// fall back to that.
 func (p *Platform) TaskCardDestination(sessionKey string) (string, error) {
 	if !p.hasCap(capPreview) || !p.hasCap(capUpdateMessage) {
 		return "", core.ErrNotSupported
 	}
-	replyCtx, ok := p.lookupReplyCtx(sessionKey)
-	if !ok || replyCtx == "" {
-		return "", fmt.Errorf("cloud_web: no reply context for session %q", sessionKey)
+	if replyCtx, ok := p.lookupReplyCtx(sessionKey); ok && replyCtx != "" {
+		return replyCtx, nil
 	}
-	return replyCtx, nil
+	if room, ok := p.roomFromSessionKey(sessionKey); ok {
+		return room, nil
+	}
+	return "", fmt.Errorf("cloud_web: no reply context for session %q", sessionKey)
+}
+
+// roomFromSessionKey returns "room-<id>" for this platform's room sessions.
+func (p *Platform) roomFromSessionKey(sessionKey string) (string, bool) {
+	rest, ok := strings.CutPrefix(sessionKey, p.name+":")
+	if !ok {
+		return "", false
+	}
+	chat, _, _ := strings.Cut(rest, ":")
+	id, ok := strings.CutPrefix(chat, "room-")
+	if !ok {
+		return "", false
+	}
+	n, err := strconv.ParseUint(id, 10, 64)
+	if err != nil || n == 0 || strconv.FormatUint(n, 10) != id {
+		return "", false
+	}
+	return chat, true
 }
 
 // EnsureTaskCard creates the card once and then edits it. The create frame uses
 // a ref id derived from the task id: the gateway keys the row on it, so a retry
-// after a lost ack returns the same message instead of a second card.
+// after a lost ack returns the same message instead of a second card. Both
+// frames carry task.Seq: the gateway keeps the highest seq it applied, skips an
+// older frame instead of rolling the card back, and refreshes the row when a
+// retried create finds it already there with older content.
 func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
 	if task == nil {
 		return errors.New("cloud_web: nil task")
@@ -45,6 +73,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 			"session_key":    task.SessionKey,
 			"preview_handle": task.MessageID,
 			"content":        text,
+			"seq":            task.Seq,
 		})
 	}
 	waiter, ok := p.tp.(previewWaiter)
@@ -59,6 +88,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 		"session_key": task.SessionKey,
 		"reply_ctx":   task.ChannelID,
 		"content":     text,
+		"seq":         task.Seq,
 	}); err != nil {
 		_, _ = wait(0)
 		return err
