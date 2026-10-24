@@ -105,7 +105,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
-	s.mux.HandleFunc("/session/new", s.handleSessionNew) // `cc-connect session new --after-turn` (session_reset.go)
+	s.mux.HandleFunc("/session/new", s.handleSessionNew)              // `cc-connect session new --after-turn` (session_reset.go)
 	s.mux.HandleFunc("/team/workspace/new", s.handleTeamWorkspaceNew) // team mode D (team_workspace_api.go)
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management

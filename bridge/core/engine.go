@@ -441,11 +441,11 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
-	pendingReset                 map[string]bool // `cc-connect session new --after-turn` (session_reset.go): session keys to reset once their turn ends
-	team                         *teamState                    // maomao fork: team status board (nil = off)
-	teamWS                       *teamWorkspaces               // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
-	board                        *channelBoardHub              // maomao fork: channel task board (channel_board.go); shared by the process
-	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
+	team                         *teamState       // maomao fork: team status board (nil = off)
+	teamWS                       *teamWorkspaces  // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
+	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
+	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
 	projectState                 *ProjectStateStore
