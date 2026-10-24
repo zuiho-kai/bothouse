@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Server, Heart, ArrowRight, FolderKanban, Plus, Smartphone, Settings2 } from 'lucide-react';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
-import { listProjects, type ProjectSummary } from '@/api/projects';
+import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import PlatformSetupQR from './PlatformSetupQR';
 import PlatformManualForm from './PlatformManualForm';
 import { platformMeta } from '@/lib/platformMeta';
@@ -146,7 +146,7 @@ export default function ProjectList() {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Server size={18} className="text-gray-400" />
-                    <h3 className="font-semibold text-gray-900 dark:text-white">{p.name}</h3>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{shownName(p)}</h3>
                   </div>
                   <ArrowRight size={16} className="text-gray-300 dark:text-gray-600" />
                 </div>

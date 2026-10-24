@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { StatCard, Badge, EmptyState } from '@/components/ui';
 import { getStatus, type SystemStatus } from '@/api/status';
-import { listProjects, type ProjectSummary } from '@/api/projects';
+import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 import { formatUptime, formatTime } from '@/lib/utils';
 
@@ -102,7 +102,7 @@ export default function Dashboard() {
                     <Server size={14} className="text-accent" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{p.name}</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{shownName(p)}</p>
                     <p className="text-xs text-gray-400 font-mono">{p.agent_type}</p>
                   </div>
                 </div>
@@ -150,7 +150,7 @@ export default function Dashboard() {
                     {sess.name || sess.id}
                   </p>
                 </div>
-                <Badge className="text-xs mb-2">{sess.project}</Badge>
+                <Badge className="text-xs mb-2">{shownNames(projects)(sess.project)}</Badge>
                 {sess.last_message && (
                   <p className="text-xs text-gray-400 truncate mb-2">
                     {sess.last_message.content.slice(0, 60)}

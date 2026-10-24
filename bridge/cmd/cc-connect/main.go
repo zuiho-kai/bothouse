@@ -29,6 +29,7 @@ var (
 	version   = "dev"
 	commit    = "none"
 	buildTime = "unknown"
+	trayMode  bool
 )
 
 // globalAPIServer holds the running API server so the config-reload path can
@@ -239,6 +240,16 @@ var topLevelCommandHandlers = map[string]func([]string){
 }
 
 func main() {
+	if startDesktopTray() {
+		return
+	}
+	runMain()
+}
+
+func runMain() {
+	if trayMode {
+		defer quitDesktopTray()
+	}
 	// First of all: a new version that did not pass its update self-check last start goes back to
 	// the old binary here, before anything that can make startup exit (flags, config, lock).
 	core.RecoverPendingUpdate(version)
@@ -1359,18 +1370,23 @@ func main() {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
 	handleDumpSignal() // maomao fork: `kill -USR1 <pid>` logs goroutine stacks (unix only)
 
 	var restartReq *core.RestartRequest
 	select {
 	case <-sigCh:
+	case <-desktopShutdown:
 	case req := <-core.RestartCh:
 		restartReq = &req
 		slog.Info("restart requested via /restart command", "session", req.SessionKey, "platform", req.Platform)
 	}
 
 	slog.Info("shutting down...")
+	if trayMode {
+		quitDesktopTray()
+	}
 	if mgmtSrv != nil {
 		mgmtSrv.Stop()
 	}

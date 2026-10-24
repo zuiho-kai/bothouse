@@ -624,6 +624,7 @@ func (m *ManagementServer) handleProjects(w http.ResponseWriter, r *http.Request
 
 		projects = append(projects, map[string]any{
 			"name":              name,
+			"display_name":      e.DisplayName(),
 			"agent_type":        e.agent.Name(),
 			"platforms":         platNames,
 			"sessions_count":    sessCount,
@@ -717,6 +718,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 
 		data := map[string]any{
 			"name":                name,
+			"display_name":        e.DisplayName(),
 			"agent_type":          e.agent.Name(),
 			"platforms":           platInfos,
 			"sessions_count":      sessCount,

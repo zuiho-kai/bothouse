@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { MessageSquare, Bot, User, Circle, ArrowRight } from 'lucide-react';
 import { Card, EmptyState, Badge } from '@/components/ui';
-import { listProjects, type ProjectSummary } from '@/api/projects';
+import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 
 interface ChatEntry {
@@ -89,7 +89,7 @@ export default function ChatList() {
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <MessageSquare size={18} className="text-accent" />
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{project.name}</h3>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{shownName(project)}</h3>
                       {hasLive && <Circle size={6} className="fill-emerald-500 text-emerald-500" />}
                     </div>
                     <ArrowRight size={16} className="text-gray-300 dark:text-gray-600" />

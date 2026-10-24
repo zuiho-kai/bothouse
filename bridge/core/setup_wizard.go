@@ -175,6 +175,9 @@ type WizardProjectWrite struct {
 	GateURL, GateFallback                  *string
 	Provider                               *ProviderConfig
 	FeishuOwnerOpenID                      string // feishu: merged into allow_from when it is empty
+	// DisplayName is the name the user gave the role when it differs from the project name (a
+	// non-ASCII name maps to role-N); written as team_name, which the panel shows. "" = leave
+	DisplayName string
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -183,6 +186,7 @@ type WizardExistingProject struct {
 	Name, AgentType, WorkDir, AgentCmd string
 	Platforms                          map[string]map[string]any // platform type → options (first of each type)
 	GateURL, GateFallback              string
+	DisplayName                        string // team_name ("" = Name)
 }
 
 // WizardSnapshot is config.toml's projects at one moment.
@@ -1453,6 +1457,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		ex, exists := s.project(r.project)
 		if !r.reused {
 			pw.WorkDir = r.workDir
+			if r.Name != r.project {
+				pw.DisplayName = r.Name
+			}
 		}
 		if r.agentCmd != "" && (!exists || ex.AgentCmd == "") {
 			pw.AgentCmd = r.agentCmd
@@ -1839,11 +1846,17 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	m.mu.RUnlock()
 	if m.wizardStore != nil {
 		if snap, err := m.wizardStore.Snapshot(); err == nil {
-			names := []string{}
+			names, shown := []string{}, []string{}
 			for _, p := range snap.Projects {
 				names = append(names, p.Name)
+				if p.DisplayName != "" {
+					shown = append(shown, p.DisplayName)
+				} else {
+					shown = append(shown, p.Name)
+				}
 			}
 			out["projects"] = names // the web wizard avoids these names for new bots (same rule as planWizard)
+			out["project_display_names"] = shown // what the panel lists as existing roles (team_name, else name)
 		}
 	}
 	fb := r.URL.Query().Get("fallback_name") // the wizard passes the bot it is about to pick

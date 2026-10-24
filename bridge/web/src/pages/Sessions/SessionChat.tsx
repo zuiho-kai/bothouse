@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { getSession, type SessionDetail } from '@/api/sessions';
+import { getProject, shownName } from '@/api/projects';
 import { useBridgeSocket, fetchBridgeConfig, type BridgeConfig, type BridgeIncoming, type BridgeStatus } from '@/hooks/useBridgeSocket';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -261,6 +262,11 @@ export default function SessionChat() {
   const { t } = useTranslation();
   const { project, id } = useParams<{ project: string; id: string }>();
   const [session, setSession] = useState<SessionDetail | null>(null);
+  const [shown, setShown] = useState('');
+  useEffect(() => {
+    setShown('');
+    if (project) getProject(project).then((p) => setShown(shownName(p))).catch(() => {});
+  }, [project]);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -456,7 +462,7 @@ export default function SessionChat() {
               <StatusBadge status={bridgeStatus} />
             </div>
             <div className="flex items-center gap-2 mt-0.5">
-              <Badge>{project}</Badge>
+              <Badge>{shown || project}</Badge>
               {session?.platform && <Badge variant="info">{session.platform}</Badge>}
               <span className="text-xs text-gray-500">{session?.session_key}</span>
             </div>

@@ -13,6 +13,11 @@ LDFLAGS := -s -w \
   -X main.commit=$(COMMIT) \
   -X main.buildTime=$(BUILD_TIME)
 
+# macOS systray requires Cocoa/cgo; other release targets remain pure Go.
+release_cgo = $(if $(filter darwin,$(1)),1,0)
+release_cc = $(if $(filter darwin,$(1)),clang -arch $(if $(filter amd64,$(2)),x86_64,$(2)),$(CC))
+release_ldflags = $(LDFLAGS) $(if $(filter windows,$(1)),-H=windowsgui,)
+
 PLATFORMS := \
   linux/amd64 \
   linux/arm64 \
@@ -166,8 +171,8 @@ release-all: web clean
 		$(eval EXT    := $(if $(filter windows,$(GOOS)),.exe,)) \
 		$(eval OUT    := $(DIST)/$(APP)-$(VERSION)-$(GOOS)-$(GOARCH)$(EXT)) \
 		echo "Building $(OUT)" && \
-		GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 \
-			go build $(_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(OUT) $(CMD) && \
+		GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(call release_cgo,$(GOOS)) CC="$(call release_cc,$(GOOS),$(GOARCH))" \
+			go build $(_TAGS_FLAG) -ldflags "$(call release_ldflags,$(GOOS))" -o $(OUT) $(CMD) && \
 	) true
 	@echo "Packaging archives..."
 	@cd $(DIST) && for f in $(APP)-*; do \
@@ -191,6 +196,6 @@ release:
 	$(eval GOARCH := $(word 2,$(subst /, ,$(TARGET))))
 	$(eval EXT    := $(if $(filter windows,$(GOOS)),.exe,))
 	$(eval OUT    := $(DIST)/$(APP)-$(VERSION)-$(GOOS)-$(GOARCH)$(EXT))
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 \
-		go build $(_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(OUT) $(CMD)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(call release_cgo,$(GOOS)) CC="$(call release_cc,$(GOOS),$(GOARCH))" \
+		go build $(_TAGS_FLAG) -ldflags "$(call release_ldflags,$(GOOS))" -o $(OUT) $(CMD)
 	@echo "Built: $(OUT)"

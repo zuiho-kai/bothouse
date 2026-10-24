@@ -35,7 +35,8 @@ func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	out := core.WizardSnapshot{Projects: make([]core.WizardExistingProject, 0, len(ps))}
 	for _, p := range ps {
 		out.Projects = append(out.Projects, core.WizardExistingProject{Name: p.Name, AgentType: p.AgentType, WorkDir: p.WorkDir,
-			AgentCmd: p.AgentCmd, Platforms: p.Platforms, GateURL: p.GateURL, GateFallback: p.GateFallback})
+			AgentCmd: p.AgentCmd, Platforms: p.Platforms, GateURL: p.GateURL, GateFallback: p.GateFallback,
+			DisplayName: p.TeamName})
 	}
 	return out
 }
@@ -74,7 +75,7 @@ func (configWizardStore) ApplyProjects(plan func(core.WizardSnapshot) ([]core.Wi
 			o := config.WizardProjectOptions{Name: w.Name, AgentType: w.AgentType, WorkDir: w.WorkDir, AgentCmd: w.AgentCmd,
 				AgentArgs: w.AgentArgs, AgentEnv: w.AgentEnv, AgentOptions: w.AgentOptions,
 				PlatformType: w.PlatformType, Options: w.Options, GateURL: w.GateURL, GateFallback: w.GateFallback,
-				OwnerOpenID: w.FeishuOwnerOpenID}
+				OwnerOpenID: w.FeishuOwnerOpenID, DisplayName: w.DisplayName}
 			if w.Provider != nil {
 				p := config.ProviderConfig{Name: w.Provider.Name, APIKey: w.Provider.APIKey, BaseURL: w.Provider.BaseURL,
 					Model: w.Provider.Model, Thinking: w.Provider.Thinking, APIFormat: w.Provider.APIFormat}
@@ -146,7 +147,11 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	announceSetupWizard(link, linkFile, port, os.Getenv("CC_LOG_FILE") == "" && !overSSH())
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	select {
+	case <-desktopShutdown:
+		srv.Stop()
+		release()
 	case <-sigCh:
 		srv.Stop()
 		release()
