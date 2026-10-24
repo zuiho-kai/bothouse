@@ -10,7 +10,7 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 
 **1. 装。** 从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
 
-- macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖进 Applications 后双击。尚未签名，首次打开请「右键→打开」。
+- macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖入 Applications，首次打开请「右键→打开」（安装包未签名）。
 - Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
 
@@ -24,10 +24,10 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。
 
-默认装最新的发布版（含预发布版）。要装固定版本（比如几个人用同一版、或者退回上一版），在 `sh` 前面加 `CONEST_VERSION=<tag>`，tag 在仓库的 Releases 页能看到：
+默认装最新的发布版（含预发布版）。要装固定版本（比如几个人用同一版、或者退回上一版），在 `sh` 前面加 `BOTHOUSE_VERSION=<tag>`，tag 在仓库的 Releases 页能看到：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | CONEST_VERSION=<tag> sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | BOTHOUSE_VERSION=<tag> sh
 ```
 
 `<tag>` 换成 Releases 页上的版本名（形如 `v0.1.0-rc5`）。

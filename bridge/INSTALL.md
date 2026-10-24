@@ -18,7 +18,7 @@ Windows（PowerShell）：
 irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 ```
 
-装到 `~/.local/bin/bothouse`（Windows：`%USERPROFILE%\.local\bin\bothouse.exe`，并加进用户 PATH），不用 Go 和 Node。`CONEST_VERSION=<tag>` 装指定版本，`INSTALL_DIR=<目录>` 换位置（PowerShell 里写 `$env:CONEST_VERSION='<tag>'`）。
+装到 `~/.local/bin/bothouse`（Windows：`%USERPROFILE%\.local\bin\bothouse.exe`，并加进用户 PATH），不用 Go 和 Node。`BOTHOUSE_VERSION=<tag>` 装指定版本，`INSTALL_DIR=<目录>` 换位置（PowerShell 里写 `$env:BOTHOUSE_VERSION='<tag>'`）。
 从源码编（开发用）见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 附录 B。
 
 ## 2. 配

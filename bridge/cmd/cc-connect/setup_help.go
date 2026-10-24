@@ -29,7 +29,7 @@ const setupUsage = `Usage:
                          in its persona that tell it how to use them. New roles from the wizard get all of them.
 
 No config yet? Just run "bothouse": it opens the same wizard in your browser.
-Guide: docs/connect-discord-feishu.md in the conest repo.
+Guide: docs/connect-discord-feishu.md in the bothouse repo.
 `
 
 const setupApplyFields = `

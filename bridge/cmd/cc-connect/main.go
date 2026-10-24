@@ -1661,7 +1661,7 @@ func printUsage() {
   Supports: Claude Code, Codex, Cursor, Gemini CLI, Qoder CLI, OpenCode
   Platforms: Feishu, TuiTui, Telegram, Slack, DingTalk, Discord, LINE, WeChat Work, Weixin, QQ, QQ Bot
 
-  conest:  https://github.com/zuiho-kai/bothouse (docs/GETTING_STARTED.md)
+  bothouse: https://github.com/zuiho-kai/bothouse (docs/GETTING_STARTED.md)
 
 Usage:
   bothouse [flags]
@@ -1674,7 +1674,7 @@ Flags:
   --help             Show this help message
 
 Commands:
-  setup              Configure bots (conest setup wizard; first run opens it in the browser)
+  setup              Configure bots (bothouse setup wizard; first run opens it in the browser)
     apply            One-shot config from JSON (for AI agents): setup apply -h lists every field
     clis             Local CLIs and whether they are logged in
     matrix           Third-party API providers × CLIs

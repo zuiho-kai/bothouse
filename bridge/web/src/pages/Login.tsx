@@ -5,7 +5,7 @@ import { Zap, AlertCircle, Languages, Sun, Moon, Monitor } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { api } from '@/api/client';
-import { getStatus } from '@/api/status';
+import { getStatus, getVersion } from '@/api/status';
 import { initialServerUrl } from '@/lib/serverUrl';
 
 const languages = [
@@ -28,7 +28,16 @@ export default function Login() {
   const [serverUrl, setServerUrl] = useState(initialServerUrl);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [version, setVersion] = useState('');
   const autoLoginAttempted = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    getVersion().then(({ version }) => {
+      if (active) setVersion(version);
+    }).catch(() => { /* Older servers may not expose a public version. */ });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (autoLoginAttempted.current) return;
@@ -159,6 +168,11 @@ export default function Login() {
               {t('login.connect')}
             </button>
           </form>
+          {version && (
+            <p className="mt-6 text-xs text-center text-gray-400 dark:text-gray-500" data-testid="login-version">
+              bothouse {version}
+            </p>
+          )}
         </div>
       </div>
     </div>

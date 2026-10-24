@@ -1,11 +1,11 @@
 #!/bin/sh
-# CoNest bothouse installer: downloads the prebuilt binary (with the setup wizard)
+# bothouse installer: downloads the prebuilt binary (with the setup wizard)
 # from the GitHub Release and puts it in ~/.local/bin. No Go or Node needed.
 #
 #   curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 #
 # Environment:
-#   CONEST_VERSION   tag to install (default: the newest release, pre-releases included)
+#   BOTHOUSE_VERSION   tag to install (default: the newest release, pre-releases included)
 #   INSTALL_DIR      where to put bothouse (default: ~/.local/bin)
 # macOS and Linux (arm64, amd64). On Windows use install.ps1 (PowerShell):
 #   irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
@@ -40,7 +40,7 @@ main() {
   trap 'rm -f "$tmp/bothouse" "$tmp/SHA256SUMS" "$tmp/curl.err" 2>/dev/null; [ -n "$asset" ] && rm -f "$tmp/$asset"; rmdir "$tmp" 2>/dev/null || true' EXIT
 
   # 1. which release: public API first; if that is unavailable (a 404 or a proxy), fall back to the logged-in gh
-  tag="${CONEST_VERSION:-}"
+  tag="${BOTHOUSE_VERSION:-${CONEST_VERSION:-}}"  # CONEST_VERSION: old name, still honored
   via=curl
   if [ -z "$tag" ]; then
     api="https://api.github.com/repos/$REPO/releases?per_page=1"

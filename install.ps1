@@ -1,13 +1,13 @@
-# CoNest bothouse installer for Windows: downloads the prebuilt binary (with the setup wizard)
+# bothouse installer for Windows: downloads the prebuilt binary (with the setup wizard)
 # from the GitHub Release, puts it in %USERPROFILE%\.local\bin and adds that to your user PATH.
 # No Go or Node needed. Windows PowerShell 5.1 or PowerShell 7, x64 or arm64.
 #
 #   irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex      # public repo
 #
 # Environment:
-#   CONEST_VERSION   tag to install (default: the newest release, pre-releases included)
+#   BOTHOUSE_VERSION   tag to install (default: the newest release, pre-releases included)
 #   INSTALL_DIR      where to put bothouse.exe (default: %USERPROFILE%\.local\bin)
-#   CONEST_REPO      owner/name to install from (default: zuiho-kai/bothouse; CI uses it for a test copy)
+#   BOTHOUSE_REPO      owner/name to install from (default: zuiho-kai/bothouse; CI uses it for a test copy)
 # Same steps as install.sh (macOS / Linux).
 
 # Everything runs from Install-Bothouse, called on the last line: if an `irm | iex` download is
@@ -19,8 +19,8 @@ function Install-Bothouse {
   # Windows PowerShell 5.1 may still default to TLS 1.0, which GitHub refuses.
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-  $repo = if ($env:CONEST_REPO) { $env:CONEST_REPO } else { 'zuiho-kai/bothouse' }
-  if ($repo -notmatch '^[\w.-]+/[\w.-]+$') { throw "install.ps1: CONEST_REPO must look like owner/name, got '$repo'" }
+  $repo = if ($env:BOTHOUSE_REPO) { $env:BOTHOUSE_REPO } elseif ($env:CONEST_REPO) { $env:CONEST_REPO } else { 'zuiho-kai/bothouse' }  # CONEST_*: old names, still honored
+  if ($repo -notmatch '^[\w.-]+/[\w.-]+$') { throw "install.ps1: BOTHOUSE_REPO must look like owner/name, got '$repo'" }
   $installDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { Join-Path $HOME '.local\bin' }
 
   function Fail($msg) { throw "install.ps1: $msg" }
@@ -45,7 +45,7 @@ function Install-Bothouse {
   New-Item -ItemType Directory -Path $tmp | Out-Null
   try {
     # 1. which release: public API first; if that is unavailable (a 404 or a proxy), fall back to the logged-in gh
-    $tag = $env:CONEST_VERSION
+    $tag = if ($env:BOTHOUSE_VERSION) { $env:BOTHOUSE_VERSION } else { $env:CONEST_VERSION }
     $via = 'web'
     if (-not $tag) {
       try {
@@ -127,8 +127,8 @@ function Install-Bothouse {
       $envKey.SetValue('Path', $newPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
       # tell Explorer (and so new windows) that the environment changed: setting any user
       # variable through .NET broadcasts WM_SETTINGCHANGE
-      [Environment]::SetEnvironmentVariable('CONEST_INSTALL_PING', '1', 'User')
-      [Environment]::SetEnvironmentVariable('CONEST_INSTALL_PING', $null, 'User')
+      [Environment]::SetEnvironmentVariable('BOTHOUSE_INSTALL_PING', '1', 'User')
+      [Environment]::SetEnvironmentVariable('BOTHOUSE_INSTALL_PING', $null, 'User')
       Write-Host "Added $installDir to your user PATH (new terminal windows pick it up)."
     }
     $envKey.Close()

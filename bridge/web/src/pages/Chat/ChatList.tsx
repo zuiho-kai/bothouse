@@ -84,8 +84,8 @@ export default function ChatList() {
             const ts = latestSession?.updated_at || latestSession?.created_at || '';
 
             return (
-              <Link key={project.name} to={`/chat/${project.name}`}>
-                <Card hover className="h-full flex flex-col">
+              <Link key={project.name} to={`/chat/${project.name}`} className="min-w-0">
+                <Card hover className="h-full min-w-0 flex flex-col">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <MessageSquare size={18} className="text-accent" />
@@ -112,15 +112,15 @@ export default function ChatList() {
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mt-auto pt-3 border-t border-gray-100 dark:border-gray-800">
-                    <div className="flex items-center gap-1.5">
+                  <div className="flex flex-nowrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400 mt-auto pt-3 border-t border-gray-100 dark:border-gray-800" data-testid="chat-card-footer">
+                    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
                       <Badge className="text-[9px]">{project.agent_type}</Badge>
                       {project.platforms?.slice(0, 2).map((pl) => <Badge key={pl}>{pl}</Badge>)}
                       {(project.platforms?.length ?? 0) > 2 && (
                         <Badge>+{project.platforms!.length - 2}</Badge>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap" data-testid="chat-card-count-time">
                       <span>{project.sessions_count} {t('chat.sessions', 'sessions')}</span>
                       {ts && <span className="text-gray-400">{timeAgo(ts, t)}</span>}
                     </div>

@@ -57,9 +57,11 @@ AI 还是你原来那几个，本机装的 Claude Code、Codex、Gemini 直接�
 
 从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
 
-- macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用），把 Bothouse.app 拖进 Applications 后双击。暂未签名，第一次请「右键→打开」。
+- macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）。
 - Windows：`bothouse-windows.exe`（x64 和 ARM64 都能跑），下载后双击。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
+
+安装包未签名。macOS 将 **Bothouse.app** 拖入 Applications，**首次打开请「右键→打开」**；Windows 若弹出 SmartScreen 提示，点「更多信息→仍要运行」。
 
 第一次启动会在浏览器打开安装向导。也可以用下面的命令装，固定版本和校验见[从零用起](docs/GETTING_STARTED.md)第 1 节。
 
@@ -73,7 +75,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; bothouse
 ```
 
-默认装最新发布版（含预发布）。安装器会用 SHA256SUMS 校验；要固定版本就设 CONEST_VERSION=<tag>。
+默认装最新发布版（含预发布）。安装器会用 SHA256SUMS 校验；要固定版本就设 BOTHOUSE_VERSION=<tag>。
 
 装好后的命令叫 `bothouse`。不用装 Go 或 Node。
 
