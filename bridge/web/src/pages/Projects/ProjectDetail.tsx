@@ -10,7 +10,7 @@ import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { getProject, updateProject, deleteProject, listAgentTypes, shownName, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
 import { getHeartbeat, pauseHeartbeat, resumeHeartbeat, triggerHeartbeat, setHeartbeatInterval, type HeartbeatStatus } from '@/api/heartbeat';
-import { restartSystem, waitForService } from '@/api/status';
+import { restartSystem } from '@/api/status';
 import { formatTime, cn } from '@/lib/utils';
 import PlatformSetupQR from './PlatformSetupQR';
 import PlatformManualForm from './PlatformManualForm';
@@ -127,7 +127,7 @@ export default function ProjectDetail() {
       if (res.restart_required && window.confirm(t('setup.restartAfterDelete'))) {
         await restartSystem();
         // Wait for service to come back up before navigating
-        await waitForService();
+        await waitForService(8000);
       }
       navigate('/projects');
     } catch (e: any) {
@@ -136,6 +136,20 @@ export default function ProjectDetail() {
       setDeleting(false);
     }
   };
+
+  const waitForService = (maxMs: number) =>
+    new Promise<void>((resolve) => {
+      const start = Date.now();
+      const poll = () => {
+        fetch('/api/v1/status')
+          .then((r) => { if (r.ok) resolve(); else throw new Error(); })
+          .catch(() => {
+            if (Date.now() - start > maxMs) { resolve(); return; }
+            setTimeout(poll, 500);
+          });
+      };
+      setTimeout(poll, 1500);
+    });
 
   const fetchAll = useCallback(async () => {
     if (!name) return;
@@ -728,7 +742,7 @@ export default function ProjectDetail() {
             <Button variant="secondary" onClick={() => { setShowRestartModal(false); setTimeout(fetchAll, 300); }}>
               {t('setup.later', 'Later')}
             </Button>
-            <Button onClick={async () => { await restartSystem(); setShowRestartModal(false); await waitForService(); await fetchAll(); }}>
+            <Button onClick={async () => { await restartSystem(); setShowRestartModal(false); await waitForService(8000); await fetchAll(); }}>
               {t('setup.restartNow', 'Restart now')}
             </Button>
           </div>

@@ -6,7 +6,7 @@ import { useThemeStore } from '@/store/theme';
 import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
 import PlatformSetupQR from '@/pages/Projects/PlatformSetupQR';
-import { restartSystem, waitForService } from '@/api/status';
+import { restartSystem } from '@/api/status';
 import { shownNames } from '@/api/projects';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
@@ -352,17 +352,7 @@ export default function SetupWizard() {
 
   const save = async () => {
     setSaving(true);
-    try {
-      const res = await applyWizard(buildRequest());
-      setResult(res);
-      // adding a role: the new project runs only after a restart, so do the same restart the
-      // "restart to apply" button does right away and wait for the service to come back
-      if (addMode && res.saved && res.restart_required) {
-        await restartSystem().catch(() => {});
-        setRestarted(true);
-        await waitForService();
-      }
-    } catch (e: any) {
+    try { setResult(await applyWizard(buildRequest())); } catch (e: any) {
       setResult({ ok: false, error: e?.message || String(e), steps: [], roles: [], jev_ok: false, jev_hint: '', hardware: false, restart_required: false, dry_run: false });
     }
     setSaving(false);
