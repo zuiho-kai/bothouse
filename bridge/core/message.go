@@ -388,6 +388,7 @@ type Message struct {
 	FromVoice        bool   // true if message originated from voice transcription
 	Mentioned        bool   // maomao fork: user explicitly @-mentioned the bot (input to the gate)
 	FromBot          bool   // maomao fork: sent by a teammate bot; without Mentioned it is context only
+	AddressedOther   bool   // the text @-s or names (at a line start) another team bot, not this one
 	Direct           bool   // a private chat with the bot (DM); counts as calling it for the built-in busy rules
 	SeenUpToID       string // maomao fork: newest message folded into this one (gate burst), for channel backfill
 	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom

@@ -78,3 +78,29 @@ func (p *Platform) MergeInjectedReply(turnCtx, injectedCtx any) any {
 }
 
 var _ core.InjectedReplyMerger = (*Platform)(nil)
+
+// HasConfiguredTeamLead reports whether team_lead_bot is set (core.ConfiguredTeamLead).
+func (p *Platform) HasConfiguredTeamLead() bool { return p.teamLead != "" }
+
+// IsConfiguredTeamLead reports whether team_lead_bot names this bot (core.ConfiguredTeamLeadSelf).
+func (p *Platform) IsConfiguredTeamLead() bool { return p.teamLead != "" && p.teamLead == p.botID }
+
+// addressedOther reports whether a person's message @-s or names (at a line start) another
+// team bot rather than this one, so a no-gate lead leaves it to that teammate.
+func addressedOther(content, selfID string) bool {
+	other := false
+	teamPlatforms.Range(func(k, v any) bool {
+		id, _ := k.(string)
+		tp, _ := v.(*Platform)
+		if id == "" || id == selfID || tp == nil {
+			return true
+		}
+		if strings.Contains(content, "<@"+id+">") || strings.Contains(content, "<@!"+id+">") ||
+			(tp.botName != "" && nameCalled(content, tp.botName, teamBotNames(id)...)) {
+			other = true
+			return false
+		}
+		return true
+	})
+	return other
+}

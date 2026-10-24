@@ -33,9 +33,9 @@ import (
 
 type WizardRequest struct {
 	libraryHost string // host of the management page (handleSetupApply): cloud_web loads library pictures from it
-	Platform string `json:"platform"` // "discord" (default) | "feishu" | "lark" | "cloud_web" (自建平台)
-	Language string `json:"language,omitempty"`
-	Discord  *struct {
+	Platform    string `json:"platform"` // "discord" (default) | "feishu" | "lark" | "cloud_web" (自建平台)
+	Language    string `json:"language,omitempty"`
+	Discord     *struct {
 		GuildID   string `json:"guild_id"`
 		ChannelID string `json:"channel_id"` // default chat channel
 	} `json:"discord,omitempty"`
@@ -167,6 +167,7 @@ type WizardProjectWrite struct {
 	AgentCmd                               string            // absolute CLI path when it was found outside PATH (L2); "" = leave
 	AgentArgs                              []string          // agent option args; nil = leave
 	AgentEnv                               map[string]string // merged into agent option env
+	AgentOptions                           map[string]any    // set in the agent's options (new projects only)
 	Options                                map[string]any    // merged into the platform's options; "" deletes a key
 	GateURL, GateFallback                  *string
 	Provider                               *ProviderConfig
@@ -1430,6 +1431,14 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		}
 		if !exists {
 			pw.AgentArgs, pw.AgentEnv = r.agentArgs, r.agentEnv
+			if r.AgentType == "codex" {
+				// The exec backend has no approval path: a command outside its read-only sandbox
+				// is refused with no card to click. app_server asks through a permission card.
+				pw.AgentOptions = map[string]any{"backend": "app_server"}
+				if pw.Provider != nil && strings.TrimSpace(pw.Provider.Model) != "" {
+					pw.AgentOptions["model"] = strings.TrimSpace(pw.Provider.Model)
+				}
+			}
 		}
 		if cloudWeb {
 			pw.PlatformType = "cloud_web"

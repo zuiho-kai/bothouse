@@ -220,6 +220,12 @@ func (s *memStore) ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite
 			}
 			p.AgentEnv[k] = v
 		}
+		for k, v := range w.AgentOptions {
+			if p.AgentOptions == nil {
+				p.AgentOptions = map[string]any{}
+			}
+			p.AgentOptions[k] = v
+		}
 		if w.PlatformType != "" {
 			p.PlatformType = w.PlatformType
 		}
@@ -386,6 +392,13 @@ func TestApplyWizardDiscordTeam(t *testing.T) {
 	if *ju.GateFallback != "context" || !strings.HasSuffix(*ju.GateURL, "?bot=juzi") || ju.Options["team_lead_bot"] != "222" ||
 		ju.Options["allow_bots"] != "222" || ju.Options["group_reply_all"] != true {
 		t.Errorf("ju team opts = %v gate=%v/%v", ju.Options, *ju.GateURL, *ju.GateFallback)
+	}
+	// codex role: app_server (approval cards) and its model in the agent options
+	if whale.AgentOptions["backend"] != "app_server" || whale.AgentOptions["model"] == nil || whale.AgentOptions["model"] != whale.Provider.Model {
+		t.Errorf("whale agent options = %v (provider model %q)", whale.AgentOptions, whale.Provider.Model)
+	}
+	if ju.AgentOptions != nil {
+		t.Errorf("non-codex agent options = %v", ju.AgentOptions)
 	}
 	// provider: deepseek × codex is native Responses
 	if whale.Provider == nil || whale.Provider.BaseURL != "https://api.deepseek.com" || whale.Provider.CodexWireAPI != "responses" || whale.Provider.APIFormat != "" {

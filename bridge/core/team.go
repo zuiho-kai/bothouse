@@ -78,17 +78,28 @@ func (e *Engine) readLeadSelection() (string, bool) {
 // this decision when present, so this is deliberately only called by the
 // local no-gate path.
 func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
-	if e.team == nil {
-		return false
-	}
 	if msg.FromBot || msg.Mentioned || msg.Direct {
 		return false
+	}
+	configured, ok := p.(ConfiguredTeamLead)
+	hasLead := ok && configured.HasConfiguredTeamLead()
+	if e.team == nil {
+		// A multi-role setup from the wizard names its lead in team_lead_bot on every
+		// member but may have no team status board; without a gate that setting alone
+		// decides: the lead answers unaddressed messages, the subs only listen.
+		self, ok := p.(ConfiguredTeamLeadSelf)
+		if !hasLead || !ok {
+			return false
+		}
+		return msg.AddressedOther || !self.IsConfiguredTeamLead()
+	}
+	if hasLead && msg.AddressedOther {
+		return true // @-ed or named a teammate: that teammate answers, not the lead
 	}
 	if selected, ok := e.readLeadSelection(); ok {
 		return selected != e.name
 	}
-	configured, ok := p.(ConfiguredTeamLead)
-	if !ok || !configured.HasConfiguredTeamLead() {
+	if !hasLead {
 		return false
 	}
 	return !e.isTeamLead()

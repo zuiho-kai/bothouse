@@ -21,6 +21,13 @@ type ConfiguredTeamLead interface {
 	HasConfiguredTeamLead() bool
 }
 
+// ConfiguredTeamLeadSelf reports whether this platform's own bot is the configured
+// team lead (team_lead_bot names itself). Without a gate and without a team status
+// board it is what tells the lead from the subs.
+type ConfiguredTeamLeadSelf interface {
+	IsConfiguredTeamLead() bool
+}
+
 // ErrNotSupported indicates a platform doesn't support a particular operation.
 var ErrNotSupported = errors.New("operation not supported by this platform")
 

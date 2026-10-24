@@ -72,7 +72,7 @@ func (configWizardStore) ApplyProjects(plan func(core.WizardSnapshot) ([]core.Wi
 		list := make([]config.WizardProjectOptions, 0, len(ws))
 		for _, w := range ws {
 			o := config.WizardProjectOptions{Name: w.Name, AgentType: w.AgentType, WorkDir: w.WorkDir, AgentCmd: w.AgentCmd,
-				AgentArgs: w.AgentArgs, AgentEnv: w.AgentEnv,
+				AgentArgs: w.AgentArgs, AgentEnv: w.AgentEnv, AgentOptions: w.AgentOptions,
 				PlatformType: w.PlatformType, Options: w.Options, GateURL: w.GateURL, GateFallback: w.GateFallback,
 				OwnerOpenID: w.FeishuOwnerOpenID}
 			if w.Provider != nil {

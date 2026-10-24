@@ -139,3 +139,20 @@ func TestDispatchedBy_LeadRoleMention(t *testing.T) {
 		t.Fatalf("other guild: %q", got)
 	}
 }
+
+func TestAddressedOtherTeammate(t *testing.T) {
+	lead := &Platform{botID: "L", botName: "Juzi", teamLead: "L"}
+	sub := &Platform{botID: "S", botName: "Whale", teamLead: "L"}
+	teamPlatforms.Store("L", lead)
+	teamPlatforms.Store("S", sub)
+	t.Cleanup(func() { teamPlatforms.Delete("L"); teamPlatforms.Delete("S") })
+	if !lead.IsConfiguredTeamLead() || sub.IsConfiguredTeamLead() || !sub.HasConfiguredTeamLead() {
+		t.Fatal("configured lead flags")
+	}
+	if !addressedOther("<@S> which model are you", "L") || !addressedOther("Whale, which model", "L") {
+		t.Fatal("a message to the sub is addressed to someone other than the lead")
+	}
+	if addressedOther("hello everyone", "L") || addressedOther("<@L> hi", "L") {
+		t.Fatal("unaddressed or self-addressed is not addressed to another")
+	}
+}

@@ -897,6 +897,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
 		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
 	}
+	msg.AddressedOther = !fromBot && !msg.Mentioned && addressedOther(m.Content, p.botID)
 	// Consume explicit approvals before bot labels, batching or the gate.
 	if fromBot && strings.HasPrefix(approvalContent, "/permit") {
 		if m.WebhookID == "" && mentioned && p.CanApprovePermission(m.Author.ID) {

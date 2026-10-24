@@ -295,3 +295,38 @@ func TestTeamSummary_TruncatesTaskAndKeysVisibleTask(t *testing.T) {
 		t.Fatal("busy state lost from key")
 	}
 }
+
+type selfLeadTestPlatform struct {
+	stubPlatformEngine
+	lead bool
+}
+
+func (*selfLeadTestPlatform) HasConfiguredTeamLead() bool  { return true }
+func (p *selfLeadTestPlatform) IsConfiguredTeamLead() bool { return p.lead }
+
+// A wizard team (team_lead_bot on every bot, no gate, no team status board): an unaddressed
+// message reaches only the lead; a message that @-s or names a sub reaches only that sub.
+func TestNoGateWizardTeamRoutesByConfiguredLead(t *testing.T) {
+	e := newTestEngine()
+	e.team = nil
+	lead := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, true}
+	sub := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, false}
+	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
+	if e.suppressUnaddressedGroup(lead, msg) {
+		t.Fatal("lead must answer an unaddressed message")
+	}
+	if !e.suppressUnaddressedGroup(sub, msg) {
+		t.Fatal("sub must stay quiet on an unaddressed message")
+	}
+	toSub := &Message{Content: "<@S> 你是什么模型", ChannelID: "c", SessionKey: "discord:c", AddressedOther: true}
+	if !e.suppressUnaddressedGroup(lead, toSub) {
+		t.Fatal("lead must stay quiet when a sub is addressed")
+	}
+	toSub = &Message{Content: "<@S> 你是什么模型", ChannelID: "c", SessionKey: "discord:c", Mentioned: true}
+	if e.suppressUnaddressedGroup(sub, toSub) {
+		t.Fatal("the addressed sub must answer")
+	}
+	if e.suppressUnaddressedGroup(&stubPlatformEngine{n: "discord"}, msg) {
+		t.Fatal("a solo bot without team_lead_bot must not be suppressed")
+	}
+}

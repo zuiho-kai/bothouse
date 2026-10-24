@@ -26,6 +26,7 @@ type WizardProjectOptions struct {
 	OwnerOpenID  string            // feishu/lark: merged into allow_from (same rule as the QR save)
 	AgentCmd     string            // agent option cmd (absolute CLI path found outside PATH)
 	AgentArgs    []string          // agent option args (nil = leave)
+	AgentOptions map[string]any    // set in the agent's options (nil = leave)
 	AgentEnv     map[string]string // merged into agent option env
 }
 
@@ -224,6 +225,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 	}
 	if o.AgentArgs != nil {
 		agentOpts["args"] = o.AgentArgs
+	}
+	for k, v := range o.AgentOptions {
+		agentOpts[k] = v
 	}
 	if len(o.AgentEnv) > 0 {
 		env, err := subMap(agentOpts, "env")
