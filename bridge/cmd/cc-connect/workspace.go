@@ -26,6 +26,8 @@ func runWorkspace(args []string) {
 	session := fs.String("session-key", os.Getenv("CC_SESSION_KEY"), "chat or workspace channel (default: $CC_SESSION_KEY)")
 	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.bothouse)")
 	jsonOut := fs.Bool("json", false, "print raw JSON")
+	chat := fs.String("chat", "", "park: the chat channel that handed the task off; refused unless it owns the workspace")
+	before := fs.String("before", "", "park: RFC 3339 time the task was bound; parks that chat's newest handoff at or before it")
 	_ = fs.Parse(rest)
 	if *session == "" {
 		workspaceFail(fmt.Errorf("no channel: run this inside a bothouse agent session or pass --session-key discord:<channel id>"))
@@ -67,7 +69,7 @@ func runWorkspace(args []string) {
 		fmt.Println(strings.TrimSpace(string(data)))
 	case "park":
 		// Optional <workspace id>; without it the session (CC_SESSION_KEY) is the workspace.
-		req := map[string]string{"session_key": *session}
+		req := map[string]string{"session_key": *session, "chat": *chat, "before": *before}
 		if fs.NArg() > 0 {
 			req["workspace_id"] = fs.Arg(0)
 		}
@@ -124,7 +126,9 @@ func printWorkspaceUsage() {
   list   list this chat channel's workspaces and the category's shared pool
   claim  record this chat channel as the one handing off to <workspace id> (also resumes a paused task)
   park   pause one task of <workspace id> (default: this workspace); with no other task in
-         work there the workspace goes back to the pool and its sessions are reset
+         work there the workspace goes back to the pool and its sessions are reset;
+         --chat <chat key> [--before <RFC 3339>]: only that chat channel's task, refused
+         when the workspace belongs to another chat channel now
 
 On by default for the primary role project (Discord only); team_workspaces = false turns it off.`)
 }

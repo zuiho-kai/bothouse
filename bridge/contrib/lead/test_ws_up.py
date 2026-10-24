@@ -146,7 +146,7 @@ elif a[1] == "new":
     st["ws"].append(w); save(); print(json.dumps({"workspace": w}))
 elif a[1] == "park":
     w = ws.get(sk.split(":")[1])
-    if not w or not w["owner"] or not w["open"]:
+    if not w or not w["owner"] or not w["open"] or ("--chat" in a and a[a.index("--chat") + 1].split(":u")[0] != w["owner"]):
         print("workspace is not owned by any chat channel", file=sys.stderr); sys.exit(1)
     w["open"], w["parked"] = w["open"] - 1, w["parked"] + 1
     if not w["open"]:
@@ -183,7 +183,8 @@ class WsPoolTest(unittest.TestCase):
         r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task], capture_output=True, text=True,
                            env={**self.env, "CC_SESSION_KEY": chat})
         self.assertEqual(r.returncode, 0, r.stderr)
-        argv = [json.loads(l) for l in Path(str(self.fake) + ".calls").read_text().splitlines()][-1]
+        argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
+                if c[:2] == ["timer", "add"]][-1]  # 交活后任务板刷新可能还会问桥（timer list）
         return argv[argv.index("-s") + 1]
 
     def board(self, *args):
@@ -265,6 +266,27 @@ class WsPoolTest(unittest.TestCase):
         self.pool([p["工作区1"], p["工作区2"], p3])
         self.handoff(self.note("b"), "B")
         self.assertEqual(self.pool()["工作区3"]["open"], 3)  # 迁过一次就不再迁
+    def test_migration_keeps_working_workspaces(self):  # 审查 pr261-code.md 第 3 条：在做的工作区一个都不放
+        self.pool([{"id": "1", "name": "工作区1", "owner": "test:100", "open": 1, "parked": 0},
+                   {"id": "2", "name": "工作区2", "owner": "test:100", "open": 1, "parked": 0},
+                   {"id": "3", "name": "工作区3", "owner": "test:100", "open": 1, "parked": 0},
+                   {"id": "4", "name": "工作区4", "owner": "test:300", "open": 1, "parked": 0}])
+        # 工作区1 只剩一条 later 回查条目（等 CI，带 next）
+        r = subprocess.run([str(HERE / "board"), "add", "等 CI", "-", "s", "工作区1主角色", "--next", "23:59"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:1", "BOARD_LATER": "1"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 工作区2：聊天频道 add 的条目（条目频道是聊天频道），工作区只把「谁」改成「工作区2…」
+        r = subprocess.run([str(HERE / "board"), "add", "旧活", "-", "s", "橘"], capture_output=True, text=True,
+                           env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.board("update", "2", "做着", "-", "工作区2橘")[0], 0)
+        self.handoff(self.note("a"), "A")
+        p = self.pool()
+        self.assertEqual((p["工作区1"]["open"], p["工作区1"]["owner"]), (1, "test:100"))
+        self.assertEqual((p["工作区2"]["open"], p["工作区2"]["owner"]), (1, "test:100"))
+        self.assertEqual(p["工作区3"]["open"], 1)  # 只剩旧交接、板上没在做的：放回后被 A 领走
+        self.assertEqual(p["工作区3"]["parked"], 1)
+        self.assertEqual((p["工作区4"]["open"], p["工作区4"]["owner"]), (1, "test:300"))  # 别的聊天频道的不碰
 
 if __name__ == "__main__":
     unittest.main()

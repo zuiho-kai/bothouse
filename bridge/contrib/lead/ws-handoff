@@ -84,11 +84,12 @@ def num(name: str) -> int:
     return int(m.group(1)) if m else 10 ** 9
 
 
-def _park_until_freed(key: str) -> int:
-    """<桥> workspace park 到工作区放回（每次放一件），返回放了几件。"""
+def _park_until_freed(key: str, parent: str) -> int:
+    """<桥> workspace park 到工作区放回（每次放 parent 交的一件；工作区不归 parent 了桥就拒绝），返回放了几件。"""
     n = 0
     while True:
-        p = subprocess.run([cc_bin(), "workspace", "park", "--session-key", key, "--json"], capture_output=True, text=True)
+        p = subprocess.run([cc_bin(), "workspace", "park", "--session-key", key, "--chat", parent, "--json"],
+                           capture_output=True, text=True)
         if p.returncode != 0:
             return n
         n += 1
@@ -101,7 +102,9 @@ def _park_until_freed(key: str) -> int:
 
 def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
     """一次性迁移（每个聊天频道只做一次）：升级前交的活在桥里记了交接、任务板上没绑编号；本频道占着的工作区里，
-    任务板上已没有在做的条目（暂停的、later 回查的不算）时，把这些旧交接放回，工作区回池子。之后的交接都绑编号
+    任务板上已没有在做的条目时，把这些旧交接放回，工作区回池子。在做 = 没暂停的条目（later 回查的也算：它在等 CI，
+    到点要回来接着做），按条目所在频道（sk/ch）或「谁」写的工作区名（升级前常由聊天频道 add、工作区只改「谁」，
+    条目频道是聊天频道）认工作区；拿不准就不放（宁可多占，不停在做的活，审查 pr261-code.md 第 3 条）。之后的交接都绑编号
     （main 建条目），放回只看绑定条目（board pause / 把「谁」改走）。还有在做条目的工作区不动，等那些条目收尾。
     来源：本机止血审查第二轮（~/.claude/reviews/ws-stale-local-code.md）后的根因方案（notes/ws-stale-occupy-1025.md）。
     返回是否放回了工作区（要重新 list）。"""
@@ -111,12 +114,17 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
         done = set()
     if parent in done:
         return False
-    live = {board._ws_key(i) for i in board.items() if not i.get("paused") and not i.get("next")}
+    working = [i for i in board.items() if not i.get("paused")]
+    live = {board._ws_key(i) for i in working} | {i.get("ws") for i in working}
+    names = {m.group(1) for i in working for m in [board.WS_NAME_RE.match(str(i.get("who") or ""))] if m}
     freed = False
     for w in pool:
+        if not isinstance(w, dict):
+            continue
         key = f"{plat}:{w.get('id')}"
-        if isinstance(w, dict) and str(w.get("owner") or "") == parent and int(w.get("open") or 0) > 0 and key not in live:
-            n = _park_until_freed(key)
+        if (str(w.get("owner") or "") == parent and int(w.get("open") or 0) > 0 and key not in live
+                and str(w.get("name") or "") not in names):
+            n = _park_until_freed(key, parent)
             print(f"ws-handoff: {w.get('name') or w.get('id')} 只剩升级前没绑任务板的交接，放回 {n} 件", file=sys.stderr)
             freed = freed or n > 0
     MIGRATED.parent.mkdir(parents=True, exist_ok=True)

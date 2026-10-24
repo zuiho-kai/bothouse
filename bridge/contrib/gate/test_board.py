@@ -198,7 +198,7 @@ class Increments(unittest.TestCase):
         fake.chmod(0o755)
         os.environ["CC_BIN"] = str(fake)
         try:
-            board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="feishu:oc_1")
+            board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="feishu:oc_1", chat="feishu:oc_chat:u1")
             os.environ["CC_SESSION_KEY"] = "feishu:oc_1:u1"
             board.add("顺手的事", "-", "s", "工作区1主角色")
             os.environ.pop("CC_SESSION_KEY")
@@ -206,10 +206,70 @@ class Increments(unittest.TestCase):
             board.main(["pause", "2"])
             self.assertEqual(log.read_text(), "")
             board.main(["pause", "1"])
-            self.assertEqual(log.read_text().split(), ["workspace", "park", "--session-key", "feishu:oc_1", "--json"])
+            self.assertEqual(log.read_text().split(), ["workspace", "park", "--session-key", "feishu:oc_1",
+                                                       "--chat", "feishu:oc_chat", "--before", board.items()[0]["bound"], "--json"])
             self.assertNotIn("ws", board.items()[0])
             board.main(["resume", "1"]); board.main(["pause", "1"])
-            self.assertEqual(len(log.read_text().splitlines()), 1)  # 已放回过：恢复后再停不重复放
+            calls = log.read_text().splitlines()  # 恢复时向桥收回（claim）、重新绑上，再停再放一次
+            self.assertEqual([c.split()[1] for c in calls], ["park", "claim", "park"])
+        finally:
+            os.environ["CC_BIN"] = "false"
+
+    def test_park_names_chat_and_task(self):
+        """审查 pr261-code.md 第 1 条：pause / 把「谁」改走时 park 带上交活的聊天频道和绑定时刻，桥只放这一件；
+        工作区已归别的聊天频道（假桥按 --chat 判）时桥拒绝，什么都不放。没记聊天频道的绑定条目不动桥。"""
+        log = Path(TMP) / "park1.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakepark1"
+        # 假桥：工作区 201 眼下归 discord:300（聊天频道 Y）；不带 --chat discord:300 的 park 一律当成放掉 Y 的活
+        fake.write_text(f"""#!/bin/sh
+[ "$2" = park ] || exit 1
+echo "$@" >> {log}
+case "$*" in
+  *"--chat discord:300"*) echo '{{"freed":true}}' ;;
+  *"--chat "*) echo "Error: team workspace park: discord:201 belongs to discord:300, not discord:100: workspace is not owned by any chat channel" >&2; exit 1 ;;
+  *) echo "STOLE" >> {log}; echo '{{"freed":true}}' ;;
+esac
+""")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            board.add("X 交的 B", "b.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100:u1")
+            board.add("X 交的 E", "e.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100")
+            board.add("没记聊天频道", "c.md", "已交接", "工作区1主角色", ws="discord:201")
+            bound = board.items()[0].get("bound")
+            board.main(["pause", "1"])
+            board.main(["update", "2", "s", "", "龙娘"])
+            board.main(["pause", "3"])
+            calls = log.read_text()
+            self.assertNotIn("STOLE", calls)
+            self.assertIn(f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --json", calls)
+            self.assertEqual(len(calls.splitlines()), 2)  # 1 和 2 各问一次（被拒），3 不问桥
+        finally:
+            os.environ["CC_BIN"] = "false"
+
+    def test_paused_item_stays_on_chat_card(self):
+        """审查 pr261-code.md 第 2 条：暂停或把「谁」改走后工作区放回池子，条目的卡片频道改回交活的聊天频道，
+        原聊天频道的卡上还在、不跟着工作区到后来领走它的频道卡上；恢复收回后再回到工作区。"""
+        fake = Path(TMP) / "fakepark2"
+        fake.write_text("""#!/bin/sh
+case "$2" in park) echo '{"freed":true}' ;; claim) echo ok ;; esac
+""")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            board.add("交来的活", "a.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100:u1")
+            board.add("另一块", "b.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100")
+            self.assertEqual(board.items()[0]["ch"], "201")
+            board.main(["pause", "1"])
+            board.main(["update", "2", "s", "", "龙娘"])
+            self.assertEqual([i["ch"] for i in board.items()], ["100", "100"])
+            # 聊天频道 100 的卡（名下已没有工作区 201）列着它；后来领走 201 的频道（只认 201）的卡上没有
+            text = board.card_text([i for i in board.items() if i.get("ch") in {"100"}], [], None, None)
+            self.assertIn("交来的活", text); self.assertIn("另一块", text)
+            self.assertEqual([i for i in board.items() if i.get("ch") in {"201"}], [])
+            board.main(["resume", "1"])
+            self.assertEqual(board.items()[0]["ch"], "201")
         finally:
             os.environ["CC_BIN"] = "false"
 

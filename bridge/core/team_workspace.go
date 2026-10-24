@@ -1008,6 +1008,19 @@ var ErrTeamWorkspaceNotOwned = errors.New("workspace is not owned by any chat ch
 // park`); nothing decides by itself that a task stopped. Returns whether the workspace was freed
 // (or its release is pending on the platform).
 func (e *Engine) ParkTeamWorkspace(workspace string) (freed bool, err error) {
+	return e.ParkTeamWorkspaceFor(workspace, "", time.Time{})
+}
+
+// ParkTeamWorkspaceFor is ParkTeamWorkspace for one chat channel's task (the board pausing the
+// task it handed off): chat ("<platform>:<chat id>", or a workspace of it) must own the
+// workspace now, and only a handoff that chat recorded is parked — the newest one at or before
+// `before` (when the board bound the task; zero: the oldest). The workspace may have finished
+// that task, gone back to the pool and been claimed by another chat channel (or by the same one
+// for a later task) since; parking then would pause someone else's task, free the workspace
+// under them and stop their running agent. So: owned by another chat, or no such handoff in
+// work → ErrTeamWorkspaceNotOwned and nothing changes. chat "" is the workspace pausing its own
+// task (`bothouse workspace park` inside it): the oldest handoff in work, as before.
+func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) (freed bool, err error) {
 	if e == nil || e.dataDir == "" || workspace == "" {
 		return false, errors.New("team workspace park: workspace is required")
 	}
@@ -1016,25 +1029,47 @@ func (e *Engine) ParkTeamWorkspace(workspace string) (freed bool, err error) {
 	wsID := teamChannelID(key)
 	path := teamWorkspacePath(e.dataDir)
 	_, platformReleases := e.platformForName(plat).(TeamWorkspaceReleaser)
+	if chat != "" {
+		chat = teamChatKey(chat)
+		if p, ok := e.WorkspaceParent(chat); ok {
+			chat = p
+		}
+	}
 
 	teamWorkspaceStore.mu.Lock()
 	st := loadTeamWorkspacesLocked(path)
 	owner, _ := teamWorkspaceOwnerLocked(st, plat, wsID)
-	if owner == "" {
+	if owner == "" || (chat != "" && owner != chat) {
 		teamWorkspaceStore.mu.Unlock()
+		if owner != "" {
+			return false, fmt.Errorf("team workspace park: %s belongs to %s, not %s: %w", key, owner, chat, ErrTeamWorkspaceNotOwned)
+		}
 		return false, fmt.Errorf("team workspace park: %s: %w", key, ErrTeamWorkspaceNotOwned)
 	}
-	now := time.Now()
-	parked, open := false, 0
+	pick := -1
 	for i, h := range st.Handoffs[key] {
 		if !teamHandoffOpen(h) {
 			continue
 		}
-		if !parked {
-			st.Handoffs[key][i].Parked, parked = now, true
+		if chat != "" && (teamChatKey(h.Chat) != chat || (!before.IsZero() && h.At.After(before))) {
 			continue
 		}
-		open++
+		pick = i
+		if chat == "" || before.IsZero() { // the oldest; with `before`, the newest at or before it
+			break
+		}
+	}
+	if pick < 0 {
+		teamWorkspaceStore.mu.Unlock()
+		return false, fmt.Errorf("team workspace park: %s: no task of %s in work there: %w", key, chat, ErrTeamWorkspaceNotOwned)
+	}
+	now := time.Now()
+	st.Handoffs[key][pick].Parked = now
+	open := 0
+	for _, h := range st.Handoffs[key] {
+		if teamHandoffOpen(h) {
+			open++
+		}
 	}
 	if open == 0 {
 		if platformReleases {

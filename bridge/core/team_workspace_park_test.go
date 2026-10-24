@@ -295,6 +295,12 @@ func TestTeamWorkspaceParkAPI(t *testing.T) {
 	}
 	subOld := sub.sessions.GetOrCreateActive("discord:ws1:u2")
 	subOld.AddHistory("user", "队友在旧活里的上下文")
+	if rec, _ := park(`{"session_key":"discord:ws1","chat":"discord:chatB"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("park for a chat that does not own ws1: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, _ := park(`{"session_key":"discord:ws1","chat":"discord:chatA","before":"yesterday"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad before: %d %s", rec.Code, rec.Body.String())
+	}
 	if rec, r := park(`{"session_key":"discord:chatA:u1","workspace_id":"ws1"}`); rec.Code != http.StatusOK || r.Freed || r.Workspace != "discord:ws1" {
 		t.Fatalf("park 1 of 2: %d %s", rec.Code, rec.Body.String())
 	}
@@ -309,5 +315,62 @@ func TestTeamWorkspaceParkAPI(t *testing.T) {
 	}
 	if _, ok := e.WorkspaceParent("ws1"); ok {
 		t.Fatal("ws1 still owned")
+	}
+}
+
+// Pausing chat A's task must not touch the workspace once it is someone else's task's: A's task
+// finished (the workspace was released after it) and chat B claimed the workspace, or A itself
+// claimed it again for a later task. The board names the chat and when it bound the task; park
+// then refuses (not owned) and B's task stays in work, B keeps the workspace and its session.
+func TestWorkspaceParkOnlyTheChatsOwnTask(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	boundA := time.Now()
+	time.Sleep(2 * time.Millisecond)
+	if !e.releaseTeamWorkspace(exitWSKey, time.Now(), false) { // A's task done: back to the pool
+		t.Fatal("ws1 not released after its task")
+	}
+	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	s := e.sessions.GetOrCreateActive(exitWSKey)
+	s.AddHistory("user", "B 的活")
+	sid := s.ID
+
+	if _, err := e.ParkTeamWorkspaceFor("discord:ws1", "discord:chatA", boundA); !errors.Is(err, ErrTeamWorkspaceNotOwned) {
+		t.Fatalf("A pausing its old task in B's workspace = %v, want ErrTeamWorkspaceNotOwned", err)
+	}
+	if p, ok := e.WorkspaceParent("ws1"); !ok || p != "chatB" {
+		t.Fatalf("parent after A's park = %q,%v; want chatB", p, ok)
+	}
+	hs := handoffsOf(e, "discord:ws1")
+	if last := hs[len(hs)-1]; last.Chat != "discord:chatB" || !teamHandoffOpen(last) {
+		t.Fatalf("B's handoff = %+v, want in work", last)
+	}
+	if got := e.sessions.GetOrCreateActive(exitWSKey); got.ID != sid || len(got.GetHistory(0)) == 0 {
+		t.Fatal("B's session was reset by A's park")
+	}
+
+	// B's task done; A claims ws1 again for a later task D. Pausing the old task still parks nothing.
+	if !e.releaseTeamWorkspace(exitWSKey, time.Now(), false) {
+		t.Fatal("ws1 not released after B's task")
+	}
+	time.Sleep(2 * time.Millisecond)
+	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	boundD := time.Now()
+	if _, err := e.ParkTeamWorkspaceFor("discord:ws1", "discord:chatA", boundA); !errors.Is(err, ErrTeamWorkspaceNotOwned) {
+		t.Fatalf("A pausing its old task while ws1 works on D = %v, want ErrTeamWorkspaceNotOwned", err)
+	}
+	if p, ok := e.WorkspaceParent("ws1"); !ok || p != "chatA" {
+		t.Fatalf("parent = %q,%v; want chatA (D in work)", p, ok)
+	}
+	// Pausing D itself (bound after its claim) parks it and frees the workspace.
+	if freed, err := e.ParkTeamWorkspaceFor("discord:ws1", "discord:chatA", boundD); err != nil || !freed {
+		t.Fatalf("A pausing D = %v, %v; want freed", freed, err)
 	}
 }

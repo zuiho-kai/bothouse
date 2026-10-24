@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 // teamWorkspaceEngine picks the engine that owns the workspaces: the primary role with
@@ -168,6 +169,11 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		SessionKey  string `json:"session_key"`
 		WorkspaceID string `json:"workspace_id"`
+		// Chat: the chat channel that handed the task off (the board pausing it); it must own the
+		// workspace now, and only its handoff is parked. Before (RFC 3339): when the board bound
+		// the task; the newest handoff of chat at or before it is the one parked.
+		Chat   string `json:"chat"`
+		Before string `json:"before"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -176,6 +182,15 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 	if req.SessionKey == "" {
 		http.Error(w, "session_key is required (the chat or workspace channel)", http.StatusBadRequest)
 		return
+	}
+	var before time.Time
+	if req.Before != "" {
+		t, err := time.Parse(time.RFC3339Nano, req.Before)
+		if err != nil {
+			http.Error(w, "before must be RFC 3339: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		before = t
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
@@ -187,7 +202,7 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		plat, _, _ := strings.Cut(key, ":")
 		key = plat + ":" + req.WorkspaceID
 	}
-	freed, err := e.ParkTeamWorkspace(key)
+	freed, err := e.ParkTeamWorkspaceFor(key, req.Chat, before)
 	if errors.Is(err, ErrTeamWorkspaceNotOwned) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
