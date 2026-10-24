@@ -291,7 +291,7 @@ func TestApplyWizardRecommendsJevForTeam(t *testing.T) {
 	if w == nil || w.Blocking || !res.OK {
 		t.Fatalf("team without jev: ok=%v warning=%+v", res.OK, w)
 	}
-	for _, want := range []string{"兜底角色「Juzi」", "免费小模型", "0.6B"} {
+	for _, want := range []string{"主角色「Juzi」", "免费小模型", "0.6B"} {
 		if !strings.Contains(w.Message+w.Fix, want) {
 			t.Fatalf("jev_recommended lacks %q: %s %s", want, w.Message, w.Fix)
 		}

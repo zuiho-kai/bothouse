@@ -22,7 +22,7 @@
      不登录也能存配置，但结果里会有阻塞的 `agent_not_logged_in`，机器人答不出话。
    - **机器人用什么语言回**：问用户，写 `"language": "<代码>"`（`zh`、`zh-TW`、`en`、`ja`、`ko`… 原样写进人设）。不问时按本机 locale（`LANG`），服务器常是 en_US，所以最好问；
      结果里每个角色的 `reply_language` / `reply_language_from` 写着选了什么、从哪来，另有一条 `reply_language_default` 提醒。要改：在 role 里加 `"reply_language": "<代码>"` 再跑一次（已配好的机器人只改人设里回复语言那一行），或直接改 `persona_file` 里 `<!-- conest:reply-language -->` 下面那一行。
-   - 不用问：jev（可选，不填也能跑）、人设（可选，`cc-connect setup personas` 有示例）、兜底角色（默认第一个）、`allow_from`（默认 = 机器人所有者，用 token 自动查；查不到时结果会要你问用户的 Discord 用户 ID）、gate（可选，不装也能用）。
+   - 不用问：jev（可选，不填也能跑）、人设（可选，`cc-connect setup personas` 有示例）、主角色（默认第一个）、`allow_from`（默认 = 机器人所有者，用 token 自动查；查不到时结果会要你问用户的 Discord 用户 ID）、gate（可选，不装也能用）。
    - 飞书：`"platform": "feishu"`，先让用户跑 `cc-connect feishu setup` 扫码拿 app_id/app_secret，一次只接一个机器人。
 3. **执行**：字段说明看 `cc-connect setup apply -h`。把请求写进权限 600 的临时文件（token 不打印、不进日志、不进仓库），
    先 `cc-connect setup apply --json <文件> --dry-run`（不写任何文件），再去掉 `--dry-run` 跑。最小请求：

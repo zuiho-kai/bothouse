@@ -425,7 +425,7 @@ func TestApplyWizardDiscordTeam(t *testing.T) {
 	if res.JevOK || !strings.Contains(res.JevReason, "不给概率") || res.Jev == nil || res.Jev.Logprobs {
 		t.Errorf("jev_ok=%v reason=%q test=%+v", res.JevOK, res.JevReason, res.Jev)
 	}
-	if !strings.Contains(res.JevHint, "兜底角色「Whale」") || strings.Contains(res.JevHint, "读音") {
+	if !strings.Contains(res.JevHint, "主角色「Whale」") || strings.Contains(res.JevHint, "读音") {
 		t.Errorf("hint (no hardware) = %s", res.JevHint)
 	}
 	// gate team: lead = fallback
@@ -622,11 +622,11 @@ func TestWithReplyLanguageIdempotent(t *testing.T) {
 
 func TestJevHintByHardware(t *testing.T) {
 	no := JevHint("zh", false, false, "橘")
-	if no != "不填时：被 @ 的角色照常回，判断不了该谁回的消息由兜底角色「橘」回。" {
+	if no != "不填时：被 @ 的角色照常回，判断不了该谁回的消息由主角色「橘」回。" {
 		t.Errorf("no hardware: %s", no)
 	}
 	hw := JevHint("zh", false, true, "橘")
-	if !strings.Contains(hw, "兜底角色「橘」") || !strings.Contains(hw, "选频道按读音匹配") {
+	if !strings.Contains(hw, "主角色「橘」") || !strings.Contains(hw, "选频道按读音匹配") {
 		t.Errorf("hardware: %s", hw)
 	}
 	if ok := JevHint("en", true, false, "Ju"); strings.Contains(ok, "fallback") {

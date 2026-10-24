@@ -25,7 +25,7 @@
 
 ## 3. 起 gate（可选）
 
-**可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回；向导配出来的配置不装 gate 也能用。
+**可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由主角色回；向导配出来的配置不装 gate 也能用。
 装 gate 是为了让 AI 自己判断一句话该谁回。**要先在向导里填 jev**（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）；没填 gate 会报错退出，并提示怎么填。
 
 下面的命令都在 conest 仓库根目录运行（没 clone 过的先 `git clone https://github.com/zuiho-kai/bothouse.git && cd bothouse`）。
@@ -35,7 +35,7 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
 # → gate on 127.0.0.1:9930  team=协调员+码农、笔杆  wiki=/Users/you/wiki
 ```
 
-- 用过向导的话，团队文件向导已经写好了（`~/.bothouse/gate-team.json`，lead = 向导里选的兜底角色），gate 默认读它。
+- 用过向导的话，团队文件向导已经写好了（`~/.bothouse/gate-team.json`，lead = 向导里选的主角色），gate 默认读它。
   没用向导时自己写一份：`cp bridge/contrib/gate/team.example.json ~/.bothouse/gate-team.json` 再改成你的角色
   （名字是群里叫她的叫法，`subs` 的 key 就是 `gate_url` 里 `?bot=` 后面那个）。两样都没有才用 `team.example.json` 里的占位名字。
   格式：

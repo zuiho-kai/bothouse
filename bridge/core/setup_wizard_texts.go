@@ -96,9 +96,9 @@ func stepDryPersonaKept(lang, project string) string {
 
 func stepTeam(lang string, n int, fallbackName string) string {
 	return tr3(lang,
-		fmt.Sprintf("%d 个机器人，兜底角色 %s", n, fallbackName),
-		fmt.Sprintf("ボット %d 体、フォールバック %s", n, fallbackName),
-		fmt.Sprintf("%d bots, fallback %s", n, fallbackName))
+		fmt.Sprintf("%d 个机器人，主角色 %s", n, fallbackName),
+		fmt.Sprintf("ボット %d 体、メインロール %s", n, fallbackName),
+		fmt.Sprintf("%d bots, primary role %s", n, fallbackName))
 }
 
 func stepFallbackNote(lang, asked, used string) string {

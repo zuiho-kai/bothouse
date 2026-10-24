@@ -35,7 +35,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 
   最小请求：`{"discord": {"guild_id": "<服务器 ID>"}, "roles": [{"token": "<机器人 token>"}]}`。一个 token = 一个角色，多个角色就在 `roles` 里放多个。
   要问用户的只有：每个机器人的 token、服务器 ID（默认频道 ID 可选）、每个角色用哪个本机 CLI（不说就用已登录的那个）。
-  jev、人设、兜底角色、`allow_from`（默认 = 机器人所有者）都有默认值，不用问。完整说明：[docs/connect-discord-feishu.md](../docs/connect-discord-feishu.md) 第 3 节。
+  jev、人设、主角色、`allow_from`（默认 = 机器人所有者）都有默认值，不用问。完整说明：[docs/connect-discord-feishu.md](../docs/connect-discord-feishu.md) 第 3 节。
 
 ## 3. 确认上线
 
@@ -48,4 +48,4 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 - `next_steps`：怎么启动或重启。AI 用 `bothouse daemon install` 在后台启动，不要在自己的 shell 里前台跑 `bothouse`（它不退出，会占住终端）。
 - 上线的标志：日志里有 `discord: connected`；在频道里 @ 机器人说一句，它回话。
 
-gate 可以不装：没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。要装见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 第 3 步（要先在向导填 jev，没填 gate 会报错并提示怎么填）。
+gate 可以不装：没有 gate 时，被 @ 的角色照常回，其余消息都由主角色回。要装见 [docs/ccm-and-wiki.md](../docs/ccm-and-wiki.md) 第 3 步（要先在向导填 jev，没填 gate 会报错并提示怎么填）。

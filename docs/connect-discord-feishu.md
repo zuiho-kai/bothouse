@@ -5,7 +5,7 @@
 gate 可以不装，见下面第 2 节第 7 步。
 
 ```
- 选平台 ─▶ 接机器人 ─▶ 每个角色选本机 CLI ─▶ 人设 ─▶ 兜底角色 ─▶ jev ─▶ 保存，看还要做什么 ─▶ 重启生效
+ 选平台 ─▶ 接机器人 ─▶ 每个角色选本机 CLI ─▶ 人设 ─▶ 主角色 ─▶ jev ─▶ 保存，看还要做什么 ─▶ 重启生效
  Discord：选已有机器人或填 token，选服务器、默认频道        （可选：挂第三方 API）
  飞书：扫码，选默认群
 ```
@@ -41,23 +41,23 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
    页头和最后的确认页会写出每个已有机器人实际用的语言（人设里没写就说「由 CLI 自己决定」）。要改就在这一步勾上，再选回答语言。
    装完以后改人设有三种办法，改的是同一个文件（`<work_dir>/CLAUDE.md`、`AGENTS.md`、`GEMINI.md`……，按 CLI 定）：
    网页「项目」→ 角色 →「人设」；在聊天里叫机器人改；直接改文件夹里的文件。
-5. **兜底角色**：从这次配好的机器人里选一个，默认第一个。jev 没填、测试没过、或判断不出该谁回时，由它接话。
+5. **主角色**：从这次配好的机器人里选一个，默认第一个。jev 没填、测试没过、或判断不出该谁回时，由它接话。
 6. **jev**：三个框（Base URL、Key、模型），填一个能返回概率的模型。填完自动测一次（和 gate 一样问一道 A/B/C 选择题，看前 20 个候选里有没有选项字母），测的时候不写盘；
    能用就点下一步存下。不给概率或连不上就不存，换一个或跳过 jev（跳过会删掉原来的 jev.json，等于不填）。
-   已经有能用的 jev 时框里预先填好，原样点下一步就是继续用它；新填的没通过时提示「仍在用旧的 …」，旧的不动。见下面「jev 和兜底角色」。
+   已经有能用的 jev 时框里预先填好，原样点下一步就是继续用它；新填的没通过时提示「仍在用旧的 …」，旧的不动。见下面「jev 和主角色」。
 7. **确认**：最后一页有一栏「谁能指挥这些机器人」（`allow_from`），默认填好了机器人的所有者，也就是建机器人的你；
    想让别人也能用就加上他的 Discord 用户 ID，`*` = 服务器里所有人（机器人能在你电脑上跑命令，别随便放开）。已有机器人原来设了 `allow_from` 的不动。
 8. **保存**：写进本机配置。最后一页先列出还要你做的事，不做机器人不会回话：
    - Message Content Intent 没开，或者没查到开没开 → 点链接到开发者后台 Bot 页打开 / 确认；
    - 机器人还没进服务器 → 点邀请链接拉进去。
-   这两件做完不用重新跑向导，点「重启生效」就行。多个机器人时还会写 gate 的情况：**gate 可以不装**，没装时被 @ 的角色照常回，其余消息都由兜底角色回；
+   这两件做完不用重新跑向导，点「重启生效」就行。多个机器人时还会写 gate 的情况：**gate 可以不装**，没装时被 @ 的角色照常回，其余消息都由主角色回；
    想让 AI 自己判断谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步，要先在这一步填 jev，没填 gate 会报错并提示怎么填）。
 
 ## 3. 让你的 AI 帮你配
 
 在仓库目录里对 Claude Code / Codex 说一句「帮我把 bothouse 配好接上 Discord」就行：仓库根的 `AGENTS.md` / `CLAUDE.md` 告诉它用哪个命令、一次问你哪几项。
 它要问你的只有：每个机器人的 token、服务器 ID（和默认频道 ID，可选）、每个角色用哪个本机 CLI（不说就用已登录的那个）。
-人设、兜底角色、jev、`allow_from` 都有默认值，不用问。`bothouse setup apply -h` 列出了每个字段。
+人设、主角色、jev、`allow_from` 都有默认值，不用问。`bothouse setup apply -h` 列出了每个字段。
 
 也可以把下面这段和你的 token、key 一起交给它：
 
@@ -76,7 +76,7 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
     {"reuse_project": "<本机配置里已有的 project 名>",
      "provider": {"vendor": "deepseek", "api_key": "<key>"}}
   ],
-  "fallback_role": "<兜底角色的 project 名，不写 = 第一个>",
+  "fallback_role": "<主角色的 project 名，不写 = 第一个>",
   "allow_from": "<谁能指挥机器人：Discord 用户 ID，逗号分隔；不写 = 机器人的所有者>",
   "jev": {"base_url": "https://api.siliconflow.cn/v1", "api_key": "<key>", "model": "<模型>"}
 }
@@ -90,7 +90,7 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
 - `allow_from` 不写时，默认是每个机器人所属 Discord 应用的所有者（用 token 查）；写进新机器人，和原来 `allow_from` 为空的已有机器人，已有非空的不动。查不到所有者（Discord 应用接口没回）时不会放开：写成 `allow_from = "set-your-discord-user-id"`（谁都不听），返回阻塞的 `allow_from_unknown`，要用户给自己的 Discord 用户 ID 再跑一次。只有显式写 `"*"` 才是服务器里所有人（会附一条不阻断的 `allow_from_everyone` 提醒）。照提示带上真实 ID 重跑时，占位值会被换掉。
 - `reuse_project` 的机器人保留原 project 名、CLI、work_dir、服务器；它的人设文件只有同时带了 `persona` 和 `"edit_persona": true` 才会改。
   新机器人的名字和配置里已有的项目撞了：是同一个机器人（bot ID 一样）就更新那个项目，不是就加 -2、-3。
-  兜底角色可以用 `fallback_bot_id`（机器人 ID）指定，网页就这样传。
+  主角色可以用 `fallback_bot_id`（机器人 ID）指定，网页就这样传。
   CLI 在 PATH 之外（如 `~/.local/bin`）找到时，把绝对路径写进该项目的 `cmd`，重启后也找得到。
   多个机器人组队时，已有的 `allow_bots` 取并集，自己改过的 `gate_url`、`gate_fallback`、`team_lead_bot`、`group_reply_all` 不动。
 - 第三方 API：`custom` 必须给 `base_url`；硅基流动、OpenRouter、本机模型、custom 必须给 `model`。
@@ -125,7 +125,7 @@ key 只留在 bothouse 里。所以任何 OpenAI 兼容接口都能挂到这四�
 接口地址的来源在 `bridge/core/setup_detect.go` 的 `WizardVendors`。别的 CLI（Cursor、Copilot、Kimi、Qoder…）bothouse 里不能挂第三方 API，
 只能用它们自己的登录；WorkBuddy 装了会显示，但 bothouse 还没有它的适配器，不能选。
 
-## 5. jev 和兜底角色
+## 5. jev 和主角色
 
 - **jev 用来判断群里一句话该哪个角色回**：gate 每条消息先走规则（@ 了谁、开头叫了谁），规则判不了再让 jev 读几个选项的概率。
 - 推荐：硅基流动（如免费 Qwen 小模型）、OpenRouter、DeepSeek、MiniMax、本地小模型（如 Qwen 0.6B）。
@@ -137,8 +137,8 @@ key 只留在 bothouse 里。所以任何 OpenAI 兼容接口都能挂到这四�
   能用才写 `jev.json`；不能用就不写，原来能用的旧 jev 保留并在原因里写「仍在用旧的 …」——新填错一次不该悄悄把选角色关掉。
   一键命令和接口同样：`jev` 不给 = 不动；`"jev": {"base_url": ""}` 也是不动；`"jev": {"remove": true}` = 删掉；没存时返回 `"jev_ok": false`、`jev_reason`，`jev_in_use` 是现在生效的那个。
 - **没有可用的 jev**（没填、测试没过）：gate 启动就报错退出，提示去这一步填 jev（硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B），
-  不会自己下载模型。**gate 没在运行**时：被 @ 的角色照常回，其他消息由兜底角色回
-  （bothouse 的 `gate_fallback`：兜底角色 `reply`，其他 `context`；被 @ 时一律 `reply`，见 `bridge/core/gate.go`）。
+  不会自己下载模型。**gate 没在运行**时：被 @ 的角色照常回，其他消息由主角色回
+  （bothouse 的 `gate_fallback`：主角色 `reply`，其他 `context`；被 @ 时一律 `reply`，见 `bridge/core/gate.go`）。
 
 ## 6. 向导写了什么（给别的程序读）
 
@@ -149,8 +149,8 @@ key 只留在 bothouse 里。所以任何 OpenAI 兼容接口都能挂到这四�
 | `config.toml`（写之前把原文件备份成 `config.toml.bak-<时间>`，每次一份、不覆盖：重写会丢注释，注释从备份里找回；所有写配置的路径共用一把文件锁，向导和正在跑的服务不会互相覆盖） | 每个机器人一个 `[[projects]]`：token、`guild_id`、CLI、第三方 API（`api_format = "openai_chat"` 表示走本机转换）；多个 Discord 机器人时还有 `group_reply_all`、`share_session_in_channel`、`allow_bots`、`team_lead_bot`、`gate_url`、`gate_fallback` | bothouse |
 | `roles/<project>/CLAUDE.md` 等 | 人设 + 回答语言（`<!-- conest:reply-language -->` 之后那行） | 对应的 CLI |
 | `jev.json`（权限 600） | `{"backend": "llm", "url", "model", "api_key", "logprobs", "tested_at"}` | gate（`contrib/gate/scorer_remote.py`）；角色小家 `[discord.router] key_file` |
-| `gate-team.json` | `{"lead": 兜底角色, "subs": 其他角色}`，key 是 project 名 = `gate_url` 的 `?bot=` | gate |
-| `conest-setup.json` | 平台、服务器 ID、默认频道 ID / 飞书默认群、兜底角色、团队（不含密钥）；自建平台另记 `cloud_web_url`、`cloud_web_fallback`、`cloud_web_team`，不动 Discord 的那几项 | 向导下次打开时；角色小家要默认频道时照抄 `channel_id` |
+| `gate-team.json` | `{"lead": 主角色, "subs": 其他角色}`，key 是 project 名 = `gate_url` 的 `?bot=` | gate |
+| `conest-setup.json` | 平台、服务器 ID、默认频道 ID / 飞书默认群、主角色、团队（不含密钥）；自建平台另记 `cloud_web_url`、`cloud_web_fallback`、`cloud_web_team`，不动 Discord 的那几项 | 向导下次打开时；角色小家要默认频道时照抄 `channel_id` |
 | `hub/hub.json`（权限 600）、`hub/hub.sqlite3`、`hub/hub.log`、`hub/src/` | 向导「在本机启动」的自建平台：端口、网页登录 token、机器人 token；消息库；日志；解出来的程序 | bothouse（启动时平台没在跑就拉起来） |
 
 ## 7. 自建平台
@@ -163,7 +163,7 @@ bothouse 只是接进去：每个角色作为一个成员连平台的机器人�
                      │               └ 别人起的 ──▶ 地址填好，填它的 token，自动测连接
                      └ 没有 ──▶「在本机启动」（要 uv）    或「连别人的平台」：填地址 + token，自动测连接
                ─▶ 角色名（每个角色一个，可「再加一个角色」，已有的 Discord 机器人也能点一下接进来）
-               ─▶ 本机 CLI ─▶ 人设 ─▶（多个角色时）兜底角色、jev ─▶ 保存 ─▶ 重启生效 ─▶「打开自建平台」
+               ─▶ 本机 CLI ─▶ 人设 ─▶（多个角色时）主角色、jev ─▶ 保存 ─▶ 重启生效 ─▶「打开自建平台」
 ```
 
 - **在本机启动**：bothouse 安装包里带着平台程序；起它要本机有 [uv](https://docs.astral.sh/uv/getting-started/installation/)（没有时按钮不能点，页面说怎么装）。
@@ -176,7 +176,7 @@ bothouse 只是接进去：每个角色作为一个成员连平台的机器人�
   已有的 Discord 机器人接进来时 Discord 那段原样不动，还会带上 `mention_id=<Discord bot ID>`，人设里写的 `<@id>` 在平台上也能 @ 到它。
   同一个平台上同名的角色再跑一次是更新原来那个，不会多出 `名字-2`。
   每个角色的 `ws_url` 都带 `mention_id`（只能是数字：已有的沿用；接进来的 Discord 机器人用它的 Discord ID；都没有就由平台地址和项目名算出一个 18 位数，重跑不变）。
-  多个角色时像 Discord 组队一样：除兜底角色（主角色）外每个角色写 `team_lead_bot = <主角色的 mention_id>`，主角色 @ 队员派的活，队员做完的最终回复自动带上 @主角色
+  多个角色时像 Discord 组队一样：除主角色外每个角色写 `team_lead_bot = <主角色的 mention_id>`，主角色 @ 队员派的活，队员做完的最终回复自动带上 @主角色
   （`bridge/platform/cloud-web/lead_return.go`）；写 `gate_url` / `gate_fallback`（已有 gate 设置的项目不动）；向导写的人设里加一行 `<!-- conest:team -->`
   （和回答语言那行同一种做法，开头写明「在自建平台上」，同一份人设也给 Discord 用时不混）：主角色知道有哪些队员、用「@名字」派活，队员知道主角色是谁。
   已有机器人没勾「改人设」时也只更新这一行，结果里逐个写明；自己写的、没有向导标记的人设不动，结果里也会说。

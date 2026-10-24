@@ -235,7 +235,7 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun
 	}
 	p.mu.Unlock()
 	if source == nil {
-		return nil, key, false, errors.New("only the lead's active run may assign members")
+		return nil, key, false, errors.New("only the primary role's active run may assign members")
 	}
 	source.mu.Lock()
 	if source.record.Closed || source.record.Accepted || source.record.Task.SessionKey != req.SessionKey || (source.stopped != nil && source.stopped()) {

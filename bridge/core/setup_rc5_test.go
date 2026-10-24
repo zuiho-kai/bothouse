@@ -123,9 +123,9 @@ func TestApplyWizardStepsFollowLanguage(t *testing.T) {
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	for lang, want := range map[string][]string{
-		"ja": {"ボット Juzi", "初回実行", "のペルソナ →", "フォールバックロール「Juzi」"},
-		"zh": {"机器人 Juzi", "第一次运行", "的人设 →", "兜底角色「Juzi」"},
-		"en": {"bot Juzi", "first run", "juzi → ", "fallback role \"Juzi\""},
+		"ja": {"ボット Juzi", "初回実行", "のペルソナ →", "メインロール「Juzi」"},
+		"zh": {"机器人 Juzi", "第一次运行", "的人设 →", "主角色「Juzi」"},
+		"en": {"bot Juzi", "first run", "juzi → ", "primary role \"Juzi\""},
 	} {
 		req := n150Req(WizardRole{Token: t1})
 		req.Language = lang

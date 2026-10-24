@@ -444,7 +444,7 @@ func SystemLanguage() string {
 // that returns probabilities is saved. Without one, messages the gate can't
 // place go to the fallback role (gate.py scorer → rules; core/gate.go fallback);
 // with a board, channel picking falls back to name matching by sound.
-// Full details: docs/connect-discord-feishu.md「jev 和兜底角色」.
+// Full details: docs/connect-discord-feishu.md「jev 和主角色」.
 func JevHint(lang string, usable bool, hardware bool, fallbackName string) string {
 	zhName, enName := "", ""
 	if fallbackName != "" {
@@ -457,7 +457,7 @@ func JevHint(lang string, usable bool, hardware bool, fallbackName string) strin
 			}
 			return "gate はこれでメッセージにどのロールが答えるかを判断します。"
 		}
-		s := "未設定の場合：@ されたロールは普段どおり答え、誰が答えるか判断できないメッセージはフォールバックロール" + zhName + "が答えます"
+		s := "未設定の場合：@ されたロールは普段どおり答え、誰が答えるか判断できないメッセージはメインロール" + zhName + "が答えます"
 		if hardware {
 			s += "。ボードのチャンネル選択は読みの一致で行います"
 		}
@@ -470,7 +470,7 @@ func JevHint(lang string, usable bool, hardware bool, fallbackName string) strin
 			}
 			return "gate 用它判断一句话该哪个角色回。"
 		}
-		s := "不填时：被 @ 的角色照常回，判断不了该谁回的消息由兜底角色" + zhName + "回"
+		s := "不填时：被 @ 的角色照常回，判断不了该谁回的消息由主角色" + zhName + "回"
 		if hardware {
 			s += "；接了板子的，选频道按读音匹配"
 		}
@@ -482,7 +482,7 @@ func JevHint(lang string, usable bool, hardware bool, fallbackName string) strin
 		}
 		return "The gate uses it to decide which role answers."
 	}
-	s := "Without it: an @-mentioned role still answers; messages the gate can't place go to the fallback role" + enName
+	s := "Without it: an @-mentioned role still answers; messages the gate can't place go to the primary role" + enName
 	if hardware {
 		s += "; with a board, channels are picked by matching names by sound"
 	}
