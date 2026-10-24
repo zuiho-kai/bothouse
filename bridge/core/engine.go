@@ -2161,7 +2161,10 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 // messages chained after it).
 func (e *Engine) setTurnMode(state *interactiveState, as AgentSession, mode string) {
 	e.restoreTurnMode(state)
-	if restore := e.applyLiveModeOverride(as, mode); restore != nil {
+	state.mu.Lock()
+	agent := state.agent
+	state.mu.Unlock()
+	if restore := e.applyLiveModeOverride(agent, as, mode); restore != nil {
 		state.mu.Lock()
 		state.modeRestore = restore
 		state.turnMode = mode
@@ -2181,7 +2184,7 @@ func (e *Engine) turnAutoApproves(state *interactiveState) bool {
 	turnMode, agent := state.turnMode, state.agent
 	state.mu.Unlock()
 	if turnMode != "" {
-		return isAutoApproveMode(turnMode)
+		return isYoloModeStr(turnMode)
 	}
 	if agent == nil {
 		agent = e.agent
@@ -2190,20 +2193,7 @@ func (e *Engine) turnAutoApproves(state *interactiveState) bool {
 	if !ok {
 		return false
 	}
-	return isAutoApproveMode(ma.GetMode())
-}
-
-// isAutoApproveMode matches the auto-approve mode names (and aliases) used by
-// the agent adapters: claudecode/copilot "bypassPermissions", gemini/codex
-// "yolo", cursor "force".
-func isAutoApproveMode(mode string) bool {
-	m := strings.ToLower(strings.TrimSpace(mode))
-	m = strings.NewReplacer("-", "", "_", "").Replace(m)
-	switch m {
-	case "yolo", "bypasspermissions", "force":
-		return true
-	}
-	return false
+	return isYoloModeStr(ma.GetMode())
 }
 
 // restoreTurnMode switches back to the default mode if a turn's override is still on.
@@ -2219,8 +2209,10 @@ func (e *Engine) restoreTurnMode(state *interactiveState) {
 }
 
 // applyLiveModeOverride switches the live agent session to mode and returns the function that
-// switches it back to the agent's default; nil when mode is empty or the switch did not happen.
-func (e *Engine) applyLiveModeOverride(as AgentSession, mode string) (restore func()) {
+// switches it back to the default mode of agent, the agent the session runs on (a workspace
+// agent may differ from e.agent; nil falls back to e.agent); nil when mode is empty or the
+// switch did not happen.
+func (e *Engine) applyLiveModeOverride(agent Agent, as AgentSession, mode string) (restore func()) {
 	if mode == "" || as == nil {
 		return nil
 	}
@@ -2230,7 +2222,10 @@ func (e *Engine) applyLiveModeOverride(as AgentSession, mode string) (restore fu
 	}
 	return func() {
 		defaultMode := "default"
-		if ma, ok := e.agent.(interface{ GetMode() string }); ok {
+		if agent == nil {
+			agent = e.agent
+		}
+		if ma, ok := agent.(interface{ GetMode() string }); ok {
 			if m := ma.GetMode(); m != "" {
 				defaultMode = m
 			}

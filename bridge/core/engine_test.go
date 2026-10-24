@@ -16212,3 +16212,17 @@ func TestTurnAutoApproves_UsesSessionWorkspaceAgent(t *testing.T) {
 		t.Error("workspace agent in default mode under yolo project: must not auto-approve")
 	}
 }
+
+// Ending a cron/timer turn's mode override on a session that runs on a
+// workspace agent restores that agent's mode, not e.agent's.
+func TestRestoreTurnMode_RestoresSessionWorkspaceAgentMode(t *testing.T) {
+	e := NewEngine("test", &stubModelModeAgent{mode: "yolo"}, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	defer e.Stop()
+	sess := &stubLiveModeSession{}
+	state := &interactiveState{agent: &stubModelModeAgent{mode: "acceptEdits"}}
+	e.setTurnMode(state, sess, "plan")
+	e.restoreTurnMode(state)
+	if got, want := strings.Join(sess.modes, ","), "plan,acceptEdits"; got != want {
+		t.Errorf("SetLiveMode calls = %q, want %q", got, want)
+	}
+}
