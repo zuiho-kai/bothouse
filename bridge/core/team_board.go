@@ -2,7 +2,7 @@ package core
 
 // maomao fork: live "who is doing what" board.
 //
-// The team lead reads every project's status file (see team.go) and keeps one message per
+// The primary role reads every project's status file (see team.go) and keeps one message per
 // channel that lists each teammate on one line, edited in place, so the channel shows who is
 // working on what without new messages piling up. Only real work appears: a turn that used a
 // tool or ran longer than teamBoardWorkAfter. Plain chat replies leave the board unchanged.
@@ -33,7 +33,7 @@ type boardChat struct {
 	Content    string `json:"content"`
 }
 
-// SetTeamBoard turns the live board on or off. It only runs on the team lead; a
+// SetTeamBoard turns the live board on or off. It only runs on the primary role; a
 // project that is no longer the lead removes the boards it posted before.
 func (e *Engine) SetTeamBoard(on bool) {
 	t := e.team

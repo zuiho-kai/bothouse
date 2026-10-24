@@ -8,7 +8,7 @@ import (
 )
 
 // maomao fork, ported from platform/discord/lead_return.go (user 2026-10-20「你可以去修一下自建平台…
-// 你先看看距离discord差异有什么」): when the team lead @-s a sub to hand it work, the sub's answer must
+// 你先看看距离discord差异有什么」): when the primary role @-s a sub to hand it work, the sub's answer must
 // reach the lead even if the model forgets to write <@lead>. The turn's final answer gets <@lead>
 // prepended (interim posts don't, so the lead isn't woken mid-task); the gateway relays it to the lead
 // as a mention and the gate does the rest. The lead is recognised by the sender's user_mention_id
@@ -19,7 +19,7 @@ import (
 
 const leadReturnTTL = 24 * time.Hour // same as platform/discord/lead_return.go
 
-// dispatchedBy is the team lead whose turn this is to hand back ("" = none), the same rule as
+// dispatchedBy is the primary role whose turn this is to hand back ("" = none), the same rule as
 // platform/discord dispatchedBy: the lead @-ing this sub, or a person's message that @-s this sub and
 // the lead together (issue #182). The gateway writes the lead's @ as <@team_lead_bot> for every bot
 // but the lead (rh/cloudweb.py for_bot).

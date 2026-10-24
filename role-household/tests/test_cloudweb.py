@@ -161,7 +161,7 @@ class CloudWebOutbound(CloudWebBase):
         await ju.send_json({"type": "reply", "reply_ctx": "1", "content": "↪ 已插入"})
         await wait_for(lambda: self.rows(author="maomao"), what="提示进频道")
         await self.nothing(ln)
-        await ju.send_json({"type": "reply", "reply_ctx": "1", "content": "❌ 出错了"})   # 报错要转给队长
+        await ju.send_json({"type": "reply", "reply_ctx": "1", "content": "❌ 出错了"})   # 报错要转给主角色
         self.assertEqual((await self.recv(ln))["content"], "【橘】❌ 出错了")
 
     async def test_long_reply_not_split(self):

@@ -129,7 +129,7 @@ POST /cloud-web/v1/register
 - `mentioned`: this bot was @-mentioned; copied to `Message.Mentioned` (the gate always lets a mentioned bot reply)
 - `from_bot`: sent by a teammate bot (maomao fork). Copied to `Message.FromBot`; without `mentioned` it is listen-only context and never starts a turn, as on Discord. `allow_from` does not apply to it — the gateway vouches for its bots
 - `chat_name`: the channel's display name (maomao fork). Copied to `Message.ChatName`, so the team status block names the channel a teammate is busy in, as on Discord
-- `user_mention_id`: for `from_bot` messages, the sending bot's `<@id>` (maomao fork). When it equals `team_lead_bot` and `mentioned` is true, the turn was dispatched by the team lead: its final answer gets `<@team_lead_bot>` prepended unless it already mentions the lead (same as Discord `lead_return`). A person's message (not `from_bot`) that mentions this bot and contains `<@team_lead_bot>` counts the same (issue #182: the user @-s the lead and a sub together; the sub answers, the lead checks when @-ed back)
+- `user_mention_id`: for `from_bot` messages, the sending bot's `<@id>` (maomao fork). When it equals `team_lead_bot` and `mentioned` is true, the turn was dispatched by the primary role: its final answer gets `<@team_lead_bot>` prepended unless it already mentions the primary role (same as Discord `lead_return`). A person's message (not `from_bot`) that mentions this bot and contains `<@team_lead_bot>` counts the same (issue #182: the user @-s the primary role and a sub together; the sub answers, the primary role checks when @-ed back)
 
 ### `card_action`
 
@@ -167,7 +167,7 @@ See [Bridge Protocol — bothouse → Adapter](./bridge-protocol.md) for full sc
 | `allow_from` | no | User whitelist (`*` = all) |
 | `share_session_in_channel` | no | Shared group session |
 | `group_reply_all` | no | Reply to all group messages without @mention |
-| `team_lead_bot` | no | The team lead's `<@id>` (maomao fork; same value as the Discord platform's). A sub's final answer to the lead's @ is routed back to it |
+| `team_lead_bot` | no | The primary role's `<@id>` (maomao fork; same value as the Discord platform's). A sub's final answer to the primary role's @ is routed back to it |
 
 ---
 

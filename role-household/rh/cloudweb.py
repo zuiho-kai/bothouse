@@ -19,7 +19,7 @@ hub → bot（每条新的用户/角色消息发给每个在线 bot，系统消�
      "content","reply_ctx":"room-<频道 id>","mentioned":bool,"from_bot":bool,"chat_name":"<频道名>",
      "user_mention_id":"<发话 bot 的 mention_id，bot 发的且配了才有>"}
     chat_name：cc-connect 填进「队友状态」（别的频道里忙时显示 #频道名，同 Discord 的频道名）。
-    user_mention_id：cc-connect 拿它和 team_lead_bot 比，认出「队长 @ 我派的活」，做完的回复自动带上 <@队长>（同 Discord lead_return）。
+    user_mention_id：cc-connect 拿它和 team_lead_bot 比，认出「主角色 @ 我派的活」，做完的回复自动带上 <@主角色>（同 Discord lead_return）。
     chat_id 用 hub 的会话键 session_key(频道 id)（rh/hub.py「会话键」：主机的会话目录、接进来的 bot 都用它）。
     不带 session_key：由 cc-connect 按 share_session_in_channel 拼成 <平台名>:room-<频道 id>，一个频道一个会话。
     回来的 reply_ctx / session_key 认 room-<id>，也认纯数字的 <id>。归档的频道不收 bot 的话（hub 拒收，丢掉不断线）。
@@ -27,7 +27,7 @@ hub → bot（每条新的用户/角色消息发给每个在线 bot，系统消�
     「@名字(你)」，同 Discord markSelfMention）；其他 bot 收到的 @ 写成 <@mention_id>（没配就留 @名字），
     这样 gate 的「@了别人」规则（~/im-bridge/gate/gate.py decide）和 Discord 上一样生效。
     bot 说的话：from_bot=true，正文前加【名字】（同 Discord，gate 和 rhbody 认这个前缀）；
-    「↪ 已插入」这类状态提示不转（同 Discord isBotNotice），❌ ⚠️ 报错照转（队长要接）。
+    「↪ 已插入」这类状态提示不转（同 Discord isBotNotice），❌ ⚠️ 报错照转（主角色要接）。
 bot → hub：reply（content 写进频道，作者是这个 bot，状态 done；一段回复存一条，不再按 2000 字拆），ping 回 pong。
     reply 带 "agent": true 的是 bot 在会话里写的话，存成 from_turn=1。补「频道里你上次看到之后的消息」时 cc-connect 用 bot 的
     token 读 GET /api/rooms/{room}/messages，跳过自己 from_turn=1 的（它会话里已有），其余照补（同 Discord turn_sent.go）。
@@ -338,7 +338,7 @@ class CloudWeb:
                 # 「队友状态」里显示频道名（conest core/team.go ChatName）；压成一行，频道名里的换行不能在队友状态里伪造出一行（审查第 3 条）
                 frame["chat_name"] = " ".join(room["name"].split())
             if author is not None and author.mention_id:
-                frame["user_mention_id"] = author.mention_id   # 认队长派的活，同 Discord 作者 ID（conest cloud-web lead_return.go）
+                frame["user_mention_id"] = author.mention_id   # 认主角色派的活，同 Discord 作者 ID（conest cloud-web lead_return.go）
             sends.append(self._send(b.ws, frame))
         await asyncio.gather(*sends)
 

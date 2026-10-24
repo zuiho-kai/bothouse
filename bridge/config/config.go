@@ -663,7 +663,7 @@ func (p ProjectConfig) PublicProgressEnabled() bool {
 
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
-// TeamWorkspacesEnabled reports team mode D (default on; only acts on the team lead).
+// TeamWorkspacesEnabled reports team mode D (default on; only acts on the primary role).
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
 }

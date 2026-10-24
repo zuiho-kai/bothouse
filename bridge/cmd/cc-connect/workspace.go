@@ -97,7 +97,7 @@ func printWorkspaceUsage() {
   list   list this chat channel's workspaces and the category's shared pool
   claim  record this chat channel as the one handing off to <workspace id> (last handoff wins)
 
-On by default for the team lead project (Discord only); team_workspaces = false turns it off.`)
+On by default for the primary role project (Discord only); team_workspaces = false turns it off.`)
 }
 
 func workspaceFail(err error) {

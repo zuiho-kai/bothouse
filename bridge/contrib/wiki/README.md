@@ -27,7 +27,7 @@
    在 `~/wiki/config.json` 写主角色是谁（不写就是占位名 `assistant`）：
 
    ```json
-   {"assistant": "主管", "bots": {"主管": ["主管"], "码农": ["码农"], "笔杆": ["笔杆"]},
+   {"assistant": "协调员", "bots": {"协调员": ["协调员"], "码农": ["码农"], "笔杆": ["笔杆"]},
     "user_names": ["你的群昵称"], "rule_files": ["~/.claude/CLAUDE.md"],
     "dream_notify": "<cc-connect 项目> <会话 key，如 discord:频道ID>"}
    ```
@@ -36,7 +36,7 @@
    `AGENT_ROLE`（和 `assistant` 一致），更多来源写 `sources.json`（见 `sessionlog.py` 开头）。
    Claude Code 的 SessionEnd hook：`python3 -I ~/wiki/bin/ingest.py --hook`。
 3. sub 角色：`cp bots.example.json bots.json` 填好各角色（或用 `WIKI_BOTS` 指到别处），然后
-   `LLM_WIKI_SRC=<llm-wiki 路径或 git 地址> WIKI_LEAD=主管 WIKI_USER=你的群昵称 python3 setup_wiki.py coder writer`。
+   `LLM_WIKI_SRC=<llm-wiki 路径或 git 地址> WIKI_LEAD=协调员 WIKI_USER=你的群昵称 python3 setup_wiki.py coder writer`。
    cc-connect 配 `agent.closed` 钩子：
 
    ```toml

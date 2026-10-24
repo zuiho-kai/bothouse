@@ -214,7 +214,7 @@ def identity(bot):
 
 
 
-# 主角色工作手册：谁当主就附给谁，当次的不附（用户 2026-10-23「方便任意人当主角色，并且也能放到仓库」）。
+# 主角色工作手册：只附给当前主角色，当次的不附（用户 2026-10-23「方便任意人当主角色，并且也能放到仓库」）。
 # GATE_PLAYBOOK=<文件> 可换成英文版 ../lead/PLAYBOOK.md 或自己的；设成空或 off = 不附。
 _pb = os.environ.get("GATE_PLAYBOOK", str(Path(__file__).resolve().parent.parent / "lead" / "PLAYBOOK.zh-CN.md")).strip()
 PLAYBOOK = None if _pb.lower() in ("", "off") else Path(_pb).expanduser()

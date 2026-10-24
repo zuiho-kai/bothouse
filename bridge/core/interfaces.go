@@ -15,14 +15,14 @@ type Platform interface {
 	Stop() error
 }
 
-// ConfiguredTeamLead reports whether a platform has a configured team lead.
+// ConfiguredTeamLead reports whether a platform has a configured primary role.
 // It lets the local no-gate path suppress unaddressed group messages for subs.
 type ConfiguredTeamLead interface {
 	HasConfiguredTeamLead() bool
 }
 
 // ConfiguredTeamLeadSelf reports whether this platform's own bot is the configured
-// team lead (team_lead_bot names itself). Without a gate and without a team status
+// primary role (team_lead_bot names itself). Without a gate and without a team status
 // board it is what tells the lead from the subs.
 type ConfiguredTeamLeadSelf interface {
 	IsConfiguredTeamLead() bool

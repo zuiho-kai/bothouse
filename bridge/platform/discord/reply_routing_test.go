@@ -316,7 +316,7 @@ func TestReplyRouting_CalledBotSeesItsMention(t *testing.T) {
 }
 
 // A user's bare line-start call must address a sub even when another bot is the
-// configured team lead. This exercises the Discord gateway entrypoint rather
+// configured primary role. This exercises the Discord gateway entrypoint rather
 // than the name matcher alone.
 func TestHandleMessageCreate_LineStartNameCallsNonLead(t *testing.T) {
 	var got *core.Message

@@ -32,7 +32,7 @@
 
 ```sh
 GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
-# → gate on 127.0.0.1:9930  team=主管+码农、笔杆  wiki=/Users/you/wiki
+# → gate on 127.0.0.1:9930  team=协调员+码农、笔杆  wiki=/Users/you/wiki
 ```
 
 - 用过向导的话，团队文件向导已经写好了（`~/.bothouse/gate-team.json`，lead = 向导里选的兜底角色），gate 默认读它。
@@ -41,7 +41,7 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
   格式：
 
   ```json
-  {"lead": {"name": "主管", "aliases": ["Claude"]},
+  {"lead": {"name": "协调员", "aliases": ["Claude"]},
    "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
   ```
 
@@ -113,7 +113,7 @@ bothouse daemon install   # 想关掉终端也一直在线：装成后台服务
 name = "lead"                                  # 主 bot
 gate_url = "http://127.0.0.1:9930/decide"
 team_status_dir = "~/.bothouse/team"
-team_name = "主管"
+team_name = "协调员"
 team_status_inject = true                      # 每轮开头附上队友在忙什么
 [projects.agent]
 type = "claudecode"

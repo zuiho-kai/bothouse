@@ -744,7 +744,7 @@ name = "my-backend"
 # task_model = ""                  # 两个都填时，闸门判「聊天/干活」，空闲时每轮按它换模型。
 # team_status_dir = "~/.bothouse/team"   # Every bot: write busy/idle per channel to <dir>/<project>.json.
 #                                          # 每个 bot：把各频道忙/闲写到 <dir>/<project>.json，队友互相看得到。
-# team_name = "主管"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
+# team_name = "协调员"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
 # team_status_inject = true        # Main bot only: start each turn with the teammates' status.
 #                                  # 只给主 bot：每轮开头附上队友状态。
 # Discord options for main + subs go under [projects.platforms.options]:

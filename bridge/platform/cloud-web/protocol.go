@@ -177,7 +177,7 @@ type replyContext struct {
 	ReplyCtx   string
 	Agent      bool // maomao fork: carries agent output (core.AgentReplyMarker, history.go)
 	// maomao fork (lead_return.go, same as platform/discord replyContext): the trigger message,
-	// the team lead that @-ed this sub to start the turn, and whether this send is the final answer.
+	// the primary role that @-ed this sub to start the turn, and whether this send is the final answer.
 	MsgID string
 	lead  string
 	final bool

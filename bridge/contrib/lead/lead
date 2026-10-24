@@ -4,7 +4,7 @@
 用法（在任何一个 bot 的机器上都能跑，走本机 127.0.0.1:9930）：
   lead                  # 现在谁是主角色
   lead me               # 我自己当主（按 CC_PROJECT 认自己）
-  lead 码农             # 指定谁当主（名字/别名/成员 key/平台 ID 都行）
+  lead 码农             # 指定主角色（名字/别名/成员 key/平台 ID 都行）
   lead --bot coder me
 gate 地址：LEAD_GATE_URL，默认 http://127.0.0.1:9930/lead（gate.py 默认端口）。
 

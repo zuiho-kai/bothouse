@@ -112,7 +112,7 @@ def make_scorer():
 
 
 scorer, SCORER_KIND = make_scorer()
-# 谁当主角色就用谁的名字判（lead.py）
+# 按当前主角色的名字判（lead.py）
 tasks = {k: scorer.prepare(_member_text(PROMPT, k), options=["A", "B", "C", "D"], prefill="答案：") for k in lead.KEYS}
 
 # sub：忙时这句要不要打断她

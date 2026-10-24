@@ -297,7 +297,7 @@ func TestTeamWorkspacesLeadOnlyAndNewChannel(t *testing.T) {
 	sub.SetTeam(t.TempDir(), "龙娘", false)
 	sub.SetTeamWorkspaces(true)
 	if sub.teamWS != nil {
-		t.Fatal("only the team lead runs workspaces")
+		t.Fatal("only the primary role runs workspaces")
 	}
 	if _, _, err := sub.NewTeamWorkspace("discord:100"); err == nil {
 		t.Fatal("NewTeamWorkspace must fail when off")

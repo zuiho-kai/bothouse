@@ -176,9 +176,9 @@ bothouse 只是接进去：每个角色作为一个成员连平台的机器人�
   已有的 Discord 机器人接进来时 Discord 那段原样不动，还会带上 `mention_id=<Discord bot ID>`，人设里写的 `<@id>` 在平台上也能 @ 到它。
   同一个平台上同名的角色再跑一次是更新原来那个，不会多出 `名字-2`。
   每个角色的 `ws_url` 都带 `mention_id`（只能是数字：已有的沿用；接进来的 Discord 机器人用它的 Discord ID；都没有就由平台地址和项目名算出一个 18 位数，重跑不变）。
-  多个角色时像 Discord 组队一样：除兜底角色（队长）外每个角色写 `team_lead_bot = <队长的 mention_id>`，队长 @ 队员派的活，队员做完的最终回复自动带上 @队长
+  多个角色时像 Discord 组队一样：除兜底角色（主角色）外每个角色写 `team_lead_bot = <主角色的 mention_id>`，主角色 @ 队员派的活，队员做完的最终回复自动带上 @主角色
   （`bridge/platform/cloud-web/lead_return.go`）；写 `gate_url` / `gate_fallback`（已有 gate 设置的项目不动）；向导写的人设里加一行 `<!-- conest:team -->`
-  （和回答语言那行同一种做法，开头写明「在自建平台上」，同一份人设也给 Discord 用时不混）：队长知道有哪些队员、用「@名字」派活，队员知道队长是谁。
+  （和回答语言那行同一种做法，开头写明「在自建平台上」，同一份人设也给 Discord 用时不混）：主角色知道有哪些队员、用「@名字」派活，队员知道主角色是谁。
   已有机器人没勾「改人设」时也只更新这一行，结果里逐个写明；自己写的、没有向导标记的人设不动，结果里也会说。
 - **给 AI**：`bothouse setup hub` 看本机平台、`bothouse setup hub start` 起一个，然后
   `bothouse setup apply --json` 发 `{"platform": "cloud_web", "roles": [{"name": "<名字>"}]}`（本机向导起的平台地址和 token 自动填；连别人的加

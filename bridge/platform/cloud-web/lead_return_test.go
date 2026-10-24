@@ -7,7 +7,7 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// 照 platform/discord/lead_return_test.go：副角色干完队长 @ 它派的活，最终回复自动带上 <@队长>。
+// 照 platform/discord/lead_return_test.go：副角色干完主角色 @ 它派的活，最终回复自动带上 <@主角色>。
 // 发送记录用 history_test.go 的 recTransport。
 
 func leadPlatform(t *testing.T) (*Platform, *recTransport) {
@@ -54,7 +54,7 @@ func TestHandleMessage_LeadDispatch(t *testing.T) {
 	}
 }
 
-// 端到端（平台内）：队长派的活，最终回复带 <@L>，同一次派活只带一次；中途的话不带（不半路叫醒队长）。
+// 端到端（平台内）：主角色派的活，最终回复带 <@L>，同一次派活只带一次；中途的话不带（不半路叫醒主角色）。
 func TestReplyReturnsToLead(t *testing.T) {
 	p, tp := leadPlatform(t)
 	rc := inbound(t, p, `{"type":"message","msg_id":"d1","chat_id":"room-1","user_id":"maomao","user_mention_id":"L","content":"【橘】你来写","chat_type":"group","mentioned":true,"from_bot":true}`).ReplyCtx
@@ -73,7 +73,7 @@ func TestReplyReturnsToLead(t *testing.T) {
 	}
 }
 
-// 补发（history.go）和回队长合在同一个 Reply 帧：两个标记都打上时，内容带 <@L>，帧也带 agent=true。
+// 补发（history.go）和回主角色合在同一个 Reply 帧：两个标记都打上时，内容带 <@L>，帧也带 agent=true。
 func TestReplyReturnsToLeadKeepsAgentMark(t *testing.T) {
 	p, tp := leadPlatform(t)
 	rc := inbound(t, p, `{"type":"message","msg_id":"d2","chat_id":"room-1","user_id":"maomao","user_mention_id":"L","content":"【橘】你来写","chat_type":"group","mentioned":true,"from_bot":true}`).ReplyCtx
@@ -126,7 +126,7 @@ func TestHandleMessage_ChatName(t *testing.T) {
 }
 
 // 用户 2026-10-20 room 2 消息 278-282：用户的话先让龙娘开了一轮，橘派活那条（@龙娘）在这一轮里被插入（↪ 已插入）。
-// 这一轮的最终回复仍答用户那条，但要带上 <@L>：插入的那条是队长派的活（core.InjectedReplyMerger）。
+// 这一轮的最终回复仍答用户那条，但要带上 <@L>：插入的那条是主角色派的活（core.InjectedReplyMerger）。
 func TestInjectedLeadDispatchReturnsToLead(t *testing.T) {
 	p, tp := leadPlatform(t)
 	turn := inbound(t, p, `{"type":"message","msg_id":"u1","chat_id":"room-1","user_id":"user","content":"@橘 请 @龙娘 帮你算","chat_type":"group","mentioned":true}`).ReplyCtx

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// teamWorkspaceEngine picks the engine that owns the workspaces: the team lead with
+// teamWorkspaceEngine picks the engine that owns the workspaces: the primary role with
 // team_workspaces on. A working role (any project) may ask; the lead's bot creates.
 func (s *APIServer) teamWorkspaceEngine() *Engine {
 	s.mu.RLock()
@@ -53,7 +53,7 @@ func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Reques
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no lead)", http.StatusServiceUnavailable)
 		return
 	}
 	parent, ws, err := e.NewTeamWorkspace(req.SessionKey)
@@ -89,7 +89,7 @@ func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Reque
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no lead)", http.StatusServiceUnavailable)
 		return
 	}
 	parent := teamChatKey(key)
@@ -122,7 +122,7 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no lead)", http.StatusServiceUnavailable)
 		return
 	}
 	if req.Name == "" {

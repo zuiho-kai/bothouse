@@ -78,7 +78,7 @@ func taskCommand(args []string, out io.Writer) error {
 	id := f.String("id", "", "task id")
 	batch := f.String("batch", "", "stable delegation batch id; opens a fresh card without --id (assign only)")
 	actor := f.String("by", "", "who confirmed the acceptance")
-	run := f.String("run", "", "lead's current run token (assign only)")
+	run := f.String("run", "", "primary role's current run token (assign only)")
 	member := f.String("member", "", "unique member execution id (assign only)")
 	name := f.String("name", "", "member display name (assign only)")
 	reporter := f.String("reporter-project", "", "configured bot project id; native children inherit their owning bot (assign only)")

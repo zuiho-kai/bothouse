@@ -47,7 +47,7 @@ type WizardRequest struct {
 	FallbackRole  string          `json:"fallback_role,omitempty"`   // project name; default = first role
 	FallbackBotID string          `json:"fallback_bot_id,omitempty"` // or the Discord bot ID (wins; the web wizard sends this)
 	Jev           *WizardJev      `json:"jev,omitempty"`
-	// Gate: one lead bot routes the team's messages (the gate, core/gate_proc.go). nil = on, so a
+	// Gate: one primary role routes the team's messages (the gate, core/gate_proc.go). nil = on, so a
 	// request without it (AI, curl, `setup apply`) gets the default.
 	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.

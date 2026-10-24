@@ -563,7 +563,7 @@ func TestApplyWizardCloudWebTeamPersonaLine(t *testing.T) {
 	if strings.Count(lead, teamMarker) != 1 || !strings.Contains(lead, "队长") || !strings.Contains(lead, "小龙、手写") || !strings.Contains(lead, "@名字") {
 		t.Fatalf("lead persona:\n%s", lead)
 	}
-	if strings.Count(sub, teamMarker) != 1 || !strings.Contains(sub, "队长是「队长」") {
+	if strings.Count(sub, teamMarker) != 1 || !strings.Contains(sub, "主角色是「队长」") {
 		t.Fatalf("sub persona:\n%s", sub)
 	}
 	if got := read(filepath.Join(hand, "CLAUDE.md")); got != "# 我自己写的\n" {

@@ -1,6 +1,6 @@
 """cc-connect 的 agent team 在 hub 上照 Discord 走（用户 2026-10-20「你可以去修一下自建平台…你先看看距离discord差异有什么」，
 产品核心「…agent team管理…」；差距表 /tmp/rh-botux/GAP.md「agent team」）：
-- 副角色干完橘派的活自动 @ 回橘：cc-connect 要认出「这条是队长 @ 我的」，Discord 靠作者的用户 ID（= team_lead_bot），
+- 副角色干完橘派的活自动 @ 回橘：cc-connect 要认出「这条是主角色 @ 我的」，Discord 靠作者的用户 ID（= team_lead_bot），
   hub 把发话 bot 的 mention_id 带在 user_mention_id 里（conest platform/cloud-web lead_return.go）。
 - 「队友状态」里显示频道名：hub 把频道名带在 chat_name 里，cc-connect 填进 core.Message.ChatName（core/team.go）。
 这里用 aiohttp 客户端假装 cc-connect，不起 cc-connect、不调模型。"""

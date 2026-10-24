@@ -725,14 +725,14 @@ func cloudWebTeamLine(lang string, team []SetupTeamEntry, fallback, self string)
 	}
 	if self == fallback {
 		return tr3(lang,
-			"在自建平台上，你是团队的队长，队员有："+strings.Join(subs, "、")+"（都在同一个频道里）。要把活派给谁，就在频道里写「@名字」加上要做的事；她做完的最终回复会自动 @ 回你，你再汇总给提问的人。",
+			"在自建平台上，你是团队的主角色，队员有："+strings.Join(subs, "、")+"（都在同一个频道里）。要把活派给谁，就在频道里写「@名字」加上要做的事；她做完的最终回复会自动 @ 回你，你再汇总给提问的人。",
 			"自前プラットフォームでは、あなたはチームのリーダーです。メンバー："+strings.Join(subs, "、")+"（同じチャンネルにいます）。仕事を任せるときはチャンネルで「@名前」と書いて内容を伝えてください。終わった最終回答は自動であなたに @ が付いて返ってくるので、まとめて質問者に伝えてください。",
-			"On the self-hosted platform you lead the team; members: "+strings.Join(subs, ", ")+" (all in the same channel). To hand work to one, write \"@name\" and the task in the channel; her final answer comes back to you with an @ automatically, then you sum up for whoever asked.")
+			"On the self-hosted platform you are the primary role; members: "+strings.Join(subs, ", ")+" (all in the same channel). To hand work to one, write \"@name\" and the task in the channel; her final answer comes back to you with an @ automatically, then you sum up for whoever asked.")
 	}
 	return tr3(lang,
-		"在自建平台上，你在一个团队里，队长是「"+leadName+"」（都在同一个频道里）。队长 @ 你派的活，做完后你的最终回复会自动 @ 回队长；要找队友就在频道里写「@名字」。",
+		"在自建平台上，你在一个团队里，主角色是「"+leadName+"」（都在同一个频道里）。主角色 @ 你派的活，做完后你的最终回复会自动 @ 回主角色；要找队友就在频道里写「@名字」。",
 		"自前プラットフォームでは、あなたはチームの一員で、リーダーは「"+leadName+"」です（同じチャンネルにいます）。リーダーが @ で任せた仕事の最終回答には自動でリーダーへの @ が付きます。仲間を呼ぶときはチャンネルで「@名前」と書いてください。",
-		"On the self-hosted platform you are on a team led by \""+leadName+"\" (all in the same channel). When the lead @-s you with work, your final answer goes back to the lead with an @ automatically; to call a teammate, write \"@name\" in the channel.")
+		"On the self-hosted platform your team's primary role is \""+leadName+"\" (all in the same channel). When the primary role @-s you with work, your final answer goes back to the primary role with an @ automatically; to call a teammate, write \"@name\" in the channel.")
 }
 
 // oneLine joins a name's lines with spaces.

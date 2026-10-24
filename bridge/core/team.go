@@ -406,7 +406,7 @@ func roundDur(d time.Duration) string {
 	}
 }
 
-// isTeamLead reports whether this project is the team lead (the one that reads
+// isTeamLead reports whether this project is the primary role (the one that reads
 // the others' status; maomao fork).
 func (e *Engine) isTeamLead() bool {
 	t := e.team

@@ -32,7 +32,7 @@ type replyContext struct {
 	messageID        string
 	threadID         string
 	agent            bool   // maomao fork: this send carries the agent's own text (core.AgentReplyMarker)
-	lead             string // maomao fork: the team lead @-ed this sub to start the turn; the reply goes back to it
+	lead             string // maomao fork: the primary role @-ed this sub to start the turn; the reply goes back to it
 	final            bool   // maomao fork: this send carries the turn's final answer (core.FinalReplyMarker)
 	notice           bool   // maomao fork: this send is a cc-connect notice (core.SystemNoticeMarker); see aux_channels.go
 }
@@ -79,7 +79,7 @@ type Platform struct {
 	liveMu                     sync.RWMutex      // guards allowBots, teamLead, groupReplyAllGuilds/Channels and shareSessionInChannel, which ReloadOptions swaps while running
 	allowBots                  string            // maomao fork: bot user IDs whose @-mentions of this bot are accepted
 	allowBotsFile              *allowBotsFile    // maomao fork: more allowed bot/webhook IDs, one per line; see allow_bots_file.go
-	teamLead                   string            // maomao fork: bot ID of the team lead; a reply to its @ is routed back to it (lead_return.go)
+	teamLead                   string            // maomao fork: bot ID of the primary role; a reply to its @ is routed back to it (lead_return.go)
 	botName                    string            // maomao fork: this bot's username, for self-mention marking and name calls (mentions.go)
 	auxChannels                map[string]string // maomao fork: main channel ID → log channel ID; see aux_channels.go
 	guildID                    string            // optional: per-guild registration (instant) vs global (up to 1h propagation)

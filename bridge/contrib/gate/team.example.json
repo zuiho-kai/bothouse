@@ -1,5 +1,5 @@
 {
-  "lead": {"name": "主管", "aliases": ["Claude"], "id": ""},
+  "lead": {"name": "协调员", "aliases": ["Claude"], "id": ""},
   "subs": {
     "coder": {"name": "码农", "aliases": ["Codex"], "id": ""},
     "writer": {"name": "笔杆", "aliases": [], "id": ""}

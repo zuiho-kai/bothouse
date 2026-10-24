@@ -1,6 +1,6 @@
 package core
 
-// Team mode D: a chat channel of the team lead gets workspace channels in the same
+// Team mode D: a chat channel of the primary role gets workspace channels in the same
 // category, so the chat channel stays free for talking with the user while big work moves
 // to a workspace. Workspaces are only created on request — by the lead or by the role doing
 // the work (POST /team/workspace/new, `bothouse workspace new`), never automatically: the
@@ -61,8 +61,8 @@ var ErrNotTeamChannel = errors.New("not a guild text channel")
 var ErrTeamWorkspacePermanent = errors.New("permanent platform error")
 
 // ErrTeamWorkspaceNotLeadChat: "new" was asked for a channel that is not a chat channel of
-// the team lead on a platform with workspaces (code review of PR #135, item 3).
-var ErrTeamWorkspaceNotLeadChat = errors.New("not a chat channel of the team lead on a platform with workspaces")
+// the primary role on a platform with workspaces (code review of PR #135, item 3).
+var ErrTeamWorkspaceNotLeadChat = errors.New("not a chat channel of the primary role on a platform with workspaces")
 
 // TeamWorkspaceChannels is implemented by platforms that can create workspace channels
 // (Discord, Feishu, cloud_web; team mode E, user 01:26「应该支持我们现有的dsh，discord，飞书，
@@ -324,7 +324,7 @@ func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	return append([]TeamWorkspace(nil), st.Parents[teamChatKey(channel)]...)
 }
 
-// SetTeamWorkspaces turns team mode D on or off. It only acts on the team lead
+// SetTeamWorkspaces turns team mode D on or off. It only acts on the primary role
 // (team_status_inject) and creates nothing by itself.
 func (e *Engine) SetTeamWorkspaces(on bool) {
 	t := e.team
@@ -865,7 +865,7 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 	return saveTeamWorkspacesLocked(path, st)
 }
 
-// releaseWorkspaceOnReset frees the workspace of sessionKey when the team lead's session there
+// releaseWorkspaceOnReset frees the workspace of sessionKey when the primary role's session there
 // is reset (/new, idle reset, `cc-connect session new --after-turn`, all through
 // startFreshSession or maybeAutoResetSessionOnIdle): the workspace has finished its tasks, so it
 // goes back to the pool for any chat channel. Only the lead's session counts: a teammate

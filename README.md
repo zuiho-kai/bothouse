@@ -16,7 +16,7 @@ Every handoff carries your own words down the line, so whoever picks the job up,
 Scheduled jobs and long jobs sit in the background and keep moving overnight. In the morning the channel has your report: what got done, how it was checked, what's still stuck.
 
 **Several jobs in parallel, still under control.**
-The lead role breaks the job up and spreads it across workspaces, one owner per job. Who's on what, how far along, where it's stuck — all on the same task card, readable at a glance.
+The primary role breaks the job up and spreads it across workspaces, one owner per job. Who's on what, how far along, where it's stuck — all on the same task card, readable at a glance.
 
 **Expensive models, only where the work is hard.**
 Chat and small chores go to a cheap model; the hard jobs get the expensive one. Which channel uses which model is fixed in config, so the money goes where it counts.
@@ -33,13 +33,13 @@ Real channel footage: chat hands work to a workspace, the workspace dispatches i
 ## How you use it
 
 **One, you say it once.**
-In the channel you tell the lead role: build me a dashboard — I want to see what each role spent today.
+In the channel you tell the primary role: build me a dashboard — I want to see what each role spent today.
 
 **Two, it splits the work and hands it out.**
-The lead breaks the job into pieces — a stats page, a menu-bar icon, a roles panel, and an interface for plugging in desktop pets later — and gives them to several AIs at once. Who took what, which piece they're on, where they're stuck — all on one task card, in the channel. You don't go window to window asking "how's it going".
+The primary role breaks the job into pieces — a stats page, a menu-bar icon, a roles panel, and an interface for plugging in desktop pets later — and gives them to several AIs at once. Who took what, which piece they're on, where they're stuck — all on one task card, in the channel. You don't go window to window asking "how's it going".
 
 **Three, you come back for the result.**
-Each piece goes back to the lead when it's done. The lead checks it, then sends you one reply: what changed, how it was verified, what didn't get done.
+Each piece goes back to the primary role when it's done. The primary role checks it, then sends you one reply: what changed, how it was verified, what didn't get done.
 
 You can cut in at any point. On Claude Code and Codex (app-server), what you add while an AI is working lands in the task it's already holding; ACP agents such as DSH do the same when they report support at handshake. Other CLIs, such as codex exec, queue it instead: the AI picks it up after the current turn ends.
 
@@ -47,7 +47,7 @@ You can cut in at any point. On Claude Code and Codex (app-server), what you add
 
 In a one-to-one chat, you are the one holding the context: how far this got, why it was changed last time, what's still untouched. Close the window and it's gone.
 
-bothouse gives that to the lead: every task has an owner, a source, and a result; the AIs share one memory, so what was decided today is still there tomorrow; the task card shows who's busy with what.
+bothouse gives that to the primary role: every task has an owner, a source, and a result; the AIs share one memory, so what was decided today is still there tomorrow; the task card shows who's busy with what.
 
 The AIs are the ones you already have. Your local Claude Code, Codex and Gemini become roles as they are — same account, same subscription.
 
@@ -208,19 +208,19 @@ the same team.
 
 ### Chat channel + workspaces: the chat never gets blocked
 
-- Ask for something big in the chat channel and the lead hands the whole job to Workspace 1, then comes back to keep chatting with you. When Workspace 1 is busy, Workspace 2 opens on its own.
-- Inside a workspace the lead splits the job and @s teammates; they reply 【接】 (taking it) and 【交回】 (handing it back). Anything that needs your decision comes back to the chat channel, so you only watch one place.
-- The task board groups work by chat channel → workspace → role: who is on what, and how much is done. Before handing off, the lead checks whether that teammate is busy in another workspace.
+- Ask for something big in the chat channel and the primary role hands the whole job to Workspace 1, then comes back to keep chatting with you. When Workspace 1 is busy, Workspace 2 opens on its own.
+- Inside a workspace the primary role splits the job and @s teammates; they reply 【接】 (taking it) and 【交回】 (handing it back). Anything that needs your decision comes back to the chat channel, so you only watch one place.
+- The task board groups work by chat channel → workspace → role: who is on what, and how much is done. Before handing off, the primary role checks whether that teammate is busy in another workspace.
 - Dispatch mode is per channel: single model with several processes, full team, or mixed (default).
 - In the DSH channel page, type "/" to see every capability and how to use it.
 
 ### A team, not a pile of chatbots
 
-- **Speaks only when called.** One lead answers by default. The others hear every message but speak only when @-ed or named. Several AIs in one group don't all answer at once.
-- **Hand off, report back.** The lead @s a teammate with a task. The teammate's final answer @s the lead automatically, and the lead wraps up.
-- Teammate status is an optional switch: turn it on and the lead starts every turn knowing who's busy in which channel.
+- **Speaks only when called.** One primary role answers by default. The others hear every message but speak only when @-ed or named. Several AIs in one group don't all answer at once.
+- **Hand off, report back.** The primary role @s a teammate with a task. The teammate's final answer @s the primary role automatically, and the primary role wraps up.
+- Teammate status is an optional switch: turn it on and the primary role starts every turn knowing who's busy in which channel.
 - Add a message while an AI is working and it picks it up mid-task, no waiting.
-- To swap the lead, just say "Whale, you lead now" or "Back to opus"; the default responder changes on the spot.
+- To swap the primary role, just say "Whale, you lead now" or "Back to opus"; the default responder changes on the spot.
 - One session per channel, and it continues after a restart. Messages posted while a role was offline are handed to it before it answers.
 
 ### jev, the dispatcher: a small model decides who answers
@@ -255,7 +255,7 @@ The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). 
 - **Night, a free, slow model that reads carefully.** It checks every batch written during the day against the original transcript: fixes errors, fills gaps, removes duplicates. On Sundays it reads the whole wiki for a check-up.
 - The last step each night is the dream: it reads only what you said during the day, turns the things you kept correcting into rule candidates, and writes a short "today's reflection".
 - Every quote in a candidate is checked word for word against what you actually said, so nothing made up gets in. A candidate becomes a rule only when you say yes; it never changes your rules behind your back.
-- After the dream, the lead gets a turn in the channel, so the next morning you can see what the team learned yesterday.
+- After the dream, the primary role gets a turn in the channel, so the next morning you can see what the team learned yesterday.
 
 ## How it compares
 
@@ -278,8 +278,8 @@ project B ─ temp PM ─ temp coder ─ temp QA           ├─ @Whale  (resid
 
 What works today is step one: one group, several AIs, one shared memory. What we want next:
 
-- **No double-grabbing.** The lead already checks whether a teammate is busy in another workspace before handing off; next, a role claims a task before touching it, so two roles never collide.
-- **Roles that grow roles.** Say "we need to ship to the App Store", and the lead spins up a release specialist who reads your past decisions, does the job, and retires. You don't create them one by one.
+- **No double-grabbing.** The primary role already checks whether a teammate is busy in another workspace before handing off; next, a role claims a task before touching it, so two roles never collide.
+- **Roles that grow roles.** Say "we need to ship to the App Store", and the primary role spins up a release specialist who reads your past decisions, does the job, and retires. You don't create them one by one.
 - Hiring a role should work like hiring a person: role packs bundle persona, memory template and tools, one click into the group.
 - The library should grow plugins and a market: packs that carry code plugins, plus an online market to browse and install personas and avatars others made.
 - A memory you can take with you: new machine, new model, same team, same memory.
@@ -327,7 +327,7 @@ access](docs/dashboard-source-build.md).
 
 ### Collaboration helper scripts
 
-Install the packaged task board, timer, handoff and lead helpers for a role with
+Install the packaged task board, timer, handoff and primary role helpers for a role with
 `bothouse setup lead install --work-dir /path/to/role --agent codex`.
 See [configuration and requirements](bridge/contrib/lead/README.md).
 

@@ -374,9 +374,9 @@ func warnGatePython(lang, status string) WizardWarning {
 		}
 		w.Fix = "装 Python 3.12 以上（见链接）；装好后 bothouse 会自动启动 gate。"
 	} else {
-		w.Message = "No Python 3.12 or newer found, so the gate (smart choice of who answers) is not started yet. Routing is on: the lead bot answers for the team."
+		w.Message = "No Python 3.12 or newer found, so the gate (smart choice of who answers) is not started yet. Routing is on: the primary role answers for the team."
 		if old {
-			w.Message = "Python is older than 3.12, so the gate (smart choice of who answers) is not started yet. Routing is on: the lead bot answers for the team."
+			w.Message = "Python is older than 3.12, so the gate (smart choice of who answers) is not started yet. Routing is on: the primary role answers for the team."
 		}
 		w.Fix = "Install Python 3.12 or newer (link); bothouse then starts the gate by itself."
 	}
@@ -415,7 +415,7 @@ func GateHint(lang, status, fallbackName string) string {
 	case GateStatusRunning:
 		return "Routing is on: the gate is running and decides which role answers each message."
 	case GateStatusStarting:
-		return "Routing is on: the lead bot \"" + fallbackName + "\" answers for the team; bothouse starts the gate (right away if the service is running, otherwise when it next starts), which then decides smartly who answers."
+		return "Routing is on: the primary role \"" + fallbackName + "\" answers for the team; bothouse starts the gate (right away if the service is running, otherwise when it next starts), which then decides smartly who answers."
 	}
-	return "Routing is on: the lead bot \"" + fallbackName + "\" answers for the team and an @-mentioned role answers as usual; smart routing turns on by itself once python and a jev are there."
+	return "Routing is on: the primary role \"" + fallbackName + "\" answers for the team and an @-mentioned role answers as usual; smart routing turns on by itself once python and a jev are there."
 }

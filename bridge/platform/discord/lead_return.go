@@ -7,7 +7,7 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// maomao fork: when the team lead @-s a sub to hand it work, the sub's answer must reach the
+// maomao fork: when the primary role @-s a sub to hand it work, the sub's answer must reach the
 // lead even if the model forgets to write <@lead> (2026-10-14: 龙娘 finished a task with
 // "交橘验收" and no @, so 橘 only saw it as context). The turn's final answer gets <@lead>
 // prepended (interim posts don't, so the lead isn't woken mid-task); the normal bot→bot path
@@ -17,7 +17,7 @@ import (
 
 const leadReturnTTL = 24 * time.Hour
 
-// dispatchedBy is the team lead whose turn this is to hand back ("" = none): the lead @-ing this sub,
+// dispatchedBy is the primary role whose turn this is to hand back ("" = none): the lead @-ing this sub,
 // or a person's message that @-s this sub and the lead together (issue #182, 2026-10-20「龙娘算，橘核对」:
 // both bots answered at once and 橘 "checked" an 80-minute-old message). The sub answers, its final
 // answer @-s the lead, and the lead (whose gate keeps it quiet on that message) checks the answer then.
