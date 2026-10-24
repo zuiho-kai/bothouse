@@ -8,6 +8,8 @@
 // waker can reach the owner (cloud-web bot offline, or not reconnected yet after
 // a restart) the reminder stays pending and is delivered once when it comes online.
 import { CollabError, MAX_TEXT } from './store.mjs';
+import { mentions, nameCalled, split } from './mentions.mjs';
+import { NOTICE_PREFIXES } from './cloudweb.mjs';
 
 /** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
 export const STATUS = {
@@ -83,6 +85,11 @@ export class Tasks {
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
       latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
+      // Chat-side tasks (source 'mention' / 'card'): opened from the lead's @ or the bridge task card.
+      setSource: this.db.prepare('UPDATE tasks SET source = ? WHERE id = ?'),
+      openChat: this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND created_by = ? AND source IS NOT NULL
+        AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
+      returnedChat: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND created_by = ? AND source IS NOT NULL AND status = 'returned' ORDER BY id"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
     };
     hub.onMessage(message => this.fromMessage(message));
@@ -317,7 +324,15 @@ export class Tasks {
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
-    const first = String(msg.text).split('\n', 1)[0];
+    const stance = this.stanceOf(msg);
+    if (stance !== undefined) return stance;
+    if (NOTICE_PREFIXES.some(p => String(msg.text).trimStart().startsWith(p))) return undefined;
+    return this.fromChat(msg);
+  }
+
+  stanceOf(msg) {
+    // A bridge final reply opens with the lead's @ (lead_return.go), so skip leading mentions.
+    const first = withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0];
     const m = STANCE_LINE.exec(first);
     if (m === null) return undefined;
     // Members open every reply with a stance, so without #id only a not-yet-answered
@@ -326,6 +341,75 @@ export class Tasks {
       : this.q.latestAssigned.get(msg.room_id, msg.author);
     if (task === undefined || task.owner !== msg.author || !WORKING.includes(task.status)) return undefined;
     return this.stance(task.id, { actor: msg.author, stance: m[1], note: m[3] });
+  }
+
+  /**
+   * The board follows the channel the way Discord's task card follows a lead's dispatch,
+   * without the task API: the primary role @-ing (or calling by leading name) teammates
+   * opens one task per teammate that has none open from it in this room; a teammate's
+   * reply that @-s the dispatcher (cloud-web lead_return adds it to every final reply)
+   * hands its open task back; the dispatcher's next message accepts what was handed back.
+   */
+  fromChat(msg) {
+    const lead = this.hub.primaryMember();
+    const team = this.hub.routable();
+    const text = String(msg.text);
+    if (lead !== undefined && msg.author === lead.id) {
+      for (const t of this.q.returnedChat.all(msg.room_id, lead.id)) {
+        try { this.review(t.id, { actor: lead.id, verdict: 'done' }); } catch { /* changed meanwhile */ }
+      }
+      const called = mentions(text, team);
+      const names = team.map(m => m.name);
+      for (const m of team) if (nameCalled(text, m.name, names)) called.add(m.id);
+      called.delete(lead.id);
+      const title = taskTitle(text, team);
+      if (!title) return undefined;
+      for (const owner of called) this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
+      return undefined;
+    }
+    const callsLead = lead !== undefined && (mentions(text, team).has(lead.id) || nameCalled(text, lead.name, team.map(m => m.name)));
+    if (!callsLead) return undefined;
+    const open = this.q.openChat.get(msg.room_id, msg.author, lead.id, ...WORKING);
+    if (open === undefined) return undefined;
+    return this.handBack(open.id, { actor: msg.author, messageId: msg.id });
+  }
+
+  /** Open a chat-side task unless the owner already has one open from this lead in this room. */
+  openFromChat({ roomId, owner, lead, title, messageId, source }) {
+    if (!this.hub.members.has(owner) || this.q.openChat.get(roomId, owner, lead, ...WORKING) !== undefined) return undefined;
+    // force: the channel already dispatched it; the board records it even if the owner is busy elsewhere.
+    const task = this.assign({ roomId, title, owner, actor: lead, messageId, force: true });
+    this.q.setSource.run(source, task.id);
+    return task;
+  }
+
+  /**
+   * Bridge task card members (cloud-web public_progress.go task_members) in room roomId,
+   * posted by lead as card message messageId: a live member opens its task, a member that
+   * reported result/failed/cancelled hands it back bound to the card.
+   */
+  fromCard(roomId, lead, messageId, members) {
+    if (!Array.isArray(members) || !this.hub.members.has(lead)) return;
+    const team = this.hub.routable();
+    for (const m of members) {
+      if (m === null || typeof m !== 'object') continue;
+      const project = String(m.reporter_project ?? '');
+      const name = String(m.name ?? '').toLowerCase();
+      const owner = team.find(t => (project && t.id === project) || (name && t.name.toLowerCase() === name));
+      if (owner === undefined || owner.id === lead) continue;
+      const status = String(m.status ?? '');
+      try {
+        if (['queued', 'running', 'waiting'].includes(status)) {
+          const title = String(m.title ?? '').trim() || String(m.name ?? '').trim();
+          if (title) this.openFromChat({ roomId, owner: owner.id, lead, title, messageId, source: 'card' });
+        } else if (['result', 'failed', 'cancelled'].includes(status)) {
+          const open = this.q.openChat.get(roomId, owner.id, lead, ...WORKING);
+          if (open !== undefined) this.handBack(open.id, { actor: owner.id, messageId });
+        }
+      } catch (error) {
+        this.hub.logger?.warn?.('collab: task card sync failed: %s', error?.message ?? error);
+      }
+    }
   }
 
   /** Post the reminder for every task past its check time, once each, and wake its owner. */
@@ -469,6 +553,20 @@ export class Tasks {
     this.arm();
     return task;
   }
+}
+
+/** First non-empty line of a dispatch with the @-mentions taken out (the task title). */
+function taskTitle(text, team) {
+  const plain = split(text, team).map(([seg, id]) => (id ? '' : seg)).join('');
+  const line = plain.split('\n').map(l => l.replace(/^[\s，,：:、]+/, '').trim()).find(Boolean) ?? '';
+  return line.slice(0, MAX_TEXT);
+}
+
+function withoutLeadingMentions(text, team) {
+  const parts = split(text, team);
+  let i = 0;
+  while (i < parts.length && (parts[i][1] !== null || !parts[i][0].trim())) i++;
+  return parts.slice(i).map(([seg]) => seg).join('').trimStart();
 }
 
 function clip(note) {

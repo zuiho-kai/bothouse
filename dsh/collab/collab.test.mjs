@@ -2781,3 +2781,69 @@ function route(hub, gateway, dsh) {
     return { status: res.status, json: JSON.parse(res.body) };
   };
 }
+
+test('tasks: the lead @-ing teammates opens board tasks; their reply to the lead hands back; the lead\'s next message accepts', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.fallbackLead = 'lead';
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
+  const dispatch = say('lead', '橘', '@龙娘 @DeepSeek 把登录页写完\n细节见上');
+  await tick();
+  let list = tasks.list(1);
+  assert.deepEqual(list.map(t => [t.owner, t.status, t.title, t.assign_msg_id]).sort(),
+    [['ds', 'assigned', '把登录页写完', dispatch.id], ['gpt', 'assigned', '把登录页写完', dispatch.id]]);
+  // A second @ to an owner with an open task from the lead is a follow-up, not a new task.
+  say('lead', '橘', '@龙娘 记得加测试');
+  await tick();
+  assert.equal(tasks.list(1).length, 2);
+  // Stance after the lead's @ (bridge lead_return form) still counts as a stance, not a hand-back.
+  say('gpt', '龙娘', '@橘 【接】 开工');
+  await tick();
+  assert.equal(tasks.list(1).find(t => t.owner === 'gpt').status, 'accepted');
+  // Bridge status notices never hand back.
+  say('gpt', '龙娘', '⏳ @橘 还在跑');
+  const result = say('gpt', '龙娘', '@橘 登录页写好了');
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual([list.find(t => t.owner === 'gpt').status, list.find(t => t.owner === 'gpt').result_msg_id], ['returned', result.id]);
+  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
+  say('lead', '橘', '收到，龙娘这份可以');
+  await tick();
+  list = tasks.list(1);
+  assert.equal(list.find(t => t.owner === 'gpt').status, 'done');
+  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
+  // Teammates' own @s and plain chat never open tasks; API tasks are never auto-accepted.
+  say('gpt', '龙娘', '@DeepSeek 你那边呢');
+  const api = tasks.assign({ roomId: 1, title: 'api', owner: 'gpt', actor: 'lead' });
+  tasks.handBack(api.id, { actor: 'gpt', messageId: result.id });
+  say('lead', '橘', '好');
+  await tick();
+  assert.equal(tasks.task(api.id).status, 'returned');
+  assert.equal(tasks.list(1).length, 3);
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: bridge task card members open and hand back board tasks (cloud-web task_members)', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 'tok', logger: quiet });
+  gw.tasks = tasks;
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const ws = new FakeWs();
+  gw.accept(ws, new URL('ws://x/?bot=lead&name=橘'));
+  ws.frame({ type: 'register', project: 'lead' });
+  const card = (status, seq) => PROGRESS_PREFIX + JSON.stringify({ state: 'running', items: [{ kind: 'info', text: '📋 t' }],
+    task_members: [{ reporter_project: 'gpt', id: 'm1', name: '龙娘', title: '修 bug', status }, { id: 'c1', name: 'subagent', title: 'x', status }] });
+  ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
+  await tick();
+  const handle = ws.of('preview_ack')[0].preview_handle;
+  let list = tasks.list(1);
+  assert.deepEqual(list.map(t => [t.owner, t.created_by, t.status, t.title]), [['gpt', 'lead', 'assigned', '修 bug']]);
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running'), seq: 2 });
+  await tick();
+  assert.equal(tasks.list(1).length, 1);
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('result'), seq: 3 });
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual([list[0].status, list[0].result_msg_id], ['returned', Number(handle)]);
+  tasks.close(); hub.store.close();
+});

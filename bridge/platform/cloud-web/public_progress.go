@@ -2,6 +2,7 @@ package cloudweb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -137,7 +138,41 @@ func renderTaskCardText(task *core.Task) string {
 		}
 		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: line})
 	}
-	return core.BuildProgressCardPayloadV2(items, false, "📋 "+title, "", taskCardState(task.State))
+	return withTaskMembers(core.BuildProgressCardPayloadV2(items, false, "📋 "+title, "", taskCardState(task.State)), task.Members)
+}
+
+// taskCardMember is one member row as the gateway reads it (dsh/collab tasks.mjs
+// fromCard): a live member opens a task on the channel's task board, a finished
+// one hands it back.
+type taskCardMember struct {
+	ReporterProject string `json:"reporter_project,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Title           string `json:"title"`
+	Status          string `json:"status"`
+}
+
+// withTaskMembers adds the structured member list to a progress-card payload
+// as task_members; the text rows above stay for display.
+func withTaskMembers(payload string, members []core.TaskMember) string {
+	body, ok := strings.CutPrefix(payload, core.ProgressCardPayloadPrefix)
+	if !ok || len(members) == 0 {
+		return payload
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(body), &obj); err != nil {
+		return payload
+	}
+	rows := make([]taskCardMember, 0, len(members))
+	for _, m := range members {
+		rows = append(rows, taskCardMember{ReporterProject: m.ReporterProject, ID: m.ID, Name: m.Name, Title: m.Title, Status: m.Status})
+	}
+	obj["task_members"] = rows
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return payload
+	}
+	return core.ProgressCardPayloadPrefix + string(out)
 }
 
 func taskCardState(s core.TaskState) core.ProgressCardState {

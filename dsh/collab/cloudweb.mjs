@@ -52,7 +52,7 @@ const REGISTER_TIMEOUT_MS = 10_000;
 const WS_BAD_REGISTER = 4002;
 const WS_REPLACED = 4003;
 // cc-connect status notices that teammates never see (discord.go isBotNotice).
-const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸'];
+export const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸'];
 // "model · usage" footer cc-connect appends (discord.go botFooter).
 const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
 const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
@@ -94,7 +94,9 @@ export function progressCard(content) {
   }
   const agent = String(p.agent ?? 'Agent').trim() || 'Agent';
   const brief = [lines[0], ...briefSteps(items, state)].join('\n');
-  return { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief }) };
+  const card = { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief }) };
+  // Bridge task card (cloud-web public_progress.go): its members feed the task board (tasks.mjs fromCard).
+  return Array.isArray(p.task_members) ? { ...card, members: p.task_members } : card;
 }
 
 /**
@@ -466,6 +468,7 @@ export class CloudWebGateway {
           // made before; show the newer content instead of the first one.
           if (!created && newerSeq(message, seq)) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
           handle = String(message.id);
+          if (body.members) this.tasks?.fromCard(room, member.id, message.id, body.members);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
         send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: handle });
@@ -485,7 +488,9 @@ export class CloudWebGateway {
         // #119: a delayed older task card frame must not roll the card back.
         if (seq !== undefined && !newerSeq(this.hub.store.message(Number(h)), seq)) return;
         const body = withSeq(this.body(d.content), seq);
-        if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
+        if (!body.text) return;
+        const row = this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
+        if (row !== undefined && body.members) this.tasks?.fromCard(row.room_id, member.id, row.id, body.members);
         return;
       }
       default:

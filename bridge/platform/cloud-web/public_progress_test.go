@@ -2,6 +2,8 @@ package cloudweb
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -76,5 +78,33 @@ func TestTaskCardNeedsEditableMessages(t *testing.T) {
 	p.storeReplyCtx("cloud_web:room-2", "room-2")
 	if _, err := p.TaskCardDestination("cloud_web:room-2"); err != core.ErrNotSupported {
 		t.Fatalf("err = %v, want ErrNotSupported", err)
+	}
+}
+
+func TestRenderTaskCardTextCarriesTaskMembers(t *testing.T) {
+	task := &core.Task{ID: "t1", Title: "修 bug", State: core.TaskStateInProgress, Members: []core.TaskMember{
+		{ReporterProject: "gpt", ID: "m1", Name: "龙娘", Title: "改登录", Status: "running", Summary: "进行中"},
+	}}
+	text := renderTaskCardText(task)
+	body, ok := strings.CutPrefix(text, core.ProgressCardPayloadPrefix)
+	if !ok {
+		t.Fatalf("not a progress payload: %q", text)
+	}
+	var got struct {
+		Items       []core.ProgressCardEntry `json:"items"`
+		TaskMembers []taskCardMember         `json:"task_members"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []taskCardMember{{ReporterProject: "gpt", ID: "m1", Name: "龙娘", Title: "改登录", Status: "running"}}
+	if !reflect.DeepEqual(got.TaskMembers, want) {
+		t.Fatalf("task_members = %+v, want %+v", got.TaskMembers, want)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("display rows changed: %+v", got.Items)
+	}
+	if plain := renderTaskCardText(&core.Task{ID: "t2", Title: "x"}); strings.Contains(plain, "task_members") {
+		t.Fatalf("card without members gained task_members: %q", plain)
 	}
 }
