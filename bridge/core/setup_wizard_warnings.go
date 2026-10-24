@@ -395,7 +395,7 @@ func GateHint(lang, status, fallbackName string) string {
 		case GateStatusRunning:
 			return "振り分けは有効です：gate が動いていて、メッセージごとにどのロールが答えるかを判断します。"
 		case GateStatusStarting:
-			return "振り分けは有効です：メインのボット「" + fallbackName + "」がまとめて返事します。gate は bothouse が起動し（再起動後）、以後は誰が答えるかを賢く判断します。"
+			return "振り分けは有効です：メインのボット「" + fallbackName + "」がまとめて返事します。gate は bothouse が自動で起動し（サービス稼働中ならすぐ、そうでなければ次の起動時）、以後は誰が答えるかを賢く判断します。"
 		}
 		return "振り分けは有効です：メインのボット「" + fallbackName + "」がまとめて返事し、@ されたロールは普段どおり答えます。python / jev を入れると自動で賢い判断が有効になります。"
 	case isZH(lang):
@@ -405,7 +405,7 @@ func GateHint(lang, status, fallbackName string) string {
 		case GateStatusRunning:
 			return "分流已生效：gate 在运行，每条消息由它判断该哪个角色回。"
 		case GateStatusStarting:
-			return "分流已生效：主 bot「" + fallbackName + "」统一回话；gate 由 bothouse 启动（重启后），之后会智能判断该谁回。"
+			return "分流已生效：主 bot「" + fallbackName + "」统一回话；gate 由 bothouse 自动拉起（服务在跑就马上起，没在跑就下次启动时起），之后会智能判断该谁回。"
 		}
 		return "分流已生效：主 bot「" + fallbackName + "」统一回话，被 @ 的角色照常回；装好 python/jev 后会自动启用智能判断。"
 	}
@@ -415,7 +415,7 @@ func GateHint(lang, status, fallbackName string) string {
 	case GateStatusRunning:
 		return "Routing is on: the gate is running and decides which role answers each message."
 	case GateStatusStarting:
-		return "Routing is on: the lead bot \"" + fallbackName + "\" answers for the team; bothouse starts the gate (after its restart), which then decides smartly who answers."
+		return "Routing is on: the lead bot \"" + fallbackName + "\" answers for the team; bothouse starts the gate (right away if the service is running, otherwise when it next starts), which then decides smartly who answers."
 	}
 	return "Routing is on: the lead bot \"" + fallbackName + "\" answers for the team and an @-mentioned role answers as usual; smart routing turns on by itself once python and a jev are there."
 }
