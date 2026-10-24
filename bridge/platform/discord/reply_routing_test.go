@@ -57,15 +57,23 @@ func TestReplyRouting_BotMessagesRequireExplicitBodyMention(t *testing.T) {
 	tests := []struct {
 		name      string
 		content   string
+		replyAll  bool
+		wantBurst bool
 		wantPing  bool
 	}{
-		{name: "managed_role_mention_in_body", content: "<@&role-200> please take this", wantPing: true},
+		{name: "managed_role_mention_in_body", content: "<@&role-200> please take this", wantBurst: true, wantPing: true},
+		// Without group_reply_all an unaddressed guild message is dropped before batching.
 		{name: "reply_notification_only", content: "Here is the result"},
+		// With group_reply_all it is still collected, but the reply ping does not count as a mention.
+		{name: "reply_notification_only_reply_all", content: "Here is the result", replyAll: true, wantBurst: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &Platform{
 				botID: "200", botName: "main", allowFrom: "*", allowBots: "100",
+			}
+			if tt.replyAll {
+				p.groupReplyAllGuilds = []string{"guild"}
 			}
 			p.botRoleIDs.Store("guild", "role-200")
 			p.channelNameCache.Store("channel", "test")
@@ -73,12 +81,19 @@ func TestReplyRouting_BotMessagesRequireExplicitBodyMention(t *testing.T) {
 				ID: "bot-" + tt.name, GuildID: "guild", ChannelID: "channel",
 				Author: &discordgo.User{ID: "100", Bot: true}, Timestamp: time.Now(),
 				Type: discordgo.MessageTypeReply, Content: tt.content,
-				Mentions: []*discordgo.User{{ID: "200", Bot: true}},
+				Mentions:          []*discordgo.User{{ID: "200", Bot: true}},
 				MessageReference:  &discordgo.MessageReference{MessageID: "prior"},
 				ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: "200", Bot: true}, Content: "prior reply"},
 			}})
 			p.botBurstMu.Lock()
 			burst := p.botBursts["channel:100"]
+			if !tt.wantBurst {
+				p.botBurstMu.Unlock()
+				if burst != nil {
+					t.Fatal("unaddressed bot reply should not be delivered")
+				}
+				return
+			}
 			if burst == nil {
 				p.botBurstMu.Unlock()
 				t.Fatal("expected bot message to be collected into a burst")
@@ -102,6 +117,8 @@ func TestReplyRouting_BotMessagesRequireExplicitBodyMention(t *testing.T) {
 func TestReplyRouting_LeadingNameDispatchSurvivesBurstMerge(t *testing.T) {
 	p := &Platform{
 		botID: "200", botName: "橘", teamLead: "100", allowFrom: "*", allowBots: "100",
+		// A name call without a Discord mention only reaches batching in group_reply_all guilds.
+		groupReplyAllGuilds: []string{"guild"},
 	}
 	p.channelNameCache.Store("channel", "test")
 	deliver := func(id, content string) {
