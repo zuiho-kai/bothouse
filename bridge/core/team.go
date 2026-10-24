@@ -154,8 +154,18 @@ type teamFile struct {
 	Mention string `json:"mention,omitempty"`
 }
 
+// DisplayName is the project's name for people: team_name when set (the wizard writes the name the
+// user typed there when the project name had to be role-N), else the project name.
+func (e *Engine) DisplayName() string {
+	if p := e.displayName.Load(); p != nil && *p != "" {
+		return *p
+	}
+	return e.name
+}
+
 // SetTeam enables the status board for this project. dir == "" disables it.
 func (e *Engine) SetTeam(dir, name string, inject bool) {
+	e.displayName.Store(&name) // team_name is also the project's name in the panel, board or not
 	if dir == "" {
 		e.team = nil
 		return

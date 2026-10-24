@@ -6,7 +6,7 @@ import { useThemeStore } from '@/store/theme';
 import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
 import PlatformSetupQR from '@/pages/Projects/PlatformSetupQR';
-import { restartSystem } from '@/api/status';
+import { restartSystem, waitForService } from '@/api/status';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
   startLocalHub, testCloudWeb, testJev, saveJev,
@@ -346,7 +346,17 @@ export default function SetupWizard() {
 
   const save = async () => {
     setSaving(true);
-    try { setResult(await applyWizard(buildRequest())); } catch (e: any) {
+    try {
+      const res = await applyWizard(buildRequest());
+      setResult(res);
+      // adding a role: the new project runs only after a restart, so do the same restart the
+      // "restart to apply" button does right away and wait for the service to come back
+      if (addMode && res.saved && res.restart_required) {
+        await restartSystem().catch(() => {});
+        setRestarted(true);
+        await waitForService();
+      }
+    } catch (e: any) {
       setResult({ ok: false, error: e?.message || String(e), steps: [], roles: [], jev_ok: false, jev_hint: '', hardware: false, restart_required: false, dry_run: false });
     }
     setSaving(false);
@@ -417,7 +427,7 @@ export default function SetupWizard() {
         <h1>{addMode ? (zh ? '添加角色 / 模型' : 'Add a role / model') : T.welcomeTitle}</h1>
         <p className="setup-intro">{addMode ? (zh ? '在现有配置上追加，已有角色不会被改动或删除；重名会被拒绝。' : 'Added next to your current setup. Existing roles are not changed or removed; a taken name is refused.') : T.welcomeIntro}</p>
         {addMode && (state?.projects?.length ?? 0) > 0 && (
-          <p className="setup-intro" data-testid="add-mode-existing">{zh ? '已有角色：' : 'Existing roles: '}<b>{state!.projects!.join(zh ? '、' : ', ')}</b></p>
+          <p className="setup-intro" data-testid="add-mode-existing">{zh ? '已有角色：' : 'Existing roles: '}<b>{(state!.project_display_names || state!.projects!).join(zh ? '、' : ', ')}</b></p>
         )}
         <div className="setup-team" aria-label={T.teamCliNames}>
           {[

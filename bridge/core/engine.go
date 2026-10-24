@@ -445,6 +445,7 @@ type Engine struct {
 	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
 	resetTurns                   map[string]int   // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
 	team                         *teamState       // maomao fork: team status board (nil = off)
+	displayName                  atomic.Pointer[string] // team_name from config ("" / nil = the project name); see DisplayName
 	teamWS                       *teamWorkspaces  // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
 	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)

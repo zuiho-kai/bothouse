@@ -28,6 +28,7 @@ type WizardProjectOptions struct {
 	AgentArgs    []string          // agent option args (nil = leave)
 	AgentOptions map[string]any    // set in the agent's options (nil = leave)
 	AgentEnv     map[string]string // merged into agent option env
+	DisplayName  string            // team_name: the name shown for the project ("" = leave)
 }
 
 // UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
@@ -43,6 +44,7 @@ type WizardProjectSnapshot struct {
 	Name, AgentType, WorkDir, AgentCmd string
 	Platforms                          map[string]map[string]any // type → options of the first platform of that type
 	GateURL, GateFallback              string
+	TeamName                           string // the name shown for the project ("" = its name)
 }
 
 // WizardSnapshot reads config.toml's projects (under the config lock, released on return).
@@ -62,7 +64,7 @@ func snapshotOf(cfg *Config) []WizardProjectSnapshot {
 		wd, _ := p.Agent.Options["work_dir"].(string)
 		cmd, _ := p.Agent.Options["cmd"].(string)
 		ps := WizardProjectSnapshot{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd, AgentCmd: cmd,
-			Platforms: map[string]map[string]any{}, GateURL: p.GateURL, GateFallback: p.GateFallback}
+			Platforms: map[string]map[string]any{}, GateURL: p.GateURL, GateFallback: p.GateFallback, TeamName: p.TeamName}
 		for _, pl := range p.Platforms {
 			if _, seen := ps.Platforms[pl.Type]; !seen {
 				ps.Platforms[pl.Type] = pl.Options
@@ -272,6 +274,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 				opts["allow_from"] = merged
 			}
 		}
+	}
+	if o.DisplayName != "" {
+		p["team_name"] = o.DisplayName
 	}
 	if o.GateURL != nil {
 		p["gate_url"] = *o.GateURL

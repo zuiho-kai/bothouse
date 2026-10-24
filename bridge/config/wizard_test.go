@@ -255,3 +255,34 @@ func TestUpsertWizardProjectAgentArgsEnv(t *testing.T) {
 		t.Fatalf("agent options = %v", o)
 	}
 }
+
+// A role whose project name had to be role-N keeps the user's name as team_name, which the
+// running project and the wizard snapshot both read back.
+func TestUpsertWizardProjectDisplayName(t *testing.T) {
+	dir := t.TempDir()
+	old := ConfigPath
+	ConfigPath = filepath.Join(dir, "config.toml")
+	defer func() { ConfigPath = old }()
+	if err := os.WriteFile(ConfigPath, []byte("[log]\nlevel = \"info\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "role-1", AgentType: "dsh", PlatformType: "cloud_web",
+		Options: map[string]any{"ws_url": "ws://x"}, DisplayName: "鲸鱼娘"}); err != nil {
+		t.Fatal(err)
+	}
+	// a later write without a display name leaves it alone
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "role-1", PlatformType: "cloud_web", Options: map[string]any{"ws_url": "ws://y"}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadPermissive(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := cfg.Projects[0]; p.TeamName != "鲸鱼娘" || p.Agent.Type != "dsh" {
+		t.Fatalf("project = %+v", p)
+	}
+	snap, err := WizardSnapshot()
+	if err != nil || len(snap) != 1 || snap[0].TeamName != "鲸鱼娘" {
+		t.Fatalf("snapshot = %+v %v", snap, err)
+	}
+}
