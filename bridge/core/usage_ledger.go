@@ -61,17 +61,72 @@ type usageDay struct {
 	Buckets []UsageAggregate `json:"buckets"`
 }
 type UsageLedger struct {
-	mu     sync.Mutex
+	mu     sync.Mutex // serializes writers only; readers rely on atomic rename
 	dir    string
 	prices map[string]TokenPrice
+
+	startOnce sync.Once
+	queue     chan usageJob
 }
+
+// usageJob is one record to persist, or (flushed != nil) a marker that is
+// closed once every record queued before it has been written.
+type usageJob struct {
+	r       UsageRecord
+	flushed chan struct{}
+}
+
+// usageQueueSize bounds records waiting for the writer goroutine. Estimate
+// sized so replies never wait on disk: each finished turn enqueues one record,
+// and even a few dozen concurrent sessions finishing together stay far below
+// 256. If it does fill, Enqueue writes that record synchronously, so none is lost.
+const usageQueueSize = 256
 
 func NewUsageLedger(dataDir string, prices map[string]TokenPrice) *UsageLedger {
 	p := make(map[string]TokenPrice, len(prices))
 	for k, v := range prices {
 		p[k] = v
 	}
-	return &UsageLedger{dir: filepath.Join(dataDir, "usage"), prices: p}
+	return &UsageLedger{dir: filepath.Join(dataDir, "usage"), prices: p, queue: make(chan usageJob, usageQueueSize)}
+}
+
+func (l *UsageLedger) start() {
+	l.startOnce.Do(func() { go l.run() })
+}
+
+func (l *UsageLedger) run() {
+	for job := range l.queue {
+		if job.flushed != nil {
+			close(job.flushed)
+			continue
+		}
+		l.persist(job.r)
+	}
+}
+
+func (l *UsageLedger) persist(r UsageRecord) {
+	if err := l.Record(r); err != nil {
+		slog.Error("persist turn usage", "role", r.Role, "error", err)
+	}
+}
+
+// Enqueue hands a record to the background writer without blocking. When the
+// queue is full the record is written synchronously instead, so none is lost.
+func (l *UsageLedger) Enqueue(r UsageRecord) {
+	l.start()
+	select {
+	case l.queue <- usageJob{r: r}:
+	default:
+		l.persist(r)
+	}
+}
+
+// Flush blocks until every record enqueued before the call is written.
+func (l *UsageLedger) Flush() {
+	l.start()
+	done := make(chan struct{})
+	l.queue <- usageJob{flushed: done}
+	<-done
 }
 func (l *UsageLedger) readDay(date string) (usageDay, error) {
 	var day usageDay
@@ -85,6 +140,7 @@ func (l *UsageLedger) readDay(date string) (usageDay, error) {
 	err = json.Unmarshal(b, &day)
 	return day, err
 }
+// Record writes synchronously; reply paths use Enqueue instead.
 func (l *UsageLedger) Record(r UsageRecord) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -197,9 +253,9 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 }
 
 // Query uses local calendar dates, inclusively. Missing dates have no buckets.
+// It takes no lock: Record replaces day files by rename, so a read sees either
+// the old or the new file, and queries never hold up writes.
 func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]UsageAggregate, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	records := []UsageRecord{}
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
 		day, err := l.readDay(d.Format("2006-01-02"))
@@ -223,8 +279,6 @@ func (e *Engine) recordUsage(event Event, session AgentSession) {
 		model = "unknown"
 	}
 	r := UsageRecord{Time: time.Now(), Role: e.name, Model: model, Input: int64(event.InputTokens), Output: int64(event.OutputTokens), CacheRead: int64(event.CacheReadInputTokens), CacheWrite: int64(event.CacheCreationInputTokens), Known: event.UsageKnown}
-	if err := e.usageLedger.Record(r); err != nil {
-		slog.Error("persist turn usage", "role", e.name, "error", err)
-	}
+	e.usageLedger.Enqueue(r)
 }
 func (e *Engine) SetUsageLedger(l *UsageLedger) { e.usageLedger = l }

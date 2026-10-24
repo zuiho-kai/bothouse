@@ -469,7 +469,7 @@
     "cost": "Estimated cost · configured currency",
     "unpriced": "No pricing configured",
     "heatmap": "Daily usage · past year",
-    "clickDay": "Select a day for hourly usage · amber borders indicate unknown usage",
+    "clickDay": "Select a day for hourly usage · amber borders mark replies whose usage is unavailable",
     "less": "Less",
     "more": "More",
     "hourly": "Hourly distribution",
@@ -482,8 +482,10 @@
     "output": "Output",
     "cache": "Cache read / write",
     "tokens": "Total tokens",
-    "unknown": "Unknown usage",
+    "unknown": "Usage unavailable",
+    "unavailable": "Unavailable",
+    "unavailableWhy": "The agent protocol does not report per-turn token usage yet (e.g. ACP); not estimated.",
     "empty": "No records",
-    "note": "Recorded since tracking was enabled; no historical backfill. Unknown usage: {{unknown}} replies; missing price or usage: {{unpriced}} replies. Charts show reported tokens; unknown does not mean zero consumption. Costs estimate only priced replies; * indicates incomplete pricing."
+    "note": "Recorded since tracking was enabled; no historical backfill. Usage unavailable: {{unknown}} replies (their agent protocol does not report per-turn usage yet, e.g. ACP; not estimated, and not zero consumption); missing price or usage: {{unpriced}} replies. Charts show reported tokens only. Costs estimate only priced replies; * indicates incomplete pricing."
   }
 }
