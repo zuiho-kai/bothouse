@@ -2291,3 +2291,18 @@ test('cloud_web release names the claim it ends: a late release does not free a 
   assert.equal(ack().ok, true);
   assert.equal(hub.store.workspaceOwner(ws.id), null);
 });
+
+test('#145 unread: per-room count after a cursor skips own, draft and deleted rows; drafts are flagged to browsers', () => {
+  const hub = makeHub();
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const { message: seen } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: 'old' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'mine' });
+  hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: 'new' });
+  const { message: draft } = hub.draft(1, { authorKind: 'role', author: 'ju', name: '橘', text: '写到一半' });
+  assert.equal(events.at(-1).message.draft, true, 'a streamed draft is marked');
+  assert.equal(hub.store.unreadCount(1, seen.id), 1, 'own and draft rows are not unread');
+  hub.commit(draft.id, 'role', 'ju', '写完了', null);
+  assert.equal(events.at(-1).message.draft, undefined, 'the committed reply is not');
+  assert.equal(hub.store.unreadCount(1, seen.id), 2);
+});

@@ -71,6 +71,7 @@ export class Store {
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
+      unreadAfter: this.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id > ? AND draft = 0 AND deleted = 0 AND author_kind != 'user'"),
       lastMessagePerRoom: this.db.prepare('SELECT room_id, MAX(id) AS last_id FROM messages WHERE draft = 0 AND deleted = 0 GROUP BY room_id'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
@@ -470,6 +471,11 @@ export class Store {
   room(id) { return this.q.room.get(id); }
   rooms() { return this.q.rooms.all(); }
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
+  /** #145: messages from others in a room after a client's read cursor. */
+  unreadCount(roomId, afterId) {
+    return this.q.unreadAfter.get(roomId, afterId).n;
+  }
+
   roomsView() {
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
@@ -593,6 +599,7 @@ export function publicMessage(row, store) {
   };
   const quote = store?.quote(row);
   if (quote !== undefined) out.reply_to = quote;
+  if (row.draft) out.draft = true; // #145: a streamed reply in progress; clients count and notify it once, on commit
   return out;
 }
 

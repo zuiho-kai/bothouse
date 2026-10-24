@@ -166,9 +166,16 @@ export async function apply(ctx, rawConfig) {
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
+      // #145: ?read=room:cursor,... -> each listed room gets unread_count after that cursor.
+      const read = new Map();
+      for (const pair of (new URL(req.url ?? '/', 'http://collab.invalid').searchParams.get('read') ?? '').split(',')) {
+        const [room, cursor] = pair.split(':').map(Number);
+        if (Number.isInteger(room) && Number.isInteger(cursor)) read.set(room, cursor);
+      }
+      const unread = r => (read.has(r.id) ? { unread_count: store.unreadCount(r.id, read.get(r.id)) } : {});
       return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,
         effective_lead_id: hub.primaryMember()?.id ?? null,
-        rooms: store.roomsView().map(r => ({ ...r, dispatch_mode: store.dispatchMode(r.id) })), members: hub.memberView(),
+        rooms: store.roomsView().map(r => ({ ...r, dispatch_mode: store.dispatchMode(r.id), ...unread(r) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);

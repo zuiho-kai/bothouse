@@ -239,6 +239,12 @@ function createChannelSource(transport) {
 	let pending;
 	const readCursors = loadReadCursors();
 	let unreadState = {};
+	const counted = /* @__PURE__ */ new Set();
+	/** State request carrying this client's read cursors, so the server can count unread messages per room. */
+	const stateUrl = () => {
+		const read = Object.entries(readCursors).map(([room, id]) => `${room}:${id}`).join(",");
+		return read === "" ? "collab/api/state" : `collab/api/state?read=${encodeURIComponent(read)}`;
+	};
 	const set = (next) => {
 		snapshot = {
 			...snapshot,
@@ -276,7 +282,10 @@ function createChannelSource(transport) {
 				const msg = event.message;
 				const isCurrent = msg.room_id === current.roomId;
 				const isBackground = isWindowBackground();
+				const fresh = msg.draft !== true && !counted.has(msg.id) && msg.id > (readCursors[msg.room_id] ?? 0);
+				if (fresh) counted.add(msg.id);
 				if (!isCurrent) {
+					if (!fresh) return current;
 					const prev = unreadState[msg.room_id] ?? {
 						count: 0,
 						mention: false
@@ -307,7 +316,7 @@ function createChannelSource(transport) {
 				const rows = new Map(current.messages.map((m) => [m.id, m]));
 				rows.set(msg.id, msg);
 				const nextMessages = [...rows.values()].sort((a, b) => a.id - b.id);
-				if (isBackground) {
+				if (isBackground && fresh) {
 					const prev = unreadState[msg.room_id] ?? {
 						count: 0,
 						mention: false
@@ -330,7 +339,7 @@ function createChannelSource(transport) {
 							actions.selectRoom(msg.room_id);
 						}
 					});
-				} else {
+				} else if (!isBackground) {
 					readCursors[msg.room_id] = Math.max(readCursors[msg.room_id] ?? 0, msg.id);
 					saveReadCursors(readCursors);
 					unreadState = {
@@ -433,7 +442,7 @@ function createChannelSource(transport) {
 		const previous = snapshot;
 		const current = () => lifetime === owner && pending === read && !read.controller.signal.aborted;
 		try {
-			const state = await request("collab/api/state", { signal: read.controller.signal });
+			const state = await request(stateUrl(), { signal: read.controller.signal });
 			if (!current()) return;
 			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id;
 			const me = state.me ?? "owner";
@@ -451,16 +460,17 @@ function createChannelSource(transport) {
 				};
 			} else if (r.last_message_id != null && r.last_message_id > 0) {
 				if (readCursors[r.id] === void 0) {
-					readCursors[r.id] = 0;
+					readCursors[r.id] = r.last_message_id;
 					saveReadCursors(readCursors);
+					continue;
 				}
-				const c = readCursors[r.id] ?? 0;
-				if (r.last_message_id > c) {
+				const count = r.unread_count ?? 0;
+				if (r.last_message_id > readCursors[r.id] && count > 0) {
 					const existing = unreadState[r.id];
 					unreadState = {
 						...unreadState,
 						[r.id]: {
-							count: Math.max(existing?.count ?? 0, r.last_message_id - c),
+							count: Math.max(existing?.count ?? 0, count),
 							mention: existing?.mention ?? false,
 							firstUnreadId: existing?.firstUnreadId
 						}
