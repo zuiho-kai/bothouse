@@ -114,6 +114,7 @@ export class Store {
         if (!has.get(table).has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
       }
       this.migrateWorkspaceIds();
+      this.dedupeWorkspaceNames();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
       this.db.exec(`CREATE TABLE IF NOT EXISTS room_settings (
@@ -185,6 +186,25 @@ export class Store {
       for (const table of ['messages', 'bindings', 'jobs']) this.db.prepare(`UPDATE ${table} SET room_id = ? WHERE room_id = ?`).run(to, id);
       this.db.prepare('UPDATE rooms SET parent_id = ? WHERE parent_id = ?').run(to, id);
       this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
+    }
+  }
+
+  /**
+   * Before the shared pool each chat channel numbered its own 工作区1..n, so two chat
+   * channels can both have a 「工作区1」. Workspace numbers are now unique across the server:
+   * the oldest room keeps its name, every later duplicate becomes 工作区(max+1). Idempotent.
+   */
+  dedupeWorkspaceNames() {
+    const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
+    const all = this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' ORDER BY id").all();
+    let top = Math.max(0, ...all.map(w => Number(re.exec(w.name)?.[1] ?? 0)));
+    const seen = new Set();
+    const rename = this.db.prepare('UPDATE rooms SET name = ? WHERE id = ?');
+    for (const w of all) {
+      if (!re.test(w.name)) continue;
+      if (!seen.has(w.name)) { seen.add(w.name); continue; }
+      top += 1;
+      rename.run(`${WORKSPACE_PREFIX}${top}`, w.id);
     }
   }
 
@@ -273,6 +293,23 @@ export class Store {
       const all = this.db.prepare("SELECT name FROM rooms WHERE kind = 'workspace'").all();
       const n = Math.max(0, ...all.map(w => Number(re.exec(w.name)?.[1] ?? 0)));
       return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent);
+    });
+  }
+
+  /**
+   * Record chatId as the chat channel that handed off to workspace workspaceId last, so the
+   * unified exit (team-exit.mjs, by rooms.parent_id) sends its asks and reports there.
+   * chatId may be a workspace (then its chat channel is used). Returns the workspace room.
+   */
+  claimWorkspace(chatId, workspaceId) {
+    return this.transaction(() => {
+      const chat = this.q.room.get(chatId);
+      const ws = this.q.room.get(workspaceId);
+      if (chat === undefined || ws === undefined) throw new CollabError('room-missing', `room ${chat === undefined ? chatId : workspaceId} does not exist`);
+      if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
+      const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
+      if (ws.parent_id === parent) return ws;
+      return this.db.prepare('UPDATE rooms SET parent_id = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(parent, ws.id);
     });
   }
 

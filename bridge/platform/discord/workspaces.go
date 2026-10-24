@@ -13,13 +13,17 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-var _ core.TeamWorkspaceChannels = (*Platform)(nil)
+var (
+	_ core.TeamWorkspaceChannels = (*Platform)(nil)
+	_ core.TeamWorkspaceRenamer  = (*Platform)(nil)
+)
 
 // workspaceAPI is the slice of discordgo the workspace channels need, so tests can stub it.
 type workspaceAPI interface {
 	Channel(channelID string, options ...discordgo.RequestOption) (*discordgo.Channel, error)
 	GuildChannels(guildID string, options ...discordgo.RequestOption) ([]*discordgo.Channel, error)
 	GuildChannelCreateComplex(guildID string, data discordgo.GuildChannelCreateData, options ...discordgo.RequestOption) (*discordgo.Channel, error)
+	ChannelEdit(channelID string, data *discordgo.ChannelEdit, options ...discordgo.RequestOption) (*discordgo.Channel, error)
 }
 
 // workspaceSession returns the connected session; nil-safe for tests that inject an API.
@@ -46,6 +50,17 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannel
 	}
 	c, err := createTeamWorkspaceChannel(api, besideChannelID, name, discordgo.WithContext(ctx))
 	return c, workspaceErr(err)
+}
+
+// RenameTeamWorkspaceChannel renames a workspace channel (core moves old 「<chat name>-工作区n」
+// workspaces into the shared 「工作区n」 pool with it).
+func (p *Platform) RenameTeamWorkspaceChannel(ctx context.Context, channelID, name string) error {
+	api, err := p.workspaceSession()
+	if err != nil {
+		return err
+	}
+	_, err = api.ChannelEdit(channelID, &discordgo.ChannelEdit{Name: name}, discordgo.WithContext(ctx))
+	return workspaceErr(err)
 }
 
 // workspaceErr marks Discord 4xx other than 429 (no permission, channel gone) as permanent so

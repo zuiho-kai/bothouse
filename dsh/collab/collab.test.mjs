@@ -1829,8 +1829,78 @@ test('store: creating a chat channel creates no workspace; the first createWorks
   assert.equal(s.createWorkspace(1).name, '工作区4');
   const other = s.createRoom('other');
   assert.equal(other.kind, 'chat');
-  assert.equal(s.createWorkspace(other.id).name, '工作区1', 'numbering is per chat channel');
+  // One shared pool per server: numbers continue across chat channels (1, 3, 4 exist).
+  const pooled = s.createWorkspace(other.id);
+  assert.deepEqual([pooled.name, pooled.parent_id], ['工作区5', other.id], 'numbering is unique across chat channels');
+  assert.equal(s.createWorkspace(1).name, '工作区6');
+  const names = s.rooms().filter(r => r.kind === 'workspace').map(r => r.name);
+  assert.equal(new Set(names).size, names.length, `workspace names are globally unique: ${names}`);
   assert.throws(() => s.createWorkspace(99), e => e.code === 'room-missing');
+});
+
+test('store: opening renumbers the old per-chat duplicate 工作区n; ids and parents stay', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  old.ensureRoom(2, 'dev');
+  // Shape before the shared pool: each chat channel numbered its own 工作区1..n.
+  old.db.exec(`INSERT INTO rooms (id, name, kind, parent_id) VALUES
+    (1000000, '工作区1', 'workspace', 1), (1000001, '工作区2', 'workspace', 1),
+    (1000002, '工作区1', 'workspace', 2), (1000003, '工作区2', 'workspace', 2)`);
+  old.close();
+  const s = new Store(path);
+  const ws = () => plain(s.rooms().filter(r => r.kind === 'workspace')).map(r => [r.id, r.name, r.parent_id]);
+  assert.deepEqual(ws(), [[1000000, '工作区1', 1], [1000001, '工作区2', 1], [1000002, '工作区3', 2], [1000003, '工作区4', 2]]);
+  s.close();
+  const again = new Store(path); // idempotent
+  assert.deepEqual(plain(again.rooms().filter(r => r.kind === 'workspace')).map(r => r.name), ['工作区1', '工作区2', '工作区3', '工作区4']);
+  assert.equal(again.createWorkspace(2).name, '工作区5');
+  again.close();
+});
+
+test('store: claimWorkspace moves a pool workspace to the chat channel that handed off last', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  s.ensureRoom(2, 'dev');
+  const w = s.createWorkspace(1);
+  assert.equal(s.claimWorkspace(2, w.id).parent_id, 2);
+  assert.equal(s.room(w.id).parent_id, 2);
+  // From a workspace, the claim goes to its chat channel.
+  const w2 = s.createWorkspace(1);
+  assert.equal(s.claimWorkspace(w.id, w2.id).parent_id, 2);
+  assert.throws(() => s.claimWorkspace(2, 1), e => e.code === 'not-workspace');
+  assert.throws(() => s.claimWorkspace(2, 99), e => e.code === 'room-missing');
+});
+
+test('team exit: after a claim, asks and reports go to the chat channel that handed off last', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'dev');
+  const ws = hub.store.createWorkspace(1); // created from general
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  new TeamExit(hub);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  // dev hands off to the same pool workspace (what core ClaimTeamWorkspace sends).
+  ju.frame({ type: 'team_workspace', ref_id: 'c1', op: 'claim', session_key: 'cloud_web:room-2', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
+  await tick();
+  const ack = ju.of('team_workspace_ack').at(-1);
+  assert.deepEqual([ack.ok, ack.room.id], [true, roomKey(ws.id)]);
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n做完了' });
+  await tick();
+  assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches dev');
+  assert.equal(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system'), false, 'not the creating channel');
+  // general hands off again: last handoff wins.
+  ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
+  await tick();
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案' });
+  await tick();
+  assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches general');
+  ju.frame({ type: 'team_workspace', ref_id: 'c3', op: 'claim', reply_ctx: 'room-1', workspace_id: 'room-1' });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c3', ok: false, error: 'not-workspace' });
 });
 
 test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作区n+1, others get 401', async () => {
@@ -1899,6 +1969,11 @@ test('cloud-web: team_workspace create on the real store (A #134) makes 工作�
   await tick();
   assert.equal(ju2.of('team_workspace_ack').at(-1).room.name, '工作区2');
   ju2.frame({ type: 'team_workspace', ref_id: 'w5', op: 'list', reply_ctx: 'room-1' });
+  await tick();
+  assert.deepEqual(ju2.of('team_workspace_ack').at(-1).rooms.map(r => r.name), ['工作区1', '工作区2']);
+  // Another chat channel sees the whole pool, not only the workspaces it created.
+  store.ensureRoom(2, 'dev');
+  ju2.frame({ type: 'team_workspace', ref_id: 'w5b', op: 'list', reply_ctx: 'room-2' });
   await tick();
   assert.deepEqual(ju2.of('team_workspace_ack').at(-1).rooms.map(r => r.name), ['工作区1', '工作区2']);
   ju2.frame({ type: 'team_workspace', ref_id: 'w6', op: 'list', reply_ctx: 'room-9' });

@@ -25,7 +25,10 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-var _ core.TeamWorkspaceChannels = (*Platform)(nil)
+var (
+	_ core.TeamWorkspaceChannels = (*Platform)(nil)
+	_ core.TeamWorkspaceRenamer  = (*Platform)(nil)
+)
 
 const (
 	workspaceMaxUsers = 50  // SPEC: create-chat doc, user_id_list at most 50
@@ -118,6 +121,26 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 		}
 	}
 	return self, all, nil
+}
+
+// RenameTeamWorkspaceChannel renames a workspace group (PUT im/v1/chats/:chat_id; core moves
+// old 「<chat name>-工作区n」 workspaces into the shared 「工作区n」 pool with it). API
+// https://open.feishu.cn/document/server-docs/group/chat/update-2.
+func (p *Platform) RenameTeamWorkspaceChannel(ctx context.Context, chatID, name string) error {
+	if p.client == nil {
+		return fmt.Errorf("%s: workspace: client not initialized", p.tag())
+	}
+	req := larkim.NewUpdateChatReqBuilder().ChatId(chatID).Body(larkim.NewUpdateChatReqBodyBuilder().Name(name).Build()).Build()
+	return p.withFreshTenantAccessTokenRetry(ctx, "workspace rename chat", func(client *lark.Client, options ...larkcore.RequestOptionFunc) error {
+		resp, err := client.Im.Chat.Update(ctx, req, options...)
+		if err != nil {
+			return fmt.Errorf("%s: workspace rename chat: %w", p.tag(), err)
+		}
+		if !resp.Success() {
+			return p.workspaceErr("rename chat", resp.ApiResp, resp.Code, resp.Msg)
+		}
+		return nil
+	})
 }
 
 // CreateTeamWorkspaceChannel creates the group name with the members of besideChatID and the

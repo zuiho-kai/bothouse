@@ -313,15 +313,16 @@ func isGroupChat(chatType string) bool {
 // Team mode E (user 2026-10-24 01:26「应该支持我们现有的dsh，discord，飞书，自建平台」): the
 // gateway owns the rooms, so the bridge asks it instead of keeping its own copy.
 //
-//	→ {"type":"team_workspace","ref_id":"tw-…","op":"list"|"create","session_key":"<platform>:room-<id>",
-//	   "chat_id":"room-<id>","reply_ctx":"room-<id>","name":"工作区2"}
+//	→ {"type":"team_workspace","ref_id":"tw-…","op":"list"|"create"|"claim","session_key":"<platform>:room-<id>",
+//	   "chat_id":"room-<id>","reply_ctx":"room-<id>","name":"工作区2","workspace_id":"room-<id>"}
 //	← {"type":"team_workspace_ack","ref_id":"tw-…","ok":true,
-//	   "self":{"id":"room-<id>","name":"…"},"rooms":[…],   // list: the room and its workspaces
-//	   "room":{"id":"room-<id>","name":"工作区2"}}        // create: the new workspace
+//	   "self":{"id":"room-<id>","name":"…"},"rooms":[…],   // list: the room and the whole pool
+//	   "room":{"id":"room-<id>","name":"工作区2"}}        // create: the new workspace; claim: the claimed one
 //	← {"type":"team_workspace_ack","ref_id":"tw-…","ok":false,"error":"unsupported"|"not_team_channel"|"room-missing"|…}
 //
-// "rooms" only lists the room's own workspaces (the gateway's parent relation, e.g. collab's
-// rooms.parent_id), so core numbers and adopts from what the gateway recorded.
+// "rooms" lists every workspace of the gateway (one shared pool per server), so core numbers
+// 「工作区n」 uniquely. "claim" (workspace_id) records the room as the one that handed off to
+// that workspace last (collab: rooms.parent_id), so the gateway's unified exit routes to it.
 const (
 	typeTeamWorkspace    = "team_workspace"
 	typeTeamWorkspaceAck = "team_workspace_ack"

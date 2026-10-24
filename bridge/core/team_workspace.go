@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -63,6 +64,21 @@ type TeamWorkspaceChannels interface {
 	CreateTeamWorkspaceChannel(ctx context.Context, besideChannelID, name string) (TeamChannel, error)
 }
 
+// TeamWorkspaceClaimer is implemented by platforms whose server records which chat channel a
+// workspace belongs to (cloud_web: the DSH gateway's rooms.parent_id, which its unified exit
+// routes by). ClaimTeamWorkspace calls it so a handoff from another chat channel of the pool
+// moves the workspace there too.
+type TeamWorkspaceClaimer interface {
+	ClaimTeamWorkspaceChannel(ctx context.Context, chatID, workspaceID string) error
+}
+
+// TeamWorkspaceRenamer is implemented by platforms that can rename a channel (Discord,
+// Feishu). Core uses it once per old 「<chat name>-工作区n」 workspace to move it into the
+// shared 「工作区n」 pool; without it the old name is only recognised.
+type TeamWorkspaceRenamer interface {
+	RenameTeamWorkspaceChannel(ctx context.Context, channelID, name string) error
+}
+
 const (
 	teamWorkspaceFile   = "team_workspaces.json"
 	teamWorkspacePrefix = "工作区" // naming 「工作区n」: user 00:50「工作区1」「工作区n+1」
@@ -77,6 +93,15 @@ const (
 // channel that handed off to a workspace last owns its record, so asks and reports go back to
 // it (team mode C). Replaces the per-chat 「<chat name>-工作区n」 prefix.
 var teamWorkspaceName = regexp.MustCompile(`^` + teamWorkspacePrefix + `(\d*)$`)
+
+// teamWorkspaceLegacyName is the per-chat name used before the shared pool,
+// 「<chat channel name>-工作区n」. Recorded ones are renamed into the pool (teamWorkspaceMigrate).
+var teamWorkspaceLegacyName = regexp.MustCompile(`^.+-` + teamWorkspacePrefix + `(\d+)$`)
+
+// isTeamWorkspaceName: 「工作区n」 or the old 「<chat name>-工作区n」.
+func isTeamWorkspaceName(name string) bool {
+	return teamWorkspaceNum(name) > 0 || teamWorkspaceLegacyName.MatchString(name)
+}
 
 // TeamWorkspace is one workspace channel of a chat channel.
 type TeamWorkspace struct {
@@ -350,11 +375,18 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	if err != nil {
 		return nil, nil, err
 	}
+	guild = e.teamWorkspaceMigrate(ctx, chat, plat, self, guild)
 
 	path := teamWorkspacePath(e.dataDir)
-	list, name, changed, err := teamWorkspacePlan(path, chat, self, guild, next)
+	list, name, changed, adopted, err := teamWorkspacePlan(path, chat, self, guild, next)
 	if err != nil {
 		return nil, nil, err
+	}
+	// Adopting a pool workspace is a handoff: tell a platform that records the parent itself.
+	if c, ok := plat.(TeamWorkspaceClaimer); ok && adopted != "" {
+		if err := c.ClaimTeamWorkspaceChannel(ctx, self.ID, adopted); err != nil {
+			return nil, nil, fmt.Errorf("team workspace: %s: claim %s: %w", chat, adopted, err)
+		}
 	}
 	// Persist reconciling/adoption before the create, so a failed create keeps it.
 	if changed {
@@ -395,7 +427,8 @@ func teamWorkspaceStoreList(path, chat string, list []TeamWorkspace) error {
 // teamWorkspacePlan reconciles chat's recorded workspaces with the guild listing (under
 // teamWorkspaceStore.mu, no network) and returns the list, the name to create ("" = none)
 // and whether the list differs from the record.
-func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool) (list []TeamWorkspace, name string, changed bool, err error) {
+// adopted is the ID of an unclaimed pool workspace taken over by this call ("" = none).
+func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool) (list []TeamWorkspace, name string, changed bool, adopted string, err error) {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(path)
@@ -411,8 +444,8 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 			claimed[w.ID] = parent
 		}
 	}
-	if _, isChild := claimed[self.ID]; isChild || teamWorkspaceName.MatchString(self.Name) {
-		return nil, "", false, errTeamIsWorkspace
+	if _, isChild := claimed[self.ID]; isChild || isTeamWorkspaceName(self.Name) {
+		return nil, "", false, "", errTeamIsWorkspace
 	}
 
 	byID := map[string]TeamChannel{}
@@ -445,7 +478,7 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 		if pick != nil {
 			list = append(list, TeamWorkspace{Name: pick.Name, ID: pick.ID})
 			claimed[pick.ID] = chat
-			return list, "", true, nil
+			return list, "", true, pick.ID, nil
 		}
 	}
 
@@ -462,7 +495,92 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 		}
 		name = teamWorkspacePrefix + strconv.Itoa(top+1)
 	}
-	return list, name, changed, nil
+	return list, name, changed, "", nil
+}
+
+// teamWorkspaceMigrate renames every recorded old 「<chat name>-工作区n」 workspace in self's
+// category to 「工作区(max+1)」 through the platform, so the shared pool has unique numbers.
+// It updates the records and returns the guild listing with the new names. A platform
+// without TeamWorkspaceRenamer, or a failed rename, keeps the old name; it is still
+// recognised as a workspace and listed in the pool. Caller holds teamWorkspaceOpMu.
+func (e *Engine) teamWorkspaceMigrate(ctx context.Context, chat string, plat TeamWorkspaceChannels, self TeamChannel, guild []TeamChannel) []TeamChannel {
+	path := teamWorkspacePath(e.dataDir)
+	recorded := map[string]bool{}
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(path)
+	pname, _, _ := strings.Cut(chat, ":")
+	for parent, list := range st.Parents {
+		if p, _, _ := strings.Cut(parent, ":"); p != pname {
+			continue
+		}
+		for _, w := range list {
+			recorded[w.ID] = true
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+
+	var old []int // indexes into guild
+	top := 0
+	for i, c := range guild {
+		if c.ParentID != self.ParentID {
+			continue
+		}
+		top = max(top, teamWorkspaceNum(c.Name))
+		if recorded[c.ID] && teamWorkspaceLegacyName.MatchString(c.Name) {
+			old = append(old, i)
+		}
+	}
+	if len(old) == 0 {
+		return guild
+	}
+	r, ok := plat.(TeamWorkspaceRenamer)
+	if !ok {
+		return guild
+	}
+	legacyNum := func(name string) int {
+		n, _ := strconv.Atoi(teamWorkspaceLegacyName.FindStringSubmatch(name)[1])
+		return n
+	}
+	sort.SliceStable(old, func(a, b int) bool {
+		x, y := guild[old[a]], guild[old[b]]
+		if nx, ny := legacyNum(x.Name), legacyNum(y.Name); nx != ny {
+			return nx < ny
+		}
+		return x.ID < y.ID
+	})
+	out := append([]TeamChannel(nil), guild...)
+	renamed := map[string]string{}
+	for _, i := range old {
+		name := teamWorkspacePrefix + strconv.Itoa(top+1)
+		if err := r.RenameTeamWorkspaceChannel(ctx, out[i].ID, name); err != nil {
+			slog.Warn("team workspace: rename of old workspace failed; kept in the pool under its old name",
+				"channel", out[i].ID, "name", out[i].Name, "to", name, "error", err)
+			continue
+		}
+		slog.Info("team workspace: moved old workspace into the shared pool", "channel", out[i].ID, "from", out[i].Name, "to", name)
+		top++
+		out[i].Name = name
+		renamed[out[i].ID] = name
+	}
+	if len(renamed) > 0 {
+		teamWorkspaceStore.mu.Lock()
+		st := loadTeamWorkspacesLocked(path)
+		for parent, list := range st.Parents {
+			if p, _, _ := strings.Cut(parent, ":"); p != pname {
+				continue
+			}
+			for j := range list {
+				if n, ok := renamed[list[j].ID]; ok {
+					list[j].Name = n
+				}
+			}
+		}
+		if err := saveTeamWorkspacesLocked(path, st); err != nil {
+			slog.Warn("team workspace: save state after rename", "error", err)
+		}
+		teamWorkspaceStore.mu.Unlock()
+	}
+	return out
 }
 
 // teamWorkspaceNum returns n for 「工作区n」 (1 when unnumbered), 0 otherwise.
@@ -480,8 +598,11 @@ func teamWorkspaceNum(name string) int {
 
 // ClaimTeamWorkspace records chat (bare ID or session key) as the chat channel that handed
 // off to workspace wsID last: the record moves from its previous chat, so asks and reports
-// (WorkspaceParent, team mode C) go back to the chat that handed off (last handoff wins).
-// name is the workspace's channel name, kept when it is not recorded yet.
+// (WorkspaceParent, team mode C) go back to the chat that handed off (last handoff wins). On a
+// platform that records the parent itself (TeamWorkspaceClaimer: cloud_web/DSH) the platform
+// is told first. name is the workspace's channel name, kept when it is not recorded yet.
+// Runs under teamWorkspaceOpMu like teamWorkspaceOp, so a claim never interleaves with a
+// create that is saving a listing taken before the claim.
 func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
 		return errors.New("team workspace claim: chat channel and workspace id are required")
@@ -490,26 +611,58 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 	if p, ok := e.WorkspaceParent(chat); ok {
 		chat = p
 	}
+	if teamChannelID(chat) == wsID {
+		return fmt.Errorf("team workspace claim: %s cannot hand off to itself", chat)
+	}
 	plat, _, _ := strings.Cut(chat, ":")
 	path := teamWorkspacePath(e.dataDir)
+
+	teamWorkspaceOpMu.Lock()
+	defer teamWorkspaceOpMu.Unlock()
+
+	// The workspace's recorded entry (under any chat) wins over the given name.
 	teamWorkspaceStore.mu.Lock()
-	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(path)
-	if _, own := st.Parents[chat]; own {
-		for _, w := range st.Parents[chat] {
-			if w.ID == wsID {
-				return nil
-			}
-		}
-	}
 	w := TeamWorkspace{ID: wsID, Name: name}
 	for parent, list := range st.Parents {
 		if p, _, _ := strings.Cut(parent, ":"); p != plat {
 			continue
 		}
-		for i, x := range list {
+		for _, x := range list {
 			if x.ID == wsID {
 				w = x
+			}
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+	if w.Name == "" {
+		w.Name = name
+	}
+	if !isTeamWorkspaceName(w.Name) {
+		return fmt.Errorf("team workspace claim: %q is not a 「%sn」 channel", w.Name, teamWorkspacePrefix)
+	}
+
+	// The platform request runs without teamWorkspaceStore.mu (WorkspaceParent never waits on it).
+	if p, ok := e.teamWorkspacePlatform(chat); ok {
+		if c, ok := p.(TeamWorkspaceClaimer); ok {
+			ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+			err := c.ClaimTeamWorkspaceChannel(ctx, teamChannelID(chat), wsID)
+			cancel()
+			if err != nil {
+				return fmt.Errorf("team workspace claim: %s → %s: %w", chat, wsID, err)
+			}
+		}
+	}
+
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st = loadTeamWorkspacesLocked(path)
+	for parent, list := range st.Parents {
+		if p, _, _ := strings.Cut(parent, ":"); p != plat || parent == chat {
+			continue
+		}
+		for i, x := range list {
+			if x.ID == wsID {
 				rest := append(append([]TeamWorkspace(nil), list[:i]...), list[i+1:]...)
 				if len(rest) == 0 {
 					delete(st.Parents, parent)
@@ -520,18 +673,19 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 			}
 		}
 	}
-	if w.Name == "" {
-		w.Name = name
-	}
-	if teamWorkspaceNum(w.Name) == 0 {
-		return fmt.Errorf("team workspace claim: %q is not a 「%sn」 channel", w.Name, teamWorkspacePrefix)
+	for _, x := range st.Parents[chat] {
+		if x.ID == wsID {
+			return saveTeamWorkspacesLocked(path, st)
+		}
 	}
 	st.Parents[chat] = append(st.Parents[chat], w)
 	return saveTeamWorkspacesLocked(path, st)
 }
 
-// TeamWorkspacePool returns every 「工作区n」 in the server/category of chat, lowest number
-// first, whichever chat channel handed off to it last. Callers pick the first free one.
+// TeamWorkspacePool returns every workspace in the server/category of chat, 「工作区n」 lowest
+// number first, then old 「<chat name>-工作区n」 ones a platform could not rename, whichever
+// chat channel handed off to each last. Callers pick the first free one. Recorded old names
+// are renamed into the pool first (teamWorkspaceMigrate).
 func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	chat := teamChatKey(channel)
 	if p, ok := e.WorkspaceParent(chat); ok {
@@ -541,18 +695,29 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	if !ok {
 		return nil, fmt.Errorf("team workspace: %s: no platform with workspaces", chat)
 	}
+	teamWorkspaceOpMu.Lock()
+	defer teamWorkspaceOpMu.Unlock()
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
 	self, guild, err := plat.TeamGuildChannels(ctx, teamChannelID(chat))
 	if err != nil {
 		return nil, err
 	}
+	if e.dataDir != "" {
+		guild = e.teamWorkspaceMigrate(ctx, chat, plat, self, guild)
+	}
 	var out []TeamWorkspace
 	for _, c := range guild {
-		if c.ParentID == self.ParentID && c.ID != self.ID && teamWorkspaceNum(c.Name) > 0 {
+		if c.ParentID == self.ParentID && c.ID != self.ID && isTeamWorkspaceName(c.Name) {
 			out = append(out, TeamWorkspace{Name: c.Name, ID: c.ID})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return teamWorkspaceNum(out[i].Name) < teamWorkspaceNum(out[j].Name) })
+	order := func(name string) int {
+		if n := teamWorkspaceNum(name); n > 0 {
+			return n
+		}
+		return math.MaxInt // old names a platform could not rename go last
+	}
+	sort.SliceStable(out, func(i, j int) bool { return order(out[i].Name) < order(out[j].Name) })
 	return out, nil
 }

@@ -15,7 +15,10 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-var _ core.TeamWorkspaceChannels = (*Platform)(nil)
+var (
+	_ core.TeamWorkspaceChannels = (*Platform)(nil)
+	_ core.TeamWorkspaceClaimer  = (*Platform)(nil)
+)
 
 // teamWorkspaceAckTimeout: 沿用已有配置, the 10 s SendPreviewStart waits for preview_ack.
 const teamWorkspaceAckTimeout = 10 * time.Second
@@ -31,7 +34,8 @@ func (p *Platform) handleTeamWorkspaceAck(raw []byte) {
 }
 
 // teamWorkspaceRequest sends one team_workspace frame and waits for its ack.
-func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name string) (wireTeamWorkspaceAck, error) {
+// extra holds op-specific fields (claim: workspace_id).
+func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name string, extra ...map[string]any) (wireTeamWorkspaceAck, error) {
 	if !p.hasCap(capTeamWorkspace) {
 		// Not registered yet (register failed, collab started after the bridge): retryable.
 		// Only a gateway that told its capabilities without team_workspace does not support it
@@ -51,6 +55,11 @@ func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name st
 	}
 	if name != "" {
 		msg["name"] = name
+	}
+	for _, x := range extra {
+		for k, v := range x {
+			msg[k] = v
+		}
 	}
 	if err := p.sendWire(ctx, msg); err != nil {
 		return wireTeamWorkspaceAck{}, err
@@ -80,8 +89,9 @@ func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name st
 	return ack, err
 }
 
-// TeamGuildChannels returns the room and its workspaces as the gateway records them. All
-// share one "category" (ParentID ""), so core adopts and numbers within this room only.
+// TeamGuildChannels returns the room and every workspace of the gateway (one shared pool
+// per server, whichever room handed off to each last). All share one "category"
+// (ParentID ""), so core numbers 「工作区n」 across the whole pool.
 func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.TeamChannel, []core.TeamChannel, error) {
 	ack, err := p.teamWorkspaceRequest(ctx, "list", chatID, "")
 	if err != nil {
@@ -114,4 +124,18 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID,
 		slog.Info("cloud_web: gateway named the workspace", "asked", name, "got", ack.Room.Name)
 	}
 	return core.TeamChannel{ID: ack.Room.ID, Name: ack.Room.Name}, nil
+}
+
+// ClaimTeamWorkspaceChannel tells the gateway that chatID handed off to workspaceID last, so
+// the gateway's unified exit (dsh/collab/team-exit.mjs, by rooms.parent_id) sends that
+// workspace's asks and reports to chatID.
+func (p *Platform) ClaimTeamWorkspaceChannel(ctx context.Context, chatID, workspaceID string) error {
+	ack, err := p.teamWorkspaceRequest(ctx, "claim", chatID, "", map[string]any{"workspace_id": workspaceID})
+	if err != nil {
+		return err
+	}
+	if ack.Room == nil || ack.Room.ID != workspaceID {
+		return fmt.Errorf("cloud_web: team_workspace claim %s: unexpected room %+v", workspaceID, ack.Room)
+	}
+	return nil
 }
