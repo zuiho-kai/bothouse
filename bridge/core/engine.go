@@ -392,6 +392,7 @@ type Engine struct {
 	providerRefsSaveFunc    func(refs []string) error
 	listGlobalProvidersFunc func(agentType string) ([]ProviderConfig, error)
 	modelSaveFunc           func(model string) error
+	effortSaveFunc          func(effort string) error
 
 	ttsSaveFunc func(mode string) error
 
@@ -1206,6 +1207,21 @@ func (e *Engine) SetListGlobalProvidersFunc(fn func(agentType string) ([]Provide
 	e.listGlobalProvidersFunc = fn
 }
 
+// SetReasoningEffortSaveFunc persists the project agent's reasoning effort, so a
+// restart does not fall back to the config default (2026-10-22 23:21 G哥 cutover).
+func (e *Engine) SetReasoningEffortSaveFunc(fn func(effort string) error) {
+	e.effortSaveFunc = fn
+}
+
+func (e *Engine) persistReasoningEffort(agent Agent, effort string) {
+	if agent != e.agent || e.effortSaveFunc == nil || effort == "" {
+		return
+	}
+	if err := e.effortSaveFunc(effort); err != nil {
+		slog.Warn("save reasoning effort failed", "effort", effort, "error", err)
+	}
+}
+
 func (e *Engine) SetModelSaveFunc(fn func(model string) error) {
 	e.modelSaveFunc = fn
 }
@@ -1847,6 +1863,28 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 // ExecuteTimerJob fires a one-shot timer job: resolves the platform, sends a
 // notification (unless muted), and either runs a shell command or injects a
 // synthetic message into the agent session.
+// timerPlatformReadyTimeout bounds how long a due timer waits for an async platform
+// (Discord) to connect. Source: local3 patch after 2026-10-23 00:31, when a timer due
+// at startup fired before the Discord session existed and the nil session panicked the bridge.
+var timerPlatformReadyTimeout = 2 * time.Minute
+
+func (e *Engine) waitTimerPlatformReady(p Platform) error {
+	if _, async := p.(AsyncRecoverablePlatform); !async {
+		return nil
+	}
+	deadline := time.Now().Add(timerPlatformReadyTimeout)
+	for e.lookupReadyPlatform(p.Name()) == nil {
+		if e.ctx.Err() != nil {
+			return fmt.Errorf("engine stopping before platform %q was ready", p.Name())
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("platform %q not ready after %s; timer not run", p.Name(), timerPlatformReadyTimeout)
+		}
+		time.Sleep(200 * time.Millisecond) // source: local3 patch poll interval
+	}
+	return nil
+}
+
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventTimerTriggered,
@@ -1882,6 +1920,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 	if targetPlatform == nil {
 		return fmt.Errorf("platform %q not found for session %q", platformName, sessionKey)
+	}
+	if err := e.waitTimerPlatformReady(targetPlatform); err != nil {
+		return err
 	}
 
 	rc, ok := targetPlatform.(ReplyContextReconstructor)
@@ -11110,6 +11151,7 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 	}
 
 	switcher.SetReasoningEffort(target)
+	e.persistReasoningEffort(e.agent, target)
 	e.cleanupInteractiveState(e.interactiveKeyForSessionKey(msg.SessionKey))
 
 	s := sessions.GetOrCreateActive(msg.SessionKey)
@@ -13418,6 +13460,7 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		for _, effort := range efforts {
 			if effort == target {
 				switcher.SetReasoningEffort(target)
+				e.persistReasoningEffort(e.agent, target)
 				e.cleanupInteractiveState(interactiveKey)
 				s := e.sessions.GetOrCreateActive(sessionKey)
 				s.SetAgentSessionID("", "")

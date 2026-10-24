@@ -1433,6 +1433,13 @@ func SaveAgentModel(projectName, model string) error {
 	return patchProjectAgentOption(projectName, "model", model)
 }
 
+// SaveAgentReasoningEffort persists the project agent's reasoning effort.
+func SaveAgentReasoningEffort(projectName, effort string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return patchProjectAgentOption(projectName, "reasoning_effort", effort)
+}
+
 // AddProviderToConfig adds a provider to a project's agent config and saves.
 func AddProviderToConfig(projectName string, provider ProviderConfig) error {
 	configMu.Lock()

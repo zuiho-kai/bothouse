@@ -91,3 +91,25 @@ func TestQueueModelSwitchAmbiguousReturnsCandidates(t *testing.T) {
 		t.Fatalf("nothing should be queued: %q", st.Pending)
 	}
 }
+
+// 2026-10-22 23:21: a cutover restart dropped G哥's queued xiao/gpt-6.1-sol · high and
+// came back on the config default. Queued switches must persist like /model does.
+func TestQueuedModelSwitchPersistsModelAndEffort(t *testing.T) {
+	agent := &stubStrictModelAgent{stubModelModeAgent: stubModelModeAgent{model: "xiao/gpt-6-astra"},
+		models: []ModelOption{{Name: "xiao/gpt-6-astra"}, {Name: "xiao/gpt-6.1-sol"}}}
+	e := NewEngine("test", agent, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	var savedModel, savedEffort string
+	e.SetModelSaveFunc(func(m string) error { savedModel = m; return nil })
+	e.SetReasoningEffortSaveFunc(func(v string) error { savedEffort = v; return nil })
+	if r := e.QueueModelSwitch(context.Background(), "discord:1", "xiao/gpt-6.1-sol", "high", false); !r.OK {
+		t.Fatalf("queue = %+v", r)
+	}
+	if savedModel != "" || savedEffort != "" {
+		t.Fatal("persisted before the switch was applied")
+	}
+	e.applyPendingSwitch("discord:1")
+	if savedModel != "xiao/gpt-6.1-sol" || savedEffort != "high" {
+		t.Fatalf("persisted model=%q effort=%q", savedModel, savedEffort)
+	}
+}

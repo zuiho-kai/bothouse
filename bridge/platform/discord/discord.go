@@ -1189,6 +1189,9 @@ func discordComponentCommand(customID string) (command string, isPermissionRespo
 }
 
 func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
+	if p.session == nil {
+		return fmt.Errorf("discord session is not ready")
+	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
 		return p.sendInteraction(rc, content)
@@ -1201,6 +1204,9 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 
 // Send sends a new message (not a reply).
 func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
+	if p.session == nil {
+		return fmt.Errorf("discord session is not ready")
+	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
 		return p.sendInteraction(rc, content)
