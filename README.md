@@ -203,6 +203,10 @@ Modules and data flow: [Architecture](docs/ARCHITECTURE.md) (Chinese).
 
 Contributors: start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
+Source builds with the web management dashboard must build the frontend before
+Go compilation and omit `no_web`. See [dashboard builds and private remote
+access](docs/dashboard-source-build.md).
+
 ### Collaboration helper scripts
 
 Install the packaged task board, timer, handoff and lead helpers for a role with

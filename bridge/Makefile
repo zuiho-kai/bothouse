@@ -73,11 +73,13 @@ endif
 _BUILD_TAGS := $(strip $(_EXCLUDE_TAGS) goolm)
 _TAGS_FLAG  := $(if $(_BUILD_TAGS),-tags '$(_BUILD_TAGS)',)
 
+PNPM ?= pnpm
+
 .PHONY: build run clean test test-fast test-full test-smoke test-e2e test-release test-release-local test-performance pre-test lint release release-all web hubsrc
 
 web:
-	@if [ ! -d web/node_modules ]; then cd web && npm install; fi
-	cd web && npm run build
+	cd web && $(PNPM) install --frozen-lockfile
+	cd web && $(PNPM) run build
 
 # The self-hosted platform (role-household hub) bundled for the setup wizard's 「在本机启动」
 # (internal/rhhub). HUB_FILES = rh/hub.py and the modules it imports (internal/rhhub/embed_test.go checks).
