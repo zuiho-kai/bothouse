@@ -99,9 +99,12 @@ type PublicProgress struct {
 	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
 	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
 	reporterName func(project, session string) string
-	runs         map[string]*publicRun
-	relayRuns    map[string]*taskRelay
-	memberRuns   map[string]*taskMemberRun
+	// projectName is a configured project's name for people (team_name, e.g. 橘 for
+	// maomao), "" if the project is unknown. Cards show it instead of the project id.
+	projectName func(project string) string
+	runs        map[string]*publicRun
+	relayRuns   map[string]*taskRelay
+	memberRuns  map[string]*taskMemberRun
 	// Batch keys belong to the authorizing turn, never the session's open slot.
 	delegations map[string]map[string]*publicRun
 	// records indexes every task this project has ever journalled, so a task can
@@ -495,6 +498,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 	task, cardSeq, factSeq, lang := r.record.Task.Clone(), r.record.CardSeq, r.record.FactSeq, r.record.Lang
 	platform := r.record.Platform
 	r.mu.Unlock()
+	p.displayNames(task)
 	if err != nil {
 		return err
 	}
@@ -569,6 +573,7 @@ func (e *Engine) EnablePublicProgress() error {
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
 	p.reporterName = e.taskReporterName
+	p.projectName = e.projectDisplayName
 	return nil
 }
 
