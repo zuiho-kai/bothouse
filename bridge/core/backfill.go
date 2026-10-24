@@ -186,9 +186,15 @@ func (e *Engine) cronChannelBackfill(p Platform, sessionKey string, session *Ses
 		markSeen(session, &Message{MessageID: newest})
 	}
 	if back != "" {
-		msg.Content = back + "\n\n（定时任务，回这条）\n" + msg.Content
+		msg.Content = back + "\n\n" + withScheduledMark(msg.Content)
 	}
 	msg.Images = append(images, msg.Images...)
+}
+
+// withScheduledMark puts the scheduled-turn mark before a cron/timer prompt, so the agent can tell
+// it from a message the user just sent (backfill above, and a timer injected into a running turn).
+func withScheduledMark(content string) string {
+	return "（定时任务，回这条）\n" + content
 }
 
 // channelBackfillBefore formats the messages before beforeID ("" = up to the newest) that the

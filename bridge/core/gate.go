@@ -520,7 +520,19 @@ type MidTurnSender interface {
 }
 
 // canInject reports whether a busy message may be injected into the running turn.
-func (g *gateState) canInject() bool { return g.inject || (g.injectDyn != nil && g.injectDyn()) }
+func (g *gateState) canInject() bool { return injectAllowed(g.inject, g.injectDyn) }
+
+// injectAllowed combines the two results of midTurnInjectCaps.
+func injectAllowed(inject bool, injectDyn func() bool) bool {
+	return inject || (injectDyn != nil && injectDyn())
+}
+
+// canInjectInto reports whether a message may be folded into the running turn of interactiveKey:
+// agent folds mid-turn input into its turn (midTurnInjectCaps), and the turn has not been idle for
+// deadTurnAfter (a stuck turn would swallow it). If not, the caller queues the message instead.
+func (e *Engine) canInjectInto(agent Agent, interactiveKey string) bool {
+	return injectAllowed(midTurnInjectCaps(agent)) && e.turnIdleFor(interactiveKey) < deadTurnAfter
+}
 
 // injectedReply is one message injected into the running turn (interactiveState.injectedReplyCtxs);
 // a pointer so a failed Send removes exactly its own entry.

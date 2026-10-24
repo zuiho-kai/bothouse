@@ -2078,8 +2078,11 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 	if !session.TryLock() {
 		// inject_if_busy: fold the prompt into the running turn, the same way a gate mid-turn
-		// message is; on failure fall through to queuing.
-		if job.InjectIfBusy && e.injectIntoRunningTurn(iKey, msg.Content, msg.ReplyCtx, nil, nil) {
+		// message is (same checks: canInjectInto); otherwise, or on failure, fall through to queuing.
+		// It carries the scheduled-turn mark and sender header a new timer turn would, so it is
+		// not taken for something the user just said.
+		if job.InjectIfBusy && e.canInjectInto(agent, iKey) &&
+			e.injectIntoRunningTurn(iKey, e.buildSenderPrompt(withScheduledMark(msg.Content), msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey), msg.ReplyCtx, nil, nil) {
 			slog.Info("timer: session busy, job injected into current turn", "id", job.ID, "session", sessionKey)
 			return nil
 		}

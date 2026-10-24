@@ -100,12 +100,8 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		}
 		return true
 	}
-	inject, injectDyn := midTurnInjectCaps(e.agent)
-	if !inject && (injectDyn == nil || !injectDyn()) {
-		return false
-	}
-	if e.turnIdleFor(interactiveKey) >= deadTurnAfter {
-		return false // a stuck turn: queue it instead of pretending to deliver
+	if !e.canInjectInto(e.agent, interactiveKey) {
+		return false // no mid-turn input, or a stuck turn: queue it instead of pretending to deliver
 	}
 	content := msg.Content
 	if strings.TrimSpace(content) == "" {
