@@ -3,7 +3,6 @@
 package main
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,9 +14,6 @@ import (
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/getlantern/systray"
 )
-
-//go:embed tray-icon.png
-var trayIcon []byte
 
 var (
 	trayDone                                     = make(chan struct{})
