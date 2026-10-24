@@ -16,6 +16,7 @@ type PlatformStatus struct {
 // RoleInfo represents the status of a role/engine in bothouse.
 type RoleInfo struct {
 	Name          string           `json:"name"`
+	DisplayName   string           `json:"display_name"` // Engine.DisplayName: team_name, else the project name
 	AgentType     string           `json:"agent_type"`
 	Model         string           `json:"model"`
 	Online        bool             `json:"online"`
@@ -131,6 +132,7 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 
 		roles = append(roles, RoleInfo{
 			Name:          name,
+			DisplayName:   e.DisplayName(),
 			AgentType:     e.agent.Name(),
 			Model:         model,
 			Online:        online,
@@ -187,7 +189,7 @@ func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Reque
 		mgmtJSON(w, http.StatusOK, map[string]any{
 			"role":    roleName,
 			"status":  "restarted",
-			"message": fmt.Sprintf("role %s restarted", roleName),
+			"message": fmt.Sprintf("role %s restarted", e.DisplayName()),
 		})
 
 	case "pause":
@@ -218,7 +220,7 @@ func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Reque
 		mgmtJSON(w, http.StatusOK, map[string]any{
 			"role":    roleName,
 			"paused":  req.Paused,
-			"message": fmt.Sprintf("role %s pause state set to %v", roleName, req.Paused),
+			"message": fmt.Sprintf("role %s pause state set to %v", e.DisplayName(), req.Paused),
 		})
 
 	default:

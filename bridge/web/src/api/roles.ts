@@ -7,6 +7,8 @@ export interface PlatformStatus {
 
 export interface RoleInfo {
   name: string;
+  /** the name people see: team_name (e.g. 橘), else the project name */
+  display_name?: string;
   agent_type: string;
   model: string;
   online: boolean;

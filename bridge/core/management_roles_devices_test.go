@@ -54,6 +54,9 @@ func TestManagementRolesAndDevices(t *testing.T) {
 	if role.Name != "caihongmao" || role.CurrentTask != "空闲" || role.Paused || !role.Online {
 		t.Fatalf("unexpected role data: %+v", role)
 	}
+	if role.DisplayName != "caihongmao" {
+		t.Fatalf("display_name without team_name = %q, want the project name", role.DisplayName)
+	}
 	if len(role.Platforms) != 2 {
 		t.Fatalf("expected 2 platforms, got %d", len(role.Platforms))
 	}
@@ -137,6 +140,19 @@ func TestManagementRolesAndDevices(t *testing.T) {
 		t.Fatalf("expected busy=true with task, got %+v", rolesResp.Data.Roles[0])
 	}
 	sess.Unlock()
+
+	// The card shows the configured name (team_name) when there is one.
+	e.SetTeam("", "彩虹猫", false)
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/roles", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	handler.ServeHTTP(w, req)
+	if err := json.Unmarshal(w.Body.Bytes(), &rolesResp); err != nil {
+		t.Fatalf("unmarshal roles response: %v", err)
+	}
+	if got := rolesResp.Data.Roles[0]; got.DisplayName != "彩虹猫" || got.Name != "caihongmao" {
+		t.Fatalf("display_name/name = %q/%q, want 彩虹猫/caihongmao", got.DisplayName, got.Name)
+	}
 
 	// 4. POST /api/v1/roles/caihongmao/restart
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/roles/caihongmao/restart", nil)

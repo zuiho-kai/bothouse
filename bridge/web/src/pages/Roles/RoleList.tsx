@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Card, Badge, Button, EmptyState } from '@/components/ui';
 import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
+import { shownName } from '@/api/projects';
 
 export default function RoleList() {
   const { t } = useTranslation();
@@ -45,7 +46,7 @@ export default function RoleList() {
       setActionLoading((prev) => ({ ...prev, [`restart-${name}`]: true }));
       setMsg('');
       const res = await restartRole(name);
-      setMsg(res.message || `Role ${name} restarted`);
+      setMsg(res.message || `Role ${shownName(roles.find((r) => r.name === name)) || name} restarted`);
       await fetchRoles();
     } catch (e: any) {
       setError(e.message || 'Restart failed');
@@ -60,7 +61,7 @@ export default function RoleList() {
       setMsg('');
       const targetPaused = !role.paused;
       const res = await setRolePaused(role.name, targetPaused);
-      setMsg(res.message || `Role ${role.name} updated`);
+      setMsg(res.message || `Role ${shownName(role)} updated`);
       await fetchRoles();
     } catch (e: any) {
       setError(e.message || 'Toggle pause failed');
@@ -118,6 +119,7 @@ export default function RoleList() {
           {roles.map((role) => {
             const isRestarting = !!actionLoading[`restart-${role.name}`];
             const isPausing = !!actionLoading[`pause-${role.name}`];
+            const shown = shownName(role);
 
             return (
               <Card key={role.name} className="flex flex-col justify-between p-5 hover:border-accent/40 transition-all">
@@ -126,11 +128,14 @@ export default function RoleList() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5">
                       <div className="w-10 h-10 rounded-xl bg-accent/10 dark:bg-accent/20 text-accent flex items-center justify-center font-bold text-base">
-                        {role.name.slice(0, 2).toUpperCase()}
+                        {Array.from(shown).slice(0, 2).join('').toUpperCase()}
                       </div>
                       <div>
                         <div className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                          <span>{role.name}</span>
+                          <span>{shown}</span>
+                          {shown !== role.name && (
+                            <span className="text-[11px] font-normal font-mono text-gray-400">{role.name}</span>
+                          )}
                           {role.paused && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
                               已暂停

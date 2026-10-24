@@ -12,10 +12,12 @@ import {
 } from 'lucide-react';
 import { Card, Badge, Button, EmptyState } from '@/components/ui';
 import { listDevices, type DeviceAdapter } from '@/api/devices';
+import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
 
 export default function DeviceList() {
   const { t } = useTranslation();
   const [devices, setDevices] = useState<DeviceAdapter[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -35,6 +37,7 @@ export default function DeviceList() {
 
   useEffect(() => {
     fetchDevices();
+    listProjects().then((r) => setProjects(r.projects || [])).catch(() => {});
   }, [fetchDevices]);
 
   return (
@@ -105,7 +108,7 @@ export default function DeviceList() {
                         <span>{dev.platform}</span>
                       </div>
                       <span className="text-xs text-gray-400 mt-0.5">
-                        {dev.project ? `绑定角色: ${dev.project}` : '全局适配器'}
+                        {dev.project ? `绑定角色: ${shownNames(projects)(dev.project)}` : '全局适配器'}
                       </span>
                     </div>
                   </div>
