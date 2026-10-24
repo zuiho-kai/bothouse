@@ -2348,7 +2348,8 @@ app_secret = "your-feishu-app-secret"
 # share_session_in_channel = true
 # permission_approvers = "111111111111111111,222222222222222222"
 
-# Optional local usage estimates: rates per million tokens in one shared currency.
+# Optional local usage estimates: USD per million tokens. Common models already
+# have built-in rates (from cc-switch); entries here override them.
 # Restart to reload prices. Use the exact model ID reported by the backend.
 # [usage_prices."example-model"]
 # input = 2.0

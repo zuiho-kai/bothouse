@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, RefreshCw } from 'lucide-react';
 import { getUsage, type UsageResult, type UsageRow } from '@/api/usage';
+import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
 
 const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const number = (value: number) => value.toLocaleString();
@@ -21,10 +22,13 @@ export default function Usage() {
   const [role, setRole] = useState('');
   const [model, setModel] = useState('');
   const [selectedDay, setSelectedDay] = useState(dayKey(new Date()));
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(v => v + 1), []);
+  useEffect(() => { listProjects().then(p => setProjects(p.projects || [])).catch(() => {}); }, [revision]);
+  const nameOf = shownNames(projects);
   useEffect(() => { window.addEventListener('cc:refresh', refresh); return () => window.removeEventListener('cc:refresh', refresh); }, [refresh]);
   useEffect(() => {
     let active = true;
@@ -58,27 +62,27 @@ export default function Usage() {
   const unknown = sum(rows, 'unknown_usage_responses');
   const priced = rows.some(r => r.estimated_cost !== undefined);
   const table = (items: UsageRow[], dimension: 'role' | 'model') => (
-    <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="text-xs text-gray-400"><tr>{['name', 'responses', 'input', 'output', 'cache', 'tokens', 'unknown', 'cost'].map(k => <th className="py-3 pr-4 font-medium" key={k}>{t(`usage.${k}`)}</th>)}</tr></thead><tbody>
-      {items.map(r => <tr key={r[dimension]} className="border-t border-gray-100 dark:border-white/[0.06]"><td className="py-3 pr-4 font-medium"><button className="text-accent hover:underline" onClick={() => dimension === 'role' ? setRole(r.role || '') : setModel(r.model || '')}>{r[dimension]}</button></td><td className="pr-4 tabular-nums">{number(r.responses)}</td>{[r.input_tokens, r.output_tokens, r.cache_read_tokens + r.cache_write_tokens, r.total_tokens].map((v, i) => r.responses > 0 && r.unknown_usage_responses === r.responses ? <td key={i} className="pr-4 text-gray-400 whitespace-nowrap" title={t('usage.unavailableWhy')}>{t('usage.unavailable')}</td> : <td key={i} className="pr-4 tabular-nums">{number(v)}</td>)}<td className="pr-4 tabular-nums" title={t('usage.unavailableWhy')}>{number(r.unknown_usage_responses)}</td><td className="whitespace-nowrap">{r.estimated_cost === undefined ? '—' : r.estimated_cost.toFixed(4)}{r.unpriced_responses > 0 && ' *'}</td></tr>)}
-      {!items.length && <tr><td colSpan={8} className="py-6 text-center text-gray-400">{t('usage.empty')}</td></tr>}
+    <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="text-xs text-gray-400"><tr>{['name', ...(dimension === 'role' ? ['replies'] : []), 'requests', 'input', 'output', 'cache', 'tokens', 'unknown', 'cost'].map(k => <th className="py-3 pr-4 font-medium" key={k}>{t(`usage.${k}`)}</th>)}</tr></thead><tbody>
+      {items.map(r => <tr key={r[dimension]} className="border-t border-gray-100 dark:border-white/[0.06]"><td className="py-3 pr-4 font-medium"><button className="text-accent hover:underline" onClick={() => dimension === 'role' ? setRole(r.role || '') : setModel(r.model || '')}>{dimension === 'role' ? nameOf(r.role || '') : r.model}</button></td>{dimension === 'role' && <td className="pr-4 tabular-nums">{number(r.replies || 0)}</td>}<td className="pr-4 tabular-nums">{number(r.responses)}</td>{[r.input_tokens, r.output_tokens, r.cache_read_tokens + r.cache_write_tokens, r.total_tokens].map((v, i) => r.responses > 0 && r.unknown_usage_responses === r.responses ? <td key={i} className="pr-4 text-gray-400 whitespace-nowrap" title={t('usage.unavailableWhy')}>{t('usage.unavailable')}</td> : <td key={i} className="pr-4 tabular-nums">{number(v)}</td>)}<td className="pr-4 tabular-nums" title={t('usage.unavailableWhy')}>{number(r.unknown_usage_responses)}</td><td className="whitespace-nowrap">{r.estimated_cost === undefined ? '—' : r.estimated_cost.toFixed(4)}{r.unpriced_responses > 0 && ' *'}</td></tr>)}
+      {!items.length && <tr><td colSpan={dimension === 'role' ? 9 : 8} className="py-6 text-center text-gray-400">{t('usage.empty')}</td></tr>}
     </tbody></table></div>
   );
   return <div className="space-y-5 animate-fade-in text-gray-900 dark:text-gray-100">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2"><Activity className="text-accent" size={24} />{t('usage.title')}</h1><p className="text-sm text-gray-400 mt-1">{t('usage.subtitle')}</p></div><div className="flex flex-wrap gap-2 items-center">
-      <select aria-label={t('usage.roles')} value={role} onChange={e => setRole(e.target.value)} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm"><option value="">{t('usage.allRoles')}</option>{roles.map(r => <option key={r.role}>{r.role}</option>)}</select>
+      <select aria-label={t('usage.roles')} value={role} onChange={e => setRole(e.target.value)} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm"><option value="">{t('usage.allRoles')}</option>{roles.map(r => <option key={r.role} value={r.role}>{nameOf(r.role || '')}</option>)}</select>
       <select aria-label={t('usage.models')} value={model} onChange={e => setModel(e.target.value)} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm"><option value="">{t('usage.allModels')}</option>{models.map(r => <option key={r.model}>{r.model}</option>)}</select>
       <button onClick={refresh} aria-label={t('usage.refresh')} className="p-2 text-gray-400"><RefreshCw size={18} className={loading ? 'animate-spin' : ''}/></button>
     </div></div>
     {error && <div role="alert" className="p-4 rounded-xl bg-red-500/10 text-red-500">{error}</div>}
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">{[
-      [t('usage.todayTokens'), number(today?.total_tokens || 0)], [t('usage.todayResponses'), number(today?.responses || 0)],
+      [t('usage.todayTokens'), number(today?.total_tokens || 0)], [t('usage.todayResponses'), number(today?.replies || 0)],
       [t('usage.yearTokens'), number(sum(rows, 'total_tokens'))], [t('usage.cost'), priced ? cost.toFixed(4) : t('usage.unpriced')],
     ].map(([label, value]) => <div key={label} className={panel}><div className="text-xs text-gray-400 mb-2">{label}</div><div className="text-2xl font-semibold tabular-nums text-accent">{value}</div></div>)}</div>
     <section className={panel}><div className="flex justify-between items-center mb-4"><h2 className="font-semibold">{t('usage.heatmap')}</h2><span className="text-xs text-gray-400">{daily?.from} — {daily?.to} · {daily?.timezone}</span></div>
       <div className="overflow-x-auto pb-2"><div className="grid grid-rows-7 grid-flow-col gap-[3px] w-max" style={{ paddingTop: 2 }}>{days.map((d, i) => {
         const key = dayKey(d), r = byDay.get(key), total = r?.total_tokens || 0;
         const level = total === 0 ? 0 : Math.min(4, Math.ceil(total / maxDay * 4));
-        return <button key={key} aria-label={`${key}: ${total} tokens, ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`} title={`${key} · ${number(total)} tokens · ${r?.responses || 0} ${t('usage.responses')} · ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`} onClick={() => setSelectedDay(key)} style={{ gridRow: i === 0 ? d.getDay() + 1 : undefined }} className={`w-[14px] h-[14px] rounded-[3px] ${colors[level]} ${selectedDay === key ? 'ring-2 ring-accent ring-offset-1 dark:ring-offset-gray-950' : ''} ${r?.unknown_usage_responses ? 'border border-amber-500/70' : ''}`} />;
+        return <button key={key} aria-label={`${key}: ${total} tokens, ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`} title={`${key} · ${number(total)} tokens · ${r?.replies || 0} ${t('usage.replies')} · ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`} onClick={() => setSelectedDay(key)} style={{ gridRow: i === 0 ? d.getDay() + 1 : undefined }} className={`w-[14px] h-[14px] rounded-[3px] ${colors[level]} ${selectedDay === key ? 'ring-2 ring-accent ring-offset-1 dark:ring-offset-gray-950' : ''} ${r?.unknown_usage_responses ? 'border border-amber-500/70' : ''}`} />;
       })}</div></div><div className="flex justify-between text-xs text-gray-400 mt-3"><span>{t('usage.clickDay')}</span><div className="flex items-center gap-1.5">{t('usage.less')}{colors.map(c => <span key={c} className={`w-3 h-3 rounded-sm ${c}`}/>)}{t('usage.more')}</div></div>
     </section>
     <section className={panel}><div className="flex flex-wrap justify-between items-center gap-2 mb-4"><h2 className="font-semibold">{t('usage.hourly')}</h2><div className="flex gap-3 items-center text-xs text-gray-400">{peak && peak.total_tokens > 0 && <span>{t('usage.peak')}: {String(peak.hour).padStart(2, '0')}:00 · {number(peak.total_tokens)} tokens</span>}<input aria-label={t('usage.day')} type="date" value={selectedDay} onChange={e => { if (e.target.value) setSelectedDay(e.target.value); }} className="bg-transparent rounded border border-gray-200 dark:border-gray-700 px-2 py-1"/></div></div>

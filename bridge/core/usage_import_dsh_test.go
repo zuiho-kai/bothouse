@@ -152,3 +152,20 @@ func TestUsageDSHHomeFromOptions(t *testing.T) {
 		t.Fatal(h)
 	}
 }
+
+func TestUsageDSHHomeFromLauncherScript(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "run-dsh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n# DSH_HOME=/not/this\nexport DSH_HOME=/x/role-home   # role home\nexec dsh \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if h := DSHHomeFromOptions(map[string]any{"cmd": script}); h != "/x/role-home" {
+		t.Fatalf("home = %q", h)
+	}
+	if h := DSHHomeFromOptions(map[string]any{"cmd": script, "env": map[string]any{"DSH_HOME": "/env/home"}}); h != "/env/home" {
+		t.Fatalf("env should win, got %q", h)
+	}
+	if h := DSHHomeFromOptions(map[string]any{"cmd": "dsh"}); h != "" {
+		t.Fatalf("bare command gave %q", h)
+	}
+}

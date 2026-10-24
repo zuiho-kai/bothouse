@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -381,15 +382,67 @@ func zstdFrameLen(b []byte) (n int, skip bool, err error) {
 	return q, false, nil
 }
 
-// DSHHomeFromOptions returns the DSH_HOME an agent's options set in env, or "".
+// DSHHomeFromOptions returns the DSH_HOME an agent's options set in env, else
+// the one its launcher script exports (cmd is a shell wrapper such as
+// `export DSH_HOME=/path`), else "".
 func DSHHomeFromOptions(opts map[string]any) string {
 	switch m := opts["env"].(type) {
 	case map[string]string:
-		return m["DSH_HOME"]
+		if v := m["DSH_HOME"]; v != "" {
+			return v
+		}
 	case map[string]any:
-		if v, ok := m["DSH_HOME"].(string); ok {
+		if v, ok := m["DSH_HOME"].(string); ok && v != "" {
 			return v
 		}
 	}
-	return ""
+	cmd, _ := opts["cmd"].(string)
+	if cmd == "" {
+		cmd, _ = opts["command"].(string)
+	}
+	return dshHomeFromScript(cmd)
+}
+
+var dshHomeAssign = regexp.MustCompile(`(?m)^\s*(?:export\s+)?DSH_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;#]+))`)
+
+// dshHomeFromScript reads DSH_HOME from a small text launcher (a "#!" script);
+// values built from other variables than $HOME are not resolved.
+func dshHomeFromScript(path string) string {
+	if path == "" || !filepath.IsAbs(expandUsageHome(path)) {
+		return ""
+	}
+	path = expandUsageHome(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	head := make([]byte, 2)
+	_, err = io.ReadFull(f, head)
+	f.Close()
+	if err != nil || string(head) != "#!" { // a binary, not a launcher script
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	m := dshHomeAssign.FindSubmatch(b)
+	if m == nil {
+		return ""
+	}
+	v := string(m[1]) + string(m[2]) + string(m[3])
+	v = strings.Replace(strings.Replace(v, "${HOME}", "~", 1), "$HOME", "~", 1)
+	if strings.Contains(v, "$") {
+		return ""
+	}
+	return expandUsageHome(v)
+}
+
+func expandUsageHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if h, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(h, p[1:])
+		}
+	}
+	return p
 }

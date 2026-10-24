@@ -32,7 +32,10 @@ and `items`.
 
 Each item includes `input_tokens`, `output_tokens`, `cache_read_tokens`,
 `cache_write_tokens`, `total_tokens`, `responses`, `unknown_usage_responses`,
-and `unpriced_responses`, plus the relevant grouping field. `hour` is -1 outside
+and `unpriced_responses`, plus the relevant grouping field. `responses` counts
+model requests found in the CLI logs. `replies` counts the role's replies posted
+to chat (assistant turns in the bridge's stored session history); it is filled
+for `daily`, `hourly` and `roles` when no model filter is set. `hour` is -1 outside
 hourly/raw bucket grouping. Role and model filters can be combined with any
 endpoint. The role identifier is the stable configured project name; a model
 that the backend does not identify is stored as `unknown`.
@@ -64,7 +67,9 @@ by this ledger. Late/missing provider usage notifications cannot be reconstructe
 
 ## Estimated cost
 
-Prices are optional, keyed by the exact reported model ID in `config.toml`:
+Built-in USD rates (copied from cc-switch's `model_pricing` table) price common
+models out of the box. Rates in `config.toml`, keyed by the exact reported model
+ID, take precedence:
 
 ```toml
 [usage_prices."example-model"]
@@ -74,10 +79,11 @@ cache_read = 0.2
 cache_write = 2.5
 ```
 
-These example numbers are arbitrary. All rates are per million tokens, in one
-user-selected currency shared by every model. Values must be finite and
+These example numbers are arbitrary. All rates are per million tokens, in USD
+like the built-in rates. Values must be finite and
 nonnegative. Restart after changing prices. Queries use the currently loaded
 prices, including for previous days; these are estimates, not stored invoices.
+Claude Code's locally made `<synthetic>` messages are left out of all queries.
 `estimated_cost` is omitted when no complete, priced usage contributes. When a
 bucket mixes priced and unpriced/unknown usage, the field estimates only the
 priced portion and `unpriced_responses` identifies the incomplete coverage.

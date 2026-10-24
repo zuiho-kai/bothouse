@@ -45,16 +45,19 @@ type UsageRecord struct {
 	Key string `json:"key,omitempty"`
 }
 type UsageAggregate struct {
-	Date          string   `json:"date,omitempty"`
-	Hour          int      `json:"hour"`
-	Role          string   `json:"role,omitempty"`
-	Model         string   `json:"model,omitempty"`
-	Input         int64    `json:"input_tokens"`
-	Output        int64    `json:"output_tokens"`
-	CacheRead     int64    `json:"cache_read_tokens"`
-	CacheWrite    int64    `json:"cache_write_tokens"`
-	Total         int64    `json:"total_tokens"`
-	Responses     int64    `json:"responses"`
+	Date       string `json:"date,omitempty"`
+	Hour       int    `json:"hour"`
+	Role       string `json:"role,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Input      int64  `json:"input_tokens"`
+	Output     int64  `json:"output_tokens"`
+	CacheRead  int64  `json:"cache_read_tokens"`
+	CacheWrite int64  `json:"cache_write_tokens"`
+	Total      int64  `json:"total_tokens"`
+	Responses  int64  `json:"responses"` // model requests in the CLI logs
+	// Replies counts the role's replies posted to chat (bridge session
+	// history); filled by the usage API for daily, hourly and roles rows.
+	Replies       int64    `json:"replies"`
 	Unknown       int64    `json:"unknown_usage_responses"`
 	EstimatedCost *float64 `json:"estimated_cost,omitempty"`
 	Unpriced      int64    `json:"unpriced_responses"`
@@ -68,6 +71,23 @@ type UsageLedger struct {
 	dir    string
 	prices map[string]TokenPrice
 }
+
+// UsagePricesWithDefaults returns the built-in rates (defaultUsagePrices) overlaid
+// with the configured ones; a configured model always wins.
+func UsagePricesWithDefaults(configured map[string]TokenPrice) map[string]TokenPrice {
+	p := make(map[string]TokenPrice, len(defaultUsagePrices)+len(configured))
+	for k, v := range defaultUsagePrices {
+		p[k] = v
+	}
+	for k, v := range configured {
+		p[k] = v
+	}
+	return p
+}
+
+// syntheticModel is what Claude Code logs for messages it makes up locally
+// (no model call, zero tokens); they are left out of every query.
+const syntheticModel = "<synthetic>"
 
 func NewUsageLedger(dataDir string, prices map[string]TokenPrice) *UsageLedger {
 	p := make(map[string]TokenPrice, len(prices))
@@ -89,6 +109,7 @@ func (l *UsageLedger) readDay(date string) (usageDay, error) {
 	err = json.Unmarshal(b, &day)
 	return day, err
 }
+
 // Record appends one record synchronously.
 func (l *UsageLedger) Record(r UsageRecord) error {
 	if r.Time.IsZero() {
@@ -261,7 +282,7 @@ func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]Us
 			return nil, err
 		}
 		for _, r := range day.Records {
-			if (role == "" || role == r.Role) && (model == "" || model == r.Model) {
+			if r.Model != syntheticModel && (role == "" || role == r.Role) && (model == "" || model == r.Model) {
 				records = append(records, r)
 			}
 		}

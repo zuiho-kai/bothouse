@@ -135,9 +135,10 @@ func (CodexUsageSource) ParseLine(line []byte, sid string, st *UsageFileState) (
 		return UsageRecord{}, false
 	}
 	total, last := l.Payload.Info.Total, l.Payload.Info.Last
-	if total.Total == 0 {
+	if total.Total == 0 || total.Total == st.LastTotal {
 		return UsageRecord{}, false
 	}
+	st.LastTotal = total.Total
 	model := st.Model
 	if model == "" {
 		model = "unknown"

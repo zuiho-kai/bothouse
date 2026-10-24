@@ -45,6 +45,9 @@ type UsageFileReader interface {
 type UsageFileState struct {
 	Offset int64  `json:"offset"`
 	Model  string `json:"model,omitempty"`
+	// LastTotal is the last cumulative token count seen (Codex): a repeated
+	// token_count with the same total is the same call, even on another day.
+	LastTotal int64 `json:"last_total,omitempty"`
 }
 
 type usageImportState struct {
@@ -206,7 +209,7 @@ func readUsageLines(path string, src UsageLogSource, sid string, st *UsageFileSt
 		return nil, err
 	}
 	if info.Size() < st.Offset {
-		st.Offset, st.Model = 0, ""
+		st.Offset, st.Model, st.LastTotal = 0, "", 0
 	}
 	if info.Size() == st.Offset {
 		return nil, nil

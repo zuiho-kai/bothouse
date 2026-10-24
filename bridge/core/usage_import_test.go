@@ -167,3 +167,21 @@ func TestUsageImportRereadsReplacedFileWithoutDoubleCounting(t *testing.T) {
 		t.Fatalf("state not saved: %s", b)
 	}
 }
+
+func TestUsageImportCodexRepeatOnLaterDayCountsOnce(t *testing.T) {
+	dataDir, home := t.TempDir(), t.TempDir()
+	writeSessionStore(t, dataDir, "longniang_0f1e2d3c.json", codexSID)
+	log := filepath.Join(home, "sessions", "2026", "10", "24", "rollout-2026-10-24T08-50-46-"+codexSID+".jsonl")
+	later := strings.Replace(codexTokenOne, "2026-10-24T08:50:53", "2026-10-30T08:50:53", 1)
+	writeLines(t, log, codexTurnCtx, codexTokenOne, later)
+	ledger := NewUsageLedger(dataDir, nil)
+	im := NewUsageImporter(dataDir, ledger, CodexUsageSource{Home: home})
+	if err := im.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(2026, 10, 20, 0, 0, 0, 0, time.Local)
+	rows, err := ledger.Query(from, from.AddDate(0, 0, 14), "roles", "", "")
+	if err != nil || len(rows) != 1 || rows[0].Responses != 1 {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+}
