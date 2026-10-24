@@ -29,6 +29,7 @@ var (
 	version   = "dev"
 	commit    = "none"
 	buildTime = "unknown"
+	trayMode  bool
 )
 
 // globalAPIServer holds the running API server so the config-reload path can
@@ -239,6 +240,16 @@ var topLevelCommandHandlers = map[string]func([]string){
 }
 
 func main() {
+	if startDesktopTray() {
+		return
+	}
+	runMain()
+}
+
+func runMain() {
+	if trayMode {
+		defer quitDesktopTray()
+	}
 	// First of all: a new version that did not pass its update self-check last start goes back to
 	// the old binary here, before anything that can make startup exit (flags, config, lock).
 	core.RecoverPendingUpdate(version)
@@ -1368,6 +1379,9 @@ func main() {
 	}
 
 	slog.Info("shutting down...")
+	if trayMode {
+		quitDesktopTray()
+	}
 	if mgmtSrv != nil {
 		mgmtSrv.Stop()
 	}
