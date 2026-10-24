@@ -3214,6 +3214,12 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if e.routeWorkspaceAnswer(p, msg) {
 		return
 	}
+	// "/stop all" stops this bot's work in the whole channel. It runs before
+	// any mention/gate filtering so every bot in the channel honours it.
+	if !msg.FromBot && len(msg.Images) == 0 && IsStopAllCommand(msg.Content) {
+		e.cmdStopAll(p, msg)
+		return
+	}
 
 	slog.Info("message received",
 		"platform", msg.Platform, "msg_id", msg.MessageID,

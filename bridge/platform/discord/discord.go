@@ -824,7 +824,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 			m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
 		}
 	}
-	if m.GuildID != "" && !replyAll {
+	// "/stop all" from a user reaches every bot in the channel, mentioned or not.
+	stopAll := !fromBot && core.IsStopAllCommand(approvalContent)
+	if m.GuildID != "" && !replyAll && !stopAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
 			return
