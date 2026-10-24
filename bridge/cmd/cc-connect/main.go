@@ -2162,6 +2162,9 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
 }
 
+// pluginUsageLogSources holds sources of agents compiled in by build tag.
+var pluginUsageLogSources []core.UsageLogSource
+
 // usageLogSources lists the CLI session logs the usage page reads.
 func usageLogSources() []core.UsageLogSource {
 	home, err := os.UserHomeDir()
@@ -2176,8 +2179,8 @@ func usageLogSources() []core.UsageLogSource {
 	if d := os.Getenv("CODEX_HOME"); d != "" {
 		codexHome = d
 	}
-	return []core.UsageLogSource{
+	return append([]core.UsageLogSource{
 		core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")},
 		core.CodexUsageSource{Home: codexHome},
-	}
+	}, pluginUsageLogSources...)
 }

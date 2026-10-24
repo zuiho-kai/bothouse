@@ -77,11 +77,11 @@ func conversationDBPath(conversationID string) (string, error) {
 	if !conversationIDPattern.MatchString(conversationID) {
 		return "", fmt.Errorf("antigravity: %q is not a conversation id", conversationID)
 	}
-	home, err := os.UserHomeDir()
+	dir, err := antigravityCLIDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".gemini", "antigravity-cli", "conversations", conversationID+".db"), nil
+	return filepath.Join(dir, "conversations", conversationID+".db"), nil
 }
 
 // ReadSessionHandoff reads what a fresh context needs from an agy
