@@ -4,6 +4,7 @@ import {
   configureDSH, getCLIs, getDSHStatus, getPersonas, installDSHPlugin, openDSHWeb,
   type DSHMember, type DSHStatus, type LocalCLI, type PersonaPreset,
 } from '@/api/wizard';
+import { api } from '@/api/client';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import { type LibraryPersona } from '@/api/library';
 import { fmt, libraryTexts } from '@/pages/Setup/texts';
@@ -15,15 +16,13 @@ const CLI_OF: Record<string, DSHMember['cli']> = { claudecode: 'claude', codex: 
 const DEEPSEEK = 'deepseek';
 
 /**
- * DSH's sign-in cookie is SameSite=Strict (seen on its `?token=` 303 response), so a tab opened from the
- * wizard on another loopback name (localhost vs 127.0.0.1) arrives without it and DSH asks to reopen the URL.
- * DSH accepts either name, so use the wizard's own one.
+ * The panel serves the channels page under /dsh/ (bridge/core/management_dsh_proxy.go), so it opens from
+ * wherever the panel itself was opened (another device over Tailscale included). `?token=` trades the panel
+ * token for a /dsh/-only cookie and is dropped from the address bar by a redirect.
  */
-function sameSiteURL(raw: string): string {
-  const loopback = ['127.0.0.1', 'localhost', '[::1]'];
-  const u = new URL(raw);
-  if (loopback.includes(u.hostname) && loopback.includes(window.location.hostname)) u.hostname = window.location.hostname;
-  return u.toString();
+function channelsURL(): string {
+  const token = api.getToken();
+  return `/dsh/${token ? `?token=${encodeURIComponent(token)}` : ''}#channels`;
 }
 
 type Role = { key: number; name: string; runner: string; persona: string; personaSlug?: string; avatar?: string };
@@ -179,8 +178,8 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     const tab = window.open('about:blank', '_blank');
     void run(async () => {
       try {
-        const r = await openDSHWeb();
-        const url = sameSiteURL(r.url);
+        await openDSHWeb(); // starts dsh web when it is not running yet
+        const url = channelsURL();
         setOpenURL(url);
         if (tab) tab.location.href = url;
       } catch (e) { tab?.close(); throw e; }

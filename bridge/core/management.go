@@ -52,6 +52,8 @@ type ManagementServer struct {
 	timerScheduler     *TimerScheduler
 	heartbeatScheduler *HeartbeatScheduler
 	bridgeServer       *BridgeServer
+	dshProxyOnce       sync.Once
+	dshProxy           *dshProxy // /dsh/ channels-page proxy (management_dsh_proxy.go)
 
 	setupFeishuSave      func(req FeishuSetupSaveRequest) error
 	setupWeixinSave      func(req WeixinSetupSaveRequest) error
@@ -361,6 +363,10 @@ func (m *ManagementServer) Stop() {
 // files, falling back to index.html for SPA routing.
 func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == dshProxyPrefix || strings.HasPrefix(r.URL.Path, dshProxyPrefix+"/") {
+			m.handleDSHProxy(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			apiMux.ServeHTTP(w, r)
 			return
