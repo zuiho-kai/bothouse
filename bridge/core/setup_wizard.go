@@ -124,7 +124,7 @@ type WizardRoleResult struct {
 // WizardWarning is something the user still has to do (or should know) after apply.
 // Blocking ones mean the bot will not work until it is done, so the result is not ok.
 type WizardWarning struct {
-	Code     string `json:"code"` // cloud_web_unreachable | message_content_intent_off | message_content_intent_unknown | bot_not_in_guild | allow_from_unknown | allow_from_everyone | gate_not_running | discord_token_invalid | agent_not_logged_in | agent_login_unknown | reply_language_default | discord_avatar_not_set
+	Code     string `json:"code"` // cloud_web_unreachable | message_content_intent_off | message_content_intent_unknown | bot_not_in_guild | allow_from_unknown | allow_from_everyone | gate_not_running | discord_token_invalid | agent_not_logged_in | agent_login_unknown | reply_language_default | discord_avatar_not_set | jev_recommended
 	Project  string `json:"project,omitempty"`
 	Blocking bool   `json:"blocking"`
 	Message  string `json:"message"`
@@ -953,7 +953,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 		}
 		res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
-		finishWizardResult(res, req, pl)
+		finishWizardResult(res, req, pl, usable)
 		return res
 	}
 
@@ -1167,7 +1167,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	applyWizardWiki(res, env, req, pl.fallback, wikiSession)
 	res.RestartRequired = true
 	res.Saved = true
-	finishWizardResult(res, req, pl)
+	finishWizardResult(res, req, pl, usable)
 	return res
 }
 

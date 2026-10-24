@@ -96,7 +96,9 @@ Output JSON:
                      gate_not_running (no gate is fine:
                      @-mentioned roles and the fallback role answer), discord_token_invalid (blocking:
                      reset the token in the Developer Portal), agent_not_logged_in (blocking: the role's
-                     CLI is not logged in, fix says how), agent_login_unknown, reply_language_default
+                     CLI is not logged in, fix says how), agent_login_unknown, reply_language_default,
+                     jev_recommended (2+ roles and no jev: unmentioned messages all go to the
+                     fallback role; a free small model as jev is enough, fix says how)
   invite_urls        links that add bots to the server (bots not in it yet)
   allow_from         who the new bots take orders from
   cloud_web          platform "cloud_web": the connection test {ok, code, message, fix, page_url}

@@ -785,6 +785,9 @@ export default function SetupWizard() {
             <p className="text-sm font-medium text-gray-900 dark:text-white">{T.jevTitle}</p>
             <p className="text-xs text-gray-600 dark:text-gray-400">{T.jevQ}</p>
             <p className="text-xs text-gray-500">{T.jevNoClaude}</p>
+            {roles.length > 1 && platform !== 'feishu' && !jevUnchanged && jevTest.usable !== true && (
+              <p className="text-xs text-amber-600" data-testid="jev-recommend">{T.jevRecommend.replace('{name}', fallbackName)}</p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <Input label="Base URL" placeholder="https://api.siliconflow.cn/v1" value={jev.base_url} data-testid="jev-url" onChange={(e) => setJev({ ...jev, base_url: e.target.value.trim() })} />
               <Input label="Key" type="password" value={jev.api_key} data-testid="jev-key" onChange={(e) => setJev({ ...jev, api_key: e.target.value.trim() })} />

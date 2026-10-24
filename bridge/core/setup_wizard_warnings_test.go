@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -273,5 +274,36 @@ func TestApplyWizardAllowFromRerunReplacesPlaceholder(t *testing.T) {
 	}
 	if !second.OK || findWarning(second, "allow_from_unknown") != nil || len(store.projects) != 1 {
 		t.Fatalf("rerun: ok=%v %v projects=%v", second.OK, warningCodes(second), store.order)
+	}
+}
+
+// Two or more roles with no usable jev: a non-blocking note recommends one (otherwise the
+// fallback role answers every message that names no one). One role, or a saved jev: no note.
+func TestApplyWizardRecommendsJevForTeam(t *testing.T) {
+	noHardware(t)
+	t1, t2 := fakeToken("111"), fakeToken("222")
+	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
+	apply := func(dataDir string, roles ...WizardRole) *WizardResult {
+		return ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: dataDir, CLIs: testCLIs}, discordReq("900", roles...))
+	}
+	res := apply(t.TempDir(), WizardRole{Token: t1}, WizardRole{Token: t2})
+	w := findWarning(res, "jev_recommended")
+	if w == nil || w.Blocking || !res.OK {
+		t.Fatalf("team without jev: ok=%v warning=%+v", res.OK, w)
+	}
+	for _, want := range []string{"兜底角色「Juzi」", "免费小模型", "0.6B"} {
+		if !strings.Contains(w.Message+w.Fix, want) {
+			t.Fatalf("jev_recommended lacks %q: %s %s", want, w.Message, w.Fix)
+		}
+	}
+	if one := apply(t.TempDir(), WizardRole{Token: t1}); findWarning(one, "jev_recommended") != nil {
+		t.Fatalf("single role: %v", warningCodes(one))
+	}
+	withJev := t.TempDir()
+	if err := writeJSONFile(filepath.Join(withJev, jevFile), JevConfig{Backend: "llm", URL: "http://127.0.0.1:1/v1", Model: "m", Logprobs: true}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res := apply(withJev, WizardRole{Token: t1}, WizardRole{Token: t2}); findWarning(res, "jev_recommended") != nil {
+		t.Fatalf("team with jev: %v", warningCodes(res))
 	}
 }
