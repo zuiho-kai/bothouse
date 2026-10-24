@@ -1,0 +1,9 @@
+{
+  "name": "bothouse-selfhost-mainpath",
+  "private": true,
+  "type": "module",
+  "description": "自建平台主路回归：起隔离 dsh 频道页 + cc-connect + 假 agent，走一遍派活交回并截图",
+  "dependencies": {
+    "playwright": "1.64.1"
+  }
+}
