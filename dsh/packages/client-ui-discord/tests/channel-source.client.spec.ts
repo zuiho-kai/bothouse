@@ -328,6 +328,24 @@ describe('channel source', () => {
     expect(posted[0]).not.toHaveProperty('reply_to')
     unsubscribe()
   })
+
+  it('posts a retry request to /collab/api/messages/:id/retry (#146)', async () => {
+    let retriedUrl: string | undefined
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url === '/collab/api/messages/99/retry' && init?.method === 'POST') {
+        retriedUrl = url
+        return json(200, { ok: true, member_id: 'ds', trigger_id: 1 })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    await actions.retryMessage(99)
+    expect(retriedUrl).toBe('/collab/api/messages/99/retry')
+    unsubscribe()
+  })
 })
 
 describe('messageTooLarge (#144)', () => {

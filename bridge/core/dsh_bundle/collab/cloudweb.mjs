@@ -332,6 +332,16 @@ export class CloudWebGateway {
     return { ok: false, error: 'bad-op' };
   }
 
+  /**
+   * Retry a previous trigger for a connected bot (#146). Clears error and delivers the message.
+   */
+  retry(memberId, msg) {
+    const bot = this.bots.get(memberId);
+    if (bot === undefined) return false;
+    this.hub.setError(memberId, undefined);
+    return this.nudge(memberId, msg);
+  }
+
   async fromBot(bot, d) {
     const { member } = bot;
     switch (d.type) {

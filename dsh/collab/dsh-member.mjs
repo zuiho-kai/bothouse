@@ -243,6 +243,21 @@ export class DshMembers {
     return true;
   }
 
+  /**
+   * Retry a previous failed turn for (memberId, msg).
+   * Wakes the member with the original trigger message and resets its job.
+   */
+  retry(memberId, msg) {
+    if (!this.config.has(memberId)) return false;
+    const job = this.store.retryJob(memberId, msg.room_id, msg.id);
+    if (job) {
+      this.hub.setError(memberId, undefined);
+      this.enqueue(job, () => this.run(job.id));
+      return true;
+    }
+    return false;
+  }
+
   /** Serialize work per (member, room): runs, recoveries, and Session resumes never overlap. */
   enqueue(job, task) {
     const key = `${job.member_id}\u0000${job.room_id}`;
@@ -386,8 +401,15 @@ export class DshMembers {
     const error = friendlyFailure(notice);
     this.hub.setError(job.member_id, error);
     this.hub.post(job.room_id, {
-      authorKind: 'system', author: 'system', name: 'system', text: error, clientKey: `dsh-job-${jobId}-${state}`,
-      card: JSON.stringify({ title: '成员出错', state: 'failed', action: 'configure-model' }),
+      authorKind: 'system', author: 'system', name: 'system', text: error, clientKey: `dsh-job-${jobId}-${state}-${Date.now()}`,
+      card: JSON.stringify({
+        title: '成员出错',
+        state: 'failed',
+        action: 'configure-model',
+        job_id: jobId,
+        member_id: job.member_id,
+        trigger_id: job.trigger_id,
+      }),
     });
   }
 

@@ -268,6 +268,8 @@ export interface ChannelActions {
   decidePermission(messageId: number, decision: PermissionDecision): Promise<void>
   /** Page further back in the selected room; resolves with how many rows arrived. */
   loadOlder(): Promise<number>
+  /** Retry a failed message or system error card (#146). */
+  retryMessage(messageId: number): Promise<void>
 }
 
 /** Decisions a permission prompt accepts (dsh/collab/cloudweb.mjs PERM_DECISIONS). */
@@ -823,6 +825,9 @@ export function createChannelSource(transport: ChannelTransport): {
         // Only the request that owns the latch may release it.
         if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId)
       }
+    },
+    async retryMessage(messageId) {
+      await request<{ ok: boolean }>(`collab/api/messages/${messageId}/retry`, { method: 'POST' })
     },
   }
 

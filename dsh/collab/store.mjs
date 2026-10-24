@@ -89,6 +89,9 @@ export class Store {
       addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at)
         VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
       job: this.db.prepare('SELECT * FROM jobs WHERE id = ?'),
+      jobByTrigger: this.db.prepare('SELECT * FROM jobs WHERE member_id = ? AND trigger_id = ?'),
+      resetJob: this.db.prepare("UPDATE jobs SET state = ?, created_at = ?, reply_id = NULL, session_id = NULL, seq_before = NULL, input_id = NULL WHERE id = ? RETURNING *"),
+      lastUserMessage: this.db.prepare("SELECT * FROM messages WHERE room_id = ? AND id < ? AND author_kind = 'user' AND deleted = 0 ORDER BY id DESC LIMIT 1"),
       openJobs: this.db.prepare("SELECT * FROM jobs WHERE state IN ('pending', 'sent') ORDER BY id"),
       sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ? WHERE id = ? AND state = 'pending' RETURNING *"),
       finish: this.db.prepare("UPDATE jobs SET state = ?, reply_id = ? WHERE id = ? AND state IN ('pending', 'sent') RETURNING *"),
@@ -572,6 +575,19 @@ export class Store {
   /** Create the job for (member, trigger) once; a repeat returns undefined. */
   addJob(memberId, roomId, triggerId, now = Date.now() / 1000) {
     return this.q.addJob.get(memberId, roomId, triggerId, now);
+  }
+  jobByTrigger(memberId, triggerId) {
+    return this.q.jobByTrigger.get(memberId, triggerId);
+  }
+  retryJob(memberId, roomId, triggerId, now = Date.now() / 1000) {
+    const existing = this.jobByTrigger(memberId, triggerId);
+    if (existing !== undefined) {
+      return this.q.resetJob.get('pending', now, existing.id);
+    }
+    return this.addJob(memberId, roomId, triggerId, now);
+  }
+  lastUserMessage(roomId, beforeId) {
+    return this.q.lastUserMessage.get(roomId, beforeId);
   }
   job(id) { return this.q.job.get(id); }
   openJobs() { return this.q.openJobs.all(); }

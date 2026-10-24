@@ -272,6 +272,18 @@
   border-left-color: var(--dsw-alias-state-error-primary);
 }
 
+.card[data-state='retrying'] {
+  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);
+}
+
+.cardButtons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 .cardTitle {
   font-size: 13px;
   font-weight: 600;

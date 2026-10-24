@@ -250,6 +250,63 @@ export async function apply(ctx, rawConfig) {
     if (pm !== null && req.method === 'POST') {
       return withBody(req, res, body => ({ message: gateway.decidePermission(Number(pm[1]), String(body?.decision ?? '')) }));
     }
+    // #146: owner-only (checked above) retry on a failed message or error card.
+    const rm = /^\/collab\/api\/messages\/(\d+)\/retry$/.exec(path);
+    if (rm !== null && req.method === 'POST') {
+      return withBody(req, res, () => {
+        const messageId = Number(rm[1]);
+        const message = store.message(messageId);
+        if (message === undefined) throw new CollabError('not-found', 'message not found');
+        let card;
+        if (message.card) {
+          try { card = JSON.parse(message.card); } catch {}
+        }
+        let memberId = card?.member_id;
+        let triggerId = card?.trigger_id;
+        if (!memberId && typeof message.client_key === 'string') {
+          const jm = /^dsh-job-(\d+)/.exec(message.client_key);
+          if (jm !== null) {
+            const job = store.job(Number(jm[1]));
+            if (job !== undefined) {
+              memberId = job.member_id;
+              triggerId = job.trigger_id;
+            }
+          }
+        }
+        if (!memberId && message.author_kind === 'role') {
+          memberId = message.author;
+          triggerId = message.from_turn ?? store.lastUserMessage(message.room_id, message.id)?.id;
+        }
+        if (!memberId || triggerId == null) {
+          throw new CollabError('invalid', 'cannot determine member or trigger message for retry');
+        }
+        const trigger = store.message(triggerId);
+        if (trigger === undefined) {
+          throw new CollabError('invalid', 'trigger message not found');
+        }
+        const member = hub.members.get(memberId);
+        if (member === undefined) {
+          throw new CollabError('invalid', `member ${memberId} not found`);
+        }
+        if (member.online === false) {
+          throw new CollabError('offline', `${member.name} 当前不在线，无法重试`);
+        }
+        hub.setError(memberId, undefined);
+        hub.setThinking(message.room_id, memberId, true);
+        const retried = dsh.retry(memberId, trigger) || gateway.retry(memberId, trigger);
+        if (!retried) {
+          hub.setThinking(message.room_id, memberId, false);
+          throw new CollabError('failed', 'failed to dispatch retry');
+        }
+        // The card is settled once the retry is dispatched: the outcome arrives as the
+        // member's reply or as a new error card with its own retry button. A transient
+        // 'retrying' state here was never cleared, so the card stayed "retrying" forever.
+        if (card && (card.state === 'failed' || card.action === 'configure-model')) {
+          hub.edit(message.id, message.author_kind, message.author, message.text, JSON.stringify({ ...card, state: 'retried' }));
+        }
+        return { ok: true, member_id: memberId, trigger_id: triggerId };
+      }, false);
+    }
     if (path === '/collab/api/clis') return clisHandler(req, res);
     if (path === '/collab/api/models' && req.method === 'GET') return json(res, 200, { routes: await roster.models() });
     if (path === '/collab/api/rooms' && req.method === 'POST') {

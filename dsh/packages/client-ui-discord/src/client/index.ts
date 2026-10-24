@@ -53,6 +53,7 @@ export function apply(ctx: ClientContext): void {
     setDispatchMode: channels.actions.setDispatchMode,
     setLead: channels.actions.setLead,
     decidePermission: channels.actions.decidePermission,
+    retryMessage: channels.actions.retryMessage,
   })
   ctx.slots.inject('main', () => {
     const dispose = ctx.slots.register({

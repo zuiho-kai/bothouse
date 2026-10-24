@@ -2363,3 +2363,49 @@ test('#144 oversized POST body gets a 413 response instead of a dropped connecti
     assert.equal((await res.json()).code, 'too-large');
   } finally { server.close(); }
 });
+
+test('retry failed message (#146): store.retryJob resets a failed job, DshMembers.retry re-queues and clears error', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const realCreate = dsh.ctx.agents.create.bind(dsh.ctx.agents);
+  let shouldFail = true;
+  dsh.ctx.agents.create = async (o) => {
+    const h = await realCreate(o);
+    const origFollowup = h.agent.followup.bind(h.agent);
+    h.agent.followup = (m) => {
+      if (shouldFail) throw Error('quota exhausted');
+      return origFollowup(m);
+    };
+    return h;
+  };
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek run' });
+  await settle();
+
+  // It should have failed and left a system error card
+  const failedMsg = hub.store.page(1, undefined, 1)[0];
+  assert.equal(failedMsg.author_kind, 'system');
+  assert.match(failedMsg.text, /quota exhausted/);
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /quota exhausted/);
+  const cardData = JSON.parse(failedMsg.card);
+  assert.equal(cardData.state, 'failed');
+  assert.equal(cardData.member_id, 'ds');
+
+  // Now trigger retry
+  shouldFail = false;
+  const userTrigger = hub.store.message(cardData.trigger_id);
+  assert.ok(userTrigger);
+  const retried = members.retry('ds', userTrigger);
+  assert.equal(retried, true);
+  // Error should be cleared
+  assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
+  await settle();
+
+  // DSH turn succeeded now
+  dsh.turn(dsh.sessions.get(dsh.made[0]), ['重试成功']);
+  await settle();
+  const latest = hub.store.page(1, undefined, 1)[0];
+  assert.equal(latest.author, 'ds');
+  assert.equal(latest.text, '重试成功');
+});

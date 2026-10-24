@@ -573,3 +573,22 @@ it('keeps code dollars literal and blocks raw HTML and unsafe links (#118)', () 
   expect(view.container.querySelector('a[href^="javascript:"]')).toBeNull()
   expect(view.container.textContent).toContain('notacommand')
 })
+
+// #146: the retry label must end. "Retrying" is shown only while the request is in
+// flight; once it settles the server marks the card 'retried' and the button goes away.
+it('shows retrying only while the retry request is pending, then hides the button (#146)', async () => {
+  let finish: () => void = () => {}
+  const retryMessage = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+  const card = JSON.stringify({ title: 'err', state: 'failed', action: 'configure-model' })
+  const failed: ChannelSnapshot = { ...ready, messages: [{ ...ready.messages[0], id: 2, text: 'boom', card }] }
+  const view = render(<ChannelsPage {...{ ...props(failed), retryMessage }} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.retry }))
+  expect(screen.getByRole('button', { name: zh.retrying })).toBeTruthy()
+  await act(async () => { finish() })
+  expect(screen.queryByRole('button', { name: zh.retrying })).toBeNull()
+  const settled = { ...failed, messages: [{ ...failed.messages[0], card: JSON.stringify({ title: 'err', state: 'retried', action: 'configure-model' }) }] }
+  view.rerender(<ChannelsPage {...{ ...props(settled), retryMessage }} />)
+  expect(screen.queryByRole('button', { name: zh.retry })).toBeNull()
+  expect(screen.queryByRole('button', { name: zh.retrying })).toBeNull()
+  expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
+})

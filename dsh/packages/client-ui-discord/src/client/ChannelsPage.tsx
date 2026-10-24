@@ -73,7 +73,7 @@ function saveCardView(roomId: number, view: CardView): void {
   try { globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view) } catch (error) { void error /* storage unavailable: keep the choice in memory */ }
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused, cardView, onCardView }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView }: {
   message: ChannelMessage
   cardView: CardView
   onCardView: (view: CardView) => void
@@ -88,6 +88,8 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onMention: (member: ChannelMember) => void
   onDecide: ChannelActions['decidePermission']
   onReply: (message: ChannelMessage) => void
+  onRetry: (messageId: number) => void
+  retrying: boolean
 }) {
   const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } | undefined
@@ -139,7 +141,20 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                   )}
                 </div>
                 <div className={css.text}><MarkdownText text={typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text} labels={labels} /></div>
-                {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
+                {(card.state === 'failed' || card.action === 'configure-model') && (
+                  <div className={css.cardButtons}>
+                    {card.state !== 'retried' && (
+                      <button type="button" className={css.secondaryButton} disabled={retrying} onClick={() => onRetry(message.id)}>
+                        {retrying ? t('retrying') : t('retry')}
+                      </button>
+                    )}
+                    {card.action === 'configure-model' && (
+                      <button type="button" className={css.secondaryButton} onClick={onConfigure}>
+                        {t('configureModel')}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
               </div>
@@ -205,7 +220,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
@@ -251,6 +266,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const [retryingId, setRetryingId] = useState<number | undefined>(undefined)
   const [modeSaving, setModeSaving] = useState(false)
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
@@ -415,6 +431,17 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setDraft(before + insert + draft.slice(caret), caret + insert.length)
   }
 
+  const handleRetry = (messageId: number): void => {
+    setRetryingId(messageId)
+    retryMessage(messageId).catch((error: unknown) => {
+      const msg = error instanceof Error ? error.message : String(error)
+      const roomId = state.roomId
+      if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: msg }))
+    }).finally(() => {
+      setRetryingId(undefined)
+    })
+  }
+
   const submit = (): void => {
     const roomId = state.roomId
     const text = draft.trim()
@@ -566,6 +593,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   onCloseMenu={() => { setAvatarMenu(undefined) }}
                   onMention={mentionFromAvatar}
                   onDecide={decidePermission}
+                  onRetry={handleRetry}
+                  retrying={retryingId === m.id}
                   tasks={state.tasks ?? []}
                   focused={focusedId === m.id}
                   onReply={startReply}
