@@ -46,7 +46,7 @@ test('workflow uses one classifier and fails open when changes fails', () => {
     const next = workflow.slice(start + 4).search(/\n  \S/);
     const end = next === -1 ? -1 : start + 4 + next;
     const block = workflow.slice(start, end === -1 ? undefined : end);
-    assert.match(block, /always\(\)/, job);
+    assert.match(block, /!cancelled\(\)/, job);
     assert.match(block, /needs\.changes\.result != 'success'/, job);
   }
 });

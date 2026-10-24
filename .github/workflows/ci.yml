@@ -75,7 +75,7 @@ jobs:
     # 「把一些工作链接到甲骨文那边编译」, 2026-10-23「你就不能去甲骨文那边搞吗」.
     # Fork PRs must not run on our self-hosted runners; they get the *-fork jobs below instead.
     needs: changes
-    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.companion == 'true')
+    if: !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.companion == 'true')
     runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 10
     defaults:
@@ -116,7 +116,7 @@ jobs:
   bridge:
     # Fork PRs must not run on our self-hosted runners; they get the *-fork jobs below instead.
     needs: changes
-    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
+    if: !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
     runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 20
     defaults:
@@ -184,7 +184,7 @@ jobs:
   # Basic checks for PRs from forks, on GitHub-hosted runners (fork code never runs on our self-hosted machines).
   companion-fork:
     needs: changes
-    if: always() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.companion == 'true')
+    if: !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.companion == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -208,7 +208,7 @@ jobs:
 
   bridge-fork:
     needs: changes
-    if: always() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
+    if: !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
