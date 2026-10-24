@@ -213,6 +213,65 @@ class Increments(unittest.TestCase):
         finally:
             os.environ["CC_BIN"] = "false"
 
+    def test_resume_reoccupies_or_refuses(self):
+        """暂停后工作区放回池子；恢复/把「谁」改回时先以交活的聊天频道向桥认领：归别的聊天频道就拒绝、板子不改，
+        没被领走就收回、重新绑上（之后再停会再放回）。"""
+        log, owned = Path(TMP) / "claim.log", Path(TMP) / "owned"
+        log.write_text("")
+        fake = Path(TMP) / "fakebridge"
+        fake.write_text(f"""#!/bin/sh
+echo "$@" >> {log}
+case "$2" in
+  park) echo '{{"freed":true}}' ;;
+  list) echo '{{"parent":"discord:100","pool":[{{"id":"201","name":"工作区1"}},{{"id":"202","name":"工作区2"}}]}}' ;;
+  claim) if [ -e {owned} ]; then echo "Error: team workspace claim: discord:100 → $3: workspace belongs to another chat channel (discord:300, until it finishes its last task)" >&2; exit 1; fi; echo ok ;;
+esac
+""")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            board.add("交来的活", "notes/a.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100:u1")
+            self.assertEqual(board.items()[0]["chat"], "discord:100")
+            board.main(["pause", "1"])
+            it = board.items()[0]
+            self.assertTrue(it.get("paused")); self.assertEqual(it["ws_was"], "discord:201"); self.assertNotIn("ws", it)
+            # 被别的聊天频道领走：拒绝，非零退出，板子不改（还在暂停、还在板上、交接文件路径还在）
+            owned.write_text("")
+            with self.assertRaises(SystemExit) as e:
+                board.main(["resume", "1"])
+            self.assertIn("待接手", str(e.exception.code))
+            it = board.items()[0]
+            self.assertTrue(it.get("paused")); self.assertEqual(it["where"], "notes/a.md"); self.assertNotIn("ws", it)
+            self.assertIn("workspace claim 201 --session-key discord:100", log.read_text())
+            # 没被领走：收回、重新绑上；再停会再放回一次
+            owned.unlink()
+            board.main(["resume", "1"])
+            it = board.items()[0]
+            self.assertFalse(it.get("paused")); self.assertEqual(it["ws"], "discord:201"); self.assertNotIn("ws_was", it)
+            log.write_text("")
+            board.main(["pause", "1"])
+            self.assertIn("workspace park --session-key discord:201", log.read_text())
+            board.main(["resume", "1"])
+            # 「谁」改走再改回工作区2：先认领工作区2，归别人就拒绝、「谁」不变
+            board.main(["update", "1", "s", "", "龙娘"])
+            owned.write_text("")
+            with self.assertRaises(SystemExit):
+                board.main(["update", "1", "s", "", "工作区2主角色"])
+            self.assertEqual(board.items()[0]["who"], "龙娘")
+            owned.unlink()
+            log.write_text("")
+            board.main(["update", "1", "s", "", "工作区2主角色"])
+            self.assertIn("workspace claim 202 --session-key discord:100", log.read_text())
+            self.assertEqual(board.items()[0]["ws"], "discord:202")
+            # 待接手不是工作区：不问桥
+            log.write_text("")
+            board.main(["update", "1", "s", "", "待接手"])
+            self.assertNotIn("claim", log.read_text())
+            self.assertEqual(board.items()[0]["who"], "待接手")
+        finally:
+            os.environ["CC_BIN"] = "false"
+            owned.unlink(missing_ok=True)
+
     def test_link(self):
         cli("add", "x", "-", "s", "橘")
         url = "https://discord.com/channels/1/2/3"

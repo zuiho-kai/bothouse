@@ -77,7 +77,8 @@ export class Tasks {
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
-      park: this.db.prepare(`UPDATE tasks SET paused_at = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
+      // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
+      park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
@@ -238,6 +239,7 @@ export class Tasks {
     if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can answer task ${id}`);
     if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, not waiting for its owner`);
     const status = STANCES[mark];
+    this.resumeClaim(task, true);
     // 退/升 hand the turn to the lead: the reminder is cancelled.
     const check = status === 'declined' || status === 'escalated' ? null : task.next_check_at;
     const row = this.q.set.get(status, check, clip(note), this.now(), check === null ? 0 : 1, id, task.status);
@@ -253,6 +255,7 @@ export class Tasks {
     if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can hand back task ${id}`);
     if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to hand back`);
     if (messageId == null || this.store.message(messageId) === undefined) throw new CollabError('invalid', 'message_id must name the delivery message');
+    this.resumeClaim(task, false);
     const now = this.now();
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
@@ -431,10 +434,27 @@ export class Tasks {
     if (claim != null && String(claim) !== this.store.claimId(roomId)) {
       throw new CollabError('stale-claim', `workspace ${roomId} was claimed again since claim ${claim}`);
     }
-    this.q.park.run(this.now(), roomId, ...WORKING);
+    this.q.park.run(this.now(), this.store.workspaceOwner(roomId), roomId, ...WORKING);
     const released = this.release(roomId, claim);
     this.arm();
     return released;
+  }
+
+  /**
+   * A paused task's workspace was released by park and may have been claimed by another chat
+   * channel since. Resuming it there would make the workspace serve two chat channels and send
+   * its asks/reports (team-exit, by rooms.parent_id) to the later one. So: owned by another chat
+   * channel → refused with 'workspace-owned' and nothing changes (the task stays paused, still
+   * listed; hand it off again to a free workspace). Free and reclaim → claimed back for the chat
+   * channel it was paused under. Tasks not paused, or paused before paused_chat existed, pass.
+   */
+  resumeClaim(task, reclaim) {
+    if (task.paused_at == null || task.paused_chat == null || !this.tree) return;
+    const owner = this.store.workspaceOwner(task.room_id);
+    if (owner != null && owner !== task.paused_chat) {
+      throw new CollabError('workspace-owned', `task ${task.id} is paused and its workspace now belongs to room ${owner}; hand it off again to a free workspace`);
+    }
+    if (owner == null && reclaim) this.store.claimWorkspace(task.paused_chat, task.room_id);
   }
 
   changed(id) {

@@ -201,7 +201,7 @@ def main(argv):
     # 交活时就上任务板、绑这个工作区：放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
-    nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key)
+    nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat)
     board.refresh({board._chan_of(nid), board._cur_channel()})
     record_last(path, ws, task, chat, nid)
     print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
