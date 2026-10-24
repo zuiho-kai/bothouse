@@ -94,7 +94,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	}
 	p.cardViews.remember(task.MessageID, cardRender{lang: string(lang), embeds: render})
 	if task.ThreadID != "" && task.CardURL != "" {
-		return nil
+		return p.syncTaskThreadName(ctx, task)
 	}
 	ch, err := p.session.Channel(task.ChannelID, discordgo.WithContext(ctx))
 	if err != nil {
@@ -115,7 +115,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	// Threads attached to a message have that message's ID. Recover a lost ACK.
 	thread, err := p.session.Channel(task.MessageID, discordgo.WithContext(ctx))
 	if err == nil {
-		task.ThreadID = thread.ID
+		task.ThreadID, task.ThreadTitle = thread.ID, thread.Name
 		return nil
 	}
 	var rest *discordgo.RESTError
@@ -126,7 +126,27 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	if err != nil {
 		return err
 	}
-	task.ThreadID = thread.ID
+	task.ThreadID, task.ThreadTitle = thread.ID, truncateDiscordThreadName(task.Title, 90)
+	return nil
+}
+
+// syncTaskThreadName renames the card's thread when the card title changed
+// after the thread was opened (a batch card is titled by its first member
+// until the lead reports a start title). A thread the card merely lives in
+// is the user's own and is never renamed.
+func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) error {
+	name := truncateDiscordThreadName(task.Title, 90)
+	if task.ThreadID == task.ChannelID || name == "" || name == task.ThreadTitle {
+		return nil
+	}
+	if task.ThreadTitle == "" { // opened before names were tracked: adopt, don't rename
+		task.ThreadTitle = name
+		return nil
+	}
+	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Name: name}, discordgo.WithContext(ctx)); err != nil {
+		return err
+	}
+	task.ThreadTitle = name
 	return nil
 }
 

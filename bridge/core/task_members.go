@@ -336,7 +336,12 @@ func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressReques
 		m.Status, m.EndedAt = req.Kind, now
 	}
 	p.memberEvent(r, m.Name+": "+m.Summary, true)
-	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = m.ReporterProject
+	ev := &r.record.Task.Events[len(r.record.Task.Events)-1]
+	ev.ReporterProject = m.ReporterProject
+	if m.ReporterProject != p.project {
+		// The member's own bot posts it: its name in front would repeat the author.
+		ev.Detail, ev.Pointer = m.Summary, true
+	}
 	if err := p.save(r); err != nil {
 		r.record.Task = old
 		return "", err

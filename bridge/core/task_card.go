@@ -99,6 +99,7 @@ type Task struct {
 	MessageID          string       `json:"message_id,omitempty"`
 	CardURL            string       `json:"card_url,omitempty"` // platform-generated permalink, never supplied by a progress report
 	ThreadID           string       `json:"thread_id,omitempty"`
+	ThreadTitle        string       `json:"thread_title,omitempty"` // name last given to the thread; it follows Title
 	Seq                int64        `json:"seq"`
 	CreatedAt          time.Time    `json:"created_at"`
 	UpdatedAt          time.Time    `json:"updated_at"`

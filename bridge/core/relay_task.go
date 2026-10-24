@@ -231,6 +231,11 @@ func (d *taskRelay) finish(response string, runErr error) error {
 	r.record.Task.Events[len(r.record.Task.Events)-1].Pointer = true
 	if runErr == nil {
 		r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = d.req.To
+		if memberReported(r.record.Task, d.req.To) {
+			// The member already put its result on its row; the relay's whole
+			// final reply would only repeat it in the thread. The card still notes it.
+			r.record.Task.Events[len(r.record.Task.Events)-1].IsKeyFact = false
+		}
 	}
 	if !taskRelayActive(r) {
 		r.record.Task.LatestProgress = previousSummary
@@ -265,4 +270,15 @@ func (d *taskRelay) memberNote() string {
 		return ""
 	}
 	return "\nYour rows on this card (same --seq/--kind/--message rules, own sequence from 1, private to you):\n" + strings.Join(cmds, "\n")
+}
+
+// memberReported reports whether project's bot has a finished member row on
+// the card, i.e. it already posted its own result there.
+func memberReported(t *Task, project string) bool {
+	for _, m := range t.Members {
+		if m.ReporterProject == project && m.ParentID == "" && !m.Live() && m.Status != "" {
+			return true
+		}
+	}
+	return false
 }
