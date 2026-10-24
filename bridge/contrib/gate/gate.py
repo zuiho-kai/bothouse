@@ -25,7 +25,8 @@ import ctxsvc
 from scorer_remote import RemoteScorer, load_jev
 import lead
 
-PORT = 9930
+# bothouse 拉起 gate 时用 GATE_PORT 告诉它听哪个端口（core/gate_proc.go，同 gateAddr）；手动跑不设就是 9930
+PORT = int(os.environ.get("GATE_PORT") or 9930)
 # 本机模型只在显式设了 GATE_MODEL 时用（GPU 机器上 start_gate_wsl.sh 那种部署），没有默认值、不自动下载
 MODEL = os.environ.get("GATE_MODEL", "")
 LOG = Path(os.environ.get("GATE_LOG", Path.home() / ".cc-connect/gate.jsonl"))

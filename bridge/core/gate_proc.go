@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -299,6 +300,14 @@ func (g *GateSupervisor) inputsLocked() string {
 	return fp
 }
 
+// gatePort: the port of gateAddr, where bothouse looks for the gate (GateRunning).
+func gatePort() string {
+	if _, port, err := net.SplitHostPort(gateAddr); err == nil {
+		return port
+	}
+	return "9930"
+}
+
 func (g *GateSupervisor) logPath() string { return filepath.Join(g.dataDir, "logs", "gate.log") }
 
 func (g *GateSupervisor) startLocked(python string) error {
@@ -316,6 +325,7 @@ func (g *GateSupervisor) startLocked(python string) error {
 	cmd.Dir = g.dir
 	cmd.Env = append(os.Environ(),
 		"GATE_SETUP_DIR="+g.dataDir,
+		"GATE_PORT="+gatePort(),
 		"GATE_LOG="+filepath.Join(g.dataDir, "gate.jsonl"),
 		"PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8")
 	cmd.Stdout, cmd.Stderr = logf, logf
