@@ -1150,8 +1150,8 @@
 .attachmentThumb { width: 32px; height: 32px; object-fit: cover; border-radius: 3px; vertical-align: middle; }
 .attachmentFile { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; background: var(--background-secondary, rgba(127, 127, 127, 0.15)); color: inherit; text-decoration: none; }
 .attachmentSize { opacity: 0.6; font-size: 0.85em; }
-.attachmentAudio { display: flex; flex-direction: column; gap: 2px; max-width: 100%; }
-.attachmentAudio audio { width: min(320px, 100%); }
+.attachmentAudio { display: flex; flex-direction: column; gap: 2px; width: min(320px, 100%); }
+.attachmentAudio audio { width: 100%; }
 .attachmentAudio a { color: inherit; text-decoration: none; }
 .attachmentFile { max-width: 100%; overflow-wrap: anywhere; }
 /* Native drag regions consume clicks unless controls explicitly opt out. */

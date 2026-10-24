@@ -2378,6 +2378,44 @@ test('#144 attachments: only png/jpeg/gif/webp up to 5 MB go to bots as images, 
   assert.deepEqual(wire.files.map(f => f.file_name), ['b.svg', 'c.heic', 'd.jpg']);
 });
 
+test('bot image/file/audio frames become channel attachments; media capabilities need a store', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const { publicMessage } = await import('./store.mjs');
+  const { MEDIA_CAPABILITIES, audioMime } = await import('./cloudweb.mjs');
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-media-')), 'attachments'));
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, files });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  await settle();
+  for (const cap of MEDIA_CAPABILITIES) assert.ok(ju.of('register_ack')[0].capabilities.includes(cap), cap);
+  const plain = connect(new CloudWebGateway(makeHub(), { token: 't', logger: quiet }), 'bot=ju&name=橘');
+  await settle();
+  assert.ok(!plain.of('register_ack')[0].capabilities.includes('image'));
+
+  const b64 = (s) => Buffer.from(s).toString('base64');
+  const at = { session_key: 'cloud_web:room-1', reply_ctx: 'room-1' };
+  ju.frame({ type: 'image', ...at, data: b64('png'), mime_type: 'image/png', file_name: 'chart.png' });
+  ju.frame({ type: 'file', ...at, data: b64('report'), mime_type: 'application/pdf', file_name: 'report.pdf' });
+  ju.frame({ type: 'audio', ...at, data: b64('mp3'), format: 'mp3' });
+  ju.frame({ type: 'image', ...at, data: '' });
+  ju.frame({ type: 'file', session_key: 'cloud_web:room-99', data: b64('x'), file_name: 'lost.txt' });
+  await settle();
+
+  const rows = hub.store.page(1, undefined, 10).map(r => publicMessage(r, hub.store));
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every(r => r.author === 'ju' && r.text === ''));
+  assert.deepEqual(rows.map(r => r.attachments.map(a => [a.name, a.mime])), [
+    [['chart.png', 'image/png']], [['report.pdf', 'application/pdf']], [['voice.mp3', 'audio/mpeg']],
+  ]);
+  assert.equal(files.read(rows[2].attachments[0].id).toString(), 'mp3');
+  assert.equal(audioMime('ogg'), 'audio/ogg');
+  assert.equal(audioMime('opus'), 'audio/ogg');
+  assert.equal(audioMime(''), 'audio/mpeg');
+});
+
 test('#144 oversized POST body gets a 413 response instead of a dropped connection', async () => {
   const { createServer } = await import('node:http');
   const { withBody } = await import('./plugin.mjs');

@@ -24,6 +24,20 @@ export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', '
  */
 export const CAP_TEAM_WORKSPACE = 'team_workspace';
 export function supportsWorkspaces(store) { return typeof store?.createWorkspace === 'function'; }
+/**
+ * Bot -> channel images, files and voice clips (bridge platform/cloud-web SendImage /
+ * SendFile / SendAudio). Advertised only when the gateway has an attachment store; the
+ * bytes are saved there and shown in the Channel page like an uploaded attachment.
+ */
+export const MEDIA_CAPABILITIES = ['image', 'file', 'audio'];
+// `format` of an audio frame (cc-connect audioFormatHint: file extension or mime subtype)
+// -> mime type the page's <audio> element can play.
+const AUDIO_MIME = { mp3: 'audio/mpeg', mpeg: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg', oga: 'audio/ogg',
+  m4a: 'audio/mp4', mp4: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', webm: 'audio/webm', amr: 'audio/amr', silk: 'audio/silk' };
+export function audioMime(format) {
+  const f = String(format ?? '').toLowerCase().replace(/^\./, '').replace(/^audio\//, '');
+  return AUDIO_MIME[f] ?? (f ? `audio/${f.replace(/[^a-z0-9.+-]/g, '')}` : 'audio/mpeg');
+}
 
 export const PERM_DECISIONS = { allow: 'perm:allow', deny: 'perm:deny', allow_all: 'perm:allow_all' };
 const PERM_STATES = { allow: 'allowed', deny: 'denied', allow_all: 'allowed_all' };
@@ -202,7 +216,7 @@ export class CloudWebGateway {
     const old = this.bots.get(id);
     this.bots.set(id, bot);
     if (old !== undefined) old.ws.close(WS_REPLACED, 'replaced by new connection');
-    const capabilities = supportsWorkspaces(this.hub.store) ? [...CAPABILITIES, CAP_TEAM_WORKSPACE] : CAPABILITIES;
+    const capabilities = [...CAPABILITIES, ...(this.files ? MEDIA_CAPABILITIES : []), ...(supportsWorkspaces(this.hub.store) ? [CAP_TEAM_WORKSPACE] : [])];
     send(ws, { type: 'register_ack', ok: true, capabilities, server: { name: 'conest-dsh-collab' } });
     this.hub.setMember(member);
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
@@ -407,6 +421,25 @@ export class CloudWebGateway {
         };
         const { message } = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, card: JSON.stringify(card) });
         this.pendingPerms.set(message.id, { bot: member.id, room, sessionKey: d.session_key, replyCtx: typeof d.reply_ctx === 'string' ? d.reply_ctx : roomKey(room) });
+        return;
+      }
+      case 'image':
+      case 'file':
+      case 'audio': {
+        const room = roomOf(d, this.hub.store);
+        if (room === undefined || this.files === undefined || typeof d.data !== 'string' || !d.data) return;
+        const ext = String(d.format ?? '').toLowerCase().replace(/^\./, '').replace(/^audio\//, '').replace(/[^a-z0-9]/g, '');
+        const mime = d.type === 'audio' ? audioMime(d.format) : (typeof d.mime_type === 'string' && d.mime_type) || 'application/octet-stream';
+        const name = typeof d.file_name === 'string' && d.file_name ? d.file_name
+          : d.type === 'audio' ? `voice.${ext || 'mp3'}` : d.type === 'image' ? `image.${mime.split('/')[1] ?? 'png'}` : 'file';
+        let attachments;
+        try {
+          attachments = this.files.save([{ name, mime, data: d.data }]);
+        } catch (error) {
+          this.logger.warn('collab: cloud-web %s frame from %s dropped: %s', d.type, member.id, error?.message ?? error);
+          return;
+        }
+        this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
         return;
       }
       case 'typing_start':
