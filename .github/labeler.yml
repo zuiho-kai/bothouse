@@ -1,0 +1,96 @@
+# Area labels mapping for pull requests based on changed files
+# Reference: notes/gh-labels-1024.md
+
+area/discord:
+  - changed-files:
+      - any-glob-to-any-file: 'bridge/platform/discord/**'
+
+area/telegram:
+  - changed-files:
+      - any-glob-to-any-file: 'bridge/platform/telegram/**'
+
+area/feishu:
+  - changed-files:
+      - any-glob-to-any-file: 'bridge/platform/feishu/**'
+
+area/slack:
+  - changed-files:
+      - any-glob-to-any-file: 'bridge/platform/slack/**'
+
+area/cn-im:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'bridge/platform/dingtalk/**'
+          - 'bridge/platform/wecom/**'
+          - 'bridge/platform/weixin/**'
+          - 'bridge/platform/qq/**'
+          - 'bridge/platform/qqbot/**'
+          - 'bridge/platform/weibo/**'
+          - 'bridge/platform/wps-agentspace/**'
+          - 'bridge/platform/wps-xiezuo/**'
+          - 'bridge/platform/yuanbao/**'
+
+area/other-platform:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'bridge/platform/cloud-web/**'
+          - 'bridge/platform/googlechat/**'
+          - 'bridge/platform/line/**'
+          - 'bridge/platform/matrix/**'
+          - 'bridge/platform/max/**'
+          - 'bridge/platform/tuitui/**'
+          - 'bridge/platform/webex/**'
+
+area/claude:
+  - changed-files:
+      - any-glob-to-any-file: 'bridge/agent/claudecode/**'
+
+area/codex:
+  - changed-files:
+      - any-glob-to-any-file: 'bridge/agent/codex/**'
+
+area/other-agent:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'bridge/agent/acp/**'
+          - 'bridge/agent/antigravity/**'
+          - 'bridge/agent/antigravityhook/**'
+          - 'bridge/agent/copilot/**'
+          - 'bridge/agent/cursor/**'
+          - 'bridge/agent/devin/**'
+          - 'bridge/agent/dsh/**'
+          - 'bridge/agent/gemini/**'
+          - 'bridge/agent/iflow/**'
+          - 'bridge/agent/kimi/**'
+          - 'bridge/agent/opencode/**'
+          - 'bridge/agent/pi/**'
+          - 'bridge/agent/qoder/**'
+          - 'bridge/agent/reasonix/**'
+          - 'bridge/agent/tmux/**'
+
+area/core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'bridge/core/**'
+          - 'bridge/daemon/**'
+          - 'bridge/config/**'
+          - 'bridge/config.example.toml'
+          - 'bridge/cmd/**'
+          - 'bridge/internal/**'
+          - 'bridge/*.go'
+          - 'bridge/go.mod'
+          - 'bridge/go.sum'
+
+area/web:
+  - changed-files:
+      - any-glob-to-any-file: 'bridge/web/**'
+
+area/install-ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'install.sh'
+          - 'install.ps1'
+          - 'bridge/npm/**'
+          - 'bridge/Makefile'
+          - 'bridge/.github/**'
