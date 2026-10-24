@@ -437,6 +437,7 @@ type Engine struct {
 	voiceDesk                    voiceDeskState                // maomao fork: voice desk (voice_desk.go)
 	pendingResetMu               sync.Mutex
 	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
+	resetTurns                   map[string]int   // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
 	team                         *teamState       // maomao fork: team status board (nil = off)
 	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
@@ -599,6 +600,7 @@ type queuedMessage struct {
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
 	publicProgressRun        string
+	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
@@ -4111,7 +4113,14 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if ccSessionKey != "" {
 		resetKey = ccSessionKey
 	}
-	defer e.applyPendingReset(resetKey)
+	// The reset key may differ from this turn's session (a cron/timer turn
+	// on a side session injects the main key), so a reset requested from
+	// inside the turn checks this count, not only the main session's lock.
+	e.beginResetTurn(resetKey)
+	defer func() {
+		e.endResetTurn(resetKey)
+		e.applyPendingReset(resetKey)
+	}()
 	// session.Unlock() is NOT deferred here — it is called explicitly in
 	// the drain loop below while holding state.mu to close the race window
 	// between "queue is empty" and "session unlocked". A deferred fallback
@@ -7149,6 +7158,11 @@ func mergeRichToolResult(steps []ToolStep, event Event, result string, maxLen in
 // messages can no longer be delivered to the agent.
 func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason error) {
 	state.mu.Lock()
+	if state.resetHandoff {
+		// applyPendingReset hands these to the fresh session.
+		state.mu.Unlock()
+		return
+	}
 	remaining := state.pendingMessages
 	state.pendingMessages = nil
 	boardKey := state.boardKey
