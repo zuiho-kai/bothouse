@@ -502,7 +502,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 		// Only transport bindings/checkpoints are written back. Newer state and
 		// summaries may have arrived while the HTTP request was in flight.
 		r.record.Task.MessageID, r.record.Task.ThreadID = task.MessageID, task.ThreadID
-		r.record.Task.CardURL = task.CardURL
+		r.record.Task.CardURL, r.record.Task.ThreadTitle = task.CardURL, task.ThreadTitle
 		if deliveryErr == nil {
 			r.record.CardSeq = task.Seq
 		}

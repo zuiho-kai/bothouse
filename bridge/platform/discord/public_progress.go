@@ -139,10 +139,6 @@ func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) erro
 	if task.ThreadID == task.ChannelID || name == "" || name == task.ThreadTitle {
 		return nil
 	}
-	if task.ThreadTitle == "" { // opened before names were tracked: adopt, don't rename
-		task.ThreadTitle = name
-		return nil
-	}
 	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Name: name}, discordgo.WithContext(ctx)); err != nil {
 		return err
 	}
