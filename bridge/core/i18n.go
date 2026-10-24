@@ -1144,6 +1144,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "（空のレスポンス）",
 		LangSpanish:            "(respuesta vacía)",
 	},
+	MsgPermissionDetails: {
+		LangEnglish:            "Full approval details and script snapshots are in the attached text file or the preceding messages.",
+		LangChinese:            "完整审批参数与脚本快照见文本附件；无法附文件时见前面的完整消息。",
+		LangTraditionalChinese: "完整審批參數與腳本快照見文字附件；無法附檔時見前面的完整訊息。",
+		LangJapanese:           "承認の全詳細とスクリプトの内容は添付テキスト、または直前のメッセージを確認してください。",
+		LangSpanish:            "Los detalles completos y las copias de scripts están en el archivo adjunto o en los mensajes anteriores.",
+	},
 	MsgPermissionPrompt: {
 		LangEnglish:            "⚠️ **Permission Request**\n\nAgent wants to use **%s**:\n\n```\n%s\n```\n\nReply **allow** / **deny** / **allow all** (skip all future prompts this session).",
 		LangChinese:            "⚠️ **权限请求**\n\nAgent 想要使用 **%s**:\n\n```\n%s\n```\n\n回复 **允许** / **拒绝** / **允许所有**（本次会话不再提醒）。",

@@ -6389,13 +6389,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if isAskQuestion {
 				e.sendAskQuestionPrompt(permissionPlatform, markAgentReply(permissionPlatform, replyCtx, session), event.Questions, 0)
 			} else {
-				permLimit := e.display.ToolMaxLen
-				if permLimit > 0 {
-					permLimit = permLimit * 8 / 5
-				}
-				toolInput := truncateIf(event.ToolInput, permLimit)
-				prompt := fmt.Sprintf(e.i18n.T(MsgPermissionPrompt), event.ToolName, toolInput)
-				e.sendPermissionPrompt(permissionPlatform, replyCtx, e.delegatedPermissionPrompt(permissionPlatform, pending, prompt), event.ToolName, toolInput)
+				e.sendEventPermissionPrompt(permissionPlatform, replyCtx, pending, event, state.workspaceDir)
 			}
 
 			// Stop idle timer while waiting for user permission response;
