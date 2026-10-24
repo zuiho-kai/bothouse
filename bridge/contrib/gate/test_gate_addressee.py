@@ -532,6 +532,47 @@ allow_from = "*"
         self.assertEqual([(w, to, t) for _, w, to, t in out], [(None, [], "做吧"), ("路人", [], "路过"), ("jingyu", ["longniang"], "好了")])
 
 
+class CoMention(unittest.TestCase):
+    """同一条消息同时 @ 主角色和队友：主角色回 context 等队友交回（core/gate_comention_test.go 期望 context）。"""
+    LEAD_AT = "@橘(你) "  # core 把被问的 bot 自己的 @ 换成「@名字(你)」，其余 @ 保留 <@id>
+
+    def lead(self, **req):
+        return gate._decide_lead(req, "", model=False)[0]
+
+    def test_single_message(self):
+        self.assertEqual(self.lead(content=self.LEAD_AT + f"<@{IDS['longniang']}> 帮我算", mentioned=True), "context")
+
+    def test_lead_only(self):
+        self.assertEqual(self.lead(content=self.LEAD_AT + "帮我算", mentioned=True), "reply")
+
+    def test_bot_mentions_lead(self):  # 队友交回 @ 主角色、顺带 @ 别人：是叫主角色本人
+        self.assertEqual(self.lead(content=f"【龙娘】好了 <@{IDS['jingyu']}>", mentioned=True, from_bot=True), "reply")
+
+    def test_reply_to_lead(self):  # 回复主角色的消息时同时 @ 队友：在跟主角色说
+        c = f"[replying to Claude橘: 要不要做]\n{self.LEAD_AT}<@{IDS['caihongmao']}> 做"
+        self.assertEqual(self.lead(content=c, mentioned=True), "reply")
+
+    def test_burst_parts(self):  # 合并连发：@ 了主角色的每一条都同时 @ 队友才算；有一条只 @ 主角色就是叫她本人
+        both = {"content": self.LEAD_AT + f"<@{IDS['longniang']}> 写个 X", "mentioned": True}
+        sub_only = {"content": f"<@{IDS['longniang']}> 快点"}
+        self.assertEqual(self.lead(content="x", mentioned=True, parts=[both, sub_only]), "context")
+        lead_only = {"content": "你盯一下", "mentioned": True}
+        self.assertEqual(self.lead(content="x", mentioned=True, parts=[sub_only, lead_only]), "reply")
+
+    def test_switched_lead(self):  # 主角色换成龙娘：@ 橘也算「别的成员」
+        self.assertTrue(gate.co_mention({"content": "@龙娘(你) " + f"<@{IDS['']}> 一起看", "mentioned": True}, "longniang"))
+        self.assertFalse(gate.co_mention({"content": "@龙娘(你) " + f"<@{IDS['longniang']}> 看", "mentioned": True}, "longniang"))
+
+    def test_no_ids_configured(self):  # 团队文件没写 id：剩下的任何 <@id> 都算别人
+        saved = dict(gate.lead.ID)
+        gate.lead.ID.clear()
+        try:
+            self.assertEqual(self.lead(content=self.LEAD_AT + "<@42> 帮我算", mentioned=True), "context")
+            self.assertEqual(self.lead(content=self.LEAD_AT + "帮我算", mentioned=True), "reply")
+        finally:
+            gate.lead.ID.update(saved)
+
+
 class NoConfig(unittest.TestCase):
     def test_no_config_assumes_online(self):  # 没有 config.toml / 没配 team_status_dir：不知道谁在线，按在线算；频道里的人都算用户
         self.assertIsNone(gate.TEAM_DIR)
