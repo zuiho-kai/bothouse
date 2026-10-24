@@ -177,7 +177,7 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 	teamWorkspaceStore.mu.Lock()
 	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
 		"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
-	}})
+	}, Version: teamWorkspaceStateVersion})
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)

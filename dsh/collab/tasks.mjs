@@ -401,10 +401,10 @@ export class Tasks {
   /**
    * Release workspace roomId (store.releaseWorkspace; throws 'busy' while tasks are in work)
    * and tell the onRelease listeners. Also called for a cloud-web bot's workspace session
-   * reset (cloudweb.mjs op release). Returns whether it was released now.
+   * reset (cloudweb.mjs op release, naming the claim it ends: claim). Returns whether it was released now.
    */
-  release(roomId) {
-    if (!this.store.releaseWorkspace(roomId)) return false;
+  release(roomId, claim = null) {
+    if (!this.store.releaseWorkspace(roomId, claim)) return false;
     for (const released of this.releasers) {
       try { released(roomId); } catch (error) { this.hub.logger?.warn?.('collab: workspace release hook failed', error); }
     }

@@ -33,6 +33,9 @@ const COLUMNS = [
   // 1 = the bridge claimed it (cloudweb.mjs op claim/create): its lead is a bridge session, so
   // only the bridge's op release (lead reset) frees it, never Tasks.releaseIfDone.
   ['rooms', 'claim_bridge', 'INTEGER NOT NULL DEFAULT 0'],
+  // Id of the current claim, bumped by every claim (claimWorkspace, createWorkspace): a release
+  // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
+  ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -323,7 +326,7 @@ export class Store {
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
       const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
-        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?,
+        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
           claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
           .get(parent, bridge ? 1 : 0, free.id, free.id);
       }
@@ -351,10 +354,15 @@ export class Store {
       if (owner != null && owner !== parent) {
         throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
       }
-      return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?,
+      return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
         claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
         .get(parent, bridge ? 1 : 0, ws.id, ws.id);
     });
+  }
+
+  /** The id of workspace roomId's current claim (claim_seq), named by the bridge's op release. */
+  claimId(roomId) {
+    return String(this.db.prepare('SELECT claim_seq FROM rooms WHERE id = ?').get(roomId)?.claim_seq ?? 0);
   }
 
   /** The chat channel that owns workspace roomId now; null = free (released) or no owner. */
@@ -388,13 +396,18 @@ export class Store {
    * Release workspace roomId after its last task: it goes back to the pool (free) for any chat
    * channel, and its sessions are cleared (bindings dropped; fresh ones start reading after the
    * room's last message, room_resets). Refused with 'busy' while tasks are in work there.
-   * Returns false if roomId is no owned workspace (already free, or a chat channel).
+   * Returns false if roomId is no owned workspace (already free, or a chat channel). claim (from
+   * the bridge's op release): the claim being ended; refused with 'stale-claim' once the
+   * workspace was claimed again, so a late release never frees the new claim. null = any claim.
    */
-  releaseWorkspace(roomId) {
+  releaseWorkspace(roomId, claim = null) {
     return this.transaction(() => {
       const ws = this.q.room.get(roomId);
       if (ws === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
       if (ws.kind !== 'workspace' || this.workspaceOwner(ws.id) == null) return false;
+      if (claim != null && String(claim) !== this.claimId(ws.id)) {
+        throw new CollabError('stale-claim', `workspace ${ws.name} was claimed again since claim ${claim}`);
+      }
       if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
       this.db.prepare('UPDATE rooms SET free = 1, claim_task = NULL, claim_bridge = 0 WHERE id = ?').run(ws.id);
       this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(ws.id);

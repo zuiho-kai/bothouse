@@ -59,14 +59,14 @@ type claimingGuild struct {
 	claimErr error
 }
 
-func (g *claimingGuild) ClaimTeamWorkspaceChannel(_ context.Context, chat, ws string) error {
+func (g *claimingGuild) ClaimTeamWorkspaceChannel(_ context.Context, chat, ws string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.claimErr != nil {
-		return g.claimErr
+		return "", g.claimErr
 	}
 	g.claims = append(g.claims, chat+"→"+ws)
-	return nil
+	return strconv.Itoa(len(g.claims)), nil
 }
 
 func (g *fakeWorkspaceGuild) TeamGuildChannels(_ context.Context, id string) (TeamChannel, []TeamChannel, error) {
@@ -688,7 +688,7 @@ func TestTeamWorkspaceLegacyNamesMigrated(t *testing.T) {
 		dataDir := t.TempDir()
 		raw, _ := json.Marshal(teamWorkspaceState{Parents: map[string][]TeamWorkspace{
 			"discord:300": {{ID: "301", Name: "闲聊-工作区1"}, {ID: "302", Name: "闲聊-工作区2"}},
-		}})
+		}, Version: teamWorkspaceStateVersion}) // records of workspaces #300 owns now
 		if err := os.WriteFile(teamWorkspacePath(dataDir), raw, 0o600); err != nil {
 			t.Fatal(err)
 		}

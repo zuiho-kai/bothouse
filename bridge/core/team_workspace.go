@@ -46,6 +46,9 @@ type TeamChannel struct {
 	// records it itself (OwnerKnown: cloud_web/DSH). Elsewhere the bridge's own record decides.
 	Owner      string
 	OwnerKnown bool
+	// Claim: from CreateTeamWorkspaceChannel only, the platform's id of the claim the create
+	// made (cloud_web: the gateway's claim sequence), "" = the platform keeps none.
+	Claim string
 }
 
 // ErrNotTeamChannel: the channel cannot have workspaces (DM, thread, voice, …).
@@ -78,17 +81,25 @@ type TeamWorkspaceChannels interface {
 // workspace belongs to (cloud_web: the DSH gateway's rooms.parent_id, which its unified exit
 // routes by). ClaimTeamWorkspace calls it so a handoff to a free pool workspace moves it to the
 // claiming chat channel there too; the gateway refuses a workspace another chat owns.
+// It returns the platform's id of this claim, which a later release names (TeamWorkspaceReleaser).
 type TeamWorkspaceClaimer interface {
-	ClaimTeamWorkspaceChannel(ctx context.Context, chatID, workspaceID string) error
+	ClaimTeamWorkspaceChannel(ctx context.Context, chatID, workspaceID string) (claim string, err error)
 }
 
 // TeamWorkspaceReleaser is implemented by platforms that record the owner themselves
 // (cloud_web: the DSH gateway). releaseTeamWorkspace calls it when the workspace session is
 // reset after its last task, so the gateway frees the workspace too (it keeps it while its own
-// task count is above 0).
+// task count is above 0). claim is the id the claim being ended got from the platform ("" =
+// unknown, release whatever claim holds it); the platform refuses a release whose claim is no
+// longer the current one with ErrTeamWorkspaceStaleClaim, so a late release never frees a
+// workspace claimed again meanwhile.
 type TeamWorkspaceReleaser interface {
-	ReleaseTeamWorkspaceChannel(ctx context.Context, workspaceID string) error
+	ReleaseTeamWorkspaceChannel(ctx context.Context, workspaceID, claim string) error
 }
+
+// ErrTeamWorkspaceStaleClaim: the release named a claim that is no longer the workspace's
+// current one (it was claimed again since); nothing was released.
+var ErrTeamWorkspaceStaleClaim = errors.New("workspace release names an earlier claim")
 
 // ErrTeamWorkspaceOwned: the workspace belongs to another chat channel until it finishes its
 // last task; the caller picks a free workspace or creates the next one.
@@ -133,6 +144,14 @@ type TeamWorkspace struct {
 	// Owner: in TeamWorkspacePool only, the chat channel ("<platform>:<id>") the workspace
 	// belongs to now; "" = free, any chat channel may claim it.
 	Owner string `json:"owner,omitempty"`
+	// Claim: the platform's id of the claim that gave this chat the workspace
+	// (TeamWorkspaceClaimer; "" = none), named by the release that ends it.
+	Claim string `json:"claim,omitempty"`
+	// ReleasePending: the lead's session was reset after the last task, but the platform
+	// (TeamWorkspaceReleaser) has not confirmed the release yet (busy or unreachable). The record
+	// stays, so asks and reports still go to this chat; the release is retried on the next reset
+	// and before every claim, create or pool listing on the platform (retryTeamWorkspaceReleases).
+	ReleasePending bool `json:"release_pending,omitempty"`
 }
 
 // A workspace belongs to one chat channel at a time (team mode C, single owner): the chat that
@@ -146,6 +165,40 @@ type teamWorkspaceState struct {
 	// channel that handed it off. An open handoff made after the workspace session's last
 	// activity keeps the workspace owned through a reset (the task was not worked on yet).
 	Handoffs map[string][]TeamHandoff `json:"handoffs,omitempty"`
+	// Version of the record format: 1 = single owner (a Parents record means the chat owns the
+	// workspace now). 0 = written before; migrated on load (teamWorkspaceMigrateOwners).
+	Version int `json:"version,omitempty"`
+}
+
+const teamWorkspaceStateVersion = 1
+
+// teamWorkspaceMigrateOwners upgrades a state written before single owner. Back then a Parents
+// record only named the last chat that handed off and was never removed, so every workspace
+// ever used would count as owned forever. A record without an open handoff (none, or all
+// Closed) is the end of finished work: dropped, the workspace is free. Runs once (Version).
+func teamWorkspaceMigrateOwners(st *teamWorkspaceState) bool {
+	if st.Version >= teamWorkspaceStateVersion {
+		return false
+	}
+	for parent, list := range st.Parents {
+		plat, _, _ := strings.Cut(parent, ":")
+		var keep []TeamWorkspace
+		for _, w := range list {
+			for _, h := range st.Handoffs[plat+":"+w.ID] {
+				if h.Closed.IsZero() {
+					keep = append(keep, w)
+					break
+				}
+			}
+		}
+		if len(keep) == 0 {
+			delete(st.Parents, parent)
+		} else {
+			st.Parents[parent] = keep
+		}
+	}
+	st.Version = teamWorkspaceStateVersion
+	return true
 }
 
 // TeamHandoff is one task handed from a chat channel to a pool workspace.
@@ -181,13 +234,20 @@ func loadTeamWorkspacesLocked(path string) *teamWorkspaceState {
 	if st := teamWorkspaceStore.cache[path]; st != nil {
 		return st
 	}
-	st := &teamWorkspaceState{Parents: map[string][]TeamWorkspace{}}
+	st := &teamWorkspaceState{Parents: map[string][]TeamWorkspace{}, Version: teamWorkspaceStateVersion}
 	if raw, err := os.ReadFile(path); err == nil {
+		st.Version = 0
 		if err := json.Unmarshal(raw, st); err != nil {
 			slog.Warn("team workspace: bad state file", "path", path, "error", err)
 		}
 		if st.Parents == nil {
 			st.Parents = map[string][]TeamWorkspace{}
+		}
+		if teamWorkspaceMigrateOwners(st) {
+			slog.Info("team workspace: state upgraded to single owner; finished workspaces are free", "path", path)
+			if err := saveTeamWorkspacesLocked(path, st); err != nil {
+				slog.Warn("team workspace: save upgraded state", "path", path, "error", err)
+			}
 		}
 	}
 	if teamWorkspaceStore.cache == nil {
@@ -410,6 +470,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	// create 「工作区1」 or read a guild listing taken before the other's create.
 	teamWorkspaceOpMu.Lock()
 	defer teamWorkspaceOpMu.Unlock()
+	e.retryTeamWorkspaceReleases(chat)
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
 	self, guild, err := plat.TeamGuildChannels(ctx, teamChannelID(chat))
@@ -425,8 +486,14 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	}
 	// Adopting a pool workspace is a handoff: tell a platform that records the parent itself.
 	if c, ok := plat.(TeamWorkspaceClaimer); ok && adopted != "" {
-		if err := c.ClaimTeamWorkspaceChannel(ctx, self.ID, adopted); err != nil {
+		claim, err := c.ClaimTeamWorkspaceChannel(ctx, self.ID, adopted)
+		if err != nil {
 			return nil, nil, fmt.Errorf("team workspace: %s: claim %s: %w", chat, adopted, err)
+		}
+		for i := range list {
+			if list[i].ID == adopted {
+				list[i].Claim = claim
+			}
 		}
 	}
 	// Persist reconciling/adoption before the create, so a failed create keeps it.
@@ -444,7 +511,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	if err != nil {
 		return list, nil, err
 	}
-	created := &TeamWorkspace{Name: c.Name, ID: c.ID, Created: time.Now().UTC()}
+	created := &TeamWorkspace{Name: c.Name, ID: c.ID, Created: time.Now().UTC(), Claim: c.Claim}
 	list = append(list, *created)
 	if err := teamWorkspaceStoreList(path, chat, list); err != nil {
 		return list, created, fmt.Errorf("team workspace: save state: %w", err)
@@ -718,6 +785,7 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 
 	teamWorkspaceOpMu.Lock()
 	defer teamWorkspaceOpMu.Unlock()
+	e.retryTeamWorkspaceReleases(chat)
 
 	// The workspace's recorded entry (under any chat) wins over the given name.
 	teamWorkspaceStore.mu.Lock()
@@ -726,6 +794,7 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 	if owner == "" {
 		w = TeamWorkspace{ID: wsID, Name: name}
 	}
+	w.ReleasePending = false
 	if w.Name == "" {
 		w.Name = name
 	}
@@ -754,11 +823,12 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 		}
 		if c, ok := p.(TeamWorkspaceClaimer); ok {
 			ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
-			err := c.ClaimTeamWorkspaceChannel(ctx, teamChannelID(chat), wsID)
+			claim, err := c.ClaimTeamWorkspaceChannel(ctx, teamChannelID(chat), wsID)
 			cancel()
 			if err != nil {
 				return fmt.Errorf("team workspace claim: %s → %s: %w", chat, wsID, err)
 			}
+			w.Claim = claim
 		}
 	} else if owner != "" && owner != chat {
 		return fmt.Errorf("team workspace claim: %s → %s: %w (%s, until it finishes its last task)", chat, wsID, ErrTeamWorkspaceOwned, owner)
@@ -773,10 +843,15 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 			teamWorkspaceDropLocked(st, parent, wsID)
 		}
 	}
+	// This claim replaces an earlier one of the same chat, and ends a release still pending.
 	found := false
-	for _, x := range st.Parents[chat] {
+	for i, x := range st.Parents[chat] {
 		if x.ID == wsID {
 			found = true
+			st.Parents[chat][i].ReleasePending = false
+			if w.Claim != "" {
+				st.Parents[chat][i].Claim = w.Claim
+			}
 		}
 	}
 	if !found {
@@ -805,13 +880,18 @@ func (e *Engine) releaseWorkspaceOnReset(sessionKey string, lastActive time.Time
 
 // releaseTeamWorkspace frees workspace sessionKey ("<platform>:<id>[:user]"): its handoffs up to
 // lastActive are closed and, unless keep is set or a handoff came after lastActive (not worked
-// on yet, the owner's next task), its owner record is dropped and a platform that records the
-// owner itself (TeamWorkspaceReleaser) is told. Returns whether the workspace was freed.
+// on yet, the owner's next task), its owner record is dropped. On a platform that records the
+// owner itself (TeamWorkspaceReleaser) the platform is asked first and the record is dropped only
+// once it agrees: until then the record stays (ReleasePending) and the release is retried
+// (retryTeamWorkspaceReleases), so the workspace neither stays owned on the platform forever nor
+// goes to another chat while the platform still routes it here. Returns whether the workspace
+// was freed or its release is pending.
 func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, keep bool) bool {
 	key := teamChatKey(sessionKey)
 	plat, _, _ := strings.Cut(key, ":")
 	wsID := teamChannelID(key)
 	path := teamWorkspacePath(e.dataDir)
+	_, platformReleases := e.platformForName(plat).(TeamWorkspaceReleaser)
 	teamWorkspaceStore.mu.Lock()
 	st := loadTeamWorkspacesLocked(path)
 	owner, _ := teamWorkspaceOwnerLocked(st, plat, wsID)
@@ -831,7 +911,15 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 		st.Handoffs[key][i].Closed = now
 	}
 	if !keep {
-		teamWorkspaceDropLocked(st, owner, wsID)
+		if platformReleases {
+			for i, x := range st.Parents[owner] {
+				if x.ID == wsID {
+					st.Parents[owner][i].ReleasePending = true
+				}
+			}
+		} else {
+			teamWorkspaceDropLocked(st, owner, wsID)
+		}
 	}
 	err := saveTeamWorkspacesLocked(path, st)
 	teamWorkspaceStore.mu.Unlock()
@@ -841,19 +929,70 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	if keep {
 		return false
 	}
-	slog.Info("team workspace: released after its last task", "workspace", key, "owner", owner)
-	if p, ok := e.teamWorkspacePlatform(key); ok {
-		if r, ok := p.(TeamWorkspaceReleaser); ok {
-			go func() {
-				ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
-				defer cancel()
-				if err := r.ReleaseTeamWorkspaceChannel(ctx, wsID); err != nil {
-					slog.Warn("team workspace: platform release failed", "workspace", key, "error", err)
-				}
-			}()
+	if !platformReleases {
+		slog.Info("team workspace: released after its last task", "workspace", key, "owner", owner)
+		return true
+	}
+	// The platform request runs under teamWorkspaceOpMu like claims, so a claim and a release
+	// never interleave; off the reset path, which must not wait on the network.
+	go func() {
+		teamWorkspaceOpMu.Lock()
+		defer teamWorkspaceOpMu.Unlock()
+		e.retryTeamWorkspaceReleases(key)
+	}()
+	return true
+}
+
+// retryTeamWorkspaceReleases asks the platform of chat ("<platform>:<id>") to release every
+// workspace of that platform whose release is pending (ReleasePending), naming the claim being
+// ended, and drops the record of each one the platform released (or that it says was claimed
+// again since, ErrTeamWorkspaceStaleClaim: that claim is over). A busy or failed release keeps
+// the record for the next try. Caller holds teamWorkspaceOpMu.
+func (e *Engine) retryTeamWorkspaceReleases(chat string) {
+	if e == nil || e.dataDir == "" {
+		return
+	}
+	plat, _, _ := strings.Cut(chat, ":")
+	r, ok := e.platformForName(plat).(TeamWorkspaceReleaser)
+	if !ok {
+		return
+	}
+	path := teamWorkspacePath(e.dataDir)
+	type pending struct{ owner, id, claim string }
+	var todo []pending
+	teamWorkspaceStore.mu.Lock()
+	for parent, list := range loadTeamWorkspacesLocked(path).Parents {
+		if p, _, _ := strings.Cut(parent, ":"); p != plat {
+			continue
+		}
+		for _, w := range list {
+			if w.ReleasePending {
+				todo = append(todo, pending{parent, w.ID, w.Claim})
+			}
 		}
 	}
-	return true
+	teamWorkspaceStore.mu.Unlock()
+	for _, x := range todo {
+		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+		err := r.ReleaseTeamWorkspaceChannel(ctx, x.id, x.claim)
+		cancel()
+		key := plat + ":" + x.id
+		if err != nil && !errors.Is(err, ErrTeamWorkspaceStaleClaim) {
+			slog.Warn("team workspace: platform release failed; kept, retried later", "workspace", key, "owner", x.owner, "error", err)
+			continue
+		}
+		teamWorkspaceStore.mu.Lock()
+		st := loadTeamWorkspacesLocked(path)
+		// Only the record this release was for (claims run under teamWorkspaceOpMu too).
+		if owner, w := teamWorkspaceOwnerLocked(st, plat, x.id); owner == x.owner && w.ReleasePending && w.Claim == x.claim {
+			teamWorkspaceDropLocked(st, owner, x.id)
+			if err := saveTeamWorkspacesLocked(path, st); err != nil {
+				slog.Warn("team workspace: save state on release failed", "workspace", key, "error", err)
+			}
+		}
+		teamWorkspaceStore.mu.Unlock()
+		slog.Info("team workspace: released after its last task", "workspace", key, "owner", x.owner, "stale_claim", err != nil)
+	}
 }
 
 // TeamWorkspacePool returns every workspace in the server/category of chat, 「工作区n」 lowest
@@ -872,6 +1011,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	}
 	teamWorkspaceOpMu.Lock()
 	defer teamWorkspaceOpMu.Unlock()
+	e.retryTeamWorkspaceReleases(chat)
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
 	self, guild, err := plat.TeamGuildChannels(ctx, teamChannelID(chat))

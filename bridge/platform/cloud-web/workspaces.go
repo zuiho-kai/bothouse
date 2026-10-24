@@ -84,6 +84,8 @@ func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name st
 		return ack, fmt.Errorf("%w: %w", core.ErrNotTeamChannel, err)
 	case "workspace-owned":
 		return ack, fmt.Errorf("%w: %w", core.ErrTeamWorkspaceOwned, err)
+	case "stale-claim":
+		return ack, fmt.Errorf("%w: %w", core.ErrTeamWorkspaceStaleClaim, err)
 	case "unsupported", "room-missing", "forbidden":
 		// The gateway cannot do it (collab without team mode A) or the room is gone: retrying
 		// will not help until restart.
@@ -130,28 +132,33 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID,
 	if ack.Room.Name != name {
 		slog.Info("cloud_web: gateway named the workspace", "asked", name, "got", ack.Room.Name)
 	}
-	return core.TeamChannel{ID: ack.Room.ID, Name: ack.Room.Name}, nil
+	return core.TeamChannel{ID: ack.Room.ID, Name: ack.Room.Name, Claim: ack.Room.Claim}, nil
 }
 
 // ClaimTeamWorkspaceChannel tells the gateway that chatID handed off to workspaceID, so the
 // gateway's unified exit (dsh/collab/team-exit.mjs, by rooms.parent_id) sends that workspace's
 // asks and reports to chatID. The gateway refuses a workspace another chat room owns
-// (workspace-owned).
-func (p *Platform) ClaimTeamWorkspaceChannel(ctx context.Context, chatID, workspaceID string) error {
+// (workspace-owned). It returns the gateway's id of this claim ("" from an older gateway).
+func (p *Platform) ClaimTeamWorkspaceChannel(ctx context.Context, chatID, workspaceID string) (string, error) {
 	ack, err := p.teamWorkspaceRequest(ctx, "claim", chatID, "", map[string]any{"workspace_id": workspaceID})
 	if err != nil {
-		return err
+		return "", err
 	}
 	if ack.Room == nil || ack.Room.ID != workspaceID {
-		return fmt.Errorf("cloud_web: team_workspace claim %s: unexpected room %+v", workspaceID, ack.Room)
+		return "", fmt.Errorf("cloud_web: team_workspace claim %s: unexpected room %+v", workspaceID, ack.Room)
 	}
-	return nil
+	return ack.Room.Claim, nil
 }
 
 // ReleaseTeamWorkspaceChannel tells the gateway that workspaceID finished its last task (the
 // lead's session there was reset), so it is free for any chat room. The gateway keeps it while
-// its own task count for the workspace is above 0 (error "busy").
-func (p *Platform) ReleaseTeamWorkspaceChannel(ctx context.Context, workspaceID string) error {
-	_, err := p.teamWorkspaceRequest(ctx, "release", workspaceID, "", map[string]any{"workspace_id": workspaceID})
+// its own task count for the workspace is above 0 (error "busy"). claim names the claim being
+// ended; the gateway refuses it once the workspace was claimed again (stale-claim).
+func (p *Platform) ReleaseTeamWorkspaceChannel(ctx context.Context, workspaceID, claim string) error {
+	extra := map[string]any{"workspace_id": workspaceID}
+	if claim != "" {
+		extra["claim"] = claim
+	}
+	_, err := p.teamWorkspaceRequest(ctx, "release", workspaceID, "", extra)
 	return err
 }

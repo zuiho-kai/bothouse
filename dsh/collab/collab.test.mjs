@@ -2244,3 +2244,33 @@ test('tasks: a bridge-claimed workspace is never auto-released; only the bridge 
   assert.equal(tasks.release(w.id), true);
   assert.equal(s.claimWorkspace(2, w.id, { bridge: true }).parent_id, 2);
 });
+
+test('cloud_web release names the claim it ends: a late release does not free a newer claim', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'dev');
+  const ws = hub.store.createWorkspace(1);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  gw.tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const ack = () => ju.of('team_workspace_ack').at(-1);
+  ju.frame({ type: 'team_workspace', ref_id: 'c1', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
+  await tick();
+  const first = ack().room.claim;
+  ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
+  await tick();
+  const second = ack().room.claim;
+  assert.notEqual(first, second, 'every claim gets its own id');
+  // The release for the first claim arrives after the second claim: refused, still owned.
+  ju.frame({ type: 'team_workspace', ref_id: 'r1', op: 'release', reply_ctx: roomKey(ws.id), claim: first });
+  await tick();
+  assert.deepEqual(ack(), { type: 'team_workspace_ack', ref_id: 'r1', ok: false, error: 'stale-claim' });
+  assert.equal(hub.store.workspaceOwner(ws.id), 1);
+  ju.frame({ type: 'team_workspace', ref_id: 'c3', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
+  await tick();
+  assert.equal(ack().error, 'workspace-owned');
+  // The release naming the current claim frees it.
+  ju.frame({ type: 'team_workspace', ref_id: 'r2', op: 'release', reply_ctx: roomKey(ws.id), claim: second });
+  await tick();
+  assert.equal(ack().ok, true);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+});

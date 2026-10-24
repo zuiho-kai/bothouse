@@ -336,6 +336,9 @@ type wireTeamWorkspaceRoom struct {
 	// Owner (list): the chat room that owns the workspace now, "" = free. Absent from a gateway
 	// that does not record owners; the bridge's own record decides then.
 	Owner *string `json:"owner,omitempty"`
+	// Claim (claim, create): the gateway's id of the claim this op made (rooms.claim_seq); the
+	// release that ends it names it. Absent from a gateway without claim ids.
+	Claim string `json:"claim,omitempty"`
 }
 
 type wireTeamWorkspaceAck struct {

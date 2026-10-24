@@ -304,13 +304,15 @@ export class CloudWebGateway {
         if (!/^\d+$/.test(raw)) return { ok: false, error: 'room-missing' };
         const w = store.claimWorkspace(id, Number(raw), { bridge: true });
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
-        return { ok: true, room: view(w) };
+        return { ok: true, room: { ...view(w), claim: store.claimId(w.id) } };
       }
       if (d.op === 'release') {
         // The bridge reset the workspace lead's session after its last task: back to the pool,
-        // its sessions cleared. Refused (error busy) while tasks are in work there.
+        // its sessions cleared. Refused (error busy) while tasks are in work there, and (error
+        // stale-claim) when d.claim names an earlier claim than the current one.
         if (self.kind !== 'workspace') return { ok: false, error: 'not-workspace' };
-        const released = this.tasks ? this.tasks.release(id) : store.releaseWorkspace(id);
+        const claim = d.claim == null || d.claim === '' ? null : String(d.claim);
+        const released = this.tasks ? this.tasks.release(id, claim) : store.releaseWorkspace(id, claim);
         if (released) this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
       }
@@ -318,7 +320,7 @@ export class CloudWebGateway {
         // A's createWorkspace numbers 工作区n+1 itself; the bridge takes the name it gets back.
         const w = store.createWorkspace(id, { bridge: true });
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
-        return { ok: true, room: view(w) };
+        return { ok: true, room: { ...view(w), claim: store.claimId(w.id) } };
       }
     } catch (error) {
       return { ok: false, error: error?.code ?? String(error?.message ?? error) };
