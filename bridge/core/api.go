@@ -605,18 +605,19 @@ func (s *APIServer) handleCronEdit(w http.ResponseWriter, r *http.Request) {
 
 // TimerAddRequest is the JSON body for POST /timer/add.
 type TimerAddRequest struct {
-	Project     string `json:"project"`
-	SessionKey  string `json:"session_key"`
-	Delay       string `json:"delay"` // relative ("2h") or absolute ISO time
-	Prompt      string `json:"prompt"`
-	Exec        string `json:"exec"`
-	WorkDir     string `json:"work_dir"`
-	Description string `json:"description"`
-	Silent      *bool  `json:"silent,omitempty"`
-	Mute        bool   `json:"mute,omitempty"`
-	SessionMode string `json:"session_mode,omitempty"`
-	Mode        string `json:"mode,omitempty"`
-	TimeoutMins *int   `json:"timeout_mins,omitempty"`
+	Project      string `json:"project"`
+	SessionKey   string `json:"session_key"`
+	Delay        string `json:"delay"` // relative ("2h") or absolute ISO time
+	Prompt       string `json:"prompt"`
+	Exec         string `json:"exec"`
+	WorkDir      string `json:"work_dir"`
+	Description  string `json:"description"`
+	Silent       *bool  `json:"silent,omitempty"`
+	Mute         bool   `json:"mute,omitempty"`
+	SessionMode  string `json:"session_mode,omitempty"`
+	Mode         string `json:"mode,omitempty"`
+	TimeoutMins  *int   `json:"timeout_mins,omitempty"`
+	InjectIfBusy bool   `json:"inject_if_busy,omitempty"`
 }
 
 func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
@@ -686,20 +687,21 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := &TimerJob{
-		ID:          GenerateTimerID(),
-		Project:     project,
-		SessionKey:  sessionKey,
-		ScheduledAt: fireAt,
-		Prompt:      req.Prompt,
-		Exec:        req.Exec,
-		WorkDir:     req.WorkDir,
-		Description: req.Description,
-		Silent:      req.Silent,
-		Mute:        req.Mute,
-		SessionMode: req.SessionMode,
-		Mode:        req.Mode,
-		TimeoutMins: req.TimeoutMins,
-		CreatedAt:   time.Now(),
+		ID:           GenerateTimerID(),
+		Project:      project,
+		SessionKey:   sessionKey,
+		ScheduledAt:  fireAt,
+		Prompt:       req.Prompt,
+		Exec:         req.Exec,
+		WorkDir:      req.WorkDir,
+		Description:  req.Description,
+		Silent:       req.Silent,
+		Mute:         req.Mute,
+		SessionMode:  req.SessionMode,
+		Mode:         req.Mode,
+		TimeoutMins:  req.TimeoutMins,
+		InjectIfBusy: req.InjectIfBusy,
+		CreatedAt:    time.Now(),
 	}
 
 	if err := s.timer.AddJob(job); err != nil {

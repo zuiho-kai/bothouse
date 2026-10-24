@@ -24,15 +24,18 @@ type TimerJob struct {
 	Exec        string    `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt
 	WorkDir     string    `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
 	Description string    `json:"description"`
-	Silent      *bool     `json:"silent,omitempty"`       // suppress start notification; nil = use global default
-	Mute        bool      `json:"mute,omitempty"`         // suppress ALL messages (start + result)
-	SessionMode string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
-	Mode        string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
-	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
-	CreatedAt   time.Time `json:"created_at"`
-	Fired       bool      `json:"fired"`
-	FiredAt     time.Time `json:"fired_at,omitempty"`
-	LastError   string    `json:"last_error,omitempty"`
+	Silent      *bool     `json:"silent,omitempty"` // suppress start notification; nil = use global default
+	Mute        bool      `json:"mute,omitempty"`   // suppress ALL messages (start + result)
+	// InjectIfBusy: when the target session is mid-turn, write the prompt into that turn
+	// instead of queuing a new one after it. Falls back to queuing when injection fails.
+	InjectIfBusy bool      `json:"inject_if_busy,omitempty"`
+	SessionMode  string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	Mode         string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
+	TimeoutMins  *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
+	CreatedAt    time.Time `json:"created_at"`
+	Fired        bool      `json:"fired"`
+	FiredAt      time.Time `json:"fired_at,omitempty"`
+	LastError    string    `json:"last_error,omitempty"`
 }
 
 // IsShellJob returns true if the job runs a shell command directly.
@@ -239,10 +242,10 @@ func (s *TimerStore) ListPending() []*TimerJob {
 
 // TimerScheduler runs one-shot timer jobs using time.AfterFunc.
 type TimerScheduler struct {
-	store    *TimerStore
-	engines  map[string]*Engine
-	mu       sync.RWMutex
-	timers   map[string]*time.Timer // job ID → active timer
+	store              *TimerStore
+	engines            map[string]*Engine
+	mu                 sync.RWMutex
+	timers             map[string]*time.Timer // job ID → active timer
 	defaultSilent      bool
 	defaultSessionMode string
 }
