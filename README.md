@@ -4,9 +4,25 @@
 
 English | [中文](README.zh-CN.md)
 
-Working with Claude Code or Codex today looks like this: open a window, explain the background, it writes, you read, it asks, you answer. The task ends, the window closes. Next task, explain the background again.
+**Tell it before bed. Collect the result when you wake up.**
+bothouse puts a crew of AIs on the night shift: several jobs moving at once, all night long, and none of them drifting off script.
 
-bothouse replaces that back-and-forth with "hand the job to one person, who splits it across several AIs". You still talk to only one of them — the lead role (the UI calls it "Primary role").
+> While everyone else is making wishes at a chat box, you're running a team that never clocks out.
+
+**All night, many jobs at once, still on script.**
+Every handoff carries your own words down the line, so whoever picks the job up works against them: who took it, how far it got. The people who do the work don't sign it off — a fresh AI checks it instead. When a sub-agent runs out of context it writes a handoff first; a session that has sat idle too long gets a handoff and a fresh start too. No slow slide into confusion. And the team shares one memory, so what was settled today still counts tomorrow.
+
+**You sleep. It works.**
+Scheduled jobs and long jobs sit in the background and keep moving overnight. In the morning the channel has your report: what got done, how it was checked, what's still stuck.
+
+**Several jobs in parallel, still under control.**
+The lead role breaks the job up and spreads it across workspaces, one owner per job. Who's on what, how far along, where it's stuck — all on the same task card, readable at a glance.
+
+**Expensive models, only where the work is hard.**
+Chat and small chores go to a cheap model; the hard jobs get the expensive one. Which channel uses which model is fixed in config, so the money goes where it counts.
+
+**Control it from anywhere.**
+Discord gets the full team, Feishu starts with a single role, and the self-hosted web channel runs on your own machine. Add a line from your phone and Codex or DSH picks it up mid-task; Claude Code gets it once the current turn wraps.
 
 ## What it looks like
 
@@ -14,7 +30,7 @@ bothouse replaces that back-and-forth with "hand the job to one person, who spli
 
 Real channel footage: chat hands work to a workspace, the workspace dispatches it, the task board shows it all at a glance, and chat carries on.
 
-## Three steps
+## How you use it
 
 **One, you say it once.**
 In the channel you tell the lead role: build me a dashboard — I want to see what each role spent today.
@@ -26,8 +42,6 @@ The lead breaks the job into pieces — a stats page, a menu-bar icon, a roles p
 Each piece goes back to the lead when it's done. The lead checks it, then sends you one reply: what changed, how it was verified, what didn't get done.
 
 You can cut in at any point. On Codex (app-server) and ACP agents such as DSH, what you add while an AI is working lands in the task it's already holding. Claude Code and other CLIs queue it instead: the AI picks it up after the current turn ends.
-
-> Others make wishes. You run a team. The difference isn't a smarter model — it's that work gets picked up, handed back, and checked.
 
 ## Why not just another chat window
 
