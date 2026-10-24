@@ -6,6 +6,8 @@
 # 用法：bridge/tests/selfhost_mainpath/run.sh [输出目录]
 #   输出目录默认临时目录；里面有截图、result.json、各进程日志（log/）。
 #   KEEP=1 跑完不停实例，方便手动看。
+#   E2E_HOST=<本机非回环地址>（如 Tailscale IP）让频道页监听那个地址、浏览器也从它打开，
+#     模拟手机从别的设备经纯 HTTP 访问（非安全上下文，例如 crypto.randomUUID 不可用）。
 # 依赖：go、node、pnpm、dsh、python3；playwright 装在 $BH_E2E_CACHE/pw（首次自动装）。
 # 只用假 agent，验不了真实模型；合入后仍要在真实入口验收。
 set -euo pipefail
@@ -35,7 +37,7 @@ if [ ! -d "$CACHE/pw/node_modules/playwright" ] || ! cmp -s "$HERE/package.json"
     || { tail -n 20 "$OUT/playwright-install.log"; echo FAIL; exit 1; }
 fi
 
-"$HERE/instance.sh" start "$REPO" "$WORK/inst" || { echo "FAIL（实例没起来）"; exit 1; }
+"$HERE/instance.sh" start "$REPO" "$WORK/inst" ${E2E_HOST:+--host "$E2E_HOST"} || { echo "FAIL（实例没起来）"; exit 1; }
 
 echo "== 走主路"
 ln -sfn "$CACHE/pw/node_modules" "$WORK/node_modules"

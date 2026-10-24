@@ -48,7 +48,9 @@ try {
   const before = (await (await desk.request.get(`${base}/collab/api/rooms/${general.id}/messages?limit=200`)).json()).messages ?? [];
   const lastId = before.reduce((a, m) => Math.max(a, m.id), 0);
 
-  const box = page.locator('textarea:visible, [contenteditable=true]:visible').last();
+  // 频道页的输入框（占位文字「发消息到 #频道名…」）；不能取随便哪个 textarea，频道页没渲染完时那是 dsh 会话输入框。
+  const box = page.getByPlaceholder(`发消息到 #${general.name}`, { exact: false });
+  await box.waitFor({ timeout: 15000 });
   await box.click();
   await box.fill(ASK);
   await box.press('Enter');
@@ -62,7 +64,8 @@ try {
     await page.waitForTimeout(500);
   }
   const ask = messages.find((m) => m.author_kind === 'user' && (m.text || '').trim() === ASK);
-  check('页面输入框发出的话落在频道里', ask, ask ? `#${ask.id}` : `新消息 ${messages.length} 条`);
+  const sendErr = ask ? '' : await page.getByText(/发送失败/).first().innerText({ timeout: 1000 }).catch(() => '');
+  check('页面输入框发出的话落在频道里', ask, ask ? `#${ask.id}` : `新消息 ${messages.length} 条 ${sendErr}`.trim());
   let prev = ask?.id ?? Infinity;
   for (const s of steps) {
     const m = messages.find((x) => x.id > prev && x.author === s.author && s.match(x.text || ''));

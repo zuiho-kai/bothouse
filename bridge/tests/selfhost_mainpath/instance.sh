@@ -56,7 +56,6 @@ CACHE=${BH_E2E_CACHE:-${TMPDIR:-/tmp}/bothouse-e2e-cache}
 H="$ROOT/home"
 mkdir -p "$ROOT/run" "$ROOT/log" "$ROOT/bin" "$H" "$ROOT/data/collab" "$ROOT/data/bh" "$ROOT/data/cc" \
   "$ROOT/work" "$ROOT/docs" "$CACHE"
-stop_instance "$ROOT"
 
 # 进程只拿到这几个变量（PATH 用于找 node/dsh/python3），其余一律清掉。
 ISO=(env -i PATH="$PATH" HOME="$H" TMPDIR="${TMPDIR:-/tmp}" LANG=en_US.UTF-8
@@ -66,6 +65,8 @@ ISO=(env -i PATH="$PATH" HOME="$H" TMPDIR="${TMPDIR:-/tmp}" LANG=en_US.UTF-8
 echo "== 构建 cc-connect"
 (cd "$REPO/bridge" && go build -tags no_web -o "$ROOT/bin/cc-connect.new" ./cmd/cc-connect) >"$ROOT/log/build.log" 2>&1 \
   || { tail -n 30 "$ROOT/log/build.log"; exit 1; }
+# 编译过了才停旧实例（常驻预览：新提交编不过时旧实例照常可用）。
+stop_instance "$ROOT"
 mv "$ROOT/bin/cc-connect.new" "$ROOT/bin/cc-connect"
 
 echo "== 装频道页插件（产品同款 dsh_bundle/install.sh）"
