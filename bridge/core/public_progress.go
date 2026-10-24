@@ -97,9 +97,11 @@ type PublicProgress struct {
 	dataDir         string
 	project         string
 	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
-	runs            map[string]*publicRun
-	relayRuns       map[string]*taskRelay
-	memberRuns      map[string]*taskMemberRun
+	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
+	reporterName func(project, session string) string
+	runs         map[string]*publicRun
+	relayRuns    map[string]*taskRelay
+	memberRuns   map[string]*taskMemberRun
 	// Batch keys belong to the authorizing turn, never the session's open slot.
 	delegations map[string]map[string]*publicRun
 	// records indexes every task this project has ever journalled, so a task can
@@ -564,6 +566,7 @@ func (e *Engine) EnablePublicProgress() error {
 	}
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
+	p.reporterName = e.taskReporterName
 	return nil
 }
 

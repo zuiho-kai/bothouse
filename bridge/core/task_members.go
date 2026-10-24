@@ -110,7 +110,13 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		}
 		req.ReporterProject = owner
 	} else if req.ReporterProject != "" {
+		// Show the bot's channel name (C酱), not its project id (cjiang).
 		req.Name = req.ReporterProject
+		if p.reporterName != nil {
+			if name := p.reporterName(req.ReporterProject, req.SessionKey); name != "" {
+				req.Name = name
+			}
+		}
 	}
 	if req.ReporterProject == "" {
 		req.ReporterProject = p.project

@@ -74,3 +74,25 @@ func (rm *RelayManager) ResolveTaskReporter(source, project, platform, session s
 	}
 	return nil, errors.New("task reporter platform unavailable")
 }
+
+// taskReporterName is project's bot name as bound in session's channel, or "".
+func (e *Engine) taskReporterName(project, session string) string {
+	if e.relayManager == nil {
+		return ""
+	}
+	return e.relayManager.BoundBotName(project, session)
+}
+
+// BoundBotName is the display name the channel binding gives project's bot, or "".
+func (rm *RelayManager) BoundBotName(project, session string) string {
+	_, chat, err := parseSessionKeyParts(session)
+	if err != nil {
+		return ""
+	}
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	if b := rm.bindings[chat]; b != nil {
+		return b.Bots[project]
+	}
+	return ""
+}

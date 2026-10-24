@@ -92,7 +92,7 @@ func TestTaskMemberReporterIdentityAndDurableRetry(t *testing.T) {
 		t.Fatal("existing member rebound to another sender")
 	}
 	task, _ := p.Task(id)
-	if task.Members[0].Name != "gjiang" || task.Members[0].ReporterProject != "gjiang" {
+	if task.Members[0].Name != "大豆包" || task.Members[0].ReporterProject != "gjiang" { // bound channel name, not the project id or a forged nickname
 		t.Fatal("caller nickname controlled bot identity")
 	}
 	child := assignment
