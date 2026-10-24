@@ -16,8 +16,8 @@ permissions:
 
 jobs:
   cleanup:
-    # GitHub 托管机因账号扣款失败不可用，改到甲骨文（用户 2026-10-23）。
-    runs-on: [self-hosted, bothouse-ci]
+    # 公开仓库用 GitHub 托管机免费；只调 API，不需要自家机。
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ secrets.ARTIFACT_CLEANUP_TOKEN || github.token }}

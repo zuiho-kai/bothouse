@@ -1,9 +1,9 @@
 name: Release bothouse
 
 # Native bothouse downloads. DMGs are built on macOS.
-# Runs on our own machines (user 2026-10-23「你甲骨文和我们mac，不都是编译环境吗，你把那边关联到这两个环境去编译呗」):
-# the Mac Studio runner (label bothouse-mac) builds the dmg; the Oracle vps-arm runners (arm64, label bothouse-ci)
-# cross-compile Linux x64/arm64 and the Windows exe (CGO_ENABLED=0, so no C toolchain) and publish.
+# The Mac Studio runner (label bothouse-mac) builds the dmg (lipo, hdiutil, package-dmg.sh need macOS).
+# Everything else runs on GitHub-hosted ubuntu-latest (free for this public repo, so releases do not queue
+# behind PR checks): it cross-compiles Linux x64/arm64 and the Windows exe (CGO_ENABLED=0, so no C toolchain) and publishes.
 # Windows 真机验装暂时没有：家里 Windows 机离线（windows-local、sanxin-hk 都连不上）；用户 2026-10-23「那就没必要先搞验证，
 # 就先编译吧」。上线后把 smoke-windows / verify-windows 加回来，跑在 self-hosted windows runner 上（见 git 历史里的这两个 job）。
 
@@ -75,7 +75,7 @@ jobs:
       matrix:
         include:
           - name: linux
-            labels: [self-hosted, bothouse-ci]
+            labels: ubuntu-latest
           - name: macos
             labels: [self-hosted, bothouse-mac]
     runs-on: ${{ matrix.labels }}
@@ -93,8 +93,9 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: bridge/go.mod
-          # self-hosted runners keep GOMODCACHE/GOCACHE on disk; the Actions cache download is ~1 MB/s on vps-arm (see ci.yml)
-          cache: false
+          cache-dependency-path: bridge/go.sum
+          # the self-hosted Mac keeps GOMODCACHE/GOCACHE on disk; the hosted Linux runner uses the Actions cache
+          cache: ${{ matrix.name == 'linux' }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -147,14 +148,13 @@ jobs:
           fi
           cd ../dist
           shasum -a 256 bothouse-* > SHA256SUMS
-      - name: Smoke test (linux arm64 native; linux x64 and windows exe headers)
+      - name: Smoke test (linux x64 native; linux arm64 and windows exe headers)
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          dist/bothouse-linux-arm64 --version
-          dist/bothouse-linux-arm64 setup --help | grep -q 'setup apply'
-          # x64 is not run here: Go binaries crash under qemu-user on vps-arm (run 39931609247); header check only
-          file dist/bothouse-linux-x64 | tee /dev/stderr | grep -q 'ELF 64-bit.*x86-64'
+          dist/bothouse-linux-x64 --version
+          dist/bothouse-linux-x64 setup --help | grep -q 'setup apply'
+          file dist/bothouse-linux-arm64 | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
           file dist/bothouse-windows.exe | tee /dev/stderr | grep -q 'PE32+ executable.*x86-64'
       - name: Smoke test (macOS app bundle)
         if: runner.os == 'macOS'
@@ -204,7 +204,7 @@ jobs:
 
   publish:
     needs: build
-    runs-on: [self-hosted, bothouse-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
@@ -231,9 +231,10 @@ jobs:
           key: release-dist-macos-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: release-dist-macos-${{ github.run_id }}-
           fail-on-cache-miss: true
-      - name: gh CLI (vps-arm has none; kept in the runner tool cache)
+      - name: gh CLI (preinstalled on hosted runners; otherwise kept in the runner tool cache)
         run: |
           set -euo pipefail
+          if command -v gh >/dev/null; then exit 0; fi
           v=2.103.0
           d="$RUNNER_TOOL_CACHE/gh/$v"
           if [ ! -x "$d/bin/gh" ]; then
@@ -273,7 +274,7 @@ jobs:
   # a one-commit `dsh-plugin` branch holding only the packed files. Runs in parallel with the binary builds.
   dsh-plugin:
     needs: preempt
-    runs-on: [self-hosted, bothouse-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
