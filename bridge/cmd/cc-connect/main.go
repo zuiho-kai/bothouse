@@ -398,639 +398,21 @@ func runMain() {
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
+	builtProjs := make([]config.ProjectConfig, 0, len(cfg.Projects))
+	rt := newProjectRuntime(configPath, rootOpts)
+
 	for _, proj := range cfg.Projects {
-		// Inject project-level run_as_user / run_as_env into the agent's
-		// opts map so agents that support isolation can pick them up
-		// without needing their own top-level config plumbing.
-		if proj.RunAsUser != "" {
-			if proj.Agent.Options == nil {
-				proj.Agent.Options = map[string]any{}
-			}
-			proj.Agent.Options["run_as_user"] = proj.RunAsUser
-			if len(proj.RunAsEnv) > 0 {
-				proj.Agent.Options["run_as_env"] = proj.RunAsEnv
-			}
+		b, err := buildProject(cfg, configPath, rootOpts, proj)
+		if errors.Is(err, errSkipProject) {
+			continue
 		}
-		agent, err := core.CreateAgent(proj.Agent.Type, buildAgentOptions(cfg.DataDir, proj))
 		if err != nil {
-			slog.Error("failed to create agent", "project", proj.Name, "error", err)
 			os.Exit(1)
 		}
-
-		providerWiring := wireAgentProviders(agent, proj.Agent)
-
-		var platforms []core.Platform
-		for _, pc := range proj.Platforms {
-			opts := make(map[string]any, len(pc.Options)+2)
-			for k, v := range pc.Options {
-				opts[k] = v
-			}
-			opts["cc_data_dir"] = cfg.DataDir
-			opts["cc_project"] = proj.Name
-			p, err := core.CreatePlatform(pc.Type, opts)
-			if err != nil {
-				slog.Error("failed to create platform", "project", proj.Name, "type", pc.Type, "error", err)
-				os.Exit(1)
-			}
-			platforms = append(platforms, p)
-		}
-
-		workDir, _ := proj.Agent.Options["work_dir"].(string)
-		projectState := core.NewProjectStateStore(projectStatePath(cfg.DataDir, proj.Name))
-		effectiveWorkDir := applyProjectStateOverride(proj.Name, agent, workDir, projectState)
-		startInitialRefreshIfReady(agent, providerWiring)
-		sessionFile := sessionStorePath(cfg.DataDir, proj.Name, effectiveWorkDir)
-
-		// Parse language setting
-		var lang core.Language
-		switch cfg.Language {
-		case "zh", "chinese":
-			lang = core.LangChinese
-		case "zh-TW", "zh_TW", "zhtw":
-			lang = core.LangTraditionalChinese
-		case "ja", "japanese":
-			lang = core.LangJapanese
-		case "es", "spanish":
-			lang = core.LangSpanish
-		case "en", "english":
-			lang = core.LangEnglish
-		default:
-			lang = core.LangAuto // auto-detect
-		}
-
-		engine := core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
-		// Wire display settings including show_context_indicator and reply_footer
-		// Global [display] config can be overridden by project-level settings
-		_, _, _, _, _, showCtx, showFooter, _ := config.EffectiveDisplay(cfg, &proj)
-		engine.SetShowContextIndicator(showCtx)
-		showWorkdir := true
-		if proj.ShowWorkdirIndicator != nil {
-			showWorkdir = *proj.ShowWorkdirIndicator
-		}
-		engine.SetShowWorkdirIndicator(showWorkdir)
-		engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
-		engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
-		engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
-		engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
-		engine.SetReplyFooterEnabled(showFooter)
-		engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
-		engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
-		engine.SetBaseWorkDir(workDir)
-		engine.SetProjectStateStore(projectState)
-		engine.SetDataDir(cfg.DataDir)
-		if proj.PublicProgressEnabled() {
-			if err := engine.EnablePublicProgress(); err != nil {
-				slog.Error("public progress initialization failed", "error", err)
-				os.Exit(1)
-			}
-		}
-
-		// Wire multi-workspace mode
-		if proj.Mode == "multi-workspace" {
-			baseDir := proj.BaseDir
-			if strings.HasPrefix(baseDir, "~/") {
-				home, _ := os.UserHomeDir()
-				baseDir = filepath.Join(home, baseDir[2:])
-			}
-			if err := os.MkdirAll(baseDir, 0o755); err != nil {
-				slog.Error("failed to create base_dir", "path", baseDir, "err", err)
-				continue
-			}
-			bindingStore := filepath.Join(cfg.DataDir, "workspace_bindings.json")
-			engine.SetMultiWorkspace(baseDir, bindingStore)
-			if proj.WorkspaceInitAllowLocalPaths != nil {
-				engine.SetWorkspaceInitAllowLocalPaths(*proj.WorkspaceInitAllowLocalPaths)
-			}
-			idleMins := cfg.WorkspaceIdleTimeoutMins
-			if idleMins == nil && proj.WorkspaceIdleTimeoutMinsLegacy != nil {
-				slog.Warn("workspace_idle_timeout_mins under [[projects]] is deprecated; move it to the top level of config.toml. Honoring the legacy value for backwards compatibility.",
-					"project", proj.Name, "value", *proj.WorkspaceIdleTimeoutMinsLegacy)
-				idleMins = proj.WorkspaceIdleTimeoutMinsLegacy
-			}
-			if idleMins != nil {
-				mins := *idleMins
-				if mins <= 0 {
-					engine.SetWorkspaceIdleTimeout(0)
-				} else {
-					engine.SetWorkspaceIdleTimeout(time.Duration(mins) * time.Minute)
-				}
-			}
-			if proj.SkipGit != nil {
-				engine.SetSkipGit(*proj.SkipGit)
-			}
-			slog.Info("multi-workspace mode enabled", "project", proj.Name, "base_dir", baseDir)
-		}
-
-		// Wire terminal observation (--observe / [projects.observe])
-		observeEnabled := rootOpts.observe
-		obsChan := rootOpts.observeChannel
-		if proj.Observe != nil {
-			if !observeEnabled && proj.Observe.Enabled {
-				observeEnabled = true
-			}
-			if obsChan == "" && proj.Observe.Channel != "" {
-				obsChan = proj.Observe.Channel
-			}
-		}
-		if observeEnabled {
-			if obsChan == "" {
-				slog.Error("observe: channel is required (use --observe-channel or set channel in [projects.observe])")
-				os.Exit(1)
-			}
-			hasSlack := false
-			for _, p := range platforms {
-				if p.Name() == "slack" {
-					hasSlack = true
-					break
-				}
-			}
-			if !hasSlack {
-				slog.Warn("observe requires a Slack platform; ignoring")
-			} else {
-				projectDir := resolveClaudeProjectDir(workDir)
-				if projectDir == "" {
-					slog.Warn("observe: could not find Claude Code project directory", "workDir", workDir)
-				} else {
-					sessionKey := fmt.Sprintf("slack:%s", obsChan)
-					engine.SetObserveConfig(projectDir, sessionKey)
-				}
-			}
-		}
-
-		// Wire global custom commands
-		for _, c := range cfg.Commands {
-			engine.AddCommand(c.Name, c.Description, c.Prompt, c.Exec, c.WorkDir, "config")
-		}
-
-		// Wire command persistence callbacks
-		engine.SetCommandSaveAddFunc(func(name, description, prompt, exec, workDir string) error {
-			return config.AddCommand(config.CommandConfig{Name: name, Description: description, Prompt: prompt, Exec: exec, WorkDir: workDir})
-		})
-		engine.SetCommandSaveDelFunc(func(name string) error {
-			return config.RemoveCommand(name)
-		})
-
-		// Wire global aliases
-		for _, a := range cfg.Aliases {
-			engine.AddAlias(a.Name, a.Command)
-		}
-		engine.SetAliasSaveAddFunc(func(name, command string) error {
-			return config.AddAlias(config.AliasConfig{Name: name, Command: command})
-		})
-		engine.SetAliasSaveDelFunc(func(name string) error {
-			return config.RemoveAlias(name)
-		})
-
-		// Wire banned words
-		if len(cfg.BannedWords) > 0 {
-			engine.SetBannedWords(cfg.BannedWords)
-		}
-
-		// Wire disabled commands (project-level)
-		if len(proj.DisabledCommands) > 0 {
-			engine.SetDisabledCommands(proj.DisabledCommands)
-		}
-
-		// Wire admin allowlist for privileged commands
-		engine.SetAdminFrom(proj.AdminFrom)
-
-		// Wire per-user role-based policies
-		if proj.Users != nil {
-			engine.SetUserRoles(buildUserRoleManager(proj.Users))
-		}
-
-		// Wire display truncation settings (includes legacy quiet → display mapping)
-		{
-			mode, tm, tool, tmlen, toollen, _, _, hideAgentFooter := config.EffectiveDisplay(cfg, &proj)
-			historyMaxLen := config.EffectiveHistoryMaxLen(cfg, &proj)
-			engine.SetDisplayConfig(core.DisplayCfg{
-				Mode:             mode,
-				CardMode:         config.EffectiveCardMode(cfg, &proj),
-				ThinkingMessages: tm,
-				ThinkingMaxLen:   tmlen,
-				ToolMaxLen:       toollen,
-				ToolMessages:     tool,
-				HistoryMaxLen:    &historyMaxLen,
-				HideAgentFooter:  hideAgentFooter,
-			})
-		}
-
-		// Wire shell configuration
-		shell, shellFlag, shellProfile := config.EffectiveShell(cfg, &proj)
-		engine.SetShell(shell, shellFlag, shellProfile)
-
-		// Wire hooks
-		if len(cfg.Hooks) > 0 {
-			coreHooks := make([]core.HookConfig, len(cfg.Hooks))
-			for i, h := range cfg.Hooks {
-				coreHooks[i] = core.HookConfig{
-					Event:   h.Event,
-					Type:    h.Type,
-					Command: h.Command,
-					URL:     h.URL,
-					Timeout: h.Timeout,
-					Async:   h.Async,
-				}
-			}
-			engine.SetHooks(core.NewHookManager(proj.Name, coreHooks, shell, shellFlag, shellProfile))
-		}
-
-		// Wire local reference normalization / rendering
-		engine.SetReferenceConfig(core.ReferenceRenderCfg{
-			NormalizeAgents: proj.References.NormalizeAgents,
-			RenderPlatforms: proj.References.RenderPlatforms,
-			DisplayPath:     proj.References.DisplayPath,
-			MarkerStyle:     proj.References.MarkerStyle,
-			EnclosureStyle:  proj.References.EnclosureStyle,
-		})
-
-		// Wire streaming preview
-		{
-			spcfg := core.DefaultStreamPreviewCfg()
-			if cfg.StreamPreview.Enabled != nil {
-				spcfg.Enabled = *cfg.StreamPreview.Enabled
-			}
-			if cfg.StreamPreview.IntervalMs != nil {
-				spcfg.IntervalMs = *cfg.StreamPreview.IntervalMs
-			}
-			if cfg.StreamPreview.MinDeltaChars != nil {
-				spcfg.MinDeltaChars = *cfg.StreamPreview.MinDeltaChars
-			}
-			if cfg.StreamPreview.MaxChars != nil {
-				spcfg.MaxChars = *cfg.StreamPreview.MaxChars
-			}
-			if cfg.StreamPreview.DisabledPlatforms != nil {
-				spcfg.DisabledPlatforms = cfg.StreamPreview.DisabledPlatforms
-			}
-			engine.SetStreamPreviewCfg(spcfg)
-		}
-
-		// Wire instant reply
-		if cfg.InstantReply.Enabled != nil && *cfg.InstantReply.Enabled {
-			engine.SetInstantReply(core.InstantReplyCfg{
-				Enabled: true,
-				Content: cfg.InstantReply.Content,
-			})
-		}
-
-		// Wire rate limiting
-		{
-			maxMsg := 20
-			windowSecs := 60
-			if cfg.RateLimit.MaxMessages != nil {
-				maxMsg = *cfg.RateLimit.MaxMessages
-			}
-			if cfg.RateLimit.WindowSecs != nil {
-				windowSecs = *cfg.RateLimit.WindowSecs
-			}
-			if maxMsg > 0 {
-				engine.SetRateLimitCfg(core.RateLimitCfg{
-					MaxMessages: maxMsg,
-					Window:      time.Duration(windowSecs) * time.Second,
-				})
-			}
-		}
-		// Wire outgoing rate limiting
-		{
-			var maxPS float64
-			if cfg.OutgoingRateLimit.MaxPerSecond != nil {
-				maxPS = *cfg.OutgoingRateLimit.MaxPerSecond
-			}
-			var burst int
-			if cfg.OutgoingRateLimit.Burst != nil {
-				burst = *cfg.OutgoingRateLimit.Burst
-			}
-			defaults := core.OutgoingRateLimitCfg{MaxPerSecond: maxPS, Burst: burst}
-			overrides := make(map[string]core.OutgoingRateLimitCfg)
-			for name, pc := range cfg.OutgoingRateLimit.Platforms {
-				var mps float64
-				if pc.MaxPerSecond != nil {
-					mps = *pc.MaxPerSecond
-				}
-				var b int
-				if pc.Burst != nil {
-					b = *pc.Burst
-				}
-				overrides[name] = core.OutgoingRateLimitCfg{MaxPerSecond: mps, Burst: b}
-			}
-			if maxPS > 0 || len(overrides) > 0 {
-				engine.SetOutgoingRateLimitCfg(defaults, overrides)
-			}
-		}
-
-		engine.SetDisplaySaveFunc(func(mode *string, thinkingMessages *bool, thinkingMaxLen, toolMaxLen *int, toolMessages *bool) error {
-			return config.SaveDisplayConfig(mode, thinkingMessages, thinkingMaxLen, toolMaxLen, toolMessages)
-		})
-
-		// Wire idle timeout
-		if cfg.IdleTimeoutMins != nil {
-			mins := *cfg.IdleTimeoutMins
-			if mins <= 0 {
-				engine.SetEventIdleTimeout(0)
-			} else {
-				engine.SetEventIdleTimeout(time.Duration(mins) * time.Minute)
-			}
-		}
-
-		// Wire max turn time (absolute per-turn wall-clock cap; 0 = disabled)
-		if cfg.MaxTurnTimeMins != nil && *cfg.MaxTurnTimeMins > 0 {
-			engine.SetMaxTurnTime(time.Duration(*cfg.MaxTurnTimeMins) * time.Minute)
-		}
-
-		// Wire queue depth
-		if cfg.Queue.MaxDepth != nil && *cfg.Queue.MaxDepth > 0 {
-			engine.SetMaxQueuedMessages(*cfg.Queue.MaxDepth)
-		}
-
-		// Wire auto-compress settings
-		if proj.AutoCompress.Enabled != nil && *proj.AutoCompress.Enabled {
-			minGap := 30 * time.Minute
-			if proj.AutoCompress.MinGapMins != nil {
-				minGap = time.Duration(*proj.AutoCompress.MinGapMins) * time.Minute
-			}
-			maxTokens := derefInt(proj.AutoCompress.MaxTokens)
-			if maxTokens <= 0 {
-				maxTokens = 12000
-			}
-			engine.SetAutoCompressConfig(true, maxTokens, minGap)
-		}
-		wireColdCacheFresh(engine, proj)
-		wireImageFresh(engine, proj)
-		engine.SetSessionModels(proj.SessionModels)
-		engine.SetSessionInstructions(proj.SessionInstructions)
-		engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
-		engine.SetGateLocal(proj.GateLocalEnabled())
-		engine.SetGateBurstWindow(proj.GateBurstWindowMs)
-		engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
-		engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
-		engine.SetChannelBoard(proj.ChannelBoard)
-		engine.SetMemoryIndex(proj.MemoryIndex)
-		engine.SetTeamBoard(proj.TeamBoard)
-		engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
-		engine.SetDispatchMode(proj.DispatchMode)
-		engine.SetVoiceDesk(proj.VoiceDesk)
-		resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
-		engine.SetResetOnIdle(resetIdle)
-		if defaulted {
-			slog.Info("project: reset_on_idle_mins not set, applying default — set reset_on_idle_mins = 0 to opt out, see docs/usage.md",
-				"project", proj.Name, "default_minutes", defaultResetOnIdleMins)
-		}
-		if proj.AgentSessionIdleTimeoutMins != nil {
-			mins := *proj.AgentSessionIdleTimeoutMins
-			if mins <= 0 {
-				engine.SetAgentSessionIdleTimeout(0)
-			} else {
-				engine.SetAgentSessionIdleTimeout(time.Duration(mins) * time.Minute)
-			}
-		}
-
-		// Wire sender injection
-		if proj.InjectSender != nil {
-			engine.SetInjectSender(*proj.InjectSender)
-		}
-
-		// Wire speech-to-text if enabled
-		if cfg.Speech.Enabled {
-			speechCfg := core.SpeechCfg{
-				Enabled:  true,
-				Language: cfg.Speech.Language,
-			}
-			switch cfg.Speech.Provider {
-			case "groq":
-				apiKey := cfg.Speech.Groq.APIKey
-				model := cfg.Speech.Groq.Model
-				if model == "" {
-					model = "whisper-large-v3-turbo"
-				}
-				if apiKey != "" {
-					speechCfg.STT = core.NewOpenAIWhisper(apiKey, "https://api.groq.com/openai/v1", model)
-				} else {
-					slog.Warn("speech: groq provider enabled but api_key is empty")
-				}
-			case "qwen":
-				apiKey := cfg.Speech.Qwen.APIKey
-				baseURL := cfg.Speech.Qwen.BaseURL
-				model := cfg.Speech.Qwen.Model
-				if apiKey != "" {
-					speechCfg.STT = core.NewQwenASR(apiKey, baseURL, model)
-				} else {
-					slog.Warn("speech: qwen provider enabled but api_key is empty")
-				}
-			case "gemini":
-				apiKey := cfg.Speech.Gemini.APIKey
-				model := cfg.Speech.Gemini.Model
-				if apiKey != "" {
-					speechCfg.STT = core.NewGeminiSTT(apiKey, model)
-				} else {
-					slog.Warn("speech: gemini provider enabled but api_key is empty")
-				}
-			default: // "openai" or unspecified
-				apiKey := cfg.Speech.OpenAI.APIKey
-				baseURL := cfg.Speech.OpenAI.BaseURL
-				model := cfg.Speech.OpenAI.Model
-				if apiKey != "" {
-					speechCfg.STT = core.NewOpenAIWhisper(apiKey, baseURL, model)
-				} else {
-					slog.Warn("speech: openai provider enabled but api_key is empty")
-				}
-			}
-			if speechCfg.STT != nil {
-				engine.SetSpeechConfig(speechCfg)
-				slog.Info("speech: enabled", "provider", cfg.Speech.Provider)
-			}
-		}
-
-		// Wire text-to-speech if enabled
-		ttsEffective := config.ResolveTTSConfigForProject(cfg.TTS, proj.Name)
-		if ttsEffective.Enabled {
-			ttsCfg := &core.TTSCfg{
-				Enabled:      true,
-				Voice:        ttsEffective.Voice,
-				LanguageType: ttsEffective.LanguageType,
-				Speed:        ttsEffective.Speed,
-				MaxTextLen:   ttsEffective.MaxTextLen,
-			}
-			initMode := ttsEffective.TTSMode
-			switch initMode {
-			case "always", "voice_only":
-			case "":
-				initMode = "voice_only"
-			default:
-				slog.Warn("tts: invalid tts_mode in config, falling back to voice_only", "tts_mode", initMode)
-				initMode = "voice_only"
-			}
-			ttsCfg.SetTTSMode(initMode)
-			switch ttsEffective.Provider {
-			case "qwen":
-				apiKey := cfg.TTS.Qwen.APIKey
-				baseURL := cfg.TTS.Qwen.BaseURL
-				model := cfg.TTS.Qwen.Model
-				if apiKey != "" {
-					ttsCfg.TTS = core.NewQwenTTS(apiKey, baseURL, model, nil)
-					ttsCfg.Provider = "qwen"
-				} else {
-					slog.Warn("tts: qwen provider enabled but api_key is empty")
-				}
-			case "minimax":
-				apiKey := cfg.TTS.MiniMax.APIKey
-				baseURL := cfg.TTS.MiniMax.BaseURL
-				model := cfg.TTS.MiniMax.Model
-				if apiKey == "" {
-					localCfg, err := config.LoadMiniMaxLocalConfig(cfg.DataDir, cfg.TTS.MiniMax.ConfigFile)
-					if err != nil {
-						slog.Warn("tts: failed to load minimax local config", "error", err)
-					} else {
-						apiKey = localCfg.APIKey
-						if baseURL == "" {
-							if localCfg.BaseURL != "" {
-								baseURL = localCfg.BaseURL
-							} else if localCfg.APIHost != "" {
-								baseURL = localCfg.APIHost
-							}
-						}
-					}
-				}
-				if apiKey != "" {
-					ttsCfg.TTS = core.NewMiniMaxTTS(apiKey, baseURL, model, nil)
-					ttsCfg.Provider = "minimax"
-				} else {
-					slog.Warn("tts: minimax provider enabled but api_key is empty")
-				}
-			case "mimo":
-				apiKey := cfg.TTS.Mimo.APIKey
-				baseURL := cfg.TTS.Mimo.BaseURL
-				model := cfg.TTS.Mimo.Model
-				if apiKey != "" {
-					ttsCfg.TTS = core.NewMimoTTS(apiKey, baseURL, model, nil)
-					ttsCfg.Provider = "mimo"
-				} else {
-					slog.Warn("tts: mimo provider enabled but api_key is empty")
-				}
-			case "espeak":
-				voice := ttsEffective.Voice
-				if voice == "" {
-					voice = "zh" // default to Chinese
-				}
-				ttsCfg.TTS = core.NewEspeakTTS("", voice)
-				ttsCfg.Provider = "espeak"
-			case "pico":
-				voice := ttsEffective.Voice
-				if voice == "" {
-					voice = "zh-CN" // default to Chinese (Simplified)
-				}
-				ttsCfg.TTS = core.NewPicoTTS("", voice)
-				ttsCfg.Provider = "pico"
-			case "edge":
-				voice := ttsEffective.Voice
-				if voice == "" {
-					voice = "zh-CN-XiaoxiaoNeural" // default Chinese neural voice
-				}
-				ttsCfg.TTS = core.NewEdgeTTS(voice)
-				ttsCfg.Provider = "edge"
-			default: // "openai" or unspecified
-				apiKey := cfg.TTS.OpenAI.APIKey
-				baseURL := cfg.TTS.OpenAI.BaseURL
-				model := cfg.TTS.OpenAI.Model
-				if apiKey != "" {
-					ttsCfg.TTS = core.NewOpenAITTS(apiKey, baseURL, model, nil)
-					ttsCfg.Provider = "openai"
-				} else {
-					slog.Warn("tts: openai provider enabled but api_key is empty")
-				}
-			}
-			if ttsCfg.TTS != nil {
-				engine.SetTTSConfig(ttsCfg)
-				engine.SetTTSSaveFunc(func(mode string) error {
-					return config.SaveTTSMode(mode)
-				})
-				slog.Info("tts: enabled", "provider", ttsCfg.Provider, "voice", ttsCfg.Voice, "mode", initMode)
-			}
-		}
-
-		// Set up save callback for auto-detected language
-		if lang == core.LangAuto {
-			engine.SetLanguageSaveFunc(func(l core.Language) error {
-				return config.SaveLanguage(string(l))
-			})
-		}
-
-		// Set up save callbacks for provider management
-		projName := proj.Name
-		engine.SetProviderSaveFunc(func(providerName string) error {
-			return config.SaveActiveProvider(projName, providerName)
-		})
-		engine.SetProviderAddSaveFunc(func(p core.ProviderConfig) error {
-			cp := config.ProviderConfig{
-				Name: p.Name, APIKey: p.APIKey, BaseURL: p.BaseURL,
-				Model: p.Model, Models: convertCoreModels(p.Models), Thinking: p.Thinking, Env: p.Env,
-			}
-			if p.CodexWireAPI != "" || len(p.CodexHTTPHeaders) > 0 {
-				cp.Codex = &config.CodexProviderConfig{
-					WireAPI: p.CodexWireAPI, HTTPHeaders: p.CodexHTTPHeaders,
-				}
-			}
-			return config.AddProviderToConfig(projName, cp)
-		})
-		engine.SetProviderRemoveSaveFunc(func(name string) error {
-			return config.RemoveProviderFromConfig(projName, name)
-		})
-		engine.SetProviderModelSaveFunc(func(providerName, model string) error {
-			return config.SaveProviderModel(projName, providerName, model)
-		})
-		engine.SetProviderRefsSaveFunc(func(refs []string) error {
-			return config.SaveProviderRefs(projName, refs)
-		})
-		engine.SetListGlobalProvidersFunc(func(agentType string) ([]core.ProviderConfig, error) {
-			globals, err := config.ListGlobalProviders()
-			if err != nil {
-				return nil, err
-			}
-			var result []core.ProviderConfig
-			for _, g := range globals {
-				if len(g.AgentTypes) > 0 && !containsString(g.AgentTypes, agentType) {
-					continue
-				}
-				result = append(result, configProviderToCore(g.ResolveForAgent(agentType)))
-			}
-			return result, nil
-		})
-		engine.SetModelSaveFunc(func(model string) error {
-			return config.SaveAgentModel(projName, model)
-		})
-		engine.SetReasoningEffortSaveFunc(func(effort string) error {
-			return config.SaveAgentReasoningEffort(projName, effort)
-		})
-
-		// Wire config reload
-		capturedEngine := engine
-		capturedProjName := projName
-		engine.SetConfigReloadFunc(func() (*core.ConfigReloadResult, error) {
-			return reloadConfig(configPath, capturedProjName, capturedEngine)
-		})
-
-		// Wire /web command callbacks
-		engine.SetWebSetupFunc(func() (int, string, bool, error) {
-			mgmtToken := core.GenerateToken(16)
-			bridgeToken := core.GenerateToken(16)
-			result, err := config.EnableWebAdmin(mgmtToken, bridgeToken)
-			if err != nil {
-				return 0, "", false, err
-			}
-			return result.ManagementPort, result.ManagementToken, !result.AlreadyEnabled, nil
-		})
-		engine.SetWebStatusFunc(func() string {
-			if cfg.Management.Enabled == nil || !*cfg.Management.Enabled {
-				return ""
-			}
-			port := cfg.Management.Port
-			if port == 0 {
-				port = 9820
-			}
-			return fmt.Sprintf("http://localhost:%d", port)
-		})
-
-		engines = append(engines, engine)
-		effectiveWorkDirs = append(effectiveWorkDirs, effectiveWorkDir)
+		engines = append(engines, b.engine)
+		effectiveWorkDirs = append(effectiveWorkDirs, b.workDir)
+		builtProjs = append(builtProjs, proj)
+		rt.addRunning(proj.Name, b.engine)
 	}
 
 	// Start cron scheduler
@@ -1047,9 +429,9 @@ func runMain() {
 		if cfg.Cron.SessionMode != "" {
 			cronSched.SetDefaultSessionMode(cfg.Cron.SessionMode)
 		}
+		rt.cronSched = cronSched
 		for i, e := range engines {
-			cronSched.RegisterEngine(cfg.Projects[i].Name, e)
-			e.SetCronScheduler(cronSched)
+			rt.registerCron(builtProjs[i].Name, e)
 		}
 	}
 
@@ -1067,20 +449,17 @@ func runMain() {
 		if cfg.Cron.SessionMode != "" {
 			timerSched.SetDefaultSessionMode(cfg.Cron.SessionMode)
 		}
+		rt.timerSched = timerSched
 		for i, e := range engines {
-			timerSched.RegisterEngine(cfg.Projects[i].Name, e)
-			e.SetTimerScheduler(timerSched)
+			rt.registerTimer(builtProjs[i].Name, e)
 		}
 	}
 
 	// Start heartbeat scheduler
 	heartbeatSched := core.NewHeartbeatScheduler(cfg.DataDir)
-	for i, proj := range cfg.Projects {
-		hbCfg := buildHeartbeatConfig(proj.Heartbeat)
-		if hbCfg.Enabled {
-			heartbeatSched.Register(proj.Name, hbCfg, engines[i], effectiveWorkDirs[i])
-		}
-		engines[i].SetHeartbeatScheduler(heartbeatSched)
+	rt.hbSched = heartbeatSched
+	for i, proj := range builtProjs {
+		rt.registerHeartbeat(proj, engines[i], effectiveWorkDirs[i], false)
 	}
 
 	// maomao fork: video links → watchvid once, attachments → NAS media library. Only when
@@ -1137,10 +516,9 @@ func runMain() {
 			slog.Error("bridge: failed to create server - token is required (or set insecure=true for local dev)")
 			os.Exit(1)
 		}
+		rt.bridgeSrv = bridgeSrv
 		for i, e := range engines {
-			bp := bridgeSrv.NewPlatform(cfg.Projects[i].Name)
-			bridgeSrv.RegisterEngine(cfg.Projects[i].Name, e, bp)
-			e.AddPlatform(bp)
+			rt.registerBridge(builtProjs[i].Name, e)
 		}
 		bridgeSrv.Start()
 	}
@@ -1157,8 +535,9 @@ func runMain() {
 			path = "/hook"
 		}
 		webhookSrv = core.NewWebhookServer(port, cfg.Webhook.Token, path)
+		rt.webhookSrv = webhookSrv
 		for i, e := range engines {
-			webhookSrv.RegisterEngine(cfg.Projects[i].Name, e)
+			rt.registerWebhook(builtProjs[i].Name, e)
 		}
 		webhookSrv.Start()
 	}
@@ -1174,9 +553,11 @@ func runMain() {
 		mgmtSrv.SetHost(cfg.Management.Host)
 		mgmtSrv.SetUsageLedger(usageLedger)
 		mgmtSrv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
+		rt.mgmtSrv = mgmtSrv
 		for i, e := range engines {
-			mgmtSrv.RegisterEngine(cfg.Projects[i].Name, e)
+			rt.registerManagement(builtProjs[i].Name, e)
 		}
+		mgmtSrv.SetHotLoadFunc(rt.HotLoad)
 		if cronSched != nil {
 			mgmtSrv.SetCronScheduler(cronSched)
 		}
@@ -1333,17 +714,9 @@ func runMain() {
 		// Create shared DirHistory for all engines
 		dirHistory := core.NewDirHistory(cfg.DataDir)
 
+		rt.apiSrv, rt.relayMgr, rt.dirHistory = apiSrv, relayMgr, dirHistory
 		for i, e := range engines {
-			apiSrv.RegisterEngine(cfg.Projects[i].Name, e)
-			e.SetRelayManager(relayMgr)
-			e.SetDirHistory(dirHistory)
-
-			// Ensure initial work_dir is in history
-			if initWorkDir := effectiveWorkDirs[i]; initWorkDir != "" {
-				if !dirHistory.Contains(cfg.Projects[i].Name, initWorkDir) {
-					dirHistory.Add(cfg.Projects[i].Name, initWorkDir)
-				}
-			}
+			rt.registerAPI(builtProjs[i].Name, e, effectiveWorkDirs[i])
 		}
 		if cronSched != nil {
 			apiSrv.SetCronScheduler(cronSched)
@@ -1357,6 +730,7 @@ func runMain() {
 	gateSup := startGate(cfg)
 
 	slog.Info("bothouse is running", "projects", len(engines))
+	rt.setReady(true)
 
 	// After startup, check if we were restarted and queue the success
 	// notification. The engine dispatches it on the first OnPlatformReady
@@ -1386,6 +760,7 @@ func runMain() {
 	}
 
 	slog.Info("shutting down...")
+	runningEngines := rt.stopAccepting() // startup's engines plus the hot-loaded ones
 	if trayMode {
 		quitDesktopTray()
 	}
@@ -1408,7 +783,7 @@ func runMain() {
 	if apiSrv != nil {
 		apiSrv.Stop()
 	}
-	for _, e := range engines {
+	for _, e := range runningEngines {
 		if err := e.Stop(); err != nil {
 			slog.Error("shutdown error", "error", err)
 		}
@@ -1439,6 +814,657 @@ func runMain() {
 	}
 
 	slog.Info("bye")
+}
+
+// errSkipProject: buildProject left the project out (its multi-workspace base_dir could not be
+// created). Startup goes on without it, as it always did.
+var errSkipProject = errors.New("project skipped")
+
+// builtProject is what buildProject made, as far as it got (on an error the caller cleans up).
+type builtProject struct {
+	agent   core.Agent
+	engine  *core.Engine
+	workDir string // the effective work_dir (project state may override the configured one)
+}
+
+// buildProject creates one project's agent, platforms and Engine with all its settings. Nothing is
+// started or registered with the process-wide services. Startup exits on an error (as before);
+// hot loading only marks that project as failed.
+func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions, proj config.ProjectConfig) (builtProject, error) {
+	var b builtProject
+	// Inject project-level run_as_user / run_as_env into the agent's
+	// opts map so agents that support isolation can pick them up
+	// without needing their own top-level config plumbing.
+	if proj.RunAsUser != "" {
+		if proj.Agent.Options == nil {
+			proj.Agent.Options = map[string]any{}
+		}
+		proj.Agent.Options["run_as_user"] = proj.RunAsUser
+		if len(proj.RunAsEnv) > 0 {
+			proj.Agent.Options["run_as_env"] = proj.RunAsEnv
+		}
+	}
+	agent, err := core.CreateAgent(proj.Agent.Type, buildAgentOptions(cfg.DataDir, proj))
+	if err != nil {
+		slog.Error("failed to create agent", "project", proj.Name, "error", err)
+		return b, fmt.Errorf("create agent: %w", err)
+	}
+	b.agent = agent
+
+	providerWiring := wireAgentProviders(agent, proj.Agent)
+
+	var platforms []core.Platform
+	for _, pc := range proj.Platforms {
+		opts := make(map[string]any, len(pc.Options)+2)
+		for k, v := range pc.Options {
+			opts[k] = v
+		}
+		opts["cc_data_dir"] = cfg.DataDir
+		opts["cc_project"] = proj.Name
+		p, err := core.CreatePlatform(pc.Type, opts)
+		if err != nil {
+			slog.Error("failed to create platform", "project", proj.Name, "type", pc.Type, "error", err)
+			return b, fmt.Errorf("create platform %s: %w", pc.Type, err)
+		}
+		platforms = append(platforms, p)
+	}
+
+	workDir, _ := proj.Agent.Options["work_dir"].(string)
+	projectState := core.NewProjectStateStore(projectStatePath(cfg.DataDir, proj.Name))
+	effectiveWorkDir := applyProjectStateOverride(proj.Name, agent, workDir, projectState)
+	startInitialRefreshIfReady(agent, providerWiring)
+	sessionFile := sessionStorePath(cfg.DataDir, proj.Name, effectiveWorkDir)
+
+	// Parse language setting
+	var lang core.Language
+	switch cfg.Language {
+	case "zh", "chinese":
+		lang = core.LangChinese
+	case "zh-TW", "zh_TW", "zhtw":
+		lang = core.LangTraditionalChinese
+	case "ja", "japanese":
+		lang = core.LangJapanese
+	case "es", "spanish":
+		lang = core.LangSpanish
+	case "en", "english":
+		lang = core.LangEnglish
+	default:
+		lang = core.LangAuto // auto-detect
+	}
+
+	engine := core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
+	b.engine = engine
+	// Wire display settings including show_context_indicator and reply_footer
+	// Global [display] config can be overridden by project-level settings
+	_, _, _, _, _, showCtx, showFooter, _ := config.EffectiveDisplay(cfg, &proj)
+	engine.SetShowContextIndicator(showCtx)
+	showWorkdir := true
+	if proj.ShowWorkdirIndicator != nil {
+		showWorkdir = *proj.ShowWorkdirIndicator
+	}
+	engine.SetShowWorkdirIndicator(showWorkdir)
+	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
+	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
+	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
+	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetReplyFooterEnabled(showFooter)
+	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
+	engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
+	engine.SetBaseWorkDir(workDir)
+	engine.SetProjectStateStore(projectState)
+	engine.SetDataDir(cfg.DataDir)
+	if proj.PublicProgressEnabled() {
+		if err := engine.EnablePublicProgress(); err != nil {
+			slog.Error("public progress initialization failed", "error", err)
+			return b, fmt.Errorf("public progress: %w", err)
+		}
+	}
+
+	// Wire multi-workspace mode
+	if proj.Mode == "multi-workspace" {
+		baseDir := proj.BaseDir
+		if strings.HasPrefix(baseDir, "~/") {
+			home, _ := os.UserHomeDir()
+			baseDir = filepath.Join(home, baseDir[2:])
+		}
+		if err := os.MkdirAll(baseDir, 0o755); err != nil {
+			slog.Error("failed to create base_dir", "path", baseDir, "err", err)
+			return b, errSkipProject
+		}
+		bindingStore := filepath.Join(cfg.DataDir, "workspace_bindings.json")
+		engine.SetMultiWorkspace(baseDir, bindingStore)
+		if proj.WorkspaceInitAllowLocalPaths != nil {
+			engine.SetWorkspaceInitAllowLocalPaths(*proj.WorkspaceInitAllowLocalPaths)
+		}
+		idleMins := cfg.WorkspaceIdleTimeoutMins
+		if idleMins == nil && proj.WorkspaceIdleTimeoutMinsLegacy != nil {
+			slog.Warn("workspace_idle_timeout_mins under [[projects]] is deprecated; move it to the top level of config.toml. Honoring the legacy value for backwards compatibility.",
+				"project", proj.Name, "value", *proj.WorkspaceIdleTimeoutMinsLegacy)
+			idleMins = proj.WorkspaceIdleTimeoutMinsLegacy
+		}
+		if idleMins != nil {
+			mins := *idleMins
+			if mins <= 0 {
+				engine.SetWorkspaceIdleTimeout(0)
+			} else {
+				engine.SetWorkspaceIdleTimeout(time.Duration(mins) * time.Minute)
+			}
+		}
+		if proj.SkipGit != nil {
+			engine.SetSkipGit(*proj.SkipGit)
+		}
+		slog.Info("multi-workspace mode enabled", "project", proj.Name, "base_dir", baseDir)
+	}
+
+	// Wire terminal observation (--observe / [projects.observe])
+	observeEnabled := rootOpts.observe
+	obsChan := rootOpts.observeChannel
+	if proj.Observe != nil {
+		if !observeEnabled && proj.Observe.Enabled {
+			observeEnabled = true
+		}
+		if obsChan == "" && proj.Observe.Channel != "" {
+			obsChan = proj.Observe.Channel
+		}
+	}
+	if observeEnabled {
+		if obsChan == "" {
+			slog.Error("observe: channel is required (use --observe-channel or set channel in [projects.observe])")
+			return b, errors.New("observe: channel is required (use --observe-channel or set channel in [projects.observe])")
+		}
+		hasSlack := false
+		for _, p := range platforms {
+			if p.Name() == "slack" {
+				hasSlack = true
+				break
+			}
+		}
+		if !hasSlack {
+			slog.Warn("observe requires a Slack platform; ignoring")
+		} else {
+			projectDir := resolveClaudeProjectDir(workDir)
+			if projectDir == "" {
+				slog.Warn("observe: could not find Claude Code project directory", "workDir", workDir)
+			} else {
+				sessionKey := fmt.Sprintf("slack:%s", obsChan)
+				engine.SetObserveConfig(projectDir, sessionKey)
+			}
+		}
+	}
+
+	// Wire global custom commands
+	for _, c := range cfg.Commands {
+		engine.AddCommand(c.Name, c.Description, c.Prompt, c.Exec, c.WorkDir, "config")
+	}
+
+	// Wire command persistence callbacks
+	engine.SetCommandSaveAddFunc(func(name, description, prompt, exec, workDir string) error {
+		return config.AddCommand(config.CommandConfig{Name: name, Description: description, Prompt: prompt, Exec: exec, WorkDir: workDir})
+	})
+	engine.SetCommandSaveDelFunc(func(name string) error {
+		return config.RemoveCommand(name)
+	})
+
+	// Wire global aliases
+	for _, a := range cfg.Aliases {
+		engine.AddAlias(a.Name, a.Command)
+	}
+	engine.SetAliasSaveAddFunc(func(name, command string) error {
+		return config.AddAlias(config.AliasConfig{Name: name, Command: command})
+	})
+	engine.SetAliasSaveDelFunc(func(name string) error {
+		return config.RemoveAlias(name)
+	})
+
+	// Wire banned words
+	if len(cfg.BannedWords) > 0 {
+		engine.SetBannedWords(cfg.BannedWords)
+	}
+
+	// Wire disabled commands (project-level)
+	if len(proj.DisabledCommands) > 0 {
+		engine.SetDisabledCommands(proj.DisabledCommands)
+	}
+
+	// Wire admin allowlist for privileged commands
+	engine.SetAdminFrom(proj.AdminFrom)
+
+	// Wire per-user role-based policies
+	if proj.Users != nil {
+		engine.SetUserRoles(buildUserRoleManager(proj.Users))
+	}
+
+	// Wire display truncation settings (includes legacy quiet → display mapping)
+	{
+		mode, tm, tool, tmlen, toollen, _, _, hideAgentFooter := config.EffectiveDisplay(cfg, &proj)
+		historyMaxLen := config.EffectiveHistoryMaxLen(cfg, &proj)
+		engine.SetDisplayConfig(core.DisplayCfg{
+			Mode:             mode,
+			CardMode:         config.EffectiveCardMode(cfg, &proj),
+			ThinkingMessages: tm,
+			ThinkingMaxLen:   tmlen,
+			ToolMaxLen:       toollen,
+			ToolMessages:     tool,
+			HistoryMaxLen:    &historyMaxLen,
+			HideAgentFooter:  hideAgentFooter,
+		})
+	}
+
+	// Wire shell configuration
+	shell, shellFlag, shellProfile := config.EffectiveShell(cfg, &proj)
+	engine.SetShell(shell, shellFlag, shellProfile)
+
+	// Wire hooks
+	if len(cfg.Hooks) > 0 {
+		coreHooks := make([]core.HookConfig, len(cfg.Hooks))
+		for i, h := range cfg.Hooks {
+			coreHooks[i] = core.HookConfig{
+				Event:   h.Event,
+				Type:    h.Type,
+				Command: h.Command,
+				URL:     h.URL,
+				Timeout: h.Timeout,
+				Async:   h.Async,
+			}
+		}
+		engine.SetHooks(core.NewHookManager(proj.Name, coreHooks, shell, shellFlag, shellProfile))
+	}
+
+	// Wire local reference normalization / rendering
+	engine.SetReferenceConfig(core.ReferenceRenderCfg{
+		NormalizeAgents: proj.References.NormalizeAgents,
+		RenderPlatforms: proj.References.RenderPlatforms,
+		DisplayPath:     proj.References.DisplayPath,
+		MarkerStyle:     proj.References.MarkerStyle,
+		EnclosureStyle:  proj.References.EnclosureStyle,
+	})
+
+	// Wire streaming preview
+	{
+		spcfg := core.DefaultStreamPreviewCfg()
+		if cfg.StreamPreview.Enabled != nil {
+			spcfg.Enabled = *cfg.StreamPreview.Enabled
+		}
+		if cfg.StreamPreview.IntervalMs != nil {
+			spcfg.IntervalMs = *cfg.StreamPreview.IntervalMs
+		}
+		if cfg.StreamPreview.MinDeltaChars != nil {
+			spcfg.MinDeltaChars = *cfg.StreamPreview.MinDeltaChars
+		}
+		if cfg.StreamPreview.MaxChars != nil {
+			spcfg.MaxChars = *cfg.StreamPreview.MaxChars
+		}
+		if cfg.StreamPreview.DisabledPlatforms != nil {
+			spcfg.DisabledPlatforms = cfg.StreamPreview.DisabledPlatforms
+		}
+		engine.SetStreamPreviewCfg(spcfg)
+	}
+
+	// Wire instant reply
+	if cfg.InstantReply.Enabled != nil && *cfg.InstantReply.Enabled {
+		engine.SetInstantReply(core.InstantReplyCfg{
+			Enabled: true,
+			Content: cfg.InstantReply.Content,
+		})
+	}
+
+	// Wire rate limiting
+	{
+		maxMsg := 20
+		windowSecs := 60
+		if cfg.RateLimit.MaxMessages != nil {
+			maxMsg = *cfg.RateLimit.MaxMessages
+		}
+		if cfg.RateLimit.WindowSecs != nil {
+			windowSecs = *cfg.RateLimit.WindowSecs
+		}
+		if maxMsg > 0 {
+			engine.SetRateLimitCfg(core.RateLimitCfg{
+				MaxMessages: maxMsg,
+				Window:      time.Duration(windowSecs) * time.Second,
+			})
+		}
+	}
+	// Wire outgoing rate limiting
+	{
+		var maxPS float64
+		if cfg.OutgoingRateLimit.MaxPerSecond != nil {
+			maxPS = *cfg.OutgoingRateLimit.MaxPerSecond
+		}
+		var burst int
+		if cfg.OutgoingRateLimit.Burst != nil {
+			burst = *cfg.OutgoingRateLimit.Burst
+		}
+		defaults := core.OutgoingRateLimitCfg{MaxPerSecond: maxPS, Burst: burst}
+		overrides := make(map[string]core.OutgoingRateLimitCfg)
+		for name, pc := range cfg.OutgoingRateLimit.Platforms {
+			var mps float64
+			if pc.MaxPerSecond != nil {
+				mps = *pc.MaxPerSecond
+			}
+			var b int
+			if pc.Burst != nil {
+				b = *pc.Burst
+			}
+			overrides[name] = core.OutgoingRateLimitCfg{MaxPerSecond: mps, Burst: b}
+		}
+		if maxPS > 0 || len(overrides) > 0 {
+			engine.SetOutgoingRateLimitCfg(defaults, overrides)
+		}
+	}
+
+	engine.SetDisplaySaveFunc(func(mode *string, thinkingMessages *bool, thinkingMaxLen, toolMaxLen *int, toolMessages *bool) error {
+		return config.SaveDisplayConfig(mode, thinkingMessages, thinkingMaxLen, toolMaxLen, toolMessages)
+	})
+
+	// Wire idle timeout
+	if cfg.IdleTimeoutMins != nil {
+		mins := *cfg.IdleTimeoutMins
+		if mins <= 0 {
+			engine.SetEventIdleTimeout(0)
+		} else {
+			engine.SetEventIdleTimeout(time.Duration(mins) * time.Minute)
+		}
+	}
+
+	// Wire max turn time (absolute per-turn wall-clock cap; 0 = disabled)
+	if cfg.MaxTurnTimeMins != nil && *cfg.MaxTurnTimeMins > 0 {
+		engine.SetMaxTurnTime(time.Duration(*cfg.MaxTurnTimeMins) * time.Minute)
+	}
+
+	// Wire queue depth
+	if cfg.Queue.MaxDepth != nil && *cfg.Queue.MaxDepth > 0 {
+		engine.SetMaxQueuedMessages(*cfg.Queue.MaxDepth)
+	}
+
+	// Wire auto-compress settings
+	if proj.AutoCompress.Enabled != nil && *proj.AutoCompress.Enabled {
+		minGap := 30 * time.Minute
+		if proj.AutoCompress.MinGapMins != nil {
+			minGap = time.Duration(*proj.AutoCompress.MinGapMins) * time.Minute
+		}
+		maxTokens := derefInt(proj.AutoCompress.MaxTokens)
+		if maxTokens <= 0 {
+			maxTokens = 12000
+		}
+		engine.SetAutoCompressConfig(true, maxTokens, minGap)
+	}
+	wireColdCacheFresh(engine, proj)
+	wireImageFresh(engine, proj)
+	engine.SetSessionModels(proj.SessionModels)
+	engine.SetSessionInstructions(proj.SessionInstructions)
+	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
+	engine.SetGateLocal(proj.GateLocalEnabled())
+	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
+	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
+	engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
+	engine.SetChannelBoard(proj.ChannelBoard)
+	engine.SetMemoryIndex(proj.MemoryIndex)
+	engine.SetTeamBoard(proj.TeamBoard)
+	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+	engine.SetDispatchMode(proj.DispatchMode)
+	engine.SetVoiceDesk(proj.VoiceDesk)
+	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
+	engine.SetResetOnIdle(resetIdle)
+	if defaulted {
+		slog.Info("project: reset_on_idle_mins not set, applying default — set reset_on_idle_mins = 0 to opt out, see docs/usage.md",
+			"project", proj.Name, "default_minutes", defaultResetOnIdleMins)
+	}
+	if proj.AgentSessionIdleTimeoutMins != nil {
+		mins := *proj.AgentSessionIdleTimeoutMins
+		if mins <= 0 {
+			engine.SetAgentSessionIdleTimeout(0)
+		} else {
+			engine.SetAgentSessionIdleTimeout(time.Duration(mins) * time.Minute)
+		}
+	}
+
+	// Wire sender injection
+	if proj.InjectSender != nil {
+		engine.SetInjectSender(*proj.InjectSender)
+	}
+
+	// Wire speech-to-text if enabled
+	if cfg.Speech.Enabled {
+		speechCfg := core.SpeechCfg{
+			Enabled:  true,
+			Language: cfg.Speech.Language,
+		}
+		switch cfg.Speech.Provider {
+		case "groq":
+			apiKey := cfg.Speech.Groq.APIKey
+			model := cfg.Speech.Groq.Model
+			if model == "" {
+				model = "whisper-large-v3-turbo"
+			}
+			if apiKey != "" {
+				speechCfg.STT = core.NewOpenAIWhisper(apiKey, "https://api.groq.com/openai/v1", model)
+			} else {
+				slog.Warn("speech: groq provider enabled but api_key is empty")
+			}
+		case "qwen":
+			apiKey := cfg.Speech.Qwen.APIKey
+			baseURL := cfg.Speech.Qwen.BaseURL
+			model := cfg.Speech.Qwen.Model
+			if apiKey != "" {
+				speechCfg.STT = core.NewQwenASR(apiKey, baseURL, model)
+			} else {
+				slog.Warn("speech: qwen provider enabled but api_key is empty")
+			}
+		case "gemini":
+			apiKey := cfg.Speech.Gemini.APIKey
+			model := cfg.Speech.Gemini.Model
+			if apiKey != "" {
+				speechCfg.STT = core.NewGeminiSTT(apiKey, model)
+			} else {
+				slog.Warn("speech: gemini provider enabled but api_key is empty")
+			}
+		default: // "openai" or unspecified
+			apiKey := cfg.Speech.OpenAI.APIKey
+			baseURL := cfg.Speech.OpenAI.BaseURL
+			model := cfg.Speech.OpenAI.Model
+			if apiKey != "" {
+				speechCfg.STT = core.NewOpenAIWhisper(apiKey, baseURL, model)
+			} else {
+				slog.Warn("speech: openai provider enabled but api_key is empty")
+			}
+		}
+		if speechCfg.STT != nil {
+			engine.SetSpeechConfig(speechCfg)
+			slog.Info("speech: enabled", "provider", cfg.Speech.Provider)
+		}
+	}
+
+	// Wire text-to-speech if enabled
+	ttsEffective := config.ResolveTTSConfigForProject(cfg.TTS, proj.Name)
+	if ttsEffective.Enabled {
+		ttsCfg := &core.TTSCfg{
+			Enabled:      true,
+			Voice:        ttsEffective.Voice,
+			LanguageType: ttsEffective.LanguageType,
+			Speed:        ttsEffective.Speed,
+			MaxTextLen:   ttsEffective.MaxTextLen,
+		}
+		initMode := ttsEffective.TTSMode
+		switch initMode {
+		case "always", "voice_only":
+		case "":
+			initMode = "voice_only"
+		default:
+			slog.Warn("tts: invalid tts_mode in config, falling back to voice_only", "tts_mode", initMode)
+			initMode = "voice_only"
+		}
+		ttsCfg.SetTTSMode(initMode)
+		switch ttsEffective.Provider {
+		case "qwen":
+			apiKey := cfg.TTS.Qwen.APIKey
+			baseURL := cfg.TTS.Qwen.BaseURL
+			model := cfg.TTS.Qwen.Model
+			if apiKey != "" {
+				ttsCfg.TTS = core.NewQwenTTS(apiKey, baseURL, model, nil)
+				ttsCfg.Provider = "qwen"
+			} else {
+				slog.Warn("tts: qwen provider enabled but api_key is empty")
+			}
+		case "minimax":
+			apiKey := cfg.TTS.MiniMax.APIKey
+			baseURL := cfg.TTS.MiniMax.BaseURL
+			model := cfg.TTS.MiniMax.Model
+			if apiKey == "" {
+				localCfg, err := config.LoadMiniMaxLocalConfig(cfg.DataDir, cfg.TTS.MiniMax.ConfigFile)
+				if err != nil {
+					slog.Warn("tts: failed to load minimax local config", "error", err)
+				} else {
+					apiKey = localCfg.APIKey
+					if baseURL == "" {
+						if localCfg.BaseURL != "" {
+							baseURL = localCfg.BaseURL
+						} else if localCfg.APIHost != "" {
+							baseURL = localCfg.APIHost
+						}
+					}
+				}
+			}
+			if apiKey != "" {
+				ttsCfg.TTS = core.NewMiniMaxTTS(apiKey, baseURL, model, nil)
+				ttsCfg.Provider = "minimax"
+			} else {
+				slog.Warn("tts: minimax provider enabled but api_key is empty")
+			}
+		case "mimo":
+			apiKey := cfg.TTS.Mimo.APIKey
+			baseURL := cfg.TTS.Mimo.BaseURL
+			model := cfg.TTS.Mimo.Model
+			if apiKey != "" {
+				ttsCfg.TTS = core.NewMimoTTS(apiKey, baseURL, model, nil)
+				ttsCfg.Provider = "mimo"
+			} else {
+				slog.Warn("tts: mimo provider enabled but api_key is empty")
+			}
+		case "espeak":
+			voice := ttsEffective.Voice
+			if voice == "" {
+				voice = "zh" // default to Chinese
+			}
+			ttsCfg.TTS = core.NewEspeakTTS("", voice)
+			ttsCfg.Provider = "espeak"
+		case "pico":
+			voice := ttsEffective.Voice
+			if voice == "" {
+				voice = "zh-CN" // default to Chinese (Simplified)
+			}
+			ttsCfg.TTS = core.NewPicoTTS("", voice)
+			ttsCfg.Provider = "pico"
+		case "edge":
+			voice := ttsEffective.Voice
+			if voice == "" {
+				voice = "zh-CN-XiaoxiaoNeural" // default Chinese neural voice
+			}
+			ttsCfg.TTS = core.NewEdgeTTS(voice)
+			ttsCfg.Provider = "edge"
+		default: // "openai" or unspecified
+			apiKey := cfg.TTS.OpenAI.APIKey
+			baseURL := cfg.TTS.OpenAI.BaseURL
+			model := cfg.TTS.OpenAI.Model
+			if apiKey != "" {
+				ttsCfg.TTS = core.NewOpenAITTS(apiKey, baseURL, model, nil)
+				ttsCfg.Provider = "openai"
+			} else {
+				slog.Warn("tts: openai provider enabled but api_key is empty")
+			}
+		}
+		if ttsCfg.TTS != nil {
+			engine.SetTTSConfig(ttsCfg)
+			engine.SetTTSSaveFunc(func(mode string) error {
+				return config.SaveTTSMode(mode)
+			})
+			slog.Info("tts: enabled", "provider", ttsCfg.Provider, "voice", ttsCfg.Voice, "mode", initMode)
+		}
+	}
+
+	// Set up save callback for auto-detected language
+	if lang == core.LangAuto {
+		engine.SetLanguageSaveFunc(func(l core.Language) error {
+			return config.SaveLanguage(string(l))
+		})
+	}
+
+	// Set up save callbacks for provider management
+	projName := proj.Name
+	engine.SetProviderSaveFunc(func(providerName string) error {
+		return config.SaveActiveProvider(projName, providerName)
+	})
+	engine.SetProviderAddSaveFunc(func(p core.ProviderConfig) error {
+		cp := config.ProviderConfig{
+			Name: p.Name, APIKey: p.APIKey, BaseURL: p.BaseURL,
+			Model: p.Model, Models: convertCoreModels(p.Models), Thinking: p.Thinking, Env: p.Env,
+		}
+		if p.CodexWireAPI != "" || len(p.CodexHTTPHeaders) > 0 {
+			cp.Codex = &config.CodexProviderConfig{
+				WireAPI: p.CodexWireAPI, HTTPHeaders: p.CodexHTTPHeaders,
+			}
+		}
+		return config.AddProviderToConfig(projName, cp)
+	})
+	engine.SetProviderRemoveSaveFunc(func(name string) error {
+		return config.RemoveProviderFromConfig(projName, name)
+	})
+	engine.SetProviderModelSaveFunc(func(providerName, model string) error {
+		return config.SaveProviderModel(projName, providerName, model)
+	})
+	engine.SetProviderRefsSaveFunc(func(refs []string) error {
+		return config.SaveProviderRefs(projName, refs)
+	})
+	engine.SetListGlobalProvidersFunc(func(agentType string) ([]core.ProviderConfig, error) {
+		globals, err := config.ListGlobalProviders()
+		if err != nil {
+			return nil, err
+		}
+		var result []core.ProviderConfig
+		for _, g := range globals {
+			if len(g.AgentTypes) > 0 && !containsString(g.AgentTypes, agentType) {
+				continue
+			}
+			result = append(result, configProviderToCore(g.ResolveForAgent(agentType)))
+		}
+		return result, nil
+	})
+	engine.SetModelSaveFunc(func(model string) error {
+		return config.SaveAgentModel(projName, model)
+	})
+	engine.SetReasoningEffortSaveFunc(func(effort string) error {
+		return config.SaveAgentReasoningEffort(projName, effort)
+	})
+
+	// Wire config reload
+	capturedEngine := engine
+	capturedProjName := projName
+	engine.SetConfigReloadFunc(func() (*core.ConfigReloadResult, error) {
+		return reloadConfig(configPath, capturedProjName, capturedEngine)
+	})
+
+	// Wire /web command callbacks
+	engine.SetWebSetupFunc(func() (int, string, bool, error) {
+		mgmtToken := core.GenerateToken(16)
+		bridgeToken := core.GenerateToken(16)
+		result, err := config.EnableWebAdmin(mgmtToken, bridgeToken)
+		if err != nil {
+			return 0, "", false, err
+		}
+		return result.ManagementPort, result.ManagementToken, !result.AlreadyEnabled, nil
+	})
+	engine.SetWebStatusFunc(func() string {
+		if cfg.Management.Enabled == nil || !*cfg.Management.Enabled {
+			return ""
+		}
+		port := cfg.Management.Port
+		if port == 0 {
+			port = 9820
+		}
+		return fmt.Sprintf("http://localhost:%d", port)
+	})
+	b.workDir = effectiveWorkDir
+	return b, nil
 }
 
 func runTopLevelCommand(args []string) bool {

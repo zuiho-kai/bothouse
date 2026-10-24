@@ -62,6 +62,8 @@ export interface WizardResult {
     reply_language?: string; reply_language_name?: string; reply_language_from?: string }[];
   cloud_web?: CloudWebTest;
   fallback_role?: string; jev_test?: JevTest; jev_ok: boolean; jev_reason?: string; jev_in_use?: string; jev_hint: string; hardware: boolean; restart_required: boolean; config_backup?: string;
+  // the running service started the roles this save added: projects_added are online, projects_failed says why one is not
+  hot_load?: { projects_added: string[]; projects_failed?: Record<string, string>; hot_load_error?: string };
 }
 
 /** The self-hosted platform on this machine (core/setup_cloudweb.go LocalHubStatus). */

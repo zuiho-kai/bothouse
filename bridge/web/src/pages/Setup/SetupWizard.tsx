@@ -873,7 +873,7 @@ export default function SetupWizard() {
             {result && (result.ok || result.saved) && (
               <div className="space-y-2">
                 {result.ok
-                  ? <p className="text-emerald-600 font-medium flex items-center gap-1"><CheckCircle2 size={16} />{T.done} {T.doneRestart}</p>
+                  ? <p className="text-emerald-600 font-medium flex items-center gap-1"><CheckCircle2 size={16} />{T.done} {result.restart_required ? T.doneRestart : ''}</p>
                   : <p className="text-amber-600 font-medium" data-testid="needs-action">{T.savedNeedsAction}</p>}
                 {(result.warnings || []).filter((w) => w.blocking).map((w, i) => (
                   <div key={`b${i}`} className="text-sm rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-2.5" data-testid={`warning-${w.code}`}>
@@ -885,7 +885,18 @@ export default function SetupWizard() {
                 {(result.warnings || []).filter((w) => !w.blocking && w.code !== 'gate_not_running').map((w, i) => (
                   <p key={`n${i}`} className="text-xs text-amber-600" data-testid={`warning-${w.code}`}>{w.message} {w.fix}</p>
                 ))}
-                {!result.ok && <p className="text-xs text-gray-500">{T.doneRestart}</p>}
+                {!result.ok && result.restart_required && <p className="text-xs text-gray-500">{T.doneRestart}</p>}
+                {result.hot_load && (
+                  <div className="text-sm space-y-0.5" data-testid="hot-load">
+                    {result.hot_load.projects_added.map((p) => (
+                      <p key={`ha${p}`} className="text-emerald-600 flex items-center gap-1" data-testid="hot-load-online"><CheckCircle2 size={14} />{result.roles.find((r) => r.project === p)?.name || p} {zh ? '已上线' : 'is online'}</p>
+                    ))}
+                    {Object.entries(result.hot_load.projects_failed || {}).map(([p, why]) => (
+                      <p key={`hf${p}`} className="text-red-600" data-testid="hot-load-failed">{result.roles.find((r) => r.project === p)?.name || p} {zh ? '没上线：' : 'is not online: '}{why}</p>
+                    ))}
+                    {result.hot_load.hot_load_error && <p className="text-red-600" data-testid="hot-load-failed">{zh ? '没能启动新角色：' : 'New roles were not started: '}{result.hot_load.hot_load_error}</p>}
+                  </div>
+                )}
                 <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
                   {result.steps.map((s, i) => <li key={i}>{s.ok ? '✓' : '✗'} {stepLabel(T, s.step)}{s.detail ? ` — ${s.detail}` : ''}</li>)}
                 </ul>
@@ -901,7 +912,7 @@ export default function SetupWizard() {
                 {result.config_backup && <p className="text-xs text-gray-500">{T.backupNote} <code>{result.config_backup}</code></p>}
                 {/* jev only decides between roles: nothing to say for a single role on the self-hosted platform */}
                 {!(platform === 'cloud_web' && roles.length === 1) && <p className="text-xs text-gray-500 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5">{result.jev_hint}</p>}
-                <Button onClick={async () => { await restartSystem().catch(() => {}); setRestarted(true); }} disabled={restarted}>{restarted ? T.restarted : T.restart}</Button>
+                {result.restart_required && <Button onClick={async () => { await restartSystem().catch(() => {}); setRestarted(true); }} disabled={restarted}>{restarted ? T.restarted : T.restart}</Button>}
                 {platform === 'cloud_web' && (
                   <div className="text-sm space-y-1" data-testid="cloud-web-open">
                     <a className="text-accent inline-flex items-center gap-1 underline" target="_blank" rel="noreferrer"

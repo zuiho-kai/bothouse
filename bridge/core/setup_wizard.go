@@ -175,6 +175,9 @@ type WizardResult struct {
 	JevHint         string              `json:"jev_hint"`
 	Hardware        bool                `json:"hardware"`
 	RestartRequired bool                `json:"restart_required"`
+	// HotLoad: a running service started the roles this save added (handleSetupApply), so no restart
+	// is needed for them. nil = not tried (dry run, wizard outside a running service).
+	HotLoad *HotLoadResult `json:"hot_load,omitempty"`
 	ConfigBackup    string              `json:"config_backup,omitempty"` // copy of config.toml taken before the write
 	CloudWeb        *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
 	Error           string              `json:"error,omitempty"`
@@ -2220,6 +2223,15 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 	}
 	req.libraryHost = r.Host
 	res := ApplyWizard(r.Context(), env, req)
+	if res.Saved && !res.DryRun && m.hotLoad != nil {
+		hl := m.hotLoad()
+		res.HotLoad = &hl
+		// adding roles leaves the existing ones untouched, so once every new one is online nothing
+		// is left for a restart to apply
+		if req.AppendOnly && hl.Error == "" && len(hl.Failed) == 0 {
+			res.RestartRequired = false
+		}
+	}
 	status := http.StatusOK
 	if !res.OK && !res.Saved { // saved with warnings is still a 200: the config was written
 		status = http.StatusBadRequest

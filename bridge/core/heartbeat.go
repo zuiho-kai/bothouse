@@ -84,6 +84,16 @@ func NewHeartbeatScheduler(dataDir string) *HeartbeatScheduler {
 
 // Register adds a heartbeat entry for a project. Call before Start().
 func (hs *HeartbeatScheduler) Register(project string, cfg HeartbeatConfig, engine *Engine, workDir string) {
+	hs.register(project, cfg, engine, workDir, false)
+}
+
+// RegisterAndStart adds a heartbeat entry for a project loaded while the scheduler is already
+// running (hot loading) and starts only that entry; Start would start every entry again.
+func (hs *HeartbeatScheduler) RegisterAndStart(project string, cfg HeartbeatConfig, engine *Engine, workDir string) {
+	hs.register(project, cfg, engine, workDir, true)
+}
+
+func (hs *HeartbeatScheduler) register(project string, cfg HeartbeatConfig, engine *Engine, workDir string, start bool) {
 	if !cfg.Enabled || cfg.SessionKey == "" {
 		return
 	}
@@ -114,6 +124,9 @@ func (hs *HeartbeatScheduler) Register(project string, cfg HeartbeatConfig, engi
 	}
 
 	hs.entries[project] = entry
+	if start && !hs.stopped {
+		hs.startEntry(entry)
+	}
 }
 
 // Start begins all registered heartbeat tickers.
