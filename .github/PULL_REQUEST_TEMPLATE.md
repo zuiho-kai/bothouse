@@ -1,3 +1,10 @@
+## 类型与范围
+
+- 目标分支：develop（日常开发合进 develop，不直接向 main 开 PR）
+- 类型（选一）：fix / feat / docs / chore / security
+- 范围：平台或后端或模块（如 discord、codex、core、web、ci）
+- PR 标题格式：`类型(范围): 简述`，例如 `fix(discord): 修复长消息分段`
+
 ## 问题与结果
 
 关联 Issue：
@@ -17,6 +24,8 @@
 - [ ] 差异与来源已检查，无运行凭据/对话导入
 - [ ] 行为修复有回归验证，相关检查结果如实记录
 - [ ] 受影响的用法/能力说明已更新
+- [ ] 提交带 DCO 签署（`git commit -s`）
+- [ ] 已加 kind/* 与 area/* label
 
 ## 审核与合并
 

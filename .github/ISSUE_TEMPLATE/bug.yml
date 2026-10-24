@@ -1,0 +1,85 @@
+name: 问题报告
+description: 行为与预期不符、报错或崩溃
+title: "[bug] "
+labels: ["kind/bug", "status/needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先搜索已有 issue。涉及安全漏洞请不要在这里公开，按 SECURITY.md 私下报告。
+        请勿贴入令牌、密码或私人对话内容，日志先脱敏。
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 聊天平台
+      options:
+        - Discord
+        - Telegram
+        - 飞书 / Lark
+        - Slack
+        - 钉钉 / 企微 / 微信 / QQ 等国内 IM
+        - 其他平台
+        - 与平台无关
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: 后端 CLI
+      options:
+        - Claude Code
+        - Codex
+        - 其他 CLI（请在描述中注明）
+        - 与后端无关
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 运行 `--version` 的输出，或提交 SHA
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: macOS 15 / Ubuntu 24.04 / Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际发生了什么
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望发生什么
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与截图
+      description: 已脱敏的相关日志。区分事实与猜测。
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我搜索过已有 issue，没有重复
+          required: true
+        - label: 我已去除日志中的令牌和私人信息
+          required: true
