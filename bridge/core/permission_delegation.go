@@ -108,6 +108,5 @@ func (e *Engine) handleDelegatedPermission(p Platform, msg *Message, state *inte
 	state.mu.Unlock()
 	pending.resolve()
 	slog.Info("delegated permission resolved", "actor", msg.UserID, "session", msg.SessionKey, "approval_id", pending.ApprovalID, "request_id", pending.RequestID, "tool", pending.ToolName, "decision", decision)
-	e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgPermissionDelegatedDecision, msg.UserID, pending.ApprovalID, decision))
 	return true
 }

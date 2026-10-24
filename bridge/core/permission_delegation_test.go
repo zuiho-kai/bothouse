@@ -109,8 +109,8 @@ func TestDelegatedPermission_TwoApproversOnlyOneWinner(t *testing.T) {
 	if s.calls.Load() != 1 {
 		t.Fatalf("adapter called %d times", s.calls.Load())
 	}
-	if len(p.getSent()) != 1 {
-		t.Fatalf("expected one audit receipt: %v", p.getSent())
+	if len(p.getSent()) != 0 {
+		t.Fatalf("successful delegation must not echo a receipt: %v", p.getSent())
 	}
 }
 

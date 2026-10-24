@@ -6346,6 +6346,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				continue
 			}
 
+			state.mu.Lock()
+			readPlatform, readSession := state.platform, state.agentSession
+			state.mu.Unlock()
+			if !isAskQuestion && e.tryApproveReadOnly(readPlatform, readSession, event) {
+				continue
+			}
+
 			// Flush accumulated text segment before permission prompt
 			previewActive := sp.canPreview()
 			if len(textParts) > segmentStart {

@@ -2880,7 +2880,7 @@ func TestCUJ_Permission1_DelegatedApprovalDoesNotApproveNextTask(t *testing.T) {
 	send("human approval", "human", "allow", "")
 	inputWait(t, func() bool { return strings.Contains(strings.Join(p.getSent(), "\n"), "second task continued") })
 	visible := strings.Join(p.getSent(), "\n")
-	if !strings.Contains(visible, "actor=gge") || !strings.Contains(visible, "request="+first) {
-		t.Fatal("missing delegated audit receipt")
+	if strings.Contains(visible, "actor=gge") || strings.Contains(visible, "request="+first) {
+		t.Fatal("successful delegation echoed a redundant receipt")
 	}
 }
