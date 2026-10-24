@@ -304,4 +304,28 @@ describe('channel source', () => {
     expect(source.getSnapshot().messages.find(m => m.id === 2)?.reply_to).toEqual({ id: 1, deleted: true })
     unsubscribe()
   })
+  it('#144 posts attachments with the message and keeps them for a retry', async () => {
+    const posted: unknown[] = []
+    let fail = true
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (init?.method === 'POST') {
+        posted.push(JSON.parse(String(init.body)))
+        if (fail) { fail = false; return json(500, { error: 'boom' }) }
+        return json(200, { message: message(7, '') })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().roomId).toBe(1))
+    const file = { name: 'a.png', mime: 'image/png', data: 'iVBORw==' }
+    await expect(actions.send('', undefined, [file])).rejects.toThrow()
+    const key = source.getSnapshot().outbox?.[0]?.clientKey ?? (posted[0] as { client_key: string }).client_key
+    await actions.retrySend(key)
+    expect(posted[0]).toMatchObject({ text: '', attachments: [file] })
+    expect(posted[1]).toMatchObject({ client_key: key, attachments: [file] })
+    expect(posted[0]).not.toHaveProperty('reply_to')
+    unsubscribe()
+  })
 })

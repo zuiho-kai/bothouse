@@ -19,6 +19,7 @@ import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
+import { Attachments } from './attachments.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -27,6 +28,12 @@ export const inject = [
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
 const MAX_BODY = 256 * 1024;
+// #144: a message POST may carry base64 attachments. Same cap as the bot WebSocket
+// maxPayload below (8 MiB), so a message that is accepted here still fits in the frame
+// that forwards it to a bot.
+const MAX_MESSAGE_BODY = 8 * 1024 * 1024;
+// Raster images are shown in the page; anything else (svg, html, ...) is served as a download.
+const INLINE_IMAGE = /^image\/(png|jpeg|gif|webp)$/;
 const OWNER = 'owner';
 
 /** Validate the overlay config; misconfiguration fails at load. */
@@ -85,7 +92,8 @@ export async function apply(ctx, rawConfig) {
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
-  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger });
+  const files = new Attachments(join(config.dataDir, 'attachments'));
+  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
   const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
@@ -186,6 +194,16 @@ export async function apply(ctx, rawConfig) {
         return { lead_id: id, effective_lead_id: hub.primaryMember()?.id ?? null };
       });
     }
+    const att = /^\/collab\/api\/attachments\/([0-9a-f-]{36})$/.exec(path);
+    if (att !== null && req.method === 'GET') {
+      const row = store.attachmentMeta(att[1]);
+      const bytes = row === undefined ? undefined : files.read(att[1]);
+      if (bytes === undefined) return json(res, 404, { error: 'attachment not found' });
+      res.writeHead(200, { 'content-type': row.mime, 'content-length': bytes.length,
+        'content-disposition': `${INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+        'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400' });
+      return res.end(bytes);
+    }
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
     if (av !== null && req.method === 'GET') {
       const png = avatarImage(av[1]);
@@ -221,10 +239,13 @@ export async function apply(ctx, rawConfig) {
     if (m !== null && req.method === 'POST') {
       return withBody(req, res, (body) => {
         const clientKey = typeof body?.client_key === 'string' && body.client_key ? `web:${body.client_key.slice(0, 64)}` : undefined;
-        const { message } = hub.post(Number(m[1]), { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey,
-          replyTo: Number.isInteger(body?.reply_to) ? body.reply_to : undefined });
+        const roomId = Number(m[1]);
+        if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+        const attachments = files.save(body?.attachments);
+        const { message } = hub.post(roomId, { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey,
+          replyTo: Number.isInteger(body?.reply_to) ? body.reply_to : undefined, attachments });
         return { message: publicMessage(message, store) };
-      });
+      }, true, MAX_MESSAGE_BODY);
     }
     // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.
     const pm = /^\/collab\/api\/messages\/(\d+)\/permission$/.exec(path);
@@ -322,10 +343,12 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
-async function withBody(req, res, fn, parse = true) {
+async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
   let body;
   if (parse) {
-    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { error: 'invalid JSON body' }); }
+    let raw;
+    try { raw = await readBody(req, limit); } catch { return json(res, 413, { error: `request body exceeds ${limit / 1024 / 1024} MiB`, code: 'too-large' }); }
+    try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'invalid JSON body' }); }
   }
   try {
     return json(res, 200, await fn(body));
@@ -342,13 +365,13 @@ function text(res, status, type, body) {
   res.end(body);
 }
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY) { reject(Error('body too large')); req.destroy(); return; }
+      if (size > limit) { reject(Error('body too large')); req.destroy(); return; }
       chunks.push(chunk);
     });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));

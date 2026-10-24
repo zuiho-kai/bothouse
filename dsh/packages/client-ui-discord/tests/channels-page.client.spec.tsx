@@ -530,4 +530,21 @@ describe('progress card detail/brief view', () => {
     expect(screen.getByText('need model')).toBeTruthy()
     expect(screen.queryByRole('button', { name: zh.cardViewBrief })).toBeNull()
   })
+  it('#144 shows message attachments and sends a pasted image without text', async () => {
+    const withFiles: ChannelSnapshot = { ...ready, messages: [{ ...ready.messages[0], id: 2, text: '', attachments: [
+      { id: '11111111-1111-1111-1111-111111111111', name: 'shot.png', mime: 'image/png', size: 4 },
+      { id: '22222222-2222-2222-2222-222222222222', name: 'run.log', mime: 'text/plain', size: 2048 },
+    ] }] }
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(withFiles, send)} />)
+    expect((screen.getByAltText('shot.png') as HTMLImageElement).getAttribute('src')).toBe('collab/api/attachments/11111111-1111-1111-1111-111111111111')
+    expect(screen.getByText(/run\.log/).closest('a')?.getAttribute('download')).toBe('run.log')
+
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const file = new File([new Uint8Array([1, 2, 3])], 'paste.png', { type: 'image/png' })
+    await act(async () => { fireEvent.paste(input, { clipboardData: { files: [file], types: ['Files'] } }) })
+    await vi.waitFor(() => expect(screen.getByAltText('paste.png')).toBeTruthy())
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ name: 'paste.png', mime: 'image/png', data: 'AQID' }])
+  })
 })

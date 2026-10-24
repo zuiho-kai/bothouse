@@ -21,6 +21,34 @@ export interface ChannelMessage {
   readonly from_turn: number | null
   /** What this message replies to; absent for a plain message. */
   readonly reply_to?: ChannelQuote
+  /** Uploaded images and files (#144); absent when there are none. */
+  readonly attachments?: readonly ChannelAttachment[]
+}
+
+/** One stored attachment; its bytes are at `attachmentUrl(id)`. */
+export interface ChannelAttachment {
+  readonly id: string
+  readonly name: string
+  readonly mime: string
+  readonly size: number
+}
+
+/** A file picked, pasted or dropped in the composer, base64-encoded for the POST body. */
+export interface OutgoingAttachment {
+  readonly name: string
+  readonly mime: string
+  readonly data: string
+}
+
+/** Relative URL of a stored attachment (same base as the other collab requests). */
+export const attachmentUrl = (id: string): string => `collab/api/attachments/${encodeURIComponent(id)}`
+
+/** Read a browser File into the POST form. */
+export const readAttachment = async (file: File): Promise<OutgoingAttachment> => {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return { name: file.name || 'pasted', mime: file.type || 'application/octet-stream', data: btoa(binary) }
 }
 
 /** The quoted original of a reply: an excerpt, or only its id once it was deleted. */
@@ -172,6 +200,8 @@ export interface OutboxMessage {
   readonly text: string
   /** Message this one replies to, resent unchanged on retry. */
   readonly replyTo?: number
+  /** Attachments, resent unchanged on retry. */
+  readonly attachments?: readonly OutgoingAttachment[]
   readonly state: 'sending' | 'failed'
   /** Why the last attempt failed; set only when `state` is `failed`. */
   readonly error?: string
@@ -207,7 +237,7 @@ export interface ChannelActions {
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
-  send(text: string, replyTo?: number): Promise<void>
+  send(text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[]): Promise<void>
   /** Re-post a failed message, reusing its `client_key` so the service dedupes. */
   retrySend(clientKey: string): Promise<void>
   /** Drop a failed message from the outbox without sending it. */
@@ -654,12 +684,13 @@ export function createChannelSource(transport: ChannelTransport): {
    * first (design §4.3). A retry reuses the key, so the service dedupes a
    * resend whose first attempt actually landed.
    */
-  const post = async (roomId: number, clientKey: string, text: string, replyTo?: number): Promise<void> => {
+  const post = async (roomId: number, clientKey: string, text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[]): Promise<void> => {
+    const files = attachments !== undefined && attachments.length > 0 ? attachments : undefined
     const owner = lifetime
     if (owner === undefined) throw new Error('No channel is open')
     const show = (state: OutboxMessage['state'], error?: string): void => {
       outbox = [...outbox.filter(entry => entry.clientKey !== clientKey), {
-        clientKey, roomId, text, ...(replyTo === undefined ? {} : { replyTo }), state, ...(error === undefined ? {} : { error }),
+        clientKey, roomId, text, ...(replyTo === undefined ? {} : { replyTo }), ...(files === undefined ? {} : { attachments: files }), state, ...(error === undefined ? {} : { error }),
       }]
       publishOutbox()
     }
@@ -668,7 +699,7 @@ export function createChannelSource(transport: ChannelTransport): {
       const { message } = await request<{ message: ChannelMessage }>(`collab/api/rooms/${roomId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(replyTo === undefined ? { text, client_key: clientKey } : { text, client_key: clientKey, reply_to: replyTo }),
+        body: JSON.stringify({ text, client_key: clientKey, ...(replyTo === undefined ? {} : { reply_to: replyTo }), ...(files === undefined ? {} : { attachments: files }) }),
       })
       if (lifetime !== owner) return
       outbox = outbox.filter(entry => entry.clientKey !== clientKey)
@@ -682,10 +713,10 @@ export function createChannelSource(transport: ChannelTransport): {
 
   const actions: ChannelActions = {
     selectRoom,
-    async send(text, replyTo) {
+    async send(text, replyTo, attachments) {
       const roomId = snapshot.roomId
       if (roomId === undefined) throw new Error('No channel is open')
-      await post(roomId, crypto.randomUUID(), text, replyTo)
+      await post(roomId, crypto.randomUUID(), text, replyTo, attachments)
     },
     async retrySend(clientKey) {
       const roomId = snapshot.roomId
@@ -694,7 +725,7 @@ export function createChannelSource(transport: ChannelTransport): {
       if (entry === undefined || roomId === undefined || entry.roomId !== roomId) {
         throw new Error('That message does not belong to the selected channel')
       }
-      await post(entry.roomId, entry.clientKey, entry.text, entry.replyTo)
+      await post(entry.roomId, entry.clientKey, entry.text, entry.replyTo, entry.attachments)
     },
     dismissSend(clientKey) {
       outbox = outbox.filter(entry => entry.clientKey !== clientKey)

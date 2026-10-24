@@ -7,7 +7,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
+import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { groupRooms } from './channel-source.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
@@ -118,7 +119,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
         </div>
         {card === undefined
-          ? <div className={css.text}>{message.text}</div>
+          ? <>{message.text !== '' && <div className={css.text}>{message.text}</div>}<AttachmentList attachments={message.attachments} /></>
           : (
               <div className={css.card} data-state={card.state}>
                 <div className={css.cardHead}>
@@ -208,6 +209,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [sending, setSending] = useState<Record<number, boolean>>({})
   // Per room: the message the next send replies to.
   const [replies, setReplies] = useState<Record<number, ChannelMessage | undefined>>({})
+  // Per room: images/files waiting to go out with the next send (#144).
+  const [pendingFiles, setPendingFiles] = useState<Record<number, readonly OutgoingAttachment[]>>({})
+  const attach = useComposerAttachments((files) => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setPendingFiles(previous => ({ ...previous, [roomId]: [...(previous[roomId] ?? []), ...files] }))
+  }, (message) => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message }) }))
+  })
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
@@ -399,14 +409,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const submit = (): void => {
     const roomId = state.roomId
     const text = draft.trim()
-    if (!text || roomId === undefined || pendingRooms.current.has(roomId)) return
+    const files = roomId === undefined ? [] : pendingFiles[roomId] ?? []
+    if ((!text && files.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
     pendingRooms.current.add(roomId)
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
     const replyTo = replies[roomId]?.id
-    ;(replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
+    ;(files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
       setDrafts(previous => ({ ...previous, [roomId]: '' }))
+      setPendingFiles(previous => ({ ...previous, [roomId]: [] }))
       setReplies(previous => ({ ...previous, [roomId]: undefined }))
     }).catch((error: unknown) => {
       setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
@@ -593,6 +605,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
             </div>
           )}
+          {state.roomId !== undefined && (
+            <PendingAttachments
+              files={pendingFiles[state.roomId] ?? []}
+              removeLabel={t('removeAttachment')}
+              onRemove={(index) => {
+                const roomId = state.roomId as number
+                setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
+              }}
+            />
+          )}
           <div className={css.composerRow}>
             <textarea
               ref={inputRef}
@@ -616,7 +638,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               }}
               onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
               onKeyDown={onKeyDown}
+              onPaste={attach.onPaste}
+              onDragOver={attach.onDragOver}
+              onDrop={attach.onDrop}
             />
+            {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
             <button
               type="button"
               className={css.mentionButton}

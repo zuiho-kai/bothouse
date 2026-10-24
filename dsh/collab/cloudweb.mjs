@@ -6,7 +6,7 @@ import { exitTarget } from './team-exit.mjs';
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { checkAvatar } from './avatars.mjs';
-import { CollabError, MAX_TEXT, publicMessage, quotePrefix } from './store.mjs';
+import { CollabError, MAX_TEXT, messageAttachments, publicMessage, quotePrefix } from './store.mjs';
 
 export const WS_PATH = '/cloud-web/ws';
 // Declared to cc-connect. 'buttons' is declared so permission prompts arrive as
@@ -123,8 +123,10 @@ export class CloudWebGateway {
    * @param hub - Hub instance.
    * @param options - { token: shared bot token (empty disables the gateway), logger }.
    */
-  constructor(hub, { token, logger }) {
+  constructor(hub, { token, logger, files }) {
     this.hub = hub;
+    /** #144: Attachments store; its wire() adds images/files to a forwarded message. */
+    this.files = files;
     this.token = token;
     this.logger = logger;
     /** member id -> { ws, member } */
@@ -230,6 +232,8 @@ export class CloudWebGateway {
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
     const only = this.hub.replyRoute(msg);
+    const metas = messageAttachments(msg);
+    const attached = metas.length && this.files ? this.files.wire(metas) : {};
     const quote = quotePrefix(this.hub.store.quote(msg));
     for (const { ws, member } of this.bots.values()) {
       if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
@@ -245,7 +249,7 @@ export class CloudWebGateway {
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
         user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
-        mentioned: hit, from_bot: fromAgent,
+        mentioned: hit, from_bot: fromAgent, ...attached,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;

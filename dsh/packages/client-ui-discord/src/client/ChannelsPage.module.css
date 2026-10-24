@@ -1078,3 +1078,10 @@
   background: var(--dsw-alias-interactive-bg-hover);
   outline: 2px solid var(--dsw-alias-state-business-primary);
 }
+
+/* #144: images and files on a message and in the composer. */
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.attachmentImage { max-width: 320px; max-height: 240px; border-radius: 4px; display: block; }
+.attachmentThumb { width: 32px; height: 32px; object-fit: cover; border-radius: 3px; vertical-align: middle; }
+.attachmentFile { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; background: var(--background-secondary, rgba(127, 127, 127, 0.15)); color: inherit; text-decoration: none; }
+.attachmentSize { opacity: 0.6; font-size: 0.85em; }
