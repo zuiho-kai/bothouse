@@ -210,3 +210,99 @@ func TestSessionResetRejectsBadSession(t *testing.T) {
 		}
 	}
 }
+
+// closeHookSession runs onClose while the bridge tears the old conversation
+// down, i.e. while the reset holds the session.
+type closeHookSession struct {
+	events  chan Event
+	onClose func()
+}
+
+func (s *closeHookSession) Send(string, string, []ImageAttachment, []FileAttachment) error {
+	return nil
+}
+func (s *closeHookSession) RespondPermission(string, PermissionResult) error { return nil }
+func (s *closeHookSession) Events() <-chan Event                             { return s.events }
+func (s *closeHookSession) CurrentSessionID() string                         { return "agent-old" }
+func (s *closeHookSession) Alive() bool                                      { return true }
+func (s *closeHookSession) Close() error {
+	s.onClose()
+	return nil
+}
+
+// A message that arrives while the reset is closing the old conversation is
+// answered by the fresh session, not dropped.
+func TestSessionResetKeepsMessageArrivingDuringReset(t *testing.T) {
+	const key = "test:c1"
+	fresh := newResultAgentSession("fresh reply")
+	p := &resetOrderPlatform{stubPlatformEngine: &stubPlatformEngine{n: "test"}}
+	e := NewEngine("test", &resultAgent{session: fresh}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+	p.active = func() string { return e.sessions.ActiveSessionID(key) }
+	old := e.sessions.GetOrCreateActive(key)
+	old.SetAgentSessionID("agent-old", "stub")
+	oldID := old.ID
+
+	oldAS := &closeHookSession{events: make(chan Event, 1)}
+	oldAS.onClose = func() {
+		e.handleMessage(p, &Message{SessionKey: key, Platform: "test", UserID: "u", UserName: "u", Content: "late message", ReplyCtx: "ctx"})
+	}
+	e.interactiveMu.Lock()
+	e.interactiveStates[key] = &interactiveState{agentSession: oldAS, platform: p, replyCtx: "ctx", agent: e.agent}
+	e.interactiveMu.Unlock()
+
+	r, err := e.QueueSessionReset(key)
+	if err != nil || !r.OK || r.Queued {
+		t.Fatalf("idle session should reset now: %+v %v", r, err)
+	}
+	waitFor(t, "late message answered", func() bool { _, ok := p.activeAt("fresh reply"); return ok })
+	if at, _ := p.activeAt("fresh reply"); at == oldID {
+		t.Fatalf("late message was answered by the old session")
+	}
+	for _, s := range p.getSent() {
+		if strings.Contains(s, "session reset") {
+			t.Fatalf("late message was dropped: %q", s)
+		}
+	}
+}
+
+// A reset requested from a cron/timer turn on a side session (which carries
+// the main CC_SESSION_KEY) waits until that turn ends.
+func TestSessionResetFromSideSessionTurnWaitsForTurn(t *testing.T) {
+	const key = "test:c1"
+	sess := &resetDuringTurnSession{events: make(chan Event, 4)}
+	p := &resetOrderPlatform{stubPlatformEngine: &stubPlatformEngine{n: "test"}}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+	p.active = func() string { return e.sessions.ActiveSessionID(key) }
+	oldID := e.sessions.GetOrCreateActive(key).ID
+
+	var queued SessionResetResult
+	var midTurnID string
+	sess.onTurn = func() {
+		r, err := e.QueueSessionReset(key)
+		if err != nil {
+			t.Errorf("QueueSessionReset: %v", err)
+		}
+		queued = r
+		midTurnID = e.sessions.ActiveSessionID(key)
+	}
+
+	side := e.sessions.NewSideSession(key, "cron-job")
+	if !side.TryLock() {
+		t.Fatal("lock side session")
+	}
+	iKey := key + "#cron:" + side.ID
+	msg := &Message{SessionKey: key, Platform: "test", UserID: "u", UserName: "u", Content: "cron prompt", ReplyCtx: "ctx"}
+	e.processInteractiveMessageWith(p, msg, side, e.agent, e.sessions, iKey, "", key)
+
+	if !queued.OK || !queued.Queued {
+		t.Fatalf("request from a running cron turn should be queued, got %+v", queued)
+	}
+	if midTurnID != oldID {
+		t.Fatalf("main session was reset mid-turn: %q -> %q", oldID, midTurnID)
+	}
+	if e.sessions.ActiveSessionID(key) == oldID {
+		t.Fatal("reset did not run after the cron turn ended")
+	}
+}
