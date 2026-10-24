@@ -142,11 +142,12 @@ func renderTaskCardText(task *core.Task) string {
 }
 
 // taskCardMember is one member row as the gateway reads it (dsh/collab tasks.mjs
-// fromCard): a live member opens a task on the channel's task board, a finished
-// one hands it back.
+// fromCard): a live top-level member opens a task on the channel's task board,
+// a finished one hands it back; rows with ParentID are its sub-rows.
 type taskCardMember struct {
 	ReporterProject string `json:"reporter_project,omitempty"`
 	ID              string `json:"id"`
+	ParentID        string `json:"parent_id,omitempty"`
 	Name            string `json:"name"`
 	Title           string `json:"title"`
 	Status          string `json:"status"`
@@ -165,7 +166,7 @@ func withTaskMembers(payload string, members []core.TaskMember) string {
 	}
 	rows := make([]taskCardMember, 0, len(members))
 	for _, m := range members {
-		rows = append(rows, taskCardMember{ReporterProject: m.ReporterProject, ID: m.ID, Name: m.Name, Title: m.Title, Status: m.Status})
+		rows = append(rows, taskCardMember{ReporterProject: m.ReporterProject, ID: m.ID, ParentID: m.ParentID, Name: m.Name, Title: m.Title, Status: m.Status})
 	}
 	obj["task_members"] = rows
 	out, err := json.Marshal(obj)

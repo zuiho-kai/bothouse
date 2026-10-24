@@ -326,6 +326,8 @@ export class Tasks {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     const stance = this.stanceOf(msg);
     if (stance !== undefined) return stance;
+    // A 【问】【退】【升】 reply with no task to answer is a question or a pushback, never a hand-back.
+    if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routable()).trimStart())) return undefined;
     if (NOTICE_PREFIXES.some(p => String(msg.text).trimStart().startsWith(p))) return undefined;
     return this.fromChat(msg);
   }
@@ -385,14 +387,15 @@ export class Tasks {
 
   /**
    * Bridge task card members (cloud-web public_progress.go task_members) in room roomId,
-   * posted by lead as card message messageId: a live member opens its task, a member that
-   * reported result/failed/cancelled hands it back bound to the card.
+   * posted by lead as card message messageId: a live top-level member opens its task, one
+   * that ended (core.TaskMember: completed/failed/cancelled/interrupted) hands it back bound
+   * to the card. Sub-rows (parent_id set) belong to their parent member and are skipped.
    */
   fromCard(roomId, lead, messageId, members) {
     if (!Array.isArray(members) || !this.hub.members.has(lead)) return;
     const team = this.hub.routable();
     for (const m of members) {
-      if (m === null || typeof m !== 'object') continue;
+      if (m === null || typeof m !== 'object' || m.parent_id) continue;
       const project = String(m.reporter_project ?? '');
       const name = String(m.name ?? '').toLowerCase();
       const owner = team.find(t => (project && t.id === project) || (name && t.name.toLowerCase() === name));
@@ -402,7 +405,7 @@ export class Tasks {
         if (['queued', 'running', 'waiting'].includes(status)) {
           const title = String(m.title ?? '').trim() || String(m.name ?? '').trim();
           if (title) this.openFromChat({ roomId, owner: owner.id, lead, title, messageId, source: 'card' });
-        } else if (['result', 'failed', 'cancelled'].includes(status)) {
+        } else if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status)) {
           const open = this.q.openChat.get(roomId, owner.id, lead, ...WORKING);
           if (open !== undefined) this.handBack(open.id, { actor: owner.id, messageId });
         }

@@ -466,9 +466,11 @@ export class CloudWebGateway {
           });
           // #119: a task card create retried after a lost ack finds the row it
           // made before; show the newer content instead of the first one.
-          if (!created && newerSeq(message, seq)) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
+          const fresh = created || newerSeq(message, seq);
+          if (!created && fresh) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
           handle = String(message.id);
-          if (body.members) this.tasks?.fromCard(room, member.id, message.id, body.members);
+          // A late older frame must not reopen tasks the newer card already handed back.
+          if (fresh && body.members) this.tasks?.fromCard(room, member.id, message.id, body.members);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
         send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: handle });

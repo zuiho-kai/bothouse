@@ -84,6 +84,7 @@ func TestTaskCardNeedsEditableMessages(t *testing.T) {
 func TestRenderTaskCardTextCarriesTaskMembers(t *testing.T) {
 	task := &core.Task{ID: "t1", Title: "修 bug", State: core.TaskStateInProgress, Members: []core.TaskMember{
 		{ReporterProject: "gpt", ID: "m1", Name: "龙娘", Title: "改登录", Status: "running", Summary: "进行中"},
+		{ReporterProject: "gpt", ID: "m2", ParentID: "m1", Name: "子任务", Title: "查日志", Status: "completed"},
 	}}
 	text := renderTaskCardText(task)
 	body, ok := strings.CutPrefix(text, core.ProgressCardPayloadPrefix)
@@ -97,11 +98,14 @@ func TestRenderTaskCardTextCarriesTaskMembers(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := []taskCardMember{{ReporterProject: "gpt", ID: "m1", Name: "龙娘", Title: "改登录", Status: "running"}}
+	want := []taskCardMember{
+		{ReporterProject: "gpt", ID: "m1", Name: "龙娘", Title: "改登录", Status: "running"},
+		{ReporterProject: "gpt", ID: "m2", ParentID: "m1", Name: "子任务", Title: "查日志", Status: "completed"},
+	}
 	if !reflect.DeepEqual(got.TaskMembers, want) {
 		t.Fatalf("task_members = %+v, want %+v", got.TaskMembers, want)
 	}
-	if len(got.Items) != 2 {
+	if len(got.Items) != 3 {
 		t.Fatalf("display rows changed: %+v", got.Items)
 	}
 	if plain := renderTaskCardText(&core.Task{ID: "t2", Title: "x"}); strings.Contains(plain, "task_members") {

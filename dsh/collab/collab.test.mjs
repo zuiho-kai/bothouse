@@ -2831,8 +2831,11 @@ test('tasks: bridge task card members open and hand back board tasks (cloud-web 
   const ws = new FakeWs();
   gw.accept(ws, new URL('ws://x/?bot=lead&name=橘'));
   ws.frame({ type: 'register', project: 'lead' });
-  const card = (status, seq) => PROGRESS_PREFIX + JSON.stringify({ state: 'running', items: [{ kind: 'info', text: '📋 t' }],
-    task_members: [{ reporter_project: 'gpt', id: 'm1', name: '龙娘', title: '修 bug', status }, { id: 'c1', name: 'subagent', title: 'x', status }] });
+  // Statuses as core.TaskMember writes them (task_members.go: report result -> completed);
+  // the sub-row shares the teammate's reporter_project, as the bridge sends it.
+  const card = (status, child = status) => PROGRESS_PREFIX + JSON.stringify({ state: 'running', items: [{ kind: 'info', text: '📋 t' }],
+    task_members: [{ reporter_project: 'gpt', id: 'm1', name: '龙娘', title: '修 bug', status },
+      { reporter_project: 'gpt', id: 'c1', parent_id: 'm1', name: 'subagent', title: 'x', status: child }] });
   ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
   await tick();
   const handle = ws.of('preview_ack')[0].preview_handle;
@@ -2841,9 +2844,50 @@ test('tasks: bridge task card members open and hand back board tasks (cloud-web 
   ws.frame({ type: 'update_message', preview_handle: handle, content: card('running'), seq: 2 });
   await tick();
   assert.equal(tasks.list(1).length, 1);
-  ws.frame({ type: 'update_message', preview_handle: handle, content: card('result'), seq: 3 });
+  // A finished sub-row neither hands back the teammate's task nor lets the next frame reopen one.
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running', 'completed'), seq: 3 });
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running', 'completed'), seq: 4 });
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual(list.map(t => t.status), ['assigned'], 'sub-rows are ignored');
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('completed'), seq: 5 });
   await tick();
   list = tasks.list(1);
   assert.deepEqual([list[0].status, list[0].result_msg_id], ['returned', Number(handle)]);
+  // A retried preview_start arriving late (older seq, member still queued) must not reopen a task.
+  ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
+  await tick();
+  assert.deepEqual(tasks.list(1).map(t => t.status), ['returned'], 'late preview_start reopened a task');
+  // Every other ending core.TaskMember can reach hands back too.
+  for (const [i, end] of ['failed', 'cancelled', 'interrupted'].entries()) {
+    const ref = `taskcard-${i + 2}`;
+    ws.frame({ type: 'preview_start', ref_id: ref, reply_ctx: 'room-1', content: card('running'), seq: 1 });
+    await tick();
+    const h = ws.of('preview_ack').at(-1).preview_handle;
+    ws.frame({ type: 'update_message', preview_handle: h, content: card(end), seq: 2 });
+    await tick();
+    const t = tasks.list(1).find(x => x.assign_msg_id === Number(h));
+    assert.equal(t?.status, 'returned', `${end} hands back`);
+  }
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: a 【问】【退】【升】 reply to the lead with no task to answer is not a hand-back', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.fallbackLead = 'lead';
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
+  say('lead', '橘', '@龙娘 把登录页写完');
+  await tick();
+  say('gpt', '龙娘', '@橘 【接】 开工');
+  await tick();
+  for (const text of ['@橘 【问】接口用哪个版本', '@橘 【退】这个不归我', '@橘 【升】范围太大']) {
+    say('gpt', '龙娘', text);
+    await tick();
+    assert.equal(tasks.list(1)[0].status, 'accepted', text);
+  }
+  say('lead', '橘', '用 v2');
+  await tick();
+  assert.equal(tasks.list(1)[0].status, 'accepted', 'the lead answering a question does not accept the task');
   tasks.close(); hub.store.close();
 });
