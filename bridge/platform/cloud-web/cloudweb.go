@@ -378,7 +378,9 @@ func (p *Platform) handleMessage(raw []byte) {
 		slog.Debug("cloud_web: unauthorized user", "user", m.UserID)
 		return
 	}
-	if isGroupChat(m.ChatType) && !p.groupReplyAll {
+	// "/stop all" from a user reaches every bot in the chat, mentioned or not.
+	stopAll := !m.FromBot && core.IsStopAllCommand(m.Content)
+	if isGroupChat(m.ChatType) && !p.groupReplyAll && !stopAll {
 		// Require explicit mention in group chats unless group_reply_all is enabled.
 		if m.Mentioned == nil || !*m.Mentioned {
 			return

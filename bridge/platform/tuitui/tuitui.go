@@ -407,7 +407,9 @@ func (p *Platform) handleEvent(ctx context.Context, frame *tuituiFrame) {
 		slog.Debug("tuitui: message ignored by policy", "chat_type", env.chatType, "chat_id", env.chatID, "user_id", env.senderID)
 		return
 	}
-	if p.requiresMention(env) && !env.atMe {
+	// "/stop all" from a user reaches every bot in the chat, mentioned or not
+	// (this bot's own messages and ignore_from senders were dropped above).
+	if p.requiresMention(env) && !env.atMe && !core.IsStopAllCommand(env.text) {
 		p.rememberPendingHistory(env)
 		return
 	}
