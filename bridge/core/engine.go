@@ -1868,6 +1868,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 // at startup fired before the Discord session existed and the nil session panicked the bridge.
 var timerPlatformReadyTimeout = 2 * time.Minute
 
+// errTimerPlatformNotReady marks a timer run skipped because its async platform never
+// became ready within timerPlatformReadyTimeout. The scheduler re-queues the job
+// instead of marking it fired, so it runs once the platform connects.
+var errTimerPlatformNotReady = errors.New("timer platform not ready")
+
 func (e *Engine) waitTimerPlatformReady(p Platform) error {
 	if _, async := p.(AsyncRecoverablePlatform); !async {
 		return nil
@@ -1878,7 +1883,7 @@ func (e *Engine) waitTimerPlatformReady(p Platform) error {
 			return fmt.Errorf("engine stopping before platform %q was ready", p.Name())
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("platform %q not ready after %s; timer not run", p.Name(), timerPlatformReadyTimeout)
+			return fmt.Errorf("platform %q not ready after %s: %w", p.Name(), timerPlatformReadyTimeout, errTimerPlatformNotReady)
 		}
 		time.Sleep(200 * time.Millisecond) // source: local3 patch poll interval
 	}
