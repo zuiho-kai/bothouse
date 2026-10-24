@@ -22,9 +22,9 @@ class WsUpTest(unittest.TestCase):
                     "WS_CHANNEL": "900"}
         self.last = self.setup / "ws-handoff-last.json"
 
-    def run_tool(self, name, *args, key):
+    def run_tool(self, name, *args, key, var="CC_SESSION_KEY"):
         return subprocess.run([sys.executable, "-I", str(HERE / name), *args], capture_output=True, text=True,
-                              env={**self.env, "CC_SESSION_KEY": key})
+                              env={**self.env, var: key})
 
     def handoff(self, *args, key):
         """ws-handoff 原样跑，只把 Discord API（查/建工作区频道）换成桩，不走网络。"""
@@ -50,6 +50,14 @@ class WsUpTest(unittest.TestCase):
         prompt = argv[argv.index("--prompt") + 1]
         self.assertIn("【工作区上报】进度一半", prompt)
         self.assertIn("ws-forward --notes /n/a.md", prompt)
+
+    def test_falls_back_to_cc_session_under_dsh(self):
+        """DSH 删掉 CC_SESSION_KEY，只剩 CC_SESSION 时也要认出当前工作区。"""
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        r = self.run_tool("ws-up", "进度", key="test:900", var="CC_SESSION")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = self.timers()[0]
+        self.assertEqual(argv[argv.index("-s") + 1], "test:100")
 
     def test_ask_mode(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})

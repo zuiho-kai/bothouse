@@ -40,7 +40,8 @@ def ensure_channel() -> str:
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 raise
-    cur = os.environ.get("CC_SESSION_KEY", "").removeprefix("discord:")
+    # DSH 会删名字带 KEY 的环境变量，退回 DSH 入口导出的 CC_SESSION（同 later）
+    cur = (os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")).removeprefix("discord:")
     if not cur.isdigit():
         sys.exit("ws-handoff: 没有可用的工作区频道，也没有当前频道（CC_SESSION_KEY）可取分类")
     ch = api("GET", f"/channels/{cur}")
@@ -83,7 +84,7 @@ def main(argv):
     r = subprocess.run(timer_cmd(ws, path, task), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-handoff: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
-    record_last(path, ws, task, os.environ.get("CC_SESSION_KEY", ""))
+    record_last(path, ws, task, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 

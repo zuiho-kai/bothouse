@@ -111,7 +111,8 @@ def main(argv):
             rest.append(a)
     if len(rest) != 1 or not rest[0].strip() or rest[0].startswith("-"):
         sys.exit(f"用法：{USAGE}（正文不能为空或以 - 开头）")
-    key = os.environ.get("CC_SESSION_KEY", "")
+    # DSH 会删名字带 KEY 的环境变量，退回 DSH 入口导出的 CC_SESSION（同 later）
+    key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     chat, path = pick_chat(load_last(), bare(key), notes)
     r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project()), capture_output=True, text=True)
     if r.returncode != 0:
