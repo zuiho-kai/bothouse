@@ -2347,3 +2347,11 @@ app_secret = "your-feishu-app-secret"
 # Discord delegated approval (under projects.platforms.options):
 # share_session_in_channel = true
 # permission_approvers = "111111111111111111,222222222222222222"
+
+# Optional local usage estimates: rates per million tokens in one shared currency.
+# Restart to reload prices. Use the exact model ID reported by the backend.
+# [usage_prices."example-model"]
+# input = 2.0
+# output = 4.0
+# cache_read = 0.2
+# cache_write = 2.5

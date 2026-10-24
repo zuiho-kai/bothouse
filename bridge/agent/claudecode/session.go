@@ -1022,6 +1022,7 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		SessionID:                cs.CurrentSessionID(),
 		Done:                     !isCompaction,
 		Metadata:                 meta,
+		UsageKnown:               raw["usage"] != nil,
 		InputTokens:              inputTokens,
 		OutputTokens:             outputTokens,
 		CacheCreationInputTokens: cacheCreationTokens,
@@ -1125,7 +1126,7 @@ func (cs *claudeSession) Send(prompt string, messageID string, images []core.Ima
 	if !cs.alive.Load() {
 		return fmt.Errorf("session process is not running")
 	}
-	cs.takeAPIErrorFallback() // new turn: a stale fallback must not end it
+	cs.takeAPIErrorFallback()    // new turn: a stale fallback must not end it
 	cs.interrupting.Store(false) // an interrupt sent while idle must not end this turn
 
 	if len(images) == 0 && len(files) == 0 {

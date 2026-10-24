@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // validRunAsUserName is the portable-username character set plus digits.
@@ -84,8 +85,9 @@ var configMu configLock
 var ConfigPath string
 
 type Config struct {
-	DataDir        string `toml:"data_dir"` // session store directory, default ~/.cc-connect
-	AttachmentSend string `toml:"attachment_send"`
+	UsagePrices    map[string]core.TokenPrice `toml:"usage_prices"`
+	DataDir        string                     `toml:"data_dir"` // session store directory, default ~/.cc-connect
+	AttachmentSend string                     `toml:"attachment_send"`
 	// Quiet is legacy: when true and [display] does not set thinking_messages / tool_messages,
 	// engines behave as if those flags were false. Per-project quiet overrides when set.
 	Quiet              *bool                   `toml:"quiet,omitempty"`
@@ -1113,6 +1115,12 @@ func (c *Config) validate() error {
 }
 
 func (c *Config) validateInternal(permissive bool) error {
+	for model, price := range c.UsagePrices {
+		if err := price.Validate(); err != nil {
+			return fmt.Errorf("config: usage_prices.%s: %w", model, err)
+		}
+	}
+
 	if err := validateDisplayConfig("display", &c.Display); err != nil {
 		return err
 	}

@@ -383,6 +383,7 @@ func main() {
 	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
+	usageLedger := core.NewUsageLedger(cfg.DataDir, cfg.UsagePrices)
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
@@ -466,6 +467,7 @@ func main() {
 		engine.SetBaseWorkDir(workDir)
 		engine.SetProjectStateStore(projectState)
 		engine.SetDataDir(cfg.DataDir)
+		engine.SetUsageLedger(usageLedger)
 		if proj.PublicProgress {
 			if err := engine.EnablePublicProgress(); err != nil {
 				slog.Error("public progress initialization failed", "error", err)
@@ -1160,6 +1162,7 @@ func main() {
 		}
 		mgmtSrv = core.NewManagementServer(port, cfg.Management.Token, cfg.Management.CORSOrigins)
 		mgmtSrv.SetHost(cfg.Management.Host)
+		mgmtSrv.SetUsageLedger(usageLedger)
 		for i, e := range engines {
 			mgmtSrv.RegisterEngine(cfg.Projects[i].Name, e)
 		}

@@ -459,6 +459,16 @@ func (cs *codexSession) handleEvent(raw map[string]any) {
 		cs.refreshContextUsageFromRollout()
 		cs.flushPendingAsText()
 		evt := core.Event{Type: core.EventResult, SessionID: cs.CurrentSessionID(), Done: true}
+		if usage, ok := raw["usage"].(map[string]any); ok {
+			b, _ := json.Marshal(usage)
+			var u codexSnakeTokenUsage
+			if json.Unmarshal(b, &u) == nil {
+				evt.InputTokens = max(0, u.InputTokens-u.CachedInputTokens)
+				evt.OutputTokens = u.OutputTokens
+				evt.CacheReadInputTokens = u.CachedInputTokens
+				evt.UsageKnown = true
+			}
+		}
 		select {
 		case cs.events <- evt:
 		case <-cs.ctx.Done():

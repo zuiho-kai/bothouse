@@ -61,3 +61,7 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 and adds role instructions; `setup lead install` is the explicit CLI entry.
 The DSH adapter maps runtime session identity to `CC_SESSION` before subprocess
 credential filtering. Gate services and platform credentials are configured separately.
+
+## Usage ledger
+
+The bridge entry point creates one `core.UsageLedger` per configured data directory and shares it with all engines and the management API. Agent adapters emit authoritative per-turn token categories on terminal events; core does not infer billing from context-window snapshots. Daily files contain individual records plus date/hour/role/model buckets. Read-only management endpoints provide dashboard aggregations with optional configured pricing. Unknown usage remains explicit. See [usage API](api/usage.md).

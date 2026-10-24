@@ -160,6 +160,10 @@ type appServerRequestUserInputAnswer struct {
 
 type appServerSession struct {
 	subTaskTracker
+	billingMu     sync.Mutex
+	billingTotal  *codexTokenUsage
+	billingTurn   codexTokenUsage
+	billingKnown  bool
 	url           string
 	workDir       string
 	model         string
@@ -1272,6 +1276,7 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 			s.pendingMsgs = s.pendingMsgs[:0]
 			s.stateMu.Unlock()
 			s.storeContextUsage(nil)
+			s.resetBillingTurn()
 		}
 
 	case "item/started":
@@ -1337,6 +1342,7 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 		var notif appServerThreadTokenUsageNotification
 		if err := json.Unmarshal(paramsRaw, &notif); err == nil {
 			s.storeContextUsage(mapAppServerTokenUsage(notif))
+			s.updateBilling(notif)
 		}
 
 	case "error":
@@ -1814,7 +1820,7 @@ func (s *appServerSession) completeTurn() {
 	s.currentTurn = ""
 	s.stateMu.Unlock()
 	s.flushPendingAsText()
-	s.emit(core.Event{Type: core.EventResult, SessionID: s.CurrentSessionID(), Done: true})
+	s.emit(s.billingResult())
 }
 
 func (s *appServerSession) flushPendingAsThinking() {

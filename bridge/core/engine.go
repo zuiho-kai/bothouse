@@ -564,6 +564,7 @@ type Engine struct {
 	webStatusFunc func() (url string)
 
 	// Data directory for socket path injection
+	usageLedger    *UsageLedger
 	dataDir        string
 	publicProgress *PublicProgress
 
@@ -5370,6 +5371,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					"status", event.ToolStatus)
 
 			case EventResult:
+				e.recordUsage(event, agentSession)
 				fullResponse := event.Content
 				if fullResponse == "" && len(textParts) > 0 {
 					fullResponse = strings.Join(textParts, "")
@@ -6398,6 +6400,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				)
 				continue
 			}
+			e.recordUsage(event, state.agentSession)
 			cp.Finalize(ProgressCardStateCompleted)
 			// Use state.agentSession.CurrentSessionID() instead of event.SessionID.
 			if input != nil && (event.Error != nil || state.agentSession.CurrentSessionID() != input.expectedID ||
@@ -17295,6 +17298,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 					textParts = append(textParts, fmt.Sprintf(e.i18n.T(MsgToolResult), tn, out)+"\n\n")
 				}
 			case EventResult:
+				e.recordUsage(event, agentSession)
 				// Use agentSession.CurrentSessionID() for the same reason as above.
 				if currentID := agentSession.CurrentSessionID(); currentID != "" {
 					saveRelaySessionID(currentID, true)
@@ -17420,6 +17424,7 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 					textParts = append(textParts, ev.Content)
 				}
 			case EventResult:
+				e.recordUsage(ev, agentSession)
 				resultReceived = true
 				response = ev.Content
 				if response == "" {

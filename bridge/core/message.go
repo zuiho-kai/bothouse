@@ -480,7 +480,8 @@ type Event struct {
 	Questions                []UserQuestion // populated when ToolName == "AskUserQuestion"
 	Done                     bool
 	Error                    error
-	InputTokens              int // token usage from agent result events
+	UsageKnown               bool // true when this result contains authoritative per-turn usage
+	InputTokens              int  // token usage from agent result events
 	OutputTokens             int
 	CacheCreationInputTokens int            // cache-write tokens (new content written to cache)
 	CacheReadInputTokens     int            // cache-read tokens (prior context retrieved from cache)

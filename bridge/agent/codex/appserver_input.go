@@ -75,6 +75,7 @@ func (s *appServerSession) SendResumed(prompt, messageID string, images []core.I
 		s.stateMu.Unlock()
 		return fmt.Errorf("codex turn already running; strict input refused")
 	}
+	s.resetBillingTurn()
 	st := &appServerStrictTurn{thread: expectedID}
 	s.voiceFresh.Store(false)
 	s.strict = st
@@ -199,7 +200,7 @@ func (s *appServerSession) finishStrict(st *appServerStrictTurn, notif turnNotif
 	s.currentTurn = ""
 	s.stateMu.Unlock()
 	s.flushPendingAsText()
-	s.emit(core.Event{Type: core.EventResult, SessionID: st.thread, Done: true})
+	s.emit(s.billingResult())
 }
 
 func (s *appServerSession) failStrict(st *appServerStrictTurn, reason string) {
