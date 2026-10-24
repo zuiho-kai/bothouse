@@ -163,7 +163,8 @@ export default function ProjectDetail() {
     try {
       const res = await deleteProject(name);
       setShowDeleteConfirm(false);
-      if (res.restart_required && window.confirm(t('setup.restartAfterDelete'))) {
+      const why = res.hot_load?.hot_load_error;
+      if (res.restart_required && window.confirm(why ? `${t('setup.restartAfterDelete')}\n${why}` : t('setup.restartAfterDelete'))) {
         await restartSystem();
         // Wait for service to come back up before navigating
         await waitForService(8000);

@@ -3776,13 +3776,16 @@ func RemoveProject(projectName string) error {
 	found := false
 	for i := range cfg.Projects {
 		if cfg.Projects[i].Name == projectName {
+			if len(cfg.Projects) == 1 {
+				return fmt.Errorf("project %q: %w", projectName, core.ErrLastProject)
+			}
 			cfg.Projects = append(cfg.Projects[:i], cfg.Projects[i+1:]...)
 			found = true
 			break
 		}
 	}
 	if !found {
-		return fmt.Errorf("project %q not found", projectName)
+		return fmt.Errorf("project %q: %w", projectName, core.ErrProjectNotFound)
 	}
 	return saveConfig(cfg)
 }

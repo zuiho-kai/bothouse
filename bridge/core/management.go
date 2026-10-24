@@ -57,6 +57,7 @@ type ManagementServer struct {
 	setupWeixinSave      func(req WeixinSetupSaveRequest) error
 	addPlatformToProject func(projectName, platType string, opts map[string]any, workDir, agentType string) error
 	hotLoad              func() HotLoadResult // starts the projects in config.toml that are not running yet
+	hotRemove            func(name string) error // stops a running project removed from config.toml
 	removeProject        func(projectName string) error
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
 	getProjectConfig     func(projectName string) map[string]any
@@ -133,6 +134,19 @@ type HotLoadResult struct {
 // config.toml while the service runs (cmd/cc-connect projectRuntime.HotLoad).
 func (m *ManagementServer) SetHotLoadFunc(fn func() HotLoadResult) {
 	m.hotLoad = fn
+}
+
+// Errors a project remover (SetRemoveProject) wraps so DELETE /projects/{name} answers 404 / 409.
+var (
+	ErrProjectNotFound = errors.New("project not found")
+	// a config without [[projects]] fails to load, so the service would not start again
+	ErrLastProject = errors.New("the last project cannot be removed: config.toml needs at least one [[projects]] entry")
+)
+
+// SetHotRemoveFunc wires DELETE /projects/{name} to stop the removed project without a restart
+// (cmd/cc-connect projectRuntime.HotRemove).
+func (m *ManagementServer) SetHotRemoveFunc(fn func(name string) error) {
+	m.hotRemove = fn
 }
 
 func (m *ManagementServer) SetAddPlatformToProject(fn func(string, string, map[string]any, string, string) error) {
@@ -952,13 +966,32 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if err := m.removeProject(name); err != nil {
-			mgmtError(w, http.StatusInternalServerError, err.Error())
+			status := http.StatusInternalServerError
+			switch {
+			case errors.Is(err, ErrProjectNotFound):
+				status = http.StatusNotFound
+			case errors.Is(err, ErrLastProject):
+				status = http.StatusConflict
+			}
+			mgmtError(w, status, err.Error())
 			return
 		}
-		mgmtJSON(w, http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"message":          fmt.Sprintf("project %q removed from config", name),
 			"restart_required": true,
-		})
+		}
+		if m.hotRemove != nil {
+			hl := HotLoadResult{Added: []string{}}
+			if err := m.hotRemove(name); err != nil {
+				hl.Error = err.Error()
+				slog.Warn("management: removed project still needs a restart", "project", name, "error", err)
+			} else {
+				hl.Removed = []string{name}
+				resp["restart_required"] = false
+			}
+			resp["hot_load"] = hl
+		}
+		mgmtJSON(w, http.StatusOK, resp)
 		return
 	}
 

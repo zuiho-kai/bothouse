@@ -2256,6 +2256,94 @@ func TestMgmt_ProjectDelete_Error(t *testing.T) {
 	}
 }
 
+func TestMgmt_ProjectDelete_HotRemoved(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetRemoveProject(func(string) error { return nil })
+	var stopped string
+	mgmt.SetHotRemoveFunc(func(name string) error {
+		stopped = name
+		return nil
+	})
+	r := mgmtDelete(t, ts.URL+"/api/v1/projects/test-project", "tok")
+	if !r.OK {
+		t.Fatalf("delete project failed: %s", r.Error)
+	}
+	if stopped != "test-project" {
+		t.Fatalf("hot remove got %q, want test-project", stopped)
+	}
+	var data struct {
+		RestartRequired bool          `json:"restart_required"`
+		HotLoad         HotLoadResult `json:"hot_load"`
+	}
+	json.Unmarshal(r.Data, &data)
+	if data.RestartRequired {
+		t.Fatal("restart_required = true after the project stopped live")
+	}
+	if len(data.HotLoad.Removed) != 1 || data.HotLoad.Removed[0] != "test-project" {
+		t.Fatalf("projects_removed = %v, want [test-project]", data.HotLoad.Removed)
+	}
+}
+
+func TestMgmt_ProjectDelete_HotRemoveFailsNeedsRestart(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetRemoveProject(func(string) error { return nil })
+	mgmt.SetHotRemoveFunc(func(string) error { return errors.New("stop: engine stop errors: boom") })
+	r := mgmtDelete(t, ts.URL+"/api/v1/projects/test-project", "tok")
+	if !r.OK {
+		t.Fatalf("delete project failed: %s", r.Error)
+	}
+	var data struct {
+		RestartRequired bool          `json:"restart_required"`
+		HotLoad         HotLoadResult `json:"hot_load"`
+	}
+	json.Unmarshal(r.Data, &data)
+	if !data.RestartRequired || !strings.Contains(data.HotLoad.Error, "boom") || len(data.HotLoad.Removed) != 0 {
+		t.Fatalf("want restart_required with the stop error, got %+v", data)
+	}
+}
+
+func TestMgmt_ProjectDelete_ReasonStatus(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+	}{
+		{fmt.Errorf("project %q: %w", "test-project", ErrLastProject), http.StatusConflict},
+		{fmt.Errorf("project %q: %w", "test-project", ErrProjectNotFound), http.StatusNotFound},
+	} {
+		mgmt, ts, _ := testManagementServer(t, "tok")
+		mgmt.SetRemoveProject(func(string) error { return tc.err })
+		hot := false
+		mgmt.SetHotRemoveFunc(func(string) error { hot = true; return nil })
+		req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/projects/test-project", nil)
+		req.Header.Set("Authorization", "Bearer tok")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&body)
+		resp.Body.Close()
+		if resp.StatusCode != tc.status || body.OK || body.Error != tc.err.Error() {
+			t.Fatalf("status %d body %+v, want %d with %q", resp.StatusCode, body, tc.status, tc.err)
+		}
+		if hot {
+			t.Fatal("project stopped although it was not removed from config")
+		}
+	}
+}
+
+func TestMgmt_ProjectDelete_UnknownName(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetRemoveProject(func(string) error { t.Fatal("config touched for an unknown project"); return nil })
+	r := mgmtDelete(t, ts.URL+"/api/v1/projects/no-such-role", "tok")
+	if r.OK || !strings.Contains(r.Error, "project not found: no-such-role") {
+		t.Fatalf("want project not found, got ok=%v error=%q", r.OK, r.Error)
+	}
+}
+
 // ── Session switch edge cases ──
 
 func TestMgmt_SessionSwitch_Success(t *testing.T) {

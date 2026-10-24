@@ -228,3 +228,60 @@ func (rt *projectRuntime) startProject(cfg *config.Config, proj config.ProjectCo
 	rt.all = append(rt.all, b.engine)
 	return nil
 }
+
+// ── hot removal ─────
+
+// unwireProject is wireProject in reverse: every running service forgets the project.
+func (rt *projectRuntime) unwireProject(name string) {
+	if rt.apiSrv != nil {
+		rt.apiSrv.UnregisterEngine(name)
+	}
+	if rt.mgmtSrv != nil {
+		rt.mgmtSrv.UnregisterEngine(name)
+	}
+	if rt.webhookSrv != nil {
+		rt.webhookSrv.UnregisterEngine(name)
+	}
+	if rt.bridgeSrv != nil {
+		rt.bridgeSrv.UnregisterEngine(name)
+	}
+	if rt.hbSched != nil {
+		rt.hbSched.Unregister(name)
+	}
+	if rt.timerSched != nil {
+		rt.timerSched.UnregisterEngine(name)
+	}
+	if rt.cronSched != nil {
+		rt.cronSched.UnregisterEngine(name)
+	}
+}
+
+// HotRemove stops a running project that was taken out of config.toml, without a restart: the
+// services forget it first (no new messages, jobs or API calls reach it), then its engine stops
+// (platforms disconnect, agent sessions close). The other projects are not touched. The error
+// says why it is still running (or may not have stopped cleanly); a restart then finishes it.
+func (rt *projectRuntime) HotRemove(name string) error {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if !rt.ready {
+		return errors.New("the service is starting or stopping")
+	}
+	e, ok := rt.engines[name]
+	if !ok {
+		return fmt.Errorf("project %q is not running", name)
+	}
+	rt.unwireProject(name)
+	delete(rt.engines, name)
+	for i, x := range rt.all {
+		if x == e {
+			rt.all = append(rt.all[:i:i], rt.all[i+1:]...)
+			break
+		}
+	}
+	if err := e.Stop(); err != nil {
+		slog.Error("hot remove: project did not stop cleanly", "project", name, "error", err)
+		return fmt.Errorf("stop: %w", err)
+	}
+	slog.Info("hot remove: project stopped", "project", name)
+	return nil
+}

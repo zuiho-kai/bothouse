@@ -558,6 +558,7 @@ func runMain() {
 			rt.registerManagement(builtProjs[i].Name, e)
 		}
 		mgmtSrv.SetHotLoadFunc(rt.HotLoad)
+		mgmtSrv.SetHotRemoveFunc(rt.HotRemove)
 		if cronSched != nil {
 			mgmtSrv.SetCronScheduler(cronSched)
 		}

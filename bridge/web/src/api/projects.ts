@@ -74,5 +74,11 @@ export const addPlatformToProject = (projectName: string, body: {
   type: string; options: Record<string, any>; work_dir?: string; agent_type?: string;
 }) => api.post<{ message: string; restart_required: boolean }>(`/projects/${projectName}/add-platform`, body);
 
+// hot_load: the service stopped the role without a restart (projects_removed), or why it could
+// not (hot_load_error; restart_required is then true)
 export const deleteProject = (name: string) =>
-  api.delete<{ message: string; restart_required: boolean }>(`/projects/${name}`);
+  api.delete<{
+    message: string;
+    restart_required: boolean;
+    hot_load?: { projects_removed?: string[]; hot_load_error?: string };
+  }>(`/projects/${name}`);

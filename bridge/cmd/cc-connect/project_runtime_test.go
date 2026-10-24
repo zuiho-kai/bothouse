@@ -236,3 +236,58 @@ func TestHotLoadOneFailsOtherComesOnline(t *testing.T) {
 		t.Fatal("hotm-bad is recorded as running")
 	}
 }
+
+func TestHotRemoveStopsProjectOthersKeepRunning(t *testing.T) {
+	rt, head := newHotRuntime(t, "hotr-keep")
+	keep := rt.engines["hotr-keep"]
+	writeHotConfig(t, rt.configPath, head+hotProject("hotr-keep", "", false)+hotProject("hotr-gone", "", false))
+	if res := rt.HotLoad(); len(res.Added) != 1 {
+		t.Fatalf("setup: hot load = %+v", res)
+	}
+	writeHotConfig(t, rt.configPath, head+hotProject("hotr-keep", "", false))
+
+	if err := rt.HotRemove("hotr-gone"); err != nil {
+		t.Fatalf("hot remove: %v", err)
+	}
+	if _, ok := rt.engines["hotr-gone"]; ok {
+		t.Fatal("removed project is still recorded as running")
+	}
+	for _, p := range hotFakePlatformsOf("hotr-gone") {
+		if !p.stopped {
+			t.Fatal("removed project's platform was not stopped")
+		}
+	}
+	if rt.engines["hotr-keep"] != keep {
+		t.Fatal("the other project's engine was replaced")
+	}
+	for _, p := range hotFakePlatformsOf("hotr-keep") {
+		if p.stopped {
+			t.Fatal("the other project's platform was stopped")
+		}
+	}
+	if all := rt.stopAccepting(); len(all) != 1 || all[0] != keep {
+		t.Fatalf("shutdown list = %d engines, want only the kept one", len(all))
+	}
+	rt.setReady(true)
+
+	// the same name can be added back later
+	writeHotConfig(t, rt.configPath, head+hotProject("hotr-keep", "", false)+hotProject("hotr-gone", "", false))
+	if res := rt.HotLoad(); len(res.Added) != 1 || res.Added[0] != "hotr-gone" {
+		t.Fatalf("re-adding the removed name: %+v", res)
+	}
+}
+
+func TestHotRemoveUnknownOrNotReady(t *testing.T) {
+	rt, _ := newHotRuntime(t, "hotr-only")
+	if err := rt.HotRemove("hotr-missing"); err == nil || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("unknown project: err = %v", err)
+	}
+	rt.setReady(false)
+	if err := rt.HotRemove("hotr-only"); err == nil || !strings.Contains(err.Error(), "starting or stopping") {
+		t.Fatalf("not ready: err = %v", err)
+	}
+	if rt.engines["hotr-only"] == nil {
+		t.Fatal("project dropped while the service was not ready")
+	}
+	rt.setReady(true)
+}
