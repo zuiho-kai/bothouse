@@ -57,6 +57,13 @@
 <script>
 const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0, mode: 'mixed' };
 const $ = id => document.getElementById(id);
+// crypto.randomUUID only exists in secure contexts (https/localhost); plain-http LAN/Tailscale pages fall back to getRandomValues.
+const uuid = () => {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+  const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+};
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 const palette = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22'];
 const color = id => palette[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % palette.length];
@@ -206,7 +213,7 @@ $('form').addEventListener('submit', async (e) => {
   try {
     const { message } = await api(`/collab/api/rooms/${state.room}/messages`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text, client_key: crypto.randomUUID() }),
+      body: JSON.stringify({ text, client_key: uuid() }),
     });
     upsert(message);
   } catch (err) { $('input').value = text; alert('发送失败：' + err.message); }

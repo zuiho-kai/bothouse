@@ -8,6 +8,24 @@ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
+// src/client/uuid.ts
+/**
+* v4 UUID that also works outside a secure context. `crypto.randomUUID` exists only
+* on https/localhost pages, so a channel page opened at a plain-http LAN or Tailscale
+* address has no such method; `crypto.getRandomValues` is available everywhere.
+* Same approach as upstream DSH's `@deepseek-ai/dsh-util-crypto` randomUUID, which is
+* not loadable here because the bundle keeps `@deepseek-ai/*` external.
+* @returns a canonical lowercase v4 UUID string.
+*/
+function randomUUID() {
+	const c = globalThis.crypto;
+	if (typeof c.randomUUID === "function") return c.randomUUID();
+	const bytes = c.getRandomValues(/* @__PURE__ */ new Uint8Array(16));
+	bytes[6] = bytes[6] & 15 | 64;
+	bytes[8] = bytes[8] & 63 | 128;
+	const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 // src/client/channel-source.ts
 /** Relative URL of a stored attachment (same base as the other collab requests). */
 const attachmentUrl = (id) => `collab/api/attachments/${encodeURIComponent(id)}`;
@@ -16,7 +34,7 @@ const MAX_MESSAGE_BODY = 8388608;
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 const messageTooLarge = (text, attachments) => new TextEncoder().encode(JSON.stringify({
 	text,
-	client_key: crypto.randomUUID(),
+	client_key: randomUUID(),
 	reply_to: Number.MAX_SAFE_INTEGER,
 	attachments
 })).length > MAX_MESSAGE_BODY;
@@ -515,7 +533,7 @@ function createChannelSource(transport) {
 			async send(text, replyTo, attachments) {
 				const roomId = snapshot.roomId;
 				if (roomId === void 0) throw new Error("No channel is open");
-				await post(roomId, crypto.randomUUID(), text, replyTo, attachments);
+				await post(roomId, randomUUID(), text, replyTo, attachments);
 			},
 			async retrySend(clientKey) {
 				const roomId = snapshot.roomId;
