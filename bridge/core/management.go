@@ -115,10 +115,18 @@ func (m *ManagementServer) SetSetupWeixinSave(fn func(WeixinSetupSaveRequest) er
 
 // HotLoadResult: what one hot load did. Added: projects now online. Failed: project name → why it
 // did not come online (nothing of it is left running). Error: the load as a whole did not run.
+//
+// The setup wizard's save fills the rest: Removed are failed roles it added and took back out of
+// config.toml (RollbackError: why that did not work); RestartKeys ("<project>: <option>") and
+// ReloadError say why the running roles still need a restart.
 type HotLoadResult struct {
-	Added  []string          `json:"projects_added"`
-	Failed map[string]string `json:"projects_failed,omitempty"`
-	Error  string            `json:"hot_load_error,omitempty"`
+	Added         []string          `json:"projects_added"`
+	Failed        map[string]string `json:"projects_failed,omitempty"`
+	Error         string            `json:"hot_load_error,omitempty"`
+	Removed       []string          `json:"projects_removed,omitempty"`
+	RollbackError string            `json:"rollback_error,omitempty"`
+	RestartKeys   []string          `json:"restart_keys,omitempty"`
+	ReloadError   string            `json:"reload_error,omitempty"`
 }
 
 // SetHotLoadFunc wires /reload and the setup wizard's save to start projects that were added to

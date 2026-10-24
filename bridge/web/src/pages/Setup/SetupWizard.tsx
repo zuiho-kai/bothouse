@@ -892,9 +892,12 @@ export default function SetupWizard() {
                       <p key={`ha${p}`} className="text-emerald-600 flex items-center gap-1" data-testid="hot-load-online"><CheckCircle2 size={14} />{result.roles.find((r) => r.project === p)?.name || p} {zh ? '已上线' : 'is online'}</p>
                     ))}
                     {Object.entries(result.hot_load.projects_failed || {}).map(([p, why]) => (
-                      <p key={`hf${p}`} className="text-red-600" data-testid="hot-load-failed">{result.roles.find((r) => r.project === p)?.name || p} {zh ? '没上线：' : 'is not online: '}{why}</p>
+                      <p key={`hf${p}`} className="text-red-600" data-testid="hot-load-failed">{result.roles.find((r) => r.project === p)?.name || p} {zh ? '没上线：' : 'is not online: '}{why}{(result.hot_load?.projects_removed || []).includes(p) ? (zh ? '（已从配置里撤掉，改好后重新添加）' : ' (taken back out of the config; fix it and add it again)') : ''}</p>
                     ))}
                     {result.hot_load.hot_load_error && <p className="text-red-600" data-testid="hot-load-failed">{zh ? '没能启动新角色：' : 'New roles were not started: '}{result.hot_load.hot_load_error}</p>}
+                    {result.hot_load.rollback_error && <p className="text-red-600" data-testid="hot-load-rollback">{zh ? '没上线的角色没能从配置里撤掉，重启前请先删掉它：' : 'Could not take the failed roles out of the config; remove them before restarting: '}{result.hot_load.rollback_error}</p>}
+                    {result.hot_load.reload_error && <p className="text-amber-600" data-testid="hot-load-restart-why">{zh ? '已在跑的角色没能更新，需要重启：' : 'The running roles could not be updated, a restart is needed: '}{result.hot_load.reload_error}</p>}
+                    {(result.hot_load.restart_keys || []).length > 0 && <p className="text-amber-600" data-testid="hot-load-restart-why">{zh ? '这些设置要重启才生效：' : 'These settings take effect after a restart: '}{(result.hot_load.restart_keys || []).join('; ')}</p>}
                   </div>
                 )}
                 <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">

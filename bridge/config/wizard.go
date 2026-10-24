@@ -119,6 +119,49 @@ func ApplyWizardProjects(plan func([]WizardProjectSnapshot) ([]WizardProjectOpti
 	return backup, saveConfig(doc)
 }
 
+// RemoveWizardProjects takes the named projects out of config.toml (one read-modify-write
+// under configMu, on the TOML document like ApplyWizardProjects so unknown keys survive). The
+// setup wizard uses it to undo a role it just added that could not start: left in the file it
+// would stop the next start (main exits on a project that fails to build). It returns the
+// names actually removed.
+func RemoveWizardProjects(names []string) ([]string, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if ConfigPath == "" {
+		return nil, fmt.Errorf("config path not set")
+	}
+	raw, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	projects, err := tableList(doc, "projects")
+	if err != nil {
+		return nil, err
+	}
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[n] = true
+	}
+	var kept []map[string]any
+	var removed []string
+	for _, p := range projects {
+		if n, _ := p["name"].(string); drop[n] {
+			removed = append(removed, n)
+			continue
+		}
+		kept = append(kept, p)
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	doc["projects"] = kept
+	return removed, saveConfig(doc)
+}
+
 // backupPath is config.toml.bak-20261020-121500, with -2, -3 … if that name exists.
 func backupPath(configPath string, t time.Time) string {
 	base := configPath + ".bak-" + t.Format("20060102-150405")

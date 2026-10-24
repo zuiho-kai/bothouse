@@ -3066,3 +3066,28 @@ func TestMgmt_ReloadRunningReportsRestartKeys(t *testing.T) {
 		t.Fatalf("pending=%v err=%v, want one restart key", pending, err)
 	}
 }
+
+type removerStore struct {
+	*memStore
+	asked []string
+}
+
+func (s *removerStore) RemoveProjects(names []string) ([]string, error) {
+	s.asked = append(s.asked, names...)
+	return names, nil
+}
+
+// A role this save added that did not start is taken back out of config.toml; a failing project
+// that was already there is not touched (and still needs a restart).
+func TestRollBackFailedRolesOnlyNewOnes(t *testing.T) {
+	st := &removerStore{memStore: newMemStore()}
+	m := &ManagementServer{wizardStore: st}
+	hl := HotLoadResult{Added: []string{"eta"}, Failed: map[string]string{"delta": "unknown agent", "kept": "x"}}
+	left := m.rollBackFailedRoles(&hl, map[string]bool{"old-role": true, "kept": true})
+	if len(st.asked) != 1 || st.asked[0] != "delta" {
+		t.Fatalf("asked to remove %v, want [delta]", st.asked)
+	}
+	if len(hl.Removed) != 1 || hl.Removed[0] != "delta" || left != 1 {
+		t.Fatalf("removed = %v, left = %d", hl.Removed, left)
+	}
+}

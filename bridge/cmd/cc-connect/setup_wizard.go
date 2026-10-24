@@ -90,6 +90,11 @@ func (configWizardStore) ApplyProjects(plan func(core.WizardSnapshot) ([]core.Wi
 	})
 }
 
+// RemoveProjects: core.WizardProjectRemover (the wizard undoes a role it added that did not start).
+func (configWizardStore) RemoveProjects(names []string) ([]string, error) {
+	return config.RemoveWizardProjects(names)
+}
+
 // saveFeishuSetup is shared by the QR save endpoint and the wizard.
 func saveFeishuSetup(req core.FeishuSetupSaveRequest) error {
 	platType := req.PlatformType
@@ -550,6 +555,10 @@ func (bootstrapOnWriteStore) ApplyProjects(plan func(core.WizardSnapshot) ([]cor
 		}
 	}
 	return configWizardStore{}.ApplyProjects(plan)
+}
+
+func (bootstrapOnWriteStore) RemoveProjects(names []string) ([]string, error) {
+	return config.RemoveWizardProjects(names)
 }
 
 // defaultDataDir is config.load's default data_dir (no data_dir in the config).

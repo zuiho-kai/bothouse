@@ -19,11 +19,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -161,26 +163,26 @@ type WizardResult struct {
 	GateHint        string          `json:"gate_hint,omitempty"`
 	// GateStatus (a team of bots): off | running | starting (bothouse starts it now or on its restart) |
 	// python_missing | python_too_old | jev_missing (not started: the lead answers what names no one)
-	GateStatus      string              `json:"gate_status,omitempty"`
-	dataDir         string              // where the gate's jev.json is (GatePrereq)
-	NextSteps       []string            `json:"next_steps,omitempty"` // how to start / restart (filled by the caller that knows)
-	DryRun          bool                `json:"dry_run"`
-	Steps           []WizardStep        `json:"steps"`
-	Roles           []WizardRoleResult  `json:"roles"`
-	FallbackRole    string              `json:"fallback_role,omitempty"`
-	Jev             *JevTestResult      `json:"jev_test,omitempty"`
-	JevOK           bool                `json:"jev_ok"`               // a jev that returns probabilities is saved (now or earlier)
-	JevReason       string              `json:"jev_reason,omitempty"` // why the jev in this request was not saved
-	JevInUse        string              `json:"jev_in_use,omitempty"` // "model @ url" of the jev in effect after this request ("" = none)
-	JevHint         string              `json:"jev_hint"`
-	Hardware        bool                `json:"hardware"`
-	RestartRequired bool                `json:"restart_required"`
+	GateStatus      string             `json:"gate_status,omitempty"`
+	dataDir         string             // where the gate's jev.json is (GatePrereq)
+	NextSteps       []string           `json:"next_steps,omitempty"` // how to start / restart (filled by the caller that knows)
+	DryRun          bool               `json:"dry_run"`
+	Steps           []WizardStep       `json:"steps"`
+	Roles           []WizardRoleResult `json:"roles"`
+	FallbackRole    string             `json:"fallback_role,omitempty"`
+	Jev             *JevTestResult     `json:"jev_test,omitempty"`
+	JevOK           bool               `json:"jev_ok"`               // a jev that returns probabilities is saved (now or earlier)
+	JevReason       string             `json:"jev_reason,omitempty"` // why the jev in this request was not saved
+	JevInUse        string             `json:"jev_in_use,omitempty"` // "model @ url" of the jev in effect after this request ("" = none)
+	JevHint         string             `json:"jev_hint"`
+	Hardware        bool               `json:"hardware"`
+	RestartRequired bool               `json:"restart_required"`
 	// HotLoad: a running service started the roles this save added (handleSetupApply), so no restart
 	// is needed for them. nil = not tried (dry run, wizard outside a running service).
-	HotLoad *HotLoadResult `json:"hot_load,omitempty"`
-	ConfigBackup    string              `json:"config_backup,omitempty"` // copy of config.toml taken before the write
-	CloudWeb        *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
-	Error           string              `json:"error,omitempty"`
+	HotLoad      *HotLoadResult      `json:"hot_load,omitempty"`
+	ConfigBackup string              `json:"config_backup,omitempty"` // copy of config.toml taken before the write
+	CloudWeb     *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
+	Error        string              `json:"error,omitempty"`
 }
 
 // ── store (implemented in cmd/cc-connect on top of config/) ─────
@@ -291,6 +293,12 @@ type WizardStore interface {
 	// current config, calls plan with it, applies the returned writes and saves once
 	// (temp file + rename). It returns the path of the backup taken before writing.
 	ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite, error)) (backup string, err error)
+}
+
+// WizardProjectRemover is implemented by stores that can take projects back out of config.toml:
+// a role the wizard just added that did not start in the running service is removed again.
+type WizardProjectRemover interface {
+	RemoveProjects(names []string) (removed []string, err error)
 }
 
 // WizardEnv carries what ApplyWizard needs besides the request.
@@ -2222,15 +2230,32 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 		env.Cron = CronOfScheduler(m.cronScheduler)
 	}
 	req.libraryHost = r.Host
+	// the projects config.toml had before this save: only the ones it adds may be rolled back
+	before := map[string]bool{}
+	if snap, err := m.wizardStore.Snapshot(); err == nil {
+		for _, p := range snap.Projects {
+			before[p.Name] = true
+		}
+	}
 	res := ApplyWizard(r.Context(), env, req)
 	if res.Saved && !res.DryRun && m.hotLoad != nil {
 		// adding a role also rewrites the running roles' allow_bots / team_lead_bot / gate: reload
 		// them first (outside m.mu before hotLoad, which registers new engines under it)
 		pending, reloadErr := m.reloadRunning()
 		hl := m.hotLoad()
+		if reloadErr != nil {
+			hl.ReloadError = reloadErr.Error()
+			slog.Warn("setup apply: running roles not reloaded, restart needed", "error", reloadErr)
+		}
+		if len(pending) > 0 {
+			hl.RestartKeys = pending
+			slog.Warn("setup apply: options need a restart", "keys", strings.Join(pending, "; "))
+		}
+		unremoved := m.rollBackFailedRoles(&hl, before)
 		res.HotLoad = &hl
-		// restart only when something could not be applied live
-		if req.AppendOnly && hl.Error == "" && len(hl.Failed) == 0 && reloadErr == nil && len(pending) == 0 {
+		// restart only when something could not be applied live; a role that failed and was taken
+		// back out of config.toml would not start after a restart either
+		if req.AppendOnly && hl.Error == "" && unremoved == 0 && reloadErr == nil && len(pending) == 0 {
 			res.RestartRequired = false
 		}
 	}
@@ -2241,6 +2266,38 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": res.OK, "data": res, "error": res.Error})
+}
+
+// rollBackFailedRoles takes the roles this save added that did not start (hl.Failed, not in
+// before) out of config.toml again; left there, every save retries them and the next start
+// exits on them. Roles that were already in the file are left alone. It returns how many failed
+// roles are still in config.toml.
+func (m *ManagementServer) rollBackFailedRoles(hl *HotLoadResult, before map[string]bool) int {
+	var added []string
+	for name := range hl.Failed {
+		if !before[name] {
+			added = append(added, name)
+		}
+	}
+	sort.Strings(added)
+	if len(added) == 0 {
+		return len(hl.Failed)
+	}
+	rm, ok := m.wizardStore.(WizardProjectRemover)
+	if !ok {
+		return len(hl.Failed)
+	}
+	removed, err := rm.RemoveProjects(added)
+	if err != nil {
+		slog.Error("setup apply: failed roles not removed from config", "projects", strings.Join(added, ","), "error", err)
+		hl.RollbackError = err.Error()
+		return len(hl.Failed)
+	}
+	for _, n := range removed {
+		slog.Warn("setup apply: role did not start, removed from config", "project", n, "error", hl.Failed[n])
+	}
+	hl.Removed = removed
+	return len(hl.Failed) - len(removed)
 }
 
 // handleSetupPersona: GET ?agent_type=&work_dir= → the persona file a new role would use.

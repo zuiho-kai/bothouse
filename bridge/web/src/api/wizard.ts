@@ -63,7 +63,8 @@ export interface WizardResult {
   cloud_web?: CloudWebTest;
   fallback_role?: string; jev_test?: JevTest; jev_ok: boolean; jev_reason?: string; jev_in_use?: string; jev_hint: string; hardware: boolean; restart_required: boolean; config_backup?: string;
   // the running service started the roles this save added: projects_added are online, projects_failed says why one is not
-  hot_load?: { projects_added: string[]; projects_failed?: Record<string, string>; hot_load_error?: string };
+  // projects_removed: failed roles taken back out of config.toml; restart_keys / reload_error: why the running roles still need a restart
+  hot_load?: { projects_added: string[]; projects_failed?: Record<string, string>; hot_load_error?: string; projects_removed?: string[]; rollback_error?: string; restart_keys?: string[]; reload_error?: string };
 }
 
 /** The self-hosted platform on this machine (core/setup_cloudweb.go LocalHubStatus). */

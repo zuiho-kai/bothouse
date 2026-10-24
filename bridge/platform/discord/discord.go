@@ -28,13 +28,13 @@ const maxDiscordLen = 1900
 
 type replyContext struct {
 	recordAgentReply func(string)
-	channelID string
-	messageID string
-	threadID  string
-	agent     bool   // maomao fork: this send carries the agent's own text (core.AgentReplyMarker)
-	lead      string // maomao fork: the team lead @-ed this sub to start the turn; the reply goes back to it
-	final     bool   // maomao fork: this send carries the turn's final answer (core.FinalReplyMarker)
-	notice    bool   // maomao fork: this send is a cc-connect notice (core.SystemNoticeMarker); see aux_channels.go
+	channelID        string
+	messageID        string
+	threadID         string
+	agent            bool   // maomao fork: this send carries the agent's own text (core.AgentReplyMarker)
+	lead             string // maomao fork: the team lead @-ed this sub to start the turn; the reply goes back to it
+	final            bool   // maomao fork: this send carries the turn's final answer (core.FinalReplyMarker)
+	notice           bool   // maomao fork: this send is a cc-connect notice (core.SystemNoticeMarker); see aux_channels.go
 }
 
 // interactionReplyCtx handles Discord slash command (Application Command)
@@ -42,10 +42,10 @@ type replyContext struct {
 // subsequent replies use followup messages.
 type interactionReplyCtx struct {
 	recordAgentReply func(string)
-	interaction *discordgo.Interaction
-	channelID   string
-	mu          sync.Mutex
-	firstDone   bool
+	interaction      *discordgo.Interaction
+	channelID        string
+	mu               sync.Mutex
+	firstDone        bool
 	// maomao fork: an agent-output copy (MarkAgentReply) points at the original,
 	// which keeps the "first reply edits the deferred response" state for both.
 	parent *interactionReplyCtx
@@ -76,8 +76,7 @@ type Platform struct {
 	token                      string
 	allowFrom                  string
 	permissionApprovers        []string
-	liveMu                     sync.RWMutex      // guards allowBots and teamLead, which ReloadOptions swaps while running
-	startGroupReplyAll         any               // group_reply_all as read in New; ReloadOptions reports a change as needing a restart
+	liveMu                     sync.RWMutex      // guards allowBots, teamLead, groupReplyAllGuilds/Channels and shareSessionInChannel, which ReloadOptions swaps while running
 	allowBots                  string            // maomao fork: bot user IDs whose @-mentions of this bot are accepted
 	allowBotsFile              *allowBotsFile    // maomao fork: more allowed bot/webhook IDs, one per line; see allow_bots_file.go
 	teamLead                   string            // maomao fork: bot ID of the team lead; a reply to its @ is routed back to it (lead_return.go)
@@ -134,26 +133,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		return nil, err
 	}
 	guildID, _ := opts["guild_id"].(string)
-	var groupReplyAllGuilds []string
-	if guilds, _ := opts["group_reply_all_guilds"].(string); guilds != "" {
-		for _, g := range strings.Split(guilds, ",") {
-			if g = strings.TrimSpace(g); g != "" {
-				groupReplyAllGuilds = append(groupReplyAllGuilds, g)
-			}
-		}
-	} else if all, _ := opts["group_reply_all"].(bool); all {
-		groupReplyAllGuilds = []string{"*"}
-	}
-	// conest: group_reply_all_channels = the wizard's default chat channel. Listening without
-	// an @ is limited to it; @mentions and DMs work everywhere as before.
-	var groupReplyAllChannels []string
-	if chs, _ := opts["group_reply_all_channels"].(string); chs != "" {
-		for _, c := range strings.Split(chs, ",") {
-			if c = strings.TrimSpace(c); c != "" {
-				groupReplyAllChannels = append(groupReplyAllChannels, c)
-			}
-		}
-	}
+	groupReplyAllGuilds, groupReplyAllChannels := parseGroupReplyAll(opts)
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
 	if len(approvers) > 0 && !shareSessionInChannel {
 		return nil, fmt.Errorf("discord: permission_approvers requires share_session_in_channel=true")
@@ -211,7 +191,6 @@ func New(opts map[string]any) (core.Platform, error) {
 		allowFrom:                  allowFrom,
 		permissionApprovers:        approvers,
 		allowBots:                  allowBots,
-		startGroupReplyAll:         opts["group_reply_all"],
 		allowBotsFile:              newAllowBotsFile(allowBotsFilePath),
 		teamLead:                   teamLead,
 		guildID:                    guildID,
@@ -293,7 +272,8 @@ func intOpt(v any) int {
 }
 
 func (p *Platform) isGroupReplyAllGuild(guildID string) bool {
-	for _, g := range p.groupReplyAllGuilds {
+	guilds, _ := p.replyAllLists()
+	for _, g := range guilds {
 		if g == "*" || g == guildID {
 			return true
 		}
@@ -307,10 +287,11 @@ func (p *Platform) replyAllHere(guildID, channelID, parentID string) bool {
 	if !p.isGroupReplyAllGuild(guildID) {
 		return false
 	}
-	if len(p.groupReplyAllChannels) == 0 {
+	_, channels := p.replyAllLists()
+	if len(channels) == 0 {
 		return true
 	}
-	for _, c := range p.groupReplyAllChannels {
+	for _, c := range channels {
 		if c == channelID || (parentID != "" && c == parentID) {
 			return true
 		}
@@ -330,7 +311,7 @@ func channelParent(s *discordgo.Session, channelID string) string {
 }
 
 func (p *Platform) makeSessionKey(channelID string, userID string) string {
-	return buildSessionKey(channelID, userID, p.shareSessionInChannel)
+	return buildSessionKey(channelID, userID, p.shareInChannel())
 }
 
 func rememberDedupID(store *sync.Map, id string) bool {
@@ -815,7 +796,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	replyAll := false
 	if m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
 		parent := ""
-		if len(p.groupReplyAllChannels) > 0 {
+		if _, channels := p.replyAllLists(); len(channels) > 0 {
 			parent = channelParent(s, m.ChannelID)
 		}
 		replyAll = p.replyAllHere(m.GuildID, m.ChannelID, parent)
@@ -1077,7 +1058,7 @@ func (p *Platform) handleInteraction(s *discordgo.Session, i *discordgo.Interact
 	slog.Debug("discord: slash command", "user", userName, "command", cmdText, "channel", channelID)
 
 	ops := sessionThreadOps{session: p.session}
-	sessionKey := resolveSessionKeyForChannel(channelID, userID, p.shareSessionInChannel, p.threadIsolation, ops)
+	sessionKey := resolveSessionKeyForChannel(channelID, userID, p.shareInChannel(), p.threadIsolation, ops)
 	channelKey := ""
 	if p.threadIsolation {
 		channelKey = resolveParentChannelID(channelID, ops)
@@ -1155,7 +1136,7 @@ func (p *Platform) handleComponentInteraction(s *discordgo.Session, i *discordgo
 
 	channelID := i.ChannelID
 	ops := sessionThreadOps{session: p.session}
-	sessionKey := resolveSessionKeyForChannel(channelID, userID, p.shareSessionInChannel, p.threadIsolation, ops)
+	sessionKey := resolveSessionKeyForChannel(channelID, userID, p.shareInChannel(), p.threadIsolation, ops)
 	channelKey := ""
 	if p.threadIsolation {
 		channelKey = resolveParentChannelID(channelID, ops)
@@ -2072,7 +2053,7 @@ func (p *Platform) messageReference(ref *discordgo.Message) *core.MessageReferen
 	}
 	prefix := "[replying to " + ref.Author.Username + ": "
 	return &core.MessageReference{
-		ID: ref.ID,
+		ID:     ref.ID,
 		Full:   prefix + ref.Content + "]\n",
 		Short:  prefix + string(text) + "（你自己的上一条，已在上文）]\n",
 		SentAt: ref.Timestamp,

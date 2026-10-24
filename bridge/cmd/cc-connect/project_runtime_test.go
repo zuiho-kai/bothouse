@@ -23,7 +23,7 @@ func (hotFakeAgent) StartSession(context.Context, string) (core.AgentSession, er
 	return nil, errors.New("not used")
 }
 func (hotFakeAgent) ListSessions(context.Context) ([]core.AgentSessionInfo, error) { return nil, nil }
-func (hotFakeAgent) Stop() error                                                  { return nil }
+func (hotFakeAgent) Stop() error                                                   { return nil }
 
 type hotFakePlatform struct {
 	project   string

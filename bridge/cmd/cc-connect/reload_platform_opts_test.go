@@ -10,7 +10,9 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-func discordRoleProject(name, allowBots, lead string, groupReplyAll bool) string {
+// discordRoleProject: extra holds more option lines; the first wizard run writes neither
+// group_reply_all nor share_session_in_channel for a lone role (core/setup_wizard.go Discord branch).
+func discordRoleProject(name, allowBots, lead, extra string) string {
 	return fmt.Sprintf(`
 [[projects]]
 name = %q
@@ -25,8 +27,9 @@ type = "discord"
 token = "test-token"
 allow_bots = %q
 team_lead_bot = %q
-group_reply_all = %v
-`, name, allowBots, lead, groupReplyAll)
+group_reply_all_channels = "C-home"
+%s
+`, name, allowBots, lead, extra)
 }
 
 // Adding a role rewrites the running role's allow_bots / team_lead_bot; a reload must apply
@@ -37,7 +40,7 @@ func TestReloadConfigHotUpdatesRunningRoleAllowBots(t *testing.T) {
 	t.Setenv("HOME", dir)
 	cfgPath := filepath.Join(dir, "config.toml")
 	head := fmt.Sprintf("data_dir = %q\n", filepath.Join(dir, "data"))
-	writeHotConfig(t, cfgPath, head+discordRoleProject("old-role", "111", "", true))
+	writeHotConfig(t, cfgPath, head+discordRoleProject("old-role", "111", "", ""))
 
 	rt := newProjectRuntime(cfgPath, rootCLIOptions{})
 	cfg, err := rt.loadConfig(cfgPath)
@@ -50,8 +53,10 @@ func TestReloadConfigHotUpdatesRunningRoleAllowBots(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = b.engine.Stop() })
 
-	// the wizard adds new bot 222 to the old role's allow_bots and names the lead
-	writeHotConfig(t, cfgPath, head+discordRoleProject("old-role", "111,222", "999", true))
+	// adding a role (mergeTeamWrites) adds new bot 222 to the old role's allow_bots, names the
+	// lead and sets the unset group_reply_all / share_session_in_channel to true
+	both := "group_reply_all = true\nshare_session_in_channel = true\n"
+	writeHotConfig(t, cfgPath, head+discordRoleProject("old-role", "111,222", "999", both))
 	res, err := reloadConfig(cfgPath, "old-role", b.engine, platformOptsByType(cfg.Projects[0].Platforms))
 	if err != nil {
 		t.Fatal(err)
@@ -78,14 +83,17 @@ func TestReloadConfigHotUpdatesRunningRoleAllowBots(t *testing.T) {
 	if lead, _ := dp.(interface{ HasConfiguredTeamLead() bool }); lead == nil || !lead.HasConfiguredTeamLead() {
 		t.Fatal("team_lead_bot not applied live")
 	}
-
-	// a change the platform cannot take live is reported for a restart
-	writeHotConfig(t, cfgPath, head+discordRoleProject("old-role", "111,222", "999", false))
-	res, err = reloadConfig(cfgPath, "old-role", b.engine, platformOptsByType(cfg.Projects[0].Platforms))
-	if err != nil {
-		t.Fatal(err)
+	live, ok := dp.(interface {
+		ReplyAllHere(guildID, channelID, parentID string) bool
+		SessionKeyFor(channelID, userID string) string
+	})
+	if !ok {
+		t.Fatal("discord platform exposes no ReplyAllHere / SessionKeyFor")
 	}
-	if len(res.RestartKeys) != 1 || res.RestartKeys[0] != "discord.group_reply_all" {
-		t.Fatalf("restart keys = %v, want [discord.group_reply_all]", res.RestartKeys)
+	if !live.ReplyAllHere("G", "C-home", "") {
+		t.Fatal("group_reply_all not applied live")
+	}
+	if live.SessionKeyFor("C-home", "u1") != live.SessionKeyFor("C-home", "u2") {
+		t.Fatal("share_session_in_channel not applied live")
 	}
 }
