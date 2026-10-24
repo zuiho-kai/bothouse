@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -260,5 +261,30 @@ func TestUpdateViaRunningFallsBack(t *testing.T) {
 	t.Cleanup(func() { srv3.Close() })
 	if err := updateViaRunning(busy, "v0.1.5"); err == nil || errors.Is(err, errNoRunningUpdate) {
 		t.Fatalf("409 must be a real failure: %v", err)
+	}
+}
+
+// `bothouse update` run with its own HOME must target that HOME's instance, even when the
+// shell carries CC_DATA_DIR from another running instance (agents get it injected).
+func TestUpdateSocketPathFollowsHomeNotInheritedDataDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CC_DATA_DIR", filepath.Join(t.TempDir(), "other-instance"))
+	t.Chdir(t.TempDir()) // no ./config.toml
+
+	got := updateSocketPath("")
+	if !strings.HasPrefix(got, home+string(filepath.Separator)) {
+		t.Fatalf("socket %q is not under HOME %q", got, home)
+	}
+
+	// --config with its own data_dir wins.
+	dataDir := filepath.Join(home, "custom-data")
+	cfgPath := filepath.Join(home, "alt.toml")
+	if err := os.WriteFile(cfgPath, []byte("data_dir = \""+filepath.ToSlash(dataDir)+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := updateSocketPath(cfgPath), filepath.Join(dataDir, "run", "api.sock"); got != want {
+		t.Fatalf("--config: got %q want %q", got, want)
 	}
 }

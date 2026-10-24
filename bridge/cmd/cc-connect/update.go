@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	ccconnect "github.com/chenhg5/cc-connect"
+	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -157,12 +159,35 @@ func getUpdateHintIfAvailable() string {
 	return ""
 }
 
-func runUpdate() {
+// updateSocketPath picks the api socket of the instance this CLI belongs to: the data dir the
+// daemon would use for the same --config / HOME (resolveConfigPath, then the config's data_dir,
+// as main.go and setup_wizard.go do). It deliberately ignores CC_DATA_DIR: that variable is
+// injected into agent shells by a running instance, so honouring it would let a command run
+// with a separate HOME update that other, unrelated instance.
+func updateSocketPath(configFlag string) string {
+	configPath := resolveConfigPath(configFlag)
+	if cfg, err := config.LoadForSetup(configPath); err == nil && cfg.DataDir != "" {
+		return filepath.Join(cfg.DataDir, "run", "api.sock")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(ccconnect.DataDir(home), "run", "api.sock")
+	}
+	return filepath.Join(".bothouse", "run", "api.sock")
+}
+
+func runUpdate(args []string) {
 	// a pre-release build (v0.1.0-rc1) follows pre-releases: there may be no stable release at all
 	pre := isPrereleaseVersion(version)
-	for _, arg := range os.Args[2:] {
-		if arg == "--pre" || arg == "--beta" {
+	configFlag := rootConfigPath
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "--pre" || arg == "--beta":
 			pre = true
+		case arg == "--config" && i+1 < len(args):
+			i++
+			configFlag = args[i]
+		case strings.HasPrefix(arg, "--config="):
+			configFlag = strings.TrimPrefix(arg, "--config=")
 		}
 	}
 
@@ -194,7 +219,7 @@ func runUpdate() {
 	viaRunning := false
 	// bothouse is running: let it install the update itself, so the CLI gets the same
 	// self-check as the web button (restart, and put the old version back if the new one does not come up).
-	if sock := resolveSocketPath(""); fileExistsCmd(sock) {
+	if sock := updateSocketPath(configFlag); fileExistsCmd(sock) {
 		err := updateViaRunning(sock, latest)
 		viaRunning = err == nil
 		if errors.Is(err, errNoRunningUpdate) {

@@ -211,9 +211,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	core.UpdateGuardArg: func(_ []string) {
 		os.Exit(core.RunUpdateGuard())
 	},
-	"update": func(_ []string) {
-		runUpdate()
-	},
+	"update": runUpdate,
 	"check-update": func(_ []string) {
 		checkUpdate()
 	},
@@ -299,6 +297,7 @@ func main() {
 		return
 	}
 
+	rootConfigPath = rootOpts.configPath
 	if runTopLevelCommand(rootOpts.args) {
 		return
 	}
@@ -1431,6 +1430,10 @@ func runTopLevelCommand(args []string) bool {
 	handler(args[1:])
 	return true
 }
+
+// rootConfigPath is the root --config flag, for subcommands that must find their own instance
+// (`bothouse --config X update`).
+var rootConfigPath string
 
 type rootCLIOptions struct {
 	configPath     string
