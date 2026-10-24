@@ -76,6 +76,12 @@ type ManagementServer struct {
 	// setup wizard (setup_wizard.go)
 	wizardStore   WizardStore
 	wizardDataDir string
+
+	// External devices & role controls
+	devicesMu   sync.RWMutex
+	devices     map[string]*Device
+	rolesMu     sync.RWMutex
+	pausedRoles map[string]bool
 }
 
 // NewManagementServer creates a new management API server.
@@ -85,6 +91,8 @@ func NewManagementServer(port int, token string, corsOrigins []string) *Manageme
 		token:       token,
 		corsOrigins: corsOrigins,
 		engines:     make(map[string]*Engine),
+		devices:     make(map[string]*Device),
+		pausedRoles: make(map[string]bool),
 		startedAt:   time.Now(),
 	}
 }
@@ -285,6 +293,14 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// Skills
 	mux.HandleFunc(prefix+"/skills", m.wrap(m.handleSkills))
 	mux.HandleFunc(prefix+"/skills/presets", m.wrap(m.handleSkillPresets))
+
+	// Roles
+	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
+	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
+
+	// Devices (external clients, pet integration)
+	mux.HandleFunc(prefix+"/devices", m.wrap(m.handleDevices))
+	mux.HandleFunc(prefix+"/devices/", m.wrap(m.handleDeviceRoutes))
 
 	// Bridge
 	mux.HandleFunc(prefix+"/bridge/adapters", m.wrap(m.handleBridgeAdapters))

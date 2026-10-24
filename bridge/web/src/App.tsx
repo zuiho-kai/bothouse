@@ -13,6 +13,8 @@ import LibraryPage from './pages/Library/LibraryPage';
 import ProviderList from '@/pages/Providers/ProviderList';
 import SkillList from '@/pages/Skills/SkillList';
 import SetupWizard from '@/pages/Setup/SetupWizard';
+import RoleList from '@/pages/Roles/RoleList';
+import DeviceList from '@/pages/Devices/DeviceList';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -36,6 +38,8 @@ export default function App() {
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
         <Route path="setup" element={<SetupWizard />} />
+        <Route path="roles" element={<RoleList />} />
+        <Route path="devices" element={<DeviceList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="providers" element={<ProviderList />} />

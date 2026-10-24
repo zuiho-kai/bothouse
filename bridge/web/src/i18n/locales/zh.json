@@ -3,6 +3,8 @@
     "addRole": "添加角色/模型",
     "library": "角色库",
     "dashboard": "概览",
+    "roles": "角色",
+    "devices": "设备",
     "projects": "项目",
     "providers": "服务商",
     "sessions": "会话",

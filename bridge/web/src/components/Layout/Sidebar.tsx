@@ -12,6 +12,8 @@ import {
   Puzzle,
   Library,
   UserPlus,
+  Users,
+  Laptop,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
@@ -21,6 +23,8 @@ const navItems = [
   // add a role / model on top of the current setup (SetupWizard add mode, append_only)
   { key: 'addRole', path: '/setup?add=1', icon: UserPlus },
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
+  { key: 'roles', path: '/roles', icon: Users },
+  { key: 'devices', path: '/devices', icon: Laptop },
   { key: 'projects', path: '/projects', icon: FolderKanban },
   { key: 'providers', path: '/providers', icon: Plug },
   { key: 'skills', path: '/skills', icon: Puzzle },
