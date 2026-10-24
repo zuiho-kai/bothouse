@@ -260,7 +260,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -818,7 +818,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
       {modelsOpen && <div className={css.dialogBackdrop} onClick={() => { setModelsOpen(false) }}>
         <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('configureModel')} onClick={event => { event.stopPropagation() }}>
           <button type="button" className={css.secondaryButton} onClick={() => { setModelsOpen(false) }}>{t('close')}</button>
-          {renderSlot('settings.section', { close: () => { setModelsOpen(false) } }, { only: 'models' })}
+          {/* Slot names are global: `settings.section` belongs to the settings shell, and a second
+              declaration throws at boot and unmounts the whole shell. Point to Settings → Models instead. */}
+          <p>{t('configureModelHint')}</p>
         </section>
       </div>}
       {dialog !== undefined && (

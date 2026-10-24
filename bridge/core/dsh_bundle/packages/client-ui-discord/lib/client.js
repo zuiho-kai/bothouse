@@ -3,11 +3,29 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".f9vX9W_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.f9vX9W_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.f9vX9W_rooms, .f9vX9W_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.f9vX9W_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.f9vX9W_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.f9vX9W_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.f9vX9W_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.f9vX9W_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.f9vX9W_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.f9vX9W_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.f9vX9W_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.f9vX9W_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.f9vX9W_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.f9vX9W_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.f9vX9W_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.f9vX9W_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.f9vX9W_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.f9vX9W_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_system .f9vX9W_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.f9vX9W_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.f9vX9W_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.f9vX9W_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.f9vX9W_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.f9vX9W_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.f9vX9W_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.f9vX9W_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.f9vX9W_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.f9vX9W_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_messageBody {\n  min-width: 0;\n}\n\n.f9vX9W_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.f9vX9W_author {\n  font-weight: 600;\n}\n\n.f9vX9W_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.f9vX9W_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.f9vX9W_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.f9vX9W_ownActions {\n  opacity: 0;\n  gap: 8px;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.f9vX9W_message:hover .f9vX9W_ownActions, .f9vX9W_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .f9vX9W_ownActions {\n    opacity: 1;\n  }\n}\n\n.f9vX9W_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.f9vX9W_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.f9vX9W_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.f9vX9W_editBar .f9vX9W_time {\n  margin-right: auto;\n}\n\n.f9vX9W_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.f9vX9W_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.f9vX9W_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.f9vX9W_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.f9vX9W_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.f9vX9W_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.f9vX9W_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.f9vX9W_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.f9vX9W_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.f9vX9W_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.f9vX9W_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.f9vX9W_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.f9vX9W_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.f9vX9W_message {\n  position: relative;\n}\n\n.f9vX9W_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.f9vX9W_quoteDeleted {\n  font-style: italic;\n}\n\n.f9vX9W_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.f9vX9W_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.f9vX9W_message:hover .f9vX9W_replyButton, .f9vX9W_message:focus-within .f9vX9W_replyButton, .f9vX9W_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .f9vX9W_replyButton {\n    opacity: 1;\n  }\n}\n\n.f9vX9W_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.f9vX9W_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.f9vX9W_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.f9vX9W_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.f9vX9W_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.f9vX9W_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.f9vX9W_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.f9vX9W_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.f9vX9W_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.f9vX9W_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.f9vX9W_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.f9vX9W_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.f9vX9W_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_mentionName {\n  font-weight: 600;\n}\n\n.f9vX9W_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.f9vX9W_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.f9vX9W_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.f9vX9W_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.f9vX9W_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.f9vX9W_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.f9vX9W_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.f9vX9W_offline {\n  opacity: .5;\n}\n\n.f9vX9W_memberAvatar {\n  position: relative;\n}\n\n.f9vX9W_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.f9vX9W_offline .f9vX9W_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.f9vX9W_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.f9vX9W_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.f9vX9W_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .f9vX9W_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .f9vX9W_rooms, .f9vX9W_members {\n    display: none;\n  }\n}\n\n.f9vX9W_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.f9vX9W_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.f9vX9W_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_roomInput, .f9vX9W_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.f9vX9W_roomInput {\n  margin: 2px 0 6px;\n}\n\n.f9vX9W_roomInput:focus-visible, .f9vX9W_fieldInput:focus-visible, .f9vX9W_iconButton:focus-visible, .f9vX9W_linkButton:focus-visible, .f9vX9W_addMemberButton:focus-visible, .f9vX9W_primaryButton:focus-visible, .f9vX9W_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.f9vX9W_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.f9vX9W_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.f9vX9W_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_memberRow .f9vX9W_member:hover {\n  background: none;\n}\n\n.f9vX9W_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.f9vX9W_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.f9vX9W_memberRow:hover .f9vX9W_memberActions, .f9vX9W_memberRow:focus-within .f9vX9W_memberActions {\n  opacity: 1;\n}\n\n.f9vX9W_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.f9vX9W_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.f9vX9W_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.f9vX9W_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.f9vX9W_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.f9vX9W_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.f9vX9W_field textarea {\n  resize: vertical;\n}\n\n.f9vX9W_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.f9vX9W_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.f9vX9W_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.f9vX9W_primaryButton, .f9vX9W_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.f9vX9W_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.f9vX9W_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.f9vX9W_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.f9vX9W_memberFailed .f9vX9W_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.f9vX9W_memberFailed .f9vX9W_presence {\n  background: #ed4245;\n}\n\n.f9vX9W_mobileButton, .f9vX9W_drawerBackdrop {\n  display: none;\n}\n\n.f9vX9W_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.f9vX9W_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.f9vX9W_panelToggleEnd {\n  margin-left: auto;\n}\n\n.f9vX9W_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.f9vX9W_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.f9vX9W_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.f9vX9W_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .f9vX9W_page.f9vX9W_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .f9vX9W_page.f9vX9W_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .f9vX9W_page.f9vX9W_roomsHidden.f9vX9W_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .f9vX9W_roomsHidden > .f9vX9W_rooms, .f9vX9W_membersHidden > .f9vX9W_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .f9vX9W_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .f9vX9W_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .f9vX9W_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .f9vX9W_panelToggle {\n    display: none;\n  }\n\n  .f9vX9W_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .f9vX9W_rooms.f9vX9W_drawerOpen, .f9vX9W_members.f9vX9W_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .f9vX9W_rooms.f9vX9W_drawerOpen {\n    left: 0;\n  }\n\n  .f9vX9W_members.f9vX9W_drawerOpen {\n    right: 0;\n  }\n\n  .f9vX9W_memberActions {\n    opacity: 1;\n  }\n\n  .f9vX9W_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.f9vX9W_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.f9vX9W_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.f9vX9W_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.f9vX9W_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.f9vX9W_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.f9vX9W_leadControl .f9vX9W_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.f9vX9W_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.f9vX9W_leadControl .f9vX9W_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.f9vX9W_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.f9vX9W_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.f9vX9W_leadOption:hover, .f9vX9W_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_taskSection + .f9vX9W_taskSection {\n  margin-top: 8px;\n}\n\n.f9vX9W_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.f9vX9W_taskOwnerGroup + .f9vX9W_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.f9vX9W_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.f9vX9W_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.f9vX9W_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.f9vX9W_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.f9vX9W_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.f9vX9W_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.f9vX9W_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.f9vX9W_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.f9vX9W_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.f9vX9W_taskDone summary {\n  cursor: pointer;\n}\n\n.f9vX9W_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.f9vX9W_taskStatus[data-status=\"asked\"], .f9vX9W_taskStatus[data-status=\"escalated\"], .f9vX9W_taskStatus[data-status=\"declined\"], .f9vX9W_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.f9vX9W_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.f9vX9W_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.f9vX9W_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.f9vX9W_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.f9vX9W_taskMemberName {\n  font-weight: 600;\n}\n\n.f9vX9W_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.f9vX9W_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.f9vX9W_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.f9vX9W_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.f9vX9W_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.f9vX9W_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.f9vX9W_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.f9vX9W_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.f9vX9W_attachmentAudio audio {\n  width: 100%;\n}\n\n.f9vX9W_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.f9vX9W_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.f9vX9W_chatHead button, .f9vX9W_chatHead input, .f9vX9W_chatHead select, .f9vX9W_chatHead a, .f9vX9W_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.f9vX9W_text pre, .f9vX9W_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".OiA4ka_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.OiA4ka_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.OiA4ka_rooms, .OiA4ka_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.OiA4ka_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.OiA4ka_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.OiA4ka_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.OiA4ka_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.OiA4ka_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.OiA4ka_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.OiA4ka_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.OiA4ka_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.OiA4ka_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.OiA4ka_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.OiA4ka_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.OiA4ka_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.OiA4ka_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.OiA4ka_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_system .OiA4ka_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.OiA4ka_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.OiA4ka_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.OiA4ka_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.OiA4ka_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.OiA4ka_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.OiA4ka_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.OiA4ka_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.OiA4ka_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.OiA4ka_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_messageBody {\n  min-width: 0;\n}\n\n.OiA4ka_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.OiA4ka_author {\n  font-weight: 600;\n}\n\n.OiA4ka_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.OiA4ka_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.OiA4ka_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.OiA4ka_ownActions {\n  opacity: 0;\n  gap: 8px;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.OiA4ka_message:hover .OiA4ka_ownActions, .OiA4ka_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .OiA4ka_ownActions {\n    opacity: 1;\n  }\n}\n\n.OiA4ka_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.OiA4ka_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.OiA4ka_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_editBar .OiA4ka_time {\n  margin-right: auto;\n}\n\n.OiA4ka_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.OiA4ka_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.OiA4ka_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.OiA4ka_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.OiA4ka_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.OiA4ka_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.OiA4ka_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.OiA4ka_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.OiA4ka_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.OiA4ka_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.OiA4ka_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.OiA4ka_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.OiA4ka_message {\n  position: relative;\n}\n\n.OiA4ka_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.OiA4ka_quoteDeleted {\n  font-style: italic;\n}\n\n.OiA4ka_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.OiA4ka_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.OiA4ka_message:hover .OiA4ka_replyButton, .OiA4ka_message:focus-within .OiA4ka_replyButton, .OiA4ka_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .OiA4ka_replyButton {\n    opacity: 1;\n  }\n}\n\n.OiA4ka_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.OiA4ka_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.OiA4ka_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.OiA4ka_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.OiA4ka_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.OiA4ka_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.OiA4ka_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.OiA4ka_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.OiA4ka_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.OiA4ka_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_mentionName {\n  font-weight: 600;\n}\n\n.OiA4ka_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.OiA4ka_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.OiA4ka_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.OiA4ka_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.OiA4ka_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.OiA4ka_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_offline {\n  opacity: .5;\n}\n\n.OiA4ka_memberAvatar {\n  position: relative;\n}\n\n.OiA4ka_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.OiA4ka_offline .OiA4ka_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.OiA4ka_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.OiA4ka_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.OiA4ka_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .OiA4ka_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .OiA4ka_rooms, .OiA4ka_members {\n    display: none;\n  }\n}\n\n.OiA4ka_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.OiA4ka_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.OiA4ka_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_roomInput, .OiA4ka_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.OiA4ka_roomInput {\n  margin: 2px 0 6px;\n}\n\n.OiA4ka_roomInput:focus-visible, .OiA4ka_fieldInput:focus-visible, .OiA4ka_iconButton:focus-visible, .OiA4ka_linkButton:focus-visible, .OiA4ka_addMemberButton:focus-visible, .OiA4ka_primaryButton:focus-visible, .OiA4ka_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.OiA4ka_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.OiA4ka_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_memberRow .OiA4ka_member:hover {\n  background: none;\n}\n\n.OiA4ka_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.OiA4ka_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_memberRow:hover .OiA4ka_memberActions, .OiA4ka_memberRow:focus-within .OiA4ka_memberActions {\n  opacity: 1;\n}\n\n.OiA4ka_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.OiA4ka_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.OiA4ka_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.OiA4ka_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.OiA4ka_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.OiA4ka_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_field textarea {\n  resize: vertical;\n}\n\n.OiA4ka_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.OiA4ka_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.OiA4ka_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_primaryButton, .OiA4ka_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.OiA4ka_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.OiA4ka_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.OiA4ka_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.OiA4ka_memberFailed .OiA4ka_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.OiA4ka_memberFailed .OiA4ka_presence {\n  background: #ed4245;\n}\n\n.OiA4ka_mobileButton, .OiA4ka_drawerBackdrop {\n  display: none;\n}\n\n.OiA4ka_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.OiA4ka_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_panelToggleEnd {\n  margin-left: auto;\n}\n\n.OiA4ka_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.OiA4ka_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.OiA4ka_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .OiA4ka_page.OiA4ka_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .OiA4ka_page.OiA4ka_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .OiA4ka_page.OiA4ka_roomsHidden.OiA4ka_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .OiA4ka_roomsHidden > .OiA4ka_rooms, .OiA4ka_membersHidden > .OiA4ka_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .OiA4ka_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .OiA4ka_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .OiA4ka_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .OiA4ka_panelToggle {\n    display: none;\n  }\n\n  .OiA4ka_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .OiA4ka_rooms.OiA4ka_drawerOpen, .OiA4ka_members.OiA4ka_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .OiA4ka_rooms.OiA4ka_drawerOpen {\n    left: 0;\n  }\n\n  .OiA4ka_members.OiA4ka_drawerOpen {\n    right: 0;\n  }\n\n  .OiA4ka_memberActions {\n    opacity: 1;\n  }\n\n  .OiA4ka_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.OiA4ka_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.OiA4ka_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.OiA4ka_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.OiA4ka_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.OiA4ka_leadControl .OiA4ka_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.OiA4ka_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.OiA4ka_leadControl .OiA4ka_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.OiA4ka_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.OiA4ka_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.OiA4ka_leadOption:hover, .OiA4ka_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_taskSection + .OiA4ka_taskSection {\n  margin-top: 8px;\n}\n\n.OiA4ka_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.OiA4ka_taskOwnerGroup + .OiA4ka_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.OiA4ka_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.OiA4ka_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.OiA4ka_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.OiA4ka_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.OiA4ka_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.OiA4ka_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.OiA4ka_taskDone summary {\n  cursor: pointer;\n}\n\n.OiA4ka_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.OiA4ka_taskStatus[data-status=\"asked\"], .OiA4ka_taskStatus[data-status=\"escalated\"], .OiA4ka_taskStatus[data-status=\"declined\"], .OiA4ka_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.OiA4ka_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.OiA4ka_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.OiA4ka_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.OiA4ka_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.OiA4ka_taskMemberName {\n  font-weight: 600;\n}\n\n.OiA4ka_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.OiA4ka_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.OiA4ka_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.OiA4ka_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.OiA4ka_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.OiA4ka_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.OiA4ka_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.OiA4ka_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.OiA4ka_attachmentAudio audio {\n  width: 100%;\n}\n\n.OiA4ka_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.OiA4ka_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.OiA4ka_chatHead button, .OiA4ka_chatHead input, .OiA4ka_chatHead select, .OiA4ka_chatHead a, .OiA4ka_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.OiA4ka_text pre, .OiA4ka_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
+// src/client/uuid.ts
+/**
+* v4 UUID that also works outside a secure context. `crypto.randomUUID` exists only
+* on https/localhost pages, so a channel page opened at a plain-http LAN or Tailscale
+* address has no such method; `crypto.getRandomValues` is available everywhere.
+* Same approach as upstream DSH's `@deepseek-ai/dsh-util-crypto` randomUUID, which is
+* not loadable here because the bundle keeps `@deepseek-ai/*` external.
+* @returns a canonical lowercase v4 UUID string.
+*/
+function randomUUID() {
+	const c = globalThis.crypto;
+	if (typeof c.randomUUID === "function") return c.randomUUID();
+	const bytes = c.getRandomValues(/* @__PURE__ */ new Uint8Array(16));
+	bytes[6] = bytes[6] & 15 | 64;
+	bytes[8] = bytes[8] & 63 | 128;
+	const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 // src/client/channel-source.ts
 /** Relative URL of a stored attachment (same base as the other collab requests). */
 const attachmentUrl = (id) => `collab/api/attachments/${encodeURIComponent(id)}`;
@@ -16,7 +34,7 @@ const MAX_MESSAGE_BODY = 8388608;
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 const messageTooLarge = (text, attachments) => new TextEncoder().encode(JSON.stringify({
 	text,
-	client_key: crypto.randomUUID(),
+	client_key: randomUUID(),
 	reply_to: Number.MAX_SAFE_INTEGER,
 	attachments
 })).length > MAX_MESSAGE_BODY;
@@ -515,7 +533,7 @@ function createChannelSource(transport) {
 			async send(text, replyTo, attachments) {
 				const roomId = snapshot.roomId;
 				if (roomId === void 0) throw new Error("No channel is open");
-				await post(roomId, crypto.randomUUID(), text, replyTo, attachments);
+				await post(roomId, randomUUID(), text, replyTo, attachments);
 			},
 			async retrySend(clientKey) {
 				const roomId = snapshot.roomId;
@@ -654,141 +672,141 @@ function ChannelsIcon({ size }) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "f9vX9W_activeBusy",
-	"activeCount": "f9vX9W_activeCount",
-	"addMemberButton": "f9vX9W_addMemberButton",
-	"attachmentAudio": "f9vX9W_attachmentAudio",
-	"attachmentFile": "f9vX9W_attachmentFile",
-	"attachmentImage": "f9vX9W_attachmentImage",
-	"attachments": "f9vX9W_attachments",
-	"attachmentSize": "f9vX9W_attachmentSize",
-	"attachmentThumb": "f9vX9W_attachmentThumb",
-	"author": "f9vX9W_author",
-	"avatar": "f9vX9W_avatar",
-	"avatarAnchor": "f9vX9W_avatarAnchor",
-	"avatarButton": "f9vX9W_avatarButton",
-	"avatarImage": "f9vX9W_avatarImage",
-	"avatarMenu": "f9vX9W_avatarMenu",
-	"avatarMenuItem": "f9vX9W_avatarMenuItem",
-	"avatarMenuTitle": "f9vX9W_avatarMenuTitle",
-	"avatarOption": "f9vX9W_avatarOption",
-	"avatarPicker": "f9vX9W_avatarPicker",
-	"avatarSmall": "f9vX9W_avatarSmall",
-	"capabilityHelp": "f9vX9W_capabilityHelp",
-	"capabilityItem": "f9vX9W_capabilityItem",
-	"capabilityMenu": "f9vX9W_capabilityMenu",
-	"card": "f9vX9W_card",
-	"cardButtons": "f9vX9W_cardButtons",
-	"cardHead": "f9vX9W_cardHead",
-	"cardTitle": "f9vX9W_cardTitle",
-	"cardViewButton": "f9vX9W_cardViewButton",
-	"cardViews": "f9vX9W_cardViews",
-	"chat": "f9vX9W_chat",
-	"chatHead": "f9vX9W_chatHead",
-	"choice": "f9vX9W_choice",
-	"choiceRow": "f9vX9W_choiceRow",
-	"composer": "f9vX9W_composer",
-	"composerRow": "f9vX9W_composerRow",
-	"dialog": "f9vX9W_dialog",
-	"dialogActions": "f9vX9W_dialogActions",
-	"dialogBackdrop": "f9vX9W_dialogBackdrop",
-	"dialogTitle": "f9vX9W_dialogTitle",
-	"drawerBackdrop": "f9vX9W_drawerBackdrop",
-	"drawerOpen": "f9vX9W_drawerOpen",
-	"editBar": "f9vX9W_editBar",
-	"editBox": "f9vX9W_editBox",
-	"edited": "f9vX9W_edited",
-	"editInput": "f9vX9W_editInput",
-	"empty": "f9vX9W_empty",
-	"field": "f9vX9W_field",
-	"fieldInput": "f9vX9W_fieldInput",
-	"fieldLabel": "f9vX9W_fieldLabel",
-	"focused": "f9vX9W_focused",
-	"groupHead": "f9vX9W_groupHead",
-	"groupTitle": "f9vX9W_groupTitle",
-	"guide": "f9vX9W_guide",
-	"hash": "f9vX9W_hash",
-	"iconButton": "f9vX9W_iconButton",
-	"input": "f9vX9W_input",
-	"leadControl": "f9vX9W_leadControl",
-	"leadMenu": "f9vX9W_leadMenu",
-	"leadOption": "f9vX9W_leadOption",
-	"linkButton": "f9vX9W_linkButton",
-	"log": "f9vX9W_log",
-	"member": "f9vX9W_member",
-	"memberActions": "f9vX9W_memberActions",
-	"memberAvatar": "f9vX9W_memberAvatar",
-	"memberFailed": "f9vX9W_memberFailed",
-	"memberModel": "f9vX9W_memberModel",
-	"memberName": "f9vX9W_memberName",
-	"memberRow": "f9vX9W_memberRow",
-	"members": "f9vX9W_members",
-	"membersHidden": "f9vX9W_membersHidden",
-	"memberStatus": "f9vX9W_memberStatus",
-	"memberText": "f9vX9W_memberText",
-	"mentionActive": "f9vX9W_mentionActive",
-	"mentionButton": "f9vX9W_mentionButton",
-	"mentionHint": "f9vX9W_mentionHint",
-	"mentionItem": "f9vX9W_mentionItem",
-	"mentionMeta": "f9vX9W_mentionMeta",
-	"mentionName": "f9vX9W_mentionName",
-	"mentionPopup": "f9vX9W_mentionPopup",
-	"mentionTitle": "f9vX9W_mentionTitle",
-	"message": "f9vX9W_message",
-	"messageBody": "f9vX9W_messageBody",
-	"messageHead": "f9vX9W_messageHead",
-	"mobileButton": "f9vX9W_mobileButton",
-	"notice": "f9vX9W_notice",
-	"offline": "f9vX9W_offline",
-	"ownActions": "f9vX9W_ownActions",
-	"page": "f9vX9W_page",
-	"panelToggle": "f9vX9W_panelToggle",
-	"panelToggleEnd": "f9vX9W_panelToggleEnd",
-	"permActions": "f9vX9W_permActions",
-	"permScope": "f9vX9W_permScope",
-	"permStatus": "f9vX9W_permStatus",
-	"presence": "f9vX9W_presence",
-	"primaryButton": "f9vX9W_primaryButton",
-	"quote": "f9vX9W_quote",
-	"quoteAuthor": "f9vX9W_quoteAuthor",
-	"quoteDeleted": "f9vX9W_quoteDeleted",
-	"replyBar": "f9vX9W_replyBar",
-	"replyBarText": "f9vX9W_replyBarText",
-	"replyButton": "f9vX9W_replyButton",
-	"replyCancel": "f9vX9W_replyCancel",
-	"room": "f9vX9W_room",
-	"roomActive": "f9vX9W_roomActive",
-	"roomInput": "f9vX9W_roomInput",
-	"roomLabel": "f9vX9W_roomLabel",
-	"rooms": "f9vX9W_rooms",
-	"roomsHidden": "f9vX9W_roomsHidden",
-	"secondaryButton": "f9vX9W_secondaryButton",
-	"sendError": "f9vX9W_sendError",
-	"system": "f9vX9W_system",
-	"tag": "f9vX9W_tag",
-	"taskBoard": "f9vX9W_taskBoard",
-	"taskCard": "f9vX9W_taskCard",
-	"taskDone": "f9vX9W_taskDone",
-	"taskEmpty": "f9vX9W_taskEmpty",
-	"taskLine": "f9vX9W_taskLine",
-	"taskLinks": "f9vX9W_taskLinks",
-	"taskList": "f9vX9W_taskList",
-	"taskMember": "f9vX9W_taskMember",
-	"taskMemberName": "f9vX9W_taskMemberName",
-	"taskMembers": "f9vX9W_taskMembers",
-	"taskMeta": "f9vX9W_taskMeta",
-	"taskOwnerGroup": "f9vX9W_taskOwnerGroup",
-	"taskOwnerName": "f9vX9W_taskOwnerName",
-	"taskRow": "f9vX9W_taskRow",
-	"taskSection": "f9vX9W_taskSection",
-	"taskSectionTitle": "f9vX9W_taskSectionTitle",
-	"taskStatus": "f9vX9W_taskStatus",
-	"taskSub": "f9vX9W_taskSub",
-	"taskTitle": "f9vX9W_taskTitle",
-	"text": "f9vX9W_text",
-	"time": "f9vX9W_time",
-	"working": "f9vX9W_working",
-	"workspace": "f9vX9W_workspace"
+	"activeBusy": "OiA4ka_activeBusy",
+	"activeCount": "OiA4ka_activeCount",
+	"addMemberButton": "OiA4ka_addMemberButton",
+	"attachmentAudio": "OiA4ka_attachmentAudio",
+	"attachmentFile": "OiA4ka_attachmentFile",
+	"attachmentImage": "OiA4ka_attachmentImage",
+	"attachments": "OiA4ka_attachments",
+	"attachmentSize": "OiA4ka_attachmentSize",
+	"attachmentThumb": "OiA4ka_attachmentThumb",
+	"author": "OiA4ka_author",
+	"avatar": "OiA4ka_avatar",
+	"avatarAnchor": "OiA4ka_avatarAnchor",
+	"avatarButton": "OiA4ka_avatarButton",
+	"avatarImage": "OiA4ka_avatarImage",
+	"avatarMenu": "OiA4ka_avatarMenu",
+	"avatarMenuItem": "OiA4ka_avatarMenuItem",
+	"avatarMenuTitle": "OiA4ka_avatarMenuTitle",
+	"avatarOption": "OiA4ka_avatarOption",
+	"avatarPicker": "OiA4ka_avatarPicker",
+	"avatarSmall": "OiA4ka_avatarSmall",
+	"capabilityHelp": "OiA4ka_capabilityHelp",
+	"capabilityItem": "OiA4ka_capabilityItem",
+	"capabilityMenu": "OiA4ka_capabilityMenu",
+	"card": "OiA4ka_card",
+	"cardButtons": "OiA4ka_cardButtons",
+	"cardHead": "OiA4ka_cardHead",
+	"cardTitle": "OiA4ka_cardTitle",
+	"cardViewButton": "OiA4ka_cardViewButton",
+	"cardViews": "OiA4ka_cardViews",
+	"chat": "OiA4ka_chat",
+	"chatHead": "OiA4ka_chatHead",
+	"choice": "OiA4ka_choice",
+	"choiceRow": "OiA4ka_choiceRow",
+	"composer": "OiA4ka_composer",
+	"composerRow": "OiA4ka_composerRow",
+	"dialog": "OiA4ka_dialog",
+	"dialogActions": "OiA4ka_dialogActions",
+	"dialogBackdrop": "OiA4ka_dialogBackdrop",
+	"dialogTitle": "OiA4ka_dialogTitle",
+	"drawerBackdrop": "OiA4ka_drawerBackdrop",
+	"drawerOpen": "OiA4ka_drawerOpen",
+	"editBar": "OiA4ka_editBar",
+	"editBox": "OiA4ka_editBox",
+	"edited": "OiA4ka_edited",
+	"editInput": "OiA4ka_editInput",
+	"empty": "OiA4ka_empty",
+	"field": "OiA4ka_field",
+	"fieldInput": "OiA4ka_fieldInput",
+	"fieldLabel": "OiA4ka_fieldLabel",
+	"focused": "OiA4ka_focused",
+	"groupHead": "OiA4ka_groupHead",
+	"groupTitle": "OiA4ka_groupTitle",
+	"guide": "OiA4ka_guide",
+	"hash": "OiA4ka_hash",
+	"iconButton": "OiA4ka_iconButton",
+	"input": "OiA4ka_input",
+	"leadControl": "OiA4ka_leadControl",
+	"leadMenu": "OiA4ka_leadMenu",
+	"leadOption": "OiA4ka_leadOption",
+	"linkButton": "OiA4ka_linkButton",
+	"log": "OiA4ka_log",
+	"member": "OiA4ka_member",
+	"memberActions": "OiA4ka_memberActions",
+	"memberAvatar": "OiA4ka_memberAvatar",
+	"memberFailed": "OiA4ka_memberFailed",
+	"memberModel": "OiA4ka_memberModel",
+	"memberName": "OiA4ka_memberName",
+	"memberRow": "OiA4ka_memberRow",
+	"members": "OiA4ka_members",
+	"membersHidden": "OiA4ka_membersHidden",
+	"memberStatus": "OiA4ka_memberStatus",
+	"memberText": "OiA4ka_memberText",
+	"mentionActive": "OiA4ka_mentionActive",
+	"mentionButton": "OiA4ka_mentionButton",
+	"mentionHint": "OiA4ka_mentionHint",
+	"mentionItem": "OiA4ka_mentionItem",
+	"mentionMeta": "OiA4ka_mentionMeta",
+	"mentionName": "OiA4ka_mentionName",
+	"mentionPopup": "OiA4ka_mentionPopup",
+	"mentionTitle": "OiA4ka_mentionTitle",
+	"message": "OiA4ka_message",
+	"messageBody": "OiA4ka_messageBody",
+	"messageHead": "OiA4ka_messageHead",
+	"mobileButton": "OiA4ka_mobileButton",
+	"notice": "OiA4ka_notice",
+	"offline": "OiA4ka_offline",
+	"ownActions": "OiA4ka_ownActions",
+	"page": "OiA4ka_page",
+	"panelToggle": "OiA4ka_panelToggle",
+	"panelToggleEnd": "OiA4ka_panelToggleEnd",
+	"permActions": "OiA4ka_permActions",
+	"permScope": "OiA4ka_permScope",
+	"permStatus": "OiA4ka_permStatus",
+	"presence": "OiA4ka_presence",
+	"primaryButton": "OiA4ka_primaryButton",
+	"quote": "OiA4ka_quote",
+	"quoteAuthor": "OiA4ka_quoteAuthor",
+	"quoteDeleted": "OiA4ka_quoteDeleted",
+	"replyBar": "OiA4ka_replyBar",
+	"replyBarText": "OiA4ka_replyBarText",
+	"replyButton": "OiA4ka_replyButton",
+	"replyCancel": "OiA4ka_replyCancel",
+	"room": "OiA4ka_room",
+	"roomActive": "OiA4ka_roomActive",
+	"roomInput": "OiA4ka_roomInput",
+	"roomLabel": "OiA4ka_roomLabel",
+	"rooms": "OiA4ka_rooms",
+	"roomsHidden": "OiA4ka_roomsHidden",
+	"secondaryButton": "OiA4ka_secondaryButton",
+	"sendError": "OiA4ka_sendError",
+	"system": "OiA4ka_system",
+	"tag": "OiA4ka_tag",
+	"taskBoard": "OiA4ka_taskBoard",
+	"taskCard": "OiA4ka_taskCard",
+	"taskDone": "OiA4ka_taskDone",
+	"taskEmpty": "OiA4ka_taskEmpty",
+	"taskLine": "OiA4ka_taskLine",
+	"taskLinks": "OiA4ka_taskLinks",
+	"taskList": "OiA4ka_taskList",
+	"taskMember": "OiA4ka_taskMember",
+	"taskMemberName": "OiA4ka_taskMemberName",
+	"taskMembers": "OiA4ka_taskMembers",
+	"taskMeta": "OiA4ka_taskMeta",
+	"taskOwnerGroup": "OiA4ka_taskOwnerGroup",
+	"taskOwnerName": "OiA4ka_taskOwnerName",
+	"taskRow": "OiA4ka_taskRow",
+	"taskSection": "OiA4ka_taskSection",
+	"taskSectionTitle": "OiA4ka_taskSectionTitle",
+	"taskStatus": "OiA4ka_taskStatus",
+	"taskSub": "OiA4ka_taskSub",
+	"taskTitle": "OiA4ka_taskTitle",
+	"text": "OiA4ka_text",
+	"time": "OiA4ka_time",
+	"working": "OiA4ka_working",
+	"workspace": "OiA4ka_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
@@ -2060,7 +2078,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, renderSlot, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -2928,9 +2946,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							setModelsOpen(false);
 						},
 						children: t("close")
-					}), renderSlot("settings.section", { close: () => {
-						setModelsOpen(false);
-					} }, { only: "models" })]
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("configureModelHint") })]
 				})
 			}),
 			dialog !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberDialog, {
@@ -2999,6 +3015,7 @@ const zh = {
 	durMinutes: "{n} 分钟",
 	durHours: "{h} 小时 {m} 分",
 	configureModel: "去配置模型",
+	configureModelHint: "模型在「设置 → 模型」里配置：点侧栏底部的设置入口，桌面版也可按 ⌘,（Windows/Linux 为 Ctrl+,）。",
 	retry: "重试",
 	retrying: "重试中…",
 	permAllowed: "已允许",
@@ -3140,6 +3157,7 @@ const en = {
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
 	capabilityDmHelp: "Open a private conversation with a role on a supported platform. Roles can also message the configured owner. The DSH Channels page currently has no private-chat entry.",
 	configureModel: "Configure model",
+	configureModelHint: "Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).",
 	retry: "Retry",
 	retrying: "Retrying…",
 	permAllowed: "Allowed",
@@ -3277,11 +3295,7 @@ function apply(ctx) {
 			name: "main",
 			key: PANEL_ID,
 			locale: NS,
-			inject: injected,
-			children: { "settings.section": {
-				kind: "list",
-				scope: "root"
-			} }
+			inject: injected
 		}, ChannelsPage);
 		if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID);
 		return dispose;

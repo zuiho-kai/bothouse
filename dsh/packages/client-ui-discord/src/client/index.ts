@@ -63,7 +63,6 @@ export function apply(ctx: ClientContext): void {
       key: PANEL_ID,
       locale: NS,
       inject: injected,
-      children: { 'settings.section': { kind: 'list', scope: 'root' } },
     }, ChannelsPage)
     // Deep link: the setup wizard opens `…#channels` (bridge core/setup_dsh_configure.go dshChannelsHash).
     // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
