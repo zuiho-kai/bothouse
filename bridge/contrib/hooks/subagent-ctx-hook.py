@@ -3,7 +3,8 @@
 The main session is never touched.
 
 PostToolUse: adds a note (additionalContext) asking the subagent to stop and hand off.
-PreToolUse:  denies further tool calls from that subagent, so the note cannot be ignored.
+PreToolUse:  denies further tool calls from that subagent; the deny reason carries the same handoff request, so
+             PreToolUse alone is enough (setup hooks on installs only this event).
 
 Which calls come from a subagent: the payload's `agent_id`. Claude Code's hook input schema (2.1.307):
   agent_id ... "Present only when the hook fires from within a subagent ... Absent for the main thread,
@@ -31,7 +32,9 @@ THRESHOLD = 150000  # 来源：作者本机实测（72h 内 459 个子 agent，�
 TIP = ("【上下文到线】你这个子 agent 的上下文已约 {n} token（≥15 万）。继续干每一步都要重读整段上下文，很贵。"
        "现在停下：写一份简短交接（做到哪、产出文件在哪、下一步是什么），作为最终回复立即交付收工，"
        "之后的工具调用会被一律拒绝。剩下的活由主会话开新的子 agent 接着做。")
-DENY = "上下文已约 {n} token（≥15 万），停手：只写交接（做到哪、文件在哪、下一步），不再调工具"
+DENY = ("【上下文到线】你这个子 agent 的上下文已约 {n} token（≥15 万），之后的工具调用一律拒绝。"
+        "现在停手，不再调工具：写一份简短交接（做到哪、产出文件在哪、下一步是什么），作为最终回复立即交付收工。"
+        "剩下的活由主会话开新的子 agent 接着做。")
 
 
 def is_codex_rollout(path):

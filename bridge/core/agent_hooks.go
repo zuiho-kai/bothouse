@@ -46,6 +46,9 @@ var agentHooks = []agentHook{
 	{"fix-claim-guard", "Stop", "", 30},
 	{"promise-guard", "Stop", "", 30},
 	{"wiki-context", "UserPromptSubmit", "", 5},
+	// Only PreToolUse, every tool: once a subagent's context is past the line its tool calls are denied with the
+	// handoff instructions as the reason. No agent_id in the payload (main session, CLIs without subagents) = pass.
+	{"subagent-ctx-hook", "PreToolUse", "", 5},
 }
 
 // AgentHookNames lists every hook, in the order they are written.

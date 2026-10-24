@@ -46,6 +46,9 @@ class T(unittest.TestCase):
         o = h.check(mk(ctx=150000))["hookSpecificOutput"]
         self.assertEqual(o["permissionDecision"], "deny")
         self.assertIn("150000", o["permissionDecisionReason"])
+        # only PreToolUse is installed by default, so the deny reason itself must ask for the handoff and the stop
+        for w in ("交接", "做到哪", "文件在哪", "下一步", "收工"):
+            self.assertIn(w, o["permissionDecisionReason"])
 
     def test_over_post_tip(self):
         o = h.check(mk(ctx=200000, event="PostToolUse"))["hookSpecificOutput"]
