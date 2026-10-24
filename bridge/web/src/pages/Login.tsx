@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { api } from '@/api/client';
 import { getStatus } from '@/api/status';
+import { initialServerUrl } from '@/lib/serverUrl';
 
 const languages = [
   { code: 'en', label: 'EN' },
@@ -24,7 +25,7 @@ export default function Login() {
   const loginStore = useAuthStore((s) => s.login);
   const { theme, setTheme } = useThemeStore();
   const [token, setToken] = useState('');
-  const [serverUrl, setServerUrl] = useState('');
+  const [serverUrl, setServerUrl] = useState(initialServerUrl);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const autoLoginAttempted = useRef(false);
@@ -105,9 +106,7 @@ export default function Login() {
         <div className="bg-white/90 dark:bg-[rgba(15,15,20,0.9)] backdrop-blur-xl border border-gray-200/50 dark:border-gray-800 rounded-2xl shadow-2xl shadow-black/10 dark:shadow-black/40 p-8">
           {/* Logo */}
           <div className="flex justify-center mb-6">
-            <div className="w-14 h-14 rounded-2xl bg-gray-900 dark:bg-white/5 flex items-center justify-center shadow-lg">
-              <div className="w-5 h-5 rounded-full bg-accent dark:shadow-[0_0_20px_rgba(66,255,156,0.4)]" />
-            </div>
+            <img src="/favicon.svg" alt="bothouse" className="w-14 h-14 rounded-2xl shadow-lg" />
           </div>
           
           <h1 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-1">{t('login.title')}</h1>
@@ -140,7 +139,7 @@ export default function Login() {
                 type="text"
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="http://localhost:9820"
+                placeholder={window.location.origin}
                 className="w-full px-4 py-2.5 text-sm rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800/50 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors placeholder:text-gray-400"
               />
             </div>
