@@ -222,3 +222,44 @@ jobs:
             gh release create "$TAG" dist/* "${pre[@]}" --title "bothouse $TAG" \
               --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
+
+  # DSH installs plugins from git: `dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'`.
+  # The built outputs (plugin-pkg/collab, plugin-pkg/client) are gitignored on main, so each release force-pushes
+  # a one-commit `dsh-plugin` branch holding only the packed files. Runs in parallel with the binary builds.
+  dsh-plugin:
+    runs-on: [self-hosted, bothouse-ci]
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Build plugin package
+        working-directory: dsh/plugin-pkg
+        run: npm run build
+      - name: Force-update dsh-plugin branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/dsh-plugin"
+          rm -rf "$out"; mkdir -p "$out/dsh/plugin-pkg"
+          (cd dsh/plugin-pkg && npm pack --dry-run --json | node -e \
+            'for (const f of JSON.parse(require("fs").readFileSync(0))[0].files) console.log(f.path)' > "$RUNNER_TEMP/files.txt")
+          rsync -a --files-from="$RUNNER_TEMP/files.txt" dsh/plugin-pkg/ "$out/dsh/plugin-pkg/"
+          cd "$out"
+          git init -q -b dsh-plugin
+          git add -A
+          git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -qm "dsh-plugin: bothouse-dsh built from $TAG ($(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD))"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dsh-plugin

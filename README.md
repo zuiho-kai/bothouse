@@ -118,6 +118,7 @@ The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). 
 
 Connect to Discord or Feishu and you get phone, desktop and browser for free. No extra app to install.
 Plug into DSH and our guardrails and tools install through DSH's own plugin system. We don't rebuild it.
+Install the DSH channels plugin straight from GitHub (needs pnpm): `dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'`
 
 On the AI side: Claude Code, Codex, Gemini CLI, OpenCode and other CLIs you're already logged into work directly; agents like DSH connect over a standard protocol (ACP).
 You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek, MiniMax, a local model, any OpenAI-compatible endpoint); see the [matrix](docs/connect-discord-feishu.md#4-第三方-api--本机-cli) (Chinese).

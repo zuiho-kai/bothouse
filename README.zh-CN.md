@@ -117,6 +117,8 @@ opus、鲸鱼娘、笔杆可以分别是 Claude Code、DSH、Codex。换成你�
 接进 Discord 和飞书，手机、电脑、网页就都有了，不用我们再做一个 App。
 接进 DSH，我们的护栏和小工具直接走 DSH 自己的插件机制装，不另造一套。
 
+直接从 GitHub 装 DSH 频道插件（需要 pnpm）：`dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'`
+
 AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode 等直接用；DSH 这类智能体通过标准协议（ACP）接入。
 也可以给 CLI 挂第三方 API（硅基流动、OpenRouter、DeepSeek、MiniMax、本机模型、任意 OpenAI 兼容接口），
 对应关系见[接入文档](docs/connect-discord-feishu.md#4-第三方-api--本机-cli)。
