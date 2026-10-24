@@ -44,6 +44,13 @@ export interface OutgoingAttachment {
 export const attachmentUrl = (id: string): string => `collab/api/attachments/${encodeURIComponent(id)}`
 
 /** Read a browser File into the POST form. */
+// Same cap as collab's MAX_MESSAGE_BODY (dsh/collab/plugin.mjs): a bigger POST gets a 413.
+export const MAX_MESSAGE_BODY = 8 * 1024 * 1024
+
+/** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
+export const messageTooLarge = (text: string, attachments: readonly OutgoingAttachment[]): boolean =>
+  new TextEncoder().encode(JSON.stringify({ text, client_key: crypto.randomUUID(), reply_to: Number.MAX_SAFE_INTEGER, attachments })).length > MAX_MESSAGE_BODY
+
 export const readAttachment = async (file: File): Promise<OutgoingAttachment> => {
   const bytes = new Uint8Array(await file.arrayBuffer())
   let binary = ''

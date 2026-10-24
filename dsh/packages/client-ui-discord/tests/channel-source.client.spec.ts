@@ -329,3 +329,12 @@ describe('channel source', () => {
     unsubscribe()
   })
 })
+
+describe('messageTooLarge (#144)', () => {
+  it('flags attachments over the server body cap before any request is sent', async () => {
+    const { MAX_MESSAGE_BODY, messageTooLarge } = await import('../src/client/channel-source.ts')
+    const file = (chars: number) => ({ name: 'a.bin', mime: 'application/octet-stream', data: 'A'.repeat(chars) })
+    expect(messageTooLarge('hi', [file(1024)])).toBe(false)
+    expect(messageTooLarge('hi', [file(MAX_MESSAGE_BODY / 2), file(MAX_MESSAGE_BODY / 2)])).toBe(true)
+  })
+})

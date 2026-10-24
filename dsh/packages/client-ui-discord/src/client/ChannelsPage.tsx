@@ -8,6 +8,7 @@ import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepse
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
+import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { groupRooms } from './channel-source.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
@@ -213,7 +214,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [pendingFiles, setPendingFiles] = useState<Record<number, readonly OutgoingAttachment[]>>({})
   const attach = useComposerAttachments((files) => {
     const roomId = state.roomId
-    if (roomId !== undefined) setPendingFiles(previous => ({ ...previous, [roomId]: [...(previous[roomId] ?? []), ...files] }))
+    if (roomId === undefined) return
+    const next = [...(pendingFiles[roomId] ?? []), ...files]
+    if (messageTooLarge(drafts[roomId] ?? '', next)) {
+      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
+      return
+    }
+    setPendingFiles(previous => ({ ...previous, [roomId]: next }))
   }, (message) => {
     const roomId = state.roomId
     if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message }) }))
@@ -411,6 +418,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     const text = draft.trim()
     const files = roomId === undefined ? [] : pendingFiles[roomId] ?? []
     if ((!text && files.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
+    if (files.length > 0 && messageTooLarge(text, files)) {
+      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
+      return
+    }
     pendingRooms.current.add(roomId)
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))

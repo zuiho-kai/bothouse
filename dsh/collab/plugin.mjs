@@ -19,7 +19,7 @@ import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
-import { Attachments } from './attachments.mjs';
+import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -32,8 +32,6 @@ const MAX_BODY = 256 * 1024;
 // maxPayload below (8 MiB), so a message that is accepted here still fits in the frame
 // that forwards it to a bot.
 const MAX_MESSAGE_BODY = 8 * 1024 * 1024;
-// Raster images are shown in the page; anything else (svg, html, ...) is served as a download.
-const INLINE_IMAGE = /^image\/(png|jpeg|gif|webp)$/;
 const OWNER = 'owner';
 
 /** Validate the overlay config; misconfiguration fails at load. */
@@ -343,11 +341,17 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
-async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
+class BodyTooLarge extends Error {}
+
+export async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
   let body;
   if (parse) {
     let raw;
-    try { raw = await readBody(req, limit); } catch { return json(res, 413, { error: `request body exceeds ${limit / 1024 / 1024} MiB`, code: 'too-large' }); }
+    try { raw = await readBody(req, limit); } catch (error) {
+      if (!(error instanceof BodyTooLarge)) return json(res, 400, { error: 'request body aborted' });
+      res.setHeader('connection', 'close');
+      return json(res, 413, { error: `request body exceeds ${limit / 1024 / 1024} MiB`, code: 'too-large' });
+    }
     try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'invalid JSON body' }); }
   }
   try {
@@ -369,12 +373,14 @@ function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    // Past the limit, keep reading but drop the bytes: destroying the socket here
+    // makes the browser see a network error ("Failed to fetch") instead of the 413.
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > limit) { reject(Error('body too large')); req.destroy(); return; }
+      if (size > limit) { chunks.length = 0; return; }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => (size > limit ? reject(new BodyTooLarge()) : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
 }
