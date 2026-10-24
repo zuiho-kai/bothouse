@@ -42,7 +42,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 ### DSH 频道（实验）
 
-DSH 首次配置：向导第 1 步选 **DSH**，接着只需「检测 dsh → 安装插件 → 运行返回命令打开 DSH 网页」。机器人、CLI、人设和模型随后在 DSH 页面配置；向导选中文时写入 DSH 默认中文。当前需要含 `dsh/install.sh` 的源码目录，或设置 `BOTHOUSE_DSH_DIR`。命令行等价操作：`bothouse setup dsh install --lang zh`。
+DSH 首次配置：向导第 1 步选 **DSH**，接着只需「检测 dsh → 安装插件 → 运行返回命令打开 DSH 网页」。机器人、CLI、人设和模型随后在 DSH 页面配置；向导选中文时写入 DSH 默认中文。安装包已自带所需的 DSH 文件，装好就能用；开发时或要覆盖时用 `BOTHOUSE_DSH_DIR` 指定。命令行等价操作：`bothouse setup dsh install --lang zh`。
 
 需要已有的 DSH（`>= 0.2.1-rc.2`）和 `pnpm`；`pnpm` 不在 PATH 里时，插件命令会以 exit 127 失败。插件包要求 Node `>= 22.12.0`。
 

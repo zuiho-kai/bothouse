@@ -44,7 +44,7 @@ The full walkthrough is in [Getting started](docs/GETTING_STARTED.md) (Chinese).
 
 ### DSH channel (experimental)
 
-DSH setup: choose **DSH** in the first wizard step, then detect dsh → install plugins → run the returned command to open DSH web. Bots, CLIs, personas and models are configured in DSH afterwards. The wizard passes Chinese or English to the installer. A source checkout containing `dsh/install.sh` is required (or set `BOTHOUSE_DSH_DIR`). CLI equivalent: `bothouse setup dsh install --lang zh`.
+DSH setup: choose **DSH** in the first wizard step, then detect dsh → install plugins → run the returned command to open DSH web. Bots, CLIs, personas and models are configured in DSH afterwards. The wizard passes Chinese or English to the installer. The installer already bundles the DSH files it needs, so it works after install; use `BOTHOUSE_DSH_DIR` when developing or to override them. CLI equivalent: `bothouse setup dsh install --lang zh`.
 
 You need an existing DSH (`>= 0.2.1-rc.2`) and `pnpm`; without `pnpm` on PATH the plugin command fails with exit 127. The plugin package requires Node `>= 22.12.0`.
 
