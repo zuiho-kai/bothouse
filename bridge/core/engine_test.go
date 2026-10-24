@@ -16127,3 +16127,59 @@ func TestProcessInteractiveEvents_StreamingCard_BareNoReply_Suppressed(t *testin
 		t.Fatalf("silent reply leaked NO_REPLY into the streaming card: %q", card.finalContent())
 	}
 }
+
+// TestUnsolicitedReader_PermissionAllowInYoloProject verifies that a
+// background permission request is granted when the project's permission mode
+// already auto-approves everything, even without a per-session /yolo.
+func TestUnsolicitedReader_PermissionAllowInYoloProject(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &stubModelModeAgent{mode: "bypassPermissions"}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+
+	sess := newControllableSession("unsol-perm-yolo")
+	permRecorder := &permRecordingSession{controllableAgentSession: *sess}
+	session := e.sessions.GetOrCreateActive("test:perm:u2")
+	state := &interactiveState{agentSession: permRecorder, platform: p, replyCtx: "ctx"}
+
+	e.startUnsolicitedReader(state, session, e.sessions, "test:perm:u2", "")
+	defer e.stopUnsolicitedReader(state)
+
+	permRecorder.events <- Event{Type: EventPermissionRequest, RequestID: "req-1", ToolName: "Bash"}
+
+	deadline := time.After(5 * time.Second)
+	for {
+		permRecorder.mu.Lock()
+		calls, result := permRecorder.permCalls, permRecorder.lastPermResult
+		permRecorder.mu.Unlock()
+		if calls > 0 {
+			if result.Behavior != "allow" {
+				t.Fatalf("expected allow in bypassPermissions project, got %q", result.Behavior)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for permission response")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestProjectAutoApproves(t *testing.T) {
+	cases := map[string]bool{
+		"bypassPermissions": true, "yolo": true, "YOLO": true, "bypass-permissions": true, "force": true,
+		"default": false, "": false, "acceptEdits": false, "plan": false, "full-auto": false,
+	}
+	for mode, want := range cases {
+		e := NewEngine("test", &stubModelModeAgent{mode: mode}, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+		if got := e.projectAutoApproves(); got != want {
+			t.Errorf("mode %q: projectAutoApproves() = %v, want %v", mode, got, want)
+		}
+		e.Stop()
+	}
+	e := newTestEngine()
+	defer e.Stop()
+	if e.projectAutoApproves() {
+		t.Error("agent without GetMode must not auto-approve")
+	}
+}

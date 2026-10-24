@@ -2167,6 +2167,32 @@ func (e *Engine) setTurnMode(state *interactiveState, as AgentSession, mode stri
 	}
 }
 
+// projectAutoApproves reports whether the project's configured permission mode
+// (the agent's default mode, e.g. "yolo" / "bypassPermissions") already grants
+// every tool call. Permission requests that reach the engine without a user to
+// ask (cron/timer turns, background events after a turn ends) follow that mode
+// instead of being denied unconditionally.
+func (e *Engine) projectAutoApproves() bool {
+	ma, ok := e.agent.(interface{ GetMode() string })
+	if !ok {
+		return false
+	}
+	return isAutoApproveMode(ma.GetMode())
+}
+
+// isAutoApproveMode matches the auto-approve mode names (and aliases) used by
+// the agent adapters: claudecode/copilot "bypassPermissions", gemini/codex
+// "yolo", cursor "force".
+func isAutoApproveMode(mode string) bool {
+	m := strings.ToLower(strings.TrimSpace(mode))
+	m = strings.NewReplacer("-", "", "_", "").Replace(m)
+	switch m {
+	case "yolo", "bypasspermissions", "force":
+		return true
+	}
+	return false
+}
+
 // restoreTurnMode switches back to the default mode if a turn's override is still on.
 func (e *Engine) restoreTurnMode(state *interactiveState) {
 	state.mu.Lock()
@@ -5495,6 +5521,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				state.mu.Lock()
 				autoApprove := state.approveAll || isYoloMode(state.agent)
 				state.mu.Unlock()
+				autoApprove = autoApprove || e.projectAutoApproves()
 
 				result := PermissionResult{Behavior: "deny", Message: "denied: no active user turn"}
 				if autoApprove {
@@ -6336,6 +6363,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			autoApprove := state.approveAll || isYoloMode(state.agent)
 			state.mu.Unlock()
+			autoApprove = autoApprove || e.projectAutoApproves()
 
 			if autoApprove && !isAskQuestion {
 				slog.Debug("auto-approving (approve-all)", "request_id", event.RequestID, "tool", event.ToolName)

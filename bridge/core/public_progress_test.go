@@ -407,3 +407,48 @@ func TestPublicProgressPromptResolvesDataDirBeforeAgentChangesDirectory(t *testi
 	}
 	e.finishPublicProgress(state, "result")
 }
+
+// cronProgressPlatform can run cron jobs (reply-context reconstruction) and
+// publish task cards, like the Discord adapter.
+type cronProgressPlatform struct {
+	stubCronReplyTargetPlatform
+}
+
+func (p *cronProgressPlatform) TaskCardDestination(session string) (string, error) {
+	return session, nil
+}
+func (p *cronProgressPlatform) EnsureTaskCard(_ context.Context, task *Task, _ Language) error {
+	task.MessageID = task.ID
+	return nil
+}
+func (p *cronProgressPlatform) PublishTaskFact(context.Context, *Task, TaskEvent, Language) error {
+	return nil
+}
+
+// TestPublicProgressCronTurnGetsRunToken verifies that the turn a cron job runs
+// carries a current-run token, so the agent can open a task card from it.
+func TestPublicProgressCronTurnGetsRunToken(t *testing.T) {
+	store, err := NewCronStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	platform := &cronProgressPlatform{stubCronReplyTargetPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}
+	agentSession := newResultAgentSession("ok")
+	e := NewEngine("test", &resultAgent{session: agentSession}, []Platform{platform}, "", LangEnglish)
+	defer e.cancel()
+	e.SetDataDir(t.TempDir())
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	job := &CronJob{ID: "job-progress", SessionKey: "discord:channel-1:user-1", Prompt: "daily check"}
+	if err := store.Add(job); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ExecuteCronJob(job); err != nil {
+		t.Fatalf("ExecuteCronJob() error = %v", err)
+	}
+	if len(agentSession.sentPrompts) != 1 {
+		t.Fatalf("sentPrompts = %d, want 1", len(agentSession.sentPrompts))
+	}
+	progressToken(t, agentSession.sentPrompts[0])
+}

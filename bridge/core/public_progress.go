@@ -201,10 +201,12 @@ func (p *PublicProgress) begin(platform Platform, session string, lang Language,
 	defer p.transitionMu.Unlock()
 	sink, ok := platform.(TaskCardPublisher)
 	if !ok {
+		slog.Warn("public progress: no turn token, platform cannot publish task cards", "platform", fmt.Sprintf("%T", platform), "session", session)
 		return ""
 	}
 	channel, err := sink.TaskCardDestination(session)
 	if err != nil {
+		slog.Warn("public progress: no turn token, task card destination unresolved", "platform", platform.Name(), "session", session, "error", err)
 		return ""
 	}
 	token := randomProgressID(32)
