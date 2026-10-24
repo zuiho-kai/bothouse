@@ -45,6 +45,9 @@ type WizardRequest struct {
 	FallbackRole  string          `json:"fallback_role,omitempty"`   // project name; default = first role
 	FallbackBotID string          `json:"fallback_bot_id,omitempty"` // or the Discord bot ID (wins; the web wizard sends this)
 	Jev           *WizardJev      `json:"jev,omitempty"`
+	// Gate: one lead bot routes the team's messages (the gate, core/gate_proc.go). nil = on, so a
+	// request without it (AI, curl, `setup apply`) gets the default.
+	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
 	// Not given = the owner of each bot's Discord application (looked up with the token).
 	// Written to new bots and to existing bots whose allow_from is still empty; a non-empty one is kept.
@@ -57,6 +60,16 @@ type WizardRequest struct {
 	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
 	AppendOnly bool `json:"append_only,omitempty"`
 }
+
+// WizardGate: enabled = a team of bots gets gate_url / gate_fallback (lead "reply", the others
+// "context") and gate-team.json, and bothouse starts the gate when python and a jev are there;
+// without them core/gate.go fallbackFor still lets only the lead answer what names no one.
+// false = no gate: the wizard's own gate_url / gate_fallback are cleared, hand-written ones kept.
+type WizardGate struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (r WizardRequest) gateOn() bool { return r.Gate == nil || r.Gate.Enabled }
 
 type WizardFeishu struct {
 	AppID        string `json:"app_id"`
@@ -138,14 +151,18 @@ type WizardWarning struct {
 type WizardResult struct {
 	// OK: nothing failed and nothing blocking is left for the user. A saved config with a
 	// blocking warning (intent off, bot not in the server) is saved=true, ok=false.
-	OK              bool                `json:"ok"`
-	Saved           bool                `json:"saved"`
-	NeedsUserAction bool                `json:"needs_user_action"`
-	Warnings        []WizardWarning     `json:"warnings"`
-	InviteURLs      []string            `json:"invite_urls,omitempty"` // bots not in the server yet: open each link to add it
-	AllowFrom       string              `json:"allow_from,omitempty"`  // who the new bots take orders from
-	GateRunning     *bool               `json:"gate_running,omitempty"`
-	GateHint        string              `json:"gate_hint,omitempty"`
+	OK              bool            `json:"ok"`
+	Saved           bool            `json:"saved"`
+	NeedsUserAction bool            `json:"needs_user_action"`
+	Warnings        []WizardWarning `json:"warnings"`
+	InviteURLs      []string        `json:"invite_urls,omitempty"` // bots not in the server yet: open each link to add it
+	AllowFrom       string          `json:"allow_from,omitempty"`  // who the new bots take orders from
+	GateRunning     *bool           `json:"gate_running,omitempty"`
+	GateHint        string          `json:"gate_hint,omitempty"`
+	// GateStatus (a team of bots): off | running | starting (bothouse starts it now or on its restart) |
+	// python_missing | python_too_old | jev_missing (not started: the lead answers what names no one)
+	GateStatus      string              `json:"gate_status,omitempty"`
+	dataDir         string              // where the gate's jev.json is (GatePrereq)
 	NextSteps       []string            `json:"next_steps,omitempty"` // how to start / restart (filled by the caller that knows)
 	DryRun          bool                `json:"dry_run"`
 	Steps           []WizardStep        `json:"steps"`
@@ -670,7 +687,7 @@ type wizardPlan struct {
 
 // ApplyWizard validates, fills defaults and (unless DryRun) writes everything.
 func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardResult {
-	res := &WizardResult{DryRun: req.DryRun, Roles: []WizardRoleResult{}, Steps: []WizardStep{}, Warnings: []WizardWarning{}}
+	res := &WizardResult{DryRun: req.DryRun, Roles: []WizardRoleResult{}, Steps: []WizardStep{}, Warnings: []WizardWarning{}, dataDir: env.DataDir}
 	fail := func(step string, err error) *WizardResult {
 		addStep(res, step, err, "")
 		res.Error = err.Error()
@@ -1112,7 +1129,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
 	}
 
-	if (req.Platform == "discord" || cloudWeb) && len(pl.team) > 1 {
+	if (req.Platform == "discord" || cloudWeb || isFeishu) && len(pl.team) > 1 && req.gateOn() {
 		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
 		for _, t := range pl.team {
 			if t.Project != pl.fallback {
@@ -1174,6 +1191,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	applyWizardWiki(res, env, req, pl.fallback, wikiSession)
 	res.RestartRequired = true
 	res.Saved = true
+	if after, err := env.Store.Snapshot(); err == nil {
+		reloadGateAfterWizard(env.DataDir, after) // the service in this process starts / restarts its gate now
+	}
 	finishWizardResult(res, req, pl, usable)
 	return res
 }
@@ -1259,6 +1279,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		case req.Platform == "discord" && w.botID != "" && byBotID[w.botID] != "":
 			// the same bot is already configured (matched by its bot ID): update that project (H2)
 			r.project, r.reused = byBotID[w.botID], true
+		case isFeishuPlatform(req.Platform) && sameFeishuApp(s, req.Feishu, used) != "":
+			// the same Feishu / Lark app is already configured: update it, don't add a second project
+			r.project, r.reused = sameFeishuApp(s, req.Feishu, used), true
 		case cloudWeb && sameCloudWebMember(s, cwBase, w, used) != "":
 			// the same member of the same platform is already configured: update it, don't add name-2
 			r.project, r.reused = sameCloudWebMember(s, cwBase, w, used), true
@@ -1382,6 +1405,18 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	if state.Platform == req.Platform && req.Platform == "discord" {
 		for _, t := range state.Team {
 			if _, still := byProject[t.Project]; still && !inRun[t.Project] {
+				pl.team = append(pl.team, t)
+			}
+		}
+	}
+	// Feishu / Lark make one bot per wizard run: a later run adds its bot to the earlier ones still in
+	// config, and the lead recorded then stays the lead unless this request names another
+	if isFeishuPlatform(req.Platform) && isFeishuPlatform(state.Platform) {
+		if req.FallbackRole == "" && req.FallbackBotID == "" {
+			req.FallbackRole = state.FallbackRole
+		}
+		for _, t := range state.Team {
+			if p, still := s.project(t.Project); still && !inRun[t.Project] && feishuPlatformOf(p) != "" {
 				pl.team = append(pl.team, t)
 			}
 		}
@@ -1553,10 +1588,13 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		pl.writes = append(pl.writes, pw)
 	}
 	if req.Platform == "discord" && len(pl.team) > 1 {
-		pl.writes = mergeTeamWrites(pl.writes, pl.team, byProject, pl.fallback, pl.fallbackBot)
+		pl.writes = mergeTeamWrites(pl.writes, pl.team, byProject, pl.fallback, pl.fallbackBot, req.gateOn())
 	}
 	if cloudWeb && len(pl.team) > 1 {
-		pl.writes = cloudWebTeamWrites(pl.writes, pl.team, s, pl.fallback, cwBase)
+		pl.writes = cloudWebTeamWrites(pl.writes, pl.team, s, pl.fallback, cwBase, req.gateOn())
+	}
+	if isFeishuPlatform(req.Platform) && len(pl.team) > 1 {
+		pl.writes = feishuTeamWrites(pl.writes, pl.team, s, pl.fallback, req.gateOn())
 	}
 	return pl, nil
 }
@@ -1635,7 +1673,7 @@ func isDigits(s string) bool {
 //     listen unless named ("context"); an @-mentioned role always answers (core/gate.go fallbackFor).
 //     They are project-wide, so a project that already has a gate_url from its Discord team or set
 //     by hand keeps it.
-func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s WizardSnapshot, fallback, cwBase string) []WizardProjectWrite {
+func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s WizardSnapshot, fallback, cwBase string, gateOn bool) []WizardProjectWrite {
 	idx := map[string]int{}
 	for i, w := range writes {
 		idx[w.Name] = i
@@ -1691,11 +1729,111 @@ func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wi
 		if ex.GateURL != "" && (hasDiscord || !isWizardGateURL(ex.GateURL)) {
 			continue
 		}
+		if !gateOn {
+			clearWizardGate(w, ex.GateURL, ex.GateFallback)
+			continue
+		}
 		gate, fb := defaultGateURL+"?bot="+t.Project, "context"
 		if t.Project == fallback {
 			gate, fb = defaultGateURL, "reply"
 		}
 		w.GateURL, w.GateFallback = &gate, &fb
+	}
+	return writes
+}
+
+// clearWizardGate: the gate turned off in the wizard clears the gate_url / gate_fallback the wizard
+// wrote before (core/gate.go: an empty gate_url = no gate); unset or hand-written ones are left.
+func clearWizardGate(w *WizardProjectWrite, gateURL, gateFallback string) {
+	if !isWizardGateURL(gateURL) {
+		return
+	}
+	empty, emptyFb := "", ""
+	w.GateURL = &empty
+	if gateFallback == "reply" || gateFallback == "context" {
+		w.GateFallback = &emptyFb
+	}
+}
+
+func isFeishuPlatform(p string) bool { return p == "feishu" || p == "lark" }
+
+// feishuPlatformOf: "feishu" / "lark" when the project has one of them (first found), else "".
+func feishuPlatformOf(p WizardExistingProject) string {
+	for _, t := range []string{"feishu", "lark"} {
+		if _, ok := p.Platforms[t]; ok {
+			return t
+		}
+	}
+	return ""
+}
+
+// sameFeishuApp: the project that already runs this Feishu / Lark app (same app_id), else "".
+func sameFeishuApp(s WizardSnapshot, f *WizardFeishu, used map[string]bool) string {
+	if f == nil || strings.TrimSpace(f.AppID) == "" {
+		return ""
+	}
+	for _, p := range s.Projects {
+		if t := feishuPlatformOf(p); t != "" && !used[p.Name] && fmt.Sprint(p.Platforms[t]["app_id"]) == strings.TrimSpace(f.AppID) {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+// feishuTeamWrites wires a Feishu / Lark team made over several wizard runs (one bot each): with the
+// gate on, the lead gets gate_url + gate_fallback "reply", the others ?bot=<project> + "context", and,
+// as on Discord and cloud_web, group_reply_all and share_session_in_channel when unset (without
+// group_reply_all a bot never sees a message that does not @ it, so the lead could not answer those).
+// gate_url / gate_fallback are only (re)written when unset or written by the wizard (H3.2).
+func feishuTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s WizardSnapshot, fallback string, gateOn bool) []WizardProjectWrite {
+	idx := map[string]int{}
+	for i, w := range writes {
+		idx[w.Name] = i
+	}
+	for _, t := range team {
+		ex, ok := s.project(t.Project)
+		pt := feishuPlatformOf(ex)
+		i, has := idx[t.Project]
+		if !has {
+			if pt == "" {
+				pt = "feishu"
+			}
+			writes = append(writes, WizardProjectWrite{Name: t.Project, PlatformType: pt, Options: map[string]any{}})
+			i = len(writes) - 1
+			idx[t.Project] = i
+		}
+		w := &writes[i]
+		if !gateOn {
+			clearWizardGate(w, ex.GateURL, ex.GateFallback)
+			continue
+		}
+		cur := map[string]any{}
+		if ok && pt != "" {
+			cur = ex.Platforms[pt]
+		}
+		for _, k := range []string{"group_reply_all", "share_session_in_channel"} {
+			if _, set := cur[k]; !set {
+				if _, nm := cur["require_mention"]; k == "group_reply_all" && nm { // platform/feishu: require_mention = false means the same
+					continue
+				}
+				w.Options[k] = true
+			}
+		}
+		isLead := t.Project == fallback
+		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
+			gate := defaultGateURL + "?bot=" + t.Project
+			if isLead {
+				gate = defaultGateURL
+			}
+			w.GateURL = &gate
+		}
+		if ex.GateFallback == "" || (isWizardGateURL(ex.GateURL) && (ex.GateFallback == "reply" || ex.GateFallback == "context")) {
+			fb := "context"
+			if isLead {
+				fb = "reply"
+			}
+			w.GateFallback = &fb
+		}
 	}
 	return writes
 }
@@ -1736,7 +1874,7 @@ func csvSet(s string) []string {
 // previously written by the wizard; group_reply_all and share_session_in_channel
 // only when unset (group_reply_all also not when group_reply_all_guilds is set).
 // A reused bot's token may be "${VAR}": it is expanded for the API calls only, never written back.
-func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existing map[string]WizardExistingBot, fallback, fallbackBot string) []WizardProjectWrite {
+func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existing map[string]WizardExistingBot, fallback, fallbackBot string, gateOn bool) []WizardProjectWrite {
 	idx := map[string]int{}
 	for i, w := range writes {
 		idx[w.Name] = i
@@ -1790,6 +1928,10 @@ func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existin
 		// p.botID == p.teamLead to know it is the lead (H3.1). A custom value outside the team is kept.
 		if lb, _ := cur["team_lead_bot"].(string); (lb == "" || teamIDs[lb]) && fallbackBot != "" {
 			w.Options["team_lead_bot"] = fallbackBot
+		}
+		if !gateOn {
+			clearWizardGate(w, ex.GateURL, ex.GateFallback)
+			continue
 		}
 		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
 			gate := defaultGateURL + "?bot=" + t.Project
@@ -1873,7 +2015,7 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 					shown = append(shown, p.Name)
 				}
 			}
-			out["projects"] = names // the web wizard avoids these names for new bots (same rule as planWizard)
+			out["projects"] = names              // the web wizard avoids these names for new bots (same rule as planWizard)
 			out["project_display_names"] = shown // what the panel lists as existing roles (team_name, else name)
 		}
 	}

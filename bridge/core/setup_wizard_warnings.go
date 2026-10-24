@@ -313,22 +313,19 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 	if len(pl.allowFromUnset) > 0 {
 		res.Warnings = append(res.Warnings, warnAllowFromUnknown(req.Language, pl.allowFromUnset))
 	}
-	if (req.Platform == "discord" || isCloudWebPlatform(req.Platform)) && len(pl.team) > 1 {
+	if (req.Platform == "discord" || isCloudWebPlatform(req.Platform) || isFeishuPlatform(req.Platform)) && len(pl.team) > 1 {
 		running := GateRunning()
 		res.GateRunning = &running
-		res.GateHint = GateHint(req.Language, running, pl.fallbackName)
-		if !running {
-			w := WizardWarning{Code: "gate_not_running", Message: res.GateHint}
-			if isJA(req.Language) {
-				w.Fix = "入れなくても使えます。誰が答えるかを AI に判断させたいときに gate を入れてください：docs/ccm-and-wiki.md の「起 gate」の節を参照。"
-			} else if isZH(req.Language) {
-				w.Fix = "可以不装。想让 AI 自己判断谁回，再装 gate：见 docs/ccm-and-wiki.md「起 gate」。"
-			} else {
-				w.Fix = "Optional. To let AI decide who answers, install the gate: see docs/ccm-and-wiki.md \"start the gate\"."
-			}
-			res.Warnings = append(res.Warnings, w)
+		res.GateStatus = GateStatusOff
+		if req.gateOn() {
+			res.GateStatus = gateStatusAfterWizard(res.dataDir)
 		}
-		if !jevUsable {
+		res.GateHint = GateHint(req.Language, res.GateStatus, pl.fallbackName)
+		switch res.GateStatus {
+		case GateStatusPythonMissing, GateStatusPythonTooOld:
+			res.Warnings = append(res.Warnings, warnGatePython(req.Language, res.GateStatus))
+		}
+		if req.gateOn() && !jevUsable {
 			res.Warnings = append(res.Warnings, warnJevRecommended(req.Language, pl.fallbackName))
 		}
 	}
@@ -359,25 +356,66 @@ func warnJevRecommended(lang, fallbackName string) WizardWarning {
 	return w
 }
 
-// gate 不带本地模型，没填 jev 启动就报错（contrib/gate/gate.py make_scorer；用户 2026-10-22「这种直接报错，直接说没填jev模型」）。
-// GateHint says how a team of bots decides who answers, with or without the gate.
-// Without it, cc-connect falls back per bot (core/gate.go gate_fallback): the fallback
-// role answers ("reply"), the others only listen ("context"); an @-mentioned bot always answers.
-func GateHint(lang string, running bool, fallbackName string) string {
+// warnGatePython: the gate is on but this machine has no Python it can run on, so it is not started.
+// Not blocking: the lead still answers every message that names no one (core/gate.go fallbackFor).
+func warnGatePython(lang, status string) WizardWarning {
+	w := WizardWarning{Code: "gate_python_missing", URL: "https://www.python.org/downloads/"}
+	old := status == GateStatusPythonTooOld
 	if isJA(lang) {
-		if running {
-			return "gate が動いています：メッセージごとにどのロールが答えるかを gate が判断します。"
+		w.Message = "Python 3.12 以上が見つからないため、gate（誰が答えるかの賢い判断）はまだ起動していません。振り分けは有効で、メインのボットがまとめて返事します。"
+		if old {
+			w.Message = "Python が古い（3.12 未満）ため、gate（誰が答えるかの賢い判断）はまだ起動していません。振り分けは有効で、メインのボットがまとめて返事します。"
 		}
-		return "gate なし（入れなくても使えます）：@ されたロールは普段どおり答え、それ以外のメッセージはすべてフォールバックロール「" + fallbackName + "」が答えます。gate を入れるには、先にウィザードで jev を設定してください（未設定だと gate は起動時にエラーで止まり、設定方法を表示します）。"
-	}
-	if isZH(lang) {
-		if running {
-			return "gate 在运行：每条消息由它判断该哪个角色回。"
+		w.Fix = "Python 3.12 以上を入れてください（リンク）。入れると bothouse が自動で gate を起動します。"
+	} else if isZH(lang) {
+		w.Message = "没找到 Python 3.12 以上，gate（智能判断谁回）还没启动。分流已生效，主 bot 统一回话。"
+		if old {
+			w.Message = "Python 版本太旧（低于 3.12），gate（智能判断谁回）还没启动。分流已生效，主 bot 统一回话。"
 		}
-		return "没装 gate（可以不装）：被 @ 的角色照常回，其余消息都由兜底角色「" + fallbackName + "」回。装 gate 要先在向导里填 jev（没填 gate 启动会报错并提示怎么填）。"
+		w.Fix = "装 Python 3.12 以上（见链接）；装好后 bothouse 会自动启动 gate。"
+	} else {
+		w.Message = "No Python 3.12 or newer found, so the gate (smart choice of who answers) is not started yet. Routing is on: the lead bot answers for the team."
+		if old {
+			w.Message = "Python is older than 3.12, so the gate (smart choice of who answers) is not started yet. Routing is on: the lead bot answers for the team."
+		}
+		w.Fix = "Install Python 3.12 or newer (link); bothouse then starts the gate by itself."
 	}
-	if running {
-		return "The gate is running: it decides which role answers each message."
+	return w
+}
+
+// GateHint says how a team of bots decides who answers. With the gate on, routing works even before
+// the gate runs: core/gate.go fallbackFor lets an @-mentioned bot answer and gives every other message
+// to the lead ("reply"), the others only listen ("context").
+func GateHint(lang, status, fallbackName string) string {
+	switch {
+	case isJA(lang):
+		switch status {
+		case GateStatusOff:
+			return "振り分けはオフです：gate を使わず、各ボットが自分の設定どおりに返事します。"
+		case GateStatusRunning:
+			return "振り分けは有効です：gate が動いていて、メッセージごとにどのロールが答えるかを判断します。"
+		case GateStatusStarting:
+			return "振り分けは有効です：メインのボット「" + fallbackName + "」がまとめて返事します。gate は bothouse が起動し（再起動後）、以後は誰が答えるかを賢く判断します。"
+		}
+		return "振り分けは有効です：メインのボット「" + fallbackName + "」がまとめて返事し、@ されたロールは普段どおり答えます。python / jev を入れると自動で賢い判断が有効になります。"
+	case isZH(lang):
+		switch status {
+		case GateStatusOff:
+			return "没开分流：不用 gate，各机器人按自己的设置回话。"
+		case GateStatusRunning:
+			return "分流已生效：gate 在运行，每条消息由它判断该哪个角色回。"
+		case GateStatusStarting:
+			return "分流已生效：主 bot「" + fallbackName + "」统一回话；gate 由 bothouse 启动（重启后），之后会智能判断该谁回。"
+		}
+		return "分流已生效：主 bot「" + fallbackName + "」统一回话，被 @ 的角色照常回；装好 python/jev 后会自动启用智能判断。"
 	}
-	return "No gate (optional): an @-mentioned role answers; every other message goes to the fallback role \"" + fallbackName + "\". To install the gate, fill in jev in the wizard first (without it the gate stops at startup and says how to fill it in)."
+	switch status {
+	case GateStatusOff:
+		return "Routing is off: no gate, each bot answers by its own settings."
+	case GateStatusRunning:
+		return "Routing is on: the gate is running and decides which role answers each message."
+	case GateStatusStarting:
+		return "Routing is on: the lead bot \"" + fallbackName + "\" answers for the team; bothouse starts the gate (after its restart), which then decides smartly who answers."
+	}
+	return "Routing is on: the lead bot \"" + fallbackName + "\" answers for the team and an @-mentioned role answers as usual; smart routing turns on by itself once python and a jev are there."
 }
