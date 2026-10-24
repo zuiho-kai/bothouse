@@ -8,6 +8,8 @@ TMP = tempfile.mkdtemp()
 os.environ["BOARD_DIR"] = TMP
 os.environ.pop("CC_SESSION_KEY", None)  # 没有频道就不发卡片：子进程 CLI 不碰真 Discord
 os.environ.pop("DISCORD_BOT_TOKEN", None)
+os.environ["CC_BIN"] = "false"  # 不问真桥的定时列表：timer list 失败 = 不知道，「下次看」照原样显示
+os.environ.pop("BOARD_PR_REPO", None)  # done 后不调 gh
 import board  # noqa: E402
 import ctxsvc  # noqa: E402
 
@@ -136,6 +138,98 @@ class Card(unittest.TestCase):
         board.api = boom
         board.main(["add", "x", "y", "z", "橘"])
         self.assertEqual(len(board.items()), 1)
+
+
+class Increments(unittest.TestCase):
+    """暂停/恢复、挂卡、返工汇总、今天做完、下次看「已过」、开着的 PR 提示。"""
+    def setUp(self):
+        for f in Path(TMP).glob("board*"):
+            f.unlink()
+
+    def test_pause_resume(self):
+        cli("add", "推理引擎", "-", "调参", "龙娘")
+        self.assertEqual(cli("pause", "1", "等显卡"), (0, "已暂停"))
+        self.assertIn("｜暂停（", cli()[1])
+        self.assertIn("等显卡", cli()[1])
+        text = board.card_text(board.items(), timers=None)
+        self.assertIn("现在没有进行中的事", text)  # 暂停的不算在做
+        self.assertIn("**暂停**", text)
+        self.assertIn("暂停：等显卡", text)
+        self.assertFalse((Path(TMP) / "board-done.jsonl").exists())  # 暂停不算做完
+        self.assertEqual(cli("resume", "1"), (0, "已恢复"))
+        self.assertEqual(cli("resume", "1"), (0, "#1 没在暂停"))
+        self.assertNotIn("暂停", cli()[1])
+        self.assertNotEqual(cli("pause", "9")[0], 0)
+        self.assertNotEqual(cli("resume", "9")[0], 0)
+
+    def test_link(self):
+        cli("add", "x", "-", "s", "橘")
+        url = "https://discord.com/channels/1/2/3"
+        self.assertNotEqual(cli("link", "1", "https://example.com/a")[0], 0)
+        self.assertEqual(cli("link", "1", url), (0, "已挂卡"))
+        self.assertIn(f" [卡]({url})", board.card_text(board.items(), timers=None))
+
+    def test_rework_report(self):
+        for k in range(4):
+            cli("add", f"事{k}", "-", "s", "橘")
+        cli("done", "1", "2", "没先读现有实现")
+        cli("done", "2", "1", "没先读现有实现")
+        cli("done", "3", "0")
+        cli("done", "4")
+        out = cli("rework")[1].splitlines()
+        self.assertEqual(out[0], "最近 14 天结束 4 件：返工 2 件，没返工 1 件，未填 1 件")
+        self.assertTrue(out[1].startswith("没先读现有实现：3 次｜#1 事0（2）"), out[1])
+        self.assertNotEqual(cli("done", "1", "-1")[0], 0)
+
+    def test_today_done_block(self):
+        for k in range(5):
+            board.add(f"事{k}", "-", "s", "橘")
+            board.done(k + 1)
+        board.add("事0", "-", "s", "橘"); board.done(6)  # 同一件事第二趟
+        text = board.card_text([], board._today_done(), timers=None)
+        self.assertIn("**今天做完**", text)
+        self.assertIn("- 橘：事0（2 趟）", text)
+        self.assertIn("- …另 2 件", text)  # 5 件不同的事，只列最新 DONE_PER_BLOCK 件
+        self.assertNotIn("事1\n", text)
+
+    def test_done_never_crowds_out_live(self):
+        done = [{"id": k, "what": f"做完的事{k}" * 5, "who": "橘"} for k in range(200)]
+        its = [{"id": 1000 + k, "what": f"在做{k}", "status": "长" * 300, "who": "橘"} for k in range(20)]
+        text = board.card_text(its, done, timers=None)
+        self.assertLessEqual(len(text), board.LIMIT)
+        self.assertIn("#1019 在做19", text)
+
+    def test_deadline_crosses_midnight(self):
+        ref = board.time.mktime((2026, 10, 24, 23, 50, 0, 0, 0, -1))
+        self.assertEqual(board._deadline("00:10", ref), ref + 20 * 60)
+        self.assertEqual(board._deadline("23:55", ref), ref + 5 * 60)
+        self.assertIsNone(board._deadline("x", ref))
+
+    def test_next_overdue(self):
+        now = board.time.mktime((2026, 10, 24, 15, 0, 0, 0, 0, -1))
+        it = {"id": 1, "what": "等 CI", "next": "14:30", "next_ts": now - 1800}
+        self.assertIsNone(board._next_live(it, None, now))  # 问不到桥：不知道
+        self.assertFalse(board._next_live(it, [], now))  # 到点了、定时也不在：已过
+        self.assertTrue(board._next_live(it, [(now - 1790, "等 CI")], now))  # 定时还挂着（桥晚发）
+        self.assertTrue(board._next_live({**it, "next_ts": now + 60}, [], now))  # 还没到点
+        text = board.card_text([it], timers=[])
+        self.assertIn("下次看 14:30（已过）", text)
+
+    def test_timer_list_parse(self):
+        fake = Path(TMP) / "fakecc"
+        fake.write_text("#!/bin/sh\nprintf 'Pending timers:\\n  maomao abc123 2026-10-24T15:30:00+08:00 等 CI\\n'\n")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            ts = board._timers()
+        finally:
+            os.environ["CC_BIN"] = "false"
+        self.assertEqual(len(ts), 1)
+        self.assertEqual(ts[0][1], "等 CI")
+        self.assertIsNone(board._timers())  # false：拿不到
+
+    def test_open_pr_hint_off_without_repo(self):
+        self.assertIsNone(board.open_pr_hint())
 
 
 if __name__ == "__main__":
