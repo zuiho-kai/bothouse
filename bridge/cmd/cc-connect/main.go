@@ -223,10 +223,12 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"task":      runTask,
 	"cron":      runCron,
 	"model":     runModel,
+	"workspace": runWorkspace,
 	"timer":     runTimer,
 	"at":        runTimer,
 	"relay":     runRelay,
 	"sessions":  runSessions,
+	"session":   runSession,
 	"agent-sid": runAgentSID,
 	"daemon":    runDaemon,
 	"feishu":    runFeishu,
@@ -753,6 +755,9 @@ func main() {
 		engine.SetChannelBoard(proj.ChannelBoard)
 		engine.SetMemoryIndex(proj.MemoryIndex)
 		engine.SetTeamBoard(proj.TeamBoard)
+		engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+		engine.SetDispatchMode(proj.DispatchMode)
+		engine.SetVoiceDesk(proj.VoiceDesk)
 		resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 		engine.SetResetOnIdle(resetIdle)
 		if defaulted {
@@ -980,6 +985,9 @@ func main() {
 		})
 		engine.SetModelSaveFunc(func(model string) error {
 			return config.SaveAgentModel(projName, model)
+		})
+		engine.SetReasoningEffortSaveFunc(func(effort string) error {
+			return config.SaveAgentReasoningEffort(projName, effort)
 		})
 
 		// Wire config reload
@@ -1643,6 +1651,7 @@ Commands:
   sessions           Browse session history
     list             List all sessions (pipe-friendly)
     show <id>        Show session messages (-n N for last N)
+  session new        Reset this agent session after the current turn (--after-turn)
 
   agent-sid          Print the agent session ID for the current session
 
@@ -1799,6 +1808,9 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoard)
+	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+	engine.SetDispatchMode(proj.DispatchMode)
+	engine.SetVoiceDesk(proj.VoiceDesk)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
 	engine.SetResetOnIdle(resetIdle)
 	if defaulted {

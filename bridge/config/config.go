@@ -561,6 +561,18 @@ type ProjectConfig struct {
 	MemoryIndex string `toml:"memory_index,omitempty"`
 	// TeamBoard (lead only) keeps one live "who is doing what" message per channel, edited in place.
 	TeamBoard bool `toml:"team_board,omitempty"`
+	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
+	// the same category (existing channels are backfilled at start) and allow `bothouse workspace new`
+	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
+	// 「默认给我们频道建立工作区1」); set team_workspaces = false to opt out. Ignored on non-lead projects.
+	TeamWorkspaces *bool `toml:"team_workspaces,omitempty"`
+	// DispatchMode (team mode C): how this project's bot hands out work — "solo" (only its own
+	// subtasks), "team" (only other members), "mixed" (whoever fits; default). User 2026-10-24
+	// 01:25 「单模型多进程，完全团队模式，混合模式……默认混合模型」; same names as DSH's channel setting.
+	DispatchMode string `toml:"dispatch_mode,omitempty"`
+	// VoiceDesk (maomao fork): voice turns see every teammate's progress and may hand an explicitly
+	// confirmed instruction to a teammate in its channel (core/voice_desk.go). Default off.
+	VoiceDesk bool `toml:"voice_desk,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who
@@ -641,6 +653,11 @@ type ProjectConfig struct {
 
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
+// TeamWorkspacesEnabled reports team mode D (default on; only acts on the team lead).
+func (p ProjectConfig) TeamWorkspacesEnabled() bool {
+	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
+}
+
 func (p ProjectConfig) GateLocalEnabled() bool {
 	return p.GateLocal == nil || *p.GateLocal
 }
@@ -1123,6 +1140,11 @@ func (c *Config) validateInternal(permissive bool) error {
 		if proj.Agent.Type == "" {
 			return fmt.Errorf("config: %s.agent.type is required", prefix)
 		}
+		switch proj.DispatchMode {
+		case "", "solo", "team", "mixed":
+		default:
+			return fmt.Errorf("config: %s.dispatch_mode must be \"solo\", \"team\", or \"mixed\"", prefix)
+		}
 		if len(proj.Platforms) == 0 && !permissive {
 			return fmt.Errorf("config: %s needs at least one [[projects.platforms]]", prefix)
 		}
@@ -1412,6 +1434,13 @@ func SaveAgentModel(projectName, model string) error {
 	configMu.Lock()
 	defer configMu.Unlock()
 	return patchProjectAgentOption(projectName, "model", model)
+}
+
+// SaveAgentReasoningEffort persists the project agent's reasoning effort.
+func SaveAgentReasoningEffort(projectName, effort string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return patchProjectAgentOption(projectName, "reasoning_effort", effort)
 }
 
 // AddProviderToConfig adds a provider to a project's agent config and saves.

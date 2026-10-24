@@ -14,9 +14,24 @@
 import json, os, re, threading, time
 from pathlib import Path
 
-_SETUP = Path(os.environ.get("GATE_SETUP_DIR") or Path.home() / ".cc-connect").expanduser()
-# 当前主角色存在这里；gate 每次判定实时读
-LEAD_FILE = Path(os.environ.get("GATE_LEAD_FILE") or _SETUP / "gate-lead.json").expanduser()
+_SETUP_ENV = os.environ.get("GATE_SETUP_DIR")
+_SETUP = Path(_SETUP_ENV or Path.home() / ".cc-connect").expanduser()
+# The bridge and DSH use the product data directory even when no gate is
+# installed. Only an explicit file override may select a different location.
+_PRODUCT_ENV = os.environ.get("BOTHOUSE_DATA_DIR")
+if _PRODUCT_ENV:
+    _PRODUCT_DATA = Path(_PRODUCT_ENV).expanduser()
+elif _SETUP_ENV:
+    _PRODUCT_DATA = _SETUP
+else:
+    _preferred = Path.home() / ".bothouse"
+    _legacy = Path.home() / ".cc-connect"
+    _PRODUCT_DATA = _preferred if _preferred.exists() or not _legacy.exists() else _legacy
+_LEGACY_LEAD_FILES = [_PRODUCT_DATA / "gate-lead.json", _SETUP / "gate-lead.json"]
+if os.environ.get("GATE_LEAD_FILE"):
+    LEAD_FILE = Path(os.environ["GATE_LEAD_FILE"]).expanduser()
+else:
+    LEAD_FILE = _PRODUCT_DATA / "lead.json"
 
 KEYS, NAME, ID, ALIASES = [], {}, {}, {}
 _alias, _WHO, PATTERNS = [], "", []
@@ -107,12 +122,42 @@ _lock = threading.Lock()
 
 def state():
     """→ {"lead": key, "at": 切换时间 或 ""}；没切过 / 文件坏了 = 橘（现状）。"""
-    try:
-        s = json.loads(LEAD_FILE.read_text())
-        if s.get("lead") in KEYS:
-            return {"lead": s["lead"], "at": s.get("at", "")}
-    except (OSError, ValueError):
-        pass
+    def canonical(value):
+        value = str(value or "").strip()
+        if value in KEYS:
+            return value
+        for key, aliases in ALIASES.items():
+            if value == NAME.get(key) or value in aliases:
+                return key
+        return None
+
+    def read(path):
+        try:
+            raw = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return None
+        key = canonical(raw.get("lead"))
+        return None if key is None else {"lead": key, "at": raw.get("at", "")}
+
+    # Once the product file exists it is the sole source of truth. This also
+    # prevents a stale legacy choice from overriding an explicit fallback.
+    if LEAD_FILE.exists():
+        return read(LEAD_FILE) or {"lead": "", "at": ""}
+
+    # Migrate the first valid legacy selection once, so bridge and DSH read it.
+    for path in _LEGACY_LEAD_FILES:
+        if path == LEAD_FILE:
+            continue
+        selected = read(path)
+        if selected is None:
+            continue
+        LEAD_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"lead": selected["lead"], "name": NAME.get(selected["lead"], ""),
+                   "at": selected["at"]}
+        tmp = LEAD_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False))
+        tmp.replace(LEAD_FILE)
+        return selected
     return {"lead": "", "at": ""}
 
 
@@ -141,6 +186,7 @@ def set_lead(key):
     with _lock:
         if state()["lead"] == key and LEAD_FILE.exists():
             return False
+        LEAD_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = LEAD_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps({"lead": key, "name": NAME[key], "at": time.strftime("%m-%d %H:%M:%S")}, ensure_ascii=False))
         tmp.replace(LEAD_FILE)

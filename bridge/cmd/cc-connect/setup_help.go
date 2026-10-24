@@ -22,6 +22,7 @@ const setupUsage = `Usage:
                          Tool hooks (bash-guard, dispatch-review-guard, …) for one role: switch them on or off in
                          <dir>/.claude/settings.json and keep the rules block in its persona in step.
                          New Claude Code roles from the wizard get all of them. Run "setup hooks -h" for more.
+  bothouse setup lead install --work-dir <dir> [--agent <type>] [--config <path>]
   bothouse setup tools on|off|status --work-dir <dir> [--agent claudecode|codex|acp|…] [--only a,b] [--lang zh|en]
                          Small tools for one role (peek: what the other bots are doing; watchvid: turn a video
                          link into frames + transcript; websearch: free web search and page text) and the lines

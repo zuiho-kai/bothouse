@@ -53,6 +53,7 @@ type Platform struct {
 
 	teamLead     string   // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
 	leadReturned sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
+	wsAcks       sync.Map // team mode E: ref_id → chan wireTeamWorkspaceAck (workspaces.go)
 }
 
 // Compile-time interface checks.
@@ -214,6 +215,9 @@ func pickInt(v any) int {
 
 func (p *Platform) Name() string { return p.name }
 
+// HasConfiguredTeamLead reports whether this platform belongs to a configured team.
+func (p *Platform) HasConfiguredTeamLead() bool { return p.teamLead != "" }
+
 // ProgressStyle implements core.ProgressStyleProvider (maomao fork).
 func (p *Platform) ProgressStyle() string {
 	if p.progressStyle == "" {
@@ -352,6 +356,8 @@ func (p *Platform) handleWire(raw []byte) {
 		p.handleRecall(raw)
 	case "ping":
 		_ = p.tp.Send(context.Background(), map[string]any{"type": "pong", "ts": time.Now().UnixMilli()})
+	case typeTeamWorkspaceAck:
+		p.handleTeamWorkspaceAck(raw)
 	default:
 		slog.Debug("cloud_web: unknown inbound type", "type", base.Type)
 	}
@@ -578,6 +584,34 @@ func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) erro
 	return p.sendWire(ctx, frame)
 }
 
+// ReplyInPlace implements core.PreviewReplier (#121): the gateway overwrites the streamed
+// preview with the complete text and then handles it like a reply frame.
+func (p *Platform) ReplyInPlace(ctx context.Context, previewHandle any, replyCtx any, content string) error {
+	h, err := parseReplyCtx(previewHandle)
+	if err != nil {
+		return err
+	}
+	rc, err := parseReplyCtx(replyCtx)
+	if err != nil {
+		return err
+	}
+	if !p.hasCap(capReplyInPlace) {
+		return core.ErrNotSupported
+	}
+	frame := map[string]any{
+		"type":           "reply",
+		"session_key":    rc.SessionKey,
+		"reply_ctx":      rc.ReplyCtx,
+		"preview_handle": h.ReplyCtx,
+		"content":        p.returnToLead(rc, content),
+		"format":         "text",
+	}
+	if rc.Agent {
+		frame["agent"] = true
+	}
+	return p.sendWire(ctx, frame)
+}
+
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {
 	return p.Reply(ctx, replyCtx, content)
 }
@@ -659,12 +693,13 @@ func (p *Platform) SendPreviewStart(ctx context.Context, replyCtx any, content s
 	if !p.hasCap(capPreview) || !p.hasCap(capUpdateMessage) {
 		return nil, core.ErrNotSupported
 	}
-	// maomao fork: preview messages carry the progress card and the sub-agent table only. A streaming text preview
-	// would be frozen into an interim "preview" in the gateway when a tool call starts
-	// (core/engine.go sp.freeze + detachPreview): cut at stream_preview max_chars and never
-	// relayed to teammates, so an <@teammate> hand-off written before a tool call is lost.
-	// ErrNotSupported makes core degrade the stream preview and send each segment as a reply.
-	if !strings.HasPrefix(content, core.ProgressCardPayloadPrefix) && !strings.HasPrefix(content, core.SubTaskTablePayloadPrefix) {
+	// maomao fork: a streaming text preview needs reply_in_place (#121). Core commits each
+	// segment and the final answer through ReplyInPlace with the full text, so the gateway
+	// turns the same message into a real reply (relayed to teammates, never the max_chars
+	// cut). Without it a frozen preview would lose an <@teammate> hand-off, so older gateways
+	// keep the progress card / sub-agent table only and text degrades to one reply per segment.
+	isCard := strings.HasPrefix(content, core.ProgressCardPayloadPrefix) || strings.HasPrefix(content, core.SubTaskTablePayloadPrefix)
+	if !isCard && !p.hasCap(capReplyInPlace) {
 		return nil, core.ErrNotSupported
 	}
 	refID := fmt.Sprintf("prev-%d", time.Now().UnixNano())

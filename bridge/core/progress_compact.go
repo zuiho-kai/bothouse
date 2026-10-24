@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -432,6 +433,10 @@ func (w *compactProgressWriter) appendStructured(item ProgressCardEntry, fallbac
 	if !w.enabled || w.failed {
 		return false
 	}
+	if item.Kind == ProgressEntryToolResult {
+		item.Text = StripModelOnlyToolText(item.Text)
+		fallback = StripModelOnlyToolText(fallback)
+	}
 	text := strings.TrimSpace(item.Text)
 	fallback = strings.TrimSpace(fallback)
 	if text == "" && fallback == "" {
@@ -691,4 +696,75 @@ func (w *compactProgressWriter) payload() string {
 // Active reports whether this writer renders progress in place (maomao fork).
 func (w *compactProgressWriter) Active() bool {
 	return w != nil && w.enabled && !w.failed
+}
+
+// modelOnlyMarkers are phrases with which an agent's harness tells the model
+// that a piece of a tool result is for the model only (e.g. Claude Code's
+// Agent tool: "(This tool result is internal metadata — never quote …)").
+var modelOnlyMarkers = []string{
+	"internal metadata",
+	"do not mention it to user",
+	"do not mention this to the user",
+	"never quote",
+	"for your use only",
+}
+
+// modelOnlyKeys are the key lines such notes carry (agent IDs, the paths of
+// background output files).
+var modelOnlyKeys = []string{"agentid:", "agent_id:", "output_file:", "outputfile:", "task_id:"}
+
+var systemReminderBlock = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+
+// StripModelOnlyToolText removes from a tool result the text the harness
+// meant for the model only — <system-reminder> blocks, sentences or
+// parentheticals that declare themselves internal, and ID/output-file key
+// lines — so the progress card never shows it in any view (maomao fork;
+// user 2026-10-23 screenshot: "Async agent launched successfully. (This tool
+// result is internal metadata — never quote … agentId: …)" on the card).
+func StripModelOnlyToolText(s string) string {
+	if s == "" {
+		return s
+	}
+	s = systemReminderBlock.ReplaceAllString(s, "")
+	lines := strings.Split(s, "\n")
+	out := lines[:0]
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		trimmed := strings.TrimSpace(lower)
+		if trimmed == "" {
+			out = append(out, line)
+			continue
+		}
+		skip := false
+		for _, k := range modelOnlyKeys {
+			if strings.HasPrefix(trimmed, k) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		cut := -1
+		for _, m := range modelOnlyMarkers {
+			if i := strings.Index(lower, m); i >= 0 && (cut < 0 || i < cut) {
+				cut = i
+			}
+		}
+		if cut >= 0 {
+			// Drop from the start of the parenthetical or sentence holding the marker.
+			start := 0
+			if j := strings.LastIndex(lower[:cut], "("); j >= 0 {
+				start = j
+			} else if j := strings.LastIndexAny(lower[:cut], ".!?。"); j >= 0 {
+				start = j + 1
+			}
+			line = strings.TrimSpace(line[:start])
+			if line == "" {
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }

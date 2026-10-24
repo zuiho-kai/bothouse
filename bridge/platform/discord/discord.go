@@ -72,6 +72,7 @@ type progressPlatform struct {
 type Platform struct {
 	turnSent                   turnSentLog // maomao fork: see turn_sent.go
 	leadReturned               sync.Map    // maomao fork: trigger message ID → time the reply was routed back to the lead
+	cardViews                  cardViews   // maomao fork: 细节/简略 view per card message (card_view.go)
 	token                      string
 	allowFrom                  string
 	permissionApprovers        []string
@@ -227,6 +228,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
 		project, _ := opts["cc_project"].(string)
 		base.turnSent.load(filepath.Join(dir, "discord_turn_sent_"+project+".json"))
+		base.cardViews.prefs = cardViewPrefsFor(dir) // shared by the bots of this data dir
 	}
 	if progressStyle == "compact" || progressStyle == "card" {
 		wrapped := &progressPlatform{Platform: base}
@@ -787,6 +789,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 			return
 		}
 	}
+	// A human's message in a private chat is marked Direct. Core decides whether it bypasses
+	// the gate: only the owner's DMs do (see Engine.isDMOwner); other DMs are gated normally.
+	direct := !fromBot && m.GuildID == ""
 	if fromBot {
 		// Only an explicit <@me> in the text counts; reply pings ("↪ 已插入" quoting a message)
 		// and role/everyone mentions from bots are ignored. Everything else a teammate says
@@ -890,8 +895,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		MessageID: m.ID,
 		UserID:    m.Author.ID, UserName: m.Author.Username,
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
-		Mentioned: mentioned, FromBot: fromBot,
-		Direct: m.GuildID == "" && !fromBot, // a DM calls the bot (core/gate_local.go)
+		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
 	}
 	// Consume explicit approvals before bot labels, batching or the gate.
 	if fromBot && strings.HasPrefix(approvalContent, "/permit") {
@@ -1118,6 +1122,10 @@ func reconstructCommand(data discordgo.ApplicationCommandInteractionData) string
 
 func (p *Platform) handleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, userID, userName string) {
 	data := i.MessageComponentData()
+	if view, ok := parseCardViewCustomID(data.CustomID); ok {
+		p.handleCardViewInteraction(s, i, view)
+		return
+	}
 	command, isPermissionResponse, ok := discordComponentCommand(data.CustomID)
 	if !ok {
 		slog.Debug("discord: unknown component interaction", "custom_id", data.CustomID)
@@ -1181,6 +1189,9 @@ func discordComponentCommand(customID string) (command string, isPermissionRespo
 }
 
 func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
+	if p.session == nil {
+		return fmt.Errorf("discord session is not ready")
+	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
 		return p.sendInteraction(rc, content)
@@ -1193,6 +1204,9 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 
 // Send sends a new message (not a reply).
 func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
+	if p.session == nil {
+		return fmt.Errorf("discord session is not ready")
+	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
 		return p.sendInteraction(rc, content)
@@ -1470,6 +1484,25 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	return rc, nil
 }
 
+// OpenDM opens (or reuses: Discord returns the existing one) the private channel between this bot
+// and userID, and returns the session key an incoming message in that channel would get, so a
+// proactive DM and the user's reply share one session (maomao fork, `bothouse send --dm`).
+func (p *Platform) OpenDM(userID string) (string, error) {
+	if p.session == nil {
+		return "", fmt.Errorf("discord: not connected")
+	}
+	ch, err := p.session.UserChannelCreate(userID)
+	if err != nil {
+		return "", fmt.Errorf("discord: open DM with %s: %w", userID, err)
+	}
+	if ch == nil || ch.ID == "" {
+		return "", fmt.Errorf("discord: open DM with %s: empty channel", userID)
+	}
+	return p.makeSessionKey(ch.ID, userID), nil
+}
+
+var _ core.DirectMessageOpener = (*Platform)(nil)
+
 func (p *Platform) ResolveCronReplyTarget(sessionKey string, title string) (string, any, error) {
 	if !p.threadIsolation {
 		return "", nil, core.ErrNotSupported
@@ -1485,6 +1518,7 @@ func (p *Platform) ResolveCronReplyTarget(sessionKey string, title string) (stri
 type discordPreviewHandle struct {
 	channelID string
 	messageID string
+	origin    string // maomao fork: the turn's own channel (before the log-channel redirect), groups its cards (card_view.go)
 }
 
 // SendPreviewStart sends a new message and returns a handle for subsequent edits.
@@ -1501,9 +1535,16 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 	// maomao fork: the progress card and the sub-agent table go to the log channel
 	// when the target channel has one; the handle keeps that channel, so the
 	// edits and the delete follow it (see aux_channels.go).
+	origin := channelID
 	channelID = p.previewChannelFor(channelID, content)
 
-	msg := buildDiscordPreviewMessage(content)
+	// A new progress card starts a new turn in the channel's last chosen view
+	// (default 简略); a table joins the newest turn of its origin channel.
+	view := p.cardViews.startMode(origin)
+	if _, isTable := core.ParseSubTaskTablePayload(content); isTable {
+		view = p.cardViews.turnMode(origin)
+	}
+	msg := buildDiscordPreviewMessageView(content, view)
 	sent, err := p.session.ChannelMessageSendComplex(channelID, msg)
 	if err != nil {
 		return nil, fmt.Errorf("discord: send preview: %w", err)
@@ -1514,7 +1555,8 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 	case *interactionReplyCtx:
 		p.noteInteractionSent(rc, sent)
 	}
-	return &discordPreviewHandle{channelID: channelID, messageID: sent.ID}, nil
+	p.rememberPreview(origin, channelID, sent.ID, content)
+	return &discordPreviewHandle{channelID: channelID, messageID: sent.ID, origin: origin}, nil
 }
 
 // UpdateMessage edits an existing message identified by previewHandle.
@@ -1523,11 +1565,26 @@ func (p *Platform) UpdateMessage(ctx context.Context, previewHandle any, content
 	if !ok {
 		return fmt.Errorf("discord: invalid preview handle type %T", previewHandle)
 	}
-	_, err := p.session.ChannelMessageEditComplex(buildDiscordPreviewEdit(h.channelID, h.messageID, content))
+	p.rememberPreview(h.origin, h.channelID, h.messageID, content)
+	_, err := p.session.ChannelMessageEditComplex(buildDiscordPreviewEditView(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID)))
 	if err != nil {
 		return fmt.Errorf("discord: edit message: %w", err)
 	}
 	return nil
+}
+
+// rememberPreview files a progress card or sub-agent table under its turn and
+// keeps its renderer for the 细节/简略 buttons (card_view.go).
+func (p *Platform) rememberPreview(origin, channelID, messageID, content string) {
+	if render, ok := progressCardRender(content); ok {
+		p.cardViews.lead(origin, channelID, messageID)
+		p.cardViews.remember(messageID, render)
+		return
+	}
+	if render, ok := subTaskTableRender(content); ok {
+		p.cardViews.join(origin, channelID, messageID)
+		p.cardViews.remember(messageID, render)
+	}
 }
 
 // DeletePreviewMessage removes the preview message so the final response can
@@ -1537,6 +1594,7 @@ func (p *Platform) DeletePreviewMessage(ctx context.Context, previewHandle any) 
 	if !ok {
 		return fmt.Errorf("discord: invalid preview handle type %T", previewHandle)
 	}
+	p.cardViews.forget(h.messageID)
 	return p.session.ChannelMessageDelete(h.channelID, h.messageID)
 }
 

@@ -24,6 +24,7 @@ import (
 // codexSession manages a multi-turn Codex conversation.
 // First Send() uses `codex exec`, subsequent ones use `codex exec resume <threadID>`.
 type codexSession struct {
+	subTaskTracker
 	workDir          string
 	model            string
 	effort           string
@@ -363,6 +364,7 @@ func (cs *codexSession) readLoop(cmd *exec.Cmd, stdout io.ReadCloser, stderrBuf 
 		_ = forceKillAllCmds([]*exec.Cmd{cmd})
 	}
 	waitErr := cmd.Wait()
+	cs.StopSubTasks()
 	if tid := cs.CurrentSessionID(); tid != "" {
 		patchSessionSource(tid, getenvFromList(cs.extraEnv, "CODEX_HOME"))
 	}
@@ -956,6 +958,7 @@ func (cs *codexSession) refreshContextUsageFromRollout() {
 }
 
 func (cs *codexSession) Close() error {
+	cs.CloseSubTasks()
 	cs.alive.Store(false)
 	cs.cancel()
 	cs.sendMu.Lock()
@@ -1000,6 +1003,21 @@ func (cs *codexSession) Close() error {
 			return nil
 		}
 	}
+}
+
+var _ core.AgentSessionCanceller = (*codexSession)(nil)
+
+// CancelTurn (maomao fork, user 10-23「取消后不报错」) stops the running turn's
+// codex exec process. The session and its thread id stay, so the next Send
+// resumes the thread; readLoop ends the cancelled turn with one EventError,
+// which core only logs. No-op when no turn is running.
+func (cs *codexSession) CancelTurn() error {
+	cmds := cs.activeCmds()
+	if len(cmds) == 0 {
+		return nil
+	}
+	slog.Info("codexSession: cancelling running turn", "thread_id", cs.CurrentSessionID())
+	return forceKillAllCmds(cmds)
 }
 
 func (cs *codexSession) addCmd(cmd *exec.Cmd) {

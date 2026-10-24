@@ -264,6 +264,10 @@ func dshWebStatePath() string {
 // OpenDSHWeb returns the running `dsh web` we started earlier, or starts a new one detached from
 // this process (it keeps running after the wizard exits) on a free port and waits for its link.
 func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
+	return openDSHWeb(ctx, "")
+}
+
+func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	dshWebMu.Lock()
 	defer dshWebMu.Unlock()
 	statePath := dshWebStatePath()
@@ -285,6 +289,22 @@ func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
 	}
 	defer logf.Close()
 	cmd := exec.Command(bin, "--profile", DSHProfile, "--no-open", "--port", "0")
+	dataDir := strings.TrimSpace(configuredDataDir)
+	if dataDir == "" {
+		dataDir = os.Getenv("BOTHOUSE_DATA_DIR")
+	}
+	if dataDir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dataDir = filepath.Join(home, ".bothouse")
+		}
+	}
+	if dataDir != "" {
+		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json")}
+		if fallback := dshFallbackLead(dataDir); fallback != "" {
+			env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
+		}
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.Stdin = nil
 	if home, err := os.UserHomeDir(); err == nil {
@@ -319,6 +339,27 @@ func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
 		case <-tick.C:
 		}
 	}
+}
+
+func dshFallbackLead(dataDir string) string {
+	b, err := os.ReadFile(filepath.Join(dataDir, gateTeamFile))
+	if err != nil {
+		return ""
+	}
+	var team struct {
+		Lead struct {
+			Aliases []string `json:"aliases"`
+		} `json:"lead"`
+	}
+	if json.Unmarshal(b, &team) != nil {
+		return ""
+	}
+	for _, alias := range team.Lead.Aliases {
+		if regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`).MatchString(alias) {
+			return alias
+		}
+	}
+	return ""
 }
 
 func scanDSHWebURL(path string) string {
@@ -360,7 +401,7 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		mgmtError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
-	web, err := OpenDSHWeb(r.Context())
+	web, err := openDSHWeb(r.Context(), m.wizardDataDir)
 	if err != nil {
 		mgmtError(w, http.StatusBadGateway, err.Error())
 		return

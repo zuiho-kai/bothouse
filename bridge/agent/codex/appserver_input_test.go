@@ -87,6 +87,9 @@ func TestHelperFakeAppServer(t *testing.T) {
 				notify("item/started", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "commandExecution", "command": "long-running-work"}})
 				continue
 			}
+			if scenario == "interrupt" && turns == 1 {
+				continue // stays running until interrupted
+			}
 			switch scenario {
 			case "hang", "steer", "steer-child", "steer-public":
 				continue // stays running until steered
@@ -126,6 +129,11 @@ func TestHelperFakeAppServer(t *testing.T) {
 			}
 			notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"type": "agentMessage", "text": "steered"}})
 			completed(thread, turn, "completed")
+		case "turn/interrupt":
+			reply(map[string]any{})
+			turn, _ := req.Params["turnId"].(string)
+			completed(thread, turn, "interrupted")
+			notify("thread/status/changed", map[string]any{"threadId": thread, "status": map[string]any{"type": "idle"}})
 		default:
 			reply(map[string]any{})
 		}
@@ -329,5 +337,45 @@ func TestAppServerSendRefusedDuringStrictTurn(t *testing.T) {
 	}
 	if !s.preambleSent && s.promptPreamble != "" {
 		t.Fatal("preamble consumed")
+	}
+}
+
+// maomao fork (user 10-23「取消后不报错」): CancelTurn interrupts only the running
+// turn; the process and thread stay, and the next message is answered normally.
+func TestAppServerCancelTurnKeepsThread(t *testing.T) {
+	a, log := fakeAppServerAgent(t, "interrupt")
+	as, err := a.StartSession(context.Background(), inputThreadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer as.Close()
+	canceller, ok := any(as).(core.AgentSessionCanceller)
+	if !ok {
+		t.Fatal("app-server session does not implement core.AgentSessionCanceller")
+	}
+	if err := as.Send("first", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	thread := as.CurrentSessionID()
+	if err := canceller.CancelTurn(); err != nil {
+		t.Fatal(err)
+	}
+	ev, text := inputReadTerminal(t, as)
+	if ev.Type != core.EventError || text != "" {
+		t.Fatalf("cancelled turn: event=%+v text=%q", ev, text)
+	}
+	if !as.Alive() || as.CurrentSessionID() != thread {
+		t.Fatalf("alive=%v thread=%q want %q", as.Alive(), as.CurrentSessionID(), thread)
+	}
+	if err := as.Send("暂停，你在干啥", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	ev, text = inputReadTerminal(t, as)
+	if ev.Type != core.EventResult || text != "answer" {
+		t.Fatalf("next turn: event=%+v text=%q", ev, text)
+	}
+	data, _ := os.ReadFile(log)
+	if strings.Count(string(data), "turn/interrupt\n") != 1 || strings.Count(string(data), "turn/start\n") != 2 {
+		t.Fatalf("rpc log: %s", data)
 	}
 }

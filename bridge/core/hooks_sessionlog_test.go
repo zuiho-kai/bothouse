@@ -111,7 +111,7 @@ func TestEventToEnv_Agent(t *testing.T) {
 func TestSessionlogHook_EndToEnd(t *testing.T) {
 	script := os.Getenv("SESSIONLOG_PY")
 	if script == "" {
-		t.Skip("SKIPPED: set SESSIONLOG_PY to the llm-wiki's bin/sessionlog.py to run this end-to-end test (MAOMAO.md)")
+		t.Skip("SKIPPED: set SESSIONLOG_PY to the llm-wiki's bin/sessionlog.py to run this end-to-end test")
 	}
 	store := t.TempDir()
 	t.Setenv("AGENT_SESSIONS_DIR", store)

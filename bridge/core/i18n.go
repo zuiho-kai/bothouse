@@ -536,6 +536,10 @@ const (
 	MsgWhoamiPlatform  MsgKey = "whoami_platform"
 	MsgWhoamiUsage     MsgKey = "whoami_usage"
 
+	MsgRelayWork            MsgKey = "relay_work"
+	MsgRelayWorkFailed      MsgKey = "relay_work_failed"
+	MsgRelayWorkUnconfirmed MsgKey = "relay_work_unconfirmed"
+
 	MsgRelayNoBinding     MsgKey = "relay_no_binding"
 	MsgRelayBound         MsgKey = "relay_bound"
 	MsgRelayBindRemoved   MsgKey = "relay_bind_removed"
@@ -668,6 +672,11 @@ const (
 	MsgPublicEnded       MsgKey = "MsgPublicEnded"
 	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
 	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
+	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
+	MsgTaskRelayProgress MsgKey = "MsgTaskRelayProgress"
+	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
+	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
+	MsgTaskReporterMuted MsgKey = "MsgTaskReporterMuted"
 )
 
 const (
@@ -677,6 +686,22 @@ const (
 )
 
 var messages = map[MsgKey]map[Language]string{
+	MsgTaskReporterMuted: {
+		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",
+	},
+	MsgTaskRelayAssigned: {
+		LangEnglish: "Assigned to %s", LangChinese: "已派给 %s", LangTraditionalChinese: "已派給 %s", LangJapanese: "%s に依頼しました", LangSpanish: "Asignado a %s",
+	},
+	MsgTaskRelayProgress: {
+		LangEnglish: "Progress from %s — see task thread", LangChinese: "%s 更新了进度，详见任务线程", LangTraditionalChinese: "%s 更新了進度，詳見任務討論串", LangJapanese: "%s の進捗：タスクスレッドを参照", LangSpanish: "Avance de %s: consulte el hilo",
+	},
+	MsgTaskRelayResult: {
+		LangEnglish: "Response from %s — see task thread", LangChinese: "已收到 %s 的回复，详见任务线程", LangTraditionalChinese: "已收到 %s 的回覆，詳見任務討論串", LangJapanese: "%s の回答：タスクスレッドを参照", LangSpanish: "Respuesta de %s: consulte el hilo",
+	},
+	MsgTaskRelayFailed: {
+		LangEnglish: "Relay to %s failed or incomplete — inspect task thread before retrying", LangChinese: "派给 %s 的任务失败或结果未确认，重试前请检查任务线程", LangTraditionalChinese: "派給 %s 的任務失敗或結果未確認，重試前請檢查任務討論串", LangJapanese: "%s への依頼が失敗または未完了：再試行前にスレッドを確認", LangSpanish: "Envío a %s fallido o incompleto: revise el hilo antes de reintentar",
+	},
+
 	MsgBoardTasksRunning: {
 		LangEnglish: "In progress", LangChinese: "进行中", LangTraditionalChinese: "進行中", LangJapanese: "進行中", LangSpanish: "En curso",
 	},
@@ -712,6 +737,27 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Se necesita su decisión. Consulte la tarjeta.",
 	},
 
+	"task_members": {
+		LangEnglish: "Team progress", LangChinese: "分工进度", LangTraditionalChinese: "分工進度", LangJapanese: "担当別の進捗", LangSpanish: "Progreso del equipo",
+	},
+	"task_member_queued": {
+		LangEnglish: "Awaiting start", LangChinese: "待接单", LangTraditionalChinese: "待接單", LangJapanese: "開始待ち", LangSpanish: "Pendiente de inicio",
+	},
+	"task_member_interrupted": {
+		LangEnglish: "Tracking interrupted", LangChinese: "追踪中断", LangTraditionalChinese: "追蹤中斷", LangJapanese: "追跡中断", LangSpanish: "Seguimiento interrumpido",
+	},
+	"task_member_duration": {
+		LangEnglish: "Took %s", LangChinese: "耗时 %s", LangTraditionalChinese: "耗時 %s", LangJapanese: "所要時間 %s", LangSpanish: "Duración %s",
+	},
+	"task_member_started": {
+		LangEnglish: "Started %s", LangChinese: "开始于 %s", LangTraditionalChinese: "開始於 %s", LangJapanese: "開始 %s", LangSpanish: "Inicio %s",
+	},
+	"task_member_updated": {
+		LangEnglish: "Progress %s", LangChinese: "进展 %s", LangTraditionalChinese: "進展 %s", LangJapanese: "進捗 %s", LangSpanish: "Avance %s",
+	},
+	"task_member_more": {
+		LangEnglish: "… %d more (see task details)", LangChinese: "… 另有 %d 项（见任务详情）", LangTraditionalChinese: "… 另有 %d 項（見任務詳情）", LangJapanese: "… 他 %d 件（タスク詳細）", LangSpanish: "… %d más (ver detalles)",
+	},
 	"task_executor": {
 		LangEnglish:            "Executor",
 		LangChinese:            "执行者",
@@ -3779,6 +3825,27 @@ var messages = map[MsgKey]map[Language]string{
 	MsgRelayNoTarget: {
 		LangEnglish: "Project %q not found. No other projects are configured.",
 		LangChinese: "项目 %q 不存在。没有配置其他项目。",
+	},
+	MsgRelayWork: {
+		LangEnglish:            "teammate assignment",
+		LangChinese:            "处理队友派工",
+		LangTraditionalChinese: "處理隊友派工",
+		LangJapanese:           "チームメイトからの依頼に対応中",
+		LangSpanish:            "Trabajando en un encargo del equipo",
+	},
+	MsgRelayWorkFailed: {
+		LangEnglish:            "teammate assignment failed",
+		LangChinese:            "队友派工失败",
+		LangTraditionalChinese: "隊友派工失敗",
+		LangJapanese:           "チームメイトからの依頼に失敗",
+		LangSpanish:            "El encargo del equipo falló",
+	},
+	MsgRelayWorkUnconfirmed: {
+		LangEnglish:            "teammate assignment result unconfirmed",
+		LangChinese:            "队友派工结果未确认",
+		LangTraditionalChinese: "隊友派工結果未確認",
+		LangJapanese:           "チームメイトからの依頼の結果は未確認",
+		LangSpanish:            "Resultado del encargo del equipo sin confirmar",
 	},
 	MsgRelayBindRemoved: {
 		LangEnglish:            "✅ Removed %s from binding",

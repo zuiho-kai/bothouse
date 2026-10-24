@@ -201,7 +201,7 @@ func TestMarkSystemNotice(t *testing.T) {
 	if got := p.MarkSystemNotice(ictx); got != ictx {
 		t.Fatal("an interaction reply context is passed through unchanged")
 	}
-	if got := p.redirectNotice(rc); got.channelID != rc.channelID || got.messageID != rc.messageID || got.notice != rc.notice {
+	if got := p.redirectNotice(rc); got.channelID != rc.channelID || got.messageID != rc.messageID || got.notice != rc.notice || got.agent != rc.agent || got.final != rc.final {
 		t.Fatal("without a table redirectNotice must return the context unchanged")
 	}
 }

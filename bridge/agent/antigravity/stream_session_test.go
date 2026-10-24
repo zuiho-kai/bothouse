@@ -205,6 +205,7 @@ func TestStreamSession_StallWatchdog(t *testing.T) {
 	t.Run("running tool is progress, not a stall", func(t *testing.T) {
 		s := start(t, "long-tool")
 		sawTool := false
+		sawResult := false
 		var answer strings.Builder
 		deadline := time.After(5 * time.Second)
 		for {
@@ -219,13 +220,16 @@ func TestStreamSession_StallWatchdog(t *testing.T) {
 					}
 					sawTool = true
 				case core.EventToolResult:
-					t.Fatalf("successful tool should not add a result message: %+v", ev)
+					if !sawTool || ev.ToolName != "run_command" || ev.ToolSuccess == nil || !*ev.ToolSuccess || ev.ToolResult != "" || ev.Content != "" {
+						t.Fatalf("finished tool must report success without output: %+v", ev)
+					}
+					sawResult = true
 				case core.EventText:
 					answer.WriteString(ev.Content)
 				case core.EventResult:
 					answer.WriteString(ev.Content)
-					if !sawTool || answer.String() != "answer-1" {
-						t.Fatalf("tool progress or answer missing: sawTool=%t answer=%q", sawTool, answer.String())
+					if !sawTool || !sawResult || answer.String() != "answer-1" {
+						t.Fatalf("tool progress or answer missing: sawTool=%t sawResult=%t answer=%q", sawTool, sawResult, answer.String())
 					}
 					return
 				}

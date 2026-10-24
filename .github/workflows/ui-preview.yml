@@ -27,6 +27,8 @@ concurrency:
 jobs:
   shoot:
     # 用户 2026-10-23「你把那边关联到这两个环境去编译呗」：GitHub 托管机因账号扣款失败不可用，改到甲骨文 ARM64。
+    # fork 来的 PR 不在自托管机上跑 PR 代码（comment job 本来就只对同仓库 PR 运行）。
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, bothouse-ci]
     # 沿用 ci.yml 里 bridge job 的上限。
     timeout-minutes: 20

@@ -38,6 +38,7 @@ export class CliMember {
     this.extraEnv = env || {}
     this.sessions = new Map() // room -> { sessionId, first }
     this.buffers = new Map() // sessionId -> string
+    this.onText = new Map() // sessionId -> (textSoFar) => void（#121 流式）
     this.queue = new Map() // room -> Promise（同房间串行）
     this.ready = null
   }
@@ -60,7 +61,9 @@ export class CliMember {
       sessionUpdate: async (n) => {
         const u = n.update
         if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && this.buffers.has(n.sessionId)) {
-          this.buffers.set(n.sessionId, this.buffers.get(n.sessionId) + u.content.text)
+          const full = this.buffers.get(n.sessionId) + u.content.text
+          this.buffers.set(n.sessionId, full)
+          this.onText.get(n.sessionId)?.(full)
         }
       },
     }
@@ -89,18 +92,20 @@ export class CliMember {
     return s
   }
 
-  ask(text, room = 'default') {
+  /** onText(textSoFar) 在每个公开文字分片到达时调用（#121）。 */
+  ask(text, room = 'default', onText) {
     const prev = this.queue.get(room) || Promise.resolve()
-    const run = prev.catch(() => {}).then(() => this._ask(text, room))
+    const run = prev.catch(() => {}).then(() => this._ask(text, room, onText))
     this.queue.set(room, run)
     return run
   }
 
-  async _ask(text, room) {
+  async _ask(text, room, onText) {
     const s = await this._session(room)
     const body = s.first && this.persona ? `${this.persona}\n\n${text}` : text
     s.first = false
     this.buffers.set(s.sessionId, '')
+    if (onText) this.onText.set(s.sessionId, onText)
     try {
       await Promise.race([
         this.conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: body }] }),
@@ -109,6 +114,7 @@ export class CliMember {
       return this.buffers.get(s.sessionId)
     } finally {
       this.buffers.delete(s.sessionId)
+      this.onText.delete(s.sessionId)
     }
   }
 

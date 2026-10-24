@@ -77,25 +77,53 @@ export function forMember(text, to, members) {
   return out.join('').trim();
 }
 
-/** A teammate calls a member by bare name ("行了龙娘，…", "龙娘？", or a line starting "龙娘 …"). */
-export function nameCalled(text, name) {
+/** A teammate calls a member by bare name: a line opening with her name, alone or among
+ *  teammates' names ("橘，…" / "龙娘、橘 你们看看"). Translated line for line from
+ *  bridge/platform/discord/mentions.go nameCalled/callFollows/botNames — keep them in step. */
+export function nameCalled(text, name, team = []) {
+  const mine = botNames(name);
+  if (mine.length === 0) return false;
+  const all = [...mine];
+  for (const n of team) all.push(...botNames(n));
+  all.sort((a, b) => b.length - a.length); // longest first: "Claude橘" before "橘"
   const body = text.replace(/```[\s\S]*?```/g, '');
-  const names = [name];
-  const short = name.replace(/^[\x00-\x7f]+/, '');
-  if (short && short !== name) names.push(short);
-  return names.some(n => called(body, n));
-}
-
-function called(text, name) {
-  for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    let i = line.indexOf(name);
-    while (i >= 0) {
-      const rest = line.slice(i + name.length);
-      if (rest[0] !== undefined && CALL_PUNCT.includes(rest[0])) return true;
-      if (i === 0 && (rest === '' || /^\s/.test(rest))) return true;
-      i = line.indexOf(name, i + name.length);
+  for (const raw of body.split('\n')) {
+    let rest = raw.trim();
+    let sep = '';
+    let me = false;
+    for (let matched = true; matched;) {
+      matched = false;
+      for (const n of all) {
+        if (!rest.startsWith(n)) continue;
+        me = me || mine.includes(n);
+        const after = rest.slice(n.length);
+        rest = after.replace(/^[ \t，,、和跟与/]+/, '');
+        sep = after.slice(0, after.length - rest.length);
+        matched = true;
+        break;
+      }
     }
+    if (me && callFollows(rest, sep)) return true;
   }
   return false;
+}
+
+/** A bot's username and the same without its leading ASCII part ("Claude橘" → "橘"). */
+function botNames(botName) {
+  if (!botName) return [];
+  const names = [botName];
+  const short = botName.replace(/^[\x00-\x7f]+/, '');
+  if (short && short !== botName) names.push(short);
+  return names;
+}
+
+/** Calling words: what follows the opening name may call her ("橘你来", "橘帮我看"). */
+const CALL_WORDS = ['你', '帮', '来', '看', '快', '给', '过来', '出来', '有空'];
+
+/** callFollows: the end of the line, a space or vocative punctuation after the last opening
+ *  name, or a calling word (mentions.go callFollows). */
+function callFollows(rest, sep) {
+  if (rest === '' || /[ \t，,、]/.test(sep)) return true;
+  if (':：!！?？~～.。'.includes(rest[0])) return true;
+  return CALL_WORDS.some(w => rest.startsWith(w));
 }

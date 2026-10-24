@@ -8,10 +8,12 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 | companion/ | Zssan12/yijiazi，b408538ab1428604c93827928b24971ff9b00a5b 之后的本地语音、活动、日报实现 | 导入当前相关源码和测试；旧网页 demo 留在原仓库 |
 | skills/ | 同一产品开发阶段的项目协作技能 | 纳入产品工作流 |
 
+项目自有代码（包括 `companion/`）按 Apache-2.0 授权；上游组件与第三方依赖仍按各自许可使用，详见 [LICENSING.md](LICENSING.md)。
+
 2026-10-18 补充的角色视频素材（CC BY-NC 4.0 美术约束）不随公开仓库发布。
 
 上游的 README、贡献者说明和文件内归属保留在 bridge/。Go module 路径和 CLI 名称 cc-connect 暂时保留，避免为了品牌重命名破坏导入和运行兼容性。
 
-桥接快照的 README 声明 MIT，但此次快照没有独立 LICENSE 文件。2026-10-21 复核：上游 chenhg5/cc-connect 与 zuiho-kai/cc-connect 的 License API 均返回 404、根目录无 LICENSE，npm 包 cc-connect 1.5.0 只含 install.js、run.js、package.json、README.md。同日在用户自己的 fork zuiho-kai/cc-connect 补上 MIT LICENSE（[zuiho-kai/cc-connect#1](https://github.com/zuiho-kai/cc-connect/pull/1)，版权行 `Copyright (c) chenhg5 and cc-connect contributors`），`bridge/LICENSE-MIT-upstream` 为其原样副本。chenhg5/cc-connect 仍无 LICENSE 文件。项目新增部分的授权见 [LICENSING.md](LICENSING.md)。见 [Issue #9](https://github.com/Zssan12/conest/issues/9)。
+上游项目 [chenhg5/cc-connect](https://github.com/chenhg5/cc-connect) 的 README 声明 MIT，但仓库根目录没有 LICENSE 文件；本仓库 `bridge/` 中该来源代码的许可依据是这一 README 声明。zuiho-kai/cc-connect 的 maomao fork 后来补充了 MIT LICENSE（[zuiho-kai/cc-connect#1](https://github.com/zuiho-kai/cc-connect/pull/1)，版权行 `Copyright (c) chenhg5 and cc-connect contributors`），其原样副本保留在 `bridge/LICENSE-MIT-upstream`。保留的上游代码按其 MIT 声明使用；本项目自有代码的 Apache-2.0 授权见 [LICENSING.md](LICENSING.md)。
 
 本仓库不包含实际 Discord token、CLI 登录态、会话正文、语音录音、模型权重和运行配置。历史部署仍在原工作目录；源码整合不等于运行迁移。

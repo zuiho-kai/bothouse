@@ -27,10 +27,24 @@ func runRelay(args []string) {
 }
 
 func runRelaySend(args []string) {
-	var from, to, sessionKey, message, dataDir string
+	if err := relaySendCommand(args, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func relaySendCommand(args []string, out io.Writer) error {
+	var from, to, sessionKey, message, dataDir, taskID, requestID string
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
+		// Every value flag must have an argument; never silently drop task scope.
+		switch args[i] {
+		case "--from", "-f", "--to", "-t", "--session-key", "--session", "-s", "--message", "-m", "--data-dir", "--task", "--request-id":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a value", args[i])
+			}
+		}
 		switch args[i] {
 		case "--from", "-f":
 			if i+1 < len(args) {
@@ -57,10 +71,25 @@ func runRelaySend(args []string) {
 				i++
 				dataDir = args[i]
 			}
+		case "--task":
+			i++
+			taskID = args[i]
+			if strings.TrimSpace(taskID) == "" {
+				return fmt.Errorf("--task must not be empty")
+			}
+		case "--request-id":
+			i++
+			requestID = args[i]
+			if strings.TrimSpace(requestID) == "" {
+				return fmt.Errorf("--request-id must not be empty")
+			}
 		case "--help", "-h":
 			printRelaySendUsage()
-			return
+			return nil
 		default:
+			if strings.HasPrefix(args[i], "--") {
+				return fmt.Errorf("unknown relay option: %s", args[i])
+			}
 			positional = append(positional, args[i])
 		}
 	}
@@ -81,19 +110,18 @@ func runRelaySend(args []string) {
 	}
 
 	if to == "" || message == "" {
-		fmt.Fprintln(os.Stderr, "Error: target project (--to) and message are required")
-		printRelaySendUsage()
-		os.Exit(1)
+		return fmt.Errorf("target project (--to) and message are required")
 	}
 	if sessionKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: session key is required (set CC_SESSION_KEY or use --session-key)")
-		os.Exit(1)
+		return fmt.Errorf("session key is required (set CC_SESSION_KEY or use --session-key)")
+	}
+	if (taskID == "") != (requestID == "") {
+		return fmt.Errorf("--task and --request-id must be provided together")
 	}
 
 	sockPath := resolveSocketPath(dataDir)
-	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: bothouse is not running (socket not found: %s)\n", sockPath)
-		os.Exit(1)
+	if _, err := os.Stat(sockPath); err != nil {
+		return fmt.Errorf("bothouse socket unavailable (%s): %w", sockPath, err)
 	}
 
 	payload, _ := json.Marshal(map[string]string{
@@ -101,29 +129,32 @@ func runRelaySend(args []string) {
 		"to":          to,
 		"session_key": sessionKey,
 		"message":     message,
+		"task_id":     taskID,
+		"request_id":  requestID,
 	})
 
 	resp, err := apiPost(sockPath, "/relay/send", payload)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read relay response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", strings.TrimSpace(string(body)))
-		os.Exit(1)
+		return fmt.Errorf("%s", strings.TrimSpace(string(body)))
 	}
 
 	var result struct {
 		Response string `json:"response"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: decode response: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("decode response: %w", err)
 	}
-	fmt.Print(result.Response)
+	_, err = fmt.Fprint(out, result.Response)
+	return err
 }
 
 func printRelayUsage() {
@@ -146,6 +177,8 @@ Options:
   -s, --session-key <key>    Session key (auto-detected from CC_SESSION_KEY env)
   -m, --message <text>       Message to send
       --data-dir <path>      Data directory (default: ~/.bothouse)
+      --task <id>            Existing source task; details go to its thread
+      --request-id <id>      Stable dispatch ID (required with --task)
   -h, --help                 Show this help
 
 Examples:

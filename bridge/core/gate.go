@@ -245,8 +245,18 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		slog.Info("gate: teammate context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
-	if g == nil || msg.IsPermissionResponse {
+	// A private chat with the owner (an explicit admin_from ID) has no third party: whatever
+	// the owner says there is addressed to this bot, so it skips the gate and is never filed as
+	// overheard context. DMs from anyone else go through the gate like any other message.
+	ownerDM := msg.Direct && !msg.FromBot && e.isDMOwner(msg.UserID)
+	if ownerDM {
+		msg.Mentioned = true
+	}
+	if g == nil || msg.IsPermissionResponse || ownerDM {
 		if !msg.IsPermissionResponse {
+			if g == nil && !ownerDM && e.suppressUnaddressedGroup(p, msg) {
+				return true
+			}
 			if g == nil && e.applyLocalGate(p, msg, session, interactiveKey) {
 				return true
 			}
@@ -467,9 +477,13 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, replyCtx 
 	state.mu.Lock()
 	as := state.agentSession
 	localInput := state.localInputOnly != nil
+	cancelled := state.turnCancelled
 	state.mu.Unlock()
 	// A local voice turn answers only its own input; queue the message instead.
-	if as == nil || !as.Alive() || localInput {
+	// maomao fork: a cancelled turn that has not ended yet (gate abort waited recalledStopLockWait
+	// in vain) must not take the message either: it would be lost or answered by another turn.
+	// Queued, it is answered by the next turn once the cancelled one ends.
+	if as == nil || !as.Alive() || localInput || cancelled {
 		return false
 	}
 	// The injected message becomes part of this turn's input, so the turn's final answer must also

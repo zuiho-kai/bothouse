@@ -69,12 +69,12 @@ func (p *PublicProgress) runStart(token string) (taskID string, resumeSeq int64,
 // transport checkpoints under the target's own mutex.
 func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) (*publicRun, error) {
 	r.mu.Lock()
-	if r.record.Closed || r.record.Accepted || (r.stopped != nil && r.stopped()) || r.record.Task.SessionKey != req.SessionKey {
+	if (r.record.Closed && !IsTerminalState(r.record.Task.State)) || r.record.Accepted || (r.stopped != nil && r.stopped()) || r.record.Task.SessionKey != req.SessionKey {
 		r.mu.Unlock()
 		return nil, errors.New("run is not active for this session")
 	}
 	cand := r.candidate
-	if r.record.LastSeq > 0 || cand == nil || req.Kind == "start" {
+	if r.record.Task.Seq > 0 || cand == nil || req.Kind == "start" {
 		return r, nil
 	}
 	r.mu.Unlock()
@@ -85,6 +85,25 @@ func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) 
 		return nil, errors.New("card cannot be continued with this sequence")
 	}
 	return cand, nil
+}
+
+// lockAdoptedRun lets the lead's live run report on a card it does not own yet,
+// under the same conditions lockAssignmentRun applies to an explicit id: the
+// card is closed (no live run owns it), resumable and in the same session.
+func (p *PublicProgress) lockAdoptedRun(lead, card *publicRun, req PublicProgressRequest) (*publicRun, error) {
+	lead.mu.Lock()
+	inactive := lead.record.Closed || lead.record.Accepted || lead.record.Task.SessionKey != req.SessionKey || (lead.stopped != nil && lead.stopped())
+	lead.mu.Unlock()
+	if inactive {
+		return nil, errors.New("run is not active for this session")
+	}
+	card.mu.Lock()
+	if !card.record.Closed || card.record.Task.SessionKey != req.SessionKey ||
+		!resumableTask(card.record.Task, card.record.Accepted, time.Now()) {
+		card.mu.Unlock()
+		return nil, errors.New("task is not active for this run and session")
+	}
+	return card, nil
 }
 
 // Accept records the human's acceptance. It is the only path to TaskStateCompleted:
@@ -113,6 +132,9 @@ func (p *PublicProgress) Accept(taskID, actor string) (*Task, error) {
 	}
 	old := r.record
 	old.Task = t.Clone()
+	// The human's acceptance is final: members that never reported an end are
+	// marked interrupted (grants are revoked below) instead of blocking the card.
+	interruptTaskMembers(t)
 	now := time.Now().UTC()
 	r.record.Accepted = true
 	r.record.Closed = true
@@ -132,6 +154,7 @@ func (p *PublicProgress) Accept(taskID, actor string) (*Task, error) {
 	}
 	p.pending[t.ID] = r
 	p.indexRun(r)
+	p.revokeMemberRuns(r)
 	p.mu.Unlock()
 	return t.Clone(), nil
 }

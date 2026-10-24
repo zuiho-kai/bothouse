@@ -15,6 +15,12 @@ type Platform interface {
 	Stop() error
 }
 
+// ConfiguredTeamLead reports whether a platform has a configured team lead.
+// It lets the local no-gate path suppress unaddressed group messages for subs.
+type ConfiguredTeamLead interface {
+	HasConfiguredTeamLead() bool
+}
+
 // ErrNotSupported indicates a platform doesn't support a particular operation.
 var ErrNotSupported = errors.New("operation not supported by this platform")
 
@@ -36,6 +42,14 @@ var ErrTaskAlreadyCompleted = errors.New("task is already completed")
 // to send messages to users without an incoming message.
 type ReplyContextReconstructor interface {
 	ReconstructReplyCtx(sessionKey string) (any, error)
+}
+
+// DirectMessageOpener is an optional interface for platforms that can open (or
+// reuse) a private chat with a user and return the session key of that chat, so
+// the bot can message the user privately without an incoming message first
+// (maomao fork, `cc-connect send --dm`).
+type DirectMessageOpener interface {
+	OpenDM(userID string) (sessionKey string, err error)
 }
 
 // RelayGroupVisibilityTarget is an optional interface for platforms that
@@ -324,6 +338,24 @@ type FileSender interface {
 type MessageUpdater interface {
 	UpdateMessage(ctx context.Context, replyCtx any, content string) error
 }
+
+// SelfMentioner is an optional interface for platforms whose bot can be addressed with a
+// mention (e.g. "<@id>"). Empty means the bot's identity is not known yet.
+type SelfMentioner interface {
+	SelfMention() string
+}
+
+// ChatPoster is an optional interface for platforms that can post a plain message into the chat
+// of sessionKey, honouring ctx, that pings only mentionUser (a SelfMention value). Used for voice
+// desk hand-offs, which must not be rerouted or decorated like ordinary replies.
+// An error wrapping ErrPostOutcomeUnknown means the message may have been delivered (e.g. the
+// connection broke after the request went out); callers must not resend it blindly.
+type ChatPoster interface {
+	PostToChat(ctx context.Context, sessionKey, content, mentionUser string) error
+}
+
+// ErrPostOutcomeUnknown marks a ChatPoster failure after the request may have reached the platform.
+var ErrPostOutcomeUnknown = errors.New("post outcome unknown")
 
 // BoardPoster is an optional interface for platforms that can keep one live
 // message per chat and edit it in place (used by the team "who is doing what"

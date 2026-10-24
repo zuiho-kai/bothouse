@@ -35,11 +35,18 @@ const (
 	// maomao fork: the gateway renders the sub-agent table payload
 	// (core.SubTaskTablePayloadPrefix). Without it the table is not sent.
 	capSubTaskTable = "subtask_table"
+	// maomao fork (#121): a reply frame with preview_handle overwrites that streamed
+	// preview and is then relayed like any reply. Enables text stream previews.
+	capReplyInPlace = "reply_in_place"
+	// Team mode E: the gateway answers team_workspace frames (list a chat room's workspaces,
+	// create the next one). Only on when the gateway lists it: not in allCapabilities, so an
+	// older gateway that sends no capability list never gets these frames.
+	capTeamWorkspace = "team_workspace"
 )
 
 var allCapabilities = []string{
 	capText, capImage, capFile, capAudio, capCard, capButtons,
-	capTyping, capUpdateMessage, capPreview, capDeleteMessage, capReconstructReply, capSubTaskTable,
+	capTyping, capUpdateMessage, capPreview, capDeleteMessage, capReconstructReply, capSubTaskTable, capReplyInPlace,
 }
 
 func capabilitySet(list []string) map[string]bool {
@@ -301,4 +308,41 @@ func isGroupChat(chatType string) bool {
 	default:
 		return false
 	}
+}
+
+// Team mode E (user 2026-10-24 01:26「应该支持我们现有的dsh，discord，飞书，自建平台」): the
+// gateway owns the rooms, so the bridge asks it instead of keeping its own copy.
+//
+//	→ {"type":"team_workspace","ref_id":"tw-…","op":"list"|"create"|"claim","session_key":"<platform>:room-<id>",
+//	   "chat_id":"room-<id>","reply_ctx":"room-<id>","name":"工作区2","workspace_id":"room-<id>"}
+//	← {"type":"team_workspace_ack","ref_id":"tw-…","ok":true,
+//	   "self":{"id":"room-<id>","name":"…"},"rooms":[…],   // list: the room and the whole pool
+//	   "room":{"id":"room-<id>","name":"工作区2"}}        // create: the new workspace; claim: the claimed one
+//	← {"type":"team_workspace_ack","ref_id":"tw-…","ok":false,"error":"unsupported"|"not_team_channel"|"room-missing"|…}
+//
+// "rooms" lists every workspace of the gateway (one shared pool per server), so core numbers
+// 「工作区n」 uniquely. "claim" (workspace_id) records the room as the one that handed off to
+// that workspace last (collab: rooms.parent_id), so the gateway's unified exit routes to it.
+const (
+	typeTeamWorkspace    = "team_workspace"
+	typeTeamWorkspaceAck = "team_workspace_ack"
+)
+
+type wireTeamWorkspaceRoom struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ParentID string `json:"parent_id,omitempty"` // list: chat room that handed off to it last
+	Active   int    `json:"active,omitempty"`    // list: tasks in progress in the workspace
+}
+
+type wireTeamWorkspaceAck struct {
+	DispatchMode     string                  `json:"dispatch_mode"`
+	DispatchExplicit bool                    `json:"dispatch_explicit"`
+	Type             string                  `json:"type"`
+	RefID            string                  `json:"ref_id"`
+	OK               bool                    `json:"ok"`
+	Error            string                  `json:"error,omitempty"`
+	Self             *wireTeamWorkspaceRoom  `json:"self,omitempty"`
+	Rooms            []wireTeamWorkspaceRoom `json:"rooms,omitempty"`
+	Room             *wireTeamWorkspaceRoom  `json:"room,omitempty"`
 }

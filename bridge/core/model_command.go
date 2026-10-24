@@ -264,7 +264,8 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 	from := modelOf(agent)
 	changed := false
 	if p.model != "" && p.model != from {
-		if _, err := e.switchModelOnAgent(agent, p.model, false); err != nil {
+		// Persist like /model does: a restart must not fall back to the config default.
+		if _, err := e.switchModelOnAgent(agent, p.model, agent == e.agent); err != nil {
 			slog.Warn("model switch failed", "session", interactiveKey, "model", p.model, "error", err)
 			return err
 		}
@@ -273,6 +274,7 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 	if p.effort != "" {
 		if rs, ok := agent.(ReasoningEffortSwitcher); ok && rs.GetReasoningEffort() != p.effort {
 			rs.SetReasoningEffort(p.effort)
+			e.persistReasoningEffort(agent, p.effort)
 			changed = true
 		}
 	}

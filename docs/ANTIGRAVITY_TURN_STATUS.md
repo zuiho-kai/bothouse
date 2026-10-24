@@ -2,7 +2,7 @@
 
 ## 问题与根因
 
-用户看到大豆包已经回答，却在开头带着 antigravity: stream turn failed (ERROR)。PR #29只修复错误回复的额度尾注，本问题独立跟踪 [Issue #34](https://github.com/Zssan12/conest/issues/34)。
+用户看到大豆包已经回答，却在开头带着 antigravity: stream turn failed (ERROR)。PR #29只修复错误回复的额度尾注，本问题独立跟踪上游 DSH 项目（未公开）的 Issue #34。
 
 2026-10-16/17，本机 agy 1.4.0 的结构化证据：早期会话有地区拒绝的 ERROR_MESSAGE；之后的新输入、工具读取与最终回答均已 DONE，CLI仍将早期错误复制到 result.error 并给出 ERROR。桥接只读 status/response，直接把这个终态当成本轮失败。
 
@@ -50,7 +50,7 @@ go build -tags no_web -o ../.local/cc-connect-candidate ./cmd/cc-connect
 
 ## 发布和真人验收
 
-发布结果、合并SHA、候选哈希、备份目录、配置/六会话/API检查以 [Issue #34](https://github.com/Zssan12/conest/issues/34) 和本机统一运维交接 /path/to/yijiazi/docs/HANDOFF.md 为准。开发构建及隔离CLI成功不等于已部署，更不等于真人Discord验收通过。
+发布结果、合并SHA、候选哈希、备份目录、配置/六会话/API检查以上游 DSH 项目（未公开）的 Issue #34 为准。开发构建及隔离CLI成功不等于已部署，更不等于真人Discord验收通过。
 
 发布时必须包含当前main的语音、模型切换、共享记忆与调度；核对唯一操作人和各伙伴/语音空闲后备份、正常停止、原子替换，日志追加。失败回滚二进制，保留最新配置与会话。
 

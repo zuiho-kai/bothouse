@@ -1,7 +1,7 @@
 """d10 / ws-handoff / ws-forward 共用：团队名单、当前主角色、工作区频道、Discord token 都从 gate 已有的配置读，不写死。
 
 - 团队文件、当前主角色：复用 ../gate/lead.py（查找顺序同 gate：GATE_TEAM → <GATE_SETUP_DIR>/gate-team.json → team.example.json；
-  主角色存 GATE_LEAD_FILE）。gate 不在 ../gate 时设 GATE_DIR。
+  主角色默认存产品数据目录的 lead.json，GATE_LEAD_FILE 可显式覆盖）。gate 不在 ../gate 时设 GATE_DIR。
 - 工作区频道：环境变量 WS_CHANNEL，否则团队文件顶层 "workspace"（平台频道 ID）；都没有 → None（ws-handoff 会新建）。
 - Discord token：环境变量 DISCORD_BOT_TOKEN，否则 <GATE_SETUP_DIR>/secrets.env 里的同名变量。
 - 发消息/定时器用的身份：调用者自己的 CC_PROJECT（cc-connect 给每个会话设的），即正在当主的那位。

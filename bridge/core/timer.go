@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -436,6 +437,15 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 		}
 	} else {
 		err = <-done
+	}
+
+	if errors.Is(err, errTimerPlatformNotReady) {
+		// Platform still connecting (e.g. Discord reconnect backoff after wake):
+		// keep the job pending and try again; each attempt waits up to
+		// timerPlatformReadyTimeout for the platform, so this is not a busy loop.
+		slog.Warn("timer: platform not ready, re-queueing job", "id", jobID, "error", err)
+		ts.scheduleAt(job, 0)
+		return
 	}
 
 	ts.store.MarkFired(jobID, err)

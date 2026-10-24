@@ -392,6 +392,7 @@ type Engine struct {
 	providerRefsSaveFunc    func(refs []string) error
 	listGlobalProvidersFunc func(agentType string) ([]ProviderConfig, error)
 	modelSaveFunc           func(model string) error
+	effortSaveFunc          func(effort string) error
 
 	ttsSaveFunc func(mode string) error
 
@@ -440,9 +441,14 @@ type Engine struct {
 	tiers                        *modelTiers // maomao fork: gate-driven chat/task model switching (nil = off)
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
-	team                         *teamState                    // maomao fork: team status board (nil = off)
-	board                        *channelBoardHub              // maomao fork: channel task board (channel_board.go); shared by the process
-	memoryIndex                  string                        // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	pendingResetMu               sync.Mutex
+	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
+	resetTurns                   map[string]int   // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
+	team                         *teamState       // maomao fork: team status board (nil = off)
+	teamWS                       *teamWorkspaces  // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
+	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
+	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	voiceDesk                    voiceDeskState   // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
 	projectState                 *ProjectStateStore
@@ -558,6 +564,10 @@ type Engine struct {
 	// Data directory for socket path injection
 	dataDir        string
 	publicProgress *PublicProgress
+
+	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
+	teamExit     teamExitState
+	dispatchMode dispatchModeSetting // team mode C: solo / team / mixed (team_mode.go)
 }
 
 // workspaceInitFlow tracks a channel that is being onboarded to a workspace.
@@ -602,6 +612,7 @@ type queuedMessage struct {
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
 	publicProgressRun        string
+	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
@@ -885,7 +896,8 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 	if sp, ok := ag.(SkillProvider); ok {
 		e.skills.SetDirs(sp.SkillDirs())
 	}
-	e.board.addSource(e) // maomao fork: report to the process's channel task board
+	e.board.addSource(e)    // maomao fork: report to the process's channel task board
+	e.teamExit.resolver = e // team mode C exit: workspaces recorded by block D
 
 	return e
 }
@@ -1194,6 +1206,21 @@ func (e *Engine) SetProviderRefsSaveFunc(fn func(refs []string) error) {
 
 func (e *Engine) SetListGlobalProvidersFunc(fn func(agentType string) ([]ProviderConfig, error)) {
 	e.listGlobalProvidersFunc = fn
+}
+
+// SetReasoningEffortSaveFunc persists the project agent's reasoning effort, so a
+// restart does not fall back to the config default (2026-10-22 23:21 G哥 cutover).
+func (e *Engine) SetReasoningEffortSaveFunc(fn func(effort string) error) {
+	e.effortSaveFunc = fn
+}
+
+func (e *Engine) persistReasoningEffort(agent Agent, effort string) {
+	if agent != e.agent || e.effortSaveFunc == nil || effort == "" {
+		return
+	}
+	if err := e.effortSaveFunc(effort); err != nil {
+		slog.Warn("save reasoning effort failed", "effort", effort, "error", err)
+	}
 }
 
 func (e *Engine) SetModelSaveFunc(fn func(model string) error) {
@@ -1837,6 +1864,33 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 // ExecuteTimerJob fires a one-shot timer job: resolves the platform, sends a
 // notification (unless muted), and either runs a shell command or injects a
 // synthetic message into the agent session.
+// timerPlatformReadyTimeout bounds how long a due timer waits for an async platform
+// (Discord) to connect. Source: local3 patch after 2026-10-23 00:31, when a timer due
+// at startup fired before the Discord session existed and the nil session panicked the bridge.
+var timerPlatformReadyTimeout = 2 * time.Minute
+
+// errTimerPlatformNotReady marks a timer run skipped because its async platform never
+// became ready within timerPlatformReadyTimeout. The scheduler re-queues the job
+// instead of marking it fired, so it runs once the platform connects.
+var errTimerPlatformNotReady = errors.New("timer platform not ready")
+
+func (e *Engine) waitTimerPlatformReady(p Platform) error {
+	if _, async := p.(AsyncRecoverablePlatform); !async {
+		return nil
+	}
+	deadline := time.Now().Add(timerPlatformReadyTimeout)
+	for e.lookupReadyPlatform(p.Name()) == nil {
+		if e.ctx.Err() != nil {
+			return fmt.Errorf("engine stopping before platform %q was ready", p.Name())
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("platform %q not ready after %s: %w", p.Name(), timerPlatformReadyTimeout, errTimerPlatformNotReady)
+		}
+		time.Sleep(200 * time.Millisecond) // source: local3 patch poll interval
+	}
+	return nil
+}
+
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventTimerTriggered,
@@ -1872,6 +1926,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 	if targetPlatform == nil {
 		return fmt.Errorf("platform %q not found for session %q", platformName, sessionKey)
+	}
+	if err := e.waitTimerPlatformReady(targetPlatform); err != nil {
+		return err
 	}
 
 	rc, ok := targetPlatform.(ReplyContextReconstructor)
@@ -3100,6 +3157,15 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		e.handleMessageRecall(p, msg)
 		return
 	}
+	if e.team != nil {
+		// The shared lead file can change without restarting any role. Refresh
+		// lead-only board/workspace services before handling the next message.
+		e.setDynamicTeamLead(e.isTeamLead())
+	}
+	// #139 C: a user reply to a forwarded workspace [ask] goes back to that workspace.
+	if e.routeWorkspaceAnswer(p, msg) {
+		return
+	}
 
 	slog.Info("message received",
 		"platform", msg.Platform, "msg_id", msg.MessageID,
@@ -3416,6 +3482,7 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 		return nil
 	}
 
+	e.closeWorkspaceHandoffs(msg.SessionKey, lastActive) // tasks this workspace session worked on are over
 	slog.Info("auto-resetting idle session",
 		"session_key", msg.SessionKey,
 		"session_id", session.ID,
@@ -4108,6 +4175,20 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if msg.inputTurn != nil {
 		defer msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("input turn ended without a terminal result")})
 	}
+	// `cc-connect session new --after-turn`: runs after the unlock below,
+	// i.e. once this turn (and anything queued behind it) has replied.
+	resetKey := msg.SessionKey
+	if ccSessionKey != "" {
+		resetKey = ccSessionKey
+	}
+	// The reset key may differ from this turn's session (a cron/timer turn
+	// on a side session injects the main key), so a reset requested from
+	// inside the turn checks this count, not only the main session's lock.
+	e.beginResetTurn(resetKey)
+	defer func() {
+		e.endResetTurn(resetKey)
+		e.applyPendingReset(resetKey)
+	}()
 	// session.Unlock() is NOT deferred here — it is called explicitly in
 	// the drain loop below while holding state.mu to close the race window
 	// between "queue is empty" and "session unlocked". A deferred fallback
@@ -4263,7 +4344,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		content = e.withTurnBlocks(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-		promptContent = e.withAgentInstructions(promptContent, msg.UserID, msg.FromBot)
+		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey)
 		// The public-progress run is minted per attempt (beginAttempt): a capacity
 		// retry's earlier attempt closed its run when its event loop ended.
 		var attemptPrompt string
@@ -5281,6 +5362,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					for _, chunk := range SplitMessageCodeFenceAware(fullResponse, maxPlatformMessageLen) {
 						e.send(p, markAgentReply(p, replyCtx, session), chunk)
 					}
+				}
+				if fullResponse != "" {
+					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
 				// Safety note: concurrent writes to session.History by the
@@ -6320,6 +6404,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Mark clean exit so unsolicited reader preserves buffered events.
 			state.mu.Lock()
 			state.eventsNeedResync = false
+			// maomao fork: a cancel that raced with a normal end of the turn must not
+			// silence the next turn's error (queued turns don't pass the reset at turn start).
+			state.turnCancelled = false
 			injected := state.injectedReplyCtxs // maomao fork: messages injected mid-turn (gate.go)
 			state.injectedReplyCtxs = nil
 			state.mu.Unlock()
@@ -6401,6 +6488,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			}
 
+			if !isSilent {
+				e.forwardWorkspaceExit(p, sessionKey, baseResponse) // #139 C: workspace [ask]/[report] -> chat channel
+			}
 			if !isSilent && input == nil {
 				e.hooks.Emit(HookEvent{
 					Event:      HookEventMessageSent,
@@ -6770,7 +6860,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
-				queuedPrompt = e.withAgentInstructions(queuedPrompt, queued.userID, queued.fromBot)
+				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey)
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
@@ -7142,6 +7232,11 @@ func mergeRichToolResult(steps []ToolStep, event Event, result string, maxLen in
 // messages can no longer be delivered to the agent.
 func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason error) {
 	state.mu.Lock()
+	if state.resetHandoff {
+		// applyPendingReset hands these to the fresh session.
+		state.mu.Unlock()
+		return
+	}
 	remaining := state.pendingMessages
 	state.pendingMessages = nil
 	boardKey := state.boardKey
@@ -7229,7 +7324,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
 		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = e.withAgentInstructions(prompt, queued.userID, queued.fromBot)
+		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey)
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -7359,7 +7454,7 @@ func (e *Engine) cmdPs(p Platform, msg *Message, args []string) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsNoSession))
 		return
 	}
-	if err := state.agentSession.Send(e.withAgentInstructions(text, msg.UserID, msg.FromBot), "", nil, nil); err != nil {
+	if err := state.agentSession.Send(e.withChannelAgentInstructions(text, msg.UserID, msg.FromBot, p, msg.SessionKey), "", nil, nil); err != nil {
 		slog.Error("ps: send failed", "error", err)
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsSendFailed))
 		return
@@ -7865,38 +7960,46 @@ func (e *Engine) cmdNew(p Platform, msg *Message, args []string) {
 		return
 	}
 
-	slog.Info("cmdNew: cleaning up old session", "session_key", msg.SessionKey)
+	name := ""
+	if len(args) > 0 {
+		name = strings.Join(args, " ")
+	}
+	e.startFreshSession(sessions, interactiveKey, msg.SessionKey, name, "用户发了 /new")
+	if name != "" {
+		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgNewSessionCreatedName), name))
+	} else {
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgNewSessionCreated))
+	}
+}
+
+// startFreshSession is the state change behind /new: stop the live agent
+// session, retire the old conversation and open a fresh one that inherits the
+// old transcript's tail. Also used by `cc-connect session new --after-turn`.
+func (e *Engine) startFreshSession(sessions *SessionManager, interactiveKey, sessionKey, name, handoffReason string) {
+	slog.Info("cmdNew: cleaning up old session", "session_key", sessionKey)
 	e.cleanupInteractiveState(interactiveKey)
-	slog.Info("cmdNew: cleanup done, creating new session", "session_key", msg.SessionKey)
+	slog.Info("cmdNew: cleanup done, creating new session", "session_key", sessionKey)
 
 	// Clear old session's agent session ID so it cannot be resumed
-	old := sessions.GetOrCreateActive(msg.SessionKey)
+	old := sessions.GetOrCreateActive(sessionKey)
+	e.closeWorkspaceHandoffs(sessionKey, old.GetUpdatedAt()) // tasks this workspace session worked on are over
 	oldAgentID := old.GetAgentSessionID()
 	pendingFrom, pendingReason := old.TakeHandoffFrom() // /new twice before a turn
 	old.SetAgentSessionID("", "")
 	old.ClearHistory()
 	sessions.Save()
 
-	name := ""
-	if len(args) > 0 {
-		name = strings.Join(args, " ")
-	}
-	fresh := sessions.NewSession(msg.SessionKey, name)
+	fresh := sessions.NewSession(sessionKey, name)
 	// maomao fork: the fresh context inherits the old transcript's tail. The
 	// channel backfill keeps its own window: a message marked seen may never
 	// have reached the old context (dropped from the queue by this /new).
 	if _, ok := e.agent.(SessionHandoffReader); ok {
 		if oldAgentID != "" && oldAgentID != ContinueSession {
-			fresh.SetHandoffFrom(oldAgentID, "用户发了 /new")
+			fresh.SetHandoffFrom(oldAgentID, handoffReason)
 		} else if pendingFrom != "" {
 			fresh.SetHandoffFrom(pendingFrom, pendingReason)
 		}
 		sessions.Save()
-	}
-	if name != "" {
-		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgNewSessionCreatedName), name))
-	} else {
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgNewSessionCreated))
 	}
 }
 
@@ -11059,6 +11162,7 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 	}
 
 	switcher.SetReasoningEffort(target)
+	e.persistReasoningEffort(e.agent, target)
 	e.cleanupInteractiveState(e.interactiveKeyForSessionKey(msg.SessionKey))
 
 	s := sessions.GetOrCreateActive(msg.SessionKey)
@@ -11356,13 +11460,7 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 
 		if pending != nil {
 			pending.resolve()
-		}
-		if notifyQueued {
-			e.notifyDroppedQueuedMessages(state, fmt.Errorf("session cancelled"))
-		} else {
-			state.mu.Lock()
-			state.pendingMessages = nil
-			state.mu.Unlock()
+			pending = nil // not again if CancelTurn fails and normal cleanup runs
 		}
 
 		// Mark eventsNeedResync so the next turn drains stale events from
@@ -11377,7 +11475,18 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 			slog.Warn("agent session CancelTurn failed, falling back to Close",
 				"session_key", sessionKey, "error", cancelErr)
 			// Fall through to normal cleanup below.
+			e.interactiveMu.Lock()
 			goto normalCleanup
+		}
+		// maomao fork: only the running turn is cancelled. Messages queued behind it stay
+		// queued and are answered by the next turns of this same session (the cancelled
+		// turn's drain picks them up); they get no "❌ session cancelled" (review
+		// ~/.claude/reviews/agy-abort-reset.md: 「不能无声消失」, user 10-23「取消后不报错」).
+		// A silent stop (a recalled message) still drops them, as before.
+		if !notifyQueued {
+			state.mu.Lock()
+			state.pendingMessages = nil
+			state.mu.Unlock()
 		}
 
 		slog.Info("agent session turn cancelled, session kept alive",
@@ -13367,6 +13476,7 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		for _, effort := range efforts {
 			if effort == target {
 				switcher.SetReasoningEffort(target)
+				e.persistReasoningEffort(e.agent, target)
 				e.cleanupInteractiveState(interactiveKey)
 				s := e.sessions.GetOrCreateActive(sessionKey)
 				s.SetAgentSessionID("", "")
@@ -16977,11 +17087,32 @@ func (e *Engine) relayContextForSourceSessionKey(fromProject, sourceSessionKey s
 // dedicated relay session, sends the message to the agent, and blocks until
 // the complete response is collected (or the relay context times out).
 func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey, message string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	agent, sessions, relaySessionKey, err := e.relayContextForSourceSessionKey(fromProject, sourceSessionKey)
 	if err != nil {
 		return "", err
 	}
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false)
+}
+
+// handleTrackedRelay owns execution and team lifecycle after the caller has
+// resolved its conversation key. Task-scoped relays can pass their scoped key
+// here to share timeout/drain behavior without sharing conversation history.
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, completion ...func(string, error)) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	session := sessions.GetOrCreateActive(relaySessionKey)
+	finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	teamOutcome := teamWorkUnconfirmed
+	draining := false
+	defer func() {
+		if !draining {
+			finishTeamWork(teamOutcome)
+		}
+	}()
 
 	if inj, ok := agent.(SessionEnvInjector); ok {
 		envVars := []string{
@@ -17014,6 +17145,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 			agentSession, err = agent.StartSession(e.ctx, "")
 		}
 		if err != nil {
+			teamOutcome = teamWorkFailed
 			return "", fmt.Errorf("start relay session: %w", err)
 		}
 	}
@@ -17041,67 +17173,104 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 
 	saveRelaySessionID(agentSession.CurrentSessionID(), false)
 
-	if err := agentSession.Send(e.withAgentInstructions(message, "", true), "", nil, nil); err != nil {
-		agentSession.Close()
-		return "", fmt.Errorf("send relay message: %w", err)
-	}
+	// ACP Send waits for the whole turn, including permission responses.
+	// The sender owns this buffered completion channel so it can finish even
+	// after the caller times out and hands event consumption to the drain.
+	prompt := e.withAgentInstructions(message, "", true)
+	sendResult := make(chan error, 1)
+	go func() { sendResult <- agentSession.Send(prompt, "", nil, nil) }()
+	var sendDone <-chan error = sendResult
+	events := agentSession.Events()
 
 	var textParts []string
-	for event := range agentSession.Events() {
-		switch event.Type {
-		case EventText:
-			if event.Content != "" {
-				textParts = append(textParts, event.Content)
-			}
-			if event.SessionID != "" {
-				saveRelaySessionID(event.SessionID, false)
-			}
-		case EventToolResult:
-			out := strings.TrimSpace(event.Content)
-			if out == "" {
-				out = strings.TrimSpace(event.ToolResult)
-			}
-			if out != "" {
-				tn := strings.TrimSpace(event.ToolName)
-				if tn == "" {
-					tn = "tool"
-				}
-				textParts = append(textParts, fmt.Sprintf(e.i18n.T(MsgToolResult), tn, out)+"\n\n")
-			}
-		case EventResult:
-			// Use agentSession.CurrentSessionID() for the same reason as above.
-			if currentID := agentSession.CurrentSessionID(); currentID != "" {
-				saveRelaySessionID(currentID, true)
-			}
-			resp := event.Content
-			if resp == "" && len(textParts) > 0 {
-				resp = strings.Join(textParts, "")
-			}
-			if resp == "" {
-				resp = "(empty response)"
-			}
-			slog.Info("relay: turn complete", "from", fromProject, "to", e.name, "response_len", len(resp))
+	var response string
+	resultReceived := false
+	for {
+		if resultReceived && sendDone == nil {
+			slog.Info("relay: turn complete", "from", fromProject, "to", e.name, "response_len", len(response))
+			teamOutcome = teamWorkCompleted
 			agentSession.Close()
-			return resp, nil
-		case EventError:
-			agentSession.Close()
-			if event.Error != nil {
-				return "", event.Error
-			}
-			return "", fmt.Errorf("agent error (no details)")
-		case EventPermissionRequest:
-			// Auto-approve all permissions in relay mode
-			_ = agentSession.RespondPermission(event.RequestID, PermissionResult{
-				Behavior:     "allow",
-				UpdatedInput: event.ToolInputRaw,
-			})
+			return response, nil
 		}
-		if ctx.Err() != nil {
-			// Relay timed out. Let the agent finish its turn in the
-			// background so the session state is saved cleanly and the
-			// session remains resumable for the next relay call.
-			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey)
+		if events == nil && sendDone == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			// Only the wait timed out. The drain now owns both outstanding
+			// Send completion and events; team work stays busy until it ends.
+			draining = true
+			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, completion)
+			if quiet {
+				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
+			}
 			return relayPartialResponseOrError(ctx.Err(), textParts, fromProject, e.name)
+		case <-e.ctx.Done():
+			agentSession.Close()
+			return "", e.ctx.Err()
+		case err := <-sendDone:
+			sendDone = nil
+			if err != nil {
+				teamOutcome = teamWorkFailed
+				agentSession.Close()
+				return "", fmt.Errorf("send relay message: %w", err)
+			}
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
+			switch event.Type {
+			case EventText:
+				if event.Content != "" {
+					textParts = append(textParts, event.Content)
+				}
+				if event.SessionID != "" {
+					saveRelaySessionID(event.SessionID, false)
+				}
+			case EventToolResult:
+				if quiet {
+					break
+				}
+				out := strings.TrimSpace(event.Content)
+				if out == "" {
+					out = strings.TrimSpace(event.ToolResult)
+				}
+				if out != "" {
+					tn := strings.TrimSpace(event.ToolName)
+					if tn == "" {
+						tn = "tool"
+					}
+					textParts = append(textParts, fmt.Sprintf(e.i18n.T(MsgToolResult), tn, out)+"\n\n")
+				}
+			case EventResult:
+				// Use agentSession.CurrentSessionID() for the same reason as above.
+				if currentID := agentSession.CurrentSessionID(); currentID != "" {
+					saveRelaySessionID(currentID, true)
+				}
+				response = event.Content
+				if response == "" && len(textParts) > 0 {
+					response = strings.Join(textParts, "")
+				}
+				if response == "" {
+					response = "(empty response)"
+				}
+				// Preserve Send errors even when the terminal event arrives first.
+				resultReceived = true
+			case EventError:
+				agentSession.Close()
+				teamOutcome = teamWorkFailed
+				if event.Error != nil {
+					return "", event.Error
+				}
+				return "", fmt.Errorf("agent error (no details)")
+			case EventPermissionRequest:
+				// Auto-approve all permissions in relay mode
+				_ = agentSession.RespondPermission(event.RequestID, PermissionResult{
+					Behavior:     "allow",
+					UpdatedInput: event.ToolInputRaw,
+				})
+			}
 		}
 	}
 
@@ -17109,9 +17278,18 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	agentSession.Close()
 
 	if ctx.Err() != nil {
+		if quiet {
+			return "", ctx.Err()
+		}
 		return relayPartialResponseOrError(ctx.Err(), textParts, fromProject, e.name)
 	}
 
+	if quiet {
+		// Task relays cache successful results by request_id; partial text
+		// from a worker that exited without EventResult must not become a
+		// "done" receipt. Match drainRelaySession's unconfirmed failure.
+		return "", fmt.Errorf("relay: agent process exited without a confirmed result")
+	}
 	if len(textParts) > 0 {
 		return strings.Join(textParts, ""), nil
 	}
@@ -17137,31 +17315,72 @@ func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, 
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs.
-func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string) {
+func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, completion []func(string, error)) {
+	teamOutcome := teamWorkUnconfirmed
+	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
+	defer func() {
+		finishTeamWork(teamOutcome)
+		for _, complete := range completion {
+			if complete != nil {
+				complete(response, completionErr)
+			}
+		}
+	}()
+	// 来源：沿用既有 relay 后台 drain 的 10 分钟安全期限。
 	timer := time.NewTimer(10 * time.Minute)
 	defer timer.Stop()
 
 	for {
+		if resultReceived && sendDone == nil {
+			slog.Info("relay: background drain completed (agent finished turn)",
+				"relay_key", relaySessionKey)
+			teamOutcome = teamWorkCompleted
+			completionErr = nil
+			agentSession.Close()
+			return
+		}
+		if events == nil && sendDone == nil {
+			agentSession.Close()
+			return
+		}
 		select {
-		case ev, ok := <-agentSession.Events():
-			if !ok {
-				// Event channel closed — session ended naturally.
+		case err := <-sendDone:
+			sendDone = nil
+			if err != nil {
+				slog.Warn("relay: background send failed", "relay_key", relaySessionKey, "error", err)
+				completionErr = err
+				teamOutcome = teamWorkFailed
 				agentSession.Close()
 				return
+			}
+		case ev, ok := <-events:
+			if !ok {
+				// Keep observing Send: channel closure cannot hide a send error.
+				events = nil
+				continue
 			}
 			if ev.SessionID != "" {
 				session.SetAgentSessionID(ev.SessionID, agentName)
 				sessions.Save()
 			}
 			switch ev.Type {
+			case EventText:
+				if ev.Content != "" {
+					textParts = append(textParts, ev.Content)
+				}
 			case EventResult:
-				slog.Info("relay: background drain completed (agent finished turn)",
-					"relay_key", relaySessionKey)
-				agentSession.Close()
-				return
+				resultReceived = true
+				response = ev.Content
+				if response == "" {
+					response = strings.Join(textParts, "")
+				}
 			case EventError:
+				if ev.Error != nil {
+					completionErr = ev.Error
+				}
 				slog.Warn("relay: background drain got error",
 					"relay_key", relaySessionKey, "error", ev.Error)
+				teamOutcome = teamWorkFailed
 				agentSession.Close()
 				return
 			case EventPermissionRequest:
@@ -18262,3 +18481,9 @@ func restoreActiveProviderFromSession(agent Agent, session *Session) {
 	slog.Info("restored active provider from session",
 		"session_id", session.ID, "provider", want)
 }
+
+// relayDrainingError means only the caller stopped waiting; execution still owns
+// the task receipt and reporting token until the background drain completes.
+type relayDrainingError struct{ error }
+
+func (e *relayDrainingError) Unwrap() error { return e.error }

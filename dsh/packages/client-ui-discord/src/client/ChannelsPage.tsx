@@ -7,10 +7,14 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelSnapshot } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask } from './channel-source.ts'
+import { groupRooms } from './channel-source.ts'
+import { TaskBoard, TaskCard } from './TaskBoard.tsx'
+import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { Avatar } from './Avatar.tsx'
+import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -33,15 +37,81 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   return null
 }
 
-function MessageRow({ message, member, t, onConfigure }: { message: ChannelMessage; member: ChannelMember | undefined; t: T; onConfigure: () => void }) {
-  let card: { title?: string; state?: string; action?: string } | undefined
-  if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
-  }
+/** The quoted original above a reply; a deleted original shows only a placeholder. */
+function Quote({ quote, t }: { quote: ChannelQuote; t: T }) {
+  if (quote.deleted === true) return <div className={`${css.quote} ${css.quoteDeleted}`}>{t('replyDeleted')}</div>
   return (
-    <div className={message.author_kind === 'system' ? `${css.message} ${css.system}` : css.message}>
-      <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+    <div className={css.quote}>
+      <span className={css.quoteAuthor}>{quote.name}</span>
+      <span>{quote.text}</span>
+    </div>
+  )
+}
+
+/**
+ * 「细节」/「简略」 view of progress cards, remembered per room in the
+ * browser so a reload or a new bundle starts in the last choice. Mirrors the
+ * Discord card switch (bridge/platform/discord/card_view.go,
+ * card_view_pref.go), default 简略 as there (cardViewDefault).
+ */
+export type CardView = 'detail' | 'brief'
+const CARD_VIEW_DEFAULT: CardView = 'brief'
+const CARD_VIEW_KEY = 'dsh-channels-card-view:'
+
+export function loadCardView(roomId: number): CardView {
+  try {
+    const v = globalThis.localStorage?.getItem(CARD_VIEW_KEY + roomId)
+    if (v === 'detail' || v === 'brief') return v
+  } catch (error) { void error /* storage unavailable: use the default */ }
+  return CARD_VIEW_DEFAULT
+}
+
+function saveCardView(roomId: number, view: CardView): void {
+  try { globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view) } catch (error) { void error /* storage unavailable: keep the choice in memory */ }
+}
+
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, tasks, focused, cardView, onCardView }: {
+  message: ChannelMessage
+  cardView: CardView
+  onCardView: (view: CardView) => void
+  tasks: readonly ChannelTask[]
+  focused: boolean
+  member: ChannelMember | undefined
+  t: T
+  onConfigure: () => void
+  menuOpen: boolean
+  onAvatar: () => void
+  onCloseMenu: () => void
+  onMention: (member: ChannelMember) => void
+  onDecide: ChannelActions['decidePermission']
+  onReply: (message: ChannelMessage) => void
+}) {
+  let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } | undefined
+  if (message.card !== null) {
+    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+  }
+  const classes = [css.message, message.author_kind === 'system' ? css.system : '', focused ? css.focused : ''].filter(Boolean).join(' ')
+  return (
+    <div className={classes} data-message-id={message.id}>
+      {member === undefined || message.author_kind === 'system'
+        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+        : (
+            // Avatar opens this author's member menu; `data-avatar-menu` marks the
+            // area an outside press must not land in to keep the menu open.
+            <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
+              <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
+                <Avatar id={member.id} name={message.name} avatar={member.avatar} />
+              </button>
+              {menuOpen && (
+                <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
+                  <div className={css.avatarMenuTitle}>{member.name}</div>
+                  <button type="button" role="menuitem" className={css.avatarMenuItem} onClick={() => { onMention(member) }}>{t('avatarMention')}</button>
+                </div>
+              )}
+            </span>
+          )}
       <div className={css.messageBody}>
+        {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} />}
         <div className={css.messageHead}>
           <span className={css.author}>{message.name}</span>
           <KindTag kind={member?.kind} cli={member?.cli} t={t} />
@@ -51,12 +121,30 @@ function MessageRow({ message, member, t, onConfigure }: { message: ChannelMessa
           ? <div className={css.text}>{message.text}</div>
           : (
               <div className={css.card} data-state={card.state}>
-                <div className={css.cardTitle}>{card.title}</div>
-                <div className={css.text}>{message.text}</div>
+                <div className={css.cardHead}>
+                  <div className={css.cardTitle}>{card.title}</div>
+                  {/* Only progress cards carry a 简略 rendering; older cards and other kinds show their text as before. */}
+                  {typeof card.brief === 'string' && (
+                    <div className={css.cardViews} role="group" aria-label={t('cardView')}>
+                      {(['detail', 'brief'] as const).map(view => (
+                        <button key={view} type="button" className={css.cardViewButton} aria-pressed={cardView === view} onClick={() => { onCardView(view) }}>
+                          {t(view === 'detail' ? 'cardViewDetail' : 'cardViewBrief')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className={css.text}>{typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text}</div>
                 {card.action === 'configure-model' && <button type="button" className={css.secondaryButton} onClick={onConfigure}>{t('configureModel')}</button>}
+                {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
+                {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
               </div>
             )}
       </div>
+      {/* System notices and progress cards are not conversation turns, so they take no reply. */}
+      {message.author_kind !== 'system' && card === undefined && (
+        <button type="button" className={css.replyButton} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩</button>
+      )}
     </div>
   )
 }
@@ -113,14 +201,17 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
+  // Per room: the message the next send replies to.
+  const [replies, setReplies] = useState<Record<number, ChannelMessage | undefined>>({})
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
+  const replying = state.roomId === undefined ? undefined : replies[state.roomId]
   const logRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -135,9 +226,35 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [dialog, setDialog] = useState<ChannelMember | null | undefined>(undefined)
   const [modelsOpen, setModelsOpen] = useState(false)
   const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
+  // Wide-window side columns hidden by the user (#124); narrow windows use the drawers instead.
+  const [roomsHidden, setRoomsHidden] = useState(false)
+  const [membersHidden, setMembersHidden] = useState(false)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
+  const [modeSaving, setModeSaving] = useState(false)
+  const [modeError, setModeError] = useState<string | undefined>(undefined)
+  const [leadSaving, setLeadSaving] = useState(false)
+  const [leadOpen, setLeadOpen] = useState(false)
+  const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
+  useEffect(() => { setCapabilitiesDismissed(false) }, [state.roomId])
+  const composerRef = useRef<HTMLDivElement>(null)
+  // `@` start of the popup currently shown, read by the outside-click listener.
+  const openMentionAt = useRef<number | undefined>(undefined)
+
+  // Close the @ popup on a press outside the composer, like Esc: the draft and
+  // its `@` stay. Presses inside (options, textarea, @ button) keep their own
+  // handling, so picking a member is not swallowed.
+  useEffect(() => {
+    const onPress = (event: MouseEvent): void => {
+      const at = openMentionAt.current
+      if (composerRef.current?.contains(event.target as Node) === true) return
+      if (at !== undefined) setDismissedAt(at)
+      if (draft === '/' && !capabilitiesDismissed) setCapabilitiesDismissed(true)
+    }
+    document.addEventListener('mousedown', onPress)
+    return () => { document.removeEventListener('mousedown', onPress) }
+  }, [draft, capabilitiesDismissed])
 
   useEffect(() => {
     const input = inputRef.current
@@ -148,11 +265,51 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     input.setSelectionRange(next, next)
   })
 
+  // Message whose avatar menu is open (#123); keyed by message so only one row shows it.
+  const [avatarMenu, setAvatarMenu] = useState<number | undefined>(undefined)
+  const [cardViews, setCardViews] = useState<Record<number, CardView>>({})
+  const cardView = state.roomId === undefined ? CARD_VIEW_DEFAULT : cardViews[state.roomId] ?? loadCardView(state.roomId)
+  const chooseCardView = (view: CardView): void => {
+    if (state.roomId === undefined) return
+    const roomId = state.roomId
+    saveCardView(roomId, view)
+    setCardViews(views => ({ ...views, [roomId]: view }))
+  }
+
+  // Close the avatar menu on a press outside it (same document-press approach
+  // as the @ popup); the draft is untouched and nothing is sent.
+  useEffect(() => {
+    if (avatarMenu === undefined) return
+    const onPress = (event: MouseEvent): void => {
+      if ((event.target as Element | null)?.closest?.('[data-avatar-menu]') == null) setAvatarMenu(undefined)
+    }
+    document.addEventListener('mousedown', onPress)
+    return () => { document.removeEventListener('mousedown', onPress) }
+  }, [avatarMenu])
+
   // Follow new messages only while the reader is already at the bottom.
   useEffect(() => {
     const log = logRef.current
     if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
   }, [state.messages, state.roomId])
+
+  // Task board link (#139 B): once the target room's messages are in, scroll to and mark the message.
+  const [jump, setJump] = useState<{ roomId: number; messageId: number } | undefined>(undefined)
+  const [focusedId, setFocusedId] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (jump === undefined || jump.roomId !== state.roomId) return
+    const el = logRef.current?.querySelector(`[data-message-id="${jump.messageId}"]`)
+    if (el == null) return
+    stickRef.current = false
+    el.scrollIntoView?.({ block: 'center' })
+    setFocusedId(jump.messageId)
+    setJump(undefined)
+  }, [jump, state.messages, state.roomId])
+  const openMessage = (roomId: number, messageId: number): void => {
+    setDrawer(undefined)
+    setJump({ roomId, messageId })
+    if (roomId !== state.roomId) void selectRoom(roomId)
+  }
 
   if (state.phase !== 'ready') {
     const notice = state.phase === 'unavailable' ? t('unavailable')
@@ -163,12 +320,19 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const room = state.rooms.find(r => r.id === state.roomId)
-  const busy = new Set(state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
+  const openTaskOwners = new Set(
+    (state.tasks ?? []).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status)).map(t => t.owner)
+  )
+  const busy = new Set([
+    ...(state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []),
+    ...openTaskOwners,
+  ])
   const byId = new Map(state.members.map(m => [m.id, m]))
-  const busyNames = [...busy].map(id => byId.get(id)?.name ?? id)
+  const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   const mention = activeMention(draft, caret)
   const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(state.members, mention.query)
   const popupOpen = mention !== undefined && candidates.length > 0
+  openMentionAt.current = popupOpen ? mention.start : undefined
   const selected = Math.min(highlight, Math.max(candidates.length - 1, 0))
 
   const setDraft = (text: string, nextCaret: number): void => {
@@ -192,6 +356,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setDraft(next.text, next.caret)
   }
 
+  // Avatar menu "@": the same caret insertion as the member list, keeping the draft.
+  const mentionFromAvatar = (member: ChannelMember): void => {
+    setAvatarMenu(undefined)
+    pickFromList(member)
+  }
+
   const submitRoom = (): void => {
     const name = (newRoom ?? '').trim()
     if (!name) { setNewRoom(undefined); return }
@@ -209,6 +379,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     })
   }
 
+  const changeLead = (id: string): void => {
+    setLeadOpen(false)
+    if (!id || id === state.leadId || leadSaving) return
+    setMemberError(undefined)
+    setLeadSaving(true)
+    setLead(id).catch((error: unknown) => {
+      setMemberError(error instanceof Error ? error.message : String(error))
+    }).finally(() => { setLeadSaving(false) })
+  }
+
   const openPicker = (): void => {
     const before = draft.slice(0, caret)
     const insert = before === '' || /\s$/.test(before) ? '@' : ' @'
@@ -224,8 +404,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
-    send(text).then(() => {
+    const replyTo = replies[roomId]?.id
+    ;(replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
       setDrafts(previous => ({ ...previous, [roomId]: '' }))
+      setReplies(previous => ({ ...previous, [roomId]: undefined }))
     }).catch((error: unknown) => {
       setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
     }).finally(() => {
@@ -234,7 +416,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     })
   }
 
+  const startReply = (message: ChannelMessage): void => {
+    const roomId = state.roomId
+    if (roomId === undefined) return
+    setReplies(previous => ({ ...previous, [roomId]: message }))
+    pendingCaret.current = caret
+  }
+
+  const cancelReply = (): void => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setReplies(previous => ({ ...previous, [roomId]: undefined }))
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (draft === '/' && !capabilitiesDismissed && !event.nativeEvent.isComposing) {
+      if (event.key === 'Escape') { event.preventDefault(); setCapabilitiesDismissed(true); return }
+      if (event.key === 'Enter') { event.preventDefault(); return }
+    }
     if (popupOpen && !event.nativeEvent.isComposing) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
@@ -260,7 +458,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   return (
-    <div className={css.page} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')}>
         <div className={css.groupHead}>
@@ -284,22 +482,31 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           />
         )}
         {roomError !== undefined && <div className={css.sendError} role="alert">{roomError}</div>}
-        {state.rooms.map(r => (
-          <button
-            key={r.id}
-            type="button"
-            className={r.id === state.roomId ? `${css.room} ${css.roomActive}` : css.room}
-            aria-current={r.id === state.roomId}
-            onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
-          >
-            <span className={css.hash} aria-hidden>#</span>{r.name}
-          </button>
-        ))}
+        {groupRooms(state.rooms).map(({ room: r, depth }) => {
+          // #139: workspaces sit indented under their chat channel and always show their
+          // in-progress count; a chat channel shows it only when something is in progress.
+          const active = r.active ?? 0
+          const showActive = depth === 1 || r.kind === 'workspace' || active > 0
+          return (
+            <button
+              key={r.id}
+              type="button"
+              className={[css.room, depth === 1 ? css.workspace : '', r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
+              aria-current={r.id === state.roomId}
+              onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
+            >
+              <span className={css.hash} aria-hidden>#</span><span className={css.roomLabel}>{r.name}</span>
+              {showActive && <span className={active > 0 ? `${css.activeCount} ${css.activeBusy}` : css.activeCount}>{t('activeTasks', { count: active })}</span>}
+            </button>
+          )
+        })}
       </nav>
       <section className={css.chat}>
         <header className={css.chatHead}>
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
+          <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
         <div
@@ -320,10 +527,29 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           )}
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => <MessageRow key={m.id} message={m} member={byId.get(m.author)} t={t} onConfigure={() => { setModelsOpen(true) }} />)}
+            : state.messages.map(m => (
+                <MessageRow
+                  key={m.id}
+                  message={m}
+                  member={byId.get(m.author)}
+                  t={t}
+                  onConfigure={() => { setModelsOpen(true) }}
+                  menuOpen={avatarMenu === m.id}
+                  cardView={cardView}
+                  onCardView={chooseCardView}
+                  onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
+                  onCloseMenu={() => { setAvatarMenu(undefined) }}
+                  onMention={mentionFromAvatar}
+                  onDecide={decidePermission}
+                  tasks={state.tasks ?? []}
+                  focused={focusedId === m.id}
+                  onReply={startReply}
+                />
+              ))}
         </div>
-        <div className={css.working} aria-live="polite">{busyNames.length > 0 ? t('workingList', { names: busyNames.join('、') }) : ''}</div>
-        <div className={css.composer}>
+        <div className={css.working} aria-live="polite">{typingNames.length > 0 ? t('workingList', { names: typingNames.join('、') }) : ''}</div>
+        <div className={css.composer} ref={composerRef}>
+          {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {popupOpen && (
             <div className={css.mentionPopup}>
@@ -358,6 +584,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               <div className={css.mentionHint}>{t('mentionHint')}</div>
             </div>
           )}
+          {replying !== undefined && (
+            <div className={css.replyBar}>
+              <span className={css.replyBarText}>
+                {t('replyingTo', { name: replying.name })}
+                {state.messages.some(m => m.id === replying.id) ? '' : ` · ${t('replyDeleted')}`}
+              </span>
+              <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
+            </div>
+          )}
           <div className={css.composerRow}>
             <textarea
               ref={inputRef}
@@ -375,6 +610,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                 const roomId = state.roomId
                 const value = event.target.value
                 if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
+                setCapabilitiesDismissed(false)
                 setCaret(event.target.selectionStart)
                 setHighlight(0)
               }}
@@ -395,6 +631,42 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
+        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
+        <div className={css.leadControl}>
+          <span className={css.fieldLabel}>{t('lead')}</span>
+          <button
+            type="button"
+            className={css.fieldInput}
+            aria-haspopup="listbox"
+            aria-expanded={leadOpen}
+            aria-label={t('lead')}
+            disabled={leadSaving || state.members.every(m => m.kind === 'human')}
+            onClick={() => { setLeadOpen(!leadOpen) }}
+          >
+            {state.members.find(m => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t('leadNone')}
+          </button>
+          {leadOpen && <div className={css.leadMenu} role="listbox" aria-label={t('lead')}>
+            {state.members.filter(m => m.kind !== 'human').map(m => (
+              <button key={m.id} type="button" role="option" aria-selected={m.id === state.leadId} className={css.leadOption} onClick={() => { changeLead(m.id) }}>{m.name}</button>
+            ))}
+          </div>}
+        </div>
+        <fieldset disabled={modeSaving || state.roomId === undefined}>
+          <legend>{t('dispatchMode')}</legend>
+          {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
+            <input type="radio" name="dispatch-mode" value={mode}
+              checked={(state.rooms.find(r => r.id === state.roomId)?.dispatch_mode ?? 'mixed') === mode}
+              onChange={() => {}}
+              onClick={() => {
+                const roomId = state.roomId
+                if (roomId === undefined) return
+                setModeSaving(true); setModeError(undefined)
+                setDispatchMode(roomId, mode).catch((error: unknown) => { setModeError(error instanceof Error ? error.message : String(error)) }).finally(() => { setModeSaving(false) })
+              }} />
+            {t(mode === 'solo' ? 'dispatchSolo' : mode === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
+          </label>)}
+        </fieldset>
+        {modeError !== undefined && <div role="alert">{modeError}</div>}
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />

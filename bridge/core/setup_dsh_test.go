@@ -168,7 +168,9 @@ func TestApplyWizardDSHRole(t *testing.T) {
 		t.Fatalf("launch = %s %v", p.AgentCmd, p.AgentArgs)
 	}
 	wd := filepath.Join(data, "roles", "whale")
-	if p.AgentEnv[DSHKeyEnv] != "sk-test" || p.AgentEnv["UV_CACHE_DIR"] != filepath.Join(wd, ".cache", "uv") || len(p.AgentEnv) != 2 {
+	if p.AgentEnv[DSHKeyEnv] != "sk-test" || p.AgentEnv["UV_CACHE_DIR"] != filepath.Join(wd, ".cache", "uv") ||
+		p.AgentEnv["CONEST_LEAD_FILE"] != filepath.Join(data, "lead.json") ||
+		p.AgentEnv["BOTHOUSE_DATA_DIR"] != data || len(p.AgentEnv) != 4 {
 		t.Fatalf("env = %v", p.AgentEnv)
 	}
 	b, err := os.ReadFile(patch)

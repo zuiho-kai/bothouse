@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -206,5 +207,106 @@ while [ ! -f release ]; do sleep 0.01; done
 	case <-closed:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Close deadlocked with Send")
+	}
+}
+
+func TestCodexSubTasksExecExitStopsChildrenAndKeepsTrackerReusable(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		for _, exitCode := range []string{"0", "1"} {
+			t.Run(fmt.Sprintf("strict=%v/exit=%s", strict, exitCode), func(t *testing.T) {
+				cs, dir := lifecycleSession(t, `
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"fixture-writer"}'
+if [ -f first-started ]; then
+ printf '%s\n' '{"type":"item.completed","item":{"type":"collab_tool_call","tool":"send_input","id":"send-2","status":"completed","receiver_thread_ids":["child"],"agents_states":{"child":{"status":"running"}}}}'
+ touch second-started
+ while [ ! -f release-second ]; do sleep 0.01; done
+ printf '%s\n' '{"type":"turn.completed"}'
+ exit 0
+fi
+printf '%s\n' '{"type":"item.completed","item":{"type":"collab_tool_call","tool":"spawn_agent","id":"spawn-1","status":"completed","receiver_thread_ids":["child","done","failed"],"agents_states":{"child":{"status":"running"},"done":{"status":"completed"},"failed":{"status":"errored"}}}}'
+touch first-started
+while [ ! -f release ]; do sleep 0.01; done
+printf '%s\n' '{"type":"turn.completed"}'
+exit `+exitCode+"\n")
+				send := func() {
+					t.Helper()
+					expected := ""
+					if strict {
+						expected = "fixture-writer"
+					}
+					if err := cs.send("test", "", nil, nil, expected); err != nil {
+						t.Fatal(err)
+					}
+				}
+				awaitTerminal := func() {
+					t.Helper()
+					timer := time.NewTimer(3 * time.Second)
+					defer timer.Stop()
+					for {
+						select {
+						case ev := <-cs.Events():
+							if ev.Type == core.EventError || ev.Type == core.EventResult {
+								return
+							}
+						case <-timer.C:
+							t.Fatal("no process terminal event")
+						}
+					}
+				}
+				ch := cs.SubTasksChanged()
+				send()
+				awaitLifecycleFile(t, filepath.Join(dir, "first-started"))
+				if ev := lifecycleTerminal(t, cs); ev.Type != core.EventToolResult {
+					t.Fatalf("first spawn event: %+v", ev)
+				}
+				_, rows, _ := cs.SubTasks()
+				if len(rows) != 3 || rows[0].Status != core.SubTaskRunning {
+					t.Fatalf("before exit: %+v", rows)
+				}
+				// Clear the spawn signal so the next one must come from exit.
+				select {
+				case <-ch:
+				default:
+					t.Fatal("spawn did not notify table")
+				}
+				if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				awaitTerminal()
+				_, rows, _ = cs.SubTasks()
+				if rows[0].Status != core.SubTaskStopped || rows[0].EndedAt.IsZero() {
+					t.Fatalf("process exit left child live: %+v", rows[0])
+				}
+				if rows[1].Status != core.SubTaskCompleted || rows[2].Status != core.SubTaskFailed {
+					t.Fatalf("exit overwrote child results: %+v", rows)
+				}
+				select {
+				case _, ok := <-ch:
+					if !ok {
+						t.Fatal("process exit closed reusable tracker")
+					}
+				default:
+					t.Fatal("exit did not notify table")
+				}
+				send()
+				awaitLifecycleFile(t, filepath.Join(dir, "second-started"))
+				if ev := lifecycleTerminal(t, cs); ev.Type != core.EventToolResult {
+					t.Fatalf("second dispatch event: %+v", ev)
+				}
+				_, rows, _ = cs.SubTasks()
+				if len(rows) != 1 || rows[0].Status != core.SubTaskRunning {
+					t.Fatalf("next process could not reactivate child: %+v", rows)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "release-second"), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				awaitTerminal()
+				_, rows, _ = cs.SubTasks()
+				if rows[0].Status != core.SubTaskStopped {
+					t.Fatalf("second exit left child live: %+v", rows)
+				}
+			})
+		}
 	}
 }

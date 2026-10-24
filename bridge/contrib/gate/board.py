@@ -15,7 +15,8 @@
   board                                  # 列出进行中的事
   board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看]   # 新加一条，打印编号
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
-  board done <编号>                       # 结束：移出任务板，记进 board-done.jsonl
+  board done <编号> [返工次数 [原因]]      # 结束：移出任务板，记进 board-done.jsonl
+  board rework [天数]                    # 最近 14 天的返工次数和原因
   --next：下次几点回来看这件事（如 14:30），显示在板上，让用户知道后面还会不会处理。
     只有 later 能写（它先挂好定时，挂不上就撤掉这行；用环境变量 BOARD_LATER=1 标明），手写 --next 会被拒：
     板上写了「下次看」却没挂定时，就没人兑现（2026-10-23 PR #81 审查）。
@@ -122,7 +123,7 @@ def update(nid, status, where=None, who=None, nxt=None):
     return True
 
 
-def done(nid):
+def done(nid, rework=None, why=None):
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
@@ -130,8 +131,47 @@ def done(nid):
             return False
         _write([i for i in cur if i["id"] != nid])
         with open(_path("board-done.jsonl"), "a") as f:
-            f.write(json.dumps({**hit, "done_at": _now()}, ensure_ascii=False) + "\n")
+            rec = {**hit, "done_at": _now()}
+            if rework is not None:  # 不填就不写这两项，汇总时算「未填」
+                rec["rework"] = rework
+                if why:
+                    rec["rework_why"] = why
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return True
+
+
+# 返工汇总。用户同意橘的提议「任务收尾时在任务板上多记一项『返工了几次、为什么』……攒上两周就知道哪条规则真起了作用」（2026-10-23「可以的」）
+REWORK_DAYS = 14  # 来源：同上「攒上两周」
+
+
+def _done_time(s):
+    """done_at 形如 10-23 14:30（没写年）：按今年算，比现在晚就是去年的。"""
+    try:
+        t = time.strptime(f"{time.localtime().tm_year}-{s}", "%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
+    ts = time.mktime(t)
+    if ts > time.time() + 86400:
+        ts = time.mktime(time.strptime(f"{time.localtime().tm_year - 1}-{s}", "%Y-%m-%d %H:%M"))
+    return ts
+
+
+def rework_report(days=REWORK_DAYS):
+    since = time.time() - days * 86400
+    recs = [r for r in _read("board-done.jsonl") if (_done_time(r.get("done_at")) or 0) >= since]
+    by, clean, unset = {}, [], []
+    for r in recs:
+        n = r.get("rework")
+        if n is None:
+            unset.append(r)
+        elif n == 0:
+            clean.append(r)
+        else:
+            by.setdefault(r.get("rework_why") or "（没写原因）", []).append(r)
+    out = [f"最近 {days} 天结束 {len(recs)} 件：返工 {sum(len(v) for v in by.values())} 件，没返工 {len(clean)} 件，未填 {len(unset)} 件"]
+    for why, rs in sorted(by.items(), key=lambda kv: -sum(r["rework"] for r in kv[1])):
+        out.append(f"{why}：{sum(r['rework'] for r in rs)} 次｜" + "，".join(f"#{r['id']} {r['what']}（{r['rework']}）" for r in rs))
+    return "\n".join(out)
 
 
 # ---- 频道卡片 ----
@@ -256,12 +296,17 @@ def main(argv):
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已更新")
             refresh({_chan_of(nid), _cur_channel()})
-        elif cmd == "done" and len(argv) == 2:
+        elif cmd == "done" and 2 <= len(argv) <= 4:
             nid = int(argv[1].lstrip("#"))
-            if not done(nid):
+            rework = int(argv[2]) if len(argv) > 2 else None
+            if rework is not None and rework < 0:
+                sys.exit("返工次数要是 0 或正整数，比如 board done 3 1 \"没先读现有实现\"")
+            if not done(nid, rework, argv[3] if len(argv) > 3 else None):
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已结束")
             refresh({_chan_of(nid), _cur_channel()})
+        elif cmd == "rework" and len(argv) <= 2:
+            print(rework_report(int(argv[1]) if len(argv) > 1 else REWORK_DAYS))
         else:
             sys.exit(__doc__.split("用法：", 1)[1].rstrip())
     except ValueError:

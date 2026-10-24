@@ -18,9 +18,8 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// runTask exposes the task-card read side and the owner's acceptance. The card
-// itself is written by "progress"; this command answers "how far did it get"
-// without re-opening a card or re-running the work.
+// runTask exposes task-card inspection, member assignment and human acceptance.
+// Progress remains on the original card without re-running the work.
 func runTask(args []string) {
 	if err := taskCommand(args, os.Stdout); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -70,14 +69,21 @@ func taskCall(client *http.Client, method, path string, body []byte) ([]byte, er
 
 func taskCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: task list|show|accept [flags]")
+		return errors.New("usage: task list|show|accept|assign [flags]")
 	}
 	action, rest := args[0], args[1:]
 	f := flag.NewFlagSet("task "+action, flag.ContinueOnError)
 	project := f.String("project", os.Getenv("CC_PROJECT"), "project")
-	session := f.String("session", "", "session key (list only)")
+	session := f.String("session", "", "session key (list or assign)")
 	id := f.String("id", "", "task id")
+	batch := f.String("batch", "", "stable delegation batch id; opens a fresh card without --id (assign only)")
 	actor := f.String("by", "", "who confirmed the acceptance")
+	run := f.String("run", "", "lead's current run token (assign only)")
+	member := f.String("member", "", "unique member execution id (assign only)")
+	name := f.String("name", "", "member display name (assign only)")
+	reporter := f.String("reporter-project", "", "configured bot project id; native children inherit their owning bot (assign only)")
+	title := f.String("title", "", "short member assignment (assign only)")
+	parent := f.String("parent", "", "parent member id for a child agent (assign only)")
 	limit := f.Int("limit", 10, "how many tasks to list")
 	dataDir := f.String("data-dir", "", "bridge data directory")
 	if err := f.Parse(rest); err != nil {
@@ -93,6 +99,16 @@ func taskCommand(args []string, out io.Writer) error {
 	defer client.CloseIdleConnections()
 
 	switch action {
+	case "assign":
+		body, err := json.Marshal(core.TaskMemberAssignment{ReporterProject: *reporter, Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title})
+		if err != nil {
+			return err
+		}
+		b, err := taskCall(client, http.MethodPost, "/task/assign", body)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, b)
 	case "list":
 		q := url.Values{"project": {*project}, "limit": {strconv.Itoa(*limit)}}
 		if *session != "" {
@@ -130,7 +146,7 @@ func taskCommand(args []string, out io.Writer) error {
 		}
 		return writeJSON(out, b)
 	default:
-		return fmt.Errorf("unknown task action %q (use list, show or accept)", action)
+		return fmt.Errorf("unknown task action %q (use list, show, accept or assign)", action)
 	}
 }
 

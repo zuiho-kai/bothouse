@@ -140,6 +140,16 @@ type PreviewCleaner interface {
 	DeletePreviewMessage(ctx context.Context, previewHandle any) error
 }
 
+// PreviewReplier is an optional interface for platforms where only a real reply
+// is relayed to teammates and kept as the answer (maomao fork, cloud_web #121).
+// ReplyInPlace turns the live preview into that reply: the platform overwrites
+// the same message with the complete content and handles it like
+// Reply(replyCtx, content) (relay, lead return, history). An error means the
+// preview was left alone; the caller deletes it and sends a normal reply.
+type PreviewReplier interface {
+	ReplyInPlace(ctx context.Context, previewHandle any, replyCtx any, content string) error
+}
+
 // PreviewFinishPreference is an optional interface for platforms that want to
 // keep the preview message as the final delivered message on normal completion.
 type PreviewFinishPreference interface {
@@ -306,7 +316,20 @@ func (sp *streamPreview) freeze() {
 	sp.cancelTimerLocked()
 
 	if sp.previewMsgID != nil && !sp.degraded {
-		if updater, ok := sp.platform.(MessageUpdater); ok {
+		if replier, ok := sp.platform.(PreviewReplier); ok {
+			// The segment becomes a permanent reply: full text, never the
+			// max_chars cut, so an <@teammate> hand-off before a tool call survives.
+			text := sp.fullText
+			if sp.transform != nil {
+				text = sp.transform(text)
+			}
+			if !sp.commitLocked(replier, text, sp.replyCtx) && strings.TrimSpace(text) != "" {
+				// No final send follows a frozen segment, so deliver it as a normal reply.
+				if err := sp.platform.Reply(sp.ctx, sp.replyCtx, text); err != nil {
+					slog.Warn("stream preview: frozen segment reply failed", "error", err)
+				}
+			}
+		} else if updater, ok := sp.platform.(MessageUpdater); ok {
 			text := sp.fullText
 			maxChars := sp.cfg.MaxChars
 			if maxChars > 0 && len([]rune(text)) > maxChars {
@@ -421,6 +444,16 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 		close(sp.timerStop)
 	}
 
+	if replier, ok := sp.platform.(PreviewReplier); ok && sp.previewMsgID != nil && !sp.degraded && finalText != "" {
+		finalCtx := sp.replyCtx
+		if m, ok := sp.platform.(FinalReplyMarker); ok {
+			finalCtx = m.MarkFinalReply(finalCtx)
+		}
+		if sp.transform != nil {
+			finalText = sp.transform(finalText)
+		}
+		return sp.commitLocked(replier, appendReplyFooter(finalText, statusFooter), finalCtx)
+	}
 	if sp.transform != nil {
 		finalText = sp.transform(finalText)
 	}
@@ -527,6 +560,30 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 		}
 	}
 	slog.Debug("stream preview finish: success via UpdateMessage")
+	return true
+}
+
+// commitLocked overwrites the preview with the complete text as a real reply
+// (PreviewReplier). On failure the preview is deleted so the caller's normal
+// send does not leave a second, partial copy. Must hold sp.mu.
+func (sp *streamPreview) commitLocked(replier PreviewReplier, text string, replyCtx any) bool {
+	handle := sp.previewMsgID
+	sp.previewMsgID = nil
+	if strings.TrimSpace(text) == "" {
+		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
+			_ = cleaner.DeletePreviewMessage(sp.ctx, handle)
+		}
+		return false
+	}
+	if err := replier.ReplyInPlace(sp.ctx, handle, replyCtx, text); err != nil {
+		slog.Debug("stream preview: reply in place failed, deleting preview", "error", err)
+		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
+			_ = cleaner.DeletePreviewMessage(sp.ctx, handle)
+		}
+		return false
+	}
+	sp.lastSentText = text
+	sp.lastSentViaUpdate = true
 	return true
 }
 

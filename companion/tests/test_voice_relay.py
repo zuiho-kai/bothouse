@@ -82,6 +82,7 @@ async def test_relay_uses_private_single_submission_existing_tts(tmp_path, mode)
     assert bridge.post['from'] == 'gge' and bridge.post['to'] == 'grok'
     assert bridge.post['mode'] == 'voice' and bridge.post['scope'] == 'desktop'
     assert 'stream' not in bridge.post
+    assert bridge.post['user_text'] == data.text and bridge.post['message'].endswith(data.text)
     await client.aclose()
 
 

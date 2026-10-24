@@ -40,6 +40,7 @@
   .dot { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--side); background: var(--ok); }
   .offline { opacity: .45; } .offline .dot { background: var(--muted); }
   .status { font-size: 12px; color: var(--muted); }
+  .mode { margin-left: auto; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; background: var(--input); color: var(--text); font: inherit; }
   #thinking { min-height: 20px; padding: 0 16px 4px; color: var(--muted); font-size: 13px; }
   @media (max-width: 760px) { body { grid-template-columns: 1fr; } aside { display: none; } }
 </style>
@@ -47,14 +48,14 @@
 <body>
 <aside><div class="head">CoNest</div><nav class="rooms" id="rooms" aria-label="频道"></nav></aside>
 <main>
-  <div class="head" id="title"># </div>
+  <div class="head"><span id="title"># </span><select id="mode" class="mode" aria-label="派活方式"><option value="mixed">混合</option><option value="solo">单模型多进程</option><option value="team">完全团队</option></select></div>
   <div id="log" role="log" aria-live="polite"></div>
   <div id="thinking"></div>
   <form id="form"><textarea id="input" rows="1" placeholder="发消息，@成员 让它干活（Enter 发送，Shift+Enter 换行）"></textarea></form>
 </main>
 <aside class="members" id="members" aria-label="成员"></aside>
 <script>
-const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0 };
+const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0, mode: 'mixed' };
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 const palette = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22'];
@@ -79,6 +80,7 @@ function renderRooms() {
   }));
   const r = state.rooms.find(r => r.id === state.room);
   $('title').textContent = '# ' + (r ? r.name : '');
+  $('mode').value = state.mode;
 }
 
 function renderMembers() {
@@ -146,12 +148,25 @@ async function api(path, init) {
 async function openRoom(id) {
   state.room = id; state.synced = 0;
   $('log').replaceChildren();
+  const setting = await api(`/collab/api/rooms/${id}/mode`);
+  state.mode = setting.dispatch_mode;
   renderRooms(); renderMembers();
   const { messages } = await api(`/collab/api/rooms/${id}/messages?limit=100`);
   messages.forEach(upsert);
   state.synced = messages.length ? messages[messages.length - 1].id : 0;
   $('log').scrollTop = $('log').scrollHeight;
 }
+
+$('mode').addEventListener('change', async (e) => {
+  if (state.room == null) return;
+  try {
+    const result = await api(`/collab/api/rooms/${state.room}/mode`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dispatch_mode: e.target.value }),
+    });
+    state.mode = result.dispatch_mode;
+  } catch (err) { e.target.value = state.mode; alert('派活方式保存失败：' + err.message); }
+});
 
 // Page from the last contiguous position until caught up; live events never move
 // this cursor, so a gap from a dropped stream is always refetched.

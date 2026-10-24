@@ -19,10 +19,7 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 macOS / Linux，在终端里：
 
 ```sh
-# 仓库公开后：
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
-# 仓库还是私有时（要先装 GitHub CLI 并 gh auth login，账号要能看到这个仓库）：
-gh api repos/zuiho-kai/bothouse/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
 ```
 
 装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。
@@ -31,7 +28,6 @@ gh api repos/zuiho-kai/bothouse/contents/install.sh -H 'Accept: application/vnd.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | CONEST_VERSION=<tag> sh
-gh api repos/zuiho-kai/bothouse/contents/install.sh -H 'Accept: application/vnd.github.raw' | CONEST_VERSION=<tag> sh
 ```
 
 `<tag>` 换成 Releases 页上的版本名（形如 `v0.1.0-rc5`）。
@@ -41,10 +37,7 @@ gh api repos/zuiho-kai/bothouse/contents/install.sh -H 'Accept: application/vnd.
 Windows，在 PowerShell 里（开始菜单搜 PowerShell，不用管理员）：
 
 ```powershell
-# 仓库公开后：
 irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
-# 仓库还是私有时（先 winget install GitHub.cli，再 gh auth login，账号要能看到这个仓库）：
-gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
 ```
 
 它会校验下载的包，并把安装目录加进你的用户 PATH；当前窗口立刻能用，新开的窗口也能用。

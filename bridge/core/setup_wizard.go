@@ -1104,7 +1104,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
 	}
 
-	if req.Platform == "discord" && len(pl.team) > 1 {
+	if (req.Platform == "discord" || cloudWeb) && len(pl.team) > 1 {
 		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
 		for _, t := range pl.team {
 			if t.Project != pl.fallback {

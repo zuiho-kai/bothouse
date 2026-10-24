@@ -166,6 +166,7 @@ func (cs *codexSession) readStrictLoop(cmd *exec.Cmd, stdout io.ReadCloser, stde
 		_ = forceKillAllCmds([]*exec.Cmd{cmd})
 	}
 	waitErr := cmd.Wait()
+	cs.StopSubTasks()
 	if err == nil && waitErr != nil {
 		err = fmt.Errorf("codex resume process: %w: %s", waitErr, strings.TrimSpace(stderrBuf.String()))
 	}

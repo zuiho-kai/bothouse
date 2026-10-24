@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -73,7 +74,11 @@ func upsertBoard(api boardAPI, channelID, messageID, content string, options ...
 		edit.AllowedMentions = &discordgo.MessageAllowedMentions{}
 		if msg, err := api.ChannelMessageEditComplex(edit, options...); err == nil {
 			if !msg.Pinned {
-				return messageID, api.ChannelMessagePin(channelID, messageID, options...)
+				// The edit already shows the new content. Reporting a pin
+				// failure would make the caller retry the same edit forever.
+				if err := api.ChannelMessagePin(channelID, messageID, options...); err != nil {
+					slog.Warn("discord: board: re-pin after edit failed", "channel", channelID, "error", err)
+				}
 			}
 			return messageID, nil
 		} else {

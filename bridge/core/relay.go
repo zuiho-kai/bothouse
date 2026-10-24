@@ -192,6 +192,7 @@ func (rm *RelayManager) ListBoundBots(chatID, selfProject string) map[string]str
 
 // RelayRequest is the payload for a relay send.
 type RelayRequest struct {
+	TaskID     string `json:"task_id,omitempty"`
 	Mode       string `json:"mode,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
 	Scope      string `json:"scope,omitempty"`
@@ -199,6 +200,8 @@ type RelayRequest struct {
 	To         string `json:"to"`          // target project name
 	SessionKey string `json:"session_key"` // source session key (contains platform + chatID)
 	Message    string `json:"message"`
+	// UserText (voice mode) is the speaker's own words without the entry prompt in Message.
+	UserText string `json:"user_text,omitempty"`
 }
 
 // RelayResponse is the result of a relay send.
@@ -208,6 +211,9 @@ type RelayResponse struct {
 
 // Send delivers a message from one bot to another and returns the response.
 func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayResponse, error) {
+	if (req.TaskID == "") != (req.RequestID == "") {
+		return nil, fmt.Errorf("relay: task_id and request_id must be provided together")
+	}
 	platform, chatID, err := parseSessionKeyParts(req.SessionKey)
 	if err != nil {
 		return nil, fmt.Errorf("relay: invalid session key: %w", err)
@@ -222,6 +228,9 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 
 	if binding == nil {
 		return nil, fmt.Errorf("relay: no binding for this chat. Use /bind <project> first")
+	}
+	if req.TaskID != "" && (binding.Platform != platform || sourceEngine == nil || binding.Bots[req.From] == "") {
+		return nil, fmt.Errorf("relay: task source is not bound in this chat")
 	}
 	if _, ok := binding.Bots[req.To]; !ok {
 		var bound []string
@@ -243,6 +252,9 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 	toName := req.To
 	if binding.Bots[req.To] != "" {
 		toName = binding.Bots[req.To]
+	}
+	if req.TaskID != "" {
+		return rm.sendTask(ctx, req, sourceEngine, targetEngine, toName)
 	}
 
 	// Post the forwarded message to the group chat for visibility.  The

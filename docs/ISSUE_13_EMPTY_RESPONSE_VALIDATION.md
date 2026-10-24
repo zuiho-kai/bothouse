@@ -1,6 +1,6 @@
 # Issue #13 空响应修复复核
 
-最新状态：下文按时间保留早期受限记录。2026-10-16 21:26发布版本已由另一工作线部署，本线独立复核通过；当前事实以[部署复核](ISSUE_13_DEPLOYMENT.md)和本文末节为准，真人Discord验收仍未完成。
+最新状态：下文按时间保留早期受限记录。2026-10-16 21:26发布版本已由另一工作线部署，本线独立复核通过；当前事实以本文末节为准，真人Discord验收仍未完成。
 
 2026-10-16，Asia/Shanghai。本轮验证的是已提交快照
 `6f7c40158b5c964b53328218e82ccc59b1c70643`（包含空响应修复
@@ -110,4 +110,4 @@ go build -tags no_web ./...
 - race-network-current-main.log：QQ、MAX、飞书、测试HTTP边界全包race。
 - vet-current-main.log、build-current-main.log：全包vet与no_web构建。
 
-前一次Codex启动等待超时仍无唯一根因，不能以本轮全绿覆盖旧记录；已拆出[Issue #23](https://github.com/Zssan12/conest/issues/23)跟踪。Ubuntu最终检查以PR #20当前完整SHA的GitHub Actions结果为准；本机记录不替代Linux检查。
+前一次Codex启动等待超时仍无唯一根因，不能以本轮全绿覆盖旧记录；已拆出上游 DSH 项目（未公开）的 Issue #23 跟踪。Ubuntu最终检查以PR #20当前完整SHA的GitHub Actions结果为准；本机记录不替代Linux检查。

@@ -43,6 +43,36 @@ func (s *APIServer) handlePublicProgress(w http.ResponseWriter, r *http.Request)
 	apiJSON(w, 200, map[string]string{"task_id": id, "status": "recorded"})
 }
 
+func (s *APIServer) handleTaskAssign(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req TaskMemberAssignment
+	// Source: same bounded request size as the progress endpoint.
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&req); err != nil {
+		inputHTTPError(w, 400, errors.New("invalid assignment request"))
+		return
+	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		inputHTTPError(w, 400, errors.New("expected one request"))
+		return
+	}
+	p := s.progressFor(req.Project)
+	if p == nil {
+		inputHTTPError(w, 409, errors.New("public progress unavailable"))
+		return
+	}
+	grant, err := p.AssignMember(req)
+	if err != nil {
+		inputHTTPError(w, 409, err)
+		return
+	}
+	apiJSON(w, 200, grant)
+}
+
 // progressFor resolves the project engine that owns public progress state.
 func (s *APIServer) progressFor(project string) *PublicProgress {
 	s.mu.RLock()

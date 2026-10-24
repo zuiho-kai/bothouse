@@ -26,6 +26,8 @@ import (
 const toolInputCacheMaxEntries = 1000
 
 type acpSession struct {
+	core.SubTaskTracker
+	subTaskRuns subTaskRuns
 	modelInfo acpModelInfo // what the server advertised for model / effort selection (models.go)
 	workDir   string
 	events    chan core.Event
@@ -148,6 +150,7 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer s.CloseSubTasks()
 		s.tr.readLoop(sessionCtx)
 		waitErr := cmd.Wait()
 		if waitErr != nil {
@@ -436,6 +439,9 @@ func (s *acpSession) matchAvailableMode(input string) string {
 func (s *acpSession) onNotification(method string, params json.RawMessage) {
 	if method != "session/update" {
 		slog.Debug("acp: notification", "method", method)
+		return
+	}
+	if s.handleSubTaskUpdate(params) {
 		return
 	}
 	if !s.acceptInputUpdate(params) {
@@ -940,6 +946,7 @@ func (s *acpSession) Alive() bool {
 }
 
 func (s *acpSession) Close() error {
+	s.CloseSubTasks()
 	s.closeOnce.Do(func() {
 		s.alive.Store(false)
 		s.cancel()

@@ -892,11 +892,12 @@ func TestSendPreviewStart_ProgressPayloadUsesEmbed(t *testing.T) {
 		t.Fatalf("embed title = %#v, want Codex · Processing", embed["title"])
 	}
 	desc, _ := embed["description"].(string)
-	if !strings.Contains(desc, "💭 planning") {
-		t.Fatalf("embed description = %q, want thinking line", desc)
+	// A new progress card starts in 简略: tool name and state, no thinking or command.
+	if strings.Contains(desc, "planning") || strings.Contains(desc, "pwd") || !strings.Contains(desc, "🔧 Bash · running") {
+		t.Fatalf("embed description = %q, want brief tool line", desc)
 	}
-	if !strings.Contains(desc, "🔧 Bash — pwd") {
-		t.Fatalf("embed description = %q, want tool line", desc)
+	if !strings.Contains(rawBody, "cardview:detail") {
+		t.Fatalf("progress card sent without the 细节/简略 buttons: %s", rawBody)
 	}
 	if _, exists := payload["content"]; exists {
 		t.Fatalf("content = %#v, want omitted for embed preview send", payload["content"])
@@ -974,6 +975,8 @@ func TestUpdateMessage_ProgressPayloadUsesEmbed(t *testing.T) {
 		t.Fatal("BuildProgressCardPayloadV2() returned empty payload")
 	}
 
+	p.cardViews.lead("ch-1", "ch-1", "msg-preview")    // a known turn; an unknown one only keeps the channel choice
+	p.cardViews.set("msg-preview", "", cardViewDetail) // the 细节 view keeps the full lines
 	err := p.UpdateMessage(context.Background(), &discordPreviewHandle{channelID: "ch-1", messageID: "msg-preview"}, progress)
 	if err != nil {
 		t.Fatalf("UpdateMessage() error = %v", err)

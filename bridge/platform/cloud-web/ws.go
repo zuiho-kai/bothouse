@@ -27,11 +27,12 @@ type wsTransport struct {
 	name    string
 	project string
 
-	mu        sync.RWMutex
-	caps      map[string]bool
-	conn      *websocket.Conn
-	writeMu   sync.Mutex
-	cancel    context.CancelFunc
+	mu             sync.RWMutex
+	caps           map[string]bool
+	capsKnown      bool // the gateway has told its capabilities (register or capabilities_changed)
+	conn           *websocket.Conn
+	writeMu        sync.Mutex
+	cancel         context.CancelFunc
 	onInbound      inboundHandler
 	onConnected    func()
 	onDisconnected func(error)
@@ -60,7 +61,15 @@ func (t *wsTransport) Capabilities() map[string]bool {
 func (t *wsTransport) setCaps(caps map[string]bool) {
 	t.mu.Lock()
 	t.caps = caps
+	t.capsKnown = true
 	t.mu.Unlock()
+}
+
+// CapabilitiesKnown: false until the gateway has told its capabilities.
+func (t *wsTransport) CapabilitiesKnown() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.capsKnown
 }
 
 func (t *wsTransport) Start(ctx context.Context, onInbound inboundHandler) error {

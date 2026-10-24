@@ -97,6 +97,11 @@ type claudeSession struct {
 	// or when there is nothing to append.
 	promptFilePath string
 	speechBlocks   map[int]bool // scanner-owned; only explicit text blocks
+
+	// maomao fork: CancelTurn sent an interrupt control_request; the turn's
+	// non-success result then ends it with an EventError (core only logs it).
+	interrupting atomic.Bool
+	interruptSeq atomic.Int64
 }
 
 // StartupWarning implements core.StartupWarner. Returns a non-empty string
@@ -958,6 +963,14 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 	// Done=true would make the engine's processInteractiveEvents return
 	// early and drop the rest of the turn (issue #481).
 	isCompaction := isCompactionResult(raw)
+	if !isCompaction && cs.interrupting.Swap(false) && resultSubtype(raw) != "success" {
+		// CancelTurn: the CLI ends an interrupted turn with error_during_execution.
+		select {
+		case cs.events <- core.Event{Type: core.EventError, Content: "claude: turn interrupted", SessionID: cs.CurrentSessionID()}:
+		case <-cs.ctx.Done():
+		}
+		return
+	}
 	if cs.voiceOnly.Load() && !isCompaction {
 		isError, _ := raw["is_error"].(bool)
 		stop, _ := raw["stop_reason"].(string)
@@ -1113,6 +1126,7 @@ func (cs *claudeSession) Send(prompt string, messageID string, images []core.Ima
 		return fmt.Errorf("session process is not running")
 	}
 	cs.takeAPIErrorFallback() // new turn: a stale fallback must not end it
+	cs.interrupting.Store(false) // an interrupt sent while idle must not end this turn
 
 	if len(images) == 0 && len(files) == 0 {
 		return cs.writeJSON(map[string]any{
@@ -1232,6 +1246,31 @@ func (cs *claudeSession) RespondPermission(requestID string, result core.Permiss
 
 	slog.Debug("claudeSession: permission response", "request_id", requestID, "behavior", result.Behavior)
 	return cs.writeJSON(controlResponse)
+}
+
+var _ core.AgentSessionCanceller = (*claudeSession)(nil)
+
+// CancelTurn (maomao fork, user 10-23「取消后不报错」) interrupts the running turn
+// with an interrupt control_request and keeps the CLI process and session, so
+// the next Send continues the same conversation. The CLI ends the interrupted
+// turn with an error_during_execution result, which handleResult turns into one
+// EventError (core only logs it).
+func (cs *claudeSession) CancelTurn() error {
+	if !cs.alive.Load() {
+		return fmt.Errorf("session process is not running")
+	}
+	cs.interrupting.Store(true)
+	id := fmt.Sprintf("cc-interrupt-%d-%d", time.Now().UnixNano(), cs.interruptSeq.Add(1))
+	if err := cs.writeJSON(map[string]any{
+		"type":       "control_request",
+		"request_id": id,
+		"request":    map[string]any{"subtype": "interrupt"},
+	}); err != nil {
+		cs.interrupting.Store(false)
+		return fmt.Errorf("claude interrupt: %w", err)
+	}
+	slog.Info("claudeSession: turn interrupt sent", "session_id", cs.CurrentSessionID(), "request_id", id)
+	return nil
 }
 
 func (cs *claudeSession) writeJSON(v any) error {

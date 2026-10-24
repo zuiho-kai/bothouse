@@ -338,6 +338,10 @@ func runSetup(args []string) {
 		runSetupHooks(args[1:])
 		return
 	}
+	if sub == "lead" {
+		runSetupLead(args[1:])
+		return
+	}
 	if sub == "tools" {
 		runSetupTools(args[1:])
 		return

@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 bothouse
 ```
 
-Windows 使用 `install.ps1`，装好后运行 `bothouse.exe`。私有仓库安装、配置和前提条件见[从零用起](../docs/GETTING_STARTED.md)。新安装使用 `~/.bothouse`；新目录不存在时继续沿用已有旧配置，不移动文件。
+Windows 使用 `install.ps1`，装好后运行 `bothouse.exe`。安装、配置和前提条件见[从零用起](../docs/GETTING_STARTED.md)。新安装使用 `~/.bothouse`；新目录不存在时继续沿用已有旧配置，不移动文件。
 
 详见[主 README](../README.zh-CN.md)、[安装说明](INSTALL.md)和[配置示例](config.example.toml)。开发构建运行 `make build` 得到 `bothouse`；Go module 和内部包路径沿用历史名称。
 

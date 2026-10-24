@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
@@ -11,6 +11,7 @@ const ready: ChannelSnapshot = {
   phase: 'ready', error: undefined,
   rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], roomId: 1,
   members: [{ id: 'ju', name: '橘', kind: 'bot', online: true }], thinking: { 1: ['ju'] },
+  leadId: 'ju', effectiveLeadId: 'ju',
   messages: [{ id: 1, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '<script>alert(1)</script>', created_at: 1, card: null, from_turn: null }],
 }
 
@@ -22,12 +23,117 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
     selectRoom: vi.fn(), send,
     createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
+    setLead: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}),
     t: (key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
       .reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), String(zh[key])),
   } as unknown as ChannelsPageProps
 }
 
 describe('channels page', () => {
+  it('shows only six existing capabilities for a slash draft, with usage and no side effects', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(ready, send)} />)
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    expect(screen.queryByRole('button', { name: zh.capabilities })).toBeNull()
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: 'ordinary message' } })
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    fireEvent.change(input, { target: { value: '/' } })
+    const help = within(screen.getByRole('region', { name: zh.capabilities }))
+    expect(help.getAllByRole('button')).toHaveLength(7) // six capabilities and close
+    for (const [name, usage] of [
+      [zh.capabilityTaskBoard, zh.capabilityTaskBoardHelp],
+      [zh.capabilityLater, zh.capabilityLaterHelp],
+      [zh.capabilityReminder, zh.capabilityReminderHelp],
+      [zh.capabilityWorkspace, zh.capabilityWorkspaceHelp],
+      [zh.capabilityLead, zh.capabilityLeadHelp],
+      [zh.capabilityDm, zh.capabilityDmHelp],
+    ]) {
+      fireEvent.click(help.getByRole('button', { name }))
+      expect(help.getByRole('status').textContent).toBe(usage)
+    }
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).not.toHaveBeenCalled()
+    expect((input as HTMLTextAreaElement).value).toBe('/')
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.change(input, { target: { value: '/' } })
+    expect(screen.getByRole('region', { name: zh.capabilities })).toBeTruthy()
+    fireEvent.click(within(screen.getByRole('region', { name: zh.capabilities })).getByRole('button', { name: zh.close }))
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    fireEvent.change(input, { target: { value: '/ordinary' } })
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+  })
+  it('closes the capability list on an outside press and preserves the slash draft', () => {
+    render(<ChannelsPage {...props(ready)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/' } })
+    expect(screen.getByRole('region', { name: zh.capabilities })).toBeTruthy()
+    fireEvent.mouseDown(screen.getByRole('log').parentElement as HTMLElement)
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    expect(input.value).toBe('/')
+  })
+  it('sends the slash draft with Enter after the capability list is dismissed', async () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/' } })
+    fireEvent.click(within(screen.getByRole('region', { name: zh.capabilities })).getByRole('button', { name: zh.close }))
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('/')
+  })
+  it('selects dispatch mode and reports a failed save', async () => {
+    const save = vi.fn(async () => { throw Error('save failed') })
+    render(<ChannelsPage {...props(ready)} setDispatchMode={save} />)
+    const selector = screen.getByRole('radio', { name: zh.dispatchMixed })
+    expect((selector as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText(zh.dispatchSolo)).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: zh.dispatchTeam })) })
+    expect(save).toHaveBeenCalledWith(1, 'team')
+    expect(screen.getByRole('alert').textContent).toBe('save failed')
+    expect((selector as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('keeps task owners working in the member list without claiming they are typing', () => {
+    const state: ChannelSnapshot = { ...ready, thinking: {}, tasks: [{
+      id: 1, room_id: 1, title: 'task', owner: 'ju', owner_name: '橘', status: 'assigned',
+      created_by: 'owner', created_by_name: '我', created_at: 1, updated_at: 1,
+      parent_task: null, next_check_at: null, assign_msg_id: null, result_msg_id: null, note: null, returned_at: null,
+    }] }
+    const view = render(<ChannelsPage {...props(state)} />)
+    expect(screen.queryByText('橘 正在输入…')).toBeNull()
+    expect(screen.getAllByText(zh.working).length).toBeGreaterThan(0)
+    view.rerender(<ChannelsPage {...props({ ...state, thinking: { 1: ['ju'] } })} />)
+    expect(screen.getByText('橘 正在输入…')).toBeTruthy()
+    view.rerender(<ChannelsPage {...props({ ...state, thinking: { 2: ['ju'] } })} />)
+    expect(screen.queryByText('橘 正在输入…')).toBeNull()
+    expect(screen.getAllByText(zh.working).length).toBeGreaterThan(0)
+  })
+
+  it('shows the primary-role selector and saves a changed member', async () => {
+    const setLead = vi.fn(async () => {})
+    const state: ChannelSnapshot = { ...ready, members: [
+      { id: 'ju', name: '橘', kind: 'bot', online: true },
+      { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true },
+    ] }
+    render(<ChannelsPage {...props(state)} setLead={setLead} />)
+    const trigger = screen.getByRole('button', { name: zh.lead })
+    expect(trigger.textContent).toContain('橘')
+    fireEvent.click(trigger)
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '鲸鱼娘' })) })
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ds')
+  })
+
+  it('allows making the configured effective role explicit', async () => {
+    const setLead = vi.fn(async () => {})
+    const state: ChannelSnapshot = { ...ready, leadId: null, effectiveLeadId: 'ju' }
+    render(<ChannelsPage {...props(state)} setLead={setLead} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.lead }))
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '橘' })) })
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ju')
+  })
+
   it('renders a room with a message and a configure-model card without throwing', () => {
     // Regression: the message list once referenced a prop the page never destructured,
     // so any room with a message threw and blanked the whole main panel.
@@ -46,6 +152,44 @@ describe('channels page', () => {
     expect(view.container.querySelector('script')).toBeNull()
     view.rerender(<ChannelsPage {...props({ ...ready, phase: 'unavailable' })} />)
     expect(screen.getByRole('status').textContent).toBe(zh.unavailable)
+  })
+
+  it('opens a member menu from a message avatar and inserts @ at the caret, keeping the draft (#123)', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '你好世界', selectionStart: 2, selectionEnd: 2 } })
+    const avatar = screen.getByRole('button', { name: '橘 的成员操作' })
+
+    // Outside press closes the menu; draft untouched, nothing sent.
+    fireEvent.click(avatar)
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.mouseDown(screen.getByRole('log'))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(input.value).toBe('你好世界')
+
+    // Esc closes it too.
+    fireEvent.click(avatar)
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    // Pressing inside keeps it open; "@" inserts at the caret and closes the menu.
+    fireEvent.click(avatar)
+    const item = screen.getByRole('menuitem', { name: zh.avatarMention })
+    fireEvent.mouseDown(item)
+    fireEvent.click(item)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(input.value).toBe('你好 @橘 世界')
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('keeps system messages and departed authors as plain avatars', () => {
+    const messages = [
+      { ...ready.messages[0], id: 2, author_kind: 'system' as const },
+      { ...ready.messages[0], id: 3, author: 'gone', name: '走了' },
+    ]
+    render(<ChannelsPage {...props({ ...ready, messages, thinking: {} })} />)
+    expect(screen.queryByRole('button', { name: /的成员操作/ })).toBeNull()
   })
 
   it('keeps the draft until acknowledgement, blocks duplicate sends and respects IME and Shift+Enter', async () => {
@@ -137,6 +281,37 @@ describe('channels page', () => {
     expect(input.value).toBe('看看 @橘 ')
     fireEvent.click(screen.getByTitle('在输入框里 @橘'))
     expect(input.value).toBe('看看 @橘 @橘 ')
+  })
+
+  it('closes the @ picker on an outside press without touching the draft, and reopens (#125)', () => {
+    render(<ChannelsPage {...props({ ...ready, thinking: {} })} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '看看', selectionStart: 2, selectionEnd: 2 } })
+    const button = screen.getByRole('button', { name: zh.mentionButton })
+
+    fireEvent.click(button)
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    // Pressing an option or the textarea is inside the composer: stays open, choice still lands.
+    fireEvent.mouseDown(input)
+    fireEvent.mouseDown(screen.getByRole('option'))
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    fireEvent.click(screen.getByRole('option'))
+    expect(input.value).toBe('看看 @橘 ')
+
+    fireEvent.click(button)
+    expect(input.value).toBe('看看 @橘 @')
+    fireEvent.mouseDown(screen.getByRole('log').parentElement as HTMLElement)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input.value).toBe('看看 @橘 @')
+
+    // Reopen with the button, then Esc closes while focus stays in the input.
+    fireEvent.click(button)
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(document.activeElement).toBe(input)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('看看 @橘 @ @')
   })
 
   it('creates a channel from the + button', async () => {
@@ -240,5 +415,119 @@ describe('channels page', () => {
   it('hides the add-member guide once a role member exists', () => {
     render(<ChannelsPage {...props(ready)} />)
     expect(screen.queryByText(zh.guideNoMembers)).toBeNull()
+  })
+  it('collapses and restores each side column independently without losing room, draft or messages (#124)', () => {
+    const selectRoom = vi.fn()
+    const view = render(<ChannelsPage {...props(ready)} selectRoom={selectRoom} />)
+    const page = view.container.firstElementChild as HTMLElement
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '草稿' } })
+    const baseline = page.className
+    fireEvent.click(screen.getByRole('button', { name: zh.collapseRooms }))
+    const roomsOnly = page.className
+    expect(screen.getByRole('button', { name: zh.expandRooms }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: zh.collapseMembers }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: zh.collapseMembers }))
+    const both = page.className
+    expect(new Set([baseline, roomsOnly, both]).size).toBe(3)
+    // Both restore buttons stay in the chat header, so the columns can always come back.
+    expect(screen.getByRole('button', { name: zh.expandRooms })).toBeTruthy()
+    expect(screen.getByRole('button', { name: zh.expandMembers })).toBeTruthy()
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('草稿')
+    expect(screen.getByText('<script>alert(1)</script>')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.expandRooms }))
+    fireEvent.click(screen.getByRole('button', { name: zh.expandMembers }))
+    expect(page.className).toBe(baseline)
+    expect(screen.getByRole('button', { name: 'general' }).getAttribute('aria-current')).toBe('true')
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('草稿')
+    expect(selectRoom).not.toHaveBeenCalled()
+  })
+
+  it('lists workspaces indented under their chat channel with an in-progress count (#139)', () => {
+    const rooms = [
+      { id: 1, name: 'general', kind: 'chat' as const, parent_id: null, active: 0 },
+      { id: 2, name: 'dev', kind: 'chat' as const, parent_id: null, active: 2 },
+      { id: 3, name: '工作区1', kind: 'workspace' as const, parent_id: 1, active: 0 },
+      { id: 4, name: '工作区2', kind: 'workspace' as const, parent_id: 1, active: 3 },
+    ]
+    const view = render(<ChannelsPage {...props({ ...ready, rooms })} />)
+    const nav = view.container.querySelector('nav') as HTMLElement
+    const buttons = [...nav.querySelectorAll('button[aria-current]')].map(b => b.textContent)
+    expect(buttons).toEqual(['#general', '#工作区1进行中 0 件', '#工作区2进行中 3 件', '#dev进行中 2 件'])
+    const ws = screen.getByRole('button', { name: /工作区2/ })
+    expect(ws.className).toContain('workspace')
+    expect(screen.getByRole('button', { name: 'general' }).className).not.toContain('workspace')
+  })
+
+  it('replies from a message, shows the quote, cancels, and degrades a deleted original', async () => {
+    const send = vi.fn(async () => {})
+    const quoted: ChannelSnapshot = {
+      ...ready,
+      messages: [
+        { ...ready.messages[0], id: 1, text: '原话' },
+        { ...ready.messages[0], id: 2, author_kind: 'user', author: 'owner', name: '我', text: '回一下', reply_to: { id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '原话' } },
+        { ...ready.messages[0], id: 3, author_kind: 'user', author: 'owner', name: '我', text: '回已删', reply_to: { id: 99, deleted: true } },
+        { ...ready.messages[0], id: 4, author_kind: 'system', author: 'system', name: '系统', text: '系统通知' },
+        { ...ready.messages[0], id: 5, text: '进度', card: JSON.stringify({ title: 'job', state: 'running' }) },
+      ],
+    }
+    const view = render(<ChannelsPage {...props(quoted, send)} />)
+    expect(screen.getAllByText('原话')).toHaveLength(2)
+    expect(screen.getByText(zh.replyDeleted)).toBeTruthy()
+    // Only the three conversation messages offer a reply; system notices and progress cards do not.
+    expect(screen.getAllByRole('button', { name: zh.reply })).toHaveLength(3)
+
+    fireEvent.click(screen.getAllByRole('button', { name: zh.reply })[0] as HTMLElement)
+    expect(screen.getByText('回复 橘')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.cancelReply }))
+    expect(screen.queryByText('回复 橘')).toBeNull()
+
+    fireEvent.click(screen.getAllByRole('button', { name: zh.reply })[0] as HTMLElement)
+    const input = screen.getByRole('combobox')
+    fireEvent.change(input, { target: { value: '收到' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('收到', 1)
+    expect(screen.queryByText('回复 橘')).toBeNull()
+
+    // The original vanishes while a reply is being written: the bar says so.
+    fireEvent.click(screen.getAllByRole('button', { name: zh.reply })[0] as HTMLElement)
+    view.rerender(<ChannelsPage {...props({ ...quoted, messages: quoted.messages.slice(1) }, send)} />)
+    expect(screen.getByText(`回复 橘 · ${zh.replyDeleted}`)).toBeTruthy()
+  })
+})
+
+describe('progress card detail/brief view', () => {
+  const progress = (roomId: number, id: number): ChannelSnapshot['messages'][number] => ({
+    id, room_id: roomId, author_kind: 'role', author: 'ju', name: '橘', created_at: 1, from_turn: null,
+    text: '第 2 步 · 5秒\n🔧 Bash — go test ./...',
+    card: JSON.stringify({ title: 'Codex · 处理中', state: 'running', steps: 2, elapsed_sec: 5, brief: '第 2 步 · 5秒\n🔧 Bash · 进行中' }),
+  })
+  afterEach(() => { localStorage.clear() })
+
+  it('starts brief, switches to detail, and remembers the choice per room', () => {
+    const state: ChannelSnapshot = { ...ready, messages: [progress(1, 10)] }
+    const first = render(<ChannelsPage {...props(state)} />)
+    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+    expect(screen.queryByText(/go test/)).toBeNull()
+    expect(screen.getByRole('button', { name: zh.cardViewBrief }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
+    expect(screen.getByText(/go test/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: zh.cardViewDetail }).getAttribute('aria-pressed')).toBe('true')
+    first.unmount()
+
+    // A fresh page (reload) starts in the remembered view for that room ...
+    render(<ChannelsPage {...props(state)} />)
+    expect(screen.getByText(/go test/)).toBeTruthy()
+    cleanup()
+    // ... while another room keeps the default.
+    render(<ChannelsPage {...props({ ...ready, roomId: 2, messages: [progress(2, 11)] })} />)
+    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+  })
+
+  it('cards without a brief rendering show their text and no switch', () => {
+    const card = JSON.stringify({ title: 'model', state: 'error', action: 'configure-model' })
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 2, text: 'need model', card }] })} />)
+    expect(screen.getByText('need model')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: zh.cardViewBrief })).toBeNull()
   })
 })

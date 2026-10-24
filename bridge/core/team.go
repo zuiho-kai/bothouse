@@ -31,12 +31,67 @@ const (
 )
 
 type teamState struct {
-	dir    string
-	name   string // display name, e.g. 龙娘
-	inject bool
-	board  bool // post a live "who is doing what" message per channel (lead only)
-	mu     sync.Mutex
-	seen   map[string]*teamSession // sessionKey → state
+	dir               string
+	name              string // display name, e.g. 龙娘
+	inject            bool
+	board             bool // post a live "who is doing what" message per channel (lead only)
+	boardEnabled      bool
+	workspacesEnabled bool
+	dynamicLead       *bool // nil until a channel host reports its current primary role
+	mu                sync.Mutex
+	seen              map[string]*teamSession // sessionKey → state
+	nextRelay         uint64                  // process-local status identity; never a task/run token
+}
+
+// leadSelection is the small cross-process contract shared by the bridge,
+// DSH collab, and the optional gate. An absent or empty lead means that the
+// configured wizard fallback remains in effect.
+type leadSelection struct {
+	Lead string `json:"lead"`
+}
+
+func (e *Engine) leadStatePath() string {
+	if e.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(e.dataDir, "lead.json")
+}
+
+func (e *Engine) readLeadSelection() (string, bool) {
+	path := e.leadStatePath()
+	if path == "" {
+		return "", false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var selection leadSelection
+	if json.Unmarshal(b, &selection) != nil || strings.TrimSpace(selection.Lead) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(selection.Lead), true
+}
+
+// suppressUnaddressedGroup prevents a no-gate team sub from starting a turn
+// for a group message that has no explicit recipient. A configured gate owns
+// this decision when present, so this is deliberately only called by the
+// local no-gate path.
+func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
+	if e.team == nil {
+		return false
+	}
+	if msg.FromBot || msg.Mentioned || msg.Direct {
+		return false
+	}
+	if selected, ok := e.readLeadSelection(); ok {
+		return selected != e.name
+	}
+	configured, ok := p.(ConfiguredTeamLead)
+	if !ok || !configured.HasConfiguredTeamLead() {
+		return false
+	}
+	return !e.isTeamLead()
 }
 
 type teamSession struct {
@@ -47,16 +102,31 @@ type teamSession struct {
 	worked  bool // this turn used a tool, so it is real work rather than a chat reply
 	since   time.Time
 	doneAt  time.Time
+	relay   *teamRelayWork // independent lifecycle; survives team configuration reload
 }
 
+type teamRelayWork struct {
+	mu    sync.Mutex
+	entry teamEntry
+}
+
+type teamWorkOutcome string
+
+const (
+	teamWorkCompleted   teamWorkOutcome = "completed"
+	teamWorkFailed      teamWorkOutcome = "failed"
+	teamWorkUnconfirmed teamWorkOutcome = "unconfirmed"
+)
+
 type teamEntry struct {
-	Key    string    `json:"key"`
-	Chat   string    `json:"chat,omitempty"`
-	Task   string    `json:"task,omitempty"`
-	Busy   bool      `json:"busy"`
-	Worked bool      `json:"worked,omitempty"`
-	Since  time.Time `json:"since,omitzero"`
-	DoneAt time.Time `json:"done_at,omitzero"`
+	Outcome teamWorkOutcome `json:"outcome,omitempty"`
+	Key     string          `json:"key"`
+	Chat    string          `json:"chat,omitempty"`
+	Task    string          `json:"task,omitempty"`
+	Busy    bool            `json:"busy"`
+	Worked  bool            `json:"worked,omitempty"`
+	Since   time.Time       `json:"since,omitzero"`
+	DoneAt  time.Time       `json:"done_at,omitzero"`
 }
 
 type teamFile struct {
@@ -68,6 +138,9 @@ type teamFile struct {
 	// CoolingUntil (maomao fork): the bot's model is cooling down after "at
 	// capacity" until then; schedulers (outing-tick) hold off.
 	CoolingUntil time.Time `json:"cooling_until,omitzero"`
+	// Mention (maomao fork): how teammates address this bot on its platform (SelfMentioner),
+	// so a voice-desk dispatch can hand work to it in the right channel.
+	Mention string `json:"mention,omitempty"`
 }
 
 // SetTeam enables the status board for this project. dir == "" disables it.
@@ -93,7 +166,14 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 	if old != nil { // config reload: keep what we know
 		old.mu.Lock()
 		t.seen = old.seen
+		t.nextRelay = old.nextRelay
 		t.board = old.board
+		t.boardEnabled = old.boardEnabled
+		t.workspacesEnabled = old.workspacesEnabled
+		if old.dynamicLead != nil {
+			v := *old.dynamicLead
+			t.dynamicLead = &v
+		}
 		old.mu.Unlock()
 	}
 	e.team = t
@@ -159,9 +239,20 @@ func (e *Engine) runTeamWriter() {
 			continue
 		}
 		now := time.Now()
-		f := teamFile{Project: e.name, Name: t.name}
+		f := teamFile{Project: e.name, Name: t.name, Mention: e.selfMention()}
 		t.mu.Lock()
 		for key, ts := range t.seen {
+			if ts.relay != nil {
+				ts.relay.mu.Lock()
+				en := ts.relay.entry
+				ts.relay.mu.Unlock()
+				if !en.Busy && now.Sub(en.DoneAt) > teamRecentDone {
+					delete(t.seen, key)
+					continue
+				}
+				f.Sessions = append(f.Sessions, en)
+				continue
+			}
 			busy := ts.session != nil && ts.session.Busy()
 			if busy && !ts.busy {
 				ts.since = now
@@ -262,7 +353,14 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 			if s.Busy {
 				lines = append(lines, fmt.Sprintf("%s：在%s忙了 %s %s", f.Name, where, roundDur(now.Sub(s.Since)), task))
 			} else {
-				lines = append(lines, fmt.Sprintf("%s：%s前在%s做完 %s", f.Name, roundDur(now.Sub(s.DoneAt)), where, task))
+				ended := "做完" // preserve legacy entries with an empty outcome
+				switch s.Outcome {
+				case teamWorkFailed:
+					ended = "派工失败"
+				case teamWorkUnconfirmed:
+					ended = "结束，结果未确认"
+				}
+				lines = append(lines, fmt.Sprintf("%s：%s前在%s%s %s", f.Name, roundDur(now.Sub(s.DoneAt)), where, ended, task))
 			}
 			keys = append(keys, fmt.Sprintf("%s|%s|%t|%s", f.Name, where, s.Busy, taskText))
 		}
@@ -290,5 +388,49 @@ func roundDur(d time.Duration) string {
 // isTeamLead reports whether this project is the team lead (the one that reads
 // the others' status; maomao fork).
 func (e *Engine) isTeamLead() bool {
-	return e.team != nil && e.team.inject
+	t := e.team
+	if t == nil {
+		return false
+	}
+	if path := e.leadStatePath(); path != "" {
+		if selected, ok := e.readLeadSelection(); ok {
+			return selected == e.name
+		}
+		// No explicit selection means the configured wizard lead remains active.
+		return t.inject
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.dynamicLead != nil {
+		return *t.dynamicLead
+	}
+	return t.inject
+}
+
+// setDynamicTeamLead applies a primary-role update received from the channel
+// host and refreshes lead-only board/workspace services on the transition.
+func (e *Engine) setDynamicTeamLead(lead bool) {
+	t := e.team
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	changed := t.dynamicLead == nil || *t.dynamicLead != lead
+	v := lead
+	t.dynamicLead = &v
+	boardEnabled, workspacesEnabled := t.boardEnabled, t.workspacesEnabled
+	t.mu.Unlock()
+	if !changed {
+		return
+	}
+	if boardEnabled {
+		e.SetTeamBoard(true)
+	} else {
+		e.SetTeamBoard(false)
+	}
+	if workspacesEnabled {
+		e.SetTeamWorkspaces(true)
+	} else {
+		e.SetTeamWorkspaces(false)
+	}
 }

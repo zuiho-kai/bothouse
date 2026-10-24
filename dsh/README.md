@@ -1,6 +1,6 @@
 # DSH Discord：在 DeepSeek Harness 里做「Discord + 多种 AI + 外接设备」
 
-Issue [#229](https://github.com/Zssan12/conest/issues/229)。基于 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（MIT），钉在 `687f282e86`（0.2.1-rc.2，2026-10-17），见 [upstream.pin.json](upstream.pin.json)。本仓库的 cc-connect 桥接（`bridge/`）、语音陪伴（`companion/`）和设备协议（`role-household/`）是复用来源。
+上游 DSH 项目（未公开）的 Issue #229。基于 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（MIT），钉在 `687f282e86`（0.2.1-rc.2，2026-10-17），见 [upstream.pin.json](upstream.pin.json)。本仓库的 cc-connect 桥接（`bridge/`）、语音陪伴（`companion/`）和设备协议（`role-household/`）是复用来源。
 
 ## 目录与用法
 
@@ -114,3 +114,7 @@ corepack pnpm run build:artifacts
 - 遵守上游 `AGENTS.md` / `packages/client/AGENTS.md` 的插槽与分层规则；新代码放新包，尽量不改上游包，必须改的记在本文件。
 - 凭据、CLI 登录态、录音只留本机，不进仓库。
 - 已实现、已部署、真人已验收分开写。
+
+### 频道派活方式
+
+频道页的「派活方式」可选单模型多进程、完全团队或混合（默认）。工作区继承所属聊天频道的选择。设置保存在频道数据中，修改后下一轮生效；已开始的一轮继续使用原方式。桥接角色优先使用用户明确选择的频道设置，未选择、查询失败或超时则回落项目 `dispatch_mode` 配置（配置也未设时为 mixed）。Discord、飞书继续使用项目配置。

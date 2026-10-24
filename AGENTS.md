@@ -2,16 +2,16 @@
 
 > 用户只是要把 cc-connect 装好、接上 Discord / 飞书（不是改代码）：直接看文末「用户说「配 Discord / 飞书」」一节。
 
-先读 README.md 与 docs/HANDOFF.md；目标/验收读 docs/GOALS.md 和 docs/STATUS.md，模块边界读 docs/ARCHITECTURE.md。开始前核对分支、HEAD、差异和对应 Issue/PR；交接是带时间的证据，不代替现场。
+先读 README.md 与 CONTRIBUTING.md；目标/验收读 docs/GOALS.md，模块边界读 docs/ARCHITECTURE.md。开始前核对分支、HEAD、差异和对应 Issue/PR。
 
 - 中文沟通，从目标、输入、输出、反馈判断方案；目标不清先讨论，目标清晰就选择最短可验证步骤。
 - 新工作使用 CONTRIBUTING.md 的 Issue→分支→PR→验证流程。桥接实现还须读 bridge/AGENTS.md；新项目流程以根目录规范为准，上游历史说明保留在 bridge/。
 - 默认自己完成任务。仅当前真人明确授权时按 skills/project-subagents/SKILL.md 派工；同一文件同一时间一名写者。使用独立 worktree 隔离并行写入，保护未提交工作。
 - 当前生产仍在旧目录。开发构建不是部署；操作运行配置、进程或真实频道前核对用户授权与唯一操作人，凭据和完整对话不得入库。
-- **发布只从 main 出**：部署的二进制必须由 main 上某个提交构建（版本号写该提交）。修复先走 PR 合进 main 再部署；不要在旧线上基线上单独回移补丁另开 release 分支，否则主线和线上会再次分叉（2026-10-21 曾分叉 29 个提交，靠整支合并才对齐）。紧急热修也先合 main，部署后在 HANDOFF 写明所用 main 提交。
+- **发布只从 main 出**：部署的二进制必须由 main 上某个提交构建（版本号写该提交）。修复先走 PR 合进 main 再部署；不要在旧线上基线上单独回移补丁另开 release 分支，否则主线和线上会再次分叉（2026-10-21 曾分叉 29 个提交，靠整支合并才对齐）。紧急热修也先合 main，部署后在 PR/Issue 里写明所用 main 提交。
 - 验收要求、测试沙箱和每晚追加的教训见 [docs/code-standards.md](docs/code-standards.md)，提交 PR 前按它自查。
 - 修复行为须有能复现原问题的回归验证；如实报告失败/跳过。初始导入的已知 Go 基线失败见 docs/GO_TEST_BASELINE.md，不据此放宽后续变更的验收。
-- 实质进展后更新 docs/HANDOFF.md；能力证据更新 docs/STATUS.md，用法更新 README，边界变化更新架构。任务进度以 Issue/PR 为准，不复制多份待办。
+- 用法变化更新 README，边界变化更新架构。任务进度以 Issue/PR 为准，不复制多份待办。
 - 禁止批量、递归、通配符删除及删除目录，禁止 sudo 删除。普通文件只能逐个明确路径，先说明完整路径并确认其为普通文件；需要清空目录时交由用户手动操作。
 
 ## 用户说「配 Discord / 飞书」「把这个配好接上 Discord」
@@ -19,10 +19,9 @@
 这是给用户本机装好、配好 cc-connect，不是改代码，不用走 Issue→PR。只有一条路：装 → `setup apply` → 确认上线。
 
 1. **装**：`command -v cc-connect && cc-connect setup --help` 能出 `setup apply` 就跳过。否则
-   `gh api repos/zuiho-kai/bothouse/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh`（仓库私有，要 gh 已登录；公开后用
-   `curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh`），装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
-   Windows（PowerShell）用 `gh api repos/zuiho-kai/bothouse/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex`（私有）或
-   `irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex`（公开后），装到 `%USERPROFILE%\.local\bin` 并加进用户 PATH；下面的命令在 PowerShell 里照样用。
+   `curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh`，装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
+   Windows（PowerShell）用
+   `irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex`，装到 `%USERPROFILE%\.local\bin` 并加进用户 PATH；下面的命令在 PowerShell 里照样用。
 2. **一次问齐**（只问这几项，其余都有默认值）：
    - 每个机器人的 **token**（一个 token = 一个角色）。还没有就让用户去 <https://discord.com/developers/applications> → New Application → Bot → Reset Token，并在同一页打开 **Message Content Intent**。
    - **服务器 ID**，可选再给**默认频道 ID**。拿法：Discord 设置 → 高级 → 打开「开发者模式」，右键服务器图标「复制服务器 ID」、右键频道「复制频道 ID」。
