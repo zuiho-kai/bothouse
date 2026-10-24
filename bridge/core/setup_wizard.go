@@ -53,6 +53,9 @@ type WizardRequest struct {
 	// (~/wiki/bin/ingest.py), the wizard also adds its scheduled runs as muted cron jobs.
 	Wiki   *WizardWiki `json:"wiki,omitempty"`
 	DryRun bool        `json:"dry_run,omitempty"`
+	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
+	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
+	AppendOnly bool `json:"append_only,omitempty"`
 }
 
 type WizardFeishu struct {
@@ -1228,6 +1231,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	used := map[string]bool{}
 	for i, w := range ids {
 		r := plannedRole{wizardIdentity: w}
+		renamed := false // a new bot's name was taken and got -N
 		switch {
 		case w.reuse != "":
 			if _, ok := s.project(w.reuse); !ok {
@@ -1271,12 +1275,16 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			for n := 2; taken[name] || used[name]; n++ {
 				name = fmt.Sprintf("%s-%d", base, n)
 			}
+			renamed = name != base
 			if noASCII {
 				// project names are a-z 0-9 _ - (they go into paths, URLs and gate_url ?bot=); said
 				// without entry-specific steps, since the web wizard has no project-name box
 				r.nameNote = nameNote(req.Language, raw, name)
 			}
 			r.project = name
+		}
+		if req.AppendOnly && (r.reused || renamed) {
+			return nil, fmt.Errorf("a role named %q already exists; pick another name (adding never changes existing roles)", r.project)
 		}
 		if used[r.project] {
 			return nil, fmt.Errorf("bot %q is used twice in this request", r.project)

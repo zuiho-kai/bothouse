@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addRole": "添加角色/模型",
     "library": "角色库",
     "dashboard": "概览",
     "projects": "项目",

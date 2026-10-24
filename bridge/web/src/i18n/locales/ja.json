@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addRole": "ロール/モデルを追加",
     "library": "ライブラリ",
     "dashboard": "ダッシュボード",
     "projects": "プロジェクト",

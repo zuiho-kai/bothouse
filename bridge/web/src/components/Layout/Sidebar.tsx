@@ -11,12 +11,15 @@ import {
   Plug,
   Puzzle,
   Library,
+  UserPlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import VersionBadge from './VersionBadge';
 
 const navItems = [
+  // add a role / model on top of the current setup (SetupWizard add mode, append_only)
+  { key: 'addRole', path: '/setup?add=1', icon: UserPlus },
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
   { key: 'projects', path: '/projects', icon: FolderKanban },
   { key: 'providers', path: '/providers', icon: Plug },
@@ -66,6 +69,7 @@ export default function Sidebar() {
             key={key}
             to={path}
             end={path === '/'}
+            data-testid={key === 'addRole' ? 'nav-add-role' : undefined}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
