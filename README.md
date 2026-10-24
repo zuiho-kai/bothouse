@@ -10,7 +10,7 @@ bothouse puts a crew of AIs on the night shift: several jobs moving at once, all
 > While everyone else is making wishes at a chat box, you're running a team that never clocks out.
 
 **All night, many jobs at once, still on script.**
-Every handoff carries your own words down the line, so whoever picks the job up works against them: who took it, how far it got. The people who do the work don't sign it off — a fresh AI checks it instead. When a sub-agent runs out of context it writes a handoff first; a session that has sat idle too long gets a handoff and a fresh start too. No slow slide into confusion. And the team shares one memory, so what was settled today still counts tomorrow.
+Every handoff carries your own words down the line, so whoever picks the job up, at whatever stage, works from what you actually said. The people who do the work don't sign it off — a fresh AI checks it instead. When a sub-agent runs out of context it writes a handoff first; a session that has sat idle too long gets a handoff and a fresh start too. No slow slide into confusion. And the team shares one memory, so what was settled today still counts tomorrow.
 
 **You sleep. It works.**
 Scheduled jobs and long jobs sit in the background and keep moving overnight. In the morning the channel has your report: what got done, how it was checked, what's still stuck.
@@ -22,7 +22,7 @@ The lead role breaks the job up and spreads it across workspaces, one owner per 
 Chat and small chores go to a cheap model; the hard jobs get the expensive one. Which channel uses which model is fixed in config, so the money goes where it counts.
 
 **Control it from anywhere.**
-Discord gets the full team, Feishu starts with a single role, and the self-hosted web channel runs on your own machine. Add a line from your phone and Codex or DSH picks it up mid-task; Claude Code gets it once the current turn wraps.
+Discord gets the full team, Feishu starts with a single role, and the self-hosted web channel runs on your own machine. Add a line from your phone and Claude Code or Codex picks it up mid-task, as do ACP roles like DSH that support it; other CLIs such as codex exec take it next turn.
 
 ## What it looks like
 
@@ -41,7 +41,7 @@ The lead breaks the job into pieces — a stats page, a menu-bar icon, a roles p
 **Three, you come back for the result.**
 Each piece goes back to the lead when it's done. The lead checks it, then sends you one reply: what changed, how it was verified, what didn't get done.
 
-You can cut in at any point. On Codex (app-server) and ACP agents such as DSH, what you add while an AI is working lands in the task it's already holding. Claude Code and other CLIs queue it instead: the AI picks it up after the current turn ends.
+You can cut in at any point. On Claude Code and Codex (app-server), what you add while an AI is working lands in the task it's already holding; ACP agents such as DSH do the same when they report support at handshake. Other CLIs, such as codex exec, queue it instead: the AI picks it up after the current turn ends.
 
 ## Why not just another chat window
 
