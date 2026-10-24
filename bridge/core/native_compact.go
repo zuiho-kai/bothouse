@@ -10,7 +10,12 @@ import (
 
 // A separate operation record lets /stop cancel even while the native transport
 // is starting, without pretending it is a normal chat session or queuing prompts.
-type nativeCompaction struct{ cancel context.CancelFunc }
+// auto marks a [projects.auto_compress] run: the user did not ask for it, so
+// their messages queue behind it instead of being turned away.
+type nativeCompaction struct {
+	cancel context.CancelFunc
+	auto   bool
+}
 
 const nativeCompactionTimeout = 5 * time.Minute
 
@@ -44,7 +49,7 @@ func (e *Engine) startNativeCompact(agent Agent, native NativeContextCompressor,
 	}
 
 	ctx, cancel := context.WithTimeout(e.ctx, nativeCompactionTimeout)
-	op := &nativeCompaction{cancel: cancel}
+	op := &nativeCompaction{cancel: cancel, auto: auto}
 	// Reserve the key before any teardown. /new may select a different Session,
 	// but must not permit two native transports on the same conversation key.
 	e.interactiveMu.Lock()
@@ -112,10 +117,15 @@ func (e *Engine) startNativeCompact(agent Agent, native NativeContextCompressor,
 	}
 }
 
-func (e *Engine) nativeCompactRunning(key string) bool {
+// nativeCompactRejectsUser reports whether a user /compact runs on key, so new
+// user messages are turned away. An auto compaction does not count: messages
+// arriving then queue (enqueueForBusySession) and run when it ends
+// (drainQueuedAfterNativeCompact).
+func (e *Engine) nativeCompactRejectsUser(key string) bool {
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
-	return e.nativeCompactions[key] != nil
+	op := e.nativeCompactions[key]
+	return op != nil && !op.auto
 }
 
 // compactDrainRetry is how long drainQueuedAfterNativeCompact waits before
@@ -157,7 +167,10 @@ func (e *Engine) drainQueuedAfterNativeCompact(session *Session, sessions *Sessi
 // end of a turn. It is called after that turn, and the turns queued behind it,
 // released the session, so it never interrupts a running turn. If someone holds
 // the session again, it is skipped: the next turn's end checks the threshold anew.
-func (e *Engine) applyPendingAutoCompact(iKey, sessionKey string, sessions *SessionManager, agent Agent, workspaceDir string) {
+// turnSession is the session the turn ran on; when it is not sessionKey's active
+// session (a use_new_session cron side session, torn down right after its run),
+// the compaction is skipped rather than run on the main session.
+func (e *Engine) applyPendingAutoCompact(iKey, sessionKey string, turnSession *Session, sessions *SessionManager, agent Agent, workspaceDir string) {
 	e.interactiveMu.Lock()
 	state := e.interactiveStates[iKey]
 	e.interactiveMu.Unlock()
@@ -193,6 +206,9 @@ func (e *Engine) applyPendingAutoCompact(iKey, sessionKey string, sessions *Sess
 		return
 	}
 	session := sessions.GetOrCreateActive(sessionKey)
+	if turnSession != nil && session != turnSession {
+		return
+	}
 	if !session.TryLock() {
 		return
 	}

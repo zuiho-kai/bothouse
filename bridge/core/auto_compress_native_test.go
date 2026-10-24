@@ -88,7 +88,7 @@ func TestAutoCompressNative_BusySessionSkips(t *testing.T) {
 	e.interactiveMu.Unlock()
 	session := e.sessions.GetOrCreateActive(key)
 	session.TryLock()
-	e.applyPendingAutoCompact(key, key, e.sessions, a, "")
+	e.applyPendingAutoCompact(key, key, session, e.sessions, a, "")
 	session.Unlock()
 	assertNoNativeCompact(t, a)
 	state.mu.Lock()
@@ -125,4 +125,41 @@ func TestAutoCompressNative_CommandAgentNotQueued(t *testing.T) {
 	if due {
 		t.Fatal("command agent queued a native compaction")
 	}
+}
+
+// A user message arriving while an auto compaction runs is queued, not turned
+// away, and runs once the compaction ends.
+func TestAutoCompressNative_MessageDuringCompactionQueues(t *testing.T) {
+	e, a, as, p, key := autoNativeFixture(t, 4, 30*time.Minute)
+	runAutoNativeTurn(t, e, p, key, "hello")
+	waitCompactCall(t, a)
+	p.clearSent()
+	e.ReceiveMessage(p, &Message{SessionKey: key, Platform: "test", UserID: "u", UserName: "u", Content: "follow up", ReplyCtx: "rc"})
+	waitFor(t, "message queued", func() bool {
+		return strings.Contains(strings.Join(p.getSent(), "\n"), e.i18n.T(MsgMessageQueued))
+	})
+	if strings.Contains(strings.Join(p.getSent(), "\n"), e.i18n.T(MsgPreviousProcessing)) {
+		t.Fatalf("message turned away during auto compaction: %v", p.getSent())
+	}
+	if n := as.count(); n != 1 {
+		t.Fatalf("turn sends = %d before compaction ended, want 1", n)
+	}
+	a.release <- nil
+	waitFor(t, "queued message ran after compaction", func() bool { return as.count() == 2 })
+}
+
+// A use_new_session cron run on a side session that crosses the threshold does
+// not compact the main session.
+func TestAutoCompressNative_SideSessionSkipsMain(t *testing.T) {
+	e, a, _, p, key := autoNativeFixture(t, 4, 0)
+	side := e.sessions.NewSideSession(key, "cron-job")
+	side.SetAgentSessionID("side-thread", a.Name())
+	side.AddHistory("user", strings.Repeat("long context ", 50))
+	if !side.TryLock() {
+		t.Fatal("side session busy")
+	}
+	iKey := key + "#cron:" + side.ID
+	e.processInteractiveMessageWith(p, &Message{SessionKey: key, Platform: "test", UserID: "cron", UserName: "cron", Content: "job", ReplyCtx: "rc"}, side, a, e.sessions, iKey, "", key)
+	e.cleanupInteractiveState(iKey)
+	assertNoNativeCompact(t, a)
 }
