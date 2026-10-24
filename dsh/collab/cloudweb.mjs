@@ -81,6 +81,14 @@ export function progressCard(content) {
   let p;
   try { p = JSON.parse(content.slice(PROGRESS_PREFIX.length)); } catch { return undefined; }
   if (p === null || typeof p !== 'object') return undefined;
+  return progressCardOf(p);
+}
+
+/**
+ * Progress card payload object ({ agent, state, steps, elapsed_sec, items }) → { text, card }.
+ * Shared by bridge cards above and DSH/CLI member turns (dsh-member.mjs), so both render alike.
+ */
+export function progressCardOf(p) {
   const state = p.state in CARD_STATES ? p.state : 'running';
   const steps = Number.isInteger(p.steps) ? p.steps : 0;
   const sec = Number.isInteger(p.elapsed_sec) ? p.elapsed_sec : 0;

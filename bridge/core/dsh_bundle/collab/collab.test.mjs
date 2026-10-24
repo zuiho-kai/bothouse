@@ -2891,3 +2891,70 @@ test('tasks: a 【问】【退】【升】 reply to the lead with no task to ans
   assert.equal(tasks.list(1)[0].status, 'accepted', 'the lead answering a question does not accept the task');
   tasks.close(); hub.store.close();
 });
+
+test('DSH member: tool calls post a live progress card that closes with the turn; replies stay out of relay depth', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: '大肥鱼' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@大肥鱼 查一下日志' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null);
+  const n = agent.turns;
+  dsh.emit(agent, 'tool/call', { turn: n, step: 1, callId: 'c1', name: 'bash', arguments: JSON.stringify({ command: 'tail -n 20 app.log' }) });
+  await settle();
+  const cardRow = () => hub.store.page(1, undefined, 10).find(m => m.card !== null);
+  let row = cardRow();
+  assert.equal(row.author, 'ds');
+  let card = JSON.parse(row.card);
+  assert.equal(card.title, '大肥鱼 · 处理中');
+  assert.equal(card.steps, 1);
+  assert.match(row.text, /bash — tail -n 20 app\.log/);
+  assert.match(card.brief, /bash · 进行中/);
+  dsh.emit(agent, 'tool/result', { turn: n, step: 1, message: { role: 'tool', toolCallId: 'c1' } });
+  dsh.emit(agent, 'tool/call', { turn: n, step: 2, callId: 'c2', name: 'read', arguments: '{"path":"a.txt"}' });
+  dsh.emit(agent, 'tool/result', { turn: n, step: 2, message: { role: 'tool', toolCallId: 'c2', isError: true } });
+  await settle();
+  card = JSON.parse(cardRow().card);
+  assert.equal(card.steps, 2);
+  assert.match(card.brief, /✅ bash · 成功/);
+  assert.match(card.brief, /❌ read · 失败/);
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: '日志没问题' }] } });
+  dsh.emit(agent, 'turn/end', { turn: n, reason: { kind: 'completed' } });
+  await settle();
+  const rows = hub.store.page(1, undefined, 10);
+  assert.equal(rows.filter(m => m.card !== null).length, 1, 'one card per turn, edited in place');
+  assert.equal(JSON.parse(cardRow().card).title, '大肥鱼 · 已完成');
+  assert.equal(rows.at(-1).text, '日志没问题');
+  assert.equal(hub.store.relayDepth(1, rows.at(-1).id), 1, 'the card is not a relay hop');
+});
+
+test('DSH member: a turn without tool calls posts no progress card', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: '大肥鱼' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@大肥鱼 在吗' });
+  await settle();
+  dsh.turn(dsh.sessions.get(dsh.made[0]), ['在']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 10).filter(m => m.card !== null).length, 0);
+});
+
+test('CLI member: ACP tool calls feed the same progress card', async () => {
+  const hub = makeHub();
+  cliMembers(hub, async (_text, _room, _onText, onTool) => {
+    onTool({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Read', kind: 'read', status: 'pending', rawInput: { file_path: '/w/x.md' } });
+    await tick(); await tick();
+    onTool({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
+    onTool({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
+    return '看完了';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看下 x.md' });
+  await settle();
+  const row = hub.store.page(1, undefined, 10).find(m => m.card !== null);
+  const card = JSON.parse(row.card);
+  assert.equal(card.title, 'CC · 已完成');
+  assert.equal(card.brief.split('\n').length, 2, 'a repeated completed update adds no step');
+  assert.match(card.brief, /✅ Read · 成功/);
+  assert.match(row.text, /Read — \/w\/x\.md/);
+});

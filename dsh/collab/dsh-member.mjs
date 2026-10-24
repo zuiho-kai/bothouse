@@ -35,6 +35,7 @@ export function memberStatus(hub, tasks = hub?.tasks) {
 }
 import { mentions, nameCalled } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
+import { progressCardOf } from './cloudweb.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -127,6 +128,77 @@ export function friendlyFailure(raw) {
   return `这次没能完成，请检查配置后重试。原始错误：${text}`;
 }
 
+/** Short text of a tool call's arguments for the card: the first string field (command, path, query), else the raw text. */
+function toolArgText(raw) {
+  try {
+    const args = JSON.parse(raw);
+    const first = args !== null && typeof args === 'object' ? Object.values(args).find(v => typeof v === 'string' && v.trim()) : undefined;
+    if (first !== undefined) return first;
+  } catch { /* not JSON: show it as is */ }
+  return typeof raw === 'string' ? raw : '';
+}
+
+/**
+ * Live progress card of one member turn, the DSH-side counterpart of the
+ * bridge's progress card (cloudweb.mjs progressCard): posted in the room at the
+ * turn's first tool call, edited as calls and results arrive, and closed as
+ * 已完成 or 失败 when the turn ends. A turn without tool calls posts no card.
+ */
+export class TurnProgress {
+  constructor(hub, roomId, member, jobId, now = Date.now) {
+    this.hub = hub;
+    this.roomId = roomId;
+    this.member = member;
+    this.jobId = jobId;
+    this.now = now;
+    this.started = now();
+    this.items = [];
+    this.steps = 0;
+    this.names = new Map();
+    this.resolved = new Set();
+    this.id = undefined;
+    this.queued = false;
+    this.ended = false;
+  }
+
+  call(callId, name, args) {
+    if (this.ended) return;
+    this.steps++;
+    if (callId !== undefined) this.names.set(callId, name);
+    this.items.push({ kind: 'tool_use', tool: name, text: toolArgText(args) });
+    this.schedule();
+  }
+
+  result(callId, failed, reason) {
+    if (this.ended || this.resolved.has(callId)) return;
+    if (callId !== undefined) this.resolved.add(callId);
+    this.items.push({ kind: 'tool_result', tool: this.names.get(callId) ?? '', success: !failed, text: failed ? (reason ?? '') : '' });
+    this.schedule();
+  }
+
+  /** Coalesce a burst of events into one store write per event-loop turn. */
+  schedule() {
+    if (this.queued) return;
+    this.queued = true;
+    setImmediate(() => { this.queued = false; if (!this.ended) this.write('running'); });
+  }
+
+  end(state) {
+    if (this.ended) return;
+    this.ended = true;
+    if (this.steps > 0) this.write(state);
+  }
+
+  write(state) {
+    const body = progressCardOf({ agent: this.member.name, state, steps: this.steps, elapsed_sec: Math.floor((this.now() - this.started) / 1000), items: this.items });
+    if (this.id === undefined) {
+      this.id = this.hub.post(this.roomId, { authorKind: 'role', author: this.member.id, name: this.member.name, clientKey: `dsh-job-${this.jobId}-progress`, text: body.text, card: body.card }).message.id;
+    } else {
+      this.hub.edit(this.id, 'role', this.member.id, body.text, body.card);
+    }
+  }
+}
+
 export class DshMembers {
   /**
    * @param hub - Hub instance.
@@ -180,6 +252,10 @@ export class DshMembers {
     if (event.type === 'user/message' && event.data?.id === w.inputId && w.turn === undefined) {
       w.turn = this.openTurns.get(session.id);
       return;
+    }
+    if (w.turn !== undefined && event.data?.turn === w.turn) {
+      if (event.type === 'tool/call') w.progress?.call(event.data.callId, event.data.name, event.data.arguments);
+      else if (event.type === 'tool/result') w.progress?.result(event.data.message?.toolCallId, event.data.error !== undefined || event.data.message?.isError === true, event.data.error?.reason ?? event.data.error?.name);
     }
     if (event.type === 'turn/end' && w.turn !== undefined && event.data?.turn === w.turn) {
       this.watching.delete(session.id);
@@ -357,10 +433,16 @@ export class DshMembers {
       latest = full;
       if (!flushing) { flushing = true; setImmediate(flush); }
     };
+    const progress = new TurnProgress(this.hub, job.room_id, member, job.id);
+    // ACP tool calls (agentclientprotocol.com/protocol/tool-calls): one call per toolCallId, its update says completed or failed.
+    const onTool = (u) => {
+      if (u.sessionUpdate === 'tool_call') progress.call(u.toolCallId, u.title ?? u.kind ?? '', JSON.stringify(u.rawInput ?? {}));
+      if (u.status === 'completed' || u.status === 'failed') progress.result(u.toolCallId, u.status === 'failed');
+    };
     let done = false;
     try {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
-      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store), String(room.id), onText))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store), String(room.id), onText, onTool))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
@@ -371,6 +453,7 @@ export class DshMembers {
       this.store.finishJob(job.id, 'done', message.id);
     } finally {
       latest = '';
+      progress.end(done ? 'completed' : 'failed');
       // Error, cancel or empty turn: drop the partial draft so the room never keeps a cut-off reply.
       if (!done && draft?.draft) this.hub.remove(draft.id, 'role', member.id);
       this.hub.setThinking(job.room_id, member.id, false);
@@ -390,8 +473,10 @@ export class DshMembers {
   /** Watch for the consuming turn, admit the input, and post the outcome. */
   async admitAndSettle(job, member, agent, input, seqBefore) {
     const sessionId = agent.session.id;
+    const progress = new TurnProgress(this.hub, job.room_id, member, job.id);
+    let settled = 'failed';
     const done = new Promise((resolve) => {
-      this.watching.set(sessionId, { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve });
+      this.watching.set(sessionId, { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve, progress });
     });
     this.hub.setError(member.id, undefined);
     this.hub.setThinking(job.room_id, member.id, true);
@@ -401,8 +486,9 @@ export class DshMembers {
       const outcome = await done;
       if (outcome === INTERRUPTED || this.closed) return;
       if (outcome.discarded) this.fail(job.id, `${member.name} 的这条任务在开始前被取消了。`);
-      else this.finish(job, member, outcome);
+      else if (this.finish(job, member, outcome)) settled = 'completed';
     } finally {
+      progress.end(settled);
       // A failed admission must not leave a watcher that claims a later, unrelated turn.
       if (this.watching.get(sessionId)?.jobId === job.id) this.watching.delete(sessionId);
       this.hub.setThinking(job.room_id, member.id, false);
@@ -413,7 +499,7 @@ export class DshMembers {
     const text = finalText(events);
     if (text === undefined) {
       this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
-      return;
+      return false;
     }
     const kind = reason?.kind;
     const complete = kind === undefined || kind === 'completed' || kind === 'max-tokens';
@@ -422,6 +508,7 @@ export class DshMembers {
       text: this.returnToLead(job, member, complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`),
     });
     this.store.finishJob(job.id, 'done', message.id);
+    return complete;
   }
 
   /**

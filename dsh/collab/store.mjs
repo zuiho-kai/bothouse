@@ -82,7 +82,7 @@ export class Store {
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
-      relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role'
+      relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role' AND card IS NULL
         AND id > COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0)`),
       binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
       // A fresh session starts reading after the room's last release (room_resets), not from its start.
