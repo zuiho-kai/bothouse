@@ -33,26 +33,26 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: github.event_name == 'pull_request'
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .policy
+          persist-credentials: false
       - run: node --test .github/ci/*.test.cjs
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         id: paths
         with:
           script: |
-            // Read policy from the immutable PR base, never the PR checkout.
-            // On initial adoption the base has no classifier, so run everything.
+            // Read the single classifier from the immutable PR base. On initial
+            // adoption the base has no classifier, so run everything.
             const full = () => ({ go: true, companion: true, dsh: true, docs_only: false });
             let classify = full;
             if (context.eventName === 'pull_request') {
               try {
-                const policy = (await github.rest.repos.getContent({
-                  ...context.repo, path: '.github/ci/classify.cjs',
-                  ref: context.payload.pull_request.base.sha
-                })).data;
-                const trustedModule = { exports: {} };
-                new Function('module', Buffer.from(policy.content, 'base64').toString('utf8'))(trustedModule);
-                classify = trustedModule.exports.classify;
+                classify = require(`${process.env.GITHUB_WORKSPACE}/.policy/.github/ci/classify.cjs`).classify;
               } catch (error) {
-                if (error.status !== 404) throw error;
+                if (error.code !== 'MODULE_NOT_FOUND') throw error;
                 core.info('No base classifier yet; retaining full coverage');
               }
             }
@@ -63,7 +63,7 @@ jobs:
               });
               // GitHub caps this API at 3000 files. Incomplete lists run everything.
               if (files.length === context.payload.pull_request.changed_files) {
-                paths = files.flatMap(f => [f.filename, f.previous_filename].filter(Boolean));
+                paths = files;
               }
             }
             const result = classify(paths, context.eventName);
@@ -75,7 +75,7 @@ jobs:
     # 「把一些工作链接到甲骨文那边编译」, 2026-10-23「你就不能去甲骨文那边搞吗」.
     # Fork PRs must not run on our self-hosted runners; they get the *-fork jobs below instead.
     needs: changes
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.companion == 'true'
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.companion == 'true')
     runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 10
     defaults:
@@ -116,7 +116,7 @@ jobs:
   bridge:
     # Fork PRs must not run on our self-hosted runners; they get the *-fork jobs below instead.
     needs: changes
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
     runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 20
     defaults:
@@ -184,7 +184,7 @@ jobs:
   # Basic checks for PRs from forks, on GitHub-hosted runners (fork code never runs on our self-hosted machines).
   companion-fork:
     needs: changes
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && needs.changes.outputs.companion == 'true'
+    if: always() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.companion == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -208,7 +208,7 @@ jobs:
 
   bridge-fork:
     needs: changes
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
+    if: always() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
