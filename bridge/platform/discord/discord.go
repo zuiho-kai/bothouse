@@ -793,12 +793,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// the gate: only the owner's DMs do (see Engine.isDMOwner); other DMs are gated normally.
 	direct := !fromBot && m.GuildID == ""
 	if fromBot {
-		// Only an explicit <@me> in the text counts; reply pings ("↪ 已插入" quoting a message)
-		// are ignored. A teammate may address this bot through its managed role, so treat an
-		// explicit <@&my-role> like <@me>; role/everyone mentions that do not target this bot
-		// remain listen-only context. Everything else a teammate says
-		// arrives as listen-only context (core never starts a turn from it).
-		mentioned = isDiscordBotMention(m, p.botID, botRoleID, false)
+		// Bot messages must be addressed by an explicit mention in their body. Discord may
+		// include the replied-to author in m.Mentions, which would turn ordinary bot replies
+		// into a relay loop. A teammate can address this bot by user or managed-role mention.
+		mentioned = hasExplicitDiscordBotMention(m.Content, p.botID, botRoleID)
 		if isBotNotice(m.Content) {
 			return
 		}
@@ -1788,6 +1786,13 @@ func isDiscordBotMention(m *discordgo.MessageCreate, botID string, botRoleID str
 		}
 	}
 	return botRoleID != "" && strings.Contains(m.Content, "<@&"+botRoleID+">")
+}
+
+func hasExplicitDiscordBotMention(content string, botID string, botRoleID string) bool {
+	if strings.Contains(content, "<@"+botID+">") || strings.Contains(content, "<@!"+botID+">") {
+		return true
+	}
+	return botRoleID != "" && strings.Contains(content, "<@&"+botRoleID+">")
 }
 
 func (p *Platform) botRoleIDForGuild(guildID string) string {

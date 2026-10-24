@@ -53,6 +53,46 @@ func TestReplyRouting_OtherBotDoesNotTriggerMain(t *testing.T) {
 	}
 }
 
+func TestReplyRouting_BotMessagesRequireExplicitBodyMention(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		wantPing  bool
+	}{
+		{name: "managed_role_mention_in_body", content: "<@&role-200> please take this", wantPing: true},
+		{name: "reply_notification_only", content: "Here is the result"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var delivered []*core.Message
+			p := &Platform{
+				botID: "200", botName: "main", allowFrom: "*", allowBots: "100",
+				handler: func(_ core.Platform, msg *core.Message) { delivered = append(delivered, msg) },
+			}
+			p.botRoleIDs.Store("guild", "role-200")
+			p.channelNameCache.Store("channel", "test")
+			p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "bot-" + tt.name, GuildID: "guild", ChannelID: "channel",
+				Author: &discordgo.User{ID: "100", Bot: true}, Timestamp: time.Now(),
+				Type: discordgo.MessageTypeReply, Content: tt.content,
+				Mentions: []*discordgo.User{{ID: "200", Bot: true}},
+				MessageReference:  &discordgo.MessageReference{MessageID: "prior"},
+				ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: "200", Bot: true}, Content: "prior reply"},
+			}})
+			if len(delivered) != 1 {
+				t.Fatalf("got %d delivered messages, want 1 listenable bot message", len(delivered))
+			}
+			got := delivered[0].Mentioned
+			if got != tt.wantPing {
+				t.Errorf("Mentioned = %v, want %v", got, tt.wantPing)
+			}
+			if !delivered[0].FromBot {
+				t.Error("message should remain marked as bot-authored")
+			}
+		})
+	}
+}
+
 func TestReplyRouting_RecipientMatrix(t *testing.T) {
 	tests := []struct {
 		name, content, target                                 string
