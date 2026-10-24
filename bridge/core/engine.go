@@ -2104,10 +2104,11 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	return nil
 }
 
-// queueScheduledTurn queues a cron/timer turn whose session is busy behind the running turn,
+// queueScheduledTurn queues a cron/timer (or heartbeat/webhook) turn whose session is busy behind the running turn,
 // through the same queue a user message uses. The new_per_run paths never get here: each run
 // takes a fresh side session (NewSideSession), which no one else holds, so its TryLock succeeds.
-// p is where replies go (muted for a muted job); target is the real platform, for the backfill.
+// p is where replies go (muted for a muted job); target is the real platform, for the backfill
+// (nil for heartbeat/webhook, which run without one).
 func (e *Engine) queueScheduledTurn(p, target Platform, msg *Message, session *Session, sessions *SessionManager, iKey string, agent Agent, workspaceDir string) queueOutcome {
 	// Same as the user-message path: a turn that is still starting has no state to queue into yet.
 	e.ensureInteractiveStateForQueueing(iKey, p, msg.ReplyCtx)
@@ -2635,6 +2636,15 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 
 	session := e.sessions.GetOrCreateActive(sessionKey)
 	if !session.TryLock() {
+		// maomao fork: queued behind the running turn like a cron/timer job (see ExecuteTimerJob),
+		// instead of skipping this beat. No scheduledFrom: a direct heartbeat turn has no backfill.
+		switch e.queueScheduledTurn(targetPlatform, nil, msg, session, e.sessions, sessionKey, e.agent, "") {
+		case queueAccepted:
+			slog.Info("heartbeat: session busy, queued after current turn", "session", sessionKey)
+			return nil
+		case queueRejected:
+			return fmt.Errorf("session %q is busy and its queue is full", sessionKey)
+		}
 		return fmt.Errorf("session %q is busy", sessionKey)
 	}
 

@@ -243,6 +243,16 @@ func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string
 
 	session := engine.sessions.GetOrCreateActive(sessionKey)
 	if !session.TryLock() {
+		// maomao fork: queued behind the running turn like a cron/timer job (see ExecuteTimerJob);
+		// dropped only when there is no live state to queue into.
+		switch engine.queueScheduledTurn(targetPlatform, nil, msg, session, engine.sessions, sessionKey, engine.agent, "") {
+		case queueAccepted:
+			slog.Info("webhook: session busy, prompt queued after current turn", "event", event, "session_key", sessionKey)
+			return
+		case queueRejected:
+			slog.Warn("webhook: session busy and queue full, prompt dropped", "event", event, "session_key", sessionKey)
+			return
+		}
 		slog.Warn("webhook: session busy, queued prompt dropped", "event", event, "session_key", sessionKey)
 		if !silent {
 			engine.send(targetPlatform, replyCtx, fmt.Sprintf("🪝 ⚠️ session busy, skipped: %s", event))
