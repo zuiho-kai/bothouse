@@ -57,6 +57,18 @@ def timer_cmd(ws: str, path: str, task: str):
             "--desc", "工作区接手", "--prompt", prompt]
 
 
+def record_last(path: str, ws: str, task: str, chat: str):
+    """记最近一次交接（ws-forward 默认转给它），并按交接文件记来源聊天频道（ws-up 按它报回、ws-forward --notes 按它转）。"""
+    try:
+        last = json.loads(_team.LAST.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        last = {}
+    tasks = last.get("tasks") if isinstance(last, dict) and isinstance(last.get("tasks"), dict) else {}
+    tasks[path] = {"channel": ws, "chat": chat, "task": task}
+    _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "tasks": tasks},
+                                     ensure_ascii=False), encoding="utf-8")
+
+
 def main(argv):
     if len(argv) != 2 or not argv[1].strip():
         sys.exit('用法：ws-handoff <交接文件> "<一句话任务>"')
@@ -71,7 +83,7 @@ def main(argv):
     r = subprocess.run(timer_cmd(ws, path, task), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-handoff: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
-    _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task}, ensure_ascii=False), encoding="utf-8")
+    record_last(path, ws, task, os.environ.get("CC_SESSION_KEY", ""))
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 
