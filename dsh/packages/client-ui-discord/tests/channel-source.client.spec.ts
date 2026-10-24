@@ -253,6 +253,31 @@ describe('channel source', () => {
     unsubscribe()
   })
 
+  it('edits and withdraws your own message, reporting members that already started (#148)', async () => {
+    const mine = message(3, '打错字')
+    const edited = { ...mine, text: '改好了', edited_at: 2 }
+    const sent: string[] = []
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (init?.method === 'PATCH') {
+        sent.push(`PATCH ${url} ${String(init.body)}`)
+        return JSON.parse(String(init.body)).text === 'x' ? json(403, { error: 'only your own plain messages can be edited' }) : json(200, { message: edited })
+      }
+      if (init?.method === 'DELETE') { sent.push(`DELETE ${url}`); return json(200, { ok: true, recalled: ['ju'], stopped: ['Qwen'], still_running: ['DeepSeek'] }) }
+      return json(200, { messages: [mine, message(4, '别的')] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().messages).toHaveLength(2))
+    await actions.editMessage(3, '改好了')
+    expect(source.getSnapshot().messages[0]).toEqual(edited)
+    await expect(actions.editMessage(3, 'x')).rejects.toThrow('only your own plain messages can be edited')
+    expect(await actions.withdrawMessage(3)).toEqual({ stopped: ['Qwen'], stillRunning: ['DeepSeek'] })
+    expect(source.getSnapshot().messages.map(m => m.id)).toEqual([4])
+    expect(sent).toEqual(['PATCH /collab/api/messages/3 {"text":"改好了"}', 'PATCH /collab/api/messages/3 {"text":"x"}', 'DELETE /collab/api/messages/3'])
+    unsubscribe()
+  })
+
   it('groups each chat channel with its workspaces; orphans and old services stay top level (#139)', () => {
     const rooms: ChannelRoom[] = [
       { id: 1, name: 'general', kind: 'chat', parent_id: null },

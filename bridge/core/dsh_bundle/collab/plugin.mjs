@@ -245,6 +245,8 @@ export async function apply(ctx, rawConfig) {
         return { message: publicMessage(message, store) };
       }, true, MAX_MESSAGE_BODY);
     }
+    const edited = ownMessageRoute(req, res, path, { store, hub, gateway, dsh });
+    if (edited !== undefined) return edited;
     // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.
     const pm = /^\/collab\/api\/messages\/(\d+)\/permission$/.exec(path);
     if (pm !== null && req.method === 'POST') {
@@ -340,6 +342,41 @@ export async function apply(ctx, rawConfig) {
     streams.add(end);
     req.on('close', end);
   }
+}
+
+/**
+ * #148: the owner edits or withdraws a message they wrote (callers check the
+ * owner). An edit changes the text only; members that already read it are not
+ * asked again. Withdrawing also stops the work it started: cloud-web bots get a
+ * recall (their bridge stops that turn or drops it from its queue), DSH jobs end
+ * and a DSH turn already running is cancelled.
+ *   PATCH  /collab/api/messages/{id}  { text }
+ *   DELETE /collab/api/messages/{id}  -> { recalled: [bot ids], stopped: [names], still_running: [names] }
+ */
+export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
+  const m = /^\/collab\/api\/messages\/(\d+)$/.exec(path);
+  if (m === null) return undefined;
+  const id = Number(m[1]);
+  if (req.method === 'PATCH') {
+    return withBody(req, res, (body) => {
+      const row = store.editUser(id, OWNER, body?.text);
+      if (row === undefined) throw new CollabError('forbidden', 'only your own plain messages can be edited');
+      const message = publicMessage(row, store); // with the store, so a reply keeps its quote
+      hub.emit({ type: 'message', message });
+      return { message };
+    });
+  }
+  if (req.method === 'DELETE') {
+    return withBody(req, res, () => {
+      const row = hub.remove(id, 'user', OWNER);
+      if (row === undefined) throw new CollabError('forbidden', 'only your own messages can be withdrawn');
+      const recalled = gateway.recall(row.id);
+      const name = who => hub.members.get(who)?.name ?? who;
+      const { stopped, running } = dsh.recall(row.id);
+      return { ok: true, recalled, stopped: stopped.map(name), still_running: running.map(name) };
+    }, false);
+  }
+  return undefined;
 }
 
 /**

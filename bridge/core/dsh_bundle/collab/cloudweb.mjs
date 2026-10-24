@@ -342,6 +342,21 @@ export class CloudWebGateway {
     return this.nudge(memberId, msg);
   }
 
+  /**
+   * #148: the owner withdrew a message. Every connected bot gets a recall for
+   * it; a bridge stops the turn that message started, or drops it from its
+   * queue, and ignores it otherwise (core/engine.go handleMessageRecall).
+   * Returns the ids of the bots told.
+   */
+  recall(msgId) {
+    const told = [];
+    for (const [id, { ws }] of this.bots) {
+      send(ws, { type: 'message_recall', msg_id: `hub-${msgId}` });
+      told.push(id);
+    }
+    return told;
+  }
+
   async fromBot(bot, d) {
     const { member } = bot;
     switch (d.type) {

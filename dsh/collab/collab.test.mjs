@@ -11,7 +11,7 @@ import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
-import { tasksRoute } from './plugin.mjs';
+import { tasksRoute, ownMessageRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
 
 const quiet = { warn() {}, info() {} };
@@ -313,8 +313,9 @@ function fakeDsh() {
     const session = { id, events: [], get seq() { return this.events.length; }, snapshotEvents(from = 0) { return this.events.slice(from); }, requestHeader() { return undefined; } };
     const pending = [];
     const agent = {
-      session, prompts: [], turns: 0, ctx: { on() {} },
+      session, prompts: [], turns: 0, cancels: [], ctx: { on() {} },
       followup(m) { this.prompts.push(m); pending.push(m); },
+      cancel(cause, options) { this.cancels.push([cause, options]); },
       inbox: { get nextTurn() { return pending; }, remove(id) { const i = pending.findIndex(m => m.id === id); if (i < 0) return false; pending.splice(i, 1); return true; } },
     };
     sessions.set(id, agent);
@@ -825,7 +826,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -908,7 +909,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -1310,7 +1311,7 @@ test('reply: a v6 database gains reply_to and keeps its messages', async () => {
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   const old = up.page(1, undefined, 1)[0];
   assert.equal(old.text, '老消息');
   assert.equal(old.reply_to, null);
@@ -1642,7 +1643,7 @@ test('tasks: the tasks table is ensured idempotently and survives reopen', async
   const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
   assert.equal(cols.includes('note'), true, 'a missing column is added back');
   assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
-  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 11);
   again.close();
 });
 
@@ -1733,7 +1734,7 @@ test('store: a v6 database gains kind/parent_id; opening it creates no workspace
   old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
   old.close();
   const s = new Store(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.deepEqual(plain(s.rooms()), [
     { id: 1, name: 'general', kind: 'chat', parent_id: null },
     { id: 2, name: 'dev', kind: 'chat', parent_id: null },
@@ -1827,11 +1828,11 @@ test('store: a v8 database missing reply_to (#133 shipped after) gains it on ope
   s.ensureRoom(1, 'general');
   s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
   s.close();
   const up = new Store(path);
   assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
   assert.equal(up.page(1, undefined, 1)[0].text, 'old');
   up.close();
 });
@@ -2409,3 +2410,120 @@ test('retry failed message (#146): store.retryJob resets a failed job, DshMember
   assert.equal(latest.author, 'ds');
   assert.equal(latest.text, '重试成功');
 });
+
+
+test('#148 editing a reply keeps its quote for the edit response and the browser event', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = route(hub, gw, { recall: () => [] });
+  const { message: quoted } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '原话' });
+  const { message: reply } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '回一句', replyTo: quoted.id });
+  const ok = await call('PATCH', `/collab/api/messages/${reply.id}`, { text: '改过的回复' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.message.reply_to?.id, quoted.id, 'the edited reply still quotes its message');
+  assert.equal(events.at(-1).message.reply_to?.id, quoted.id);
+});
+
+test('#148 owner edits own message: text and edited_at change, others and cards are refused, browsers told', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = route(hub, gw, { recall: () => [] });
+  const { message: mine } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '打错字了' });
+  const { message: bot } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '收到' });
+  const ok = await call('PATCH', `/collab/api/messages/${mine.id}`, { text: '改好了' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.message.text, '改好了');
+  assert.equal(typeof ok.json.message.edited_at, 'number');
+  assert.equal(hub.store.message(mine.id).text, '改好了');
+  assert.equal(events.at(-1).type, 'message');
+  assert.equal(events.at(-1).message.edited_at, ok.json.message.edited_at);
+  assert.equal((await call('PATCH', `/collab/api/messages/${bot.id}`, { text: 'x' })).status, 403, 'not the owner\'s message');
+  assert.equal(hub.store.message(bot.id).text, '收到');
+  assert.equal((await call('PATCH', `/collab/api/messages/${mine.id}`, { text: '  ' })).status, 400, 'empty text');
+  assert.equal((await call('PATCH', '/collab/api/messages/999', { text: 'x' })).status, 403);
+  assert.equal(hub.store.page(1).find(m => m.id === bot.id).edited_at, null, 'an unedited row has no edited_at');
+});
+
+test('#148 owner withdraws own message: row hidden, bots get message_recall, DSH jobs not started end quietly', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const call = route(hub, gw, members);
+
+  // DeepSeek is busy with an earlier turn, so this @ waits in its queue (pending); Qwen admits it (sent, not yet in a turn).
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 先做这个' });
+  await settle();
+  const { message: wrong } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek @Qwen @橘 发错了' });
+  await settle();
+  assert.equal(ju.of('message').at(-1).msg_id, `hub-${wrong.id}`);
+  const qwen = dsh.sessions.get(hub.store.binding('qw', 1).session_id);
+  assert.equal(qwen.inbox.nextTurn.length, 1);
+
+  const res = await call('DELETE', `/collab/api/messages/${wrong.id}`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.recalled, ['ju']);
+  assert.deepEqual(res.json.still_running, []);
+  assert.deepEqual(res.json.stopped, []);
+  assert.deepEqual(ju.of('message_recall').at(-1), { type: 'message_recall', msg_id: `hub-${wrong.id}` });
+  assert.equal(hub.store.message(wrong.id), undefined, 'hidden from history');
+  assert.deepEqual(events.find(e => e.type === 'deleted'), { type: 'deleted', id: wrong.id, room_id: 1 });
+  assert.equal(qwen.inbox.nextTurn.length, 0, 'the input waiting in Qwen\'s inbox is taken back');
+  members.onDiscarded(qwen.session.id, qwen.prompts[0].id);
+  // DeepSeek finishes its earlier turn; the withdrawn job must not start.
+  const ds = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(ds, ['第一件做完了']);
+  await settle();
+  assert.equal(ds.prompts.length, 1, 'the queued job for the withdrawn message never runs');
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.equal(hub.store.page(1).filter(m => m.author_kind === 'system').length, 0, 'no failure card for a withdrawal');
+  assert.equal(hub.thinking.get(1).has('qw'), false);
+});
+
+test('#148 withdrawing stops a DSH turn already running, keeps its queue, posts nothing; others\' messages stay', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const call = route(hub, gw, members);
+  const { message: m } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 跑起来' });
+  await settle();
+  const ds = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(ds, [], null); // the turn takes the input and is still running
+  assert.equal(hub.thinking.get(1).has('ds'), true);
+  const res = await call('DELETE', `/collab/api/messages/${m.id}`);
+  assert.deepEqual(res.json.stopped, ['DeepSeek']);
+  assert.deepEqual(res.json.still_running, []);
+  assert.deepEqual(ds.cancels, [[{ kind: 'user' }, { keepInbox: true }]], 'cancelled like DSH\'s stop button');
+  await settle();
+  // The cancelled turn ends with partial text; it must not become a reply or a failure card.
+  dsh.emit(ds, 'assistant/message', { message: { content: [{ type: 'text', text: '半截' }] } });
+  dsh.emit(ds, 'turn/end', { turn: 1, reason: { kind: 'cancelled' } });
+  await settle();
+  assert.equal(hub.store.page(1).filter(r => r.author_kind !== 'user').length, 0);
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.equal(hub.thinking.get(1).has('ds'), false);
+  const { message: bot } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '回复' });
+  assert.equal((await call('DELETE', `/collab/api/messages/${bot.id}`)).status, 403);
+  assert.notEqual(hub.store.message(bot.id), undefined);
+});
+
+function route(hub, gateway, dsh) {
+  return async (method, path, body) => {
+    const req = new EventEmitter();
+    req.method = method; req.url = path; req.headers = {};
+    const res = { status: 0, body: '', writeHead(s) { this.status = s; }, end(b) { this.body = b; } };
+    const p = ownMessageRoute(req, res, path, { store: hub.store, hub, gateway, dsh });
+    if (body !== undefined) req.emit('data', Buffer.from(JSON.stringify(body)));
+    req.emit('end');
+    await p;
+    return { status: res.status, json: JSON.parse(res.body) };
+  };
+}

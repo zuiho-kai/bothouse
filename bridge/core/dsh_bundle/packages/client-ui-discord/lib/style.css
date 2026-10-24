@@ -252,6 +252,57 @@
   font-weight: 600;
 }
 
+.Ah8iqq_edited {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.Ah8iqq_ownActions {
+  opacity: 0;
+  gap: 8px;
+  margin-left: auto;
+  display: inline-flex;
+}
+
+.Ah8iqq_message:hover .Ah8iqq_ownActions, .Ah8iqq_ownActions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .Ah8iqq_ownActions {
+    opacity: 1;
+  }
+}
+
+.Ah8iqq_editBox {
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  display: flex;
+}
+
+.Ah8iqq_editInput {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-base);
+  min-height: 60px;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+  padding: 8px;
+}
+
+.Ah8iqq_editBar {
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  display: flex;
+}
+
+.Ah8iqq_editBar .Ah8iqq_time {
+  margin-right: auto;
+}
+
 .Ah8iqq_text {
   white-space: normal;
   overflow-wrap: anywhere;

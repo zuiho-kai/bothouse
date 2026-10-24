@@ -255,6 +255,57 @@
   white-space: nowrap;
 }
 
+.edited {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+/* #148: edit/withdraw on your own message; shown on hover or keyboard focus, always on touch. */
+.ownActions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+  opacity: 0;
+}
+
+.message:hover .ownActions,
+.ownActions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ownActions { opacity: 1; }
+}
+
+.editBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.editInput {
+  min-height: 60px;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-base);
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.editBar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.editBar .time {
+  margin-right: auto;
+}
+
 .text {
   white-space: normal;
   overflow-wrap: anywhere;

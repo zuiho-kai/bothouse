@@ -10,8 +10,12 @@ export const MAX_TEXT = 128 * 1024;
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
 export const DISPATCH_MODES = ['solo', 'team', 'mixed'];
 export const DEFAULT_DISPATCH_MODE = 'mixed';
-// v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks.
-const SCHEMA_VERSION = 10;
+// v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks, v10 is #177
+// (room_settings.dispatch_explicit); columns are added by ensureSchema() on every open
+// (checked with PRAGMA table_info), so either merge or release order ends with every column;
+// user_version only records the newest schema known.
+// v11 is #148 (edited_at).
+const SCHEMA_VERSION = 11;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
@@ -38,6 +42,7 @@ const COLUMNS = [
   // Id of the current claim, bumped by every claim (claimWorkspace, createWorkspace): a release
   // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
+  ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -72,6 +77,8 @@ export class Store {
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
+        AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
@@ -545,6 +552,13 @@ export class Store {
     const again = this.edit(id, authorKind, author, text);
     return again === undefined ? undefined : { message: again, first: false };
   }
+  /** #148: a person edits their own plain message; returns the row, or undefined if it is not theirs. */
+  editUser(id, author, text, now = Date.now() / 1000) {
+    text = String(text ?? '');
+    if (!text.trim()) throw new CollabError('empty', 'message text is empty');
+    if (text.length > MAX_TEXT) throw new CollabError('too-long', `message exceeds ${MAX_TEXT} characters`);
+    return this.q.editUser.get(text, now, id, author);
+  }
   remove(id, authorKind, author) { return this.q.del.get(id, authorKind, author); }
   /** One author's live text drafts (#121), oldest first. */
   drafts(authorKind, author) { return this.q.authorDrafts.all(authorKind, author); }
@@ -613,6 +627,7 @@ export function publicMessage(row, store) {
   const out = {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
+    ...(row.edited_at != null ? { edited_at: row.edited_at } : {}),
   };
   const quote = store?.quote(row);
   if (quote !== undefined) out.reply_to = quote;

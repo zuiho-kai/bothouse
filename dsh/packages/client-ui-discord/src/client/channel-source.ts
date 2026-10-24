@@ -23,6 +23,8 @@ export interface ChannelMessage {
   readonly reply_to?: ChannelQuote
   /** Uploaded images and files (#144); absent when there are none. */
   readonly attachments?: readonly ChannelAttachment[]
+  /** Unix seconds of the author's last edit (#148); absent if never edited. */
+  readonly edited_at?: number
 }
 
 /** One stored attachment; its bytes are at `attachmentUrl(id)`. */
@@ -270,6 +272,10 @@ export interface ChannelActions {
   loadOlder(): Promise<number>
   /** Retry a failed message or system error card (#146). */
   retryMessage(messageId: number): Promise<void>
+  /** Change the text of a message you wrote (#148); members that already read it are not asked again. */
+  editMessage(messageId: number, text: string): Promise<void>
+  /** Withdraw a message you wrote (#148); stopped names members whose running turn on it was cancelled, stillRunning those it could not reach. */
+  withdrawMessage(messageId: number): Promise<{ readonly stopped: readonly string[]; readonly stillRunning: readonly string[] }>
 }
 
 /** Decisions a permission prompt accepts (dsh/collab/cloudweb.mjs PERM_DECISIONS). */
@@ -828,6 +834,18 @@ export function createChannelSource(transport: ChannelTransport): {
     },
     async retryMessage(messageId) {
       await request<{ ok: boolean }>(`collab/api/messages/${messageId}/retry`, { method: 'POST' })
+    },
+    async editMessage(messageId, text) {
+      const owner = lifetime
+      const { message } = await request<{ message: ChannelMessage }>(`collab/api/messages/${messageId}`, json('PATCH', { text }))
+      if (lifetime === owner) onEvent({ type: 'message', message })
+    },
+    async withdrawMessage(messageId) {
+      const owner = lifetime
+      const roomId = snapshot.roomId
+      const { stopped, still_running } = await request<{ stopped?: string[]; still_running?: string[] }>(`collab/api/messages/${messageId}`, { method: 'DELETE' })
+      if (lifetime === owner && roomId !== undefined) onEvent({ type: 'deleted', id: messageId, room_id: roomId })
+      return { stopped: stopped ?? [], stillRunning: still_running ?? [] }
     },
   }
 

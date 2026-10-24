@@ -73,10 +73,22 @@ function saveCardView(roomId: number, view: CardView): void {
   try { globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view) } catch (error) { void error /* storage unavailable: keep the choice in memory */ }
 }
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView }: {
+/** #148: inline editor state for one of your own messages. */
+interface OwnActions {
+  editing: string | undefined
+  onStartEdit: () => void
+  onEditChange: (text: string) => void
+  onEditSave: () => void
+  onEditCancel: () => void
+  onWithdraw: () => void
+}
+
+
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own }: {
   message: ChannelMessage
   cardView: CardView
   onCardView: (view: CardView) => void
+  own: OwnActions | undefined
   tasks: readonly ChannelTask[]
   focused: boolean
   member: ChannelMember | undefined
@@ -122,8 +134,36 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           <span className={css.author}>{message.name}</span>
           <KindTag kind={member?.kind} cli={member?.cli} t={t} />
           <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
+          {message.edited_at !== undefined && <span className={css.edited} title={new Date(message.edited_at * 1000).toLocaleString()}>{t('messageEdited')}</span>}
+          {own !== undefined && own.editing === undefined && (
+            <span className={css.ownActions}>
+              <button type="button" className={css.linkButton} onClick={own.onStartEdit}>{t('messageEdit')}</button>
+              <button type="button" className={css.linkButton} onClick={own.onWithdraw}>{t('messageWithdraw')}</button>
+            </span>
+          )}
         </div>
-        {card === undefined
+        {own?.editing !== undefined
+          ? (
+              <div className={css.editBox}>
+                <textarea
+                  className={css.editInput}
+                  value={own.editing}
+                  aria-label={t('messageEdit')}
+                  autoFocus
+                  onChange={(event) => { own.onEditChange(event.target.value) }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') { event.preventDefault(); own.onEditCancel() }
+                    else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); own.onEditSave() }
+                  }}
+                />
+                <div className={css.editBar}>
+                  <span className={css.time}>{t('messageEditHint')}</span>
+                  <button type="button" className={css.secondaryButton} onClick={own.onEditCancel}>{t('messageCancel')}</button>
+                  <button type="button" className={css.primaryButton} disabled={!own.editing.trim()} onClick={own.onEditSave}>{t('messageSave')}</button>
+                </div>
+              </div>
+            )
+          : card === undefined
           ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={message.text} labels={labels} /></div>}<AttachmentList attachments={message.attachments} /></>
           : (
               <div className={css.card} data-state={card.state}>
@@ -220,8 +260,11 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, renderSlot, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, renderSlot, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
+  // #148: the own message being edited, and the last edit/withdraw outcome to show.
+  const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
+  const [ownNotice, setOwnNotice] = useState<string | undefined>(undefined)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
@@ -404,6 +447,36 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     createRoom(name).then(() => { setNewRoom(undefined) }).catch((error: unknown) => {
       setRoomError(error instanceof Error ? error.message : String(error))
     })
+  }
+
+  const ownActions = (m: ChannelMessage): OwnActions | undefined => {
+    if (m.author_kind !== 'user' || m.card !== null) return undefined
+    return {
+      editing: editing?.id === m.id ? editing.text : undefined,
+      onStartEdit: () => { setOwnNotice(undefined); setEditing({ id: m.id, text: m.text }) },
+      onEditChange: (text) => { setEditing({ id: m.id, text }) },
+      onEditCancel: () => { setEditing(undefined) },
+      onEditSave: () => {
+        if (editing?.id !== m.id || !editing.text.trim()) return
+        if (editing.text === m.text) { setEditing(undefined); return }
+        editMessage(m.id, editing.text).then(() => { setEditing(undefined) }, (error: unknown) => {
+          setOwnNotice(error instanceof Error ? error.message : String(error))
+        })
+      },
+      onWithdraw: () => {
+        if (!window.confirm(t('withdrawConfirm'))) return
+        setOwnNotice(undefined)
+        withdrawMessage(m.id).then(({ stopped, stillRunning }) => {
+          const notes = [
+            ...(stopped.length > 0 ? [t('withdrawStopped', { names: stopped.join('、') })] : []),
+            ...(stillRunning.length > 0 ? [t('withdrawRunning', { names: stillRunning.join('、') })] : []),
+          ]
+          if (notes.length > 0) setOwnNotice(notes.join('；'))
+        }, (error: unknown) => {
+          setOwnNotice(error instanceof Error ? error.message : String(error))
+        })
+      },
+    }
   }
 
   const confirmRemove = (member: ChannelMember): void => {
@@ -598,6 +671,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   tasks={state.tasks ?? []}
                   focused={focusedId === m.id}
                   onReply={startReply}
+                  own={ownActions(m)}
                 />
               ))}
         </div>
@@ -605,6 +679,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         <div className={css.composer} ref={composerRef}>
           {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
+          {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
             <div className={css.mentionPopup}>
               <div className={css.mentionTitle}>
