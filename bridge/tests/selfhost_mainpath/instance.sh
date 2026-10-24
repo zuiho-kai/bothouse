@@ -20,6 +20,11 @@ stop_instance() {
   for f in "$root/run/cc.pid" "$root/run/dsh.pid"; do
     [ -f "$f" ] || continue
     pg=$(cat "$f")
+    # 旧 pid 文件（崩溃/重启机器后留下）里的号可能已被无关进程复用：组长的命令行或环境
+    # （ps -E，同用户进程可见）里要含本实例目录（cc-connect 的 --config、dsh 的 HOME/数据目录），否则只删 pid 文件不发信号。
+    if ! ps -E -ww -o command= -p "$pg" 2>/dev/null | grep -qF "$root"; then
+      rm -f "$f"; continue
+    fi
     # 进程是用 setsid 起的，pid 即进程组号，整组杀掉（含 dsh 的 node 子进程和假 agent）。
     kill -TERM -- "-$pg" 2>/dev/null || true
     for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 -- "-$pg" 2>/dev/null || break; sleep 0.5; done

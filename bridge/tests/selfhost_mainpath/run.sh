@@ -30,10 +30,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ ! -d "$CACHE/pw/node_modules/playwright" ] || ! cmp -s "$HERE/package.json" "$CACHE/pw/package.json"; then
+if [ ! -d "$CACHE/pw/node_modules/playwright" ] || [ ! -d "$CACHE/pw/browsers" ] || ! cmp -s "$HERE/package.json" "$CACHE/pw/package.json"; then
   echo "== 装 playwright 到 $CACHE/pw"
   mkdir -p "$CACHE/pw" && cp "$HERE/package.json" "$CACHE/pw/"
-  (cd "$CACHE/pw" && npm install --no-audit --no-fund && npx playwright install chromium) >"$OUT/playwright-install.log" 2>&1 \
+  (cd "$CACHE/pw" && npm_config_cache="$CACHE/npm" PLAYWRIGHT_BROWSERS_PATH="$CACHE/pw/browsers" npm install --no-audit --no-fund && npm_config_cache="$CACHE/npm" PLAYWRIGHT_BROWSERS_PATH="$CACHE/pw/browsers" npx playwright install chromium) >"$OUT/playwright-install.log" 2>&1 \
     || { tail -n 20 "$OUT/playwright-install.log"; echo FAIL; exit 1; }
 fi
 
@@ -42,7 +42,7 @@ fi
 echo "== 走主路"
 ln -sfn "$CACHE/pw/node_modules" "$WORK/node_modules"
 cp "$HERE/drive.mjs" "$WORK/drive.mjs"
-if LOGIN_URL=$(cat "$WORK/inst/run/login-url") OUT="$OUT" node "$WORK/drive.mjs"; then
+if LOGIN_URL=$(cat "$WORK/inst/run/login-url") OUT="$OUT" PLAYWRIGHT_BROWSERS_PATH="$CACHE/pw/browsers" node "$WORK/drive.mjs"; then
   echo "截图：$OUT/mainpath-desktop.png $OUT/mainpath-mobile-390x844.png"
   echo PASS
 else
