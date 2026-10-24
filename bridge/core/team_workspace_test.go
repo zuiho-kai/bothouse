@@ -223,14 +223,18 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	if err != nil || parent != "discord:100" || w3.Name != "工作区3" {
 		t.Fatalf("new from workspace = %q %+v %v", parent, w3, err)
 	}
-	// #200: the first new adopts the unclaimed 工作区1, the next numbers past 工作区5 already in its category.
+	// #200: new adopts the free 工作区1, then the free 工作区5, lowest first; only then does it
+	// number past 工作区5 already in its category.
 	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "201" {
 		t.Fatalf("first new in #200 = %+v %v, want adopted 201", w, err)
+	}
+	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "205" {
+		t.Fatalf("second new in #200 = %+v %v, want adopted 205", w, err)
 	}
 	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.Name != "工作区6" {
 		t.Fatalf("new in #200 = %+v %v", w, err)
 	}
-	if got := e.TeamWorkspacesOf("200"); len(got) != 2 || got[0].ID != "201" {
+	if got := e.TeamWorkspacesOf("200"); len(got) != 3 || got[0].ID != "201" {
 		t.Fatalf("#200 workspaces = %+v", got)
 	}
 	// A deleted workspace is dropped; the chat still has 工作区2/3, so ensure creates nothing.
@@ -380,8 +384,28 @@ func TestTeamWorkspacesSharedPoolInCategory(t *testing.T) {
 	if err != nil || len(pool) != 5 || pool[0].Name != "工作区1" || pool[4].Name != "工作区8" {
 		t.Fatalf("pool = %+v %v", pool, err)
 	}
-	// #300 hands off to 工作区1: asks and reports now go to #300 (last handoff wins).
-	if err := e.ClaimTeamWorkspace("discord:300", "201", ""); err != nil {
+	if pool[0].Owner != "discord:200" || pool[1].Owner != "discord:300" {
+		t.Fatalf("pool owners = %+v", pool)
+	}
+	// One owner at a time: #300 cannot take 工作区1 while #200 owns it; its replies stay with #200.
+	if err := e.ClaimTeamWorkspace("discord:300", "201", ""); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim of #200's workspace by #300 = %v, want ErrTeamWorkspaceOwned", err)
+	}
+	if p, ok := e.WorkspaceParent("201"); !ok || p != "200" {
+		t.Fatalf("parent of 201 = %q,%v; want 200", p, ok)
+	}
+	// The owner handing off again is fine.
+	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); err != nil {
+		t.Fatal(err)
+	}
+	// 工作区1 finishes its last task (its lead session is reset): free for any chat channel.
+	if !e.releaseTeamWorkspace("discord:201", time.Now(), false) {
+		t.Fatal("201 not released")
+	}
+	if pool, _ := e.TeamWorkspacePool("discord:300"); pool[0].Owner != "" {
+		t.Fatalf("released 201 still owned: %+v", pool[0])
+	}
+	if err := e.ClaimTeamWorkspace("discord:300", "201", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	if p, ok := e.WorkspaceParent("201"); !ok || p != "300" {
@@ -392,11 +416,8 @@ func TestTeamWorkspacesSharedPoolInCategory(t *testing.T) {
 			t.Fatalf("201 still recorded under #200: %+v", e.TeamWorkspacesOf("200"))
 		}
 	}
-	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); err != nil {
-		t.Fatal(err)
-	}
-	if p, ok := e.WorkspaceParent("201"); !ok || p != "200" {
-		t.Fatalf("parent of 201 after re-handoff = %q,%v; want 200", p, ok)
+	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim back by #200 = %v, want ErrTeamWorkspaceOwned", err)
 	}
 }
 
@@ -408,6 +429,9 @@ func TestWorkspaceParentNotBlockedByCreate(t *testing.T) {
 	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:200")
 	if err := ensureWorkspace1(e, "discord:200"); err != nil { // adopts 201, no create
+		t.Fatal(err)
+	}
+	if _, _, err := e.NewTeamWorkspace("discord:200"); err != nil { // adopts the free 205, no create
 		t.Fatal(err)
 	}
 	g.block, g.creating = make(chan struct{}), make(chan struct{})
@@ -428,7 +452,7 @@ func TestWorkspaceParentNotBlockedByCreate(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if w := e.TeamWorkspacesOf("200"); len(w) != 2 || w[1].Name != "工作区6" {
+	if w := e.TeamWorkspacesOf("200"); len(w) != 3 || w[2].Name != "工作区6" {
 		t.Fatalf("after create = %+v", w)
 	}
 }
@@ -583,10 +607,13 @@ func TestTeamWorkspaceClaimWaitsForCreate(t *testing.T) {
 	if err := ensureWorkspace1(e, "discord:200"); err != nil { // #200 adopts 201
 		t.Fatal(err)
 	}
+	if _, _, err := e.NewTeamWorkspace("discord:200"); err != nil { // adopts the free 205; the next one is created
+		t.Fatal(err)
+	}
 	g.block, g.creating = make(chan struct{}), make(chan struct{})
 	created := make(chan error, 1)
 	go func() { _, _, err := e.NewTeamWorkspace("discord:200"); created <- err }()
-	<-g.creating // the create holds a listing in which 201 belongs to #200
+	<-g.creating // the create holds a listing in which 201 belongs to #200 (and 205 too)
 	claimed := make(chan error, 1)
 	go func() { claimed <- e.ClaimTeamWorkspace("discord:300", "201", "") }()
 	select {
@@ -598,8 +625,8 @@ func TestTeamWorkspaceClaimWaitsForCreate(t *testing.T) {
 	if err := <-created; err != nil {
 		t.Fatal(err)
 	}
-	if err := <-claimed; err != nil {
-		t.Fatal(err)
+	if err := <-claimed; !errors.Is(err, ErrTeamWorkspaceOwned) { // 201 is #200's
+		t.Fatalf("claim = %v, want ErrTeamWorkspaceOwned", err)
 	}
 	owners := 0
 	for _, chat := range []string{"200", "300"} {
@@ -609,8 +636,8 @@ func TestTeamWorkspaceClaimWaitsForCreate(t *testing.T) {
 			}
 		}
 	}
-	if p, ok := e.WorkspaceParent("201"); owners != 1 || !ok || p != "300" {
-		t.Fatalf("201 owners = %d, parent = %q,%v; want only #300 (last handoff)", owners, p, ok)
+	if p, ok := e.WorkspaceParent("201"); owners != 1 || !ok || p != "200" {
+		t.Fatalf("201 owners = %d, parent = %q,%v; want only #200 (still its owner)", owners, p, ok)
 	}
 }
 
@@ -696,9 +723,15 @@ func TestTeamWorkspaceLegacyNamesMigrated(t *testing.T) {
 		if p, ok := e.WorkspaceParent("301"); !ok || p != "300" {
 			t.Fatalf("parent of 301 = %q,%v", p, ok)
 		}
-		// Idempotent, and the next 「工作区n」 continues after the renamed ones.
+		// Idempotent, and the next 「工作区n」 continues after the renamed ones once the free
+		// 工作区1 and 工作区5 are taken.
 		if _, err := e.TeamWorkspacePool("discord:300"); err != nil || len(g.renames) != 2 {
 			t.Fatalf("second pool: %v renames %v", err, g.renames)
+		}
+		for _, id := range []string{"201", "205"} {
+			if _, w, err := e.NewTeamWorkspace("discord:300"); err != nil || w.ID != id {
+				t.Fatalf("new = %+v %v, want the free %s", w, err, id)
+			}
 		}
 		if _, w, err := e.NewTeamWorkspace("discord:300"); err != nil || w.Name != "工作区8" {
 			t.Fatalf("new = %+v %v, want 工作区8", w, err)
@@ -719,11 +752,14 @@ func TestTeamWorkspaceLegacyNamesMigrated(t *testing.T) {
 		if p, ok := e.WorkspaceParent("302"); !ok || p != "300" {
 			t.Fatalf("parent of 302 = %q,%v", p, ok)
 		}
-		if err := e.ClaimTeamWorkspace("discord:200", "302", ""); err != nil {
+		if err := e.ClaimTeamWorkspace("discord:300", "302", ""); err != nil {
 			t.Fatal(err)
 		}
-		if p, _ := e.WorkspaceParent("302"); p != "200" {
-			t.Fatalf("parent of 302 after claim = %q", p)
+		if err := e.ClaimTeamWorkspace("discord:200", "302", ""); !errors.Is(err, ErrTeamWorkspaceOwned) {
+			t.Fatalf("claim of #300's 302 by #200 = %v, want ErrTeamWorkspaceOwned", err)
+		}
+		if p, _ := e.WorkspaceParent("302"); p != "300" {
+			t.Fatalf("parent of 302 after refused claim = %q", p)
 		}
 		// A legacy-named channel is a workspace, never a chat channel of its own.
 		if _, _, err := e.teamWorkspaceOp("discord:309", true); !errors.Is(err, errTeamIsWorkspace) {
@@ -733,7 +769,8 @@ func TestTeamWorkspaceLegacyNamesMigrated(t *testing.T) {
 }
 
 // Adopting a pool workspace and claiming one both tell a platform that records the parent
-// itself (cloud_web/DSH: rooms.parent_id), so its unified exit follows the last handoff.
+// itself (cloud_web/DSH: rooms.parent_id), so its unified exit follows the owner; a claim of a
+// workspace another chat owns is refused before the platform is asked.
 func TestTeamWorkspaceClaimTellsPlatform(t *testing.T) {
 	g := &claimingGuild{fakeWorkspaceGuild: newWorkspaceGuild()}
 	g.channels = append(g.channels, TeamChannel{ID: "300", Name: "闲聊", ParentID: "catB"})
@@ -746,19 +783,23 @@ func TestTeamWorkspaceClaimTellsPlatform(t *testing.T) {
 	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "201" {
 		t.Fatalf("adopt = %+v %v", w, err)
 	}
-	if err := e.ClaimTeamWorkspace("discord:300", "201", ""); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:300", "201", ""); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim by #300 = %v, want ErrTeamWorkspaceOwned", err)
+	}
+	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(g.claims, ","); got != "200→201,300→201" {
+	if got := strings.Join(g.claims, ","); got != "200→201,200→201" {
 		t.Fatalf("claims = %s", got)
 	}
 	// A refused platform claim leaves the record where it was.
+	e.releaseTeamWorkspace("discord:201", time.Now(), false)
 	g.claimErr = errors.New("gateway: room-missing")
-	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); err == nil {
+	if err := e.ClaimTeamWorkspace("discord:300", "201", ""); err == nil {
 		t.Fatal("claim must fail when the platform refuses")
 	}
-	if p, _ := e.WorkspaceParent("201"); p != "300" {
-		t.Fatalf("parent of 201 = %q, want 300 (unchanged)", p)
+	if _, ok := e.WorkspaceParent("201"); ok {
+		t.Fatal("201 recorded after a refused platform claim")
 	}
 }
 
@@ -788,7 +829,12 @@ func TestTeamWorkspaceClaimAPI(t *testing.T) {
 		len(r.Workspaces) != 1 || r.Workspaces[0].ID != "205" || r.Workspaces[0].Name != "工作区5" {
 		t.Fatalf("claim 205: %d %s", rec.Code, rec.Body.String())
 	}
-	// 201 moves from #200 to #300 (last handoff wins); the name comes from the record.
+	// 201 is #200's: refused with 409 until its last task is done.
+	if rec = claim(s, http.MethodPost, `{"session_key":"discord:300","workspace_id":"201"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("claim of #200's 201: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	e.releaseTeamWorkspace("discord:201", time.Now(), false)
+	// Released, 201 moves from #200 to #300; the name comes from the record.
 	rec = claim(s, http.MethodPost, `{"session_key":"discord:300","workspace_id":"201"}`)
 	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &r) != nil || len(r.Workspaces) != 2 {
 		t.Fatalf("claim 201: %d %s", rec.Code, rec.Body.String())

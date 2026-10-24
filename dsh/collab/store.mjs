@@ -4,20 +4,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { randomBytes } from 'node:crypto';
-
-/** One row per handoff of a task to a pool workspace (claimWorkspace), read by team-exit.mjs. */
-export const TEAM_HANDOFFS_DDL = `CREATE TABLE IF NOT EXISTS team_exit_handoffs (
-  id TEXT PRIMARY KEY, workspace_id INTEGER NOT NULL, parent_id INTEGER NOT NULL)`;
-
-/** Create team_exit_handoffs and add columns older databases lack: closed (0 = live task)
- *  and closed_at (unix seconds). A closed handoff still resolves a quoted task id. */
-export function ensureHandoffs(db) {
-  db.exec(TEAM_HANDOFFS_DDL);
-  const have = new Set(db.prepare('PRAGMA table_info(team_exit_handoffs)').all().map(c => c.name));
-  if (!have.has('closed')) db.exec('ALTER TABLE team_exit_handoffs ADD COLUMN closed INTEGER NOT NULL DEFAULT 0');
-  if (!have.has('closed_at')) db.exec('ALTER TABLE team_exit_handoffs ADD COLUMN closed_at INTEGER');
-}
 
 export const MAX_TEXT = 128 * 1024;
 // Per chat channel dispatch mode (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合,
@@ -38,6 +24,12 @@ const COLUMNS = [
   // v8 (#139 team mode A): a room is a chat channel or a workspace under one chat channel.
   ['rooms', 'kind', "TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'workspace'))"],
   ['rooms', 'parent_id', 'INTEGER REFERENCES rooms(id)'],
+  // Team mode C (single owner, added on open like every column here): a workspace belongs to its parent_id chat channel until it
+  // finishes its last task; free = 1 means released, any chat channel may claim it.
+  ['rooms', 'free', 'INTEGER NOT NULL DEFAULT 0'],
+  // The room's highest task id when its owner last claimed it; a claim no task followed
+  // yet (the handoff is not worked on) keeps it owned when an earlier task ends (Tasks.releaseIfDone).
+  ['rooms', 'claim_task', 'INTEGER'],
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -77,7 +69,9 @@ export class Store {
       relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role'
         AND id > COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0)`),
       binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
-      bind: this.db.prepare('INSERT INTO bindings (member_id, room_id, session_id, context_cursor) VALUES (?, ?, ?, 0)'),
+      // A fresh session starts reading after the room's last release (room_resets), not from its start.
+      bind: this.db.prepare(`INSERT INTO bindings (member_id, room_id, session_id, context_cursor)
+        VALUES (?, ?, ?, COALESCE((SELECT message_id FROM room_resets WHERE room_id = ?), 0))`),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
       firstDraft: this.db.prepare(`SELECT MIN(id) AS id FROM messages WHERE room_id = ? AND id <= ? AND author <> ?
         AND draft = 1 AND deleted = 0 AND card IS NULL`),
@@ -131,6 +125,10 @@ export class Store {
       this.dedupeWorkspaceNames();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
+      // Team mode C: where a released workspace's fresh sessions start reading (releaseWorkspace).
+      this.db.exec(`CREATE TABLE IF NOT EXISTS room_resets (
+        room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
+        message_id INTEGER NOT NULL)`);
       this.db.exec(`CREATE TABLE IF NOT EXISTS room_settings (
         room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
         dispatch_mode TEXT NOT NULL DEFAULT '${DEFAULT_DISPATCH_MODE}'
@@ -294,8 +292,10 @@ export class Store {
     return room;
   }
   /**
-   * Create the next workspace 工作区<n+1> under a chat channel, n being the highest
-   * existing 工作区<k> of any chat channel (one shared pool, unique numbers). Called on a workspace, it adds a sibling under the same chat channel.
+   * Give a chat channel its next workspace: the lowest-numbered free 工作区<k> of the shared
+   * pool (released by any chat channel after its last task) if there is one, else a new
+   * 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (one shared pool,
+   * unique numbers). Called on a workspace, it works for that workspace's chat channel.
    */
   createWorkspace(roomId) {
     return this.transaction(() => {
@@ -304,15 +304,24 @@ export class Store {
       const parent = room.kind === 'workspace' ? room.parent_id : room.id;
       const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
       // One shared pool: numbers are unique across every chat channel's workspaces.
-      const all = this.db.prepare("SELECT name FROM rooms WHERE kind = 'workspace'").all();
-      const n = Math.max(0, ...all.map(w => Number(re.exec(w.name)?.[1] ?? 0)));
+      const all = this.db.prepare("SELECT id, name, free FROM rooms WHERE kind = 'workspace'").all();
+      const num = w => Number(re.exec(w.name)?.[1] ?? 0);
+      const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
+      if (free !== undefined) {
+        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0,
+          claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
+          .get(parent, free.id, free.id);
+      }
+      const n = Math.max(0, ...all.map(num));
       return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent);
     });
   }
 
   /**
-   * Record chatId as the chat channel that handed off to workspace workspaceId last, so the
-   * unified exit (team-exit.mjs, by rooms.parent_id) sends its asks and reports there.
+   * Record chatId as the owner of workspace workspaceId, so the unified exit (team-exit.mjs,
+   * by rooms.parent_id) sends its asks and reports there. A workspace belongs to one chat
+   * channel at a time: one another chat channel owns (not free) is refused with
+   * 'workspace-owned' until it is released after its last task (releaseWorkspace).
    * chatId may be a workspace (then its chat channel is used). Returns the workspace room.
    */
   claimWorkspace(chatId, workspaceId) {
@@ -322,23 +331,54 @@ export class Store {
       if (chat === undefined || ws === undefined) throw new CollabError('room-missing', `room ${chat === undefined ? chatId : workspaceId} does not exist`);
       if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
       const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
-      // Each handoff is one task with the chat that handed it off, so the unified exit
-      // (team-exit.mjs) sends a report back to its own task's chat, not to the last claimer.
-      const task = `task-${randomBytes(4).toString('hex')}`;
-      ensureHandoffs(this.db);
-      this.db.prepare('INSERT INTO team_exit_handoffs (id, workspace_id, parent_id) VALUES (?, ?, ?)').run(task, ws.id, parent);
-      const row = ws.parent_id === parent ? ws
-        : this.db.prepare('UPDATE rooms SET parent_id = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(parent, ws.id);
-      return { ...row, task };
+      const owner = this.workspaceOwner(ws.id);
+      if (owner != null && owner !== parent) {
+        throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
+      }
+      return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0,
+        claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
+        .get(parent, ws.id, ws.id);
     });
   }
 
-  /** Close the open handoffs of workspace workspaceId: its tasks are all handed back or done. */
-  closeWorkspaceHandoffs(workspaceId) {
-    if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'team_exit_handoffs'").get() === undefined) return 0;
-    ensureHandoffs(this.db);
-    return Number(this.db.prepare('UPDATE team_exit_handoffs SET closed = 1, closed_at = ? WHERE workspace_id = ? AND closed = 0')
-      .run(Math.floor(Date.now() / 1000), workspaceId).changes);
+  /** The chat channel that owns workspace roomId now; null = free (released) or no owner. */
+  workspaceOwner(roomId) {
+    const r = this.db.prepare('SELECT parent_id, free FROM rooms WHERE id = ?').get(roomId);
+    return r === undefined || r.free ? null : r.parent_id;
+  }
+
+  /** True while a claim of workspace roomId has no task dispatched after it yet. */
+  claimPending(roomId) {
+    const r = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(roomId);
+    if (r?.claim_task == null) return false;
+    return this.db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM tasks WHERE room_id = ?').get(roomId).n <= r.claim_task;
+  }
+
+  /** Tasks in work in roomId (same statuses as tasks.mjs WORKING). */
+  activeTasks(roomId) {
+    return this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ?
+      AND status IN ('assigned', 'accepted', 'asked', 'rework')`).get(roomId).n;
+  }
+
+  /**
+   * Release workspace roomId after its last task: it goes back to the pool (free) for any chat
+   * channel, and its sessions are cleared (bindings dropped; fresh ones start reading after the
+   * room's last message, room_resets). Refused with 'busy' while tasks are in work there.
+   * Returns false if roomId is no owned workspace (already free, or a chat channel).
+   */
+  releaseWorkspace(roomId) {
+    return this.transaction(() => {
+      const ws = this.q.room.get(roomId);
+      if (ws === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+      if (ws.kind !== 'workspace' || this.workspaceOwner(ws.id) == null) return false;
+      if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
+      this.db.prepare('UPDATE rooms SET free = 1, claim_task = NULL WHERE id = ?').run(ws.id);
+      this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(ws.id);
+      const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(ws.id).id ?? 0;
+      this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)
+        ON CONFLICT (room_id) DO UPDATE SET message_id = excluded.message_id`).run(ws.id, last);
+      return true;
+    });
   }
 
   ensureRoomSettings(roomId) {
@@ -471,7 +511,7 @@ export class Store {
   relayDepth(roomId, messageId) { return this.q.relay.get(roomId, messageId, roomId, messageId).n; }
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
-  bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId); }
+  bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId, roomId); }
   /**
    * Move a member's context cursor up to messageId, but never past a
    * teammate's uncommitted text draft (#121): it keeps its old id when it

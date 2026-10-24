@@ -331,8 +331,11 @@ const (
 type wireTeamWorkspaceRoom struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
-	ParentID string `json:"parent_id,omitempty"` // list: chat room that handed off to it last
+	ParentID string `json:"parent_id,omitempty"` // list: chat room it is filed under
 	Active   int    `json:"active,omitempty"`    // list: tasks in progress in the workspace
+	// Owner (list): the chat room that owns the workspace now, "" = free. Absent from a gateway
+	// that does not record owners; the bridge's own record decides then.
+	Owner *string `json:"owner,omitempty"`
 }
 
 type wireTeamWorkspaceAck struct {

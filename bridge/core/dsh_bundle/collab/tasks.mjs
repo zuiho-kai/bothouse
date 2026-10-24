@@ -48,6 +48,8 @@ export class Tasks {
     this.started = false;
     /** wake(memberId, message) -> start that member on the reminder (DSH member or cloud-web bot). */
     this.wakers = [];
+    /** released(roomId) -> a workspace finished its last task and went back to the pool. */
+    this.releasers = [];
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
     // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
     this.tree = cols.has('parent_id') && cols.has('kind');
@@ -92,6 +94,9 @@ export class Tasks {
 
   /** wake(memberId, message) returns true when it started that member on the message. */
   onWake(fn) { this.wakers.push(fn); }
+
+  /** released(roomId) runs after a workspace is released (releaseIfDone), to drop its sessions. */
+  onRelease(fn) { this.releasers.push(fn); }
 
   close() {
     this.closed = true;
@@ -243,7 +248,7 @@ export class Tasks {
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     this.record(row, 'return', `#${id}「${row.title}」${this.nameOf(row.owner)} 交回，用时 ${duration(row.returned_at - row.created_at)}`);
-    this.closeHandoffs(row.room_id);
+    this.releaseIfDone(row.room_id);
     return this.changed(id);
   }
 
@@ -261,7 +266,7 @@ export class Tasks {
     this.record(row, verdict, verdict === 'done'
       ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
       : `#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}`);
-    if (verdict === 'done') this.closeHandoffs(row.room_id);
+    if (verdict === 'done') this.releaseIfDone(row.room_id);
     return this.changed(id);
   }
 
@@ -379,11 +384,29 @@ export class Tasks {
     return message;
   }
 
-  /** A workspace with no task left in work has finished its handoffs: close them, so a later
-   *  chat's plain [ask]/[report] is not held as ambiguous by a finished task (team-exit.mjs). */
-  closeHandoffs(roomId) {
-    if (this.store.room(roomId)?.kind !== 'workspace' || this.countActive(roomId) > 0) return;
-    this.store.closeWorkspaceHandoffs(roomId);
+  /**
+   * A workspace whose tasks are all handed back or done has finished its work: release it to
+   * the shared pool for any chat channel and clear its sessions (store.releaseWorkspace), so
+   * the next chat channel's [ask]/[report] never go to this one. A claim no task followed yet
+   * (a new handoff, not worked on) keeps it owned.
+   */
+  releaseIfDone(roomId) {
+    if (!this.tree || this.store.room(roomId)?.kind !== 'workspace') return;
+    if (this.countActive(roomId) > 0 || this.store.claimPending(roomId)) return;
+    this.release(roomId);
+  }
+
+  /**
+   * Release workspace roomId (store.releaseWorkspace; throws 'busy' while tasks are in work)
+   * and tell the onRelease listeners. Also called for a cloud-web bot's workspace session
+   * reset (cloudweb.mjs op release). Returns whether it was released now.
+   */
+  release(roomId) {
+    if (!this.store.releaseWorkspace(roomId)) return false;
+    for (const released of this.releasers) {
+      try { released(roomId); } catch (error) { this.hub.logger?.warn?.('collab: workspace release hook failed', error); }
+    }
+    return true;
   }
 
   changed(id) {

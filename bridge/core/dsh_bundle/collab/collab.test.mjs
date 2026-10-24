@@ -1861,96 +1861,132 @@ test('store: opening renumbers the old per-chat duplicate 工作区n; ids and pa
   again.close();
 });
 
-test('store: claimWorkspace moves a pool workspace to the chat channel that handed off last', () => {
+test('store: a workspace belongs to one chat channel until it is released; then any chat channel may claim it', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
   s.ensureRoom(2, 'dev');
   const w = s.createWorkspace(1);
-  assert.equal(s.claimWorkspace(2, w.id).parent_id, 2);
-  assert.equal(s.room(w.id).parent_id, 2);
-  // From a workspace, the claim goes to its chat channel.
+  assert.equal(s.workspaceOwner(w.id), 1);
+  // The owner may hand off again; another chat channel is refused.
+  assert.equal(s.claimWorkspace(1, w.id).parent_id, 1);
+  assert.throws(() => s.claimWorkspace(2, w.id), e => e.code === 'workspace-owned');
+  assert.equal(s.room(w.id).parent_id, 1, 'a refused claim moves nothing');
+  // From a workspace, the claim goes to its chat channel (still the owner here).
   const w2 = s.createWorkspace(1);
-  assert.equal(s.claimWorkspace(w.id, w2.id).parent_id, 2);
+  assert.equal(s.claimWorkspace(w.id, w2.id).parent_id, 1);
   assert.throws(() => s.claimWorkspace(2, 1), e => e.code === 'not-workspace');
   assert.throws(() => s.claimWorkspace(2, 99), e => e.code === 'room-missing');
+  // Released after its last task: free, and the next chat channel takes it.
+  assert.equal(s.releaseWorkspace(w.id), true);
+  assert.equal(s.workspaceOwner(w.id), null);
+  assert.equal(s.releaseWorkspace(w.id), false, 'already free');
+  assert.equal(s.claimWorkspace(2, w.id).parent_id, 2);
+  assert.equal(s.workspaceOwner(w.id), 2);
 });
 
-test('team exit: after a claim, asks and reports go to the chat channel that handed off last', async () => {
+test('store: createWorkspace takes the lowest free workspace of the shared pool before making 工作区n+1', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  s.ensureRoom(2, 'dev');
+  const w1 = s.createWorkspace(1);
+  const w2 = s.createWorkspace(1);
+  assert.equal(s.createWorkspace(2).name, '工作区3', 'none free: a new one');
+  s.releaseWorkspace(w2.id);
+  s.releaseWorkspace(w1.id);
+  const got = s.createWorkspace(2);
+  assert.deepEqual([got.id, got.name, got.parent_id], [w1.id, '工作区1', 2]);
+  assert.equal(s.workspaceOwner(w1.id), 2);
+  assert.equal(s.createWorkspace(2).id, w2.id);
+  assert.equal(s.createWorkspace(1).name, '工作区4');
+});
+
+test('store: releasing a workspace clears its sessions; fresh ones start after its last message', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  const w = s.createWorkspace(1);
+  s.append(w.id, { authorKind: 'user', author: 'owner', name: 'owner', text: '旧活' });
+  s.bind('ds', w.id, 'collab-old');
+  const last = s.append(w.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n旧活做完了' }).message;
+  assert.equal(s.releaseWorkspace(w.id), true);
+  assert.equal(s.binding('ds', w.id), undefined, 'the old session is unbound');
+  s.bind('ds', w.id, 'collab-new');
+  assert.equal(s.binding('ds', w.id).context_cursor, last.id, 'the fresh session never reads the old task');
+});
+
+test('tasks: a workspace is released when its last task is handed back or done, and not while a new handoff waits', () => {
+  const { hub } = makeTasks();
+  const s = hub.store;
+  s.ensureRoom(2, 'dev');
+  const w = s.createWorkspace(1);
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const released = [];
+  tasks.onRelease(id => released.push(id));
+  const msg = () => s.append(w.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交回' }).message.id;
+  const t1 = tasks.assign({ roomId: w.id, title: '一', owner: 'ds', actor: 'lead' });
+  const t2 = tasks.assign({ roomId: w.id, title: '二', owner: 'ds', actor: 'lead', force: true });
+  tasks.handBack(t1.id, { actor: 'ds', messageId: msg() });
+  assert.equal(s.workspaceOwner(w.id), 1, 'one task still in work');
+  assert.throws(() => s.claimWorkspace(2, w.id), e => e.code === 'workspace-owned');
+  // general hands off again before the last task ends: that handoff keeps it.
+  s.claimWorkspace(1, w.id);
+  tasks.handBack(t2.id, { actor: 'ds', messageId: msg() });
+  assert.equal(s.workspaceOwner(w.id), 1, 'a new handoff not worked on yet keeps the workspace');
+  assert.deepEqual(released, []);
+  const t3 = tasks.assign({ roomId: w.id, title: '三', owner: 'ds', actor: 'lead', force: true });
+  tasks.review(t1.id, { actor: 'lead', verdict: 'done' });
+  assert.equal(s.workspaceOwner(w.id), 1);
+  tasks.handBack(t3.id, { actor: 'ds', messageId: msg() });
+  assert.equal(s.workspaceOwner(w.id), null, 'all handed back: released');
+  assert.deepEqual(released, [w.id]);
+  assert.equal(s.claimWorkspace(2, w.id).parent_id, 2);
+});
+
+test('team exit: asks and reports go to the chat channel that owns the workspace; another channel waits for the release', async () => {
   const hub = makeHub();
   hub.store.ensureRoom(2, 'dev');
-  const ws = hub.store.createWorkspace(1); // created from general
+  const ws = hub.store.createWorkspace(1); // created from general: general owns it
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   new TeamExit(hub);
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  gw.tasks = tasks;
   const ju = connect(gw, 'bot=ju&name=橘');
-  // dev hands off to the same pool workspace (what core ClaimTeamWorkspace sends).
+  // dev tries the same workspace (what core ClaimTeamWorkspace sends): refused.
   ju.frame({ type: 'team_workspace', ref_id: 'c1', op: 'claim', session_key: 'cloud_web:room-2', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
-  const ack = ju.of('team_workspace_ack').at(-1);
-  assert.deepEqual([ack.ok, ack.room.id], [true, roomKey(ws.id)]);
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c1', ok: false, error: 'workspace-owned' });
+  ju.frame({ type: 'team_workspace', ref_id: 'l1', op: 'list', reply_ctx: 'room-2' });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner]), [['工作区1', 'room-1']]);
   hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n做完了' });
   await tick();
-  assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches dev');
-  assert.equal(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system'), false, 'not the creating channel');
-  const devTask = ack.task;
-  assert.match(devTask, /^task-[0-9a-f]{8}$/);
-  // general hands off a second task: each task's ask/report goes back to its own chat.
-  ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
+  assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches the owner');
+  assert.equal(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system'), false, 'never the other chat channel');
+  // A task in work keeps it: the bridge's release is refused.
+  const t = tasks.assign({ roomId: ws.id, title: '活', owner: 'ds', actor: 'ju' });
+  ju.frame({ type: 'team_workspace', ref_id: 'r1', op: 'release', reply_ctx: roomKey(ws.id) });
   await tick();
-  const genTask = ju.of('team_workspace_ack').at(-1).task;
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask]\n${genTask} 要答案` });
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'r1', ok: false, error: 'busy' });
+  const back = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交回' }).message;
+  tasks.handBack(t.id, { actor: 'ds', messageId: back.id });
+  ju.frame({ type: 'team_workspace', ref_id: 'l2', op: 'list', reply_ctx: 'room-2' });
   await tick();
-  assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches general');
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report]\n${devTask} dev 的活好了` });
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner]), [['工作区1', '']], 'free after its last task');
+  ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
-  assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /dev 的活好了/.test(m.text)), 'dev task report reaches dev, not the last claimer');
-  assert.equal(hub.store.page(1, undefined, 10).some(m => /dev 的活好了/.test(m.text)), false);
-  // No task id while two chats have tasks here: nothing is forwarded, the workspace is told.
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n没写编号' });
+  assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案' });
   await tick();
-  assert.equal([1, 2].some(r => hub.store.page(r, undefined, 10).some(m => /没写编号/.test(m.text))), false, 'ambiguous report not guessed');
-  assert.ok(hub.store.page(ws.id, undefined, 10).some(m => m.author_kind === 'system' && m.text.includes(devTask) && m.text.includes(genTask)), 'workspace notice lists tasks');
+  assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
+  assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
+  // The bridge's release (lead session reset after its last task) frees it again.
+  ju.frame({ type: 'team_workspace', ref_id: 'r2', op: 'release', reply_ctx: roomKey(ws.id) });
+  await tick();
+  assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
   ju.frame({ type: 'team_workspace', ref_id: 'c3', op: 'claim', reply_ctx: 'room-1', workspace_id: 'room-1' });
   await tick();
   assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c3', ok: false, error: 'not-workspace' });
-});
-
-test('team exit: handoffs close when the workspace hands its tasks back, so a later plain [report] reaches the new chat', async () => {
-  const { hub, tasks } = makeTasks();
-  hub.store.ensureRoom(2, 'dev');
-  const ws = hub.store.createWorkspace(1);
-  new TeamExit(hub);
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
-  const ju = connect(gw, 'bot=ju2&name=橘2');
-  // Chat A (general) hands off; the workspace gets the task id and the origin chat.
-  ju.frame({ type: 'team_workspace', ref_id: 'a', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
-  await tick();
-  const taskA = ju.of('team_workspace_ack').at(-1).task;
-  const notice = hub.store.page(ws.id, undefined, 20).find(m => m.author_kind === 'system' && m.text.includes(taskA));
-  assert.ok(notice, 'handoff notice carries the task id');
-  assert.match(notice.text, /#general|room-1/);
-  const t = tasks.assign({ roomId: ws.id, title: 'A 的活', owner: 'ds', actor: 'lead' });
-  const { message } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: 'result' });
-  tasks.handBack(t.id, { actor: 'ds', messageId: message.id });
-  // Chat B (dev) hands off next: a plain [report] reaches B, not held as ambiguous by A's closed task.
-  ju.frame({ type: 'team_workspace', ref_id: 'b', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
-  await tick();
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\nB 的活好了' });
-  await tick();
-  assert.ok(hub.store.page(2, undefined, 20).some(m => m.author_kind === 'system' && /B 的活好了/.test(m.text)), 'plain report reaches B');
-  assert.equal(hub.store.page(ws.id, undefined, 20).some(m => /多个聊天频道/.test(m.text)), false);
-  // A quoted closed task id still routes to A.
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report]\n${taskA} 补一句` });
-  await tick();
-  assert.ok(hub.store.page(1, undefined, 50).some(m => m.author_kind === 'system' && /补一句/.test(m.text)), 'closed id still routes to A');
-});
-
-test('store: ensureHandoffs adds closed columns to an old team_exit_handoffs table', () => {
-  const s = new Store(':memory:');
-  s.db.exec('CREATE TABLE team_exit_handoffs (id TEXT PRIMARY KEY, workspace_id INTEGER NOT NULL, parent_id INTEGER NOT NULL)');
-  s.db.prepare("INSERT INTO team_exit_handoffs VALUES ('task-00000000', 5, 1)").run();
-  assert.equal(s.closeWorkspaceHandoffs(5), 1);
-  assert.deepEqual({ ...s.db.prepare('SELECT closed FROM team_exit_handoffs').get() }, { closed: 1 });
 });
 
 test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作区n+1, others get 401', async () => {

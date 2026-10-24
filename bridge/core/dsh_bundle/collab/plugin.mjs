@@ -94,6 +94,12 @@ export async function apply(ctx, rawConfig) {
   hub.tasks = tasks;
   gateway.tasks = tasks;
   tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
+  // A workspace released after its last task clears its sessions (DSH members rebind from the
+  // store; local CLI members drop their ACP session) and shows up free in the room list.
+  tasks.onRelease(roomId => {
+    dsh.resetRoom(roomId);
+    hub.emit({ type: 'rooms', rooms: hub.store.roomsView() });
+  });
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);

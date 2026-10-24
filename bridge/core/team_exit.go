@@ -66,38 +66,6 @@ func (e *Engine) SetWorkspaceParentResolver(r WorkspaceParentResolver) {
 	e.teamExit.mu.Unlock()
 }
 
-// WorkspaceOriginResolver, when the resolver also implements it, picks the chat channel per
-// task: the chat that handed off the task the text belongs to (Engine.WorkspaceOrigin). ok
-// false with candidates means the text names no task and the workspace holds tasks of more
-// than one chat; the exit then forwards nothing.
-type WorkspaceOriginResolver interface {
-	WorkspaceOrigin(channelID, text string) (parentID string, candidates []TeamHandoff, ok bool)
-}
-
-// workspaceExitTarget is the chat channel a workspace's [ask]/[report] goes to. isWS reports
-// whether channelID is a workspace at all; parent is "" when the target is ambiguous.
-func (e *Engine) workspaceExitTarget(channelID, text string) (parent string, candidates []TeamHandoff, isWS bool) {
-	parent, isWS = e.workspaceParent(channelID)
-	if !isWS {
-		return "", nil, false
-	}
-	e.teamExit.mu.Lock()
-	r := e.teamExit.resolver
-	e.teamExit.mu.Unlock()
-	o, ok := r.(WorkspaceOriginResolver)
-	if !ok {
-		return parent, nil, true
-	}
-	p, cands, ok := o.WorkspaceOrigin(channelID, text)
-	if !ok {
-		return "", cands, true
-	}
-	if p == "" || p == channelID {
-		return parent, nil, true
-	}
-	return p, nil, true
-}
-
 func (e *Engine) workspaceParent(channelID string) (string, bool) {
 	e.teamExit.mu.Lock()
 	r := e.teamExit.resolver
@@ -174,18 +142,12 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	ws := sessionChannel(sessionKey)
-	parent, cands, isWS := e.workspaceExitTarget(ws, body)
-	if !isWS {
+	parent, ok := e.workspaceParent(ws)
+	if !ok {
 		return ""
 	}
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
-		return ""
-	}
-	if parent == "" {
-		// Tasks of several chat channels share this workspace and the reply names none: never
-		// guess (never default to the chat that claimed last). Tell the workspace instead.
-		e.noticeAmbiguousExit(p, rec, sessionKey, cands)
 		return ""
 	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
@@ -224,21 +186,6 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: sent, At: time.Now()})
 	return id
-}
-
-// noticeAmbiguousExit posts, in the workspace, why an [ask]/[report] was not forwarded.
-func (e *Engine) noticeAmbiguousExit(p Platform, rec ReplyContextReconstructor, sessionKey string, cands []TeamHandoff) {
-	slog.Warn("team exit: workspace holds tasks of several chat channels, reply names none; not forwarded", "session", sessionKey)
-	rc, err := rec.ReconstructReplyCtx(sessionKey)
-	if err != nil {
-		return
-	}
-	var b strings.Builder
-	b.WriteString(exitPrefix + " 没有转发：这个工作区手上有多个聊天频道交来的活，回复里没写是哪件。用下面的一个编号再发一次，第一行写 [ask] task-xxxxxxxx 或 [report] task-xxxxxxxx：")
-	for _, h := range cands {
-		b.WriteString("\n" + h.ID + " ← " + channelLabel(p.Name(), teamChannelID(h.Chat)))
-	}
-	_ = p.Send(e.ctx, rc, b.String())
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)

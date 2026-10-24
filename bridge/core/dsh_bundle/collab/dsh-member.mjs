@@ -332,6 +332,11 @@ export class DshMembers {
     }
   }
 
+  /** A released workspace starts over: drop each local CLI member's ACP session for roomId. */
+  resetRoom(roomId) {
+    for (const { agent } of this.cliAgents.values()) agent.sessions?.delete(String(roomId));
+  }
+
   dropCli(id) {
     this.cliAgents.get(id)?.agent.close();
     this.cliAgents.delete(id);

@@ -3482,7 +3482,7 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 		return nil
 	}
 
-	e.closeWorkspaceHandoffs(msg.SessionKey, lastActive) // tasks this workspace session worked on are over
+	e.releaseWorkspaceOnReset(msg.SessionKey, lastActive, false) // a workspace's tasks are over: back to the pool
 	slog.Info("auto-resetting idle session",
 		"session_key", msg.SessionKey,
 		"session_id", session.ID,
@@ -7977,12 +7977,23 @@ func (e *Engine) cmdNew(p Platform, msg *Message, args []string) {
 // old transcript's tail. Also used by `cc-connect session new --after-turn`.
 func (e *Engine) startFreshSession(sessions *SessionManager, interactiveKey, sessionKey, name, handoffReason string) {
 	slog.Info("cmdNew: cleaning up old session", "session_key", sessionKey)
+	// Messages that move to the fresh session (session new --after-turn) are more work for a
+	// workspace, so it stays owned (releaseWorkspaceOnReset below).
+	queued := false
+	e.interactiveMu.Lock()
+	st := e.interactiveStates[interactiveKey]
+	e.interactiveMu.Unlock()
+	if st != nil {
+		st.mu.Lock()
+		queued = st.resetHandoff && len(st.pendingMessages) > 0
+		st.mu.Unlock()
+	}
 	e.cleanupInteractiveState(interactiveKey)
 	slog.Info("cmdNew: cleanup done, creating new session", "session_key", sessionKey)
 
 	// Clear old session's agent session ID so it cannot be resumed
 	old := sessions.GetOrCreateActive(sessionKey)
-	e.closeWorkspaceHandoffs(sessionKey, old.GetUpdatedAt()) // tasks this workspace session worked on are over
+	e.releaseWorkspaceOnReset(sessionKey, old.GetUpdatedAt(), queued) // a workspace's tasks are over: back to the pool
 	oldAgentID := old.GetAgentSessionID()
 	pendingFrom, pendingReason := old.TakeHandoffFrom() // /new twice before a turn
 	old.SetAgentSessionID("", "")

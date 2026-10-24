@@ -18,6 +18,7 @@ import (
 var (
 	_ core.TeamWorkspaceChannels = (*Platform)(nil)
 	_ core.TeamWorkspaceClaimer  = (*Platform)(nil)
+	_ core.TeamWorkspaceReleaser = (*Platform)(nil)
 )
 
 // teamWorkspaceAckTimeout: 沿用已有配置, the 10 s SendPreviewStart waits for preview_ack.
@@ -81,6 +82,8 @@ func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name st
 	switch ack.Error {
 	case "not_team_channel":
 		return ack, fmt.Errorf("%w: %w", core.ErrNotTeamChannel, err)
+	case "workspace-owned":
+		return ack, fmt.Errorf("%w: %w", core.ErrTeamWorkspaceOwned, err)
 	case "unsupported", "room-missing", "forbidden":
 		// The gateway cannot do it (collab without team mode A) or the room is gone: retrying
 		// will not help until restart.
@@ -104,7 +107,11 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 	all := []core.TeamChannel{self}
 	for _, r := range ack.Rooms {
 		if r.ID != "" && r.ID != self.ID {
-			all = append(all, core.TeamChannel{ID: r.ID, Name: r.Name, Active: r.Active, ActiveKnown: true})
+			c := core.TeamChannel{ID: r.ID, Name: r.Name, Active: r.Active, ActiveKnown: true}
+			if r.Owner != nil {
+				c.Owner, c.OwnerKnown = *r.Owner, true
+			}
+			all = append(all, c)
 		}
 	}
 	return self, all, nil
@@ -126,9 +133,10 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID,
 	return core.TeamChannel{ID: ack.Room.ID, Name: ack.Room.Name}, nil
 }
 
-// ClaimTeamWorkspaceChannel tells the gateway that chatID handed off to workspaceID last, so
-// the gateway's unified exit (dsh/collab/team-exit.mjs, by rooms.parent_id) sends that
-// workspace's asks and reports to chatID.
+// ClaimTeamWorkspaceChannel tells the gateway that chatID handed off to workspaceID, so the
+// gateway's unified exit (dsh/collab/team-exit.mjs, by rooms.parent_id) sends that workspace's
+// asks and reports to chatID. The gateway refuses a workspace another chat room owns
+// (workspace-owned).
 func (p *Platform) ClaimTeamWorkspaceChannel(ctx context.Context, chatID, workspaceID string) error {
 	ack, err := p.teamWorkspaceRequest(ctx, "claim", chatID, "", map[string]any{"workspace_id": workspaceID})
 	if err != nil {
@@ -138,4 +146,12 @@ func (p *Platform) ClaimTeamWorkspaceChannel(ctx context.Context, chatID, worksp
 		return fmt.Errorf("cloud_web: team_workspace claim %s: unexpected room %+v", workspaceID, ack.Room)
 	}
 	return nil
+}
+
+// ReleaseTeamWorkspaceChannel tells the gateway that workspaceID finished its last task (the
+// lead's session there was reset), so it is free for any chat room. The gateway keeps it while
+// its own task count for the workspace is above 0 (error "busy").
+func (p *Platform) ReleaseTeamWorkspaceChannel(ctx context.Context, workspaceID string) error {
+	_, err := p.teamWorkspaceRequest(ctx, "release", workspaceID, "", map[string]any{"workspace_id": workspaceID})
+	return err
 }

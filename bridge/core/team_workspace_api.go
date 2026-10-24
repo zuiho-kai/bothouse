@@ -76,10 +76,9 @@ func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Reques
 type TeamWorkspaceListResult struct {
 	Parent     string          `json:"parent"`
 	Workspaces []TeamWorkspace `json:"workspaces"`
-	// Pool: every 「工作区n」 of the server/category, lowest first (shared by all chat channels).
+	// Pool: every 「工作区n」 of the server/category, lowest first (shared by all chat channels),
+	// each with its owner ("" = free).
 	Pool []TeamWorkspace `json:"pool,omitempty"`
-	// Task: the handoff id a claim recorded; the workspace quotes it in [ask]/[report].
-	Task string `json:"task,omitempty"`
 }
 
 func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Request) {
@@ -104,8 +103,9 @@ func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Reque
 	apiJSON(w, http.StatusOK, res)
 }
 
-// handleTeamWorkspaceClaim records the chat channel handing off to a pool workspace, so its
-// asks and reports return there. The response's task id ties later [ask]/[report] to this chat.
+// handleTeamWorkspaceClaim records the chat channel handing off to a pool workspace as its
+// owner, so its asks and reports return there. A workspace another chat channel owns is
+// refused with 409 (ErrTeamWorkspaceOwned): pick a free one from the pool or create the next.
 func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -134,12 +134,15 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
-	task, err := e.ClaimTeamWorkspaceTask(req.SessionKey, req.WorkspaceID, req.Name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := e.ClaimTeamWorkspace(req.SessionKey, req.WorkspaceID, req.Name); err != nil {
+		code := http.StatusBadRequest
+		if errors.Is(err, ErrTeamWorkspaceOwned) {
+			code = http.StatusConflict
+		}
+		http.Error(w, err.Error(), code)
 		return
 	}
 	plat, _, _ := strings.Cut(teamChatKey(req.SessionKey), ":")
 	parent, _ := e.WorkspaceParent(plat + ":" + req.WorkspaceID)
-	apiJSON(w, http.StatusOK, TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent), Task: task})
+	apiJSON(w, http.StatusOK, TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent)})
 }
