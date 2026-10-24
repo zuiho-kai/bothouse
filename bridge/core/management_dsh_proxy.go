@@ -99,6 +99,26 @@ func dshProxyPage(w http.ResponseWriter, status int, msg string) {
 	fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><p>%s</p><p><a href=\"/\">bothouse</a></p>", html.EscapeString(msg))
 }
 
+// dshSameOrigin stands in for DSH's own Origin fence, which the proxy defeats by stripping Origin
+// and Sec-Fetch-* before forwarding. The SameSite=Lax cookie still rides along from other ports
+// on the same host (same site), so a request whose Origin is not this host, or whose
+// Sec-Fetch-Site is not same-origin/none, is refused. Plain top-level GET/HEAD navigations stay
+// allowed so links from elsewhere (and the ?token= hop) still open the page.
+func dshSameOrigin(r *http.Request) bool {
+	if o := r.Header.Get("Origin"); o != "" {
+		u, err := url.Parse(o)
+		if err != nil || !strings.EqualFold(u.Host, r.Host) {
+			return false
+		}
+	}
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "", "same-origin", "none":
+		return true
+	}
+	navigate := r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Upgrade") == ""
+	return navigate && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
 func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == dshProxyPrefix {
 		u := *r.URL
@@ -109,6 +129,10 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 	}
 	if !m.dshAuthorized(r) {
 		dshProxyPage(w, http.StatusUnauthorized, "未登录：请先登录 bothouse 面板，再从面板打开频道页。 / Sign in to the bothouse panel first, then open the channels page from it.")
+		return
+	}
+	if !dshSameOrigin(r) {
+		dshProxyPage(w, http.StatusForbidden, "跨站请求被拒绝。 / Cross-site request refused.")
 		return
 	}
 	q := r.URL.Query()

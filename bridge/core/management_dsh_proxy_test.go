@@ -209,7 +209,7 @@ func TestDSHProxyForwardsHTTPWithPrefixStripped(t *testing.T) {
 	panel := setupDSHProxyTest(t, fake, "secret")
 	c := dshSignIn(t, panel, "secret")
 	req, _ := http.NewRequest(http.MethodPost, panel.URL+"/dsh/collab/api/rooms/general/messages?a=b", strings.NewReader("hi"))
-	req.Header.Set("Origin", "http://100.64.0.1:9820")
+	req.Header.Set("Origin", panel.URL)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Authorization", "Bearer secret")
 	res, err := c.Do(req)
@@ -329,6 +329,67 @@ func TestDSHProxyWebSocket(t *testing.T) {
 	if _, res, err := (&websocket.Dialer{}).Dial(wsURL, nil); err == nil || res == nil || res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated WS: err=%v res=%v, want 401", err, res)
 	}
+}
+
+func TestDSHProxyRejectsCrossOrigin(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
+	post := func(h map[string]string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, panel.URL+"/dsh/collab/api/rooms/general/messages", strings.NewReader("hi"))
+		for k, v := range h {
+			req.Header.Set(k, v)
+		}
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	host := strings.TrimPrefix(panel.URL, "http://")
+	other := "http://" + strings.Split(host, ":")[0] + ":1"
+	if s := post(map[string]string{"Origin": other}); s != http.StatusForbidden {
+		t.Fatalf("POST with foreign Origin: %d, want 403", s)
+	}
+	if s := post(map[string]string{"Origin": "null"}); s != http.StatusForbidden {
+		t.Fatalf("POST with null Origin: %d, want 403", s)
+	}
+	if s := post(map[string]string{"Sec-Fetch-Site": "same-site"}); s != http.StatusForbidden {
+		t.Fatalf("POST with Sec-Fetch-Site same-site: %d, want 403", s)
+	}
+	if s := post(map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"}); s != http.StatusForbidden {
+		t.Fatalf("cross-site form POST: %d, want 403", s)
+	}
+	if s := post(map[string]string{"Origin": panel.URL, "Sec-Fetch-Site": "same-origin"}); s != http.StatusOK {
+		t.Fatalf("same-origin POST: %d, want 200", s)
+	}
+	// A top-level GET navigation from another site still opens the page.
+	req, _ := http.NewRequest(http.MethodGet, panel.URL+"/dsh/", nil)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode == http.StatusForbidden {
+		t.Fatal("cross-site GET navigation refused")
+	}
+	wsURL := "ws" + strings.TrimPrefix(panel.URL, "http") + "/dsh/api/remote.mux"
+	d := websocket.Dialer{Jar: c.Jar}
+	if _, res, err := d.Dial(wsURL, http.Header{"Origin": {other}}); err == nil || res == nil || res.StatusCode != http.StatusForbidden {
+		t.Fatalf("WS with foreign Origin: err=%v res=%v, want 403", err, res)
+	}
+	if _, res, err := d.Dial(wsURL, http.Header{"Origin": {panel.URL}, "Sec-Fetch-Site": {"same-site"}}); err == nil || res == nil || res.StatusCode != http.StatusForbidden {
+		t.Fatalf("WS with Sec-Fetch-Site same-site: err=%v res=%v, want 403", err, res)
+	}
+	conn, _, err := d.Dial(wsURL, http.Header{"Origin": {panel.URL}})
+	if err != nil {
+		t.Fatalf("same-origin WS: %v", err)
+	}
+	conn.Close()
 }
 
 func TestDSHProxyNotRunning(t *testing.T) {
