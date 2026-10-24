@@ -9,11 +9,11 @@ import ctxsvc
 REPLY = "[replying to 主管: 没卡死，一直在干活]\n正在读 engine.go\n\n你给他插入一下啊"
 
 
-def make_wiki(d):
+def make_wiki(d, encoding="utf-8"):
     p = Path(d) / "infra"
     p.mkdir()
     (p / "README.md").write_text("x", encoding="utf-8")
-    (p / "vps.md").write_text("---\nname: vps\ndescription: VPS 一览\n---\n# T\n- 代理端口 7890\n", encoding="utf-8")
+    (p / "vps.md").write_text("---\nname: vps\ndescription: VPS 一览\n---\n# T\n- 代理端口 7890\n", encoding=encoding)
     (Path(d) / "data").mkdir()   # 没有 README.md 的目录不算 wiki 页
     (Path(d) / "data" / "x.md").write_text("- 代理端口 7890 也在这里\n", encoding="utf-8")
 
@@ -21,6 +21,12 @@ def make_wiki(d):
 class T(unittest.TestCase):
     def setUp(self):
         self.old = ctxsvc.WIKI
+        # Windows temp directories may be inside the real home; keep path assertions independent.
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        home_patch = patch.object(Path, "home", return_value=Path(home.name))
+        home_patch.start()
+        self.addCleanup(home_patch.stop)
         # 这里只测 wiki 页；任务板注入在 test_board.py，置空免得读到本机默认 BOARD_DIR 的板子
         self.old_board, ctxsvc.board = ctxsvc.board, None
         if ctxsvc.lead:  # 这里只测 wiki 页；主角色工作手册的注入在 test_lead_playbook.py
@@ -53,12 +59,25 @@ class T(unittest.TestCase):
                                              "desc": "VPS 一览 | 6: - 代理端口 7890"}]})
 
     def test_utf8_wiki_with_cp936_default(self):
+        read_text = Path.read_text
+
+        def cp936_read_text(path, encoding=None, errors=None, **kwargs):
+            return read_text(path, encoding=encoding or "cp936", errors=errors, **kwargs)
+
         with tempfile.TemporaryDirectory() as d:
             make_wiki(d)
             ctxsvc.WIKI, ctxsvc._idx = Path(d), None
-            # Emulate a Chinese Windows default on UTF-8 CI hosts too; explicit encodings still win.
-            with patch("io.text_encoding", side_effect=lambda encoding, *args: encoding or "cp936"):
+            # Emulate the default before pathlib resolves it; works on Python 3.9 and in UTF-8 mode.
+            with patch.object(Path, "read_text", cp936_read_text):
                 got = ctxsvc.match_wiki("代理端口多少")
+            self.assertEqual(got, [{"path": (Path(d) / "infra/vps.md").as_posix(),
+                                   "desc": "VPS 一览 | 6: - 代理端口 7890"}])
+
+    def test_utf8_bom_preserves_description(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_wiki(d, encoding="utf-8-sig")
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), None
+            got = ctxsvc.match_wiki("代理端口多少")
             self.assertEqual(got, [{"path": (Path(d) / "infra/vps.md").as_posix(),
                                    "desc": "VPS 一览 | 6: - 代理端口 7890"}])
 
