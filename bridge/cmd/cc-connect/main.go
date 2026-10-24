@@ -1439,8 +1439,9 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	// Wire config reload
 	capturedEngine := engine
 	capturedProjName := projName
+	startedPlatformOpts := platformOptsByType(proj.Platforms)
 	engine.SetConfigReloadFunc(func() (*core.ConfigReloadResult, error) {
-		return reloadConfig(configPath, capturedProjName, capturedEngine)
+		return reloadConfig(configPath, capturedProjName, capturedEngine, startedPlatformOpts)
 	})
 
 	// Wire /web command callbacks
@@ -1780,7 +1781,18 @@ func setupLogger(level string, w io.Writer) {
 
 // reloadConfig re-reads config.toml and applies hot-reloadable settings
 // (display, providers, commands) to the given engine.
-func reloadConfig(configPath, projName string, engine *core.Engine) (*core.ConfigReloadResult, error) {
+// platformOptsByType keys a project's platform options by platform type.
+func platformOptsByType(ps []config.PlatformConfig) map[string]map[string]any {
+	out := make(map[string]map[string]any, len(ps))
+	for _, p := range ps {
+		out[p.Type] = p.Options
+	}
+	return out
+}
+
+// started is the project's platform options as the engine was built with; options a platform
+// cannot take while running are reported in result.RestartKeys.
+func reloadConfig(configPath, projName string, engine *core.Engine, started map[string]map[string]any) (*core.ConfigReloadResult, error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("reload config: %w", err)
@@ -1944,6 +1956,8 @@ func reloadConfig(configPath, projName string, engine *core.Engine) (*core.Confi
 	}
 
 	slog.Info("config reloaded", "project", projName)
+	// platform options the setup wizard rewrites on running roles (allow_bots, team_lead_bot, …)
+	result.RestartKeys = engine.ReloadPlatformOptions(platformOptsByType(proj.Platforms), started)
 	return result, nil
 }
 

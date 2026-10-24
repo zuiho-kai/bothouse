@@ -1244,6 +1244,11 @@ func (e *Engine) AddPlatform(p Platform) {
 	e.platforms = append(e.platforms, p)
 }
 
+// Platforms returns a copy of the engine's platform list.
+func (e *Engine) Platforms() []Platform {
+	return append([]Platform(nil), e.platforms...)
+}
+
 func (e *Engine) SetCronScheduler(cs *CronScheduler) {
 	e.cronScheduler = cs
 }
@@ -1273,6 +1278,37 @@ type ConfigReloadResult struct {
 	DisplayUpdated   bool
 	ProvidersUpdated int
 	CommandsUpdated  int
+	// RestartKeys lists platform options ("<platform>.<key>") that changed in config.toml
+	// but only take effect after a restart.
+	RestartKeys []string
+}
+
+// OptionsReloader is implemented by platforms that can take some options from a
+// reloaded config.toml while running. ReloadOptions returns the changed keys that still
+// need a restart.
+type OptionsReloader interface {
+	ReloadOptions(opts map[string]any) []string
+}
+
+// ReloadPlatformOptions hands each running platform its options from the reloaded config
+// (keyed by platform type). It returns "<type>.<key>" for every change that needs a restart;
+// a platform without OptionsReloader reports "<type>" when its options changed at all.
+func (e *Engine) ReloadPlatformOptions(byType map[string]map[string]any, started map[string]map[string]any) []string {
+	var restart []string
+	for _, p := range e.platforms {
+		opts, ok := byType[p.Name()]
+		if !ok {
+			continue
+		}
+		if r, ok := p.(OptionsReloader); ok {
+			for _, k := range r.ReloadOptions(opts) {
+				restart = append(restart, p.Name()+"."+k)
+			}
+		} else if started != nil && fmt.Sprint(started[p.Name()]) != fmt.Sprint(opts) {
+			restart = append(restart, p.Name())
+		}
+	}
+	return restart
 }
 
 func (e *Engine) SetConfigReloadFunc(fn func() (*ConfigReloadResult, error)) {

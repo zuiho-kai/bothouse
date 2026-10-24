@@ -3050,3 +3050,19 @@ func TestMgmt_RestartReplyNotDroppedByStop(t *testing.T) {
 		<-stopped
 	}
 }
+
+func TestMgmt_ReloadRunningReportsRestartKeys(t *testing.T) {
+	m, _, e := testManagementServer(t, "tok")
+	e.configReloadFunc = func() (*ConfigReloadResult, error) {
+		return &ConfigReloadResult{}, nil
+	}
+	if pending, err := m.reloadRunning(); err != nil || len(pending) != 0 {
+		t.Fatalf("pending=%v err=%v, want none", pending, err)
+	}
+	e.configReloadFunc = func() (*ConfigReloadResult, error) {
+		return &ConfigReloadResult{RestartKeys: []string{"cloud_web"}}, nil
+	}
+	if pending, err := m.reloadRunning(); err != nil || len(pending) != 1 {
+		t.Fatalf("pending=%v err=%v, want one restart key", pending, err)
+	}
+}

@@ -530,6 +530,27 @@ func (m *ManagementServer) handleRestart(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// reloadRunning re-reads config.toml into every running project. It returns the
+// "<project>: <option>" entries that changed but need a restart.
+func (m *ManagementServer) reloadRunning() ([]string, error) {
+	var pending []string
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for name, e := range m.engines {
+		if e.configReloadFunc == nil {
+			continue
+		}
+		r, err := e.configReloadFunc()
+		if err != nil {
+			return pending, fmt.Errorf("reload %s: %v", name, err)
+		}
+		for _, k := range r.RestartKeys {
+			pending = append(pending, name+": "+k)
+		}
+	}
+	return pending, nil
+}
+
 func (m *ManagementServer) handleReload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		mgmtError(w, http.StatusMethodNotAllowed, "POST only")

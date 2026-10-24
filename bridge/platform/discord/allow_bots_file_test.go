@@ -103,3 +103,19 @@ func platformOf(t *testing.T, pl any) *Platform {
 	t.Fatalf("platform type = %T", pl)
 	return nil
 }
+
+func TestReloadOptionsAppliesAllowBotsLive(t *testing.T) {
+	p := &Platform{allowBots: "100", startGroupReplyAll: true, allowBotsFile: newAllowBotsFile("")}
+	if p.botAllowed("200") {
+		t.Fatal("200 allowed before reload")
+	}
+	if r := p.ReloadOptions(map[string]any{"allow_bots": "100,200", "team_lead_bot": "300", "group_reply_all": true}); len(r) != 0 {
+		t.Fatalf("restart keys = %v, want none", r)
+	}
+	if !p.botAllowed("200") || p.lead() != "300" {
+		t.Fatal("allow_bots / team_lead_bot not applied")
+	}
+	if r := p.ReloadOptions(map[string]any{"allow_bots": "100,200", "share_session_in_channel": true}); len(r) != 2 {
+		t.Fatalf("restart keys = %v, want share_session_in_channel and group_reply_all", r)
+	}
+}

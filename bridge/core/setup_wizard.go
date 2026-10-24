@@ -2224,11 +2224,13 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 	req.libraryHost = r.Host
 	res := ApplyWizard(r.Context(), env, req)
 	if res.Saved && !res.DryRun && m.hotLoad != nil {
+		// adding a role also rewrites the running roles' allow_bots / team_lead_bot / gate: reload
+		// them first (outside m.mu before hotLoad, which registers new engines under it)
+		pending, reloadErr := m.reloadRunning()
 		hl := m.hotLoad()
 		res.HotLoad = &hl
-		// adding roles leaves the existing ones untouched, so once every new one is online nothing
-		// is left for a restart to apply
-		if req.AppendOnly && hl.Error == "" && len(hl.Failed) == 0 {
+		// restart only when something could not be applied live
+		if req.AppendOnly && hl.Error == "" && len(hl.Failed) == 0 && reloadErr == nil && len(pending) == 0 {
 			res.RestartRequired = false
 		}
 	}

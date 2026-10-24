@@ -23,17 +23,17 @@ const leadReturnTTL = 24 * time.Hour
 // answer @-s the lead, and the lead (whose gate keeps it quiet on that message) checks the answer then.
 // content is the text after this bot's own @ was removed or marked.
 func (p *Platform) dispatchedBy(fromBot, mentioned bool, authorID, content string) string {
-	if !mentioned || p.teamLead == "" || p.teamLead == p.botID {
+	if !mentioned || p.lead() == "" || p.lead() == p.botID {
 		return ""
 	}
 	if fromBot {
-		if authorID == p.teamLead {
-			return p.teamLead
+		if authorID == p.lead() {
+			return p.lead()
 		}
 		return ""
 	}
-	if strings.Contains(content, "<@"+p.teamLead+">") || strings.Contains(content, "<@!"+p.teamLead+">") {
-		return p.teamLead
+	if strings.Contains(content, "<@"+p.lead()+">") || strings.Contains(content, "<@!"+p.lead()+">") {
+		return p.lead()
 	}
 	return ""
 }
@@ -80,10 +80,10 @@ func (p *Platform) MergeInjectedReply(turnCtx, injectedCtx any) any {
 var _ core.InjectedReplyMerger = (*Platform)(nil)
 
 // HasConfiguredTeamLead reports whether team_lead_bot is set (core.ConfiguredTeamLead).
-func (p *Platform) HasConfiguredTeamLead() bool { return p.teamLead != "" }
+func (p *Platform) HasConfiguredTeamLead() bool { return p.lead() != "" }
 
 // IsConfiguredTeamLead reports whether team_lead_bot names this bot (core.ConfiguredTeamLeadSelf).
-func (p *Platform) IsConfiguredTeamLead() bool { return p.teamLead != "" && p.teamLead == p.botID }
+func (p *Platform) IsConfiguredTeamLead() bool { return p.lead() != "" && p.lead() == p.botID }
 
 // addressedOther reports whether a person's message @-s or names (at a line start) another
 // team bot rather than this one, so a no-gate lead leaves it to that teammate.

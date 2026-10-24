@@ -76,6 +76,8 @@ type Platform struct {
 	token                      string
 	allowFrom                  string
 	permissionApprovers        []string
+	liveMu                     sync.RWMutex      // guards allowBots and teamLead, which ReloadOptions swaps while running
+	startGroupReplyAll         any               // group_reply_all as read in New; ReloadOptions reports a change as needing a restart
 	allowBots                  string            // maomao fork: bot user IDs whose @-mentions of this bot are accepted
 	allowBotsFile              *allowBotsFile    // maomao fork: more allowed bot/webhook IDs, one per line; see allow_bots_file.go
 	teamLead                   string            // maomao fork: bot ID of the team lead; a reply to its @ is routed back to it (lead_return.go)
@@ -209,6 +211,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		allowFrom:                  allowFrom,
 		permissionApprovers:        approvers,
 		allowBots:                  allowBots,
+		startGroupReplyAll:         opts["group_reply_all"],
 		allowBotsFile:              newAllowBotsFile(allowBotsFilePath),
 		teamLead:                   teamLead,
 		guildID:                    guildID,
@@ -870,7 +873,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// itself and does not reply to the lead. Being only the reply target is not "@lead and @sub
 	// together"; replying to the lead is talking to her, so she answers herself (gate.py co_mention
 	// says the same) instead of answering once now and again on the sub's @.
-	if !fromBot && (!bodySelf || (m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil && m.ReferencedMessage.Author.ID == p.teamLead)) {
+	if !fromBot && (!bodySelf || (m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil && m.ReferencedMessage.Author.ID == p.lead())) {
 		rctx.lead = ""
 	}
 
