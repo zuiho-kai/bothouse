@@ -27,9 +27,8 @@ jobs:
       dsh: ${{ steps.paths.outputs.dsh }}
       docs_only: ${{ steps.paths.outputs.docs_only }}
     steps:
-      # The classifier's own path is fail-open, so workflow/helper edits always
-      # run full coverage. Checking out the PR lets this first adoption validate
-      # the classifier and its tests before the file exists on the base branch.
+      # Run candidate policy tests with read-only permissions on hosted runners.
+      # The decision below reads policy separately from the immutable PR base.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -39,28 +38,24 @@ jobs:
         id: paths
         with:
           script: |
-            // This code runs from the trusted base workflow. Do not require a
-            // classifier from the PR checkout to decide which checks it may skip.
+            // Read policy from the immutable PR base, never the PR checkout.
+            // On initial adoption the base has no classifier, so run everything.
             const full = () => ({ go: true, companion: true, dsh: true, docs_only: false });
-            const classify = (paths) => {
-              if (context.eventName !== 'pull_request' || !paths.length) return full();
-              const result = { go: false, companion: false, dsh: false, docs_only: true };
-              for (const path of paths) {
-                if (path.startsWith('.github/') ||
-                    /\.(sh|bash|zsh|ps1|py|js|mjs|cjs)$/.test(path) ||
-                    /(^|\/)([^/]*lock[^/]*|go\.(mod|sum)|package\.json|pyproject\.toml|Makefile)$/.test(path)) return full();
-                if (/^(README[^/]*\.md|CONTRIBUTING\.md|SECURITY\.md|CODE_OF_CONDUCT\.md|LICENSE(?:\.[^/]*)?)$/.test(path) ||
-                    /^docs\/.*\.(md|txt|png|jpg|jpeg|gif|svg|webp)$/.test(path)) continue;
-                result.docs_only = false;
-                if (/^dsh\/packages\/client-ui-discord\//.test(path)) result.dsh = true;
-                else if (/^companion\//.test(path)) result.companion = true;
-                else if (/^bridge\//.test(path) && /\.(go|tsx?|css)$/.test(path)) {
-                  result.go = true;
-                  result.dsh = true;
-                } else return full();
+            let classify = full;
+            if (context.eventName === 'pull_request') {
+              try {
+                const policy = (await github.rest.repos.getContent({
+                  ...context.repo, path: '.github/ci/classify.cjs',
+                  ref: context.payload.pull_request.base.sha
+                })).data;
+                const trustedModule = { exports: {} };
+                new Function('module', Buffer.from(policy.content, 'base64').toString('utf8'))(trustedModule);
+                classify = trustedModule.exports.classify;
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                core.info('No base classifier yet; retaining full coverage');
               }
-              return result;
-            };
+            }
             let paths = [];
             if (context.eventName === 'pull_request') {
               const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -71,7 +66,7 @@ jobs:
                 paths = files.flatMap(f => [f.filename, f.previous_filename].filter(Boolean));
               }
             }
-            const result = classify(paths);
+            const result = classify(paths, context.eventName);
             for (const [key, value] of Object.entries(result)) core.setOutput(key, String(value));
             core.info(JSON.stringify(result));
 
