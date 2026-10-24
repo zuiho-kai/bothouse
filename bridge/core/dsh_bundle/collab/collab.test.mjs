@@ -5811,3 +5811,18 @@ test('delegating with standalone verdict examples does not prematurely accept th
   assert.equal(tasks.task(original.id).status, 'returned');
   assert.equal(tasks.list(1).find(t => t.owner === 'reviewer').parent_task, original.id);
 });
+
+test('#145 unread: per-room count after a cursor skips own, draft and deleted rows; drafts are flagged to browsers', () => {
+  const hub = makeHub();
+  const events = [];
+  hub.subscribe(e => events.push(e));
+  const { message: seen } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: 'old' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'mine' });
+  hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: 'new' });
+  const { message: draft } = hub.draft(1, { authorKind: 'role', author: 'ju', name: '橘', text: '写到一半' });
+  assert.equal(events.at(-1).message.draft, true, 'a streamed draft is marked');
+  assert.equal(hub.store.unreadCount(1, seen.id), 1, 'own and draft rows are not unread');
+  hub.commit(draft.id, 'role', 'ju', '写完了', null);
+  assert.equal(events.at(-1).message.draft, undefined, 'the committed reply is not');
+  assert.equal(hub.store.unreadCount(1, seen.id), 2);
+});

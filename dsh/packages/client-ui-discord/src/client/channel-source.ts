@@ -24,6 +24,8 @@ export interface ChannelMessage {
   readonly from_turn: number | null
   /** What this message replies to; absent for a plain message. */
   readonly reply_to?: ChannelQuote
+  /** A streamed reply still being written (#121); it is counted and notified once, when committed. */
+  readonly draft?: boolean
   /** Uploaded images and files (#144); absent when there are none. */
   readonly attachments?: readonly ChannelAttachment[]
   /** Unix seconds of the author's last edit (#148); absent if never edited. */
@@ -167,6 +169,8 @@ export interface ChannelRoom {
   readonly active?: number
   /** Newest committed message in this room (#145). */
   readonly last_message_id?: number | null
+  /** Messages from others after the read cursor this client sent (#145); absent if no cursor was sent. */
+  readonly unread_count?: number
 }
 
 /** Per-room unread status (#145). */
@@ -432,6 +436,14 @@ export function createChannelSource(transport: ChannelTransport): {
   let historyEpoch = 0
   const readCursors: Record<number, number> = loadReadCursors()
   let unreadState: Record<number, UnreadRoomState> = {}
+  // Message ids already counted/notified: a streamed reply arrives as a draft, then
+  // several edits and a commit, all with the same id, and must count once.
+  const counted = new Set<number>()
+  /** State request carrying this client's read cursors, so the server can count unread messages per room. */
+  const stateUrl = (): string => {
+    const read = Object.entries(readCursors).map(([room, id]) => `${room}:${id}`).join(',')
+    return read === '' ? 'collab/api/state' : `collab/api/state?read=${encodeURIComponent(read)}`
+  }
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -470,8 +482,11 @@ export function createChannelSource(transport: ChannelTransport): {
         const msg = event.message
         const isCurrent = msg.room_id === current.roomId
         const isBackground = isWindowBackground()
+        const fresh = msg.draft !== true && !counted.has(msg.id) && msg.id > (readCursors[msg.room_id] ?? 0)
+        if (fresh) counted.add(msg.id)
 
         if (!isCurrent) {
+          if (!fresh) return current
           const prev = unreadState[msg.room_id] ?? { count: 0, mention: false }
           const mention = prev.mention || isMentionOrReply(msg, current.me, current.members)
           const nextRoomUnread: UnreadRoomState = {
@@ -496,7 +511,7 @@ export function createChannelSource(transport: ChannelTransport): {
         rows.set(msg.id, msg)
         const nextMessages = [...rows.values()].sort((a, b) => a.id - b.id)
 
-        if (isBackground) {
+        if (isBackground && fresh) {
           const prev = unreadState[msg.room_id] ?? { count: 0, mention: false }
           const mention = prev.mention || isMentionOrReply(msg, current.me, current.members)
           const nextRoomUnread: UnreadRoomState = {
@@ -514,7 +529,7 @@ export function createChannelSource(transport: ChannelTransport): {
               onClick: () => { void actions.selectRoom(msg.room_id) },
             })
           }
-        } else {
+        } else if (!isBackground) {
           readCursors[msg.room_id] = Math.max(readCursors[msg.room_id] ?? 0, msg.id)
           saveReadCursors(readCursors)
           unreadState = { ...unreadState, [msg.room_id]: { count: 0, mention: false } }
@@ -593,7 +608,7 @@ export function createChannelSource(transport: ChannelTransport): {
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
       const state = await request<{ me?: string; rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; lead_id?: string | null; effective_lead_id?: string | null }>(
-        'collab/api/state', { signal: read.controller.signal },
+        stateUrl(), { signal: read.controller.signal },
       )
       if (!current()) return
       const roomId = state.rooms.some(r => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id
@@ -607,18 +622,22 @@ export function createChannelSource(transport: ChannelTransport): {
           }
           unreadState = { ...unreadState, [r.id]: { count: 0, mention: false } }
         } else if (r.last_message_id != null && r.last_message_id > 0) {
-          const cursor = readCursors[r.id]
-          if (cursor === undefined) {
-            readCursors[r.id] = 0
+          if (readCursors[r.id] === undefined) {
+            // First time this client sees the room: start reading from now instead of
+            // counting the room's whole history as unread.
+            readCursors[r.id] = r.last_message_id
             saveReadCursors(readCursors)
+            continue
           }
-          const c = readCursors[r.id] ?? 0
-          if (r.last_message_id > c) {
+          // Message ids are global across rooms, so an id difference is not a count;
+          // the server counts the room's messages after the cursor we sent.
+          const count = r.unread_count ?? 0
+          if (r.last_message_id > readCursors[r.id]! && count > 0) {
             const existing = unreadState[r.id]
             unreadState = {
               ...unreadState,
               [r.id]: {
-                count: Math.max(existing?.count ?? 0, r.last_message_id - c),
+                count: Math.max(existing?.count ?? 0, count),
                 mention: existing?.mention ?? false,
                 firstUnreadId: existing?.firstUnreadId,
               },

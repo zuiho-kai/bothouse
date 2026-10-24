@@ -96,6 +96,7 @@ export class Store {
       editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
         AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
+      unreadAfter: this.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id > ? AND draft = 0 AND deleted = 0 AND author_kind != 'user'"),
       lastMessagePerRoom: this.db.prepare('SELECT room_id, MAX(id) AS last_id FROM messages WHERE draft = 0 AND deleted = 0 GROUP BY room_id'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
@@ -602,6 +603,11 @@ export class Store {
   }
 
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
+  /** #145: messages from others in a room after a client's read cursor. */
+  unreadCount(roomId, afterId) {
+    return this.q.unreadAfter.get(roomId, afterId).n;
+  }
+
   roomsView() {
     this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
@@ -762,7 +768,8 @@ export function publicMessage(row, store) {
   if (quote !== undefined) out.reply_to = quote;
   const attachments = messageAttachments(row);
   if (attachments.length) out.attachments = attachments;
-  return out;
+  if (row.draft) out.draft = true; // #145: a streamed reply in progress; clients count and notify it once, on commit
+> return out;
 }
 
 /** #144: the uploaded files a message carries ([] when none or unreadable). */
