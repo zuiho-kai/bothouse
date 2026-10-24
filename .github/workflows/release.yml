@@ -25,7 +25,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preempt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    outputs:
+      runs: ${{ steps.cancel.outputs.runs }}
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        id: cancel
+        with:
+          script: |
+            const cancelled = [];
+            try {
+              // Limit preemption to PR checks; branch pushes and releases are untouched.
+              for (const workflow_id of ['ci.yml', 'ui-preview.yml']) {
+                for (const status of ['queued', 'in_progress']) {
+                  const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                    ...context.repo, workflow_id, event: 'pull_request', status, per_page: 100
+                  });
+                  for (const run of runs) {
+                    if (run.event !== 'pull_request' || cancelled.some(r => r.id === run.id)) continue;
+                    try {
+                      await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: run.id });
+                      cancelled.push({ id: run.id, workflow_id, sha: run.head_sha,
+                        branch: run.head_branch, created_at: run.created_at,
+                        repository: run.head_repository?.id });
+                    } catch (error) {
+                      // A run can complete between listing it and requesting cancellation.
+                      const current = (await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: run.id })).data;
+                      if (current.status !== 'completed') throw error;
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              // Publishing must not be blocked if the Actions control plane is unavailable.
+              core.warning(`Could not preempt every PR run: ${error.message}`);
+            } finally {
+              // Persist partial success even if a later API call fails.
+              core.setOutput('runs', JSON.stringify(cancelled));
+              core.info(`Preempted ${cancelled.length} PR runs`);
+            }
+
   build:
+    needs: preempt
     strategy:
       matrix:
         include:
@@ -227,6 +272,7 @@ jobs:
   # The built outputs (plugin-pkg/collab, plugin-pkg/client) are gitignored on main, so each release force-pushes
   # a one-commit `dsh-plugin` branch holding only the packed files. Runs in parallel with the binary builds.
   dsh-plugin:
+    needs: preempt
     runs-on: [self-hosted, bothouse-ci]
     timeout-minutes: 10
     permissions:
@@ -263,3 +309,46 @@ jobs:
           git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
             commit -qm "dsh-plugin: bothouse-dsh built from $TAG ($(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD))"
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dsh-plugin
+
+  resume-pr-checks:
+    needs: [preempt, build, publish, dsh-plugin]
+    if: always() && needs.preempt.outputs.runs != '' && needs.preempt.outputs.runs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PREEMPTED_RUNS: ${{ needs.preempt.outputs.runs }}
+        with:
+          script: |
+            const failed = [];
+            for (const run of JSON.parse(process.env.PREEMPTED_RUNS)) {
+              try {
+                let current;
+                for (let attempt = 0; attempt < 20; attempt++) {
+                  current = (await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: run.id })).data;
+                  if (current.status === 'completed') break;
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                if (current.status !== 'completed') throw new Error('cancellation has not completed');
+                if (current.conclusion !== 'cancelled') continue;
+                const recent = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                  ...context.repo, workflow_id: run.workflow_id, event: 'pull_request',
+                  branch: run.branch, per_page: 100
+                });
+                // A subsequent push already supersedes the cancelled check.
+                if (recent.some(r => r.id !== run.id && r.created_at > run.created_at &&
+                    r.head_repository?.id === run.repository)) {
+                  core.info(`Run ${run.id} was superseded; keeping the newer check`);
+                  continue;
+                }
+                await github.rest.actions.reRunWorkflow({ ...context.repo, run_id: run.id });
+                core.info(`Restarted PR run ${run.id}`);
+              } catch (error) {
+                core.error(`Could not restart run ${run.id}: ${error.message}`);
+                failed.push(run.id);
+              }
+            }
+            if (failed.length) core.setFailed(`PR checks requiring retry: ${failed.join(', ')}`);
