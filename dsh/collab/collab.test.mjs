@@ -445,6 +445,57 @@ test('DSH member: a reply that @s a cloud-web bot is forwarded to it', async () 
   assert.equal(frame.content, '【DeepSeek】请跑一下 go test');
 });
 
+test('DSH member: the answer to the lead\'s dispatch starts with @lead and wakes it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'coder', name: 'Coder' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  let lead = 'ju';
+  hub.leadState = { selected: () => lead };
+
+  // A cloud-web lead dispatches; the member forgets to @ it back.
+  hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek 跑一下 go test' });
+  await settle();
+  const ds = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(ds, ['测试全过']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '@橘 测试全过');
+  const frame = ju.of('message').at(-1);
+  assert.equal(frame.mentioned, true);
+  assert.equal(frame.content, '【DeepSeek】测试全过');
+
+  // Already @-ed: unchanged. A person's @ to the member alone: no lead wake.
+  hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek 再看看' });
+  await settle();
+  dsh.turn(ds, ['@橘 看完了']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '@橘 看完了');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你好' });
+  await settle();
+  dsh.turn(ds, ['你好']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '你好');
+
+  // A person @-s the member and the lead together: the answer returns to the lead.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 @DeepSeek 一起看下' });
+  await settle();
+  dsh.turn(ds, ['看了']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '@橘 看了');
+
+  // A DSH member as lead: the hand-back starts the lead's own job.
+  lead = 'ds';
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '@Coder 改一下' });
+  await settle();
+  const coder = dsh.sessions.get(dsh.made[1]);
+  dsh.turn(coder, ['改好了']);
+  await settle();
+  const back = hub.store.page(1, undefined, 1)[0];
+  assert.equal(back.text, '@DeepSeek 改好了');
+  assert.ok(hub.store.openJobs().some(j => j.member_id === 'ds' && j.trigger_id === back.id));
+});
+
 test('DSH member: a discarded input ends its job and frees the queue', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();

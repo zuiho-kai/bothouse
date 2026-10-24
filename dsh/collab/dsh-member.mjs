@@ -364,8 +364,9 @@ export class DshMembers {
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
-      const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, text);
-      const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text }).message;
+      const reply = this.returnToLead(job, member, text);
+      const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, reply);
+      const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: reply }).message;
       done = true;
       this.store.finishJob(job.id, 'done', message.id);
     } finally {
@@ -418,9 +419,35 @@ export class DshMembers {
     const complete = kind === undefined || kind === 'completed' || kind === 'max-tokens';
     const { message } = this.hub.post(job.room_id, {
       authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`,
-      text: complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`,
+      text: this.returnToLead(job, member, complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`),
     });
     this.store.finishJob(job.id, 'done', message.id);
+  }
+
+  /**
+   * The primary role whose dispatch this job answers, or undefined. Same rule as
+   * bridge/platform/cloud-web/lead_return.go dispatchedBy: the lead's own message
+   * called this member, or a person's message @-s this member and the lead together.
+   */
+  dispatchedBy(job, member) {
+    const lead = this.hub.selectedPrimaryMember();
+    if (lead === undefined || lead.id === member.id) return undefined;
+    const trigger = this.store.message(job.trigger_id);
+    if (trigger === undefined) return undefined;
+    if (trigger.author_kind === 'role') return trigger.author === lead.id ? lead : undefined;
+    if (trigger.author_kind !== 'user') return undefined;
+    return mentions(trigger.text, this.hub.routable()).has(lead.id) ? lead : undefined;
+  }
+
+  /**
+   * Port of lead_return.go returnToLead: a member's final answer to the lead's
+   * dispatch starts with @lead even if the model forgot it, so the hand-back
+   * wakes the lead the same way a cloud-web bot's does.
+   */
+  returnToLead(job, member, text) {
+    const lead = this.dispatchedBy(job, member);
+    if (lead === undefined || !text.trim() || mentions(text, this.hub.routable()).has(lead.id)) return text;
+    return `@${lead.name} ${text}`;
   }
 
   fail(jobId, notice, state = 'failed') {
