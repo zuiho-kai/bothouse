@@ -1268,14 +1268,21 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			raw := base
 			base = cleanProjectName(base)
 			noASCII := base == "" && raw != ""
-			if base == "" {
-				base = fmt.Sprintf("role-%d", i+1)
-			}
 			name := base
-			for n := 2; taken[name] || used[name]; n++ {
-				name = fmt.Sprintf("%s-%d", base, n)
+			if base == "" {
+				// a generated role-N says nothing about the user's name: if it is taken (an earlier
+				// add made role-1), move on to the next free number rather than role-1-2 or refusing
+				for n := i + 1; ; n++ {
+					if name = fmt.Sprintf("role-%d", n); !taken[name] && !used[name] {
+						break
+					}
+				}
+			} else {
+				for n := 2; taken[name] || used[name]; n++ {
+					name = fmt.Sprintf("%s-%d", base, n)
+				}
+				renamed = name != base
 			}
-			renamed = name != base
 			if noASCII {
 				// project names are a-z 0-9 _ - (they go into paths, URLs and gate_url ?bot=); said
 				// without entry-specific steps, since the web wizard has no project-name box
@@ -1284,7 +1291,14 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			r.project = name
 		}
 		if req.AppendOnly && (r.reused || renamed) {
-			return nil, fmt.Errorf("a role named %q already exists; pick another name (adding never changes existing roles)", r.project)
+			given := w.Name // the name the user typed, not the project name it maps to
+			if given == "" {
+				given = w.Project
+			}
+			if given == "" {
+				given = r.project
+			}
+			return nil, fmt.Errorf("a role named %q already exists; pick another name (adding never changes existing roles)", given)
 		}
 		if used[r.project] {
 			return nil, fmt.Errorf("bot %q is used twice in this request", r.project)
@@ -1387,9 +1401,19 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		pl.team = append(pl.team, e)
 	}
 
+	// adding a role never moves the lead: keep the recorded fallback of this platform/hub, whatever
+	// the request says; only with no recorded one (nothing in the team) does the new role take it
+	if req.AppendOnly {
+		req.FallbackRole, req.FallbackBotID = "", ""
+		if req.Platform == "discord" && state.Platform == "discord" {
+			req.FallbackRole = state.FallbackRole
+		} else if cloudWeb && sameCloudWebHub(state.CloudWebURL, cwBase) {
+			req.FallbackRole = state.CloudWebFallback
+		}
+	}
 	// fallback role (unit = bot): one of the team's bots, else the first bot of this run (L3)
 	pl.fallback = req.FallbackRole
-	if cloudWeb && req.FallbackRole != "" {
+	if cloudWeb && req.FallbackRole != "" && !req.AppendOnly { // append: a recorded project name, not a display name
 		// the web wizard names the fallback by display name: its guess of a project name can differ
 		// from the one planned here (an existing member of the same name is reused, sameCloudWebMember)
 		for _, r := range pl.roles {

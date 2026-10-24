@@ -323,9 +323,10 @@ export default function SetupWizard() {
       })),
       // 自建平台: by display name (unique there) — a re-run reuses an existing member of the same name,
       // so the project name guessed here (projectNames) can differ from the one the server plans
-      fallback_role: platform === 'cloud_web' ? nameOf(roles.find((r) => projectOf(r) === fallback) || roles[0])
+      // adding a role never moves the lead: the server keeps the recorded one, so none is sent
+      fallback_role: addMode ? undefined : platform === 'cloud_web' ? nameOf(roles.find((r) => projectOf(r) === fallback) || roles[0])
         : platform !== 'feishu' ? fallback : undefined,
-      fallback_bot_id: platform === 'discord' ? roles.find((r) => projectOf(r) === fallback)?.info?.bot_id : undefined,
+      fallback_bot_id: !addMode && platform === 'discord' ? roles.find((r) => projectOf(r) === fallback)?.info?.bot_id : undefined,
       ...(addMode ? { append_only: true } : {}),
     };
     if (platform === 'discord') {
@@ -396,8 +397,9 @@ export default function SetupWizard() {
     !jevTest.running && !jevSave.saving && (!jev.base_url ? true : !jev.model ? false : jevUnchanged || jevTest.usable === true), true,
   ];
   // 自建平台 with one role: no one to pick between, so no fallback / jev step
+  // adding a role (addMode): the lead stays as it is, so no fallback step either
   const visibleSteps = platform === 'feishu' ? [0, 1, 2, 3, 5, 6]
-    : platform === 'cloud_web' && roles.length === 1 ? [0, 1, 2, 3, 6] : [0, 1, 2, 3, 4, 5, 6];
+    : platform === 'cloud_web' && roles.length === 1 ? [0, 1, 2, 3, 6] : addMode ? [0, 1, 2, 3, 5, 6] : [0, 1, 2, 3, 4, 5, 6];
   const pos = visibleSteps.indexOf(step);
   const go = (d: number) => setStep(visibleSteps[Math.min(Math.max(pos + d, 0), visibleSteps.length - 1)]);
 
@@ -827,7 +829,7 @@ export default function SetupWizard() {
                   {roles.map((r) => (
                     <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{keptLang(r)
                       ? <span data-testid="review-reply-lang-kept"> · {T.replyLang}: {keptLangLabel(T, r.existingPersona)}{T.replyLangKept}</span>
-                      : <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{fallback === projectOf(r) && platform !== 'feishu' && roles.length > 1 ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
+                      : <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{!addMode && fallback === projectOf(r) && platform !== 'feishu' && roles.length > 1 ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
                   ))}
                   {platform === 'discord' && <li>• {guilds.find((g) => g.id === guildID)?.name} / #{channels.find((c) => c.id === channelID)?.name}</li>}
                   {platform === 'cloud_web' && <li data-testid="review-cloud-web">• {T.cwReview}{cwURL}{cwLocalKnown ? T.cwLocalTag : ''}</li>}
