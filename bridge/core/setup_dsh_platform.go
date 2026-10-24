@@ -117,27 +117,90 @@ func LookDSH() (string, error) {
 	return "", errDSHMissing
 }
 
-// LookBash returns the bash executable path: on PATH or in standard Windows Git installations.
+// LookBash returns the bash that runs install.sh. On Windows it must be Git for Windows (MSYS)
+// bash: C:\Windows\System32\bash.exe is the WSL launcher, which often wins on PATH but runs a
+// Linux bash that cannot open a Windows path (issue #92: "/bin/bash: C:Users<user>...: No such file").
 func LookBash() (string, error) {
-	if p, err := exec.LookPath("bash"); err == nil {
-		return p, nil
-	}
-	if runtime.GOOS == "windows" {
-		candidates := []string{
-			`C:\Program Files\Git\bin\bash.exe`,
-			`C:\Program Files\Git\usr\bin\bash.exe`,
-			`C:\Program Files (x86)\Git\bin\bash.exe`,
-			filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin", "bash.exe"),
-			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Git", "bin", "bash.exe"),
+	if runtime.GOOS != "windows" {
+		if p, err := exec.LookPath("bash"); err == nil {
+			return p, nil
 		}
-		for _, c := range candidates {
-			if c != "" && fileExists(c) {
-				return c, nil
-			}
-		}
-		return "", errors.New("Windows 环境安装 DSH 插件需要 Bash：请安装 Git for Windows (https://gitforwindows.org) 并将 bin 目录加入环境变量 PATH")
+		return "", errors.New("bash not found on PATH")
 	}
-	return "", errors.New("bash not found on PATH")
+	pathBash, _ := exec.LookPath("bash")
+	gitExe, _ := exec.LookPath("git")
+	return pickWindowsBash(pathBash, gitExe, os.Getenv, fileExists)
+}
+
+// pickWindowsBash picks Git Bash: bash on PATH unless it is the WSL launcher, then the bash next
+// to git on PATH, then the standard Git for Windows install locations.
+func pickWindowsBash(pathBash, gitExe string, getenv func(string) string, exists func(string) bool) (string, error) {
+	if pathBash != "" && !isWSLBash(pathBash) {
+		return pathBash, nil
+	}
+	var candidates []string
+	if root := gitRootFromExe(gitExe); root != "" {
+		candidates = append(candidates, winJoin(root, `bin\bash.exe`), winJoin(root, `usr\bin\bash.exe`))
+	}
+	for _, base := range []string{getenv("ProgramFiles"), getenv("ProgramW6432"), getenv("ProgramFiles(x86)")} {
+		if base != "" {
+			candidates = append(candidates, winJoin(base, `Git\bin\bash.exe`))
+		}
+	}
+	if la := getenv("LOCALAPPDATA"); la != "" {
+		candidates = append(candidates, winJoin(la, `Programs\Git\bin\bash.exe`))
+	}
+	candidates = append(candidates, `C:\Program Files\Git\bin\bash.exe`, `C:\Program Files (x86)\Git\bin\bash.exe`)
+	for _, c := range candidates {
+		if exists(c) {
+			return c, nil
+		}
+	}
+	if pathBash != "" {
+		return "", errors.New("Windows 环境安装 DSH 插件需要 Git Bash：PATH 上的 " + pathBash + " 是 WSL 的 bash，无法运行安装脚本。请安装 Git for Windows (https://gitforwindows.org)")
+	}
+	return "", errors.New("Windows 环境安装 DSH 插件需要 Bash：请安装 Git for Windows (https://gitforwindows.org) 并将 bin 目录加入环境变量 PATH")
+}
+
+// isWSLBash reports whether p is the WSL bash launcher (System32\bash.exe, its Sysnative alias,
+// or a WindowsApps alias) rather than a native Windows bash.
+func isWSLBash(p string) bool {
+	n := strings.ToLower(strings.ReplaceAll(p, "/", `\`))
+	return strings.Contains(n, `\windows\system32\`) || strings.Contains(n, `\windows\sysnative\`) || strings.Contains(n, `\windowsapps\`)
+}
+
+// gitRootFromExe maps <root>\cmd\git.exe, <root>\bin\git.exe or <root>\mingw64\bin\git.exe to <root>.
+func gitRootFromExe(gitExe string) string {
+	if gitExe == "" {
+		return ""
+	}
+	n := strings.ReplaceAll(gitExe, "/", `\`)
+	parts := strings.Split(n, `\`)
+	if len(parts) < 3 {
+		return ""
+	}
+	dir := strings.ToLower(parts[len(parts)-2])
+	up := 2
+	if dir == "bin" && len(parts) >= 4 && strings.EqualFold(parts[len(parts)-3], "mingw64") {
+		up = 3
+	} else if dir != "cmd" && dir != "bin" {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-up], `\`)
+}
+
+func winJoin(base, rel string) string {
+	return strings.TrimRight(base, `\/`) + `\` + rel
+}
+
+// bashScriptArg turns the install.sh path into an argument Git Bash opens as-is: on Windows the
+// backslashes become forward slashes (C:/Users/x/.bothouse/dsh/install.sh), which MSYS bash reads
+// without any escaping; spaces are already quoted by exec.
+func bashScriptArg(goos, script string) string {
+	if goos == "windows" {
+		return strings.ReplaceAll(script, `\`, "/")
+	}
+	return script
 }
 
 // GetDSHStatus detects dsh and whether the CoNest plugin is in the profile.
@@ -190,7 +253,7 @@ func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DS
 	if strings.HasPrefix(strings.ToLower(lang), "zh") {
 		l = "zh"
 	}
-	cmd := exec.CommandContext(ctx, bashBin, script, DSHProfile, "--lang", l)
+	cmd := exec.CommandContext(ctx, bashBin, bashScriptArg(runtime.GOOS, script), DSHProfile, "--lang", l)
 	env := os.Environ()
 	var extraPaths []string
 	if d := filepath.Dir(dshBin); d != "" {
