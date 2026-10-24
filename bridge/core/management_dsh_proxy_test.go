@@ -19,17 +19,17 @@ import (
 
 const testDSHCookie = "dsh-auth-test"
 
-// fakeDSH mimics the parts of `dsh web` the proxy relies on: launch-token sign-in on GET /?token=,
+// proxyFakeDSH mimics the parts of `dsh web` the proxy relies on: launch-token sign-in on GET /?token=,
 // a cookie gate, and the Host/Origin fence.
-type fakeDSH struct {
+type proxyFakeDSH struct {
 	srv     *httptest.Server
 	logins  atomic.Int32
 	session atomic.Value // current valid cookie value
 	release chan struct{}
 }
 
-func newFakeDSH(t *testing.T) *fakeDSH {
-	f := &fakeDSH{release: make(chan struct{})}
+func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
+	f := &proxyFakeDSH{release: make(chan struct{})}
 	f.session.Store("v1")
 	up := websocket.Upgrader{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -93,11 +93,11 @@ func newFakeDSH(t *testing.T) *fakeDSH {
 }
 
 // setupDSHProxy points dsh-web.json (under a temp HOME) at fake and returns the panel server.
-func setupDSHProxy(t *testing.T, fake *fakeDSH, token string) *httptest.Server {
+func setupDSHProxyTest(t *testing.T, fake *proxyFakeDSH, token string) *httptest.Server {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	if fake != nil {
-		writeTestDSHWeb(t, fake.srv.URL+"/?token=launch#channels")
+		writeProxyDSHWeb(t, fake.srv.URL+"/?token=launch#channels")
 	}
 	m := NewManagementServer(0, token, nil)
 	panel := httptest.NewServer(m.buildHandler(http.NewServeMux()))
@@ -105,7 +105,7 @@ func setupDSHProxy(t *testing.T, fake *fakeDSH, token string) *httptest.Server {
 	return panel
 }
 
-func writeTestDSHWeb(t *testing.T, u string) {
+func writeProxyDSHWeb(t *testing.T, u string) {
 	t.Helper()
 	dir := filepath.Dir(dshWebStatePath())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -117,15 +117,15 @@ func writeTestDSHWeb(t *testing.T, u string) {
 	}
 }
 
-func noRedirectClient(t *testing.T) *http.Client {
+func dshTestClient(t *testing.T) *http.Client {
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 // signIn exchanges the panel token for the /dsh/ cookie and returns the client holding it.
-func signIn(t *testing.T, panel *httptest.Server, token string) *http.Client {
+func dshSignIn(t *testing.T, panel *httptest.Server, token string) *http.Client {
 	t.Helper()
-	c := noRedirectClient(t)
+	c := dshTestClient(t)
 	res, err := c.Get(panel.URL + "/dsh/?token=" + token)
 	if err != nil {
 		t.Fatal(err)
@@ -138,8 +138,8 @@ func signIn(t *testing.T, panel *httptest.Server, token string) *http.Client {
 }
 
 func TestDSHProxyRequiresPanelToken(t *testing.T) {
-	panel := setupDSHProxy(t, newFakeDSH(t), "secret")
-	c := noRedirectClient(t)
+	panel := setupDSHProxyTest(t, newProxyFakeDSH(t), "secret")
+	c := dshTestClient(t)
 	for _, path := range []string{"/dsh/", "/dsh/collab/api/state", "/dsh/?token=wrong"} {
 		res, err := c.Get(panel.URL + path)
 		if err != nil {
@@ -168,8 +168,8 @@ func TestDSHProxyRequiresPanelToken(t *testing.T) {
 }
 
 func TestDSHProxyTokenSetsCookieAndRedirects(t *testing.T) {
-	panel := setupDSHProxy(t, newFakeDSH(t), "secret")
-	c := noRedirectClient(t)
+	panel := setupDSHProxyTest(t, newProxyFakeDSH(t), "secret")
+	c := dshTestClient(t)
 	res, err := c.Get(panel.URL + "/dsh/?token=secret&x=1")
 	if err != nil {
 		t.Fatal(err)
@@ -205,9 +205,9 @@ func TestDSHProxyTokenSetsCookieAndRedirects(t *testing.T) {
 }
 
 func TestDSHProxyForwardsHTTPWithPrefixStripped(t *testing.T) {
-	fake := newFakeDSH(t)
-	panel := setupDSHProxy(t, fake, "secret")
-	c := signIn(t, panel, "secret")
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
 	req, _ := http.NewRequest(http.MethodPost, panel.URL+"/dsh/collab/api/rooms/general/messages?a=b", strings.NewReader("hi"))
 	req.Header.Set("Origin", "http://100.64.0.1:9820")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
@@ -256,9 +256,9 @@ func TestDSHProxyForwardsHTTPWithPrefixStripped(t *testing.T) {
 }
 
 func TestDSHProxyResignsInAfter401(t *testing.T) {
-	fake := newFakeDSH(t)
-	panel := setupDSHProxy(t, fake, "secret")
-	c := signIn(t, panel, "secret")
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
 	get := func() int {
 		res, err := c.Get(panel.URL + "/dsh/collab/api/state")
 		if err != nil {
@@ -280,9 +280,9 @@ func TestDSHProxyResignsInAfter401(t *testing.T) {
 }
 
 func TestDSHProxyStreamsSSE(t *testing.T) {
-	fake := newFakeDSH(t)
-	panel := setupDSHProxy(t, fake, "secret")
-	c := signIn(t, panel, "secret")
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
 	res, err := c.Get(panel.URL + "/dsh/collab/api/events")
 	if err != nil {
 		t.Fatal(err)
@@ -304,9 +304,9 @@ func TestDSHProxyStreamsSSE(t *testing.T) {
 }
 
 func TestDSHProxyWebSocket(t *testing.T) {
-	fake := newFakeDSH(t)
-	panel := setupDSHProxy(t, fake, "secret")
-	c := signIn(t, panel, "secret")
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
 	d := websocket.Dialer{Jar: c.Jar}
 	wsURL := "ws" + strings.TrimPrefix(panel.URL, "http") + "/dsh/api/remote.mux"
 	conn, res, err := d.Dial(wsURL, http.Header{"Origin": {panel.URL}})
@@ -332,8 +332,8 @@ func TestDSHProxyWebSocket(t *testing.T) {
 }
 
 func TestDSHProxyNotRunning(t *testing.T) {
-	panel := setupDSHProxy(t, nil, "secret")
-	c := signIn(t, panel, "secret")
+	panel := setupDSHProxyTest(t, nil, "secret")
+	c := dshSignIn(t, panel, "secret")
 	res, err := c.Get(panel.URL + "/dsh/")
 	if err != nil {
 		t.Fatal(err)
@@ -358,8 +358,8 @@ func TestDSHProxyNotRunning(t *testing.T) {
 }
 
 func TestDSHProxyOpenWhenPanelHasNoToken(t *testing.T) {
-	panel := setupDSHProxy(t, newFakeDSH(t), "")
-	res, err := noRedirectClient(t).Get(panel.URL + "/dsh/collab/api/state")
+	panel := setupDSHProxyTest(t, newProxyFakeDSH(t), "")
+	res, err := dshTestClient(t).Get(panel.URL + "/dsh/collab/api/state")
 	if err != nil {
 		t.Fatal(err)
 	}
