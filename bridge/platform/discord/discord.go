@@ -794,9 +794,11 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	direct := !fromBot && m.GuildID == ""
 	if fromBot {
 		// Only an explicit <@me> in the text counts; reply pings ("↪ 已插入" quoting a message)
-		// and role/everyone mentions from bots are ignored. Everything else a teammate says
+		// are ignored. A teammate may address this bot through its managed role, so treat an
+		// explicit <@&my-role> like <@me>; role/everyone mentions that do not target this bot
+		// remain listen-only context. Everything else a teammate says
 		// arrives as listen-only context (core never starts a turn from it).
-		mentioned = strings.Contains(m.Content, "<@"+p.botID+">") || strings.Contains(m.Content, "<@!"+p.botID+">")
+		mentioned = isDiscordBotMention(m, p.botID, botRoleID, false)
 		if isBotNotice(m.Content) {
 			return
 		}
