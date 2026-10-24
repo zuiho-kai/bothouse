@@ -3,6 +3,7 @@ import { useAuthStore } from '@/store/auth';
 import Layout from '@/components/Layout/Layout';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
+import Usage from '@/pages/Usage';
 import ProjectList from '@/pages/Projects/ProjectList';
 import ProjectDetail from '@/pages/Projects/ProjectDetail';
 import ChatList from '@/pages/Chat/ChatList';
@@ -35,6 +36,7 @@ export default function App() {
       <Route path="/login" element={isAuthenticated ? <AfterLogin /> : <Login />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
+        <Route path="usage" element={<Usage />} />
         <Route path="setup" element={<SetupWizard />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />

@@ -9,7 +9,8 @@
     "cron": "Cron",
     "bridge": "Bridge",
     "skills": "Skills",
-    "system": "System"
+    "system": "System",
+    "usage": "Usage"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -453,5 +454,36 @@
       "restart": "The new version was downloaded, but the post-update check could not start, so the current version was kept and nothing restarted. Install the new version from the download page.",
       "other": "The update did not finish. The current version is untouched and keeps working. Install the new version from the download page."
     }
+  },
+  "usage": {
+    "title": "Usage",
+    "subtitle": "Daily consumption and hourly activity.",
+    "roles": "By role · past year",
+    "models": "By model · past year",
+    "allRoles": "All roles",
+    "allModels": "All models",
+    "refresh": "Refresh",
+    "todayTokens": "Tokens today",
+    "todayResponses": "Replies today",
+    "yearTokens": "Tokens · past year",
+    "cost": "Estimated cost · configured currency",
+    "unpriced": "No pricing configured",
+    "heatmap": "Daily usage · past year",
+    "clickDay": "Select a day for hourly usage · amber borders indicate unknown usage",
+    "less": "Less",
+    "more": "More",
+    "hourly": "Hourly distribution",
+    "peak": "Peak hour",
+    "day": "Date",
+    "todayRoles": "Today · by role",
+    "name": "Name",
+    "responses": "Replies",
+    "input": "Input",
+    "output": "Output",
+    "cache": "Cache read / write",
+    "tokens": "Total tokens",
+    "unknown": "Unknown usage",
+    "empty": "No records",
+    "note": "Recorded since tracking was enabled; no historical backfill. Unknown usage: {{unknown}} replies; missing price or usage: {{unpriced}} replies. Charts show reported tokens; unknown does not mean zero consumption. Costs estimate only priced replies; * indicates incomplete pricing."
   }
 }

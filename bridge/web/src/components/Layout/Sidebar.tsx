@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
+  Activity,
   FolderKanban,
   MessageSquare,
   Clock,
@@ -18,6 +19,7 @@ import VersionBadge from './VersionBadge';
 
 const navItems = [
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
+  { key: 'usage', path: '/usage', icon: Activity },
   { key: 'projects', path: '/projects', icon: FolderKanban },
   { key: 'providers', path: '/providers', icon: Plug },
   { key: 'skills', path: '/skills', icon: Puzzle },

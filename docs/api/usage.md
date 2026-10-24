@@ -83,3 +83,18 @@ bucket mixes priced and unpriced/unknown usage, the field estimates only the
 priced portion and `unpriced_responses` identifies the incomplete coverage.
 
 Clients must label the amount as estimated and surface incomplete coverage.
+
+## Web dashboard
+
+Open **Usage** in the management sidebar (`/usage`). The page displays today's
+reported tokens and reply counts, a daily activity grid for the past year, a
+24-hour distribution for the selected date, and role/model breakdowns. Select a
+role or model to filter the grid, hourly chart, today's role table, and breakdowns.
+Click a date in the activity grid to inspect that day's hours. Role/model selector
+options remain available across filters. The global refresh action reloads usage.
+
+Amber-bordered days include replies whose token usage is unknown. Such replies
+still count toward reply totals; their displayed token count is not evidence of
+zero consumption. Cost estimates use the configured currency and only include
+priced replies; an asterisk marks an incomplete estimate. Empty dates show no
+records. Tracking begins when the ledger is enabled; no history is reconstructed.
