@@ -6,3 +6,5 @@ export * from './providers';
 export * from './cron';
 export * from './heartbeat';
 export * from './settings';
+export * from './roles';
+export * from './devices';

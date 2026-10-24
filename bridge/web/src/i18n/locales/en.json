@@ -1,7 +1,10 @@
 {
   "nav": {
+    "addRole": "Add role / model",
     "library": "Library",
     "dashboard": "Dashboard",
+    "roles": "Roles",
+    "devices": "Devices",
     "projects": "Projects",
     "providers": "Providers",
     "sessions": "Sessions",

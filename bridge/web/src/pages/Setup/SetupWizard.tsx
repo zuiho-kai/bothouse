@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, House, Loader2, Puzzle, MessageSquare, Plus, RefreshCw, Smartphone, Trash2, XCircle } from 'lucide-react';
 import { useThemeStore } from '@/store/theme';
 import './setup.css';
@@ -85,6 +85,8 @@ export default function SetupWizard() {
   const LT = libraryTexts(lang);
   const { lib, error: libError, reload: reloadLib } = useLibrary(lang);
   const [existing, setExisting] = useState<ExistingBot[]>([]);
+  // /setup?add=1 — the panel's "add role / model" entry: keeps every configured role, only adds
+  const addMode = useSearchParams()[0].get('add') === '1';
   const newRole = useCallback((): RoleDraft => ({
     key: keySeq++, token: '', agent_type: '', useProvider: false,
     provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '' }, persona: '', reply_language: sysReply,
@@ -321,9 +323,11 @@ export default function SetupWizard() {
       })),
       // 自建平台: by display name (unique there) — a re-run reuses an existing member of the same name,
       // so the project name guessed here (projectNames) can differ from the one the server plans
-      fallback_role: platform === 'cloud_web' ? nameOf(roles.find((r) => projectOf(r) === fallback) || roles[0])
+      // adding a role never moves the lead: the server keeps the recorded one, so none is sent
+      fallback_role: addMode ? undefined : platform === 'cloud_web' ? nameOf(roles.find((r) => projectOf(r) === fallback) || roles[0])
         : platform !== 'feishu' ? fallback : undefined,
-      fallback_bot_id: platform === 'discord' ? roles.find((r) => projectOf(r) === fallback)?.info?.bot_id : undefined,
+      fallback_bot_id: !addMode && platform === 'discord' ? roles.find((r) => projectOf(r) === fallback)?.info?.bot_id : undefined,
+      ...(addMode ? { append_only: true } : {}),
     };
     if (platform === 'discord') {
       req.discord = { guild_id: guildID, channel_id: channelID };
@@ -393,8 +397,9 @@ export default function SetupWizard() {
     !jevTest.running && !jevSave.saving && (!jev.base_url ? true : !jev.model ? false : jevUnchanged || jevTest.usable === true), true,
   ];
   // 自建平台 with one role: no one to pick between, so no fallback / jev step
+  // adding a role (addMode): the lead stays as it is, so no fallback step either
   const visibleSteps = platform === 'feishu' ? [0, 1, 2, 3, 5, 6]
-    : platform === 'cloud_web' && roles.length === 1 ? [0, 1, 2, 3, 6] : [0, 1, 2, 3, 4, 5, 6];
+    : platform === 'cloud_web' && roles.length === 1 ? [0, 1, 2, 3, 6] : addMode ? [0, 1, 2, 3, 5, 6] : [0, 1, 2, 3, 4, 5, 6];
   const pos = visibleSteps.indexOf(step);
   const go = (d: number) => setStep(visibleSteps[Math.min(Math.max(pos + d, 0), visibleSteps.length - 1)]);
 
@@ -409,8 +414,11 @@ export default function SetupWizard() {
       <div className="setup-welcome">
         <span className="setup-home" aria-hidden="true"><House size={26} strokeWidth={1.7} /></span>
         <p className="setup-eyebrow">{T.welcomeEyebrow}</p>
-        <h1>{T.welcomeTitle}</h1>
-        <p className="setup-intro">{T.welcomeIntro}</p>
+        <h1>{addMode ? (zh ? '添加角色 / 模型' : 'Add a role / model') : T.welcomeTitle}</h1>
+        <p className="setup-intro">{addMode ? (zh ? '在现有配置上追加，已有角色不会被改动或删除；重名会被拒绝。' : 'Added next to your current setup. Existing roles are not changed or removed; a taken name is refused.') : T.welcomeIntro}</p>
+        {addMode && (state?.projects?.length ?? 0) > 0 && (
+          <p className="setup-intro" data-testid="add-mode-existing">{zh ? '已有角色：' : 'Existing roles: '}<b>{state!.projects!.join(zh ? '、' : ', ')}</b></p>
+        )}
         <div className="setup-team" aria-label={T.teamCliNames}>
           {[
             { src: '/avatars/orange.png', name: 'Claude' },
@@ -483,7 +491,7 @@ export default function SetupWizard() {
                   <span className="text-sm font-medium text-gray-800 dark:text-gray-200"><Bot size={14} className="inline mr-1" />{T.roleLabel} {idx + 1}{r.info && ` · ${r.info.username}`}</span>
                   {roles.length > 1 && <Button size="sm" variant="ghost" onClick={() => setRoles((rs) => rs.filter((x) => x.key !== r.key))}><Trash2 size={12} />{T.remove}</Button>}
                 </div>
-                {existing.length > 0 && (
+                {!addMode && existing.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="text-xs text-gray-500">{T.existingBots}</p>
                     <div className="flex flex-wrap gap-2">
@@ -824,7 +832,7 @@ export default function SetupWizard() {
                   {roles.map((r) => (
                     <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{keptLang(r)
                       ? <span data-testid="review-reply-lang-kept"> · {T.replyLang}: {keptLangLabel(T, r.existingPersona)}{T.replyLangKept}</span>
-                      : <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{fallback === projectOf(r) && platform !== 'feishu' && roles.length > 1 ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
+                      : <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{!addMode && fallback === projectOf(r) && platform !== 'feishu' && roles.length > 1 ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
                   ))}
                   {platform === 'discord' && <li>• {guilds.find((g) => g.id === guildID)?.name} / #{channels.find((c) => c.id === channelID)?.name}</li>}
                   {platform === 'cloud_web' && <li data-testid="review-cloud-web">• {T.cwReview}{cwURL}{cwLocalKnown ? T.cwLocalTag : ''}</li>}

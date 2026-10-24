@@ -290,6 +290,13 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/skills", m.wrap(m.handleSkills))
 	mux.HandleFunc(prefix+"/skills/presets", m.wrap(m.handleSkillPresets))
 
+	// Roles
+	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
+	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
+
+	// Devices (adapters from bridge server)
+	mux.HandleFunc(prefix+"/devices", m.wrap(m.handleDevices))
+
 	// Bridge
 	mux.HandleFunc(prefix+"/bridge/adapters", m.wrap(m.handleBridgeAdapters))
 

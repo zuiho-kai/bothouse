@@ -49,6 +49,7 @@ export interface WizardRequest {
   allow_from?: string;
   wiki?: WizardWiki;
   dry_run?: boolean;
+  append_only?: boolean; // the panel's add-role entry: only new roles, a taken name is refused
 }
 export interface WizardWarning { code: string; project?: string; blocking: boolean; message: string; fix: string; url?: string }
 export interface WizardResult {
