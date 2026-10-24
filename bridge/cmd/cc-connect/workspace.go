@@ -50,6 +50,21 @@ func runWorkspace(args []string) {
 			return
 		}
 		fmt.Printf("%s\t%s\n", r.Workspace.ID, r.Workspace.Name)
+	case "claim":
+		if fs.NArg() < 1 {
+			workspaceFail(fmt.Errorf("usage: bothouse workspace claim <workspace channel id>"))
+		}
+		body, _ := json.Marshal(map[string]string{"session_key": *session, "workspace_id": fs.Arg(0)})
+		resp, err := apiPost(sock, "/team/workspace/claim", body)
+		if err != nil {
+			workspaceFail(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			workspaceFail(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+		}
+		fmt.Println(strings.TrimSpace(string(data)))
 	case "list":
 		var r core.TeamWorkspaceListResult
 		if err := modelAPIGet(sock, "/team/workspace/list?"+url.Values{"session_key": {*session}}.Encode(), &r); err != nil {
@@ -63,6 +78,12 @@ func runWorkspace(args []string) {
 		for _, w := range r.Workspaces {
 			fmt.Printf("%s\t%s\n", w.ID, w.Name)
 		}
+		if len(r.Pool) > 0 {
+			fmt.Println("pool")
+			for _, w := range r.Pool {
+				fmt.Printf("%s\t%s\n", w.ID, w.Name)
+			}
+		}
 	default:
 		printWorkspaceUsage()
 		os.Exit(1)
@@ -70,10 +91,11 @@ func runWorkspace(args []string) {
 }
 
 func printWorkspaceUsage() {
-	fmt.Println(`Usage: bothouse workspace <new|list> [--session-key discord:<channel id>] [--json]
+	fmt.Println(`Usage: bothouse workspace <new|list|claim> [<workspace id>] [--session-key discord:<channel id>] [--json]
 
-  new    create the next 「工作区n+1」 for this chat channel (from a workspace: for its chat channel)
-  list   list this chat channel's workspaces
+  new    create 「工作区(max+1)」 in the category's shared pool for this chat channel
+  list   list this chat channel's workspaces and the category's shared pool
+  claim  record this chat channel as the one handing off to <workspace id> (last handoff wins)
 
 On by default for the team lead project (Discord only); team_workspaces = false turns it off.`)
 }

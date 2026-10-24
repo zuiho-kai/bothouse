@@ -261,7 +261,7 @@ export class Store {
   }
   /**
    * Create the next workspace 工作区<n+1> under a chat channel, n being the highest
-   * existing 工作区<k>. Called on a workspace, it adds a sibling under the same chat channel.
+   * existing 工作区<k> of any chat channel (one shared pool, unique numbers). Called on a workspace, it adds a sibling under the same chat channel.
    */
   createWorkspace(roomId) {
     return this.transaction(() => {
@@ -269,7 +269,9 @@ export class Store {
       if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
       const parent = room.kind === 'workspace' ? room.parent_id : room.id;
       const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
-      const n = Math.max(0, ...this.q.children.all(parent).map(w => Number(re.exec(w.name)?.[1] ?? 0)));
+      // One shared pool: numbers are unique across every chat channel's workspaces.
+      const all = this.db.prepare("SELECT name FROM rooms WHERE kind = 'workspace'").all();
+      const n = Math.max(0, ...all.map(w => Number(re.exec(w.name)?.[1] ?? 0)));
       return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent);
     });
   }

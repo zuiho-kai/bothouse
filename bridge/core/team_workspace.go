@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,11 +71,12 @@ const (
 	teamWorkspaceBarePlat = "discord"
 )
 
-// 「工作区」 without a number is the name the old ws-handoff script used. A second chat channel in
-// a category whose plain 「工作区n」 already belong to another chat channel gets
-// 「<chat channel name>-工作区n」 instead, so two channels never share a workspace name
-// (PM decision 2026-10-24 on team mode D, item 4: avoid same-name confusion).
-var teamWorkspaceName = regexp.MustCompile(`^(?:(.+)-)?` + teamWorkspacePrefix + `(\d*)$`)
+// 「工作区」 without a number is the name the old ws-handoff script used. Workspaces are one
+// shared pool per server/category, numbered 「工作区1..n」 with unique numbers; any chat channel
+// of the category uses the first free one and the pool grows by 「工作区(max+1)」. The chat
+// channel that handed off to a workspace last owns its record, so asks and reports go back to
+// it (team mode C). Replaces the per-chat 「<chat name>-工作区n」 prefix.
+var teamWorkspaceName = regexp.MustCompile(`^` + teamWorkspacePrefix + `(\d*)$`)
 
 // TeamWorkspace is one workspace channel of a chat channel.
 type TeamWorkspace struct {
@@ -315,11 +317,9 @@ func (e *Engine) NewTeamWorkspace(sessionKey string) (parent string, w TeamWorks
 		slog.Warn("team workspace: permanent failure, not retrying until restart", "chat", chat, "error", err)
 	}
 	if err == nil && created == nil {
-		// Adopted an existing unclaimed 「工作区1」: that is the workspace of this first request.
-		for _, x := range list {
-			if teamWorkspaceNum(x.Name) == 1 {
-				return chat, x, nil
-			}
+		// Adopted an existing unclaimed 「工作区n」: that is the workspace of this request.
+		if len(list) > 0 {
+			return chat, list[len(list)-1], nil
 		}
 		return chat, TeamWorkspace{}, fmt.Errorf("team workspace: %s: nothing created", chat)
 	}
@@ -431,84 +431,128 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 		}
 		list = append(list, w)
 	}
-	hasNum := func(n int) bool {
-		for _, w := range list {
-			if teamWorkspaceNum(w.Name) == n {
-				return true
+	// Adopt the lowest unclaimed 「工作区n」 already in the same category (e.g. made by
+	// ws-handoff) when this chat has none; adopting counts as this request's workspace.
+	if len(list) == 0 {
+		var pick *TeamChannel
+		for i, c := range guild {
+			n := teamWorkspaceNum(c.Name)
+			if c.ParentID == self.ParentID && c.ID != self.ID && claimed[c.ID] == "" && n > 0 &&
+				(pick == nil || n < teamWorkspaceNum(pick.Name)) {
+				pick = &guild[i]
 			}
 		}
-		return false
-	}
-	// Name prefix of this chat's workspaces: the one it already uses; else plain 「工作区n」 unless
-	// another chat channel of the category already owns plain ones, then 「<name>-工作区n」.
-	prefix := ""
-	if len(list) > 0 {
-		prefix, _ = teamWorkspaceNameParts(list[0].Name)
-	} else {
-		for _, c := range guild {
-			if c.ParentID != self.ParentID {
-				continue
-			}
-			if p, n := teamWorkspaceNameParts(c.Name); n > 0 && p == "" && claimed[c.ID] != "" && claimed[c.ID] != chat {
-				prefix = self.Name + "-"
-				break
-			}
-		}
-	}
-	// Adopt an unclaimed 「工作区1」 (with this chat's prefix) already in the same category
-	// (e.g. made by ws-handoff); adopting counts as this request's workspace.
-	had1 := hasNum(1)
-	if !had1 {
-		for _, c := range guild {
-			p, n := teamWorkspaceNameParts(c.Name)
-			if c.ParentID == self.ParentID && c.ID != self.ID && claimed[c.ID] == "" && n == 1 && p == prefix {
-				list = append(list, TeamWorkspace{Name: c.Name, ID: c.ID})
-				claimed[c.ID] = chat
-				changed = true
-				break
-			}
+		if pick != nil {
+			list = append(list, TeamWorkspace{Name: pick.Name, ID: pick.ID})
+			claimed[pick.ID] = chat
+			return list, "", true, nil
 		}
 	}
 
-	switch {
-	case !hasNum(1):
-		name = prefix + teamWorkspacePrefix + "1"
-	case next && had1:
-		// n+1 over this chat's workspaces and every same-prefix 「工作区n」 in the category,
-		// so names don't clash.
+	if next || len(list) == 0 {
+		// 工作区(max+1) over the whole category pool, whichever chat channel owns each.
 		top := 0
+		for _, c := range guild {
+			if c.ParentID == self.ParentID {
+				top = max(top, teamWorkspaceNum(c.Name))
+			}
+		}
 		for _, w := range list {
 			top = max(top, teamWorkspaceNum(w.Name))
 		}
-		for _, c := range guild {
-			if p, n := teamWorkspaceNameParts(c.Name); c.ParentID == self.ParentID && p == prefix {
-				top = max(top, n)
-			}
-		}
-		name = prefix + teamWorkspacePrefix + strconv.Itoa(top+1)
+		name = teamWorkspacePrefix + strconv.Itoa(top+1)
 	}
 	return list, name, changed, nil
 }
 
-// teamWorkspaceNum returns n for 「工作区n」 or 「<name>-工作区n」 (1 when unnumbered), 0 otherwise.
+// teamWorkspaceNum returns n for 「工作区n」 (1 when unnumbered), 0 otherwise.
 func teamWorkspaceNum(name string) int {
-	_, n := teamWorkspaceNameParts(name)
+	m := teamWorkspaceName.FindStringSubmatch(name)
+	if m == nil {
+		return 0
+	}
+	if m[1] == "" {
+		return 1
+	}
+	n, _ := strconv.Atoi(m[1])
 	return n
 }
 
-// teamWorkspaceNameParts splits 「<name>-工作区n」 into ("<name>-", n) and 「工作区n」 into ("", n);
-// n is 0 when name is not a workspace name.
-func teamWorkspaceNameParts(name string) (prefix string, n int) {
-	m := teamWorkspaceName.FindStringSubmatch(name)
-	if m == nil {
-		return "", 0
+// ClaimTeamWorkspace records chat (bare ID or session key) as the chat channel that handed
+// off to workspace wsID last: the record moves from its previous chat, so asks and reports
+// (WorkspaceParent, team mode C) go back to the chat that handed off (last handoff wins).
+// name is the workspace's channel name, kept when it is not recorded yet.
+func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
+	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
+		return errors.New("team workspace claim: chat channel and workspace id are required")
 	}
-	if m[1] != "" {
-		prefix = m[1] + "-"
+	chat := teamChatKey(channel)
+	if p, ok := e.WorkspaceParent(chat); ok {
+		chat = p
 	}
-	if m[2] == "" {
-		return prefix, 1
+	plat, _, _ := strings.Cut(chat, ":")
+	path := teamWorkspacePath(e.dataDir)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(path)
+	if _, own := st.Parents[chat]; own {
+		for _, w := range st.Parents[chat] {
+			if w.ID == wsID {
+				return nil
+			}
+		}
 	}
-	n, _ = strconv.Atoi(m[2])
-	return prefix, n
+	w := TeamWorkspace{ID: wsID, Name: name}
+	for parent, list := range st.Parents {
+		if p, _, _ := strings.Cut(parent, ":"); p != plat {
+			continue
+		}
+		for i, x := range list {
+			if x.ID == wsID {
+				w = x
+				rest := append(append([]TeamWorkspace(nil), list[:i]...), list[i+1:]...)
+				if len(rest) == 0 {
+					delete(st.Parents, parent)
+				} else {
+					st.Parents[parent] = rest
+				}
+				break
+			}
+		}
+	}
+	if w.Name == "" {
+		w.Name = name
+	}
+	if teamWorkspaceNum(w.Name) == 0 {
+		return fmt.Errorf("team workspace claim: %q is not a 「%sn」 channel", w.Name, teamWorkspacePrefix)
+	}
+	st.Parents[chat] = append(st.Parents[chat], w)
+	return saveTeamWorkspacesLocked(path, st)
+}
+
+// TeamWorkspacePool returns every 「工作区n」 in the server/category of chat, lowest number
+// first, whichever chat channel handed off to it last. Callers pick the first free one.
+func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
+	chat := teamChatKey(channel)
+	if p, ok := e.WorkspaceParent(chat); ok {
+		chat = p
+	}
+	plat, ok := e.teamWorkspacePlatform(chat)
+	if !ok {
+		return nil, fmt.Errorf("team workspace: %s: no platform with workspaces", chat)
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+	defer cancel()
+	self, guild, err := plat.TeamGuildChannels(ctx, teamChannelID(chat))
+	if err != nil {
+		return nil, err
+	}
+	var out []TeamWorkspace
+	for _, c := range guild {
+		if c.ParentID == self.ParentID && c.ID != self.ID && teamWorkspaceNum(c.Name) > 0 {
+			out = append(out, TeamWorkspace{Name: c.Name, ID: c.ID})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return teamWorkspaceNum(out[i].Name) < teamWorkspaceNum(out[j].Name) })
+	return out, nil
 }

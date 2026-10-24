@@ -197,7 +197,7 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	if got := e.TeamWorkspacesOf("200"); len(got) != 2 || got[0].ID != "201" {
 		t.Fatalf("#200 workspaces = %+v", got)
 	}
-	// A deleted workspace is dropped; 工作区1 gone means ensure recreates it.
+	// A deleted workspace is dropped; the chat still has 工作区2/3, so ensure creates nothing.
 	g.mu.Lock()
 	for i, c := range g.channels {
 		if c.ID == w1.ID {
@@ -213,7 +213,7 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	for _, w := range e.TeamWorkspacesOf("100") {
 		names[w.Name] = true
 	}
-	if !names["工作区1"] || !names["工作区2"] || !names["工作区3"] || len(names) != 3 {
+	if !names["工作区2"] || !names["工作区3"] || len(names) != 2 {
 		t.Fatalf("after delete+ensure = %v", names)
 	}
 }
@@ -312,36 +312,55 @@ func TestTeamWorkspaceAPI(t *testing.T) {
 
 // A second chat channel in a category whose plain 工作区n belong to another chat channel gets
 // 「<name>-工作区n」 (PM decision item 4), and its n+1 keeps that prefix.
-func TestTeamWorkspacesSecondChatInCategoryPrefixed(t *testing.T) {
+func TestTeamWorkspacesSharedPoolInCategory(t *testing.T) {
 	g := newWorkspaceGuild()
 	g.channels = append(g.channels, TeamChannel{ID: "300", Name: "闲聊", ParentID: "catB"})
 	e := newWorkspaceLead(t, g, t.TempDir())
 	e.SetTeamWorkspaces(true)
 
-	// #200 adopts the plain 工作区1 first.
+	// #200 adopts the lowest unclaimed 工作区1; #300 then adopts the next unclaimed 工作区5.
 	if err := ensureWorkspace1(e, "discord:200"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureWorkspace1(e, "discord:300"); err != nil {
 		t.Fatal(err)
 	}
-	if w := e.TeamWorkspacesOf("300"); len(w) != 1 || w[0].Name != "闲聊-工作区1" {
-		t.Fatalf("300 workspaces = %+v, want [闲聊-工作区1]", w)
+	if w := e.TeamWorkspacesOf("300"); len(w) != 1 || w[0].Name != "工作区5" {
+		t.Fatalf("300 workspaces = %+v, want [工作区5]", w)
 	}
-	if _, w, err := e.NewTeamWorkspace("discord:300"); err != nil || w.Name != "闲聊-工作区2" {
-		t.Fatalf("300 new = %+v, %v; want 闲聊-工作区2", w, err)
+	// One pool, unique numbers: no chat-name prefix, max+1 over the whole category.
+	if _, w, err := e.NewTeamWorkspace("discord:300"); err != nil || w.Name != "工作区6" {
+		t.Fatalf("300 new = %+v, %v; want 工作区6", w, err)
 	}
-	// #200 still numbers its plain names past 工作区5, ignoring the prefixed ones.
-	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.Name != "工作区6" {
-		t.Fatalf("200 new = %+v, %v; want 工作区6", w, err)
+	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.Name != "工作区7" {
+		t.Fatalf("200 new = %+v, %v; want 工作区7", w, err)
 	}
-	// From a prefixed workspace, "new" goes to its chat channel.
 	ws := e.TeamWorkspacesOf("300")
-	if p, ok := e.WorkspaceParent(ws[0].ID); !ok || p != "300" {
-		t.Fatalf("parent of %s = %q,%v; want 300", ws[0].ID, p, ok)
-	}
-	if parent, w, err := e.NewTeamWorkspace("discord:" + ws[1].ID); err != nil || parent != "discord:300" || w.Name != "闲聊-工作区3" {
+	if parent, w, err := e.NewTeamWorkspace("discord:" + ws[1].ID); err != nil || parent != "discord:300" || w.Name != "工作区8" {
 		t.Fatalf("new from workspace = %s %+v %v", parent, w, err)
+	}
+	// The pool lists every 工作区n of the category, lowest first, whoever owns it.
+	pool, err := e.TeamWorkspacePool("discord:300")
+	if err != nil || len(pool) != 5 || pool[0].Name != "工作区1" || pool[4].Name != "工作区8" {
+		t.Fatalf("pool = %+v %v", pool, err)
+	}
+	// #300 hands off to 工作区1: asks and reports now go to #300 (last handoff wins).
+	if err := e.ClaimTeamWorkspace("discord:300", "201", ""); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := e.WorkspaceParent("201"); !ok || p != "300" {
+		t.Fatalf("parent of 201 = %q,%v; want 300", p, ok)
+	}
+	for _, w := range e.TeamWorkspacesOf("200") {
+		if w.ID == "201" {
+			t.Fatalf("201 still recorded under #200: %+v", e.TeamWorkspacesOf("200"))
+		}
+	}
+	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := e.WorkspaceParent("201"); !ok || p != "200" {
+		t.Fatalf("parent of 201 after re-handoff = %q,%v; want 200", p, ok)
 	}
 }
 
