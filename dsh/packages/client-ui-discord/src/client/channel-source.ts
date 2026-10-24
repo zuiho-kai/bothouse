@@ -5,6 +5,7 @@
  * with the last, so an unopened panel holds no connection.
  */
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import { randomUUID } from './uuid.ts'
 
 /** One stored channel message, as the collab service serializes it. */
 export interface ChannelMessage {
@@ -51,7 +52,7 @@ export const MAX_MESSAGE_BODY = 8 * 1024 * 1024
 
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 export const messageTooLarge = (text: string, attachments: readonly OutgoingAttachment[]): boolean =>
-  new TextEncoder().encode(JSON.stringify({ text, client_key: crypto.randomUUID(), reply_to: Number.MAX_SAFE_INTEGER, attachments })).length > MAX_MESSAGE_BODY
+  new TextEncoder().encode(JSON.stringify({ text, client_key: randomUUID(), reply_to: Number.MAX_SAFE_INTEGER, attachments })).length > MAX_MESSAGE_BODY
 
 export const readAttachment = async (file: File): Promise<OutgoingAttachment> => {
   const bytes = new Uint8Array(await file.arrayBuffer())
@@ -731,7 +732,7 @@ export function createChannelSource(transport: ChannelTransport): {
     async send(text, replyTo, attachments) {
       const roomId = snapshot.roomId
       if (roomId === undefined) throw new Error('No channel is open')
-      await post(roomId, crypto.randomUUID(), text, replyTo, attachments)
+      await post(roomId, randomUUID(), text, replyTo, attachments)
     },
     async retrySend(clientKey) {
       const roomId = snapshot.roomId

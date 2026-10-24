@@ -67,7 +67,8 @@ if [ ! -d "$HERE/collab/node_modules" ] || ! cat "$HERE/collab/package.json" "$H
   cat "$HERE/collab/package.json" "$HERE/collab/pnpm-lock.yaml" > "$DEPS_STAMP"
 fi
 
-if [ -f "$UI/lib/client.js" ]; then
+# Rebuild when any UI source is newer than the bundle, so an upgrade does not keep serving a stale one.
+if [ -f "$UI/lib/client.js" ] && [ -z "$(find "$UI/src" -newer "$UI/lib/client.js" -type f | head -n 1)" ]; then
   echo "== client-ui-discord already bundled, skipping build"
 else
   echo "== build client-ui-discord"
