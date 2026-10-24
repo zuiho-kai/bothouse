@@ -86,7 +86,13 @@ None of this should be locked inside one vendor's app. So bothouse is a plugin: 
 
 ## Features
 
-- **Child-agent status.** Codex and DSH via ACP can use the existing separate sub-agent table. DSH requires the [native lifecycle integration](integrations/dsh-acp-subtasks/README.md); ordinary tools are not child agents.
+### Chat channel + workspaces: the chat never gets blocked
+
+- Ask for something big in the chat channel and the lead hands the whole job to Workspace 1, then comes back to keep chatting with you. When Workspace 1 is busy, Workspace 2 opens on its own.
+- Inside a workspace the lead splits the job and @s teammates; they reply 【接】 (taking it) and 【交回】 (handing it back). Anything that needs your decision comes back to the chat channel, so you only watch one place.
+- The task board groups work by chat channel → workspace → role: who is on what, and how much is done. Before handing off, the lead checks whether that teammate is busy in another workspace.
+- Dispatch mode is per channel: single model with several processes, full team, or mixed (default).
+- In the DSH channel page, type "/" to see every capability and how to use it.
 
 ### A team, not a pile of chatbots
 
@@ -117,8 +123,6 @@ Memory is a directory of markdown files you can open and edit. The team shares o
 
 The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). It remembers one person and one assistant. bothouse shares it across several roles, records what Claude, Codex and DSH each did, hands the relevant pages to a role with every message, and reviews it nightly.
 
-**Where we fall short, up front:** no benchmark numbers yet, so we won't claim we're more accurate; it's heavier to set up than a one-package memory library like ai-memory, since two extra pieces have to be installed; search is keyword-only (BM25), so a reworded question can miss.
-
 ### A review every night
 
 - **Day, a cheap fast model.** When a session ends, sits idle for 30 minutes, or hits a problem mid-session, the new content is distilled into the wiki.
@@ -138,7 +142,7 @@ The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). 
 | You may be looking at | What it solves | How bothouse differs |
 | --- | --- | --- |
 | Orca and other multi-agent IDEs | One person watching several coding tasks at once | It's a workbench; we're a team. Agents there are opened per task and closed after. Here they're resident colleagues who live in your group chat and remember yesterday: you can assign work from your phone in a chat, instead of babysitting an IDE |
-| ai-memory, agentmemory, TencentDB Agent Memory | Giving an agent a memory store | They're databases; we're a wiki. You can read and edit it; matching pages reach the role before every message; it's reviewed every night. The trade-off: heavier setup, no benchmarks yet |
+| ai-memory, agentmemory, TencentDB Agent Memory | Giving an agent a memory store | They're databases; we're a wiki. You can read and edit it; matching pages reach the role before every message; it's reviewed every night |
 | llm-wiki | Memory for one person and one assistant | It's our memory layer. bothouse shares it across several roles, records what Claude, Codex and DSH each did, hands pages to a role with every message, and reviews it nightly |
 | Claude Code agent teams, CrewAI, MetaGPT | Spinning up a crew for one task | They spin up a fresh crew per project, and every crew re-reads the background, so you pay for the same understanding again and again. Ours stay: one generalist reads the knowledge base and takes any project, and spins off temporary sub-agents when needed, with long-lived specialists on the roadmap. By design, you don't pay for the same background on every project (we haven't measured how much it saves yet) |
 
@@ -154,13 +158,15 @@ project B ─ temp PM ─ temp coder ─ temp QA           ├─ @Whale  (resid
 
 What works today is step one: one group, several AIs, one shared memory. What we want next:
 
-- **No double-grabbing.** With many projects running, a role claims a task before touching it, so two roles never collide.
+- **No double-grabbing.** The lead already checks whether a teammate is busy in another workspace before handing off; next, a role claims a task before touching it, so two roles never collide.
 - **Roles that grow roles.** Say "we need to ship to the App Store", and the lead spins up a release specialist who reads your past decisions, does the job, and retires. You don't create them one by one.
 - Hiring a role should work like hiring a person: role packs bundle persona, memory template and tools, one click into the group.
 - The library should grow plugins and a market: packs that carry code plugins, plus an online market to browse and install personas and avatars others made.
 - A memory you can take with you: new machine, new model, same team, same memory.
 - Resident roles shouldn't re-read the project for every task, which saves the repeated background. We'll publish numbers when we have a real comparison.
 - Team features should reach more platforms: DSH web channels first, then Telegram, Slack, QQ, WeCom (single-role connections already ship with bothouse).
+- DSH channel: send images and quote replies.
+- A workspace that closes its last task clears its own context, so the next job starts fresh.
 - Memory should get smarter: semantic search next to keyword search, so a different wording still finds the page.
 
 None of this is built yet. Watch the repo to follow along.
@@ -195,16 +201,14 @@ Modules and data flow: [Architecture](docs/ARCHITECTURE.md) (Chinese).
 
 Contributors: start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
-## License
-
-bothouse is licensed under [Apache-2.0](LICENSE). See [LICENSING.md](LICENSING.md) (Chinese) for details.
-
-The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to its authors and contributors. See [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for dependency licenses.
-
-- DSH 频道路线图：发图片、回复引用。
-
 ### Collaboration helper scripts
 
 Install the packaged task board, timer, handoff and lead helpers for a role with
 `bothouse setup lead install --work-dir /path/to/role --agent codex`.
 See [configuration and requirements](bridge/contrib/lead/README.md).
+
+## License
+
+bothouse is licensed under [Apache-2.0](LICENSE). See [LICENSING.md](LICENSING.md) (Chinese) for details.
+
+The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to its authors and contributors. See [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for dependency licenses.

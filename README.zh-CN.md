@@ -14,7 +14,13 @@ opus、鲸鱼娘、笔杆可以分别是 Claude Code、DSH、Codex。换成你�
 
 ### 核心安装
 
-从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载 macOS 的 `bothouse-mac.dmg`（Apple 芯片和 Intel 通用，把 Bothouse.app 拖进 Applications 后双击）或 Windows 的 `bothouse-windows.exe`（x64 和 ARM64 Windows 均可运行，下载后双击），首次启动会在浏览器打开安装向导。macOS 暂未签名，首次打开请「右键→打开」。Linux 下载 `bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行；校验见 `SHA256SUMS`。也可运行下面的命令，装固定版本和校验方式见[从零用起](docs/GETTING_STARTED.md)第 1 节。
+从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
+
+- macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用），把 Bothouse.app 拖进 Applications 后双击。暂未签名，第一次请「右键→打开」。
+- Windows：`bothouse-windows.exe`（x64 和 ARM64 都能跑），下载后双击。
+- Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
+
+第一次启动会在浏览器打开安装向导。也可以用下面的命令装，固定版本和校验见[从零用起](docs/GETTING_STARTED.md)第 1 节。
 
 ```sh
 # macOS / Linux
@@ -85,7 +91,13 @@ AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode �
 
 ## 特性
 
-- **子 Agent 状态表。** Codex 和经 ACP 接入的 DSH 可复用独立子进程表；DSH 需安装[原生状态转发层](integrations/dsh-acp-subtasks/README.md)。普通工具调用不算子 Agent。
+### 聊天频道 + 工作区：聊天不被活堵住
+
+- 你在聊天频道说一件大事，主角色把它整块交给工作区1，自己回来接着和你聊。工作区1 忙不过来，就自动开工作区2。
+- 工作区里主角色拆活、@ 队友派活，队友回【接】、做完【交回】；要你拍板的事统一回到聊天频道问你，你只盯一个频道。
+- 任务板按「聊天频道 → 工作区 → 角色」分组，谁在做什么、做完几件，一眼看清。派活前会看这个人在别的工作区忙不忙。
+- 派活方式可以按频道切：单模型多进程、完全团队，或者混合（默认）。
+- 在 DSH 频道页输入框打「/」，能看到全部能力和用法。
 
 ### 一支团队，不是一群聊天机器人
 
@@ -116,8 +128,6 @@ AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode �
 
 记忆层用的是公开的 [llm-wiki](https://github.com/zuiho-kai/llm-wiki)。它只记你和一个助手的对话；bothouse 让几个角色共用一份，Claude、Codex、DSH 的对话都会记进去，你每说一句就递上相关页，每晚还有复盘。
 
-**我们还差的地方，先说清楚：** 没有测评数字，不敢说比谁准；装起来比 ai-memory 这类一个包的工具重，要多装两样东西；检索只有关键词匹配（BM25），换个说法可能找不到。
-
 ### 每晚复盘
 
 - **白天，便宜快的模型。** 会话结束、空闲 30 分钟、或者会话过程中遇到问题，就把新内容整理进 wiki。
@@ -130,6 +140,7 @@ AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode �
 
 - **护栏**：危险命令先拦。AI 说「修好了」却拿不出证据，会被打回去补；说「等会儿再看」却没定闹钟，也会被拦下。Claude Code 和 DSH 用同一份。
 - **小工具**：看队友现在在干什么、把一段视频看成文字和截图、免费搜网页。
+- 子 Agent 状态表：Codex 和经 ACP 接入的 DSH 开子任务时，卡片下面列出每个子任务和用时；DSH 需装[原生状态转发层](integrations/dsh-acp-subtasks/README.md)。
 - 不想要哪个，在群里跟机器人说一句「把检查关了」就行。
 
 ## 和别的项目比
@@ -137,7 +148,7 @@ AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode �
 | 你可能在看 | 它解决的问题 | bothouse 不同在哪 |
 | --- | --- | --- |
 | Orca、各类多 agent IDE | 一个人同时盯几个编码任务 | 它是工位，我们是团队。agent 在它那里按任务开、用完关；在我们这里是常驻的同事，住在你的群里，记得昨天的事。你出门用手机在群里说一句就能派活，不用守在电脑前盯 IDE |
-| ai-memory、agentmemory、TencentDB Agent Memory | 给 agent 配一个记忆库 | 它们是数据库，我们是 wiki：你能读能改；相关页每句话前自动递到角色手边；每晚有复盘。代价：装得比它们重，也还没有测评数字 |
+| ai-memory、agentmemory、TencentDB Agent Memory | 给 agent 配一个记忆库 | 它们是数据库，我们是 wiki：你能读能改；相关页每句话前自动递到角色手边；每晚有复盘 |
 | llm-wiki | 一个人、一个助手的记忆 | 它是我们的记忆层。bothouse 让几个角色共用一份，Claude、Codex、DSH 的对话都记进去，你每说一句就递上相关页，每晚复盘 |
 | Claude Code agent teams、CrewAI、MetaGPT | 一个任务临时拉一队 | 它们每个项目拉一队临时角色，每次从头读背景，token 花在重复理解上。我们的角色常驻，读了知识库就能接任何项目，要专人时开临时子代理，以后还能自己派生长期专人（见路线图）。按设计，背景不用每个项目重付一遍（省多少还没测） |
 
@@ -153,13 +164,15 @@ AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode �
 
 今天能用的是第一步：一个群，几个 AI，一份共享记忆。往后想做的：
 
-- **不会抢活。** 多个项目同时跑时，角色先认领再动手，两个人不会撞在同一件事上。
+- **不会抢活。** 现在派活前已经会看队友在别的工作区忙不忙；往后角色先认领再动手，两个人不会撞在同一件事上。
 - **角色自己长出角色。** 比如你提了一句「要上架 App Store」，opus 自己派生一个「上架专员」，读完你的历史决策就开工，上架完就退场。不用你一个个建。
 - 招角色像招人：角色包把人设、记忆模板、工具打在一起，一键进群。
 - 角色库以后会长出插件和市场：包里能带代码插件，还有一个在线市场，逛一逛就能装别人做的人设和头像。
 - 团队记忆可以带走：换电脑、换模型，团队还是那支团队，记得的事一件不少。
 - 常驻角色不用每个任务重读项目，省下重复的背景。等我们有对比数据再公布数字。
 - 团队功能会铺到更多平台：DSH 网页频道，然后是 Telegram、Slack、QQ、企微（单角色接入已随 bothouse 带着）。
+- DSH 频道能发图片、回复引用。
+- 工作区收完名下最后一件活，自己清空上下文，下次接活从干净的会话开始。
 - 记忆会更聪明：关键词检索之外加语义检索，让换个说法也找得到。
 
 这些都还没做。想跟进就 watch 这个仓库。
@@ -199,5 +212,3 @@ Discord / 飞书 / 自建网页频道
 bothouse 按 [Apache-2.0](LICENSE) 授权，详见[许可说明](LICENSING.md)。
 
 随附桥接组件的上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，感谢原作者和贡献者。第三方依赖许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
-
-- DSH 频道路线图：发图片、回复引用。
