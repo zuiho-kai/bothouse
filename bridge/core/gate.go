@@ -135,6 +135,9 @@ type gateResponse struct {
 	// Tier (maomao fork) tags the message "chat" or "task" so idle turns can pick a model;
 	// empty = no suggestion.
 	Tier string `json:"tier,omitempty"`
+	// fellBack: the gate could not answer and Action is gate_fallback (applyGate then lets the
+	// primary-role selection decide, team_lead_route.go).
+	fellBack bool
 }
 
 // SetGate enables the gate; an empty url disables it. fallback is the action used when the gate
@@ -193,7 +196,8 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 
 // fallbackFor is the action when the gate can't answer: a bot that was @-mentioned
 // still replies (being named directly needs no judgement); otherwise gate_fallback
-// applies (the fallback role "reply", other roles "context").
+// applies (the fallback role "reply", other roles "context"). For a team member,
+// applyGate then lets the primary-role selection override it (leadRouteGate).
 func (g *gateState) fallbackFor(req gateRequest) string {
 	if req.Mentioned {
 		return "reply"
@@ -207,23 +211,23 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 	defer cancel()
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.url, bytes.NewReader(body))
 	if err != nil {
-		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error(), fellBack: true}
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(hreq)
 	if err != nil {
-		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error(), fellBack: true}
 	}
 	defer resp.Body.Close()
 	var out gateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != http.StatusOK {
-		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
+		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err), fellBack: true}
 	}
 	switch out.Action {
 	case "reply", "insert", "silent", "context", "abort":
 		return out
 	}
-	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action}
+	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action, fellBack: true}
 }
 
 // applyGate runs the gate for msg. It returns true when the message has been fully handled
@@ -320,6 +324,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge,
 	})
+	dec.Action = e.leadRouteGate(p, msg, dec)
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
 
@@ -660,6 +665,10 @@ func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content str
 		content = c + "\n\n" + content
 	}
 	if c := e.memoryBlock(session); c != "" { // before the handoff: the index, then what the old context did
+		content = c + "\n\n" + content
+	}
+	// Who the primary role is goes with any turn (gate or not), once per change (#117).
+	if c := e.leadBlock(session); c != "" {
 		content = c + "\n\n" + content
 	}
 	if !turnCtx {

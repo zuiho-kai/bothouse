@@ -81,6 +81,14 @@ func hubBotID(wsURL, project string) string {
 	return project
 }
 
+// hubMentionID is the mention_id of a ws_url ("" when none).
+func hubMentionID(wsURL string) string {
+	if u, err := url.Parse(strings.TrimSpace(wsURL)); err == nil {
+		return strings.TrimSpace(u.Query().Get("mention_id"))
+	}
+	return ""
+}
+
 // ChannelHistory implements core.ChannelHistoryReader: up to limit messages of room channelID
 // ("room-<id>") posted before beforeID ("hub-<id>", "" = up to the newest), oldest first.
 func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core.ChannelHistoryMessage, error) {

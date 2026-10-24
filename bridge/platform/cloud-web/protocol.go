@@ -146,6 +146,10 @@ type wireInboundMessage struct {
 	// UserMentionID (maomao fork): the sending bot's <@id>; matched against team_lead_bot to know the
 	// lead dispatched this turn (lead_return.go), as Discord matches the author ID.
 	UserMentionID string `json:"user_mention_id,omitempty"`
+	// Online (issue #117): ids of the channel members online when the hub routed this message,
+	// so a team member can tell whether the selected primary role can take it. Absent from an
+	// older hub (nil = unknown).
+	Online []string `json:"online,omitempty"`
 }
 
 type wireCardAction struct {

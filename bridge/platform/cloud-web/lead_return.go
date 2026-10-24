@@ -24,7 +24,8 @@ const leadReturnTTL = 24 * time.Hour // same as platform/discord/lead_return.go
 // the lead together (issue #182). The gateway writes the lead's @ as <@team_lead_bot> for every bot
 // but the lead (rh/cloudweb.py for_bot).
 func (p *Platform) dispatchedBy(m wireInboundMessage) string {
-	if m.Mentioned == nil || !*m.Mentioned || p.teamLead == "" {
+	// The lead itself (team_lead_bot names its own mention_id) hands nothing back, as on Discord.
+	if m.Mentioned == nil || !*m.Mentioned || p.teamLead == "" || p.IsConfiguredTeamLead() {
 		return ""
 	}
 	if m.FromBot {

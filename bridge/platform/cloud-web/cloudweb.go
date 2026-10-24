@@ -52,6 +52,7 @@ type Platform struct {
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
 
 	teamLead     string   // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
+	selfMention  string   // ws_url mention_id: this bot's own <@id>; team_lead_bot equal to it = this bot is the lead
 	leadReturned sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
 	wsAcks       sync.Map // team mode E: ref_id → chan wireTeamWorkspaceAck (workspaces.go)
 }
@@ -78,6 +79,8 @@ var (
 	_ core.FinalReplyMarker           = (*Platform)(nil)
 	_ core.SubTaskTablePayloadSupport = (*Platform)(nil)
 	_ core.ProgressUpdateThrottler    = (*Platform)(nil)
+	_ core.ConfiguredTeamLeadSelf     = (*Platform)(nil)
+	_ core.TeamSelfID                 = (*Platform)(nil)
 )
 
 // Progress card defaults (maomao fork). Source: the user's Discord settings in
@@ -190,6 +193,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		historyBase:      historyBaseURL(baseURL, wsURL),
 		selfID:           hubBotID(wsURL, project),
 		teamLead:         strings.TrimSpace(teamLead),
+		selfMention:      hubMentionID(wsURL),
 	}, nil
 }
 
@@ -217,6 +221,16 @@ func (p *Platform) Name() string { return p.name }
 
 // HasConfiguredTeamLead reports whether this platform belongs to a configured team.
 func (p *Platform) HasConfiguredTeamLead() bool { return p.teamLead != "" }
+
+// IsConfiguredTeamLead reports whether team_lead_bot names this bot (core.ConfiguredTeamLeadSelf),
+// compared with the mention_id of its own ws_url, as Discord compares its bot ID.
+func (p *Platform) IsConfiguredTeamLead() bool {
+	return p.teamLead != "" && p.selfMention != "" && p.teamLead == p.selfMention
+}
+
+// TeamMemberID is this bot's member id on the hub (ws_url ?bot=), the id lead.json names
+// (core.TeamSelfID).
+func (p *Platform) TeamMemberID() string { return p.selfID }
 
 // ProgressStyle implements core.ProgressStyleProvider (maomao fork).
 func (p *Platform) ProgressStyle() string {
@@ -427,6 +441,8 @@ func (p *Platform) handleMessage(raw []byte) {
 		// A private chat calls the bot (core/gate_local.go built-in busy rules). Only the documented
 		// chat_type "direct" (docs/cloud-web.md); a missing chat_type is not taken as a DM.
 		Direct: strings.EqualFold(strings.TrimSpace(m.ChatType), "direct") && !m.FromBot,
+		// #117: the hub's members online when it routed this message (nil from an older hub).
+		TeamOnline: m.Online,
 	}
 
 	p.mu.RLock()

@@ -73,36 +73,23 @@ func (e *Engine) readLeadSelection() (string, bool) {
 	return strings.TrimSpace(selection.Lead), true
 }
 
-// suppressUnaddressedGroup prevents a no-gate team sub from starting a turn
-// for a group message that has no explicit recipient. A configured gate owns
-// this decision when present, so this is deliberately only called by the
-// local no-gate path.
+// suppressUnaddressedGroup prevents a no-gate team member from starting a turn for a
+// group message that is not its to take: one naming a teammate, or one naming no one when
+// another role is the primary role (team_lead_route.go). A configured gate owns this
+// decision when present, so this is deliberately only called by the local no-gate path.
 func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
 	if msg.FromBot || msg.Mentioned || msg.Direct {
 		return false
 	}
-	configured, ok := p.(ConfiguredTeamLead)
-	hasLead := ok && configured.HasConfiguredTeamLead()
-	if e.team == nil {
-		// A multi-role setup from the wizard names its lead in team_lead_bot on every
-		// member but may have no team status board; without a gate that setting alone
-		// decides: the lead answers unaddressed messages, the subs only listen.
-		self, ok := p.(ConfiguredTeamLeadSelf)
-		if !hasLead || !ok {
-			return false
-		}
-		return msg.AddressedOther || !self.IsConfiguredTeamLead()
+	if msg.AddressedOther {
+		inTeam, _ := e.teamRole(p)
+		return inTeam // @-ed or named a teammate: that teammate answers, not the lead
 	}
-	if hasLead && msg.AddressedOther {
-		return true // @-ed or named a teammate: that teammate answers, not the lead
-	}
-	if selected, ok := e.readLeadSelection(); ok {
-		return selected != e.name
-	}
-	if !hasLead {
+	r := e.routeUnaddressed(p, msg)
+	if !r.decided {
 		return false
 	}
-	return !e.isTeamLead()
+	return !e.applyLeadRoute(p, msg, r)
 }
 
 type teamSession struct {

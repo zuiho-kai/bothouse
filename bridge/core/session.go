@@ -76,6 +76,7 @@ type TurnCtxSent struct {
 	ReferenceSince time.Time `json:"-"`              // deliberately unknown after a bridge restart
 	ReferenceIDs map[string]bool `json:"-"` // agent output sent by this context only
 	Team           string    `json:"team,omitempty"` // teammate status key (without elapsed times)
+	Lead           string    `json:"lead,omitempty"` // primary-role state last told to the agent (team_lead_route.go leadBlock)
 }
 
 func (s *Session) TryLock() bool {
