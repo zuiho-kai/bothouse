@@ -39,6 +39,9 @@ type TeamChannel struct {
 	// Active is the number of tasks in progress in the channel, where the platform knows it
 	// (cloud_web/DSH); 0 elsewhere (Discord, Feishu rely on the caller's busy check).
 	Active int
+	// ActiveKnown: the platform maintains Active (cloud_web/DSH). False means Active == 0 says
+	// nothing about whether the channel is busy.
+	ActiveKnown bool
 }
 
 // ErrNotTeamChannel: the channel cannot have workspaces (DM, thread, voice, …).
@@ -675,7 +678,8 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name string) (string, err
 	// idle: the platform lists the workspace with no tasks in progress, the same count the pool
 	// uses to skip busy workspaces (teamWorkspacePlan). Its earlier handoffs are then over and
 	// are closed below, so a plain [report] of this task is not ambiguous (no idle reset or /new
-	// needs to have run). Unknown (lookup failed, platform without workspaces) closes nothing.
+	// needs to have run). Unknown (lookup failed, platform without workspaces, or a platform that
+	// does not count tasks: Discord, Feishu) closes nothing; there the workspace quotes the task id.
 	idle := false
 	if p, ok := e.teamWorkspacePlatform(chat); ok {
 		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
@@ -684,7 +688,7 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name string) (string, err
 		if err == nil {
 			for _, c := range guild {
 				if c.ID == wsID {
-					idle = c.Active == 0
+					idle = c.ActiveKnown && c.Active == 0
 				}
 			}
 		}
@@ -759,7 +763,7 @@ func (e *Engine) noticeHandoffTask(chat, wsID, task string) {
 	if err != nil {
 		return
 	}
-	text := exitPrefix + " 交接任务编号 " + task + "（来自 " + channelLabel(plat, teamChannelID(chat)) + "）。这件活的 [ask]/[report] 正文里写上这个编号。"
+	text := exitPrefix + " 交接任务编号 " + task + "（来自 " + channelLabel(plat, teamChannelID(chat)) + "）。这件活的回复第一行写 [ask] " + task + " 或 [report] " + task + "。"
 	if err := p.Send(e.ctx, rc, text); err != nil {
 		slog.Warn("team workspace: handoff task notice failed", "workspace", wsID, "error", err)
 	}

@@ -126,13 +126,14 @@ type exitPoolPlatform struct {
 	*exitTestPlatform
 	mu     sync.Mutex
 	active int
+	known  bool // ActiveKnown: true like cloud_web/DSH, false like Discord/Feishu
 }
 
 func (p *exitPoolPlatform) setActive(n int) { p.mu.Lock(); p.active = n; p.mu.Unlock() }
 func (p *exitPoolPlatform) TeamGuildChannels(_ context.Context, id string) (TeamChannel, []TeamChannel, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	all := []TeamChannel{{ID: "chatA", Name: "聊天A"}, {ID: "chatB", Name: "聊天B"}, {ID: "ws1", Name: "工作区1", Active: p.active}}
+	all := []TeamChannel{{ID: "chatA", Name: "聊天A"}, {ID: "chatB", Name: "聊天B"}, {ID: "ws1", Name: "工作区1", Active: p.active, ActiveKnown: p.known}}
 	for _, c := range all {
 		if c.ID == id {
 			return c, all, nil
@@ -144,11 +145,11 @@ func (p *exitPoolPlatform) CreateTeamWorkspaceChannel(context.Context, string, s
 	return TeamChannel{}, nil
 }
 
-func exitPoolFixture(t *testing.T) (*Engine, *exitPoolPlatform) {
+func exitPoolFixture(t *testing.T, known bool) (*Engine, *exitPoolPlatform) {
 	t.Helper()
 	as := &inputTestSession{events: make(chan Event, 32), prompts: make(chan string, 32), id: "t1"}
 	ag := &inputTestAgent{session: as, requested: make(chan string, 32)}
-	p := &exitPoolPlatform{exitTestPlatform: &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}}
+	p := &exitPoolPlatform{exitTestPlatform: &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}, known: known}
 	e := NewEngine("orange", ag, []Platform{p}, "", LangEnglish)
 	e.dataDir = t.TempDir()
 	t.Cleanup(func() { e.cancel(); _ = e.Stop() })
@@ -158,7 +159,7 @@ func exitPoolFixture(t *testing.T) (*Engine, *exitPoolPlatform) {
 // A's task ends (the workspace has no tasks in progress; no idle reset, no /new), B hands off:
 // the claim closes A's handoff, so B's plain report reaches B.
 func TestWorkspaceClaimOnIdleWorkspaceClosesEarlierTasks(t *testing.T) {
-	e, p := exitPoolFixture(t)
+	e, p := exitPoolFixture(t, true)
 	if _, err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +179,7 @@ func TestWorkspaceClaimOnIdleWorkspaceClosesEarlierTasks(t *testing.T) {
 // A's task is still in progress when B hands off: A's handoff stays open and a plain report
 // is ambiguous (sent to neither chat).
 func TestWorkspaceClaimOnBusyWorkspaceKeepsEarlierTasks(t *testing.T) {
-	e, p := exitPoolFixture(t)
+	e, p := exitPoolFixture(t, true)
 	if _, err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
@@ -189,5 +190,42 @@ func TestWorkspaceClaimOnBusyWorkspaceKeepsEarlierTasks(t *testing.T) {
 	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n做好了")
 	if a, b := p.sentTo("discord:chatA"), p.sentTo("discord:chatB"); len(a)+len(b) != 0 {
 		t.Fatalf("guessed a chat: A=%q B=%q", a, b)
+	}
+}
+
+// Discord/Feishu do not count tasks (Active is always 0, ActiveKnown false): a claim closes
+// nothing, so A's still-running task keeps its handoff. A plain report is not sent to the last
+// claimer B; the workspace is told to resend with a task id, and "[report] <id>" reaches the
+// chat that handed off that task.
+func TestWorkspaceClaimWithUnknownActiveKeepsEarlierTasks(t *testing.T) {
+	e, p := exitPoolFixture(t, false)
+	taskA, err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskB, err := e.ClaimTeamWorkspaceTask("discord:chatB", "ws1", "工作区1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n做好了")
+	if a, b := p.sentTo("discord:chatA"), p.sentTo("discord:chatB"); len(a)+len(b) != 0 {
+		t.Fatalf("guessed a chat: A=%q B=%q", a, b)
+	}
+	var note string
+	for _, n := range p.sentTo(exitWSKey) {
+		if strings.Contains(n, "没有转发") {
+			note = n
+		}
+	}
+	if !strings.Contains(note, taskA) || !strings.Contains(note, taskB) || !strings.Contains(note, "[report] task-") {
+		t.Fatalf("ambiguity notice = %q", note)
+	}
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] "+taskA+"\nA 的活做完")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] "+taskB+"\nB 的活做完")
+	if got := p.sentTo("discord:chatA"); len(got) != 1 || !strings.Contains(got[0], "A 的活做完") {
+		t.Fatalf("chatA got %q", got)
+	}
+	if got := p.sentTo("discord:chatB"); len(got) != 1 || !strings.Contains(got[0], "B 的活做完") {
+		t.Fatalf("chatB got %q", got)
 	}
 }

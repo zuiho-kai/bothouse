@@ -104,7 +104,7 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 	all := []core.TeamChannel{self}
 	for _, r := range ack.Rooms {
 		if r.ID != "" && r.ID != self.ID {
-			all = append(all, core.TeamChannel{ID: r.ID, Name: r.Name, Active: r.Active})
+			all = append(all, core.TeamChannel{ID: r.ID, Name: r.Name, Active: r.Active, ActiveKnown: true})
 		}
 	}
 	return self, all, nil

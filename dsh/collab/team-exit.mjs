@@ -69,7 +69,7 @@ export class TeamExit {
       const tasks = this.db.prepare('SELECT id, parent_id FROM team_exit_handoffs WHERE workspace_id = ? AND closed = 0 ORDER BY rowid DESC').all(room.id);
       this.hub.post(room.id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit-ambiguous:${msg.id}`,
-        text: `📬 没有转发：这个工作区手上有多个聊天频道交来的活，正文里写上任务编号再发一次：\n${tasks.map(t => `${t.id} ← room-${t.parent_id}`).join('\n')}`,
+        text: `📬 没有转发：这个工作区手上有多个聊天频道交来的活，用下面的一个编号再发一次，第一行写 [ask] task-xxxxxxxx 或 [report] task-xxxxxxxx：\n${tasks.map(t => `${t.id} ← room-${t.parent_id}`).join('\n')}`,
       });
       return;
     }

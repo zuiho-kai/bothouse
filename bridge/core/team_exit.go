@@ -234,7 +234,7 @@ func (e *Engine) noticeAmbiguousExit(p Platform, rec ReplyContextReconstructor, 
 		return
 	}
 	var b strings.Builder
-	b.WriteString(exitPrefix + " 没有转发：这个工作区手上有多个聊天频道交来的活，回复里没写是哪件。第一行 [ask]/[report] 后的正文里写上任务编号再发一次：")
+	b.WriteString(exitPrefix + " 没有转发：这个工作区手上有多个聊天频道交来的活，回复里没写是哪件。用下面的一个编号再发一次，第一行写 [ask] task-xxxxxxxx 或 [report] task-xxxxxxxx：")
 	for _, h := range cands {
 		b.WriteString("\n" + h.ID + " ← " + channelLabel(p.Name(), teamChannelID(h.Chat)))
 	}

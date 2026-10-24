@@ -303,7 +303,7 @@ export class CloudWebGateway {
         const chat = store.room(w.parent_id);
         this.hub.post(w.id, {
           authorKind: 'system', author: 'system', name: 'system', clientKey: `team-handoff:${w.task}`,
-          text: `📬 交接任务编号 ${w.task}（来自 ${chat?.name ? `#${chat.name}` : `room-${w.parent_id}`}）。这件活的 [ask]/[report] 正文里写上这个编号。`,
+          text: `📬 交接任务编号 ${w.task}（来自 ${chat?.name ? `#${chat.name}` : `room-${w.parent_id}`}）。这件活的回复第一行写 [ask] ${w.task} 或 [report] ${w.task}。`,
         });
         return { ok: true, room: view(w), task: w.task };
       }
