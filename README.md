@@ -6,7 +6,7 @@ bothouse connects the AI CLIs you already use to Discord, Feishu, self-hosted ch
 
 ## What it looks like
 
-<img src="docs/assets/demo-team.gif" alt="Real channel footage: the chat channel hands work to workspaces, tasks are dispatched, accepted and handed back there, the task board groups them, and chat carries on" width="760">
+<img src="docs/assets/demo-team.en.gif" alt="Real channel footage: the chat channel hands work to workspaces, tasks are dispatched, accepted and handed back there, the task board groups them, and chat carries on" width="760">
 
 Real channel footage: chat hands work to a workspace, the workspace dispatches it, the task board shows it all at a glance, and chat carries on.
 
