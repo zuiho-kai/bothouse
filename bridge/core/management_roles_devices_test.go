@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -89,6 +90,22 @@ func TestManagementRolesAndDevices(t *testing.T) {
 	// Verify engine true pause behavior: handleMessage returns early without work
 	msg := &Message{Platform: "discord", Content: "hello"}
 	e.handleMessage(plat1, msg) // should drop message immediately because e.IsPaused() == true
+
+	// Verify scheduled jobs, timer jobs and heartbeats are rejected while paused
+	timerErr := e.ExecuteTimerJob(&TimerJob{ID: "t1", SessionKey: "discord:c1", Prompt: "test prompt"})
+	if timerErr == nil || !strings.Contains(timerErr.Error(), "paused") {
+		t.Fatalf("expected ExecuteTimerJob on paused engine to fail with paused error, got: %v", timerErr)
+	}
+
+	cronErr := e.ExecuteCronJob(&CronJob{ID: "c1", SessionKey: "discord:c1", Prompt: "test prompt"})
+	if cronErr == nil || !strings.Contains(cronErr.Error(), "paused") {
+		t.Fatalf("expected ExecuteCronJob on paused engine to fail with paused error, got: %v", cronErr)
+	}
+
+	hbErr := e.ExecuteHeartbeat("discord:c1", "ping", true)
+	if hbErr == nil || !strings.Contains(hbErr.Error(), "paused") {
+		t.Fatalf("expected ExecuteHeartbeat on paused engine to fail with paused error, got: %v", hbErr)
+	}
 
 	// POST /roles/caihongmao/pause (set paused = false)
 	pausePayload = []byte(`{"paused":false}`)

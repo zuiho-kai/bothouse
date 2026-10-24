@@ -199,6 +199,10 @@ func (ws *WebhookServer) resolveEngine(project string) (*Engine, error) {
 }
 
 func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string, silent bool, event string) {
+	if engine.IsPaused() {
+		slog.Warn("webhook: engine is paused, prompt dropped", "project", engine.name, "event", event)
+		return
+	}
 	platformName := ""
 	if idx := strings.Index(sessionKey, ":"); idx > 0 {
 		platformName = sessionKey[:idx]
@@ -267,6 +271,10 @@ func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string
 const webhookShellTimeout = 5 * time.Minute
 
 func (ws *WebhookServer) executeShell(engine *Engine, req WebhookRequest, event string) {
+	if engine.IsPaused() {
+		slog.Warn("webhook: engine is paused, shell dropped", "project", engine.name, "event", event)
+		return
+	}
 	sessionKey := req.SessionKey
 	platformName := ""
 	if idx := strings.Index(sessionKey, ":"); idx > 0 {

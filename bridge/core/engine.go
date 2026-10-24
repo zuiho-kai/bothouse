@@ -1639,6 +1639,9 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
+	if e.IsPaused() {
+		return fmt.Errorf("engine %q is paused", e.name)
+	}
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventCronTriggered,
 		SessionKey: job.SessionKey,
@@ -1898,6 +1901,9 @@ func (e *Engine) waitTimerPlatformReady(p Platform) error {
 }
 
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
+	if e.IsPaused() {
+		return fmt.Errorf("engine %q is paused", e.name)
+	}
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventTimerTriggered,
 		SessionKey: job.SessionKey,
@@ -2587,6 +2593,9 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	if e.IsPaused() {
+		return fmt.Errorf("engine %q is paused", e.name)
+	}
 	platformName := ""
 	if idx := strings.Index(sessionKey, ":"); idx > 0 {
 		platformName = sessionKey[:idx]
@@ -4204,6 +4213,11 @@ func (e *Engine) processInteractiveMessage(p Platform, msg *Message, session *Se
 // and workspaceDir so that multi-workspace mode can route to per-workspace agents.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY in the agent env; otherwise interactiveKey is used.
 func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string, ccSessionKey string) {
+	if e.IsPaused() {
+		session.Unlock()
+		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine %q is paused", e.name)})
+		return
+	}
 	if !e.beginMessageWork() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine stopped")})
@@ -17166,6 +17180,9 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 // resolved its conversation key. Task-scoped relays can pass their scoped key
 // here to share timeout/drain behavior without sharing conversation history.
 func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, completion ...func(string, error)) (string, error) {
+	if e.IsPaused() {
+		return "", fmt.Errorf("engine %q is paused", e.name)
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
