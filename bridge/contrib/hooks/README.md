@@ -64,6 +64,19 @@ bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记
 
 fix-claim-guard 和 promise-guard 认的是中文措辞。
 
+### 手动挂：subagent-ctx-hook
+
+`subagent-ctx-hook` 管子 agent 的上下文：子 agent 的上下文到 15 万 token 时，PostToolUse 提醒它写简短交接（做到哪、文件在哪、下一步）后收工，PreToolUse 拒绝它之后的工具调用；主会话不管。上下文取子 agent 转录里最新一条 assistant 的 usage（Codex 子线程取 rollout 里最后一条 token_count，DSH 用 dsh-cc-compat 补的 `context_tokens`）。出错一律放行。
+
+它还不在 `setup hooks on` 的默认列表里，要用就在角色的 `.claude/settings.json` 里手动加（两个事件都挂、matcher 留空即所有工具）：
+
+```json
+{"hooks": {
+  "PreToolUse":  [{"hooks": [{"type": "command", "timeout": 5, "command": "python3 -I ~/.bothouse/hooks/run.py subagent-ctx-hook"}]}],
+  "PostToolUse": [{"hooks": [{"type": "command", "timeout": 5, "command": "python3 -I ~/.bothouse/hooks/run.py subagent-ctx-hook"}]}]
+}}
+```
+
 ## 可选设置（环境变量）
 
 不设也能用。要改的话，把变量写在启动 agent 的环境里（bothouse 的 `[projects.agent.options] env`，或启动 DSH 的脚本）。
@@ -95,6 +108,7 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
 python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
 python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
+python3 -I bridge/contrib/hooks/test_subagent_ctx_hook.py  # subagent-ctx-hook：阈值上下、主会话不管、Codex/context_tokens、经 run.py 跑一次
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```
 
