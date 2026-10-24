@@ -57,7 +57,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 | 平台 | 现状 | 现在能做什么 |
 | --- | --- | --- |
 | Discord | 完整 | 多角色团队全部功能：点名、派活交差、队友状态、日志频道 |
-| 自建平台 | 完整 | 自带一个类 Discord 的网页频道，可以在本机启动；多角色点名、派活交差 |
+| 自建平台 | 团队模式 | 自带一个类 Discord 的网页频道，可以在本机启动；多角色点名、派活交差 |
 | 飞书 | 单角色 | 先接一个角色对话 |
 | DSH 网页 | 实验 | DSH 网页里的「频道」页，见 [DSH 频道入口](dsh/collab/README.md) |
 

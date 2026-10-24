@@ -59,7 +59,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 | Platform | Status | What works today |
 | --- | --- | --- |
 | Discord | Full | The full team: call by name, handoffs, teammate status, log channel |
-| Self-hosted channel | Full | A Discord-like web channel you can start on your own machine; several roles, call by name, handoffs |
+| Self-hosted channel | Team mode | A Discord-like web channel you can start on your own machine; several roles, call by name, handoffs |
 | Feishu (Lark) | Single role | One role chatting, for now |
 | DSH web | Experimental | A Channels page inside DSH web, see [DSH channels](dsh/collab/README.md) |
 
