@@ -64,10 +64,8 @@ func TestReplyRouting_BotMessagesRequireExplicitBodyMention(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var delivered []*core.Message
 			p := &Platform{
 				botID: "200", botName: "main", allowFrom: "*", allowBots: "100",
-				handler: func(_ core.Platform, msg *core.Message) { delivered = append(delivered, msg) },
 			}
 			p.botRoleIDs.Store("guild", "role-200")
 			p.channelNameCache.Store("channel", "test")
@@ -79,17 +77,63 @@ func TestReplyRouting_BotMessagesRequireExplicitBodyMention(t *testing.T) {
 				MessageReference:  &discordgo.MessageReference{MessageID: "prior"},
 				ReferencedMessage: &discordgo.Message{Author: &discordgo.User{ID: "200", Bot: true}, Content: "prior reply"},
 			}})
-			if len(delivered) != 1 {
-				t.Fatalf("got %d delivered messages, want 1 listenable bot message", len(delivered))
+			p.botBurstMu.Lock()
+			burst := p.botBursts["channel:100"]
+			if burst == nil {
+				p.botBurstMu.Unlock()
+				t.Fatal("expected bot message to be collected into a burst")
 			}
-			got := delivered[0].Mentioned
+			if burst.timer != nil {
+				burst.timer.Stop()
+			}
+			delete(p.botBursts, "channel:100")
+			p.botBurstMu.Unlock()
+			got := burst.msg.Mentioned
 			if got != tt.wantPing {
 				t.Errorf("Mentioned = %v, want %v", got, tt.wantPing)
 			}
-			if !delivered[0].FromBot {
+			if !burst.msg.FromBot {
 				t.Error("message should remain marked as bot-authored")
 			}
 		})
+	}
+}
+
+func TestReplyRouting_LeadingNameDispatchSurvivesBurstMerge(t *testing.T) {
+	p := &Platform{
+		botID: "200", botName: "橘", teamLead: "100", allowFrom: "*", allowBots: "100",
+	}
+	p.channelNameCache.Store("channel", "test")
+	deliver := func(id, content string) {
+		p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+			ID: id, GuildID: "guild", ChannelID: "channel",
+			Author: &discordgo.User{ID: "100", Bot: true, Username: "lead"}, Timestamp: time.Now(),
+			Content: content,
+		}})
+	}
+	deliver("lead-call", "橘，接手这件事")
+	deliver("lead-followup", "补充一点背景")
+
+	p.botBurstMu.Lock()
+	burst := p.botBursts["channel:100"]
+	if burst == nil {
+		p.botBurstMu.Unlock()
+		t.Fatal("expected bot messages to be collected into a burst")
+	}
+	ctx, ok := burst.msg.ReplyCtx.(replyContext)
+	if burst.timer != nil {
+		burst.timer.Stop()
+	}
+	delete(p.botBursts, "channel:100")
+	p.botBurstMu.Unlock()
+	if !ok {
+		t.Fatalf("ReplyCtx has unexpected type %T", burst.msg.ReplyCtx)
+	}
+	if ctx.lead != "100" {
+		t.Fatalf("burst lost lead dispatch: %+v", ctx)
+	}
+	if !burst.msg.Mentioned {
+		t.Fatal("leading-name call should mark the bot message as addressed")
 	}
 }
 

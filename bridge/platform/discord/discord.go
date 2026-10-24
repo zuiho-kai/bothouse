@@ -865,7 +865,11 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 	}
 
-	rctx.lead = p.dispatchedBy(fromBot, mentioned, m.Author.ID, m.Content)
+	// A bot may hand work to this bot by opening its message with our name instead of
+	// a Discord mention. Classify that before recording the lead return context; the
+	// later bot-message branch also marks it Mentioned, but by then this context is set.
+	calledByName := fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)
+	rctx.lead = p.dispatchedBy(fromBot, mentioned || calledByName, m.Author.ID, m.Content)
 	// A person's message hands this sub's answer back to the lead only when the text @-s this sub
 	// itself and does not reply to the lead. Being only the reply target is not "@lead and @sub
 	// together"; replying to the lead is talking to her, so she answers herself (gate.py co_mention
