@@ -127,6 +127,9 @@ type TeamHandoff struct {
 	ID   string    `json:"id"`   // "task-<8 hex>", quoted by the workspace's [ask]/[report]
 	Chat string    `json:"chat"` // "<platform>:<chat channel id>"
 	At   time.Time `json:"at,omitzero"`
+	// Closed: when the task ended (the workspace session was reset after working on it).
+	// Closed handoffs still resolve a quoted id but no longer count as live tasks.
+	Closed time.Time `json:"closed,omitzero"`
 }
 
 type teamWorkspaces struct {
@@ -716,7 +719,54 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name string) (string, err
 	if err := saveTeamWorkspacesLocked(path, st); err != nil {
 		return "", err
 	}
+	e.noticeHandoffTask(chat, wsID, h.ID)
 	return h.ID, nil
+}
+
+// noticeHandoffTask posts the task id into the workspace channel, so the workspace receives it
+// with the handoff on every platform and can quote it in [ask]/[report].
+func (e *Engine) noticeHandoffTask(chat, wsID, task string) {
+	plat, _, _ := strings.Cut(chat, ":")
+	p := e.platformForName(plat)
+	rec, ok := p.(ReplyContextReconstructor)
+	if !ok || p == nil {
+		return
+	}
+	rc, err := rec.ReconstructReplyCtx(plat + ":" + wsID)
+	if err != nil {
+		return
+	}
+	text := exitPrefix + " 交接任务编号 " + task + "（来自 " + channelLabel(plat, teamChannelID(chat)) + "）。这件活的 [ask]/[report] 正文里写上这个编号。"
+	if err := p.Send(e.ctx, rc, text); err != nil {
+		slog.Warn("team workspace: handoff task notice failed", "workspace", wsID, "error", err)
+	}
+}
+
+// closeWorkspaceHandoffs closes the open handoffs of workspace session sessionKey claimed before
+// lastActive: the session that worked on them is being reset (/new or idle reset), so those
+// tasks are over. Handoffs claimed after the last activity were not worked on yet and stay open.
+func (e *Engine) closeWorkspaceHandoffs(sessionKey string, lastActive time.Time) {
+	if e == nil || e.dataDir == "" {
+		return
+	}
+	key := teamChatKey(sessionKey)
+	path := teamWorkspacePath(e.dataDir)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(path)
+	changed := false
+	now := time.Now()
+	for i, h := range st.Handoffs[key] {
+		if h.Closed.IsZero() && !h.At.After(lastActive) {
+			st.Handoffs[key][i].Closed = now
+			changed = true
+		}
+	}
+	if changed {
+		if err := saveTeamWorkspacesLocked(path, st); err != nil {
+			slog.Warn("team workspace: close handoffs failed", "session", sessionKey, "error", err)
+		}
+	}
 }
 
 var taskRef = regexp.MustCompile(`\btask-[0-9a-f]{8}\b`)
@@ -754,18 +804,23 @@ func (e *Engine) WorkspaceOrigin(channelID, text string) (parentID string, candi
 			}
 		}
 	}
+	// Only open handoffs are live tasks; closed ones never make a later task ambiguous.
+	var open []TeamHandoff
 	chats := map[string]bool{}
 	for _, h := range hs {
-		chats[h.Chat] = true
+		if h.Closed.IsZero() {
+			open = append(open, h)
+			chats[h.Chat] = true
+		}
 	}
 	switch len(chats) {
 	case 0:
 		return parent, nil, true
 	case 1:
-		return out(hs[0].Chat), nil, true
+		return out(open[0].Chat), nil, true
 	}
-	for i := len(hs) - 1; i >= 0; i-- {
-		candidates = append(candidates, hs[i])
+	for i := len(open) - 1; i >= 0; i-- {
+		candidates = append(candidates, open[i])
 	}
 	return "", candidates, false
 }

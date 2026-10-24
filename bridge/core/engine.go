@@ -3482,6 +3482,7 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 		return nil
 	}
 
+	e.closeWorkspaceHandoffs(msg.SessionKey, lastActive) // tasks this workspace session worked on are over
 	slog.Info("auto-resetting idle session",
 		"session_key", msg.SessionKey,
 		"session_id", session.ID,
@@ -7981,6 +7982,7 @@ func (e *Engine) startFreshSession(sessions *SessionManager, interactiveKey, ses
 
 	// Clear old session's agent session ID so it cannot be resumed
 	old := sessions.GetOrCreateActive(sessionKey)
+	e.closeWorkspaceHandoffs(sessionKey, old.GetUpdatedAt()) // tasks this workspace session worked on are over
 	oldAgentID := old.GetAgentSessionID()
 	pendingFrom, pendingReason := old.TakeHandoffFrom() // /new twice before a turn
 	old.SetAgentSessionID("", "")

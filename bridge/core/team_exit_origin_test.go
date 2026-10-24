@@ -3,6 +3,7 @@ package core
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // Two chat channels share pool workspace ws1: each report goes back to the chat that handed
@@ -54,7 +55,12 @@ func TestWorkspaceReportAmbiguousIsNotGuessed(t *testing.T) {
 	if a, b := p.sentTo("discord:chatA"), p.sentTo("discord:chatB"); len(a)+len(b) != 0 {
 		t.Fatalf("guessed a chat: A=%q B=%q", a, b)
 	}
-	notes := p.sentTo(exitWSKey)
+	var notes []string
+	for _, n := range p.sentTo(exitWSKey) {
+		if strings.Contains(n, "没有转发") {
+			notes = append(notes, n)
+		}
+	}
 	if len(notes) != 2 || !strings.Contains(notes[0], taskA) || !strings.Contains(notes[0], taskB) {
 		t.Fatalf("workspace notice = %q", notes)
 	}
@@ -68,5 +74,46 @@ func TestWorkspaceReportSingleOriginNeedsNoTaskID(t *testing.T) {
 	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n做完")
 	if len(p.sentTo("discord:chatA")) != 1 {
 		t.Fatalf("chatA got %q", p.sentTo("discord:chatA"))
+	}
+}
+
+// A finished task (its workspace session reset) no longer makes a later chat's plain report
+// ambiguous: A hands off, A's task closes, B hands off, B's plain report reaches B.
+func TestWorkspaceReportAfterClosedTaskReachesNewChat(t *testing.T) {
+	e, _, p := exitFixture(t, nil)
+	if _, err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	e.closeWorkspaceHandoffs(exitWSKey, time.Now())
+	taskB, err := e.ClaimTeamWorkspaceTask("discord:chatB", "ws1", "工作区1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n做好了")
+	if got := p.sentTo("discord:chatB"); len(got) != 1 || !strings.Contains(got[0], "做好了") {
+		t.Fatalf("chatB got %q", got)
+	}
+	if got := p.sentTo("discord:chatA"); len(got) != 0 {
+		t.Fatalf("chatA got %q", got)
+	}
+	// A handoff claimed after the session's last activity is not closed by the reset.
+	e.closeWorkspaceHandoffs(exitWSKey, time.Now().Add(-time.Hour))
+	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n还在做")
+	if len(p.sentTo("discord:chatB")) != 2 {
+		t.Fatalf("open task closed early: %q", p.sentTo("discord:chatB"))
+	}
+	_ = taskB
+}
+
+// The workspace receives the task id with the handoff, so it can quote it in [ask]/[report].
+func TestWorkspaceHandoffNoticeCarriesTaskID(t *testing.T) {
+	e, _, p := exitFixture(t, nil)
+	task, err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.sentTo("discord:ws1")
+	if len(got) != 1 || !strings.Contains(got[0], task) {
+		t.Fatalf("workspace handoff notice = %q (task %s)", got, task)
 	}
 }
