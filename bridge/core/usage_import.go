@@ -33,6 +33,14 @@ type UsageLogSource interface {
 	ParseLine(line []byte, sessionID string, st *UsageFileState) (UsageRecord, bool)
 }
 
+// UsageFileReader is implemented by sources whose files cannot be read as
+// plain appended lines (e.g. compressed logs). ReadUsage returns the records
+// after st and advances st; it must never return a record twice for the same
+// st, and a file it cannot finish yet is left for the next call.
+type UsageFileReader interface {
+	ReadUsage(path, sessionID string, st *UsageFileState) ([]UsageRecord, error)
+}
+
 // UsageFileState is the import progress of one log file.
 type UsageFileState struct {
 	Offset int64  `json:"offset"`
@@ -151,7 +159,12 @@ func (im *UsageImporter) Sync() error {
 				fs = &UsageFileState{}
 			}
 			next := *fs
-			records, err := readUsageLines(path, src, sid, &next)
+			var records []UsageRecord
+			if fr, ok := src.(UsageFileReader); ok {
+				records, err = fr.ReadUsage(path, sid, &next)
+			} else {
+				records, err = readUsageLines(path, src, sid, &next)
+			}
 			if err != nil {
 				if firstErr == nil {
 					firstErr = fmt.Errorf("usage import %s: %w", path, err)
