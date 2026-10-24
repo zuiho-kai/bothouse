@@ -132,5 +132,11 @@ func TestRenderTaskMembersKeepsFinishedRowsOverStaleTwin(t *testing.T) {
 		if strings.Contains(got, "待接单") {
 			t.Fatalf("%s: rows = %q, want the stale queued twin hidden", status, got)
 		}
+		// Without a running row the old ranking ranked queued above the result and
+		// showed only 待接单.
+		got = renderTaskMembers(members[:2], "zh")
+		if !strings.Contains(got, "结果在这") || strings.Contains(got, "待接单") {
+			t.Fatalf("%s: rows = %q, want the finished row instead of the stale queued one", status, got)
+		}
 	}
 }

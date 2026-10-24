@@ -466,9 +466,6 @@ func TestTaskMembersSurviveStoppedLead(t *testing.T) {
 		t.Fatal("interrupted member grant still accepted reports")
 	}
 }
- 		})
- 	}
- }
 
 // A row whose grant died with its lead turn stays queued on the card. Re-registering the
 // same member has to take that row over: appending a twin left the dead row first as
