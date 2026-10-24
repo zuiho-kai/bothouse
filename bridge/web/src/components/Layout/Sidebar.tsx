@@ -59,7 +59,7 @@ export default function Sidebar({
       <aside
         id="mobile-navigation"
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r transition-all duration-300 ease-out md:relative md:z-auto md:h-screen md:w-auto md:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r transition-all duration-300 ease-out md:relative md:z-auto md:h-screen md:translate-x-0',
           'bg-white/95 backdrop-blur-xl border-gray-200/80',
           'dark:bg-[rgba(0,0,0,0.95)] dark:backdrop-blur-xl dark:border-white/[0.08]',
           'md:bg-white/75 md:dark:bg-[rgba(0,0,0,0.85)]',
