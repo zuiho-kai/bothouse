@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -1120,5 +1121,86 @@ func TestApplyWizardUnreadableExistingTokenRefusesNewToken(t *testing.T) {
 		if store.batches != 0 {
 			t.Errorf("%s: config written", tc.name)
 		}
+	}
+}
+
+// Discord team: the gate is on unless the request turns it off (an old request without the gate
+// field = on); off clears only what the wizard wrote; a hand-written gate_url is kept either way.
+func TestApplyWizardDiscordGateToggle(t *testing.T) {
+	noHardware(t)
+	oldAddr, oldFind := gateAddr, findPythonForGate
+	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
+	gateAddr = "127.0.0.1:1" // nothing listens: never the gate running on this machine
+	findPythonForGate = func() (string, error) { return "", errors.New("no python") }
+
+	t1, t2 := fakeToken("111"), fakeToken("222")
+	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
+	dir := t.TempDir()
+	store := newMemStore()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	run := func(gate *WizardGate) *WizardResult {
+		t.Helper()
+		req := WizardRequest{Platform: "discord", Language: "zh", FallbackRole: "whale",
+			Roles: []WizardRole{{Token: t1}, {Token: t2}}, Gate: gate}
+		req.Discord = &struct {
+			GuildID   string `json:"guild_id"`
+			ChannelID string `json:"channel_id"`
+		}{GuildID: "900", ChannelID: "1"}
+		res := ApplyWizard(context.Background(), env, req)
+		if !res.OK {
+			t.Fatalf("apply (gate=%+v) failed: %+v", gate, res)
+		}
+		return res
+	}
+	str := func(p *string) string {
+		if p == nil {
+			return "<unset>"
+		}
+		return *p
+	}
+
+	// 1. old request, no gate field: on
+	res := run(nil)
+	ju, whale := store.projects["juzi"], store.projects["whale"]
+	if str(whale.GateURL) != defaultGateURL || str(whale.GateFallback) != "reply" ||
+		str(ju.GateURL) != defaultGateURL+"?bot=juzi" || str(ju.GateFallback) != "context" {
+		t.Fatalf("default gate: whale %s/%s juzi %s/%s", str(whale.GateURL), str(whale.GateFallback), str(ju.GateURL), str(ju.GateFallback))
+	}
+	if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); err != nil {
+		t.Fatalf("gate-team.json not written with the gate on: %v", err)
+	}
+	if res.GateStatus != GateStatusPythonMissing || res.GateHint == "" {
+		t.Errorf("gate status = %q hint = %q", res.GateStatus, res.GateHint)
+	}
+
+	// a hand-written gate elsewhere on juzi
+	hand := "http://10.0.0.5:9930/decide?bot=juzi"
+	store.projects["juzi"].GateURL = &hand
+
+	// 2. switched off: the wizard's gate_url / gate_fallback cleared, the hand-written one kept
+	os.Remove(filepath.Join(dir, gateTeamFile))
+	res = run(&WizardGate{Enabled: false})
+	ju, whale = store.projects["juzi"], store.projects["whale"]
+	if str(whale.GateURL) != "" || str(whale.GateFallback) != "" {
+		t.Errorf("gate off: whale gate = %q/%q, want cleared", str(whale.GateURL), str(whale.GateFallback))
+	}
+	if str(ju.GateURL) != hand {
+		t.Errorf("gate off: hand-written gate_url = %q, want %q", str(ju.GateURL), hand)
+	}
+	if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); !os.IsNotExist(err) {
+		t.Errorf("gate-team.json written with the gate off: %v", err)
+	}
+	if res.GateStatus != GateStatusOff {
+		t.Errorf("gate off: status = %q", res.GateStatus)
+	}
+
+	// 3. on again (explicitly): the wizard's gate back, the hand-written one still kept
+	run(&WizardGate{Enabled: true})
+	ju, whale = store.projects["juzi"], store.projects["whale"]
+	if str(whale.GateURL) != defaultGateURL || str(whale.GateFallback) != "reply" {
+		t.Errorf("gate on again: whale gate = %q/%q", str(whale.GateURL), str(whale.GateFallback))
+	}
+	if str(ju.GateURL) != hand {
+		t.Errorf("gate on again: hand-written gate_url = %q, want %q", str(ju.GateURL), hand)
 	}
 }
