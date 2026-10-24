@@ -1351,8 +1351,11 @@ func (bs *BridgeServer) platformFromSessionKey(sessionKey string) string {
 }
 
 // resolveEngine finds the engine to handle a message.
-// It first tries to match by project name, then by session_key ownership,
-// and finally falls back to the single-engine case.
+// A non-empty project must match a registered engine exactly; an unknown
+// (e.g. just-deleted) project returns nil instead of falling back to another
+// engine, mirroring api.go handleSend and WebhookServer.resolveEngine.
+// With no project it falls back to the single-engine case, then to
+// session_key ownership.
 func (bs *BridgeServer) resolveEngine(sessionKey, project string) *bridgeEngineRef {
 	bs.enginesMu.RLock()
 	defer bs.enginesMu.RUnlock()
@@ -1361,6 +1364,8 @@ func (bs *BridgeServer) resolveEngine(sessionKey, project string) *bridgeEngineR
 		if ref, ok := bs.engines[project]; ok {
 			return ref
 		}
+		slog.Warn("bridge: project not found (unknown or deleted), dropping", "project", project, "session_key", sessionKey)
+		return nil
 	}
 
 	if len(bs.engines) == 1 {

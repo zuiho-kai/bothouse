@@ -918,3 +918,50 @@ func TestBridge_SessionMissingParams(t *testing.T) {
 		t.Fatal("expected error without target in switch")
 	}
 }
+
+// After one of two engines is unregistered, a message still tagged with the
+// removed project must not fall through to the remaining engine; a message
+// with no project still uses the single-engine fallback.
+func TestBridge_UnregisteredProjectNotRoutedToRemainingEngine(t *testing.T) {
+	bs, wsURL := startTestBridge(t, "")
+
+	var mu sync.Mutex
+	got := map[string][]string{}
+	for _, name := range []string{"proj-a", "proj-b"} {
+		name := name
+		bp := bs.NewPlatform(name)
+		e := NewEngine(name, &stubAgent{}, []Platform{bp}, "", LangEnglish)
+		bs.RegisterEngine(name, e, bp)
+		bp.handler = func(p Platform, msg *Message) {
+			mu.Lock()
+			got[name] = append(got[name], msg.Content)
+			mu.Unlock()
+		}
+	}
+	bs.UnregisterEngine("proj-b")
+
+	if ref := bs.resolveEngine("mychat:u1:u1", "proj-b"); ref != nil {
+		t.Fatal("resolveEngine returned an engine for the removed project")
+	}
+
+	conn := dialWS(t, wsURL, nil)
+	register(t, conn, "mychat", []string{"text"})
+	mustWriteJSON(t, conn, map[string]any{
+		"type": "message", "msg_id": "m1", "session_key": "mychat:u1:u1",
+		"user_id": "u1", "content": "for deleted", "project": "proj-b",
+	})
+	mustWriteJSON(t, conn, map[string]any{
+		"type": "message", "msg_id": "m2", "session_key": "mychat:u1:u1",
+		"user_id": "u1", "content": "no project",
+	})
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got["proj-b"]) != 0 {
+		t.Fatalf("removed engine received %v", got["proj-b"])
+	}
+	if len(got["proj-a"]) != 1 || got["proj-a"][0] != "no project" {
+		t.Fatalf("remaining engine received %v, want only [no project]", got["proj-a"])
+	}
+}
