@@ -243,6 +243,7 @@ export class Tasks {
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     this.record(row, 'return', `#${id}「${row.title}」${this.nameOf(row.owner)} 交回，用时 ${duration(row.returned_at - row.created_at)}`);
+    this.closeHandoffs(row.room_id);
     return this.changed(id);
   }
 
@@ -260,6 +261,7 @@ export class Tasks {
     this.record(row, verdict, verdict === 'done'
       ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
       : `#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}`);
+    if (verdict === 'done') this.closeHandoffs(row.room_id);
     return this.changed(id);
   }
 
@@ -375,6 +377,13 @@ export class Tasks {
     const chat = this.chatOf(task.room_id);
     if (chat !== undefined && chat !== task.room_id) this.hub.post(chat, m);
     return message;
+  }
+
+  /** A workspace with no task left in work has finished its handoffs: close them, so a later
+   *  chat's plain [ask]/[report] is not held as ambiguous by a finished task (team-exit.mjs). */
+  closeHandoffs(roomId) {
+    if (this.store.room(roomId)?.kind !== 'workspace' || this.countActive(roomId) > 0) return;
+    this.store.closeWorkspaceHandoffs(roomId);
   }
 
   changed(id) {

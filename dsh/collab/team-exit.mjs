@@ -1,6 +1,6 @@
 // Durable workspace questions; system forwards never enter agent routing.
 import { randomBytes } from 'node:crypto';
-import { TEAM_HANDOFFS_DDL } from './store.mjs';
+import { ensureHandoffs } from './store.mjs';
 
 export function exitTarget(msg) {
   return /^team-answer:([^:]+):/.exec(msg.client_key ?? '')?.[1];
@@ -16,7 +16,7 @@ export class TeamExit {
       id TEXT PRIMARY KEY, parent_id INTEGER NOT NULL, workspace_id INTEGER NOT NULL,
       member_id TEXT NOT NULL, forwarded_id INTEGER UNIQUE, source_id INTEGER UNIQUE,
       answer_source_id INTEGER UNIQUE, answered INTEGER NOT NULL DEFAULT 0)`);
-    this.db.exec(TEAM_HANDOFFS_DDL);
+    ensureHandoffs(this.db);
     hub.onMessage(msg => this.onMessage(msg));
   }
 
@@ -30,16 +30,18 @@ export class TeamExit {
   }
 
   /** Chat room a workspace [ask]/[report] goes to: the handoff its text names, else the only
-   *  chat with handoffs here, else (no handoffs recorded) rooms.parent_id; null = ambiguous. */
+   *  chat with open handoffs here, else (none open) rooms.parent_id; null = ambiguous.
+   *  A quoted id also finds a closed handoff; closed ones never make a plain one ambiguous. */
   origin(room, text) {
-    const rows = this.db.prepare('SELECT id, parent_id FROM team_exit_handoffs WHERE workspace_id = ?').all(room.id);
+    const rows = this.db.prepare('SELECT id, parent_id, closed FROM team_exit_handoffs WHERE workspace_id = ?').all(room.id);
     for (const ref of text.match(/\btask-[0-9a-f]{8}\b/g) ?? []) {
       const hit = rows.find(r => r.id === ref);
       if (hit) return hit.parent_id;
     }
-    const chats = new Set(rows.map(r => r.parent_id));
+    const open = rows.filter(r => !r.closed);
+    const chats = new Set(open.map(r => r.parent_id));
     if (chats.size === 0) return room.parent_id;
-    if (chats.size === 1) return rows[0].parent_id;
+    if (chats.size === 1) return open[0].parent_id;
     return null;
   }
 
@@ -64,7 +66,7 @@ export class TeamExit {
     const parent = this.origin(room, mark[2]);
     if (parent == null) {
       // Tasks of several chat channels and the text names none: never guess the last claimer.
-      const tasks = this.db.prepare('SELECT id, parent_id FROM team_exit_handoffs WHERE workspace_id = ? ORDER BY rowid DESC').all(room.id);
+      const tasks = this.db.prepare('SELECT id, parent_id FROM team_exit_handoffs WHERE workspace_id = ? AND closed = 0 ORDER BY rowid DESC').all(room.id);
       this.hub.post(room.id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit-ambiguous:${msg.id}`,
         text: `📬 没有转发：这个工作区手上有多个聊天频道交来的活，正文里写上任务编号再发一次：\n${tasks.map(t => `${t.id} ← room-${t.parent_id}`).join('\n')}`,

@@ -1915,6 +1915,44 @@ test('team exit: after a claim, asks and reports go to the chat channel that han
   assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c3', ok: false, error: 'not-workspace' });
 });
 
+test('team exit: handoffs close when the workspace hands its tasks back, so a later plain [report] reaches the new chat', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.store.ensureRoom(2, 'dev');
+  const ws = hub.store.createWorkspace(1);
+  new TeamExit(hub);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju2&name=橘2');
+  // Chat A (general) hands off; the workspace gets the task id and the origin chat.
+  ju.frame({ type: 'team_workspace', ref_id: 'a', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
+  await tick();
+  const taskA = ju.of('team_workspace_ack').at(-1).task;
+  const notice = hub.store.page(ws.id, undefined, 20).find(m => m.author_kind === 'system' && m.text.includes(taskA));
+  assert.ok(notice, 'handoff notice carries the task id');
+  assert.match(notice.text, /#general|room-1/);
+  const t = tasks.assign({ roomId: ws.id, title: 'A 的活', owner: 'ds', actor: 'lead' });
+  const { message } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: 'result' });
+  tasks.handBack(t.id, { actor: 'ds', messageId: message.id });
+  // Chat B (dev) hands off next: a plain [report] reaches B, not held as ambiguous by A's closed task.
+  ju.frame({ type: 'team_workspace', ref_id: 'b', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
+  await tick();
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\nB 的活好了' });
+  await tick();
+  assert.ok(hub.store.page(2, undefined, 20).some(m => m.author_kind === 'system' && /B 的活好了/.test(m.text)), 'plain report reaches B');
+  assert.equal(hub.store.page(ws.id, undefined, 20).some(m => /多个聊天频道/.test(m.text)), false);
+  // A quoted closed task id still routes to A.
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report]\n${taskA} 补一句` });
+  await tick();
+  assert.ok(hub.store.page(1, undefined, 50).some(m => m.author_kind === 'system' && /补一句/.test(m.text)), 'closed id still routes to A');
+});
+
+test('store: ensureHandoffs adds closed columns to an old team_exit_handoffs table', () => {
+  const s = new Store(':memory:');
+  s.db.exec('CREATE TABLE team_exit_handoffs (id TEXT PRIMARY KEY, workspace_id INTEGER NOT NULL, parent_id INTEGER NOT NULL)');
+  s.db.prepare("INSERT INTO team_exit_handoffs VALUES ('task-00000000', 5, 1)").run();
+  assert.equal(s.closeWorkspaceHandoffs(5), 1);
+  assert.deepEqual({ ...s.db.prepare('SELECT closed FROM team_exit_handoffs').get() }, { closed: 1 });
+});
+
 test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作区n+1, others get 401', async () => {
   const { workspacesRoute } = await import('./plugin.mjs');
   const hub = makeHub();

@@ -299,6 +299,12 @@ export class CloudWebGateway {
         if (!/^\d+$/.test(raw)) return { ok: false, error: 'room-missing' };
         const w = store.claimWorkspace(id, Number(raw));
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        // The workspace gets the task id with the handoff, so its [ask]/[report] can quote it.
+        const chat = store.room(w.parent_id);
+        this.hub.post(w.id, {
+          authorKind: 'system', author: 'system', name: 'system', clientKey: `team-handoff:${w.task}`,
+          text: `📬 交接任务编号 ${w.task}（来自 ${chat?.name ? `#${chat.name}` : `room-${w.parent_id}`}）。这件活的 [ask]/[report] 正文里写上这个编号。`,
+        });
         return { ok: true, room: view(w), task: w.task };
       }
       if (d.op === 'create') {

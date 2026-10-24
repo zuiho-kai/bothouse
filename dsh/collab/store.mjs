@@ -10,6 +10,15 @@ import { randomBytes } from 'node:crypto';
 export const TEAM_HANDOFFS_DDL = `CREATE TABLE IF NOT EXISTS team_exit_handoffs (
   id TEXT PRIMARY KEY, workspace_id INTEGER NOT NULL, parent_id INTEGER NOT NULL)`;
 
+/** Create team_exit_handoffs and add columns older databases lack: closed (0 = live task)
+ *  and closed_at (unix seconds). A closed handoff still resolves a quoted task id. */
+export function ensureHandoffs(db) {
+  db.exec(TEAM_HANDOFFS_DDL);
+  const have = new Set(db.prepare('PRAGMA table_info(team_exit_handoffs)').all().map(c => c.name));
+  if (!have.has('closed')) db.exec('ALTER TABLE team_exit_handoffs ADD COLUMN closed INTEGER NOT NULL DEFAULT 0');
+  if (!have.has('closed_at')) db.exec('ALTER TABLE team_exit_handoffs ADD COLUMN closed_at INTEGER');
+}
+
 export const MAX_TEXT = 128 * 1024;
 // Per chat channel dispatch mode (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合,
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
@@ -316,12 +325,20 @@ export class Store {
       // Each handoff is one task with the chat that handed it off, so the unified exit
       // (team-exit.mjs) sends a report back to its own task's chat, not to the last claimer.
       const task = `task-${randomBytes(4).toString('hex')}`;
-      this.db.prepare(TEAM_HANDOFFS_DDL).run();
+      ensureHandoffs(this.db);
       this.db.prepare('INSERT INTO team_exit_handoffs (id, workspace_id, parent_id) VALUES (?, ?, ?)').run(task, ws.id, parent);
       const row = ws.parent_id === parent ? ws
         : this.db.prepare('UPDATE rooms SET parent_id = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(parent, ws.id);
       return { ...row, task };
     });
+  }
+
+  /** Close the open handoffs of workspace workspaceId: its tasks are all handed back or done. */
+  closeWorkspaceHandoffs(workspaceId) {
+    if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'team_exit_handoffs'").get() === undefined) return 0;
+    ensureHandoffs(this.db);
+    return Number(this.db.prepare('UPDATE team_exit_handoffs SET closed = 1, closed_at = ? WHERE workspace_id = ? AND closed = 0')
+      .run(Math.floor(Date.now() / 1000), workspaceId).changes);
   }
 
   ensureRoomSettings(roomId) {
