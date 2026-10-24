@@ -6,6 +6,7 @@ import { attachmentUrl, readAttachment } from './channel-source.ts'
 import css from './ChannelsPage.module.css'
 
 const isImage = (mime: string): boolean => /^image\/(png|jpeg|gif|webp)$/.test(mime)
+const isAudio = (mime: string): boolean => mime.startsWith('audio/')
 
 const size = (bytes: number): string =>
   bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -21,11 +22,18 @@ export function AttachmentList({ attachments }: { readonly attachments?: readonl
               <img className={css.attachmentImage} src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
             </a>
           )
-        : (
-            <a key={a.id} className={css.attachmentFile} href={attachmentUrl(a.id)} download={a.name}>
-              📎 {a.name} <span className={css.attachmentSize}>{size(a.size)}</span>
-            </a>
-          ))}
+        : isAudio(a.mime)
+          ? (
+              <div key={a.id} className={css.attachmentAudio}>
+                <audio controls preload="metadata" src={attachmentUrl(a.id)} title={a.name} />
+                <a className={css.attachmentSize} href={attachmentUrl(a.id)} download={a.name}>{a.name} · {size(a.size)}</a>
+              </div>
+            )
+          : (
+              <a key={a.id} className={css.attachmentFile} href={attachmentUrl(a.id)} download={a.name}>
+                📎 {a.name} <span className={css.attachmentSize}>{size(a.size)}</span>
+              </a>
+            ))}
     </div>
   )
 }

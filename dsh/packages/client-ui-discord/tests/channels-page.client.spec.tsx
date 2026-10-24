@@ -530,6 +530,17 @@ describe('progress card detail/brief view', () => {
     expect(screen.getByText('need model')).toBeTruthy()
     expect(screen.queryByRole('button', { name: zh.cardViewBrief })).toBeNull()
   })
+  it('shows a bot voice clip as an audio player with a download link', () => {
+    const withAudio: ChannelSnapshot = { ...ready, messages: [{ ...ready.messages[0], id: 3, text: '', attachments: [
+      { id: '33333333-3333-3333-3333-333333333333', name: 'voice.mp3', mime: 'audio/mpeg', size: 1024 },
+    ] }] }
+    const { container } = render(<ChannelsPage {...props(withAudio, vi.fn(async () => {}))} />)
+    const audio = container.querySelector('audio')
+    expect(audio?.getAttribute('src')).toBe('collab/api/attachments/33333333-3333-3333-3333-333333333333')
+    expect(audio?.hasAttribute('controls')).toBe(true)
+    expect(screen.getByText(/voice\.mp3/).closest('a')?.getAttribute('download')).toBe('voice.mp3')
+  })
+
   it('#144 shows message attachments and sends a pasted image without text', async () => {
     const withFiles: ChannelSnapshot = { ...ready, messages: [{ ...ready.messages[0], id: 2, text: '', attachments: [
       { id: '11111111-1111-1111-1111-111111111111', name: 'shot.png', mime: 'image/png', size: 4 },
