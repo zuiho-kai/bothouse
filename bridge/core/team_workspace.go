@@ -127,7 +127,8 @@ type TeamHandoff struct {
 	ID   string    `json:"id"`   // "task-<8 hex>", quoted by the workspace's [ask]/[report]
 	Chat string    `json:"chat"` // "<platform>:<chat channel id>"
 	At   time.Time `json:"at,omitzero"`
-	// Closed: when the task ended (the workspace session was reset after working on it).
+	// Closed: when the task ended (the workspace session was reset after working on it, or a
+	// later handoff found the workspace with no tasks in progress).
 	// Closed handoffs still resolve a quoted id but no longer count as live tasks.
 	Closed time.Time `json:"closed,omitzero"`
 }
@@ -671,7 +672,22 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name string) (string, err
 	}
 
 	// The platform request runs without teamWorkspaceStore.mu (WorkspaceParent never waits on it).
+	// idle: the platform lists the workspace with no tasks in progress, the same count the pool
+	// uses to skip busy workspaces (teamWorkspacePlan). Its earlier handoffs are then over and
+	// are closed below, so a plain [report] of this task is not ambiguous (no idle reset or /new
+	// needs to have run). Unknown (lookup failed, platform without workspaces) closes nothing.
+	idle := false
 	if p, ok := e.teamWorkspacePlatform(chat); ok {
+		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+		_, guild, err := p.TeamGuildChannels(ctx, teamChannelID(chat))
+		cancel()
+		if err == nil {
+			for _, c := range guild {
+				if c.ID == wsID {
+					idle = c.Active == 0
+				}
+			}
+		}
 		if c, ok := p.(TeamWorkspaceClaimer); ok {
 			ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 			err := c.ClaimTeamWorkspaceChannel(ctx, teamChannelID(chat), wsID)
@@ -715,6 +731,13 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name string) (string, err
 	}
 	h := TeamHandoff{ID: newTaskID(), Chat: chat, At: time.Now()}
 	wk := plat + ":" + wsID
+	if idle {
+		for i := range st.Handoffs[wk] {
+			if st.Handoffs[wk][i].Closed.IsZero() {
+				st.Handoffs[wk][i].Closed = h.At
+			}
+		}
+	}
 	st.Handoffs[wk] = append(st.Handoffs[wk], h)
 	if err := saveTeamWorkspacesLocked(path, st); err != nil {
 		return "", err
