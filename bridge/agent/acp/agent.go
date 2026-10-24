@@ -17,7 +17,7 @@ func init() {
 	core.RegisterAgent("acp", New)
 }
 
-// Agent runs an ACP (Agent Client Protocol) agent subprocess over stdio JSON-RPC.
+// Agent runs an ACP (Agent Client Protocol) agent subprocess over stdio JSON-RPC..
 type Agent struct {
 	workDir      string
 	cmd          string
