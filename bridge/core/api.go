@@ -105,6 +105,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
+	s.mux.HandleFunc("/session/new", s.handleSessionNew) // `cc-connect session new --after-turn` (session_reset.go)
 	s.mux.HandleFunc("/team/workspace/new", s.handleTeamWorkspaceNew) // team mode D (team_workspace_api.go)
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
@@ -947,4 +948,41 @@ func (s *APIServer) handleModelSet(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	apiJSON(w, http.StatusOK, e.QueueModelSwitch(ctx, req.SessionKey, req.Model, req.Effort, req.Auto))
+}
+
+// handleSessionNew resets the caller's own session after its current turn
+// (`cc-connect session new --after-turn`).
+func (s *APIServer) handleSessionNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Project    string `json:"project"`
+		SessionKey string `json:"session_key"`
+		AfterTurn  bool   `json:"after_turn"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !req.AfterTurn {
+		http.Error(w, "only after_turn resets are supported", http.StatusBadRequest)
+		return
+	}
+	if req.Project == "" || req.SessionKey == "" {
+		http.Error(w, "project and session_key are required (CC_PROJECT / CC_SESSION_KEY)", http.StatusBadRequest)
+		return
+	}
+	e, err := s.engineFor(req.Project)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	res, err := e.QueueSessionReset(req.SessionKey)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	apiJSON(w, http.StatusOK, res)
 }
