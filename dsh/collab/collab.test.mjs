@@ -2097,6 +2097,9 @@ test('team workspace park: a paused task does not resume into a workspace anothe
   assert.equal(tasks.countPaused(ws.id), 1);
   assert.equal(tasks.countActive(ws.id), 0);
   assert.equal(hub.store.workspaceOwner(ws.id), 2, 'dev keeps it');
+  // The paused task stays on general's board (a to-do is not lost), not on dev's.
+  assert.deepEqual(tasks.list(1).map(t => [t.id, t.paused_at != null]), [[t1.id, true]]);
+  assert.deepEqual(tasks.list(2).map(t => t.id), []);
 });
 
 test('team workspace park: a workspace with one paused and one accepted task stays busy for a plain release', async () => {

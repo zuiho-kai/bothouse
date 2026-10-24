@@ -126,7 +126,11 @@ export class Tasks {
     const chat = this.chatOf(roomId);
     if (chat === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const rooms = [chat, ...(this.tree ? this.q.children.all(chat).map(r => r.id) : [])];
-    const rows = this.db.prepare(`SELECT * FROM tasks WHERE room_id IN (${rooms.map(() => '?').join(', ')}) ORDER BY id DESC`).all(...rooms);
+    // A paused task stays on the board of the chat channel it was paused under (paused_chat), even
+    // after its workspace went back to the pool and another chat channel claimed it: a to-do is never lost.
+    const rows = this.db.prepare(`SELECT * FROM tasks WHERE (room_id IN (${rooms.map(() => '?').join(', ')})
+      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)
+      ORDER BY id DESC`).all(...rooms, chat, chat);
     return rows.map(r => this.view(r));
   }
 
@@ -143,6 +147,7 @@ export class Tasks {
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
       note: t.note, reason: t.reason, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
+      paused_at: t.paused_at ?? null,
     };
   }
 
