@@ -4,13 +4,38 @@
 
 English | [中文](README.zh-CN.md)
 
-bothouse connects the AI CLIs you already use to Discord, Feishu, self-hosted channels, and DSH. You talk to one lead role; it hands the work out, collects the results, and keeps the team memory. Roles can be Claude Code, Codex, Gemini, or DeepSeek.
+Working with Claude Code or Codex today looks like this: open a window, explain the background, it writes, you read, it asks, you answer. The task ends, the window closes. Next task, explain the background again.
+
+bothouse replaces that back-and-forth with "hand the job to one person, who splits it across several AIs". You still talk to only one of them — the lead role (the UI calls it "Primary role").
 
 ## What it looks like
 
 <img src="docs/assets/demo-team.en.gif" alt="Real channel footage: the chat channel hands work to workspaces, tasks are dispatched, accepted and handed back there, the task board groups them, and chat carries on" width="760">
 
 Real channel footage: chat hands work to a workspace, the workspace dispatches it, the task board shows it all at a glance, and chat carries on.
+
+## Three steps
+
+**One, you say it once.**
+In the channel you tell the lead role: build me a dashboard — I want to see what each role spent today.
+
+**Two, it splits the work and hands it out.**
+The lead breaks the job into pieces — a stats page, a menu-bar icon, a roles panel, and an interface for plugging in desktop pets later — and gives them to several AIs at once. Who took what, which piece they're on, where they're stuck — all on one task card, in the channel. You don't go window to window asking "how's it going".
+
+**Three, you come back for the result.**
+Each piece goes back to the lead when it's done. The lead checks it, then sends you one reply: what changed, how it was verified, what didn't get done.
+
+You can cut in at any point. On Codex (app-server) and ACP agents such as DSH, what you add while an AI is working lands in the task it's already holding. Claude Code and other CLIs queue it instead: the AI picks it up after the current turn ends.
+
+> Others make wishes. You run a team. The difference isn't a smarter model — it's that work gets picked up, handed back, and checked.
+
+## Why not just another chat window
+
+In a one-to-one chat, you are the one holding the context: how far this got, why it was changed last time, what's still untouched. Close the window and it's gone.
+
+bothouse gives that to the lead: every task has an owner, a source, and a result; the AIs share one memory, so what was decided today is still there tomorrow; the task card shows who's busy with what.
+
+The AIs are the ones you already have. Your local Claude Code, Codex and Gemini become roles as they are — same account, same subscription.
 
 ## Quick start
 
@@ -71,21 +96,6 @@ Plug into DSH and our guardrails and tools install through DSH's own plugin syst
 On the AI side: Claude Code, Codex, Gemini CLI, OpenCode and other CLIs you're already logged into work directly; agents like DSH connect over a standard protocol (ACP).
 You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek, MiniMax, a local model, any OpenAI-compatible endpoint); see the [matrix](docs/connect-discord-feishu.md#4-第三方-api--本机-cli) (Chinese).
 
-## Why
-
-Working with AI today looks like this: open a window, explain the background, do one thing, close it. Open another window, explain the background again.
-Want two AIs at once? Switch between two windows. Want to check in from your phone? Good luck.
-
-What we want is what a team has:
-
-- Everyone has a fixed name and a job. You never re-explain who does what.
-- You say one thing. The right person answers. Nobody talks over each other.
-- Every task has an owner. When something breaks, you hear about it.
-- Everyone keeps the same notebook. What was learned today is still there tomorrow.
-- You can reach them anywhere: desktop, phone, browser.
-
-None of this should be locked inside one vendor's app. So bothouse is a plugin: it connects the AIs you already use to the chat apps you already use.
-
 ## Features
 
 ### Chat channel + workspaces: the chat never gets blocked
@@ -125,6 +135,12 @@ Memory is a directory of markdown files you can open and edit. The team shares o
 
 The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). It remembers one person and one assistant. bothouse shares it across several roles, records what Claude, Codex and DSH each did, hands the relevant pages to a role with every message, and reviews it nightly.
 
+### Guardrails and small tools included
+
+- **Guardrails:** dangerous commands are stopped first. If an AI says "fixed" with no proof, it gets sent back. If it promises to "check back later" without setting a timer, same thing. Claude Code and DSH share one set.
+- **Small tools:** see what each teammate is doing right now, turn a video into text and frames, free web search.
+- Don't want one? Tell the bot in the chat: "turn the checks off."
+
 ### A review every night
 
 - **Day, a cheap fast model.** When a session ends, sits idle for 30 minutes, or hits a problem mid-session, the new content is distilled into the wiki.
@@ -132,12 +148,6 @@ The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). 
 - The last step each night is the dream: it reads only what you said during the day, turns the things you kept correcting into rule candidates, and writes a short "today's reflection".
 - Every quote in a candidate is checked word for word against what you actually said, so nothing made up gets in. A candidate becomes a rule only when you say yes; it never changes your rules behind your back.
 - After the dream, the lead gets a turn in the channel, so the next morning you can see what the team learned yesterday.
-
-### Guardrails and small tools included
-
-- **Guardrails:** dangerous commands are stopped first. If an AI says "fixed" with no proof, it gets sent back. If it promises to "check back later" without setting a timer, same thing. Claude Code and DSH share one set.
-- **Small tools:** see what each teammate is doing right now, turn a video into text and frames, free web search.
-- Don't want one? Tell the bot in the chat: "turn the checks off."
 
 ## How it compares
 
