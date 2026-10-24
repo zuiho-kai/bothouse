@@ -126,6 +126,33 @@ class Card(unittest.TestCase):
         self.assertIn("旧事", two); self.assertIn("旧事", one)
         self.assertIn("频道二的事", two); self.assertNotIn("频道二的事", one)
 
+    def test_workspace_blocks_from_registry(self):
+        fake = Path(TMP) / "fakews"
+        reg = '{"parent":"discord:111","workspaces":[{"name":"工作区1","id":"333","owner":""}]}'
+        fake.write_text("#!/bin/sh\n[ \"$1\" = workspace ] || exit 1\n"
+                        "case \"$4\" in discord:111|discord:333) printf '%s' '" + reg + "';; *) exit 1;; esac\n")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            board.main(["add", "聊天频道的事", "-", "s", "橘"])
+            os.environ["CC_SESSION_KEY"] = "discord:333"
+            self.calls.clear()
+            board.main(["add", "工作区的事", "-", "s", "工作区1橘"])
+            by = {c[1]: c[2]["content"] for c in self.calls if c[0] in ("POST", "PATCH")}
+            chat = next(v for k, v in by.items() if "/111/" in k)  # 工作区的条目变了，聊天频道的卡也改
+            ws = next(v for k, v in by.items() if "/333/" in k)
+            self.assertIn("**工作区1**", chat)
+            self.assertLess(chat.index("聊天频道的事"), chat.index("**工作区1**"))
+            self.assertLess(chat.index("**工作区1**"), chat.index("工作区的事"))
+            self.assertIn("工作区的事", ws); self.assertNotIn("聊天频道的事", ws)
+            self.calls.clear()
+            board.main(["done", "2"])
+            chat = next(c[2]["content"] for c in self.calls if "/111/" in c[1])
+            self.assertIn("工作区1·工作区1橘：工作区的事", chat)
+        finally:
+            os.environ["CC_BIN"] = "false"
+        self.assertIsNone(board._ws_reg("111"))  # 问不到桥：退回只按条目频道过滤
+
     def test_fits_discord_limit(self):
         for n in range(30):
             board.add(f"事{n}", "-", "很长" * 100, "橘")

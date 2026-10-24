@@ -29,6 +29,8 @@
   每次 add/update/done/pause/resume/link 后，在条目所在频道把任务板（在做 + 暂停 + 今天做完）编辑进同一条置顶消息（不刷屏）。
   「下次看」到点后，桥里对应的定时（later 挂的，描述 = 事情）也不在了，就标「已过」：说明到点没人回来看。
   done 之后若设了 BOARD_PR_REPO（owner/name），用 gh 列出自己在该仓库还开着的 PR 作提醒；不设、gh 不在或失败都静默跳过。
+  工作区归属来自桥的注册表（<桥> workspace list --session-key discord:<频道> --json）：聊天频道的卡按「本频道 + 名下各工作区」
+  分块，工作区里的条目变了也改它所属聊天频道的卡；问不到桥就只列本频道的条目。
   条目的频道 = 加它时的 CC_SESSION_KEY；旧条目没记频道的，被 update 时记成当时的频道，没被碰过的在每张卡上都列。
   Discord token：环境变量 DISCORD_BOT_TOKEN，否则 <GATE_SETUP_DIR>/secrets.env 里的同名变量；读不到就跳过卡片。
   消息 id 存 <BOARD_DIR>/board-cards.state（不叫 .json，理由同上）；消息被删就重发并置顶。失败只打警告，不影响板子本身。
@@ -335,11 +337,41 @@ def _next_live(i, timers, now=None):
     return any(d == i.get("what") and gap(t) <= NEXT_GRACE for t, d in timers)
 
 
-def card_text(its, done=(), timers=_AUTO):
-    """在做 / 暂停 / 今天做完 三块。整卡保证 <= LIMIT：先少列做完的，再截短状态；在做的一件都不丢。"""
+WS_TIMEOUT = 5  # 秒：问桥工作区注册表的上限，同 TIMER_TIMEOUT 的用意（桥卡住时不拖住 board 命令）
+
+
+def _ws_reg(ch):
+    """产品的工作区注册表（<桥> workspace list --session-key discord:<ch> --json，core/team_workspace_api.go）：
+    返回 (聊天频道 id, [(工作区名, 工作区频道 id)])；ch 是工作区时返回它所属的聊天频道。拿不到（没桥、团队工作区关着、
+    不是团队频道）返回 None，调用方退回只按条目频道过滤。"""
+    cc = _cc_bin()
+    if not cc or not ch:
+        return None
+    try:
+        p = subprocess.run([cc, "workspace", "list", "--session-key", f"discord:{ch}", "--json"],
+                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+        r = json.loads(p.stdout) if p.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if not isinstance(r, dict):
+        return None
+    parent = str(r.get("parent") or "").split(":")
+    pid = parent[1] if len(parent) > 1 else parent[0]
+    if not pid:
+        return None
+    ws = [(str(w.get("name") or w.get("id")), str(w["id"])) for w in r.get("workspaces") or []
+          if isinstance(w, dict) and w.get("id") and str(w["id"]) != pid]
+    return pid, ws
+
+
+def card_text(its, done=(), timers=_AUTO, blocks=None):
+    """在做 / 暂停 / 今天做完 三块。整卡保证 <= LIMIT：先少列做完的，再截短状态；在做的一件都不丢。
+    blocks=[(块名, 频道 id), ...]：聊天频道的卡按「本频道 + 名下各工作区」分块列在做的事（第一块是本频道，
+    没记频道的旧条目也算它）；今天做完的不分块，工作区的条目前面标工作区名。None 时不分块。"""
     if timers is _AUTO:
         timers = _timers() if any(i.get("next") for i in its) else None
     live = {i.get("id"): _next_live(i, timers) for i in its if i.get("next")}
+    names = {cid: name for name, cid in (blocks or [])[1:]}
     def row(i, cap):
         st = i.get("status") or "-"
         if cap is not None and len(st) > cap:
@@ -354,7 +386,8 @@ def card_text(its, done=(), timers=_AUTO):
         return f"#{i['id']} {i['what']}｜{i.get('who') or '-'}｜{st}｜{i.get('at', '')}{nxt}{card}"
     seen = {}  # 同一件事分几次上板（如等 CI 回来看了几趟）只列一行；最近做完的排前面
     for k, i in enumerate(done):
-        key = f"- {i.get('who') or '-'}：{i.get('what')}"
+        ws = names.get(i.get("ch"))
+        key = f"- {ws + '·' if ws else ''}{i.get('who') or '-'}：{i.get('what')}"
         n, _ = seen.get(key, (0, 0))
         seen[key] = (n + 1, k)
     done_rows = [key + (f"（{n} 趟）" if n > 1 else "") for key, (n, _) in sorted(seen.items(), key=lambda kv: -kv[1][1])]
@@ -370,7 +403,19 @@ def card_text(its, done=(), timers=_AUTO):
     caps = [None] + list(range(longest - 10, -1, -10)) + [0]
     stages = [(n, None) for n in range(DONE_PER_BLOCK, -1, -1)] + [(None, c) for c in caps]
     for n, cap in stages:
-        body = [row(i, cap) for i in its if not i.get("paused")] or ["现在没有进行中的事。"]
+        live_its = [i for i in its if not i.get("paused")]
+        if blocks:
+            own = blocks[0][1]
+            body = []
+            for k, (name, cid) in enumerate(blocks):
+                rs = [row(i, cap) for i in live_its if i.get("ch") == cid or (k == 0 and i.get("ch") in (None, own))]
+                if k == 0:
+                    body += rs
+                elif rs:
+                    body += ["", f"**{name}**"] + rs
+            body = body or ["现在没有进行中的事。"]
+        else:
+            body = [row(i, cap) for i in live_its] or ["现在没有进行中的事。"]
         held = [row(i, cap) for i in its if i.get("paused")]
         text = "\n".join([head] + body + (["", "**暂停**"] + held if held else []) + tail(n))
         if len(text) <= LIMIT:
@@ -402,9 +447,17 @@ def refresh(chans):
             state = {}
         its, today = _read(), _today_done()
         timers = _timers() if any(i.get("next") for i in its) else None  # 每次刷新只问一次桥
-        for ch in sorted(c for c in set(chans) | set(state) if c):
-            mine = lambda xs: [i for i in xs if i.get("ch") in (None, ch)]
-            text = card_text(mine(its), mine(today), timers)
+        todo = {c for c in set(chans) | set(state) if c}
+        regs = {c: _ws_reg(c) for c in todo}
+        for r in list(regs.values()):  # 工作区的条目变了，它所属聊天频道的卡也要改
+            if r and r[0] not in regs:
+                regs[r[0]] = _ws_reg(r[0])
+        for ch in sorted(regs):
+            r = regs[ch]
+            blocks = [("", ch)] + r[1] if r and r[0] == ch and r[1] else None
+            ids = {cid for _, cid in blocks} if blocks else {ch}
+            mine = lambda xs: [i for i in xs if i.get("ch") is None or i.get("ch") in ids]
+            text = card_text(mine(its), mine(today), timers, blocks)
             mid = state.get(ch)
             try:
                 if mid:
