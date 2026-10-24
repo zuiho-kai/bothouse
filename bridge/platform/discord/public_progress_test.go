@@ -158,9 +158,10 @@ func TestPublicTaskWorkerDetailResumesAfterLostACK(t *testing.T) {
 	session.MaxRestRetries = 0
 	worker := &Platform{session: session, botID: "worker"}
 	task := &core.Task{ID: "shared-task", ChannelID: "room", ThreadID: "shared-thread"}
-	ev := core.TaskEvent{ID: "shared-task:result", Summary: "Worker result", Detail: strings.Repeat("进展🙂", maxDiscordLen), Timestamp: time.Now()}
-	// Simulate a partial delivery: summary confirmed, first detail POST lost ACK.
-	if err := worker.publishTaskFactPart(context.Background(), task, ev, core.LangEnglish, "cc-task-event:"+ev.ID, ev.Summary); err != nil {
+	ev := core.TaskEvent{ID: "shared-task:7", Seq: 7, Summary: "Worker result", Detail: strings.Repeat("进展🙂", maxDiscordLen), Timestamp: time.Now()}
+	parts := core.SplitMessageCodeFenceAware(ev.ThreadText(), maxDiscordLen)
+	// Simulate a partial delivery: first part confirmed, the next POST lost ACK.
+	if err := worker.publishTaskFactPart(context.Background(), task, ev, core.LangEnglish, taskFactMarker(ev, 0, len(parts)), parts[0]); err != nil {
 		t.Fatal(err)
 	}
 	transport.loseACK = true
@@ -170,7 +171,6 @@ func TestPublicTaskWorkerDetailResumesAfterLostACK(t *testing.T) {
 	if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
-	parts := append([]string{ev.Summary}, core.SplitMessageCodeFenceAware(ev.Detail, maxDiscordLen)...)
 	messages := transport.messages[task.ThreadID]
 	if transport.sends != len(parts) || len(messages) != len(parts) || len(transport.messages[task.ChannelID]) != 0 {
 		t.Fatal("missing detail, duplicate delivery, or escaped shared thread")
@@ -299,5 +299,38 @@ func TestPublicTaskFactPermanentRefusalClassified(t *testing.T) {
 		if err == nil || errors.Is(err, core.ErrTaskFactUndeliverable) != tc.permanent {
 			t.Fatalf("status %d: err=%v permanent=%v", tc.status, err, tc.permanent)
 		}
+	}
+}
+
+// The task thread shows one message per update: no repeated "key update"
+// header, the reporter's own words instead of the "see task thread" pointer,
+// and a short sequence marker instead of the internal event id.
+func TestPublicTaskFactIsOneTidyMessage(t *testing.T) {
+	transport := &progressREST{messages: map[string][]*discordgo.Message{}, botID: "worker"}
+	session, _ := discordgo.New("Bot fixture-worker")
+	session.Client = &http.Client{Transport: transport}
+	session.MaxRestRetries = 0
+	worker := &Platform{session: session, botID: "worker"}
+	task := &core.Task{ID: "task-abc", ChannelID: "room", ThreadID: "thread"}
+	ev := core.TaskEvent{ID: "task-abc:10", Seq: 10, Summary: "C酱 更新了进度，详见任务线程", Detail: "started", Pointer: true, Timestamp: time.Now()}
+	for i := 0; i < 2; i++ { // the retry finds the posted message by its marker
+		if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangChinese); err != nil {
+			t.Fatal(err)
+		}
+	}
+	messages := transport.messages[task.ThreadID]
+	if len(messages) != 1 || transport.sends != 1 {
+		t.Fatalf("want one message, got %d (sends %d)", len(messages), transport.sends)
+	}
+	e := messages[0].Embeds[0]
+	if e.Title != "" || e.Description != "started" || e.Footer == nil || e.Footer.Text != "#10" {
+		t.Fatalf("untidy fact: title=%q description=%q footer=%+v", e.Title, e.Description, e.Footer)
+	}
+	assigned := core.TaskEvent{ID: "task-abc:9", Seq: 9, Summary: "已派给 肥鱼", Detail: "只测试置顶", Timestamp: time.Now()}
+	if err := worker.PublishTaskFact(context.Background(), task, assigned, core.LangChinese); err != nil {
+		t.Fatal(err)
+	}
+	if got := transport.messages[task.ThreadID][0].Embeds[0].Description; got != "已派给 肥鱼\n只测试置顶" {
+		t.Fatalf("summary and detail should share one message, got %q", got)
 	}
 }

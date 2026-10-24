@@ -138,19 +138,14 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 		return errors.New("task thread unavailable")
 	}
 	// Source: reuse the Discord text limit so supplementary Unicode also stays
-	// below the embed description limit. Each part has its own recovery marker.
-	parts := core.SplitMessageCodeFenceAware(ev.Summary, maxDiscordLen)
+	// below the embed description limit. One event is one message unless it
+	// is longer than that; each part has its own recovery marker.
+	parts := core.SplitMessageCodeFenceAware(ev.ThreadText(), maxDiscordLen)
 	if len(parts) == 0 {
 		parts = []string{""}
 	}
-	if ev.Detail != "" {
-		parts = append(parts, core.SplitMessageCodeFenceAware(ev.Detail, maxDiscordLen)...)
-	}
 	for i, part := range parts {
-		marker := "cc-task-event:" + ev.ID
-		if i > 0 {
-			marker += fmt.Sprintf(":detail:%d", i)
-		}
+		marker := taskFactMarker(ev, i, len(parts))
 		if err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part); err != nil {
 			// Missing access or thread is permanent for this account; core
 			// reports it visibly instead of blocking later facts on retries.
@@ -164,13 +159,26 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 	return nil
 }
 
+// taskFactMarker is the small footer that lets a retry find an event already
+// posted in this thread: "#<seq>" (one thread per task, so the sequence is
+// unique there), with "·n/m" for the parts of an over-long event.
+func taskFactMarker(ev core.TaskEvent, i, n int) string {
+	marker := "#" + ev.ID
+	if ev.Seq > 0 {
+		marker = fmt.Sprintf("#%d", ev.Seq)
+	}
+	if n > 1 {
+		marker += fmt.Sprintf(" · %d/%d", i+1, n)
+	}
+	return marker
+}
+
 func (p *Platform) publishTaskFactPart(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language, marker, part string) error {
 	id, err := p.findPublicFact(ctx, task.ThreadID, marker, ev.Timestamp)
 	if err != nil || id != "" {
 		return err
 	}
 	embed := &discordgo.MessageEmbed{
-		Title:       fmt.Sprintf("📌 %s", core.NewI18n(lang).T(core.MsgTaskKeyFact)),
 		Description: part,
 		Footer:      &discordgo.MessageEmbedFooter{Text: marker},
 		Timestamp:   ev.Timestamp.Format(time.RFC3339),

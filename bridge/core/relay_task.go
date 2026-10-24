@@ -196,6 +196,7 @@ func (p *PublicProgress) reportTaskRelay(d *taskRelay, req PublicProgressRequest
 	r.record.Relays[d.req.RequestID] = receipt
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayProgress, d.name), true)
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = req.Summary
+	r.record.Task.Events[len(r.record.Task.Events)-1].Pointer = true
 	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = d.req.To
 	if err := p.save(r); err != nil {
 		r.record = old
@@ -227,6 +228,7 @@ func (d *taskRelay) finish(response string, runErr error) error {
 		detail += "\n\n" + runErr.Error()
 	}
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = strings.TrimSpace(detail)
+	r.record.Task.Events[len(r.record.Task.Events)-1].Pointer = true
 	if runErr == nil {
 		r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = d.req.To
 	}
