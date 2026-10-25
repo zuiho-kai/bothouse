@@ -2,12 +2,17 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // relayMemoryAgent hands out one session per StartSession and records each turn's prompt and resume ID.
@@ -150,5 +155,51 @@ func TestHandleRelayFailedSendKeepsMemoryIndex(t *testing.T) {
 	}
 	if p, _ := a.turn(2); strings.Contains(p, memoryIndexHead) {
 		t.Fatalf("delivered memory index sent again: %q", p)
+	}
+}
+
+// The gate searches the wiki with the assignment only: no task-relay instructions, no run token.
+func TestTaskRelayGateQueryIsAssignmentOnly(t *testing.T) {
+	var mu sync.Mutex
+	var texts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &body)
+		mu.Lock()
+		texts = append(texts, body["text"])
+		mu.Unlock()
+		w.Write([]byte(`{"wiki":[]}`))
+	}))
+	defer srv.Close()
+	p, platform, _, id := taskRelayFixture(t)
+	a := &relayMemoryAgent{}
+	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
+	source.publicProgress = p
+	target := NewEngine("target", a, []Platform{newProgressPlatform()}, "", LangEnglish)
+	target.gate = &gateState{url: srv.URL + "/decide", timeout: time.Second}
+	rm := NewRelayManager("")
+	rm.RegisterEngine("source", source)
+	rm.RegisterEngine("target", target)
+	p.resolveReporter = source.resolveTaskReporter
+	source.SetRelayManager(rm)
+	rm.Bind("discord", "room", map[string]string{"source": "Source", "target": "Target"})
+
+	req := taskRelayRequest(id)
+	if _, err := rm.Send(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	prompt, _ := a.turn(0)
+	if !strings.Contains(prompt, "--run ") {
+		t.Fatalf("fixture prompt has no run token: %q", prompt)
+	}
+	token := strings.Fields(prompt[strings.Index(prompt, "--run ")+len("--run "):])[0]
+	mu.Lock()
+	defer mu.Unlock()
+	if len(texts) != 1 || texts[0] != req.Message {
+		t.Fatalf("gate query = %q, want only %q", texts, req.Message)
+	}
+	if strings.Contains(texts[0], "[Task relay") || strings.Contains(texts[0], token) {
+		t.Fatalf("gate query carries relay instructions or run token %q: %q", token, texts[0])
 	}
 }

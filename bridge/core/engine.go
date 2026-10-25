@@ -17358,6 +17358,18 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false)
 }
 
+// relayGateQuery is the text the gate searches the wiki with: the assignment
+// only. A task relay's fixed instructions (and its run token) would otherwise
+// win every search and leak the token to the gate.
+func relayGateQuery(message string) string {
+	if strings.HasPrefix(message, "[Task relay ") {
+		if _, body, ok := strings.Cut(message, "[/Task relay]"); ok {
+			return strings.TrimSpace(body)
+		}
+	}
+	return message
+}
+
 // handleTrackedRelay owns execution and team lifecycle after the caller has
 // resolved its conversation key. Task-scoped relays can pass their scoped key
 // here to share timeout/drain behavior without sharing conversation history.
@@ -17445,7 +17457,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	if c := e.memoryBlock(session); c != "" {
 		content = c + "\n\n" + content
 	}
-	if c := e.turnContext(session, relaySessionKey, message); c != "" {
+	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message)); c != "" {
 		content = c + "\n\n" + content
 	}
 	prompt := e.withAgentInstructions(content, "", true)
