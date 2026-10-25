@@ -581,5 +581,38 @@ class NoConfig(unittest.TestCase):
         self.assertTrue(gate.team_online("jingyu", CHAT))
 
 
+class LeadParse(unittest.TestCase):
+    """一句话切主：「你现在是主bot」这类说法以前解析不出来，gate 回 None，切主不生效。"""
+
+    def parse(self, text, me="jingyu", mentioned=True, **kw):
+        return gate.lead.parse({"mentioned": mentioned, **kw}, text, me)
+
+    def test_is_lead_sentences_switch(self):
+        for text in ("你现在是主bot", "你是主bot", "现在你是主bot", "你当主bot", "你现在是主角色",
+                     "你是主 AI", "你以后就是主机器人", "你现在是主Bot"):
+            with self.subTest(text=text):
+                self.assertEqual(self.parse(text), "jingyu")
+
+    def test_named_switch_with_bot_noun(self):
+        for text in ("鲸鱼现在是主bot", "主bot换成鲸鱼", "把主bot切到鲸鱼", "主AI换成龙娘"):
+            with self.subTest(text=text):
+                self.assertIn(self.parse(text, me="", mentioned=False), ("jingyu", "longniang"))
+        self.assertEqual(self.parse("主AI换成龙娘", me="", mentioned=False), "longniang")
+
+    def test_not_a_switch(self):
+        for text in ("你是主bot吗", "你是不是主bot", "橘是主bot", "龙娘是主bot", "你是主力", "你是主意",
+                     "这个主bot是谁", "你是主bot，对吧", "你不是主bot", "你才是主bot", "你又不是主bot"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.parse(text))
+
+    def test_from_bot_never_switches(self):
+        self.assertIsNone(self.parse("你现在是主bot", from_bot=True))
+
+    def test_existing_sentences_still_switch(self):
+        self.assertEqual(self.parse("你当主角色"), "jingyu")
+        self.assertEqual(self.parse("你来当主"), "jingyu")
+        self.assertEqual(self.parse("让龙娘当主", me="", mentioned=False), "longniang")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -330,3 +330,113 @@ func TestNoGateWizardTeamRoutesByConfiguredLead(t *testing.T) {
 		t.Fatal("a solo bot without team_lead_bot must not be suppressed")
 	}
 }
+
+// noLeadTestPlatform implements both lead interfaces but has no team_lead_bot.
+type noLeadTestPlatform struct{ stubPlatformEngine }
+
+func (*noLeadTestPlatform) HasConfiguredTeamLead() bool { return false }
+func (*noLeadTestPlatform) IsConfiguredTeamLead() bool  { return false }
+
+func writeLeadSelection(t *testing.T, dir, lead string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(`{"lead":"`+lead+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wizardTeamEngine is one member of a wizard team without a team status board:
+// projects "lead" and "sub" run in the same process (relay manager), sharing dataDir.
+func wizardTeamEngine(t *testing.T, dir string) *Engine {
+	t.Helper()
+	e := newTestEngine()
+	e.team = nil
+	e.dataDir = dir
+	rm := NewRelayManager("")
+	rm.RegisterEngine("lead", e)
+	rm.RegisterEngine("sub", e)
+	e.SetRelayManager(rm)
+	return e
+}
+
+// A lead switched in DSH or by the gate (lead.json) takes effect in a wizard team that has
+// no team status board, without a restart; an empty selection returns to team_lead_bot.
+func TestNoTeamBoardLeadSelectionOverridesConfiguredLead(t *testing.T) {
+	dir := t.TempDir()
+	e := wizardTeamEngine(t, dir)
+	lead := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, true}
+	sub := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, false}
+	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
+
+	writeLeadSelection(t, dir, "sub")
+	e.name = "sub"
+	if e.suppressUnaddressedGroup(sub, msg) {
+		t.Fatal("lead.json selects sub: sub must answer unaddressed messages")
+	}
+	if !e.suppressUnaddressedGroup(sub, &Message{Content: "<@L> 在吗", ChannelID: "c", SessionKey: "discord:c", AddressedOther: true}) {
+		t.Fatal("a message addressed to another role must still go to that role")
+	}
+	e.name = "lead"
+	if !e.suppressUnaddressedGroup(lead, msg) {
+		t.Fatal("lead.json selects sub: the configured lead must stay quiet")
+	}
+
+	writeLeadSelection(t, dir, "")
+	if e.suppressUnaddressedGroup(lead, msg) {
+		t.Fatal("an empty selection must fall back to team_lead_bot")
+	}
+	e.name = "sub"
+	if !e.suppressUnaddressedGroup(sub, msg) {
+		t.Fatal("an empty selection must fall back to team_lead_bot for the sub too")
+	}
+}
+
+// lead.json lives in the shared data directory: a bot that is not in a team (no
+// team_lead_bot) must never be silenced by it.
+func TestNoTeamBoardLeadSelectionIgnoredWithoutConfiguredLead(t *testing.T) {
+	dir := t.TempDir()
+	e := wizardTeamEngine(t, dir)
+	e.name = "solo"
+	writeLeadSelection(t, dir, "sub")
+	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
+	if e.suppressUnaddressedGroup(&noLeadTestPlatform{stubPlatformEngine{n: "discord"}}, msg) {
+		t.Fatal("a bot without team_lead_bot must not be suppressed by lead.json")
+	}
+	if e.suppressUnaddressedGroup(&stubPlatformEngine{n: "discord"}, msg) {
+		t.Fatal("a platform without team lead support must not be suppressed by lead.json")
+	}
+}
+
+// A selection naming a role that no longer exists (removed after the switch) must not
+// silence the whole team: the configured lead answers again.
+func TestLeadSelectionForRemovedRoleFallsBackToConfiguredLead(t *testing.T) {
+	dir := t.TempDir()
+	e := wizardTeamEngine(t, dir)
+	lead := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, true}
+	sub := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, false}
+	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
+	writeLeadSelection(t, dir, "removed")
+
+	e.name = "lead"
+	if e.suppressUnaddressedGroup(lead, msg) {
+		t.Fatal("selection names a removed role: the configured lead must answer")
+	}
+	e.name = "sub"
+	if !e.suppressUnaddressedGroup(sub, msg) {
+		t.Fatal("selection names a removed role: subs stay quiet as configured")
+	}
+
+	// Same with a team status board: the removed role has no status file there.
+	e.team = &teamState{dir: t.TempDir(), name: "lead", inject: true, seen: map[string]*teamSession{}}
+	e.name = "lead"
+	if !e.isTeamLead() {
+		t.Fatal("team board: a removed role in lead.json must fall back to the configured lead")
+	}
+	// A teammate in another process is known by its status file and stays selectable.
+	if err := os.WriteFile(filepath.Join(e.team.dir, "remote"+teamStatusFileExt), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeLeadSelection(t, dir, "remote")
+	if e.isTeamLead() {
+		t.Fatal("team board: a selected teammate in another process must still win")
+	}
+}
