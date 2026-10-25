@@ -367,6 +367,12 @@ func errMemoryIndexNoWiki(lang string) error {
 // sub-wiki.py the wiki cron jobs should run ("" = none). A failure is reported but does not undo the roles.
 func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req WizardRequest, pl *wizardPlan, clis []LocalCLI) string {
 	if RoleWikiFS == nil && env.WikiSubScript == "" {
+		if mw, ok := FindWiki(); !ok {
+			addStep(res, "wiki", nil, tr3(req.Language,
+				"跳过：没有主 wiki（"+mw+" 里没有 bin/ingest.py），这个版本也没内嵌 wiki 程序，没法建",
+				"スキップ：メイン wiki がなく（"+mw+" に bin/ingest.py がありません）、このビルドには wiki プログラムが入っていないため作れません",
+				"skipped: no main wiki ("+mw+" has no bin/ingest.py) and this build has no wiki programs embedded to make one"))
+		}
 		return env.WikiSubScript
 	}
 	var roles []int
@@ -376,6 +382,21 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 		}
 	}
 	if len(roles) == 0 {
+		// no new role (a rerun that reuses every role): still make the main wiki when there is none, so the wiki
+		// cron below (applyWizardWiki) has one. --main runs only when FindWiki fails: a wiki with bin/ingest.py is
+		// never touched (setup_wiki.py may rmtree what it takes for a half-made one).
+		if _, ok := FindWiki(); ok {
+			return env.WikiSubScript
+		}
+		var engines map[string]any
+		if len(pl.roles) > 0 {
+			engines = roleWikiConfig(env.DataDir, pl.roles[0], req.Wiki, clis)
+		}
+		if _, detail, err := prepareRoleWikis(ctx, env, pl.fallbackName, engines); err != nil {
+			addStep(res, "wiki", err, "")
+		} else if detail != "" {
+			addStep(res, "wiki", nil, detail)
+		}
 		return env.WikiSubScript
 	}
 	s, detail, err := prepareRoleWikis(ctx, env, pl.fallbackName, roleWikiConfig(env.DataDir, pl.roles[roles[0]], req.Wiki, clis))

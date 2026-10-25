@@ -252,3 +252,162 @@ func TestRoleWikiConfigDSH(t *testing.T) {
 		t.Fatalf("own setup config = %v", c)
 	}
 }
+
+func wizardSteps(res *WizardResult) map[string]WizardStep {
+	steps := map[string]WizardStep{}
+	for _, s := range res.Steps {
+		steps[s.Step] = s
+	}
+	return steps
+}
+
+func oneRoleRequest(t *testing.T) WizardRequest {
+	t.Helper()
+	t1 := fakeToken("111")
+	fakeDiscord(t, map[string]string{t1: "Juzi"})
+	req := WizardRequest{Platform: "discord", Language: "en", Roles: []WizardRole{{Token: t1}}}
+	req.Discord = &struct {
+		GuildID   string `json:"guild_id"`
+		ChannelID string `json:"channel_id"`
+	}{GuildID: "900", ChannelID: "1"}
+	return req
+}
+
+// A rerun that only reuses roles, on a HOME with no main wiki: the main wiki is made anyway, then its cron jobs.
+func TestApplyWizardMainWikiNoNewRole(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore()}
+	if res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req); !res.Saved {
+		t.Fatalf("first apply: %+v", res)
+	}
+	if err := os.RemoveAll(mainWiki); err != nil {
+		t.Fatal(err)
+	}
+	cron := &memCron{}
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: cron}, req)
+	steps := wizardSteps(res)
+	if _, ok := steps["role 1 wiki"]; ok || !res.Saved {
+		t.Fatalf("rerun made a role wiki (role not reused?): %+v", res.Steps)
+	}
+	if s := steps["wiki"]; !s.OK || !strings.Contains(s.Detail, mainWiki) {
+		t.Fatalf("wiki step = %+v (all %+v)", s, res.Steps)
+	}
+	if !fileExists(filepath.Join(mainWiki, "bin", "ingest.py")) {
+		t.Fatal("main wiki not made")
+	}
+	if s := steps["wiki cron"]; !s.OK || !strings.Contains(s.Detail, "added") || len(cron.jobs) == 0 {
+		t.Fatalf("wiki cron = %+v, jobs %d", s, len(cron.jobs))
+	}
+}
+
+func snapshotDir(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		b := []byte{}
+		if !fi.IsDir() {
+			if b, err = os.ReadFile(p); err != nil {
+				return err
+			}
+		}
+		out[p] = fi.Mode().String() + " " + fi.ModTime().String() + " " + string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// A wiki with bin/ingest.py (here also .git, and no config.json, like a hand-made one) is never touched, on a
+// first run (new role) or a rerun (reused role). --main runs only when FindWiki fails.
+func TestApplyWizardKeepsExistingMainWiki(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	for p, c := range map[string]string{"bin/ingest.py": "# mine\n", "bin/search.py": "# mine too\n", ".git/HEAD": "ref: refs/heads/main\n", "notes.md": "x\n"} {
+		f := filepath.Join(mainWiki, p)
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := snapshotDir(t, mainWiki)
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore()}
+	for run := 1; run <= 2; run++ {
+		res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req)
+		if !res.Saved {
+			t.Fatalf("run %d: %+v", run, res)
+		}
+		if s, ok := wizardSteps(res)["wiki"]; ok {
+			t.Fatalf("run %d: wiki step with a wiki there: %+v", run, s)
+		}
+		after := snapshotDir(t, mainWiki)
+		if len(after) != len(before) {
+			t.Fatalf("run %d: files %d → %d", run, len(before), len(after))
+		}
+		for p, v := range before {
+			if after[p] != v {
+				t.Fatalf("run %d: %s changed", run, p)
+			}
+		}
+	}
+}
+
+// When the wiki step cannot run, the result says why instead of leaving it out.
+func TestApplyWizardWikiSkippedReason(t *testing.T) {
+	noHardware(t)
+	old := RoleWikiFS
+	RoleWikiFS = nil // a build without the wiki programs embedded
+	t.Cleanup(func() { RoleWikiFS = old })
+	req := oneRoleRequest(t)
+	t.Setenv("WIKI_DIR", filepath.Join(t.TempDir(), "wiki"))
+	res := ApplyWizard(context.Background(), WizardEnv{Store: &hookMemStore{memStore: newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs, Cron: &memCron{}}, req)
+	steps := wizardSteps(res)
+	if s := steps["wiki"]; !s.OK || !strings.HasPrefix(s.Detail, "skipped:") || !strings.Contains(s.Detail, "embedded") {
+		t.Fatalf("wiki = %+v (all %+v)", s, res.Steps)
+	}
+	if s := steps["wiki cron"]; !s.OK || !strings.HasPrefix(s.Detail, "skipped:") || !strings.Contains(s.Detail, "no main wiki") {
+		t.Fatalf("wiki cron = %+v", s)
+	}
+}
+
+// With no new role, a failure making the main wiki (no git, no Python, setup_wiki.py) is reported, not dropped.
+func TestApplyWizardMainWikiFailureNoNewRole(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore()}
+	if res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req); !res.Saved {
+		t.Fatalf("first apply: %+v", res)
+	}
+	_ = os.RemoveAll(mainWiki)
+	oldRun := roleWikiRun
+	roleWikiRun = func(ctx context.Context, env []string, name string, args ...string) (string, error) {
+		return "", errors.New("git not found")
+	}
+	t.Cleanup(func() { roleWikiRun = oldRun })
+	steps := wizardSteps(ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req))
+	if s := steps["wiki"]; s.Step == "" || s.OK || !strings.Contains(s.Detail, "git not found") {
+		t.Fatalf("wiki = %+v", s)
+	}
+	if s := steps["wiki cron"]; !strings.HasPrefix(s.Detail, "skipped:") {
+		t.Fatalf("wiki cron = %+v", s)
+	}
+}

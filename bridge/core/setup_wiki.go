@@ -383,6 +383,10 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 		if req.Wiki != nil && *req.Wiki != (WizardWiki{}) {
 			addStep(res, "wiki", fmt.Errorf("no wiki at %s (bin/ingest.py missing): models not saved", dir), "")
 		}
+		addStep(res, "wiki cron", nil, tr3(req.Language,
+			"跳过：没有主 wiki（"+dir+" 里没有 bin/ingest.py），所以没加 wiki 整理定时",
+			"スキップ：メイン wiki がない（"+dir+" に bin/ingest.py がありません）ため、wiki の定期整理を追加していません",
+			"skipped: no main wiki ("+dir+" has no bin/ingest.py), so the wiki cron jobs were not added"))
 		return
 	}
 	if req.Wiki != nil {
