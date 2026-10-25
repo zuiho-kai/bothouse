@@ -59,7 +59,7 @@ test('[ask] pauses the bound owner task and leaves its row on the source board',
   hub.tasks = tasks;
   new TeamExit(hub);
   const task = tasks.assign({ roomId: ws.id, title: 'choose', owner: 'ds', actor: 'owner' });
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\nPR #280 should merge?' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\nPR #280 should merge?\n自验：无需\n类别：方向' });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(task.id).paused_at);
   assert.equal(hub.store.workspaceOwner(ws.id), null);
@@ -75,7 +75,7 @@ test('single-line [ask] without a task number falls back to the room task and pa
   hub.tasks = tasks;
   new TeamExit(hub);
   const task = tasks.assign({ roomId: ws.id, title: 'choose', owner: 'ds', actor: 'owner' });
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask] PR #280 要不要合' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask] PR #280 要不要合\n自验：无需\n类别：方向' });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(task.id).paused_at);
   tasks.close();
@@ -93,7 +93,7 @@ test('[ask] naming 任务 #N pauses that task, not the room fallback', async () 
   const second = tasks.assign({ roomId: ws.id, title: 'second', owner: 'ds2', actor: 'owner' });
   // room fallback picks the most recently updated task; make that the other one
   tasks.db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(1, first.id);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] 任务 #${first.id} 选 A 还是 B` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] 任务 #${first.id} 选 A 还是 B\n自验：无需\n类别：方向` });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(first.id).paused_at);
   assert.ok(!tasks.task(second.id).paused_at);
