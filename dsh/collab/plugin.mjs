@@ -74,6 +74,14 @@ function dshRequire() {
   return createRequire(realpathSync(process.argv[1]));
 }
 
+/**
+ * #557: a channel-started turn asks in its room. Prepended so a DSH Web UI tab
+ * or another plugin's answerer (e.g. auto review) never takes a hidden Session's ask.
+ */
+export function installApprovalAnswerer(ctx, dsh) {
+  ctx.on('approval/request', (request, next) => dsh.onApprovalRequest(request, next), { prepend: true });
+}
+
 export async function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
   const require = dshRequire();
@@ -114,8 +122,7 @@ export async function apply(ctx, rawConfig) {
   ctx.on('session/event', (session, event) => dsh.onSessionEvent(session, event));
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => dsh.onClaimed(agent.session.id, message.id, turn));
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
-  // #557: a channel-started turn asks in its room; prepended so a DSH Web UI tab never takes a hidden Session's ask.
-  ctx.on('approval/request', (request, next) => dsh.onApprovalRequest(request, next), { prepend: true });
+  installApprovalAnswerer(ctx, dsh);
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
   tasks.start();

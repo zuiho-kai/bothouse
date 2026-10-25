@@ -705,6 +705,8 @@ export class DshMembers {
       await scope[Symbol.asyncDispose]();
     }
     await workspace.attachSession(sessionId);
+    // setup ran before the Agent existed, so record it here: liveAgent must not hook it again.
+    this.hooked.add(handle.agent);
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
     ctx.sessionTitle.rename(handle.agent.session, `#${room.name} · ${member.name}`);
     if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
@@ -767,6 +769,7 @@ export class DshMembers {
     } finally {
       await scope[Symbol.asyncDispose]();
     }
+    this.hooked.add(handle.agent);
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
     return handle.agent;
   }

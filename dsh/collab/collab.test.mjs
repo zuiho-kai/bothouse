@@ -6,7 +6,7 @@ import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } from './dsh-member.mjs';
-import { resolveConfig } from './plugin.mjs';
+import { resolveConfig, installApprovalAnswerer } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules, TurnProgress } from './dsh-member.mjs';
@@ -493,6 +493,25 @@ test('DSH member: after a restart the resumed Session gets its agent preset tool
   assert.equal(agent, old, 'the same Session answers');
   assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('bash'), 'the agent preset is mounted on resume');
   assert.deepEqual(dsh.ctx.permissionPresets.sets, [[old.session.id, 'danger-full-access']], 'the permission preset is applied on resume');
+});
+
+test('DSH member: the request hook is installed once per Agent, after create and after resume, however often it is @-ed', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const setups = [];
+  const setup = members.setup.bind(members);
+  members.setup = (agentCtx, member, agent) => { setups.push(member.id); return setup(agentCtx, member, agent); };
+  const created = await boundOnce(hub, dsh);
+  await askAgain(hub, dsh, '@DeepSeek 第二次');
+  assert.equal(setups.length, 1, 'created: hooked once');
+  // Like DSH, a resume after a restart hands back a new Agent object.
+  dsh.restart();
+  dsh.sessions.delete(created.session.id);
+  const resumed = await askAgain(hub, dsh, '@DeepSeek 重启后一次');
+  await askAgain(hub, dsh, '@DeepSeek 重启后两次');
+  assert.notEqual(resumed, created);
+  assert.equal(setups.length, 2, 'resumed: hooked once more, not on every @');
 });
 
 test('DSH member: after a restart a bound hidden Session is resumed, and one deleted meanwhile is replaced', async () => {
@@ -3269,6 +3288,16 @@ function askTool(dsh, members, agent, { preset = 'default', command = 'rm -rf bu
   ).then(runTool);
   return { ran, outcome, fellThrough: () => fellThrough };
 }
+/**
+ * Waits for a card's outcome, failing instead of hanging when no decision ever
+ * comes (a lost signal, allowAll or expiry would otherwise leave the test pending).
+ */
+function decided(outcome, ms = 2000) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`no approval outcome within ${ms} ms`)), ms); });
+  return Promise.race([outcome, timeout]).finally(() => clearTimeout(timer));
+}
+
 const cardsIn = (hub, room) => hub.store.page(room, undefined, 50).filter(m => m.card !== null && JSON.parse(m.card).kind === 'permission');
 const cardState = (hub, id) => JSON.parse(hub.store.message(id).card).state;
 
@@ -3310,7 +3339,7 @@ test('DSH approval #557: the card shows in the room that @-ed the member; 允许
   assert.deepEqual(JSON.parse(card.card).actions.map(a => a.decision), ['allow', 'deny', 'allow_all']);
 
   hub.approvals.decide(card.id, 'allow');
-  assert.equal(await outcome, 'allowed-once');
+  assert.equal(await decided(outcome), 'allowed-once');
   assert.deepEqual(ran, ['rm -rf build']);
   assert.equal(cardState(hub, card.id), 'allowed');
   dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: '清理完了' }] } });
@@ -3329,7 +3358,7 @@ test('DSH approval #557: 拒绝 rejects the call and the tool does not run', asy
   await settle();
   const [card] = cardsIn(hub, 1);
   hub.approvals.decide(card.id, 'deny');
-  assert.equal(await outcome, 'rejected');
+  assert.equal(await decided(outcome), 'rejected');
   assert.deepEqual(ran, []);
   assert.equal(cardState(hub, card.id), 'denied');
 });
@@ -3352,10 +3381,10 @@ test('DSH approval #557: two rooms @ the same member, each card shows and is dec
   assert.match(c1.text, /make one/);
   assert.match(c2.text, /make two/);
   hub.approvals.decide(c2.id, 'deny');
-  assert.equal(await t2.outcome, 'rejected');
+  assert.equal(await decided(t2.outcome), 'rejected');
   assert.equal(cardState(hub, c1.id), 'pending', 'the other room is untouched');
   hub.approvals.decide(c1.id, 'allow');
-  assert.equal(await t1.outcome, 'allowed-once');
+  assert.equal(await decided(t1.outcome), 'allowed-once');
   assert.deepEqual([t1.ran, t2.ran], [['make one'], []]);
 });
 
@@ -3368,7 +3397,7 @@ test('DSH approval #557: an owner text reply decides the card and starts no new 
   await settle();
   const jobs = hub.store.openJobs().length;
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 允许所有' });
-  assert.equal(await first.outcome, 'allowed-once');
+  assert.equal(await decided(first.outcome), 'allowed-once');
   const [card] = cardsIn(hub, 1);
   assert.equal(cardState(hub, card.id), 'allowed_all');
   assert.equal(JSON.parse(hub.store.message(card.id).card).decided_by, 'text');
@@ -3377,7 +3406,7 @@ test('DSH approval #557: an owner text reply decides the card and starts no new 
   assert.equal(agent.prompts.length, 1);
   // Later asks in the same Session: allowed, no card.
   const later = askTool(dsh, members, agent, { command: 'ls' });
-  assert.equal(await later.outcome, 'allowed-once');
+  assert.equal(await decided(later.outcome), 'allowed-once');
   assert.equal(cardsIn(hub, 1).length, 1);
 });
 
@@ -3391,7 +3420,7 @@ test('DSH approval #557: a cancelled or recalled turn expires its card; a Web UI
   await settle();
   const [c1] = cardsIn(hub, 1);
   abort.abort(); // DSH's stop button aborts the tool call's signal
-  assert.equal(await cancelled.outcome, 'cancelled');
+  assert.equal(await decided(cancelled.outcome), 'cancelled');
   assert.deepEqual(cancelled.ran, []);
   assert.equal(cardState(hub, c1.id), 'expired');
   assert.throws(() => hub.approvals.decide(c1.id, 'allow'), /过期/);
@@ -3402,13 +3431,13 @@ test('DSH approval #557: a cancelled or recalled turn expires its card; a Web UI
   const c2 = cardsIn(hub, 1).at(-1);
   const job = hub.store.openJobs()[0];
   members.recall(job.trigger_id);
-  assert.equal(await recalled.outcome, 'cancelled');
+  assert.equal(await decided(recalled.outcome), 'cancelled');
   assert.equal(cardState(hub, c2.id), 'expired');
 
   // A turn the channel did not start (DSH Web UI) is not ours to answer.
   dsh.turn(agent, [], null, { id: 'web-1', role: 'user', content: [] });
   const web = askTool(dsh, members, agent);
-  assert.equal(await web.outcome, 'unavailable');
+  assert.equal(await decided(web.outcome), 'unavailable');
   assert.equal(web.fellThrough(), true);
   assert.equal(cardsIn(hub, 1).length, 2);
 });
@@ -3439,11 +3468,31 @@ test('DSH approval #557: Default and Auto review show a card when DSH asks; Full
     const cards = cardsIn(hub, 1);
     if (preset === 'full-access') {
       assert.equal(cards.length, 0, 'Full access: no card');
-      assert.equal(await outcome, 'rejected');
+      assert.equal(await decided(outcome), 'rejected');
       continue;
     }
     assert.equal(cards.length, 1, `${preset}: one card`);
     hub.approvals.decide(cards[0].id, 'allow');
-    assert.equal(await outcome, 'allowed-once');
+    assert.equal(await decided(outcome), 'allowed-once');
   }
+});
+
+test('DSH approval #557: another plugin answering approval/request first does not take a DSH member\'s ask', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  // A waterfall like Cordis: prepended listeners run first, each may call next().
+  const listeners = [];
+  const ctx = { on(name, fn, { prepend = false } = {}) { assert.equal(name, 'approval/request'); prepend ? listeners.unshift(fn) : listeners.push(fn); } };
+  const run = (request, i = 0) => (i < listeners.length ? listeners[i](request, () => run(request, i + 1)) : Promise.resolve('unavailable'));
+  // An auto-review style answerer registered before the collab plugin answers every ask itself.
+  ctx.on('approval/request', async () => 'allowed-once');
+  installApprovalAnswerer(ctx, members);
+  const outcome = run({ agent, toolName: 'bash', callId: 'c1', reason: 'outside the sandbox' });
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  assert.ok(card, 'the DSH member\'s card still shows');
+  hub.approvals.decide(card.id, 'deny');
+  assert.equal(await decided(outcome), 'rejected');
 });
