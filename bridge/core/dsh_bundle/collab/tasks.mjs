@@ -10,6 +10,7 @@
 import { CollabError, MAX_TEXT } from './store.mjs';
 import { mentions, nameCalled, split } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
+import { exitMark } from './team-exit.mjs';
 
 /** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
 export const STATUS = {
@@ -416,10 +417,22 @@ export class Tasks {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     this.verdictsOf(msg);
     const stance = this.stanceOf(msg);
-    // A DSH member (local CLI members too, dsh-member.mjs) posts one reply, when its turn has
-    // ended: a 【接】 there is also the delivery, and nothing else would hand the task back.
+    const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
+    if (dsh && this.inWorkspace(msg.room_id)) {
+      // #597 G35: a DSH member (local CLI members too, dsh-member.mjs) posts one reply per turn, but a
+      // turn ending is not a delivery. In a workspace only a reply marked [report] (team-exit exitMark,
+      // first line or the turn's last part) hands its task back; a 【接】 alone (accepted, waiting) and an
+      // [ask] (a question, forwarded by TeamExit) leave the task in work with its 10-minute watch.
+      const mark = exitMark(msg.text, { lastLine: true });
+      const task = stance ?? (this.foreignStance(msg) ? undefined : this.openOf(msg.room_id, msg.author));
+      if (mark?.kind === 'report' && (stance === undefined || stance.status === 'accepted') && task !== undefined && WORKING.includes(task.status)) {
+        return this.handBack(task.id, { actor: msg.author, messageId: msg.id });
+      }
+      return stance;
+    }
+    // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
     // A bridge bot may keep working after its 【接】, so its stance stays a stance.
-    if (stance?.status === 'accepted' && this.hub.members.get(msg.author)?.kind === 'dsh') {
+    if (stance?.status === 'accepted' && dsh) {
       return this.handBack(stance.id, { actor: msg.author, messageId: msg.id });
     }
     if (stance !== undefined) return stance;
@@ -448,6 +461,15 @@ export class Tasks {
         this.hub.logger?.warn?.('collab: %s #%s from %s refused: %s', word, id, msg.author, error?.message ?? error);
       }
     }
+  }
+
+  /** True when roomId is a workspace (team mode A). */
+  inWorkspace(roomId) { return this.tree && this.store.room(roomId)?.kind === 'workspace'; }
+
+  /** owner's latest task in work in roomId (not paused-only: a paused one is resumed by handBack). */
+  openOf(roomId, owner) {
+    return this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`)
+      .get(roomId, owner, ...WORKING);
   }
 
   /** The first line is a stance whose #id names a task in another room. */

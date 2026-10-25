@@ -4437,15 +4437,14 @@ test('G34: a workspace hand-back brings its [report] body to the chat channel an
   await settle();
   assert.equal(tasks.task(t.id).status, 'done');
 
-  // No [report] mark: the delivery itself (without its stance line) still reaches the chat channel.
+  // #597 G35: no [report] mark is no delivery for a DSH member: nothing is handed back or copied.
   const g = g34Setup();
   const t2 = g.assign();
   g.say(g.ws.id, `【接】#${t2.id}\n\n全做完了，测试通过`);
   await settle();
-  const [copy] = g.hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
-  assert.match(copy.text, /全做完了，测试通过/);
-  assert.doesNotMatch(copy.text, /【接】/);
-  assert.equal(g.woken.length, 1);
+  assert.equal(g.tasks.task(t2.id).status, 'accepted');
+  assert.equal(g.hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬')).length, 0);
+  assert.equal(g.woken.length, 0);
 });
 
 test('G34: only an explicit 【验收】/【返工】 line by the dispatcher, in its chat channel, reviews a workspace task', async () => {
@@ -4516,4 +4515,60 @@ test('G34: a member woken on a task card record reads that record', async () => 
   await settle();
   assert.equal(prompts.length, 1);
   assert.match(prompts[0], /#7「记账」10 分钟内没有新进展/);
+});
+
+test('G35: a DSH turn ending with only 【接】#id hands nothing back; the watch stays and parks it when nothing follows', async () => {
+  const { hub, tasks, clock, woken, ws, assign, say } = g34Setup();
+  const t = assign();
+  const due = tasks.task(t.id).next_check_at;
+  // At clock time 1100 (hub.post would stamp the wall clock), through the same hub listeners.
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n目前保持待命，等开始写` }, 1100).message;
+  tasks.fromMessage(row);
+  hub.teamExit.onMessage(row);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'accepted', 'a stance is not a delivery');
+  assert.equal(tasks.task(t.id).next_check_at, due, 'the 10-minute watch stays');
+  assert.equal(hub.store.page(1, undefined, 50).filter(m => /交回/.test(m.text)).length, 0, 'no 交回 record');
+  assert.equal(woken.length, 0, 'the dispatcher is not woken to review');
+  clock.t = 1000 + CHECK_AFTER_S;
+  tasks.tick();
+  assert.equal(tasks.task(t.id).renewals, 1, 'its own words in the window renew once');
+  clock.t += CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at, 'a window with nothing new parks it');
+  assert.ok(woken.some(([id, , text]) => id === 'fu' && /已暂停/.test(text)), 'and the owner is reminded');
+});
+
+test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task stays watched in its workspace', async () => {
+  const { hub, tasks, woken, ws, assign, say } = g34Setup();
+  const t = assign();
+  const due = tasks.task(t.id).next_check_at;
+  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向`);
+  await settle();
+  const task = tasks.task(t.id);
+  assert.equal(task.status, 'accepted', 'not returned');
+  assert.equal(task.paused_at, null, 'not parked');
+  assert.equal(task.next_check_at, due, 'the watch stays');
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'the workspace stays with its chat channel');
+  const copies = hub.store.page(1, undefined, 50).filter(m => m.text.startsWith('📬'));
+  assert.equal(copies.length, 1);
+  assert.match(copies[0].text, /ask-[0-9a-f]{8}/, 'forwarded as an ask');
+  assert.equal(hub.store.page(1, undefined, 50).filter(m => /交回/.test(m.text)).length, 0);
+  assert.equal(woken.length, 0);
+});
+
+test('G35: a DSH reply whose last part is [report] hands back, with or without a stance line', async () => {
+  const { tasks, ws, assign, say } = g34Setup();
+  const t = assign();
+  say(ws.id, `【接】#${t.id}\n\n写完了。\n\n[report]\n测试 12 个通过`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  const g = g34Setup();
+  const t2 = g.assign();
+  g.say(g.ws.id, `【接】#${t2.id}`);
+  await settle();
+  assert.equal(g.tasks.task(t2.id).status, 'accepted');
+  g.say(g.ws.id, '[report]\n做完了，测试通过');
+  await settle();
+  assert.equal(g.tasks.task(t2.id).status, 'returned', 'a later [report] turn delivers the open task');
 });
