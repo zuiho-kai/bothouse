@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tests.test_cloudweb import JU_ID, LN_ID, CloudWebBase
-from tests.test_hub import AUTH
+from tests.test_hub import AUTH, wait_for
 
 
 class LeadIdentity(CloudWebBase):
@@ -67,10 +67,6 @@ class ChatName(CloudWebBase):
         while m.get("type") != "message":
             m = await self.recv(ju)
         self.assertEqual(m["chat_name"], "三号 - 龙娘：空闲 假的")
-
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TeamWorkspace(CloudWebBase):
     """#597 G1：桥的 team_workspace 帧（conest bridge/platform/cloud-web/workspaces.go），语义照
@@ -162,3 +158,149 @@ class TeamWorkspace(CloudWebBase):
         self.assertEqual((await self.tw(ju, "list", chat="room-99"))["error"], "room-missing")
         self.assertEqual((await self.tw(ju, "dispatch_mode"))["error"], "unsupported")
         self.assertEqual((await self.tw(ju, "nope"))["error"], "bad-op")
+
+
+ASK = "[ask]\n要不要换方案？\n自验：跑了 pytest，3 passed\n类别：方向"
+
+
+class TeamExitRoute(CloudWebBase):
+    """#597 G1b：工作区里 bot 的 [ask]/[report] 转到主聊天频道，用户带编号回答送回工作区（rh/team_exit.py，
+    照 collab/team-exit.mjs 和 collab.test.mjs 的 team exit 用例）。"""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.ju = await self.registered("maomao", "橘")
+        self.ln = await self.registered("longniang", "龙娘")
+        self.w = self.hub.create_workspace(1)["id"]
+
+    def system_in(self, room):
+        return [m for m in self.hub.history(room, 0) if m["author_kind"] == "system"]
+
+    async def frame(self, ws, cond, timeout=3.0):
+        while True:
+            m = await self.recv(ws, timeout)
+            if m.get("type") == "message" and cond(m):
+                return m
+
+    async def say(self, ws, room, text):
+        await ws.send_json({"type": "reply", "reply_ctx": f"room-{room}", "content": text, "agent": True})
+
+    async def ask(self):
+        await self.say(self.ln, self.w, ASK)
+        await wait_for(lambda: self.system_in(1), what="转发帖")
+        return self.system_in(1)[0], self.hub.db.execute("SELECT * FROM team_exit_asks").fetchone()
+
+    async def test_report_forwarded_not_to_bots(self):
+        await self.say(self.ln, self.w, "[report]\n第一阶段做完了")
+        await wait_for(lambda: self.system_in(1), what="转发帖")
+        fwd = self.system_in(1)[0]
+        self.assertEqual(fwd["text"], "📬 来自 工作区1 · 龙娘 · 阶段结果\n第一阶段做完了")
+        # 工作区里那条照常给队友；聊天频道的 system 帖不叫醒任何 bot
+        self.assertIn("第一阶段", (await self.frame(self.ju, lambda m: True))["content"])
+        await self.nothing(self.ju)
+        self.assertIsNone(self.hub.db.execute("SELECT 1 FROM team_exit_asks").fetchone())   # report 只转不回
+
+    async def test_plain_reply_and_chat_room_not_forwarded(self):
+        await self.say(self.ln, self.w, "普通进度，不转")
+        await self.say(self.ju, 1, "[report]\n聊天频道自己说的")
+        await self.frame(self.ln, lambda m: "聊天频道" in m["content"])
+        self.assertEqual(self.system_in(1), [])
+
+    async def test_ask_forwarded_with_token_and_answer_routed_back(self):
+        fwd, ask = await self.ask()
+        aid = ask["id"]
+        self.assertRegex(aid, r"^ask-[0-9a-f]{8}$")
+        self.assertEqual(fwd["text"], f"📬 来自 工作区1 · 龙娘 · {aid}（回复时带上编号 {aid}）\n"
+                                      "要不要换方案？\n自验：跑了 pytest，3 passed\n类别：方向")
+        self.assertEqual((ask["parent_id"], ask["workspace_id"], ask["member_id"], ask["forwarded_id"]),
+                         (1, self.w, "longniang", fwd["id"]))
+        await self.frame(self.ju, lambda m: "要不要换方案" in m["content"])   # 工作区原帖给队友
+        # 用户在聊天频道带编号回答：聊天频道的 bot 收不到，答案以用户身份贴进工作区并只叫醒提问的 bot
+        await self.post(f"{aid} 换吧")
+        m = await self.frame(self.ln, lambda m: True)
+        self.assertEqual((m["chat_id"], m["user_id"], m["mentioned"], m["from_bot"]),
+                         (f"room-{self.w}", "user", True, False))
+        self.assertEqual(m["content"], f"用户回复 {aid}：\n{aid} 换吧")
+        await self.nothing(self.ju)
+        posted = [x for x in self.hub.history(self.w, 0) if x["author_kind"] == "user"]
+        self.assertEqual([(x["text"], x["client_key"]) for x in posted],
+                         [(f"@longniang 用户回复 {aid}：\n{aid} 换吧", f"team-answer:longniang:{aid}")])
+        self.assertEqual(self.hub.db.execute("SELECT answered FROM team_exit_asks").fetchone()[0], 1)
+        # 答过之后同编号再说就是普通聊天：聊天频道的 bot 照常收到，不再贴进工作区
+        await self.post(f"{aid} 再说一句")
+        self.assertIn("再说一句", (await self.frame(self.ju, lambda m: True))["content"])
+        self.assertEqual(len([x for x in self.hub.history(self.w, 0) if x["author_kind"] == "user"]), 1)
+
+    async def test_message_without_token_is_normal_chat(self):
+        await self.ask()
+        await self.post("今天吃什么")   # 不带编号：不吞，聊天频道的 bot 照常收到
+        self.assertIn("今天吃什么", (await self.frame(self.ju, lambda m: "今天" in m["content"]))["content"])
+        self.assertEqual(self.hub.db.execute("SELECT answered FROM team_exit_asks").fetchone()[0], 0)
+
+    async def test_ask_without_evidence_bounced_and_author_woken(self):
+        await self.say(self.ln, self.w, "[ask]\n要不要换方案？")
+        await wait_for(lambda: self.system_in(self.w), what="退回帖")
+        notice = self.system_in(self.w)[0]
+        self.assertTrue(notice["text"].startswith("📬 @龙娘 这条 [ask] 没有转给用户：缺「自验：」"), notice["text"])
+        self.assertIn("缺「类别：」", notice["text"])
+        self.assertEqual(self.system_in(1), [])   # 没转给聊天频道
+        m = await self.frame(self.ln, lambda m: True)   # 直接叫醒提问的 bot
+        self.assertEqual((m["msg_id"], m["chat_id"], m["mentioned"], m["from_bot"]),
+                         (f"hub-{notice['id']}", f"room-{self.w}", True, False))
+        self.assertIn("没有转给用户", m["content"])
+        # 「自验：无需」只限四类
+        await self.say(self.ln, self.w, "[ask]\n合并吗\n自验：无需\n类别：代码")
+        m = await self.frame(self.ln, lambda m: True)
+        self.assertIn("只限方向、花钱", m["content"])
+        # 连续第三次只贴不叫（BOUNCE_WAKE_LIMIT=2）
+        await self.say(self.ln, self.w, "[ask]\n还是不带")
+        await wait_for(lambda: len(self.system_in(self.w)) == 3, what="第三条退回帖")
+        await self.nothing(self.ln)
+
+    async def test_released_workspace_stops_forwarding(self):
+        _, ask = await self.ask()
+        self.assertTrue(self.hub.release_workspace(self.w))
+        # 放回池里后旧 parent 不再生效：带编号的回答按普通聊天走，新的 [report] 不转
+        await self.post(f"{ask['id']} 换吧")
+        self.assertIn("换吧", (await self.frame(self.ju, lambda m: "换吧" in m["content"]))["content"])
+        self.assertEqual([x for x in self.hub.history(self.w, 0) if x["author_kind"] == "user"], [])
+        await self.say(self.ln, self.w, "[report]\n放回后的结果")
+        await self.frame(self.ju, lambda m: "放回后" in m["content"])
+        self.assertEqual(len(self.system_in(1)), 1)
+        # 别的聊天频道认领后转到新主
+        async with self.http.post(f"{self.url}/api/rooms", json={"name": "二号"}, headers=AUTH) as r:
+            other = (await r.json())["id"]
+        self.hub.claim_workspace(other, self.w)
+        await self.say(self.ln, self.w, "[report]\n新主的结果")
+        await wait_for(lambda: self.system_in(other), what="新主的转发帖")
+        self.assertEqual(len(self.system_in(1)), 1)
+
+    async def test_pending_ask_survives_restart(self):
+        _, ask = await self.ask()
+        for ws in self.ws_list:
+            await ws.close()
+        self.ws_list = []
+        await self.stop_hub()
+        await self.start_hub()
+        ln = await self.registered("longniang", "龙娘")
+        await self.post(f"{ask['id']} 换吧")
+        m = await self.frame(ln, lambda m: m["chat_id"] == f"room-{self.w}")
+        self.assertEqual(m["content"], f"用户回复 {ask['id']}：\n{ask['id']} 换吧")
+
+
+class AskEvidence(unittest.TestCase):
+    """同 bridge/core/team_ask_evidence_test.go 的用例。"""
+
+    def test_rules(self):
+        from rh.team_exit import (ASK_MISSING_CATEGORY, ASK_MISSING_SELF_CHECK, ASK_NO_CHECK_NOT_EXEMPT,
+                                  ask_evidence_problems as p)
+        self.assertEqual(p("要不要换"), [ASK_MISSING_SELF_CHECK, ASK_MISSING_CATEGORY])
+        self.assertEqual(p("自验：截图见上\n类别：成品"), [])
+        self.assertEqual(p("自验：无需\n类别：方向"), [])
+        self.assertEqual(p("自验：无需\n类别：代码"), [ASK_NO_CHECK_NOT_EXEMPT])
+        self.assertEqual(p("自验：\n类别：花钱"), [ASK_MISSING_SELF_CHECK])
+        self.assertEqual(p("自验: 跑过了 类别: 权限确认"), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
