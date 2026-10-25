@@ -3248,6 +3248,35 @@ test('CLI member: /new drops the stored ACP session, so the next turn does not r
   assert.deepEqual(asks, [undefined, undefined], 'the turn after /new has no resumeId');
 });
 
+test('CLI member: /new also drops the ACP id saved from an exited process, so the next turn does not load it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const asks = [];
+  // Like CliAgent.ask: an empty resumeId falls back to the id saved when the process exited.
+  const agent = {
+    saved: new Map(),
+    async ask(_text, room, _onText, _onTool, opts) {
+      const prevId = opts.resumeId || this.saved.get(room);
+      this.saved.delete(room);
+      asks.push(prevId);
+      opts.onSession({ sessionId: `acp-${asks.length}`, lost: false });
+      return '好';
+    },
+    close() {},
+  };
+  new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  agent.saved.set('1', 'acp-old');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+  await settle();
+  assert.equal(agent.saved.has('1'), false, '/new deletes the saved ACP id for the room');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined, undefined], 'the turn after /new does not resume the saved id');
+});
+
 test('CLI member: a session that cannot be resumed is announced in the channel', async () => {
   const hub = makeHub();
   hub.store.bind('cc', 1, 'acp-old');
