@@ -267,6 +267,11 @@ export class DshMembers {
     if (w.turn !== undefined && event.data?.turn === w.turn) {
       if (event.type === 'tool/call') w.progress?.call(event.data.callId, event.data.name, event.data.arguments);
       else if (event.type === 'tool/result') w.progress?.result(event.data.message?.toolCallId, event.data.error !== undefined || event.data.message?.isError === true, event.data.error?.reason ?? event.data.error?.name);
+      else if (event.type === 'assistant/message') {
+        for (const part of event.data.message?.content ?? []) {
+          if (part?.type === 'reasoning' && typeof part.text === 'string' && part.text !== '') w.progress?.thought(part.text);
+        }
+      }
     }
     if (event.type === 'turn/end' && w.turn !== undefined && event.data?.turn === w.turn) {
       this.watching.delete(session.id);

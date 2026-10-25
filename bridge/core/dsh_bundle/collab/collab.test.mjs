@@ -2972,6 +2972,28 @@ test('DSH member: a turn without tool calls posts no progress card', async () =>
   assert.equal(hub.store.page(1, undefined, 10).filter(m => m.card !== null).length, 0);
 });
 
+test('DSH member: a thinking-only turn posts one completed card', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: '大肥鱼' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@大肥鱼 预测一下明天' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null);
+  const n = agent.turns;
+  dsh.emit(agent, 'assistant/message', { turn: n, step: 1, message: { role: 'assistant', content: [{ type: 'reasoning', text: '先想想明天的行情' }, { type: 'text', text: '大概率震荡' }] } });
+  await settle();
+  assert.equal(JSON.parse(hub.store.page(1, undefined, 10).find(m => m.card !== null).card).title, '大肥鱼 · 处理中', 'thinking opens the card');
+  dsh.emit(agent, 'turn/end', { turn: n, reason: { kind: 'completed' } });
+  await settle();
+  const rows = hub.store.page(1, undefined, 10);
+  const cards = rows.filter(m => m.card !== null);
+  assert.equal(cards.length, 1, 'a thinking-only turn still gets its card');
+  assert.equal(JSON.parse(cards[0].card).title, '大肥鱼 · 已完成');
+  assert.match(cards[0].text, /先想想明天的行情/);
+  assert.equal(rows.at(-1).text, '大概率震荡');
+});
+
 test('CLI member: ACP thought chunks open the card and merge into one thinking line', async () => {
   const hub = makeHub();
   cliMembers(hub, async (_text, _room, _onText, onTool) => {
