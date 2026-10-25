@@ -11,8 +11,10 @@ package core
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // dshTeamMember is a member's gate-team.json entry, as gateTeamJSON writes one.
@@ -113,11 +115,72 @@ func addDSHMembersToGateTeam(dataDir string, members []DSHImportedMember) (chang
 // runs (it reads the file only at startup).
 func registerDSHMembersInGateTeam(dataDir string, members []DSHImportedMember) error {
 	changed, err := addDSHMembersToGateTeam(dataDir, members)
-	if err != nil || !changed {
+	if err != nil {
 		return err
+	}
+	if _, err := selectDSHLeadIfUnset(dataDir); err != nil {
+		slog.Warn("dsh lead not selected", "error", err)
+	}
+	if !changed {
+		return nil
 	}
 	if g := activeGateFor(dataDir); g != nil {
 		g.Reload(true)
 	}
 	return nil
+}
+
+// selectDSHLeadIfUnset makes the team file's DSH lead the selected primary role: it writes <data_dir>/lead.json
+// (the shared selection; dsh/collab/lead-state.mjs LeadState.set writes the same fields) when there is none yet.
+// The collab plugin routes (workspaces, hand-backs) only by an explicitly selected role (hub.mjs
+// selectedPrimaryMember), so without this a fresh DSH install has no primary role until someone picks one.
+// A selection already made (PATCH /collab/api/lead, the gate, `lead me`) is never replaced: the file is
+// linked in place only if absent. A bridge (Discord) lead is left alone: lead.json then stays as it was.
+func selectDSHLeadIfUnset(dataDir string) (bool, error) {
+	if dataDir == "" {
+		return false, nil
+	}
+	path := filepath.Join(dataDir, "lead.json")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		return false, nil
+	}
+	b, err := os.ReadFile(filepath.Join(dataDir, gateTeamFile))
+	if err != nil {
+		return false, nil
+	}
+	var team struct {
+		Lead map[string]any `json:"lead"`
+	}
+	if json.Unmarshal(b, &team) != nil || !isDSHEntry(team.Lead) {
+		return false, nil
+	}
+	id, _ := team.Lead["id"].(string)
+	name, _ := team.Lead["name"].(string)
+	if id == "" || dshFallbackLead(dataDir) != id {
+		return false, nil
+	}
+	tmp, err := os.CreateTemp(dataDir, ".lead.json.tmp-*")
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(tmp.Name())
+	line, _ := json.Marshal(map[string]string{"lead": id, "name": name, "at": time.Now().UTC().Format(time.RFC3339Nano)})
+	if _, err := tmp.Write(append(line, '\n')); err != nil {
+		tmp.Close()
+		return false, err
+	}
+	if err := tmp.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
+		return false, err
+	}
+	// link fails if lead.json appeared meanwhile: a selection made in between wins
+	if err := os.Link(tmp.Name(), path); err != nil {
+		if os.IsExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }

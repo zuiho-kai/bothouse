@@ -113,3 +113,51 @@ func TestDSHMembersSurviveDiscordWizard(t *testing.T) {
 		t.Fatal("the DSH member juzi got the bridge lead's playbook")
 	}
 }
+
+// #597 G29: a fresh DSH install selects the team file's lead as the primary role (lead.json), so the
+// collab plugin's selectedPrimaryMember routes workspaces from the first task; a later choice is kept.
+func TestDSHImportSelectsTeamLeadOnce(t *testing.T) {
+	data := t.TempDir()
+	members := []DSHImportedMember{{DSHMember: DSHMember{Name: "主"}, ID: "m-mv889t"}, {DSHMember: DSHMember{Name: "副"}, ID: "m-nn8hur"}}
+	if err := registerDSHMembersInGateTeam(data, members); err != nil {
+		t.Fatal(err)
+	}
+	leadFile := filepath.Join(data, "lead.json")
+	var sel struct{ Lead, Name, At string }
+	b, err := os.ReadFile(leadFile)
+	if err != nil || json.Unmarshal(b, &sel) != nil || sel.Lead != "m-mv889t" || sel.Name != "主" || sel.At == "" {
+		t.Fatalf("lead.json = %s %v", b, err)
+	}
+	if fi, _ := os.Stat(leadFile); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("lead.json mode %v", fi.Mode().Perm())
+	}
+	if got, _ := (&Engine{dataDir: data}).readLeadSelection(); got != "m-mv889t" {
+		t.Fatal("the bridge does not read the selection")
+	}
+	// the user picks 副 (PATCH /collab/api/lead writes lead.json); a re-open keeps it
+	_ = os.WriteFile(leadFile, []byte(`{"lead":"m-nn8hur","name":"副","at":"x"}`+"\n"), 0o600)
+	if err := registerDSHMembersInGateTeam(data, members); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := selectDSHLeadIfUnset(data); ok || err != nil {
+		t.Fatalf("selected over a choice: %v %v", ok, err)
+	}
+	if b, _ := os.ReadFile(leadFile); !strings.Contains(string(b), `"m-nn8hur"`) {
+		t.Fatalf("the user's choice was replaced: %s", b)
+	}
+}
+
+// A bridge-wizard (Discord) lead is not a collab member: no selection is written for it.
+func TestDSHImportLeavesBridgeLeadUnselected(t *testing.T) {
+	data := t.TempDir()
+	team := map[string]any{"lead": map[string]any{"name": "橘", "aliases": []string{"juzi"}, "id": "111"}, "subs": map[string]any{}}
+	if err := writeJSONFile(filepath.Join(data, gateTeamFile), team, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerDSHMembersInGateTeam(data, []DSHImportedMember{{DSHMember: DSHMember{Name: "鲸"}, ID: "m-k3x9q2"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "lead.json")); !os.IsNotExist(err) {
+		t.Fatalf("lead.json written for a bridge lead: %v", err)
+	}
+}
