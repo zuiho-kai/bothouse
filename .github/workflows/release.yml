@@ -167,11 +167,13 @@ jobs:
             # signature must stand on its own. Nothing may modify the file after this.
             signdir="$HOME/.config/bothouse-signing"
             keychain="$signdir/bothouse-signing.keychain-db"
-            security unlock-keychain -p "$(cat "$signdir/keychain.pass")" "$keychain"
+            # password from stdin, never in argv; the keychain's key partition list already allows codesign
+            # (security set-key-partition-list -S apple-tool:,apple:,codesign:), so signing does not prompt
+            security unlock-keychain "$keychain" < "$signdir/keychain.pass" >/dev/null
             trap 'security lock-keychain "$keychain"' EXIT
             codesign --force --keychain "$keychain" --sign "$SIGN_HASH" --identifier "$SIGN_ID" build/bothouse-universal
             security lock-keychain "$keychain"
-            codesign --verify -R="identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\"" build/bothouse-universal
+            codesign --verify "-R=identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\"" build/bothouse-universal
             ../.github/release-check/package-dmg.sh build/bothouse-universal ../dist/bothouse-mac.dmg "$TAG"
           fi
           cd ../dist
@@ -194,7 +196,13 @@ jobs:
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch arm64
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch x86_64
           "$mount/Bothouse.app/Contents/MacOS/bothouse" --version
-          codesign --verify -R="identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\"" "$mount/Bothouse.app/Contents/MacOS/bothouse"
+          # the same check the in-app guard runs (core/update_sign.go): the copied-out single file must carry a full,
+          # valid release signature; inside the unsealed .app only the resource seal is skipped
+          req="identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\""
+          single=$(mktemp -d)/bothouse
+          cp "$mount/Bothouse.app/Contents/MacOS/bothouse" "$single"
+          codesign --verify "-R=$req" "$single"
+          codesign --verify --ignore-resources "-R=$req" "$mount/Bothouse.app/Contents/MacOS/bothouse"
           hdiutil detach "$mount"
       - name: zstd for the cache archive (macOS)
         # actions/cache falls back to gzip when zstd is missing, and a gzip entry has a different cache version, so the
