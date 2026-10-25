@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,19 @@ import (
 
 type hookMemStore struct {
 	*memStore
-	hooks []string
+	hooks    []string
+	memIndex map[string]string // project → memory_index
+}
+
+func (s *hookMemStore) SetMemoryIndex(project, path string) (bool, error) {
+	if s.memIndex == nil {
+		s.memIndex = map[string]string{}
+	}
+	if s.memIndex[project] != "" {
+		return false, nil
+	}
+	s.memIndex[project] = path
+	return true, nil
 }
 
 func (s *hookMemStore) EnsureHook(event, command string) (bool, error) {
@@ -110,7 +123,7 @@ func TestApplyWizardRoleWikis(t *testing.T) {
 	for _, s := range res.Steps {
 		steps[s.Step] = s
 	}
-	for _, s := range []string{"wiki", "role 1 wiki", "role 2 wiki", "wiki hook", "wiki cron"} {
+	for _, s := range []string{"wiki", "role 1 wiki", "role 2 wiki", "role 1 memory_index", "role 2 memory_index", "wiki hook", "wiki cron"} {
 		if !steps[s].OK {
 			t.Fatalf("step %s = %+v (all %+v)", s, steps[s], res.Steps)
 		}
@@ -134,6 +147,12 @@ func TestApplyWizardRoleWikis(t *testing.T) {
 		}
 		if p == "juzi" && cfg["ingest_engine"] != "haiku" || p == "whale" && cfg["night_engine"] != "codex:high" {
 			t.Fatalf("%s engines = %v", p, cfg)
+		}
+	}
+	// every agent type gets its wiki's MEMORY.md as memory_index (core/memoryindex.go)
+	for _, p := range []string{"juzi", "whale"} {
+		if want := filepath.Join(data, "roles", p, "wiki", "MEMORY.md"); store.memIndex[p] != want {
+			t.Fatalf("%s memory_index = %q, want %q", p, store.memIndex[p], want)
 		}
 	}
 	persona, _ := os.ReadFile(filepath.Join(data, "roles", "whale", "AGENTS.md"))
@@ -167,6 +186,49 @@ func TestApplyWizardRoleWikis(t *testing.T) {
 	res = ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: cron}, req)
 	if !res.Saved || len(store.hooks) != 1 {
 		t.Fatalf("rerun: %+v hooks %v", res, store.hooks)
+	}
+	for _, s := range res.Steps {
+		if strings.HasSuffix(s.Step, "memory_index") {
+			t.Fatalf("reused role touched memory_index: %+v", s)
+		}
+	}
+}
+
+// A role whose wiki is not made gets no memory_index, and the result says so; one already set is kept.
+func TestApplyWizardMemoryIndexNoWiki(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	t1, t2 := fakeToken("111"), fakeToken("222")
+	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
+	t.Setenv("WIKI_DIR", filepath.Join(t.TempDir(), "wiki"))
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore(), memIndex: map[string]string{"juzi": "/mine/MEMORY.md"}}
+	old := roleWikiRun
+	roleWikiRun = func(ctx context.Context, env []string, name string, args ...string) (string, error) {
+		if args[len(args)-1] == "whale" {
+			return "", errors.New("setup_wiki.py failed")
+		}
+		return old(ctx, env, name, args...)
+	}
+	t.Cleanup(func() { roleWikiRun = old })
+	req := WizardRequest{Platform: "discord", Language: "zh", Roles: []WizardRole{{Token: t1}, {Token: t2, AgentType: "codex"}}}
+	req.Discord = &struct {
+		GuildID   string `json:"guild_id"`
+		ChannelID string `json:"channel_id"`
+	}{GuildID: "900", ChannelID: "1"}
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req)
+	steps := map[string]WizardStep{}
+	for _, s := range res.Steps {
+		steps[s.Step] = s
+	}
+	if s := steps["role 2 memory_index"]; s.Step == "" || s.OK || !strings.Contains(s.Detail, "memory_index") {
+		t.Fatalf("role 2 memory_index = %+v (all %+v)", s, res.Steps)
+	}
+	if _, ok := store.memIndex["whale"]; ok {
+		t.Fatalf("memory_index written without a wiki: %v", store.memIndex)
+	}
+	if s := steps["role 1 memory_index"]; !s.OK || store.memIndex["juzi"] != "/mine/MEMORY.md" {
+		t.Fatalf("existing memory_index: step %+v, %v", s, store.memIndex)
 	}
 }
 

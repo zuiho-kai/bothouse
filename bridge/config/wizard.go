@@ -417,6 +417,41 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	return os.Rename(name, path)
 }
 
+// SetWizardMemoryIndex sets the project's memory_index (its own wiki MEMORY.md, core/memoryindex.go) when it has
+// none; a value already there (set by hand or an earlier run) is kept. One locked read-modify-write on the TOML
+// document, like ApplyWizardProjects, so unknown keys survive.
+func SetWizardMemoryIndex(project, path string) (set bool, err error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if ConfigPath == "" {
+		return false, fmt.Errorf("config path not set")
+	}
+	raw, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return false, fmt.Errorf("read config: %w", err)
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		return false, fmt.Errorf("parse config: %w", err)
+	}
+	projects, err := tableList(doc, "projects")
+	if err != nil {
+		return false, err
+	}
+	for _, p := range projects {
+		if p["name"] != project {
+			continue
+		}
+		if v, _ := p["memory_index"].(string); strings.TrimSpace(v) != "" {
+			return false, nil
+		}
+		p["memory_index"] = path
+		doc["projects"] = projects
+		return true, saveConfig(doc)
+	}
+	return false, fmt.Errorf("project %q not in config", project)
+}
+
 // EnsureWizardHook adds a global [[hooks]] entry of type command unless one with the same event and command is there.
 func EnsureWizardHook(event, command string) (added bool, err error) {
 	configMu.Lock()

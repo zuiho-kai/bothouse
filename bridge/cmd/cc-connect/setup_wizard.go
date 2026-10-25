@@ -32,6 +32,14 @@ func (bootstrapOnWriteStore) EnsureHook(event, command string) (bool, error) {
 	return config.EnsureWizardHook(event, command) // called after ApplyProjects wrote the config
 }
 
+func (configWizardStore) SetMemoryIndex(project, path string) (bool, error) {
+	return config.SetWizardMemoryIndex(project, path)
+}
+
+func (bootstrapOnWriteStore) SetMemoryIndex(project, path string) (bool, error) {
+	return config.SetWizardMemoryIndex(project, path) // called after ApplyProjects wrote the config
+}
+
 func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	out := core.WizardSnapshot{Projects: make([]core.WizardExistingProject, 0, len(ps))}
 	for _, p := range ps {

@@ -35,6 +35,11 @@ type WizardHookStore interface {
 	EnsureHook(event, command string) (added bool, err error)
 }
 
+// WizardMemoryIndexStore is a WizardStore that can set a project's memory_index (config.toml) when it has none.
+type WizardMemoryIndexStore interface {
+	SetMemoryIndex(project, path string) (set bool, err error)
+}
+
 // RoleWikiDir is where the wizard installs the wiki programs.
 func RoleWikiDir(dataDir string) string { return filepath.Join(dataDir, "wiki") }
 
@@ -326,6 +331,38 @@ func (s *roleWikiSetup) addRole(ctx context.Context, r plannedRole, lead string,
 	return wiki, nil
 }
 
+// setRoleMemoryIndex: step "role N memory_index" — the new role's project gets memory_index = <its wiki>/MEMORY.md, so
+// every fresh context starts with its wiki index (core/memoryindex.go), whatever the agent type (user 2026-10-20
+// 「不要区分」). Only when the wiki's MEMORY.md is there; a memory_index the project already has is kept.
+func setRoleMemoryIndex(res *WizardResult, env WizardEnv, lang string, i int, project, wiki string) {
+	ms, ok := env.Store.(WizardMemoryIndexStore)
+	if !ok {
+		return
+	}
+	step := fmt.Sprintf("role %d memory_index", i+1)
+	idx := filepath.Join(wiki, "MEMORY.md")
+	if !fileExists(idx) {
+		addStep(res, step, errors.New(tr3(lang, "没写 memory_index："+idx+" 不存在", "memory_index 未設定："+idx+" がありません",
+			"memory_index not set: "+idx+" does not exist")), "")
+		return
+	}
+	set, err := ms.SetMemoryIndex(project, idx)
+	switch {
+	case err != nil:
+		addStep(res, step, err, "")
+	case set:
+		addStep(res, step, nil, idx)
+	default:
+		addStep(res, step, nil, tr3(lang, "已有 memory_index，保留不改", "既存の memory_index をそのまま使います",
+			"memory_index already set, kept"))
+	}
+}
+
+func errMemoryIndexNoWiki(lang string) error {
+	return errors.New(tr3(lang, "没写 memory_index：记忆 wiki 没建成（见 wiki 步骤）", "memory_index 未設定：記憶 wiki を作れませんでした（wiki の手順を参照）",
+		"memory_index not set: the memory wiki was not made (see the wiki step)"))
+}
+
 // applyRoleWikis: step "role N wiki" of ApplyWizard for every new role, then the agent.closed hook. Returns the
 // sub-wiki.py the wiki cron jobs should run ("" = none). A failure is reported but does not undo the roles.
 func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req WizardRequest, pl *wizardPlan, clis []LocalCLI) string {
@@ -344,6 +381,9 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 	s, detail, err := prepareRoleWikis(ctx, env, pl.fallbackName, roleWikiConfig(env.DataDir, pl.roles[roles[0]], req.Wiki, clis))
 	if err != nil {
 		addStep(res, "wiki", err, "")
+		for _, i := range roles {
+			addStep(res, fmt.Sprintf("role %d memory_index", i+1), errMemoryIndexNoWiki(req.Language), "")
+		}
 		return env.WikiSubScript
 	}
 	if detail != "" {
@@ -355,6 +395,7 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 		wiki, err := s.addRole(ctx, r, pl.fallbackName, roleWikiConfig(env.DataDir, r, req.Wiki, clis))
 		if err != nil {
 			addStep(res, step, err, "")
+			addStep(res, fmt.Sprintf("role %d memory_index", i+1), errMemoryIndexNoWiki(req.Language), "")
 			continue
 		}
 		lang := r.ReplyLanguage
@@ -365,9 +406,10 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 		b, _ := os.ReadFile(persona)
 		if err := AtomicWriteFile(persona, []byte(WithWiki(string(b), wikiSection(lang, wiki, filepath.Join(s.dir, "export.py"), r.project))), 0o644); err != nil {
 			addStep(res, step, err, "")
-			continue
+		} else {
+			addStep(res, step, nil, wiki)
 		}
-		addStep(res, step, nil, wiki)
+		setRoleMemoryIndex(res, env, req.Language, i, r.project, wiki) // the wiki is there even if the persona note failed
 	}
 	if !s.ownSetup {
 		if hs, ok := env.Store.(WizardHookStore); ok {
