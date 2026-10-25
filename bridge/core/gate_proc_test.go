@@ -178,3 +178,29 @@ func TestGatePrereqPythonReasons(t *testing.T) {
 		t.Fatalf("missing: %q", r)
 	}
 }
+
+// #597 K11: a machine with only DSH-native members has no project with the local gate_url; the
+// gate still runs for them (their per-turn /context), once `dsh web` starts and on every reload.
+func TestGateRunsForDSHRouteOnly(t *testing.T) {
+	dataDir := setupFakeGate(t, false)
+	t.Setenv("CONEST_COLLAB_DATA", t.TempDir())
+	if DSHRouteConfigured() {
+		t.Fatal("no wizard-members.json yet: not the DSH route")
+	}
+	g := NewGateSupervisor(dataDir)
+	SetActiveGateSupervisor(g)
+	t.Cleanup(func() { SetActiveGateSupervisor(nil) })
+	g.Run(false)
+	defer g.Stop()
+	time.Sleep(300 * time.Millisecond)
+	if n := gateStarts(dataDir); n != 0 {
+		t.Fatalf("no project, no DSH members: gate started %d times", n)
+	}
+	if err := os.WriteFile(dshMembersFile(), []byte(`{"members":[{"name":"ds"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	EnsureGateForDSH(dataDir)
+	waitGate(t, "gate started for the DSH route", 5*time.Second, GateRunning)
+	reloadGateAfterWizard(dataDir, WizardSnapshot{}) // no projects: the DSH members keep it wanted
+	waitGate(t, "gate back after reload", 5*time.Second, func() bool { return gateStarts(dataDir) == 2 && GateRunning() })
+}
