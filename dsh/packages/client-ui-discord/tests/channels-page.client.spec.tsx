@@ -417,7 +417,27 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="dragon"]')?.getAttribute('aria-checked')).toBe('true')
     fireEvent.click(dialog.querySelector('[role="radio"][title="lanxi"]') as Element)
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '本地', avatar: 'lanxi', cli: 'claude' })
+    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '本地', avatar: 'lanxi', cli: 'claude', permissionPreset: 'workspace-write' })
+  })
+
+  it('a CLI member shows its DSH permission preset and sends the picked one', async () => {
+    const state: ChannelSnapshot = {
+      ...ready, thinking: {},
+      members: [{ id: 'cc', name: 'CC', kind: 'dsh', online: true, cli: 'claude', permissionPreset: 'danger-full-access', persona: '', editable: true }],
+    }
+    const p = props(state)
+    ;(p as unknown as { listClis: unknown }).listClis = vi.fn(async () => [{ cli: 'claude', path: '/bin/claude' }])
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
+    const dialog = await screen.findByRole('dialog')
+    await act(async () => {})
+    const select = screen.getByRole('combobox', { name: zh.memberPermission }) as HTMLSelectElement
+    expect(select.value).toBe('danger-full-access')
+    expect([...select.options].map(o => o.textContent)).toEqual([zh.permissionReadOnly, zh.permissionWorkspaceWrite, zh.permissionFullAccess])
+    expect(screen.getByText(zh.permissionFullAccessHint)).toBeTruthy()
+    fireEvent.change(select, { target: { value: 'read-only' } })
+    await act(async () => { fireEvent.submit(dialog) })
+    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '', avatar: '', cli: 'claude', permissionPreset: 'read-only' })
   })
   it('guides to add a member when the channel has no role members', async () => {
     const p = props({ ...ready, members: [{ id: 'owner', name: '我', kind: 'human', online: true }], messages: [], thinking: {} })

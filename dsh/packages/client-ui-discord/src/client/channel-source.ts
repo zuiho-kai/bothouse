@@ -83,6 +83,8 @@ export interface ChannelMember {
   readonly model?: MemberModel | null
   /** Local CLI members only: which CLI the member runs as. */
   readonly cli?: 'claude' | 'codex' | 'gemini'
+  /** Local CLI members only: DSH permission preset for its tool calls; absent means DSH's default (workspace-write). */
+  readonly permissionPreset?: PermissionPreset
   /** DSH members only. */
   readonly persona?: string
   /** DSH members only: created in the UI (editable) rather than the config file. */
@@ -106,9 +108,14 @@ export interface CliMemberInput {
   readonly persona: string
   /** CLI id as listed by `GET /collab/api/clis`. */
   readonly cli: string
+  /** DSH permission preset for the CLI's tool calls; omitted on edit keeps the stored one. */
+  readonly permissionPreset?: PermissionPreset
   /** Built-in avatar slug, or '' for the initial badge. */
   readonly avatar?: string
 }
+
+/** DSH's built-in permission presets (same ids as DSH's `/permission`; see collab/cli-member.mjs PERMISSION_PRESETS). */
+export type PermissionPreset = 'read-only' | 'workspace-write' | 'danger-full-access'
 
 /** Body of `POST /collab/api/members` / `PATCH /collab/api/members/:id`. */
 export type MemberInput = DshMemberInput | CliMemberInput

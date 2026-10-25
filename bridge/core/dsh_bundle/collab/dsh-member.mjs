@@ -287,7 +287,7 @@ export class DshMembers {
   }
 
   publish(m) {
-    this.hub.setMember({ id: m.id, name: m.name, kind: 'dsh', online: true, model: m.model, ...(m.cli ? { cli: m.cli } : {}), persona: m.persona ?? '', ...(m.avatar ? { avatar: m.avatar } : {}), source: m.source ?? 'config' });
+    this.hub.setMember({ id: m.id, name: m.name, kind: 'dsh', online: true, model: m.model, ...(m.cli ? { cli: m.cli, ...(m.permissionPreset ? { permissionPreset: m.permissionPreset } : {}) } : {}), persona: m.persona ?? '', ...(m.avatar ? { avatar: m.avatar } : {}), source: m.source ?? 'config' });
   }
 
   /** Add or replace a member at runtime; its bound Sessions pick up the new model on their next request. */

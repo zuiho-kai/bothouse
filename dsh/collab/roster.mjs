@@ -105,6 +105,10 @@ export class Roster {
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
     const m = await this.validate(input, id);
+    // An edit that leaves out the approval tier keeps the stored one instead of falling back to the default.
+    if (m.cli !== undefined && input?.permissionPreset === undefined && existing.cli && existing.permission_preset) {
+      m.permissionPreset = existing.permission_preset;
+    }
     const row = this.store.updateMember(id, m);
     const member = rowToMember(row);
     this.dsh.putMember(member);

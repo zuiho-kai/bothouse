@@ -76,9 +76,9 @@ export class Hub {
   }
 
   memberView() {
-    return this.memberList().map(({ id, name, kind, online, model, cli, persona, avatar, source, error }) => ({
+    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, avatar, source, error }) => ({
       id, name, kind, online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar } : {}),
-      ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli } : {}), persona: persona ?? '', editable: source === 'ui' } : {}),
+      ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), persona: persona ?? '', editable: source === 'ui' } : {}),
     }));
   }
 

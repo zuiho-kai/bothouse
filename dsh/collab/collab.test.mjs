@@ -1021,6 +1021,21 @@ test('roster: a local CLI member is created without a model check and survives r
   assert.equal(reloaded.config.get('cc').cli, 'codex');
 });
 
+test('roster: editing a CLI member without permissionPreset keeps the stored tier', async () => {
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  roster.load([]);
+  await roster.create({ name: 'CC', cli: 'claude', permissionPreset: 'danger-full-access' });
+  assert.equal(hub.memberView().find(m => m.id === 'cc').permissionPreset, 'danger-full-access');
+  const kept = await roster.update('cc', { name: 'CC', cli: 'claude', avatar: 'dragon' });
+  assert.equal(kept.permissionPreset, 'danger-full-access', 'absent tier keeps the old one, not the default');
+  assert.equal(hub.store.member('cc').permission_preset, 'danger-full-access');
+  const changed = await roster.update('cc', { name: 'CC', cli: 'claude', permissionPreset: 'read-only' });
+  assert.equal(changed.permissionPreset, 'read-only');
+  await assert.rejects(roster.update('cc', { name: 'CC', cli: 'claude', permissionPreset: 'yolo' }), /permissionPreset must be one of/);
+});
+
 test('store: a v3 database gains the cli column and keeps its members', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { join } = await import('node:path');
