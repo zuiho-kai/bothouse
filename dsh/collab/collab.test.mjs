@@ -3836,7 +3836,7 @@ test('block B: ACP prompt actually includes image/resource blocks', async () => 
   assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
 });
 
-test('later command: entry point runs from a path containing Chinese, spaces and percent signs', async () => {
+test('node can launch a script from a non-ASCII path (Chinese, spaces and percent signs)', async () => {
   const { copyFileSync, realpathSync } = await import('node:fs');
   const dir = realpathSync(mkdtempSync(join(tmpdir(), '提醒 测试%-')));
   for (const name of ['later.mjs', 'store.mjs']) copyFileSync(new URL(`./${name}`, import.meta.url), join(dir, name));
