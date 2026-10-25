@@ -1727,7 +1727,7 @@ func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core
 			continue // maomao fork: "pinned a message" notice (channel task board)
 		}
 		out = append(out, core.ChannelHistoryMessage{
-			ID: m.ID, Author: m.Author.Username, IsBot: m.Author.Bot,
+			ID: m.ID, Author: m.Author.Username, AuthorID: m.Author.ID, IsBot: m.Author.Bot,
 			IsSelf: m.Author.ID == p.botID, FromTurn: p.turnSent.has(m.ID), Content: text, Time: m.Timestamp,
 			Attachments: historyAttachments(m.Attachments),
 		})

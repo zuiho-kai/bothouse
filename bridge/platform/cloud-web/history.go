@@ -132,7 +132,7 @@ func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core
 		self := m.AuthorKind == "role" && m.Author == p.selfID
 		sec, frac := math.Modf(m.CreatedAt)
 		out = append(out, core.ChannelHistoryMessage{
-			ID: hubIDPrefix + strconv.FormatInt(m.ID, 10), Author: firstNonEmpty(m.Name, m.Author),
+			ID: hubIDPrefix + strconv.FormatInt(m.ID, 10), Author: firstNonEmpty(m.Name, m.Author), AuthorID: m.Author,
 			IsBot: m.AuthorKind == "role", IsSelf: self,
 			FromTurn: self && m.FromTurn != nil && *m.FromTurn == 1,
 			Content:  m.Text, Time: time.Unix(int64(sec), int64(math.Round(frac*1e9))),

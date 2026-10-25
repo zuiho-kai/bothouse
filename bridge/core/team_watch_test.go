@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -349,5 +350,191 @@ func TestWatchConstantsMatchDSH(t *testing.T) {
 	}
 	if got := num(`export const MAX_RENEWALS = ([0-9 *]+);`); got != watchMaxRenew {
 		t.Fatalf("tasks.mjs MAX_RENEWALS = %d, Go watchMaxRenew = %d", got, watchMaxRenew)
+	}
+}
+
+// historyTestPlatform: exitTestPlatform that also reads channel history (or fails to).
+type historyTestPlatform struct {
+	*exitTestPlatform
+	mu   sync.Mutex
+	msgs map[string][]ChannelHistoryMessage
+	err  error
+}
+
+func (p *historyTestPlatform) ChannelHistory(channelID, _ string, _ int) ([]ChannelHistoryMessage, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return nil, p.err
+	}
+	return append([]ChannelHistoryMessage(nil), p.msgs[channelID]...), nil
+}
+
+func (p *historyTestPlatform) post(channelID, authorID, content string, at time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.msgs == nil {
+		p.msgs = map[string][]ChannelHistoryMessage{}
+	}
+	p.msgs[channelID] = append(p.msgs[channelID], ChannelHistoryMessage{ID: content, AuthorID: authorID, IsBot: true, Content: content, Time: at})
+}
+
+// progressFixture: watchFixture whose platform reads channel history; the watch uses its real
+// progress signals (workspaceProgress) and a fake clock (tick(now)).
+func progressFixture(t *testing.T, owner string) (*Engine, *historyTestPlatform, *handoffWatch, TeamHandoff) {
+	t.Helper()
+	e, _, p := exitFixture(t, nil)
+	hp := &historyTestPlatform{exitTestPlatform: p}
+	e.platforms = []Platform{hp}
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(hp)
+	e.handoffWatchOn.Store(true)
+	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", owner, "K5a"); err != nil {
+		t.Fatal(err)
+	}
+	return e, hp, newHandoffWatch(e), handoffsOf(e, "discord:ws1")[0]
+}
+
+const k5aOwner = "1472561359660253256"
+
+// The owner posted work in the workspace channel in the last ten minutes: renewed by ten minutes,
+// silently, nothing parked.
+func TestWatchOwnerPostRenews(t *testing.T) {
+	e, p, w, h := progressFixture(t, "<@"+k5aOwner+">")
+	p.post("ws1", k5aOwner, "@橘 改完 team_watch.go，在跑测试", h.Due.Add(-time.Minute))
+	next := w.tick(h.Due)
+	if !next.Equal(h.Due.Add(watchCheckAfter())) {
+		t.Fatalf("renewed by %v, next %v", watchCheckAfter(), next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 1 || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
+		t.Fatalf("renewal 1, silent, not parked: %+v, sent %v", got, p.out)
+	}
+}
+
+// Posts that are not progress: stance lines (also after a mention or a reply quote), gate status
+// lines, empty posts, someone else's posts, and the owner's posts before the window.
+func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	at := h.Due.Add(-time.Minute)
+	for _, c := range []string{"【接】已派子 agent，做完交回", "@橘 【问】owner 填什么", "<@1> 【退】推荐鲸鱼娘", "[回复 橘：去做 K5a] 【升】太大了", "↪ 转给龙娘", "⏹ 已停", "📬 收到", "  "} {
+		p.post("ws1", k5aOwner, c, at)
+	}
+	p.post("ws1", "someone-else", "我在干活", at)
+	p.post("ws1", k5aOwner, "这条在派活之前", h.At.Add(-time.Minute))
+	w.tick(h.Due)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 0 || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("no progress: nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+// Progress every time: renewed at most twice (30 minutes in all), then nudged and parked.
+func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	now := h.Due
+	for i := 1; i <= watchMaxRenew; i++ {
+		p.post("ws1", k5aOwner, "进度：第"+strconv.Itoa(i)+"步做完", now.Add(-time.Second))
+		next := w.tick(now)
+		if !next.Equal(now.Add(watchCheckAfter())) {
+			t.Fatalf("renewal %d: next %v", i, next)
+		}
+		now = next
+	}
+	if len(p.out) != 0 {
+		t.Fatalf("renewals are silent, got %v", p.out)
+	}
+	p.post("ws1", k5aOwner, "进度：还在做", now.Add(-time.Second))
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("third check stops the watch, next %v", next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != watchMaxRenew || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("after %d renewals: one nudge and parked, got %+v, sent %v", watchMaxRenew, got, p.out)
+	}
+	if now.Sub(h.At) != time.Duration(watchMaxRenew+1)*watchCheckAfter() {
+		t.Fatalf("stopped %v after the claim", now.Sub(h.At))
+	}
+}
+
+// No post and no turn running: stopped at the first check.
+func TestWatchNoSignalStops(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	if next := w.tick(h.Due); !next.IsZero() {
+		t.Fatalf("stopped, next %v", next)
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+// A turn running for 12 minutes (the session stays locked past the check time) is progress, even
+// without any post and with no owner named: renewed, not stopped. Renewals used up: stopped
+// anyway.
+func TestWatchBusySessionIsNotStopped(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	now := h.Due.Add(2 * time.Minute) // 12 minutes after the claim
+	next := w.tick(now)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if next.IsZero() || got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("busy turn: renewed silently, got %+v, next %v, sent %v", got, next, p.out)
+	}
+	w.tick(next)
+	next = handoffsOf(e, "discord:ws1")[0].Due
+	w.tick(next)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Renewed != watchMaxRenew || got.Parked.IsZero() {
+		t.Fatalf("busy but renewals used up: parked, got %+v", got)
+	}
+}
+
+// A session of another engine (a teammate's role) in the workspace counts too; one of another
+// channel does not.
+func TestWatchBusyOnAnyEngine(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	mate, _, _ := exitFixture(t, nil)
+	w.engines = func() []*Engine { return []*Engine{e, mate} }
+	other := mate.sessions.GetOrCreateActive("discord:ws9:u1")
+	other.TryLock()
+	defer other.Unlock()
+	if w.workspaceProgress("discord:ws1", h, h.At) {
+		t.Fatal("a turn in another channel is not progress here")
+	}
+	s := mate.sessions.GetOrCreateActive("discord:ws1:mate")
+	s.TryLock()
+	defer s.Unlock()
+	if !w.workspaceProgress("discord:ws1", h, h.At) {
+		t.Fatal("a teammate's turn in the workspace is progress")
+	}
+}
+
+// Reading the channel fails: counted as no progress, nudged and parked (not renewed, not dropped).
+func TestWatchSignalErrorIsNoProgress(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	p.post("ws1", k5aOwner, "进度：做完一半", h.Due.Add(-time.Minute))
+	p.err = errors.New("discord: channel history: 403")
+	if next := w.tick(h.Due); !next.IsZero() {
+		t.Fatalf("stopped, next %v", next)
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("read error: nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+	// A platform without channel history (exitTestPlatform) is the same.
+	e2, p2, w2, h2 := watchFixture(t, k5aOwner, "")
+	w2.tick(h2.Due)
+	if got := handoffsOf(e2, "discord:ws1")[0]; got.Parked.IsZero() || len(p2.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("no history reader: nudged and parked, got %+v", got)
+	}
+}
+
+func TestWatchOwnerID(t *testing.T) {
+	for in, want := range map[string]string{"123": "123", "<@123>": "123", "<@!123>": "123", "@123": "123", `<at user_id="ou_x"></at>`: "ou_x", " ": ""} {
+		if got := watchOwnerID(in); got != want {
+			t.Fatalf("watchOwnerID(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
