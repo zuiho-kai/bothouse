@@ -207,10 +207,62 @@ func teamTaskBoardNextOverdue(it teamTaskBoardItem, now time.Time, pending []*Ti
 	return true
 }
 
-// renderTeamTaskBoard: the task-board section for chat, or "" when it has nothing there.
+// teamTaskBoardStage: how much of the section to show. doneRows < 0: done today only as a count;
+// statusCap/whatCap < 0: not shortened (board.py card_text stages).
+type teamTaskBoardStage struct{ doneRows, statusCap, whatCap int }
+
+// teamTaskBoardStages: board.py card_text order — first fewer done rows, then done as a count,
+// then shorter statuses, then shorter item names; running items are never dropped.
+var teamTaskBoardStages = func() []teamTaskBoardStage {
+	var st []teamTaskBoardStage
+	for n := teamTaskBoardDoneRows; n >= 0; n-- {
+		st = append(st, teamTaskBoardStage{n, -1, -1})
+	}
+	for _, c := range []int{-1, 30, 20, 10, 0} {
+		st = append(st, teamTaskBoardStage{-1, c, -1})
+	}
+	for _, w := range []int{30, 20, 12} {
+		st = append(st, teamTaskBoardStage{-1, 0, w})
+	}
+	return st
+}()
+
+// shortLabel: boardLabel cut to max runes with "…"; max < 0 = not cut, 0 = just "…".
+func shortLabel(s string, max int) string {
+	l := boardLabel(s)
+	if max < 0 || l == "-" {
+		return l
+	}
+	r := []rune(l)
+	if len(r) <= max {
+		return l
+	}
+	return string(r[:max]) + "…"
+}
+
+// renderTeamTaskBoard: the task-board section for chat in full (first stage), or "" when it has
+// nothing there.
+func renderTeamTaskBoard(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob) string {
+	return renderTeamTaskBoardStage(items, done, chat, now, pending, teamTaskBoardStages[0])
+}
+
+// renderTeamTaskBoardFit: the first stage whose section is at most budget runes; when none fits,
+// the last stage (withTeamTaskBoard then cuts it by whole lines).
+func renderTeamTaskBoardFit(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob, budget int) string {
+	var out string
+	for _, st := range teamTaskBoardStages {
+		out = renderTeamTaskBoardStage(items, done, chat, now, pending, st)
+		if len([]rune(out)) <= budget {
+			break
+		}
+	}
+	return out
+}
+
+// renderTeamTaskBoardStage renders the section at one stage.
 // Items must be placed (placeTeamTaskBoard). Running: the chat's own items first, then one block
 // per workspace of the chat; then paused; then done today (workspace items marked "<name>·").
-func renderTeamTaskBoard(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob) string {
+func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob, st teamTaskBoardStage) string {
 	in := func(it teamTaskBoardItem) bool {
 		for _, c := range it.chats() {
 			if c == chat {
@@ -220,10 +272,10 @@ func renderTeamTaskBoard(items, done []teamTaskBoardItem, chat string, now time.
 		return false
 	}
 	row := func(it teamTaskBoardItem) string {
-		line := fmt.Sprintf("#%d %s｜%s｜%s｜%s", it.ID, boardLabel(it.What), boardLabel(it.Who), boardLabel(it.Status), boardLabel(it.At))
+		line := fmt.Sprintf("#%d %s｜%s｜%s｜%s", it.ID, shortLabel(it.What, st.whatCap), boardLabel(it.Who), shortLabel(it.Status, st.statusCap), boardLabel(it.At))
 		if it.Paused != "" {
 			if it.PauseWhy != "" {
-				line += "｜暂停：" + boardLabel(it.PauseWhy)
+				line += "｜暂停：" + shortLabel(it.PauseWhy, st.statusCap)
 			}
 			return line
 		}
@@ -296,10 +348,12 @@ func renderTeamTaskBoard(items, done []teamTaskBoardItem, chat string, now time.
 		lines = append(lines, "", "**暂停**")
 		lines = append(lines, held...)
 	}
-	if len(doneRows) > 0 {
+	if len(doneRows) > 0 && st.doneRows < 0 {
+		lines = append(lines, "", fmt.Sprintf("**今天做完** %d 件", len(doneRows)))
+	} else if len(doneRows) > 0 {
 		lines = append(lines, "", "**今天做完**")
 		for i, r := range doneRows {
-			if i == teamTaskBoardDoneRows {
+			if i == st.doneRows {
 				lines = append(lines, fmt.Sprintf("- …另 %d 件", len(doneRows)-i))
 				break
 			}
@@ -314,14 +368,52 @@ func renderTeamTaskBoard(items, done []teamTaskBoardItem, chat string, now time.
 }
 
 // withTeamTaskBoard appends the task-board section to a board and keeps the whole within one
-// Discord post (backfillMaxMsgRunes, the same platform limit board.py's card used).
-func withTeamTaskBoard(board, section string) string {
-	if section == "" {
+// Discord post (backfillMaxMsgRunes, the same platform limit board.py's card used). section(budget)
+// renders the section to fit budget runes (renderTeamTaskBoardFit). Cuts are by whole lines:
+// the task section keeps its running items before the member board keeps its tail.
+func withTeamTaskBoard(board string, section func(budget int) string) string {
+	const limit = backfillMaxMsgRunes
+	runes := func(s string) int { return len([]rune(s)) }
+	sec := section(limit - runes(board) - 2)
+	if sec == "" {
 		return board
 	}
-	out := []rune(board + "\n\n" + section)
-	if len(out) > backfillMaxMsgRunes {
-		out = append(out[:backfillMaxMsgRunes-1], '…')
+	if runes(sec) > limit {
+		// Dozens running at once: even the last stage does not fit a post alone.
+		return cutTeamBoardLines(sec, limit, "")
 	}
-	return string(out)
+	if room := limit - runes(sec) - 2; runes(board) > room {
+		if room <= 0 {
+			return sec
+		}
+		board = cutTeamBoardLines(board, room, "…")
+	}
+	return board + "\n\n" + sec
+}
+
+// cutTeamBoardLines keeps whole lines of s within limit runes, ending with a note of what is cut
+// ("…还有 N 件放不下" counting task rows "#…"/"- …", or note when given).
+func cutTeamBoardLines(s string, limit int, note string) string {
+	if len([]rune(s)) <= limit {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	var out []string
+	for k, ln := range lines {
+		n := note
+		if n == "" {
+			left := 0
+			for _, x := range lines[k:] {
+				if strings.HasPrefix(x, "#") || strings.HasPrefix(x, "- ") {
+					left++
+				}
+			}
+			n = fmt.Sprintf("…还有 %d 件放不下", left)
+		}
+		if len([]rune(strings.Join(append(append([]string{}, out...), ln, n), "\n"))) > limit {
+			return strings.Join(append(out, n), "\n")
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
 }

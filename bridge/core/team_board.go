@@ -240,7 +240,9 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
-		content := withTeamTaskBoard(renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang()), renderTeamTaskBoard(items, done, chat, now, pending))
+		content := withTeamTaskBoard(renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang()), func(budget int) string {
+			return renderTeamTaskBoardFit(items, done, chat, now, pending, budget)
+		})
 		if content == b.Content {
 			continue
 		}

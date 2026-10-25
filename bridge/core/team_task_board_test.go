@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,9 +63,55 @@ not json
 	if renderTeamTaskBoard(nil, nil, "feishu:oc_a", now, nil) != "" || readTeamTaskBoard(t.TempDir()) != nil {
 		t.Fatal("missing file should be empty")
 	}
-	long := withTeamTaskBoard("**谁在干啥**", strings.Repeat("字", backfillMaxMsgRunes*2))
-	if n := len([]rune(long)); n != backfillMaxMsgRunes {
+}
+
+// Over one post: done today shrinks first, then statuses; every running item stays, every line
+// whole (board.py card_text). Live shape: ~17 items in the main chat plus a long member board.
+func TestTeamTaskBoardOverlongKeepsRunning(t *testing.T) {
+	var items, done []teamTaskBoardItem
+	for i := 1; i <= 17; i++ {
+		items = append(items, teamTaskBoardItem{ID: i, What: fmt.Sprintf("第%d件事情要做的内容写得比较长一点", i), Who: "橘",
+			Status: strings.Repeat("状态说明", 30), At: "10-26 02:00", Ch: "1562131004234276945"})
+	}
+	items[16].Paused, items[16].PauseWhy = "10-26 03:00", strings.Repeat("等用户", 20)
+	for i := 100; i < 110; i++ {
+		done = append(done, teamTaskBoardItem{ID: i, What: fmt.Sprintf("做完的第%d件", i), Who: "龙娘", Ch: "1562131004234276945"})
+	}
+	p := testTaskBoardPlacer()
+	items, done = placeTeamTaskBoard(p, items), placeTeamTaskBoard(p, done)
+	chat := "discord:1562131004234276945"
+	now := time.Now()
+	board := "**谁在干啥**\n" + strings.Repeat("- 龙娘：在写一段很长的成员状态\n", 10) + "- 收尾"
+	full := board + "\n\n" + renderTeamTaskBoard(items, done, chat, now, nil)
+	if len([]rune(full)) <= backfillMaxMsgRunes {
+		t.Fatalf("test data too short: %d", len([]rune(full)))
+	}
+	got := withTeamTaskBoard(board, func(b int) string { return renderTeamTaskBoardFit(items, done, chat, now, nil, b) })
+	if n := len([]rune(got)); n > backfillMaxMsgRunes {
 		t.Fatalf("len = %d", n)
+	}
+	for _, it := range items {
+		if !strings.Contains(got, fmt.Sprintf("#%d ", it.ID)) {
+			t.Fatalf("#%d dropped:\n%s", it.ID, got)
+		}
+	}
+	for _, ln := range strings.Split(got, "\n") {
+		if strings.HasPrefix(ln, "#") && !strings.Contains(ln, "｜10-26 02:00") {
+			t.Fatalf("line cut: %q", ln)
+		}
+	}
+	if !strings.HasPrefix(got, board) || strings.Contains(got, "做完的第") || !strings.Contains(got, "**今天做完** 10 件") {
+		t.Fatalf("expected done as a count and the member board whole:\n%s", got)
+	}
+	// Member board too long for both: cut by whole lines, the task section stays whole.
+	huge := strings.Repeat("- 成员一行\n", 400) + "- 尾"
+	got = withTeamTaskBoard(huge, func(b int) string { return renderTeamTaskBoardFit(items, done, chat, now, nil, b) })
+	if n := len([]rune(got)); n > backfillMaxMsgRunes || !strings.Contains(got, "#17 ") || !strings.Contains(got, "- 成员一行\n…\n\n**任务板**") {
+		t.Fatalf("len %d:\n%s", n, got)
+	}
+	// Short section: unchanged.
+	if got := withTeamTaskBoard("板", func(int) string { return "**任务板**\n#1 x" }); got != "板\n\n**任务板**\n#1 x" {
+		t.Fatalf("short = %q", got)
 	}
 }
 
