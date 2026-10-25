@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -331,8 +332,12 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 		return "", err
 	}
 	defer func() {
+		// The answer may already have been spoken (stream mode), so a persist failure
+		// must not turn a delivered turn into a failure; it only risks the next turn
+		// not resuming this context.
 		if closeErr := session.Close(); closeErr != nil && err == nil {
-			answer, err = "", fmt.Errorf("voice relay: persist session: %w", closeErr)
+			slog.Warn("voice relay: persist session failed; answer kept, next turn may not resume this context",
+				"session_key", req.SessionKey, "error", closeErr)
 		}
 	}()
 	if prior.ID != "" && session.CurrentSessionID() != prior.ID {

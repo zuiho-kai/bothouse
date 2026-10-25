@@ -57,13 +57,12 @@ type closingVoiceSession struct {
 
 func (s *closingVoiceSession) Close() error { return s.close() }
 
-func TestVoiceRelay_CloseBeforeCancelAndReportFlushFailure(t *testing.T) {
+func TestVoiceRelay_CloseBeforeCancelAndKeepAnswerOnFlushFailure(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		rm, _, a, _ := voiceFixture(t, "")
+		cancelledAtClose := make(chan bool, 1)
 		a.closeCheck = func(ctx context.Context) error {
-			if ctx.Err() != nil {
-				return errors.New("process killed before flush")
-			}
+			cancelledAtClose <- ctx.Err() != nil
 			if fail {
 				return errors.New("synthetic persistence failure")
 			}
@@ -76,9 +75,34 @@ func TestVoiceRelay_CloseBeforeCancelAndReportFlushFailure(t *testing.T) {
 		<-s.prompts
 		s.events <- Event{Type: EventResult, Content: "answer", Done: true}
 		r := voiceWait(t, rm, "close")
-		if (r.Status == "completed") == fail {
+		if <-cancelledAtClose {
+			t.Fatalf("session closed after context cancel (flush fail=%v)", fail)
+		}
+		// A persist failure only risks the next turn's context; the generated
+		// (possibly already spoken) answer is still delivered.
+		if r.Status != "completed" || r.Text != "answer" {
 			t.Fatalf("flush fail=%v result=%+v", fail, r)
 		}
+	}
+}
+
+func TestVoiceRelay_FlushFailureKeepsOriginalTurnError(t *testing.T) {
+	rm, _, a, _ := voiceFixture(t, "")
+	closed := make(chan struct{}, 1)
+	a.closeCheck = func(context.Context) error {
+		closed <- struct{}{}
+		return errors.New("synthetic persistence failure")
+	}
+	if _, _, err := rm.submitVoice(voiceReq("broken")); err != nil {
+		t.Fatal(err)
+	}
+	s := <-a.sessions
+	<-s.prompts
+	s.events <- Event{Type: EventError, Done: true}
+	r := voiceWait(t, rm, "broken")
+	<-closed
+	if r.Status != "failed" || r.Text != "" || strings.Contains(r.Error, "persist") {
+		t.Fatalf("turn error should stay the backend failure: %+v", r)
 	}
 }
 
