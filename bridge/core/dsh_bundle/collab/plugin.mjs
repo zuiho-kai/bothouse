@@ -24,6 +24,7 @@ import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 export const name = 'conest-collab';
 export const inject = [
   'webServer', 'connection', 'llm', 'agents', 'agentDefaultModel', 'agentPresets', 'permissionPresets', 'sessionTitle', 'workspaceRegistry',
+  'sessionPersistence',
 ];
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');

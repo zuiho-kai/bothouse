@@ -33,7 +33,7 @@ export function memberStatus(hub, tasks = hub?.tasks) {
     return `${m.name} (${m.id})：空闲`;
   }).join('\n');
 }
-import { mentions, nameCalled } from './mentions.mjs';
+import { mentions, nameCalled, split } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
 
@@ -210,6 +210,12 @@ export class TurnProgress {
   }
 }
 
+/** Whether text, with @-mentions removed, is the /new command (bridge core cmdNew). */
+export function isNewCommand(text, members) {
+  const rest = split(text, members).filter(([, id]) => id === null).map(([seg]) => seg).join('').trim();
+  return /^\/new(\s|$)/.test(rest);
+}
+
 export class DshMembers {
   /**
    * @param hub - Hub instance.
@@ -340,6 +346,12 @@ export class DshMembers {
     const targets = [...this.config.keys()].filter(id => id !== msg.author && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
     if (targets.length === 0) return undefined;
+    // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
+    if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routable())) {
+      return () => {
+        for (const id of targets) this.enqueue({ member_id: id, room_id: msg.room_id }, () => this.renew(id, msg));
+      };
+    }
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
       return () => this.hub.post(msg.room_id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
@@ -590,10 +602,43 @@ export class DshMembers {
     });
   }
 
-  /** Live Agent for (member, room): loaded, resumed, or newly created and bound. */
+  /**
+   * Live Agent for (member, room): loaded, resumed, or newly created and bound.
+   * A bound Session that was archived, is gone from session persistence, or
+   * fails to resume is replaced by a new one (rebind), so the member keeps
+   * answering; its old memory stays in the old Session.
+   */
   async ensureAgent(member, room) {
     const binding = this.store.binding(member.id, room.id);
-    if (binding !== undefined) return this.liveAgent(binding.session_id, member);
+    if (binding === undefined) return this.createAgent(member, room);
+    const agent = await this.boundAgent(binding.session_id, member);
+    return agent ?? this.createAgent(member, room);
+  }
+
+  /** The bound Session's Agent, or undefined when the Session can no longer serve the channel. */
+  async boundAgent(sessionId, member) {
+    const { ctx } = this.rt;
+    const why = ctx.workspaceRegistry.archivedSessionIds?.includes(sessionId) ? 'archived'
+      : ctx.agents.get(sessionId) === undefined && await ctx.sessionPersistence.stat(sessionId) === undefined ? 'missing' : undefined;
+    if (why === undefined) {
+      try {
+        return await this.liveAgent(sessionId, member);
+      } catch (error) {
+        this.rt.logger.warn('collab: Session %s did not resume, starting a new one: %s', sessionId, error?.stack ?? error);
+        return undefined;
+      }
+    }
+    this.rt.logger.info('collab: Session %s is %s, starting a new one', sessionId, why);
+    return undefined;
+  }
+
+  /**
+   * Create a new Session for (member, room) and bind it, replacing any old
+   * binding. The Session carries origin "subagent" so DSH keeps it out of the
+   * conversation list: the plugin holds it, the user cannot archive it, and
+   * /new in the channel is the way to start over.
+   */
+  async createAgent(member, room) {
     const { ctx } = this.rt;
     const preset = await ctx.agentPresets.resolve(member.agentPreset);
     const scope = await ctx.agentPresets.acquireScope(preset.id);
@@ -604,7 +649,7 @@ export class DshMembers {
       workspace = await ctx.workspaceRegistry.create(this.rt.workspacePath);
       handle = await ctx.agents.create({
         sessionId,
-        meta: { cwd: workspace.path, agentPreset: preset.id },
+        meta: { cwd: workspace.path, agentPreset: preset.id, origin: 'subagent' },
         agentOptions: this.selection(member),
         setup: async (agentCtx) => {
           await ctx.agentPresets.mount(agentCtx, preset.id);
@@ -617,8 +662,29 @@ export class DshMembers {
     await workspace.attachSession(sessionId);
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
     ctx.sessionTitle.rename(handle.agent.session, `#${room.name} · ${member.name}`);
-    this.store.bind(member.id, room.id, sessionId);
+    if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
+    else this.store.rebind(member.id, room.id, sessionId);
     return handle.agent;
+  }
+
+  /**
+   * /new in the channel: each addressed member starts over in this room. A
+   * DSH member gets a new Session (the old one is dropped from the binding),
+   * a CLI member drops its ACP session for the room; both read on from the
+   * /new message, not from earlier history.
+   */
+  async renew(memberId, msg) {
+    const member = this.config.get(memberId);
+    const room = this.store.room(msg.room_id);
+    if (member === undefined || room === undefined) return;
+    if (member.cli !== undefined) this.cliAgents.get(member.id)?.agent.sessions?.delete(String(room.id));
+    else await this.createAgent(member, room);
+    if (this.closed) return;
+    this.store.advanceCursor(member.id, room.id, msg.id);
+    this.hub.post(room.id, {
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-new-${msg.id}-${member.id}`,
+      text: `✅ ${member.name} 的新会话已创建`,
+    });
   }
 
   async liveAgent(sessionId, member) {
