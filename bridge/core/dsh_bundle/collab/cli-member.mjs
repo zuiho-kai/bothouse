@@ -38,12 +38,30 @@ export class CliMember {
     this.extraEnv = env || {}
     this.sessions = new Map() // room -> { sessionId }（当前 ACP 进程里活着的会话）
     this.saved = new Map() // room -> sessionId：进程退出后留着，下次用 loadSession 续上
-    this.onPermission = new Map() // sessionId -> (request) => Promise<outcome>：转成频道审批卡
     this.buffers = new Map() // sessionId -> string
     this.onText = new Map() // sessionId -> (textSoFar) => void（#121 流式）
     this.onTool = new Map() // sessionId -> (update) => void：tool_call / tool_call_update / agent_thought_chunk，给进度卡
     this.queue = new Map() // room -> Promise（同房间串行）
     this.ready = null
+  }
+
+  /** ACP Client 回调（单独拆出来便于测试）。 */
+  _client() {
+    return {
+      async requestPermission(r) {
+        const o = r.options.find((x) => x.kind?.startsWith('allow')) || r.options[0]
+        return { outcome: { outcome: 'selected', optionId: o.optionId } }
+      },
+      sessionUpdate: async (n) => {
+        const u = n.update
+        if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && this.buffers.has(n.sessionId)) {
+          const full = this.buffers.get(n.sessionId) + u.content.text
+          this.buffers.set(n.sessionId, full)
+          this.onText.get(n.sessionId)?.(full)
+        }
+        if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk') && this.buffers.has(n.sessionId)) this.onTool.get(n.sessionId)?.(u)
+      },
+    }
   }
 
   _start() {
@@ -56,23 +74,7 @@ export class CliMember {
       env: { ...cleanEnv(), ...this.extraEnv },
     })
     this.proc = proc
-    const client = {
-      // 不再自动放行：交给本轮的 onPermission（频道审批卡）。没有人接（不在某一轮里）就按取消处理。
-      requestPermission: async (r) => {
-        const handler = this.onPermission.get(r.sessionId)
-        if (!handler) return { outcome: { outcome: 'cancelled' } }
-        return { outcome: await handler(r) }
-      },
-      sessionUpdate: async (n) => {
-        const u = n.update
-        if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && this.buffers.has(n.sessionId)) {
-          const full = this.buffers.get(n.sessionId) + u.content.text
-          this.buffers.set(n.sessionId, full)
-          this.onText.get(n.sessionId)?.(full)
-        }
-        if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk') && this.buffers.has(n.sessionId)) this.onTool.get(n.sessionId)?.(u)
-      },
-    }
+    const client = this._client()
     const stream = acp.ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout))
     this.conn = new acp.ClientSideConnection(() => client, stream)
     const exited = new Promise((_, rej) => {
@@ -123,8 +125,7 @@ export class CliMember {
 
   /**
    * onText(textSoFar) 在每个公开文字分片到达时调用（#121）；onTool(update) 在每个工具调用开始/更新和每个思考分片到达时调用。
-   * opts.resumeId：要续上的 sessionId；opts.onSession({ sessionId, resumed, lost })：会话就绪后、发提示词前调用；
-   * opts.onPermission(request)：CLI 的 session/request_permission，返回 ACP outcome（{ outcome: 'selected', optionId } 或 { outcome: 'cancelled' }）。
+   * opts.resumeId：要续上的 sessionId；opts.onSession({ sessionId, resumed, lost })：会话就绪后、发提示词前调用。
    */
   ask(text, room = 'default', onText, onTool, opts = {}) {
     const prev = this.queue.get(room) || Promise.resolve()
@@ -133,7 +134,7 @@ export class CliMember {
     return run
   }
 
-  async _ask(text, room, onText, onTool, { resumeId, onSession, onPermission } = {}) {
+  async _ask(text, room, onText, onTool, { resumeId, onSession } = {}) {
     const s = await this._session(room, resumeId)
     await onSession?.(s)
     // persona 每轮都拼：续上的或新开的会话都不会丢人设。
@@ -141,7 +142,6 @@ export class CliMember {
     this.buffers.set(s.sessionId, '')
     if (onText) this.onText.set(s.sessionId, onText)
     if (onTool) this.onTool.set(s.sessionId, onTool)
-    if (onPermission) this.onPermission.set(s.sessionId, onPermission)
     try {
       await Promise.race([
         this.conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: body }] }),
@@ -152,7 +152,6 @@ export class CliMember {
       this.buffers.delete(s.sessionId)
       this.onText.delete(s.sessionId)
       this.onTool.delete(s.sessionId)
-      this.onPermission.delete(s.sessionId)
     }
   }
 

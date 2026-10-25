@@ -247,13 +247,7 @@ export async function apply(ctx, rawConfig) {
     // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.
     const pm = /^\/collab\/api\/messages\/(\d+)\/permission$/.exec(path);
     if (pm !== null && req.method === 'POST') {
-      return withBody(req, res, (body) => {
-        const id = Number(pm[1]);
-        const decision = String(body?.decision ?? '');
-        // A local CLI member's ACP permission card is answered by DshMembers, the rest by the cloud_web gateway.
-        if (dsh.ownsPermission(id)) return { message: publicMessage(dsh.decidePermission(id, decision), store) };
-        return { message: gateway.decidePermission(id, decision) };
-      });
+      return withBody(req, res, body => ({ message: gateway.decidePermission(Number(pm[1]), String(body?.decision ?? '')) }));
     }
     // #146: owner-only (checked above) retry on a failed message or error card.
     const rm = /^\/collab\/api\/messages\/(\d+)\/retry$/.exec(path);

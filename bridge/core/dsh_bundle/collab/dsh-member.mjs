@@ -9,11 +9,9 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { exitTarget } from './team-exit.mjs';
-import { CollabError, DEFAULT_DISPATCH_MODE } from './store.mjs';
+import { DEFAULT_DISPATCH_MODE } from './store.mjs';
 // Shared with the bridge (bridge/core/team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
-// Card states for a decision, as cloudweb.mjs PERM_STATES.
-const CLI_PERM_STATES = { allow: 'allowed', deny: 'denied', allow_all: 'allowed_all' };
 const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8');
 export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
   const [common, ...parts] = TEAM_MODE_FILE.split(/^## /m);
@@ -235,8 +233,6 @@ export class DshMembers {
     this.hooked = new WeakSet();
     /** memberId -> { cli, agent } live local CLI agents (members with a `cli` field). */
     this.cliAgents = new Map();
-    /** permission card message id -> { member, room, jobId, options, resolve } while a CLI member's ACP request waits */
-    this.cliPerms = new Map();
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -477,8 +473,7 @@ export class DshMembers {
           });
         }
       };
-      const onPermission = (request) => this.askCliPermission(job, member, request);
-      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store), String(room.id), onText, onTool, { resumeId, onSession, onPermission }))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store), String(room.id), onText, onTool, { resumeId, onSession }))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
@@ -492,59 +487,8 @@ export class DshMembers {
       progress.end(done ? 'completed' : 'failed');
       // Error, cancel or empty turn: drop the partial draft so the room never keeps a cut-off reply.
       if (!done && draft?.draft) this.hub.remove(draft.id, 'role', member.id);
-      // The turn is over (CLI exited, error, close): cards it left open can no longer be answered.
-      for (const [msgId, p] of this.cliPerms) if (p.jobId === job.id) this.closeCliPerm(msgId, 'expired', { outcome: 'cancelled' });
       this.hub.setThinking(job.room_id, member.id, false);
     }
-  }
-
-  /**
-   * A CLI member's ACP session/request_permission becomes a permission card in the room,
-   * the same card cloud_web bots get (cloudweb.mjs 'buttons' → kind 'permission'), and
-   * waits for the owner's click. No timeout: the bridge waits on
-   * pending.Resolved until the user answers or the session stops (bridge core/engine.go,
-   * permission request in the event loop, `select { case <-pending.Resolved: ... }`).
-   */
-  askCliPermission(job, member, request) {
-    const options = Array.isArray(request?.options) ? request.options : [];
-    const pick = { allow: options.find(o => o.kind === 'allow_once'), allow_all: options.find(o => o.kind === 'allow_always'), deny: options.find(o => o.kind === 'reject_once') ?? options.find(o => o.kind === 'reject_always') };
-    const actions = Object.entries(pick).filter(([, o]) => o !== undefined).map(([decision, o]) => ({ decision, label: String(o.name ?? decision) }));
-    if (actions.length === 0) return Promise.resolve({ outcome: 'cancelled' });
-    const tool = request.toolCall ?? {};
-    const input = tool.rawInput === undefined ? '' : JSON.stringify(tool.rawInput);
-    const text = [`${member.name}（${member.cli}）请求权限：${tool.title ?? tool.kind ?? '工具调用'}`, input.length > 800 ? `${input.slice(0, 800)}…` : input].filter(Boolean).join('\n');
-    const card = { kind: 'permission', title: '权限请求', state: 'pending', actions };
-    const { message } = this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, text, card: JSON.stringify(card) });
-    return new Promise((resolve) => {
-      this.cliPerms.set(message.id, { member: member.id, room: job.room_id, jobId: job.id, pick, resolve });
-    });
-  }
-
-  /** True when msgId is a CLI member's open permission card (the HTTP route sends it here, not to cloud_web). */
-  ownsPermission(msgId) { return this.cliPerms.has(msgId); }
-
-  /** Owner's decision ('allow' | 'allow_all' | 'deny') on a CLI member's permission card; answers the ACP request. */
-  decidePermission(msgId, decision, by = 'button') {
-    const p = this.cliPerms.get(msgId);
-    if (p === undefined) throw new CollabError('conflict', '这个权限请求已过期');
-    const option = p.pick[decision];
-    if (option === undefined) throw new CollabError('invalid', `unknown decision ${decision}`);
-    this.closeCliPerm(msgId, CLI_PERM_STATES[decision], { outcome: 'selected', optionId: option.optionId }, by);
-    return this.store.message(msgId);
-  }
-
-  closeCliPerm(msgId, state, outcome, by) {
-    const p = this.cliPerms.get(msgId);
-    if (p === undefined) return;
-    this.cliPerms.delete(msgId);
-    const row = this.store.message(msgId);
-    let card;
-    try { card = JSON.parse(row?.card ?? ''); } catch {}
-    if (card?.kind === 'permission' && card.state === 'pending') {
-      const next = { ...card, state, ...(by ? { decided_by: by } : {}), decided_at: Math.floor(Date.now() / 1000) };
-      this.hub.edit(row.id, 'role', row.author, row.text, JSON.stringify(next));
-    }
-    p.resolve(outcome);
   }
 
   /** A released workspace starts over: drop each local CLI member's ACP session for roomId. */
@@ -556,7 +500,6 @@ export class DshMembers {
   }
 
   dropCli(id) {
-    for (const [msgId, p] of this.cliPerms) if (p.member === id) this.closeCliPerm(msgId, 'expired', { outcome: 'cancelled' });
     this.cliAgents.get(id)?.agent.close();
     this.cliAgents.delete(id);
   }
