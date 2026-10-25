@@ -67,25 +67,103 @@ func TestVerifyReleaseSignature_NoHashRefuses(t *testing.T) {
 	}
 }
 
-// Real codesign on a copy of a binary that is not signed by the release certificate.
-func TestVerifyReleaseSignature_OtherSignatureRefuses(t *testing.T) {
+const testID, testHash = "ai.bothouse.desktop", "90C081464BA60F81CE7FF6E18767F40D5E650CD1"
+
+// signedCopy copies /usr/bin/true to dir/name and ad-hoc signs it with the release identifier
+// plus any extra codesign arguments. Real codesign, macOS only.
+func signedCopy(t *testing.T, dir, name string, extra ...string) string {
+	t.Helper()
 	if runtime.GOOS != "darwin" {
 		t.Skip("codesign is macOS only")
 	}
-	src, err := exec.LookPath("true")
+	data, err := os.ReadFile("/usr/bin/true")
 	if err != nil {
 		t.Skip(err)
 	}
-	data, err := os.ReadFile(src)
-	if err != nil {
+	exe := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	exe := filepath.Join(t.TempDir(), "bothouse")
 	if err := os.WriteFile(exe, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyReleaseSignature(exe, "ai.bothouse.desktop", "90C081464BA60F81CE7FF6E18767F40D5E650CD1"); err == nil {
-		t.Fatal("a binary without the release signature passed")
+	args := append([]string{"--force", "--sign", "-", "--identifier", testID}, extra...)
+	if out, err := exec.Command("/usr/bin/codesign", append(args, exe)...).CombinedOutput(); err != nil {
+		t.Fatalf("codesign: %v: %s", err, out)
+	}
+	return exe
+}
+
+// minimalApp puts an ad-hoc signed binary into a minimal, unsealed .app like package-dmg.sh does.
+func minimalApp(t *testing.T) string {
+	t.Helper()
+	app := filepath.Join(t.TempDir(), "Bothouse.app")
+	exe := signedCopy(t, app, "Contents/MacOS/bothouse")
+	plist := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>CFBundleExecutable</key><string>bothouse</string>
+<key>CFBundleIdentifier</key><string>ai.bothouse.desktop</string></dict></plist>
+`
+	if err := os.WriteFile(filepath.Join(app, "Contents/Info.plist"), []byte(plist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return exe
+}
+
+// identifierOnly: ad-hoc signatures carry no certificate, so pass cases check only the identifier.
+func identifierOnly(t *testing.T) {
+	old := releaseRequirement
+	t.Cleanup(func() { releaseRequirement = old })
+	releaseRequirement = func(id, _ string) string { return `identifier "` + id + `"` }
+}
+
+func TestVerifyReleaseSignature_Pass(t *testing.T) {
+	identifierOnly(t)
+	for name, exe := range map[string]func() string{
+		"single file": func() string { return signedCopy(t, t.TempDir(), "bothouse") },
+		"inside .app": func() string { return minimalApp(t) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := verifyReleaseSignature(exe(), testID, testHash); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestVerifyReleaseSignature_Refuses(t *testing.T) {
+	forged := `-r=designated => identifier "` + testID + `" and certificate leaf = H"` + testHash + `"`
+	cases := map[string]func(t *testing.T) string{
+		"unsigned": func(t *testing.T) string {
+			exe := signedCopy(t, t.TempDir(), "bothouse")
+			if out, err := exec.Command("/usr/bin/codesign", "--remove-signature", exe).CombinedOutput(); err != nil {
+				t.Fatalf("%v: %s", err, out)
+			}
+			return exe
+		},
+		"ad-hoc":                 func(t *testing.T) string { return signedCopy(t, t.TempDir(), "bothouse") },
+		"ad-hoc + forged DR":     func(t *testing.T) string { return signedCopy(t, t.TempDir(), "bothouse", forged) },
+		"inside .app, forged DR": func(t *testing.T) string { return signedCopy(t, t.TempDir(), "X.app/Contents/MacOS/bothouse", forged) },
+		"modified byte": func(t *testing.T) string {
+			identifierOnly(t) // would pass unmodified; the changed byte must fail it
+			exe := signedCopy(t, t.TempDir(), "bothouse")
+			data, _ := os.ReadFile(exe)
+			data[len(data)/2] ^= 0xff
+			if err := os.WriteFile(exe, data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return exe
+		},
+	}
+	for name, mk := range cases {
+		t.Run(name, func(t *testing.T) {
+			exe := mk(t)
+			if err := verifyReleaseSignature(exe, testID, testHash); err == nil {
+				t.Fatal("accepted")
+			} else {
+				t.Log(err)
+			}
+		})
 	}
 }
 

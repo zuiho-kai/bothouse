@@ -48,14 +48,23 @@ func UpdateRefusal() error {
 	return nil
 }
 
-// verifyReleaseSignature asks codesign whether exe is signed with identifier id by the
-// certificate whose leaf SHA-1 is hash. Any failure (no hash, codesign missing) counts as no.
+// releaseRequirement is the code requirement the running binary must satisfy. Swappable in
+// tests, which cannot sign with the release certificate.
+var releaseRequirement = func(id, hash string) string {
+	return fmt.Sprintf(`identifier "%s" and certificate leaf = H"%s"`, id, hash)
+}
+
+// verifyReleaseSignature asks codesign whether exe is validly signed with identifier id by the
+// certificate whose leaf SHA-1 is hash. It verifies the signature rather than reading the
+// designated requirement text, which the signer writes and can forge. --ignore-resources skips
+// only the resource seal, so the binary inside the (unsealed) .app passes while a forged
+// requirement or a modified byte is still refused. Any failure (no hash, codesign missing) counts as no.
 func verifyReleaseSignature(exe, id, hash string) error {
 	if hash == "" {
 		return errors.New("release certificate hash not set")
 	}
-	req := fmt.Sprintf(`=identifier "%s" and certificate leaf = H"%s"`, id, hash)
-	out, err := exec.Command("/usr/bin/codesign", "--verify", "-R", req, exe).CombinedOutput()
+	out, err := exec.Command("/usr/bin/codesign", "--verify", "--ignore-resources",
+		"-R="+releaseRequirement(id, hash), exe).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("codesign: %v: %s", err, strings.TrimSpace(string(out)))
 	}
