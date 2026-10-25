@@ -41,7 +41,7 @@ func (p *Platform) TaskCardDestination(sessionKey string) (string, error) {
 // EnsureTaskCard posts the card once, then patches it. The create carries a
 // uuid derived from the task ID: Feishu de-duplicates sends with the same uuid,
 // so a retry after a lost response returns the same card instead of posting a
-// second one. A card deleted by hand is posted again.
+// second one. A card deleted by hand, or too old to edit, is posted again.
 func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
 	if task == nil {
 		return errors.New("feishu: nil task")
@@ -165,12 +165,17 @@ func (p *Platform) imAPIErr(op string, resp *larkcore.ApiResp, code int, msg str
 	return &feishuIMError{Tag: p.tag(), Op: op, Status: status, Code: code, Msg: msg}
 }
 
-// isFeishuMessageGone: the card itself was deleted, so it can be posted again.
-// Chat-level errors (bot removed, chat gone) are not this: reposting there
-// fails too.
+// feishuCardExpiredCode: a card can only be edited within 14 days of being
+// sent (SPEC: Feishu "更新应用发送的消息卡片" error code table, 230031). The
+// pinned board lives longer than that.
+const feishuCardExpiredCode = 230031
+
+// isFeishuMessageGone: the card itself was deleted, or is too old to edit, so
+// it is posted again. Chat-level errors (bot removed, chat gone) are not this:
+// reposting there fails too.
 func isFeishuMessageGone(err error) bool {
 	var e *feishuIMError
-	return errors.As(err, &e) && e.Code == feishuMessageWithdrawnCode
+	return errors.As(err, &e) && (e.Code == feishuMessageWithdrawnCode || e.Code == feishuCardExpiredCode)
 }
 
 // isFeishuIMPermanent uses the workspaceErr rule (missing scope, HTTP 4xx other

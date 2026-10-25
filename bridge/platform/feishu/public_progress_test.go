@@ -23,6 +23,7 @@ type fakeFeishuIM struct {
 	byUUID     map[string]string
 	content    map[string]string // message ID -> card JSON
 	gone       map[string]bool   // deleted message IDs
+	expired    map[string]bool   // message IDs older than the 14-day edit window
 	creates    []map[string]any
 	patches    []string
 	replies    []map[string]any
@@ -38,7 +39,7 @@ type fakeRefusal struct {
 }
 
 func newFakeFeishuIM() *fakeFeishuIM {
-	return &fakeFeishuIM{byUUID: map[string]string{}, content: map[string]string{}, gone: map[string]bool{}}
+	return &fakeFeishuIM{byUUID: map[string]string{}, content: map[string]string{}, gone: map[string]bool{}, expired: map[string]bool{}}
 }
 
 func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
@@ -82,6 +83,11 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 			id := strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/")
 			if f.gone[id] {
 				writeJSON(t, w, map[string]any{"code": 230011, "msg": "The message was withdrawn."})
+				return
+			}
+			if f.expired[id] {
+				w.WriteHeader(http.StatusBadRequest)
+				writeJSON(t, w, map[string]any{"code": feishuCardExpiredCode, "msg": "message can only be updated within 14 days"})
 				return
 			}
 			f.patches = append(f.patches, id)
@@ -364,5 +370,31 @@ func TestFeishuTransientRefusalIsRetryable(t *testing.T) {
 	}
 	if task.MessageID != "om_x" || len(f.creates) != 0 {
 		t.Fatalf("transient patch error reposted the card")
+	}
+}
+
+// Board or card older than 14 days cannot be edited: post (and pin) a new one
+// instead of failing every round.
+func TestFeishuExpiredCardIsPostedAgain(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.expired[id] = true
+	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**板**\ny")
+	if err != nil || again == "" || again == id || len(f.pins) != 2 || f.pins[1] != again {
+		t.Fatalf("expired board not reposted+pinned: %q, %v, pins=%v", again, err, f.pins)
+	}
+	task := &core.Task{ID: "task-e", Title: "t", ChannelID: "oc_chat"}
+	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	old := task.MessageID
+	f.expired[old] = true
+	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil || task.MessageID == old {
+		t.Fatalf("expired task card not reposted: %q, %v", task.MessageID, err)
 	}
 }
