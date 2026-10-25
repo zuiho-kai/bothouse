@@ -104,11 +104,12 @@ func taskRelayActive(r *publicRun) bool {
 	return taskRelayLive(r)
 }
 
-// taskRelayLive: a dispatch already running on the card keeps its watch and
-// its progress reports. Not gated on Closed or r.stopped(): the lead's turn
-// ending (finishRun closes every card of the turn) must not leave a relay sent
-// in the background unwatched. Same lifetime as member reports (reportMember):
-// it ends on acceptance or a terminal state.
+// taskRelayLive: a dispatch already running on the card may still report
+// progress. Not gated on Closed or r.stopped(): the lead's turn ending
+// (finishRun closes every card of the turn) must not turn its reports away.
+// Same lifetime as member reports (reportMember): it ends on acceptance or a
+// terminal state. The ten-minute watch is not gated on the card at all
+// (relayWatchRun).
 func taskRelayLive(r *publicRun) bool {
 	return !r.record.Accepted && !IsTerminalState(r.record.Task.State)
 }

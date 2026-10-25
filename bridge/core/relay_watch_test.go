@@ -186,15 +186,69 @@ func TestRelayWatchStopsWhenDoneAfterTurnEnd(t *testing.T) {
 	}
 }
 
-// A cancelled lead turn ends the card: the watch stops with it (unchanged).
-func TestRelayWatchStopsOnCancelledTurn(t *testing.T) {
+// The card ends (failed: the lead's reply was not sent; cancelled: /stop or
+// maxTurnTime; or accepted) while a relay still runs: the watch stays its one
+// keeper. The worker cannot report on an ended card, so at the due time it is
+// nudged and stopped; the card's state and summary are left as they were.
+func TestRelayWatchKeepsRunningRelayOnEndedCard(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  func(p *PublicProgress, run string, d *taskRelay)
+	}{
+		{"cancelled", func(p *PublicProgress, run string, _ *taskRelay) { p.finish(run, "cancelled") }},
+		{"failed", func(p *PublicProgress, run string, _ *taskRelay) { p.finish(run, "failed") }},
+		{"accepted", func(_ *PublicProgress, _ string, d *taskRelay) {
+			d.r.mu.Lock()
+			d.r.record.Accepted = true
+			d.r.mu.Unlock()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _, run, id := taskRelayFixture(t)
+			d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+			if err != nil {
+				t.Fatal(err)
+			}
+			due := relayWatchReceipt(d).WatchDue
+			tc.end(p, run, d)
+			before, _ := p.Task(id)
+			if n := p.relayWatchTick(due.Add(-time.Minute)); !n.Equal(due) {
+				t.Fatalf("running relay unwatched on ended card: next=%v want %v", n, due)
+			}
+			p.relayWatchTick(due)
+			if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone || !strings.Contains(relayWatchLastEvent(d), "十分钟看门") {
+				t.Fatalf("not nudged and stopped: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
+			}
+			after, _ := p.Task(id)
+			if after.State != before.State || after.LatestProgress != before.LatestProgress {
+				t.Fatalf("watch moved the ended card: %v/%q -> %v/%q", before.State, before.LatestProgress, after.State, after.LatestProgress)
+			}
+			if err := d.finish("partial", errRelayWatchStopped); err != nil {
+				t.Fatal(err)
+			}
+			if n := p.relayWatchTick(due.Add(time.Hour)); !n.IsZero() || relayWatchStopped(d) != 1 {
+				t.Fatalf("watched a handed-back receipt: next=%v", n)
+			}
+		})
+	}
+}
+
+// After the turn closed the card, relay progress lands in the thread but does
+// not move the card's summary (same rule as the relay's final result).
+func TestRelayProgressKeepsClosedCardSummary(t *testing.T) {
 	p, _, run, id := taskRelayFixture(t)
 	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.finish(run, "cancelled")
-	if n := p.relayWatchTick(time.Now().Add(time.Hour)); !n.IsZero() || relayWatchStopped(d) != 0 {
-		t.Fatalf("cancelled card still watched: next=%v", n)
+	p.finish(run, "result")
+	before, _ := p.Task(id)
+	relayWatchReport(t, p, d, 1)
+	after, _ := p.Task(id)
+	if after.LatestProgress != before.LatestProgress {
+		t.Fatalf("closed card summary moved: %q -> %q", before.LatestProgress, after.LatestProgress)
+	}
+	if len(after.Events) != len(before.Events)+1 || after.Events[len(after.Events)-1].Detail != "step" {
+		t.Fatalf("progress not in thread: %+v", after.Events[len(after.Events)-1])
 	}
 }

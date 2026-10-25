@@ -15,8 +15,12 @@ import (
 // progress (a relay turn is busy until it returns). Cadence and renew limit are
 // team_watch's (watchCheckAfter, watchMaxRenew). A stop closes the worker's
 // session at once (handleTrackedRelay's stop channel), not the relay drain.
-// The watch outlives the lead's turn (taskRelayLive): a relay sent in the
-// background keeps running after finishRun closes the card.
+// The gate is the receipt alone (running, not yet nudged, run still known),
+// never the card: a relay sent in the background keeps running after the lead's
+// turn closes the card (finishRun), and after the card turns failed/cancelled
+// or accepted, so the watch stays its one keeper until it is handed back or
+// stopped. On a card the lead no longer holds (taskRelayActive false) the
+// watch's notes go to the thread without moving the card's summary.
 
 // errRelayWatchStopped marks a run the watch stopped, like d10 stopping a turn.
 var errRelayWatchStopped = errors.New("十分钟看门停止：到点没有交回结果，会话已关，做到的部分作为部分结果交回")
@@ -117,9 +121,9 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 	var stop []*taskRelay
 	changed := false
 	old := snapshotTaskRelay(r)
-	active := taskRelayLive(r) // not Closed: the lead turn ending must not drop the watch
+	summary := r.record.Task.LatestProgress
 	for id, rc := range r.record.Relays {
-		if rc.Status != "running" || rc.WatchDue.IsZero() || rc.WatchDone || !active {
+		if rc.Status != "running" || rc.WatchDue.IsZero() || rc.WatchDone {
 			continue
 		}
 		if now.Before(rc.WatchDue) {
@@ -151,6 +155,9 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 	}
 	if !changed {
 		return next
+	}
+	if !taskRelayActive(r) {
+		r.record.Task.LatestProgress = summary
 	}
 	if err := p.save(r); err != nil {
 		r.record = old
