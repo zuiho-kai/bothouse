@@ -135,23 +135,32 @@ func TestApplyWizardRoleWikis(t *testing.T) {
 	var bots map[string]map[string]string
 	b, _ := os.ReadFile(filepath.Join(dir, "bots.json"))
 	if err := json.Unmarshal(b, &bots); err != nil || bots["juzi"]["kind"] != "claudecode" || bots["whale"]["kind"] != "codex" ||
-		bots["whale"]["workdir"] != filepath.Join(data, "roles", "whale") {
+		bots["whale"]["workdir"] != filepath.Join(data, "roles", "whale") || bots["juzi"]["wiki"] != mainWiki || bots["whale"]["wiki"] != "" {
 		t.Fatalf("bots.json = %s %v", b, err)
 	}
+	// juzi is the lead (roles[0]): the main wiki is hers
 	for _, p := range []string{"juzi", "whale"} {
 		w := filepath.Join(data, "roles", p, "wiki")
+		if p == "juzi" {
+			w = mainWiki
+		}
 		var cfg map[string]any
 		c, _ := os.ReadFile(filepath.Join(w, "config.json"))
 		if err := json.Unmarshal(c, &cfg); err != nil || !fileExists(filepath.Join(w, "MEMORY.md")) || !fileExists(filepath.Join(w, "bin", "ingest.py")) {
 			t.Fatalf("%s wiki: %s %v", p, c, err)
 		}
-		if p == "juzi" && cfg["ingest_engine"] != "haiku" || p == "whale" && cfg["night_engine"] != "codex:high" {
+		if p == "juzi" && (cfg["ingest_engine"] != "haiku" || cfg["transcripts"] != filepath.Join(realPath(dir), "transcripts", "juzi")) ||
+			p == "whale" && cfg["night_engine"] != "codex:high" {
 			t.Fatalf("%s engines = %v", p, cfg)
 		}
 	}
 	// every agent type gets its wiki's MEMORY.md as memory_index (core/memoryindex.go)
 	for _, p := range []string{"juzi", "whale"} {
-		if want := filepath.Join(data, "roles", p, "wiki", "MEMORY.md"); store.memIndex[p] != want {
+		want := filepath.Join(data, "roles", p, "wiki", "MEMORY.md")
+		if p == "juzi" {
+			want = filepath.Join(mainWiki, "MEMORY.md")
+		}
+		if store.memIndex[p] != want {
 			t.Fatalf("%s memory_index = %q, want %q", p, store.memIndex[p], want)
 		}
 	}
@@ -300,6 +309,10 @@ func TestApplyWizardMainWikiNoNewRole(t *testing.T) {
 	if !fileExists(filepath.Join(mainWiki, "bin", "ingest.py")) {
 		t.Fatal("main wiki not made")
 	}
+	// every role reused: the lead is no new role, so the main wiki is nobody's (empty mark), not hers
+	if m, err := os.ReadFile(filepath.Join(mainWiki, mainWikiMark)); err != nil || strings.TrimSpace(string(m)) != "" {
+		t.Fatalf("mark = %q %v", m, err)
+	}
 	if s := steps["wiki cron"]; !s.OK || !strings.Contains(s.Detail, "added") || len(cron.jobs) == 0 {
 		t.Fatalf("wiki cron = %+v, jobs %d", s, len(cron.jobs))
 	}
@@ -409,5 +422,182 @@ func TestApplyWizardMainWikiFailureNoNewRole(t *testing.T) {
 	}
 	if s := steps["wiki cron"]; !strings.HasPrefix(s.Detail, "skipped:") {
 		t.Fatalf("wiki cron = %+v", s)
+	}
+}
+
+func readBotsJSON(t *testing.T, data string) map[string]map[string]any {
+	t.Helper()
+	var bots map[string]map[string]any
+	b, err := os.ReadFile(filepath.Join(RoleWikiDir(data), "bots.json"))
+	if err == nil {
+		err = json.Unmarshal(b, &bots)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("bots.json: %v", err)
+	}
+	return bots
+}
+
+// One role: she is the lead and the main wiki ($WIKI_DIR, not ~/wiki) is hers: bots.json points her at it, its
+// config.json reads her transcripts with her persona as the rule file, and her persona searches it by --root.
+func TestApplyWizardSingleRoleWritesMainWiki(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore()}
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	work := filepath.Join(data, "roles", "juzi")
+	persona := PersonaFilePath("claudecode", work)
+	if b := readBotsJSON(t, data); b["juzi"]["wiki"] != mainWiki {
+		t.Fatalf("bots.json = %v", b)
+	}
+	if fileExists(filepath.Join(work, "wiki")) {
+		t.Fatal("the lead got a role wiki")
+	}
+	var cfg map[string]any
+	c, _ := os.ReadFile(filepath.Join(mainWiki, "config.json"))
+	if err := json.Unmarshal(c, &cfg); err != nil {
+		t.Fatalf("config.json %s: %v", c, err)
+	}
+	rules, _ := cfg["rule_files"].([]any)
+	if cfg["transcripts"] != filepath.Join(realPath(RoleWikiDir(data)), "transcripts", "juzi") || cfg["assistant"] != "Juzi" ||
+		cfg["home"] != mainWiki || len(rules) != 1 || rules[0] != persona {
+		t.Fatalf("main config = %v", cfg)
+	}
+	if store.memIndex["juzi"] != filepath.Join(mainWiki, "MEMORY.md") {
+		t.Fatalf("memory_index = %v", store.memIndex)
+	}
+	p, _ := os.ReadFile(persona)
+	if !strings.Contains(string(p), "--root "+wikiQuote(mainWiki)) || !strings.Contains(string(p), "--switch juzi dream off") {
+		t.Fatalf("persona = %s", p)
+	}
+	// the hook's run for her goes to the main wiki: export.py --list names it
+	out, err := exec.Command("python3", "-I", filepath.Join(RoleWikiDir(data), "export.py"), "--list").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "juzi juzi "+mainWiki) {
+		t.Fatalf("--list: %v %s", err, out)
+	}
+}
+
+// A main wiki the user had (.git, bin/ingest.py, MEMORY.md, no config.json, no mark): the lead only searches and
+// indexes it. Nothing in it changes, bots.json does not point her at it, the step says it was not taken over.
+func TestApplyWizardLeadLeavesUserMainWiki(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	for p, c := range map[string]string{"bin/ingest.py": "# mine\n", "bin/search.py": "# mine too\n", ".git/HEAD": "ref: refs/heads/main\n",
+		"MEMORY.md": "- [a](a/README.md)\n", "notes.md": "x\n"} {
+		f := filepath.Join(mainWiki, p)
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := map[string]string{}
+	snap := func() map[string]string {
+		out := map[string]string{}
+		_ = filepath.Walk(mainWiki, func(p string, fi os.FileInfo, err error) error {
+			if err == nil {
+				b, _ := os.ReadFile(p)
+				out[p] = fi.Mode().String() + fi.ModTime().String() + string(b)
+			}
+			return nil
+		})
+		return out
+	}
+	before = snap()
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore()}
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	after := snap()
+	if len(after) != len(before) {
+		t.Fatalf("main wiki files %d -> %d", len(before), len(after))
+	}
+	for p, v := range before {
+		if after[p] != v {
+			t.Fatalf("%s changed", p)
+		}
+	}
+	if b := readBotsJSON(t, data); b["juzi"] != nil {
+		t.Fatalf("bots.json took the user's wiki over: %v", b)
+	}
+	var step WizardStep
+	for _, s := range res.Steps {
+		if s.Step == "role 1 wiki" {
+			step = s
+		}
+	}
+	if !step.OK || !strings.Contains(step.Detail, "not taken over") {
+		t.Fatalf("role 1 wiki = %+v (all %+v)", step, res.Steps)
+	}
+	if store.memIndex["juzi"] != filepath.Join(mainWiki, "MEMORY.md") {
+		t.Fatalf("memory_index = %v", store.memIndex)
+	}
+	p, _ := os.ReadFile(PersonaFilePath("claudecode", filepath.Join(data, "roles", "juzi")))
+	if !strings.Contains(string(p), mainWiki) || strings.Contains(string(p), "--switch") || strings.Contains(string(p), "--root") {
+		t.Fatalf("persona = %s", p)
+	}
+}
+
+// realPath: setup_wiki.py writes paths under its own resolved directory (macOS /var -> /private/var).
+func realPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
+// A ~/wiki the user had with .git and bin/ but no bin/ingest.py and no config.json: FindWiki does not see a main
+// wiki, so --main runs; setup_wiki.py must refuse it (no .bothouse-main) and leave every file as it was.
+func TestApplyWizardKeepsUserWikiWithoutIngest(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("WIKI_DIR", "")
+	mainWiki := filepath.Join(home, "wiki")
+	for p, c := range map[string]string{"bin/search.py": "# mine\n", ".git/HEAD": "ref: refs/heads/main\n",
+		"MEMORY.md": "- [a](a/README.md)\n", "a/README.md": "# a\n"} {
+		f := filepath.Join(mainWiki, p)
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := snapshotDir(t, mainWiki)
+	res := ApplyWizard(context.Background(), WizardEnv{Store: &hookMemStore{memStore: newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs, Cron: &memCron{}}, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	if !fileExists(mainWiki) {
+		t.Fatal("the user's ~/wiki was removed")
+	}
+	after := snapshotDir(t, mainWiki)
+	if len(after) != len(before) {
+		t.Fatalf("~/wiki files %d -> %d", len(before), len(after))
+	}
+	for p, v := range before {
+		if after[p] != v {
+			t.Fatalf("%s changed", p)
+		}
+	}
+	if s := wizardSteps(res)["wiki"]; s.Step == "" || s.OK {
+		t.Fatalf("wiki step = %+v (all %+v)", s, res.Steps)
 	}
 }

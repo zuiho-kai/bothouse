@@ -106,6 +106,45 @@ class RoleWiki(unittest.TestCase):
         self.assertNotIn("exists", self.run_py("setup_wiki.py", "whale"))
         self.assertTrue((w / "config.json").exists())
 
+    def test_main_refuses_user_wiki_without_mark(self):
+        # .git and bin/, no bin/ingest.py, no config.json, no .bothouse-main: not this program's, never removed
+        w = self.home / "wiki"
+        for p, c in {"bin/search.py": "# mine\n", ".git/HEAD": "ref: refs/heads/main\n", "a/README.md": "# a\n"}.items():
+            (w / p).parent.mkdir(parents=True, exist_ok=True)
+            (w / p).write_text(c)
+        before = {str(p): p.read_bytes() for p in w.rglob("*") if p.is_file()}
+        r = subprocess.run([sys.executable, "-X", "utf8", "-I", str(HERE / "setup_wiki.py"), "--main", str(w), "主管"],
+                           env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(before, {str(p): p.read_bytes() for p in w.rglob("*") if p.is_file()})
+
+
+    def test_main_for_lead(self):
+        """--main with the lead project: the lead's wiki (her transcripts, her persona as rule file, its own home, the
+        mark naming her); a role wiki made with WIKI_SHARED_BIN forwards there, with no ~/wiki at all."""
+        wd = self.role("juzi", "claudecode")
+        self.role("whale", "codex")
+        main = self.tmp / "elsewhere" / "wiki"  # $WIKI_DIR, not ~/wiki
+        self.env.update(WIKI_DIR=str(main), WIKI_TEAM=json.dumps(["Juzi", "Whale"]), WIKI_LEAD_PERSONA=str(wd / "CLAUDE.md"))
+        self.run_py("setup_wiki.py", "--main", str(main), "Juzi", "juzi")
+        cfg = json.loads((main / "config.json").read_text())
+        self.assertEqual(cfg["transcripts"], str(self.tmp / "tr" / "juzi"))
+        self.assertEqual((cfg["assistant"], cfg["home"], cfg["rule_files"]), ("Juzi", str(main), [str(wd / "CLAUDE.md")]))
+        self.assertIn("Whale", cfg["bots"])
+        self.assertEqual((main / ".bothouse-main").read_text().strip(), "juzi")
+        r = subprocess.run([sys.executable, "-X", "utf8", "-I", str(main / "bin" / "ingest.py"), "--help"], env=self.env,
+                           capture_output=True, text=True)
+        self.assertIn("usage", r.stdout, r.stderr)  # config.json accepted (no unknown key)
+        self.env["WIKI_SHARED_BIN"] = str(main / "bin")
+        self.run_py("setup_wiki.py", "whale")
+        w = self.home / "roles" / "whale" / "wiki"
+        self.assertEqual((w / "bin" / ".shared-bin").read_text().strip(), str(main / "bin"))
+        env = {k: v for k, v in self.env.items() if k not in ("WIKI_BIN", "WIKI_DIR")}  # an agent's shell
+        self.assertFalse((self.home / "wiki").exists())
+        r = subprocess.run([sys.executable, "-X", "utf8", "-I", str(w / "bin" / "search.py"), "分类"], env=env,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("not the shared tool", r.stdout + r.stderr)
 
     def test_dsh_engine(self):
         """ingest.py's dsh engine: the configured command, --profile headless, the overlay, the env file, stdin."""
@@ -185,6 +224,15 @@ class SubWikiPy(unittest.TestCase):
         subprocess.run([sys.executable, "-X", "utf8", "-I", str(self.dir / "sub-wiki.py"), "hook"], env=env, check=True, timeout=10)
         time.sleep(1)
         self.assertFalse(self.calls.exists())
+
+    def test_cron_skips_main_wiki_and_sets_wiki_dir(self):
+        """The lead's main wiki (MAIN_MARK) is run by the cron job itself, not again here; each run gets WIKI_DIR."""
+        (self.tmp / "wikis" / "juzi" / ".bothouse-main").write_text("juzi\n")
+        w = self.tmp / "wikis" / "whale"
+        (w / "bin" / "ingest.py").write_text(
+            f"import os,sys\nopen({str(self.calls)!r}, 'a').write('whale ' + os.environ.get('WIKI_DIR', '') + '\\n')\n")
+        self.assertEqual(self.run_py("nightly"), [f"whale {w}"])
+        self.assertEqual(self.run_py("hook-run", "juzi", "nope"), ["juzi --pending"])  # the hook still runs her
 
     @unittest.skipIf(os.name == "nt", "no /bin/sh on Windows")
     def test_sh_forwards(self):

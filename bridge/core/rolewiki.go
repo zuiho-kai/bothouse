@@ -325,12 +325,15 @@ type wizardLead struct {
 	team                   []string
 }
 
+// The project (and persona) is set only when the lead is a new role this run: a reused lead (an old member, e.g.
+// AppendOnly adding someone) gets no bots.json entry here, so a main wiki marked hers would read transcripts
+// nobody exports.
 func planLead(pl *wizardPlan) wizardLead {
-	l := wizardLead{name: pl.fallbackName, project: pl.fallback}
+	l := wizardLead{name: pl.fallbackName}
 	for _, r := range pl.roles {
 		l.team = append(l.team, r.Name)
-		if r.project == pl.fallback && r.workDir != "" {
-			l.persona = PersonaFilePath(r.AgentType, r.workDir)
+		if r.project == pl.fallback && !r.reused && r.workDir != "" {
+			l.project, l.persona = pl.fallback, PersonaFilePath(r.AgentType, r.workDir)
 		}
 	}
 	return l
@@ -517,7 +520,8 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 		if len(pl.roles) > 0 {
 			engines = roleWikiConfig(env.DataDir, pl.roles[0], req.Wiki, clis)
 		}
-		if _, detail, err := prepareRoleWikis(ctx, env, pl.fallbackName, engines); err != nil {
+		// no project: no new lead this run, so nobody would export to a main wiki marked hers
+		if _, detail, err := prepareRoleWikis(ctx, env, wizardLead{name: pl.fallbackName}, engines); err != nil {
 			addStep(res, "wiki", err, "")
 		} else if detail != "" {
 			addStep(res, "wiki", nil, detail)

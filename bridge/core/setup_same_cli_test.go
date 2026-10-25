@@ -92,11 +92,25 @@ func TestApplyWizardSameCLIRolesAreIndependent(t *testing.T) {
 			t.Fatalf("%s hooks: %v", project, err)
 		}
 		index := filepath.Join(work, "wiki", "MEMORY.md")
+		if i == 0 { // the lead (pl.fallback = roles[0].project): the main wiki is hers, she has no role wiki
+			index = filepath.Join(data, "main-wiki", "MEMORY.md")
+			if fileExists(filepath.Join(work, "wiki")) {
+				t.Fatalf("lead %s got a role wiki too", project)
+			}
+		}
 		if store.memIndex[project] != index {
 			t.Fatalf("%s memory_index=%q, want %q", project, store.memIndex[project], index)
 		}
 		if _, err := os.Stat(index); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// one lead only, by project: two roles on one CLI never both write the main wiki
+	bots := readBotsJSON(t, data)
+	if bots["writer"]["wiki"] != filepath.Join(data, "main-wiki") || bots["writer-2"]["wiki"] != nil {
+		t.Fatalf("bots.json = %v", bots)
+	}
+	if lead, ok := mainWikiLead(filepath.Join(data, "main-wiki")); !ok || lead != "writer" {
+		t.Fatalf("main wiki lead = %q %v", lead, ok)
 	}
 }

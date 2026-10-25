@@ -31,6 +31,7 @@ LEAD = os.environ.get("WIKI_LEAD", "主角色")
 USER = os.environ.get("WIKI_USER", "<用户名>")
 TRANSCRIPTS = os.environ.get("WIKI_TRANSCRIPTS") or str(HERE / "transcripts")
 MAIN_MARK = ".bothouse-main"  # in a main wiki this program made: the lead project whose wiki it is ("" = nobody's)
+ROLE_MARK = ".bothouse-role"  # in a role wiki this program made (made() may remove it when half-made)
 # categories: review ~/.claude/reviews/sub-memory.md (经历 / 方法与教训 / 作品 / 关系 / 偏好), listed as "我加的设定"
 DOMAINS = [("experiences", "经历", "经历：外出、玩过和做过的事、发生过的事故，以及当时的感受"),
            ("lessons", "方法与教训", "方法与教训：做事的方法、工具用法、踩过的坑"),
@@ -83,12 +84,14 @@ def commit(w, msg):
                    cwd=w, check=True)
 
 
-def made(w):
+def made(w, mark):
     """True when w is a finished wiki (config.json is written last). A half-made one (template copied, then a
-    crash before config.json) is removed so this run makes it again."""
+    crash before config.json) is removed so this run makes it again, but only when its mark (MAIN_MARK, ROLE_MARK)
+    says this program made it: a wiki the user had (.git and bin/, no config.json) is never removed; the caller
+    then refuses it."""
     if (w / "config.json").exists():
         return True
-    if (w / ".git").exists() and (w / "bin").is_dir():
+    if (w / mark).is_file() and (w / ".git").exists() and (w / "bin").is_dir():
         # git writes .git/objects read-only; Windows refuses to delete a read-only file, so clear the flag and retry
         shutil.rmtree(w, onerror=lambda fn, path, _: (os.chmod(path, stat.S_IWRITE), fn(path)))
     return False
@@ -96,7 +99,7 @@ def made(w):
 
 def main_wiki(w, lead, project=""):
     w = Path(w).expanduser()
-    if made(w):
+    if made(w, MAIN_MARK):
         print(w, "exists")
         return
     if w.exists() and any(w.iterdir()):
@@ -104,6 +107,7 @@ def main_wiki(w, lead, project=""):
     if w.exists():
         w.rmdir()
     from_template(w)
+    (w / MAIN_MARK).write_text(project + "\n")  # first, so a crash below leaves a wiki made() may remove and redo
     for f in (HERE / "llmwiki").glob("*.py"):
         shutil.copy(f, w / "bin" / f.name)
     shutil.copytree(HERE / "llmwiki" / "teammate", w / "bin" / "teammate", dirs_exist_ok=True,
@@ -123,7 +127,6 @@ def main_wiki(w, lead, project=""):
                # no lead given: each role's sessions go into that role's own wiki (bots.json); this one reads none
                "transcripts": str(w / ".no-sessions"), "rule_files": []}
     cfg["home"] = str(w)  # not ingest.py's "~/wiki" default: a main wiki at $WIKI_DIR is its own home
-    (w / MAIN_MARK).write_text(project + "\n")
     cfg.update({k: v for k, v in (json.loads(os.environ.get("WIKI_ENGINES") or "{}") or {}).items()
                 if k.endswith("_engine") or k in ("after_codex", "codex_models", "dsh_cmd", "dsh_patch", "dsh_env_file")})
     (w / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
@@ -134,7 +137,7 @@ def main_wiki(w, lead, project=""):
 def main(bot):
     name = NAMES[bot]
     w = Path(_bots[bot].get("wiki") or Path(_bots[bot]["workdir"]) / "wiki").expanduser()
-    if made(w):
+    if made(w, ROLE_MARK):
         print(bot, w, "exists")
         return
     if w.exists() and any(w.iterdir()):
@@ -142,6 +145,7 @@ def main(bot):
     if w.exists():
         w.rmdir()
     from_template(w)
+    (w / ROLE_MARK).write_text(bot + "\n")
     schema = (w / "schema/CLAUDE.zh-CN.md").read_text()
     body = schema.split("## 分层", 1)[1]
     body = "## 分层" + body
