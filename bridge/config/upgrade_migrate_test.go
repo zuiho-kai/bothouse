@@ -348,3 +348,29 @@ func TestRestoreConfigBackup(t *testing.T) {
 		t.Fatalf("got %q", raw)
 	}
 }
+
+// The dotted-options skip is migration-only: SaveAgentModel (used by /model
+// before switching) must still succeed on such configs, as before.
+func TestSaveAgentModelDottedOptionsStillWorks(t *testing.T) {
+	content := `[[projects]]
+name = "dot"
+[projects.agent]
+type = "codex"
+options.work_dir = "/tmp/d"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "A"
+`
+	setupMigrate(t, content)
+	if err := SaveAgentModel("dot", "gpt-5.4"); err != nil {
+		t.Fatalf("SaveAgentModel() on dotted options: %v", err)
+	}
+	cfg, err := Load(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := cfg.Projects[0].Agent.Options["model"].(string); got != "gpt-5.4" {
+		t.Fatalf("agent.options.model = %q, want gpt-5.4", got)
+	}
+}

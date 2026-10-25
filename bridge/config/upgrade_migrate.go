@@ -72,6 +72,10 @@ func SetAgentOptionsIfAbsent(edits []AgentOptionEdit) (applied []AgentOptionEdit
 		if _, ok := cfg.Projects[idx].Agent.Options[e.Key]; ok {
 			continue
 		}
+		if hasNonStandardOptionsTable(cur, idx, cfg.Projects[idx].Agent.Options != nil) {
+			failures = append(failures, roleSkipped(fmt.Errorf("project %q: %w", e.Project, ErrNonStandardOptionsTable)))
+			continue
+		}
 		cand, perr := patchProjectAgentOptionText(cur, e.Project, e.Key, e.Value)
 		if perr != nil {
 			failures = append(failures, roleSkipped(fmt.Errorf("project %q: %w", e.Project, perr)))
@@ -311,4 +315,25 @@ func markMigrationDone(dataDir, id string) error {
 		return err
 	}
 	return atomicWrite(filepath.Join(dataDir, migrationsFile), append(data, '\n'), 0o644)
+}
+
+// ErrNonStandardOptionsTable means a project's agent options are written as an
+// inline table or dotted keys, so the migration does not patch them as text.
+var ErrNonStandardOptionsTable = errors.New("agent options are not a [projects.agent.options] table (inline or dotted keys), skipped")
+
+// hasNonStandardOptionsTable reports whether project idx has options that are
+// not under a [projects.agent.options] header (inline table or dotted keys such
+// as options.work_dir = ...). Adding a header would define the table twice:
+// BurntSushi accepts that, tomllib does not. Migration-only: interactive saves
+// (SaveAgentModel etc.) keep the old behavior.
+func hasNonStandardOptionsTable(raw string, idx int, hasOptions bool) bool {
+	if !hasOptions {
+		return false
+	}
+	lines, _ := splitConfigLines(raw)
+	spans := buildRawProjectSpans(lines)
+	if idx >= len(spans) {
+		return false
+	}
+	return spans[idx].agentOptionsStart < 0
 }
