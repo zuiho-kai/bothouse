@@ -10,6 +10,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -107,8 +108,9 @@ var (
 )
 
 // retireTeamBoards deletes this project's old boards (e.g. after the lead moved
-// to another bot), then the state file. Boards that fail stay in the file so
-// the next start tries again.
+// to another bot), then the state file. Boards that fail with a temporary error
+// stay in the file so the next start tries again; boards the platform reports as
+// unremovable are dropped after one try.
 func (e *Engine) retireTeamBoards() {
 	statePath := filepath.Join(e.team.dir, e.name+teamBoardFileExt)
 	tick := time.NewTicker(teamBoardRetireEvery)
@@ -138,6 +140,12 @@ func (e *Engine) retireTeamBoards() {
 				ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
 				err := remover.RemoveBoard(ctx, b.SessionKey, b.MessageID)
 				cancel()
+				if errors.Is(err, ErrBoardUnremovable) {
+					// Retrying cannot help (archived thread, lost access): forget it.
+					slog.Warn("team board: old board cannot be removed, giving up", "chat", chat, "error", err)
+					delete(boards, chat)
+					continue
+				}
 				if err != nil {
 					slog.Warn("team board: remove old board failed", "chat", chat, "error", err)
 					continue

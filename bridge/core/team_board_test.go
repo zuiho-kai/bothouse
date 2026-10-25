@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,15 +169,24 @@ func TestBoardDisableStopsPublisher(t *testing.T) {
 
 type stubBoardRemover struct {
 	stubBoardPlatform
-	mu      sync.Mutex
-	removed []string
-	failFor string
+	mu       sync.Mutex
+	removed  []string
+	failFor  string
+	failErr  error
+	attempts map[string]int
 }
 
 func (p *stubBoardRemover) RemoveBoard(_ context.Context, _, messageID string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.attempts == nil {
+		p.attempts = map[string]int{}
+	}
+	p.attempts[messageID]++
 	if messageID == p.failFor {
+		if p.failErr != nil {
+			return p.failErr
+		}
 		return errors.New("boom")
 	}
 	p.removed = append(p.removed, messageID)
@@ -223,6 +233,63 @@ func TestFormerLeadRemovesOldBoards(t *testing.T) {
 			}
 			if p.posts != 0 {
 				t.Fatal("former lead must not post boards")
+			}
+		})
+	}
+}
+
+// A board the platform reports as unremovable (archived thread, lost access) is
+// tried once, logged once and dropped; a temporary failure keeps being retried.
+func TestFormerLeadGivesUpUnremovableBoard(t *testing.T) {
+	oldEvery := teamBoardRetireEvery
+	oldTries := teamBoardRetireTries
+	teamBoardRetireEvery = 5 * time.Millisecond
+	teamBoardRetireTries = 3
+	defer func() {
+		teamBoardRetireEvery = oldEvery
+		teamBoardRetireTries = oldTries
+	}()
+
+	for _, tc := range []struct {
+		name     string
+		failErr  error
+		attempts int
+		keep     bool
+	}{
+		{"unremovable dropped", fmt.Errorf("%w: thread archived", ErrBoardUnremovable), 1, false},
+		{"temporary retried", errors.New("network"), 3, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &stubBoardRemover{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
+				failFor: "m2", failErr: tc.failErr}
+			e := NewEngine("cjiang", &stubAgent{}, []Platform{p}, "", LangEnglish)
+			dir := t.TempDir()
+			e.SetTeam(dir, "C酱", false)
+			state := filepath.Join(dir, "cjiang"+teamBoardFileExt)
+			if err := os.WriteFile(state, []byte(`{"discord:111":{"session_key":"discord:111","message_id":"m1"},"discord:222":{"session_key":"discord:222","message_id":"m2"}}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			logs, restore := captureSlog(t)
+			e.retireTeamBoards()
+			restore()
+			p.mu.Lock()
+			got := p.attempts["m2"]
+			p.mu.Unlock()
+			if got != tc.attempts {
+				t.Fatalf("delete attempts = %d, want %d", got, tc.attempts)
+			}
+			raw, err := os.ReadFile(state)
+			if !tc.keep {
+				if !os.IsNotExist(err) {
+					t.Fatalf("state file kept: %s", raw)
+				}
+				if n := strings.Count(logs.String(), "giving up"); n != 1 {
+					t.Fatalf("give-up logged %d times, want 1:\n%s", n, logs)
+				}
+				return
+			}
+			if err != nil || !strings.Contains(string(raw), "m2") {
+				t.Fatalf("state = %s, %v; want the temporarily failed board kept", raw, err)
 			}
 		})
 	}

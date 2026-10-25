@@ -197,8 +197,24 @@ func TestRemoveBoard(t *testing.T) {
 		t.Fatalf("already-deleted board should count as removed: %v", err)
 	}
 	api.delErr = errors.New("network")
-	if err := removeBoard(api, "c1", "m2"); err == nil {
-		t.Fatal("real failure must be reported")
+	if err := removeBoard(api, "c1", "m2"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("temporary failure must stay retryable: %v", err)
+	}
+	api.delErr = &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusInternalServerError},
+		Message: &discordgo.APIErrorMessage{Code: 0}}
+	if err := removeBoard(api, "c1", "m2"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("server error must stay retryable: %v", err)
+	}
+	for _, rest := range []*discordgo.RESTError{
+		{Response: &http.Response{StatusCode: http.StatusBadRequest}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodePerformedOperationOnArchivedThread}},
+		{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}},
+	} {
+		api.delErr = rest
+		if err := removeBoard(api, "c1", "m3"); !errors.Is(err, core.ErrBoardUnremovable) {
+			t.Fatalf("permanent failure %+v must be unremovable, got %v", rest.Message, err)
+		}
 	}
 }
 

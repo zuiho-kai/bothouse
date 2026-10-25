@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -45,8 +46,24 @@ func (p *Platform) RemoveBoard(ctx context.Context, sessionKey, messageID string
 func removeBoard(api boardAPI, channelID, messageID string, options ...discordgo.RequestOption) error {
 	err := api.ChannelMessageDelete(channelID, messageID, options...)
 	var rest *discordgo.RESTError
-	if errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownMessage {
-		return nil // already gone
+	if !errors.As(err, &rest) {
+		return err
+	}
+	if rest.Message != nil {
+		switch rest.Message.Code {
+		case discordgo.ErrCodeUnknownMessage:
+			return nil // already gone
+		case discordgo.ErrCodePerformedOperationOnArchivedThread,
+			discordgo.ErrCodeUnknownChannel,
+			discordgo.ErrCodeMissingAccess:
+			return fmt.Errorf("%w: %w", core.ErrBoardUnremovable, err)
+		}
+	}
+	if rest.Response != nil {
+		switch rest.Response.StatusCode {
+		case http.StatusForbidden, http.StatusNotFound:
+			return fmt.Errorf("%w: %w", core.ErrBoardUnremovable, err)
+		}
 	}
 	return err
 }
