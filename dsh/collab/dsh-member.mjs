@@ -324,7 +324,7 @@ export class DshMembers {
 
   /** Add or replace a member at runtime; its bound Sessions pick up the new model on their next request. */
   putMember(m) {
-    if (this.cliAgents.get(m.id)?.cli !== m.cli) this.dropCli(m.id);
+    if (this.config.get(m.id)?.cli !== m.cli) this.dropCli(m.id);
     this.config.set(m.id, m);
     this.publish(m);
   }

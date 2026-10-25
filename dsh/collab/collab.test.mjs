@@ -4869,3 +4869,21 @@ test('channel directories: configuration rejects relative paths and accepts empt
     assert.throws(() => resolveConfig({ ...base, rooms: [{ id: 1, name: 'general', workspacePath }] }), /workspacePath/);
   }
 });
+
+
+test('channel directories: a released workspace uses its next owner directory and new native session', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'first', '/first');
+  hub.store.ensureRoom(2, 'second', '/second');
+  const workspace = hub.store.createWorkspace(1);
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const member = { id: 'ds', name: 'DS' };
+  await members.ensureAgent(member, hub.store.room(workspace.id));
+  assert.equal(hub.store.releaseWorkspace(workspace.id), true);
+  const reused = hub.store.createWorkspace(2);
+  assert.equal(reused.id, workspace.id);
+  assert.equal(hub.store.workspacePath(reused.id, '/w'), '/second');
+  await members.ensureAgent(member, hub.store.room(reused.id));
+  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/first', '/second']);
+  await members.close(); hub.store.close();
+});
