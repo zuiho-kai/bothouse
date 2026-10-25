@@ -383,6 +383,24 @@ func runMain() {
 		slog.Warn("legacy data migration incomplete, continuing startup", "error", err)
 	}
 
+	// Roles set up before new roles defaulted to full-auto (#225) still ask for
+	// approval; give the ones that never chose a mode the same default, once.
+	// Never blocks startup: a failed write is rolled back and retried next start.
+	applied, backup, err := config.MigrateYoloDefaults(cfg.DataDir, cfg)
+	if err != nil {
+		slog.Warn("upgrade: permission-mode migration incomplete, continuing startup", "error", err)
+	}
+	if len(applied) > 0 {
+		if newCfg, lerr := config.Load(configPath); lerr != nil {
+			slog.Warn("upgrade: config does not load after permission-mode migration, restoring backup", "backup", backup, "error", lerr)
+			if rerr := config.RestoreConfigBackup(backup); rerr != nil {
+				slog.Error("upgrade: restore config backup failed", "backup", backup, "error", rerr)
+			}
+		} else {
+			cfg = newCfg
+		}
+	}
+
 	// DSH roles set up before the image size limit was written get it in their overlay now (an upgrade restarts here).
 	for _, proj := range cfg.Projects {
 		if proj.Agent.Type != "dsh" {

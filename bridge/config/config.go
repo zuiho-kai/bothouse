@@ -3096,10 +3096,19 @@ func patchProjectAgentOption(projectName, key, value string) error {
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
 	}
-	raw := string(data)
+	out, err := patchProjectAgentOptionText(string(data), projectName, key, value)
+	if err != nil {
+		return err
+	}
+	return writeRawConfig(out)
+}
+
+// patchProjectAgentOptionText is patchProjectAgentOption on a string: it
+// returns raw with the key set, without touching the file.
+func patchProjectAgentOptionText(raw, projectName, key, value string) (string, error) {
 	cfg := &Config{}
-	if err := toml.Unmarshal(data, cfg); err != nil {
-		return fmt.Errorf("parse config: %w", err)
+	if err := toml.Unmarshal([]byte(raw), cfg); err != nil {
+		return "", fmt.Errorf("parse config: %w", err)
 	}
 
 	projectIdx := -1
@@ -3110,13 +3119,13 @@ func patchProjectAgentOption(projectName, key, value string) error {
 		}
 	}
 	if projectIdx < 0 {
-		return fmt.Errorf("project %q not found in config", projectName)
+		return "", fmt.Errorf("project %q not found in config", projectName)
 	}
 
 	lines, hadTrailing := splitConfigLines(raw)
 	spans := buildRawProjectSpans(lines)
 	if projectIdx >= len(spans) {
-		return fmt.Errorf("project %q located in parsed config but not raw file", projectName)
+		return "", fmt.Errorf("project %q located in parsed config but not raw file", projectName)
 	}
 	projSpan := spans[projectIdx]
 
@@ -3144,7 +3153,7 @@ func patchProjectAgentOption(projectName, key, value string) error {
 	}
 
 	lines = upsertTomlStringKey(lines, projSpan.agentOptionsStart+1, projSpan.agentOptionsEnd, key, value)
-	return writeRawConfig(joinConfigLines(lines, hadTrailing))
+	return joinConfigLines(lines, hadTrailing), nil
 }
 
 // patchTopLevelField does a surgical text-level update of a single top-level

@@ -1247,15 +1247,24 @@ func fillRoleResults(res *WizardResult, pl *wizardPlan) {
 
 // DefaultAgentYoloMode returns the full-auto / YOLO permission mode string for the given agent type.
 func DefaultAgentYoloMode(agentType string) string {
+	if m, ok := KnownAgentYoloMode(agentType); ok {
+		return m
+	}
+	return "yolo"
+}
+
+// KnownAgentYoloMode is DefaultAgentYoloMode for the agent types whose YOLO mode
+// is known; ok is false for any other type (dsh, acp, …), which must not be guessed.
+func KnownAgentYoloMode(agentType string) (mode string, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(agentType)) {
 	case "claudecode", "copilot":
-		return "bypassPermissions"
+		return "bypassPermissions", true
 	case "cursor":
-		return "force"
+		return "force", true
 	case "codex", "gemini", "antigravity", "pi", "qoder", "opencode", "kimi", "iflow", "reasonix":
-		return "yolo"
+		return "yolo", true
 	default:
-		return "yolo"
+		return "", false
 	}
 }
 
