@@ -2,11 +2,13 @@
 
 bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里一起说话、干活（随附的 bothouse 桥接在 `bridge/`），
 加上一份它们共用、会自己长的记忆（wiki，[llm-wiki](https://github.com/zuiho-kai/llm-wiki)）。
-走完线 1 和线 2 就能完整用。
+先接好成员开始对话，再按需要配置团队记忆和调度。
+
+**只有一个 CLI 或一个模型也能组队。** 多个角色可以选择同一套 Codex、Claude Code 或 Gemini CLI；在 DSH 里也可以添加三个都用同一 DeepSeek 的成员。每位成员有独立会话和人设，通过频道交换任务。具体步骤与共享边界见[同模型多成员指南](single-cli-team.md)。
 
 ## 三步用起来：装 → 向导 → 确认上线
 
-只有这一条路。macOS、Linux、Windows 都行（Apple 芯片 / Intel / arm64 / x86_64）。不用装 Go，也不用装 Node。
+下面先介绍 Discord / 自建平台的向导流程。macOS、Linux、Windows 都行（Apple 芯片 / Intel / arm64 / x86_64），预编译桥接不用装 Go 或 Node。已有 DSH、想在网页里添加多个 DeepSeek 或 Codex 成员，走[DSH 安装入口](../README.zh-CN.md#dsh-频道实验)和[成员配置步骤](single-cli-team.md#在-dsh-里创建三个成员)；DSH 插件另有 Node、pnpm 和版本要求。
 
 **1. 装。** 从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
 
@@ -49,7 +51,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
   以上 token、服务器和频道步骤适用于 Discord。选「自建平台」时，点「在本机启动」、填写角色名即可，不用注册 Discord 机器人；详见[自建平台步骤](connect-discord-feishu.md#7-自建平台)。
 - AI：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 Discord」。它按 [AGENTS.md](../AGENTS.md) 一次问齐要的东西，跑 `bothouse setup apply`。
 
-要你准备的只有：每个角色一个 Discord 机器人 token（开发者后台 → Bot → Reset Token，并打开 **Message Content Intent**），和本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）。
+Discord 要准备：每个角色一个不同的 Discord 机器人 token（开发者后台 → Bot → Reset Token，并打开 **Message Content Intent**），和本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）。多个角色在 CLI 一步可以全部选同一个；自建平台和 DSH 原生成员不需要 Discord token。
 服务器和频道在向导里点选；谁能指挥机器人（`allow_from`）默认就是建机器人的你。jev 和 gate 都可以不要。
 
 **3. 确认上线。** 保存后向导最后一页（或 `setup apply` 输出的 JSON）会列出还要你做的事：
@@ -69,7 +71,8 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 ```
              你                                    想要什么                         再看哪篇
  ───────────────────────────────    ─────────────────────────────────    ─────────────
- 只想在 Discord/飞书里有一群 AI      一主多 sub 的 AI 群                    上面三步就够
+ 想在 Discord/自建平台组队          多角色协作（可全用同一 CLI）            上面三步就够
+ 想在飞书里对话                     当前单角色接入                         接入指南
  还想要会记事、自己判断谁回           wiki 记忆、gate                        线 1 第 3–4 步
 ```
 
@@ -90,6 +93,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 
 - **ccm / maomao 分支**：`bridge/` 里的 bothouse 分支。比上游多了 gate、一主多 sub、队友状态、bot 之间交接。
 - **主 bot / sub**：主 bot 默认接话；sub 听得到群里每句话，只有被 @ 或被点名才开口。
+- **成员和模型**：成员是有名字、人设和独立会话的角色；模型是它使用的后端。多个成员可以用相同模型。DSH 频道的「单模型多进程」则是派活给自己的临时子任务，与添加多个常驻成员不同。
 - **gate（快脑）**：每条消息先问它「回 / 插进正在做的这一轮 / 不回」。先走规则，规则定不了再让 jev 读选项概率。
 - **wiki**：llm-wiki 的分层记忆（`MEMORY.md` → 域 `README.md` → 主题页）。会话结束后自动整理进去，gate 每轮把相关的页推给 bot。
 - **jev**：只做选择题、给出选项概率的模型。gate 用它判断群里一句话该哪个角色回。

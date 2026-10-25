@@ -1,15 +1,26 @@
-# collab：DSH 里的频道服务（阶段 1 最小纵切）
+# collab：DSH 里的频道与多成员协作
 
 上游 DSH 项目（未公开）的 Issue #229。一个以绝对路径加载的 DSH Host 插件（纯 ESM，无需构建），在 DSH Web 进程里提供：
 
 - **频道**：消息存在 `dataDir/collab.sqlite3`，重启不丢；数字消息 ID 与 role-household hub 一致。
-- **DSH 原生成员**：每个「成员 × 频道」绑定一条普通 DSH Session（在 DSH 网页里也能打开，标题 `#频道 · 成员名`）。被 @ 时把频道里它没看过的消息作为一条用户消息投递，取这一轮最后一条非空回复写回频道。模型可按成员指定，默认用 DSH 当前默认模型。
+- **DSH 原生成员**：每个「成员 × 频道」绑定独立 DSH Session，由插件作为内部会话管理，不出现在普通 DSH 对话列表中，标题为 `#频道 · 成员名`。被 @ 时把频道里它没看过的消息作为一条用户消息投递，取对应轮次的回复写回频道。多个成员可以选择同一个模型，各自保留会话和人设。
+- **本机 CLI 成员**：在原生频道页选择 Claude Code、Codex 或 Gemini；同一种 CLI 可以添加成多个不同成员，按成员创建运行实例、按成员和频道维护 ACP 会话。
 - **外部 Agent（cc-connect）**：实现 cloud_web WebSocket 服务端（`/cloud-web/ws`）与离线补历史接口（`GET /api/rooms/{id}/messages`），协议行为照搬 `role-household/rh/cloudweb.py`，cc-connect 无需改代码。
 - **最简消息页**：`/collab`，Discord 式三栏，SSE 实时更新。用 DSH 网页的登录 cookie 鉴权，跨源请求被 DSH 的 Host/Origin 校验拒绝。
 
 ## 数据存在哪里
 
 用 `install.sh` 装进 profile 时，配置来自 `cordis.patch.yml`：`dataDir` 默认取环境变量 `CONEST_COLLAB_DATA`，没设就是 `~/.conest-collab`（频道消息 `collab.sqlite3` 存在这里）；`workspacePath` 默认取 `CONEST_COLLAB_WORKSPACE`，没设就是启动 DSH 时的当前目录。测试或多开时把 `CONEST_COLLAB_DATA` 指到别的目录，免得写进默认库。
+
+## 只用一个模型或一种 CLI 组队
+
+在原生 DSH 网页的「频道」→「添加成员」中，连续添加三个不同名字的成员：
+
+- 都用 DeepSeek：成员类型选「DSH 模型」，三次明确选同一个提供方和模型，人设分别写规划、实现和检查。
+- 都用 Codex：成员类型选「本机 CLI」，三次都选 Codex，填写不同名字和职责。本机只需装好并配置一次 CLI。
+- 选择主角色，将「派活方式」设为「完全团队」，再用 @ 让它们分工交接。「单模型多进程」是派给角色自己的子任务，不会自动创建这些常驻成员。
+
+创建成员不要求模型或 CLI 唯一，名字和成员 ID 才需要唯一。公共频道消息会提供给成员，私有会话不会因后端相同而合并；共享 wiki 和工作文件仍可能传递信息。当前成员共用 `workspacePath`，会话独立不是文件或权限隔离。完整步骤、恢复行为和检查清单见[同模型多成员指南](../../docs/single-cli-team.md)（[English](../../docs/single-cli-team.en.md)）。
 
 ## 启用
 
@@ -64,10 +75,11 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /absolute/path/t
 ## 在网页里管理频道和成员（单人多 bot）
 
 - **新建频道**：频道列表标题旁的 `+`。
-- **添加 DSH 成员**：成员栏顶部「添加成员」，填名字（@ 时用，不能有空格，与所有成员不重名）、模型（下拉框列出 DSH 已注册路由的模型；某条路由读不到时会注明原因）、人设。成员存进 `collab.sqlite3`，重启后保留。
+- **添加成员**：原生频道页成员栏的「添加成员」，填名字（@ 时用，不能有空格，与所有成员不重名）、类型和人设。「DSH 模型」列出 DSH 已注册路由的模型；「本机 CLI」列出可检测到的 Claude Code、Codex、Gemini。成员存进 `collab.sqlite3`，重启后保留；检测到 CLI 不代表登录或适配器已可用，保存后要实际 @ 验证。
 - **编辑 / 移除**：网页里建的成员悬停时出现「编辑」「移除」；配置文件里的 `dshMembers` 作为种子写入，网页里只读（标 ⚙）。移除后历史消息保留。
 - **身份与人设**：每次投递都在提示词开头写明「你是频道 #x 的成员『名字』，底层模型 provider/model」，再附人设；频道里其他成员的自我介绍不会被当成它自己的。配置文件里也可以给 `dshMembers` 写 `persona`。
 - **模型变更即时生效**：写了 `model` 的成员每次请求都用它；在网页里改模型，已绑定的会话下一次请求就切换，并在会话日志里记一条 `model/selection`（DSH 网页里显示的模型随之变化）。
+- **重新开始对话**：在频道里发 `@成员名 /new`，只重置被点名成员在当前频道的会话，从该命令之后继续读取消息；其他成员、频道历史和 wiki 不因此清空。
 - 接口（都需要 DSH 登录）：`GET /collab/api/models`、`POST /collab/api/rooms`、`POST /collab/api/members`、`PATCH|DELETE /collab/api/members/{id}`。
 
 ## 接入 cc-connect 成员
@@ -143,12 +155,11 @@ corepack pnpm run build:check
 ## 已知限制
 
 - 单人：浏览器端只有 DSH owner 一个真人身份（多人见阶段 6）。
-- 审批：cloud_web 未声明按钮/卡片，cc-connect 的权限请求会降级成文字；DSH 成员的审批要到 DSH 网页里对应 Session 处理。
-- DSH 成员的 Session 也可以在 DSH 网页里直接对话；那样的轮次不会写回频道，频道也看不到。
-- 频道和成员只能在配置里声明，页面上不能新建。
+- 会话：DSH 原生成员是插件管理的内部会话，普通对话列表没有独立私聊入口。非频道轮次不会自动当作频道任务回复发布，这不保证模型以后不会在公开回答里引用已知内容。
+- 配置来源：原生频道页可以新建频道、添加/编辑成员；来自配置文件的种子成员在网页只读，要到原配置中修改。
+- 共享边界：成员共用配置的工作目录；启用的 wiki、工具和宿主机权限仍需单独管理，不能把独立 session 当作强隐私边界。
 - 原生页面首次加载最近 100 条，重连补齐当前窗口；尚无向上翻历史控件。
-- 当前窄屏（小于 900px）隐藏频道和成员栏，不能切换频道。
-- 尚无服务器创建、成员编辑、@ 自动补全和可交互审批卡。
+- 原生窄屏页面通过抽屉打开频道和成员栏；审批可在频道卡片中处理。不同入口的能力不能仅凭内部会话是否可见来判断。
 
 ### One-shot member follow-ups
 
