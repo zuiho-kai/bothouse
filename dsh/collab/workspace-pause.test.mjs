@@ -12,7 +12,7 @@ function makeHub() {
   return hub;
 }
 
-test('stale task pauses through existing queue without pausing fresh work', () => {
+test('a task idle past its 10-minute check pauses through the existing queue without pausing fresh work', () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
@@ -33,7 +33,7 @@ test('stale task pauses through existing queue without pausing fresh work', () =
   tasks.close();
 });
 
-test('workspace role messages refresh stale activity', () => {
+test('workspace role messages renew the 10-minute check, then idle parks', () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });

@@ -25,9 +25,11 @@ export const WORKING = ['assigned', 'accepted', 'asked', 'rework'];
 const REVIEWABLE = ['returned', 'declined', 'escalated'];
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
-// User, 2026-10-24: "稳定的一放一收，以小时为力度". An unfinished task
-// with no progress for one hour returns to the existing paused queue.
-const STALE_AFTER_S = 60 * 60;
+// Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW): at the check time a
+// workspace task with new role messages since its window opened gets another CHECK_AFTER_S, at
+// most MAX_RENEWALS times; otherwise it is parked (paused queue). Replaces the old one-hour park.
+// Source: 聊天频道橘 10-25 15:19 「有新进展续 10 分钟，最多续 2 次，没有就暂停」.
+export const MAX_RENEWALS = 2;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
@@ -87,7 +89,9 @@ export class Tasks {
       add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason, ref, base)
         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
-      set: this.db.prepare('UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
+      // A resumed (was paused) task starts a fresh watch: renewals back to 0 (rework: resetRenewals).
+      set: this.db.prepare(`UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END,
+        renewals = CASE WHEN paused_at IS NOT NULL THEN 0 ELSE renewals END WHERE id = ? AND status = ? RETURNING *`),
       handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', paused_at = NULL, next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
         WHERE id = ? AND status = ? RETURNING *`),
       bindAssign: this.db.prepare('UPDATE tasks SET assign_msg_id = ? WHERE id = ? AND assign_msg_id IS NULL'),
@@ -104,6 +108,8 @@ export class Tasks {
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
       workspaceActivity: this.db.prepare("SELECT MAX(created_at) AS at FROM messages WHERE room_id = ? AND author_kind = 'role' AND card IS NULL AND deleted = 0"),
       // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
+      resetRenewals: this.db.prepare('UPDATE tasks SET renewals = 0 WHERE id = ?'),
+      renew: this.db.prepare(`UPDATE tasks SET next_check_at = ?, renewals = ? WHERE id = ? AND ${LIVE} RETURNING *`),
       park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
@@ -284,7 +290,9 @@ export class Tasks {
     const status = STANCES[mark];
     this.resumeClaim(task, true);
     // 退/升 hand the turn to the lead: the reminder is cancelled.
-    const check = status === 'declined' || status === 'escalated' ? null : task.next_check_at;
+    // A paused task answered again is back in work with a fresh check time.
+    const check = status === 'declined' || status === 'escalated' ? null
+      : task.paused_at != null ? this.now() + CHECK_AFTER_S : task.next_check_at;
     const row = this.q.set.get(status, check, clip(note), this.now(), check === null ? 0 : 1, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     const tail = row.note ? `：${row.note}` : '';
@@ -319,6 +327,7 @@ export class Tasks {
     const check = verdict === 'rework' ? this.now() + CHECK_AFTER_S : null;
     const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), 0, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    if (verdict === 'rework') this.q.resetRenewals.run(id);
     const tail = clip(note) ? `：${clip(note)}` : '';
     this.record(row, verdict, verdict === 'done'
       ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
@@ -457,15 +466,18 @@ export class Tasks {
     }
   }
 
-  /** Post the reminder for every task past its check time, once each, and wake its owner. */
+  /**
+   * At its check time a workspace task is renewed or parked (watch); a task in any other room
+   * gets one reminder @-ing the owner, which also wakes it.
+   */
   tick() {
     if (this.closed || !this.started) return;
+    const now = this.now();
     for (const task of this.q.allBusy.all(...WORKING)) {
-      if (this.store.room(task.room_id)?.kind !== 'workspace') continue;
-      const activity = this.q.workspaceActivity.get(task.room_id).at ?? task.updated_at;
-      if (this.now() - Math.max(task.updated_at, activity) >= STALE_AFTER_S) this.pauseTask(task.id);
+      if (this.store.room(task.room_id)?.kind === 'workspace' && watchDue(task) <= now) this.watch(task, now);
     }
-    for (const task of this.q.due.all(this.now(), ...WORKING)) {
+    for (const task of this.q.due.all(now, ...WORKING)) {
+      if (this.store.room(task.room_id)?.kind === 'workspace') continue;
       const name = this.nameOf(task.owner);
       const { message } = this.hub.post(task.room_id, {
         authorKind: 'system', author: 'system', name: '任务提醒',
@@ -477,6 +489,25 @@ export class Tasks {
       this.changed(task.id);
     }
     this.arm();
+  }
+
+  /**
+   * A workspace task at its check time: new role messages in the workspace since the window
+   * opened (watchDue - CHECK_AFTER_S) and fewer than MAX_RENEWALS renewals → another
+   * CHECK_AFTER_S; otherwise it is parked through pauseTask (the record goes first, while the
+   * workspace still names its chat channel).
+   */
+  watch(task, now) {
+    const since = watchDue(task) - CHECK_AFTER_S;
+    const at = this.q.workspaceActivity.get(task.room_id).at;
+    const renewals = task.renewals ?? 0;
+    if (at != null && at > since && renewals < MAX_RENEWALS) {
+      if (this.q.renew.get(now + CHECK_AFTER_S, renewals + 1, task.id, ...WORKING) !== undefined) this.changed(task.id);
+      return;
+    }
+    const why = renewals >= MAX_RENEWALS ? `已续期 ${MAX_RENEWALS} 次` : `${CHECK_AFTER_S / 60} 分钟内没有新进展`;
+    this.record(task, 'pause', `#${task.id}「${task.title}」${why}，已暂停；${this.nameOf(task.owner)} 表态或交回即恢复`);
+    this.pauseTask(task.id);
   }
 
   /** Retry every undelivered reminder whose task is still the owner's turn. */
@@ -507,10 +538,11 @@ export class Tasks {
     if (this.timer !== undefined) this.clearTimer(this.timer);
     this.timer = undefined;
     if (this.closed) return;
-    const stale = this.q.allBusy.all(...WORKING)
-      .filter(t => this.store.room(t.room_id)?.kind === 'workspace')
-      .map(t => Math.max(t.updated_at, this.q.workspaceActivity.get(t.room_id).at ?? 0) + STALE_AFTER_S);
-    const at = [this.q.next.get(...WORKING).at, ...stale].filter(t => t != null).sort((a, b) => a - b)[0];
+    // Workspace tasks without a check time (spent by an older reminder) are still watched.
+    const unchecked = this.q.allBusy.all(...WORKING)
+      .filter(t => t.next_check_at == null && this.store.room(t.room_id)?.kind === 'workspace')
+      .map(watchDue);
+    const at = [this.q.next.get(...WORKING).at, ...unchecked].filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));
     this.timer = this.setTimer(() => { this.timer = undefined; this.tick(); }, ms);
@@ -632,6 +664,11 @@ function withoutLeadingMentions(text, team) {
   let i = 0;
   while (i < parts.length && (parts[i][1] !== null || !parts[i][0].trim())) i++;
   return parts.slice(i).map(([seg]) => seg).join('').trimStart();
+}
+
+/** When a workspace task's watch is due: its check time, or CHECK_AFTER_S after its last change. */
+function watchDue(task) {
+  return task.next_check_at ?? task.updated_at + CHECK_AFTER_S;
 }
 
 function clip(note) {

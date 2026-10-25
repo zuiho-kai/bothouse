@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
-import { Tasks, MISSING_REF, hasRef } from './tasks.mjs';
+import { Tasks, MISSING_REF, hasRef, CHECK_AFTER_S, MAX_RENEWALS } from './tasks.mjs';
 
 function setup() {
   const store = new Store(':memory:');
@@ -77,5 +77,68 @@ test('tasks opened from chat skip the ref check', () => {
   const { tasks } = setup();
   const t = tasks.assign({ roomId: 1, title: '频道里派的', owner: 'ds', actor: 'lead', force: true });
   assert.equal(t.ref, null);
+  tasks.close();
+});
+
+// #574 B2: a workspace task at its 10-minute check is renewed when the workspace has new role
+// messages (at most MAX_RENEWALS times), otherwise parked. Same rule as contrib/lead/d10-fire.
+function watchSetup() {
+  const { hub } = setup();
+  const ws = hub.store.createWorkspace(1);
+  let now = 10000;
+  const tasks = new Tasks(hub, { now: () => now, setTimer: () => ({}), clearTimer() {} });
+  const t = tasks.assign({ roomId: ws.id, title: '看门', owner: 'ds', actor: 'lead' });
+  return {
+    hub, ws, tasks, t,
+    at: s => { now = 10000 + s; tasks.tick(); return tasks.task(t.id); },
+    say: s => hub.store.append(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '进度' }, 10000 + s),
+    records: () => hub.store.page(ws.id, undefined, 200).filter(m => m.name === '任务' && /已暂停/.test(m.text)),
+  };
+}
+
+test('watch: no activity in 10 minutes parks the workspace task', () => {
+  const { tasks, ws, hub, at, records } = watchSetup();
+  assert.equal(at(CHECK_AFTER_S - 1).paused_at, null, 'not before the check time');
+  const t = at(CHECK_AFTER_S);
+  assert.ok(t.paused_at, 'parked at 10 minutes, not after an hour');
+  assert.equal(t.renewals, 0);
+  assert.equal(hub.store.workspaceOwner(ws.id), null, 'workspace back to the pool');
+  assert.match(records()[0].text, /10 分钟内没有新进展，已暂停/);
+  assert.equal(hub.store.page(ws.id, undefined, 200).filter(m => m.name === '任务提醒').length, 0, 'no reminder instead');
+  tasks.close();
+});
+
+test('watch: a message in the window renews 10 minutes', () => {
+  const { tasks, say, at } = watchSetup();
+  say(300);
+  const t = at(CHECK_AFTER_S);
+  assert.equal(t.paused_at, null);
+  assert.equal(t.renewals, 1);
+  assert.equal(t.next_check_at, 10000 + 2 * CHECK_AFTER_S);
+  // The next window has no new message: parked.
+  assert.ok(at(2 * CHECK_AFTER_S).paused_at);
+  tasks.close();
+});
+
+test(`watch: after ${MAX_RENEWALS} renewals it parks even with new messages`, () => {
+  const { tasks, say, at, records } = watchSetup();
+  say(300); assert.equal(at(CHECK_AFTER_S).renewals, 1);
+  say(900); assert.equal(at(2 * CHECK_AFTER_S).renewals, 2);
+  say(1500);
+  const t = at(3 * CHECK_AFTER_S);
+  assert.ok(t.paused_at, 'third check parks');
+  assert.equal(t.renewals, MAX_RENEWALS);
+  assert.match(records()[0].text, /已续期 2 次，已暂停/);
+  tasks.close();
+});
+
+test('watch: a parked task answered again gets a fresh 10 minutes and renewals', () => {
+  const { tasks, t, say, at } = watchSetup();
+  say(300); at(CHECK_AFTER_S); say(900); at(2 * CHECK_AFTER_S);
+  assert.ok(at(3 * CHECK_AFTER_S).paused_at);
+  const back = tasks.stance(t.id, { actor: 'ds', stance: '接' });
+  assert.equal(back.paused_at, null);
+  assert.equal(back.next_check_at, 10000 + 4 * CHECK_AFTER_S);
+  assert.equal(tasks.task(t.id).renewals, 0);
   tasks.close();
 });
