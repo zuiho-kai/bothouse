@@ -276,7 +276,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	for _, f := range files {
 		for _, task := range f.Tasks {
-			if !listedTaskState(task.State) || !safeTaskURL(task.URL) || task.SessionKey == "" {
+			if !listedTaskState(task.State) || !boardTaskURL(task.URL) || task.SessionKey == "" {
 				continue
 			}
 			chat := chatOf(task.SessionKey)

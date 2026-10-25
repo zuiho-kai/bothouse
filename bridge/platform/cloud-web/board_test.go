@@ -196,3 +196,16 @@ func TestTeamBoardNeedsEditableMessages(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotSupported marked unrecoverable", err)
 	}
 }
+
+func TestTeamBoardStateFollowsLiveWork(t *testing.T) {
+	for content, want := range map[string]string{
+		"**谁在干啥**\n**橘**　💤 空闲":                           `"state":"completed"`,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜x": `"state":"running"`,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完**\n- 橘：修登录": `"state":"completed"`,
+		"**谁在干啥**\n**橘**　🔧 修登录（03:00 起）": `"state":"running"`,
+	} {
+		if got := renderBoardText(content); !strings.Contains(got, want) {
+			t.Errorf("renderBoardText(%q) = %s, want %s", content, got, want)
+		}
+	}
+}

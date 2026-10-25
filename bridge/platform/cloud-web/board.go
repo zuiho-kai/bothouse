@@ -126,7 +126,8 @@ func (p *Platform) RemoveBoard(ctx context.Context, sessionKey, messageID string
 // renderBoardText encodes the board as a progress-card payload, like the task
 // card: the gateway stores it with a card, which keeps it out of the text-draft
 // cleanup when the bot reconnects. The first line is the title; markdown bold
-// markers are dropped because card rows are plain text.
+// markers are dropped because card rows are plain text. The card is Running
+// while the board shows live work (core.TeamBoardActive), otherwise Done.
 func renderBoardText(content string) string {
 	lines := strings.Split(strings.ReplaceAll(content, "**", ""), "\n")
 	title := strings.TrimSpace(lines[0])
@@ -139,5 +140,9 @@ func renderBoardText(content string) string {
 	if len(items) == 0 {
 		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: title})
 	}
-	return core.BuildProgressCardPayloadV2(items, false, "📋 "+title, "", core.ProgressCardStateRunning)
+	state := core.ProgressCardStateCompleted
+	if core.TeamBoardActive(content) {
+		state = core.ProgressCardStateRunning
+	}
+	return core.BuildProgressCardPayloadV2(items, false, "📋 "+title, "", state)
 }

@@ -254,3 +254,68 @@ func TestTeamTaskBoardUnplacedMainChatOnly(t *testing.T) {
 		t.Fatalf("a board was made for an unplaced item: %v", boards)
 	}
 }
+
+// #597 G4: a cloud_web single-role board shows the task board once (no second 在做 / 今天做完
+// block), and the card state follows TeamBoardActive on the K9 layout.
+func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
+	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	defer e.cancel()
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true}
+	now := time.Now()
+	files := []teamFile{{Project: "a", Name: "橘", Updated: now, Sessions: []teamEntry{{Key: "cloud_web:room-1", Chat: "room-1", Task: "写文档", Worked: true, Since: now, DoneAt: now}}}}
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","sk":"cloud_web:room-1"}`+"\n")
+	writeTaskBoard(t, dir, teamTaskBoardDoneFile, `{"id":2,"what":"写文档","who":"橘","sk":"cloud_web:room-1","done_at":"`+now.Format("01-02 15:04")+`"}`+"\n")
+	if !e.updateTeamBoards(files, map[string]*boardChat{}) {
+		t.Fatal("no board posted")
+	}
+	got := p.content["cloud_web:room-1"]
+	for want, n := range map[string]int{"**任务板**": 1, "#1 修登录": 1, "**今天做完**": 1, "- 橘：写文档": 1, "**在做**": 0} {
+		if c := strings.Count(got, want); c != n {
+			t.Fatalf("%q appears %d times, want %d:\n%s", want, c, n, got)
+		}
+	}
+	if !TeamBoardActive(got) {
+		t.Fatalf("running item, card must be Running:\n%s", got)
+	}
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","paused":"10-26 04:00","pause_why":"等回复","sk":"cloud_web:room-1"}`+"\n")
+	e.updateTeamBoards(files, map[string]*boardChat{})
+	got = p.content["cloud_web:room-1"]
+	if !strings.Contains(got, "**暂停**\n#1 修登录") || TeamBoardActive(got) {
+		t.Fatalf("paused only, card must be Completed:\n%s", got)
+	}
+}
+
+func TestTeamBoardActiveTaskBoardLayout(t *testing.T) {
+	cases := map[string]bool{
+		"**谁在干啥**\n**橘**　💤 空闲":                                                               false,
+		"**谁在干啥**\n**橘**　✅ 做完：x（03:00）":                                                      false,
+		"**谁在干啥**\n**橘**　🔧 x（03:00 起）":                                                       true,
+		"**谁在干啥**\n**橘**　📋 x（进行中 · 03:00）":                                                   true,
+		"**谁在干啥**\n**进行中**\n• x · 橘\n\n**橘**　💤 空闲":                                           true,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜10-26 03:00":                           true,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**工作区1**\n#3 交接｜工作区1橘｜-｜-":           true,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘｜-｜-｜暂停：等回复":           false,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完**\n- 橘：写文档": false,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完** 4 件":      false,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 a｜x　y｜-｜-":                                      true,
+	}
+	for in, want := range cases {
+		if got := TeamBoardActive(in); got != want {
+			t.Errorf("TeamBoardActive(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestBoardListsURLLessTaskCards(t *testing.T) {
+	now := time.Now()
+	files := []teamFile{{Project: "a", Name: "橘", Updated: now, Tasks: []teamTaskLink{
+		{ID: "t1", SessionKey: "cloud_web:room-1", Title: "网页任务", State: TaskStateInProgress, UpdatedAt: now},
+		{ID: "t2", SessionKey: "cloud_web:room-1", Title: "坏链接", URL: "javascript:x", State: TaskStateInProgress, UpdatedAt: now},
+	}}}
+	text := renderTeamBoardWithTasks(files, "cloud_web:room-1", LangChinese)
+	if !strings.Contains(text, "• 网页任务 · 橘") || strings.Contains(text, "坏链接") {
+		t.Fatalf("board:\n%s", text)
+	}
+}

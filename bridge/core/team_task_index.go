@@ -64,7 +64,7 @@ func (p *PublicProgress) taskLinks() []teamTaskLink {
 		r.mu.Lock()
 		t := r.record.Task
 		// A link is useful only once the platform has returned a real message.
-		if listedTaskState(t.State) && t.MessageID != "" && safeTaskURL(t.CardURL) {
+		if listedTaskState(t.State) && t.MessageID != "" && boardTaskURL(t.CardURL) {
 			links = append(links, teamTaskLink{ID: t.ID, SessionKey: t.SessionKey, Title: t.Title, URL: t.CardURL, State: t.State, UpdatedAt: t.UpdatedAt, Members: teamTaskMembers(t.Members)})
 		}
 		r.mu.Unlock()
@@ -77,6 +77,14 @@ func safeTaskURL(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil &&
 		!strings.ContainsAny(raw, " \t\r\n()<>\\") && len(raw) <= 240
+}
+
+// boardTaskURL accepts a task for the board: a safe link, or no link at all.
+// cloud_web (Channels / DSH) edits the card in the room but has no message
+// permalink, so its CardURL stays empty; requiring https dropped every one of
+// its tasks from the board. Such tasks are listed without a link.
+func boardTaskURL(raw string) bool {
+	return raw == "" || safeTaskURL(raw)
 }
 
 // Keep task/role names on one line without permitting extra links or mentions.
@@ -100,7 +108,7 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 	for _, f := range files {
 		for _, task := range f.Tasks {
 			key := f.Project + "/" + task.ID
-			if seen[key] || chatOf(task.SessionKey) != chat || !listedTaskState(task.State) || !safeTaskURL(task.URL) {
+			if seen[key] || chatOf(task.SessionKey) != chat || !listedTaskState(task.State) || !boardTaskURL(task.URL) {
 				continue
 			}
 			seen[key] = true
@@ -135,6 +143,9 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 			key = MsgBoardTasksWaiting
 		}
 		line := fmt.Sprintf("• [%s](%s) · %s", taskIndexLabel(task.Title, 50), task.URL, taskIndexLabel(task.name, 20))
+		if task.URL == "" {
+			line = fmt.Sprintf("• %s · %s", taskIndexLabel(task.Title, 50), taskIndexLabel(task.name, 20))
+		}
 		heading := ""
 		if key != group {
 			heading = "\n**" + i18n.T(key) + "**"
