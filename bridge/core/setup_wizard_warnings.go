@@ -320,16 +320,21 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 		if req.gateOn() {
 			res.GateStatus = gateStatusAfterWizard(res.dataDir)
 		}
+		// a single role has the gate for its wiki and task board, not for routing: no routing line,
+		// no jev note (a jev only chooses who answers), but the python warning still applies
+		team := len(pl.team) > 1
 		hint := res.GateStatus
 		if req.gateOn() && !jevUsable && (hint == GateStatusRunning || hint == GateStatusStarting) {
 			hint = GateStatusJevMissing // the gate runs (wiki, task board) but does not choose who answers: the lead does
 		}
-		res.GateHint = GateHint(req.Language, hint, pl.fallbackName)
+		if team {
+			res.GateHint = GateHint(req.Language, hint, pl.fallbackName)
+		}
 		switch res.GateStatus {
 		case GateStatusPythonMissing, GateStatusPythonTooOld:
 			res.Warnings = append(res.Warnings, warnGatePython(req.Language, res.GateStatus))
 		}
-		if req.gateOn() && !jevUsable {
+		if team && req.gateOn() && !jevUsable {
 			res.Warnings = append(res.Warnings, warnJevRecommended(req.Language, pl.fallbackName))
 		}
 	}

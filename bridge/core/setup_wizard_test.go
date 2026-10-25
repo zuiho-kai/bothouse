@@ -1336,17 +1336,25 @@ func TestApplyWizardFeishuLarkGateTwoRuns(t *testing.T) {
 				return res
 			}
 
-			// run 1: one bot, no team yet, so no gate fields and no gate-team.json
+			// run 1: one bot = a team of one: it is the lead, so it gets the lead's gate (fallback
+			// "reply") and gate-team.json, but no team wiring (no teammate to hear)
 			run("cli_a", "Juzi", nil)
 			ju := store.projects["juzi"]
 			if ju == nil || ju.PlatformType != pt || ju.Options["app_id"] != "cli_a" {
 				t.Fatalf("run 1: %v %+v", store.order, ju)
 			}
-			if ju.GateURL != nil {
-				t.Errorf("run 1 (one bot) wrote a gate: %q", str(ju.GateURL))
+			if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" {
+				t.Errorf("run 1 (one bot) gate = %q/%q, want the lead's", str(ju.GateURL), str(ju.GateFallback))
 			}
-			if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); !os.IsNotExist(err) {
-				t.Errorf("run 1 (one bot) wrote gate-team.json: %v", err)
+			if ju.Options["group_reply_all"] != nil {
+				t.Errorf("run 1 (one bot) wrote team wiring: %v", ju.Options)
+			}
+			var gt struct {
+				Lead struct{ Name string }
+				Subs map[string]any
+			}
+			if b, err := os.ReadFile(filepath.Join(dir, gateTeamFile)); err != nil || json.Unmarshal(b, &gt) != nil || gt.Lead.Name != "Juzi" || len(gt.Subs) != 0 {
+				t.Errorf("run 1 (one bot) gate-team.json = %+v, %v", gt, err)
 			}
 			// the user set this one by hand: kept
 			ju.Options["share_session_in_channel"] = false
@@ -1499,4 +1507,90 @@ func TestApplyWizardCloudWebGateOffKeptOnAddRole(t *testing.T) {
 		t.Fatalf("add role failed: %v %+v", store.order, res)
 	}
 	assertGateStaysOff(t, store, dir, res, str)
+}
+
+// #597 K12: one role from the wizard (no prompts, as the web wizard posts it) is a team of one: it
+// gets the lead's gate (gate_url, fallback "reply", so it still answers when the gate is down),
+// gate-team.json naming it the lead, and the team status defaults (team dir, board, workspaces).
+// No team wiring is written. A rerun keeps a hand-written gate_url; gate off clears the wizard's.
+func TestApplyWizardSingleRoleGetsLeadSetup(t *testing.T) {
+	check := func(t *testing.T, dir string, store *memStore, project, name string, str func(*string) string) {
+		t.Helper()
+		p := store.projects[project]
+		if p == nil {
+			t.Fatalf("projects = %v", store.order)
+		}
+		if str(p.GateURL) != defaultGateURL || str(p.GateFallback) != "reply" {
+			t.Errorf("gate = %q/%q, want %q/reply", str(p.GateURL), str(p.GateFallback), defaultGateURL)
+		}
+		// (cloud_web writes group_reply_all for any member, team or not: rh/cloudweb.py needs it)
+		for _, k := range []string{"allow_bots", "team_lead_bot"} {
+			if p.Options[k] != nil {
+				t.Errorf("single role got team wiring %s = %v", k, p.Options[k])
+			}
+		}
+		if lead, _, subs := readGateTeam(t, dir); lead != name || len(subs) != 0 {
+			t.Errorf("gate-team.json: lead=%q subs=%v", lead, subs)
+		}
+		teamDir, gotName, lead, ok := WizardTeamDefaults(dir, project)
+		if !ok || !lead || gotName != name || teamDir != filepath.Join(dir, "team") {
+			t.Fatalf("team defaults = %q %q lead=%v ok=%v", teamDir, gotName, lead, ok)
+		}
+		e := wizardEngine(t, dir, project)
+		if e.team == nil || !e.isTeamLead() || e.teamWS == nil {
+			t.Fatalf("engine: team=%v lead=%v workspaces=%v", e.team != nil, e.isTeamLead(), e.teamWS != nil)
+		}
+	}
+
+	t.Run("discord", func(t *testing.T) {
+		str := wizardGateTestEnv(t)
+		t1 := fakeToken("111")
+		fakeDiscord(t, map[string]string{t1: "Juzi"})
+		dir, store := t.TempDir(), newMemStore()
+		env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+		run := func(gate *WizardGate) *WizardResult {
+			t.Helper()
+			req := discordReq("900", WizardRole{Token: t1})
+			req.Gate = gate
+			res := ApplyWizard(context.Background(), env, req)
+			if !res.OK {
+				t.Fatalf("apply failed: %+v", res)
+			}
+			return res
+		}
+		res := run(nil)
+		check(t, dir, store, "juzi", "Juzi", str)
+		if p := store.projects["juzi"]; p.Options["group_reply_all"] != nil {
+			t.Errorf("discord single role got group_reply_all = %v", p.Options["group_reply_all"])
+		}
+		if res.GateStatus != GateStatusPythonMissing || findWarning(res, "gate_python_missing") == nil {
+			t.Errorf("gate status = %q, warnings %v", res.GateStatus, warningCodes(res))
+		}
+
+		// gate off: the wizard's gate cleared
+		run(&WizardGate{Enabled: false})
+		if p := store.projects["juzi"]; str(p.GateURL) != "" || str(p.GateFallback) != "" {
+			t.Errorf("gate off: %q/%q", str(p.GateURL), str(p.GateFallback))
+		}
+		// a hand-written gate_url survives a rerun with the gate on
+		hand := "http://10.0.0.5:9930/decide"
+		store.projects["juzi"].GateURL = &hand
+		run(&WizardGate{Enabled: true})
+		if p := store.projects["juzi"]; str(p.GateURL) != hand {
+			t.Errorf("hand-written gate_url = %q, want %q", str(p.GateURL), hand)
+		}
+	})
+
+	t.Run("cloud_web", func(t *testing.T) {
+		str := wizardGateTestEnv(t)
+		noLocalHub(t)
+		hub := fakeHub(t, "bot-secret")
+		dir, store := t.TempDir(), newMemStore()
+		res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs},
+			cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Juzi"}))
+		if !res.Saved {
+			t.Fatalf("apply failed: %+v", res)
+		}
+		check(t, dir, store, "juzi", "Juzi", str)
+	})
 }

@@ -166,10 +166,10 @@ func TestApplyWizardGateStatus(t *testing.T) {
 	if res.GateRunning == nil || !*res.GateRunning || findWarning(res, "gate_not_running") != nil {
 		t.Fatalf("gate up: running=%v %v", res.GateRunning, warningCodes(res))
 	}
-	// one bot: no gate line at all
+	// one bot: the gate runs for its wiki and task board, but there is no routing line
 	one := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs}, discordReq("900", WizardRole{Token: t1}))
-	if one.GateRunning != nil || one.GateHint != "" {
-		t.Fatalf("single bot gate = %v %q", one.GateRunning, one.GateHint)
+	if one.GateRunning == nil || one.GateStatus == GateStatusOff || one.GateHint != "" {
+		t.Fatalf("single bot gate = %v %q %q", one.GateRunning, one.GateStatus, one.GateHint)
 	}
 }
 
