@@ -6,15 +6,22 @@
 这里用 aiohttp 客户端假装 cc-connect，不起 cc-connect、不调模型。"""
 from __future__ import annotations
 
+import asyncio
+import os
+import socket
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import aiohttp
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tests.test_cloudweb import JU_ID, LN_ID, CloudWebBase
-from tests.test_hub import AUTH, wait_for
+from tests.test_hub import AUTH, TOKEN, wait_for
 
 
 class LeadIdentity(CloudWebBase):
@@ -320,6 +327,73 @@ class TeamExitRoute(CloudWebBase):
         await self.post(f"{ask['id']} 换吧")
         m = await self.frame(ln, lambda m: m["chat_id"] == f"room-{self.w}")
         self.assertEqual(m["content"], f"用户回复 {ask['id']}：\n{ask['id']} 换吧")
+
+
+class TeamExitRealEntry(unittest.IsolatedAsyncioTestCase):
+    """真入口 `python -m rh.hub`（发布包 bridge/core/setup_cloudweb.go、deploy/hub/Dockerfile 都这么起）：hub.py 跑在
+    __main__ 里，Conflict 要和 team_exit 接的是同一个类，主频道归档后 bot 发 [report] 连接才不断（PR #390 审稿第 2 轮）。
+    单元测试 from rh.hub import Hub 测不到，这里起子进程，独立临时 HOME 和端口。"""
+
+    async def asyncSetUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        self.url = f"http://127.0.0.1:{port}"
+        self.err = open(Path(self.tmp.name) / "stderr.log", "w+")
+        env = {**os.environ, "HOME": self.tmp.name, "RH_HUB_TOKEN": TOKEN}
+        env.pop("RH_BOT_TOKEN", None)
+        self.proc = subprocess.Popen([sys.executable, "-m", "rh.hub", "--port", str(port),
+                                      "--db", str(Path(self.tmp.name) / "hub.sqlite3")],
+                                     cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=self.err)
+        self.http = aiohttp.ClientSession(headers=AUTH)
+        for _ in range(200):
+            try:
+                async with self.http.get(f"{self.url}/api/rooms") as r:
+                    if r.status == 200:
+                        break
+            except aiohttp.ClientError:
+                pass
+            await asyncio.sleep(0.05)
+
+    async def asyncTearDown(self):
+        await self.http.close()
+        self.proc.terminate()
+        self.proc.wait(10)
+        self.err.close()
+        self.tmp.cleanup()
+
+    async def test_archived_chat_room_report_keeps_bot(self):
+        async with self.http.post(f"{self.url}/api/rooms", json={"name": "二号"}) as r:
+            other = (await r.json())["id"]
+        ln = await self.http.ws_connect(f"{self.url}/cloud-web/ws?bot=longniang&name=%E9%BE%99%E5%A8%98")
+        self.addAsyncCleanup(ln.close)
+        await ln.send_json({"type": "register", "platform": "cloud_web", "client": "cc-connect", "project": "p",
+                            "transport": "websocket", "metadata": {"protocol_version": 1}})
+        self.assertTrue((await ln.receive_json(timeout=5))["ok"])
+        chat = f"room-{other}"
+        await ln.send_json({"type": "team_workspace", "ref_id": "tw-1", "op": "create", "session_key": f"cloud_web:{chat}",
+                            "chat_id": chat, "reply_ctx": chat})
+        while True:
+            m = await ln.receive_json(timeout=5)
+            if m.get("type") == "team_workspace_ack":
+                break
+        w = m["room"]["id"]
+        async with self.http.patch(f"{self.url}/api/rooms/{other}", json={"archived": True}) as r:
+            self.assertEqual(r.status, 200)
+        await ln.send_json({"type": "reply", "reply_ctx": w, "content": "[report]\n主频道归档后的结果", "agent": True})
+        await ln.send_json({"type": "reply", "reply_ctx": w, "content": "连接还在", "agent": True})
+        rid = w.removeprefix("room-")
+        for _ in range(100):   # 后一条贴进工作区，说明前一条 [report] 没把连接弄断
+            async with self.http.get(f"{self.url}/api/rooms/{rid}/messages") as r:
+                if any(x["text"] == "连接还在" for x in (await r.json())["messages"]):
+                    break
+            await asyncio.sleep(0.05)
+        else:
+            self.fail("[report] 后龙娘的连接断了，后一条没贴进工作区")
+        self.assertFalse(ln.closed)
+        self.err.seek(0)
+        self.assertIn("没贴上", self.err.read())
 
 
 class AskEvidence(unittest.TestCase):

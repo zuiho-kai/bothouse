@@ -11,7 +11,7 @@ import re
 import secrets
 import sys
 
-from . import hub as _hub   # 只取 Conflict；hub 经 cloudweb 间接引本模块，不能 from-import
+from .errors import Conflict   # 叶子模块：`python -m rh.hub` 起时和 hub 抛的是同一个类（rh/errors.py）
 
 # #574 B4：[ask] 要带「自验：」和「类别：」才去等用户；只有方向、花钱、需要用户看的成品、权限确认可写「自验：无需」。
 # 同 team-exit.mjs、bridge/core/team_ask_evidence.go askEvidenceProblems。
@@ -99,7 +99,7 @@ class TeamExit:
         """贴帖；频道已归档（Conflict）时不贴、返回 None。异常不往上冒：on_new 跑在 bot 连接的收帧循环里，冒出去会断连接。"""
         try:
             msg, new = self.hub.create(room_id, body)
-        except _hub.Conflict as e:
+        except Conflict as e:
             print(f"[team-exit] 频道 {room_id} 没贴上：{e}", file=sys.stderr, flush=True)
             return None
         if new:

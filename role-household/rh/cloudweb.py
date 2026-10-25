@@ -48,6 +48,7 @@ import json
 import re
 from aiohttp import WSCloseCode, WSMsgType, web
 
+from .errors import Conflict, WorkspaceError
 from .meeting import MAX_TEXT_CHARS, clean
 from .team_exit import TeamExit, exit_target
 
@@ -414,7 +415,6 @@ class CloudWeb:
     async def team_workspace(self, d: dict) -> dict:
         """回一个 team_workspace 帧：op list | create | claim | release（带 park 也当 release，rh 没有任务表）。
         照 collab/cloudweb.mjs teamWorkspace；dispatch_mode 不支持。建好、认领、放回后推一次频道列表给网页。"""
-        from .hub import WorkspaceError   # hub.py 导入本模块，放这里免得循环导入
         hub = self.hub
         rid = self._room(d)
         if rid is None:
@@ -467,7 +467,6 @@ class CloudWeb:
         ref = d.get("ref_id")
         if not isinstance(ref, str):
             return
-        from .hub import Conflict   # hub.py 导入本模块，放这里免得循环导入
         room, (text, card) = self._room(d), self._body(d.get("content"))
         handle = ""
         if room is not None and clean(text, MAX_BOT_CHARS):
@@ -486,7 +485,6 @@ class CloudWeb:
         room = self._room(d)
         if not isinstance(content, str) or room is None:
             return
-        from .hub import Conflict   # hub.py 导入本模块，放这里免得循环导入
         text = self.for_display(content).strip()
         if not clean(text, MAX_BOT_CHARS):
             return

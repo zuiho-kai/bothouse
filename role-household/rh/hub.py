@@ -87,6 +87,7 @@ from urllib.parse import urlsplit
 from aiohttp import WSCloseCode, WSMsgType, web
 
 from . import cloudweb, webpush
+from .errors import Conflict, WorkspaceError   # 定义在叶子模块（见 rh/errors.py），这里照旧可 from rh.hub import
 from .meeting import MAX_TEXT_CHARS, clean
 from .voice import SAMPLE_RATE
 
@@ -209,19 +210,6 @@ def session_key(room_id: int) -> str:
 
 class BadRequest(Exception):
     pass
-
-
-class Conflict(Exception):
-    """频道重名、往归档的频道发消息：HTTP 409。"""
-
-
-class WorkspaceError(Exception):
-    """team_workspace 被拒；code 是桥认的错误串（conest bridge/platform/cloud-web/workspaces.go
-    teamWorkspaceRequest：workspace-owned / stale-claim / room-missing / unsupported）。"""
-
-    def __init__(self, code: str, msg: str = ""):
-        super().__init__(msg or code)
-        self.code = code
 
 
 class DeviceOut:
