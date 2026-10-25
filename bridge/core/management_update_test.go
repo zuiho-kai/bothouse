@@ -24,6 +24,7 @@ func withUpdateStubs(t *testing.T, cur string, rel *ReleaseInfo, checkErr, apply
 	applied := &[]string{}
 	updateCheckFn = func(string, bool) (*ReleaseInfo, error) { return rel, checkErr }
 	selfUpdateFn = func(tag string, _ bool) error { *applied = append(*applied, tag); return applyErr }
+	asReleaseBuild(t, nil)
 	return applied
 }
 
