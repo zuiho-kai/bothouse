@@ -251,7 +251,7 @@ func (e *Engine) teamNoteTurn(msg *Message, session *Session) {
 	if t == nil {
 		return
 	}
-	task := strings.Join(strings.Fields(msg.Content), " ")
+	task := strings.Join(strings.Fields(userTextOf(msg)), " ") // what the user wrote, not the bridge's notes
 	if r := []rune(task); len(r) > teamTaskMaxRunes {
 		task = string(r[:teamTaskMaxRunes]) + "…"
 	}

@@ -234,6 +234,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if msg.FromBot && !msg.Mentioned && e.isTeamLead() && isBotErrorNotice(msg.Content) {
 		// maomao fork: a teammate reporting a failure is the lead's job, not background chatter.
 		msg.Mentioned = true
+		keepUserText(msg)
 		msg.Content = "（队友 " + msg.UserName + " 报错了。你是负责人：查原因，告诉用户，必要时换人接手）\n" + msg.Content
 	}
 	if msg.FromBot && !msg.Mentioned {
@@ -417,6 +418,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		e.applyModelTier(p, msg, dec.Tier)
 	}
 	msg.TurnCtx, msg.TurnCtxQuery = true, userTextOf(msg)
+	keepUserText(msg) // board, progress card and team status show the user's words, not these notes
 	msg.Content = content
 	return false
 }

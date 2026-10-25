@@ -445,9 +445,19 @@ func (e *Engine) prepareMedia(msg *Message) {
 		return
 	}
 	note := strings.Join(notes, "")
-	msg.userText, msg.userTextSet = msg.Content, true
+	keepUserText(msg)
 	msg.Content += "\n\n" + note
 	e.rememberMediaNote(msg.MessageID, note)
+}
+
+// keepUserText records msg.Content as what the user wrote, unless already recorded. Call it before
+// the bridge adds anything of its own to msg.Content (media notes, the gate's channel backfill and
+// notes), so the gate, the channel task board, automatic progress cards and the team status keep
+// showing the user's words, not the bridge's instructions to the model.
+func keepUserText(msg *Message) {
+	if !msg.userTextSet {
+		msg.userText, msg.userTextSet = msg.Content, true
+	}
 }
 
 // userTextOf is what the user wrote, without media notes — the gate's input.

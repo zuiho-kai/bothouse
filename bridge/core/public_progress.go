@@ -668,7 +668,11 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.publicProgressRun = token
 	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
-	e.publicProgress.armAuto(token, desc, scheduled)
+	// Automatic cards only in workspace channels: in a chat channel they take too much room
+	// (user, 2026-10-26: 「聊天频道不要自动任务卡，太占位置」). Voice turns and private chats are
+	// not workspaces. The agent's own progress start works everywhere.
+	_, workspace := e.WorkspaceParent(session)
+	e.publicProgress.armAuto(token, desc, scheduled || fromVoice || !workspace)
 	return e.publicProgressInstructions(token, session) + prompt
 }
 

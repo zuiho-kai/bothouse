@@ -54,9 +54,10 @@ func scheduledTurnUser(userID string) bool {
 	return false
 }
 
-// armAuto prepares the automatic card for a freshly issued run. scheduled runs
-// never open one automatically.
-func (p *PublicProgress) armAuto(token, desc string, scheduled bool) {
+// armAuto prepares the automatic card for a freshly issued run. With off (a
+// scheduled turn, or not a workspace channel; see withPublicProgress) the run
+// never opens one automatically.
+func (p *PublicProgress) armAuto(token, desc string, off bool) {
 	p.mu.Lock()
 	r := p.runs[token]
 	p.mu.Unlock()
@@ -65,7 +66,7 @@ func (p *PublicProgress) armAuto(token, desc string, scheduled bool) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if scheduled {
+	if off {
 		r.autoOff = true
 		return
 	}
