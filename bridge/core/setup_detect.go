@@ -23,10 +23,14 @@ type LocalCLI struct {
 	InPath    bool   `json:"in_path"` // false = found in a common install dir outside PATH; the wizard writes Path into the agent's cmd
 	Version   string `json:"version,omitempty"`
 	// Login: "logged_in" (the CLI's own local login / OAuth found), "not_logged_in", "unknown".
-	Login     string `json:"login"`
-	Protocol  string `json:"protocol"` // what a third-party API must speak to be attached ("" = can't attach one)
-	Supported bool   `json:"supported"`
-	Note      string `json:"note,omitempty"`
+	Login string `json:"login"`
+	// LoginEnvOnly: logged in only through an environment variable of this process (Claude Code:
+	// ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN, no credential file). `bothouse daemon install`
+	// does not copy these variables into the service, so a daemon-started CLI is not logged in.
+	LoginEnvOnly bool   `json:"login_env_only,omitempty"`
+	Protocol     string `json:"protocol"` // what a third-party API must speak to be attached ("" = can't attach one)
+	Supported    bool   `json:"supported"`
+	Note         string `json:"note,omitempty"`
 }
 
 type cliSpec struct {
@@ -64,6 +68,23 @@ func jsonHasKey(path, key string) bool {
 	return ok && string(v) != "null"
 }
 
+// claudeEnvLogin: Claude Code is logged in through this process's environment (API key, or the
+// token from `claude setup-token`). Values are never logged or returned.
+func claudeEnvLogin() bool {
+	return os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != ""
+}
+
+// claudeFileLogin: Claude Code's own login on disk, which a daemon-started claude also sees.
+func claudeFileLogin(h string) bool {
+	return fileExists(filepath.Join(h, ".claude", ".credentials.json")) ||
+		jsonHasKey(filepath.Join(h, ".claude.json"), "oauthAccount")
+}
+
+// loginEnvOnly: a logged-in Claude Code whose login comes only from this process's environment.
+func loginEnvOnly(agentType, login, home string) bool {
+	return agentType == "claudecode" && login == "logged_in" && !claudeFileLogin(home)
+}
+
 // Binary names follow each agent's ParseCmdOpts default (agent/*/*.go).
 // Login checks look at whether the CLI's own credential file exists. The one exception is
 // Claude Code (besides ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, both passed
@@ -72,11 +93,7 @@ func jsonHasKey(path, key string) bool {
 // "oauthAccount" key is checked; values are discarded and never logged or returned.
 var cliSpecs = []cliSpec{
 	{"claudecode", "Claude Code", []string{"claude"}, ProtocolAnthropic, func(h string) string {
-		if os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" || fileExists(filepath.Join(h, ".claude", ".credentials.json")) ||
-			jsonHasKey(filepath.Join(h, ".claude.json"), "oauthAccount") {
-			return "logged_in"
-		}
-		return "not_logged_in"
+		return loginIf(claudeEnvLogin() || claudeFileLogin(h))
 	}, ""},
 	{"codex", "Codex", []string{"codex"}, ProtocolResponses, func(h string) string {
 		dir := os.Getenv("CODEX_HOME")
@@ -283,6 +300,7 @@ func DetectLocalCLIs(ctx context.Context) []LocalCLI {
 			if s.login != nil {
 				c.Login = s.login(home)
 			}
+			c.LoginEnvOnly = loginEnvOnly(s.agentType, c.Login, home)
 			if !strings.HasSuffix(path, ".app") {
 				tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用改动前本文件 --version 探测的 5 秒
 				if b, err := exec.CommandContext(tctx, path, "--version").Output(); err == nil {

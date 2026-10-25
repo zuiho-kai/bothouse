@@ -142,6 +142,21 @@ func cliLoginHow(lang, agentType string) string {
 	return "Log in to this CLI on this machine as its own docs describe."
 }
 
+// warnEnvOnlyLogin: the CLI is logged in only through an environment variable of the current
+// terminal, which a background service (bothouse daemon install) does not get. A note, not blocking.
+func warnEnvOnlyLogin(lang, project, bots, label string) WizardWarning {
+	w := WizardWarning{Code: "agent_login_env_only", Project: project}
+	w.Message = tr3(lang,
+		"「"+bots+"」用本机的 "+label+"，它现在只靠环境变量登录（ANTHROPIC_API_KEY 或 CLAUDE_CODE_OAUTH_TOKEN）。这个登录只在当前终端有效，后台服务拿不到：用 bothouse daemon install 装成后台服务后，机器人收到消息会答不出来。前台直接运行不受影响。",
+		"「"+bots+"」はこのマシンの "+label+" を使いますが、ログインは環境変数（ANTHROPIC_API_KEY または CLAUDE_CODE_OAUTH_TOKEN）だけです。このログインは今のターミナルでしか有効でなく、バックグラウンドサービスには渡りません。bothouse daemon install でサービスにすると、ボットは答えられません。フォアグラウンドで直接動かす場合は問題ありません。",
+		"\""+bots+"\" use(s) this machine's "+label+", which is logged in only through an environment variable (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN). That login works only in the current terminal; the background service does not get it, so after bothouse daemon install the bot cannot answer. Running in the foreground is not affected.")
+	w.Fix = tr3(lang,
+		"请在这台机器的终端跑一次 claude 登录（claude auth login，或运行 claude 后输入 /login），或者在向导里给这个角色改用第三方 API key（网页向导在「本机 CLI」一步勾「改用第三方 API」）。",
+		"このマシンのターミナルで一度 claude にログインする（claude auth login、または claude を起動して /login）か、ウィザードでこのロールをサードパーティ API キーに切り替えてください（ウェブのウィザードでは「ローカル CLI」のステップで「代わりにサードパーティ API を使う」にチェック）。",
+		"Log in to claude once in a terminal on this machine (claude auth login, or run claude and type /login), or switch this role to a third-party API key in the wizard (web wizard: tick \"Use a third-party API instead\" on the Local CLI step).")
+	return w
+}
+
 // warnAgentLogins: roles that use a CLI's own login (no provider) whose CLI is not logged in
 // (blocking: the bot would answer nothing) or whose login can't be checked (a note). One
 // warning per CLI.
@@ -170,7 +185,7 @@ func warnAgentLogins(lang string, roles []plannedRole, clis []LocalCLI) []Wizard
 				break
 			}
 		}
-		if cli == nil || (cli.Login != "not_logged_in" && cli.Login != "unknown") {
+		if cli == nil {
 			continue
 		}
 		label := cli.Label
@@ -178,6 +193,16 @@ func warnAgentLogins(lang string, roles []plannedRole, clis []LocalCLI) []Wizard
 			label = at
 		}
 		bots := strings.Join(byType[at], "、")
+		if cli.Login == "logged_in" && cli.LoginEnvOnly {
+			// The wizard cannot tell whether bothouse will run in the foreground (env visible) or as
+			// `bothouse daemon install` (env not copied into the service), so it stays logged_in and
+			// only warns, without blocking.
+			out = append(out, warnEnvOnlyLogin(lang, strings.Join(byType[at], ","), bots, label))
+			continue
+		}
+		if cli.Login != "not_logged_in" && cli.Login != "unknown" {
+			continue
+		}
 		w := WizardWarning{Project: strings.Join(byType[at], ",")}
 		ja := isJA(lang)
 		after := "Then run bothouse setup clis and check that its login is logged_in, and restart bothouse; no need to rerun setup. Or let this role use a third-party API instead: in the web wizard, tick \"Use a third-party API instead\" on the Local CLI step and save again; from the command line, add \"provider\" to the role (see bothouse setup matrix)."
