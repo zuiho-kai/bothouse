@@ -2,6 +2,7 @@ package cloudweb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -49,6 +50,10 @@ func (b *boardState) nextSeq() int64 {
 // ErrDeliveryUnrecoverable, so the board stops retrying until new activity.
 func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
 	room, err := p.TaskCardDestination(sessionKey)
+	if errors.Is(err, core.ErrNotSupported) {
+		// An older gateway that cannot edit messages: retrying cannot help.
+		return messageID, fmt.Errorf("cloud_web: team board: %w: %w", core.ErrDeliveryUnrecoverable, err)
+	}
 	if err != nil {
 		return messageID, err
 	}
