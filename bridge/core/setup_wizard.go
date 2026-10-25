@@ -879,7 +879,15 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 			res.Roles = append(res.Roles, WizardRoleResult{})
 		} else {
-			res.Roles = append(res.Roles, WizardRoleResult{})
+			if isFeishu {
+				// the bot's open_id goes into the team file (who is who for d10 / ws-handoff); not
+				// reachable now = the member is written without it, the role is still made
+				f := req.Feishu
+				if id, err := FeishuBotOpenID(ctx, f.AppID, f.AppSecret, f.PlatformType); err == nil {
+					w.botID = id
+				}
+			}
+			res.Roles = append(res.Roles, WizardRoleResult{BotID: w.botID})
 		}
 		if w.Name == "" {
 			w.Name = w.username
@@ -1167,12 +1175,8 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 
 	// a single role gets the file too, as its lead with no subs (the gate's wiki and task board)
 	if (req.Platform == "discord" || cloudWeb || isFeishu) && (len(pl.team) > 1 || len(pl.team) == 1 && !pl.soloShared) && req.gateOn() {
-		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
-		for _, t := range pl.team {
-			if t.Project != pl.fallback {
-				gt["subs"].(map[string]any)[t.Project] = map[string]any{"name": t.Name, "aliases": []string{}}
-			}
-		}
+		after, _ := env.Store.Snapshot()
+		gt := gateTeamJSON(pl.team, pl.fallback, pl.fallbackName, after)
 		if err := writeJSONFile(filepath.Join(env.DataDir, gateTeamFile), gt, 0o644); err != nil {
 			return fail("gate team", err)
 		}
@@ -2471,4 +2475,32 @@ func (m *ManagementServer) handleProjectPersona(w http.ResponseWriter, r *http.R
 	default:
 		mgmtError(w, http.StatusMethodNotAllowed, "GET or PUT")
 	}
+}
+
+// gateTeamJSON is <data_dir>/gate-team.json, the one team file the gate and the collaboration
+// scripts (contrib/lead/_team.py: d10, ws-handoff) read to know who is who: every member has its
+// platform user id ("id": a Discord bot id, a Feishu open_id, a DSH member id — kept as the string
+// the platform uses, never assumed numeric) and its work directory ("workspace"). Both are left out
+// when the wizard does not know them.
+func gateTeamJSON(team []SetupTeamEntry, fallback, fallbackName string, s WizardSnapshot) map[string]any {
+	member := func(t SetupTeamEntry, name string, aliases []string) map[string]any {
+		m := map[string]any{"name": name, "aliases": aliases}
+		if t.BotID != "" {
+			m["id"] = t.BotID
+		}
+		if p, ok := s.project(t.Project); ok && p.WorkDir != "" {
+			m["workspace"] = p.WorkDir
+		}
+		return m
+	}
+	subs := map[string]any{}
+	gt := map[string]any{"lead": map[string]any{"name": fallbackName, "aliases": []string{fallback}}, "subs": subs}
+	for _, t := range team {
+		if t.Project == fallback {
+			gt["lead"] = member(t, fallbackName, []string{fallback})
+		} else {
+			subs[t.Project] = member(t, t.Name, []string{})
+		}
+	}
+	return gt
 }
