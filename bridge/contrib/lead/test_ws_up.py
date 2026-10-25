@@ -132,6 +132,8 @@ open(calls, "a").write(json.dumps(a) + "\n")
 st = json.load(open(st_path))
 def save(): json.dump(st, open(st_path, "w"))
 if a[:2] == ["timer", "add"]:
+    if st.get("timer_fail"):
+        print("bridge down", file=sys.stderr); sys.exit(1)
     print("timer-1"); sys.exit(0)
 if a[0] != "workspace":
     sys.exit(1)
@@ -141,7 +143,7 @@ ws = {w["id"]: w for w in st["ws"]}
 if a[1] == "list":
     print(json.dumps({"parent": chat, "pool": st["ws"]}))
 elif a[1] == "claim":
-    w = ws[a[2]]
+    w = ws[a[-1]]  # 真桥是 Go flag：工作区 id 在旗标后，写在 id 后的旗标会被丢掉
     if w["owner"] not in ("", chat):
         print("claimed by another chat", file=sys.stderr); sys.exit(1)
     w["owner"], w["open"] = chat, w["open"] + 1; save()
@@ -324,6 +326,48 @@ class WsPoolTest(unittest.TestCase):
         self.assertEqual(p["工作区3"]["open"], 1)  # 只剩旧交接、板上没在做的：放回后被 A 领走
         self.assertEqual(p["工作区3"]["parked"], 1)
         self.assertEqual((p["工作区4"]["open"], p["工作区4"]["owner"]), (1, "test:300"))  # 别的聊天频道的不碰
+
+class HandoffAlignTest(WsPoolTest):
+    """#597 G25：产品 ws-handoff 对齐本机：claim 带任务简称、叫醒插进正在跑的那一轮且算交接轮（开进度卡）、
+    开工提示带任务板编号和 ws-up、叫醒失败撤掉刚登记的交接和任务板。"""
+
+    def calls(self):
+        return [json.loads(l) for l in Path(str(self.fake) + ".calls").read_text().splitlines()]
+
+    def test_claim_title_before_id(self):
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        self.handoff(self.note("a"), "改登录页")
+        c = [c for c in self.calls() if c[:2] == ["workspace", "claim"]][-1]
+        self.assertEqual(c[-1], "1")
+        self.assertEqual(c[c.index("--title") + 1], "改登录页")
+        self.assertEqual(c[c.index("--session-key") + 1], "test:100")
+
+    def test_timer_injects_and_marks_handoff(self):
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        self.handoff(self.note("a"), "改登录页")
+        t = [c for c in self.calls() if c[:2] == ["timer", "add"]][-1]
+        self.assertIn("--inject-if-busy", t)
+        self.assertIn("--handoff", t)
+        prompt = t[t.index("--prompt") + 1]
+        nid = self.items()[0]["id"]
+        self.assertIn(f"#{nid}", prompt)
+        self.assertIn(f"board update {nid}", prompt)
+        self.assertIn("ws-up", prompt)
+        self.assertIn("--ask", prompt)
+
+    def test_timer_failure_rolls_back(self):
+        f = Path(str(self.fake) + ".json")
+        f.write_text(json.dumps({"ws": [{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}],
+                                 "timer_fail": True}))
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("timer add 失败", r.stderr)
+        self.assertEqual(self.items(), [])  # 任务板撤掉
+        w = self.pool()["工作区1"]
+        self.assertEqual((w["open"], w["owner"]), (0, ""))  # 刚 claim 的那件放回
+        self.assertFalse((self.tmp / "setup" / "ws-handoff-last.json").exists())
+
 
 class HandoffNotesCheckTest(unittest.TestCase):
     """交接文件要带参照实现（文件:行 或「无（新建）」）；写了多人改同组文件还要底分支。缺了不建定时、不上任务板。"""
