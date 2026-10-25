@@ -19,6 +19,7 @@ HERE = Path(__file__).resolve().parent
 SELF = Path(__file__).resolve()
 LOG = HERE / "sub-wiki.log"
 PY = os.environ.get("WIKI_PYTHON") or sys.executable
+MAIN_MARK = ".bothouse-main"  # setup_wiki.py: a main wiki (the lead's, when bots.json gives her that wiki)
 
 
 def say(msg):
@@ -42,7 +43,10 @@ def run_one(rows, b, *args):
     d = next((w for k, _p, w in rows if k == b), "")
     say(f"{b} ingest {' '.join(args)}")
     with open(Path(d) / ".ingest.log", "a") as err:
-        rc = subprocess.run([PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args], stderr=err).returncode
+        # WIKI_DIR = this wiki: a teammate's shim sets it itself, but the lead's main wiki holds the full tool, whose
+        # default is ~/wiki (wrong when the main wiki is at $WIKI_DIR; the hook's env has no WIKI_DIR at all)
+        rc = subprocess.run([PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args], stderr=err,
+                            env=dict(os.environ, WIKI_DIR=str(d))).returncode
     if rc:
         say(f"{b} ingest {' '.join(args)} exited {rc}")
 
@@ -94,7 +98,9 @@ def main(argv):
         say(f"start {mode}")
         if export(*(["--no-wait"] if mode == "pending" else [])):
             say("export failed (ingest still runs on what is there)")
-        for b, _p, _d in rows:
+        for b, _p, d in rows:
+            if (Path(d) / MAIN_MARK).exists():
+                continue  # the lead's main wiki: the same cron job runs it already (setup_wiki.go wikiExec)
             run_one(rows, b, "--" + mode)
         say(f"done {mode}")
         return 0

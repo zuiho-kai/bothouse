@@ -2,13 +2,19 @@
 (Chinese schema, bot domains, codex engines).
 
   setup_wiki.py <bot> ...   bots are keys of $WIKI_BOTS (default bots.json next to this file)
-  setup_wiki.py --main <dir> <lead name>
+  setup_wiki.py --main <dir> <lead name> [<lead project>]
                             a machine with no main wiki yet (the setup wizard, user 2026-10-22 「记忆就是我们的llmwiki
                             ……当然也能独立」): <dir> from the template, with the shared programs in <dir>/bin that every
-                            role's wiki forwards to. It reads no sessions itself (each role has its own wiki).
+                            role's wiki forwards to. With <lead project> it is the lead's own wiki (as ~/wiki is 橘's):
+                            it reads her transcripts (<WIKI_TRANSCRIPTS>/<lead project>), and dream/lint read her persona
+                            ($WIKI_LEAD_PERSONA), not ~/.claude/CLAUDE.md; without, it reads no sessions. Either way it
+                            writes MAIN_MARK (the lead project, or empty): the wizard takes a main wiki over for the
+                            lead only when that file names her, so a wiki the user had before is never written to.
   env: LLM_WIKI_SRC = llm-wiki checkout or git URL to clone, or a plain copy of the template (default ~/llm-wiki;
        the setup wizard passes template/ next to this file, a copy of github.com/zuiho-kai/llm-wiki);
        WIKI_LEAD = 主角色名字（队友前缀示例）; WIKI_USER = the user's display name in channel lines;
+       WIKI_TEAM = JSON list of the team's names (--main: config.json "bots"); WIKI_SHARED_BIN = the main
+       wiki's bin/ (a role wiki's shims forward there, written to bin/.shared-bin; default ~/wiki/bin);
        WIKI_ENGINES = JSON object of config.json engine keys overriding the codex defaults below (the wizard sets
        them from the role's own CLI, so a machine without Codex still runs its wikis)
 """
@@ -24,6 +30,7 @@ SRC = os.environ.get("LLM_WIKI_SRC") or str(H / "llm-wiki")
 LEAD = os.environ.get("WIKI_LEAD", "主角色")
 USER = os.environ.get("WIKI_USER", "<用户名>")
 TRANSCRIPTS = os.environ.get("WIKI_TRANSCRIPTS") or str(HERE / "transcripts")
+MAIN_MARK = ".bothouse-main"  # in a main wiki this program made: the lead project whose wiki it is ("" = nobody's)
 # categories: review ~/.claude/reviews/sub-memory.md (经历 / 方法与教训 / 作品 / 关系 / 偏好), listed as "我加的设定"
 DOMAINS = [("experiences", "经历", "经历：外出、玩过和做过的事、发生过的事故，以及当时的感受"),
            ("lessons", "方法与教训", "方法与教训：做事的方法、工具用法、踩过的坑"),
@@ -87,7 +94,7 @@ def made(w):
     return False
 
 
-def main_wiki(w, lead):
+def main_wiki(w, lead, project=""):
     w = Path(w).expanduser()
     if made(w):
         print(w, "exists")
@@ -101,11 +108,22 @@ def main_wiki(w, lead):
         shutil.copy(f, w / "bin" / f.name)
     shutil.copytree(HERE / "llmwiki" / "teammate", w / "bin" / "teammate", dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("__pycache__"))
-    (w / ".no-sessions").mkdir(exist_ok=True)
-    (w / ".no-sessions" / ".keep").write_text("")
-    cfg = {"assistant": lead, "bots": {lead: [lead]},
-           # each role's sessions go into that role's own wiki (bots.json); this one reads none (an empty dir)
-           "transcripts": str(w / ".no-sessions"), "rule_files": []}
+    if project:
+        # the lead's own wiki: her sessions (export.py writes transcripts/<bots.json key = project>), the team's names,
+        # her persona as the rule file (the ~/.claude/CLAUDE.md default would have dream read the user's global rules)
+        team = json.loads(os.environ.get("WIKI_TEAM") or "[]") or []
+        persona = os.environ.get("WIKI_LEAD_PERSONA", "")
+        cfg = {"transcripts": f"{TRANSCRIPTS}/{project}", "assistant": lead,
+               "bots": {n: [n] for n in dict.fromkeys([lead, *NAMES.values(), *team])}, "user_names": [USER],
+               "rule_files": [persona] if persona else []}
+    else:
+        (w / ".no-sessions").mkdir(exist_ok=True)
+        (w / ".no-sessions" / ".keep").write_text("")
+        cfg = {"assistant": lead, "bots": {lead: [lead]},
+               # no lead given: each role's sessions go into that role's own wiki (bots.json); this one reads none
+               "transcripts": str(w / ".no-sessions"), "rule_files": []}
+    cfg["home"] = str(w)  # not ingest.py's "~/wiki" default: a main wiki at $WIKI_DIR is its own home
+    (w / MAIN_MARK).write_text(project + "\n")
     cfg.update({k: v for k, v in (json.loads(os.environ.get("WIKI_ENGINES") or "{}") or {}).items()
                 if k.endswith("_engine") or k in ("after_codex", "codex_models", "dsh_cmd", "dsh_patch", "dsh_env_file")})
     (w / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
@@ -136,6 +154,8 @@ def main(bot):
     # bin/ingest.py and bin/lint.py forward to the shared tool (../bin, or $WIKI_BIN), same as the author's sub wikis
     for f in ("ingest.py", "lint.py", "search.py"):
         shutil.copy(HERE / "llmwiki" / "teammate" / f, w / "bin" / f)
+    if os.environ.get("WIKI_SHARED_BIN"):  # a main wiki not at ~/wiki ($WIKI_DIR): the shims read where it is
+        (w / "bin" / ".shared-bin").write_text(os.environ["WIKI_SHARED_BIN"] + "\n")
     for d in ("refs",):
         if subprocess.run(["git", "ls-files", "--error-unmatch", d], cwd=w, capture_output=True).returncode == 0:
             subprocess.run(["git", "rm", "-rq", d], cwd=w, check=True)
@@ -174,7 +194,7 @@ def main(bot):
 
 
 if sys.argv[1:2] == ["--main"]:
-    main_wiki(*sys.argv[2:4])
+    main_wiki(*sys.argv[2:5])
 else:
     for b in sys.argv[1:]:
         main(b)

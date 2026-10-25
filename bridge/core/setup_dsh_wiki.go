@@ -123,7 +123,7 @@ func addDSHMemberWikis(ctx context.Context, dataDir string, members []DSHImporte
 		lead = roles[0].Name
 	}
 	env := WizardEnv{DataDir: dataDir}
-	s, _, err := prepareRoleWikis(ctx, env, lead, roleWikiConfig(dataDir, roles[0], nil, nil))
+	s, _, err := prepareRoleWikis(ctx, env, wizardLead{name: lead}, roleWikiConfig(dataDir, roles[0], nil, nil)) // no lead project: DSH members keep their own wikis (G16 is the wizard lead)
 	if err != nil {
 		return fail(err)
 	}
