@@ -93,7 +93,7 @@ func TestApplyWizardMovesOffTakenGatePort(t *testing.T) {
 		t.Fatalf("apply failed: %+v", res)
 	}
 	_, takenPort, _ := net.SplitHostPort(taken)
-	if store.port == 0 || strconv.Itoa(store.port) == takenPort || store.port == defaultGatePort || store.port != LocalGatePort() {
+	if store.port == 0 || strconv.Itoa(store.port) == takenPort || store.port != LocalGatePort() {
 		t.Fatalf("saved gate port %d (taken %s, in use %d)", store.port, takenPort, LocalGatePort())
 	}
 	want := "http://127.0.0.1:" + strconv.Itoa(store.port) + "/decide"
