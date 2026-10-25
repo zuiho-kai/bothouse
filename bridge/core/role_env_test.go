@@ -46,8 +46,10 @@ func checkRoleEnv(t *testing.T, a *sessionEnvRecordingAgent, dataDir, pyBin, ses
 		"CC_DATA_DIR":       dataDir,
 		"GATE_SETUP_DIR":    dataDir,
 		"BOTHOUSE_DATA_DIR": dataDir,
-		"BOARD_DIR":         filepath.Join(dataDir, "team"),
 		"CC_BIN":            exe,
+	}
+	if got := a.EnvValue("BOARD_DIR"); got != "" {
+		t.Errorf("BOARD_DIR = %q, want unset (board.py defaults to <GATE_SETUP_DIR>/team)", got)
 	}
 	for k, v := range want {
 		if got := a.EnvValue(k); got != v {
@@ -117,7 +119,17 @@ func TestRoleSessionEnv_NoProductPythonOrTools(t *testing.T) {
 	e := NewEngine("test", &stubAgent{}, nil, "", LangEnglish)
 	e.SetDataDir(t.TempDir()) // no collaboration/lead, product Python not resolved
 	exe, _ := os.Executable()
-	for _, kv := range e.roleSessionEnv("k") {
+	env := e.roleSessionEnv("k")
+	// Without the product tools a role may use private scripts with their own board default: nothing
+	// here may point them elsewhere.
+	for _, kv := range env {
+		for _, k := range []string{"GATE_SETUP_DIR=", "BOTHOUSE_DATA_DIR=", "BOARD_DIR="} {
+			if strings.HasPrefix(kv, k) {
+				t.Errorf("role env has %s without collaboration/lead", kv)
+			}
+		}
+	}
+	for _, kv := range env {
 		if strings.HasPrefix(kv, "PATH=") {
 			if first := strings.SplitN(strings.TrimPrefix(kv, "PATH="), string(filepath.ListSeparator), 2)[0]; first != filepath.Dir(exe) {
 				t.Fatalf("PATH starts with %q, want the binary dir only", first)

@@ -61,7 +61,7 @@ func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result ma
 		return nil, nil, err
 	}
 	bin := filepath.Join(root, "lead")
-	block := fmt.Sprintf("Collaboration tools (requires Python 3; later/safe-restart/t10/iso-check require zsh):\n- Scripts: %s. bothouse already puts this directory on your PATH, so run board, later, d10 etc. by name.\n- Read %s before using board, later, lead, safe-restart, d10, t10, ws-*, iso-check or rehearse-copy.\n- Runtime identity: CC_PROJECT and CC_SESSION_KEY (DSH receives CC_SESSION as a fallback). Never invent a session.\n- GATE_SETUP_DIR, BOTHOUSE_DATA_DIR, BOARD_DIR and CC_BIN are already set for you; do not override them. safe-restart requires CC_LAUNCHD_LABEL on macOS.\n", bin, filepath.Join(bin, "README.md"))
+	block := fmt.Sprintf("Collaboration tools (requires Python 3; later/safe-restart/t10/iso-check require zsh):\n- Scripts: %s. bothouse already puts this directory on your PATH, so run board, later, d10 etc. by name.\n- Read %s before using board, later, lead, safe-restart, d10, t10, ws-*, iso-check or rehearse-copy.\n- Runtime identity: CC_PROJECT and CC_SESSION_KEY (DSH receives CC_SESSION as a fallback). Never invent a session.\n- GATE_SETUP_DIR, BOTHOUSE_DATA_DIR and CC_BIN are already set for you; do not override them. safe-restart requires CC_LAUNCHD_LABEL on macOS.\n", bin, filepath.Join(bin, "README.md"))
 	out := withMarkedBlock(string(b), "<!-- bothouse:lead-tools -->", "<!-- /bothouse:lead-tools -->", block)
 	if err := os.MkdirAll(filepath.Dir(persona), 0755); err != nil {
 		return nil, nil, err
