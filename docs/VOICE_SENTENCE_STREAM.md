@@ -1,32 +1,33 @@
-# 按句语音与识别计时（#130，实验开关）
+# 公开正文按句播放
 
-缩短模型第一句已写完到开始合成的等待。默认关闭，未部署、未重启服务。没有真实识别速度改善的证据。
+默认关闭。开启后，公开正文首字经 ACP 即时下发，首个完整短句立即交给 TTS；设备继续使用现有的 audio_chunks 播放，终态不重复全文。它减少完整回答生成期间的等待，不代表模型或识别耗时已经低于三秒。
 
-## 启用与协议
+## 启用
 
-先部署匹配的桥接和 companion，再在 Claude agent options 加 `voice_stream = true`、在 8796 私密配置加 `"sentence_stream": true`。Claude 的 `--include-partial-messages` 放进内层参数，兼容 cmd_args_flag 包装器；配置快照保留开关。提供商是否实际发出增量须在隔离会话验收。
+先部署匹配的 bridge、companion、[DSH ACP 增量补丁](../integrations/dsh-acp-stream/README.md) 和 [公开答复插件](../integrations/dsh-public-output/README.md)，再在设备入口配置中设置 `sentence_stream: true`。私密语音转发只 POST 一次 `stream: true`，桥接设置 `CC_VOICE_STREAM=1`；DSH 的语音 overlay 同时开启 ACP streamText 和插件 streamPublic。普通聊天请求不开启。Claude 的既有 /input 流式路径还须配置 agent options 的 voice_stream。
 
-语音入口向原 /input 只提交一次，附 stream:true 和原会话双 ID。GET 回执增加累计 speech_text（上限 16KiB），只收显式 text block，不收 thinking/tool block。普通聊天和历史仍由完整消息维护，不重复向频道发增量。每次轮询核对 request_id、session_id、agent_session_id；重试不得更改 stream 模式。
+DSH 仍完整隔离第一次原始草稿，只在第二次专用答复请求中，增量发布 conest_public_reply 的 reply 字段。不转发普通草稿、思考或工具参数。模型不提供参数增量时仍需等完整字段；初始草稿等待和 TTS 首包不因此消失。
 
-companion 每 0.4 秒轮询，将完整句子交给顺序 TTS 队列，同时继续等待原请求。复用 audio_chunks 接口和单调索引，最终 WAV 合并 PCM。限制 450 字、64 句、512 音频块、300 秒；停止后丢弃迟到合成回调。不另发模型请求，不换会话。
+## 从首句到设备
 
-## 边界
+桥接只从公开 EventText 切句。`。！？!?…` 或换行一到就发布，不再等待下一个字符；没有句末标点的尾句在工具消息边界或终态处理。遇到尖括号、反引号或双中括号，停止后续逐句发布，剩余文字留给完整答复处理。运行回执的 sentences 只追加，最多64句、16KiB；completed 保留完整 text、sentences 与剩余 rest。失败、取消或重启中断清除可播放回执，迟到事件不恢复它。
 
-- 已播出的句子无法撤回。后续任务失败仍标失败，不能把出过声当成完成。
-- 最终回答必须保留增量前缀；若后端改写，或中间说明不包含在最终回答中，停止并提示核对文字，不拼接两个版本。
-- 遇到尖括号、代码反引号、双中括号时停止后续增量朗读，完整回执保留文字。
-- 后端无增量时回退到既有完整回答路径。老桥接拒绝新字段时不得自动重新 POST。
-- 本分支基于 #129；生产另有 #99 Claude strict、#101 豆包 TTS，必须保留，不能直接覆盖线上。
+companion 每0.4秒轮询，核对 request_id、relay_key 与稳定的 agent_session_id，按顺序合成新增句子。重复轮询不重复合成，终态验证完整正文等于 sentences 加 rest，再处理未播尾句。无流式句子时沿用完整答复路径；未知执行结果只查询原回执，不重新 POST。保留当前语音总台、原话字段、设备绑定与远程 ASR 配置。
 
-## ASR 计时
+设备 API 在 synthesizing 阶段即可提供分块；设备网关提前拉取并顺序播放，终态完成后结束音频。普通网页播放器仍可能等待 text 才启动，本开关的设备验收不能代替网页首音验收。
 
-设备识别接口新增每次调用独立的 timings：audio_ms、validation_ms、queue_ms、setup_ms、inference_ms、total_ms。inference_ms 包含 MLX 首次懒加载，不能当作纯推理时间。模型、识别参数和原文本接口不变。
+## 失败与限制
 
-用相同短音频比较冷启动、重复热运行，区分排队与推理后，再决定预热、换模型或流式识别。目前没有真实录音基准，不能承诺五秒已缩短。
+已发文字和已播音频无法撤回。公开前缀后，格式错误、正文改写、请求失败或取消停止后续播放，不接上第二条答案，也不伪报完成；有音频的失败轮次标记 speech_incomplete，状态仍为 error。用户停止后不再发布该轮迟到音频。流式模式因此允许用户听到最终失败回答的前半段，应按需启用。
+
+最终回答必须保留已经发布的前缀。Claude 的工具前说明可能不包含在最终消息中，此时转发失败；不能把只在 ACP 验证过的行为推广为所有提供商都支持。音频沿用450字、512块、300秒限制。
 
 ## 验证
 
-- 离线端到端：模拟桥接直到首句合成才返回终态；重复轮询不重复说、尾句不丢、跨会话拒绝、失败、停止、无增量回退、标记文本与迟到回调。
-- Claude 参数构造使用本地 argv 夹具：开关与普通 CLI/包装器组合验证，无模型调用。
-- 核心事件测试：当前会话公开增量进入原请求，不进入普通平台；关闭开关不收集。
-- 真实语音仍需测首句延迟、整段完成、连续轮次、中途停止及动画同时运行，不以模拟计时替代。
+双向 TTS 客户端候选位于 companion/voice/volc_bidirectional.py，应用尚未实例化，没有启用开关。调用者先 await tts.preconnect(voice)，再将公开文字的异步迭代器及 WAV 回调传给 await tts.synthesize(parts, on_chunk, voice=voice)。关闭服务前先取消并等待当前任务，再 await tts.close()。
+
+只有成功 SessionFinished 才复用连接；取消、文字源/音频回调失败、错误终态、身份不符或超时会取消收发任务并关闭连接，不重新合成，迟到音频不会进入新连接。保留现有0.6秒音频分块、500字输入、300秒音频上限；Opus仍应由网关整轮连续编码。已通过本地 WebSocket 测试和肥鱼当前音色的真实接口测试，详见 [时序记录](VOICE_LATENCY_OPTIONS_20261025.md)。relay 运行回执仍只传完整句子，未传句中 token；VoiceService、SentenceSpeech 和网关尚未接此客户端，不能写成板子已接通双向 TTS。发布仍先解决一次生成契约。
+
+公开插件回归在首字后暂停补答；ACP 回归在首字后暂停模型，验证请求尚未完成但客户端已收到文字，提交后无全文重放。Go 覆盖切句、工具边界、失败、取消、迟到与上限；Python 覆盖重复回执、尾句、改写、会话变更与失败停止。设备 API 回归在模型回执暂停时取得首段 WAV，验证无需等待 completed。
+
+相关测试：`node --test integrations/dsh-public-output/*.test.mjs`；bridge 内运行 `go test -tags no_web ./core -run 'TestVoice(Relay|Sentence)|Test.*VoiceDesk' -count=1`；companion 内运行 `uv run python -m pytest tests/test_voice_relay_stream.py tests/test_voice_sentence_stream.py tests/test_voice_device_app.py`。真实模型首字、首音耗时和板子连续播放需另行实测。
