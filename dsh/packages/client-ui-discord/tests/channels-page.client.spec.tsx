@@ -227,6 +227,32 @@ describe('channels page', () => {
     expect(input.disabled).toBe(false)
   })
 
+  it('sends from the send button through the same path as Enter, multi-line drafts included', async () => {
+    const send = vi.fn(() => Promise.resolve())
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const button = screen.getByRole('button', { name: '发送' }) as HTMLButtonElement
+    expect(input.getAttribute('enterkeyhint')).toBe('send')
+    expect(button.disabled).toBe(true)
+    fireEvent.change(input, { target: { value: '第一行\n第二行' } })
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(send).toHaveBeenCalledExactlyOnceWith('第一行\n第二行')
+    await act(async () => {})
+    expect(input.value).toBe('')
+  })
+
+  it('does not send on the Enter that confirms an iOS/Safari IME composition (keyCode 229)', () => {
+    const send = vi.fn(() => Promise.resolve())
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'ni hao' } })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).toHaveBeenCalledExactlyOnceWith('ni hao')
+  })
+
   it('keeps a failed draft and its error in the room where it was sent', async () => {
     let reject!: (reason: Error) => void
     const send = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail }))

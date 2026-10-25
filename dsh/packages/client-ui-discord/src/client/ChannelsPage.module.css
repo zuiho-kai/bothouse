@@ -260,11 +260,13 @@
   font-size: 12px;
 }
 
-/* #148: edit/withdraw on your own message; shown on hover or keyboard focus, always on touch. */
+/* #148: edit/withdraw on your own message; shown on hover or keyboard focus, always on touch.
+   The right margin keeps clear of the absolutely placed reply button (.replyButton). */
 .ownActions {
   display: inline-flex;
   gap: 8px;
   margin-left: auto;
+  margin-right: var(--channels-reply-clearance);
   opacity: 0;
 }
 
@@ -391,6 +393,8 @@
 /* Reply (issue #122): the quoted original above a reply, and the composer's reply bar. */
 .message {
   position: relative;
+  /* Width the reply button takes at the message's top-right, plus a gap. */
+  --channels-reply-clearance: 36px;
 }
 
 .quote {
@@ -507,6 +511,25 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.sendButton {
+  flex: none;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-label-primary-inverted);
+  background: var(--dsw-alias-state-business-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sendButton:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.sendButton:focus-visible,
 .mentionButton:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
 }

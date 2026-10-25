@@ -38,7 +38,7 @@ export function memberStatus(hub, tasks = hub?.tasks) {
 import { mentions, nameCalled, split } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
-import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks } from './attachments.mjs';
+import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, undeliveredReasonZh } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -504,7 +504,7 @@ export class DshMembers {
     if (refused.length) {
       this.hub.post(room.id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${jobId}-attachments-dropped`,
-        text: `⚠️ 有附件没送到 ${member.name}：${refused.map(d => `${d.name}（${d.reason}）`).join('；')}`,
+        text: `⚠️ 有附件没送到 ${member.name}：${refused.map(d => `${d.name}（${undeliveredReasonZh(d)}）`).join('；')}`,
       });
     }
     await this.admitAndSettle(job, member, agent, input, seqBefore);

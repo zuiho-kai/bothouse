@@ -82,25 +82,26 @@ export function attachmentBlocks(files, messages) {
  * re-admitted on top of the ones already accepted: an image DSH refuses on its own or
  * that would push the batch over a limit is dropped, the rest are still delivered.
  * Admission is content-addressed, so re-admitting the same bytes stores nothing new.
- * Returns { parts, dropped: [{ name, reason }] }.
+ * Returns { parts, dropped: [{ name, reason, code? }] }.
  */
 export async function nativeAttachmentBlocks(attachments, named) {
   const dropped = [];
   const parts = [];
   const reason = err => String(err?.message ?? err);
+  const code = err => (typeof err?.code === 'string' ? err.code : undefined);
   for (const { name, block: b } of named) {
     if (b.type === 'image') { parts.push({ name, part: { type: 'image', mediaType: b.mimeType, data: b.data } }); continue; }
     try {
       parts.push({ name, part: { type: 'file', attachment: await attachments.admitEncodedFile({
         data: b.resource.blob, name: decodeURIComponent(b.resource.uri.slice('attachment:///'.length)),
       }) } });
-    } catch (err) { dropped.push({ name, reason: reason(err) }); }
+    } catch (err) { dropped.push({ name, reason: reason(err), code: code(err) }); }
   }
   if (parts.length === 0) return { parts: [], dropped };
   try {
     return { parts: await attachments.admitPromptContent(parts.map(p => p.part)), dropped };
   } catch (batchErr) {
-    if (parts.length === 1) return { parts: [], dropped: [...dropped, { name: parts[0].name, reason: reason(batchErr) }] };
+    if (parts.length === 1) return { parts: [], dropped: [...dropped, { name: parts[0].name, reason: reason(batchErr), code: code(batchErr) }] };
   }
   const kept = [];
   let admitted = [];
@@ -108,7 +109,36 @@ export async function nativeAttachmentBlocks(attachments, named) {
     try {
       admitted = await attachments.admitPromptContent([...kept, p.part]);
       kept.push(p.part);
-    } catch (err) { dropped.push({ name: p.name, reason: reason(err) }); }
+    } catch (err) { dropped.push({ name: p.name, reason: reason(err), code: code(err) }); }
   }
   return { parts: admitted, dropped };
+}
+
+// DSH's attachment errors (dsh-attachment-local AttachmentError: English message + code).
+// The channel's system notes are Chinese, so the reason shown there is translated by code,
+// falling back to the exact English message, then to the original text.
+const UNDELIVERED_ZH = {
+  IMAGE_TOO_MANY_PIXELS: '图片太大，超过像素上限',
+  IMAGE_DIMENSION_TOO_LARGE: '图片太长或太宽，超过单边像素上限',
+  IMAGE_TOO_LARGE: '图片文件太大，超过大小上限',
+  INVALID_IMAGE: '图片格式不支持或已损坏',
+  IMAGE_TYPE_MISMATCH: '图片实际格式和扩展名/类型不符',
+  ATTACHMENT_NOT_FOUND: '附件文件找不到了',
+  ATTACHMENT_CORRUPT: '附件校验失败，可能已损坏',
+  ATTACHMENT_READ_FAILED: '附件读取失败',
+  ATTACHMENT_WRITE_FAILED: '附件处理失败',
+  INVALID_ATTACHMENT_REF: '附件引用无效',
+};
+const UNDELIVERED_MESSAGE_CODE = {
+  'Image exceeds the configured decoded-pixel limit.': 'IMAGE_TOO_MANY_PIXELS',
+  'Image exceeds the configured per-side pixel limit.': 'IMAGE_DIMENSION_TOO_LARGE',
+  'Image exceeds the configured byte limit.': 'IMAGE_TOO_LARGE',
+  'Unsupported or malformed image data.': 'INVALID_IMAGE',
+  'Image is empty.': 'INVALID_IMAGE',
+  'Declared image type does not match its bytes.': 'IMAGE_TYPE_MISMATCH',
+};
+
+/** Chinese reason for a dropped attachment ({ reason, code? } from nativeAttachmentBlocks). */
+export function undeliveredReasonZh({ reason, code }) {
+  return UNDELIVERED_ZH[code] ?? UNDELIVERED_ZH[UNDELIVERED_MESSAGE_CODE[String(reason).trim()]] ?? reason;
 }

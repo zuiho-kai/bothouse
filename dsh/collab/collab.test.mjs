@@ -3620,7 +3620,8 @@ test('block B: DSH refusing one image of a batch drops only that image and tells
   const note = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
   assert.ok(note, 'channel shows a system note for the dropped attachment');
   assert.match(note.text, /Native/);
-  assert.match(note.text, /huge\.png（Image exceeds the configured decoded-pixel limit\.）/);
+  assert.match(note.text, /huge\.png（图片太大，超过像素上限）/);
+  assert.doesNotMatch(note.text, /exceeds/, 'the channel note is in Chinese, not DSH\'s English message');
   assert.doesNotMatch(note.text, /small\.png/);
   native.turn(agent, ['received']);
   await settle();
@@ -3924,4 +3925,13 @@ test('CLI member without allow_always: typed 允许所有 goes back to ACP as al
   assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-once' }]);
   const state = JSON.parse(hub.store.message(card.id).card).state;
   assert.equal(state, 'allowed', 'card shows what ACP got, not 已允许所有');
+});
+
+test('attachments: undelivered reasons are shown in Chinese by DSH error code, unknown ones stay as-is', async () => {
+  const { undeliveredReasonZh } = await import('./attachments.mjs');
+  assert.equal(undeliveredReasonZh({ reason: 'whatever', code: 'IMAGE_TOO_MANY_PIXELS' }), '图片太大，超过像素上限');
+  assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured byte limit.' }), '图片文件太大，超过大小上限');
+  assert.equal(undeliveredReasonZh({ reason: 'Unsupported or malformed image data.', code: 'INVALID_IMAGE' }), '图片格式不支持或已损坏');
+  assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured per-side pixel limit.' }), '图片太长或太宽，超过单边像素上限');
+  assert.equal(undeliveredReasonZh({ reason: 'something new' }), 'something new');
 });

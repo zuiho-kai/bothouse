@@ -578,7 +578,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         return
       }
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    // Same rule as DSH's own editor (dsh-client-ui-primitives: Enter sends unless Shift or an IME
+    // is composing; keyCode 229 covers Safari/iOS, which reports composition that way).
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && Reflect.get(event.nativeEvent, 'keyCode') !== 229) {
       event.preventDefault()
       submit()
     }
@@ -739,6 +741,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               ref={inputRef}
               className={css.input}
               rows={1}
+              enterKeyHint="send"
               value={draft}
               disabled={state.roomId === undefined || sending[state.roomId] === true}
               placeholder={t('placeholder', { room: room?.name ?? '' })}
@@ -771,6 +774,20 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               onClick={openPicker}
             >
               @
+            </button>
+            {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
+                has a send button, as the desktop chat does; it runs the same submit as Enter. */}
+            <button
+              type="button"
+              className={css.sendButton}
+              title={t('sendButton')}
+              aria-label={t('sendButton')}
+              disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
+              // Keep focus (and the soft keyboard) in the textarea when tapped.
+              onMouseDown={(event) => { event.preventDefault() }}
+              onClick={submit}
+            >
+              {t('sendButton')}
             </button>
           </div>
         </div>
