@@ -43,7 +43,7 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 		t.Fatalf("persona: %s", data)
 	}
 	bin := result["tools_dir"]
-	for _, name := range []string{"board", "later", "safe-restart", "lead", "d10", "d10-fire", "t10", "ws-forward", "ws-handoff", "ws-up"} {
+	for _, name := range []string{"board", "later", "safe-restart", "lead", "d10", "d10-fire", "t10", "ws-forward", "ws-handoff", "ws-up", "iso-check", "rehearse-copy"} {
 		p := filepath.Join(bin, name)
 		info, err := os.Stat(p)
 		if err != nil {
