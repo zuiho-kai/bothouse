@@ -106,7 +106,7 @@ export class Tasks {
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
-      workspaceActivity: this.db.prepare("SELECT MAX(created_at) AS at FROM messages WHERE room_id = ? AND author_kind = 'role' AND card IS NULL AND deleted = 0"),
+      ownerSaid: this.db.prepare("SELECT text FROM messages WHERE room_id = ? AND author_kind = 'role' AND author = ? AND card IS NULL AND deleted = 0 AND created_at > ?"),
       // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
       resetRenewals: this.db.prepare('UPDATE tasks SET renewals = 0 WHERE id = ?'),
       renew: this.db.prepare(`UPDATE tasks SET next_check_at = ?, renewals = ? WHERE id = ? AND ${LIVE} RETURNING *`),
@@ -492,22 +492,31 @@ export class Tasks {
   }
 
   /**
-   * A workspace task at its check time: new role messages in the workspace since the window
-   * opened (watchDue - CHECK_AFTER_S) and fewer than MAX_RENEWALS renewals → another
-   * CHECK_AFTER_S; otherwise it is parked through pauseTask (the record goes first, while the
-   * workspace still names its chat channel).
+   * A workspace task at its check time: progress by its owner since the window opened
+   * (watchDue - CHECK_AFTER_S) and fewer than MAX_RENEWALS renewals → another CHECK_AFTER_S;
+   * otherwise it is parked through pauseTask, and the pause record @-s the owner and wakes it
+   * (the record goes first, while the workspace still names its chat channel).
    */
   watch(task, now) {
-    const since = watchDue(task) - CHECK_AFTER_S;
-    const at = this.q.workspaceActivity.get(task.room_id).at;
     const renewals = task.renewals ?? 0;
-    if (at != null && at > since && renewals < MAX_RENEWALS) {
+    if (renewals < MAX_RENEWALS && this.progressed(task, watchDue(task) - CHECK_AFTER_S)) {
       if (this.q.renew.get(now + CHECK_AFTER_S, renewals + 1, task.id, ...WORKING) !== undefined) this.changed(task.id);
       return;
     }
     const why = renewals >= MAX_RENEWALS ? `已续期 ${MAX_RENEWALS} 次` : `${CHECK_AFTER_S / 60} 分钟内没有新进展`;
-    this.record(task, 'pause', `#${task.id}「${task.title}」${why}，已暂停；${this.nameOf(task.owner)} 表态或交回即恢复`);
-    this.pauseTask(task.id);
+    const message = this.record(task, 'pause', `@${this.nameOf(task.owner)} #${task.id}「${task.title}」${why}，已暂停；表态或交回即恢复`);
+    if (this.pauseTask(task.id)) this.wake(task.owner, message);
+  }
+
+  /**
+   * Progress = the owner's own messages since `since`, not counting stance lines (【接】【问】
+   * 【退】【升】) or status notices. Same rule as contrib/lead/d10-fire chat_active.
+   */
+  progressed(task, since) {
+    return this.q.ownerSaid.all(task.room_id, task.owner, since).some(({ text }) => {
+      const body = withoutLeadingMentions(String(text ?? ''), this.hub.routable()).trim();
+      return body !== '' && !/^【(接|问|退|升)】/.test(body) && !NOTICE_PREFIXES.some(p => body.startsWith(p));
+    });
   }
 
   /** Retry every undelivered reminder whose task is still the owner's turn. */
@@ -523,14 +532,18 @@ export class Tasks {
     const task = this.q.takeRemind.get(taskId, msgId);
     if (task === undefined) return;
     if (message === undefined) return;
-    let taken = false;
     this.delivering = true;
-    try {
-      for (const wake of this.wakers) {
-        try { if (wake(task.owner, message)) { taken = true; break; } } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
-      }
-    } finally { this.delivering = false; }
+    let taken;
+    try { taken = this.wake(task.owner, message); } finally { this.delivering = false; }
     if (!taken) this.q.putRemind.run(msgId, taskId);
+  }
+
+  /** Start memberId on message through the first waker that takes it; true if one did. */
+  wake(memberId, message) {
+    for (const wake of this.wakers) {
+      try { if (wake(memberId, message)) return true; } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
+    }
+    return false;
   }
 
   /** Schedule tick() for the earliest pending check time. */

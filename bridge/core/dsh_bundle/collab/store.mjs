@@ -214,6 +214,13 @@ export class Store {
         ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
       }
+      // #574 B2 upgrade: workspace tasks in work with no check time start their 10-minute watch
+      // now (tasks.mjs CHECK_AFTER_S), not from their last change, so an upgrade parks none at once.
+      if (!cols.has('renewals')) {
+        this.db.prepare(`UPDATE tasks SET next_check_at = ? WHERE next_check_at IS NULL AND paused_at IS NULL
+          AND status IN ('assigned', 'accepted', 'asked', 'rework') AND room_id IN (SELECT id FROM rooms WHERE kind = 'workspace')`)
+          .run(Date.now() / 1000 + 10 * 60);
+      }
     }
     this.db.exec('CREATE INDEX IF NOT EXISTS tasks_room ON tasks (room_id, id)');
   }
