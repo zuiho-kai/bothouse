@@ -58,7 +58,8 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 
 `bridge/embed_lead.go` owns the embedded lead scripts and selected gate dependencies.
 `core.InstallLeadTools` extracts their sibling layout under the configured data directory
-and adds role instructions; `setup lead install` is the explicit CLI entry.
+and adds role instructions. The setup wizard calls it for a newly created primary role;
+`setup lead install` remains the explicit CLI entry for existing roles.
 The DSH adapter maps runtime session identity to `CC_SESSION` before subprocess
 credential filtering. Gate services and platform credentials are configured separately.
 

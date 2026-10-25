@@ -348,7 +348,9 @@ access](docs/dashboard-source-build.md).
 
 ### Collaboration helper scripts
 
-Install the packaged task board, timer, handoff and primary role helpers for a role with
+The setup wizard automatically installs the packaged task board, timer, handoff and
+primary role helpers for a newly created primary role. Other roles do not receive them.
+To install them explicitly for an existing role, use
 `bothouse setup lead install --work-dir /path/to/role --agent codex`.
 See [configuration and requirements](bridge/contrib/lead/README.md).
 
