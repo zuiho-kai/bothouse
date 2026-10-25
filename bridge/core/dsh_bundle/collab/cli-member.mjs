@@ -45,8 +45,11 @@ function resolveBin(pkg) {
   return { cmd: 'npx', args: ['-y', pkg] }
 }
 
-function cleanEnv(env = process.env) {
-  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('CLAUDECODE') && !k.startsWith('CLAUDE_CODE_')))
+// 去掉外层 Claude Code 会话的标记（CLAUDECODE、CLAUDE_CODE_ENTRYPOINT…），成员的 claude 才不会当成嵌套会话；
+// 登录用的 CLAUDE_CODE_OAUTH_TOKEN 留着（ANTHROPIC_API_KEY 本来就不在过滤范围），只靠环境变量登录的用户才登得上。
+const KEEP_ENV = new Set(['CLAUDE_CODE_OAUTH_TOKEN'])
+export function cleanEnv(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => KEEP_ENV.has(k) || (!k.startsWith('CLAUDECODE') && !k.startsWith('CLAUDE_CODE_'))))
 }
 
 export class CliMember {

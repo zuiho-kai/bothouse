@@ -2,7 +2,7 @@
 // or open a new session and report lost when the CLI cannot load it. No CLI is spawned.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CliMember } from './cli-member.mjs';
+import { CliMember, cleanEnv } from './cli-member.mjs';
 
 /** A CliMember whose ACP connection is a fake; canLoad mirrors agentCapabilities.loadSession. */
 function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {
@@ -75,4 +75,16 @@ test('persona is prepended on every turn', async () => {
   await m.ask('one', 'r1');
   await m.ask('two', 'r1');
   assert.deepEqual(calls.prompts.map(p => p.prompt[0].text), ['PERSONA\n\none', 'PERSONA\n\ntwo']);
+});
+
+test('cleanEnv drops the outer Claude Code session markers but keeps the env-var sign-in', () => {
+  const env = cleanEnv({
+    CLAUDECODE: '1',
+    CLAUDE_CODE_ENTRYPOINT: 'cli',
+    CLAUDE_CODE_SSE_PORT: '1234',
+    CLAUDE_CODE_OAUTH_TOKEN: 'oauth-x',
+    ANTHROPIC_API_KEY: 'key-x',
+    PATH: '/bin',
+  });
+  assert.deepEqual(env, { CLAUDE_CODE_OAUTH_TOKEN: 'oauth-x', ANTHROPIC_API_KEY: 'key-x', PATH: '/bin' });
 });
