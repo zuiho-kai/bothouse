@@ -156,6 +156,8 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None):
                 it["ch"] = ws.split(":", 1)[1]
         cur.append(it)
         _write(cur)
+    if ws:
+        schedule_stale_check(it)
     return nid
 
 
@@ -179,6 +181,8 @@ def update(nid, status, where=None, who=None, nxt=None):
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
+    if hit.get("ws"):
+        schedule_stale_check(hit)
     return before
 
 
@@ -256,6 +260,43 @@ def park_workspace(it):
     if not it.get("ws") or not cc or not it.get("chat"):
         return None  # 没记交活的聊天频道：认不出工作区眼下是不是还在做这件，不放（宁可多占，不停别人的活）
     return _park_once(cc, it["ws"], it["chat"], it.get("bound"))
+
+
+# User, 2026-10-24: "稳定的一放一收，以小时为力度". Unfinished tasks with no
+# progress for one hour stay on the board as paused and release only their bound handoff (#261).
+STALE_AFTER = 60 * 60
+
+
+def pause_stale(now=None):
+    now = time.time() if now is None else now
+    changed = []
+    for it in _read():
+        if it.get("paused") or not it.get("ws") or it.get("next_ts", 0) > now:
+            continue
+        try:
+            stamp = time.mktime(time.strptime(f"{time.localtime(now).tm_year}-{it['at']}", "%Y-%m-%d %H:%M"))
+        except (KeyError, ValueError):
+            continue
+        if stamp > now:  # board timestamps omit the year; handle the New Year rollover
+            stamp = time.mktime(time.strptime(f"{time.localtime(now).tm_year - 1}-{it['at']}", "%Y-%m-%d %H:%M"))
+        if now - stamp < STALE_AFTER:
+            continue
+        hit = pause(it["id"], "一小时无进展，转待办")
+        if hit:
+            park_workspace(hit)
+            changed.append(hit)
+    return changed
+
+
+def schedule_stale_check(it):
+    if not it.get("ws") or not _cc_bin() or not it.get("sk"):
+        return
+    command = f'{sys.executable} "{Path(__file__).resolve()}" refresh'
+    r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", "60m",
+                        "--exec", command, "--mute", "--desc", f"检查任务 #{it['id']} 是否停滞"],
+                       capture_output=True, text=True)
+    if r.returncode:
+        print(f"board: #{it['id']} 自动停滞检查未安排：{r.stderr.strip()[:200]}", file=sys.stderr)
 
 
 WS_NAME_RE = re.compile(r"^(工作区\d+)")  # 「谁」= 工作区名 + 主角色名（ws-handoff 写的 f"{name}{lead_name}"）
@@ -713,6 +754,9 @@ def main(argv):
                 rebind(nid, back)
             if r is None:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            if r:
+                active = next(i for i in items() if i["id"] == nid)
+                schedule_stale_check(active)
             print("已恢复" if r else f"#{nid} 没在暂停")
             if r:
                 refresh({_chan_of(nid), _cur_channel()})
@@ -727,6 +771,7 @@ def main(argv):
             print("已挂卡")
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "refresh" and len(argv) == 1:
+            pause_stale()
             refresh(set())  # 改所有已有卡片的频道（board-cards.state 里的）
         elif cmd == "rework" and len(argv) <= 2:
             print(rework_report(int(argv[1]) if len(argv) > 1 else REWORK_DAYS))

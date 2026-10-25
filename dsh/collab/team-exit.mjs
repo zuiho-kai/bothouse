@@ -56,6 +56,17 @@ export class TeamExit {
       authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`,
       text: `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${record.id}` : ' · 阶段结果'}\n${mark[2]}`,
     });
-    if (ask) this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
+    if (ask) {
+      this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
+      const tasks = this.hub.tasks;
+      if (tasks) {
+        const taskId = /#(\d+)\b/.exec(mark[2])?.[1];
+        const selected = taskId
+          ? tasks.task(Number(taskId))
+          : tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
+            .filter(t => t.room_id === room.id).at(-1);
+        if (selected?.room_id === room.id) tasks.pauseTask(selected.id);
+      }
+    }
   }
 }

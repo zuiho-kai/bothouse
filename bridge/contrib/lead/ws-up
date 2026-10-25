@@ -14,6 +14,8 @@ from pathlib import Path
 here = Path(__file__).resolve().parent
 sys.path.insert(0, str(here))
 import _team  # noqa: E402
+sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
+import board  # noqa: E402
 
 USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask]'
 
@@ -33,7 +35,7 @@ def load_last() -> dict:
 def handoffs(last: dict) -> dict:
     """交接文件 → {channel, chat, task}；老格式只有顶层一条。"""
     tasks = {k: v for k, v in (last.get("tasks") or {}).items() if isinstance(v, dict)}
-    if last.get("file") and last["file"] not in tasks:
+    if not tasks and last.get("file"):
         tasks[last["file"]] = {k: last.get(k) for k in ("channel", "chat", "task")}
     return tasks
 
@@ -46,9 +48,12 @@ def pick_chat(last: dict, cur: str, notes=None):
     opts = "；".join(f"--notes {k}（{v.get('task') or ''}，来自 {v.get('chat') or '?'}）" for k, v in mine.items())
     if notes:
         path = os.path.abspath(os.path.expanduser(notes))
-        if path not in mine:
+        hits = {k: v for k, v in mine.items() if k == path or v.get("file") == path}
+        if not hits:
             sys.exit(f"ws-up: {path} 不是交给本工作区的交接文件；可选：{opts}")
-        hit = [(path, mine[path])]
+        if len(hits) > 1:
+            sys.exit(f"ws-up: 同一文件有多件任务，请用具体记录：{'；'.join(hits)}")
+        hit = list(hits.items())
     else:
         hit = list(mine.items())
     chats = {v.get("chat") for _, v in hit if v.get("chat")}
@@ -113,10 +118,17 @@ def main(argv):
         sys.exit(f"用法：{USAGE}（正文不能为空或以 - 开头）")
     # DSH 会删名字带 KEY 的环境变量，退回 DSH 入口导出的 CC_SESSION（同 later）
     key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
-    chat, path = pick_chat(load_last(), bare(key), notes)
+    last = load_last()
+    chat, path = pick_chat(last, bare(key), notes)
     r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project()), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-up: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
+    if ask:
+        for nid in handoffs(last)[path].get("board") or []:
+            hit = board.pause(nid, "等待用户答复")
+            if hit:
+                board.park_workspace(hit)
+        board.refresh({board._cur_channel()})
     say(key, f"📤 已报回聊天频道：{rest[0][:300]}")
     print(f"ws-up: 已交给聊天频道 {chat}（{'提问' if ask else '上报'}）", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id

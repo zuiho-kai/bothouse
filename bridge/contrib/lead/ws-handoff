@@ -134,6 +134,7 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
 
 def pick_pool(chat: str):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名）。"""
+    board.pause_stale()
     plat = chat.split(":", 1)[0]
     r = ws_cmd(chat, "list")
     parent = str(r.get("parent") or chat)
@@ -179,10 +180,14 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
     if isinstance(old, dict) and str(old.get("channel") or "") != rec["channel"]:
         # 同一份交接交给另一个工作区：另记一条（ws-up/ws-forward 用 --notes <文件>@ws<id> 认），不覆盖前一条
         key, rec["file"] = f"{path}@ws{rec['channel']}", path
-    elif isinstance(old, dict) and old.get("task") != task:
-        rec["more"] = [*(old.get("more") or []), old.get("task")]  # 同一工作区再交一块：前面的块留在 more
-    if isinstance(old, dict) and key == path:
-        rec["board"] = [*(old.get("board") or []), *rec["board"]]  # 每块各建各绑
+    if key in tasks:
+        base = f"{path}@ws{rec['channel']}@task{nid or len(tasks) + 1}"
+        key = base
+        serial = 1
+        while key in tasks:
+            key = f"{base}-{serial}"
+            serial += 1
+        rec["file"] = path
     tasks[key] = rec
     _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "tasks": tasks},
                                      ensure_ascii=False), encoding="utf-8")

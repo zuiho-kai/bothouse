@@ -184,7 +184,7 @@ class WsPoolTest(unittest.TestCase):
                            env={**self.env, "CC_SESSION_KEY": chat})
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
-                if c[:2] == ["timer", "add"]][-1]  # 交活后任务板刷新可能还会问桥（timer list）
+                if c[:2] == ["timer", "add"] and "--desc" in c and c[c.index("--desc") + 1] == "工作区接手"][-1]
         return argv[argv.index("-s") + 1]
 
     def board(self, *args):
@@ -206,10 +206,41 @@ class WsPoolTest(unittest.TestCase):
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         n = self.note("a")
         self.handoff(n, "A"); self.handoff(n, "B")
-        rec = json.loads((self.tmp / "setup" / "ws-handoff-last.json").read_text())["tasks"][n]
-        self.assertEqual(rec["board"], [1, 2])
-        self.assertEqual(rec["more"], ["A"])
+        records = json.loads((self.tmp / "setup" / "ws-handoff-last.json").read_text())["tasks"]
+        self.assertEqual(len(records), 2)
+        self.assertEqual([r["board"] for r in records.values()], [[1], [2]])
+        self.assertEqual([r["task"] for r in records.values()], ["A", "B"])
         self.assertEqual([i["what"] for i in self.items()], ["A", "B"])
+
+    def test_three_handoffs_balance_existing_workspaces(self):
+        self.pool([{"id": str(i), "name": f"工作区{i}", "owner": "", "open": 0} for i in range(1, 4)])
+        got = [self.handoff(self.note(str(i)), str(i)) for i in range(3)]
+        self.assertEqual(got, ["test:1", "test:2", "test:3"])
+        self.assertEqual([w["open"] for w in self.pool().values()], [1, 1, 1])
+
+    def test_ask_pauses_bound_task_and_reuses_workspace(self):
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0}])
+        note = self.note("question")
+        self.handoff(note, "A")
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-up"), "--notes", note, "Choose A/B", "--ask"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:1"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.items()[0].get("paused"))
+        self.assertEqual(self.handoff(self.note("next"), "Next"), "test:1")
+
+    def test_stale_bound_task_pauses_but_future_check_stays(self):
+        import time
+        self.pool([{"id": str(i), "name": f"工作区{i}", "owner": "", "open": 0} for i in range(1, 3)])
+        self.handoff(self.note("old"), "Old")
+        self.handoff(self.note("scheduled"), "Scheduled")
+        rows = self.items()
+        for row in rows:
+            row["at"] = time.strftime("%m-%d %H:%M", time.localtime(time.time() - 7200))
+        rows[1]["next_ts"] = time.time() + 3600
+        (self.tmp / "board" / "board.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        self.assertEqual(self.board("refresh")[0], 0)
+        self.assertTrue(self.items()[0].get("paused"))
+        self.assertFalse(self.items()[1].get("paused"))
 
     def test_paused_old_workspace_reused(self):  # 方案 11：暂停放回的旧号 + 一个满的：新活落到旧号，不新建
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0},
