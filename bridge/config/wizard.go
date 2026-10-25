@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -393,6 +394,21 @@ func EnsureManagementToken(token string) error {
 	configMu.Lock()
 	defer configMu.Unlock()
 	return patchSectionField("management", "token", quoteTomlString(token))
+}
+
+// SetManagementPort writes [management] port (comments kept): the setup wizard moved off a taken 9820.
+func SetManagementPort(port int) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return patchSectionField("management", "port", strconv.Itoa(port))
+}
+
+// SetGatePort writes [gate] port (comments kept): the wizard or the gate supervisor moved off a port
+// another install's gate holds.
+func SetGatePort(port int) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return patchSectionField("gate", "port", strconv.Itoa(port))
 }
 
 func atomicWrite(path string, data []byte, perm os.FileMode) error {

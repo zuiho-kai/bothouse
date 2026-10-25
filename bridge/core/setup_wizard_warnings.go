@@ -3,19 +3,54 @@ package core
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Warnings and the gate status line at the end of a wizard run. The web wizard's last
 // page and `cc-connect setup apply` print the same result.
 
-// 来源：contrib/gate/gate.py PORT = 9930（与 defaultGateURL 同一个地址）。变量便于测试替换。
-var gateAddr = "127.0.0.1:9930"
+// 来源：contrib/gate/gate.py PORT = 9930（与 defaultGateURL 同一个地址）。
+const defaultGatePort = 9930
+
+// gateAddr: where this data dir's gate listens. config [gate] port sets it (SetLocalGatePort, at
+// startup and on reload); a wizard run moves it when the port belongs to another bothouse.
+// A var so tests can swap it; read through localGateAddr.
+var (
+	gateAddrMu sync.RWMutex
+	gateAddr   = "127.0.0.1:9930"
+	// every gate port this process used: gate_urls the wizard wrote on an earlier port are still its own
+	knownGatePorts = map[string]bool{"9930": true}
+)
+
+func localGateAddr() string {
+	gateAddrMu.RLock()
+	defer gateAddrMu.RUnlock()
+	return gateAddr
+}
+
+// SetLocalGatePort points bothouse at the gate on 127.0.0.1:port (0 = 9930, gate.py's default).
+func SetLocalGatePort(port int) {
+	if port <= 0 {
+		port = defaultGatePort
+	}
+	gateAddrMu.Lock()
+	gateAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	knownGatePorts[strconv.Itoa(port)] = true
+	gateAddrMu.Unlock()
+}
+
+// LocalGatePort: the port of the gate bothouse uses (config [gate] port, default 9930).
+func LocalGatePort() int {
+	p, _ := strconv.Atoi(gatePort())
+	return p
+}
 
 // GateRunning reports whether the gate answers on this machine.
 func GateRunning() bool {
-	c, err := net.DialTimeout("tcp", gateAddr, 300*time.Millisecond) // 本机连接，300ms 足够（同 HardwarePresent）
+	c, err := net.DialTimeout("tcp", localGateAddr(), 300*time.Millisecond) // 本机连接，300ms 足够（同 HardwarePresent）
 	if err != nil {
 		return false
 	}

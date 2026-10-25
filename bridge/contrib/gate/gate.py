@@ -804,6 +804,12 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
+    def do_GET(self):
+        # 身份：bothouse 复用一个 gate 前先核对它服务的是不是自己的数据目录（core/gate_proc.go gateIsOurs）
+        if urllib.parse.urlsplit(self.path).path == "/whoami":
+            return self._json({"ok": True, "data_dir": str(datadir.data_dir().resolve()), "port": PORT})
+        self.send_error(404)
+
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
         bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]

@@ -1,12 +1,14 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,8 +42,59 @@ const (
 )
 
 // UsesLocalGate reports whether a project's gate_url is the gate this machine runs (the URL the
-// wizard writes, defaultGateURL); a hand-written URL elsewhere is someone else's gate.
+// wizard writes, localGateURL); a hand-written URL elsewhere is someone else's gate.
 func UsesLocalGate(gateURL string) bool { return isWizardGateURL(gateURL) }
+
+// PersistGatePort writes a gate port the supervisor had to move to into config.toml ([gate] port);
+// set by cmd/cc-connect (config.SetGatePort). nil = only this process knows the new port.
+var PersistGatePort func(port int) error
+
+// gateWhoami asks the gate on gateAddr which data dir it serves (gate.py GET /whoami); "" = no
+// answer (nothing there, an older gate without /whoami, or not a gate at all).
+func gateWhoami() string {
+	c := http.Client{Timeout: time.Second} // 本机接口，1s 足够
+	resp, err := c.Get("http://" + localGateAddr() + "/whoami")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		DataDir string `json:"data_dir"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil {
+		return ""
+	}
+	return out.DataDir
+}
+
+func sameDir(a, b string) bool {
+	clean := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			p = r
+		}
+		return filepath.Clean(p)
+	}
+	return a != "" && b != "" && clean(a) == clean(b)
+}
+
+// gateIsOurs: the gate on gateAddr serves dataDir (so it can be reused).
+func gateIsOurs(dataDir string) bool { return sameDir(gateWhoami(), dataDir) }
+
+// pickGatePort: the gate port for dataDir. The current one when nothing listens there or the gate
+// there is this data dir's; else 9930 when free; else a free one. Never another install's gate.
+func pickGatePort(dataDir string) int {
+	cur := LocalGatePort()
+	if portFree(cur) || gateIsOurs(dataDir) {
+		return cur
+	}
+	if cur != defaultGatePort && portFree(defaultGatePort) {
+		return defaultGatePort
+	}
+	return PickFreePort(0)
+}
 
 // gateLauncher runs gate.py and exits as soon as bothouse closes the pipe on its stdin, so the gate
 // never outlives bothouse (a crash or kill -9 included), on every OS. gate.py itself is not changed.
@@ -303,10 +356,22 @@ func (g *GateSupervisor) step() time.Duration {
 		return gateRecheck
 	}
 	if GateRunning() {
-		// on the gate's port before bothouse started one: a gate run by hand / launchd / systemd
-		g.external = true
-		slog.Info("gate: a gate is already listening; bothouse will not start its own", "addr", gateAddr)
-		return gateRecheck
+		if gateIsOurs(g.dataDir) {
+			// this data dir's gate, started before bothouse: by hand / launchd / systemd
+			g.external = true
+			slog.Info("gate: this data dir's gate is already listening; bothouse will not start its own", "addr", localGateAddr())
+			return gateRecheck
+		}
+		// someone else's (another bothouse, or not a gate): never share it, move to a free port
+		old := localGateAddr()
+		port := PickFreePort(0)
+		SetLocalGatePort(port)
+		if PersistGatePort != nil {
+			if err := PersistGatePort(port); err != nil {
+				slog.Warn("gate: cannot write the new gate port to config", "port", port, "error", err)
+			}
+		}
+		slog.Warn("gate: the gate port belongs to another data dir; moved", "from", old, "to", localGateAddr())
 	}
 	py, reason := GatePrereq(g.dataDir)
 	if reason != "" {
@@ -336,7 +401,7 @@ func (g *GateSupervisor) inputsLocked() string {
 
 // gatePort: the port of gateAddr, where bothouse looks for the gate (GateRunning).
 func gatePort() string {
-	if _, port, err := net.SplitHostPort(gateAddr); err == nil {
+	if _, port, err := net.SplitHostPort(localGateAddr()); err == nil {
 		return port
 	}
 	return "9930"

@@ -16,6 +16,8 @@ func init() { core.GateScriptFS = ccconnect.GateFiles }
 // only them runs in setup mode and starts the gate there too), and a wizard run in this process
 // reloads it.
 func startGate(cfg *config.Config) *core.GateSupervisor {
+	core.SetLocalGatePort(cfg.Gate.Port)
+	core.PersistGatePort = config.SetGatePort
 	want := core.DSHRouteConfigured()
 	for _, p := range cfg.Projects {
 		if core.UsesLocalGate(p.GateURL) {

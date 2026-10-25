@@ -33,7 +33,9 @@ func (e *Engine) roleSessionEnv(sessionKey string) []string {
 			}
 		}
 		if lead := filepath.Join(e.dataDir, "collaboration", "lead"); dirExists(lead) {
-			env = append(env, "GATE_SETUP_DIR="+e.dataDir, "BOTHOUSE_DATA_DIR="+e.dataDir)
+			// LEAD_GATE_URL: contrib/lead/lead talks to this data dir's gate, not whatever holds 9930
+			env = append(env, "GATE_SETUP_DIR="+e.dataDir, "BOTHOUSE_DATA_DIR="+e.dataDir,
+				"LEAD_GATE_URL=http://"+localGateAddr()+"/lead")
 			path = append(path, lead)
 		}
 	}

@@ -1871,6 +1871,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	result := &core.ConfigReloadResult{}
 
 	// Re-apply process-global hot-reloadable settings.
+	core.SetLocalGatePort(cfg.Gate.Port)
 	if globalAPIServer != nil {
 		globalAPIServer.SetMaxAttachmentSize(resolveMaxAttachmentSize(cfg))
 	}

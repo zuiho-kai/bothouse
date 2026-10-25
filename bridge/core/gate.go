@@ -205,7 +205,7 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 	body, _ := json.Marshal(req)
 	ctx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
-	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.url, bytes.NewReader(body))
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.liveURL(), bytes.NewReader(body))
 	if err != nil {
 		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error()}
 	}
@@ -599,9 +599,19 @@ func (g *gateState) bot() string {
 	return ""
 }
 
+// liveURL: gate_url, with a wizard-written local gate URL pointed at the gate port in use now
+// (the supervisor moves it when another install's gate holds the port: core/gate_proc.go step).
+func (g *gateState) liveURL() string {
+	if !isWizardGateURL(g.url) {
+		return g.url
+	}
+	rest := strings.TrimPrefix(g.url, "http://127.0.0.1:")
+	return "http://" + localGateAddr() + rest[strings.Index(rest, "/"):]
+}
+
 // endpoint returns the gate URL with its path replaced (query dropped).
 func (g *gateState) endpoint(path string) string {
-	base := g.url
+	base := g.liveURL()
 	if i := strings.Index(base, "?"); i >= 0 {
 		base = base[:i]
 	}
