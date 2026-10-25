@@ -16,7 +16,7 @@ func (e *Engine) withSubagentPolicy(prompt, userID string, fromBot bool) string 
 func withSubagentPolicy(prompt, userID string, fromBot bool) string {
 	source := "This request is from a human."
 	switch userID {
-	case "", "cron", "timer", "heartbeat":
+	case "", "cron", "timer", "heartbeat", "handoff":
 		fromBot = true
 	}
 	if fromBot {

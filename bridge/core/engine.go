@@ -2108,8 +2108,8 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	msg := &Message{
 		SessionKey:   sessionKey,
 		Platform:     platformName,
-		UserID:       "timer",
-		UserName:     "timer",
+		UserID:       timerTurnUser(job),
+		UserName:     timerTurnUser(job),
 		Content:      content,
 		ReplyCtx:     replyCtx,
 		ModeOverride: job.Mode,

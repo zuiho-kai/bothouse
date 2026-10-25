@@ -161,6 +161,12 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None):
     return nid
 
 
+def unadd(nid):
+    """撤掉刚 add 的条目（ws-handoff 叫醒失败时用）：不进 board-done，不算返工。"""
+    with _locked():
+        _write([i for i in _read() if i.get("id") != nid])
+
+
 # 纯回看条目：见文件头「add 拒绝纯回看条目」
 def _lookback_reason(what, where, status):
     m = re.match(r"\s*#(\d+)", what)

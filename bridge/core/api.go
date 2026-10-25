@@ -629,6 +629,7 @@ type TimerAddRequest struct {
 	Mode         string `json:"mode,omitempty"`
 	TimeoutMins  *int   `json:"timeout_mins,omitempty"`
 	InjectIfBusy bool   `json:"inject_if_busy,omitempty"`
+	Handoff      bool   `json:"handoff,omitempty"`
 }
 
 func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
@@ -712,6 +713,7 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		Mode:         req.Mode,
 		TimeoutMins:  req.TimeoutMins,
 		InjectIfBusy: req.InjectIfBusy,
+		Handoff:      req.Handoff,
 		CreatedAt:    time.Now(),
 	}
 
