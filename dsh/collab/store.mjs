@@ -45,6 +45,9 @@ const COLUMNS = [
   // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
+  // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
+  // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
+  ['messages', 'changed_at', 'REAL'],
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -77,8 +80,8 @@ export class Store {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
-      edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
-      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
+      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
       editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
         AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -369,9 +372,11 @@ export class Store {
    * channel at a time: one another chat channel owns (not free) is refused with
    * 'workspace-owned' until it is released after its last task (releaseWorkspace).
    * chatId may be a workspace (then its chat channel is used). bridge: the claim comes from the
-   * bridge (cloudweb.mjs), whose lead session the bridge releases itself. Returns the workspace room.
+   * bridge (cloudweb.mjs), whose lead session the bridge releases itself. handoff: the task this
+   * claim is for when it already exists (a paused task resumed, Tasks.resumeClaim), so handoffDone
+   * waits for that task instead of one dispatched later. Returns the workspace room.
    */
-  claimWorkspace(chatId, workspaceId, { bridge = false } = {}) {
+  claimWorkspace(chatId, workspaceId, { bridge = false, handoff = null } = {}) {
     return this.transaction(() => {
       const chat = this.q.room.get(chatId);
       const ws = this.q.room.get(workspaceId);
@@ -383,8 +388,8 @@ export class Store {
         throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
       }
       return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-        claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
-        .get(parent, bridge ? 1 : 0, ws.id, ws.id);
+        claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)) WHERE id = ? RETURNING id, name, kind, parent_id`)
+        .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
     });
   }
 
@@ -560,20 +565,20 @@ export class Store {
     return messageAttachments(row).find(a => a.id === id);
   }
 
-  edit(id, authorKind, author, text, card) { return this.q.edit.get(text, card ?? null, id, authorKind, author); }
+  edit(id, authorKind, author, text, card, now = Date.now() / 1000) { return this.q.edit.get(text, card ?? null, now, id, authorKind, author); }
   /**
    * Finish a streamed draft row with its complete text (#121). Returns
    * { message, first }: first is true only when this call turned the draft
    * into a reply (the caller fans out once). A row already committed gets the
    * text and first = false. undefined if it is not that author's live text row.
    */
-  commit(id, authorKind, author, text, fromTurn) {
+  commit(id, authorKind, author, text, fromTurn, now = Date.now() / 1000) {
     if (!text.trim() || text.length > MAX_TEXT) return undefined;
-    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), id, authorKind, author);
+    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), now, id, authorKind, author);
     if (row !== undefined) return { message: row, first: true };
     const old = this.message(id);
     if (old === undefined || old.card != null) return undefined;
-    const again = this.edit(id, authorKind, author, text);
+    const again = this.edit(id, authorKind, author, text, undefined, now);
     return again === undefined ? undefined : { message: again, first: false };
   }
   /** #148: a person edits their own plain message; returns the row, or undefined if it is not theirs. */

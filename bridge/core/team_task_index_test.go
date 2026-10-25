@@ -17,8 +17,8 @@ type indexedProgressPlatform struct {
 	board stubBoardPlatform
 }
 
-func (p *indexedProgressPlatform) UpsertBoard(ctx context.Context, key, id, text string) (string, error) {
-	return p.board.UpsertBoard(ctx, key, id, text)
+func (p *indexedProgressPlatform) UpsertBoard(ctx context.Context, key, id, text string, live bool) (string, error) {
+	return p.board.UpsertBoard(ctx, key, id, text, live)
 }
 
 // Three user actions use the real Engine, reporter, heartbeat writer and board

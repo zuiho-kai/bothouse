@@ -33,6 +33,9 @@ export const MAX_RENEWALS = 2;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
+// The dispatcher's explicit review of a workspace task, a line of its chat-channel reply:
+// 【验收】#id closes it, 【返工】#id 原因 sends it back (Tasks.verdictsOf).
+const VERDICT_LINE = /^[ \t]*【(验收|返工)】[ \t]*#(\d+)[ \t]*(.*)$/gm;
 const HUMAN = 'owner';
 const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
 // A paused task (park: the bridge released its workspace with the task stopped at a clean
@@ -105,7 +108,9 @@ export class Tasks {
       putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
-      ownerSaid: this.db.prepare("SELECT text FROM messages WHERE room_id = ? AND author_kind = 'role' AND author = ? AND card IS NULL AND deleted = 0 AND created_at > ?"),
+      // Rows the owner posted or changed in place since a time (changed_at: a streamed reply growing, a progress card edited).
+      ownerSaid: this.db.prepare(`SELECT text, card FROM messages WHERE room_id = ? AND author_kind = 'role' AND author = ? AND deleted = 0
+        AND COALESCE(changed_at, created_at) > ?`),
       // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
       resetRenewals: this.db.prepare('UPDATE tasks SET renewals = 0 WHERE id = ?'),
       renew: this.db.prepare(`UPDATE tasks SET next_check_at = ?, renewals = ? WHERE id = ? AND ${LIVE} RETURNING *`),
@@ -118,7 +123,7 @@ export class Tasks {
       setSource: this.db.prepare('UPDATE tasks SET source = ? WHERE id = ?'),
       openChat: this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND created_by = ? AND source IS NOT NULL
         AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
-      returnedChat: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND created_by = ? AND source IS NOT NULL AND status = 'returned' ORDER BY id"),
+      returnedChat: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND created_by = ? AND source IN ('mention', 'card') AND status = 'returned' ORDER BY id"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
       // #597 G24: a job the lead already handed to one of this chat channel's workspaces.
       openHanded: this.tree ? this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND created_by = ? AND source = 'workspace'
@@ -313,8 +318,27 @@ export class Tasks {
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     this.record(row, 'return', `#${id}「${row.title}」${this.nameOf(row.owner)} 交回，用时 ${duration(row.returned_at - row.created_at)}`);
+    this.returnToChat(row, messageId);
     this.releaseIfDone(row.room_id);
     return this.changed(id);
+  }
+
+  /**
+   * A workspace task handed back: its result goes to the chat channel (TeamExit.forwardResult:
+   * the [report] body, or the delivery itself) and its dispatcher is woken there on it to review,
+   * as a chat-channel hand-back @-s the lead (lead_return.go). A bridge-claimed workspace is the
+   * bridge's (its lead session reads the workspace itself).
+   */
+  returnToChat(task, messageId) {
+    if (!this.tree || this.store.room(task.room_id)?.kind !== 'workspace' || this.store.bridgeClaimed(task.room_id)) return;
+    const msg = this.store.message(messageId);
+    let copy = msg === undefined ? undefined : this.hub.teamExit?.forwardResult(msg);
+    if (copy === undefined || task.created_by === HUMAN) return;
+    // The dispatcher is woken on this copy alone (a turn reads no other system row), so it says
+    // how to review, as the pause record says how to answer (watch).
+    const how = `\n\n验收 #${task.id}：回复里单独一行写【验收】#${task.id}；要返工就单独一行写【返工】#${task.id} 原因。`;
+    if (!copy.text.includes(how)) copy = this.hub.edit(copy.id, 'system', 'system', copy.text + how, copy.card) ?? copy;
+    this.wake(task.created_by, copy);
   }
 
   /** The lead (or the human owner) closes the task or sends it back for rework. */
@@ -327,15 +351,37 @@ export class Tasks {
     if (verdict === 'rework' && !clip(note)) throw new CollabError('invalid', MISSING_REWORK_NOTE);
     // Rework is a new round with the same check time as a dispatch (source above).
     const check = verdict === 'rework' ? this.now() + CHECK_AFTER_S : null;
+    const reclaim = verdict === 'rework' && this.reworkClaim(task);
     const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), 0, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     if (verdict === 'rework') this.q.resetRenewals.run(id);
     const tail = clip(note) ? `：${clip(note)}` : '';
-    this.record(row, verdict, verdict === 'done'
+    // A workspace task sent back: its owner is woken there on the record (nobody routes it there
+    // otherwise), which says how to hand back as the pause record does (watch).
+    const how = reclaim ? `。做完了就交回：回复第一行写【接】#${id}，下面写 [report] 和结果；没做完就第一行写【问】#${id}，说明做到哪一步、卡在哪。` : '';
+    const record = this.record(row, verdict, verdict === 'done'
       ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
-      : `#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}`);
+      : `${reclaim ? `@${this.nameOf(row.owner)} ` : ''}#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}${how}`);
     if (verdict === 'done') this.releaseIfDone(row.room_id);
+    if (reclaim) this.wake(row.owner, record);
     return this.changed(id);
+  }
+
+  /**
+   * A workspace task (not a bridge claim's) about to be sent back: its hand-back may have released
+   * the workspace, so it is claimed again for the chat channel above it with this task as the
+   * handoff (as resumeClaim does); one another chat channel claimed since refuses the rework with
+   * 'workspace-owned'. True when the task is such a workspace task.
+   */
+  reworkClaim(task) {
+    if (!this.tree || this.store.room(task.room_id)?.kind !== 'workspace' || this.store.bridgeClaimed(task.room_id)) return false;
+    const chat = this.chatOf(task.room_id);
+    const owner = this.store.workspaceOwner(task.room_id);
+    if (owner != null && owner !== chat) {
+      throw new CollabError('workspace-owned', `task ${task.id}'s workspace now belongs to room ${owner}; hand it off again to a free workspace`);
+    }
+    if (owner == null) this.store.claimWorkspace(chat, task.room_id, { handoff: task.id });
+    return true;
   }
 
   /**
@@ -368,6 +414,7 @@ export class Tasks {
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
+    this.verdictsOf(msg);
     const stance = this.stanceOf(msg);
     // A DSH member (local CLI members too, dsh-member.mjs) posts one reply, when its turn has
     // ended: a 【接】 there is also the delivery, and nothing else would hand the task back.
@@ -376,10 +423,38 @@ export class Tasks {
       return this.handBack(stance.id, { actor: msg.author, messageId: msg.id });
     }
     if (stance !== undefined) return stance;
+    // A stance naming a task of another room speaks about that task: it hands back nothing here either.
+    if (this.foreignStance(msg)) return undefined;
     // A 【问】【退】【升】 reply with no task to answer is a question or a pushback, never a hand-back.
     if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routable()).trimStart())) return undefined;
     if (NOTICE_PREFIXES.some(p => String(msg.text).trimStart().startsWith(p))) return undefined;
     return this.fromChat(msg);
+  }
+
+  /**
+   * Lines 【验收】#id / 【返工】#id 原因 in a chat-channel reply review the workspace tasks they
+   * name: only the task's dispatcher, only for a workspace under this chat channel. Anything
+   * else the dispatcher says (a reply to someone else, a send-back without the line) changes nothing.
+   */
+  verdictsOf(msg) {
+    if (!this.tree || this.store.room(msg.room_id)?.kind === 'workspace') return;
+    for (const [, word, id, note] of String(msg.text).matchAll(VERDICT_LINE)) {
+      const task = this.task(Number(id));
+      if (task === undefined || task.created_by !== msg.author || task.room_id === msg.room_id
+          || this.store.room(task.room_id)?.kind !== 'workspace' || this.chatOf(task.room_id) !== msg.room_id) continue;
+      try {
+        this.review(task.id, { actor: msg.author, verdict: word === '验收' ? 'done' : 'rework', note: word === '返工' ? note.trim() : undefined });
+      } catch (error) {
+        this.hub.logger?.warn?.('collab: %s #%s from %s refused: %s', word, id, msg.author, error?.message ?? error);
+      }
+    }
+  }
+
+  /** The first line is a stance whose #id names a task in another room. */
+  foreignStance(msg) {
+    const m = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0]);
+    const task = m?.[2] !== undefined ? this.task(Number(m[2])) : undefined;
+    return task !== undefined && task.room_id !== msg.room_id;
   }
 
   stanceOf(msg) {
@@ -391,7 +466,9 @@ export class Tasks {
     // dispatch counts; once answered, changing that task needs its #id.
     const task = m[2] !== undefined ? this.task(Number(m[2]))
       : this.q.latestAssigned.get(msg.room_id, msg.author);
-    if (task === undefined || task.owner !== msg.author || !WORKING.includes(task.status)) return undefined;
+    // A task is answered in its own room: a 【接】#id in the chat channel about a workspace task is
+    // talk about it (and for a DSH member would be a hand-back without the work), not its answer.
+    if (task === undefined || task.room_id !== msg.room_id || task.owner !== msg.author || !WORKING.includes(task.status)) return undefined;
     return this.stance(task.id, { actor: msg.author, stance: m[1], note: m[3] });
   }
 
@@ -400,13 +477,16 @@ export class Tasks {
    * without the task API: the primary role @-ing (or calling by leading name) teammates
    * opens one task per teammate that has none open from it in this room; a teammate's
    * reply that @-s the dispatcher (cloud-web lead_return adds it to every final reply)
-   * hands its open task back; the dispatcher's next message accepts what was handed back.
+   * hands its open task back; the dispatcher's next message accepts what was handed back here
+   * (a workspace task needs its 【验收】#id line, verdictsOf).
    */
   fromChat(msg) {
     const lead = this.hub.primaryMember();
     const team = this.hub.routable();
     const text = String(msg.text);
     if (lead !== undefined && msg.author === lead.id) {
+      // Its next message after a chat-side hand-back accepts it. Workspace tasks need its explicit
+      // 【验收】#id / 【返工】#id line (verdictsOf): it may be answering something else meanwhile.
       for (const t of this.q.returnedChat.all(msg.room_id, lead.id)) {
         try { this.review(t.id, { actor: lead.id, verdict: 'done' }); } catch { /* changed meanwhile */ }
       }
@@ -516,18 +596,26 @@ export class Tasks {
       return;
     }
     const why = renewals >= MAX_RENEWALS ? `已续期 ${MAX_RENEWALS} 次` : `${CHECK_AFTER_S / 60} 分钟内没有新进展`;
-    const message = this.record(task, 'pause', `@${this.nameOf(task.owner)} #${task.id}「${task.title}」${why}，已暂停；表态或交回即恢复`);
+    // The owner is woken on this record, often in a fresh session (the pause released the
+    // workspace): it says what to answer, as the bridge's watch reminder does (core/team_watch.go).
+    const message = this.record(task, 'pause', `@${this.nameOf(task.owner)} #${task.id}「${task.title}」${why}，已暂停。`
+      + `做完了就交回：回复第一行写【接】#${task.id}，下面写 [report] 和结果；没做完就第一行写【问】#${task.id}，说明做到哪一步、卡在哪。`);
     if (this.pauseTask(task.id)) this.wake(task.owner, message);
   }
 
   /**
-   * Progress = the owner's own messages since `since`, not counting stance lines (【接】【问】
-   * 【退】【升】) or status notices. Same rule as contrib/lead/d10-fire chat_active.
+   * Progress = the owner's own rows posted or changed in place since `since`: its progress card
+   * (or any card it owns) moving, or text beyond a first stance line (【接】【问】【退】【升】) that is
+   * not a status notice. Same rule as contrib/lead/d10-fire chat_active, with the stance line taken
+   * off instead of the whole row: a DSH member's one reply opens with 【接】#id and grows in place.
    */
   progressed(task, since) {
-    return this.q.ownerSaid.all(task.room_id, task.owner, since).some(({ text }) => {
-      const body = withoutLeadingMentions(String(text ?? ''), this.hub.routable()).trim();
-      return body !== '' && !/^【(接|问|退|升)】/.test(body) && !NOTICE_PREFIXES.some(p => body.startsWith(p));
+    return this.q.ownerSaid.all(task.room_id, task.owner, since).some(({ text, card }) => {
+      if (card != null) return true;
+      const lines = withoutLeadingMentions(String(text ?? ''), this.hub.routable()).trim().split('\n');
+      if (STANCE_LINE.test(lines[0])) lines.shift();
+      const body = lines.join('\n').trim();
+      return body !== '' && !NOTICE_PREFIXES.some(p => body.startsWith(p));
     });
   }
 
@@ -665,7 +753,8 @@ export class Tasks {
     if (owner != null && owner !== task.paused_chat) {
       throw new CollabError('workspace-owned', `task ${task.id} is paused and its workspace now belongs to room ${owner}; hand it off again to a free workspace`);
     }
-    if (owner == null && reclaim) this.store.claimWorkspace(task.paused_chat, task.room_id);
+    // The resumed task is this claim's handoff: handing it back frees the workspace again (handoffDone).
+    if (owner == null && reclaim) this.store.claimWorkspace(task.paused_chat, task.room_id, { handoff: task.id });
   }
 
   changed(id) {

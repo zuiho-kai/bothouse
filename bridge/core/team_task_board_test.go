@@ -256,7 +256,7 @@ func TestTeamTaskBoardUnplacedMainChatOnly(t *testing.T) {
 }
 
 // #597 G4: a cloud_web single-role board shows the task board once (no second 在做 / 今天做完
-// block), and the card state follows TeamBoardActive on the K9 layout.
+// block), and the card state follows the board's live work on the K9 layout.
 func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
@@ -276,35 +276,87 @@ func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 			t.Fatalf("%q appears %d times, want %d:\n%s", want, c, n, got)
 		}
 	}
-	if !TeamBoardActive(got) {
+	if !p.live["cloud_web:room-1"] {
 		t.Fatalf("running item, card must be Running:\n%s", got)
 	}
 	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","paused":"10-26 04:00","pause_why":"等回复","sk":"cloud_web:room-1"}`+"\n")
 	e.updateTeamBoards(files, map[string]*boardChat{})
 	got = p.content["cloud_web:room-1"]
-	if !strings.Contains(got, "**暂停**\n#1 修登录") || TeamBoardActive(got) {
+	if !strings.Contains(got, "**暂停**\n#1 修登录") || p.live["cloud_web:room-1"] {
 		t.Fatalf("paused only, card must be Completed:\n%s", got)
 	}
 }
 
-func TestTeamBoardActiveTaskBoardLayout(t *testing.T) {
-	cases := map[string]bool{
-		"**谁在干啥**\n**橘**　💤 空闲":                                                               false,
-		"**谁在干啥**\n**橘**　✅ 做完：x（03:00）":                                                      false,
-		"**谁在干啥**\n**橘**　🔧 x（03:00 起）":                                                       true,
-		"**谁在干啥**\n**橘**　📋 x（进行中 · 03:00）":                                                   true,
-		"**谁在干啥**\n**进行中**\n• x · 橘\n\n**橘**　💤 空闲":                                           true,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜10-26 03:00":                           true,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**工作区1**\n#3 交接｜工作区1橘｜-｜-":           true,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘｜-｜-｜暂停：等回复":           false,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完**\n- 橘：写文档": false,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完** 4 件":      false,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 a｜x　y｜-｜-":                                      true,
+func TestTeamBoardMembersLive(t *testing.T) {
+	now := time.Now()
+	idle := teamFile{Project: "a", Name: "橘", Updated: now}
+	cases := []struct {
+		name    string
+		f       teamFile
+		members []teamTaskMember
+		want    bool
+	}{
+		{"idle", idle, nil, false},
+		{"done here", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-1", Worked: true, DoneAt: now}}}, nil, false},
+		{"busy here", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-1", Worked: true, Busy: true, Since: now}}}, nil, true},
+		{"busy elsewhere", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-2", Worked: true, Busy: true, Since: now}}}, nil, true},
+		{"task card running", idle, []teamTaskMember{{Name: "橘", Status: "running", UpdatedAt: now}}, true},
+		{"task card waiting", idle, []teamTaskMember{{Name: "橘", Status: "waiting", UpdatedAt: now}}, true},
+		{"task card completed", idle, []teamTaskMember{{Name: "橘", Status: "completed", UpdatedAt: now}}, false},
 	}
-	for in, want := range cases {
-		if got := TeamBoardActive(in); got != want {
-			t.Errorf("TeamBoardActive(%q) = %v, want %v", in, got, want)
+	for _, c := range cases {
+		if _, got := teamBoardMembers([]teamFile{c.f}, "cloud_web:room-1", c.members); got != c.want {
+			t.Errorf("%s: live = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// #597 G33: a handoff item stays on the board until the lead runs board done, but once its
+// workspace finished it (the bridge closed that handoff on the session reset) and nobody is
+// working, the board card is not Running: the header follows the same data as the rows.
+// The state alone changing (same text) still re-posts the card.
+func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
+	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	defer e.cancel()
+	dataDir := t.TempDir()
+	e.SetDataDir(dataDir)
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true}
+	at := time.Date(2026, 10, 26, 6, 47, 21, 0, time.Local)
+	setHandoff := func(closed time.Time) {
+		teamWorkspaceStore.mu.Lock()
+		defer teamWorkspaceStore.mu.Unlock()
+		path := teamWorkspacePath(dataDir)
+		st := loadTeamWorkspacesLocked(path)
+		st.Handoffs = map[string][]TeamHandoff{"cloud_web:room-2": {
+			{Chat: "cloud_web:room-9", At: at.Add(-time.Hour), Closed: at.Add(-time.Minute)}, // an older task of another chat
+			{Chat: "cloud_web:room-1", At: at, Closed: closed},
+		}}
+		if err := saveTeamWorkspacesLocked(path, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	files := []teamFile{{Project: "ayi", Name: "ayi", Updated: now}}
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"实现 release.py","status":"done","who":"工作区1ayi","at":"10-26 06:57","sk":"cloud_web:room-2","ws":"cloud_web:room-2","bound":"`+at.Add(time.Second).UTC().Format(time.RFC3339Nano)+`","chat":"cloud_web:room-1"}`+"\n")
+	boards := map[string]*boardChat{}
+
+	setHandoff(time.Time{}) // the workspace is on it
+	e.updateTeamBoards(files, boards)
+	if !strings.Contains(p.content["cloud_web:room-1"], "#1 实现 release.py") || !p.live["cloud_web:room-1"] {
+		t.Fatalf("open handoff: live = %v, want true:\n%s", p.live["cloud_web:room-1"], p.content["cloud_web:room-1"])
+	}
+	posts := p.posts
+
+	setHandoff(at.Add(10 * time.Minute)) // the workspace finished and was reset
+	e.updateTeamBoards(files, boards)
+	got := p.content["cloud_web:room-1"]
+	if !strings.Contains(got, "**ayi**　💤 空闲") || !strings.Contains(got, "#1 实现 release.py｜工作区1ayi｜done") {
+		t.Fatalf("board text:\n%s", got)
+	}
+	if p.live["cloud_web:room-1"] || p.posts == posts {
+		t.Fatalf("closed handoff: live = %v, posts %d→%d; want not live and re-posted", p.live["cloud_web:room-1"], posts, p.posts)
 	}
 }
 

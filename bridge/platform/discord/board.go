@@ -56,7 +56,7 @@ func removeBoard(api boardAPI, channelID, messageID string, options ...discordgo
 
 // UpsertBoard keeps the team board as one embed per channel: it edits the previous message
 // when it still exists and otherwise posts (and pins) a new one. The board never pings anyone.
-func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
+func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, content string, _ bool) (string, error) {
 	rc, err := p.ReconstructReplyCtx(sessionKey)
 	if err != nil {
 		return "", err

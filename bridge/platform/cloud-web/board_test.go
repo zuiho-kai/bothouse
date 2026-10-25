@@ -116,14 +116,14 @@ func TestTeamBoardPostsThenEditsInPlace(t *testing.T) {
 	hub := newBoardHub("room-2")
 	p := &Platform{name: "cloud_web", tp: hub, replyCtxs: map[string]string{}}
 	ctx := context.Background()
-	id, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n龙娘：写代码（进行中）")
+	id, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n龙娘：写代码（进行中）", false)
 	if err != nil || id == "" {
 		t.Fatalf("post: id=%q err=%v", id, err)
 	}
 	if got := hub.live()[101]; !strings.HasPrefix(got, core.ProgressCardPayloadPrefix) || !strings.Contains(got, "龙娘：写代码") || strings.Contains(got, "**") {
 		t.Fatalf("board payload = %q", got)
 	}
-	id2, err := p.UpsertBoard(ctx, "cloud_web:room-2", id, "**谁在干啥**\n龙娘：写代码（已完成）")
+	id2, err := p.UpsertBoard(ctx, "cloud_web:room-2", id, "**谁在干啥**\n龙娘：写代码（已完成）", false)
 	if err != nil || id2 != id {
 		t.Fatalf("edit: id=%q err=%v, want %q", id2, err, id)
 	}
@@ -139,7 +139,7 @@ func TestTeamBoardRepostsAfterDelete(t *testing.T) {
 	hub := newBoardHub("room-2")
 	p := &Platform{name: "cloud_web", tp: hub, replyCtxs: map[string]string{}}
 	ctx := context.Background()
-	id, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n甲")
+	id, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n甲", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestTeamBoardRepostsAfterDelete(t *testing.T) {
 	if err := p.RemoveBoard(ctx, "cloud_web:room-2", id); err != nil {
 		t.Fatalf("removing a gone board must count as removed: %v", err)
 	}
-	id2, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n乙")
+	id2, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n乙", false)
 	if err != nil || id2 == "" || id2 == id {
 		t.Fatalf("repost: id=%q err=%v (old %q)", id2, err, id)
 	}
@@ -168,10 +168,10 @@ func TestTeamBoardLostAckDoesNotDuplicate(t *testing.T) {
 	hub.dropAck = true
 	p := &Platform{name: "cloud_web", tp: hub, replyCtxs: map[string]string{}}
 	ctx := context.Background()
-	if _, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n甲"); err == nil {
+	if _, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n甲", false); err == nil {
 		t.Fatal("lost ack must fail")
 	}
-	id, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n甲")
+	id, err := p.UpsertBoard(ctx, "cloud_web:room-2", "", "**谁在干啥**\n甲", false)
 	if err != nil || id != "101" || hub.creates != 1 {
 		t.Fatalf("retry: id=%q err=%v creates=%d", id, err, hub.creates)
 	}
@@ -182,7 +182,7 @@ func TestTeamBoardLostAckDoesNotDuplicate(t *testing.T) {
 func TestTeamBoardRoomGoneIsUnrecoverable(t *testing.T) {
 	hub := newBoardHub()
 	p := &Platform{name: "cloud_web", tp: hub, replyCtxs: map[string]string{}}
-	_, err := p.UpsertBoard(context.Background(), "cloud_web:room-9", "", "**谁在干啥**\n甲")
+	_, err := p.UpsertBoard(context.Background(), "cloud_web:room-9", "", "**谁在干啥**\n甲", false)
 	if !errors.Is(err, core.ErrDeliveryUnrecoverable) {
 		t.Fatalf("err = %v, want ErrDeliveryUnrecoverable", err)
 	}
@@ -192,20 +192,19 @@ func TestTeamBoardNeedsEditableMessages(t *testing.T) {
 	hub := newBoardHub("room-2")
 	hub.caps = capabilitySet([]string{"text"})
 	p := &Platform{name: "cloud_web", tp: hub, replyCtxs: map[string]string{}}
-	if _, err := p.UpsertBoard(context.Background(), "cloud_web:room-2", "", "x"); !errors.Is(err, core.ErrNotSupported) || !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+	if _, err := p.UpsertBoard(context.Background(), "cloud_web:room-2", "", "x", false); !errors.Is(err, core.ErrNotSupported) || !errors.Is(err, core.ErrDeliveryUnrecoverable) {
 		t.Fatalf("err = %v, want ErrNotSupported marked unrecoverable", err)
 	}
 }
 
+// #597 G33: the card header state is the caller's live flag, not re-read from the text: a
+// handoff item the workspace finished ("#1 …｜done" under the workspace) with everyone idle is
+// Done, and the same text while the workspace is still on it is Running.
 func TestTeamBoardStateFollowsLiveWork(t *testing.T) {
-	for content, want := range map[string]string{
-		"**谁在干啥**\n**橘**　💤 空闲":                           `"state":"completed"`,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜x": `"state":"running"`,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完**\n- 橘：修登录": `"state":"completed"`,
-		"**谁在干啥**\n**橘**　🔧 修登录（03:00 起）": `"state":"running"`,
-	} {
-		if got := renderBoardText(content); !strings.Contains(got, want) {
-			t.Errorf("renderBoardText(%q) = %s, want %s", content, got, want)
+	content := "**谁在干啥**\n**ayi**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**room-2**\n#1 实现 release.py｜工作区1ayi｜done｜10-26 06:57"
+	for live, want := range map[bool]string{false: `"state":"completed"`, true: `"state":"running"`} {
+		if got := renderBoardText(content, live); !strings.Contains(got, want) {
+			t.Errorf("renderBoardText(live=%v) = %s, want %s", live, got, want)
 		}
 	}
 }

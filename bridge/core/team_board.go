@@ -34,6 +34,8 @@ type boardChat struct {
 	SessionKey string `json:"session_key"`
 	MessageID  string `json:"message_id"`
 	Content    string `json:"content"`
+	// Live: the state the board was last posted with (BoardPoster's live), compared like Content.
+	Live bool `json:"live,omitempty"`
 	// GaveUpAt is when the platform stopped letting us edit this board (e.g.
 	// it sits in an archived thread). Until the channel has newer activity the
 	// board is left alone: no retries and no new board that would bump the
@@ -309,10 +311,14 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
-		content := withTeamTaskBoard(renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang()), func(budget int) string {
+		members, live := teamBoardWithTasks(files, chat, e.i18n.CurrentLang())
+		content := withTeamTaskBoard(members, func(budget int) string {
 			return renderTeamTaskBoardFit(items, done, chat, now, pending, budget)
 		})
-		if content == b.Content {
+		// The card state comes from the same data as the text: someone shown working, a relay
+		// task in the index, or a task-board item still in work (#597 G33).
+		live = live || teamTaskBoardLive(items, chat)
+		if content == b.Content && live == b.Live {
 			continue
 		}
 		platform, _, _ := strings.Cut(chat, ":")
@@ -321,7 +327,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			continue
 		}
 		ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
-		id, err := poster.UpsertBoard(ctx, b.SessionKey, b.MessageID, content)
+		id, err := poster.UpsertBoard(ctx, b.SessionKey, b.MessageID, content, live)
 		cancel()
 		// A successful send can be followed by a failed pin. Persist its ID
 		// before retrying so recovery edits/pins the same board.
@@ -343,7 +349,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			slog.Warn("team board: update failed", "chat", chat, "error", err)
 			continue
 		}
-		b.MessageID, b.Content = id, content
+		b.MessageID, b.Content, b.Live = id, content, live
 		changed = true
 	}
 	return changed
@@ -409,7 +415,15 @@ func (m *teamTaskMember) live() bool {
 }
 
 func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMember) string {
+	text, _ := teamBoardMembers(files, chat, members)
+	return text
+}
+
+// teamBoardMembers renders the member lines and reports whether one of them shows live work
+// (busy 🔧, or a task-card row 📋/⏳ still in work), from the same pick as the line.
+func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (string, bool) {
 	lines := []string{"**谁在干啥**"}
+	live := false
 	for _, f := range files {
 		var best *teamEntry
 		rank := 0
@@ -442,6 +456,7 @@ func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMem
 			}
 		}
 		line := "💤 空闲"
+		lineLive := rank >= 3
 		if best != nil {
 			task := boardTask(best.Task)
 			switch rank {
@@ -468,11 +483,12 @@ func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMem
 		// or idle; a live turn here still shows what is happening right now.
 		if m := boardMember(f, members); m != nil && rank < 4 && (m.live() || rank < 2 || m.UpdatedAt.After(best.DoneAt)) {
 			icon := "📋"
+			lineLive = true
 			switch m.Status {
 			case "completed":
-				icon = "✅"
+				icon, lineLive = "✅", false
 			case "failed", "cancelled", "interrupted":
-				icon = "❌"
+				icon, lineLive = "❌", false
 			case "waiting":
 				icon = "⏳"
 			}
@@ -483,8 +499,9 @@ func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMem
 			line = fmt.Sprintf("%s %s（%s · %s）", icon, boardTask(taskIndexLabel(m.Title, teamBoardTaskRunes*2)), status, m.UpdatedAt.Local().Format("15:04"))
 		}
 		lines = append(lines, fmt.Sprintf("**%s**　%s", f.Name, line))
+		live = live || lineLive
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), live
 }
 
 func boardTask(task string) string {

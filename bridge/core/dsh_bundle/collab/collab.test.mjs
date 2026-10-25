@@ -4351,3 +4351,169 @@ test('G26: the DSH workspace prompt spells out the full /workspaces call', async
   assert.match(rules, /建工作区=这一条，任务和十分钟看门会自动开/);
   later.close();
 });
+
+// #597 G34 (K10 r8): DSH watch counts in-place progress, a stance only answers a task in its own
+// room, a workspace hand-back brings its result to the chat channel and wakes the dispatcher.
+function g34Setup() {
+  const hub = makeHub();
+  hub.setMember({ id: 'zhu', name: '主', kind: 'dsh', online: true });
+  hub.setMember({ id: 'fu', name: '副', kind: 'dsh', online: true });
+  hub.leadState = { selected: () => 'zhu' };
+  hub.teamExit = new TeamExit(hub);
+  const clock = { t: 1000 };
+  const tasks = new Tasks(hub, { now: () => clock.t, setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  const woken = [];
+  tasks.onWake((id, m) => { woken.push([id, m.room_id, m.text]); return true; });
+  const ws = hub.store.createWorkspace(1);
+  const assign = (owner = 'fu') => {
+    const t = tasks.assign({ roomId: ws.id, title: '记账', owner, actor: 'zhu' });
+    tasks.q.setSource.run('workspace', t.id);
+    return t;
+  };
+  const say = (room, text, author = 'fu') => hub.post(room, { authorKind: 'role', author, name: hub.members.get(author).name, text }).message;
+  return { hub, tasks, clock, woken, ws, assign, say };
+}
+
+test('G34: a DSH reply opening with 【接】#id and growing in place, and its progress card, count as progress', () => {
+  const { hub, tasks, clock, ws, assign } = g34Setup();
+  const t = assign();
+  // One draft row for the whole turn, first line the stance, edited in place (dsh-member runCli).
+  const draft = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n\n先看代码`, draft: true }, 1100).message;
+  clock.t = 1000 + CHECK_AFTER_S;
+  tasks.tick();
+  assert.equal(tasks.task(t.id).paused_at, null, 'text after the stance line is progress');
+  assert.equal(tasks.task(t.id).renewals, 1);
+  hub.store.edit(draft.id, 'role', 'fu', `【接】#${t.id}\n\n先看代码，写好了三个模块`, undefined, clock.t + 300);
+  clock.t += CHECK_AFTER_S;
+  tasks.tick();
+  assert.equal(tasks.task(t.id).paused_at, null, 'the same row growing in the next window is progress');
+  assert.equal(tasks.task(t.id).renewals, 2);
+
+  const g = g34Setup();
+  const t2 = g.assign();
+  // Only a progress card, edited after it was posted (TurnProgress).
+  const card = g.hub.store.append(g.ws.id, { authorKind: 'role', author: 'fu', name: '副', text: '第 3 步', card: JSON.stringify({ title: '副 · 进行中' }) }, 900).message;
+  g.hub.store.edit(card.id, 'role', 'fu', '第 19 步', JSON.stringify({ title: '副 · 进行中' }), 1300);
+  g.clock.t = 1000 + CHECK_AFTER_S;
+  g.tasks.tick();
+  assert.equal(g.tasks.task(t2.id).paused_at, null, 'a progress card moving is progress');
+  // A bare stance line still is not.
+  const h = g34Setup();
+  const t3 = h.assign();
+  h.hub.store.append(h.ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t3.id}` }, 1100);
+  h.clock.t = 1000 + CHECK_AFTER_S;
+  h.tasks.tick();
+  assert.ok(h.tasks.task(t3.id).paused_at, 'a stance alone is no progress');
+});
+
+test('G34: 【接】#id in the chat channel about a workspace task neither accepts nor hands it back', async () => {
+  const { tasks, say, assign } = g34Setup();
+  const t = assign();
+  say(1, `@主 【接】#${t.id}\n\n收到，我正在工作区1里干。`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'assigned');
+  assert.equal(tasks.task(t.id).result_msg_id, null);
+  assert.notEqual(tasks.task(t.id).next_check_at, null, 'the watch stays armed');
+});
+
+test('G34: a workspace hand-back brings its [report] body to the chat channel and wakes the dispatcher, who accepts it with 【验收】#id', async () => {
+  const { hub, tasks, woken, ws, assign, say } = g34Setup();
+  const t = assign();
+  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report]\n40 个测试通过，README 第一行写了暗号`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  const copies = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
+  assert.equal(copies.length, 1, 'one copy in the chat channel');
+  assert.match(copies[0].text, /40 个测试通过/);
+  assert.doesNotMatch(copies[0].text, /先规划结构/, 'only the [report] part');
+  assert.deepEqual(woken, [['zhu', 1, copies[0].text]], 'the dispatcher is woken in the chat channel on the result');
+  assert.match(copies[0].text, new RegExp(`【验收】#${t.id}`), 'the wake says how to accept');
+  assert.match(copies[0].text, new RegExp(`【返工】#${t.id} 原因`), 'and how to send back');
+  say(1, '验收了，结果没问题。', 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned', 'a reply without the 【验收】 line accepts nothing');
+  say(1, `看过了。\n【验收】#${t.id}`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'done');
+
+  // No [report] mark: the delivery itself (without its stance line) still reaches the chat channel.
+  const g = g34Setup();
+  const t2 = g.assign();
+  g.say(g.ws.id, `【接】#${t2.id}\n\n全做完了，测试通过`);
+  await settle();
+  const [copy] = g.hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
+  assert.match(copy.text, /全做完了，测试通过/);
+  assert.doesNotMatch(copy.text, /【接】/);
+  assert.equal(g.woken.length, 1);
+});
+
+test('G34: only an explicit 【验收】/【返工】 line by the dispatcher, in its chat channel, reviews a workspace task', async () => {
+  const { hub, tasks, clock, woken, ws, assign, say } = g34Setup();
+  hub.setMember({ id: 'x', name: '旁', kind: 'dsh', online: true });
+  const reworks = () => hub.store.page(ws.id, undefined, 100).filter(m => m.card && JSON.parse(m.card).event === 'rework').length;
+  const t = assign();
+  say(ws.id, `【接】#${t.id}\n\n[report]\n做完了`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  // The dispatcher answering something else meanwhile, or a send-back without the line.
+  say(1, '好的，我先回答一下用户的问题：明天下雨。', 'zhu');
+  say(1, '@副 返工：测试没跑', 'zhu');
+  // Someone who did not dispatch it, and the line in another chat channel.
+  say(1, `【验收】#${t.id}`, 'x');
+  const other = hub.store.createRoom('别处');
+  say(other.id, `【验收】#${t.id}`, 'zhu');
+  say(ws.id, `【验收】#${t.id}`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned', 'nothing but the dispatcher\'s explicit line reviews it');
+  assert.equal(reworks(), 0, 'nor sends it back');
+  const before = tasks.list(1).filter(r => r.owner === 'fu').length;
+
+  woken.length = 0;
+  // The test clock past every row so far (hub.post stamps rows with the real time).
+  const t0 = clock.t = Math.ceil(Date.now() / 1000) + 100;
+  say(1, `@副 改一下\n【返工】#${t.id} 测试没跑`, 'zhu');
+  await settle();
+  const row = tasks.task(t.id);
+  assert.equal(row.status, 'rework', 'the same task goes back, no new one');
+  assert.equal(row.note, '测试没跑');
+  assert.equal(reworks(), 1, 'one rework recorded on the task');
+  assert.equal(row.next_check_at, t0 + CHECK_AFTER_S, 'the watch is armed again');
+  assert.equal(row.renewals, 0);
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'the workspace is claimed back for the chat channel');
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, before, 'the @ in the same reply opens no new task');
+  const wake = woken.find(([id, room]) => id === 'fu' && room === ws.id);
+  assert.ok(wake, 'the owner is woken in the workspace on the rework');
+  assert.match(wake[2], new RegExp(`【接】#${t.id}`));
+  // The watch runs again: no progress in the window parks it.
+  clock.t = t0 + CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at, 'the rework is watched');
+});
+
+test('G34: a paused task resumed and handed back frees its workspace again', async () => {
+  const { hub, tasks, clock, woken, ws, assign, say } = g34Setup();
+  const t = assign();
+  clock.t = 1000 + CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at);
+  assert.equal(hub.store.workspaceOwner(ws.id), null, 'the pause released the workspace');
+  const [, , pause] = woken[0];
+  assert.match(pause, new RegExp(`【接】#${t.id}`), 'the pause record says how to answer');
+  assert.match(pause, /\[report\]/);
+  say(ws.id, `【接】#${t.id}\n\n[report]\n做完了`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  assert.equal(hub.store.workspaceOwner(ws.id), null, 'handed back after the resume: free again');
+});
+
+test('G34: a member woken on a task card record reads that record', async () => {
+  const hub = makeHub();
+  const prompts = [];
+  const dsh = cliMembers(hub, async (text) => { prompts.push(text); return '好'; });
+  const { message } = hub.post(1, { authorKind: 'system', author: 'system', name: '任务', text: '@CC #7「记账」10 分钟内没有新进展，已暂停。', card: JSON.stringify({ kind: 'task', task_id: 7, event: 'pause' }) });
+  assert.equal(dsh.nudge('cc', message), true);
+  await settle();
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /#7「记账」10 分钟内没有新进展/);
+});
