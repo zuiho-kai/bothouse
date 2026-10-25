@@ -18,16 +18,17 @@ import (
 // fakeFeishuIM is a fake Feishu IM API: it records sends, patches, replies and
 // pins, and de-duplicates sends by uuid like the real API.
 type fakeFeishuIM struct {
-	mu      sync.Mutex
-	nextID  int
-	byUUID  map[string]string
-	content map[string]string // message ID -> card JSON
-	gone    map[string]bool   // deleted message IDs
-	creates []map[string]any
-	patches []string
-	replies []map[string]any
-	pins    []string
-	pinFail bool
+	mu         sync.Mutex
+	nextID     int
+	byUUID     map[string]string
+	content    map[string]string // message ID -> card JSON
+	gone       map[string]bool   // deleted message IDs
+	creates    []map[string]any
+	patches    []string
+	replies    []map[string]any
+	pins       []string
+	pinFail    bool
+	createFail int // fail this many creates with HTTP 500 before succeeding
 }
 
 func newFakeFeishuIM() *fakeFeishuIM {
@@ -47,6 +48,12 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 		case r.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal":
 			writeJSON(t, w, map[string]any{"code": 0, "msg": "success", "expire": 7200, "tenant_access_token": "tok"})
 		case r.Method == http.MethodPost && r.URL.Path == "/open-apis/im/v1/messages":
+			if f.createFail > 0 {
+				f.createFail--
+				w.WriteHeader(http.StatusInternalServerError)
+				writeJSON(t, w, map[string]any{"code": 1, "msg": "boom"})
+				return
+			}
 			f.creates = append(f.creates, body)
 			uuid, _ := body["uuid"].(string)
 			if id, seen := f.byUUID[uuid]; seen && uuid != "" {
@@ -180,6 +187,39 @@ func TestFeishuTaskCardDeletedIsPostedAgain(t *testing.T) {
 	}
 	if task.MessageID == "" || task.MessageID == old {
 		t.Fatalf("deleted card not reposted: %q (old %q)", task.MessageID, old)
+	}
+}
+
+// Repost after delete fails (network): task.MessageID stays on the old card,
+// so the retry uses the repost uuid again and does not get the deleted card
+// back from the original uuid.
+func TestFeishuTaskCardRepostFailureKeepsOldID(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	task := &core.Task{ID: "task-5", Title: "t", ChannelID: "oc_chat"}
+	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	old := task.MessageID
+	f.mu.Lock()
+	f.gone[old] = true
+	f.createFail = 100
+	f.mu.Unlock()
+	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err == nil {
+		t.Fatal("want repost error")
+	}
+	if task.MessageID != old {
+		t.Fatalf("MessageID changed before repost succeeded: %q (old %q)", task.MessageID, old)
+	}
+	f.mu.Lock()
+	f.createFail = 0
+	f.mu.Unlock()
+	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
+		t.Fatalf("retry repost: %v", err)
+	}
+	if task.MessageID == "" || task.MessageID == old {
+		t.Fatalf("retry returned the deleted card: %q (old %q)", task.MessageID, old)
 	}
 }
 

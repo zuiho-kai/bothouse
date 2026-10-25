@@ -54,9 +54,10 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 			return err
 		}
 		slog.Info("feishu: task card deleted, posting it again", "task_id", task.ID, "chat", task.ChannelID, "message", task.MessageID)
-		// A new uuid: the old one would return the deleted message.
+		// A new uuid: the old one would return the deleted message. Keep
+		// task.MessageID until the create succeeds: a failed repost then retries
+		// with this same repost uuid, never the original one.
 		uuid = feishuUUID("task-repost", task.ID, task.MessageID)
-		task.MessageID = ""
 	}
 	id, err := p.createMessageID(ctx, task.ChannelID, "interactive", cardJSON, uuid)
 	if err != nil {
