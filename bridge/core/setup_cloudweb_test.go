@@ -172,7 +172,7 @@ func TestApplyWizardCloudWebDryRunPlansOptions(t *testing.T) {
 		t.Fatalf("team ids: lead=%q sub=%v", leadID, pl.writes[1].Options)
 	}
 	// two roles = a team: lead answers when no gate decides, the other only when named
-	if *pl.writes[0].GateFallback != "reply" || *pl.writes[1].GateFallback != "context" || *pl.writes[1].GateURL != defaultGateURL+"?bot=role-2" {
+	if *pl.writes[0].GateFallback != "reply" || *pl.writes[1].GateFallback != "context" || *pl.writes[1].GateURL != localGateURL()+"?bot=role-2" {
 		t.Fatalf("team gate: %v %v %v", *pl.writes[0].GateFallback, *pl.writes[1].GateFallback, *pl.writes[1].GateURL)
 	}
 	// the real run writes exactly that, in one batch, and remembers the cloud_web team separately
@@ -357,7 +357,7 @@ func TestApplyWizardCloudWebTeamSurvivesDiscordRun(t *testing.T) {
 		t.Fatalf("cloud_web 2: %+v", res)
 	}
 	c := store.projects["c"]
-	if c == nil || c.GateURL == nil || *c.GateURL != defaultGateURL+"?bot=c" || *c.GateFallback != "context" {
+	if c == nil || c.GateURL == nil || *c.GateURL != localGateURL()+"?bot=c" || *c.GateFallback != "context" {
 		t.Fatalf("c not wired as a sub: %+v", c)
 	}
 	if st := LoadSetupState(dir); len(st.CloudWebTeam) != 3 || len(st.Team) != 1 {

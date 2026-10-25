@@ -1,9 +1,11 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +17,7 @@ import (
 
 // fakeGatePy stands in for contrib/gate/gate.py: it counts its starts in <data_dir>/starts.txt,
 // (only when BOTHOUSE_DATA_DIR equals it), then either exits at once (FAKE_GATE_MODE=exit) or listens on GATE_PORT like the real gate.
-const fakeGatePy = `import os, socket, sys
+const fakeGatePy = `import http.server, json, os, sys
 if os.environ.get("BOTHOUSE_DATA_DIR") != os.environ["GATE_SETUP_DIR"]:
     sys.exit(4)  # both must name the bridge's data dir, not an inherited one
 with open(os.path.join(os.environ["GATE_SETUP_DIR"], "starts.txt"), "a") as f:
@@ -24,13 +26,13 @@ with open(os.path.join(os.environ["GATE_SETUP_DIR"], "wiki_env.txt"), "w") as f:
     f.write(os.environ.get("GATE_WIKI", "") + "\n" + os.environ.get("GATE_WIKI_BOTS", ""))
 if os.environ.get("FAKE_GATE_MODE") == "exit":
     sys.exit(3)
-s = socket.socket()
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(("127.0.0.1", int(os.environ["GATE_PORT"])))
-s.listen(8)
-while True:
-    c, _ = s.accept()
-    c.close()
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):  # like gate.py GET /whoami
+        b = json.dumps({"ok": True, "data_dir": os.environ["BOTHOUSE_DATA_DIR"]}).encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def log_message(self, *a): pass
+http.server.HTTPServer.allow_reuse_address = True
+http.server.HTTPServer(("127.0.0.1", int(os.environ["GATE_PORT"])), H).serve_forever()
 `
 
 // setupFakeGate: a temp data dir with a jev, a free port as gateAddr, any python3 (its version
@@ -137,24 +139,70 @@ func TestGateSupervisorQuickExitNotRestarted(t *testing.T) {
 	waitGate(t, "retry after the jev changed", 10*time.Second, func() bool { return gateStarts(dataDir) == 2 })
 }
 
-func TestGateSupervisorLeavesExternalGate(t *testing.T) {
-	dataDir := setupFakeGate(t, true)
-	l, err := net.Listen("tcp", gateAddr) // someone else's gate (launchd, by hand)
+// whoamiServer: a gate on addr that says it serves dataDir (GET /whoami, like gate.py).
+func whoamiServer(t *testing.T, addr, dataDir string) {
+	t.Helper()
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data_dir": dataDir})
+	})}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+}
+
+func TestGateSupervisorLeavesOwnDataDirGate(t *testing.T) {
+	dataDir := setupFakeGate(t, true)
+	whoamiServer(t, gateAddr, dataDir) // this data dir's gate run by hand / launchd
+	addr := localGateAddr()
 	g := NewGateSupervisor(dataDir)
 	g.Run(true)
 	defer g.Stop()
 	time.Sleep(time.Second)
-	if n := gateStarts(dataDir); n != 0 {
-		t.Fatalf("started %d gates while the port was taken, want 0", n)
+	if n := gateStarts(dataDir); n != 0 || localGateAddr() != addr {
+		t.Fatalf("started %d gates / moved to %s over this data dir's own gate, want 0 / %s", n, localGateAddr(), addr)
 	}
 	g.Reload(true)
 	time.Sleep(time.Second)
 	if n := gateStarts(dataDir); n != 0 {
-		t.Fatalf("Reload started %d gates over an external one, want 0", n)
+		t.Fatalf("Reload started %d gates over this data dir's own gate, want 0", n)
+	}
+}
+
+// Another install's gate (or anything not answering /whoami with this data dir) on the port: never
+// shared; the supervisor moves to a free port, saves it and starts its own gate there.
+func TestGateSupervisorMovesOffForeignGate(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		foreign func(t *testing.T, addr string)
+	}{
+		{"other data dir", func(t *testing.T, addr string) { whoamiServer(t, addr, t.TempDir()) }},
+		{"not a gate", func(t *testing.T, addr string) {
+			l, err := net.Listen("tcp", addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { l.Close() })
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dataDir := setupFakeGate(t, true)
+			taken := localGateAddr()
+			tc.foreign(t, taken)
+			saved := 0
+			oldPersist := PersistGatePort
+			t.Cleanup(func() { PersistGatePort = oldPersist })
+			PersistGatePort = func(p int) error { saved = p; return nil }
+			g := NewGateSupervisor(dataDir)
+			g.Run(true)
+			defer g.Stop()
+			waitGate(t, "own gate on a new port", 10*time.Second, func() bool { return gateStarts(dataDir) == 1 && gateIsOurs(dataDir) })
+			if localGateAddr() == taken || saved != LocalGatePort() {
+				t.Fatalf("addr %s (taken %s), saved %d", localGateAddr(), taken, saved)
+			}
+		})
 	}
 }
 

@@ -263,7 +263,7 @@ func noHardware(t *testing.T) {
 	old := roleHouseholdAddr
 	roleHouseholdAddr = "127.0.0.1:1" // nothing listens on port 1
 	oldGate := gateAddr
-	gateAddr = "127.0.0.1:1" // no gate either, whatever runs on this machine's 9930
+	gateAddr = freeGateAddr(t) // no gate either, whatever runs on this machine's 9930
 	t.Cleanup(func() { roleHouseholdAddr = old; gateAddr = oldGate })
 }
 
@@ -391,7 +391,7 @@ func TestApplyWizardDiscordTeam(t *testing.T) {
 		t.Errorf("ju options = %v", ju.Options)
 	}
 	// fallback = whale: gate main + reply; ju: sub + context, team_lead_bot = whale's id
-	if *whale.GateFallback != "reply" || *whale.GateURL != defaultGateURL || whale.Options["team_lead_bot"] != "222" { // H3.1: the lead names itself
+	if *whale.GateFallback != "reply" || *whale.GateURL != localGateURL() || whale.Options["team_lead_bot"] != "222" { // H3.1: the lead names itself
 		t.Errorf("whale gate = %v %v %v", *whale.GateURL, *whale.GateFallback, whale.Options["team_lead_bot"])
 	}
 	if *ju.GateFallback != "context" || !strings.HasSuffix(*ju.GateURL, "?bot=juzi") || ju.Options["team_lead_bot"] != "222" ||
@@ -1131,7 +1131,7 @@ func TestApplyWizardDiscordGateToggle(t *testing.T) {
 	noHardware(t)
 	oldAddr, oldFind := gateAddr, findPythonForGate
 	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
-	gateAddr = "127.0.0.1:1" // nothing listens: never the gate running on this machine
+	gateAddr = freeGateAddr(t) // nothing listens: never the gate running on this machine
 	findPythonForGate = func(string) (string, error) { return "", errors.New("no python") }
 
 	t1, t2 := fakeToken("111"), fakeToken("222")
@@ -1163,8 +1163,8 @@ func TestApplyWizardDiscordGateToggle(t *testing.T) {
 	// 1. old request, no gate field: on
 	res := run(nil)
 	ju, whale := store.projects["juzi"], store.projects["whale"]
-	if str(whale.GateURL) != defaultGateURL || str(whale.GateFallback) != "reply" ||
-		str(ju.GateURL) != defaultGateURL+"?bot=juzi" || str(ju.GateFallback) != "context" {
+	if str(whale.GateURL) != localGateURL() || str(whale.GateFallback) != "reply" ||
+		str(ju.GateURL) != localGateURL()+"?bot=juzi" || str(ju.GateFallback) != "context" {
 		t.Fatalf("default gate: whale %s/%s juzi %s/%s", str(whale.GateURL), str(whale.GateFallback), str(ju.GateURL), str(ju.GateFallback))
 	}
 	if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); err != nil {
@@ -1198,7 +1198,7 @@ func TestApplyWizardDiscordGateToggle(t *testing.T) {
 	// 3. on again (explicitly): the wizard's gate back, the hand-written one still kept
 	run(&WizardGate{Enabled: true})
 	ju, whale = store.projects["juzi"], store.projects["whale"]
-	if str(whale.GateURL) != defaultGateURL || str(whale.GateFallback) != "reply" {
+	if str(whale.GateURL) != localGateURL() || str(whale.GateFallback) != "reply" {
 		t.Errorf("gate on again: whale gate = %q/%q", str(whale.GateURL), str(whale.GateFallback))
 	}
 	if str(ju.GateURL) != hand {
@@ -1213,7 +1213,7 @@ func wizardGateTestEnv(t *testing.T) func(*string) string {
 	noHardware(t)
 	oldAddr, oldFind := gateAddr, findPythonForGate
 	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
-	gateAddr = "127.0.0.1:1" // nothing listens: never the gate running on this machine
+	gateAddr = freeGateAddr(t) // nothing listens: never the gate running on this machine
 	findPythonForGate = func(string) (string, error) { return "", errors.New("no python") }
 	return func(p *string) string {
 		if p == nil {
@@ -1266,8 +1266,8 @@ func TestApplyWizardCloudWebGateToggle(t *testing.T) {
 	if ju == nil || whale == nil {
 		t.Fatalf("projects = %v", store.order)
 	}
-	if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" ||
-		str(whale.GateURL) != defaultGateURL+"?bot=whale" || str(whale.GateFallback) != "context" {
+	if str(ju.GateURL) != localGateURL() || str(ju.GateFallback) != "reply" ||
+		str(whale.GateURL) != localGateURL()+"?bot=whale" || str(whale.GateFallback) != "context" {
 		t.Fatalf("default gate: juzi %s/%s whale %s/%s", str(ju.GateURL), str(ju.GateFallback), str(whale.GateURL), str(whale.GateFallback))
 	}
 	if lead, aliases, subs := readGateTeam(t, dir); lead != "Juzi" || len(aliases) != 1 || aliases[0] != "juzi" || len(subs) != 1 || subs[0] != "whale" {
@@ -1305,7 +1305,7 @@ func TestApplyWizardCloudWebGateToggle(t *testing.T) {
 	// 3. on again: the wizard's gate back, the hand-written one still kept
 	run(&WizardGate{Enabled: true})
 	ju, whale = store.projects["juzi"], store.projects["whale"]
-	if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" {
+	if str(ju.GateURL) != localGateURL() || str(ju.GateFallback) != "reply" {
 		t.Errorf("gate on again: juzi gate = %q/%q", str(ju.GateURL), str(ju.GateFallback))
 	}
 	if str(whale.GateURL) != hand {
@@ -1343,7 +1343,7 @@ func TestApplyWizardFeishuLarkGateTwoRuns(t *testing.T) {
 			if ju == nil || ju.PlatformType != pt || ju.Options["app_id"] != "cli_a" {
 				t.Fatalf("run 1: %v %+v", store.order, ju)
 			}
-			if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" {
+			if str(ju.GateURL) != localGateURL() || str(ju.GateFallback) != "reply" {
 				t.Errorf("run 1 (one bot) gate = %q/%q, want the lead's", str(ju.GateURL), str(ju.GateFallback))
 			}
 			if ju.Options["group_reply_all"] != nil {
@@ -1368,8 +1368,8 @@ func TestApplyWizardFeishuLarkGateTwoRuns(t *testing.T) {
 			if res.FallbackRole != "juzi" {
 				t.Errorf("run 2 lead = %q, want the first bot juzi", res.FallbackRole)
 			}
-			if str(ju.GateURL) != defaultGateURL || str(ju.GateFallback) != "reply" ||
-				str(whale.GateURL) != defaultGateURL+"?bot=whale" || str(whale.GateFallback) != "context" {
+			if str(ju.GateURL) != localGateURL() || str(ju.GateFallback) != "reply" ||
+				str(whale.GateURL) != localGateURL()+"?bot=whale" || str(whale.GateFallback) != "context" {
 				t.Errorf("run 2 gate: juzi %s/%s whale %s/%s", str(ju.GateURL), str(ju.GateFallback), str(whale.GateURL), str(whale.GateFallback))
 			}
 			if ju.Options["group_reply_all"] != true || ju.Options["share_session_in_channel"] != false ||
@@ -1458,7 +1458,7 @@ func TestApplyWizardDiscordGateOffKeptOnAddRole(t *testing.T) {
 
 	// no record, no field: on
 	run([]WizardRole{{Token: t1}, {Token: t2}}, false, nil)
-	if str(store.projects["whale"].GateURL) != defaultGateURL || LoadSetupState(dir).GateOff {
+	if str(store.projects["whale"].GateURL) != localGateURL() || LoadSetupState(dir).GateOff {
 		t.Fatalf("no record + no field: gate = %q, state off = %v", str(store.projects["whale"].GateURL), LoadSetupState(dir).GateOff)
 	}
 
@@ -1477,7 +1477,7 @@ func TestApplyWizardDiscordGateOffKeptOnAddRole(t *testing.T) {
 	run([]WizardRole{{Token: t1}, {Token: t2}, {Token: t3}}, false, &WizardGate{Enabled: true})
 	os.Remove(filepath.Join(dir, gateTeamFile))
 	run([]WizardRole{{Token: t1}, {Token: t2}, {Token: t3}}, false, nil)
-	if str(store.projects["whale"].GateURL) != defaultGateURL || LoadSetupState(dir).GateOff {
+	if str(store.projects["whale"].GateURL) != localGateURL() || LoadSetupState(dir).GateOff {
 		t.Errorf("on again + no field: gate = %q", str(store.projects["whale"].GateURL))
 	}
 	if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); err != nil {
@@ -1520,8 +1520,8 @@ func TestApplyWizardSingleRoleGetsLeadSetup(t *testing.T) {
 		if p == nil {
 			t.Fatalf("projects = %v", store.order)
 		}
-		if str(p.GateURL) != defaultGateURL || str(p.GateFallback) != "reply" {
-			t.Errorf("gate = %q/%q, want %q/reply", str(p.GateURL), str(p.GateFallback), defaultGateURL)
+		if str(p.GateURL) != localGateURL() || str(p.GateFallback) != "reply" {
+			t.Errorf("gate = %q/%q, want %q/reply", str(p.GateURL), str(p.GateFallback), localGateURL())
 		}
 		// (cloud_web writes group_reply_all for any member, team or not: rh/cloudweb.py needs it)
 		for _, k := range []string{"allow_bots", "team_lead_bot"} {

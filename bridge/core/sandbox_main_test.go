@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"testing"
 
@@ -14,6 +15,11 @@ import (
 func TestMain(m *testing.M) {
 	wizardFeishuBotOpenID = func(context.Context, string, string, string) (string, error) {
 		return "", errors.New("no network in core tests")
+	}
+	// the gate port: a free one, never the 9930 a real bothouse on this machine may hold
+	if l, err := net.Listen("tcp", "127.0.0.1:0"); err == nil {
+		gateAddr = l.Addr().String()
+		l.Close()
 	}
 	os.Exit(testutil.RunSandboxed(m))
 }
