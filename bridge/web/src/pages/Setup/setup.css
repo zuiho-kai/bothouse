@@ -4,21 +4,34 @@
 .setup-layout {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
 }
-:root:not(.dark) .setup-layout {
+/* Light wizard: blurple. Text accent is set too — :root resolves --color-accent-text to a fixed value,
+   so without it text-accent here would stay the panel green. */
+:root:not(.dark):not(.theme-yellow) .setup-layout {
   --color-accent: 88 101 242;
   --color-accent-dim: 71 82 196;
+  --color-accent-text: 88 101 242;
+  --color-accent-text-dim: 71 82 196;
   background: radial-gradient(ellipse at 15% 0%, #f0f1ff 0, transparent 45%),
     radial-gradient(ellipse at 95% 65%, #fff6e8 0, transparent 45%), #fdfdff;
 }
+/* Yellow-white wizard: brand orange (inherited from .theme-yellow) on cream.
+   Colors: promo-collab/film-promo/page.html:3 (#FFFCF5/#FFF4D9/#FFE9B8/#2A2420), :9 #E9E1D2, :22 #6b5f52. */
+.theme-yellow .setup-layout {
+  background: radial-gradient(ellipse at 15% 0%, #fff4d9 0, transparent 45%),
+    radial-gradient(ellipse at 95% 65%, #ffe9b8 0, transparent 45%), #fffcf5;
+}
+.theme-yellow .setup-welcome h1 { color: #2a2420; }
+.theme-yellow :is(.setup-intro, .setup-team small) { color: #6b5f52; }
+:root.theme-yellow .setup-layout .setup-card { border-color: #e9e1d2; box-shadow: 0 12px 40px -16px rgb(120 80 30 / .16); }
 .setup-layout main { padding: 32px 24px 16px; }
 .setup-welcome { text-align: center; padding: 4px 0 8px; }
 .setup-home {
   display: inline-flex; padding: 13px; border-radius: 20px;
-  color: rgb(var(--color-accent)); background: rgb(var(--color-accent) / .09);
+  color: rgb(var(--color-accent-text)); background: rgb(var(--color-accent) / .09);
 }
 .setup-eyebrow {
   margin: 16px 0 8px; font-size: 11px; letter-spacing: .16em;
-  font-weight: 700; color: rgb(var(--color-accent));
+  font-weight: 700; color: rgb(var(--color-accent-text));
 }
 .setup-welcome h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 750; letter-spacing: -.035em; color: #272938; }
 .setup-intro { margin: 12px auto 0; max-width: 540px; color: #676c80; font-size: 14px; line-height: 1.8; }

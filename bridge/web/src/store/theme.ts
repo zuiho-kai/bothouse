@@ -5,6 +5,8 @@ import { create } from 'zustand';
 export type Theme = 'yellow' | 'light' | 'dark' | 'system';
 export const THEMES: Theme[] = ['yellow', 'light', 'dark', 'system'];
 export const DEFAULT_THEME: Theme = 'yellow';
+const THEME_VERSION_KEY = 'cc_theme_v';
+const THEME_VERSION = '2';
 
 interface ThemeState {
   theme: Theme;
@@ -34,11 +36,22 @@ export const useThemeStore = create<ThemeState>((set) => ({
   setTheme: (theme: Theme) => {
     const resolved = resolveTheme(theme);
     localStorage.setItem('cc_theme', theme);
+    localStorage.setItem(THEME_VERSION_KEY, THEME_VERSION); // an explicit pick is never migrated
     applyTheme(theme, resolved);
     set({ theme, resolved });
   },
   init: () => {
-    const stored = localStorage.getItem('cc_theme');
+    let stored = localStorage.getItem('cc_theme');
+    // One-time migration: the old setup wizard wrote 'light' for anyone who had not picked a style, so a
+    // stored 'light' from before the yellow-white default is not a real choice. Move it to the default once;
+    // after the marker is set, a 'light' the user picks is kept. 'dark'/'system' are always kept.
+    if (localStorage.getItem(THEME_VERSION_KEY) !== THEME_VERSION) {
+      if (stored === 'light') {
+        stored = DEFAULT_THEME;
+        localStorage.setItem('cc_theme', stored);
+      }
+      localStorage.setItem(THEME_VERSION_KEY, THEME_VERSION);
+    }
     const saved: Theme = isTheme(stored) ? stored : DEFAULT_THEME;
     const resolved = resolveTheme(saved);
     applyTheme(saved, resolved);

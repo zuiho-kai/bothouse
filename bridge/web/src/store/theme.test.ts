@@ -32,12 +32,38 @@ describe('style preference', () => {
     expect(root().contains('theme-yellow')).toBe(true);
   });
 
-  it.each(['light', 'dark'] as const)('keeps a previously saved %s style', (theme) => {
+  it.each(['dark', 'system'] as const)('keeps a previously saved %s style from before the migration', (theme) => {
     localStorage.setItem('cc_theme', theme);
     useThemeStore.getState().init();
     expect(useThemeStore.getState().theme).toBe(theme);
-    expect(root().contains('dark')).toBe(theme === 'dark');
+    expect(localStorage.getItem('cc_theme')).toBe(theme);
     expect(root().contains('theme-yellow')).toBe(false);
+  });
+
+  it('moves a legacy stored light (written by the old wizard) to yellow-white once', () => {
+    localStorage.setItem('cc_theme', 'light');
+    useThemeStore.getState().init();
+    expect(useThemeStore.getState().theme).toBe('yellow');
+    expect(localStorage.getItem('cc_theme')).toBe('yellow');
+    expect(localStorage.getItem('cc_theme_v')).toBe('2');
+    expect(root().contains('theme-yellow')).toBe(true);
+  });
+
+  it('keeps light once the user picks it after the migration', () => {
+    localStorage.setItem('cc_theme', 'light');
+    useThemeStore.getState().init(); // migrates to yellow
+    useThemeStore.getState().setTheme('light');
+    useThemeStore.getState().init();
+    expect(useThemeStore.getState().theme).toBe('light');
+    expect(root().contains('theme-yellow')).toBe(false);
+    expect(root().contains('dark')).toBe(false);
+  });
+
+  it('keeps a stored light that already carries the migration marker', () => {
+    localStorage.setItem('cc_theme', 'light');
+    localStorage.setItem('cc_theme_v', '2');
+    useThemeStore.getState().init();
+    expect(useThemeStore.getState().theme).toBe('light');
   });
 
   it.each(['yellow', 'light', 'dark'] as const)('keeps the selected %s style after reinitializing', (theme) => {
