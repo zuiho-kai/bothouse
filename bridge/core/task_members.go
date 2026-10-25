@@ -78,8 +78,8 @@ func validAssignRef(ref string) bool {
 // checkAssignRef enforces the delegation contract: every assignment carries a
 // reference implementation, and shared-file work also names its base branch.
 func checkAssignRef(req TaskMemberAssignment) error {
-	if utf8.RuneCountInString(req.Ref) > 300 || utf8.RuneCountInString(req.Base) > 100 || strings.ContainsAny(strings.TrimSpace(req.Base), " \t\n") {
-		return errors.New("ref must be at most 300 characters; base must be one branch name (at most 100 characters)")
+	if strings.ContainsAny(strings.TrimSpace(req.Base), " \t\n") {
+		return errors.New("base must be one branch name")
 	}
 	if !validAssignRef(req.Ref) {
 		return errors.New(errAssignMissingRef)
