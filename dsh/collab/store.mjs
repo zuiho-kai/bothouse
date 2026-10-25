@@ -88,6 +88,7 @@ export class Store {
       // A fresh session starts reading after the room's last release (room_resets), not from its start.
       bind: this.db.prepare(`INSERT INTO bindings (member_id, room_id, session_id, context_cursor)
         VALUES (?, ?, ?, COALESCE((SELECT message_id FROM room_resets WHERE room_id = ?), 0))`),
+      rebind: this.db.prepare('UPDATE bindings SET session_id = ? WHERE member_id = ? AND room_id = ?'),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
       firstDraft: this.db.prepare(`SELECT MIN(id) AS id FROM messages WHERE room_id = ? AND id <= ? AND author <> ?
         AND draft = 1 AND deleted = 0 AND card IS NULL`),
@@ -579,6 +580,8 @@ export class Store {
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
   bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId, roomId); }
+  /** Point an existing binding at another session id (a CLI member's real ACP sessionId), keeping its cursor. */
+  rebind(memberId, roomId, sessionId) { this.q.rebind.run(sessionId, memberId, roomId); }
   /**
    * Move a member's context cursor up to messageId, but never past a
    * teammate's uncommitted text draft (#121): it keeps its old id when it
