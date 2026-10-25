@@ -92,7 +92,7 @@ func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
 	e.SetTeam(t.TempDir(), "橘", false)
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[ask]\n用 A 还是 B？<@123> 看一下")
+	inputDone(a, "[ask]\n用 A 还是 B？<@123> 看一下\n自验：无需\n类别：方向")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
 	if !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "<#ws1>") || !strings.Contains(fwd, "「橘」") || !strings.Contains(fwd, "用 A 还是 B？") {
@@ -193,7 +193,7 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 
 func TestAskSurvivesRestart(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
-	id := e.forwardWorkspaceExit(p, exitWSKey, "[ask] 选哪个")
+	id := e.forwardWorkspaceExit(p, exitWSKey, "[ask] 选哪个\n自验：go test ./core 通过\n类别：验收")
 	if id == "" {
 		t.Fatal("no ask")
 	}

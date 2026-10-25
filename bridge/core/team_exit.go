@@ -51,6 +51,7 @@ type teamExitState struct {
 	resolver WorkspaceParentResolver
 	asks     map[string]*teamAsk
 	loaded   bool
+	bounces  map[string]int // session key -> consecutive [ask] bounces (team_ask_evidence.go)
 }
 
 const (
@@ -150,6 +151,13 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	if !ok {
 		return ""
 	}
+	if kind == exitKindAsk {
+		if problems := askEvidenceProblems(body); problems != nil {
+			e.bounceWorkspaceAsk(p, rec, sessionKey, problems)
+			return ""
+		}
+	}
+	e.clearAskBounces(sessionKey)
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
 	if err != nil {
 		slog.Warn("team exit: chat channel unreachable", "parent", parent, "error", err)
