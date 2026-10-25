@@ -1533,6 +1533,8 @@ test('tasks: 问 keeps the timer; 退 and 升 hand the turn to the lead; rework 
 
 test('tasks: a member reply whose first line is 【接】/【问】/【退】/【升】 sets its task status', async () => {
   const { hub, tasks } = makeTasks();
+  // A bridge bot: a DSH member's 【接】 is also its hand-back (see the one-message 【接】 test).
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'bot', online: true });
   const a = tasks.assign({ roomId: 1, title: 'a', owner: 'ds', actor: 'lead' });
   const b = tasks.assign({ roomId: 1, title: 'b', owner: 'ds', actor: 'lead', force: true });
   hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【接】马上做\n细节……' });
@@ -1575,6 +1577,8 @@ test('tasks: one reminder @s the owner at the check time and wakes only it; hand
 
 test('tasks: without #id a stance only answers a dispatch not yet answered (PR #136 review 1)', async () => {
   const { hub, tasks } = makeTasks();
+  // A bridge bot: a DSH member's 【接】 is also its hand-back (see the one-message 【接】 test).
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'bot', online: true });
   const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
   hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '【接】好的' });
   await tick();
@@ -2823,6 +2827,33 @@ test('tasks: the lead @-ing teammates opens board tasks; their reply to the lead
   tasks.close(); hub.store.close();
 });
 
+test('tasks: a DSH member\'s one-message 【接】 reply is its delivery and hands the task back; a bot\'s stays a stance', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.fallbackLead = 'lead';
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
+  say('lead', '橘', '@龙娘 @DeepSeek 把登录页写完');
+  await tick();
+  // A DSH member (local CLI members included) posts once, when its turn has ended:
+  // dsh-member.mjs returnToLead puts the lead's @ in front of the stance.
+  const result = say('ds', 'DeepSeek', '@橘 【接】\n登录页写好了，见 login.tsx');
+  say('gpt', '龙娘', '@橘 【接】 开工');
+  await tick();
+  let list = tasks.list(1);
+  assert.deepEqual([list.find(t => t.owner === 'ds').status, list.find(t => t.owner === 'ds').result_msg_id], ['returned', result.id]);
+  assert.equal(list.find(t => t.owner === 'gpt').status, 'accepted', 'a bridge bot may keep working after its stance');
+  say('lead', '橘', '收到');
+  await tick();
+  list = tasks.list(1);
+  assert.equal(list.find(t => t.owner === 'ds').status, 'done');
+  // 问 keeps the DSH member's turn on it: no hand-back.
+  const asked = tasks.assign({ roomId: 1, title: 'q', owner: 'ds', actor: 'lead' });
+  say('ds', 'DeepSeek', `@橘 【问】 #${asked.id} 要哪个分支`);
+  await tick();
+  assert.equal(tasks.task(asked.id).status, 'asked');
+  tasks.close(); hub.store.close();
+});
+
 test('tasks: bridge task card members open and hand back board tasks (cloud-web task_members)', async () => {
   const { hub, tasks } = makeTasks();
   const gw = new CloudWebGateway(hub, { token: 'tok', logger: quiet });
@@ -2858,8 +2889,9 @@ test('tasks: bridge task card members open and hand back board tasks (cloud-web 
   ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
   await tick();
   assert.deepEqual(tasks.list(1).map(t => t.status), ['returned'], 'late preview_start reopened a task');
-  // Every other ending core.TaskMember can reach hands back too.
-  for (const [i, end] of ['failed', 'cancelled', 'interrupted'].entries()) {
+  // Every terminal member status can reach hand-back, including the raw
+  // public-progress `result` and the older `done` spelling.
+  for (const [i, end] of ['result', 'completed', 'done', 'failed', 'cancelled', 'interrupted'].entries()) {
     const ref = `taskcard-${i + 2}`;
     ws.frame({ type: 'preview_start', ref_id: ref, reply_ctx: 'room-1', content: card('running'), seq: 1 });
     await tick();

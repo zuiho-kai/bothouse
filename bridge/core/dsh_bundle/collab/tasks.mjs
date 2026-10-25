@@ -325,6 +325,12 @@ export class Tasks {
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     const stance = this.stanceOf(msg);
+    // A DSH member (local CLI members too, dsh-member.mjs) posts one reply, when its turn has
+    // ended: a 【接】 there is also the delivery, and nothing else would hand the task back.
+    // A bridge bot may keep working after its 【接】, so its stance stays a stance.
+    if (stance?.status === 'accepted' && this.hub.members.get(msg.author)?.kind === 'dsh') {
+      return this.handBack(stance.id, { actor: msg.author, messageId: msg.id });
+    }
     if (stance !== undefined) return stance;
     // A 【问】【退】【升】 reply with no task to answer is a question or a pushback, never a hand-back.
     if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routable()).trimStart())) return undefined;
@@ -405,7 +411,10 @@ export class Tasks {
         if (['queued', 'running', 'waiting'].includes(status)) {
           const title = String(m.title ?? '').trim() || String(m.name ?? '').trim();
           if (title) this.openFromChat({ roomId, owner: owner.id, lead, title, messageId, source: 'card' });
-        } else if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status)) {
+        // `result` is the public-progress report kind; newer bridge cards
+        // normalize it to `completed`, while older cards expose it directly.
+        // Keep `done` for cards produced by older task-card implementations.
+        } else if (['result', 'completed', 'done', 'failed', 'cancelled', 'interrupted'].includes(status)) {
           const open = this.q.openChat.get(roomId, owner.id, lead, ...WORKING);
           if (open !== undefined) this.handBack(open.id, { actor: owner.id, messageId });
         }
