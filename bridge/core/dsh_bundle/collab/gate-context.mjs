@@ -34,8 +34,9 @@ export class GateContext {
       const res = await this.fetch(`http://127.0.0.1:${this.port}/context`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // bot = the member id: the gate's team file names DSH members by it (lead.identity).
-        body: JSON.stringify({ key: `dsh:${member}:${room}`, text: text ?? '', bot: String(member) }),
+        // bot = dsh:<member id>: the gate finds the kind "dsh" team entry with that id (lead.member),
+        // apart from the bridge bots' keys, which may be the same word.
+        body: JSON.stringify({ key: `dsh:${member}:${room}`, text: text ?? '', bot: `dsh:${member}` }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (!res.ok) throw new Error(`status ${res.status}`);

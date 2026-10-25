@@ -44,8 +44,10 @@ _team_file = os.environ.get("GATE_TEAM") or (SETUP_DIR / "gate-team.json" if (SE
 _team = json.loads(Path(_team_file).expanduser().read_text(encoding="utf-8"))
 LEAD = _team["lead"]["name"]
 LEAD_NAMES = [LEAD, *_team["lead"].get("aliases", [])]
-SUBS = {k: v["name"] for k, v in _team["subs"].items()}
-NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _team["subs"].items()}
+# DSH 成员（kind=dsh，安装向导导入 DSH 时登记）不是 Discord 队友：不进路由/队友表/名字正则，只给 lead.py 认身份和手册
+_bridge_subs = {k: v for k, v in _team["subs"].items() if v.get("kind") != "dsh"}
+SUBS = {k: v["name"] for k, v in _bridge_subs.items()}
+NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _bridge_subs.items()}
 NAMES[""] = LEAD_NAMES
 SUB_LIST = "、".join(SUBS.values())
 lead.configure(_team)  # 主角色可切换（lead.py）：用同一份团队文件

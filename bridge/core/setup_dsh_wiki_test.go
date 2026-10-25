@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -115,6 +116,9 @@ func TestDSHReRunWaitsForTheNewImport(t *testing.T) {
 
 // A `dsh web` still running from before has not imported the waiting roles: opening stops it.
 func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /bin/sleep")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	collab := filepath.Join(home, "collab")

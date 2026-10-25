@@ -28,7 +28,7 @@ if os.environ.get("GATE_LEAD_FILE"):
 else:
     LEAD_FILE = _PRODUCT_DATA / "lead.json"
 
-KEYS, NAME, ID, ALIASES = [], {}, {}, {}
+KEYS, NAME, ID, ALIASES, DSH = [], {}, {}, {}, set()  # DSH = kind=dsh 的键（DSH 原生成员）
 _alias, _WHO, PATTERNS = [], "", []
 
 
@@ -43,9 +43,11 @@ def configure(team):
     global _alias, _WHO, PATTERNS
     members = {"": team["lead"], **team["subs"]}
     KEYS[:] = list(members)
-    NAME.clear(); ID.clear(); ALIASES.clear()
+    NAME.clear(); ID.clear(); ALIASES.clear(); DSH.clear()
     for k, m in members.items():
         NAME[k] = m["name"]
+        if m.get("kind") == "dsh":
+            DSH.add(k)
         if m.get("id"):
             ID[k] = str(m["id"])
         ALIASES[k] = list(dict.fromkeys([m["name"], *m.get("aliases", [])]))
@@ -194,12 +196,14 @@ def set_lead(key):
 
 
 def member(bot):
-    """/context 的 bot → 团队文件里的键：本身是键就是它，否则按成员 id 找（DSH 成员带 bot=<成员 id>，
-    只装 DSH 时主角色是 lead 段、键为 ""）；都不是原样返回。"""
+    """/context 的 bot → 团队文件里的键。DSH 成员带 bot=dsh:<成员 id>（dsh/collab/gate-context.mjs），
+    只在 kind=dsh 的条目里按 id 找（只装 DSH 时主角色是 lead 段、键为 ""）；桥 bot 带的是键，原样返回。
+    两边名字空间分开：DSH 成员 id 和桥的项目键同名（都叫 claude）也不会认错。"""
     bot = str(bot or "")
-    if bot in KEYS:
-        return bot
-    return next((k for k, i in ID.items() if i == bot), bot)
+    if bot.startswith("dsh:"):
+        mid = bot[4:]
+        return next((k for k in KEYS if k in DSH and ID.get(k) == mid), bot)
+    return bot
 
 
 def identity(bot):

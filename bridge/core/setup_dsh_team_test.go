@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -41,7 +42,7 @@ func TestDSHMembersGateTeamNewFileLeadGetsPlaybook(t *testing.T) {
 	}
 	b, _ := os.ReadFile(filepath.Join(data, gateTeamFile))
 	if err := json.Unmarshal(b, &gt); err != nil || gt.Lead["id"] != "m-k3x9q2" || gt.Lead["name"] != "鲸" || len(gt.Subs) != 1 ||
-		gt.Subs["juzi"]["id"] != "juzi" || gt.Subs["juzi"]["workspace"] != filepath.Join(data, "roles", "juzi") {
+		gt.Subs["dsh-juzi"]["id"] != "juzi" || gt.Subs["dsh-juzi"]["workspace"] != filepath.Join(data, "roles", "juzi") {
 		t.Fatalf("gate-team.json = %s %v", b, err)
 	}
 	if dshFallbackLead(data) != "m-k3x9q2" {
@@ -50,10 +51,10 @@ func TestDSHMembersGateTeamNewFileLeadGetsPlaybook(t *testing.T) {
 	if changed, err := addDSHMembersToGateTeam(data, members); err != nil || changed {
 		t.Fatalf("rerun changed=%v err=%v", changed, err)
 	}
-	if !gateContextPlaybook(t, data, "m-k3x9q2") {
+	if !gateContextPlaybook(t, data, "dsh:m-k3x9q2") {
 		t.Fatal("the DSH lead got no playbook")
 	}
-	if gateContextPlaybook(t, data, "juzi") {
+	if gateContextPlaybook(t, data, "dsh:juzi") {
 		t.Fatal("a sub got the playbook")
 	}
 }
@@ -73,15 +74,42 @@ func TestDSHMembersGateTeamMergeSwitchedLeadGetsPlaybook(t *testing.T) {
 	if !strings.Contains(string(b), `"m-k3x9q2"`) || !strings.Contains(string(b), `"codex"`) || !strings.Contains(string(b), `"橘"`) {
 		t.Fatalf("gate-team.json = %s", b)
 	}
-	if gateContextPlaybook(t, data, "m-k3x9q2") {
+	if gateContextPlaybook(t, data, "dsh:m-k3x9q2") {
 		t.Fatal("a sub got the playbook before the switch")
 	}
 	// the collab plugin's LeadState writes the member id (dsh/collab/lead-state.mjs)
 	_ = os.WriteFile(filepath.Join(data, "lead.json"), []byte(`{"lead": "m-k3x9q2", "name": "鲸", "at": "10-26 03:00:00"}`), 0o600)
-	if !gateContextPlaybook(t, data, "m-k3x9q2") {
+	if !gateContextPlaybook(t, data, "dsh:m-k3x9q2") {
 		t.Fatal("the DSH member made lead got no playbook")
 	}
 	if gateContextPlaybook(t, data, "") {
 		t.Fatal("the old lead still got the playbook")
+	}
+}
+
+// DSH first, then the Discord wizard: the wizard rewrites the team file whole, the DSH members are still in it.
+func TestDSHMembersSurviveDiscordWizard(t *testing.T) {
+	wizardGateTestEnv(t)
+	t.Setenv("CONEST_COLLAB_DATA", t.TempDir())
+	fakeDiscord(t, map[string]string{fakeToken("111"): "Juzi", fakeToken("222"): "Whale"})
+	dir, store := t.TempDir(), newMemStore()
+	if _, err := addDSHMembersToGateTeam(dir, []DSHImportedMember{{DSHMember: DSHMember{Name: "鲸"}, ID: "m-k3x9q2"}, {DSHMember: DSHMember{Name: "Juzi"}, ID: "juzi"}}); err != nil {
+		t.Fatal(err)
+	}
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	if res := ApplyWizard(context.Background(), env, discordReq("900", WizardRole{Token: fakeToken("111")}, WizardRole{Token: fakeToken("222")})); !res.OK {
+		t.Fatalf("apply failed: %+v", res)
+	}
+	lead, subs := readGateTeamMembers(t, dir)
+	if lead.ID != "111" || subs["whale"].ID != "222" || subs["dsh-m-k3x9q2"].ID != "m-k3x9q2" || subs["dsh-juzi"].ID != "juzi" {
+		t.Fatalf("lead %+v subs %+v", lead, subs)
+	}
+	// the DSH lead (made when only DSH was set up) went in as a sub; the wizard's lead stays lead
+	b, _ := os.ReadFile(filepath.Join(dir, gateTeamFile))
+	if !strings.Contains(string(b), `"kind": "dsh"`) && !strings.Contains(string(b), `"kind":"dsh"`) {
+		t.Fatalf("gate-team.json = %s", b)
+	}
+	if gateContextPlaybook(t, dir, "dsh:juzi") {
+		t.Fatal("the DSH member juzi got the bridge lead's playbook")
 	}
 }

@@ -3974,7 +3974,7 @@ test('DSH member: each turn carries the gate wiki and task board, a page only on
     assert.match(first, /- ~\/wiki\/a\.md — 部署步骤/);
     assert.match(first, /- 【任务板 abc123】 — 谁手上有哪件事、做在哪\n#7 修登录 · 龙娘/);
     assert.ok(first.indexOf('wiki 页') < first.indexOf('【我】@DeepSeek'), 'the block comes before the channel messages');
-    assert.deepEqual(gate.calls[0].body, { key: 'dsh:ds:1', text: '@DeepSeek 怎么部署', bot: 'ds' });
+    assert.deepEqual(gate.calls[0].body, { key: 'dsh:ds:1', text: '@DeepSeek 怎么部署', bot: 'dsh:ds' });
     dsh.turn(agent, ['好']);
     await until(() => hub.store.job(1).state === 'done');
     hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 再说一遍' });

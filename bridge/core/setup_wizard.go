@@ -1179,11 +1179,14 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if (req.Platform == "discord" || cloudWeb || isFeishu) && (len(pl.team) > 1 || len(pl.team) == 1 && !pl.soloShared) && req.gateOn() {
 		after, _ := env.Store.Snapshot()
 		gt := gateTeamJSON(pl.team, pl.fallback, pl.fallbackName, after)
+		path := filepath.Join(env.DataDir, gateTeamFile)
 		var prev map[string]any
-		if readJSONFile(filepath.Join(env.DataDir, gateTeamFile), &prev) {
+		if readJSONFile(path, &prev) {
 			mergeGateTeam(gt, prev)
 		}
-		if err := writeJSONFile(filepath.Join(env.DataDir, gateTeamFile), gt, 0o644); err != nil {
+		// the file is rewritten whole: DSH's members (kind "dsh") go back in as they were
+		keepDSHGateTeamEntries(path, gt)
+		if err := writeJSONFile(path, gt, 0o644); err != nil {
 			return fail("gate team", err)
 		}
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
