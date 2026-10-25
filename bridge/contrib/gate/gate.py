@@ -6,7 +6,7 @@
 
 先走确定性规则，规则定不了再让 jev（向导填的模型）读 A/B/C 三个选项的概率（见 scorer_remote.py）。
 没填 jev 就报错退出，不自己下载模型。
-每次判断写进 GATE_LOG（默认 ~/.cc-connect/gate.jsonl），用来调规则或以后做微调。
+每次判断写进 GATE_LOG（默认 <数据目录>/gate.jsonl），用来调规则或以后做微调。
 POST /decide  {content, mentioned, busy, has_images, has_files, buffered[]} → {action, reason}
 POST /context {key, text} → 每轮相关的 wiki 页（ctxsvc.py；wiki 目录 GATE_WIKI，默认 ~/wiki）
 
@@ -24,15 +24,16 @@ from pathlib import Path
 import ctxsvc
 from scorer_remote import RemoteScorer, load_jev
 import lead
+import datadir
 
 # bothouse 拉起 gate 时用 GATE_PORT 告诉它听哪个端口（core/gate_proc.go，同 gateAddr）；手动跑不设就是 9930
 PORT = int(os.environ.get("GATE_PORT") or 9930)
 # 本机模型只在显式设了 GATE_MODEL 时用（GPU 机器上 start_gate_wsl.sh 那种部署），没有默认值、不自动下载
 MODEL = os.environ.get("GATE_MODEL", "")
-LOG = Path(os.environ.get("GATE_LOG", Path.home() / ".cc-connect/gate.jsonl"))
+LOG = Path(os.environ.get("GATE_LOG") or datadir.setup_dir() / "gate.jsonl")
 
 # 安装向导（cc-connect 网页 / cc-connect setup apply）把 jev.json、gate-team.json 写在 cc-connect 的数据目录。
-SETUP_DIR = Path(os.environ.get("GATE_SETUP_DIR") or Path.home() / ".cc-connect").expanduser()
+SETUP_DIR = datadir.setup_dir()  # GATE_SETUP_DIR，不设 = 产品数据目录（datadir.py）
 # 团队成员：GATE_TEAM=<json 文件>；不设就用向导写的 <SETUP_DIR>/gate-team.json（lead = 向导里选的兜底角色），
 # 再没有就用同目录的 team.example.json（占位名字，复制一份改成你自己的角色）。格式：
 # {"lead": {"name": "C酱", "aliases": ["Claude"]}, "subs": {"gge": {"name": "G哥", "aliases": ["Codex"]}}}

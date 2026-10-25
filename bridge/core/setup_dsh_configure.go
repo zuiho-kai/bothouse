@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	ccconnect "github.com/chenhg5/cc-connect"
 	"gopkg.in/yaml.v3"
 )
 
@@ -304,11 +305,8 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	cmd := exec.Command(bin, "--profile", DSHProfile, "--no-open", "--port", "0")
 	dataDir := strings.TrimSpace(configuredDataDir)
 	if dataDir == "" {
-		dataDir = os.Getenv("BOTHOUSE_DATA_DIR")
-	}
-	if dataDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			dataDir = filepath.Join(home, ".bothouse")
+			dataDir = ccconnect.DataDir(home) // same resolution as the bridge and contrib/gate/datadir.py
 		}
 	}
 	if dataDir != "" {

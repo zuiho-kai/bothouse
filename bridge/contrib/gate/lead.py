@@ -14,19 +14,14 @@
 import json, os, re, threading, time
 from pathlib import Path
 
-_SETUP_ENV = os.environ.get("GATE_SETUP_DIR")
-_SETUP = Path(_SETUP_ENV or Path.home() / ".cc-connect").expanduser()
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import datadir  # noqa: E402  数据目录只在 datadir.py 解析一处（board.py、../lead/_team.py 同用）
+
+_SETUP = datadir.setup_dir()
 # The bridge and DSH use the product data directory even when no gate is
 # installed. Only an explicit file override may select a different location.
-_PRODUCT_ENV = os.environ.get("BOTHOUSE_DATA_DIR")
-if _PRODUCT_ENV:
-    _PRODUCT_DATA = Path(_PRODUCT_ENV).expanduser()
-elif _SETUP_ENV:
-    _PRODUCT_DATA = _SETUP
-else:
-    _preferred = Path.home() / ".bothouse"
-    _legacy = Path.home() / ".cc-connect"
-    _PRODUCT_DATA = _preferred if _preferred.exists() or not _legacy.exists() else _legacy
+_PRODUCT_DATA = datadir.data_dir()
 _LEGACY_LEAD_FILES = [_PRODUCT_DATA / "gate-lead.json", _SETUP / "gate-lead.json"]
 if os.environ.get("GATE_LEAD_FILE"):
     LEAD_FILE = Path(os.environ["GATE_LEAD_FILE"]).expanduser()

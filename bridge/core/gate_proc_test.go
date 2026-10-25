@@ -12,8 +12,10 @@ import (
 )
 
 // fakeGatePy stands in for contrib/gate/gate.py: it counts its starts in <data_dir>/starts.txt,
-// then either exits at once (FAKE_GATE_MODE=exit) or listens on GATE_PORT like the real gate.
+// (only when BOTHOUSE_DATA_DIR equals it), then either exits at once (FAKE_GATE_MODE=exit) or listens on GATE_PORT like the real gate.
 const fakeGatePy = `import os, socket, sys
+if os.environ.get("BOTHOUSE_DATA_DIR") != os.environ["GATE_SETUP_DIR"]:
+    sys.exit(4)  # both must name the bridge's data dir, not an inherited one
 with open(os.path.join(os.environ["GATE_SETUP_DIR"], "starts.txt"), "a") as f:
     f.write("start\n")
 if os.environ.get("FAKE_GATE_MODE") == "exit":
@@ -36,6 +38,7 @@ func setupFakeGate(t *testing.T, withJev bool) (dataDir string) {
 		t.Skip("python3 not on PATH")
 	}
 	dataDir = t.TempDir()
+	t.Setenv("BOTHOUSE_DATA_DIR", filepath.Join(dataDir, "inherited")) // the supervisor must override it
 	if withJev {
 		if err := writeJSONFile(filepath.Join(dataDir, jevFile), JevConfig{Backend: "llm", URL: "http://127.0.0.1:1/v1", Model: "m", Logprobs: true}, 0o600); err != nil {
 			t.Fatal(err)

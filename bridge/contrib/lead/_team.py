@@ -14,8 +14,9 @@ from pathlib import Path
 _here = Path(__file__).resolve().parent
 sys.path.insert(0, str(Path(os.environ.get("GATE_DIR") or _here.parent / "gate").expanduser()))
 import lead  # noqa: E402  gate/lead.py
+import datadir  # noqa: E402  gate/datadir.py：数据目录只解析这一处
 
-SETUP = lead._SETUP
+SETUP = datadir.setup_dir()
 LAST = SETUP / "ws-handoff-last.json"  # 最近一次 ws-handoff 的交接（ws-forward 读）
 
 

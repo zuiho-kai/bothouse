@@ -8,7 +8,7 @@
   cc-connect 把 team 目录下的 *.json 当队友状态文件读，core/team.go teamSummary）。
 - 读：ctxsvc.context 把整张板附进每个 bot 每轮的上下文（板子变了才重推）；gate 判收件人时也读（gate.addressee）。
 - 写：../lead/board（本文件的命令行）。
-- BOARD_DIR：环境变量，默认 <GATE_SETUP_DIR>/team（GATE_SETUP_DIR 默认 ~/.cc-connect，同 lead.py）；
+- BOARD_DIR：环境变量，默认 <GATE_SETUP_DIR>/team（GATE_SETUP_DIR 不设 = 产品数据目录，见 datadir.py，同 gate 和 lead.py）；
   建议设成 cc-connect 的 team_status_dir，和队友状态放一起。
 
 用法：
@@ -45,7 +45,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SETUP = Path(os.environ.get("GATE_SETUP_DIR") or Path.home() / ".cc-connect").expanduser()
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # ../lead/board 从别处跑时也找得到同目录的 datadir.py
+import datadir  # noqa: E402
+
+SETUP = datadir.setup_dir()
 DIR = Path(os.environ.get("BOARD_DIR") or SETUP / "team").expanduser()
 
 

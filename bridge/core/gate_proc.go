@@ -324,7 +324,10 @@ func (g *GateSupervisor) startLocked(python string) error {
 	cmd := exec.Command(python, "-c", gateLauncher)
 	cmd.Dir = g.dir
 	cmd.Env = append(os.Environ(),
+		// Both names point at the bridge's data dir so the gate never mixes it with an inherited one
+		// (contrib/gate/datadir.py: lead.json follows BOTHOUSE_DATA_DIR, the rest GATE_SETUP_DIR).
 		"GATE_SETUP_DIR="+g.dataDir,
+		"BOTHOUSE_DATA_DIR="+g.dataDir,
 		"GATE_PORT="+gatePort(),
 		"GATE_LOG="+filepath.Join(g.dataDir, "gate.jsonl"),
 		"PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8")
