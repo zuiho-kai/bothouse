@@ -88,3 +88,25 @@ test('cleanEnv drops the outer Claude Code session markers but keeps the env-var
   });
   assert.deepEqual(env, { CLAUDE_CODE_OAUTH_TOKEN: 'oauth-x', ANTHROPIC_API_KEY: 'key-x', PATH: '/bin' });
 });
+
+test('text resumed after a tool call starts a new paragraph, so a closing [report] opens its line', async () => {
+  const m = new CliMember({ cli: 'claude', cwd: '/tmp', persona: '' });
+  m._start = async () => {
+    m.ready = Promise.resolve({});
+    m.exited = new Promise(() => {});
+    m.conn = {
+      newSession: async () => ({ sessionId: 's1' }),
+      prompt: async () => {
+        const c = m._client();
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '【接】#3\n\n总结文档：' } } });
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Write' } });
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[report]\n' } } });
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '56 个测试通过' } } });
+        return { stopReason: 'end_turn' };
+      },
+    };
+    return m.ready;
+  };
+  const reply = await m.ask('hi', 'r1');
+  assert.equal(reply, '【接】#3\n\n总结文档：\n\n[report]\n56 个测试通过');
+});
