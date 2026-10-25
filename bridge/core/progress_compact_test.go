@@ -412,3 +412,36 @@ func TestCompactProgressWriter_StripsModelOnlyToolText(t *testing.T) {
 		}
 	}
 }
+
+// A turn with no thinking or tool events (a plain Q&A) posts no card, and
+// one with a single thinking event gets a card that closes as completed.
+func TestCompactProgressWriter_CardOnlyAfterFirstEvent(t *testing.T) {
+	p := &stubCompactProgressPlatform{
+		stubPlatformEngine: stubPlatformEngine{n: "discord"},
+		style:              "card",
+		supportPayload:     true,
+	}
+	w := newCompactProgressWriter(context.Background(), p, "ctx", "claudecode", LangChinese, nil)
+	w.Finalize(ProgressCardStateCompleted)
+	if n := len(p.getPreviewStarts()); n != 0 {
+		t.Fatalf("zero-event turn: preview starts = %d, want 0", n)
+	}
+
+	w = newCompactProgressWriter(context.Background(), p, "ctx", "claudecode", LangChinese, nil)
+	if !w.AppendEvent(ProgressEntryThinking, "想一想", "", "💭 想一想") {
+		t.Fatal("AppendEvent(thinking) = false, want true")
+	}
+	if !w.Finalize(ProgressCardStateCompleted) {
+		t.Fatal("Finalize() = false, want true")
+	}
+	if n := len(p.getPreviewStarts()); n != 1 {
+		t.Fatalf("thinking turn: preview starts = %d, want 1", n)
+	}
+	p.previewMu.Lock()
+	last := p.previewEdits[len(p.previewEdits)-1]
+	p.previewMu.Unlock()
+	payload, ok := ParseProgressCardPayload(last)
+	if !ok || payload.State != ProgressCardStateCompleted {
+		t.Fatalf("final edit = %q, want a completed card payload", last)
+	}
+}

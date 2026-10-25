@@ -346,10 +346,13 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 		}
 	}
 
-	progressStyle := "legacy"
+	// Unset progress_style means "card" on every platform (core normalizeProgressStyle).
+	progressStyle := "card"
 	if v, ok := opts["progress_style"].(string); ok {
 		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "", "legacy":
+		case "":
+			// keep default
+		case "legacy":
 			progressStyle = "legacy"
 		case "compact", "card":
 			progressStyle = strings.ToLower(strings.TrimSpace(v))

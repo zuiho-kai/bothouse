@@ -1092,8 +1092,8 @@ app_secret = "your-feishu-app-secret"
 #                           # 设为 true 时，群聊按飞书话题/根消息隔离会话；multi-workspace 模式下每个话题也独立绑定 workspace
 # reply_to_trigger = true   # Default: bot uses “reply to message” API (quotes the user’s message). Set false to post plain chat messages instead.
 #                           # 默认 true：用「回复消息」API（引用用户消息）。设为 false 则在会话里发普通消息、不引用触发消息。
-# progress_style = "legacy" # Progress rendering style: legacy | compact | card
-#                           # 进度消息展示风格：legacy（逐条消息）| compact（单消息持续更新）| card（结构化卡片）
+# progress_style = "card"   # Progress rendering style: legacy | compact | card (default card)
+#                           # 进度消息展示风格：legacy（逐条消息）| compact（单消息持续更新）| card（结构化卡片，默认）
 # resolve_mentions = false  # Auto-resolve @name in outgoing messages to Feishu at tags by matching group member names
 #                           # 自动将发出消息中的 @显示名 替换为飞书 at 标签（通过匹配群成员名称）
 # mention_map = { BOT-A = "ou_bot_a_open_id", BOT-B = "ou_bot_b_open_id" }
@@ -1139,7 +1139,7 @@ app_secret = "your-feishu-app-secret"
 # allow_from = "*"
 # reaction_emoji = "OnIt"
 # done_emoji = "none"
-# progress_style = "legacy"  # legacy | compact | card
+# progress_style = "card"  # legacy | compact | card (default card)
 
 # DingTalk / 钉钉 (uncomment to enable / 取消注释以启用)
 # 1. Create an app at https://open-dev.dingtalk.com / 在钉钉开放平台创建应用
@@ -1364,7 +1364,7 @@ app_secret = "your-feishu-app-secret"
 # share_session_in_channel = false  # If true, all users in a channel share one agent session / 频道共享会话
 # thread_isolation = false  # If true, bothouse creates/uses Discord threads as session boundaries when the channel supports threads
 #                           # 设为 true 时，bothouse 会在支持 thread 的 Discord 频道内按 thread 隔离会话
-# progress_style = "legacy"  # Progress rendering: legacy | compact | card / 进度展示方式：legacy | compact | card
+# progress_style = "card"  # Progress rendering: legacy | compact | card (default card) / 进度展示方式：legacy | compact | card（默认 card）
 #                            # card = one editable Discord embed progress card / card = 单条可编辑的 Discord 嵌入式进度卡
 # aux_channels = { "123456789012345678" = "234567890123456789" }  # maomao fork: main channel ID → log channel ID / 主频道 ID → 日志频道 ID
 #                            # The progress card, the sub-agent table and bothouse notices (♻️ new session, ⏰ cron start, ⏳ capacity cooldown)

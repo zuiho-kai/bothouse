@@ -745,12 +745,10 @@ func TestNew_LegacyProgressStyleDoesNotEnableProgressInterfaces(t *testing.T) {
 	}
 }
 
-// TestNew_DefaultProgressStyleIsCompact verifies that omitting progress_style
-// opts in to streaming edits (compact). Before this change, the default was
-// "legacy" which meant Discord would silently fall through to one big final
-// p.Send for long replies — see release-gate note 2026-06-14 §"Telegram 同样
-// 无默认流式". Discord behaves identically to Telegram on this code path.
-func TestNew_DefaultProgressStyleIsCompact(t *testing.T) {
+// TestNew_DefaultProgressStyleIsCard verifies that omitting progress_style
+// gives the progress card (structured payload), so a bot installed with the
+// default config shows one without extra settings.
+func TestNew_DefaultProgressStyleIsCard(t *testing.T) {
 	pAny, err := New(map[string]any{
 		"token": "discord-token",
 	})
@@ -761,8 +759,12 @@ func TestNew_DefaultProgressStyleIsCompact(t *testing.T) {
 	if !ok {
 		t.Fatalf("default discord platform should implement ProgressStyleProvider, got %T", pAny)
 	}
-	if got := sp.ProgressStyle(); got != "compact" {
-		t.Fatalf("default ProgressStyle() = %q, want %q", got, "compact")
+	if got := sp.ProgressStyle(); got != "card" {
+		t.Fatalf("default ProgressStyle() = %q, want %q", got, "card")
+	}
+	cp, ok := pAny.(core.ProgressCardPayloadSupport)
+	if !ok || !cp.SupportsProgressCardPayload() {
+		t.Fatalf("default discord platform should send the card payload")
 	}
 }
 

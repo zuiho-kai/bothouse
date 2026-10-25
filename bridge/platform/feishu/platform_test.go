@@ -97,7 +97,7 @@ func TestNew_DisabledInteractiveCardsDoesNotStartPreviewCard(t *testing.T) {
 	}
 }
 
-func TestNew_ProgressStyleDefaultLegacy(t *testing.T) {
+func TestNew_ProgressStyleDefaultCard(t *testing.T) {
 	p, err := New(map[string]any{"app_id": "cli_xxx", "app_secret": "secret"})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -106,8 +106,8 @@ func TestNew_ProgressStyleDefaultLegacy(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform type %T does not implement ProgressStyleProvider", p)
 	}
-	if got := sp.ProgressStyle(); got != "legacy" {
-		t.Fatalf("ProgressStyle() = %q, want legacy", got)
+	if got := sp.ProgressStyle(); got != "card" {
+		t.Fatalf("ProgressStyle() = %q, want card", got)
 	}
 }
 

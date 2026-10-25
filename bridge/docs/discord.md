@@ -125,12 +125,12 @@ type = "discord"
 [projects.platforms.options]
 token = "MTk4NjIyNDgzNDcOTY3NDUxMg.G8vKqh.xxx..."
 # thread_isolation = true  # Optional: isolate each agent session in its own Discord thread
-# progress_style = "legacy" # Optional: legacy | compact | card
+# progress_style = "card" # Optional: legacy | compact | card (default card)
 ```
 
 > bothouse automatically configures the required Intents (MESSAGE_CONTENT, GUILD_MESSAGES, DIRECT_MESSAGES).
 > With `thread_isolation = true`, bothouse creates or reuses a Discord thread for each session and routes follow-up messages by thread channel ID.
-> `progress_style = "compact"` merges thinking/tool updates into one editable message; `progress_style = "card"` renders a Discord-native embed progress card and still sends the final answer as a normal message.
+> `progress_style = "compact"` merges thinking/tool updates into one editable message; `progress_style = "card"` (the default) renders a Discord-native embed progress card and still sends the final answer as a normal message. The card appears once the turn has a thinking or tool event; a turn that answers directly posts no card.
 
 ---
 
@@ -225,7 +225,7 @@ bothouse: 🔧 Tool: Bash(ls -la)
 bothouse: Here's the project structure...
 ```
 
-If you enable `progress_style = "card"`, Discord shows one editable progress embed during the turn, then the final answer arrives as a separate normal message. This reduces channel noise compared with the legacy multi-message flow.
+With `progress_style = "card"` (the default), Discord shows one editable progress embed during the turn, then the final answer arrives as a separate normal message. This reduces channel noise compared with the legacy multi-message flow.
 
 ---
 

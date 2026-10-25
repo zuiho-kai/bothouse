@@ -9,7 +9,7 @@ import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } 
 import { resolveConfig } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
-import { promptText, teamModeRules } from './dsh-member.mjs';
+import { promptText, teamModeRules, TurnProgress } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute, ownMessageRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -2970,6 +2970,43 @@ test('DSH member: a turn without tool calls posts no progress card', async () =>
   dsh.turn(dsh.sessions.get(dsh.made[0]), ['在']);
   await settle();
   assert.equal(hub.store.page(1, undefined, 10).filter(m => m.card !== null).length, 0);
+});
+
+test('CLI member: ACP thought chunks open the card and merge into one thinking line', async () => {
+  const hub = makeHub();
+  cliMembers(hub, async (_text, _room, _onText, onTool) => {
+    onTool({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: '先想想' } });
+    onTool({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: '明天的行情' } });
+    await tick(); await tick();
+    return '大概率震荡';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 预测一下明天' });
+  await settle();
+  const cards = hub.store.page(1, undefined, 10).filter(m => m.card !== null);
+  assert.equal(cards.length, 1, 'a thinking-only turn still gets its card');
+  assert.equal(JSON.parse(cards[0].card).title, 'CC · 已完成');
+  assert.match(cards[0].text, /先想想明天的行情/);
+});
+
+test('CLI member: a turn with no thoughts and no tool calls posts no card', async () => {
+  const hub = makeHub();
+  cliMembers(hub, async () => '在');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 在吗' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 10).filter(m => m.card !== null).length, 0);
+});
+
+test('TurnProgress: end() writes only after an event', () => {
+  const posts = [];
+  const hub = { post: (_r, m) => { posts.push(m); return { message: { id: posts.length } }; }, edit: () => {} };
+  const member = { id: 'ds', name: '大肥鱼' };
+  new TurnProgress(hub, 1, member, 1).end('completed');
+  assert.equal(posts.length, 0, 'no events, no card');
+  const p = new TurnProgress(hub, 1, member, 2);
+  p.thought('嗯');
+  p.end('completed');
+  assert.equal(posts.length, 1);
+  assert.equal(JSON.parse(posts[0].card).title, '大肥鱼 · 已完成');
 });
 
 test('CLI member: ACP tool calls feed the same progress card', async () => {

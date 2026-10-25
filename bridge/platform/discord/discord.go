@@ -140,10 +140,10 @@ func New(opts map[string]any) (core.Platform, error) {
 	}
 	threadIsolation, _ := opts["thread_isolation"].(bool)
 	respondToAtEveryoneAndHere, _ := opts["respond_to_at_everyone_and_here"].(bool)
-	// Default to "compact" so streaming edits work out of the box (Discord
-	// supports MessageUpdater.UpdateMessage). Users can opt back into the old
-	// "send entire reply at once" behavior with progress_style = "legacy".
-	progressStyle := "compact"
+	// Unset progress_style means "card" on every platform (core
+	// normalizeProgressStyle): the progress card shows up without config. Users
+	// can opt back into the old per-step messages with progress_style = "legacy".
+	progressStyle := "card"
 	if v, ok := opts["progress_style"].(string); ok {
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "":

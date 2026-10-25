@@ -39,7 +39,7 @@ export class CliMember {
     this.sessions = new Map() // room -> { sessionId, first }
     this.buffers = new Map() // sessionId -> string
     this.onText = new Map() // sessionId -> (textSoFar) => void（#121 流式）
-    this.onTool = new Map() // sessionId -> (update) => void：tool_call / tool_call_update，给进度卡
+    this.onTool = new Map() // sessionId -> (update) => void：tool_call / tool_call_update / agent_thought_chunk，给进度卡
     this.queue = new Map() // room -> Promise（同房间串行）
     this.ready = null
   }
@@ -66,7 +66,7 @@ export class CliMember {
           this.buffers.set(n.sessionId, full)
           this.onText.get(n.sessionId)?.(full)
         }
-        if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update') && this.buffers.has(n.sessionId)) this.onTool.get(n.sessionId)?.(u)
+        if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk') && this.buffers.has(n.sessionId)) this.onTool.get(n.sessionId)?.(u)
       },
     }
     const stream = acp.ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout))
@@ -94,7 +94,7 @@ export class CliMember {
     return s
   }
 
-  /** onText(textSoFar) 在每个公开文字分片到达时调用（#121）；onTool(update) 在每个工具调用开始/更新时调用。 */
+  /** onText(textSoFar) 在每个公开文字分片到达时调用（#121）；onTool(update) 在每个工具调用开始/更新和每个思考分片到达时调用。 */
   ask(text, room = 'default', onText, onTool) {
     const prev = this.queue.get(room) || Promise.resolve()
     const run = prev.catch(() => {}).then(() => this._ask(text, room, onText, onTool))

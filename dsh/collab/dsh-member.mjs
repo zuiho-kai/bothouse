@@ -141,8 +141,9 @@ function toolArgText(raw) {
 /**
  * Live progress card of one member turn, the DSH-side counterpart of the
  * bridge's progress card (cloudweb.mjs progressCard): posted in the room at the
- * turn's first tool call, edited as calls and results arrive, and closed as
- * 已完成 or 失败 when the turn ends. A turn without tool calls posts no card.
+ * turn's first event (thought or tool call), edited as events arrive, and
+ * closed as 已完成 or 失败 when the turn ends. A turn without thoughts or tool
+ * calls posts no card, like the bridge.
  */
 export class TurnProgress {
   constructor(hub, roomId, member, jobId, now = Date.now) {
@@ -169,6 +170,15 @@ export class TurnProgress {
     this.schedule();
   }
 
+  /** One thought chunk (ACP agent_thought_chunk); consecutive chunks grow one thinking line. */
+  thought(text) {
+    if (this.ended || typeof text !== 'string' || text === '') return;
+    const last = this.items[this.items.length - 1];
+    if (last?.kind === 'thinking') last.text += text;
+    else this.items.push({ kind: 'thinking', text });
+    this.schedule();
+  }
+
   result(callId, failed, reason) {
     if (this.ended || this.resolved.has(callId)) return;
     if (callId !== undefined) this.resolved.add(callId);
@@ -186,7 +196,8 @@ export class TurnProgress {
   end(state) {
     if (this.ended) return;
     this.ended = true;
-    if (this.steps > 0) this.write(state);
+    // Only a turn that had events has a card to close.
+    if (this.steps > 0 || this.items.length > 0) this.write(state);
   }
 
   write(state) {
@@ -435,7 +446,9 @@ export class DshMembers {
     };
     const progress = new TurnProgress(this.hub, job.room_id, member, job.id);
     // ACP tool calls (agentclientprotocol.com/protocol/tool-calls): one call per toolCallId, its update says completed or failed.
+    // Thoughts (agent_thought_chunk) feed the card too, as on the bridge.
     const onTool = (u) => {
+      if (u.sessionUpdate === 'agent_thought_chunk') { if (u.content?.type === 'text') progress.thought(u.content.text); return; }
       if (u.sessionUpdate === 'tool_call') progress.call(u.toolCallId, u.title ?? u.kind ?? '', JSON.stringify(u.rawInput ?? {}));
       if (u.status === 'completed' || u.status === 'failed') progress.result(u.toolCallId, u.status === 'failed');
     };
