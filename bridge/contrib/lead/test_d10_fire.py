@@ -196,6 +196,19 @@ class BridgeBinTest(unittest.TestCase):
         self.assertTrue(log.startswith("send -p lead-proj -s discord:3003 --message"), log)
         self.assertIn("暂停", log)
 
+    def test_d10_arms_via_bothouse(self):
+        import json, subprocess, sys
+        team = os.path.join(self.tmp, "team.json")
+        with open(team, "w") as fh:
+            json.dump({"lead": {"name": "L", "id": "1"}, "subs": {"c": {"name": "C", "id": "2"}}}, fh)
+        d10 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "d10")
+        env = {"PATH": os.environ["PATH"], "HOME": self.tmp, "GATE_TEAM": team, "GATE_SETUP_DIR": self.tmp,
+               "CC_SESSION_KEY": "discord:3003", "CC_PROJECT": "lead-proj"}
+        out = subprocess.run([sys.executable, "-I", d10, "C", "活"], capture_output=True, text=True, env=env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        with open(self.log) as fh:
+            self.assertTrue(fh.read().startswith("timer add --delay 10m"))
+
     def test_no_bridge_fails_loudly(self):
         os.remove(os.path.join(self.tmp, "bothouse"))
         with mock.patch.object(d, "fetch_messages", return_value=[]), \

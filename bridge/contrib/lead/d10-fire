@@ -8,7 +8,7 @@
 #   还打断了队友手上的下一件活。规则靠自觉管不住，改成到点自动判断。
 # 事故二：2026-10-24 队友结果和【接】写在同一条（577 字，没有「交付」等词），被判成接单表态发了暂停，打断了她新接的活。
 #   改为：交回 = 派活后她发的非纯表态实质回复；派活后她又被 @ 派了新活，旧 d10 一律不发暂停。
-import json, os, re, shlex, shutil, subprocess, sys, time, urllib.request
+import json, os, re, shlex, subprocess, sys, time, urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -98,9 +98,7 @@ def last_commit_epoch(teammate_id: str) -> float:
 
 
 def cc_bin():
-    """桥程序：CC_BIN，否则 PATH 里的 bothouse / cc-connect（同目录 later 的找法）；都没有返回 None。
-    只装了 bothouse 的用户也要能续期、发暂停（原先写死 cc-connect，两样都会失败）。"""
-    return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
+    return _team.cc_bin()
 
 
 def renew(tid, what, since, skey, proj, n, dry):

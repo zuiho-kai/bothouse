@@ -8,7 +8,7 @@
 - 队友工作目录：团队文件成员可写 "wt"（一个路径或路径列表，git 副本本身或放 git 副本的目录），d10-fire 看里面有没有新提交来续期；
   不写就只看频道里的动静。
 """
-import json, os, subprocess, sys
+import json, os, shutil, subprocess, sys
 from pathlib import Path
 
 _here = Path(__file__).resolve().parent
@@ -56,6 +56,12 @@ def project():
     if not p:
         sys.exit("读不到 CC_PROJECT：请在 cc-connect 的会话里跑（发消息/定时器要用当主角色自己的身份）")
     return p
+
+
+def cc_bin():
+    """桥程序：CC_BIN，否则 PATH 里的 bothouse / cc-connect（同目录 later 的找法）；都没有返回 None。
+    只装了 bothouse 的用户也要能挂 d10、续期、发暂停（原先 d10 / d10-fire 写死 cc-connect）。"""
+    return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
 
 
 def token():
