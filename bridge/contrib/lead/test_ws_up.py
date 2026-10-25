@@ -109,7 +109,7 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(self.run_tool("ws-up", "done", key="test:900").returncode, 0)
         rows = [json.loads(line) for line in (self.setup / "team" / "board.jsonl").read_text().splitlines()]
         self.assertIsNotNone(rows[0].get("progress_at"))
-        argv = self.timers()[-1]
+        argv = [t for t in self.timers() if "-s" in t][-1]  # 最后一条是进度戳后排的停滞检查，取 ws-up 自己的上报定时
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
         # 答复按 --notes 转回 a 所在工作区，而不是最近一次交接
         r = self.run_tool("ws-forward", "--notes", notes[0], "用户说选 A", key="test:100")
