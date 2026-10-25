@@ -7,7 +7,8 @@
 #   CC_LAUNCHD_LABEL launchd 服务名（必填，形如 com.<你>.cc-connect）
 #   CC_SIGN_BIN / CC_SIGN_ID  可选：二进制路径和期望的 codesign Identifier；都给了才检查，签名不对就拒绝重启
 #   CC_PRE_RESTART   可选：重启前跑的检查命令，失败只警告
-# 用法：safe-restart "原因" ["重启后接着做的事"]
+# 用法：safe-restart "原因" "重启后接着做的事|无" [任务板编号]
+# 第三个参数：给了就用 later 记在这条任务板条目的「下次看」上（later 只记原条目，不新建回看条目）；没给就裸挂桥定时叫醒，不上任务板
 # 第二个参数：重启后约 2 分钟自动叫醒本会话接着做，免得重启完干等（用户 2026-10-23「为什么看到后续了以后只能搞个定时任务跟踪一下」，起因 12:38 重启后空等 8 分钟）
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -27,9 +28,19 @@ if [ -n "${CC_PRE_RESTART:-}" ]; then
   chk=$(sh -c "$CC_PRE_RESTART" 2>&1) || echo "⚠️ 警告（不影响重启）：$chk" >&2
 fi
 start=$(wc -l < "$LOG")
+nid=${3:-}
 if [ -n "$next" ]; then
-  # 走 later：叫醒也上置顶任务板，用户看得见；定时挂不上 later 会自己撤掉那行（用户 2026-10-23「补，我要大家都能这样」）
-  "$here/later" 2m "重启后接着做" "桥刚重启。先查 $LOG 里每个已配置的平台都已连接，然后马上做：$next" >/dev/null || echo "⚠️ 重启后叫醒没挂上，重启完要自己接着做" >&2
+  wake="桥刚重启。先查 $LOG 里每个已配置的平台都已连接，然后马上做：$next"
+  if [ -n "$nid" ]; then
+    # 走 later：叫醒记在原条目的「下次看」上，用户看得见；定时挂不上 later 会把 next 改回原值（用户 2026-10-23「补，我要大家都能这样」）
+    "$here/later" "$nid" 2m "$wake" >/dev/null || echo "⚠️ 重启后叫醒没挂上，重启完要自己接着做" >&2
+  else
+    sk=${CC_SESSION_KEY:-${CC_SESSION:-}}
+    cc=${CC_BIN:-$(command -v bothouse || command -v cc-connect || echo cc-connect)}
+    { [ -n "${CC_PROJECT:-}" ] && [ -n "$sk" ] && "$cc" timer add -p "$CC_PROJECT" -s "$sk" --delay 2m --desc "重启后接着做" --prompt "$wake" >/dev/null; } \
+      || echo "⚠️ 重启后叫醒没挂上，重启完要自己接着做" >&2
+    echo "（没给任务板编号，重启叫醒不上任务板；要上板写第三个参数：safe-restart 原因 接着做 <编号>）" >&2
+  fi
 fi
 nohup sh -c '
   i=0

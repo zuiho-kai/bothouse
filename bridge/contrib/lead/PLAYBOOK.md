@@ -29,7 +29,7 @@ Do not start a line with several names in a row; the gate treats that as an inte
 When the primary role judges it is losing track (missed items, duplicate assignments, forgotten timers), hand a whole large task to the primary role in the "workspace" channel.
 Reference only: more than about 6 parallel threads, or more than half of your context used. The 6 comes from the 2026-10-23 review data: with 8 parallel threads that day, timers were left running 3 times and one task was assigned twice. Your own judgment decides.
 
-Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls). Then:
+Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
 
 - `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start.
 - `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.
@@ -50,7 +50,7 @@ The primary role in a workspace does not ask the user directly. The chat channel
 Work that cannot finish in 10 minutes must be cut (user, 2026-10-23: "if it can't be done in 10 minutes, drop it").
 
 - For background work, run `t10 <pid>` right after starting it: at 10 minutes it stops the process and its children.
-- For work assigned to a teammate in the channel, run `d10 <teammate name or ID> "<label>"` in the same turn: if she has not handed back by then, the primary role sends "pause"; if she has, nothing is sent.
+- For work assigned to a teammate in the channel, run `d10 <teammate name or ID> "<label>"` in the same turn: if she has not handed back by then, the primary role sends "pause"; if she has, nothing is sent; if she has not but committed or posted in the last 10 minutes, it waits another 10 minutes, at most twice.
 - Do not claim a watchdog is set unless you set it.
 
 ## 7. Always isolate tests
