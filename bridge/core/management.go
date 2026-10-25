@@ -35,14 +35,14 @@ type ProjectSettingsUpdate struct {
 // ManagementServer provides an HTTP REST API for external management tools
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
-	usageLedger *UsageLedger
+	usageLedger   *UsageLedger
 	usageImporter *UsageImporter
-	port        int
-	host        string // "" = all interfaces
-	token       string
-	corsOrigins []string
-	server      *http.Server
-	startedAt   time.Time
+	port          int
+	host          string // "" = all interfaces
+	token         string
+	corsOrigins   []string
+	server        *http.Server
+	startedAt     time.Time
 
 	mu      sync.RWMutex
 	engines map[string]*Engine // project name → engine
@@ -58,7 +58,7 @@ type ManagementServer struct {
 	setupFeishuSave      func(req FeishuSetupSaveRequest) error
 	setupWeixinSave      func(req WeixinSetupSaveRequest) error
 	addPlatformToProject func(projectName, platType string, opts map[string]any, workDir, agentType string) error
-	hotLoad              func() HotLoadResult // starts the projects in config.toml that are not running yet
+	hotLoad              func() HotLoadResult    // starts the projects in config.toml that are not running yet
 	hotRemove            func(name string) error // stops a running project removed from config.toml
 	removeProject        func(projectName string) error
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
@@ -67,6 +67,8 @@ type ManagementServer struct {
 	configFilePath       string
 	getGlobalSettings    func() map[string]any
 	saveGlobalSettings   func(map[string]any) error
+	getAutostart         func() (AutostartInfo, error)
+	setAutostart         func(bool) (AutostartInfo, error)
 
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
@@ -278,6 +280,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/reload", m.wrap(m.handleReload))
 	mux.HandleFunc(prefix+"/config", m.wrap(m.handleConfig))
 	mux.HandleFunc(prefix+"/settings", m.wrap(m.handleGlobalSettings))
+	mux.HandleFunc(prefix+"/autostart", m.wrap(m.handleAutostart))
 
 	// Agents & Platforms (registry)
 	mux.HandleFunc(prefix+"/agents", m.wrap(m.handleAgents))

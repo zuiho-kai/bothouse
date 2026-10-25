@@ -79,6 +79,8 @@ isolated desktop instance; CLI commands and `--headless` still hide it.
 Tray Exit stops the supervising service as well as the bridge. Its startup
 registration stays installed for the next login or a manual start.
 
+`bothouse daemon install` installs the background service and starts it now. Start at login is off by default; turn it on in the panel under Settings → Start at login. Switching it does not stop the running service.
+
 
 Release downloads: `bothouse-mac.dmg` (universal Bothouse.app for Apple Silicon and Intel), `bothouse-windows.exe` (x64, also runs on ARM64 Windows; double-click), and `bothouse-linux-x64` / `bothouse-linux-arm64` (`chmod +x`, then run). First launch opens the browser setup wizard. Verify downloads with `SHA256SUMS`.
 

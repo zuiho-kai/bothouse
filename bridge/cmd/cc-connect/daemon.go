@@ -133,6 +133,12 @@ func daemonInstall(args []string) {
 	fmt.Printf("  Binary:    %s\n", cfg.BinaryPath)
 	fmt.Printf("  WorkDir:   %s\n", cfg.WorkDir)
 	fmt.Printf("  Log:       %s\n", cfg.LogFile)
+	if on, err := mgr.Autostart(); err == nil && on {
+		fmt.Println("  Autostart: on (kept from the existing install; switch it in the panel under Settings)")
+	} else {
+		fmt.Println("  Autostart: off by default; turn it on in the panel under Settings → Start at login")
+		fmt.Println("             开机自启默认关，可在面板设置里打开")
+	}
 	fmt.Printf("  LogMax:    %d MB\n", cfg.LogMaxSize/1024/1024)
 	fmt.Println()
 	fmt.Println("Commands:")

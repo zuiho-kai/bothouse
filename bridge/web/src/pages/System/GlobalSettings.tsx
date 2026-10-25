@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import AutostartSettingCard from '@/components/Autostart/AutostartSettingCard';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2 } from 'lucide-react';
 import { Card, Button, Input } from '@/components/ui';
@@ -258,6 +259,8 @@ export default function GlobalSettings() {
           />
         </div>
       </Card>
+
+      <AutostartSettingCard />
 
       {/* Save */}
       <div className="max-w-lg">

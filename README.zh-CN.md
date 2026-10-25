@@ -79,6 +79,8 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 装好后的命令叫 `bothouse`。不用装 Go 或 Node。
 
+`bothouse daemon install` 装好后台服务并马上启动。开机自启默认关，可在面板设置里打开（设置 → 开机自动启动）；切换不会停掉正在跑的服务。
+
 **开始前准备：** 一个 Discord 服务器（或飞书企业），加上至少一个本机已登录的 AI 命令行工具（Claude Code / Codex / Gemini CLI 任一）。机器人怎么建，向导会一步步带你。
 
 1. **装**：运行上面那一行命令。
