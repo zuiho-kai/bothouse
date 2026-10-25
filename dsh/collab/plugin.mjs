@@ -177,16 +177,8 @@ export async function apply(ctx, rawConfig) {
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
-    const laterMatch = /^\/collab\/api\/rooms\/(\d+)\/later$/.exec(path);
-    if (laterMatch && req.method === 'POST') {
-      if (!owner(req) && !gateway.authorized(req, url)) return json(res, 401, { error: 'unauthorized' });
-      return withBody(req, res, body => {
-        if (!hub.routable().some(m => m.id === body.member)) throw new CollabError('member-missing', 'unknown member');
-        const reminder = registerLater(store.db, { ...body, room: Number(laterMatch[1]) });
-        hub.post(reminder.room_id, { authorKind: 'system', author: 'system', name: '回查登记', text: `${reminder.title}：下次看 ${new Date(reminder.due_at).toISOString()}，到点：${reminder.todo}` });
-        return { reminder };
-      });
-    }
+    const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
+    if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
     if (routed !== undefined) return routed;
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner });
@@ -542,4 +534,20 @@ function readBody(req, limit = MAX_BODY) {
     req.on('end', () => (size > limit ? reject(new BodyTooLarge()) : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
+}
+
+/** Authenticated one-shot scheduling for local and external channel members. */
+export function laterRoute(req, res, url, { hub, gateway, owner, later }) {
+  const path = url.pathname.replace(/\/+$/, '');
+  const laterMatch = /^\/collab\/api\/rooms\/(\d+)\/later$/.exec(path);
+  if (laterMatch && req.method === 'POST') {
+    if (!owner(req) && !gateway.authorized(req, url)) return json(res, 401, { error: 'unauthorized' });
+    return withBody(req, res, body => {
+      if (!hub.routable().some(m => m.id === body?.member)) throw new CollabError('member-missing', 'unknown member');
+      const reminder = registerLater(hub.store.db, { ...body, room: Number(laterMatch[1]) });
+      later.tick();
+      return { reminder };
+    });
+  }
+  return undefined;
 }

@@ -8,7 +8,7 @@ function schema(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS member_later (
     id INTEGER PRIMARY KEY, member_id TEXT NOT NULL, room_id INTEGER NOT NULL,
     due_at INTEGER NOT NULL, title TEXT NOT NULL, todo TEXT NOT NULL,
-    message_id INTEGER, delivered INTEGER NOT NULL DEFAULT 0)`);
+    message_id INTEGER, announced INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0)`);
 }
 export function registerLater(db, { member, room, delay, title, todo }, now = Date.now()) {
   const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(String(delay));
@@ -38,15 +38,19 @@ export class Later {
     return `\n【一次性回查】要过会儿回来，用本机命令登记（重启后仍触发）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} ${quote(this.filename)} ${quote(member)} ${room} 10m '事情' '到点要做什么'\n登记成功才说已挂；到点在原房间唤醒你。远程 cc-connect 成员可用自己的 timer，或 POST /collab/api/rooms/${room}/later（bot token 认证，JSON: member, delay, title, todo）。\n`;
   }
   tick() {
+    for (const row of this.db.prepare('SELECT * FROM member_later WHERE announced = 0').all()) {
+      this.hub.post(row.room_id, { authorKind: 'system', author: 'system', name: '回查登记',
+        clientKey: `member-later-${row.id}-registered`,
+        text: `${row.member_id}「${row.title}」：下次看 ${new Date(row.due_at).toISOString()}，到点：${row.todo}` });
+      this.db.prepare('UPDATE member_later SET announced = 1 WHERE id = ?').run(row.id);
+    }
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE delivered = 0 AND due_at <= ? ORDER BY id').all(this.now())) {
       let message;
       if (row.message_id === null) {
-        // Message and receipt commit together: restart retries the same trigger.
-        this.hub.store.transaction(() => {
-          message = this.hub.post(row.room_id, { authorKind: 'system', author: 'system', name: '回查提醒',
-            clientKey: `member-later-${row.id}`, text: `【later 到点】${row.title}：${row.todo}` }).message;
-          this.db.prepare('UPDATE member_later SET message_id = ? WHERE id = ?').run(message.id, row.id);
-        });
+        // A stable client key makes a crash before receipt persistence reuse the same message.
+        message = this.hub.post(row.room_id, { authorKind: 'system', author: 'system', name: '回查提醒',
+          clientKey: `member-later-${row.id}`, text: `【later 到点】${row.title}：${row.todo}` }).message;
+        this.db.prepare('UPDATE member_later SET message_id = ? WHERE id = ?').run(message.id, row.id);
       } else message = this.hub.store.message(row.message_id);
       if (message && this.wake(row.member_id, message)) this.db.prepare('UPDATE member_later SET delivered = 1 WHERE id = ?').run(row.id);
     }

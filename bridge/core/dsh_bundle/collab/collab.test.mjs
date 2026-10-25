@@ -3525,3 +3525,138 @@ test('DSH approval #557: another plugin answering approval/request first does no
   hub.approvals.decide(card.id, 'deny');
   assert.equal(await decided(outcome), 'rejected');
 });
+
+// Block B: regressions for member media and durable one-shot wake routing.
+import { Attachments, attachmentBlocks, nativeAttachmentBlocks, MAX_IMAGE_BYTES } from './attachments.mjs';
+import { Later, registerLater } from './later.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('block B: native and CLI members receive image and file blocks via shared wire policy', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-media-')));
+  const attachments = files.save([
+    { name: 'photo.png', mime: 'image/png', data: Buffer.from('png').toString('base64') },
+    { name: 'notes.txt', mime: 'text/plain', data: Buffer.from('hello').toString('base64') },
+    { name: 'large.png', mime: 'image/png', data: Buffer.alloc(MAX_IMAGE_BYTES + 1).toString('base64') },
+    { name: 'vector.svg', mime: 'image/svg+xml', data: Buffer.from('<svg/>').toString('base64') },
+  ]);
+  const hub = makeHub();
+  const captured = [];
+  const members = cliMembers(hub, async (...args) => { captured.push(args); return 'received'; });
+  members.rt.files = files;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC check', attachments });
+  await settle();
+  assert.deepEqual(captured[0][4].attachments.map(b => b.type), ['image', 'resource', 'resource', 'resource']);
+  assert.equal(captured[0][4].attachments[1].resource.blob, Buffer.from('hello').toString('base64'));
+  const native = fakeDsh();
+  const nativeHub = makeHub();
+  const ds = native.attach(nativeHub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => parts.map(b => b.type === 'image' ? { type: 'image', attachment: { attachmentId: 'image' } } : b),
+  };
+  nativeHub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.deepEqual(agent.prompts[0].content.slice(-4).map(b => b.type), ['image', 'file', 'file', 'file']);
+  native.turn(agent, ['received']);
+  await settle();
+  await ds.close();
+});
+
+test('block B: later survives restart, keeps offline wakes and delivers once to each member kind', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'blockb-later-')), 'collab.sqlite3');
+  let store = new Store(path); store.ensureRoom(1, 'general');
+  let hub = makeHubFrom(store);
+  let now = 1000;
+  let later = new Later(hub, path, () => false, { now: () => now, start: false });
+  for (const member of ['native', 'cli', 'bridge']) registerLater(store.db, { member, room: 1, delay: '2s', title: 'check', todo: 'read build log' }, now);
+  assert.throws(() => registerLater(store.db, { member: 'cli', room: 1, delay: '0m', title: 'check', todo: 'log' }), /later requires/);
+  later.tick();
+  assert.equal(store.page(1, undefined, 20).length, 3, 'registration visible before wake');
+  later.close(); store.close();
+  store = new Store(path); hub = makeHubFrom(store);
+  const received = [];
+  let online = false;
+  now = 4000;
+  later = new Later(hub, path, (id, message) => { if (!online) return false; received.push([id, message]); return true; }, { now: () => now, start: false });
+  later.tick();
+  const pending = store.db.prepare('SELECT message_id FROM member_later').all();
+  assert.equal(received.length, 0);
+  online = true; later.tick(); later.tick();
+  assert.deepEqual(received.map(([id]) => id), ['native', 'cli', 'bridge']);
+  assert.deepEqual(received.map(([, m]) => m.id), pending.map(r => r.message_id));
+  assert.ok(received.every(([, m]) => m.room_id === 1 && m.text.includes('read build log')));
+  assert.equal(store.page(1, undefined, 20).length, 6);
+  later.close(); store.close();
+});
+
+import { CliMember } from './cli-member.mjs';
+import { laterRoute } from './plugin.mjs';
+import { Readable } from 'node:stream';
+import { spawnSync } from 'node:child_process';
+
+test('block B: ACP prompt actually includes image/resource blocks', async () => {
+  const member = new CliMember({ cli: 'claude', cwd: '/tmp' });
+  member._session = async () => ({ sessionId: 'test', first: false });
+  let prompt;
+  member.conn = { prompt: async value => { prompt = value; member.buffers.set('test', 'done'); } };
+  const media = [{ type: 'image', mimeType: 'image/png', data: 'cG5n' }, { type: 'resource', resource: { uri: 'attachment:///a.txt', mimeType: 'text/plain', blob: 'aGk=' } }];
+  assert.equal(await member.ask('read', 'room', undefined, undefined, { attachments: media }), 'done');
+  assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
+});
+
+test('block B: local later CLI persists a wake that a restarted plugin can consume', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'blockb-command-')), 'collab.sqlite3');
+  const store = new Store(path); store.ensureRoom(1, 'general');
+  const result = spawnSync(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, path, 'cli', '1', '1s', 'check', 'read results'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const receipt = JSON.parse(result.stdout);
+  const woke = [];
+  const later = new Later(makeHubFrom(store), path, (id, m) => { woke.push([id, m]); return true; }, { now: () => receipt.due_at, start: false });
+  later.tick();
+  assert.equal(woke[0][0], 'cli');
+  assert.match(woke[0][1].text, /read results/);
+  later.close(); store.close();
+});
+
+test('block B: later API rejects unauthenticated callers and accepts owner or bot token', async () => {
+  const hub = makeHub(); hub.setMember({ id: 'cli', name: 'CLI', kind: 'dsh', online: true });
+  const later = new Later(hub, ':memory:', () => false, { start: false });
+  const request = async (human, bot, body) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'POST';
+    const res = { writeHead(status) { this.status = status; }, end(data) { this.body = JSON.parse(data); } };
+    await laterRoute(req, res, new URL('http://localhost/collab/api/rooms/1/later'), { hub, later, owner: () => human, gateway: { authorized: () => bot } });
+    return res;
+  };
+  const body = { member: 'cli', delay: '10m', title: 'check', todo: 'read log' };
+  assert.equal((await request(false, false, body)).status, 401);
+  assert.equal((await request(true, false, body)).status, 200);
+  assert.equal((await request(false, true, body)).status, 200);
+  assert.equal((await request(true, false, null)).status, 404);
+  assert.equal((await request(true, false, { ...body, member: 'missing' })).status, 404);
+  later.close();
+});
+
+test('block B: due follow-up enters native, CLI and cloud-web member routing in the original room', async () => {
+  const hub = makeHub();
+  const native = fakeDsh();
+  const members = native.attach(hub, [{ id: 'native', name: 'Native' }, { id: 'cli', name: 'CLI', cli: 'claude' }]);
+  const cliPrompts = [];
+  members.rt.createCliMember = () => ({ ask: async text => { cliPrompts.push(text); return 'checked'; }, close() {} });
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const ws = connect(gateway, 'token=secret&bot=bridge&name=Bridge');
+  let now = 1000;
+  const later = new Later(hub, ':memory:', (id, msg) => members.nudge(id, msg) || gateway.nudge(id, msg), { now: () => now, start: false });
+  for (const member of ['native', 'cli', 'bridge']) registerLater(hub.store.db, { member, room: 1, delay: '1s', title: 'results', todo: 'read log now' }, now);
+  now = 3000; later.tick(); later.tick(); await settle();
+  assert.equal(cliPrompts.length, 1); assert.match(cliPrompts[0], /read log now/);
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1); assert.match(agent.prompts[0].content[0].text, /read log now/);
+  const frames = ws.of('message').filter(f => f.content.includes('read log now'));
+  assert.equal(frames.length, 1); assert.equal(frames[0].chat_id, 'room-1'); assert.equal(frames[0].mentioned, true);
+  native.turn(agent, ['checked']); await settle();
+  later.close(); gateway.closeAll(); await members.close();
+});

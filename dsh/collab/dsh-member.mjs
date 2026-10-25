@@ -465,7 +465,7 @@ export class DshMembers {
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
+      .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
     const media = await nativeAttachmentBlocks(this.rt.ctx.attachments, attachmentBlocks(this.rt.files, unseen));
     const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
@@ -488,7 +488,7 @@ export class DshMembers {
     const sessionId = binding.session_id;
     const resumeId = sessionId.startsWith('cli:') ? undefined : sessionId;
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
+      .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     let entry = this.cliAgents.get(member.id);
