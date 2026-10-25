@@ -83,3 +83,8 @@ If it is over an hour, start it in the background, write the log and result path
 
 A teammate's reply starts with one of four tags: 【接】 take it and start, 【问】 not enough information, list what is missing, 【退】 not mine, say who fits better, 【升】 irreversible action, spending or a direction call, escalate to the primary role.
 To get a specific teammate to answer, @ her or start a line with her name followed by a comma; a name in the middle of a sentence will not reach her, so do not write it that way when you only mean to mention her.
+
+## 12. Fixed budget for always-on rules: add one, remove one
+
+Always-on rules (the team-mode rules, the rule section in a persona) have a total cap: before adding a rule, remove or merge one; a byte-size test in `core` guards the cap on the team-mode rules.
+When the same kind of mistake happens a second time, turn it into a check (a script, hook or test) instead of adding more text; `contrib/hooks/lessons.py` reads the "N 次" (N times) count of each entry in the wiki lessons table (`rule-candidates-recurrence*.md`) and reminds the agent on the first turn and when the user corrects it — an entry that reaches 2 should become a check.
