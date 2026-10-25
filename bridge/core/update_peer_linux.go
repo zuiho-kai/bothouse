@@ -23,9 +23,9 @@ func unixPeerExe(c *net.UnixConn) (string, bool) {
 	}); err != nil || gerr != nil || cred == nil || cred.Pid <= 0 {
 		return "", false
 	}
-	exe, err := os.Readlink("/proc/" + strconv.Itoa(int(cred.Pid)) + "/exe")
-	if err != nil || exe == "" {
+	target, err := os.Readlink("/proc/" + strconv.Itoa(int(cred.Pid)) + "/exe")
+	if err != nil {
 		return "", false
 	}
-	return exe, true
+	return procExeTarget(target)
 }

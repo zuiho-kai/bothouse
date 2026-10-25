@@ -196,3 +196,35 @@ func TestSocketVersion_ReportsExe(t *testing.T) {
 		t.Fatalf("got %v", v)
 	}
 }
+
+func TestProcExeTarget_StripsDeletedSuffix(t *testing.T) {
+	cases := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"/usr/local/bin/bothouse", "/usr/local/bin/bothouse", true},
+		{"/usr/local/bin/bothouse (deleted)", "/usr/local/bin/bothouse", true},
+		{"/opt/my app/bothouse (deleted)", "/opt/my app/bothouse", true},
+		{"", "", false},
+		{" (deleted)", "", false},
+	}
+	for _, c := range cases {
+		got, ok := procExeTarget(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("procExeTarget(%q) = %q, %v; want %q, %v", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// An upgraded peer whose old binary was replaced reports "<path> (deleted)"; after stripping it
+// must still count as the same program as the installed binary at that path.
+func TestProcExeTarget_DeletedPeerIsSameProgram(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "bothouse")
+	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe, ok := procExeTarget(bin + " (deleted)")
+	if !ok || !SameProgram(exe, bin) {
+		t.Fatalf("procExeTarget(%q) = %q, %v; want same program as %q", bin+" (deleted)", exe, ok, bin)
+	}
+}

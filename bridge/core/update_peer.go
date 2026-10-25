@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Who is asking the running bothouse to update itself. POST /update on the local socket replaces
@@ -32,6 +33,18 @@ var socketPeerExeFn = func(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return unixPeerExe(uc)
+}
+
+// procExeTarget turns a Linux /proc/<pid>/exe link target into the peer's executable path. When
+// the file was replaced or removed while the process runs (an ordinary upgrade renames the old
+// binary away), the kernel appends " (deleted)"; drop it like os.Executable does, so the path
+// still names the installed program. ok=false for an empty target.
+func procExeTarget(target string) (string, bool) {
+	exe := strings.TrimSuffix(target, " (deleted)")
+	if exe == "" {
+		return "", false
+	}
+	return exe, true
 }
 
 // normalizeProgramPath resolves symlinks (PATH links into an .app, npm bin links) and maps an
