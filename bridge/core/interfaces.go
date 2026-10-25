@@ -368,7 +368,9 @@ var ErrPostOutcomeUnknown = errors.New("post outcome unknown")
 // message per chat and edit it in place (used by the team "who is doing what"
 // board). messageID is the board's previous message ("" = none yet); the
 // returned ID is where the board now lives. Implementations post a new message
-// when the previous one cannot be edited (e.g. it was deleted).
+// when the previous one was deleted. When the board's channel can no longer be
+// written to (e.g. an archived thread) they return an error wrapping
+// ErrBoardUnremovable instead, and the caller stops updating that chat.
 type BoardPoster interface {
 	UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error)
 }
@@ -382,7 +384,8 @@ type BoardRemover interface {
 	RemoveBoard(ctx context.Context, sessionKey, messageID string) error
 }
 
-// ErrBoardUnremovable marks a RemoveBoard failure that no retry can fix.
+// ErrBoardUnremovable marks a RemoveBoard or UpsertBoard failure that no retry
+// can fix (archived thread, deleted channel, lost access).
 var ErrBoardUnremovable = errors.New("board cannot be removed")
 
 // StatusFooterSender is an optional Platform extension for sending a reply

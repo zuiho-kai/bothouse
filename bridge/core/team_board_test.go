@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -290,6 +291,83 @@ func TestFormerLeadGivesUpUnremovableBoard(t *testing.T) {
 			}
 			if err != nil || !strings.Contains(string(raw), "m2") {
 				t.Fatalf("state = %s, %v; want the temporarily failed board kept", raw, err)
+			}
+		})
+	}
+}
+
+// stubBoardEditFails fails every edit of one chat's board with editErr.
+type stubBoardEditFails struct {
+	stubBoardPlatform
+	failFor string
+	editErr error
+	tries   int
+}
+
+func (p *stubBoardEditFails) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
+	if sessionKey == p.failFor {
+		p.tries++
+		return messageID, p.editErr
+	}
+	return p.stubBoardPlatform.UpsertBoard(ctx, sessionKey, messageID, content)
+}
+
+// A board the platform will no longer let us edit (archived thread) is tried
+// once, logged once and given up for good: no retries, and no new board that
+// would bump the thread. A temporary failure keeps being retried.
+func TestTeamBoardEditGivesUp(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		editErr error
+		tries   int
+		gaveUp  bool
+	}{
+		{"unremovable given up", fmt.Errorf("discord: edit board: %w: 50083", ErrBoardUnremovable), 1, true},
+		{"temporary retried", errors.New("network"), 3, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &stubBoardEditFails{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
+				failFor: "discord:111", editErr: tc.editErr}
+			e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+			boards := map[string]*boardChat{"discord:111": {SessionKey: "discord:111", MessageID: "m1", Content: "old"}}
+			logs, restore := captureSlog(t)
+			changed := e.updateTeamBoards(boardFiles(time.Now()), boards)
+			for i := 0; i < 2; i++ {
+				e.updateTeamBoards(boardFiles(time.Now()), boards)
+			}
+			restore()
+			if p.tries != tc.tries {
+				t.Fatalf("edit tries = %d, want %d", p.tries, tc.tries)
+			}
+			b := boards["discord:111"]
+			if b == nil || b.MessageID != "m1" || b.Content != "old" {
+				t.Fatalf("board = %+v, want the old message kept and no new board", b)
+			}
+			if p.content["discord:111"] != "" {
+				t.Fatal("a new board was posted for the failing channel")
+			}
+			if b.GaveUp != tc.gaveUp {
+				t.Fatalf("gave up = %v, want %v", b.GaveUp, tc.gaveUp)
+			}
+			if !tc.gaveUp {
+				if n := strings.Count(logs.String(), "team board: update failed"); n != tc.tries {
+					t.Fatalf("update-failed logged %d times, want %d:\n%s", n, tc.tries, logs)
+				}
+				return
+			}
+			if !changed {
+				t.Fatal("giving up must be persisted")
+			}
+			if n := strings.Count(logs.String(), "giving up on this channel"); n != 1 {
+				t.Fatalf("give-up logged %d times, want 1:\n%s", n, logs)
+			}
+			if strings.Contains(logs.String(), "update failed") {
+				t.Fatalf("given-up board kept failing:\n%s", logs)
+			}
+			out, _ := json.Marshal(boards)
+			restored := map[string]*boardChat{}
+			if err := json.Unmarshal(out, &restored); err != nil || !restored["discord:111"].GaveUp {
+				t.Fatalf("gave-up flag not persisted: %s, %v", out, err)
 			}
 		})
 	}

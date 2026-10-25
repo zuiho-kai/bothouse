@@ -32,6 +32,10 @@ type boardChat struct {
 	SessionKey string `json:"session_key"`
 	MessageID  string `json:"message_id"`
 	Content    string `json:"content"`
+	// GaveUp marks a board the platform will no longer let us edit (e.g. it
+	// sits in an archived thread). It is kept so the channel is not given a
+	// new board, which would bump the thread.
+	GaveUp bool `json:"gave_up,omitempty"`
 }
 
 // SetTeamBoard turns the live board on or off. It only runs on the primary role; a
@@ -192,6 +196,9 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	changed := false
 	for chat, b := range boards {
+		if b.GaveUp {
+			continue
+		}
 		content := renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang())
 		if content == b.Content {
 			continue
@@ -209,6 +216,12 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		if id != "" && id != b.MessageID {
 			b.MessageID = id
 			changed = true
+		}
+		if errors.Is(err, ErrBoardUnremovable) {
+			slog.Warn("team board: board can no longer be edited, giving up on this channel", "chat", chat, "error", err)
+			b.GaveUp = true
+			changed = true
+			continue
 		}
 		if err != nil {
 			slog.Warn("team board: update failed", "chat", chat, "error", err)

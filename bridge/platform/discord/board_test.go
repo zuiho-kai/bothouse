@@ -209,7 +209,7 @@ func TestRemoveBoard(t *testing.T) {
 		{Response: &http.Response{StatusCode: http.StatusBadRequest}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodePerformedOperationOnArchivedThread}},
 		{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}},
 		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}},
-		{Response: &http.Response{StatusCode: http.StatusForbidden}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: 0}},
 	} {
 		api.delErr = rest
 		if err := removeBoard(api, "c1", "m3"); !errors.Is(err, core.ErrBoardUnremovable) {
@@ -260,5 +260,43 @@ func TestPostToChatPingsOnlyTarget(t *testing.T) {
 	}
 	if err := postToChat(context.Background(), api, "c1", "x", "@everyone"); err == nil || len(api.sent) != 1 {
 		t.Fatal("invalid mention must not post")
+	}
+}
+
+// A 403/404 without a Discord JSON error body (e.g. an HTML page from a CDN)
+// is not proof the board is gone for good, so it stays retryable.
+func TestBoardBare403IsTemporary(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusNotFound} {
+		bare := &discordgo.RESTError{Response: &http.Response{StatusCode: status}, ResponseBody: []byte("<html>")}
+		api := &stubBoardAPI{delErr: bare, editErr: bare}
+		if err := removeBoard(api, "c1", "m1"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+			t.Fatalf("delete %d without error body = %v, want temporary", status, err)
+		}
+		if _, err := upsertBoard(api, "c1", "m1", "**谁在干啥**"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+			t.Fatalf("edit %d without error body = %v, want temporary", status, err)
+		}
+		if len(api.sends) != 0 {
+			t.Fatalf("edit %d failure posted a new board", status)
+		}
+	}
+}
+
+// An edit in an archived thread (or a deleted / inaccessible channel) can never
+// succeed; it is reported as unremovable and no new board is posted, since
+// posting would bump the archived thread.
+func TestUpsertBoardEditUnrecoverable(t *testing.T) {
+	for _, rest := range []*discordgo.RESTError{
+		{Response: &http.Response{StatusCode: http.StatusBadRequest}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodePerformedOperationOnArchivedThread}},
+		{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}},
+	} {
+		api := &stubBoardAPI{editErr: rest}
+		id, err := upsertBoard(api, "c1", "old", "**谁在干啥**")
+		if !errors.Is(err, core.ErrBoardUnremovable) || id != "old" {
+			t.Fatalf("edit %+v = (%q, %v), want unremovable", rest.Message, id, err)
+		}
+		if len(api.sends) != 0 || len(api.pins) != 0 {
+			t.Fatalf("edit %+v: sends=%d pins=%v, want nothing posted", rest.Message, len(api.sends), api.pins)
+		}
 	}
 }

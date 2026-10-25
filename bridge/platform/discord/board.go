@@ -46,26 +46,37 @@ func (p *Platform) RemoveBoard(ctx context.Context, sessionKey, messageID string
 func removeBoard(api boardAPI, channelID, messageID string, options ...discordgo.RequestOption) error {
 	err := api.ChannelMessageDelete(channelID, messageID, options...)
 	var rest *discordgo.RESTError
-	if !errors.As(err, &rest) {
-		return err
+	if errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownMessage {
+		return nil // already gone
 	}
-	if rest.Message != nil {
-		switch rest.Message.Code {
-		case discordgo.ErrCodeUnknownMessage:
-			return nil // already gone
-		case discordgo.ErrCodePerformedOperationOnArchivedThread,
-			discordgo.ErrCodeUnknownChannel,
-			discordgo.ErrCodeMissingAccess:
-			return fmt.Errorf("%w: %w", core.ErrBoardUnremovable, err)
-		}
+	if boardUnrecoverable(err) {
+		return fmt.Errorf("%w: %w", core.ErrBoardUnremovable, err)
+	}
+	return err
+}
+
+// boardUnrecoverable reports whether Discord said the board's channel can no
+// longer be written to (archived thread, deleted channel, lost access). Only a
+// JSON error body counts: a bare 403/404 (e.g. an HTML page from a proxy or CDN)
+// stays a temporary error.
+func boardUnrecoverable(err error) bool {
+	var rest *discordgo.RESTError
+	if !errors.As(err, &rest) || rest.Message == nil {
+		return false
+	}
+	switch rest.Message.Code {
+	case discordgo.ErrCodePerformedOperationOnArchivedThread,
+		discordgo.ErrCodeUnknownChannel,
+		discordgo.ErrCodeMissingAccess:
+		return true
 	}
 	if rest.Response != nil {
 		switch rest.Response.StatusCode {
 		case http.StatusForbidden, http.StatusNotFound:
-			return fmt.Errorf("%w: %w", core.ErrBoardUnremovable, err)
+			return true
 		}
 	}
-	return err
+	return false
 }
 
 // UpsertBoard keeps the team board as one embed per channel: it edits the previous message
@@ -101,6 +112,10 @@ func upsertBoard(api boardAPI, channelID, messageID, content string, options ...
 		} else {
 			var rest *discordgo.RESTError
 			if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeUnknownMessage {
+				if boardUnrecoverable(err) {
+					// Posting a new board instead would bump an archived thread.
+					return messageID, fmt.Errorf("discord: edit board: %w: %w", core.ErrBoardUnremovable, err)
+				}
 				return messageID, fmt.Errorf("discord: edit board: %w", err)
 			}
 		}
