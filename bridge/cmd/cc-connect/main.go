@@ -1232,7 +1232,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
-	engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
+	engine.SetTeam(projectTeamStatus(cfg.DataDir, proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
@@ -1827,6 +1827,25 @@ func platformOptsByType(ps []config.PlatformConfig) map[string]map[string]any {
 
 // started is the project's platform options as the engine was built with; options a platform
 // cannot take while running are reported in result.RestartKeys.
+// projectTeamStatus is the team status setup (SetTeam) of proj: what config.toml says, or, when it
+// sets no team_status_dir, the defaults of a multi-role team made by the setup wizard
+// (core.WizardTeamDefaults), so that team's lead gets the team board and workspaces on install and
+// on upgrade without editing config.toml (#587). A single-role install keeps no team status.
+func projectTeamStatus(dataDir string, proj config.ProjectConfig) (dir, name string, inject bool) {
+	if proj.TeamStatusDir != "" {
+		return proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject
+	}
+	dir, wizardName, lead, ok := core.WizardTeamDefaults(dataDir, proj.Name)
+	if !ok {
+		return "", proj.TeamName, proj.TeamStatusInject
+	}
+	name = proj.TeamName
+	if name == "" {
+		name = wizardName
+	}
+	return dir, name, lead || proj.TeamStatusInject
+}
+
 func reloadConfig(configPath, projName string, engine *core.Engine, started map[string]map[string]any) (*core.ConfigReloadResult, error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -1902,7 +1921,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
-	engine.SetTeam(proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject)
+	engine.SetTeam(projectTeamStatus(cfg.DataDir, *proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
