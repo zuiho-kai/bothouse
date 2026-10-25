@@ -52,6 +52,8 @@ def role_wiki(bot):
     """bot 自己的角色 wiki 目录（bots.json 的 "wiki"，默认 <workdir>/wiki，同 contrib/wiki/setup_wiki.py），没有就 None。
     bots.json 随 TTL 重读：向导加了角色，不重启 gate 也查得到。"""
     global _bots, _bots_at, _bots_src
+    if bot and bot.startswith("dsh:"):  # DSH 成员：/context 带 dsh:<id>，bots.json 键是裸 id（core/setup_dsh_wiki.go）
+        bot = bot[4:]
     if not bot or BOTS is None:
         return None
     if _bots_src != BOTS or time.time() - _bots_at >= TTL:

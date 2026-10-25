@@ -145,6 +145,15 @@ class T(unittest.TestCase):
                     self.assertEqual(got, want)
 
 
+    def test_dsh_member_role_wiki(self):
+        with tempfile.TemporaryDirectory() as d:
+            main, wa, _ = self._team(d)
+            # DSH 成员：bots.json 键是裸 id（core/setup_dsh_wiki.go），/context 带来的是 dsh:<id>（dsh/collab/gate-context.mjs）
+            ctxsvc.BOTS.write_text(json.dumps({"m-x": {"kind": "dsh", "workdir": str(Path(d) / "a-work")}}), encoding="utf-8")
+            ctxsvc._bots_src = None
+            got = [w["path"] for w in ctxsvc.context({"text": "代理端口多少", "bot": "dsh:m-x"})["wiki"]]
+            self.assertEqual(got, [(main / "notes/port.md").as_posix(), (wa / "notes/port.md").as_posix()])
+
     def test_wiki_off_skips_role_wiki(self):
         with tempfile.TemporaryDirectory() as d:
             self._team(d)
