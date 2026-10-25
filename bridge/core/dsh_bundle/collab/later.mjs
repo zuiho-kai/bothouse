@@ -98,8 +98,11 @@ export class Later {
   workspaceInstructions(member, room) {
     const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
     const ticket = this.ticket(member, room);
-    const local = this.origin ? `本机命令：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} workspace ${quote(this.origin)} ${quote(ticket)} '任务标题' '接活人id（空串=你自己）' '交接说明'\n` : '';
-    return `\n【开工作区】整块活要交出去时，${local}或 POST /collab/api/rooms/${room}/workspaces（头 X-Later-Ticket: ${ticket}，JSON: title, owner 可省=你自己, reason=交接说明）。一步建好工作区、开任务、挂十分钟看门并叫醒接活人；不要再在频道里 @ 同一件活。工作区里的接活人是新会话，只看得到交接说明：里面要写清用户原话、参照的现成实现、以哪个分支为底、验收标准。\n`;
+    const local = this.origin ? `首选本机命令（直接复制，改后三个参数）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} workspace ${quote(this.origin)} ${quote(ticket)} '任务标题' '接活人id（空串=你自己）' '交接说明'\n` : '';
+    // #597 G26: a member once sent the ticket to /tasks and gave up on the 401; spell out the one call.
+    const url = `${this.origin ?? 'http://<本机 DSH 地址>'}/collab/api/rooms/${room}/workspaces`;
+    const curl = `curl -sS -X POST ${quote(url)} -H 'content-type: application/json' -H ${quote(`X-Later-Ticket: ${ticket}`)} -d '{"title":"任务标题","owner":"接活人id（省略=你自己）","reason":"交接说明"}'`;
+    return `\n【开工作区】整块活要交出去时，建工作区=这一条，任务和十分钟看门会自动开，不要另调 /tasks（它不认票据）。${local}或等价的接口 POST /collab/api/rooms/${room}/workspaces：\n${curl}\n一步建好工作区、开任务、挂十分钟看门并叫醒接活人；不要再在频道里 @ 同一件活。返回不是 200 就把返回原样告诉用户，不要悄悄自己做。工作区里的接活人是新会话，只看得到交接说明：里面要写清用户原话、参照的现成实现、以哪个分支为底、验收标准。\n`;
   }
   tick() {
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE announced = 0').all()) {

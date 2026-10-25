@@ -4316,3 +4316,38 @@ test('G24: the local workspace command carries a reason into the owner\'s turn i
     assert.ok(prompts[0].includes(reason), 'the owner\'s turn sees the reason');
   } finally { server.close(); later.close(); }
 });
+
+test('G26: a ticket sent to /tasks gets a 403 pointing at /workspaces; /tasks auth is unchanged', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const call = async headers => {
+    const req = Readable.from([Buffer.from(JSON.stringify({ kind: 'start', title: 'ledger', owner: 'ds' }))]);
+    req.method = 'POST'; req.headers = headers;
+    const res = { writeHead(s) { this.status = s; }, end(b) { this.body = JSON.parse(b); } };
+    await tasksRoute(req, res, new URL('http://x/collab/api/rooms/1/tasks'), { tasks, gateway: gw, owner: () => false });
+    return res;
+  };
+  const ticketed = await call({ 'x-later-ticket': later.ticket('ds', 1) });
+  assert.equal(ticketed.status, 403);
+  assert.match(ticketed.body.error, /POST \/collab\/api\/rooms\/\{id\}\/workspaces/);
+  assert.equal((await call({})).status, 401, 'no ticket: plain 401 as before');
+  assert.equal(tasks.list(1).length, 0, 'the ticket still opens no task on /tasks');
+  later.close();
+});
+
+test('G26: the DSH workspace prompt spells out the full /workspaces call', async () => {
+  const { dshTeamModeRules } = await import('./dsh-member.mjs');
+  const hub = makeHub();
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  later.origin = 'http://127.0.0.1:5140';
+  const ticket = later.ticket('ju', 1);
+  const hint = later.workspaceInstructions('ju', 1);
+  assert.ok(hint.includes(`curl -sS -X POST 'http://127.0.0.1:5140/collab/api/rooms/1/workspaces'`), hint);
+  assert.ok(hint.includes(`X-Later-Ticket: ${ticket}`));
+  assert.match(hint, /建工作区=这一条，任务和十分钟看门会自动开/);
+  const rules = dshTeamModeRules();
+  assert.match(rules, /POST \/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces/);
+  assert.match(rules, /建工作区=这一条，任务和十分钟看门会自动开/);
+  later.close();
+});

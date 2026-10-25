@@ -188,7 +188,7 @@ export async function apply(ctx, rawConfig) {
     if (opened !== undefined) return opened;
     if (!owner(req)) {
       if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
-      return json(res, 401, { error: 'unauthorized' });
+      return refuse(req, res);
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/state' && req.method === 'GET') {
@@ -397,6 +397,16 @@ export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
 }
 
 /**
+ * #597 G26: a later ticket only opens workspaces (and later). Sent anywhere else, say where to go
+ * instead of a bare 401, so a member does not give up; the route's own auth is unchanged.
+ */
+export const TICKET_WRONG_ROUTE = '这个接口不认 X-Later-Ticket 票据。建工作区请用 POST /collab/api/rooms/{id}/workspaces（同一个票据头，JSON: title, owner, reason），任务和十分钟看门会自动开，不用再调 /tasks。';
+function refuse(req, res) {
+  if (req.headers?.['x-later-ticket'] !== undefined) return json(res, 403, { error: TICKET_WRONG_ROUTE });
+  return json(res, 401, { error: 'unauthorized' });
+}
+
+/**
  * #139 B task API, for the owner's browser and for cloud-web bots. The browser
  * always acts as the owner. Under the shared bot token a bot names itself in
  * body.actor, which is unverified (Tasks.perform: no owner, no review); a bot
@@ -416,7 +426,7 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review))?$/.exec(path);
   if (board === null && one === null) return undefined;
   const human = owner(req);
-  if (!human && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  if (!human && !gateway.authorized(req, url)) return Promise.resolve(refuse(req, res));
   // The browser is the owner; the shared bot token says nothing about which bot, so body.actor is unverified.
   const sender = body => (human ? { actor: OWNER, verified: true } : { actor: body?.actor, verified: false });
   const id = Number((board ?? one)[1]);
