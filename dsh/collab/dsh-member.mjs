@@ -42,10 +42,10 @@ export function dshTeamModeRules(mode) {
 }
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
-export function memberStatus(hub, tasks = hub?.tasks) {
+export function memberStatus(hub, tasks = hub?.tasks, roomId) {
   const thinking = new Set([...(hub?.thinking?.values() ?? [])].flatMap(s => [...s]));
   const busyMap = tasks?.busyMap?.() ?? new Map();
-  return '【队友状态】\n' + hub.routable().map(m => {
+  return '【队友状态】\n' + (roomId === undefined ? hub.routable() : hub.routableIn(roomId)).map(m => {
     if (m.online === false || m.error) return `${m.name} (${m.id})：离线`;
     const taskBusy = busyMap.get(m.id);
     if (taskBusy) {
@@ -444,15 +444,16 @@ export class DshMembers {
     if (mode === 'solo' && msg.author_kind === 'role') return undefined;
     // An owner text reply that decides (or is withheld from) a member's permission card is not a new ask for it.
     const answered = this.approvals.answerByText(msg);
-    const hit = mentions(msg.text, this.hub.routable());
+    const hit = mentions(msg.text, this.hub.routableIn(msg.room_id));
     const only = this.hub.replyRoute(msg);
     const leadID = this.hub.selectedPrimaryMember()?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
-    const targets = [...this.config.keys()].filter(id => id !== msg.author && !answered.has(id) && (!target || target === id)
+    const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
+    const targets = [...this.config.keys()].filter(id => visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
     if (targets.length === 0) return undefined;
     // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
-    if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routable())) {
+    if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routableIn(msg.room_id))) {
       return () => {
         for (const id of targets) this.enqueue({ member_id: id, room_id: msg.room_id }, () => this.renew(id, msg));
       };
@@ -475,7 +476,7 @@ export class DshMembers {
    * Returns false when the id is not a DSH member.
    */
   nudge(memberId, msg) {
-    if (!this.config.has(memberId)) return false;
+    if (!this.config.has(memberId) || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const job = this.store.addJob(memberId, msg.room_id, msg.id);
     if (job) this.enqueue(job, () => this.run(job.id));
     return true;
@@ -486,7 +487,7 @@ export class DshMembers {
    * Wakes the member with the original trigger message and resets its job.
    */
   retry(memberId, msg) {
-    if (!this.config.has(memberId)) return false;
+    if (!this.config.has(memberId) || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const job = this.store.retryJob(memberId, msg.room_id, msg.id);
     if (job) {
       this.hub.setError(memberId, undefined);
@@ -529,7 +530,7 @@ export class DshMembers {
     const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
     const wiki = await this.turnContext(member, room, agent.session.id, unseen);
     if (this.closed) return;
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     wiki.commit();
@@ -641,7 +642,7 @@ export class DshMembers {
           });
         }
       };
-      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
       wiki.commit();
       const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
@@ -747,7 +748,7 @@ export class DshMembers {
     if (trigger === undefined) return undefined;
     if (trigger.author_kind === 'role') return trigger.author === lead.id ? lead : undefined;
     if (trigger.author_kind !== 'user') return undefined;
-    return mentions(trigger.text, this.hub.routable()).has(lead.id) ? lead : undefined;
+    return mentions(trigger.text, this.hub.routableIn(job.room_id)).has(lead.id) ? lead : undefined;
   }
 
   /**
@@ -757,7 +758,7 @@ export class DshMembers {
    */
   returnToLead(job, member, text) {
     const lead = this.dispatchedBy(job, member);
-    if (lead === undefined || !text.trim() || mentions(text, this.hub.routable()).has(lead.id)) return text;
+    if (lead === undefined || !text.trim() || mentions(text, this.hub.routableIn(job.room_id)).has(lead.id)) return text;
     return `@${lead.name} ${text}`;
   }
 

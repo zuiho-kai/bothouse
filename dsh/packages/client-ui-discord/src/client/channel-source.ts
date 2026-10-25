@@ -74,6 +74,7 @@ export interface MemberModel {
 
 /** One channel member: the human owner, a DSH-native member, or a bothouse bot. */
 export interface ChannelMember {
+  readonly rooms?: readonly number[]
   readonly id: string
   readonly name: string
   readonly kind: 'human' | 'dsh' | 'bot'
@@ -95,6 +96,7 @@ export interface ChannelMember {
 
 /** Fields the UI can set on a DSH member. */
 export interface DshMemberInput {
+  readonly rooms?: readonly number[]
   readonly name: string
   readonly model: MemberModel | null
   readonly persona: string
@@ -104,6 +106,7 @@ export interface DshMemberInput {
 
 /** A member backed by a CLI agent installed on this machine (Claude Code, Codex, Gemini). */
 export interface CliMemberInput {
+  readonly rooms?: readonly number[]
   readonly name: string
   readonly persona: string
   /** CLI id as listed by `GET /collab/api/clis`. */

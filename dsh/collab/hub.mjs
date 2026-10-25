@@ -100,7 +100,7 @@ export class Hub {
     if (msg.reply_to == null || msg.author_kind !== 'user') return null;
     const ref = this.store.message(msg.reply_to);
     const refAgent = ref !== undefined && ref.room_id === msg.room_id && ref.author_kind === 'role' ? ref.author : undefined;
-    const explicit = mentions(msg.text, this.routable());
+    const explicit = mentions(msg.text, this.routableIn(msg.room_id));
     if (explicit.size > 0) return refAgent === undefined ? explicit : new Set([...explicit, refAgent]);
     if (ref === undefined || ref.room_id !== msg.room_id) return new Set();
     if (refAgent !== undefined) return new Set([refAgent]);

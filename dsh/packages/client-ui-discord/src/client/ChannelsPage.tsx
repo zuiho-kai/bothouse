@@ -414,6 +414,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const room = state.rooms.find(r => r.id === state.roomId)
+  const channelId = room?.parent_id ?? room?.id
+  const visibleMembers = state.members.filter(m => (!m.rooms?.length || (channelId !== undefined && m.rooms.includes(channelId))) && (m.kind !== 'bot' || m.online))
   const openTaskOwners = new Set(
     (state.tasks ?? []).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status)).map(t => t.owner)
   )
@@ -421,10 +423,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     ...(state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []),
     ...openTaskOwners,
   ])
-  const byId = new Map(state.members.map(m => [m.id, m]))
+  const byId = new Map(visibleMembers.map(m => [m.id, m]))
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   const mention = activeMention(draft, caret)
-  const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(state.members, mention.query)
+  const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(visibleMembers, mention.query)
   const popupOpen = mention !== undefined && candidates.length > 0
   openMentionAt.current = popupOpen ? mention.start : undefined
   const selected = Math.min(highlight, Math.max(candidates.length - 1, 0))
@@ -662,7 +664,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
           }}
         >
-          {!state.members.some(m => m.kind !== 'human') && (
+          {!visibleMembers.some(m => m.kind !== 'human') && (
             <div className={css.guide}>
               <div>{t('guideNoMembers')}</div>
               <button type="button" className={css.primaryButton} onClick={() => { setDialog(null) }}>{t('addMember')}</button>
@@ -816,13 +818,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             aria-haspopup="listbox"
             aria-expanded={leadOpen}
             aria-label={t('lead')}
-            disabled={leadSaving || state.members.every(m => m.kind === 'human')}
+            disabled={leadSaving || visibleMembers.every(m => m.kind === 'human')}
             onClick={() => { setLeadOpen(!leadOpen) }}
           >
-            {state.members.find(m => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t('leadNone')}
+            {visibleMembers.find(m => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t('leadNone')}
           </button>
           {leadOpen && <div className={css.leadMenu} role="listbox" aria-label={t('lead')}>
-            {state.members.filter(m => m.kind !== 'human').map(m => (
+            {visibleMembers.filter(m => m.kind !== 'human').map(m => (
               <button key={m.id} type="button" role="option" aria-selected={m.id === state.leadId} className={css.leadOption} onClick={() => { changeLead(m.id) }}>{m.name}</button>
             ))}
           </div>}
@@ -845,8 +847,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         {modeError !== undefined && <div role="alert">{modeError}</div>}
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
-        <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
-        <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
+        <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
+        <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
       {modelsOpen && <div className={css.dialogBackdrop} onClick={() => { setModelsOpen(false) }}>
         <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('configureModel')} onClick={event => { event.stopPropagation() }}>
@@ -861,7 +863,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           member={dialog ?? undefined}
           listModels={listModels}
           listClis={listClis}
-          onSubmit={input => (dialog === null ? addMember(input) : updateMember(dialog.id, input))}
+          onSubmit={input => (dialog === null ? addMember({ ...input, ...(channelId === undefined ? {} : { rooms: [channelId] }) }) : updateMember(dialog.id, input))}
           onClose={() => { setDialog(undefined) }}
           t={t}
         />

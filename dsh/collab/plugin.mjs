@@ -61,6 +61,9 @@ export function resolveConfig(config, env = process.env) {
     if (m.model !== undefined && (typeof m.model?.provider !== 'string' || typeof m.model?.model !== 'string')) {
       throw Error(`conest-collab: dshMembers ${m.id} model must be { provider, model }`);
     }
+    if (m.rooms !== undefined && (!Array.isArray(m.rooms) || m.rooms.some(id => !rooms.some(r => r.id === id)))) {
+      throw Error(`conest-collab: dshMembers ${m.id} rooms must contain configured chat channel ids`);
+    }
     if (m.persona !== undefined && typeof m.persona !== 'string') throw Error(`conest-collab: dshMembers ${m.id} persona must be text`);
     try { checkAvatar(m.avatar); } catch (error) { throw Error(`conest-collab: dshMembers ${m.id} ${error.message}`); }
     ids.add(m.id);

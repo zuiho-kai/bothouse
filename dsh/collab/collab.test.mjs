@@ -245,7 +245,7 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.thinking.get(1).has('ju'), false, 'reconnect clears stale typing');
   assert.equal(hub.members.get('ju').online, true, 'replaced socket close does not mark offline');
   ju2.close(1000);
-  assert.equal(hub.members.get('ju').online, false);
+  assert.equal(hub.members.has('ju'), false, 'disconnected bot leaves the member list');
 });
 
 test('cloud-web: a line-start name calls a non-primary role', async () => {
@@ -4906,4 +4906,42 @@ test('member room scope: rename and reload retain scope, workspaces follow the p
   await assert.rejects(roster.create({ name: 'Shared', rooms: [2] }), /already used/);
   await assert.rejects(roster.create({ name: 'Bad', rooms: [999] }), /existing chat/);
   await members.close(); hub.store.close();
+});
+
+
+test('channel routing: same names route within the current channel and status follows parent', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'a', name: 'Same', rooms: [1] }, { id: 'b', name: 'Same', rooms: [2] }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@Same work' });
+  await settle();
+  assert.deepEqual(hub.store.openJobs().map(j => j.member_id), ['a']);
+  assert.deepEqual([...mentions('@Same', hub.routableIn(2))], ['b']);
+  assert.deepEqual(hub.membersInRoom(1).filter(m => m.kind !== 'human').map(m => m.id), ['a']);
+  const workspace = hub.store.createWorkspace(2);
+  const status = memberStatus(hub, undefined, workspace.id);
+  assert.match(status, /Same \(b\)/); assert.doesNotMatch(status, /Same \(a\)/);
+  await members.close(); hub.store.close();
+});
+
+test('channel bots: same-channel name overlaps are refused, cross-channel names coexist, disconnect removes', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  hub.setMember({ id: 'agent', name: 'Shared', kind: 'dsh', rooms: [1] });
+  const gateway = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const refused = connect(gateway, 'bot=bad&name=Shared&room=1');
+  assert.equal(refused.of('register_ack')[0].ok, false);
+  const office = connect(gateway, 'bot=office&name=Shared&room=2');
+  assert.equal(office.of('register_ack')[0].ok, true);
+  const game = connect(gateway, 'bot=game&name=QQ&room=1');
+  const officeQQ = connect(gateway, 'bot=officeqq&name=QQ&room=2');
+  assert.equal(game.of('register_ack')[0].ok, true);
+  assert.equal(officeQQ.of('register_ack')[0].ok, true);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@QQ hello' });
+  await tick();
+  assert.equal(game.of('message').length, 1);
+  assert.equal(officeQQ.of('message').length, 0);
+  assert.equal(office.of('message').length, 0);
+  officeQQ.close(1000);
+  assert.equal(hub.members.has('officeqq'), false);
+  gateway.closeAll(); hub.store.close();
 });

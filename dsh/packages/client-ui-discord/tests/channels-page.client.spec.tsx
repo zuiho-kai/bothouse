@@ -33,6 +33,22 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
 }
 
 describe('channels page', () => {
+  it('filters member list and mention candidates by the workspace parent channel', () => {
+    const state: ChannelSnapshot = {
+      ...ready, roomId: 1000000, messages: [], thinking: {},
+      rooms: [...ready.rooms, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 2 }],
+      members: [
+        { id: 'a', name: 'GameOnly', kind: 'dsh', online: true, rooms: [1] },
+        { id: 'b', name: 'OfficeOnly', kind: 'dsh', online: true, rooms: [2] },
+      ],
+    }
+    render(<ChannelsPage {...props(state)} />)
+    expect(screen.queryByText('GameOnly')).toBeNull()
+    expect(screen.getAllByText('OfficeOnly').length).toBeGreaterThan(0)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '@' } })
+    expect(screen.getAllByRole('option').some(o => o.textContent?.includes('OfficeOnly'))).toBe(true)
+    expect(screen.getAllByRole('option').some(o => o.textContent?.includes('GameOnly'))).toBe(false)
+  })
   it('shows only six existing capabilities for a slash draft, with usage and no side effects', () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
@@ -434,7 +450,7 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
+    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', persona: '写代码', avatar: 'whale', rooms: [1], model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
     expect(screen.getByRole('alert').textContent).toContain('already used')
     expect((screen.getByLabelText(zh.memberName) as HTMLInputElement).value).toBe('Coder')
     await act(async () => { fireEvent.submit(dialog) })
