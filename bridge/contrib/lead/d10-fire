@@ -150,7 +150,7 @@ def main(argv):
         done = handed_back(msgs, tid, since)
         active = chat_active(msgs, tid, max(since, time.time() - WINDOW))
     except Exception as e:  # 读不到频道就按原行为发暂停，不吞掉打断
-        print(f"读频道失败（{type(e).__name__}），按原行为发暂停", file=sys.stderr)
+        print(f"读频道失败（{type(e).__name__}），只按提交判断续期，否则照发暂停", file=sys.stderr)
         done = False
     if done:
         print("已交回，跳过暂停")
