@@ -17679,7 +17679,7 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	}
 
 	if len(args) == 0 {
-		e.cmdBindStatus(p, msg.ReplyCtx, chatID)
+		e.cmdBindStatus(p, msg.ReplyCtx, p.Name(), chatID)
 		return
 	}
 
@@ -17757,8 +17757,8 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.reply(p, msg.ReplyCtx, reply)
 }
 
-func (e *Engine) cmdBindStatus(p Platform, replyCtx any, chatID string) {
-	binding := e.relayManager.GetBinding(chatID)
+func (e *Engine) cmdBindStatus(p Platform, replyCtx any, platform, chatID string) {
+	binding := e.relayManager.EffectiveBinding(platform, chatID)
 	if binding == nil {
 		e.reply(p, replyCtx, e.i18n.T(MsgRelayNoBinding))
 		return

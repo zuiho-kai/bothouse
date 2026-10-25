@@ -54,18 +54,28 @@ type RelayManager struct {
 	timeout    time.Duration
 	visibility string
 	voice      voiceRelayStore
+	// wizard team bindings (relay_team_bind.go)
+	dataDir    string
+	denied     map[string]map[string]bool // chatID → project (or "*") removed by /bind -x or /bind remove
+	deniedPath string
+	teamMu     sync.Mutex
+	team       relayTeamCache
 }
 
 func NewRelayManager(dataDir string) *RelayManager {
 	rm := &RelayManager{
 		engines:    make(map[string]*Engine),
 		bindings:   make(map[string]*RelayBinding),
+		denied:     make(map[string]map[string]bool),
 		timeout:    relayTimeout,
 		visibility: RelayVisibilityFull,
+		dataDir:    dataDir,
 	}
 	if dataDir != "" {
 		rm.storePath = filepath.Join(dataDir, "relay_bindings.json")
+		rm.deniedPath = filepath.Join(dataDir, "relay_team_denied.json")
 		rm.load()
+		rm.loadDenied()
 	}
 	rm.initVoiceRelay(dataDir)
 	return rm
@@ -106,6 +116,9 @@ func (rm *RelayManager) Bind(platform, chatID string, bots map[string]string) {
 		ChatID:   chatID,
 		Bots:     bots,
 	}
+	for proj := range bots {
+		rm.allowLocked(chatID, proj)
+	}
 	slog.Info("relay: binding created", "chat_id", chatID, "bots", bots)
 	rm.saveLocked()
 }
@@ -126,19 +139,27 @@ func (rm *RelayManager) AddToBind(platform, chatID, projectName string) {
 	}
 
 	binding.Bots[projectName] = projectName
+	rm.allowLocked(chatID, projectName)
 	slog.Info("relay: project added to binding", "chat_id", chatID, "project", projectName, "bots", binding.Bots)
 	rm.saveLocked()
 }
 
-// RemoveFromBind removes a project from an existing binding.
+// RemoveFromBind removes a project from an existing binding. A wizard team member is also
+// vetoed in this chat, so the team does not bind it back (relay_team_bind.go).
 // Returns true if the project was removed, false if not found.
 func (rm *RelayManager) RemoveFromBind(chatID, projectName string) bool {
+	team := rm.inAnyWizardTeam(projectName)
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
+	vetoed := false
+	if team && !rm.denied[chatID][projectName] {
+		rm.denyLocked(chatID, projectName)
+		vetoed = true
+	}
 	binding := rm.bindings[chatID]
 	if binding == nil {
-		return false
+		return vetoed
 	}
 
 	if _, exists := binding.Bots[projectName]; exists {
@@ -152,7 +173,7 @@ func (rm *RelayManager) RemoveFromBind(chatID, projectName string) bool {
 		rm.saveLocked()
 		return true
 	}
-	return false
+	return vetoed
 }
 
 // GetBinding returns the binding for a chat, or nil if none.
@@ -167,6 +188,9 @@ func (rm *RelayManager) Unbind(chatID string) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	delete(rm.bindings, chatID)
+	// The wizard team does not bind the chat back either (relay_team_bind.go).
+	rm.denied[chatID] = map[string]bool{relayDeniedAll: true}
+	rm.saveDeniedLocked()
 	slog.Info("relay: binding removed", "chat_id", chatID)
 	rm.saveLocked()
 }
@@ -247,7 +271,7 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 	}
 
 	rm.mu.RLock()
-	binding := rm.bindings[chatID]
+	binding := rm.effectiveBindingLocked(platform, chatID)
 	targetEngine := rm.engines[req.To]
 	sourceEngine := rm.engines[req.From]
 	visibility := rm.visibility
