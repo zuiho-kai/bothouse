@@ -57,6 +57,12 @@ gate 只把这份手册附给当前主角色（`gate/lead.py` 的 `playbook()`�
 派测试活时，prompt 里写明单独的 HOME、数据目录、端口。前后各检查一次线上目录有没有被碰。
 不干净就当事故报。（2026-10-23 测试删过线上 socket、写进过线上数据目录。）
 
+- 测前跑 `iso-check before`，记下打出的 `ISO_DIR`，测试的 HOME、数据目录、端口都放它下面。
+- 测完跑 `iso-check after <ISO_DIR>`。必须给目录；只删本会话登记过的目录，别的会话的目录它拒绝删。
+- 预演用真实配置的副本，不用全放行的空配置：`rehearse-copy <真实配置>`。它 `cp -a` 到隔离目录，默认把密钥换成 REDACTED，权限字段原样保留。用完 `iso-check after <REHEARSE_DIR>`。
+- 预演过了再改线上配置。用设置向导或 `setup apply` 改：写之前它会把原文件留成 `config.toml.bak-<时间>`。
+- 上线后出问题，先跑 `rehearse-copy --restore <config.toml> --dry-run` 看会用哪份备份，再去掉 `--dry-run` 装回改前的那份，然后重启桥。手改配置不会留备份，手改前先自己 `cp -p config.toml config.toml.bak-$(date +%Y%m%d-%H%M%S)`。
+
 ## 8. 审稿最多两轮
 
 同一件事最多审两轮：第一轮看方案或改动本身，第二轮只看改了什么和上一轮的意见，不从头再读。

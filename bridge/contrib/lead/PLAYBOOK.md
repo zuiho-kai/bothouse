@@ -58,6 +58,12 @@ Work that cannot finish in 10 minutes must be cut (user, 2026-10-23: "if it can'
 When you assign test work, give it its own HOME, data directory and port in the prompt. Check the live directories before and after.
 If anything changed, report it as an incident. (2026-10-23: a test deleted a live socket and wrote into a live data directory.)
 
+- Before testing, run `iso-check before` and note the `ISO_DIR` it prints. Put the test's HOME, data directory and ports under it.
+- After testing, run `iso-check after <ISO_DIR>`. The directory is required. It only deletes directories registered by this session and refuses other sessions' directories.
+- Rehearse on a copy of the real config, not on an allow-all empty config: `rehearse-copy <real config>`. It runs `cp -a` into an isolated directory, replaces secrets with REDACTED by default, and keeps permission fields unchanged. When done, run `iso-check after <REHEARSE_DIR>`.
+- Change the live config only after the rehearsal passes. Use the setup wizard or `setup apply`: before writing, it keeps the old file as `config.toml.bak-<time>`.
+- If something breaks after the change, run `rehearse-copy --restore <config.toml> --dry-run` to see which backup it will use, then run it without `--dry-run` to put back the pre-change file, and restart the bridge. Hand edits leave no backup; before a hand edit, run `cp -p config.toml config.toml.bak-$(date +%Y%m%d-%H%M%S)` yourself.
+
 ## 8. At most two review rounds
 
 Review the same thing at most twice: the first round looks at the plan or the change itself, the second only at what changed and the previous round's comments, without rereading from the top.
