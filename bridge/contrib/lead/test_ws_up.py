@@ -356,6 +356,23 @@ class HandoffAlignTest(WsPoolTest):
         self.assertIn(f"board update {nid}", prompt)
         self.assertIn("ws-up", prompt)
         self.assertIn("--ask", prompt)
+        # #597 G31：交付走这一轮最后一条回复首行 [report]，最后一件交完 session new --after-turn 空出工作区
+        self.assertIn("最后一条回复的第一行只写 [report]", prompt)
+        self.assertIn("session new --after-turn", prompt)
+        self.assertNotIn("交付用 ws-up", prompt)
+
+    def test_success_tells_lead_to_end_turn(self):
+        # #597 G31：交出后主角色本轮就收手，不 sleep、不查任务板等工作区；stdout 第一行仍是 timer id
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.strip().splitlines()
+        self.assertGreaterEqual(len(lines), 2)
+        self.assertNotIn("本轮", lines[0])
+        self.assertIn("已交给工作区1", lines[1])
+        self.assertIn("本轮到此结束", lines[1])
+        self.assertIn("[report]", lines[1])
 
     def test_timer_failure_rolls_back(self):
         f = Path(str(self.fake) + ".json")

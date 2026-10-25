@@ -31,14 +31,14 @@ Also hand whole tasks over when you judge you are losing track (missed items, du
 
 Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
 
-- `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start.
+- `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start. Once it is handed off, end this turn: do not sleep or poll the board waiting for it; the workspace sends the result back here with [report], and you check it then.
 - `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.
 - ws-handoff reuses a free workspace, or one of this channel's with fewer than 3 tasks in work, and creates a new one only when all are busy. It also adds a board entry (owner: the workspace's lead) bound to this handoff.
 - A stalled task (waiting for the user or someone else, untouched this hour) is paused at the hourly wrap-up: `board pause <id>`. Its handoff is released; with nothing else in work there, the workspace goes back to the pool and its sessions are reset. Reassigning it (`board update <id> <status> - <who>`) does the same. To resume, hand it off again with `ws-handoff`.
 
 The primary role in a workspace does not ask the user directly. The chat channel that handed the task over is the single outlet:
 
-- `ws-up "<progress>"` reports a milestone; the primary role in the chat channel relays it to the user.
+- Results and milestones: the first line of the turn's last reply is only `[report]`, the result follows from the second line, and the bridge copies it to the chat channel (messages earlier in the turn are not copied). After the last task there, run `bothouse session new --after-turn` in the same turn to free the workspace.
 - `ws-up "<question + options + recommendation>" --ask` asks for a decision or missing information. The chat-channel primary role asks the user and sends the answer back with `ws-forward --notes <file> "<answer>"`. While waiting, do the parts the answer does not affect.
 - If the workspace holds tasks from more than one chat channel, add `--notes <file>` to say which task; without it ws-up fails and lists the choices instead of guessing.
 - Decisions that narrow or change the scope of the user's words, and settings you are unsure of, also go through `--ask`. Decide pure technical details yourself.

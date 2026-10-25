@@ -23,6 +23,9 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
 REQUIRED = ["用户原话", "进度", "规矩"]
+# 交出成功后打给主角色的话（stdout 第二行起；第一行仍是 timer id）。来源：团队模式规矩「聊天频道要保持畅通…交出就结束本轮」
+DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep 或查任务板看进度。"
+        "工作区做完会用 [report] 把结果转回本频道，到时再看、再验收。")
 # 一个工作区进行中的活达到这么多件就算忙。来源：dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认
 # 达到 3 件就算忙」（团队模式规矩，用户 2026-10-24）；桥里同值 core/team_workspace.go teamWorkspaceBusy。
 BUSY = 3
@@ -205,8 +208,9 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>"):
               f"先读交接 {path}。这块活交活时已在任务板建好 #{nid}，接手后用 board update {nid} <状态> 更新，"
               f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明，并把还没派的活当场派出去。"
               f"有问题、要用户拍板用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，等聊天频道转回答复再做，"
-              f"等的时候先做不受影响的部分；阶段性结果和交付用 ws-up --notes {path} \"<结果>\"；"
-              f"不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定")
+              f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
+              f"做完交回：这一轮最后一条回复的第一行只写 [report]，第二行起写结果，系统会转到聊天频道（中途发的话不转）；"
+              f"这是你手上最后一件活时，同一轮跑 `{cc_bin()} session new --after-turn` 空出工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
             "--handoff", "--desc", "工作区接手", "--prompt", prompt]
@@ -283,6 +287,8 @@ def main(argv):
     record_last(path, ws, task, chat, nid)
     print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
+    # 交出后主角色就收手：G27 实测里没有这句时，主角色在本轮 sleep 50 秒查任务板等工作区，聊天频道被占 8–11 分钟
+    print(DONE.format(name=name))
 
 
 if __name__ == "__main__":
