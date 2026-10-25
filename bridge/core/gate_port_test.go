@@ -136,4 +136,3 @@ func TestRoleEnvLeadGateURL(t *testing.T) {
 		t.Fatal("LEAD_GATE_URL not set to the gate in use")
 	}
 }
-
