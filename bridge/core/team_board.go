@@ -80,6 +80,7 @@ func (e *Engine) runTeamBoard() {
 			slog.Warn("team board: bad state file", "path", statePath, "error", err)
 		}
 	}
+	cardTries := 0 // retireBoardPyCards runs on the first ticks until done (platforms may still be connecting)
 	for {
 		select {
 		case <-e.ctx.Done():
@@ -95,6 +96,12 @@ func (e *Engine) runTeamBoard() {
 		t.mu.Unlock()
 		if !on {
 			return
+		}
+		if cardTries < teamBoardRetireTries {
+			cardTries++
+			if e.retireBoardPyCards(t.dir) {
+				cardTries = teamBoardRetireTries // all gone (or none): stop looking
+			}
 		}
 		files := readTeamFiles(t.dir, time.Now())
 		if e.updateTeamBoards(files, boards) {
@@ -173,6 +180,68 @@ func (e *Engine) retireTeamBoards() {
 			}
 		}
 	}
+}
+
+// boardPyCardsFile: <team_status_dir>/board-cards.state, {"<Discord channel id>": "<message id>"},
+// the pinned task cards contrib/gate/board.py posted with a Discord token before the native board
+// rendered board.jsonl (#597 K9). Those cards are no longer edited.
+const boardPyCardsFile = "board-cards.state"
+
+// retireBoardPyCards deletes board.py's old pinned cards, so a channel shows one task board (the
+// native one) and no frozen copy. Deleted or unremovable cards leave the file; it is removed when
+// empty. Reports whether nothing is left to retire.
+func (e *Engine) retireBoardPyCards(dir string) bool {
+	path := filepath.Join(dir, boardPyCardsFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	cards := map[string]string{}
+	if err := json.Unmarshal(raw, &cards); err != nil {
+		slog.Warn("team board: bad board.py card state, left alone", "path", path, "error", err)
+		return true
+	}
+	remover, ok := e.platformForName("discord").(BoardRemover)
+	if !ok {
+		return len(cards) == 0
+	}
+	changed := false
+	for ch, mid := range cards {
+		key := ch
+		if !strings.Contains(key, ":") {
+			key = "discord:" + ch
+		}
+		if mid != "" {
+			ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+			err := remover.RemoveBoard(ctx, key, mid)
+			cancel()
+			if err != nil && !errors.Is(err, ErrDeliveryUnrecoverable) {
+				slog.Warn("team board: remove board.py card failed, will retry", "chat", key, "error", err)
+				continue
+			}
+			if err != nil {
+				slog.Warn("team board: board.py card cannot be removed, giving up", "chat", key, "error", err)
+			} else {
+				slog.Info("team board: removed board.py pinned card (moved to the team board)", "chat", key)
+			}
+		}
+		delete(cards, ch)
+		changed = true
+	}
+	if len(cards) == 0 {
+		if err := os.Remove(path); err != nil {
+			slog.Warn("team board: remove board.py card state failed", "error", err)
+		}
+		return true
+	}
+	if changed {
+		if out, err := json.Marshal(cards); err == nil {
+			if err := AtomicWriteFile(path, out, 0o600); err != nil {
+				slog.Warn("team board: save board.py card state failed", "error", err)
+			}
+		}
+	}
+	return false
 }
 
 // updateTeamBoards posts or edits each channel's board; it reports whether boards changed.

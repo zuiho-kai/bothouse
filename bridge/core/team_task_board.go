@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -96,23 +98,33 @@ func readTeamTaskBoardDoneToday(dir string, now time.Time) []teamTaskBoardItem {
 
 // teamTaskBoardPlacer tells where items go: which chat a workspace belongs to and its name.
 type teamTaskBoardPlacer struct {
-	mainChat   string                            // for items with no chat recorded
+	mainChat   string                            // for items with no chat recorded; "" = not shown
 	parentOf   func(ws string) (string, bool)    // workspace key → chat key
 	workspaces func(chat string) []TeamWorkspace // a chat's workspaces, in order
 }
 
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
-	chats := e.teamLeadChats()
-	sort.Strings(chats)
-	p := teamTaskBoardPlacer{parentOf: e.WorkspaceParent, workspaces: e.TeamWorkspacesOf}
-	if len(chats) > 0 {
-		p.mainChat = chats[0]
-	}
-	return p
+	return teamTaskBoardPlacer{mainChat: teamMainChat(e.dataDir), parentOf: e.WorkspaceParent, workspaces: e.TeamWorkspacesOf}
 }
 
+// teamMainChat: the main chat channel the setup wizard bound the roles to (conest-setup.json
+// channel_id / feishu_chat_id, the same source as the wiki cron session); "" when none is
+// recorded (cloud_web has no fixed channel). Not a pick among the lead's chats: that list holds
+// workspaces and long-idle channels too (PR #377 review).
+func teamMainChat(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	st := LoadSetupState(dataDir)
+	return wizardSessionKey(st.Platform, st.ChannelID, st.FeishuChatID)
+}
+
+// teamTaskBoardUnplaced: item ids already logged as not shown (no chat recorded, no main chat),
+// so the 10s board loop logs each once.
+var teamTaskBoardUnplaced sync.Map
+
 // place resolves own/parent/wsName. Old items: sk, else the bare Discord channel ch; with neither
-// the item shows in the main chat instead of being dropped.
+// the item shows in the main chat, or nowhere (logged once) when no main chat is recorded.
 func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 	switch {
 	case it.WS != "":
@@ -123,6 +135,12 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 		it.own = "discord:" + it.Ch
 	default:
 		it.own = p.mainChat
+		if it.own == "" {
+			if _, seen := teamTaskBoardUnplaced.LoadOrStore(it.ID, true); !seen {
+				slog.Warn("team task board: item has no chat and no main chat is recorded; not shown", "id", it.ID, "what", it.What)
+			}
+			return
+		}
 	}
 	chat := it.Chat
 	if chat != "" && !strings.Contains(chat, ":") {
