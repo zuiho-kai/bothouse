@@ -5,10 +5,15 @@
 
 wiki 在哪：环境变量 GATE_WIKI（默认 ~/wiki，即 llm-wiki 装在 ~/wiki）；设成空或 off = 不推 wiki 页。
 目录不存在也不推（不报错）。wiki 的分层和安装见 zuiho-kai/llm-wiki 和 docs/ccm-and-wiki.md。
+bothouse 起的 gate 由 core/gate_proc.go 传 GATE_WIKI（FindWiki 的主 wiki）和 GATE_WIKI_BOTS（向导写的 bots.json）。
 
-POST /context {key, text}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
+角色 wiki（req 的 bot = gate_url 的 ?bot=<project> = bots.json 的键）：主 wiki 和她自己的角色 wiki 各查前 3 页，
+主 wiki 排前，别的角色的不查（同作者本机 ctxsvc.py：两个索引分开查，不合成一个排序，免得主 wiki 的页被挤掉）。
+lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查主 wiki。
+
+POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import hashlib, os, re, time
+import hashlib, json, os, re, time
 from pathlib import Path
 
 try:
@@ -27,14 +32,39 @@ TTL = 300  # 来源：作者本机 ctxsvc.py 沿用的 300 秒重建索引（wik
 TOP_PAGES = 3  # 来源：作者本机 ctxsvc.py，每轮推前 3 页（回放评测按前 3 页口径）
 DESC_CHARS = 120  # 来源：作者本机 ctxsvc.py 的页描述截断
 
-_idx, _idx_at, _idx_root = None, 0.0, None
+_bots_env = os.environ.get("GATE_WIKI_BOTS", "").strip()
+BOTS = Path(_bots_env).expanduser() if _bots_env else None  # bots.json（core/rolewiki.go addRole 写）；没有 = 只查主 wiki
+
+_idx, _idx_at = {}, {}  # 每个根各自缓存：两个 bot 交替来问不互相冲掉索引
 
 
-def _index():
-    global _idx, _idx_at, _idx_root
-    if _idx is None or _idx_root != WIKI or time.time() - _idx_at >= TTL:
-        _idx, _idx_at, _idx_root = search.Index(WIKI), time.time(), WIKI
-    return _idx
+def _index(root=None):
+    root = root or WIKI
+    if root not in _idx or time.time() - _idx_at.get(root, 0.0) >= TTL:
+        _idx[root], _idx_at[root] = search.Index(root), time.time()
+    return _idx[root]
+
+
+_bots, _bots_at, _bots_src = {}, 0.0, None
+
+
+def role_wiki(bot):
+    """bot 自己的角色 wiki 目录（bots.json 的 "wiki"，默认 <workdir>/wiki，同 contrib/wiki/setup_wiki.py），没有就 None。
+    bots.json 随 TTL 重读：向导加了角色，不重启 gate 也查得到。"""
+    global _bots, _bots_at, _bots_src
+    if not bot or BOTS is None:
+        return None
+    if _bots_src != BOTS or time.time() - _bots_at >= TTL:
+        try:
+            _bots = json.loads(BOTS.read_text(encoding="utf-8"))
+        except (OSError, ValueError):  # 没有或读坏了：只查主 wiki
+            _bots = {}
+        _bots_at, _bots_src = time.time(), BOTS
+    e = _bots.get(bot) if isinstance(_bots, dict) else None
+    if not isinstance(e, dict):
+        return None
+    w = e.get("wiki") or (Path(e["workdir"]) / "wiki" if e.get("workdir") else None)
+    return Path(w).expanduser() if w else None
 
 
 # cc-connect 拼在用户原话前的块（各占一段，以空行结束；同 core/handoff.go staleBlocks）
@@ -50,17 +80,19 @@ def query(text):
     return _BLOCKS.sub("", text).strip()
 
 
-def _shown(rel):
+def _shown(rel, root=None):
     """推给 agent 的路径：家目录写成 ~，agent 直接能读。"""
-    p = (WIKI / rel).as_posix()
+    p = ((root or WIKI) / rel).as_posix()
     home = Path.home().as_posix()
     return "~" + p[len(home):] if p.startswith(home + "/") else p
 
 
-def match_wiki(text, k=TOP_PAGES):
-    if WIKI is None or not WIKI.is_dir():
+def match_wiki(text, k=TOP_PAGES, root=None):
+    """root 不给 = 主 wiki（hooks/wiki-context.py 终端会话就这样调）。"""
+    root = root or WIKI
+    if root is None or not root.is_dir():
         return []
-    idx = _index()
+    idx = _index(root)
     pages = {}
     for rel, ln, line in idx.search(query(text)):  # 前 10 行，按首次出现排页
         if rel not in pages:
@@ -68,7 +100,7 @@ def match_wiki(text, k=TOP_PAGES):
                 continue
             pages[rel] = [idx.desc.get(rel, "")[:DESC_CHARS]]
         pages[rel].append(f"{ln}: {line.strip()}")
-    return [{"path": _shown(rel), "desc": " | ".join(parts)} for rel, parts in pages.items()]
+    return [{"path": _shown(rel, root), "desc": " | ".join(parts)} for rel, parts in pages.items()]
 
 
 def context(req):
@@ -77,7 +109,10 @@ def context(req):
     bot = req.get("bot") or ""
     who = lead.identity(bot) if lead else None
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
-    return {"wiki": [x for x in (who, pb) if x] + board_items() + match_wiki(req.get("text") or "")}
+    text = req.get("text") or ""
+    own = role_wiki(bot)
+    mine = match_wiki(text, root=own) if own and own != WIKI else []
+    return {"wiki": [x for x in (who, pb) if x] + board_items() + match_wiki(text) + mine}  # 主 wiki 在前
 
 
 def board_items():
