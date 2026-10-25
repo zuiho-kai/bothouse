@@ -209,20 +209,24 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		return now.Add(watchRetryDelay)
 	}
 	if h.ParkFails == 0 && h.Renewed < watchMaxRenew && w.progress != nil {
-		since := h.Due.Add(-watchCheckAfter())
-		if h.At.After(since) {
-			since = h.At
+		since := h.Since
+		if since.IsZero() {
+			since = h.Due.Add(-watchCheckAfter())
+			if h.At.After(since) {
+				since = h.At
+			}
 		}
 		progressed, perr := w.progress(key, h, since)
 		if perr != nil {
 			// A failed read (network, Discord 5xx/429) is not a verdict: retry after
 			// watchRetryDelay, like a failed park; only when the retries are used up is it no
-			// progress (B9 plan「读信号失败…当作无进展」).
+			// progress (B9 plan「读信号失败…当作无进展」). The retry keeps this window's start
+			// (Since): moving Due must not push a post at the window's start out of it.
 			fails := h.ReadFails + 1
 			if fails < watchParkRetries {
 				due := now.Add(watchRetryDelay)
 				slog.Warn("team watch: cannot read the progress signal; retrying", "workspace", key, "attempt", fails, "error", perr)
-				ok, serr := w.updateHandoff(key, h, func(x *TeamHandoff) { x.ReadFails = fails; x.Due = due })
+				ok, serr := w.updateHandoff(key, h, func(x *TeamHandoff) { x.ReadFails = fails; x.Due = due; x.Since = since })
 				if !ok && serr == nil {
 					return time.Time{}
 				}
@@ -239,7 +243,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 			if !due.After(now) {
 				due = now.Add(watchCheckAfter())
 			}
-			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due; x.Renewed++; x.ReadFails = 0 })
+			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due; x.Renewed++; x.ReadFails = 0; x.Since = time.Time{} })
 			if !ok && err == nil {
 				return time.Time{}
 			}

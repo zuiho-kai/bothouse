@@ -248,8 +248,11 @@ type TeamHandoff struct {
 	Nudged    bool      `json:"nudged,omitempty"`
 	ParkFails int       `json:"park_fails,omitempty"`
 	// ReadFails: checks whose progress signal could not be read (the channel history request
-	// failed); retried like ParkFails, then counted as no progress.
-	ReadFails int `json:"read_fails,omitempty"`
+	// failed); retried like ParkFails, then counted as no progress. Since: the start of the
+	// window being checked, kept while a read is retried (a retry moves Due, not the window;
+	// zero: Due - watchCheckAfter, or At if later).
+	ReadFails int       `json:"read_fails,omitempty"`
+	Since     time.Time `json:"since,omitzero"`
 }
 
 // teamHandoffOpen: the handoff is in work (neither closed nor paused).

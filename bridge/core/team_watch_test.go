@@ -631,6 +631,26 @@ func TestWatchSignalErrorThenReconnectRenews(t *testing.T) {
 	}
 }
 
+// A post at the start of the window, then a failed read and a recovery: the retry keeps the
+// window's start, so the post still counts and the task is renewed (not nudged or parked).
+func TestWatchSignalErrorKeepsWindowStart(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	p.post("ws1", k5aOwner, "进度：开工了", h.At.Add(30*time.Second))
+	p.err = errors.New("discord: 503")
+	next := w.tick(h.Due)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.ReadFails != 1 || !got.Since.Equal(h.At) {
+		t.Fatalf("retry keeps the window start %v, got %+v", h.At, got)
+	}
+	p.mu.Lock()
+	p.err = nil
+	p.mu.Unlock()
+	w.tick(next)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 1 || got.ReadFails != 0 || !got.Since.IsZero() || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("post at the window start renews after the retry, got %+v, sent %v", got, p.out)
+	}
+}
+
 // feishuWatchFixture: watchFixture on Feishu, whose platform reads no channel history.
 func feishuWatchFixture(t *testing.T) (*Engine, *exitTestPlatform, *handoffWatch, TeamHandoff) {
 	t.Helper()
