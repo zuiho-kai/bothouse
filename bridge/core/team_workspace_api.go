@@ -80,6 +80,10 @@ type TeamWorkspaceListResult struct {
 	// Pool: every 「工作区n」 of the server/category, lowest first (shared by all chat channels),
 	// each with its owner ("" = free).
 	Pool []TeamWorkspace `json:"pool,omitempty"`
+	// WatchDue: when session_key is a workspace, the earliest check time of the bridge's
+	// ten-minute watch on its tasks in work (zero: not watched; the lead's d10 scripts skip a
+	// watched workspace).
+	WatchDue time.Time `json:"watch_due,omitzero"`
 }
 
 func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +101,7 @@ func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Reque
 	if p, ok := e.WorkspaceParent(parent); ok {
 		parent = p
 	}
-	res := TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent)}
+	res := TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent), WatchDue: e.teamWorkspaceWatchDue(key)}
 	if pool, err := e.TeamWorkspacePool(parent); err == nil {
 		res.Pool = pool
 	}
@@ -116,6 +120,10 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 		SessionKey  string `json:"session_key"`
 		WorkspaceID string `json:"workspace_id"`
 		Name        string `json:"name"`
+		// Owner (optional): who the task goes to, mentioned by the ten-minute watch's nudge.
+		// Title (optional): the task's short name for the nudge.
+		Owner string `json:"owner"`
+		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -135,7 +143,7 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
-	if err := e.ClaimTeamWorkspace(req.SessionKey, req.WorkspaceID, req.Name); err != nil {
+	if err := e.ClaimTeamWorkspaceFor(req.SessionKey, req.WorkspaceID, req.Name, req.Owner, req.Title); err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrTeamWorkspaceOwned) {
 			code = http.StatusConflict
@@ -202,7 +210,7 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		plat, _, _ := strings.Cut(key, ":")
 		key = plat + ":" + req.WorkspaceID
 	}
-	freed, err := e.ParkTeamWorkspaceFor(key, req.Chat, before)
+	freed, err := s.parkAndReset(e, key, req.Chat, before)
 	if errors.Is(err, ErrTeamWorkspaceNotOwned) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -211,20 +219,27 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	res := TeamWorkspaceParkResult{Workspace: key, Freed: freed}
-	if freed {
-		// ParkTeamWorkspace reset the lead's sessions; the teammates' engines reset theirs.
-		s.mu.RLock()
-		others := make([]*Engine, 0, len(s.engines))
-		for _, x := range s.engines {
-			if x != e {
-				others = append(others, x)
-			}
-		}
-		s.mu.RUnlock()
-		for _, x := range others {
-			x.ResetTeamWorkspaceSessions(key)
+	apiJSON(w, http.StatusOK, TeamWorkspaceParkResult{Workspace: key, Freed: freed})
+}
+
+// parkAndReset parks a task of workspace key on the team workspace engine e
+// (ParkTeamWorkspaceFor) and, when that freed the workspace, also resets the teammates'
+// sessions there (e reset the lead's). Shared by the park API and the ten-minute watch.
+func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time) (bool, error) {
+	freed, err := e.ParkTeamWorkspaceFor(key, chat, before)
+	if err != nil || !freed {
+		return freed, err
+	}
+	s.mu.RLock()
+	others := make([]*Engine, 0, len(s.engines))
+	for _, x := range s.engines {
+		if x != e {
+			others = append(others, x)
 		}
 	}
-	apiJSON(w, http.StatusOK, res)
+	s.mu.RUnlock()
+	for _, x := range others {
+		x.ResetTeamWorkspaceSessions(key)
+	}
+	return true, nil
 }
