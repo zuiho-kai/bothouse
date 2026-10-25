@@ -725,10 +725,28 @@ export class DshMembers {
       if (member !== undefined && !this.hooked.has(loaded)) this.setup(loaded.ctx, member, loaded);
       return loaded;
     }
-    return (await ctx.agents.resume({
-      resumeSessionId: sessionId,
-      ...(member === undefined ? {} : { agentOptions: this.selection(member), setup: s => this.setup(s, member) }),
-    })).agent;
+    if (member === undefined) return (await ctx.agents.resume({ resumeSessionId: sessionId })).agent;
+    // Resume assembles the Agent the same way createAgent does: mount the
+    // member's agent preset (its tool set) and apply its permission preset.
+    // Installing only the request hook left a resumed Session with just the
+    // built-in tools after a DSH restart.
+    const preset = await ctx.agentPresets.resolve(member.agentPreset);
+    const scope = await ctx.agentPresets.acquireScope(preset.id);
+    let handle;
+    try {
+      handle = await ctx.agents.resume({
+        resumeSessionId: sessionId,
+        agentOptions: this.selection(member),
+        setup: async (agentCtx) => {
+          await ctx.agentPresets.mount(agentCtx, preset.id);
+          this.setup(agentCtx, member);
+        },
+      });
+    } finally {
+      await scope[Symbol.asyncDispose]();
+    }
+    if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
+    return handle.agent;
   }
 
   /** The member's model, or the host default at the time of the call (webhook pattern). */
