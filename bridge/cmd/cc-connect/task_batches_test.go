@@ -90,7 +90,7 @@ func TestTaskBatchesCLI(t *testing.T) {
 	}
 	assign := func(run, batch, id, member string) core.TaskMemberGrant {
 		t.Helper()
-		args := []string{"--session", "test:room", "--run", run, "--member", member, "--name", member, "--title", "Work " + batch}
+		args := []string{"--session", "test:room", "--run", run, "--member", member, "--name", member, "--title", "Work " + batch, "--ref", "无（新建）"}
 		if id != "" {
 			args = append(args, "--id", id)
 		} else {

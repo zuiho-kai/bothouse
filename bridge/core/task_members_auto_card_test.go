@@ -10,7 +10,7 @@ func TestAssignMemberOpensFreshCardBeforeLeadReports(t *testing.T) {
 	}
 	run := p.begin(platform, "room", LangChinese, nil)
 	grant, err := p.AssignMember(TaskMemberAssignment{
-		Project: "fish", SessionKey: "room", Run: run,
+		Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run,
 		BatchID: "dispatch-1", MemberID: "worker", Name: "Worker", Title: "检查派工",
 	})
 	if err != nil {

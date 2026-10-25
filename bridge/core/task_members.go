@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -43,6 +44,51 @@ type TaskMemberAssignment struct {
 	ParentID        string `json:"parent_id,omitempty"`
 	Name            string `json:"name"`
 	Title           string `json:"title"`
+	// Ref names the existing implementation the member should follow (path:line), or
+	// 「无（新建）」 for non-code work. Base is the branch to start from; required when the
+	// assignment says several members edit the same files (多人改/共改文件).
+	Ref  string `json:"ref"`
+	Base string `json:"base,omitempty"`
+}
+
+// Source: ~/im-bridge/bin/ws-handoff has_ref_impl/multi_editor/has_base (lead
+// handoff checks); messages shared with the DSH task board (dsh/collab/tasks.mjs).
+const (
+	errAssignMissingRef  = "缺参照实现：写 文件:行，非代码活写「无（新建）」"
+	errAssignMissingBase = "多人改同组文件缺底分支：加 --base <分支名>（如 feat/approvals-card），改公共接口的那份先合"
+	assignRefNew         = "无（新建）"
+)
+
+// assignRefRE matches a path:line reference; the path must contain / or . so a
+// clock time such as 14:30 does not count.
+var assignRefRE = regexp.MustCompile(`[~\p{L}\p{N}_.\-/]*[A-Za-z_][~\p{L}\p{N}_.\-/]*:\d+`)
+
+func validAssignRef(ref string) bool {
+	if strings.Contains(ref, assignRefNew) || strings.Contains(ref, "无(新建)") {
+		return true
+	}
+	for _, m := range assignRefRE.FindAllString(ref, -1) {
+		if path := m[:strings.LastIndex(m, ":")]; strings.ContainsAny(path, "/.") {
+			return true
+		}
+	}
+	return false
+}
+
+// checkAssignRef enforces the delegation contract: every assignment carries a
+// reference implementation, and shared-file work also names its base branch.
+func checkAssignRef(req TaskMemberAssignment) error {
+	if utf8.RuneCountInString(req.Ref) > 300 || utf8.RuneCountInString(req.Base) > 100 || strings.ContainsAny(strings.TrimSpace(req.Base), " \t\n") {
+		return errors.New("ref must be at most 300 characters; base must be one branch name (at most 100 characters)")
+	}
+	if !validAssignRef(req.Ref) {
+		return errors.New(errAssignMissingRef)
+	}
+	shared := func(s string) bool { return strings.Contains(s, "多人改") || strings.Contains(s, "共改文件") }
+	if (shared(req.Title) || shared(req.Ref)) && strings.TrimSpace(req.Base) == "" {
+		return errors.New(errAssignMissingBase)
+	}
+	return nil
 }
 
 type TaskMemberGrant struct {
@@ -95,6 +141,9 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		((req.ReporterProject == "" || req.ParentID != "") && strings.TrimSpace(req.Name) == "") || utf8.RuneCountInString(req.Name) > 60 || utf8.RuneCountInString(req.ReporterProject) > 60 ||
 		strings.TrimSpace(req.Title) == "" || utf8.RuneCountInString(req.Title) > 60 {
 		return nil, errors.New("project, session, active run, batch or task, member, name and title required (1..60 characters)")
+	}
+	if err := checkAssignRef(req); err != nil {
+		return nil, err
 	}
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()

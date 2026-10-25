@@ -18,7 +18,7 @@ func TestTaskCardShowsProjectDisplayNames(t *testing.T) {
 	rm.AddToBind("discord", "room", "gjiang") // Bots["gjiang"] = "gjiang"
 	session := "discord:room:user"
 	run, id := startCard(t, p, lead, session, "Task")
-	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "w", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
+	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "w", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
 		t.Fatal("assignment rejected", status)
 	}
 	stored, _ := p.Task(id)
