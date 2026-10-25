@@ -44,9 +44,16 @@ func (e *Engine) roleSessionEnv(sessionKey string) []string {
 	if cur := os.Getenv("PATH"); cur != "" {
 		path = append(path, cur)
 	}
-	if len(path) > 0 {
-		env = append(env, "PATH="+strings.Join(path, string(filepath.ListSeparator)))
+	// After the inherited PATH: the agent CLI's own dir and the common install dirs, so an
+	// npm-installed claude/codex (`#!/usr/bin/env node`) found outside PATH still finds node.
+	var extra []string
+	if c, ok := e.agent.(interface{ CLIBinaryName() string }); ok {
+		if bin := c.CLIBinaryName(); filepath.IsAbs(bin) {
+			extra = append(extra, filepath.Dir(bin))
+		}
 	}
+	extra = append(extra, ExtraBinDirs()...)
+	env = append(env, "PATH="+AppendPathDirs(strings.Join(path, string(filepath.ListSeparator)), extra...))
 	return env
 }
 

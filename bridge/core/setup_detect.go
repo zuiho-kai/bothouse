@@ -124,7 +124,52 @@ func extraBinDirs() []string {
 		filepath.Join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin",
 		filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".bun", "bin"),
 		filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".claude", "local"), // Claude Code's local install (`claude migrate-installer`), Unix only
 	}
+}
+
+// ExtraBinDirs returns the install dirs searched after PATH (see extraBinDirs). The role session
+// env and the daemon's service PATH append them, so an npm-installed CLI also finds node.
+func ExtraBinDirs() []string { return extraBinDirs() }
+
+// ResolveCLI returns the command to start for a configured CLI cmd. A cmd found on PATH, or one
+// that is already a path, is returned as is. A bare name missing from PATH is looked up in
+// extraBinDirs (the same lookup as the setup wizard) and its absolute path returned, so a service
+// started with a short PATH still finds claude, codex and the other CLIs.
+func ResolveCLI(cmd string) (string, error) {
+	if _, err := exec.LookPath(cmd); err == nil {
+		return cmd, nil
+	}
+	if cmd == "" || strings.ContainsAny(cmd, `/\`) {
+		return "", exec.ErrNotFound
+	}
+	p, _, err := lookPath(cmd)
+	if err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+// AppendPathDirs appends dirs to the PATH value path, after what is already there, skipping
+// empty dirs and dirs path already holds. Earlier entries keep winning.
+func AppendPathDirs(path string, dirs ...string) string {
+	sep := string(filepath.ListSeparator)
+	seen := map[string]bool{}
+	var parts []string
+	if path != "" {
+		parts = strings.Split(path, sep)
+	}
+	for _, p := range parts {
+		seen[p] = true
+	}
+	for _, d := range dirs {
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		parts = append(parts, d)
+	}
+	return strings.Join(parts, sep)
 }
 
 // lookPath finds bin on PATH (inPath = true), then in extraBinDirs. Replaceable in tests.

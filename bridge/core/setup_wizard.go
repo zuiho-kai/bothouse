@@ -2348,7 +2348,9 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 		mgmtError(w, http.StatusServiceUnavailable, "wizard not configured")
 		return
 	}
-	env := WizardEnv{Store: m.wizardStore, DataDir: m.wizardDataDir, WikiSubScript: m.wikiSubScript}
+	// AlwaysWriteCmd as in the command-line wizard: the PATH this process has now says nothing about
+	// the PATH a later restart or reinstall gives the service, so the detected absolute path goes into cmd.
+	env := WizardEnv{Store: m.wizardStore, DataDir: m.wizardDataDir, AlwaysWriteCmd: true, WikiSubScript: m.wikiSubScript}
 	if m.cronScheduler != nil { // a running service: the wiki's jobs start without a restart
 		env.Cron = CronOfScheduler(m.cronScheduler)
 	}
