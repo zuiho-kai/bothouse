@@ -42,3 +42,23 @@ not json
 		t.Fatalf("len = %d", n)
 	}
 }
+
+// The native board posts the task board on any platform with a BoardPoster, from board.jsonl alone.
+func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
+	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	defer e.cancel()
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true}
+	row := `{"id":7,"what":"出板","status":"在做","who":"橘","at":"10-26 03:00","sk":"feishu:oc_a:u1"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boards := map[string]*boardChat{}
+	if !e.updateTeamBoards(nil, boards) {
+		t.Fatal("no board posted")
+	}
+	if got := p.content["feishu:oc_a:u1"]; !strings.Contains(got, "#7 出板｜橘｜在做") {
+		t.Fatalf("board = %q", got)
+	}
+}
