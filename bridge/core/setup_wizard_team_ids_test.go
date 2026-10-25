@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -111,6 +112,75 @@ func TestApplyWizardGateTeamIDsFeishu(t *testing.T) {
 	if got != "ou_cli_b ou_cli_b ou_cli_a Juzi" {
 		t.Errorf("_team.py = %q", got)
 	}
+}
+
+// a rerun whose open_id lookup fails keeps the id found before and says so with a non-blocking
+// warning (code/msg only, no secret); hand-written keys in the team file survive the rewrite
+func TestApplyWizardGateTeamIDsFeishuLookupFails(t *testing.T) {
+	wizardGateTestEnv(t)
+	old := wizardFeishuBotOpenID
+	t.Cleanup(func() { wizardFeishuBotOpenID = old })
+	fail := false
+	wizardFeishuBotOpenID = func(_ context.Context, appID, _, _ string) (string, error) {
+		if fail {
+			return "", errors.New("feishu bot info: code=99991663 app has no bot")
+		}
+		return "ou_" + appID, nil
+	}
+	dir, store := t.TempDir(), newMemStore()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	run := func(app, name string) *WizardResult {
+		res := ApplyWizard(context.Background(), env, WizardRequest{Platform: "feishu", Language: "zh",
+			Feishu: &WizardFeishu{AppID: app, AppSecret: "secret-xyz", ChatID: "oc_1"}, Roles: []WizardRole{{Name: name}}})
+		if !res.OK && !res.Saved {
+			t.Fatalf("run %s failed: %+v", name, res)
+		}
+		return res
+	}
+	run("cli_a", "Juzi")
+	if res := run("cli_b", "Whale"); hasWarning(res, "feishu_bot_id_unknown") {
+		t.Fatalf("warning on a successful lookup: %+v", res.Warnings)
+	}
+	// the user adds a work tree to a member and the workspace channel id by hand
+	var gt map[string]any
+	readJSONFile(filepath.Join(dir, gateTeamFile), &gt)
+	gt["workspace"] = "1234567890"
+	gt["subs"].(map[string]any)["whale"].(map[string]any)["wt"] = "/tmp/wt-whale"
+	gt["lead"].(map[string]any)["wt"] = "/tmp/wt-juzi"
+	if err := writeJSONFile(filepath.Join(dir, gateTeamFile), gt, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fail = true
+	res := run("cli_b", "Whale") // same app again, lookup fails this time
+	var w *WizardWarning
+	for i := range res.Warnings {
+		if res.Warnings[i].Code == "feishu_bot_id_unknown" {
+			w = &res.Warnings[i]
+		}
+	}
+	if w == nil || w.Blocking || !strings.Contains(w.Message, "99991663") || strings.Contains(w.Message+w.Fix, "secret-xyz") {
+		t.Fatalf("warning = %+v (all %+v)", w, res.Warnings)
+	}
+	lead, subs := readGateTeamMembers(t, dir)
+	if lead.ID != "ou_cli_a" || subs["whale"].ID != "ou_cli_b" || len(subs) != 1 {
+		t.Errorf("ids lost: lead %+v subs %+v", lead, subs)
+	}
+	gt = nil
+	readJSONFile(filepath.Join(dir, gateTeamFile), &gt)
+	if gt["workspace"] != "1234567890" || gt["subs"].(map[string]any)["whale"].(map[string]any)["wt"] != "/tmp/wt-whale" ||
+		gt["lead"].(map[string]any)["wt"] != "/tmp/wt-juzi" {
+		t.Errorf("hand-written keys lost: %+v", gt)
+	}
+}
+
+func hasWarning(res *WizardResult, code string) bool {
+	for _, w := range res.Warnings {
+		if w.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFeishuBotOpenID(t *testing.T) {

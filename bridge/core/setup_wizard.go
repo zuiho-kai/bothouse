@@ -885,6 +885,8 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				f := req.Feishu
 				if id, err := wizardFeishuBotOpenID(ctx, f.AppID, f.AppSecret, f.PlatformType); err == nil {
 					w.botID = id
+				} else { // not blocking; err carries only the API's code/msg, never the secret or token
+					res.Warnings = append(res.Warnings, warnFeishuBotIDUnknown(req.Language, w.Name, err))
 				}
 			}
 			res.Roles = append(res.Roles, WizardRoleResult{BotID: w.botID})
@@ -1177,6 +1179,10 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if (req.Platform == "discord" || cloudWeb || isFeishu) && (len(pl.team) > 1 || len(pl.team) == 1 && !pl.soloShared) && req.gateOn() {
 		after, _ := env.Store.Snapshot()
 		gt := gateTeamJSON(pl.team, pl.fallback, pl.fallbackName, after)
+		var prev map[string]any
+		if readJSONFile(filepath.Join(env.DataDir, gateTeamFile), &prev) {
+			mergeGateTeam(gt, prev)
+		}
 		if err := writeJSONFile(filepath.Join(env.DataDir, gateTeamFile), gt, 0o644); err != nil {
 			return fail("gate team", err)
 		}
@@ -1511,6 +1517,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		for _, old := range append(append([]SetupTeamEntry{}, state.Team...), state.CloudWebTeam...) {
 			if old.Project == r.project { // not passed = keep what the state has
 				e.Persona, e.Avatar = old.Persona, old.Avatar
+				if e.BotID == "" && old.BotID != "" && isFeishuPlatform(req.Platform) && isFeishuPlatform(state.Platform) {
+					e.BotID = old.BotID // open_id not reachable this run: keep the one found before
+				}
 				break
 			}
 		}
@@ -2475,6 +2484,78 @@ func (m *ManagementServer) handleProjectPersona(w http.ResponseWriter, r *http.R
 	default:
 		mgmtError(w, http.StatusMethodNotAllowed, "GET or PUT")
 	}
+}
+
+// mergeGateTeam carries over from the team file already on disk what the wizard does not write
+// itself: top-level keys (e.g. the workspace channel id "workspace") and, per member, keys the user
+// added by hand (e.g. "wt") or an "id" this run could not look up. A member is matched by its id,
+// else by its project key / name; what the wizard wrote now always wins.
+func mergeGateTeam(gt, prev map[string]any) {
+	for k, v := range prev {
+		if _, ok := gt[k]; !ok {
+			gt[k] = v
+		}
+	}
+	var olds []map[string]any
+	if m, ok := prev["lead"].(map[string]any); ok {
+		olds = append(olds, m)
+	}
+	oldSubs, _ := prev["subs"].(map[string]any)
+	for _, v := range oldSubs {
+		if m, ok := v.(map[string]any); ok {
+			olds = append(olds, m)
+		}
+	}
+	find := func(key string, m map[string]any) map[string]any {
+		if id, _ := m["id"].(string); id != "" {
+			for _, o := range olds {
+				if oid, _ := o["id"].(string); oid == id {
+					return o
+				}
+			}
+		}
+		if o, ok := oldSubs[key].(map[string]any); ok && key != "" {
+			return o
+		}
+		name, _ := m["name"].(string)
+		for _, o := range olds {
+			if on, _ := o["name"].(string); on != "" && on == name {
+				return o
+			}
+		}
+		return nil
+	}
+	fill := func(key string, m map[string]any) {
+		if o := find(key, m); o != nil {
+			for k, v := range o {
+				if _, ok := m[k]; !ok {
+					m[k] = v
+				}
+			}
+		}
+	}
+	if m, ok := gt["lead"].(map[string]any); ok {
+		fill("", m)
+	}
+	if subs, ok := gt["subs"].(map[string]any); ok {
+		for k, v := range subs {
+			if m, ok := v.(map[string]any); ok {
+				fill(k, m)
+			}
+		}
+	}
+}
+
+// warnFeishuBotIDUnknown: the bot's open_id could not be looked up (network, or the app has no bot
+// capability); the role is made, but d10 / ws-handoff cannot tell who she is until a rerun finds it.
+func warnFeishuBotIDUnknown(lang, project string, err error) WizardWarning {
+	return WizardWarning{Code: "feishu_bot_id_unknown", Project: project, Blocking: false,
+		Message: tr3(lang, "没查到这个飞书机器人的 open_id（"+err.Error()+"），协作脚本暂时认不出她。",
+			"この Feishu ボットの open_id を取得できませんでした（"+err.Error()+"）。連携スクリプトはまだ彼女を識別できません。",
+			"Could not look up this Feishu bot's open_id ("+err.Error()+"); the collaboration scripts cannot tell who she is yet."),
+		Fix: tr3(lang, "网络好了、或给应用开了机器人能力后重跑一次向导即可补上。",
+			"ネットワークが戻るか、アプリでボット機能を有効にしてから、もう一度ウィザードを実行してください。",
+			"Run the wizard again once the network is back or the app has the bot capability enabled.")}
 }
 
 // wizardFeishuBotOpenID is FeishuBotOpenID; tests swap it (no network in core tests).
