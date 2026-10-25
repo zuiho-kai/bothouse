@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -256,12 +257,14 @@ func TestFirstRunServesWizardAndOpensBrowser(t *testing.T) {
 	ln.Close()
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.toml")
-	// bootstrap, then move the port off 9820 so the test never meets a real cc-connect
+	// bootstrap, then move the port off 9820 (or the free one bootstrap took when 9820 is held) so
+	// the test never meets a real cc-connect
 	if err := bootstrapSetupConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(cfg)
-	_ = os.WriteFile(cfg, bytes.Replace(b, []byte("port = 9820"), []byte(fmt.Sprintf("port = %d", port)), 1), 0o600)
+	b = regexp.MustCompile(`(?m)^port = \d+`).ReplaceAll(b, []byte(fmt.Sprintf("port = %d", port)))
+	_ = os.WriteFile(cfg, b, 0o600)
 	rec := filepath.Join(dir, "opened.txt")
 	cmd := helper(t, "wizard", []string{"HOME=" + dir, "CONEST_TEST_OPENED=" + rec, "LANG=en_US.UTF-8", "SSH_CONNECTION=", "SSH_TTY="}, cfg)
 	var stdout bytes.Buffer

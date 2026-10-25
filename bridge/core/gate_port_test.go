@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -134,5 +135,92 @@ func TestRoleEnvLeadGateURL(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("LEAD_GATE_URL not set to the gate in use")
+	}
+}
+
+// oldGateServer: a gate that does not answer /whoami (gate.py before /whoami, gate_switch.py): 501.
+func oldGateServer(t *testing.T, addr string) {
+	t.Helper()
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotImplemented)
+	})}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+}
+
+// An older gate that cannot say whose it is, on the port an existing install's config already
+// points at: the supervisor leaves it alone (no own gate, no new port).
+func TestGateSupervisorKeepsGateWithoutWhoami(t *testing.T) {
+	dataDir := setupFakeGate(t, true)
+	addr := localGateAddr()
+	oldGateServer(t, addr)
+	saved := 0
+	oldPersist := PersistGatePort
+	t.Cleanup(func() { PersistGatePort = oldPersist })
+	PersistGatePort = func(p int) error { saved = p; return nil }
+	g := NewGateSupervisor(dataDir)
+	g.Run(true)
+	defer g.Stop()
+	time.Sleep(time.Second)
+	if n := gateStarts(dataDir); n != 0 || localGateAddr() != addr || saved != 0 {
+		t.Fatalf("started %d gates / moved to %s (saved %d) over an older gate, want 0 / %s / 0", n, localGateAddr(), saved, addr)
+	}
+}
+
+// apply with an older gate (501 on /whoami) on the gate port: an existing install whose config
+// already points there keeps the port; a fresh install (no gate_url yet) moves off it.
+func TestApplyWizardGateWithoutWhoami(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		existing bool
+	}{{"existing install keeps the port", true}, {"fresh install moves", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			noHardware(t)
+			dataDir := setupFakeGate(t, false)
+			taken := localGateAddr()
+			oldGateServer(t, taken)
+			t1, t2 := fakeToken("111"), fakeToken("222")
+			fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
+			store := &gatePortStore{memStore: newMemStore()}
+			if tc.existing {
+				store.existing = []WizardExistingBot{{Project: "juzi", AgentType: "claudecode", Token: t1,
+					GateURL: "http://" + taken + "/decide?bot=juzi", GateFallback: "context"}}
+			}
+			req := WizardRequest{Platform: "discord", Language: "zh", FallbackRole: "whale",
+				Roles: []WizardRole{{Token: t1}, {Token: t2}}}
+			req.Discord = &struct {
+				GuildID   string `json:"guild_id"`
+				ChannelID string `json:"channel_id"`
+			}{GuildID: "900", ChannelID: "1"}
+			res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: dataDir, CLIs: testCLIs}, req)
+			if !res.OK {
+				t.Fatalf("apply failed: %+v", res)
+			}
+			moved := store.port != 0 || localGateAddr() != taken
+			if moved == tc.existing {
+				t.Fatalf("saved port %d, addr %s (taken %s), existing install %v", store.port, localGateAddr(), taken, tc.existing)
+			}
+		})
+	}
+}
+
+// Something on the wildcard address (*:port, as cc-connect's own 9820 listens) holds the port even
+// though 127.0.0.1:port alone could still be bound.
+func TestPickFreePortSkipsWildcardHeldPort(t *testing.T) {
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	busy := l.Addr().(*net.TCPAddr).Port
+	if portFree(busy) {
+		t.Errorf("portFree(%d) = true while *:%d is held", busy, busy)
+	}
+	if p := PickFreePort(busy); p == busy || p <= 0 {
+		t.Fatalf("PickFreePort(*:%d held) = %d", busy, p)
 	}
 }

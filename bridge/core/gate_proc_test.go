@@ -171,21 +171,14 @@ func TestGateSupervisorLeavesOwnDataDirGate(t *testing.T) {
 	}
 }
 
-// Another install's gate (or anything not answering /whoami with this data dir) on the port: never
-// shared; the supervisor moves to a free port, saves it and starts its own gate there.
+// Another install's gate (/whoami names another data dir) on the port: never shared; the
+// supervisor moves to a free port, saves it and starts its own gate there.
 func TestGateSupervisorMovesOffForeignGate(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		foreign func(t *testing.T, addr string)
 	}{
 		{"other data dir", func(t *testing.T, addr string) { whoamiServer(t, addr, t.TempDir()) }},
-		{"not a gate", func(t *testing.T, addr string) {
-			l, err := net.Listen("tcp", addr)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { l.Close() })
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := setupFakeGate(t, true)

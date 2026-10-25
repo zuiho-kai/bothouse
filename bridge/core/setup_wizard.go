@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -223,6 +224,17 @@ func (s WizardSnapshot) project(name string) (WizardExistingProject, bool) {
 		}
 	}
 	return WizardExistingProject{}, false
+}
+
+// pointsAtGatePort: a project's gate_url is a wizard URL on 127.0.0.1:port (an existing install).
+func (s WizardSnapshot) pointsAtGatePort(port int) bool {
+	for _, p := range s.Projects {
+		u, err := url.Parse(p.GateURL)
+		if err == nil && isWizardGateURL(p.GateURL) && u.Port() == strconv.Itoa(port) {
+			return true
+		}
+	}
+	return false
 }
 
 // WizardExistingBot is a Discord bot already in the local config. Token and options stay server-side.
@@ -1011,12 +1023,12 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		return res
 	}
 
-	// The gate port: kept when free or this data dir's gate is on it; another install's gate (or
-	// anything else) there gets a new port. Picked only now, after the tokens checked out and not on
+	// The gate port (keepGatePort): kept when free, this data dir's gate is on it, or an older gate
+	// without /whoami is on it and this config's gate_urls already point there; else a new port. Picked only now, after the tokens checked out and not on
 	// a dry run, so a failed or dry-run wizard writes nothing; saved before the plan below runs again
 	// inside the lock and writes the gate_urls with it.
 	if req.gateOn() {
-		if port := pickGatePort(env.DataDir); port != LocalGatePort() {
+		if port := pickGatePort(env.DataDir, snap.pointsAtGatePort(LocalGatePort())); port != LocalGatePort() {
 			if ps, ok := env.Store.(interface{ SetGatePort(int) error }); ok {
 				if err := ps.SetGatePort(port); err != nil {
 					return fail("gate port", err)

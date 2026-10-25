@@ -83,11 +83,49 @@ func sameDir(a, b string) bool {
 // gateIsOurs: the gate on gateAddr serves dataDir (so it can be reused).
 func gateIsOurs(dataDir string) bool { return sameDir(gateWhoami(), dataDir) }
 
-// pickGatePort: the gate port for dataDir. The current one when nothing listens there or the gate
-// there is this data dir's; else 9930 when free; else a free one. Never another install's gate.
-func pickGatePort(dataDir string) int {
+// Who holds the gate port (gatePortHolder).
+type gateHolder int
+
+const (
+	gateHolderNone    gateHolder = iota // nothing listens there
+	gateHolderOurs                      // /whoami names this data dir
+	gateHolderUnknown                   // no /whoami answer: an older gate.py, gate_switch.py, not HTTP
+	gateHolderForeign                   // /whoami names another data dir: another bothouse
+)
+
+func gatePortHolder(dataDir string) gateHolder {
+	if portFree(LocalGatePort()) {
+		return gateHolderNone
+	}
+	who := gateWhoami()
+	switch {
+	case who == "":
+		return gateHolderUnknown
+	case sameDir(who, dataDir):
+		return gateHolderOurs
+	}
+	return gateHolderForeign
+}
+
+// keepGatePort is the one rule (supervisor and wizard) for staying on the current gate port:
+// moved only when another data dir's gate answers there, or when a gate that cannot say whose it
+// is holds it and this data dir's config does not point at that port yet (a fresh install). An
+// existing install keeps its port with an older gate on it (the launchd gate.py before /whoami).
+func keepGatePort(h gateHolder, configPointsHere bool) bool {
+	switch h {
+	case gateHolderForeign:
+		return false
+	case gateHolderUnknown:
+		return configPointsHere
+	}
+	return true
+}
+
+// pickGatePort: the gate port for dataDir (keepGatePort); when it has to move, 9930 if free, else
+// a free one. Never another install's gate.
+func pickGatePort(dataDir string, configPointsHere bool) int {
 	cur := LocalGatePort()
-	if portFree(cur) || gateIsOurs(dataDir) {
+	if keepGatePort(gatePortHolder(dataDir), configPointsHere) {
 		return cur
 	}
 	if cur != defaultGatePort && portFree(defaultGatePort) {
@@ -355,14 +393,20 @@ func (g *GateSupervisor) step() time.Duration {
 	if !g.want || g.external {
 		return gateRecheck
 	}
-	if GateRunning() {
-		if gateIsOurs(g.dataDir) {
-			// this data dir's gate, started before bothouse: by hand / launchd / systemd
+	// g.want: this data dir's config has a gate_url on this machine's gate, i.e. it points here
+	if h := gatePortHolder(g.dataDir); h != gateHolderNone {
+		if keepGatePort(h, true) {
+			// this data dir's gate, or an older one that cannot say whose it is, started before
+			// bothouse: by hand / launchd / systemd
 			g.external = true
-			slog.Info("gate: this data dir's gate is already listening; bothouse will not start its own", "addr", localGateAddr())
+			if h == gateHolderUnknown {
+				slog.Warn("gate: a gate without /whoami is already listening; bothouse will not start its own", "addr", localGateAddr())
+			} else {
+				slog.Info("gate: this data dir's gate is already listening; bothouse will not start its own", "addr", localGateAddr())
+			}
 			return gateRecheck
 		}
-		// someone else's (another bothouse, or not a gate): never share it, move to a free port
+		// another bothouse's gate: never share it, move to a free port
 		old := localGateAddr()
 		port := PickFreePort(0)
 		SetLocalGatePort(port)

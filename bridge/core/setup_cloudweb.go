@@ -625,12 +625,16 @@ func extractHubSource(dir string) error {
 	})
 }
 
+// portFree: nothing listens on port. Both the wildcard and 127.0.0.1 are tried: a listener on
+// *:port does not stop a bind on 127.0.0.1:port (macOS), and the reverse, so either failing = taken.
 func portFree(port int) bool {
-	l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
-	if err != nil {
-		return false
+	for _, host := range []string{"", "127.0.0.1"} {
+		l, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			return false
+		}
+		l.Close()
 	}
-	l.Close()
 	return true
 }
 
