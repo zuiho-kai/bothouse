@@ -63,13 +63,13 @@ team_status_dir = "~/example-team"
 team_name = "当前角色显示名"
 # public_progress = false  # 如需关闭公开任务卡
 
-# 仅主 bot 开启以下两项。它可以汇总其他项目的任务卡，
-# 不要求主 bot 自己也打开 public_progress。
+# 仅主 bot 开启 team_status_inject。它可以汇总其他项目的任务卡，
+# 不要求主 bot 自己也打开 public_progress。team_board 不写即开启。
 team_status_inject = true
-team_board = true
+# team_board = false  # 如需关闭置顶状态栏
 ~~~
 
-team_board 默认关闭。部署后的配置调整仍须单独授权；机器人需要在对应频道发布和置顶消息的权限。新状态栏置顶失败时保留消息 ID，下次重试同一条；编辑遇到网络或权限错误时不另发新卡，只有平台明确表示消息不存在才重建。已有状态栏在下次内容变化时检查并补置顶。
+team_board 不写时对主 bot 默认开启（老配置升级后不改文件也会开启），写 team_board = false 关闭；非主 bot 忽略。它需要 team_status_dir 和主 bot 身份（team_status_inject 或 lead.json），不依赖 `setup lead install` 装的脚本。部署后的配置调整仍须单独授权；机器人需要在对应频道发布和置顶消息的权限。新状态栏置顶失败时保留消息 ID，下次重试同一条；编辑遇到网络或权限错误时不另发新卡，只有平台明确表示消息不存在才重建。已有状态栏在下次内容变化时检查并补置顶。
 
 列表消费已有状态，不猜测任务是否成功：
 

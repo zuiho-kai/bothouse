@@ -563,8 +563,11 @@ type ProjectConfig struct {
 	// MemoryIndex (maomao fork): the bot's own wiki MEMORY.md, put before the first turn of every fresh agent
 	// context (Claude Code loads its auto-memory itself; Codex/Antigravity bots need this). Empty disables it.
 	MemoryIndex string `toml:"memory_index,omitempty"`
-	// TeamBoard (lead only) keeps one live "who is doing what" message per channel, edited in place.
-	TeamBoard bool `toml:"team_board,omitempty"`
+	// TeamBoard (lead only) keeps one live, pinned "who is doing what" message per channel, edited
+	// in place. Unset means on, so a lead gets the board without config and an upgrade turns it on
+	// without editing config.toml; team_board = false opts out (TeamBoardEnabled). Ignored on
+	// non-lead projects.
+	TeamBoard *bool `toml:"team_board,omitempty"`
 	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
 	// the same category (existing channels are backfilled at start) and allow `bothouse workspace new`
 	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
@@ -664,6 +667,10 @@ func (p ProjectConfig) PublicProgressEnabled() bool {
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
 // TeamWorkspacesEnabled reports team mode D (default on; only acts on the primary role).
+func (p ProjectConfig) TeamBoardEnabled() bool {
+	return p.TeamBoard == nil || *p.TeamBoard
+}
+
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
 }
