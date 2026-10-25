@@ -187,6 +187,17 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			}
 		}
 	}
+	var items []teamTaskBoardItem
+	if e.team != nil {
+		items = readTeamTaskBoard(e.team.dir)
+	}
+	for _, it := range items { // a chat with task-board items gets a board too (board.py no longer posts its own card)
+		for _, key := range []string{it.SK, it.Chat} {
+			if key != "" && boards[chatOf(key)] == nil {
+				boards[chatOf(key)] = &boardChat{SessionKey: key}
+			}
+		}
+	}
 	for _, f := range files {
 		for _, task := range f.Tasks {
 			if !listedTaskState(task.State) || !safeTaskURL(task.URL) || task.SessionKey == "" {
@@ -222,7 +233,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
-		content := renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang())
+		content := withTeamTaskBoard(renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang()), renderTeamTaskBoard(items, chat))
 		if content == b.Content {
 			continue
 		}
