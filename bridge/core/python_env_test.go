@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -180,6 +181,64 @@ func TestUVAsset(t *testing.T) {
 	} {
 		if got := uvAsset(c[0], c[1]); got != c[2] {
 			t.Errorf("%s/%s = %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+}
+
+// Many engines of one process starting together all call productPythonLink outside productPythonMu: with
+// the old fixed "python3.tmp" they removed / created each other's tmp. Now every call must succeed, link
+// must point at py and no tmp may be left behind.
+func TestProductPythonLinkConcurrent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no link is written on Windows")
+	}
+	dataDir := t.TempDir()
+	py := filepath.Join(t.TempDir(), "python3.12")
+	if err := os.WriteFile(py, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// An old link pointing elsewhere, so every goroutine has real work to do.
+	binDir := filepath.Join(AgentToolsDir(dataDir), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/nonexistent/python3", filepath.Join(binDir, "python3")); err != nil {
+		t.Fatal(err)
+	}
+	const n = 20
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			dir, err := productPythonLink(dataDir, py)
+			if err == nil && dir != binDir {
+				err = errors.New("dir = " + dir + ", want " + binDir)
+			}
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("productPythonLink: %v", err)
+		}
+	}
+	if cur, err := os.Readlink(filepath.Join(binDir, "python3")); err != nil || cur != py {
+		t.Fatalf("link -> %q, %v; want %q", cur, err, py)
+	}
+	ents, err := os.ReadDir(binDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("tmp left behind: %s", e.Name())
 		}
 	}
 }

@@ -23,12 +23,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -115,17 +117,30 @@ func productPythonLink(dataDir, py string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	tmp := link + ".tmp"
+	// A tmp name of its own each call, then one atomic rename over link (POSIX rename replaces an existing
+	// symlink atomically; link is never removed first). A fixed "python3.tmp" collided: productPythonLink
+	// runs outside productPythonMu (ProductPythonBinDir calls it after ProductPython returns), so two engines
+	// of one process starting together did Remove(tmp) / Symlink(tmp) against each other and got EEXIST or
+	// lost the rename; two bothouse processes on one data dir collide the same way. A file lock would cover
+	// only part of that. If our symlink or rename still fails but link already points at py, someone else
+	// did the work: that is success.
+	tmp := fmt.Sprintf("%s.tmp.%d.%d.%08x", link, os.Getpid(), productPythonTmpSeq.Add(1), rand.Uint32())
+	err := os.Symlink(py, tmp)
+	if err == nil {
+		if err = os.Rename(tmp, link); err == nil {
+			return dir, nil
+		}
+	}
 	_ = os.Remove(tmp)
-	if err := os.Symlink(py, tmp); err != nil {
-		return "", err
+	if cur, rerr := os.Readlink(link); rerr == nil && cur == py {
+		return dir, nil
 	}
-	if err := os.Rename(tmp, link); err != nil {
-		_ = os.Remove(tmp)
-		return "", err
-	}
-	return dir, nil
+	return "", err
 }
+
+// productPythonTmpSeq makes productPythonLink's tmp names unique within this process (the pid covers other
+// live processes; the random part keeps a stale tmp left by a crashed process with a reused pid out of the way).
+var productPythonTmpSeq atomic.Uint64
 
 // lastProductPython: the interpreter ProductPython found last in this process ("" = none yet).
 func lastProductPython() string {
