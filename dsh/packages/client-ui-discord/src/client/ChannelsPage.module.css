@@ -313,6 +313,13 @@
   overflow-wrap: anywhere;
 }
 
+/* A message's single newlines are line breaks, as in the bridge web chat (whitespace-pre-wrap on
+   user text) and the DSH user bubble (pre-wrap); only prose runs, so code blocks keep their own rules. */
+.text p,
+.text li {
+  white-space: pre-wrap;
+}
+
 .card {
   margin-top: 4px;
   padding: 6px 10px;
@@ -611,6 +618,24 @@
   font: inherit;
   resize: none;
   field-sizing: content;
+  flex: 1;
+  min-width: 0;
+}
+
+/* field-sizing sizes an empty box to its placeholder: keep that to one line and cut it with an ellipsis. */
+.input::placeholder {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Narrow screens: tighter row and smaller buttons so the text box keeps most of the width. */
+@media (max-width: 600px) {
+  .composer { padding: 0 8px 8px; }
+  .composerRow { gap: 4px; }
+  .composerRow .mentionButton { width: 36px; height: 36px; font-size: 16px; }
+  .composerRow .sendButton { height: 36px; padding: 0 10px; }
+  .input { padding: 8px 10px; }
 }
 
 .input:focus-visible {

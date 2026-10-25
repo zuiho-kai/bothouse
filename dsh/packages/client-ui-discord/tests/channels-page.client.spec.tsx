@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
@@ -710,4 +712,35 @@ it('shows retrying only while the retry request is pending, then hides the butto
   expect(screen.queryByRole('button', { name: zh.retry })).toBeNull()
   expect(screen.queryByRole('button', { name: zh.retrying })).toBeNull()
   expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
+})
+
+describe('multi-line messages and the narrow composer', () => {
+  const cssText = () => readFileSync(join(import.meta.dirname, '../src/client/ChannelsPage.module.css'), 'utf8')
+  const rule = (selector: string) => {
+    const at = cssText().indexOf(selector + ' {')
+    expect(at).toBeGreaterThanOrEqual(0)
+    return cssText().slice(at, cssText().indexOf('}', at))
+  }
+
+  it('keeps single newlines of a message as line breaks, without breaking code blocks or lists', () => {
+    const text = '回车测试甲\n回车测试乙\n\n```\ncode 1\ncode 2\n```\n\n- 一\n- 二'
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
+    const paragraph = screen.getByText(/回车测试甲/)
+    expect(paragraph.tagName).toBe('P')
+    expect(paragraph.textContent).toBe('回车测试甲\n回车测试乙')
+    expect(document.querySelector('pre')?.textContent).toContain('code 1\ncode 2')
+    expect(Array.from(document.querySelectorAll('li')).map(li => li.textContent)).toEqual(['一', '二'])
+    // The newline is kept in the DOM; the message text style shows it (pre-wrap on prose only).
+    expect(rule('.text p,\n.text li')).toContain('white-space: pre-wrap')
+  })
+
+  it('keeps the composer placeholder on one line and the text box flexible', () => {
+    const placeholder = rule('.input::placeholder')
+    expect(placeholder).toContain('white-space: nowrap')
+    expect(placeholder).toContain('text-overflow: ellipsis')
+    const input = rule('.input')
+    expect(input).toContain('flex: 1')
+    expect(input).toContain('min-width: 0')
+    expect(cssText()).toMatch(/@media \(max-width: 600px\) \{\n {2}\.composer \{ padding: 0 8px 8px; \}/)
+  })
 })
