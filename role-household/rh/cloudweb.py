@@ -60,7 +60,10 @@ WS_PATH = "/cloud-web/ws"
 # core/streaming.go finish）；typing：成员栏的「思考中」。
 # 按钮、card（交互卡片）不声明，cc-connect 自动降级成文字（docs/cloud-web.md「Handshake」）。
 # subtask_table：会画子进程表（subtask_table_from）；cc-connect 只对声明了它的 hub 发表，旧 hub 不会把表显示成原始数据。
-CAPABILITIES = ["text", "reconstruct_reply", "typing", "preview", "update_message", "delete_message", "subtask_table"]
+# team_workspace（#597 G1）：桥向 hub 要工作区（list/create/claim/release），帧照 conest
+# bridge/core/dsh_bundle/collab/cloudweb.mjs teamWorkspace、bridge/platform/cloud-web/protocol.go。
+CAPABILITIES = ["text", "reconstruct_reply", "typing", "preview", "update_message", "delete_message", "subtask_table",
+                "team_workspace"]
 REGISTER_TIMEOUT = 10.0  # 连上后多少秒内要发 register。来源：沿用 hub.py HELLO_TIMEOUT。
 HEARTBEAT = 30.0  # 来源：沿用 hub.py HEARTBEAT。
 WS_BAD_REGISTER = 4002  # 来源：沿用 hub.py WS_BAD_HELLO（RFC 6455 应用自定义关闭码段）。
@@ -370,6 +373,9 @@ class CloudWeb:
                 await self.hub.set_bot_thinking(room, bot.id, t == "typing_start")
         elif t == "preview_start":
             await self._preview_start(bot, d)
+        elif t == "team_workspace":
+            ack = await self.team_workspace(d)
+            await self._send(bot.ws, {"type": "team_workspace_ack", "ref_id": d.get("ref_id"), **ack})
         elif t in ("update_message", "delete_message"):
             h = d.get("preview_handle")
             if not (isinstance(h, str) and h.isascii() and h.isdigit()):
@@ -384,6 +390,51 @@ class CloudWeb:
             msg = self.hub.bot_edit(int(h), bot.id, text, card, MAX_BOT_CHARS) if text else None
             if msg is not None:
                 await self.hub.broadcast({"type": "message", "message": msg}, msg["room_id"])
+
+    async def team_workspace(self, d: dict) -> dict:
+        """回一个 team_workspace 帧：op list | create | claim | release（带 park 也当 release，rh 没有任务表）。
+        照 collab/cloudweb.mjs teamWorkspace；dispatch_mode 不支持。建好、认领、放回后推一次频道列表给网页。"""
+        from .hub import WorkspaceError   # hub.py 导入本模块，放这里免得循环导入
+        hub = self.hub
+        rid = self._room(d)
+        if rid is None:
+            return {"ok": False, "error": "room-missing"}
+        me = hub.room(rid)
+        view = lambda r: {"id": f"room-{r['id']}", "name": r["name"]}
+        op = d.get("op")
+        try:
+            if op == "dispatch_mode":
+                return {"ok": False, "error": "unsupported"}
+            if op == "list":
+                rooms = []
+                for w in hub.workspaces():
+                    if w["id"] == rid:
+                        continue
+                    owner = hub.workspace_owner(w["id"])
+                    rooms.append({**view(w), "parent_id": "" if w["parent_id"] is None else f"room-{w['parent_id']}",
+                                  "owner": "" if owner is None else f"room-{owner}", "active": 0})
+                return {"ok": True, "self": view(me), "rooms": rooms}
+            if op == "claim":
+                raw = str(d.get("workspace_id") or "").removeprefix("room-")
+                if not (raw.isascii() and raw.isdigit()):
+                    return {"ok": False, "error": "room-missing"}
+                w = hub.claim_workspace(rid, int(raw))
+                await hub.rooms_changed()
+                return {"ok": True, "room": {**view(w), "claim": hub.claim_id(w["id"])}}
+            if op == "release":
+                if me["kind"] != "workspace":
+                    return {"ok": False, "error": "not-workspace"}
+                claim = d.get("claim")
+                if hub.release_workspace(rid, None if claim in (None, "") else str(claim)):
+                    await hub.rooms_changed()
+                return {"ok": True, "room": view(me)}
+            if op == "create":
+                w = hub.create_workspace(rid)   # 名字 hub 自己编（工作区n+1），桥用回包里的
+                await hub.rooms_changed()
+                return {"ok": True, "room": {**view(w), "claim": hub.claim_id(w["id"])}}
+        except WorkspaceError as e:
+            return {"ok": False, "error": e.code}
+        return {"ok": False, "error": "bad-op"}
 
     def _body(self, content: object) -> tuple[str, str | None]:
         """(存进频道的正文, 卡片 JSON 或 None)。"""
