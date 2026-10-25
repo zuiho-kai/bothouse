@@ -121,6 +121,9 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   if (message.card !== null) {
     try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   }
+  // Parse once per text change: MessageRow re-renders on every composer keystroke.
+  const shown = typeof card?.brief === 'string' && cardView === 'brief' ? card.brief : message.text
+  const markdown = useMemo(() => softBreaksToHard(shown), [shown])
   const classes = [css.message, message.author_kind === 'system' ? css.system : '', focused ? css.focused : ''].filter(Boolean).join(' ')
   return (
     <div className={classes} data-message-id={message.id}>
@@ -177,7 +180,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               </div>
             )
           : card === undefined
-          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={softBreaksToHard(message.text)} labels={labels} /></div>}<AttachmentList attachments={message.attachments} /></>
+          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>}<AttachmentList attachments={message.attachments} /></>
           : (
               <div className={css.card} data-state={card.state}>
                 <div className={css.cardHead}>
@@ -193,7 +196,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     </div>
                   )}
                 </div>
-                <div className={css.text}><MarkdownText text={softBreaksToHard(typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text)} labels={labels} /></div>
+                <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
                 {(card.state === 'failed' || card.action === 'configure-model') && (
                   <div className={css.cardButtons}>
                     {card.state !== 'retried' && (
