@@ -4035,3 +4035,53 @@ test('DSH member: gate down or slow, the turn goes out as before', async () => {
   assert.equal((await slow.turn({ member: 'ds', room: 1, text: 'x' })).block, '');
   assert.ok(Date.now() - t0 < 1000, 'a hung gate is given up on after the timeout');
 });
+
+test('DSH member: its own MEMORY.md goes into the first turn of a conversation only', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'ds', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'ds', 'wiki', 'MEMORY.md'), '- [projects](projects/README.md) — 部署记录\n');
+  process.env.BOTHOUSE_DATA_DIR = data;
+  try {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 在吗' });
+    await until(() => dsh.made.length && dsh.sessions.get(dsh.made[0]).prompts.length === 1);
+    const agent = dsh.sessions.get(dsh.made[0]);
+    const first = agent.prompts[0].content[0].text;
+    assert.ok(first.includes(`（你的记忆 wiki 目录页 ${join(data, 'roles', 'ds', 'wiki', 'MEMORY.md')}，新会话系统自动附上，不用回应）\n- [projects](projects/README.md) — 部署记录`), first);
+    assert.ok(first.indexOf('你的记忆') < first.indexOf('【我】@DeepSeek'), 'the block comes before the channel messages');
+    dsh.turn(agent, ['在']);
+    await until(() => hub.store.job(1).state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 再说一遍' });
+    await until(() => agent.prompts.length === 2);
+    assert.doesNotMatch(agent.prompts[1].content[0].text, /你的记忆/, 'the second turn does not carry it again');
+  } finally {
+    delete process.env.BOTHOUSE_DATA_DIR;
+  }
+});
+
+test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { MemoryIndex } = await import('./memory-index.mjs');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'm-ab12cd', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
+  const idx = new MemoryIndex({ dataDir: data, home: data });
+  const one = idx.turn({ member: 'm-ab12cd', room: 1 });
+  assert.equal(one.block, '（你的记忆 wiki 目录页 ~/roles/m-ab12cd/wiki/MEMORY.md，新会话系统自动附上，不用回应）\n- [a](a/README.md) — 甲');
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'not given until the prompt went out');
+  one.commit();
+  assert.equal(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '');
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 2 }).block, '', 'another room is another conversation');
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1, session: 's2' }).block, '', 'a new session is a fresh context');
+  idx.resetRoom(1);
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'a released workspace starts over');
+  assert.equal(idx.turn({ member: 'nobody', room: 1 }).block, '');
+  assert.equal(new MemoryIndex({ dataDir: '' }).turn({ member: 'm-ab12cd', room: 1 }).block, '');
+});

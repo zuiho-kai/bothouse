@@ -13,6 +13,7 @@ import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 import { GateContext } from './gate-context.mjs';
+import { MemoryIndex } from './memory-index.mjs';
 // Shared with the bridge (bridge/core/team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8');
@@ -293,6 +294,8 @@ export class DshMembers {
     this.allowAll = new Set();
     /** Per-turn wiki pages and task board from the local gate, each page once per conversation. */
     this.gateContext = runtime.gateContext ?? new GateContext({ logger: runtime.logger });
+    /** The member's own MEMORY.md on the first turn of each conversation (bridge memory_index). */
+    this.memoryIndex = runtime.memoryIndex ?? new MemoryIndex();
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -627,15 +630,24 @@ export class DshMembers {
     }
   }
 
-  /** The gate's pages for this turn (wiki, task board), queried with the message that @-ed the member. */
-  turnContext(member, room, session, unseen) {
+  /**
+   * This turn's context blocks: the member's own MEMORY.md on a conversation's first turn, then the gate's
+   * pages (wiki, task board) queried with the message that @-ed the member. commit() records both as given.
+   */
+  async turnContext(member, room, session, unseen) {
     const trigger = unseen.at(-1);
-    return this.gateContext.turn({ member: member.id, room: room.id, session, text: trigger?.text ?? '' });
+    const memory = this.memoryIndex.turn({ member: member.id, room: room.id, session });
+    const gate = await this.gateContext.turn({ member: member.id, room: room.id, session, text: trigger?.text ?? '' });
+    return {
+      block: [memory.block, gate.block].filter(Boolean).join('\n\n'),
+      commit: () => { memory.commit(); gate.commit(); },
+    };
   }
 
   /** A released workspace starts over: drop each local CLI member's ACP session for roomId. */
   resetRoom(roomId) {
     this.gateContext.resetRoom(roomId);
+    this.memoryIndex.resetRoom(roomId);
     for (const { agent } of this.cliAgents.values()) {
       agent.sessions?.delete(String(roomId));
       agent.saved?.delete(String(roomId));
