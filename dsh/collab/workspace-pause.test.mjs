@@ -33,6 +33,24 @@ test('stale task pauses through existing queue without pausing fresh work', () =
   tasks.close();
 });
 
+test('workspace role messages refresh stale activity', () => {
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  let now = 10000;
+  const tasks = new Tasks(hub, { now: () => now, setTimer: () => ({}), clearTimer() {} });
+  const task = tasks.assign({ roomId: ws.id, title: 'active', owner: 'ds', actor: 'owner' });
+  now += 3500;
+  hub.store.append(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '进度' }, now);
+  now += 101;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).paused_at, null);
+  now += 3600;
+  tasks.tick();
+  assert.ok(tasks.task(task.id).paused_at);
+  tasks.close();
+});
+
 test('[ask] pauses the bound owner task and leaves its row on the source board', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
@@ -41,7 +59,7 @@ test('[ask] pauses the bound owner task and leaves its row on the source board',
   hub.tasks = tasks;
   new TeamExit(hub);
   const task = tasks.assign({ roomId: ws.id, title: 'choose', owner: 'ds', actor: 'owner' });
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\nChoose A/B' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\nPR #280 should merge?' });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(task.id).paused_at);
   assert.equal(hub.store.workspaceOwner(ws.id), null);

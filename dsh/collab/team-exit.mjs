@@ -60,11 +60,11 @@ export class TeamExit {
       this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
       const tasks = this.hub.tasks;
       if (tasks) {
-        const taskId = /#(\d+)\b/.exec(mark[2])?.[1];
-        const selected = taskId
-          ? tasks.task(Number(taskId))
-          : tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
-            .filter(t => t.room_id === room.id).at(-1);
+        const taskId = /\b任务\s+#(\d+)\b/.exec(mark[2])?.[1];
+        const inRoom = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
+          .filter(t => t.room_id === room.id);
+        const marked = taskId ? tasks.task(Number(taskId)) : undefined;
+        const selected = marked?.room_id === room.id ? marked : inRoom[0];
         if (selected?.room_id === room.id) tasks.pauseTask(selected.id);
       }
     }

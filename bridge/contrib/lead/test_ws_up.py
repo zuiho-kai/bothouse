@@ -107,6 +107,7 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(last["tasks"][notes[0]], {"channel": "900", "chat": "test:100", "task": "A", "board": [1]})
         # 工作区 900 报回交 a 进来的聊天频道
         self.assertEqual(self.run_tool("ws-up", "done", key="test:900").returncode, 0)
+        self.assertIsNotNone(self.items()[0].get("progress_at"))
         argv = self.timers()[-1]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
         # 答复按 --notes 转回 a 所在工作区，而不是最近一次交接
@@ -236,6 +237,7 @@ class WsPoolTest(unittest.TestCase):
         rows = self.items()
         for row in rows:
             row["at"] = time.strftime("%m-%d %H:%M", time.localtime(time.time() - 7200))
+            row["progress_at"] = time.time() - 7200
         rows[1]["next_ts"] = time.time() + 3600
         (self.tmp / "board" / "board.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
         self.assertEqual(self.board("refresh")[0], 0)

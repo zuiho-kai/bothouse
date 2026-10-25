@@ -82,6 +82,7 @@ export class Tasks {
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
+      workspaceActivity: this.db.prepare("SELECT MAX(created_at) AS at FROM messages WHERE room_id = ? AND author_kind = 'role' AND card IS NULL AND deleted = 0"),
       // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
       park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
@@ -422,7 +423,9 @@ export class Tasks {
   tick() {
     if (this.closed || !this.started) return;
     for (const task of this.q.allBusy.all(...WORKING)) {
-      if (this.now() - task.updated_at >= STALE_AFTER_S) this.pauseTask(task.id);
+      if (this.store.room(task.room_id)?.kind !== 'workspace') continue;
+      const activity = this.q.workspaceActivity.get(task.room_id).at ?? task.updated_at;
+      if (this.now() - Math.max(task.updated_at, activity) >= STALE_AFTER_S) this.pauseTask(task.id);
     }
     for (const task of this.q.due.all(this.now(), ...WORKING)) {
       const name = this.nameOf(task.owner);
@@ -468,7 +471,7 @@ export class Tasks {
     if (this.closed) return;
     const stale = this.q.allBusy.all(...WORKING)
       .filter(t => this.store.room(t.room_id)?.kind === 'workspace')
-      .map(t => t.updated_at + STALE_AFTER_S);
+      .map(t => Math.max(t.updated_at, this.q.workspaceActivity.get(t.room_id).at ?? 0) + STALE_AFTER_S);
     const at = [this.q.next.get(...WORKING).at, ...stale].filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));

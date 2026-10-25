@@ -129,6 +129,9 @@ def main(argv):
             if hit:
                 board.park_workspace(hit)
         board.refresh({board._cur_channel()})
+    else:
+        for nid in handoffs(last)[path].get("board") or []:
+            board.progress(nid)
     say(key, f"📤 已报回聊天频道：{rest[0][:300]}")
     print(f"ws-up: 已交给聊天频道 {chat}（{'提问' if ask else '上报'}）", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id

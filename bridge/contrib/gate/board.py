@@ -179,9 +179,20 @@ def update(nid, status, where=None, who=None, nxt=None):
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
-    if hit.get("ws"):
-        schedule_stale_check(hit)
     return before
+
+
+def progress(nid):
+    """Record an explicit ws-up progress report for this bound workspace task."""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or not hit.get("ws") or hit.get("paused"):
+            return False
+        hit["progress_at"] = time.time()
+        _write(cur)
+    schedule_stale_check(hit)
+    return True
 
 
 CARD_RE = re.compile(r"https://discord\.com/channels/\d+/\d+/\d+")  # Discord 消息链接：/channels/<服务器>/<频道>/<消息>
@@ -271,12 +282,9 @@ def pause_stale(now=None):
     for it in _read():
         if it.get("paused") or not it.get("ws") or it.get("next_ts", 0) > now:
             continue
-        try:
-            stamp = time.mktime(time.strptime(f"{time.localtime(now).tm_year}-{it['at']}", "%Y-%m-%d %H:%M"))
-        except (KeyError, ValueError):
+        stamp = it.get("progress_at")
+        if stamp is None:
             continue
-        if stamp > now:  # board timestamps omit the year; handle the New Year rollover
-            stamp = time.mktime(time.strptime(f"{time.localtime(now).tm_year - 1}-{it['at']}", "%Y-%m-%d %H:%M"))
         if now - stamp < STALE_AFTER:
             continue
         hit = pause(it["id"], "一小时无进展，转待办")
@@ -752,9 +760,6 @@ def main(argv):
                 rebind(nid, back)
             if r is None:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
-            if r:
-                active = next(i for i in items() if i["id"] == nid)
-                schedule_stale_check(active)
             print("已恢复" if r else f"#{nid} 没在暂停")
             if r:
                 refresh({_chan_of(nid), _cur_channel()})
