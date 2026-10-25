@@ -14,6 +14,10 @@ LATE = "2026-10-23T03:05:00+00:00"   # 晚于 SINCE
 EARLY = "2026-10-23T02:00:00+00:00"  # 早于 SINCE
 
 class T(unittest.TestCase):
+    def setUp(self):  # 下面断言按桥程序名 cc-connect 写；找程序的逻辑另在 BridgeBinTest 测
+        p = mock.patch.dict(os.environ, {"CC_BIN": "cc-connect"})
+        p.start(); self.addCleanup(p.stop)
+
     def run_fire(self, messages, now=SINCE + 600, commit=0.0, extra=()):
         with mock.patch.object(d, "fetch_messages", return_value=messages), \
              mock.patch.object(d, "last_commit_epoch", return_value=commit), \
@@ -148,6 +152,57 @@ class T(unittest.TestCase):
     def test_dry_run_shows_renew(self):
         _, pr = self.run_fire([], commit=SINCE + 300, extra=("--dry-run",))
         self.assertIn("会续 10 分钟（第 1/2 次）", pr.call_args[0][0])
+
+
+class BridgeBinTest(unittest.TestCase):
+    """只装了 bothouse（PATH 里没有 cc-connect、没设 CC_BIN）：续期和暂停都真调到 bothouse。"""
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.log = os.path.join(self.tmp, "calls.log")
+        fake = os.path.join(self.tmp, "bothouse")
+        with open(fake, "w") as fh:
+            fh.write('#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' % self.log)
+        os.chmod(fake, 0o755)
+        env = {k: v for k, v in os.environ.items() if k != "CC_BIN"}
+        env["PATH"] = self.tmp + ":/usr/bin:/bin"
+        p = mock.patch.dict(os.environ, env, clear=True)
+        p.start(); self.addCleanup(p.stop)
+
+    def fire(self, commit, extra=()):
+        with mock.patch.object(d, "fetch_messages", return_value=[]), \
+             mock.patch.object(d, "last_commit_epoch", return_value=commit), \
+             mock.patch.object(d.time, "time", return_value=SINCE + 600), \
+             mock.patch("builtins.print"):
+            rc = d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj", *extra])
+        with open(self.log) as fh:
+            return rc, fh.read()
+
+    def test_finds_bothouse(self):
+        self.assertEqual(d.cc_bin(), os.path.join(self.tmp, "bothouse"))
+
+    def test_cc_bin_env_wins(self):
+        with mock.patch.dict(os.environ, {"CC_BIN": "/opt/x/bothouse"}):
+            self.assertEqual(d.cc_bin(), "/opt/x/bothouse")
+
+    def test_renew_via_bothouse(self):
+        rc, log = self.fire(commit=SINCE + 300)
+        self.assertEqual(rc, 0)
+        self.assertTrue(log.startswith("timer add -p lead-proj -s discord:3003 --delay 10m"), log)
+
+    def test_pause_via_bothouse(self):
+        rc, log = self.fire(commit=0.0)
+        self.assertEqual(rc, 0)
+        self.assertTrue(log.startswith("send -p lead-proj -s discord:3003 --message"), log)
+        self.assertIn("暂停", log)
+
+    def test_no_bridge_fails_loudly(self):
+        os.remove(os.path.join(self.tmp, "bothouse"))
+        with mock.patch.object(d, "fetch_messages", return_value=[]), \
+             mock.patch.object(d, "last_commit_epoch", return_value=SINCE + 300), \
+             mock.patch.object(d.time, "time", return_value=SINCE + 600), \
+             mock.patch("builtins.print"):
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 1)
 
 
 class WorktreesTest(unittest.TestCase):
