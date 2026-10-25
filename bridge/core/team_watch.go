@@ -331,12 +331,11 @@ func (w *handoffWatch) workspaceBusy(key string) bool {
 }
 
 // ownerSpoke: owner posted progress in the channel of workspace key at or after since. No owner
-// (the claim named none): false. The platform not connected or without channel history: an error.
+// (the claim named none): the posts of this bot count (IsSelf) — the main role that took the
+// handoff in the workspace channel is this bridge's bot (ws-handoff). The platform not connected
+// or without channel history: an error.
 func (w *handoffWatch) ownerSpoke(key, owner string, since time.Time) (bool, error) {
 	id := watchOwnerID(owner)
-	if id == "" {
-		return false, nil
-	}
 	plat, ch, _ := strings.Cut(key, ":")
 	p := w.e.lookupReadyPlatform(plat)
 	if p == nil {
@@ -351,7 +350,11 @@ func (w *handoffWatch) ownerSpoke(key, owner string, since time.Time) (bool, err
 		return false, err
 	}
 	for _, m := range msgs {
-		if m.AuthorID == id && !m.Time.Before(since) && watchIsProgressText(m.Content) {
+		mine := m.IsSelf
+		if id != "" {
+			mine = m.AuthorID == id
+		}
+		if mine && !m.Time.Before(since) && watchIsProgressText(m.Content) {
 			return true, nil
 		}
 	}

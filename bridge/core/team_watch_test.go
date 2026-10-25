@@ -371,12 +371,21 @@ func (p *historyTestPlatform) ChannelHistory(channelID, _ string, _ int) ([]Chan
 }
 
 func (p *historyTestPlatform) post(channelID, authorID, content string, at time.Time) {
+	p.add(channelID, ChannelHistoryMessage{ID: content, AuthorID: authorID, IsBot: true, Content: content, Time: at})
+}
+
+// postSelf: a post of this bot (IsSelf).
+func (p *historyTestPlatform) postSelf(channelID, content string, at time.Time) {
+	p.add(channelID, ChannelHistoryMessage{ID: content, AuthorID: "self", IsBot: true, IsSelf: true, Content: content, Time: at})
+}
+
+func (p *historyTestPlatform) add(channelID string, m ChannelHistoryMessage) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.msgs == nil {
 		p.msgs = map[string][]ChannelHistoryMessage{}
 	}
-	p.msgs[channelID] = append(p.msgs[channelID], ChannelHistoryMessage{ID: content, AuthorID: authorID, IsBot: true, Content: content, Time: at})
+	p.msgs[channelID] = append(p.msgs[channelID], m)
 }
 
 // progressFixture: watchFixture whose platform reads channel history; the watch uses its real
@@ -409,6 +418,23 @@ func TestWatchOwnerPostRenews(t *testing.T) {
 	got := handoffsOf(e, "discord:ws1")[0]
 	if got.Renewed != 1 || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
 		t.Fatalf("renewal 1, silent, not parked: %+v, sent %v", got, p.out)
+	}
+}
+
+// No owner named (ws-handoff before it passed --owner): this bot's own posts in the workspace
+// count; another author's do not; a stance line of this bot does not either.
+func TestWatchNoOwnerSelfPostRenews(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	at := h.Due.Add(-time.Minute)
+	p.post("ws1", k5aOwner, "别人的进度", at)
+	p.postSelf("ws1", "【接】已派龙娘", at)
+	if w.workspaceProgress("discord:ws1", h, h.At) {
+		t.Fatal("another author or a stance line of this bot is not progress")
+	}
+	p.postSelf("ws1", "龙娘交回了第一块，在派第二块", at)
+	w.tick(h.Due)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("this bot's post renews silently, got %+v, sent %v", got, p.out)
 	}
 }
 

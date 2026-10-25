@@ -185,6 +185,13 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
     return freed
 
 
+def owner_args():
+    """claim 的 --owner：接手的是工作区频道里的主角色（本项目自己的平台 id，团队文件里查），
+    桥的十分钟看门按她在工作区的发言算进展（core/team_watch.go ownerSpoke）；查不到就不带，桥按本 bot 发言算。"""
+    oid = _team.member_id(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else None
+    return ["--owner", str(oid)] if oid else []
+
+
 def pick_pool(chat: str):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名）。"""
     board.pause_stale()
@@ -197,7 +204,7 @@ def pick_pool(chat: str):
           and str(w.get("owner") or "") in ("", parent) and int(w.get("open") or 0) < BUSY]
     ok.sort(key=lambda w: (int(w.get("open") or 0), num(w.get("name"))))
     for w in ok:
-        c = subprocess.run([cc_bin(), "workspace", "claim", str(w["id"]), "--session-key", chat],
+        c = subprocess.run([cc_bin(), "workspace", "claim", str(w["id"]), "--session-key", chat, *owner_args()],
                            capture_output=True, text=True)
         if c.returncode == 0:
             return f"{plat}:{w['id']}", str(w.get("name") or w["id"])
@@ -205,7 +212,7 @@ def pick_pool(chat: str):
     w = (ws_cmd(chat, "new").get("workspace") or {})
     if not w.get("id"):
         sys.exit("ws-handoff: workspace new 没回工作区")
-    ws_cmd(chat, "claim", str(w["id"]))
+    ws_cmd(chat, "claim", str(w["id"]), *owner_args())
     print(f"ws-handoff: 池里没有不忙的工作区，用 {w.get('name') or w['id']}", file=sys.stderr)
     return f"{plat}:{w['id']}", str(w.get("name") or w["id"])
 
