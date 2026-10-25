@@ -34,6 +34,11 @@ describe('softBreaksToHard', () => {
   })
   it('does not touch fences inside block quotes or deeply indented in lists', () => {
     expect(softBreaksToHard('> 引\n> ```\n> a\n> b\n> ```\n> 尾')).toBe('> 引\n> ```\n> a\n> b\n> ```\n> 尾')
-    expect(softBreaksToHard('- 项\n      ```\n      a\n      b\n      ```')).toBe('- 项\n      ```\n      a\n      b\n      ```')
+    expect(softBreaksToHard('- 外\n  - 内\n    ```\n    a\n    b\n    ```')).toBe('- 外\n  - 内\n    ```\n    a\n    b\n    ```')
+  })
+  it('follows CommonMark where a line only looks like a fence', () => {
+    // Six spaces cannot open a fence or interrupt the paragraph: the backticks are one inline code
+    // span, so only the prose line ending before it becomes a break.
+    expect(softBreaksToHard('- 项\n      ```\n      a\n      b\n      ```')).toBe('- 项  \n      ```\n      a\n      b\n      ```')
   })
 })

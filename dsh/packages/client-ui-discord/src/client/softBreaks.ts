@@ -1,34 +1,41 @@
+import { fromMarkdown } from 'mdast-util-from-markdown'
+import { gfmFromMarkdown } from 'mdast-util-gfm'
+import { mathFromMarkdown } from 'mdast-util-math'
+import { gfm } from 'micromark-extension-gfm'
+import { math } from 'micromark-extension-math'
+import { mathCompatibility } from './mathCompatibility.ts'
+
+interface Node {
+  type: string
+  children?: Node[]
+  position?: { start: { offset?: number }, end: { offset?: number } }
+}
+
 /**
- * Turns each single newline in prose into a markdown hard break (two trailing spaces), so a
- * message reads line by line as typed — the same rule as remark-breaks. Fenced and indented code
- * keep their text unchanged.
+ * Turns each soft line break in a paragraph into a markdown hard break (two trailing spaces), so
+ * a message reads line by line as typed — the same rule as remark-breaks. The text is parsed with
+ * MarkdownText's own settled grammar (GFM + math), so only line endings inside paragraph text
+ * change; code, math, tables, HTML, inline code and existing hard breaks keep their bytes.
  */
 export function softBreaksToHard(text: string): string {
-  const lines = text.replace(/\r\n/g, '\n').split('\n')
-  let fence: string | undefined
-  let indentedCode = false
-  return lines.map((line, i) => {
-    if (fence !== undefined) {
-      const close = /^[ \t>]*([`~]+)\s*$/.exec(line)
-      if (close && close[1].startsWith(fence)) fence = undefined
-      return line
+  const source = text.replace(/\r\n/g, '\n')
+  const tree = fromMarkdown(source, {
+    extensions: [gfm(), mathCompatibility(), math()],
+    mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
+  }) as Node
+  const breaks: number[] = []
+  const visit = (node: Node, inParagraph: boolean) => {
+    if (inParagraph && node.type === 'text') {
+      const start = node.position?.start.offset
+      const end = node.position?.end.offset
+      if (start === undefined || end === undefined) return
+      for (let i = source.indexOf('\n', start); i !== -1 && i < end; i = source.indexOf('\n', i + 1)) breaks.push(i)
+      return
     }
-    const open = /^[ \t>]*(`{3,}|~{3,})/.exec(line)
-    if (open) {
-      fence = open[1]
-      indentedCode = false
-      return line
-    }
-    const previous = i > 0 ? lines[i - 1] : ''
-    if (/^( {4}|\t)/.test(line) && (previous.trim() === '' || indentedCode)) {
-      indentedCode = true
-      return line
-    }
-    indentedCode = false
-    const next = lines[i + 1]
-    if (line.trim() === '' || next === undefined || next.trim() === '') return line
-    if (line.endsWith('  ') || line.endsWith('\\')) return line
-    if (/^[ \t>]*(`{3,}|~{3,})/.test(next)) return line
-    return line + '  '
-  }).join('\n')
+    for (const child of node.children ?? []) visit(child, inParagraph || node.type === 'paragraph')
+  }
+  visit(tree, false)
+  let out = source
+  for (let k = breaks.length - 1; k >= 0; k--) out = out.slice(0, breaks[k]) + '  ' + out.slice(breaks[k])
+  return out
 }
