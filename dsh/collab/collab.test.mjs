@@ -3836,13 +3836,18 @@ test('block B: ACP prompt actually includes image/resource blocks', async () => 
   assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
 });
 
-test('node can launch a script from a non-ASCII path (Chinese, spaces and percent signs)', async () => {
+// Shared by both subprocess tests so the Unicode regression exercises their path conversion.
+const scriptPath = url => fileURLToPath(url);
+
+test('reminder subprocess path decodes Chinese, spaces and literal percent signs', async () => {
   const { copyFileSync, realpathSync } = await import('node:fs');
   const dir = realpathSync(mkdtempSync(join(tmpdir(), '提醒 测试%-')));
   for (const name of ['later.mjs', 'store.mjs']) copyFileSync(new URL(`./${name}`, import.meta.url), join(dir, name));
   // pathToFileURL also escapes literal percent signs in filesystem paths.
   const { pathToFileURL } = await import('node:url');
-  const script = fileURLToPath(pathToFileURL(join(dir, 'later.mjs')));
+  const expected = join(dir, 'later.mjs');
+  const script = scriptPath(pathToFileURL(expected));
+  assert.equal(script, expected, 'filesystem characters must survive URL conversion exactly');
   const result = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script]);
     let stderr = '';
@@ -3868,7 +3873,7 @@ test('block B: local later command registers through the ticketed HTTP route, no
   try {
   later.origin = `http://127.0.0.1:${server.address().port}`;
   assert.match(later.instructions('cli', 1), new RegExp(later.ticket('cli', 1).replace(/[.]/g, '\\.')));
-  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [fileURLToPath(new URL('./later.mjs', import.meta.url)), ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [scriptPath(new URL('./later.mjs', import.meta.url)), ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
   assert.notEqual((await run([later.origin, 'forged.ticket', '1s', 'check', 'read results'])).status, 0);
   assert.notEqual((await run([later.origin, later.ticket('cli', 1).slice(0, -2) + 'xx', '1s', 'check', 'read results'])).status, 0, 'tampered ticket rejected');
   const result = await run([later.origin, later.ticket('cli', 1), '1s', 'check', 'read results']);
