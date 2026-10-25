@@ -24,6 +24,7 @@ export default function Layout() {
         'flex h-screen overflow-hidden',
         'bg-gradient-to-br from-gray-100 via-white to-gray-100',
         'dark:from-gray-950 dark:via-[#0a0a0c] dark:to-gray-950',
+        'yellow:from-cream-100 yellow:via-cream-50 yellow:to-cream-200/70',
         isSetup && 'setup-layout',
       )}
     >

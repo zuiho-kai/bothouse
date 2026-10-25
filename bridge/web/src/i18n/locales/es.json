@@ -358,7 +358,10 @@
     "rlWindowSecs": "Ventana (seg)",
     "rlWindowSecsHint": "Ventana de tiempo en segundos",
     "log": "Registro",
-    "logLevel": "Nivel de registro"
+    "logLevel": "Nivel de registro",
+    "appearance": "Apariencia",
+    "theme": "Tema",
+    "themeHint": "Por defecto, amarillo y blanco. Se guarda solo en este navegador; no hace falta pulsar Guardar."
   },
   "globalProviders": {
     "title": "Gestión de proveedores",
@@ -430,6 +433,8 @@
   "theme": {
     "light": "Claro",
     "dark": "Oscuro",
-    "system": "Sistema"
+    "system": "Sistema",
+    "yellow": "Amarillo y blanco",
+    "toggle": "Cambiar tema"
   }
 }

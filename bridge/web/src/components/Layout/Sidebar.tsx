@@ -63,6 +63,7 @@ export default function Sidebar({
           'bg-white/95 backdrop-blur-xl border-gray-200/80',
           'dark:bg-[rgba(0,0,0,0.95)] dark:backdrop-blur-xl dark:border-white/[0.08]',
           'md:bg-white/75 md:dark:bg-[rgba(0,0,0,0.85)]',
+          'yellow:bg-cream-100/95 yellow:md:bg-cream-100/80',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           'md:translate-x-0',
           collapsed ? 'md:w-16' : 'md:w-56',

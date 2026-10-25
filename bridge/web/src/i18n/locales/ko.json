@@ -358,7 +358,10 @@
     "rlWindowSecs": "기간 (초)",
     "rlWindowSecsHint": "초 단위의 시간 기간",
     "log": "로그",
-    "logLevel": "로그 레벨"
+    "logLevel": "로그 레벨",
+    "appearance": "모양",
+    "theme": "테마",
+    "themeHint": "기본값은 밝은 옐로화이트입니다. 이 브라우저에만 저장되며 저장 버튼은 필요 없습니다."
   },
   "globalProviders": {
     "title": "제공업체",
@@ -430,6 +433,8 @@
   "theme": {
     "light": "라이트",
     "dark": "다크",
-    "system": "시스템"
+    "system": "시스템",
+    "yellow": "밝은 옐로화이트",
+    "toggle": "테마 전환"
   }
 }

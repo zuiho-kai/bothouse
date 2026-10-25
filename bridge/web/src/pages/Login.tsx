@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Zap, AlertCircle, Languages, Sun, Moon, Monitor } from 'lucide-react';
+import { Zap, AlertCircle, Languages } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
-import { useThemeStore } from '@/store/theme';
+import { useThemeStore, NEXT_THEME } from '@/store/theme';
+import { THEME_ICONS } from '@/components/Theme/themeIcons';
 import { api } from '@/api/client';
 import { getStatus, getVersion } from '@/api/status';
 import { initialServerUrl } from '@/lib/serverUrl';
@@ -80,12 +81,10 @@ export default function Login() {
     }
   };
 
-  const themeIcons = { light: Sun, dark: Moon, system: Monitor };
-  const nextTheme: Record<string, 'light' | 'dark' | 'system'> = { light: 'dark', dark: 'system', system: 'light' };
-  const ThemeIcon = themeIcons[theme];
+  const ThemeIcon = THEME_ICONS[theme];
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-100 to-white dark:from-gray-950 dark:to-gray-900 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-100 to-white yellow:from-cream-100 yellow:to-cream-50 dark:from-gray-950 dark:to-gray-900 p-4">
       {/* Top right controls */}
       <div className="fixed top-4 right-4 flex items-center gap-2">
         <div className="flex bg-white/80 dark:bg-gray-800/80 backdrop-blur rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -104,7 +103,8 @@ export default function Login() {
           ))}
         </div>
         <button
-          onClick={() => setTheme(nextTheme[theme])}
+          onClick={() => setTheme(NEXT_THEME[theme])}
+          aria-label={t('theme.toggle')} title={t(`theme.${theme}`)}
           className="p-2 rounded-lg bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
         >
           <ThemeIcon size={16} />

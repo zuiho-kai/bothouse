@@ -361,7 +361,10 @@
     "rlWindowSecs": "視窗時間（秒）",
     "rlWindowSecsHint": "時間視窗的秒數",
     "log": "記錄",
-    "logLevel": "記錄層級"
+    "logLevel": "記錄層級",
+    "appearance": "外觀",
+    "theme": "主題",
+    "themeHint": "預設是黃白明亮。只儲存在這個瀏覽器裡，不用按儲存。"
   },
   "globalProviders": {
     "title": "服務商管理",
@@ -433,6 +436,8 @@
   "theme": {
     "light": "淺色",
     "dark": "深色",
-    "system": "跟隨系統"
+    "system": "跟隨系統",
+    "yellow": "黃白明亮",
+    "toggle": "切換主題"
   }
 }

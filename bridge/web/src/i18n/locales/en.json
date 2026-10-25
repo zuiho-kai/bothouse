@@ -362,7 +362,10 @@
     "rlWindowSecs": "Window (sec)",
     "rlWindowSecsHint": "Time window in seconds",
     "log": "Log",
-    "logLevel": "Log level"
+    "logLevel": "Log level",
+    "appearance": "Appearance",
+    "theme": "Theme",
+    "themeHint": "Default is bright yellow-white. Saved in this browser only; no need to press Save."
   },
   "globalProviders": {
     "title": "Providers",
@@ -434,7 +437,9 @@
   "theme": {
     "light": "Light",
     "dark": "Dark",
-    "system": "System"
+    "system": "System",
+    "yellow": "Bright yellow-white",
+    "toggle": "Switch theme"
   },
   "update": {
     "button": "Update to {{version}}",

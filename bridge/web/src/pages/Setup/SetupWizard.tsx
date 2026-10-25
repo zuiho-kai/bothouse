@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, House, Loader2, Puzzle, MessageSquare, Plus, RefreshCw, Smartphone, Trash2, XCircle } from 'lucide-react';
-import { useThemeStore } from '@/store/theme';
+import { useThemeStore, DEFAULT_THEME } from '@/store/theme';
 import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
 import PlatformSetupQR from '@/pages/Projects/PlatformSetupQR';
@@ -61,7 +61,7 @@ let keySeq = 1;
 export default function SetupWizard() {
   useEffect(() => {
     // Also cover entering setup from an already-open management page.
-    if (!localStorage.getItem('cc_theme')) useThemeStore.getState().setTheme('light');
+    if (!localStorage.getItem('cc_theme')) useThemeStore.getState().setTheme(DEFAULT_THEME);
   }, []);
   const { i18n } = useTranslation();
   const lang = i18n.language || 'en';
@@ -465,7 +465,7 @@ export default function SetupWizard() {
       {/* stepper */}
       <div className="setup-steps flex flex-wrap gap-1.5" aria-label={T.title}>
         {(picked === 'dsh' ? [0] : visibleSteps).map((s, i) => (
-          <span key={s} aria-current={s === step ? 'step' : undefined} className={`px-2.5 py-1 rounded-full text-xs ${s === step ? 'bg-accent text-white dark:text-black' : i < pos ? 'bg-accent/15 text-accent' : 'bg-gray-100 dark:bg-white/[0.06] text-gray-500'}`}>
+          <span key={s} aria-current={s === step ? 'step' : undefined} className={`px-2.5 py-1 rounded-full text-xs ${s === step ? 'bg-accent text-white dark:text-black yellow:text-gray-900' : i < pos ? 'bg-accent/15 text-accent' : 'bg-gray-100 dark:bg-white/[0.06] text-gray-500'}`}>
             {i + 1}. {T.steps[s]}
           </span>
         ))}

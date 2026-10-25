@@ -7,10 +7,51 @@
 :root {
   --color-accent: 22 163 74;
   --color-accent-dim: 21 128 61;
+  --color-accent-text: var(--color-accent);
+  --color-accent-text-dim: var(--color-accent-dim);
+  /* Tailwind's default gray (tailwind.config.ts maps gray-* to these). */
+  --gray-50: 249 250 251;
+  --gray-100: 243 244 246;
+  --gray-200: 229 231 235;
+  --gray-300: 209 213 219;
+  --gray-400: 156 163 175;
+  --gray-500: 107 114 128;
+  --gray-600: 75 85 99;
+  --gray-700: 55 65 81;
+  --gray-800: 31 41 55;
+  --gray-900: 17 24 39;
+  --gray-950: 3 7 18;
 }
 .dark {
   --color-accent: 66 255 156;
   --color-accent-dim: 43 200 122;
+}
+
+/* Yellow-white ("黄白明亮") brand theme: light base + warm grays + orange accent.
+   Source: promo-collab/film-promo/page.html — #FFFCF5/#FFF4D9/#2A2420 :3, #F2994A :6, #E9E1D2 :9,
+   #6b5f52 :22, #5a4e42 :24. Other steps are interpolated between those. Text-on-surface pairs are
+   >= 4.5:1 on #FFFCF5 and #FFF4D9 (gray-400 #766756 5.0:1, accent text #A84F16 5.1:1). */
+.theme-yellow {
+  --color-accent: 242 153 74;        /* #F2994A — fills, rings, bars */
+  --color-accent-dim: 228 132 52;    /* #E48434 — hover fill */
+  --color-accent-text: 168 79 22;    /* #A84F16 — text/icons */
+  --color-accent-text-dim: 154 74 18; /* #9A4A12 */
+  --gray-50: 255 252 245;   /* #FFFCF5 */
+  --gray-100: 255 244 217;  /* #FFF4D9 */
+  --gray-200: 233 225 210;  /* #E9E1D2 */
+  --gray-300: 220 207 184;  /* #DCCFB8 */
+  --gray-400: 118 103 86;   /* #766756 */
+  --gray-500: 107 95 82;    /* #6B5F52 */
+  --gray-600: 90 78 66;     /* #5A4E42 */
+  --gray-700: 70 59 49;     /* #463B31 */
+  --gray-800: 53 44 37;     /* #352C25 */
+  --gray-900: 42 36 32;     /* #2A2420 */
+  --gray-950: 28 24 20;     /* #1C1814 */
+  color-scheme: light;
+}
+.theme-yellow body {
+  background: #fffcf5;
+  color: #2a2420;
 }
 
 body {

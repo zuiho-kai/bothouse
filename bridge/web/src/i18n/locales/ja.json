@@ -358,7 +358,10 @@
     "rlWindowSecs": "ウィンドウ（秒）",
     "rlWindowSecsHint": "タイムウィンドウの秒数",
     "log": "ログ",
-    "logLevel": "ログレベル"
+    "logLevel": "ログレベル",
+    "appearance": "外観",
+    "theme": "テーマ",
+    "themeHint": "既定はイエローホワイト。このブラウザだけに保存され、保存ボタンは不要です。"
   },
   "globalProviders": {
     "title": "プロバイダー管理",
@@ -430,7 +433,9 @@
   "theme": {
     "light": "ライト",
     "dark": "ダーク",
-    "system": "システムに合わせる"
+    "system": "システムに合わせる",
+    "yellow": "イエローホワイト",
+    "toggle": "テーマを切り替え"
   },
   "update": {
     "button": "{{version}} に更新",

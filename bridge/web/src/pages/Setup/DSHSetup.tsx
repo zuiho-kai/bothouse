@@ -192,7 +192,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   return <div className="space-y-4 max-w-3xl" data-testid="dsh-setup">
     <h2 className="text-lg font-bold">{t.title}</h2><p className="text-sm text-gray-500">{t.note}</p>
     <div className="flex flex-wrap gap-2">{t.steps.map((label, i) => <span key={label}
-      className={`rounded-full px-3 py-1 text-sm ${step === i ? 'bg-accent text-white' : i < step ? 'bg-accent/10 text-accent' : 'bg-gray-100 dark:bg-gray-800'}`}>{i < step ? '✓' : `${i + 1}.`} {label}</span>)}</div>
+      className={`rounded-full px-3 py-1 text-sm ${step === i ? 'bg-accent text-white yellow:text-gray-900' : i < step ? 'bg-accent/10 text-accent' : 'bg-gray-100 dark:bg-gray-800'}`}>{i < step ? '✓' : `${i + 1}.`} {label}</span>)}</div>
     <Card className="space-y-4">
       {error && <p role="alert" className="text-red-500 whitespace-pre-wrap" data-testid="dsh-error">{error}</p>}
 

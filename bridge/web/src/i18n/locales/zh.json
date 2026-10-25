@@ -362,7 +362,10 @@
     "rlWindowSecs": "窗口时间（秒）",
     "rlWindowSecsHint": "时间窗口的秒数",
     "log": "日志",
-    "logLevel": "日志级别"
+    "logLevel": "日志级别",
+    "appearance": "外观",
+    "theme": "主题",
+    "themeHint": "默认是黄白明亮。只保存在这个浏览器里，不用点保存。"
   },
   "globalProviders": {
     "title": "服务商管理",
@@ -434,7 +437,9 @@
   "theme": {
     "light": "浅色",
     "dark": "深色",
-    "system": "跟随系统"
+    "system": "跟随系统",
+    "yellow": "黄白明亮",
+    "toggle": "切换主题"
   },
   "update": {
     "button": "更新到 {{version}}",

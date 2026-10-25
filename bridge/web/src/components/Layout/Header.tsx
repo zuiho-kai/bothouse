@@ -1,10 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useEffect } from 'react';
 import {
-  RefreshCw, Sun, Moon, Monitor, LogOut, Languages, Menu,
+  RefreshCw, LogOut, Languages, Menu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useThemeStore } from '@/store/theme';
+import { useThemeStore, NEXT_THEME, NEXT_WIZARD_THEME } from '@/store/theme';
+import { THEME_ICONS } from '@/components/Theme/themeIcons';
 import { useAuthStore } from '@/store/auth';
 import { useLocation } from 'react-router-dom';
 import { wizardTexts } from '@/pages/Setup/texts';
@@ -21,7 +22,7 @@ const languages = [
 
 export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { t, i18n } = useTranslation();
-  const { theme, resolved, setTheme } = useThemeStore();
+  const { theme, setTheme } = useThemeStore();
   const isSetup = useLocation().pathname === '/setup';
   const T = wizardTexts(i18n.language);
   const logout = useAuthStore((s) => s.logout);
@@ -43,9 +44,9 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     setTimeout(() => setSpinning(false), 1000);
   };
 
-  const themeIcons = { light: Sun, dark: Moon, system: Monitor };
-  const nextTheme = { light: 'dark' as const, dark: 'system' as const, system: 'light' as const };
-  const ThemeIcon = themeIcons[theme];
+  const ThemeIcon = THEME_ICONS[theme];
+  const nextWizard = NEXT_WIZARD_THEME[theme];
+  const wizardStyleLabel = { yellow: T.yellowStyle, light: T.lightStyle, dark: T.darkStyle, system: T.yellowStyle };
 
   const changeLang = (code: string) => {
     i18n.changeLanguage(code);
@@ -64,7 +65,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
       className={cn(
         'h-14 flex items-center justify-end gap-1 px-4 shrink-0 relative z-20',
         'border-b border-gray-200/80 dark:border-white/[0.08]',
-        'bg-white/70 backdrop-blur-xl dark:bg-[rgba(0,0,0,0.72)]',
+        'bg-white/70 backdrop-blur-xl dark:bg-[rgba(0,0,0,0.72)] yellow:bg-cream-100/70',
       )}
     >
       {!isSetup && (
@@ -116,11 +117,11 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
       </div>
 
       {/* Theme */}
-      <button type="button" onClick={() => setTheme(isSetup ? (resolved === 'dark' ? 'light' : 'dark') : nextTheme[theme])}
+      <button type="button" onClick={() => setTheme(isSetup ? nextWizard : NEXT_THEME[theme])}
         className={cn(btnCls, isSetup && 'flex items-center gap-2 text-xs border border-gray-200 dark:border-white/10')}
-        aria-label={isSetup ? T.switchStyle : 'Theme'} data-testid="theme-toggle">
+        aria-label={isSetup ? T.switchStyle : t('theme.toggle')} title={isSetup ? undefined : t(`theme.${theme}`)} data-testid="theme-toggle">
         <ThemeIcon size={16} />
-        {isSetup && <span>{resolved === 'dark' ? T.lightStyle : T.darkStyle}</span>}
+        {isSetup && <span>{wizardStyleLabel[nextWizard]}</span>}
       </button>
 
       {/* Logout */}
