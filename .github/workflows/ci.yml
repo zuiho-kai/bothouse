@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+# Python steps and Go tests run scripts inside the source tree; a __pycache__ left under an embedded
+# directory (bridge/contrib/lead/*) breaks the next go build/vet/test in the same job.
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
 concurrency:
   group: conest-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
