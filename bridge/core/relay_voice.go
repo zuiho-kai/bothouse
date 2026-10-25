@@ -243,7 +243,7 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 			entry.Result.Sentences = append(entry.Result.Sentences, added...)
 		}
 	}
-	text, err := e.collectVoiceRelay(ctx, req, prior, saveID, progress)
+	text, closeErr, err := e.collectVoiceRelay(ctx, req, prior, saveID, progress)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	entry := v.Entries[req.RequestID]
@@ -258,6 +258,13 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 	delete(v.busy, key)
 	var notSent *voiceNotSubmittedError
 	if errors.As(err, &notSent) && prior.ID == "" && v.Conversations[key].ID == "" {
+		v.Conversations[key] = voiceRelayConversation{Agent: prior.Agent, ID: prior.ID}
+	}
+	// A new conversation whose session was never persisted cannot be resumed;
+	// keeping its ID would fail every later strict resume on this channel.
+	if closeErr != nil && prior.ID == "" && v.Conversations[key].ID != "" {
+		slog.Warn("voice relay: new session not persisted; next turn starts a new session",
+			"session_key", req.SessionKey, "session_id", v.Conversations[key].ID, "error", closeErr)
 		v.Conversations[key] = voiceRelayConversation{Agent: prior.Agent, ID: prior.ID}
 	}
 	if entry.Result.Status != "running" {
@@ -287,8 +294,9 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 // result collector: no group visibility, partial success, tool output or
 // automatic permission approval. An unknown prior ID is never cleared.
 // progress (stream requests only) receives public text deltas, and a boundary
-// when a tool call ends the current assistant message.
-func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior voiceRelayConversation, saveID func(string, string) error, progress func(string, bool)) (answer string, err error) {
+// when a tool call ends the current assistant message. closeErr reports a failure
+// to persist the session; it never replaces the turn's own result.
+func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior voiceRelayConversation, saveID func(string, string) error, progress func(string, bool)) (answer string, closeErr error, err error) {
 	submitted := false
 	defer func() {
 		if err != nil && !submitted {
@@ -312,14 +320,14 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	}()
 	agent, _, _, err := e.relayContextForSourceSessionKey(req.From, req.SessionKey)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if prior.ID != "" && prior.Agent != agent.Name() {
-		return "", fmt.Errorf("relay agent changed")
+		return "", nil, fmt.Errorf("relay agent changed")
 	}
 	starter, ok := agent.(VoiceRelayAgent)
 	if !ok {
-		return "", fmt.Errorf("backend does not support isolated voice relay")
+		return "", nil, fmt.Errorf("backend does not support isolated voice relay")
 	}
 	stream := "0"
 	if req.Stream {
@@ -329,23 +337,23 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 		"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey, "CC_VOICE_STREAM=" + stream,
 	})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer func() {
 		// The answer may already have been spoken (stream mode), so a persist failure
 		// must not turn a delivered turn into a failure; it only risks the next turn
 		// not resuming this context.
-		if closeErr := session.Close(); closeErr != nil && err == nil {
+		if closeErr = session.Close(); closeErr != nil && err == nil {
 			slog.Warn("voice relay: persist session failed; answer kept, next turn may not resume this context",
 				"session_key", req.SessionKey, "error", closeErr)
 		}
 	}()
 	if prior.ID != "" && session.CurrentSessionID() != prior.ID {
-		return "", fmt.Errorf("relay resume identity mismatch")
+		return "", nil, fmt.Errorf("relay resume identity mismatch")
 	}
 	if id := session.CurrentSessionID(); id != "" {
 		if err := saveID(id, agent.Name()); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	deskKey := voiceDeskKey(req)
@@ -373,7 +381,7 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 				select {
 				case _, open := <-session.Events():
 					if !open {
-						return "", fmt.Errorf("relay closed before send")
+						return "", nil, fmt.Errorf("relay closed before send")
 					}
 				default:
 					draining = false
@@ -383,7 +391,7 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 		}
 	}
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	// ACP Send waits for the full prompt RPC, including permission responses.
 	// Consume events concurrently or a long response/permission can deadlock.
@@ -394,28 +402,28 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	for {
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", nil, ctx.Err()
 		case err := <-sent:
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 			sent = nil // Send success is not the successful terminal event.
 		case event, open := <-session.Events():
 			if !open {
-				return "", fmt.Errorf("relay closed without successful terminal event")
+				return "", nil, fmt.Errorf("relay closed without successful terminal event")
 			}
 			if ctx.Err() != nil {
-				return "", ctx.Err()
+				return "", nil, ctx.Err()
 			}
 			if event.SessionID != "" {
 				if err := saveID(event.SessionID, agent.Name()); err != nil {
-					return "", err
+					return "", nil, err
 				}
 			}
 			switch event.Type {
 			case EventText:
 				if text.Len()+len(event.Content) > maxInputBodyBytes {
-					return "", fmt.Errorf("relay answer too large")
+					return "", nil, fmt.Errorf("relay answer too large")
 				}
 				text.WriteString(event.Content)
 				if progress != nil && event.Content != "" {
@@ -434,18 +442,18 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 					answer = text.String()
 				}
 				if len(answer) > maxInputBodyBytes || strings.TrimSpace(answer) == "" {
-					return "", ErrNoPublicAnswer
+					return "", nil, ErrNoPublicAnswer
 				}
 				if err := saveID(session.CurrentSessionID(), agent.Name()); err != nil {
-					return "", err
+					return "", nil, err
 				}
 				// Hand-offs run only after a successful terminal answer; never on partial or failed turns.
-				return e.finishVoiceDesk(ctx, deskKey, answer, toSend), nil
+				return e.finishVoiceDesk(ctx, deskKey, answer, toSend), nil, nil
 			case EventError:
-				return "", fmt.Errorf("relay backend failed")
+				return "", nil, fmt.Errorf("relay backend failed")
 			case EventPermissionRequest:
 				_ = session.RespondPermission(event.RequestID, PermissionResult{Behavior: "deny"})
-				return "", fmt.Errorf("voice relay requires permission; continue in configured channel")
+				return "", nil, fmt.Errorf("voice relay requires permission; continue in configured channel")
 			}
 		}
 	}
