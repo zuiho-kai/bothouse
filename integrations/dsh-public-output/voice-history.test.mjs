@@ -45,9 +45,25 @@ test('projection changes only prior user text; original log and tools are retain
 test('current turn policy is retained across tool steps',async()=>{
   let handler;installVoiceHistory({on:(event,fn)=>{assert.equal(event,'agent/pre-step');handler=fn;}});
   const session={get surface(){throw Error('must not touch current turn');}};
-  for(const [step,messages] of [[1,[{}]],[0,[]]]) {
+  for(const [step,messages] of [[2,[{}]],[1,[]]]) {
     assert.equal(await handler({agent:{session},step,messages},async()=>42),42);
   }
+});
+
+test('pre-step hook trims prior voice turns on DSH first step (step 1) only',async()=>{
+  const handlers={};installVoiceHistory({on:(event,fn)=>{handlers[event]=fn;}});
+  const hook=handlers['agent/pre-step'];
+  assert.equal(typeof hook,'function');
+  const events=[{seq:0,type:'user/message',data:{id:'old',source:{kind:'user'},content:[{type:'text',text:wrapped}]}}];
+  const appended=[];
+  const session={surface:{nodes:[0]},eventAt:i=>events[i],append:(...args)=>appended.push(args)};
+  assert.equal(await hook({agent:{session},step:1,messages:[{}]},async()=>'ok'),'ok');
+  assert.equal(appended.length,1);
+  assert.equal(appended[0][1].content[0].text,utterance);
+  assert.deepEqual(appended[0][2],{surfaceOp:{op:'replace',startSeq:0,endSeq:0},sourceEventSeqs:[0]});
+  appended.length=0;
+  assert.equal(await hook({agent:{session},step:2,messages:[{}]},async()=>'ok'),'ok');
+  assert.equal(appended.length,0);
 });
 
 test('native DSH projection survives reconstruction without changing the original transcript', {skip:!process.env.DSH_CONTRACT_ENTRY}, async()=>{

@@ -60,7 +60,7 @@ export function projectVoiceHistory(session) {
 
 export function installVoiceHistory(ctx) {
   ctx.on('agent/pre-step', async ({agent,step,messages},next)=>{
-    if (step === 0 && messages.length > 0) projectVoiceHistory(agent.session);
+    if (step === 1 && messages.length > 0) projectVoiceHistory(agent.session);
     return next();
   });
 }
