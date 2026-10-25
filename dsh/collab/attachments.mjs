@@ -60,25 +60,55 @@ export class Attachments {
   }
 }
 
-/** Shared wire admission, projected into the ACP prompt format. */
-export function attachmentBlocks(files, messages) {
+/** Shared wire admission, projected into the ACP prompt format, each block with its file name. */
+export function namedAttachmentBlocks(files, messages) {
   const wire = files?.wire(messages.flatMap(messageAttachments)) ?? {};
   return [
-    ...(wire.images ?? []).map(a => ({ type: 'image', data: a.data, mimeType: a.mime_type })),
-    ...(wire.files ?? []).map(a => ({ type: 'resource', resource: {
+    ...(wire.images ?? []).map(a => ({ name: a.file_name, block: { type: 'image', data: a.data, mimeType: a.mime_type } })),
+    ...(wire.files ?? []).map(a => ({ name: a.file_name, block: { type: 'resource', resource: {
       uri: `attachment:///${encodeURIComponent(a.file_name)}`, mimeType: a.mime_type, blob: a.data,
-    } })),
+    } } })),
   ];
 }
 
-/** Native DSH requires durable attachment references, not inline ACP blocks. */
-export async function nativeAttachmentBlocks(attachments, blocks) {
+export function attachmentBlocks(files, messages) {
+  return namedAttachmentBlocks(files, messages).map(b => b.block);
+}
+
+/**
+ * Native DSH requires durable attachment references, not inline ACP blocks.
+ * DSH validates the images as one batch (count, total bytes, type, pixels) and its
+ * error does not say which image failed, so when the batch is refused each block is
+ * re-admitted on top of the ones already accepted: an image DSH refuses on its own or
+ * that would push the batch over a limit is dropped, the rest are still delivered.
+ * Admission is content-addressed, so re-admitting the same bytes stores nothing new.
+ * Returns { parts, dropped: [{ name, reason }] }.
+ */
+export async function nativeAttachmentBlocks(attachments, named) {
+  const dropped = [];
   const parts = [];
-  for (const b of blocks) {
-    if (b.type === 'image') parts.push({ type: 'image', mediaType: b.mimeType, data: b.data });
-    else parts.push({ type: 'file', attachment: await attachments.admitEncodedFile({
-      data: b.resource.blob, name: decodeURIComponent(b.resource.uri.slice('attachment:///'.length)),
-    }) });
+  const reason = err => String(err?.message ?? err);
+  for (const { name, block: b } of named) {
+    if (b.type === 'image') { parts.push({ name, part: { type: 'image', mediaType: b.mimeType, data: b.data } }); continue; }
+    try {
+      parts.push({ name, part: { type: 'file', attachment: await attachments.admitEncodedFile({
+        data: b.resource.blob, name: decodeURIComponent(b.resource.uri.slice('attachment:///'.length)),
+      }) } });
+    } catch (err) { dropped.push({ name, reason: reason(err) }); }
   }
-  return parts.length ? attachments.admitPromptContent(parts) : [];
+  if (parts.length === 0) return { parts: [], dropped };
+  try {
+    return { parts: await attachments.admitPromptContent(parts.map(p => p.part)), dropped };
+  } catch (batchErr) {
+    if (parts.length === 1) return { parts: [], dropped: [...dropped, { name: parts[0].name, reason: reason(batchErr) }] };
+  }
+  const kept = [];
+  let admitted = [];
+  for (const p of parts) {
+    try {
+      admitted = await attachments.admitPromptContent([...kept, p.part]);
+      kept.push(p.part);
+    } catch (err) { dropped.push({ name: p.name, reason: reason(err) }); }
+  }
+  return { parts: admitted, dropped };
 }

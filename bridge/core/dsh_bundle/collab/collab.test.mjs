@@ -3590,6 +3590,47 @@ test('block B: native and CLI members receive image and file blocks via shared w
   await ds.close();
 });
 
+test('block B: DSH refusing one image of a batch drops only that image and tells the channel', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-partial-')));
+  const attachments = files.save([
+    { name: 'huge.png', mime: 'image/png', data: Buffer.from('huge').toString('base64') },
+    { name: 'small.png', mime: 'image/png', data: Buffer.from('small').toString('base64') },
+  ]);
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  const pixelLimit = 'Image exceeds the configured decoded-pixel limit.';
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => {
+      if (parts.some(p => p.type === 'image' && Buffer.from(p.data, 'base64').toString() === 'huge')) throw new Error(pixelLimit);
+      return parts.map(p => ({ type: 'image', attachment: { attachmentId: Buffer.from(p.data, 'base64').toString() } }));
+    },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1);
+  const content = agent.prompts[0].content;
+  assert.match(content[0].text, /@Native check/);
+  assert.match(content[0].text, /huge\.png: attachment not delivered \(Image exceeds the configured decoded-pixel limit\.\)/);
+  assert.doesNotMatch(content[0].text, /small\.png: attachment not delivered/);
+  assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'small' } }]);
+  const note = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.ok(note, 'channel shows a system note for the dropped attachment');
+  assert.match(note.text, /Native/);
+  assert.match(note.text, /huge\.png（Image exceeds the configured decoded-pixel limit\.）/);
+  assert.doesNotMatch(note.text, /small\.png/);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  const trigger = hub.store.page(1, undefined, 20).find(m => m.text === '@Native check');
+  assert.ok(hub.store.binding('native', 1).context_cursor >= trigger.id, 'cursor advanced past the trigger');
+  assert.equal(agent.prompts.length, 1, 'the system note does not start another turn');
+  await ds.close();
+});
+
 test('block B: DSH rejecting an image batch still delivers the text and advances', async () => {
   const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-reject-')));
   const attachments = files.save([{ name: 'a.png', mime: 'image/png', data: Buffer.from('png').toString('base64') }]);

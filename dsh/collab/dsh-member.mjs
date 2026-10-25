@@ -36,9 +36,9 @@ export function memberStatus(hub, tasks = hub?.tasks) {
   }).join('\n');
 }
 import { mentions, nameCalled, split } from './mentions.mjs';
-import { messageAttachments, quotePrefix } from './store.mjs';
+import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
-import { attachmentBlocks, nativeAttachmentBlocks } from './attachments.mjs';
+import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -492,20 +492,21 @@ export class DshMembers {
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
-    // DSH validates images again (count, total bytes, type, pixels). If it rejects the
-    // batch, drop the attachments and tell the member in text instead of failing the
-    // turn: a failed turn never advances the cursor, so the same image would block the room.
-    let media = [];
-    let dropped = '';
-    try {
-      media = await nativeAttachmentBlocks(this.rt.ctx.attachments, attachmentBlocks(this.rt.files, unseen));
-    } catch (err) {
-      const names = unseen.flatMap(messageAttachments).map(a => a.name);
-      dropped = `\n\n[${names.join(', ')}: attachment not delivered (${err?.message ?? err})]`;
-    }
+    // DSH validates images again (count, total bytes, type, pixels). Attachments it
+    // refuses are dropped one by one (the rest still go through), the member is told in
+    // text and the channel gets a system note, instead of failing the turn: a failed turn
+    // never advances the cursor, so the same image would block the room.
+    const { parts: media, dropped: refused } = await nativeAttachmentBlocks(this.rt.ctx.attachments, namedAttachmentBlocks(this.rt.files, unseen));
+    const dropped = refused.map(d => `\n\n[${d.name}: attachment not delivered (${d.reason})]`).join('');
     const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
+    if (refused.length) {
+      this.hub.post(room.id, {
+        authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${jobId}-attachments-dropped`,
+        text: `⚠️ 有附件没送到 ${member.name}：${refused.map(d => `${d.name}（${d.reason}）`).join('；')}`,
+      });
+    }
     await this.admitAndSettle(job, member, agent, input, seqBefore);
   }
 
