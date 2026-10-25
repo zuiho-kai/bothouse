@@ -63,7 +63,7 @@ type WizardRequest struct {
 	AppendOnly bool `json:"append_only,omitempty"`
 }
 
-// WizardGate: enabled = a team of bots gets gate_url / gate_fallback (lead "reply", the others
+// WizardGate: enabled = a team of bots (or a single role, as the lead) gets gate_url / gate_fallback (lead "reply", the others
 // "context") and gate-team.json, and bothouse starts the gate when python and a jev are there;
 // without them core/gate.go fallbackFor still lets only the lead answer what names no one.
 // false = no gate: the wizard's own gate_url / gate_fallback are cleared, hand-written ones kept.
@@ -332,7 +332,7 @@ type SetupState struct {
 	CloudWebFallback string           `json:"cloud_web_fallback,omitempty"`
 	CloudWebTeam     []SetupTeamEntry `json:"cloud_web_team,omitempty"`
 	// GateOff: the user turned the gate off in the wizard (gate.enabled false). A later run without a
-	// gate field (add role, single-role flows, AI) keeps it off; one with the field records the new choice.
+	// gate field (add role, flows that show no gate checkbox, AI) keeps it off; one with the field records the new choice.
 	GateOff   bool   `json:"gate_off,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
@@ -1162,7 +1162,8 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
 	}
 
-	if (req.Platform == "discord" || cloudWeb || isFeishu) && len(pl.team) > 1 && req.gateOn() {
+	// a single role gets the file too, as its lead with no subs (the gate's wiki and task board)
+	if (req.Platform == "discord" || cloudWeb || isFeishu) && len(pl.team) > 0 && req.gateOn() {
 		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
 		for _, t := range pl.team {
 			if t.Project != pl.fallback {
@@ -1641,6 +1642,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	if isFeishuPlatform(req.Platform) && len(pl.team) > 1 {
 		pl.writes = feishuTeamWrites(pl.writes, pl.team, s, pl.fallback, req.gateOn())
 	}
+	if (req.Platform == "discord" || cloudWeb || isFeishuPlatform(req.Platform)) && len(pl.team) == 1 {
+		pl.writes = soloGateWrites(pl.writes, pl.team[0].Project, req.Platform, s, req.gateOn())
+	}
 	return pl, nil
 }
 
@@ -1879,6 +1883,47 @@ func feishuTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wiza
 			}
 			w.GateFallback = &fb
 		}
+	}
+	return writes
+}
+
+// soloGateWrites gives a single-role install the gate a team lead gets: gate_url (the lead's, no
+// ?bot=) for the wiki and task board each turn, and gate_fallback "reply", so the only role still
+// answers whatever the gate cannot decide. Only the team wiring of the gate is written (no
+// allow_bots, team_lead_bot or group_reply_all: there is no teammate). The same rules as the team
+// writes keep hand-written values: on Discord / Feishu gate_url is (re)written when unset or the
+// wizard's; on cloud_web, as in cloudWebTeamWrites, a gate_url the project already has from Discord
+// or set by hand is kept. gate_fallback is (re)written when unset or a value the wizard writes.
+func soloGateWrites(writes []WizardProjectWrite, project, platform string, s WizardSnapshot, gateOn bool) []WizardProjectWrite {
+	i := -1
+	for j, w := range writes {
+		if w.Name == project {
+			i = j
+			break
+		}
+	}
+	if i < 0 {
+		writes = append(writes, WizardProjectWrite{Name: project, PlatformType: platform, Options: map[string]any{}})
+		i = len(writes) - 1
+	}
+	w := &writes[i]
+	ex, _ := s.project(project)
+	if !gateOn {
+		clearWizardGate(w, ex.GateURL, ex.GateFallback)
+		return writes
+	}
+	if isCloudWebPlatform(platform) && ex.GateURL != "" {
+		if _, hasDiscord := ex.Platforms["discord"]; hasDiscord || !isWizardGateURL(ex.GateURL) {
+			return writes
+		}
+	}
+	if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
+		gate := defaultGateURL
+		w.GateURL = &gate
+	}
+	if ex.GateFallback == "" || (isWizardGateURL(ex.GateURL) && (ex.GateFallback == "reply" || ex.GateFallback == "context")) {
+		fb := "reply"
+		w.GateFallback = &fb
 	}
 	return writes
 }

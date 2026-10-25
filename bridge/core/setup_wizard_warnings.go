@@ -313,7 +313,7 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 	if len(pl.allowFromUnset) > 0 {
 		res.Warnings = append(res.Warnings, warnAllowFromUnknown(req.Language, pl.allowFromUnset))
 	}
-	if (req.Platform == "discord" || isCloudWebPlatform(req.Platform) || isFeishuPlatform(req.Platform)) && len(pl.team) > 1 {
+	if (req.Platform == "discord" || isCloudWebPlatform(req.Platform) || isFeishuPlatform(req.Platform)) && len(pl.team) > 0 {
 		running := GateRunning()
 		res.GateRunning = &running
 		res.GateStatus = GateStatusOff
