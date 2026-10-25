@@ -69,6 +69,59 @@ DeepSeek官方文档将strict工具模式限定在官方/beta地址，并列出R
 
 适配器另加缺失schema回归：singlePass已开启但请求没带公开schema时，原生成和补答计数都必须为零。修复前该测试在原生成计数1处失败；修复后在请求前明确终止，不因组装失败走回第二次生成。默认旧模式的补答schema描述保持不变。
 
+### 同一中转凭据的备用模型复核
+
+用户已选择测试其他支持强制约束的接口，并明确继续使用现有中转凭据。本次只向当前配置的 api2.dshapi.icu 发出带认证的请求，没有切换生产模型。模型名均来自该中转的 /v1/models，仅代表其公开的路由 ID。
+
+本轮共 58 次生成/约束检查：四个路由各三种约束的初筛 12 次，其余七个路由的 required 工具初筛 7 次，直连复用连接复测 9 次，两个 GLM 路由的六类输入各两轮 24 次，非法 strict schema 校验 2 次，四个候选的指定工具反例 4 次。输入全部是独立合成内容；工具仅声明 schema，从未交给执行器。
+
+| 路由 | 约束结果 | 决策 |
+| --- | --- | --- |
+| deepseek-v4.1-flash、deepseek-v4-flash、deepseek-v4-pro | 已测 required 工具均返回普通正文；前两个路由的指定工具和严格 JSON schema 也未满足约束 | 不能据此取消第二次生成 |
+| glm-5.2 | required 常量检查合计 2/4 通过；指定工具遇到只要纯文本的输入仍返回正文 | 初筛通过不能作为上线依据 |
+| space-bunny | required 常量检查合计 3/4 通过；另一次虽调用工具但参数不满足枚举；指定工具也返回正文 | 不满足公开输出契约 |
+| glm-5.3-flash | 六类输入两轮 required 检查 5/12 通过；其余返回普通正文；指定工具反例同样失败 | 扩大测试后不可靠 |
+| glm-5.3 | 相同六类输入两轮 required 检查 3/12 通过；指定工具反例失败 | 扩大测试后不可靠 |
+| minimax-m3 | required 和指定工具均有调用，但参数不满足唯一常量 schema；严格 JSON schema 也未满足 | 调用工具不等于满足参数约束 |
+| hy4、hy3、step-5-preview | required 工具初筛均返回普通正文 | 未发现可用的强制工具路径 |
+
+六类输入是算术、问候、带反斜线的路径、只要纯文本、合成历史追问、双引号/换行。常量 schema 与用户问题故意不同：若协议约束确实强制生效，用户只要纯文本也不能绕过必选工具。四个候选的指定工具反例均为 HTTP 200、零工具、普通正文。
+
+非法 strict schema 的独立检查中，glm-5.3-flash 返回 HTTP 400，glm-5.3 返回 HTTP 200 并生成工具调用。前者仅证明该次请求进行了 schema 校验；它在有效 schema 下仍多次忽略 required 和指定工具，不能据此宣称完整支持强制输出。测试未取得中转实现，尚不能区分是中转字段映射、上游能力还是其他供应商行为；已确认的问题位于直接请求到供应商响应这一边界，不依赖本地 ACP 或公开输出插件。
+
+连接复测使用 httpx、完整读完 SSE、复用 HTTP 连接，且只在独立客户端中关闭系统代理读取。deepseek-v4.1-flash 三轮首正文为 3207 / 2803 / 2662ms；首轮包含约 1257ms TLS，后两轮确认没有新建连接。它们仍全部绕过 required 工具。本次样本的建连成本并非全部等待；不能用连接复用保证端到端约 2 秒，也不能把请求到首正文时间当作纯模型计算或板子首声。生产代理设置未变。
+
+可交给中转维护者的最小复现：对当前配置的 /v1/chat/completions 提交以下请求。认证沿用正常 API key 配置，密钥不放入工单：
+
+```json
+{
+  "model": "deepseek-v4.1-flash",
+  "stream": true,
+  "max_tokens": 256,
+  "thinking": {"type": "disabled"},
+  "messages": [{"role": "user", "content": "17乘23是多少？只回答结果。"}],
+  "tools": [{
+    "type": "function",
+    "function": {
+      "name": "conest_public_reply",
+      "description": "Return public answer data.",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {"reply": {"type": "string", "enum": ["schema-constant"]}},
+        "required": ["reply"],
+        "additionalProperties": false
+      }
+    }
+  }],
+  "tool_choice": "required"
+}
+```
+
+通过条件是正常结束时只有指定数据工具调用、参数恰为 {"reply":"schema-constant"}、没有普通正文；仅 HTTP 200 或返回合法 JSON 不算通过。本轮该 DeepSeek 请求实际为普通正文 3 字符、零工具、stop。修复后须重跑问候、路径、历史及纯文本反例，再验证真实隔离工具只执行一次；不能仅重跑算术样例。
+
+现有中转下已测路由均未达到一次生成上线条件，不代表所有供应商或所有可能接口都不支持。继续保持 singlePass 默认关闭；下一项依赖是中转提供可验证的强制约束实现或兼容入口。独立 TTS 客户端与 ASR 的既有边界不变，端到端约 2 秒仍未验收。
+
 ## 同音色 TTS：已完成真实接口对照
 
 独立合成文本为：“你好，我是语音测试助手。这是一段独立的合成测试。我们正在测量首段声音的等待时间。”没有播放、保存录音或提交凭据。
@@ -153,7 +206,7 @@ LiveKit 文档说明提前生成可以与端点确认重叠，也说明它不一
 
 ## 本地证据与变更边界
 
-私有实验目录为 ~/.cc-connect-maomao/maintenance/voice-stream-20261025/。可复核的合成计时文件包括 onepass-acceptance.log、onepass-diagnosis.log、latency-json-history-direct.json、tts-stream-probe.json、tts-token-probe.json；后两者只含数字、枚举与依赖版本。诊断汇总保存在追加日志中，仅提取固定 probe 前缀，不整体输出日志。
+私有实验目录为 ~/.cc-connect-maomao/maintenance/voice-stream-20261025/。可复核的合成计时文件包括 onepass-acceptance.log、onepass-diagnosis.log、latency-json-history-direct.json、tts-stream-probe.json、tts-token-probe.json；后两者只含数字、枚举与依赖版本。备用路由复核为 current-relay-models.json、relay-model-capability-initial.json、relay-model-capability-other.json、relay-model-capability-direct.json、relay-constraint-acceptance.json、relay-named-choice-acceptance.json，合计 58 次生成/约束检查，仅含模型路由、固定用例名、计时和校验结果。诊断汇总保存在追加日志中，仅提取固定 probe 前缀，不整体输出日志。
 
 TTS 探针为 tts-stream-probe.py，通过 uv 临时环境使用 httpx 0.28.1 / websockets 15.0.1；--tokens-only 运行逐字实验。探针从本机私密配置读取凭据，不打印认证头、响应正文或连接标识，不保存音频，不运行下载的开源代码。
 
