@@ -554,6 +554,7 @@ type ProjectConfig struct {
 	TeamStatusDir string `toml:"team_status_dir,omitempty"`
 	// TeamName is this project's display name in the team status (default: project name).
 	TeamName string `toml:"team_name,omitempty"`
+	NameCustomized *bool `toml:"name_customized,omitempty"`
 	// TeamStatusInject prepends the other projects' status to each turn (for the main bot).
 	TeamStatusInject bool `toml:"team_status_inject,omitempty"`
 	// ChannelBoard (maomao fork): this project's Discord bot posts, pins and edits one
@@ -3545,6 +3546,8 @@ func extractLineComment(line string) string {
 
 // ProjectSettingsUpdate carries optional field updates for SaveProjectSettings.
 type ProjectSettingsUpdate struct {
+	DisplayName *string
+	NameCustomized *bool
 	Language             *string
 	AdminFrom            *string
 	DisabledCommands     []string
@@ -3583,6 +3586,8 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 			continue
 		}
 		proj := &cfg.Projects[i]
+		if update.DisplayName != nil { proj.TeamName = strings.TrimSpace(*update.DisplayName) }
+		if update.NameCustomized != nil { proj.NameCustomized = update.NameCustomized }
 		if update.AgentType != nil && *update.AgentType != proj.Agent.Type {
 			newType := *update.AgentType
 			proj.Agent.Type = newType
@@ -3710,7 +3715,7 @@ func GetProjectConfigDetails(projectName string) map[string]any {
 		if p.Name != projectName {
 			continue
 		}
-		result := map[string]any{}
+		result := map[string]any{"name_customized": p.NameCustomized}
 		if p.Agent.Options != nil {
 			if wd, ok := p.Agent.Options["work_dir"].(string); ok && strings.TrimSpace(wd) != "" {
 				result["work_dir"] = wd

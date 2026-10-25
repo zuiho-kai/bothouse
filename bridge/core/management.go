@@ -19,6 +19,8 @@ import (
 // ProjectSettingsUpdate is passed to SetSaveProjectSettings to persist management API PATCH fields.
 // The implementation (typically in cmd/cc-connect) maps this to config.ProjectSettingsUpdate.
 type ProjectSettingsUpdate struct {
+	DisplayName *string
+	NameCustomized *bool
 	Language             *string
 	AdminFrom            *string
 	DisabledCommands     []string
@@ -864,6 +866,8 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			WorkDir              *string           `json:"work_dir"`
 			Mode                 *string           `json:"mode"`
 			AgentType            *string           `json:"agent_type"`
+			DisplayName *string `json:"display_name"`
+			NameCustomized *bool `json:"name_customized"`
 			ShowContextIndicator *bool             `json:"show_context_indicator"`
 			ShowWorkdirIndicator *bool             `json:"show_workdir_indicator"`
 			ReplyFooter          *bool             `json:"reply_footer"`
@@ -943,8 +947,19 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			restartRequired = true
 		}
 
-		if m.saveProjectSettings != nil {
-			patch := ProjectSettingsUpdate{
+		if restartRequired && body.DisplayName == nil && m.getProjectConfig != nil {
+            if customized, ok := m.getProjectConfig(name)["name_customized"].(bool); ok && !customized {
+                taken := []string{}
+                m.mu.RLock()
+                for key, other := range m.engines { if key != name { taken = append(taken, other.DisplayName()) } }
+                m.mu.RUnlock()
+                label := NextRoleName(AgentDisplayName(*body.AgentType), taken)
+                body.DisplayName = &label
+            }
+        }
+        if m.saveProjectSettings != nil {
+            patch := ProjectSettingsUpdate{
+                DisplayName: body.DisplayName, NameCustomized: body.NameCustomized,
 				Language:             body.Language,
 				AdminFrom:            body.AdminFrom,
 				DisabledCommands:     body.DisabledCommands,

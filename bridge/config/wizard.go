@@ -28,6 +28,7 @@ type WizardProjectOptions struct {
 	AgentArgs    []string          // agent option args (nil = leave)
 	AgentOptions map[string]any    // set in the agent's options (nil = leave)
 	AgentEnv     map[string]string // merged into agent option env
+	NameCustomized *bool
 	DisplayName  string            // team_name: the name shown for the project ("" = leave)
 }
 
@@ -317,6 +318,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 				opts["allow_from"] = merged
 			}
 		}
+	}
+	if o.NameCustomized != nil {
+		p["name_customized"] = *o.NameCustomized
 	}
 	if o.DisplayName != "" {
 		p["team_name"] = o.DisplayName

@@ -84,6 +84,8 @@ type WizardFeishu struct {
 type WizardRole struct {
 	Project       string          `json:"project,omitempty"`
 	Name          string          `json:"name,omitempty"`
+	NameCustomized *bool `json:"name_customized,omitempty"`
+	KeepPersonaName bool `json:"keep_persona_name,omitempty"`
 	Token         string          `json:"token,omitempty"`         // discord bot token (new bot)
 	ReuseProject  string          `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
 	AgentType     string          `json:"agent_type,omitempty"`
@@ -200,6 +202,7 @@ type WizardProjectWrite struct {
 	// DisplayName is the name the user gave the role when it differs from the project name (a
 	// non-ASCII name maps to role-N); written as team_name, which the panel shows. "" = leave
 	DisplayName string
+	NameCustomized *bool
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -343,6 +346,7 @@ type SetupTeamEntry struct {
 	BotID     string `json:"bot_id,omitempty"`
 	AgentType string `json:"agent_type,omitempty"`
 	Persona   string `json:"persona,omitempty"` // library persona slug the role was made from
+	KeepPersonaName bool `json:"keep_persona_name,omitempty"`
 	Avatar    string `json:"avatar,omitempty"`  // library avatar slug ("" = initial-letter badge)
 }
 
@@ -1486,12 +1490,13 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		e := SetupTeamEntry{Project: r.project, Name: r.Name, BotID: id, AgentType: r.AgentType}
 		for _, old := range append(append([]SetupTeamEntry{}, state.Team...), state.CloudWebTeam...) {
 			if old.Project == r.project { // not passed = keep what the state has
-				e.Persona, e.Avatar = old.Persona, old.Avatar
+				e.Persona, e.Avatar, e.KeepPersonaName = old.Persona, old.Avatar, old.KeepPersonaName
 				break
 			}
 		}
 		if r.PersonaPreset != nil {
 			e.Persona = *r.PersonaPreset
+			e.KeepPersonaName = r.KeepPersonaName
 		}
 		if r.Avatar != nil {
 			e.Avatar = *r.Avatar
@@ -1551,6 +1556,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		ex, exists := s.project(r.project)
 		if !r.reused {
 			pw.WorkDir = r.workDir
+			pw.NameCustomized = r.NameCustomized
 			if r.Name != r.project {
 				pw.DisplayName = r.Name
 			}
