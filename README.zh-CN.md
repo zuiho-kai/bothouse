@@ -149,6 +149,11 @@ tailscale ip -4
 要自己写配置，就编辑 `config.toml`。文件默认是 `~/.bothouse/config.toml`；当前目录下如果有 `config.toml`，
 用的就是当前目录这个。
 
+启动选择默认数据目录 `~/.bothouse` 时，会从 `~/.cc-connect` 复制缺失的周期定时和一次性定时文件；
+新目录里没有用量 JSON 文件时，也会复制旧的用量记录。已有数据不覆盖、不合并，旧文件保留。
+迁移时已经过点的一次性定时会记为跳过，避免升级后集中执行；未来的定时仍按原时间执行。
+自定义 `data_dir` 不参与迁移。
+
 ```toml
 [management]
 enabled = true

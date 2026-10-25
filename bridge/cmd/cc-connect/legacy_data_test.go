@@ -24,7 +24,7 @@ func TestLegacyDataProcess(t *testing.T) {
 	} else {
 		os.Args = []string{"bothouse", "cron", "list", "--data-dir", filepath.Join(os.Getenv("HOME"), ".bothouse")}
 	}
-	main()
+	runMain() // Exercise daemon/CLI startup without creating a desktop tray.
 	os.Exit(0)
 }
 
@@ -85,7 +85,8 @@ func TestLegacyCronStartup(t *testing.T) {
 	cli.Env = append(os.Environ(), "BOTHOUSE_TEST_LEGACY_PROCESS=cli")
 	output, err := cli.CombinedOutput()
 	if err != nil || !strings.Contains(string(output), "Scheduled tasks (1)") || !strings.Contains(string(output), "legacy-outing") {
-		t.Fatalf("cron list: %s\nerror: %v", output, err)
+		startup, _ := os.ReadFile(logPath)
+		t.Fatalf("cron list: %s\nerror: %v\nstartup: %s", output, err, startup)
 	}
 	source, err := os.ReadFile(filepath.Join(old, "jobs.json"))
 	if err != nil || string(source) != string(fixture) {

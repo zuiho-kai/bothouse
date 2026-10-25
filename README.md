@@ -145,6 +145,13 @@ a token, and asks you to restart once.
 To write the config yourself, edit `config.toml`. The default file is `~/.bothouse/config.toml`; if there is a
 `config.toml` in the current directory, that one wins.
 
+When startup selects the default `~/.bothouse` data directory, missing cron and timer stores
+are copied from `~/.cc-connect`. Usage JSON history is copied only when the new directory
+has no usage JSON files. Existing stores are never overwritten or merged, and the originals
+are kept. Migrated one-shot timers already past due are recorded as skipped instead of
+running together after the upgrade; future timers keep their scheduled times. Custom
+`data_dir` locations are not migrated.
+
 ```toml
 [management]
 enabled = true
