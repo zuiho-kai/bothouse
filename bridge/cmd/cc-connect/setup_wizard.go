@@ -142,6 +142,7 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv.SetConfigFilePath(configPath)
 	srv.SetSetupFeishuSave(saveFeishuSetup)
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
+	wireAutostart(srv)
 	srv.Start()
 	// The sign-in link carries the token: it goes into a file only you can read and into the
 	// browser; the terminal only shows it when no browser could be opened.

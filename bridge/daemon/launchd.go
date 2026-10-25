@@ -25,6 +25,27 @@ const (
 
 var launchdLabelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// launchdSideBySideEnv: a job installed under an overridden label (a test or
+// side-by-side instance) must know its label at run time (supervisedBySelf
+// compares XPC_SERVICE_NAME with it) and keep the HOME it was installed with;
+// launchd itself starts jobs with the account's real HOME, which would point
+// the instance at the real data dir and the real LaunchAgents.
+func launchdSideBySideEnv(extra map[string]string) map[string]string {
+	label := launchdLabel()
+	if label == defaultLaunchdLabel {
+		return extra
+	}
+	out := make(map[string]string, len(extra)+2)
+	for k, v := range extra {
+		out[k] = v
+	}
+	out[launchdLabelEnv] = label
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		out["HOME"] = home
+	}
+	return out
+}
+
 func launchdLabel() string {
 	if l := strings.TrimSpace(os.Getenv(launchdLabelEnv)); l != "" && launchdLabelPattern.MatchString(l) {
 		return l
@@ -73,6 +94,7 @@ func (m *launchdManager) Install(cfg Config) error {
 	// job behind when switching between GUI and headless sessions.
 	bootoutLaunchdTargets()
 
+	cfg.EnvExtra = launchdSideBySideEnv(cfg.EnvExtra)
 	plist := buildPlist(cfg)
 	// 0600: plist may contain captured secret values (config.toml ${ENV}
 	// placeholders and any EnvDiscoverer extension output). User-only

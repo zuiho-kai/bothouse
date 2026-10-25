@@ -194,3 +194,34 @@ func TestLaunchdLabelOverride(t *testing.T) {
 		t.Fatalf("invalid override must fall back, got %q", got)
 	}
 }
+
+// A job under a test label keeps its label and HOME, so it never reads the
+// real data dir or LaunchAgents; the default label bakes in neither.
+func TestInstallLaunchd_SideBySideLabelKeepsHomeAndLabel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	recordLaunchctl(t)
+
+	t.Setenv(launchdLabelEnv, "")
+	if env := launchdSideBySideEnv(map[string]string{"A": "b"}); env["HOME"] != "" || env[launchdLabelEnv] != "" {
+		t.Fatalf("default label must not bake HOME/label: %v", env)
+	}
+
+	t.Setenv(launchdLabelEnv, "com.bothouse.test-sbs")
+	if err := (&launchdManager{}).Install(autostartTestCfg(t)); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	data, err := os.ReadFile(launchdParkedPlistPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plist := string(data)
+	for _, want := range []string{"<string>com.bothouse.test-sbs</string>", "<key>HOME</key>", "<string>" + home + "</string>", "<key>" + launchdLabelEnv + "</key>"} {
+		if !strings.Contains(plist, want) {
+			t.Fatalf("plist missing %q:\n%s", want, plist)
+		}
+	}
+	if !strings.HasPrefix(launchdParkedPlistPath(), home) {
+		t.Fatalf("parked plist outside test HOME: %s", launchdParkedPlistPath())
+	}
+}

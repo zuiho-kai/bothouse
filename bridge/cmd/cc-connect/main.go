@@ -653,16 +653,7 @@ func runMain() {
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
 		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
-		mgmtSrv.SetAutostartFuncs(
-			func() (core.AutostartInfo, error) {
-				st, err := daemon.CurrentAutostart()
-				return core.AutostartInfo(st), err
-			},
-			func(on bool) (core.AutostartInfo, error) {
-				st, err := daemon.SetCurrentAutostart(on)
-				return core.AutostartInfo(st), err
-			},
-		)
+		wireAutostart(mgmtSrv)
 		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
 			u := config.GlobalSettingsUpdate{}
 			if v, ok := updates["language"].(string); ok {
