@@ -306,7 +306,7 @@ export class Store {
         UNIQUE (member_id, trigger_id));`);
   }
 
-  close() { this.db.close(); }
+  close() { if (this.db.isOpen) this.db.close(); }
 
   /** Run fn in one write transaction; a throw rolls back every statement it made. */
   transaction(fn) {
@@ -611,7 +611,10 @@ export class Store {
   }
   remove(id, authorKind, author) { return this.q.del.get(id, authorKind, author); }
   /** One author's live text drafts (#121), oldest first. */
-  drafts(authorKind, author) { return this.q.authorDrafts.all(authorKind, author); }
+  drafts(authorKind, author) {
+    // WebSocket close events may arrive after plugin teardown has closed SQLite.
+    return this.db.isOpen ? this.q.authorDrafts.all(authorKind, author) : [];
+  }
 
   /** Up to `limit` messages before `beforeId` (exclusive), oldest first. */
   page(roomId, beforeId, limit) {

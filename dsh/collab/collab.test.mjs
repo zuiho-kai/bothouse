@@ -1407,6 +1407,23 @@ test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a C
   assert.deepEqual(live(), [], 'the interrupted CLI job drops its streamed draft');
 });
 
+test('store shutdown: live drafts remain queryable and late disconnect cleanup is safe', () => {
+  const hub = makeHub();
+  const gateway = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gateway, 'bot=shutdown&name=Shutdown');
+  hub.draft(1, { authorKind: 'role', author: 'shutdown', name: 'Shutdown', text: 'partial', clientKey: 'shutdown-draft' });
+  assert.equal(hub.store.drafts('role', 'shutdown').length, 1);
+  hub.dropDrafts('role', 'shutdown');
+  assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
+  hub.store.close();
+  assert.doesNotThrow(() => hub.store.close());
+  assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
+  assert.doesNotThrow(() => hub.dropDrafts('role', 'shutdown'));
+  assert.doesNotThrow(() => bot.close(1001, 'server shutdown'));
+  assert.throws(() => hub.store.page(1, undefined, 10), /closed|finalized/i,
+    'ordinary queries after shutdown still report lifecycle errors');
+});
+
 test('cloud-web #120: permission prompt → button → card_action → card state; duplicates, expiry, offline', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
