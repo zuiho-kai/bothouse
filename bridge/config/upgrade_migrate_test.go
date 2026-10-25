@@ -128,11 +128,11 @@ func TestMigrateYoloDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(applied) != 3 {
+	if len(applied) != 4 {
 		t.Fatalf("applied = %+v", applied)
 	}
-	// 1. missing mode -> type's full-auto mode; 2. explicit modes kept; 4. dsh untouched.
-	want := map[string]any{"cc": "bypassPermissions", "cx": "yolo", "cur": "force", "dflt": "default", "pln": "plan", "dsh1": nil}
+	// 1. missing mode -> type's full-auto mode (dsh: yolo, as the wizard); 2. explicit modes kept.
+	want := map[string]any{"cc": "bypassPermissions", "cx": "yolo", "cur": "force", "dflt": "default", "pln": "plan", "dsh1": "yolo"}
 	got := loadModes(t)
 	for k, v := range want {
 		if got[k] != v {
@@ -153,7 +153,12 @@ func TestMigrateYoloDefaults(t *testing.T) {
 		t.Fatal("backup is not the original config")
 	}
 	// 6. one info line per changed role.
-	if n := strings.Count(logs.String(), "set to full-auto"); n != 3 {
+	for _, id := range []string{YoloDefaultMigrationID, YoloACPMigrationID} {
+		if done, _ := migrationDone(dataDir, id); !done {
+			t.Fatalf("%s not marked on a fresh data dir", id)
+		}
+	}
+	if n := strings.Count(logs.String(), "set to full-auto"); n != 4 {
 		t.Fatalf("log lines = %d:\n%s", n, logs.String())
 	}
 
@@ -375,16 +380,15 @@ token = "A"
 	}
 }
 
+// hintFixture is an old data dir's config: yolo-default-2026-10 already ran
+// (cc got bypassPermissions), acp and dsh were left without a mode.
 const hintFixture = `[[projects]]
 name = "cursor-acp"
 [projects.agent]
 type = "acp"
 [projects.agent.options]
-work_dir = "/tmp/c"
 cmd = "agent"
 args = ["acp"]
-auth_method = "cursor_login"
-display_name = "Cursor"
 [[projects.platforms]]
 type = "discord"
 [projects.platforms.options]
@@ -394,8 +398,6 @@ token = "A"
 name = "dsh1"
 [projects.agent]
 type = "dsh"
-[projects.agent.options]
-work_dir = "/tmp/dsh"
 [[projects.platforms]]
 type = "discord"
 [projects.platforms.options]
@@ -418,19 +420,41 @@ token = "C"
 name = "cc"
 [projects.agent]
 type = "claudecode"
+[projects.agent.options]
+mode = "bypassPermissions"
 [[projects.platforms]]
 type = "discord"
 [projects.platforms.options]
 token = "D"
+
+[[projects]]
+name = "cc-cleared"
+[projects.agent]
+type = "claudecode"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "E"
+
+[[projects]]
+name = "acp-dot"
+[projects.agent]
+type = "acp"
+options.cmd = "agent"
+options.args = ["acp"]
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "F"
 `
 
-func TestHintRolesWithoutKnownMode(t *testing.T) {
+func TestMigrateACPDSHOnOldDataDir(t *testing.T) {
 	dataDir := setupMigrate(t, hintFixture)
 	var logs bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
-	// An old data dir: the full-auto migration already ran before acp/dsh had a hint.
+	// An old data dir: the full-auto migration already ran before acp/dsh were included.
 	if err := markMigrationDone(dataDir, YoloDefaultMigrationID); err != nil {
 		t.Fatal(err)
 	}
@@ -438,37 +462,87 @@ func TestHintRolesWithoutKnownMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if applied, _, err := MigrateYoloDefaults(dataDir, cfg); err != nil || len(applied) != 0 {
-		t.Fatalf("yolo migration re-ran: %v %v", applied, err)
+	applied, backup, err := MigrateYoloDefaults(dataDir, cfg)
+	if err == nil || !onlyRoleSkips(err) || !strings.Contains(err.Error(), `"acp-dot"`) {
+		t.Fatalf("err = %v (want only the dotted role skipped)", err)
 	}
+	var names []string
+	for _, e := range applied {
+		names = append(names, e.Project+"="+e.Value)
+	}
+	if strings.Join(names, ",") != "cursor-acp=yolo,dsh1=yolo" {
+		t.Fatalf("applied = %v", names)
+	}
+	// acp/dsh without mode -> yolo; acp with a mode, claudecode with a mode, and a
+	// claudecode whose mode was removed after the first migration are not touched.
+	got := loadModes(t)
+	want := map[string]any{"cursor-acp": "yolo", "dsh1": "yolo", "acp-moded": "plan", "cc": "bypassPermissions", "cc-cleared": nil, "acp-dot": nil}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s mode = %v, want %v", k, got[k], v)
+		}
+	}
+	if b := backups(t); len(b) != 1 || b[0] != backup {
+		t.Fatalf("backups = %v, returned %q", b, backup)
+	}
+	if b, _ := os.ReadFile(backup); string(b) != hintFixture {
+		t.Fatal("backup is not the original config")
+	}
+	assertTomllibLoads(t, ConfigPath)
+	out := logs.String()
+	if n := strings.Count(out, "set to full-auto"); n != 2 {
+		t.Fatalf("info lines = %d:\n%s", n, out)
+	}
+	if n := strings.Count(out, "initial mode could not be applied"); n != 1 {
+		t.Fatalf("cursor note lines = %d (want on cursor-acp only):\n%s", n, out)
+	}
+	if done, _ := migrationDone(dataDir, YoloACPMigrationID); !done {
+		t.Fatal("acp/dsh migration not marked")
+	}
+
+	// Hint: only the role that could not be written (dotted options) is logged.
+	cfg, _ = Load(ConfigPath)
+	logs.Reset()
 	hinted, err := HintRolesWithoutKnownMode(dataDir, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Cursor-acp and dsh without mode are hinted; a role with a mode and a known type are not.
-	if strings.Join(hinted, ",") != "cursor-acp,dsh1" {
+	// cc-cleared has no mode either: the user removed it after the first run; it
+	// is reported too (its mode was not set automatically) but never written.
+	if strings.Join(hinted, ",") != "cc-cleared,acp-dot" {
 		t.Fatalf("hinted = %v", hinted)
 	}
-	out := logs.String()
-	if n := strings.Count(out, "permission mode not set automatically"); n != 2 {
-		t.Fatalf("hint lines = %d:\n%s", n, out)
+	if !strings.Contains(logs.String(), "inline or dotted keys") {
+		t.Fatalf("hint does not say why:\n%s", logs.String())
 	}
-	if n := strings.Count(out, "agent/plan/ask"); n != 1 {
-		t.Fatalf("cursor note lines = %d:\n%s", n, out)
-	}
-	// Config is not written: no mode, no backup.
-	got := loadModes(t)
-	if got["cursor-acp"] != nil || got["dsh1"] != nil || got["acp-moded"] != "plan" || got["cc"] != nil {
-		t.Fatalf("modes changed: %v", got)
-	}
-	if raw, _ := os.ReadFile(ConfigPath); string(raw) != hintFixture || len(backups(t)) != 0 {
-		t.Fatal("hint changed config.toml")
-	}
-	// Once only.
+
+	// Second start: nothing written, logged or backed up again.
 	logs.Reset()
-	hinted, err = HintRolesWithoutKnownMode(dataDir, cfg)
-	if err != nil || len(hinted) != 0 || strings.Contains(logs.String(), "not set automatically") {
-		t.Fatalf("second run hinted=%v err=%v logs=%s", hinted, err, logs.String())
+	before, _ := os.ReadFile(ConfigPath)
+	cfg, _ = Load(ConfigPath)
+	if applied, _, err := MigrateYoloDefaults(dataDir, cfg); err != nil || len(applied) != 0 {
+		t.Fatalf("second run applied=%v err=%v", applied, err)
+	}
+	if hinted, err := HintRolesWithoutKnownMode(dataDir, cfg); err != nil || len(hinted) != 0 {
+		t.Fatalf("second hint=%v err=%v", hinted, err)
+	}
+	if after, _ := os.ReadFile(ConfigPath); string(after) != string(before) || len(backups(t)) != 1 || logs.Len() != 0 {
+		t.Fatalf("second start changed something; backups=%v logs=%s", backups(t), logs.String())
+	}
+}
+
+func TestHintWaitsForMigration(t *testing.T) {
+	dataDir := setupMigrate(t, hintFixture)
+	cfg, err := Load(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Migration not finished (e.g. I/O failure, symlink): no hint, not marked.
+	if hinted, err := HintRolesWithoutKnownMode(dataDir, cfg); err != nil || len(hinted) != 0 {
+		t.Fatalf("hinted=%v err=%v", hinted, err)
+	}
+	if done, _ := migrationDone(dataDir, ModeHintMigrationID); done {
+		t.Fatal("hint marked before the migration ran")
 	}
 }
 

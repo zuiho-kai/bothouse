@@ -20,10 +20,15 @@ import (
 // before new roles defaulted to full-auto (#225) have been given a mode once.
 const YoloDefaultMigrationID = "yolo-default-2026-10"
 
-// ModeHintMigrationID marks that roles whose type has no known full-auto mode
-// (dsh, acp, …) and no mode of their own were told about, once, in the log. It
-// is separate from YoloDefaultMigrationID so data dirs that already ran that
-// migration still get the hint.
+// YoloACPMigrationID marks that acp and dsh roles without a mode were given
+// "yolo" once. Data dirs that already ran YoloDefaultMigrationID (which left
+// those types alone) run only this part; on a fresh data dir both are marked by
+// the same run.
+const YoloACPMigrationID = "yolo-default-acp-dsh-2026-10"
+
+// ModeHintMigrationID marks that roles the migration could not give a mode
+// (options written as an inline table or dotted keys, or an agent type with no
+// default mode) were told about, once, in the log.
 const ModeHintMigrationID = "mode-hint-unknown-type-2026-10"
 
 const migrationsFile = "migrations.json"
@@ -148,23 +153,55 @@ func SetAgentOptionsIfAbsent(edits []AgentOptionEdit) (applied []AgentOptionEdit
 	return applied, backup, errors.Join(failures...)
 }
 
+// migrationYoloMode is the mode the upgrade migration writes for a role of
+// agentType with no mode: core.KnownAgentYoloMode, plus "yolo" for acp and dsh,
+// the same value the setup wizard gives new roles of those types
+// (core.DefaultAgentYoloMode). The engine treats "yolo" as full-auto and
+// approves permission requests itself whatever the ACP server's own session
+// modes are. Other types are not guessed.
+func migrationYoloMode(agentType string) (mode string, ok bool) {
+	if m, ok := core.KnownAgentYoloMode(agentType); ok {
+		return m, true
+	}
+	switch strings.ToLower(strings.TrimSpace(agentType)) {
+	case "acp", "dsh":
+		return "yolo", true
+	}
+	return "", false
+}
+
+func isACPOrDSH(agentType string) bool {
+	switch strings.ToLower(strings.TrimSpace(agentType)) {
+	case "acp", "dsh":
+		return true
+	}
+	return false
+}
+
 // MigrateYoloDefaults runs once per data dir: every role whose agent options
-// have no "mode" key and whose type has a known full-auto mode
-// (core.KnownAgentYoloMode) gets that mode written, the same default new roles
-// get from the setup wizard. Roles with any mode (default, plan, …) and other
-// agent types are left alone (HintRolesWithoutKnownMode logs those). The run is marked done only when every role was
-// written or permanently skipped (a role whose options cannot be patched as
-// text, e.g. an inline table or dotted keys); an I/O failure leaves it unmarked
-// so the next start retries (roles written meanwhile are skipped because they
-// now have a mode). A symlinked config.toml is left alone entirely.
+// have no "mode" key and whose type has a default mode (migrationYoloMode) gets
+// that mode written, the same default new roles get from the setup wizard.
+// Roles with any mode (default, plan, …) and other agent types are left alone
+// (HintRolesWithoutKnownMode logs those). A data dir that already ran
+// YoloDefaultMigrationID only gets the acp and dsh roles (YoloACPMigrationID),
+// so a mode a user removed after that run is not written again. The run is
+// marked done only when every role was written or permanently skipped (a role
+// whose options cannot be patched as text, e.g. an inline table or dotted keys);
+// an I/O failure leaves it unmarked so the next start retries (roles written
+// meanwhile are skipped because they now have a mode). A symlinked config.toml
+// is left alone entirely.
 func MigrateYoloDefaults(dataDir string, cfg *Config) (applied []AgentOptionEdit, backup string, err error) {
-	done, err := migrationDone(dataDir, YoloDefaultMigrationID)
-	if err != nil || done {
+	baseDone, err := migrationDone(dataDir, YoloDefaultMigrationID)
+	if err != nil {
+		return nil, "", err
+	}
+	acpDone, err := migrationDone(dataDir, YoloACPMigrationID)
+	if err != nil || (baseDone && acpDone) {
 		return nil, "", err
 	}
 	if ConfigPath != "" {
 		if fi, lerr := os.Lstat(ConfigPath); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
-			slog.Warn("upgrade: config.toml is a symlink, permission-mode migration skipped", "path", ConfigPath)
+			slog.Warn("upgrade: config.toml is a symlink, permission-mode migration skipped; roles without a mode may still ask for approval", "path", ConfigPath)
 			return nil, "", nil
 		}
 	}
@@ -173,7 +210,10 @@ func MigrateYoloDefaults(dataDir string, cfg *Config) (applied []AgentOptionEdit
 		if _, ok := p.Agent.Options["mode"]; ok {
 			continue
 		}
-		mode, ok := core.KnownAgentYoloMode(p.Agent.Type)
+		if baseDone && !isACPOrDSH(p.Agent.Type) {
+			continue
+		}
+		mode, ok := migrationYoloMode(p.Agent.Type)
 		if !ok {
 			continue
 		}
@@ -182,43 +222,62 @@ func MigrateYoloDefaults(dataDir string, cfg *Config) (applied []AgentOptionEdit
 	if len(edits) > 0 {
 		applied, backup, err = SetAgentOptionsIfAbsent(edits)
 		for _, e := range applied {
-			slog.Info("upgrade: role without a permission mode set to full-auto", "project", e.Project, "mode", e.Value, "backup", backup)
+			attrs := []any{"project", e.Project, "mode", e.Value, "backup", backup}
+			if idx := projectIndex(cfg, e.Project); idx >= 0 && isCursorACP(cfg.Projects[idx].Agent.Options) {
+				attrs = append(attrs, "note", "Cursor ACP has no yolo session mode (only agent/plan/ask), so each new session logs \"acp: initial mode could not be applied\"; the bridge still approves requests automatically")
+			}
+			slog.Info("upgrade: role without a permission mode set to full-auto", attrs...)
 		}
 		if err != nil && !onlyRoleSkips(err) {
 			return applied, backup, err
 		}
 	}
-	if merr := markMigrationDone(dataDir, YoloDefaultMigrationID); merr != nil {
+	var merr error
+	for _, id := range []string{YoloDefaultMigrationID, YoloACPMigrationID} {
+		if done, _ := migrationDone(dataDir, id); !done {
+			merr = errors.Join(merr, markMigrationDone(dataDir, id))
+		}
+	}
+	if merr != nil {
 		return applied, backup, errors.Join(err, merr)
 	}
 	return applied, backup, err
 }
 
-// HintRolesWithoutKnownMode runs once per data dir: every role with no "mode"
-// key whose type has no known full-auto mode (core.KnownAgentYoloMode: dsh,
-// acp, …) gets one warning saying its approval mode was not changed and how to
-// set it. Nothing is written to config.toml: for these types there is no
-// verified mode value to write (Cursor's `agent acp` only offers the session
-// modes agent / plan / ask, none of which skips approval). hinted lists the
-// projects that were logged.
+// HintRolesWithoutKnownMode runs once per data dir, after MigrateYoloDefaults
+// has finished (both its ids are marked; until then it does nothing): every
+// role that still has no "mode" key gets one warning saying its approval mode
+// was not changed and how to set it. These are roles the migration could not
+// write (options as an inline table or dotted keys) and agent types with no
+// default mode. A symlinked config.toml never finishes the migration; its
+// warning on every start covers that case. Nothing is written to config.toml.
+// hinted lists the projects that were logged.
 func HintRolesWithoutKnownMode(dataDir string, cfg *Config) (hinted []string, err error) {
 	done, err := migrationDone(dataDir, ModeHintMigrationID)
 	if err != nil || done {
 		return nil, err
 	}
+	for _, id := range []string{YoloDefaultMigrationID, YoloACPMigrationID} {
+		ok, err := migrationDone(dataDir, id)
+		if err != nil || !ok {
+			return nil, err
+		}
+	}
 	for _, p := range cfg.Projects {
 		if _, ok := p.Agent.Options["mode"]; ok {
 			continue
 		}
-		if _, ok := core.KnownAgentYoloMode(p.Agent.Type); ok {
-			continue
-		}
 		attrs := []any{"project", p.Name, "type", p.Agent.Type,
 			"how_to_set", "web: role details > permission mode, or config.toml: mode under [projects.agent.options]"}
-		if isCursorACP(p.Agent.Options) {
-			attrs = append(attrs, "note", "Cursor ACP offers the session modes agent/plan/ask; none of them skips approval")
+		if _, ok := migrationYoloMode(p.Agent.Type); ok {
+			attrs = append(attrs, "reason", "agent options are not a [projects.agent.options] table (inline or dotted keys)")
+		} else {
+			attrs = append(attrs, "reason", "no default full-auto mode for this agent type")
 		}
-		slog.Warn("upgrade: role permission mode not set automatically (no known full-auto mode for this agent type); it may still ask for approval", attrs...)
+		if isCursorACP(p.Agent.Options) {
+			attrs = append(attrs, "note", "for Cursor ACP set mode = \"yolo\": Cursor has no such session mode and logs a warning per session, but the bridge then approves requests automatically")
+		}
+		slog.Warn("upgrade: role permission mode not set automatically; it may still ask for approval", attrs...)
 		hinted = append(hinted, p.Name)
 	}
 	if err := markMigrationDone(dataDir, ModeHintMigrationID); err != nil {

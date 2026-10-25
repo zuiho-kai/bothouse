@@ -402,8 +402,8 @@ func runMain() {
 			cfg = newCfg
 		}
 	}
-	// Roles of a type with no known full-auto mode (dsh, acp, …) are not
-	// guessed at; say once in the log that they may still ask for approval.
+	// Roles the migration could not give a mode (dotted/inline options, agent
+	// types with no default mode): say once in the log they may still ask.
 	if _, err := config.HintRolesWithoutKnownMode(cfg.DataDir, cfg); err != nil {
 		slog.Warn("upgrade: permission-mode hint not recorded, it will repeat next start", "error", err)
 	}

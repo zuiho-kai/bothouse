@@ -1261,7 +1261,9 @@ func DefaultAgentYoloMode(agentType string) string {
 }
 
 // KnownAgentYoloMode is DefaultAgentYoloMode for the agent types whose YOLO mode
-// is known; ok is false for any other type (dsh, acp, …), which must not be guessed.
+// is known; ok is false for any other type (dsh, acp, …). The upgrade migration
+// adds "yolo" for acp and dsh itself (config.migrationYoloMode), matching
+// DefaultAgentYoloMode; callers here must not guess other types.
 func KnownAgentYoloMode(agentType string) (mode string, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(agentType)) {
 	case "claudecode", "copilot":
