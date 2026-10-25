@@ -28,4 +28,12 @@ describe('softBreaksToHard', () => {
   it('adds a break inside a continued list item', () => {
     expect(softBreaksToHard('- 甲\n  续行')).toBe('- 甲  \n  续行')
   })
+  it('treats CRLF like LF, without extra blank lines', () => {
+    expect(softBreaksToHard('甲\r\n乙')).toBe('甲  \n乙')
+    expect(softBreaksToHard('甲\r\n\r\n乙')).toBe('甲\n\n乙')
+  })
+  it('does not touch fences inside block quotes or deeply indented in lists', () => {
+    expect(softBreaksToHard('> 引\n> ```\n> a\n> b\n> ```\n> 尾')).toBe('> 引\n> ```\n> a\n> b\n> ```\n> 尾')
+    expect(softBreaksToHard('- 项\n      ```\n      a\n      b\n      ```')).toBe('- 项\n      ```\n      a\n      b\n      ```')
+  })
 })

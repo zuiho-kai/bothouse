@@ -4,15 +4,16 @@
  * keep their text unchanged.
  */
 export function softBreaksToHard(text: string): string {
-  const lines = text.split('\n')
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
   let fence: string | undefined
   let indentedCode = false
   return lines.map((line, i) => {
     if (fence !== undefined) {
-      if (line.trimStart().startsWith(fence) && line.trim().replace(/^[`~]+/, '') === '') fence = undefined
+      const close = /^[ \t>]*([`~]+)\s*$/.exec(line)
+      if (close && close[1].startsWith(fence)) fence = undefined
       return line
     }
-    const open = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    const open = /^[ \t>]*(`{3,}|~{3,})/.exec(line)
     if (open) {
       fence = open[1]
       indentedCode = false
@@ -27,7 +28,7 @@ export function softBreaksToHard(text: string): string {
     const next = lines[i + 1]
     if (line.trim() === '' || next === undefined || next.trim() === '') return line
     if (line.endsWith('  ') || line.endsWith('\\')) return line
-    if (/^ {0,3}(`{3,}|~{3,})/.test(next)) return line
+    if (/^[ \t>]*(`{3,}|~{3,})/.test(next)) return line
     return line + '  '
   }).join('\n')
 }
