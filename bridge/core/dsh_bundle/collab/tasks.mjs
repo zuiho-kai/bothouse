@@ -37,6 +37,26 @@ const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
 // point) keeps its status but is not in progress: no check timer, not counted. Any status
 // change by its owner or the lead (stance, hand-back, review) resumes it.
 const LIVE = `status IN (${PLACEHOLDERS}) AND paused_at IS NULL`;
+// #574 dispatch fields (same checks as contrib/lead/ws-handoff has_ref_impl/multi_editor/has_base,
+// user 2026-10-25 「交活带参照实现，非代码活写『无（新建）』算过」): `ref` names the existing
+// implementation to follow as `file:line`, or 无（新建） for work with none; when the task says
+// several members edit the same files (「共改文件」/「多人改」) it also needs `base`, the branch to start from.
+const REF_RE = /[~\w.\-/]*[A-Za-z_][~\w.\-/]*:\d+/g;
+const NO_REF = /^无\s*[（(]\s*新建\s*[)）]/;
+export const MISSING_REF = '缺参照实现：写 文件:行，非代码活写「无（新建）」';
+const REF_EXAMPLE = '示例：ref: "dsh/collab/tasks.mjs:226"，或 ref: "无（新建）"';
+const MISSING_BASE = '多人改同组文件要写底分支：base 填分支名，示例：base: "feat/approvals-card"';
+const MISSING_REWORK_NOTE = '返工要写原因：note 填为什么打回，示例：note: "没先读现有实现"';
+
+/** True when ref is 无（新建） or holds at least one `path:line` (path with / or ., so 14:30 does not count). */
+export function hasRef(ref) {
+  const s = String(ref ?? '').trim();
+  if (NO_REF.test(s)) return true;
+  return (s.match(REF_RE) ?? []).some(m => m.includes('/') || m.split(':')[0].includes('.'));
+}
+
+/** The task says several members edit the same files. */
+export function multiEditor(text) { return /共改文件|多人改/.test(String(text ?? '')); }
 
 export class Tasks {
   /**
@@ -64,8 +84,8 @@ export class Tasks {
     this.tree = cols.has('parent_id') && cols.has('kind');
     this.q = {
       get: this.db.prepare('SELECT * FROM tasks WHERE id = ?'),
-      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason)
-        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?) RETURNING *`),
+      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason, ref, base)
+        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
       set: this.db.prepare('UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
       handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', paused_at = NULL, next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
@@ -157,7 +177,7 @@ export class Tasks {
       id: t.id, room_id: t.room_id, parent_task: t.parent_task, title: t.title,
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
-      note: t.note, reason: t.reason, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
+      note: t.note, reason: t.reason, ref: t.ref ?? null, base: t.base ?? null, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
       paused_at: t.paused_at ?? null,
     };
   }
@@ -222,8 +242,10 @@ export class Tasks {
    * Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`.
    * `reason` is the dispatcher's own one-line why-this-member, shown in the record (team mode C).
    * `force` allows assigning even if the member has an in-progress task in any room.
+   * `ref`/`base` (#574): an API dispatch passes ref (string, checked by hasRef) and, for a
+   * multi-editor task, base; undefined ref (tasks opened from chat or bridge cards) skips the check.
    */
-  assign({ roomId, title, owner, actor, parentTask, messageId, reason, force = false }) {
+  assign({ roomId, title, owner, actor, parentTask, messageId, reason, ref, base, force = false }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const text = String(title ?? '').trim();
@@ -232,6 +254,8 @@ export class Tasks {
     this.member(actor);
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
+    if (ref !== undefined && !hasRef(ref)) throw new CollabError('invalid', `${MISSING_REF}。${REF_EXAMPLE}`);
+    if (ref !== undefined && multiEditor(text) && !clip(base)) throw new CollabError('invalid', MISSING_BASE);
     const excludeIds = parentTask != null ? this.ancestorsOf(parentTask) : new Set();
     const busy = this.busyInfo(owner, excludeIds);
     if (busy.busy && !force) {
@@ -240,9 +264,12 @@ export class Tasks {
     }
     const now = this.now();
     const why = clip(reason);
-    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why);
+    const refText = ref === undefined ? null : clip(ref);
+    const baseText = ref === undefined ? null : clip(base);
+    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why, refText, baseText);
+    const refNote = `${refText ? `，参照：${refText}` : ''}${baseText ? `，底分支：${baseText}` : ''}`;
     const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
-    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${busyNote ? ` ${busyNote}` : ''}`);
+    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`);
     if (messageId == null) this.q.bindAssign.run(record.id, task.id);
     return this.changed(task.id);
   }
@@ -286,6 +313,8 @@ export class Tasks {
     if (actor !== task.created_by && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.created_by)} can review task ${id}`);
     if (!REVIEWABLE.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to review`);
     if (verdict !== 'done' && verdict !== 'rework') throw new CollabError('invalid', 'verdict must be done or rework');
+    // #574: a send-back always says why (same rule as board done: rework count > 0 needs a reason).
+    if (verdict === 'rework' && !clip(note)) throw new CollabError('invalid', MISSING_REWORK_NOTE);
     // Rework is a new round with the same check time as a dispatch (source above).
     const check = verdict === 'rework' ? this.now() + CHECK_AFTER_S : null;
     const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), 0, id, task.status);
@@ -317,7 +346,7 @@ export class Tasks {
     }
     const optional = v => (v == null || v === '' ? undefined : Number(v));
     switch (action) {
-      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason, force: Boolean(body.force) });
+      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason, ref: String(body.ref ?? ''), base: body.base, force: Boolean(body.force) });
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });

@@ -385,10 +385,11 @@ export class CloudWebGateway {
       case 'ping': send(bot.ws, { type: 'pong' }); return;
       case 'task': {
         // #139 B: the socket says which bot this is, so the action is verified as it.
+        // The frame's `ref` is the ack correlation id, so its task field ref (#574) travels as task_ref.
         const ack = r => send(bot.ws, { type: 'task_ack', ref: d.ref, ...r });
         if (this.tasks === undefined) { ack({ ok: false, error: 'tasks are not enabled' }); return; }
         try {
-          const task = this.tasks.perform(String(d.action ?? ''), { id: Number(d.task_id), roomId: roomOf(d, this.hub.store), body: d }, { actor: member.id, verified: true });
+          const task = this.tasks.perform(String(d.action ?? ''), { id: Number(d.task_id), roomId: roomOf(d, this.hub.store), body: { ...d, ref: d.task_ref } }, { actor: member.id, verified: true });
           ack({ ok: true, task });
         } catch (error) {
           ack({ ok: false, error: error?.message ?? String(error), code: error?.code });

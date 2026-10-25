@@ -1651,7 +1651,7 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   const { message } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: 'result' });
   tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
   assert.deepEqual(latest(), [0, 0]);
-  tasks.review(task.id, { actor: 'lead', verdict: 'rework' });
+  tasks.review(task.id, { actor: 'lead', verdict: 'rework', note: '再补一段' });
   assert.deepEqual(latest(), [0, 1]);
   tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
   tasks.review(task.id, { actor: 'lead', verdict: 'done' });
@@ -1920,7 +1920,7 @@ test('tasks API: owner acts as owner, bots name themselves with the bot token, o
   };
   assert.equal(tasksRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/state'), { tasks, gateway: gw, owner: () => true }), undefined);
   assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'x', owner: 'ds', actor: 'lead' })).status, 401);
-  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead' }, { token: 't' });
+  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead', ref: '无（新建）' }, { token: 't' });
   assert.equal(made.status, 200);
   assert.equal(made.json.task.created_by, 'lead');
   const id = made.json.task.id;
@@ -1973,7 +1973,7 @@ test('tasks identity: the bot token cannot impersonate the owner or review; a so
   assert.equal(ack.ok, true);
   assert.equal(ack.task.status, 'done');
   // A frame dispatch is recorded as the sending bot.
-  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3' });
+  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3', task_ref: '无（新建）' });
   await new Promise(r => setImmediate(r));
   assert.equal(lead.of('task_ack')[1].task.created_by, 'lead');
 });

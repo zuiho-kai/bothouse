@@ -402,11 +402,12 @@ export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
  * body.actor, which is unverified (Tasks.perform: no owner, no review); a bot
  * acts as itself verified with a `task` frame on its cloud-web socket.
  *   GET  /collab/api/rooms/{id}/tasks           board of the room's chat channel and its workspaces
- *   POST /collab/api/rooms/{id}/tasks           { title, owner, parent_task?, message_id?, reason?, force? } dispatch
+ *   POST /collab/api/rooms/{id}/tasks           { title, owner, ref, base?, parent_task?, message_id?, reason?, force? } dispatch
+ *     (ref: file:line or 无（新建）; base required when the title says 共改文件/多人改)
  *   GET  /collab/api/tasks/{id}
  *   POST /collab/api/tasks/{id}/stance          { stance: 接|问|退|升, note? }  (task owner)
  *   POST /collab/api/tasks/{id}/return          { message_id }                  (task owner)
- *   POST /collab/api/tasks/{id}/review          { verdict: done|rework, note? } (the dispatcher)
+ *   POST /collab/api/tasks/{id}/review          { verdict: done|rework, note } (the dispatcher; note required for rework)
  * Returns undefined when the request is not for this route, else a Promise of the reply.
  */
 export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
