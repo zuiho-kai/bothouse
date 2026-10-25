@@ -779,3 +779,45 @@ func TestApplyWizardWikiCronUserMainWikiNoSub(t *testing.T) {
 		t.Fatalf("jobs %d steps %+v", len(cron.jobs), res.Steps)
 	}
 }
+
+// A main wiki the user had (bin/ingest.py, no .bothouse-main) is searched, never written: models picked in the
+// wizard do not go into its config.json, and the directory is byte-for-byte the same afterwards (G16).
+func TestApplyWizardUserWikiModelsNotWritten(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	req.Wiki = &WizardWiki{Daily: "haiku", Night: "sonnet", Split: "opus"}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("WIKI_DIR", "")
+	mainWiki := filepath.Join(home, "wiki")
+	for p, c := range map[string]string{"bin/ingest.py": "# mine\n", "bin/search.py": "# mine\n",
+		"config.json": "{\n  \"ingest_engine\": \"codex\"\n}\n", ".git/HEAD": "ref: refs/heads/main\n",
+		"MEMORY.md": "- [a](a/README.md)\n", "a/README.md": "# a\n"} {
+		f := filepath.Join(mainWiki, p)
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := snapshotDir(t, mainWiki)
+	res := ApplyWizard(context.Background(), WizardEnv{Store: &hookMemStore{memStore: newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs, Cron: &memCron{}}, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	after := snapshotDir(t, mainWiki)
+	if len(after) != len(before) {
+		t.Fatalf("~/wiki files %d -> %d", len(before), len(after))
+	}
+	for p, v := range before {
+		if after[p] != v {
+			t.Fatalf("%s changed: %q -> %q", p, v, after[p])
+		}
+	}
+	if s := wizardSteps(res)["wiki"]; s.Step == "" || !s.OK || !strings.Contains(s.Detail, "not saved") {
+		t.Fatalf("wiki step = %+v (all %+v)", s, res.Steps)
+	}
+}

@@ -403,8 +403,16 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 			"skipped: no main wiki ("+dir+" has no bin/ingest.py), so the wiki cron jobs were not added"))
 		return
 	}
+	_, made := mainWikiLead(dir) // false: the user's own main wiki, searched, never written (G16)
 	if req.Wiki != nil {
-		if keys, err := ApplyWikiModels(dir, *req.Wiki); err != nil {
+		if !made {
+			if *req.Wiki != (WizardWiki{}) {
+				addStep(res, "wiki", nil, tr3(req.Language,
+					"跳过：主 wiki "+dir+" 不是向导建的（只查不写），模型没写进它的 config.json",
+					"スキップ：メイン wiki "+dir+" はウィザードが作ったものではない（検索のみ・書き込まない）ため、モデルを config.json に保存していません",
+					"skipped: the main wiki "+dir+" was not made by the wizard (searched, never written), so the models were not saved to its config.json"))
+			}
+		} else if keys, err := ApplyWikiModels(dir, *req.Wiki); err != nil {
 			addStep(res, "wiki", err, "")
 		} else if len(keys) > 0 {
 			addStep(res, "wiki", nil, filepath.Join(dir, "config.json")+": "+strings.Join(keys, ", "))
@@ -415,7 +423,7 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 		return
 	}
 	mainDir := dir
-	if _, made := mainWikiLead(dir); !made { // the user's own main wiki: searched, never written (G16)
+	if !made {
 		if env.WikiSubScript == "" {
 			addStep(res, "wiki cron", nil, tr3(req.Language,
 				"跳过：主 wiki "+dir+" 不是向导建的（只查不写），没加 wiki 整理定时",
