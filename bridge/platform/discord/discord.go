@@ -663,8 +663,7 @@ func (p *Platform) RegisterCommands(commands []core.BotCommandInfo) error {
 		if err != nil {
 			slog.Error("discord: failed to register slash commands — "+
 				"make sure the bot was invited with BOTH 'bot' AND 'applications.commands' OAuth2 scopes. "+
-				"Re-invite URL: https://discord.com/oauth2/authorize?client_id="+p.appID+
-				"&scope=bot+applications.commands&permissions=2147485696",
+				"Re-invite URL: "+core.DiscordInviteURL(p.appID, p.guildID),
 				"error", err, "guild_id", guildID)
 			return fmt.Errorf("discord: register slash commands (guild_id=%q): %w", guildID, err)
 		}

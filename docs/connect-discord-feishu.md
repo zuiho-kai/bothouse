@@ -196,7 +196,7 @@ bothouse 只是接进去：每个角色作为一个成员连平台的机器人�
 1. [Discord 开发者后台](https://discord.com/developers/applications) → New Application → Bot → Reset Token，复制 token。
    一个角色一个应用、一个 token。
 2. Bot 页打开 **Message Content Intent**（不开读不到消息正文）。
-3. OAuth2 → URL Generator：scopes 勾 `bot`、`applications.commands`；权限至少勾查看频道、发消息、读消息历史、加反应。
+3. OAuth2 → URL Generator：scopes 勾 `bot`、`applications.commands`；权限至少勾查看频道、发消息、读消息历史、加反应；团队模式还要管理频道（建工作区）和管理消息（置顶任务板）。向导给的邀请链接已带齐这些权限。
    用生成的链接把 bot 拉进你的服务器。
 4. token 写进 `~/.bothouse/config.toml` 对应 project 的 `[projects.platforms.options] token`，不进任何仓库。
 

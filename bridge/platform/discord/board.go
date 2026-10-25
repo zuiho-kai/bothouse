@@ -65,7 +65,8 @@ func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, conte
 	if session == nil {
 		return "", errors.New("discord: board: not connected")
 	}
-	return upsertBoard(session, rc.(replyContext).targetChannelID(), messageID, content, discordgo.WithContext(ctx))
+	id, err := upsertBoard(session, rc.(replyContext).targetChannelID(), messageID, content, discordgo.WithContext(ctx))
+	return id, p.missingPermissionErr(err, permManageMessages)
 }
 
 func upsertBoard(api boardAPI, channelID, messageID, content string, options ...discordgo.RequestOption) (string, error) {

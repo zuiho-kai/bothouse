@@ -49,7 +49,7 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannel
 		return core.TeamChannel{}, err
 	}
 	c, err := createTeamWorkspaceChannel(api, besideChannelID, name, discordgo.WithContext(ctx))
-	return c, workspaceErr(err)
+	return c, workspaceErr(p.missingPermissionErr(err, permManageChannels))
 }
 
 // RenameTeamWorkspaceChannel renames a workspace channel (core moves old 「<chat name>-工作区n」
@@ -60,7 +60,24 @@ func (p *Platform) RenameTeamWorkspaceChannel(ctx context.Context, channelID, na
 		return err
 	}
 	_, err = api.ChannelEdit(channelID, &discordgo.ChannelEdit{Name: name}, discordgo.WithContext(ctx))
-	return workspaceErr(err)
+	return workspaceErr(p.missingPermissionErr(err, permManageChannels))
+}
+
+const (
+	permManageChannels = "管理频道 (Manage Channels)"
+	permManageMessages = "管理消息 (Manage Messages)"
+)
+
+// missingPermissionErr turns Discord's bare 50013 Missing Permissions into an error that names
+// the permission and gives the re-invite link (same permissions as the wizard's invite), so the
+// user knows what to add. Other errors pass through unchanged; the original stays wrapped.
+func (p *Platform) missingPermissionErr(err error, perm string) error {
+	var rest *discordgo.RESTError
+	if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeMissingPermissions {
+		return err
+	}
+	return fmt.Errorf("Discord bot 缺「%s」权限。打开这个链接把 bot 重新邀请进服务器即可补上（不用先移出）：%s ；原始错误：%w",
+		perm, core.DiscordInviteURL(p.appID, p.guildID), err)
 }
 
 // workspaceErr marks Discord 4xx other than 429 (no permission, channel gone) as permanent so

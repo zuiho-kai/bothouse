@@ -65,17 +65,23 @@ type DiscordBotInfo struct {
 	InviteURL      string         `json:"invite_url"`
 }
 
-// discordInvitePermissions — 来源：docs/connect-discord-feishu.md 第 1 步「权限至少勾查看频道、发消息、读消息历史、加反应」
-// = View Channels(1<<10) + Send Messages(1<<11) + Read Message History(1<<16) + Add Reactions(1<<6)；
-// cc-connect 回复会发文件、链接预览、线程，所以再加 Attach Files(1<<15) + Embed Links(1<<14) + Send Messages in Threads(1<<38)。
-const discordInvitePermissions = 1<<10 | 1<<11 | 1<<14 | 1<<15 | 1<<16 | 1<<6 | 1<<38
+// DiscordInvitePermissions is the one permission set for every Discord invite link (wizard
+// invite and the re-invite links in errors). 来源：docs/connect-discord-feishu.md 第 1 步 plus
+// what bothouse itself calls:
+//   - basics: View Channels(1<<10), Send Messages(1<<11), Read Message History(1<<16),
+//     Embed Links(1<<14), Attach Files(1<<15), Add Reactions(1<<6)
+//   - team mode: Manage Channels(1<<4) creates 「工作区n」, Manage Messages(1<<13) pins the board
+//   - slash commands: Use Application Commands(1<<31)
+//   - threads: Manage Threads(1<<34), Create Public Threads(1<<35), Send Messages in Threads(1<<38)
+const DiscordInvitePermissions int64 = 1<<10 | 1<<11 | 1<<16 | 1<<14 | 1<<15 | 1<<6 |
+	1<<4 | 1<<13 | 1<<31 | 1<<34 | 1<<35 | 1<<38
 
 // DiscordInviteURL builds the "add bot to server" link.
 func DiscordInviteURL(appID, guildID string) string {
 	q := url.Values{}
 	q.Set("client_id", appID)
 	q.Set("scope", "bot applications.commands")
-	q.Set("permissions", fmt.Sprint(int64(discordInvitePermissions)))
+	q.Set("permissions", fmt.Sprint(DiscordInvitePermissions))
 	if guildID != "" {
 		q.Set("guild_id", guildID)
 	}
