@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,10 +74,17 @@ func ProductPython(dataDir string) (string, error) {
 		}
 		delete(productPythonCache, dataDir)
 	}
+	f, failed := productPythonFailed[dataDir]
+	cooling := failed && time.Since(f.at) < productPythonRetry
 	p, err := resolveProductPython(dataDir)
 	if err != nil {
+		if !cooling { // once per failure, not on every cached retry inside the cool-down
+			slog.Warn("python: no Python >= 3.12 for gate / role wikis; memory and board injection stay off until it is there",
+				"error", err, "retry_in", productPythonRetry)
+		}
 		return "", err
 	}
+	slog.Info("python: using interpreter for gate / role wikis", "path", p)
 	productPythonCache[dataDir] = p
 	productPythonLast = p
 	delete(productPythonFailed, dataDir)

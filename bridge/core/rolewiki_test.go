@@ -160,7 +160,7 @@ func TestApplyWizardRoleWikis(t *testing.T) {
 		t.Fatalf("persona = %s", persona)
 	}
 	sub := filepath.Join(dir, "sub-wiki.py")
-	py, _ := FindPython()
+	py, _ := ProductPython(data)
 	if len(store.hooks) != 1 || store.hooks[0] != "agent.closed "+subWikiCommand(py, sub, "hook") {
 		t.Fatalf("hooks = %v", store.hooks)
 	}
