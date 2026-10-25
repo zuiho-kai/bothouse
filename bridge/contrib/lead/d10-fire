@@ -22,7 +22,10 @@ MIN_LEN = 80                         # 短于 80 字视为状态行（本任务�
 PR_LINK_RE = re.compile(r"github\.com/[^\s]+/pull/\d+")
 # 【接】开头的消息达到这个长度就算带结果的交回，不是纯表态（事故二：带结果的【接】577 字；纯接单约 90 字）
 ACCEPT_WITH_RESULT_LEN = 300
-LEADING_MENTION_RE = re.compile(r"^(<@!?\d+>\s*)+")
+# 开头的 @：原始 <@id>，或桥（Discord ContentWithMentionsReplaced）换成的 @用户名
+LEADING_MENTION_RE = re.compile(r"^((<@!?\d+>|@[^\s【@]+)\s*)+")
+# 桥给回复加的前缀「[回复 X：被回复正文前 40 字…] 」（discord.go ChannelHistory）；只看她自己写的正文（审查 PR #377）
+REPLY_PREFIX_RE = re.compile(r"^\[回复 [^：\n]{1,100}：(?:.{40}…|.{0,40}?)\] ", re.S)
 PAUSE_MARK = "暂停（「"  # d10-fire 自己发的暂停消息，不算新派活
 # 续期上限 2 次：续期也要有新进展，最多 30 分钟（用户 2026-10-23「这10分钟之内搞不完就滚蛋」）
 MAX_RENEW = 2
@@ -30,9 +33,15 @@ STANCE_PREFIXES = ("【接】", "【问】", "【退】", "【升】")
 WINDOW = 600  # 看「最近 10 分钟」有没有动静，和 d10 的 10 分钟一致
 
 
+def body(content: str) -> str:
+    # 她自己写的正文：去掉桥加的回复前缀和开头的 @
+    c = REPLY_PREFIX_RE.sub("", (content or "").strip(), count=1)
+    return LEADING_MENTION_RE.sub("", c.strip())
+
+
 def is_handback(content: str) -> bool:
     # 交回 = 不是 gate 状态行、不是纯接单表态的实质回复；不靠关键词判断（事故二）
-    c = LEADING_MENTION_RE.sub("", (content or "").strip())
+    c = body(content)
     if not c or c.startswith(STATUS_PREFIXES):
         return False
     if PR_LINK_RE.search(c):
@@ -56,8 +65,8 @@ def redispatched(messages, teammate_id: str, since: float) -> bool:
     for m in messages:
         if ts_epoch(m) < since or str(m.get("author", {}).get("id")) == str(teammate_id):
             continue
-        content = m.get("content") or ""
-        ids = m.get("mentions")
+        content = REPLY_PREFIX_RE.sub("", (m.get("content") or "").strip(), count=1)  # 被回复的原文里的 @ 不算
+        ids = m.get("mentions")  # 桥只给正文里明写的 @（回复默认 ping 的那个不算，discord.go mentionIDs）
         hit = str(teammate_id) in ids if ids is not None else bool(mention.search(content))
         if hit and PAUSE_MARK not in content:
             n += 1
@@ -89,7 +98,7 @@ def chat_active(messages, teammate_id: str, start: float) -> bool:
     for m in messages:
         if str(m.get("author", {}).get("id")) != str(teammate_id) or ts_epoch(m) < start:
             continue
-        c = LEADING_MENTION_RE.sub("", (m.get("content") or "").strip())
+        c = body(m.get("content"))
         if c and not c.startswith(STATUS_PREFIXES + STANCE_PREFIXES):
             return True
     return False

@@ -97,6 +97,42 @@ class T(unittest.TestCase):
     def test_accept_with_result_counts(self):
         self.assertSkipped([msg("", ts="2026-10-23T03:01:00+00:00"), msg(self.CAT_RESULT)])
 
+    # 审查 PR #377 第 1 条：Discord 回复经桥读回的形状「[回复 橘：派活原文前 40 字…] @橘 【接】…」
+    DISPATCH = "龙娘，派你一件，10 分钟：读一下这个帖子，把要点和能用在 bothouse 上的地方列出来，交回写来源。"
+    ACCEPT52 = "【接】马上读帖子，十分钟内把要点和能用在 bothouse 的地方列出来交回，有问题我再来群里问你吧好。"
+
+    def reply_shape(self, text):
+        return "[回复 橘：" + self.DISPATCH[:40] + "…] @橘 " + text
+
+    def test_reply_prefixed_accept_not_handback(self):
+        self.assertEqual(len(self.ACCEPT52), 52)
+        c = self.reply_shape(self.ACCEPT52)
+        self.assertGreater(len(c), d.MIN_LEN)
+        self.assertFalse(d.is_handback(c))
+        self.assertSent([msg(c)])
+
+    def test_reply_prefixed_short_quote(self):
+        self.assertFalse(d.is_handback("[回复 橘：去查一下] @橘 " + self.ACCEPT52))
+        self.assertTrue(d.is_handback("[回复 橘：去查一下] @橘 调研交付：" + "要点说明。" * 20))
+
+    def test_reply_prefixed_result_counts(self):
+        self.assertSkipped([msg(self.reply_shape("调研交付：" + "要点说明。" * 20))])
+
+    def test_reply_prefixed_accept_not_activity(self):
+        self.assertFalse(d.chat_active([msg(self.reply_shape(self.ACCEPT52))], TID, SINCE))
+
+    def test_reply_to_her_not_redispatch(self):
+        # 主角色回复她的【接】：引用里有她的 @，桥给的 mentions 不含回复 ping → 不算第二次派活
+        self.assertFalse(d.redispatched([
+            {"author": {"id": self.JU}, "content": "@龙娘 派你一件", "mentions": [TID], "timestamp": "2026-10-23T03:00:07+00:00"},
+            {"author": {"id": self.JU}, "content": "[回复 龙娘：<@%s> 【接】马上读] 好" % TID, "mentions": [], "timestamp": "2026-10-23T03:02:00+00:00"},
+        ], TID, SINCE))
+        # 平台没给 mentions 时：引用里的 <@id> 也不算
+        self.assertFalse(d.redispatched([
+            {"author": {"id": self.JU}, "content": "<@%s> 派你一件" % TID, "timestamp": "2026-10-23T03:00:07+00:00"},
+            {"author": {"id": self.JU}, "content": "[回复 龙娘：<@%s> 【接】马上读] 好" % TID, "timestamp": "2026-10-23T03:02:00+00:00"},
+        ], TID, SINCE))
+
     def test_redispatch_skips(self):
         # 原派活 @ 一次，她只发了进度卡（空正文），主角色又 @ 她派新活 → 旧 d10 不发暂停
         self.assertSkipped([
@@ -307,7 +343,21 @@ class BridgeBinTest(unittest.TestCase):
         out = subprocess.run([sys.executable, "-I", d10, "C", "活"], capture_output=True, text=True, env=env)
         self.assertEqual(out.returncode, 0, out.stderr)
         with open(self.log) as fh:
-            self.assertTrue(fh.read().startswith("timer add --delay 10m"))
+            self.assertTrue(fh.read().startswith("timer add -p lead-proj -s discord:3003 --delay 10m"))
+
+    def test_d10_arms_on_dsh(self):
+        # DSH 删掉带 KEY 的变量，只留 CC_SESSION：d10 照样挂上，timer add 带 -p/-s（审查 PR #377 第 4 条）
+        import json, subprocess, sys
+        team = os.path.join(self.tmp, "team.json")
+        with open(team, "w") as fh:
+            json.dump({"lead": {"name": "L", "id": "1"}, "subs": {"c": {"name": "C", "id": "2"}}}, fh)
+        d10 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "d10")
+        env = {"PATH": os.environ["PATH"], "HOME": self.tmp, "GATE_TEAM": team, "GATE_SETUP_DIR": self.tmp,
+               "CC_SESSION": "dsh:room-1:u", "CC_PROJECT": "lead-proj"}
+        out = subprocess.run([sys.executable, "-I", d10, "C", "活"], capture_output=True, text=True, env=env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        with open(self.log) as fh:
+            self.assertTrue(fh.read().startswith("timer add -p lead-proj -s dsh:room-1:u --delay 10m"))
 
     def test_no_bridge_fails_loudly(self):
         os.remove(os.path.join(self.tmp, "bothouse"))

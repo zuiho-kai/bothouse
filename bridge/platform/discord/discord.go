@@ -1729,17 +1729,19 @@ func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core
 		out = append(out, core.ChannelHistoryMessage{
 			ID: m.ID, Author: m.Author.Username, AuthorID: m.Author.ID, IsBot: m.Author.Bot,
 			IsSelf: m.Author.ID == p.botID, FromTurn: p.turnSent.has(m.ID), Content: text, Time: m.Timestamp,
-			Attachments: historyAttachments(m.Attachments), MentionIDs: mentionIDs(m.Mentions),
+			Attachments: historyAttachments(m.Attachments), MentionIDs: mentionIDs(m.Content, m.Mentions),
 		})
 	}
 	return out, nil
 }
 
-// mentionIDs: the user ids a post @-ed (ContentWithMentionsReplaced drops the raw <@id>).
-func mentionIDs(users []*discordgo.User) []string {
+// mentionIDs: the user ids a post @-ed in its own text (ContentWithMentionsReplaced drops the raw
+// <@id>). Discord also lists the author of the message replied to (a reply pings by default);
+// that one is left out unless the text names them too (PR #377 review: a reply is not a new @).
+func mentionIDs(content string, users []*discordgo.User) []string {
 	var out []string
 	for _, u := range users {
-		if u != nil && u.ID != "" {
+		if u != nil && u.ID != "" && (strings.Contains(content, "<@"+u.ID+">") || strings.Contains(content, "<@!"+u.ID+">")) {
 			out = append(out, u.ID)
 		}
 	}
