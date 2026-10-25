@@ -218,22 +218,48 @@ func python312(p string) bool {
 	return ok
 }
 
-// uvPython: a Python ≥3.12 through uv (PATH, else the one in <dataDir>/tools/uv, else downloaded there).
-func uvPython(dataDir string) (string, error) {
-	uv := FindUV()
-	if uv == "" {
-		own := filepath.Join(AgentToolsDir(dataDir), "uv", uvExe())
-		if _, err := os.Stat(own); err != nil {
-			if err := downloadUV(own); err != nil {
-				return "", fmt.Errorf("no Python 3.12+ and no uv on PATH; downloading uv %s failed: %w", uvVersion, err)
-			}
-		}
-		uv = own
+// uvMu: one uv download at a time in this process (the gate's ProductPython and the hub's first start can
+// ask together; the second waits and then finds the first one's file).
+var uvMu sync.Mutex
+
+// ownUV is where bothouse keeps the uv it downloaded.
+func ownUV(dataDir string) string { return filepath.Join(AgentToolsDir(dataDir), "uv", uvExe()) }
+
+// ensureUV: uv on PATH, else the one in <dataDir>/tools/uv, else downloaded there.
+func ensureUV(dataDir string) (string, error) {
+	if uv := FindUV(); uv != "" {
+		return uv, nil
 	}
-	// only-managed: uv never runs the interpreters on PATH (so never the macOS stub); 3.12+ on PATH was
-	// already looked for above.
-	base := []string{"UV_PYTHON_PREFERENCE=only-managed", "UV_NO_CONFIG=1"}
-	own := append(base, "UV_PYTHON_INSTALL_DIR="+filepath.Join(AgentToolsDir(dataDir), "python"))
+	uvMu.Lock()
+	defer uvMu.Unlock()
+	own := ownUV(dataDir)
+	if _, err := os.Stat(own); err == nil {
+		return own, nil
+	}
+	if err := downloadUV(own); err != nil {
+		return "", fmt.Errorf("no uv on PATH; downloading uv %s failed: %w", uvVersion, err)
+	}
+	return own, nil
+}
+
+// uvBaseEnv: only-managed: uv never runs the interpreters on PATH (so never the macOS stub, which opens the
+// "install the developer tools" dialog).
+var uvBaseEnv = []string{"UV_PYTHON_PREFERENCE=only-managed", "UV_NO_CONFIG=1"}
+
+// uvOwnEnv: uvBaseEnv, with uv's Pythons kept in <dataDir>/tools/python (shared by the gate and the hub).
+func uvOwnEnv(dataDir string) []string {
+	return append(append([]string{}, uvBaseEnv...), "UV_PYTHON_INSTALL_DIR="+filepath.Join(AgentToolsDir(dataDir), "python"))
+}
+
+// uvPython: a Python ≥3.12 through uv (ensureUV).
+func uvPython(dataDir string) (string, error) {
+	uv, err := ensureUV(dataDir)
+	if err != nil {
+		return "", fmt.Errorf("no Python 3.12+: %w", err)
+	}
+	// 3.12+ on PATH was already looked for (resolveProductPython).
+	base := append([]string{}, uvBaseEnv...)
+	own := uvOwnEnv(dataDir)
 	if p := uvFind(uv, dataDir, base); p != "" { // one uv already installed for this user
 		return p, nil
 	}

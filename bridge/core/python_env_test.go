@@ -35,10 +35,16 @@ func stubPythonEnv(t *testing.T) (dataDir string, calls *[]string) {
 
 func fakeUVArchive(t *testing.T, asset string) (data, sum []byte) {
 	t.Helper()
+	return fakeUVArchiveBody(t, asset, "#!/bin/sh\n")
+}
+
+// fakeUVArchiveBody: a uv release archive whose uv is the shell script script.
+func fakeUVArchiveBody(t *testing.T, asset, script string) (data, sum []byte) {
+	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	body := []byte("#!/bin/sh\n")
+	body := []byte(script)
 	_ = tw.WriteHeader(&tar.Header{Name: "uv-x/" + uvExe(), Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg})
 	_, _ = tw.Write(body)
 	_ = tw.Close()

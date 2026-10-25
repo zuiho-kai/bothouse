@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -369,20 +370,40 @@ func GetLocalHubStatus(ctx context.Context, dataDir, lang string) LocalHubStatus
 		}
 	}
 	if !st.Running {
-		st.CanStart, st.Missing = localHubCanStart()
+		st.CanStart, st.Missing = localHubCanStart(dataDir)
 	}
 	st.Hint = localHubHint(lang, st)
 	return st
 }
 
-func localHubCanStart() (bool, string) {
+// localHubCanStart only looks (the page polls it): a uv that is missing but can be downloaded counts, and
+// startHubProcess downloads it.
+func localHubCanStart(dataDir string) (bool, string) {
 	if !hubSourceAvailable() {
 		return false, "source"
 	}
-	if _, _, err := lookPath("uv"); err != nil {
+	if _, err := localHubUV(dataDir, false); err != nil {
 		return false, "uv"
 	}
 	return true, ""
+}
+
+// localHubUV: uv on PATH or in the usual bin dirs (lookPath), else ensureUV's (PATH, <dataDir>/tools/uv,
+// downloaded there). download=false only says whether one is there or can be downloaded.
+func localHubUV(dataDir string, download bool) (string, error) {
+	if uv, _, err := lookPath("uv"); err == nil {
+		return uv, nil
+	}
+	if !download {
+		if _, err := os.Stat(ownUV(dataDir)); err == nil {
+			return ownUV(dataDir), nil
+		}
+		if uvAsset(runtime.GOOS, runtime.GOARCH) == "" {
+			return "", fmt.Errorf("no uv build for %s/%s", runtime.GOOS, runtime.GOARCH)
+		}
+		return "", nil
+	}
+	return ensureUV(dataDir)
 }
 
 func localHubHint(lang string, st LocalHubStatus) string {
@@ -399,13 +420,13 @@ func localHubHint(lang string, st LocalHubStatus) string {
 			"以前ウィザードで起動したこのマシンのプラットフォームが今は動いていません。「このマシンで起動」で再起動できます（アドレスと token はそのまま）。",
 			"The platform this wizard started earlier is not running: click \"Start on this machine\" to start it again (same address and token).")
 	case st.CanStart:
-		return tr3(lang, "本机还没有自建平台：点「在本机启动」，向导在这台电脑上起一个（只有本机能访问），地址和 token 自动填。第一次要联网下载 Python 依赖，约半分钟。",
-			"このマシンにはまだプラットフォームがありません。「このマシンで起動」を押すと、ウィザードがこのコンピューターに 1 つ立てます（このマシンからのみアクセス可）。アドレスと token は自動で入ります。初回は Python の依存をダウンロードするので 30 秒ほどかかります。",
-			"No platform on this machine yet: click \"Start on this machine\" and the wizard starts one here (this computer only), with address and token filled in. The first start downloads Python packages (about half a minute).")
+		return tr3(lang, "本机还没有自建平台：点「在本机启动」，向导在这台电脑上起一个（只有本机能访问），地址和 token 自动填。第一次要联网下载 uv、Python 和依赖，约一两分钟。",
+			"このマシンにはまだプラットフォームがありません。「このマシンで起動」を押すと、ウィザードがこのコンピューターに 1 つ立てます（このマシンからのみアクセス可）。アドレスと token は自動で入ります。初回は uv・Python・依存をダウンロードするので 1〜2 分ほどかかります。",
+			"No platform on this machine yet: click \"Start on this machine\" and the wizard starts one here (this computer only), with address and token filled in. The first start downloads uv, Python and packages (a minute or two).")
 	case st.Missing == "uv":
-		return tr3(lang, "要在本机启动自建平台，需要先装 uv（Python 的运行工具，装一次就行）。装好后点「重新检测」。也可以在下面填别人的平台。",
-			"このマシンでプラットフォームを起動するには、先に uv（Python の実行ツール、1 回入れるだけ）が必要です。入れたら「再検出」を押してください。下で他の人のプラットフォームを入れることもできます。",
-			"Starting the platform here needs uv (a Python runner, installed once). Install it, then click \"Detect again\". Or enter someone else's platform below.")
+		return tr3(lang, "这台电脑的系统没有能自动下载的 uv（Python 的运行工具）：自己装好 uv 后点「重新检测」。也可以在下面填别人的平台。",
+			"このマシンの OS 向けには自動でダウンロードできる uv（Python の実行ツール）がありません。uv を自分で入れてから「再検出」を押してください。下で他の人のプラットフォームを入れることもできます。",
+			"There is no uv (a Python runner) this wizard can download for this system: install uv yourself, then click \"Detect again\". Or enter someone else's platform below.")
 	default:
 		return tr3(lang, "这个 bothouse 安装包里没带自建平台程序，不能在本机一键启动：请连别人的平台（下面填地址和 token），或者用 conest 仓库里的 role-household 自己起一个。",
 			"この bothouse のパッケージにはプラットフォーム本体が入っていないため、ここでは起動できません。他の人のプラットフォームにつなぐか（下にアドレスと token）、conest リポジトリの role-household で自分で起動してください。",
@@ -427,7 +448,7 @@ var localHubStartWait = 90 * time.Second
 // in <data_dir>/hub/hub.json (an earlier start's are reused), data in <data_dir>/hub/hub.sqlite3,
 // log in <data_dir>/hub/hub.log. The process is detached, so restarting cc-connect does not stop it.
 func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, error) {
-	if ok, missing := localHubCanStart(); !ok {
+	if ok, missing := localHubCanStart(dataDir); !ok {
 		st := LocalHubStatus{Missing: missing}
 		return st, errors.New(localHubHint(lang, st))
 	}
@@ -443,6 +464,7 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		// another port (config.toml's ws_url points at this one): find out who holds it.
 		return localHubPortTaken(ctx, dataDir, lang, s)
 	}
+	// startHubProcess downloads uv first when there is none: the wait below starts after that.
 	if err := startHubProcess(dataDir, &s); err != nil {
 		return LocalHubStatus{}, err
 	}
@@ -510,7 +532,7 @@ func EnsureLocalHub(ctx context.Context, dataDir string) {
 	if code, _, err := cloudWebHandshake(ctx, base, s.BotToken); err == nil && code == http.StatusSwitchingProtocols {
 		return
 	}
-	if ok, missing := localHubCanStart(); !ok {
+	if ok, missing := localHubCanStart(dataDir); !ok {
 		slog.Warn("local hub: not running and cannot be started", "missing", missing)
 		return
 	}
@@ -535,9 +557,9 @@ func startHubProcess(dataDir string, s *localHubState) error {
 	if err := writeJSONFile(filepath.Join(dir, "hub.json"), s, 0o600); err != nil {
 		return err
 	}
-	uv, _, err := lookPath("uv")
+	uv, err := localHubUV(dataDir, true)
 	if err != nil {
-		return err
+		return fmt.Errorf("uv: %w", err)
 	}
 	logf, err := os.OpenFile(filepath.Join(dir, "hub.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -549,7 +571,9 @@ func startHubProcess(dataDir string, s *localHubState) error {
 	cmd := exec.Command(uv, args...)
 	cmd.Dir = src
 	// PYTHONIOENCODING：stdout 接到日志文件时 Windows 的 Python 默认按 cp1252 写，hub 打印中文启动行就崩（PR #5 Windows 实测）
-	cmd.Env = append(os.Environ(), "RH_HUB_TOKEN="+s.WebToken, "RH_BOT_TOKEN="+s.BotToken, "PYTHONIOENCODING=utf-8")
+	// uvOwnEnv：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是装开发工具的桩）；Python 装在
+	// <data_dir>/tools/python，和 gate 共用
+	cmd.Env = MergeEnv(os.Environ(), append(uvOwnEnv(dataDir), "RH_HUB_TOKEN="+s.WebToken, "RH_BOT_TOKEN="+s.BotToken, "PYTHONIOENCODING=utf-8"))
 	cmd.Stdout, cmd.Stderr = logf, logf
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
