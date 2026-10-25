@@ -103,6 +103,7 @@ type Platform struct {
 	botBurstMu                 sync.Mutex
 	botBursts                  map[string]*botBurst // maomao fork: channel+bot → handoff being collected
 	seenInteractions           sync.Map             // interaction ID dedup: prevents duplicate slash/button events
+	decidedPermits             decidedPermits       // maomao fork: delegated approvals already decided by their requester (permit_dedupe.go)
 	self                       core.Platform
 
 	mu               sync.RWMutex
@@ -766,6 +767,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		slog.Debug("discord: ignoring old message after restart", "timestamp", m.Timestamp)
 		return
 	}
+	if fromBot {
+		// maomao fork: before isBotNotice drops ✅ lines and ReferencedMessage is cleared.
+		p.notePermitReceipt(m.Message)
+	}
 	if !fromBot && !core.AllowList(p.allowFrom, m.Author.ID) {
 		slog.Debug("discord: message from unauthorized user", "user", m.Author.ID)
 		return
@@ -1197,6 +1202,14 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	if p.session == nil {
 		return fmt.Errorf("discord session is not ready")
 	}
+	// maomao fork: drop a /permit for a request another approver already decided; no error,
+	// since an error here could surface as one more message (permit_dedupe.go).
+	if p.decidedPermitIn(content) != "" {
+		content = p.dropDecidedPermits(content)
+		if strings.TrimSpace(content) == "" {
+			return nil
+		}
+	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
 		return p.sendInteraction(rc, content)
@@ -1211,6 +1224,11 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	if p.session == nil {
 		return fmt.Errorf("discord session is not ready")
+	}
+	// maomao fork: refuse a /permit for a request another approver already decided, so the
+	// sending agent (bothouse send) learns it and stops (permit_dedupe.go).
+	if id := p.decidedPermitIn(content); id != "" {
+		return errPermitDecided(id)
 	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
