@@ -156,8 +156,6 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None):
                 it["ch"] = ws.split(":", 1)[1]
         cur.append(it)
         _write(cur)
-    if ws:
-        schedule_stale_check(it)
     return nid
 
 
