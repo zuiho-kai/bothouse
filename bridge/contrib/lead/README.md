@@ -17,21 +17,20 @@
 - 手册里用到的脚本（都从 gate 已有的配置读，见 `_team.py`，不写死名字和 ID）：
   - `t10 <pid>`：后台活满 10 分钟连子进程一起停。
   - `d10 <队友名字/别名/ID> "<简称>"`：10 分钟后队友没交回，就以调用者（`CC_PROJECT`，即当主角色）的身份在当前频道（`CC_SESSION_KEY`）发「暂停」；队友 ID 从团队文件的 `"id"` 读。到点由 `d10-fire` 判断：
-    没交回但最近 10 分钟有动静（频道里她发了非状态行、非【接/问/退/升】表态的消息，或团队文件里她的 `"wt"` 目录下有新提交）就续 10 分钟，
+    没交回但最近 10 分钟有动静（团队文件里她的 `"wt"` 目录下有新提交；不读平台 token，桥没有读频道历史的接口，频道消息暂不作信号）就续 10 分钟，
     最多续 2 次；续到上限、或续期定时没挂上，照发暂停。`d10-fire ... --dry-run` 只打印会续期还是会发暂停。
   - `ws-handoff <交接文件> "<任务>"` / `ws-forward "<摘要>"`：把大活交给「工作区」频道里的主角色、之后转结果。
     交接文件要有「用户原话」「进度」「规矩」小节和「参照实现」（`文件:行`，非代码活写「无（新建）」），缺了报
     「缺参照实现：写 文件:行，非代码活写「无（新建）」」；有「共改文件」/「多人改」标题时还要一行「底分支：<分支名>」。
-    工作区：配了 `WS_CHANNEL` 或团队文件顶层 `"workspace"` 就固定用它（频道已删时在当前频道同分类下新建）；
+    工作区：配了 `WS_CHANNEL` 或团队文件顶层 `"workspace"` 就固定用它（不读平台 token、不自己建频道）；
     没配就走桥的共享池（`<桥> workspace list/claim/new`，Discord、飞书、DSH、网页版同一套）：空着或本频道名下
     进行中不到 3 件的先用（件数少、编号小的先），都忙才 `new`。交活时在任务板上记一条并绑这个工作区（`ws`），
     编号记进交接记录的 `board`。升级前没绑编号的旧交接：每个聊天频道第一次 ws-handoff 时迁移一次，名下已没有
     在做条目的工作区放回池子（记在 `<GATE_SETUP_DIR>/ws-park-migrated.json`）。
-    Discord token 读 `DISCORD_BOT_TOKEN` 或 `<GATE_SETUP_DIR>/secrets.env`。
     ws-handoff 按交接文件把来源聊天频道（`CC_SESSION_KEY`）记进 `<GATE_SETUP_DIR>/ws-handoff-last.json` 的 `tasks`；
     `ws-forward --notes <交接文件>` 按它转给那份交接的工作区。
   - `ws-up [--notes <交接文件>] "<内容>" [--ask]`：工作区里的主角色往交活进来的聊天频道上报（默认）或提问（`--ask`），
-    以调用者的 `CC_PROJECT` 用 timer 叫醒那边；活来自多个聊天频道时必须给 `--notes`。Discord 工作区里另发一条不 @ 人的短消息。
+    以调用者的 `CC_PROJECT` 用 timer 叫醒那边；活来自多个聊天频道时必须给 `--notes`。工作区里另用 `<桥> send` 发一条不 @ 人的短消息（四平台通用）。
     timer 命令读 `CC_BIN`，否则找 `bothouse`、`cc-connect`。测试：`python3 -I test_ws_up.py`（临时目录、假 timer，不走网络）。
 
 ## 测试隔离和预演（PLAYBOOK 第 7 节）
@@ -55,10 +54,10 @@
   ws-handoff 建的条目绑着工作区：`board pause`，或 `board update` 把「谁」改成别人时，跑 `<桥> workspace park`
   放掉它在那里的那件交接；那里没别的活在做，桥把工作区放回池子并清会话。手动 add 的条目不动桥。板子存 `BOARD_DIR`（默认 `<GATE_SETUP_DIR>/team`），
   `../gate/ctxsvc.py` 把整张板附进每个 bot 每轮的上下文（板子变了才重推，没用过任务板不附）。
-  每次增改结束后，在条目所在频道（`CC_SESSION_KEY`）把「还没做完的事」编辑进同一条置顶消息；
-  Discord token 读 `DISCORD_BOT_TOKEN` 或 `<GATE_SETUP_DIR>/secrets.env`，读不到只警告。
+  板子不自己发置顶卡、不读平台 token：桥的原生团队板读同一个 `board.jsonl`，在条目所在频道的团队板里出一节「任务板」
+  （四平台通用；`BOARD_DIR` 要和 `team_status_dir` 是同一个目录，产品默认都是 `<数据目录>/team`）。
 - `later <任务板编号> <延时如 10m> "<到点要做什么>"`：挂 `cc-connect timer`，并在任务板上这条已有条目记「下次看 几点」（只改「下次看」，
-  不新建回看条目），用户在置顶卡片上看得见。所有角色（主和次）都能用：没有条目先 `board add` 正经条目；会话按 `CC_SESSION_KEY`、
+  不新建回看条目），用户在团队板上看得见。所有角色（主和次）都能用：没有条目先 `board add` 正经条目；会话按 `CC_SESSION_KEY`、
   `CC_SESSION` 顺序取，都没有就报错、不写板；定时挂不上会把「下次看」改回原值。DSH 运行时会删掉名字含 KEY 的环境变量（dsh-subprocess 过滤
   `/KEY|PASSWORD|SECRET|TOKEN/i`），所以 DSH 的启动入口要加一行 `export CC_SESSION="${CC_SESSION_KEY:-}"`。
 - `safe-restart "原因" "重启后接着做的事|无" [任务板编号]`：等本轮回复发出再用 launchd 重启 cc-connect，约 2 分钟后叫醒本会话接着做（给了编号就用 `later` 记在那条上）。
