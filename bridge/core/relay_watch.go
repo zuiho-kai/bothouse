@@ -15,6 +15,8 @@ import (
 // progress (a relay turn is busy until it returns). Cadence and renew limit are
 // team_watch's (watchCheckAfter, watchMaxRenew). A stop closes the worker's
 // session at once (handleTrackedRelay's stop channel), not the relay drain.
+// The watch outlives the lead's turn (taskRelayLive): a relay sent in the
+// background keeps running after finishRun closes the card.
 
 // errRelayWatchStopped marks a run the watch stopped, like d10 stopping a turn.
 var errRelayWatchStopped = errors.New("十分钟看门停止：到点没有交回结果，会话已关，做到的部分作为部分结果交回")
@@ -115,7 +117,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 	var stop []*taskRelay
 	changed := false
 	old := snapshotTaskRelay(r)
-	active := taskRelayActive(r)
+	active := taskRelayLive(r) // not Closed: the lead turn ending must not drop the watch
 	for id, rc := range r.record.Relays {
 		if rc.Status != "running" || rc.WatchDue.IsZero() || rc.WatchDone || !active {
 			continue

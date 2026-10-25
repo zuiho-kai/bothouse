@@ -114,3 +114,87 @@ func TestRelayWatchRestartReportsInterruptedOnce(t *testing.T) {
 		t.Fatal("interrupted reported more than once")
 	}
 }
+
+// #597 G28: a relay sent in the background outlives the lead's turn. finishRun
+// closes the card when the turn ends; the watch must keep checking the running
+// receipt (renew on progress, nudge and stop without), then stop once handed back.
+func TestRelayWatchSurvivesLeadTurnEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  func(p *PublicProgress, run string, d *taskRelay)
+	}{
+		{"own card", func(p *PublicProgress, run string, _ *taskRelay) { p.finish(run, "result") }},
+		{"delegated card", func(p *PublicProgress, _ string, d *taskRelay) {
+			p.transitionMu.Lock()
+			defer p.transitionMu.Unlock()
+			p.finishRun(d.r, "result", true)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _, run, id := taskRelayFixture(t)
+			d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := relayWatchReceipt(d).WatchDue.Add(-watchCheckAfter())
+			tc.end(p, run, d)
+			d.r.mu.Lock()
+			closed := d.r.record.Closed
+			d.r.mu.Unlock()
+			if !closed {
+				t.Fatal("turn end did not close the card")
+			}
+			due := now.Add(watchCheckAfter())
+			if n := p.relayWatchTick(now.Add(time.Minute)); !n.Equal(due) {
+				t.Fatalf("watch dropped after turn end: next=%v want %v", n, due)
+			}
+			relayWatchReport(t, p, d, 1) // the worker can still report progress
+			next := p.relayWatchTick(due)
+			if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchRenewed != 1 || !next.Equal(due.Add(watchCheckAfter())) {
+				t.Fatalf("not renewed: cancels=%d rc=%+v next=%v", relayWatchStopped(d), relayWatchReceipt(d), next)
+			}
+			p.relayWatchTick(next) // no progress in the second window
+			if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone || !strings.Contains(relayWatchLastEvent(d), "十分钟看门") {
+				t.Fatalf("not nudged: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
+			}
+			if err := d.finish("partial", errRelayWatchStopped); err != nil {
+				t.Fatal(err)
+			}
+			if n := p.relayWatchTick(next.Add(time.Hour)); !n.IsZero() || relayWatchStopped(d) != 1 {
+				t.Fatalf("watched a handed-back receipt: next=%v", n)
+			}
+		})
+	}
+}
+
+// Handed back after the turn ended: nothing left to watch, the loop may exit.
+func TestRelayWatchStopsWhenDoneAfterTurnEnd(t *testing.T) {
+	p, _, run, id := taskRelayFixture(t)
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "result")
+	if err := d.finish("result text", nil); err != nil {
+		t.Fatal(err)
+	}
+	if relayWatchReceipt(d).Status != "done" {
+		t.Fatalf("receipt %+v", relayWatchReceipt(d))
+	}
+	if n := p.relayWatchTick(time.Now().Add(time.Hour)); !n.IsZero() || relayWatchStopped(d) != 0 {
+		t.Fatalf("done receipt still watched: next=%v", n)
+	}
+}
+
+// A cancelled lead turn ends the card: the watch stops with it (unchanged).
+func TestRelayWatchStopsOnCancelledTurn(t *testing.T) {
+	p, _, run, id := taskRelayFixture(t)
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "cancelled")
+	if n := p.relayWatchTick(time.Now().Add(time.Hour)); !n.IsZero() || relayWatchStopped(d) != 0 {
+		t.Fatalf("cancelled card still watched: next=%v", n)
+	}
+}

@@ -95,15 +95,22 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	return &RelayResponse{Response: response}, nil
 }
 
+// taskRelayActive: the lead's turn still holds the card, so a new dispatch may
+// start on it and relay results may move its summary.
 func taskRelayActive(r *publicRun) bool {
-	if r.record.Closed || r.record.Accepted || (r.stopped != nil && r.stopped()) {
+	if r.record.Closed || (r.stopped != nil && r.stopped()) {
 		return false
 	}
-	switch r.record.Task.State {
-	case TaskStateCompleted, TaskStateCancelled, TaskStateFailed:
-		return false
-	}
-	return true
+	return taskRelayLive(r)
+}
+
+// taskRelayLive: a dispatch already running on the card keeps its watch and
+// its progress reports. Not gated on Closed or r.stopped(): the lead's turn
+// ending (finishRun closes every card of the turn) must not leave a relay sent
+// in the background unwatched. Same lifetime as member reports (reportMember):
+// it ends on acceptance or a terminal state.
+func taskRelayLive(r *publicRun) bool {
+	return !r.record.Accepted && !IsTerminalState(r.record.Task.State)
 }
 
 // Caller holds transitionMu. Copy mutable journal pieces before changing them
@@ -184,7 +191,7 @@ func (p *PublicProgress) reportTaskRelay(d *taskRelay, req PublicProgressRequest
 	r := d.r
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if req.SessionKey != d.req.SessionKey || !taskRelayActive(r) {
+	if req.SessionKey != d.req.SessionKey || !taskRelayLive(r) {
 		return "", errors.New("relay progress is not active for this session")
 	}
 	receipt := r.record.Relays[d.req.RequestID]
@@ -210,7 +217,11 @@ func (p *PublicProgress) reportTaskRelay(d *taskRelay, req PublicProgressRequest
 	}
 	receipt.Reports[req.Seq], receipt.LastSeq = hash, req.Seq
 	r.record.Relays[d.req.RequestID] = receipt
+	previousSummary := r.record.Task.LatestProgress
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayProgress, d.name), true)
+	if !taskRelayActive(r) {
+		r.record.Task.LatestProgress = previousSummary // as finish: a closed card keeps its summary
+	}
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = req.Summary
 	r.record.Task.Events[len(r.record.Task.Events)-1].Pointer = true
 	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = d.req.To
