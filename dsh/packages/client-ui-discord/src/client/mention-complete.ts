@@ -56,7 +56,7 @@ export function rankMembers(members: readonly ChannelMember[], query: string): C
     .sort((a, b) => Number(a.m.kind === 'human') - Number(b.m.kind === 'human')
       || a.s - b.s
       || Number(!a.m.online) - Number(!b.m.online)
-      || a.m.name.localeCompare(b.m.name))
+      || a.m.name.localeCompare(b.m.name, 'en'))
     .map(x => x.m)
 }
 
