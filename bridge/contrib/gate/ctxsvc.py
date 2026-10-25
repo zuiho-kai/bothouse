@@ -80,6 +80,11 @@ def query(text):
     return _BLOCKS.sub("", text).strip()
 
 
+def _same(a, b):
+    """两个目录是不是同一个库（按真实路径：bots.json 里主角色的 wiki 可以直接指向主 wiki，或经软链接）。"""
+    return b is not None and os.path.realpath(a) == os.path.realpath(b)
+
+
 def _shown(rel, root=None):
     """推给 agent 的路径：家目录写成 ~，agent 直接能读。"""
     p = ((root or WIKI) / rel).as_posix()
@@ -111,7 +116,7 @@ def context(req):
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
     text = req.get("text") or ""
     own = role_wiki(bot)
-    mine = match_wiki(text, root=own) if own and own != WIKI else []
+    mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     return {"wiki": [x for x in (who, pb) if x] + board_items() + match_wiki(text) + mine}  # 主 wiki 在前
 
 

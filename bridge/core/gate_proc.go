@@ -110,8 +110,9 @@ var (
 
 // GateSupervisor starts, restarts and stops the local gate for one bothouse data dir.
 type GateSupervisor struct {
-	dataDir string
-	dir     string // <data_dir>/gate
+	dataDir  string
+	dir      string // <data_dir>/gate
+	roleWiki string // the directory of the role wikis' bots.json (SetRoleWikiDir); "" = <data_dir>/wiki
 
 	op       sync.Mutex // one step / stop at a time: a gate being stopped is never seen as someone else's
 	mu       sync.Mutex
@@ -137,6 +138,31 @@ var (
 func NewGateSupervisor(dataDir string) *GateSupervisor {
 	return &GateSupervisor{dataDir: dataDir, dir: filepath.Join(dataDir, "gate"),
 		kick: make(chan struct{}, 1), done: make(chan struct{})}
+}
+
+// SetRoleWikiDir names the directory holding bots.json (roleWikiSetup.dir: the user's sub-wiki.py's own when
+// the config has that hook, else RoleWikiDir). Set before Run; the gate rereads bots.json itself (ctxsvc.py).
+func (g *GateSupervisor) SetRoleWikiDir(dir string) {
+	g.mu.Lock()
+	g.roleWiki = dir
+	g.mu.Unlock()
+}
+
+// gateWikiEnv: the wikis /context searches (contrib/gate/ctxsvc.py): GATE_WIKI = the main wiki (FindWiki, so
+// $WIKI_DIR counts), GATE_WIKI_BOTS = bots.json, whose entries name each role's own wiki. A GATE_WIKI already
+// in the environment (e.g. "off") is kept.
+func gateWikiEnv(dataDir, roleWikiDir string) []string {
+	var env []string
+	if _, set := os.LookupEnv("GATE_WIKI"); !set {
+		mw, _ := FindWiki()
+		if mw != "" {
+			env = append(env, "GATE_WIKI="+mw)
+		}
+	}
+	if roleWikiDir == "" {
+		roleWikiDir = RoleWikiDir(dataDir)
+	}
+	return append(env, "GATE_WIKI_BOTS="+filepath.Join(roleWikiDir, "bots.json"))
 }
 
 // SetActiveGateSupervisor registers the running service's supervisor, so a wizard run in this
@@ -331,7 +357,7 @@ func (g *GateSupervisor) startLocked(python string) error {
 	}
 	cmd := exec.Command(python, "-c", gateLauncher)
 	cmd.Dir = g.dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(append(os.Environ(), gateWikiEnv(g.dataDir, g.roleWiki)...),
 		// Both names point at the bridge's data dir so the gate never mixes it with an inherited one
 		// (contrib/gate/datadir.py: lead.json follows BOTHOUSE_DATA_DIR, the rest GATE_SETUP_DIR).
 		"GATE_SETUP_DIR="+g.dataDir,

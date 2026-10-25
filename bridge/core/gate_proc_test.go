@@ -20,6 +20,8 @@ if os.environ.get("BOTHOUSE_DATA_DIR") != os.environ["GATE_SETUP_DIR"]:
     sys.exit(4)  # both must name the bridge's data dir, not an inherited one
 with open(os.path.join(os.environ["GATE_SETUP_DIR"], "starts.txt"), "a") as f:
     f.write("start\n")
+with open(os.path.join(os.environ["GATE_SETUP_DIR"], "wiki_env.txt"), "w") as f:
+    f.write(os.environ.get("GATE_WIKI", "") + "\n" + os.environ.get("GATE_WIKI_BOTS", ""))
 if os.environ.get("FAKE_GATE_MODE") == "exit":
     sys.exit(3)
 s = socket.socket()
@@ -97,6 +99,9 @@ func TestGateSupervisorStartsReloadsStops(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "gate", "gate.py")); err != nil {
 		t.Fatalf("scripts not released into <data_dir>/gate: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dataDir, "wiki_env.txt")); !strings.HasSuffix(string(b), "\n"+filepath.Join(dataDir, "wiki", "bots.json")) {
+		t.Fatalf("gate env GATE_WIKI / GATE_WIKI_BOTS = %q, want bots.json under <data_dir>/wiki", b)
 	}
 
 	g.Reload(true) // the gate reads gate-team.json / jev.json only at startup: restarted
@@ -203,4 +208,25 @@ func TestGateRunsForDSHRouteOnly(t *testing.T) {
 	waitGate(t, "gate started for the DSH route", 5*time.Second, GateRunning)
 	reloadGateAfterWizard(dataDir, WizardSnapshot{}) // no projects: the DSH members keep it wanted
 	waitGate(t, "gate back after reload", 5*time.Second, func() bool { return gateStarts(dataDir) == 2 && GateRunning() })
+}
+
+// TestGateWikiEnv: /context searches the main wiki FindWiki names ($WIKI_DIR counts) plus the roles' wikis listed
+// in bots.json (the user's sub-wiki.py directory when set, else <data_dir>/wiki); a GATE_WIKI already set is kept.
+func TestGateWikiEnv(t *testing.T) {
+	data, mw, own := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("WIKI_DIR", mw)
+	t.Setenv("GATE_WIKI", "") // restored after the test
+	os.Unsetenv("GATE_WIKI")
+	got := strings.Join(gateWikiEnv(data, ""), " ")
+	if want := "GATE_WIKI=" + mw + " GATE_WIKI_BOTS=" + filepath.Join(data, "wiki", "bots.json"); got != want {
+		t.Fatalf("env = %q, want %q", got, want)
+	}
+	got = strings.Join(gateWikiEnv(data, own), " ")
+	if want := "GATE_WIKI=" + mw + " GATE_WIKI_BOTS=" + filepath.Join(own, "bots.json"); got != want {
+		t.Fatalf("own sub-wiki dir: env = %q, want %q", got, want)
+	}
+	t.Setenv("GATE_WIKI", "off")
+	if got := strings.Join(gateWikiEnv(data, ""), " "); strings.Contains(got, "GATE_WIKI=") {
+		t.Fatalf("a GATE_WIKI already set must be kept, got %q", got)
+	}
 }

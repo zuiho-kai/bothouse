@@ -131,6 +131,19 @@ class T(unittest.TestCase):
             ctxsvc.BOTS = None
             self.assertEqual([w["path"] for w in ctxsvc.match_wiki("代理端口多少")], want)  # 终端 hook 的调法不变
 
+    def test_same_wiki_searched_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            main, _, _ = self._team(d)
+            link = Path(d) / "main-link"
+            link.symlink_to(main, target_is_directory=True)
+            want = [(main / "notes/port.md").as_posix()]
+            for w in (str(main), str(main) + "/", str(link)):  # 角色 wiki 就是主 wiki（原路径、带斜杠、软链接）
+                with self.subTest(wiki=w):
+                    ctxsvc.BOTS.write_text(json.dumps({"lead": {"workdir": d, "wiki": w}}), encoding="utf-8")
+                    ctxsvc._bots_src = None
+                    got = [x["path"] for x in ctxsvc.context({"text": "代理端口多少", "bot": "lead"})["wiki"]]
+                    self.assertEqual(got, want)
+
 
 if __name__ == "__main__":
     unittest.main()
