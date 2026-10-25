@@ -257,3 +257,63 @@ func TestRelayProgressKeepsClosedCardSummary(t *testing.T) {
 		t.Fatalf("progress not in thread: %+v", after.Events[len(after.Events)-1])
 	}
 }
+
+// #597 G30: a receipt still running when the bridge restarts gets its watch at
+// engine start, without a new dispatch: at due it is reported interrupted once.
+func TestRelayWatchResumesAfterRestartWithoutDispatch(t *testing.T) {
+	old := watchCheckAfter()
+	watchCheckAfterNs.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { watchCheckAfterNs.Store(int64(old)) })
+	p, platform, _, id := taskRelayFixture(t)
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewPublicProgress(p.dataDir, "source", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, e, _, _, _ := inputFixture(t)
+	e.publicProgress = restored
+	e.startPublicProgress()
+	if !restored.watchOn.Load() {
+		t.Fatal("engine start did not start the watch for a running receipt")
+	}
+	restored.mu.Lock()
+	r := restored.records[d.req.TaskID]
+	restored.mu.Unlock()
+	inputWait(t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.record.Relays[d.req.RequestID].WatchDone
+	})
+	r.mu.Lock()
+	ev := r.record.Task.Events
+	last := ev[len(ev)-1].Summary
+	r.mu.Unlock()
+	if !strings.Contains(last, "桥重启过") {
+		t.Fatalf("no interrupted note: %q", last)
+	}
+}
+
+// No running receipt on disk: engine start does not start the watch loop.
+func TestRelayWatchNotResumedWithoutRunningReceipt(t *testing.T) {
+	p, platform, _, id := taskRelayFixture(t)
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.finish("done", nil); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewPublicProgress(p.dataDir, "source", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, e, _, _, _ := inputFixture(t)
+	e.publicProgress = restored
+	e.startPublicProgress()
+	if restored.watchOn.Load() {
+		t.Fatal("watch started with nothing to watch")
+	}
+}

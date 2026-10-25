@@ -779,6 +779,10 @@ func (e *Engine) startPublicProgress() {
 	if e.publicProgress == nil || !e.beginMessageWork() {
 		return
 	}
+	// Receipts still running from before a restart get their watch now, not at
+	// the next dispatch. Its notes are queued (pending) and delivered by the
+	// Flush loop below, which retries until the platform is connected.
+	e.publicProgress.resumeRelayWatch(e.ctx)
 	go func() {
 		defer e.messageWorkers.Done()
 		ticker := time.NewTicker(time.Second)

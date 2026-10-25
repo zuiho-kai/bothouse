@@ -34,8 +34,8 @@ const (
 func (d *taskRelay) stopWatch() { d.stopOnce.Do(func() { close(d.stop) }) }
 
 // ensureRelayWatch runs the receipt watch loop for p unless it is running. It
-// is started by every task dispatch, so the watch needs no API server, team
-// lead or workspace watch. The loop ends when nothing is left to watch.
+// is started by every task dispatch and at engine start (resumeRelayWatch), so
+// the watch needs no API server, team lead or workspace watch. The loop ends when nothing is left to watch.
 func (p *PublicProgress) ensureRelayWatch(ctx context.Context) {
 	if ctx == nil || ctx.Err() != nil {
 		slog.Error("relay watch: not started, engine is stopping; this dispatch has no ten-minute watch", "project", p.project)
@@ -45,6 +45,38 @@ func (p *PublicProgress) ensureRelayWatch(ctx context.Context) {
 		return
 	}
 	go p.runRelayWatch(ctx)
+}
+
+// resumeRelayWatch starts the watch loop at engine start when receipts read
+// back from disk still wait for it (running, due set, not done). The runs are
+// gone after a restart, so at due the loop reports them interrupted once
+// (relayWatchRun, d == nil). Without this, a dispatch sent before a restart had
+// no watch until the next dispatch started the loop.
+func (p *PublicProgress) resumeRelayWatch(ctx context.Context) {
+	if p.relayWatchWaiting() {
+		p.ensureRelayWatch(ctx)
+	}
+}
+
+// relayWatchWaiting: some receipt is running with a watch not yet done.
+func (p *PublicProgress) relayWatchWaiting() bool {
+	p.mu.Lock()
+	runs := make([]*publicRun, 0, len(p.records))
+	for _, r := range p.records {
+		runs = append(runs, r)
+	}
+	p.mu.Unlock()
+	for _, r := range runs {
+		r.mu.Lock()
+		for _, rc := range r.record.Relays {
+			if rc.Status == "running" && !rc.WatchDue.IsZero() && !rc.WatchDone {
+				r.mu.Unlock()
+				return true
+			}
+		}
+		r.mu.Unlock()
+	}
+	return false
 }
 
 func (p *PublicProgress) runRelayWatch(ctx context.Context) {
