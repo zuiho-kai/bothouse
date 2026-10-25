@@ -63,7 +63,7 @@ mkdir -p "$ROOT/run" "$ROOT/log" "$ROOT/bin" "$H" "$ROOT/data/collab" "$ROOT/dat
   "$ROOT/work" "$ROOT/docs" "$CACHE"
 
 # 进程只拿到这几个变量（PATH 用于找 node/dsh/python3），其余一律清掉。
-ISO=(env -i PATH="$PATH" HOME="$H" TMPDIR="${TMPDIR:-/tmp}" LANG=en_US.UTF-8
+ISO=(env -i BOTHOUSE_TRAY=off PATH="$PATH" HOME="$H" TMPDIR="${TMPDIR:-/tmp}" LANG=en_US.UTF-8
   XDG_CONFIG_HOME="$H/.config" XDG_DATA_HOME="$H/.local/share" XDG_STATE_HOME="$H/.local/state"
   XDG_CACHE_HOME="$H/.cache" DSH_HOME="$H/.dsh" npm_config_store_dir="$CACHE/pnpm-store")
 

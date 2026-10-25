@@ -71,6 +71,13 @@ Installs the newest release, pre-releases included. The installer verifies SHA25
 
 The command is `bothouse`. No Go or Node required.
 
+On macOS and Windows, desktop launches show an icon in the menu bar or system tray.
+Use `bothouse --headless` or `BOTHOUSE_TRAY=off` to hide it. The default
+`BOTHOUSE_TRAY=auto` also hides it over SSH and when HOME differs from the OS
+account's home (preview/test instances). `BOTHOUSE_TRAY=on` enables it for an
+isolated desktop instance; CLI commands and `--headless` still hide it.
+
+
 Release downloads: `bothouse-mac.dmg` (universal Bothouse.app for Apple Silicon and Intel), `bothouse-windows.exe` (x64, also runs on ARM64 Windows; double-click), and `bothouse-linux-x64` / `bothouse-linux-arm64` (`chmod +x`, then run). First launch opens the browser setup wizard. Verify downloads with `SHA256SUMS`.
 
 The packages are unsigned. macOS: drag **Bothouse.app** into Applications, then **right-click → Open the first time**. Windows: if SmartScreen warns, click **More info → Run anyway**.

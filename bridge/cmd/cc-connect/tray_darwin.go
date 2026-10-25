@@ -3,7 +3,7 @@ package main
 import "os"
 
 func startDesktopTray() bool {
-	if !trayInvocation(os.Args[1:]) {
+	if !desktopTrayEnabled(os.Args[1:]) {
 		return false
 	}
 	runDesktopTray()

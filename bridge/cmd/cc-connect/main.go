@@ -1520,6 +1520,7 @@ func runTopLevelCommand(args []string) bool {
 var rootConfigPath string
 
 type rootCLIOptions struct {
+	headless       bool
 	configPath     string
 	force          bool
 	observe        bool
@@ -1535,6 +1536,7 @@ func parseRootCLIOptions(args []string) (rootCLIOptions, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = printUsage
 
+	headless := fs.Bool("headless", false, "run without a desktop tray icon")
 	configPath := fs.String("config", "", "path to config file (default: ./config.toml or ~/.bothouse/config.toml)")
 	force := fs.Bool("force", false, "kill any existing instance with the same config before starting")
 	observe := fs.Bool("observe", false, "observe native terminal Claude Code sessions and forward to Slack")
@@ -1548,6 +1550,7 @@ func parseRootCLIOptions(args []string) (rootCLIOptions, error) {
 	}
 
 	return rootCLIOptions{
+		headless:       *headless,
 		configPath:     *configPath,
 		force:          *force,
 		observe:        *observe,
@@ -1704,6 +1707,7 @@ Usage:
 
 Flags:
   --config <path>    Path to config file (default: ./config.toml or ~/.bothouse/config.toml)
+  --headless         Run without a desktop tray icon
   --force            Kill any existing instance with the same config before starting
   --version          Print version and exit
   --help             Show this help message

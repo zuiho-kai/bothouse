@@ -7,7 +7,7 @@ import (
 )
 
 func startDesktopTray() bool {
-	if !trayInvocation(os.Args[1:]) {
+	if !desktopTrayEnabled(os.Args[1:]) {
 		attachParentConsole()
 		return false
 	}

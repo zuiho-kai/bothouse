@@ -21,22 +21,6 @@ var (
 	trayOpen, trayAdd, trayQuit                  *systray.MenuItem
 )
 
-func trayInvocation(args []string) bool {
-	if len(args) == 0 {
-		return true
-	}
-	switch args[0] {
-	case "config-example", "config", "update", "check-update", "provider", "send", "progress", "task", "cron", "model", "workspace", "timer", "at", "relay", "sessions", "session", "agent-sid", "daemon", "feishu", "tuitui", "weixin", "yuanbao", "doctor", "web", "setup", "version", "help", "upgrade":
-		return false
-	}
-	for _, a := range args {
-		if a == "-h" || a == "--help" || a == "--version" {
-			return false
-		}
-	}
-	return true
-}
-
 func runDesktopTray() {
 	trayMode = true
 	go func() { defer close(trayDone); runMain() }()
@@ -46,7 +30,7 @@ func runDesktopTray() {
 func quitDesktopTray() { systray.Quit() }
 
 func onTrayReady() {
-	systray.SetTitle("bothouse")
+	systray.SetTitle("")
 	systray.SetTooltip("bothouse 管理面板")
 	systray.SetTemplateIcon(trayIcon, trayIcon)
 	trayStatus = systray.AddMenuItem("运行状态：检查中…", "bothouse 运行状态")

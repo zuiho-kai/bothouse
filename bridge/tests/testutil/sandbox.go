@@ -56,6 +56,7 @@ var SandboxClearedVars = []string{
 	// 运行中的 cc-connect 会话与配置位置
 	"CC_PROJECT", "CC_SESSION_KEY", "CC_DATA_DIR",
 	"CC_CONFIG_PATH", "CC_CONNECT_CONFIG", "CC_LOG_FILE", "CC_TEST_CONFIG",
+	"BOTHOUSE_TRAY", "BOTHOUSE_NO_TRAY",
 	// agent 目录与二进制位置
 	"DSH_HOME", "BOTHOUSE_DSH_DIR", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "KIMI_BIN",
 	"CONEST_MEDIA_BIN_DIR", "CONEST_MEDIA_NAS_ROOT", // 媒体库脚本目录与 NAS（core/media.go）
