@@ -107,7 +107,8 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(last["tasks"][notes[0]], {"channel": "900", "chat": "test:100", "task": "A", "board": [1]})
         # 工作区 900 报回交 a 进来的聊天频道
         self.assertEqual(self.run_tool("ws-up", "done", key="test:900").returncode, 0)
-        self.assertIsNotNone(self.items()[0].get("progress_at"))
+        rows = [json.loads(line) for line in (self.setup / "team" / "board.jsonl").read_text().splitlines()]
+        self.assertIsNotNone(rows[0].get("progress_at"))
         argv = self.timers()[-1]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
         # 答复按 --notes 转回 a 所在工作区，而不是最近一次交接
