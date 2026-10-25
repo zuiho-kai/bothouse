@@ -104,6 +104,7 @@ export async function apply(ctx, rawConfig) {
     store.ensureRoom(room.id, room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
   }
+  store.migrateMemberRooms();
   const leadState = new LeadState(config.leadFile, ctx.logger);
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
   hub.teamExit = new TeamExit(hub);
