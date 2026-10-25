@@ -224,3 +224,33 @@ func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
 		t.Fatalf("board = %q", got)
 	}
 }
+
+// PR #377 review: an item with no chat goes to the wizard's main chat only; with none recorded it
+// shows nowhere (no board picked or created for it).
+func TestTeamTaskBoardUnplacedMainChatOnly(t *testing.T) {
+	dir := t.TempDir()
+	if got := teamMainChat(dir); got != "" {
+		t.Fatalf("no setup state: main chat = %q", got)
+	}
+	writeTaskBoard(t, dir, setupStateFile, `{"platform":"discord","channel_id":"555"}`)
+	if got := teamMainChat(dir); got != "discord:555" {
+		t.Fatalf("main chat = %q", got)
+	}
+	items := placeTeamTaskBoard(teamTaskBoardPlacer{mainChat: teamMainChat(dir)}, []teamTaskBoardItem{{ID: 7, What: "老条目"}})
+	if c := items[0].chats(); len(c) != 1 || c[0] != "discord:555" {
+		t.Fatalf("chats = %v", c)
+	}
+	items = placeTeamTaskBoard(teamTaskBoardPlacer{}, []teamTaskBoardItem{{ID: 8, What: "老条目"}})
+	if c := items[0].chats(); len(c) != 0 {
+		t.Fatalf("no main chat: chats = %v, want none", c)
+	}
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangEnglish)
+	e.SetTeam(dir, "橘", true)
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":9,"what":"没记频道","status":"在做","who":"橘","at":"10-26 02:00"}`+"\n")
+	os.Remove(filepath.Join(dir, setupStateFile))
+	boards := map[string]*boardChat{}
+	e.updateTeamBoards(nil, boards)
+	if len(boards) != 0 {
+		t.Fatalf("a board was made for an unplaced item: %v", boards)
+	}
+}

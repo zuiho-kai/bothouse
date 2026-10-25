@@ -490,3 +490,35 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 		t.Fatalf("state after retry = %s; want the old board kept", raw)
 	}
 }
+
+// PR #377 review: board.py's old pinned cards are deleted on takeover, so a channel has one task
+// board; a card that fails stays for the next try, the file goes once empty.
+func TestRetireBoardPyCards(t *testing.T) {
+	p := &stubBoardRemover{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}, failFor: "m2"}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	dir := t.TempDir()
+	path := filepath.Join(dir, boardPyCardsFile)
+	if err := os.WriteFile(path, []byte(`{"111":"m1","222":"m2"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e.retireBoardPyCards(dir) {
+		t.Fatal("reported done with a card left")
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != `{"222":"m2"}` {
+		t.Fatalf("state = %s, want only the failed card", raw)
+	}
+	p.failFor = ""
+	if !e.retireBoardPyCards(dir) {
+		t.Fatal("not done after all removed")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("state file kept")
+	}
+	if strings.Join(p.removed, ",") != "m1,m2" {
+		t.Fatalf("removed = %v", p.removed)
+	}
+	if !e.retireBoardPyCards(dir) { // no file: nothing to do
+		t.Fatal("no file should be done")
+	}
+}
