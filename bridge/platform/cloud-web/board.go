@@ -30,7 +30,6 @@ type boardState struct {
 	seq     int64
 }
 
-
 // nextSeq is a rising number for the gateway's stale-frame check (it skips an
 // edit whose seq is not newer than the stored one). Milliseconds keep it rising
 // across restarts and inside the JS safe-integer range.
