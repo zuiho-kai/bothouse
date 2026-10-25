@@ -1,13 +1,13 @@
 # 线 1：配 ccm 和 wiki
 
-做完这篇：本机跑着 ccm（bothouse maomao 分支），一个主 bot 加几个 sub；（装了 gate 的话）gate 判断谁回话；
+做完这篇：本机跑着 ccm（bothouse maomao 分支），一个主 bot 加几个 sub；gate 判断谁回话（向导默认开，bothouse 自动拉起）；
 每轮回话前 bot 会收到「可能相关的 wiki 页」；会话结束后 wiki 自动多出记录。
-装和配机器人只有一条路：[从零用起](GETTING_STARTED.md)的「装 → 向导 → 确认上线」。这篇讲之后可以加的 gate 和 wiki，都可选。
+装和配机器人只有一条路：[从零用起](GETTING_STARTED.md)的「装 → 向导 → 确认上线」。这篇讲 gate（向导默认开，不用手动起）和可选的 wiki。
 
 ## 0. 要准备的
 
 - 本文的安装和后台运行命令面向 macOS 或 Linux；Windows 的 wiki 检索支持范围见第 4 节。gate 用向导里填的 jev 打分，不带本地模型。
-- 装 ccm 不用 Go，也不用 Node：用预编译包（第 1 步）。gate 要 [uv](https://docs.astral.sh/uv/)；wiki 要 Python 3.9+ 和 git。
+- 装 ccm 不用 Go，也不用 Node：用预编译包（第 1 步）。gate 要 Python 3.12+（bothouse 自动拉起，不用 uv）；wiki 要 Python 3.9+ 和 git。
 - 已登录的 `claude` CLI（也可以是 codex 等 bothouse 支持的 agent）。
 - 每个 bot 一个聊天平台的 bot 账号（线 2 第 1 步）。
 
@@ -23,32 +23,41 @@
 `team_lead_bot`、`gate_url`、`gate-team.json`），见[线 2](connect-discord-feishu.md)。也可以让 AI 跑 `bothouse setup apply`。
 已经用向导配过的直接跳到第 3 步。手写 TOML 的老办法放在文末附录 A。
 
-## 3. 起 gate（可选）
+## 3. 起 gate：向导默认开，bothouse 自动拉起
 
-**可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由主角色回；向导配出来的配置不装 gate 也能用。
-装 gate 是为了让 AI 自己判断一句话该谁回。**要先在向导里填 jev**（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）；没填 gate 会报错退出，并提示怎么填。
+**不用手动起。** 多个机器人时，向导「主角色」一步的「分流：一个主 bot 决定谁回话（推荐）」默认勾着（AI 的请求不带 `gate` 字段也是开）。
+保存后分流马上生效：主 bot 统一回话，被 @ 的角色照常回，其他角色只听。
+bothouse 会自己拉起 gate（服务在跑就马上起，没在跑就下次启动时起），装好 **Python 3.12+** 和 **jev** 后自动启用智能判断，不用重跑向导。
 
-下面的命令都在 conest 仓库根目录运行（没 clone 过的先 `git clone https://github.com/zuiho-kai/bothouse.git && cd bothouse`）。
+- jev 在向导里填（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）。gate 不会自己下载模型。
+- 还缺 Python 或 jev 时，保存页会写出缺哪样（`gate_status`：`python_missing`、`python_too_old`、`jev_missing`），分流照样生效，只是先由主 bot 统一回话。
+  bothouse 每分钟复查一次，装好就自动起 gate。
+- bothouse 起的 gate 跟着 bothouse 走：bothouse 退出它也退出，崩了会自动重启。脚本释放在 `~/.bothouse/gate/`，
+  运行日志在 `~/.bothouse/logs/gate.log`，判断日志在 `~/.bothouse/gate.jsonl`（用来调规则）。
+- 团队文件向导已经写好（`~/.bothouse/gate-team.json`，lead = 向导里选的主角色）；jev 在 `~/.bothouse/jev.json`（测出给概率的才用）。
+  向导保存后 bothouse 会重启自己起的 gate，让它读到新的团队和 jev。
+- 不想要分流：在向导里取消勾选（AI：请求里加 `"gate": {"enabled": false}`）。只清向导写的 gate 设置，自己手写的 `gate_url` 保留。
+
+### 高级：自己起 gate
+
+一般用不到。9930 端口上已经有别的 gate 在跑时，bothouse 不会再起，也不会去管它。想自己管 gate（换端口、放到别的机器、用本机大模型）才看这里。
+下面的命令在 conest 仓库根目录运行，要 [uv](https://docs.astral.sh/uv/)：
 
 ```sh
 GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
 # → gate on 127.0.0.1:9930  team=协调员+码农、笔杆  wiki=/Users/you/wiki
 ```
 
-- 用过向导的话，团队文件向导已经写好了（`~/.bothouse/gate-team.json`，lead = 向导里选的主角色），gate 默认读它。
-  没用向导时自己写一份：`cp bridge/contrib/gate/team.example.json ~/.bothouse/gate-team.json` 再改成你的角色
-  （名字是群里叫她的叫法，`subs` 的 key 就是 `gate_url` 里 `?bot=` 后面那个）。两样都没有才用 `team.example.json` 里的占位名字。
-  格式：
+- 没用向导时自己写团队文件：`cp bridge/contrib/gate/team.example.json ~/.bothouse/gate-team.json` 再改成你的角色
+  （名字是群里叫她的叫法，`subs` 的 key 就是 `gate_url` 里 `?bot=` 后面那个）。格式：
 
   ```json
   {"lead": {"name": "协调员", "aliases": ["Claude"]},
    "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
   ```
 
-- gate 用向导填的 jev 打分（`~/.bothouse/jev.json`，测出给概率的才用）。没有 jev 时 gate 启动就报错退出，
-  提示两种填法：用硅基流动的免费 Qwen 小模型，或本地起一个 0.6B 小模型（如 `mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit`）再填进向导的 jev。
-  gate 不会自己下载模型。启动时打印的 `scorer=jev` 就是在用 jev。
-- 判断日志在 `GATE_LOG`（默认 `~/.bothouse/gate.jsonl`），用来调规则。
+- 没有 jev 时 gate 启动就报错退出，提示两种填法：用硅基流动的免费 Qwen 小模型，或本地起一个 0.6B 小模型（如 `mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit`）再填进向导的 jev。
+  启动时打印的 `scorer=jev` 就是在用 jev。
 - 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
 - 想在自己的显卡上跑大一点的本机模型：显式设 `GATE_MODEL=<本地模型目录>`，Apple 芯片用 `bridge/contrib/gate/scorer.py`（`uv run --with mlx-lm`），
   N 卡用 `scorer_torch.py`（PyTorch 版，放成 `scorer.py`）；`gate_switch.py`
@@ -91,7 +100,7 @@ bothouse daemon install   # 想关掉终端也一直在线：装成后台服务
 ## 6. 怎么验证
 
 1. ccm 上线：日志里有 `discord: connected`；频道里 @ 机器人说一句，它回话。
-2. gate 活着（装了的话）：
+2. gate 活着（装好 Python 3.12+ 和 jev 后 bothouse 自动拉起；起不来看 `~/.bothouse/logs/gate.log`）：
    ```sh
    curl -s 127.0.0.1:9930/decide -d '{"content":"你好","busy":false}'          # → {"action": ..., "reason": ...}
    curl -s 127.0.0.1:9930/context -d '{"key":"t","text":"<wiki 里有的一个词>"}'   # → {"wiki": [...]}

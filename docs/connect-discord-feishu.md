@@ -2,10 +2,10 @@
 
 **用安装向导，几分钟配完。** 向导在 bothouse 自带的网页里，人点界面；AI 用一条命令或一个 HTTP 接口，参数一次给全。
 两条路写的是同一份配置。命令行手动配的老办法放在文末附录。还没装 `bothouse` 的先看[从零用起](GETTING_STARTED.md)第 1 步（一行命令，不用 Go 和 Node）。
-gate 可以不装，见下面第 2 节第 7 步。
+多个机器人时向导默认开分流（一个主 bot 决定谁回话），bothouse 自动拉起 gate，装好 Python 3.12+ 和 jev 后自动启用智能判断，不用手动起，见下面第 2 节第 5 步。
 
 ```
- 选平台 ─▶ 接机器人 ─▶ 每个角色选本机 CLI ─▶ 人设 ─▶ 主角色 ─▶ jev ─▶ 保存，看还要做什么 ─▶ 重启生效
+ 选平台 ─▶ 接机器人 ─▶ 每个角色选本机 CLI ─▶ 人设 ─▶ 分流和主角色 ─▶ jev ─▶ 保存，看还要做什么 ─▶ 重启生效
  Discord：选已有机器人或填 token，选服务器、默认频道        （可选：挂第三方 API）
  飞书：扫码，选默认群
 ```
@@ -41,7 +41,9 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
    页头和最后的确认页会写出每个已有机器人实际用的语言（人设里没写就说「由 CLI 自己决定」）。要改就在这一步勾上，再选回答语言。
    装完以后改人设有三种办法，改的是同一个文件（`<work_dir>/CLAUDE.md`、`AGENTS.md`、`GEMINI.md`……，按 CLI 定）：
    网页「项目」→ 角色 →「人设」；在聊天里叫机器人改；直接改文件夹里的文件。
-5. **主角色**：从这次配好的机器人里选一个，默认第一个。jev 没填、测试没过、或判断不出该谁回时，由它接话。
+5. **分流和主角色**：「分流：一个主 bot 决定谁回话（推荐）」默认勾着。勾着时主 bot 统一回话，被 @ 的角色照常回；bothouse 自动拉起 gate，装好 Python 3.12+ 和 jev 后自动启用智能判断。
+   取消勾选 = 不用分流，各机器人按自己的设置回话（只清向导写的 gate 设置，手写的 `gate_url` 保留）。飞书没有这一步，默认开。
+   主角色从这次配好的机器人里选一个，默认第一个。jev 没填、测试没过、或判断不出该谁回时，由它接话。
 6. **jev**：三个框（Base URL、Key、模型），填一个能返回概率的模型。填完自动测一次（和 gate 一样问一道 A/B/C 选择题，看前 20 个候选里有没有选项字母），测的时候不写盘；
    能用就点下一步存下。不给概率或连不上就不存，换一个或跳过 jev（跳过会删掉原来的 jev.json，等于不填）。
    已经有能用的 jev 时框里预先填好，原样点下一步就是继续用它；新填的没通过时提示「仍在用旧的 …」，旧的不动。见下面「jev 和主角色」。
@@ -50,8 +52,8 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
 8. **保存**：写进本机配置。最后一页先列出还要你做的事，不做机器人不会回话：
    - Message Content Intent 没开，或者没查到开没开 → 点链接到开发者后台 Bot 页打开 / 确认；
    - 机器人还没进服务器 → 点邀请链接拉进去。
-   这两件做完不用重新跑向导，点「重启生效」就行。多个机器人时还会写 gate 的情况：**gate 可以不装**，没装时被 @ 的角色照常回，其余消息都由主角色回；
-   想让 AI 自己判断谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步，要先在这一步填 jev，没填 gate 会报错并提示怎么填）。
+   这两件做完不用重新跑向导，点「重启生效」就行。多个机器人时还会写「分流状态」：分流已生效，主 bot 统一回话；
+   gate 由 bothouse 自动拉起，还缺 Python 3.12+ 或 jev 时会写出缺哪样，装好后自动启用智能判断（[线 1](ccm-and-wiki.md) 第 3 步）。
 
 ## 3. 让你的 AI 帮你配
 
@@ -86,7 +88,7 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
 - 返回：`ok` = 存好了且没有要你做的事；`saved` = 配置已写入；`needs_user_action` 为 true 时看 `warnings` 里 `blocking: true` 的项
   （`message_content_intent_off`：去开发者后台打开 intent；`bot_not_in_guild`：打开 `url` / `invite_urls` 里的邀请链接；`agent_not_logged_in`：照 `fix` 登录这台机器上的 CLI；
   `discord_token_invalid`：重置 token），不做机器人不会回话；
-  `next_steps` 写了怎么启动或重启。`ok` 为 false 时退出码是 1（存好了但还要你做事也是 1）。`gate_not_running` 只是提示，gate 可以不装。
+  `next_steps` 写了怎么启动或重启。`ok` 为 false 时退出码是 1（存好了但还要你做事也是 1）。`gate_python_missing`（没找到 Python 3.12+）只是提示，不阻塞：分流照样生效，装好后 bothouse 自动起 gate。`gate_status` 是分流的状态（`off`、`running`、`starting`、`python_missing`、`python_too_old`、`jev_missing`），`gate_hint` 是给人看的一句话。多个机器人时分流默认开，请求里加 `"gate": {"enabled": false}` 才关。
 - `allow_from` 不写时，默认是每个机器人所属 Discord 应用的所有者（用 token 查）；写进新机器人，和原来 `allow_from` 为空的已有机器人，已有非空的不动。查不到所有者（Discord 应用接口没回）时不会放开：写成 `allow_from = "set-your-discord-user-id"`（谁都不听），返回阻塞的 `allow_from_unknown`，要用户给自己的 Discord 用户 ID 再跑一次。只有显式写 `"*"` 才是服务器里所有人（会附一条不阻断的 `allow_from_everyone` 提醒）。照提示带上真实 ID 重跑时，占位值会被换掉。
 - `reuse_project` 的机器人保留原 project 名、CLI、work_dir、服务器；它的人设文件只有同时带了 `persona` 和 `"edit_persona": true` 才会改。
   新机器人的名字和配置里已有的项目撞了：是同一个机器人（bot ID 一样）就更新那个项目，不是就加 -2、-3。
@@ -136,8 +138,8 @@ key 只留在 bothouse 里。所以任何 OpenAI 兼容接口都能挂到这四�
   实测（2026-10-20）：mlx_lm.server + Qwen3-0.6B-4bit 能通过并能打分；LM Studio（MLX 引擎）回 `logprobs: null`，当不了 jev。
   能用才写 `jev.json`；不能用就不写，原来能用的旧 jev 保留并在原因里写「仍在用旧的 …」——新填错一次不该悄悄把选角色关掉。
   一键命令和接口同样：`jev` 不给 = 不动；`"jev": {"base_url": ""}` 也是不动；`"jev": {"remove": true}` = 删掉；没存时返回 `"jev_ok": false`、`jev_reason`，`jev_in_use` 是现在生效的那个。
-- **没有可用的 jev**（没填、测试没过）：gate 启动就报错退出，提示去这一步填 jev（硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B），
-  不会自己下载模型。**gate 没在运行**时：被 @ 的角色照常回，其他消息由主角色回
+- **没有可用的 jev**（没填、测试没过）：bothouse 不起 gate（`gate_status` = `jev_missing`），去这一步填 jev（硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）后自动起；
+  gate 不会自己下载模型。**gate 没在运行**时分流照样生效：被 @ 的角色照常回，其他消息由主角色回
   （bothouse 的 `gate_fallback`：主角色 `reply`，其他 `context`；被 @ 时一律 `reply`，见 `bridge/core/gate.go`）。
 
 ## 6. 向导写了什么（给别的程序读）
