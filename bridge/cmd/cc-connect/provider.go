@@ -580,15 +580,21 @@ func runProviderPresets(args []string) {
 
 // ── Global provider management ─────────────────────────────────
 
-func runProviderGlobal(args []string) {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, `Usage: bothouse provider global <command>
+const providerGlobalUsage = `Usage: bothouse provider global <command>
 
 Commands:
   list     List global providers
   add      Add a global provider
-  remove   Remove a global provider`)
+  remove   Remove a global provider`
+
+func runProviderGlobal(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, providerGlobalUsage)
 		os.Exit(1)
+	}
+	if isHelpArg(args[0]) {
+		fmt.Println(providerGlobalUsage)
+		return
 	}
 
 	switch args[0] {

@@ -24,11 +24,18 @@ import (
 // is `user-isolation`, but this function is the growth point for future
 // diagnostics.
 func runDoctor(args []string) {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: bothouse doctor <subcommand>")
-		fmt.Fprintln(os.Stderr, "subcommands:")
-		fmt.Fprintln(os.Stderr, "  user-isolation   audit run_as_user projects and emit an isolation report")
-		os.Exit(2)
+	if len(args) == 0 || isHelpArg(args[0]) {
+		out := os.Stderr
+		if len(args) > 0 {
+			out = os.Stdout
+		}
+		fmt.Fprintln(out, "usage: bothouse doctor <subcommand>")
+		fmt.Fprintln(out, "subcommands:")
+		fmt.Fprintln(out, "  user-isolation   audit run_as_user projects and emit an isolation report")
+		if len(args) == 0 {
+			os.Exit(2)
+		}
+		return
 	}
 	switch args[0] {
 	case "user-isolation":

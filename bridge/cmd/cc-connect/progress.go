@@ -17,6 +17,9 @@ import (
 )
 
 func runProgress(args []string) {
+	if len(args) > 0 && isHelpArg(args[0]) {
+		args = []string{"-h"} // the flag set prints the usage and returns flag.ErrHelp
+	}
 	if err := progressCommand(args, os.Stdout); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return

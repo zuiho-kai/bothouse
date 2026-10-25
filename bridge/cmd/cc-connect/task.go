@@ -71,6 +71,10 @@ func taskCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("usage: task list|show|accept|assign [flags]")
 	}
+	if isHelpArg(args[0]) {
+		fmt.Fprintln(out, "usage: task list|show|accept|assign [flags]  (task <action> -h lists the flags)")
+		return nil
+	}
 	action, rest := args[0], args[1:]
 	f := flag.NewFlagSet("task "+action, flag.ContinueOnError)
 	project := f.String("project", os.Getenv("CC_PROJECT"), "project")

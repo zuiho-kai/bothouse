@@ -229,10 +229,12 @@ func (o *guardOps) fill() {
 // probes it when the management HTTP server is off.
 var activeAPISocket atomic.Value // string
 
-// handleSocketVersion: GET /version on the local socket → {"version": "..."}.
+// handleSocketVersion: GET /version on the local socket → {"version": "...", "exe": "..."}.
+// exe is the installed binary this process runs (and would replace on update): `bothouse update`
+// only hands the update over when it is the same program as the CLI.
 func handleSocketVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"version": CurrentVersion})
+	_ = json.NewEncoder(w).Encode(map[string]string{"version": CurrentVersion, "exe": updateExePath()})
 }
 
 func probeStatusVersion(spec updateGuardSpec) string {
