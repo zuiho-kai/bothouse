@@ -5,6 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -176,7 +177,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               </div>
             )
           : card === undefined
-          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={message.text} labels={labels} /></div>}<AttachmentList attachments={message.attachments} /></>
+          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={softBreaksToHard(message.text)} labels={labels} /></div>}<AttachmentList attachments={message.attachments} /></>
           : (
               <div className={css.card} data-state={card.state}>
                 <div className={css.cardHead}>
@@ -192,7 +193,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     </div>
                   )}
                 </div>
-                <div className={css.text}><MarkdownText text={typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text} labels={labels} /></div>
+                <div className={css.text}><MarkdownText text={softBreaksToHard(typeof card.brief === 'string' && cardView === 'brief' ? card.brief : message.text)} labels={labels} /></div>
                 {(card.state === 'failed' || card.action === 'configure-model') && (
                   <div className={css.cardButtons}>
                     {card.state !== 'retried' && (

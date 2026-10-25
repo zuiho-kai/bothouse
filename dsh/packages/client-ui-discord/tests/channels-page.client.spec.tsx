@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
 
@@ -727,11 +728,39 @@ describe('multi-line messages and the narrow composer', () => {
     render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
     const paragraph = screen.getByText(/回车测试甲/)
     expect(paragraph.tagName).toBe('P')
-    expect(paragraph.textContent).toBe('回车测试甲\n回车测试乙')
+    expect(paragraph.querySelectorAll('br')).toHaveLength(1)
+    expect(paragraph.textContent?.replace(/\n/g, '')).toBe('回车测试甲回车测试乙')
     expect(document.querySelector('pre')?.textContent).toContain('code 1\ncode 2')
+    expect(document.querySelector('pre br')).toBeNull()
     expect(Array.from(document.querySelectorAll('li')).map(li => li.textContent)).toEqual(['一', '二'])
-    // The newline is kept in the DOM; the message text style shows it (pre-wrap on prose only).
-    expect(rule('.text p,\n.text li')).toContain('white-space: pre-wrap')
+    expect(document.querySelectorAll('li br')).toHaveLength(0)
+    // Line breaks come from <br>, not from whitespace styling, so markdown's own "\n" text stays invisible.
+    expect(cssText()).not.toContain('pre-wrap')
+  })
+
+  // Before this fix (develop) messages went to MarkdownText unchanged; these shapes must render the same.
+  it.each([
+    ['loose list', '- 一\n\n- 二\n\n- 三'],
+    ['list item with sub-list and code', '- 一\n  - 子\n- 二\n\n  ```\n  x = 1\n  ```'],
+    ['hard breaks', '行一  \n行二\\\n行三'],
+    ['table', '| a | b |\n| --- | --- |\n| 1 | 2 |'],
+  ])('renders a %s exactly as before (no extra blank lines)', (_name, text) => {
+    const labels = { code: { copyLabel: zh.copyCode, copiedLabel: zh.copiedCode }, footnotes: zh.footnotes }
+    const markdown = () => document.querySelector('[class*="_markdown_"]')?.innerHTML
+    render(<MarkdownText text={text} labels={labels} />)
+    const before = markdown()
+    expect(before).toBeTruthy()
+    cleanup()
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
+    expect(markdown()).toBe(before)
+  })
+
+  it('breaks a continued list item onto its own line', () => {
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text: '- 甲\n  续行\n- 乙' }] })} />)
+    const items = document.querySelectorAll('li')
+    expect(items).toHaveLength(2)
+    expect(items[0].querySelectorAll('br')).toHaveLength(1)
+    expect(items[1].querySelectorAll('br')).toHaveLength(0)
   })
 
   it('keeps the composer placeholder on one line and the text box flexible', () => {
