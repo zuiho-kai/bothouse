@@ -17387,21 +17387,29 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// Use the engine context (not the relay timeout context) so that the
 	// agent process is not killed when the relay deadline fires. The relay
 	// timeout only controls how long we *wait* for the response.
-	agentSession, err := agent.StartSession(e.ctx, session.GetAgentSessionID())
+	resumeID := session.GetAgentSessionID()
+	agentSession, err := agent.StartSession(e.ctx, resumeID)
+	startedFresh := resumeID == ""
 	if err != nil {
 		// Resume failed — fall back to a fresh session so the relay is not
 		// permanently broken by a corrupted/stale session ID.
-		if session.GetAgentSessionID() != "" {
+		if resumeID != "" {
 			slog.Warn("relay: session resume failed, trying fresh session",
 				"relay_key", relaySessionKey, "error", err)
 			session.SetAgentSessionID("", agent.Name())
 			sessions.Save()
 			agentSession, err = agent.StartSession(e.ctx, "")
+			startedFresh = true
 		}
 		if err != nil {
 			teamOutcome = teamWorkFailed
 			return "", fmt.Errorf("start relay session: %w", err)
 		}
+	}
+	if startedFresh {
+		// maomao fork: a relay context started without resume gets the target's MEMORY.md
+		// on its first turn too (memoryBlock), like the channel path (startInteractive).
+		session.MarkFreshContext()
 	}
 
 	saveRelaySessionID := func(id string, force bool) {
@@ -17430,9 +17438,23 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// ACP Send waits for the whole turn, including permission responses.
 	// The sender owns this buffered completion channel so it can finish even
 	// after the caller times out and hands event consumption to the drain.
-	prompt := e.withAgentInstructions(message, "", true)
+	// The memory index and wiki pages go only into the agent's prompt, never into
+	// the relay request: task receipts hash the request (beginTaskRelay). Not
+	// withTurnBlocks (same order): channel handoff and teammate status are not for relays.
+	content := message
+	if c := e.memoryBlock(session); c != "" {
+		content = c + "\n\n" + content
+	}
+	if c := e.turnContext(session, relaySessionKey, message); c != "" {
+		content = c + "\n\n" + content
+	}
+	prompt := e.withAgentInstructions(content, "", true)
 	sendResult := make(chan error, 1)
-	go func() { sendResult <- agentSession.Send(prompt, "", nil, nil) }()
+	go func() {
+		err := agentSession.Send(prompt, "", nil, nil)
+		session.SettleHandoff(err == nil) // an unsent turn puts the memory index back for the next one
+		sendResult <- err
+	}()
 	var sendDone <-chan error = sendResult
 	events := agentSession.Events()
 
