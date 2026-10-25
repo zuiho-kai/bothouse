@@ -478,9 +478,13 @@ export class DshMembers {
    * own ACP session for this room and its reply text is posted directly.
    */
   async runCli(job, member, room) {
-    const sessionId = `cli:${member.cli}`;
-    if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
+    // Until the ACP session exists the binding holds a placeholder unique to (member, room);
+    // onSession below swaps in the real ACP sessionId so a restart can session/load it.
+    const placeholder = `cli:${member.cli}:${member.id}:${room.id}`;
+    if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, placeholder);
     const binding = this.store.binding(member.id, room.id);
+    const sessionId = binding.session_id;
+    const resumeId = sessionId.startsWith('cli:') ? undefined : sessionId;
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
@@ -522,7 +526,16 @@ export class DshMembers {
     let done = false;
     try {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
-      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store), String(room.id), onText, onTool))?.trim();
+      const onSession = ({ sessionId: acpId, lost }) => {
+        if (this.store.binding(member.id, room.id)?.session_id !== acpId) this.store.rebind(member.id, room.id, acpId);
+        if (lost) {
+          this.hub.post(job.room_id, {
+            authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${job.id}-session-lost`,
+            text: `${member.name}（${member.cli}）这轮起是新会话，之前的上下文没了：${member.cli} 不支持续上原会话，或续会话失败。`,
+          });
+        }
+      };
+      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store), String(room.id), onText, onTool, { resumeId, onSession }))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
@@ -542,7 +555,10 @@ export class DshMembers {
 
   /** A released workspace starts over: drop each local CLI member's ACP session for roomId. */
   resetRoom(roomId) {
-    for (const { agent } of this.cliAgents.values()) agent.sessions?.delete(String(roomId));
+    for (const { agent } of this.cliAgents.values()) {
+      agent.sessions?.delete(String(roomId));
+      agent.saved?.delete(String(roomId));
+    }
   }
 
   dropCli(id) {
@@ -706,8 +722,14 @@ export class DshMembers {
     const member = this.config.get(memberId);
     const room = this.store.room(msg.room_id);
     if (member === undefined || room === undefined) return;
-    if (member.cli !== undefined) this.cliAgents.get(member.id)?.agent.sessions?.delete(String(room.id));
-    else await this.createAgent(member, room);
+    if (member.cli !== undefined) {
+      // Forget the ACP session in memory and in the binding, or the next runCli
+      // would session/load the old id as resumeId and /new would do nothing.
+      const agent = this.cliAgents.get(member.id)?.agent;
+      agent?.sessions?.delete(String(room.id));
+      agent?.saved?.delete(String(room.id));
+      this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+    } else await this.createAgent(member, room);
     if (this.closed) return;
     this.store.advanceCursor(member.id, room.id, msg.id);
     this.hub.post(room.id, {
