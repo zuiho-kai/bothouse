@@ -2,12 +2,9 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/chenhg5/cc-connect/core"
 	"github.com/go-telegram/bot/models"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -33,19 +30,5 @@ func TestDMReplayFixture(t *testing.T) {
 		if m.Content != []string{"跑一个很长的任务", "停", "别做这个，改做X"}[i] || m.UserID != messages[0].UserID || m.SessionKey != messages[0].SessionKey {
 			t.Fatalf("DM routing changed: %+v", m)
 		}
-	}
-	if os.Getenv("DM_REPLAY_DIR") == "" {
-		return
-	}
-	rows := make([]map[string]any, 0, len(messages))
-	for _, m := range messages {
-		rows = append(rows, map[string]any{"SessionKey": m.SessionKey, "Platform": m.Platform, "MessageID": m.MessageID, "UserID": m.UserID, "UserName": m.UserName, "Content": m.Content, "Direct": m.Direct, "Mentioned": m.Mentioned})
-	}
-	b, err := json.Marshal(rows)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(os.Getenv("DM_REPLAY_DIR"), "telegram.json"), b, 0600); err != nil {
-		t.Fatal(err)
 	}
 }
