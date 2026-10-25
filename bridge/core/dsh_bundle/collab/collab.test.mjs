@@ -3935,3 +3935,100 @@ test('attachments: undelivered reasons are shown in Chinese by DSH error code, u
   assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured per-side pixel limit.' }), '图片太长或太宽，超过单边像素上限');
   assert.equal(undeliveredReasonZh({ reason: 'something new' }), 'something new');
 });
+
+// #597 K11: DSH-native members get the gate's /context (wiki pages, task board) each turn.
+async function fakeGate(handler) {
+  const { createServer } = await import('node:http');
+  const calls = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      calls.push({ path: req.url, body: JSON.parse(body || '{}') });
+      const out = handler(calls.at(-1));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(out));
+    });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  return { calls, port: server.address().port, close: () => new Promise(r => server.close(r)) };
+}
+const until = async (f) => { for (let i = 0; i < 400 && !f(); i++) await new Promise(r => setTimeout(r, 5)); };
+const BOARD = { path: '【任务板 abc123】', desc: '谁手上有哪件事、做在哪\n#7 修登录 · 龙娘' };
+
+test('DSH member: each turn carries the gate wiki and task board, a page only once per conversation', async () => {
+  const gate = await fakeGate(({ body }) => ({ wiki: [BOARD, { path: '~/wiki/a.md', desc: body.text.includes('部署') ? '部署步骤' : 'a' }] }));
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 怎么部署' });
+    await until(() => dsh.made.length && dsh.sessions.get(dsh.made[0]).prompts.length === 1);
+    const agent = dsh.sessions.get(dsh.made[0]);
+    const first = agent.prompts[0].content[0].text;
+    assert.match(first, /（可能相关的 wiki 页，需要时去读）/);
+    assert.match(first, /- ~\/wiki\/a\.md — 部署步骤/);
+    assert.match(first, /- 【任务板 abc123】 — 谁手上有哪件事、做在哪\n#7 修登录 · 龙娘/);
+    assert.ok(first.indexOf('wiki 页') < first.indexOf('【我】@DeepSeek'), 'the block comes before the channel messages');
+    assert.deepEqual(gate.calls[0].body, { key: 'dsh:ds:1', text: '@DeepSeek 怎么部署', bot: 'ds' });
+    dsh.turn(agent, ['好']);
+    await until(() => hub.store.job(1).state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 再说一遍' });
+    await until(() => agent.prompts.length === 2);
+    const second = agent.prompts[1].content[0].text;
+    assert.equal(gate.calls.length, 2, 'the gate is asked every turn');
+    assert.doesNotMatch(second, /wiki 页|任务板/, 'pages already given are not given again');
+  } finally {
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});
+
+test('CLI member: the gate block goes into the prompt; a changed board goes out again', async () => {
+  let tag = 'aaa111';
+  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: `【任务板 ${tag}】` }] }));
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text) => { prompts.push(text); return '收到'; });
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 任务板上有什么' });
+    await until(() => hub.store.job(1)?.state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 还有吗' });
+    await until(() => hub.store.job(2)?.state === 'done');
+    tag = 'bbb222';
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 现在呢' });
+    await until(() => hub.store.job(3)?.state === 'done');
+    assert.match(prompts[0], /【任务板 aaa111】 — .*\n#7 修登录 · 龙娘/);
+    assert.doesNotMatch(prompts[1], /任务板/);
+    assert.match(prompts[2], /【任务板 bbb222】/);
+  } finally {
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});
+
+test('DSH member: gate down or slow, the turn goes out as before', async () => {
+  const { createServer } = await import('node:net');
+  const dead = createServer(); await new Promise(r => dead.listen(0, '127.0.0.1', r));
+  const port = dead.address().port; await new Promise(r => dead.close(r));
+  process.env.GATE_PORT = String(port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text) => { prompts.push(text); return '照常回'; });
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 在吗' });
+    await until(() => hub.store.job(1)?.state === 'done');
+    assert.equal(hub.store.job(1).state, 'done');
+    assert.doesNotMatch(prompts[0], /wiki 页/);
+    assert.equal(hub.store.page(1, undefined, 1)[0].text, '照常回');
+  } finally {
+    delete process.env.GATE_PORT;
+  }
+  const { GateContext } = await import('./gate-context.mjs');
+  const slow = new GateContext({ port: '1', timeoutMs: 20, fetch: (_u, { signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(signal.reason))) });
+  const t0 = Date.now();
+  assert.equal((await slow.turn({ member: 'ds', room: 1, text: 'x' })).block, '');
+  assert.ok(Date.now() - t0 < 1000, 'a hung gate is given up on after the timeout');
+});
