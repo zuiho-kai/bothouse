@@ -62,6 +62,16 @@ export class GateContext {
     };
   }
 
+  /** /new for a (member, room) whose session key does not change (a local CLI member): start it over. */
+  reset(member, room) {
+    this.sent.delete(`${member}\u0000${room}`);
+  }
+
+  /** This member's conversation in room lost its context (a CLI session that could not be resumed): give it again. */
+  forget(member, room) {
+    this.sent.delete(`${member}\u0000${room}`);
+  }
+
   /** A released workspace starts its conversations over: give every page again. */
   resetRoom(room) {
     for (const key of this.sent.keys()) if (key.endsWith(`\u0000${room}`)) this.sent.delete(key);

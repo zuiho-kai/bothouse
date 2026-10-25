@@ -44,6 +44,11 @@ export class MemoryIndex {
     };
   }
 
+  /** /new for a (member, room) whose session key does not change (a local CLI member): start it over. */
+  reset(member, room) {
+    this.given.delete(`${member}\u0000${room}`);
+  }
+
   /** A released workspace starts its conversations over: give the index again. */
   resetRoom(room) {
     for (const key of this.given.keys()) if (key.endsWith(`\u0000${room}`)) this.given.delete(key);

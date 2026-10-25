@@ -824,6 +824,10 @@ export class DshMembers {
       agent?.sessions?.delete(String(room.id));
       agent?.saved?.delete(String(room.id));
       if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+      // runCli keys a CLI member's context records by (member, room) alone, so clear them here:
+      // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
+      this.gateContext.reset(member.id, room.id);
+      this.memoryIndex.reset(member.id, room.id);
     } else await this.createAgent(member, room);
     if (this.closed) return;
     this.store.advanceCursor(member.id, room.id, msg.id);

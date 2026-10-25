@@ -4085,3 +4085,42 @@ test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', 
   assert.equal(idx.turn({ member: 'nobody', room: 1 }).block, '');
   assert.equal(new MemoryIndex({ dataDir: '' }).turn({ member: 'm-ab12cd', room: 1 }).block, '');
 });
+
+test('CLI member: after /new the fresh context gets its MEMORY.md and the task board again', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
+  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  process.env.BOTHOUSE_DATA_DIR = data;
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text, _room, _onText, _onTool, opts) => {
+      prompts.push(text);
+      opts.onSession({ sessionId: `acp-${prompts.length}`, lost: false });
+      return '好';
+    });
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+    await until(() => prompts.length === 1 && hub.store.job(1)?.state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第二轮' });
+    await until(() => prompts.length === 2);
+    await settle();
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+    await settle();
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+    await until(() => prompts.length === 3);
+    assert.match(prompts[0], /你的记忆/);
+    assert.match(prompts[0], /【任务板 aaa111】/);
+    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context: not again');
+    assert.match(prompts[2], /你的记忆/, '/new: MEMORY.md again');
+    assert.match(prompts[2], /【任务板 aaa111】/, '/new: the unchanged board again');
+  } finally {
+    delete process.env.BOTHOUSE_DATA_DIR;
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});

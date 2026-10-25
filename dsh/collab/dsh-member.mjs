@@ -603,6 +603,9 @@ export class DshMembers {
       const onSession = ({ sessionId: acpId, lost }) => {
         if (this.store.binding(member.id, room.id)?.session_id !== acpId) this.store.rebind(member.id, room.id, acpId);
         if (lost) {
+          // the CLI's new session has none of what this conversation was given: the next turn gives it again
+          this.memoryIndex.forget(member.id, room.id);
+          this.gateContext.forget(member.id, room.id);
           this.hub.post(job.room_id, {
             authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${job.id}-session-lost`,
             text: `${member.name}（${member.cli}）这轮起是新会话，之前的上下文没了：${member.cli} 不支持续上原会话，或续会话失败。`,
@@ -824,6 +827,10 @@ export class DshMembers {
       agent?.sessions?.delete(String(room.id));
       agent?.saved?.delete(String(room.id));
       if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+      // runCli keys a CLI member's context records by (member, room) alone, so clear them here:
+      // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
+      this.gateContext.reset(member.id, room.id);
+      this.memoryIndex.reset(member.id, room.id);
     } else await this.createAgent(member, room);
     if (this.closed) return;
     this.store.advanceCursor(member.id, room.id, msg.id);
