@@ -76,7 +76,7 @@ class T(unittest.TestCase):
         self.assertEqual(d("暂停", True, False), "reply")
 
     def test_single_role_decide_always_replies(self):
-        """单角色（gate-team.json 没有 subs）：有 jev 也不判，/decide 一律 reply。"""
+        """单角色（gate-team.json 没有 subs）：不打分；忙时被 @ 叫停/改做回 abort，其余 reply，没 jev 也一样。"""
         d = Path(tempfile.mkdtemp())
         (d / "team.json").write_text(json.dumps({"lead": {"name": "C酱"}, "subs": {}}))
         g = load_gate(team=str(d / "team.json"))
@@ -84,11 +84,20 @@ class T(unittest.TestCase):
         srv = ThreadingHTTPServer(("127.0.0.1", 0), g.H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
-            for body in ({"content": "好的", "mentioned": False, "busy": False}, {"content": "你好", "mentioned": True, "busy": True}):
-                req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/decide", json.dumps(body).encode(),
-                                             {"Content-Type": "application/json"})
-                r = urllib.request.urlopen(req, timeout=5)
-                self.assertEqual((r.status, json.loads(r.read())["action"]), (200, "reply"))
+            cases = [({"content": "好的", "mentioned": False, "busy": False}, "reply"),
+                     ({"content": "你好", "mentioned": True, "busy": True}, "reply"),
+                     ({"content": "暂停", "mentioned": True, "busy": True}, "abort"),  # 忙时 @ 叫停：打断
+                     ({"content": "停", "mentioned": True, "busy": True}, "abort"),
+                     ({"content": "别做了，改做Y", "mentioned": True, "busy": True}, "abort"),
+                     ({"content": "暂停", "mentioned": False, "busy": True}, "reply")]  # 没 @：照旧回
+            for no_jev in (False, True):  # 没装 jev 也要能打断
+                if no_jev:
+                    g.SCORER_KIND = "none"
+                for body, want in cases:
+                    req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/decide", json.dumps(body).encode(),
+                                                 {"Content-Type": "application/json"})
+                    r = urllib.request.urlopen(req, timeout=5)
+                    self.assertEqual((r.status, json.loads(r.read())["action"]), (200, want), (no_jev, body))
         finally:
             srv.shutdown()
             srv.server_close()

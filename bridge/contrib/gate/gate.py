@@ -86,9 +86,11 @@ def _member_text(t, k):
 SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复 / D 打断）："  # 末尾重提选项：不加的话偏向 A
 
 ACTIONS = ["silent", "insert", "reply", "abort"]  # abort：忙时叫停/暂停/换事 → cc-connect 先取消当前一轮再按 reply 投递（用户原话「我说暂停，还要等个40分钟」）
-# 忙时整句只是停止词就叫停：词表照 core/gate_local.go:29 的 localStopWords（暂停、停一下、别做了、stop、pause），
+# 忙时整句只是停止词就叫停：词表照 core/gate_local.go:33 的 localStopWords（停、暂停、停一下、别做了、stop、pause），
 # 去掉首尾空白和 isLocalStopWord 那组标点后整句匹配、不分大小写（用户原话「我说暂停，还要等个40分钟」）
-STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:暂停|停一下|别做了|stop|pause)[\s　。.!！~～、,，…]*", re.IGNORECASE)
+STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:停|暂停|停一下|别做了|stop|pause)[\s　。.!！~～、,，…]*", re.IGNORECASE)
+# 「别做了，改做X」：照 core/gate_local.go:46 localRedirectRe，从开头匹配；abort 后 cc-connect 先取消这一轮再按 reply 开新的一轮
+REDIRECT = re.compile(r"(?:先)?别做(?:这个|了)[，,、；;]?\s*改(?:做|成)\s*\S")
 # 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
 NO_JEV = """gate 没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）：只供每轮 wiki/任务板（/context）和 /lead，
 不判谁回（/decide 回 503，cc-connect 按 gate_fallback 兜底）。gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
@@ -826,7 +828,11 @@ class H(BaseHTTPRequestHandler):
             return
         if url.path != "/decide" or (bot and bot not in SUBS):
             self.send_error(404); return
-        if not SUBS:  # 单角色（向导写的 gate-team.json 没有 subs）：没有队友可让，/decide 一律回，gate 只管 /context
+        if not SUBS:  # 单角色（向导写的 gate-team.json 没有 subs）：没有队友可让，不打分；忙时叫停/改做照 core/gate_local.go applyLocalGate
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            own = split_reply((req.get("content") or "").strip())[1]
+            if req.get("busy") and req.get("mentioned") and not req.get("from_bot") and (STOP_WORDS.fullmatch(own) or REDIRECT.match(own)):
+                return self._json({"action": "abort", "reason": "no teammate; rule: 停止词/改做"})
             return self._json({"action": "reply", "reason": "no teammate: reply"})
         if SCORER_KIND == "none":  # 没 jev：不判谁回，cc-connect 按 gate_fallback 兜底（core/gate.go fallbackFor）
             return self._json({"error": "no jev: /decide is off, use gate_fallback"}, 503)
