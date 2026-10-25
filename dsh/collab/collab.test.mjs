@@ -2184,17 +2184,97 @@ test('store: createWorkspace takes the lowest free workspace of the shared pool 
   assert.equal(s.createWorkspace(1).name, '工作区4');
 });
 
-test('store: releasing a workspace clears its sessions; fresh ones start after its last message', () => {
+test('store: a released workspace keeps its sessions until a new claim clears them; fresh ones start after its last message', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
+  const resets = [];
+  s.onSessionsReset(id => resets.push(id));
   const w = s.createWorkspace(1);
   s.append(w.id, { authorKind: 'user', author: 'owner', name: 'owner', text: '旧活' });
   s.bind('ds', w.id, 'collab-old');
   const last = s.append(w.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n旧活做完了' }).message;
   assert.equal(s.releaseWorkspace(w.id), true);
-  assert.equal(s.binding('ds', w.id), undefined, 'the old session is unbound');
+  assert.equal(s.binding('ds', w.id).session_id, 'collab-old', 'release alone keeps the session (#597 G35)');
+  assert.equal(s.createWorkspace(1).id, w.id, 'a new handoff takes the free workspace');
+  assert.equal(s.binding('ds', w.id), undefined, 'and the old session is unbound');
+  assert.deepEqual(resets, [w.id], 'the listeners drop their per-conversation state');
   s.bind('ds', w.id, 'collab-new');
   assert.equal(s.binding('ds', w.id).context_cursor, last.id, 'the fresh session never reads the old task');
+});
+
+test('store G35: claimed back for a task of its last claim a workspace keeps its sessions; a claim by another chat channel in between clears them', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  s.ensureRoom(2, 'dev');
+  const w = s.createWorkspace(1);
+  s.db.prepare(`INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at) VALUES (?, '活', 'ds', 'lead', 'returned', 1, 1)`).run(w.id);
+  const taskId = s.db.prepare('SELECT MAX(id) AS id FROM tasks').get().id;
+  s.bind('ds', w.id, 'collab-old');
+  s.releaseWorkspace(w.id);
+  s.claimWorkspace(1, w.id, { handoff: taskId });
+  assert.equal(s.binding('ds', w.id).session_id, 'collab-old', 'rework goes on in the same session');
+  s.releaseWorkspace(w.id);
+  s.claimWorkspace(2, w.id);
+  s.releaseWorkspace(w.id);
+  assert.equal(s.binding('ds', w.id), undefined, 'another claim started fresh');
+  s.bind('ds', w.id, 'collab-dev');
+  s.claimWorkspace(1, w.id, { handoff: taskId });
+  assert.equal(s.binding('ds', w.id), undefined, 'and the old task claimed back after it does not get dev\'s session');
+});
+
+test('G35: rework of a handed-back DSH task wakes its owner in the same workspace session, with no briefing needed', async () => {
+  const { hub, tasks, woken, ws, assign, say } = g34Setup();
+  const t = assign();
+  hub.store.bind('fu', ws.id, 'collab-fu');
+  say(ws.id, `【接】#${t.id}\n\n[report]\n做完了`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  assert.equal(hub.store.workspaceOwner(ws.id), null, 'the hand-back released the workspace');
+  assert.equal(hub.store.binding('fu', ws.id).session_id, 'collab-fu', 'its session is kept');
+  say(1, `【返工】#${t.id} 测试没跑`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'rework');
+  assert.equal(hub.store.binding('fu', ws.id).session_id, 'collab-fu', 'the rework goes on in the same session');
+  const wake = woken.find(([id]) => id === 'fu');
+  assert.ok(wake, 'the owner is woken');
+  assert.equal(wake[1], ws.id, 'in its workspace');
+  assert.doesNotMatch(wake[2], /新会话/, 'no briefing while the session is there');
+});
+
+test('G35: rework whose session a new claim cleared carries the original handoff and the last [report]', async () => {
+  const { hub, tasks, woken, ws, say } = g34Setup();
+  const handoff = hub.post(ws.id, { authorKind: 'system', author: 'system', name: '交接', text: '【交接】副：记账\n验收：pytest 全过，README 第一行写暗号' }).message;
+  const t = tasks.assign({ roomId: ws.id, title: '记账', owner: 'fu', actor: 'zhu', messageId: handoff.id });
+  tasks.q.setSource.run('workspace', t.id);
+  hub.store.bind('fu', ws.id, 'collab-fu');
+  say(ws.id, `【接】#${t.id}\n\n[report]\nledger 加了 add/list，12 个测试通过`);
+  await settle();
+  hub.store.resetSessions(ws.id); // as a new claim does
+  say(1, `【返工】#${t.id} 缺 README`, 'zhu');
+  await settle();
+  const wake = woken.find(([id]) => id === 'fu');
+  assert.ok(wake);
+  assert.match(wake[2], /新会话/);
+  assert.match(wake[2], /验收：pytest 全过，README 第一行写暗号/, 'the original handoff');
+  assert.match(wake[2], /ledger 加了 add\/list，12 个测试通过/, 'the last [report]');
+});
+
+test('G35: a DSH task parked by the watch is woken in its kept session; answering resumes it there', async () => {
+  const { hub, tasks, clock, woken, ws, assign } = g34Setup();
+  const t = assign();
+  hub.store.bind('fu', ws.id, 'collab-fu');
+  clock.t = 1000 + CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at);
+  assert.equal(hub.store.workspaceOwner(ws.id), null, 'the pause released the workspace');
+  const wake = woken.find(([id]) => id === 'fu');
+  assert.ok(wake && wake[1] === ws.id && !/新会话/.test(wake[2]), 'woken in the workspace, its session still there');
+  assert.equal(hub.store.binding('fu', ws.id).session_id, 'collab-fu');
+  hub.post(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【问】#${t.id}\n做到第二步，卡在依赖` });
+  await settle();
+  assert.equal(tasks.task(t.id).paused_at, null, 'resumed');
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'claimed back for its chat channel');
+  assert.equal(hub.store.binding('fu', ws.id).session_id, 'collab-fu', 'in the same session');
 });
 
 test('tasks: a workspace is released when its last task is handed back or done, and not while a new handoff waits', () => {

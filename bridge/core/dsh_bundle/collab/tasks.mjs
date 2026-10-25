@@ -38,6 +38,10 @@ const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
 // 【验收】#id closes it, 【返工】#id 原因 sends it back (Tasks.verdictsOf).
 const VERDICT_LINE = /^[ \t]*【(验收|返工)】[ \t]*#(\d+)[ \t]*(.*)$/gm;
 const HUMAN = 'owner';
+// #597 G35 briefing sizes (chars): enough for the handoff's goal and acceptance lines and the
+// report's summary, short of MAX_TEXT with the record around them. Not user-specified.
+const BRIEF_HANDOFF = 1500;
+const BRIEF_REPORT = 800;
 const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
 // A paused task (park: the bridge released its workspace with the task stopped at a clean
 // point) keeps its status but is not in progress: no check timer, not counted. Any status
@@ -359,7 +363,7 @@ export class Tasks {
     const tail = clip(note) ? `：${clip(note)}` : '';
     // A workspace task sent back: its owner is woken there on the record (nobody routes it there
     // otherwise), which says how to hand back as the pause record does (watch).
-    const how = reclaim ? `。做完了就交回：回复第一行写【接】#${id}，下面写 [report] 和结果；没做完就第一行写【问】#${id}，说明做到哪一步、卡在哪。` : '';
+    const how = reclaim ? `。做完了就交回：回复第一行写【接】#${id}，下面写 [report] 和结果；没做完就第一行写【问】#${id}，说明做到哪一步、卡在哪。${this.briefing(row)}` : '';
     const record = this.record(row, verdict, verdict === 'done'
       ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
       : `${reclaim ? `@${this.nameOf(row.owner)} ` : ''}#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}${how}`);
@@ -461,6 +465,24 @@ export class Tasks {
         this.hub.logger?.warn?.('collab: %s #%s from %s refused: %s', word, id, msg.author, error?.message ?? error);
       }
     }
+  }
+
+  /**
+   * #597 G35: a DSH owner woken (rework, pause) with no session left in the task's workspace (a new
+   * claim cleared it, store.resetSessions) starts with nothing but the wake: it gets the original
+   * handoff and its last [report], so it never reports on work it cannot see. '' while its session
+   * is there (it goes on in it) and for other members.
+   */
+  briefing(task) {
+    if (this.hub.members.get(task.owner)?.kind !== 'dsh' || this.store.binding(task.owner, task.room_id) !== undefined) return '';
+    const handoff = task.assign_msg_id == null ? undefined : this.store.message(task.assign_msg_id);
+    const result = task.result_msg_id == null ? undefined : this.store.message(task.result_msg_id);
+    const report = result === undefined ? '' : (exitMark(result.text, { lastLine: true })?.body ?? String(result.text));
+    const cut = (t, n) => { const v = String(t ?? '').trim(); return v.length > n ? `${v.slice(0, n)}…` : v; };
+    const parts = [];
+    if (handoff !== undefined) parts.push(`原交接：\n${cut(handoff.text, BRIEF_HANDOFF)}`);
+    if (report.trim()) parts.push(`上次 [report] 摘录：\n${cut(report, BRIEF_REPORT)}`);
+    return parts.length ? `\n\n这是新会话，接着做要的上下文：\n${parts.join('\n\n')}` : '';
   }
 
   /** True when roomId is a workspace (team mode A). */
@@ -621,7 +643,7 @@ export class Tasks {
     // The owner is woken on this record, often in a fresh session (the pause released the
     // workspace): it says what to answer, as the bridge's watch reminder does (core/team_watch.go).
     const message = this.record(task, 'pause', `@${this.nameOf(task.owner)} #${task.id}「${task.title}」${why}，已暂停。`
-      + `做完了就交回：回复第一行写【接】#${task.id}，下面写 [report] 和结果；没做完就第一行写【问】#${task.id}，说明做到哪一步、卡在哪。`);
+      + `做完了就交回：回复第一行写【接】#${task.id}，下面写 [report] 和结果；没做完就第一行写【问】#${task.id}，说明做到哪一步、卡在哪。${this.briefing(task)}`);
     if (this.pauseTask(task.id)) this.wake(task.owner, message);
   }
 
