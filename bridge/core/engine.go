@@ -16775,8 +16775,12 @@ func (e *Engine) cmdUpgrade(p Platform, msg *Message, args []string) {
 
 func (e *Engine) cmdUpgradeConfirm(p Platform, msg *Message) {
 	cur := CurrentVersion
-	if cur == "" || cur == "dev" {
+	if isDevVersion(cur) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgUpgradeDevBuild))
+		return
+	}
+	if err := UpdateRefusal(); err != nil {
+		e.reply(p, msg.ReplyCtx, err.Error())
 		return
 	}
 

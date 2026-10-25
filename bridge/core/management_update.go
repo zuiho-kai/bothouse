@@ -157,6 +157,10 @@ func (m *ManagementServer) handleUpdateApply(w http.ResponseWriter, r *http.Requ
 		fail(http.StatusOK, "开发版不检查更新 / development build: update check disabled", releasesPage)
 		return
 	}
+	if err := UpdateRefusal(); err != nil {
+		fail(http.StatusOK, err.Error(), releasesPage)
+		return
+	}
 	if !updateMu.TryLock() {
 		fail(http.StatusConflict, "update already in progress", releasesPage)
 		return
@@ -195,6 +199,7 @@ func (m *ManagementServer) handleUpdateApply(w http.ResponseWriter, r *http.Requ
 // It refuses (never with 404: an older CLI reads 404 as "no /update here" and installs its own
 // copy, which is harmless; 403/409 make it stop and touch nothing):
 //   - a development build, like the web button and chat /upgrade;
+//   - a self-built binary (UpdateRefusal, #299);
 //   - a tag that is not newer than this version (no downgrade through the socket);
 //   - a request from another program: the peer process (kernel credentials) or, where the
 //     platform cannot tell, the exe named in the request must be this very binary.
@@ -214,6 +219,10 @@ func handleSocketUpdate(w http.ResponseWriter, r *http.Request) {
 	cur := CurrentVersion
 	if isDevVersion(cur) {
 		http.Error(w, "development build: update disabled", http.StatusConflict)
+		return
+	}
+	if err := UpdateRefusal(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	if semverCompare(req.Tag, cur) <= 0 {
