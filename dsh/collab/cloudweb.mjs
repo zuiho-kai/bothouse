@@ -267,7 +267,7 @@ export class CloudWebGateway {
       else content = quote + content;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content, reply_ctx: roomKey(msg.room_id),
+        user_id: msg.author, user_name: msg.name, content: content + (hit ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
         mentioned: hit, from_bot: fromAgent, ...attached,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');

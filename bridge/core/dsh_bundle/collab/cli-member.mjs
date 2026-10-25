@@ -126,6 +126,7 @@ export class CliMember {
   /**
    * onText(textSoFar) 在每个公开文字分片到达时调用（#121）；onTool(update) 在每个工具调用开始/更新和每个思考分片到达时调用。
    * opts.resumeId：要续上的 sessionId；opts.onSession({ sessionId, resumed, lost })：会话就绪后、发提示词前调用。
+   * opts.attachments：随提示词发给 CLI 的 ACP 内容块（图片/音频/资源）。
    */
   ask(text, room = 'default', onText, onTool, opts = {}) {
     const prev = this.queue.get(room) || Promise.resolve()
@@ -134,7 +135,7 @@ export class CliMember {
     return run
   }
 
-  async _ask(text, room, onText, onTool, { resumeId, onSession } = {}) {
+  async _ask(text, room, onText, onTool, { resumeId, onSession, attachments = [] } = {}) {
     const s = await this._session(room, resumeId)
     await onSession?.(s)
     // persona 每轮都拼：续上的或新开的会话都不会丢人设。
@@ -144,7 +145,7 @@ export class CliMember {
     if (onTool) this.onTool.set(s.sessionId, onTool)
     try {
       await Promise.race([
-        this.conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: body }] }),
+        this.conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: body }, ...attachments] }),
         this.exited,
       ])
       return this.buffers.get(s.sessionId)

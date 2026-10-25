@@ -20,10 +20,11 @@ import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
+import { Later, registerLater } from './later.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
-  'webServer', 'connection', 'llm', 'agents', 'agentDefaultModel', 'agentPresets', 'permissionPresets', 'sessionTitle', 'workspaceRegistry',
+  'attachments', 'webServer', 'connection', 'llm', 'agents', 'agentDefaultModel', 'agentPresets', 'permissionPresets', 'sessionTitle', 'workspaceRegistry',
   'sessionPersistence',
 ];
 
@@ -101,7 +102,9 @@ export async function apply(ctx, rawConfig) {
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const files = new Attachments(join(config.dataDir, 'attachments'));
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
-  const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  const later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
+  gateway.later = later;
+  const dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
   // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
@@ -126,6 +129,7 @@ export async function apply(ctx, rawConfig) {
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
   tasks.start();
+  later.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
@@ -146,6 +150,7 @@ export async function apply(ctx, rawConfig) {
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
+    later.close();
     tasks.close();
     gateway.closeAll();
     for (const end of streams) end();
@@ -172,6 +177,16 @@ export async function apply(ctx, rawConfig) {
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
+    const laterMatch = /^\/collab\/api\/rooms\/(\d+)\/later$/.exec(path);
+    if (laterMatch && req.method === 'POST') {
+      if (!owner(req) && !gateway.authorized(req, url)) return json(res, 401, { error: 'unauthorized' });
+      return withBody(req, res, body => {
+        if (!hub.routable().some(m => m.id === body.member)) throw new CollabError('member-missing', 'unknown member');
+        const reminder = registerLater(store.db, { ...body, room: Number(laterMatch[1]) });
+        hub.post(reminder.room_id, { authorKind: 'system', author: 'system', name: '回查登记', text: `${reminder.title}：下次看 ${new Date(reminder.due_at).toISOString()}，到点：${reminder.todo}` });
+        return { reminder };
+      });
+    }
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
     if (routed !== undefined) return routed;
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner });

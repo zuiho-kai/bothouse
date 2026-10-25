@@ -37,6 +37,7 @@ export function memberStatus(hub, tasks = hub?.tasks) {
 import { mentions, nameCalled, split } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
+import { attachmentBlocks, nativeAttachmentBlocks } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -466,7 +467,8 @@ export class DshMembers {
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => m.id > binding.context_cursor && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) }], source: { kind: 'user' } });
+    const media = await nativeAttachmentBlocks(this.rt.ctx.attachments, attachmentBlocks(this.rt.files, unseen));
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     await this.admitAndSettle(job, member, agent, input, seqBefore);
@@ -535,7 +537,7 @@ export class DshMembers {
           });
         }
       };
-      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store), String(room.id), onText, onTool, { resumeId, onSession }))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? ''), String(room.id), onText, onTool, { resumeId, onSession, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';

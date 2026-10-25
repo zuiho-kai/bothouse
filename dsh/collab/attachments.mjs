@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CollabError } from './store.mjs';
+import { CollabError, messageAttachments } from './store.mjs';
 
 const ID = /^[0-9a-f-]{36}$/;
 // Raster images are shown in the page and sent to bots as images; anything else
@@ -58,4 +58,27 @@ export class Attachments {
     if (files.length) out.files = files;
     return out;
   }
+}
+
+/** Shared wire admission, projected into the ACP prompt format. */
+export function attachmentBlocks(files, messages) {
+  const wire = files?.wire(messages.flatMap(messageAttachments)) ?? {};
+  return [
+    ...(wire.images ?? []).map(a => ({ type: 'image', data: a.data, mimeType: a.mime_type })),
+    ...(wire.files ?? []).map(a => ({ type: 'resource', resource: {
+      uri: `attachment:///${encodeURIComponent(a.file_name)}`, mimeType: a.mime_type, blob: a.data,
+    } })),
+  ];
+}
+
+/** Native DSH requires durable attachment references, not inline ACP blocks. */
+export async function nativeAttachmentBlocks(attachments, blocks) {
+  const parts = [];
+  for (const b of blocks) {
+    if (b.type === 'image') parts.push({ type: 'image', mediaType: b.mimeType, data: b.data });
+    else parts.push({ type: 'file', attachment: await attachments.admitEncodedFile({
+      data: b.resource.blob, name: decodeURIComponent(b.resource.uri.slice('attachment:///'.length)),
+    }) });
+  }
+  return parts.length ? attachments.admitPromptContent(parts) : [];
 }
