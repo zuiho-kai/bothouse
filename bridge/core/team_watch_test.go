@@ -351,6 +351,59 @@ func TestWatchConstantsMatchDSH(t *testing.T) {
 	if got := num(`export const MAX_RENEWALS = ([0-9 *]+);`); got != watchMaxRenew {
 		t.Fatalf("tasks.mjs MAX_RENEWALS = %d, Go watchMaxRenew = %d", got, watchMaxRenew)
 	}
+	// Status lines: every prefix of DSH NOTICE_PREFIXES and of d10-fire STATUS_PREFIXES is one
+	// here, and nothing else.
+	web, err := fs.ReadFile(embeddedDSH, "dsh_bundle/collab/cloudweb.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fire, err := os.ReadFile("../contrib/lead/d10-fire")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := regexp.MustCompile(`['"]([^'"]+)['"]`)
+	want := map[string]bool{}
+	for _, c := range []struct {
+		src  []byte
+		re   string
+		name string
+	}{
+		{web, `export const NOTICE_PREFIXES = \[([^\]]*)\];`, "cloudweb.mjs NOTICE_PREFIXES"},
+		{fire, `STATUS_PREFIXES = \(([^)]*)\)`, "d10-fire STATUS_PREFIXES"},
+	} {
+		m := regexp.MustCompile(c.re).FindSubmatch(c.src)
+		if m == nil {
+			t.Fatalf("%s not found", c.name)
+		}
+		for _, q := range quoted.FindAllSubmatch(m[1], -1) {
+			want[string(q[1])] = true
+		}
+	}
+	have := map[string]bool{}
+	for _, p := range watchStatusPrefixes {
+		have[p] = true
+	}
+	for p := range want {
+		if !have[p] {
+			t.Errorf("status prefix %q (DSH/d10-fire) missing from watchStatusPrefixes", p)
+		}
+	}
+	for p := range have {
+		if !want[p] {
+			t.Errorf("watchStatusPrefixes has %q, which neither DSH nor d10-fire has", p)
+		}
+	}
+	fireStance := regexp.MustCompile(`STANCE_PREFIXES = \(([^)]*)\)`).FindSubmatch(fire)
+	if fireStance == nil {
+		t.Fatal("d10-fire STANCE_PREFIXES not found")
+	}
+	var stances []string
+	for _, q := range quoted.FindAllSubmatch(fireStance[1], -1) {
+		stances = append(stances, string(q[1]))
+	}
+	if strings.Join(stances, " ") != strings.Join(watchStancePrefixes, " ") {
+		t.Errorf("d10-fire STANCE_PREFIXES %q, Go watchStancePrefixes %q", stances, watchStancePrefixes)
+	}
 }
 
 // historyTestPlatform: exitTestPlatform that also reads channel history (or fails to).
@@ -443,7 +496,7 @@ func TestWatchNoOwnerSelfPostRenews(t *testing.T) {
 func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 	e, p, w, h := progressFixture(t, k5aOwner)
 	at := h.Due.Add(-time.Minute)
-	for _, c := range []string{"【接】已派子 agent，做完交回", "@橘 【问】owner 填什么", "@橘【接】已派子 agent，做完交回", "<@1>【接】马上做", "@橘[回复 龙娘：好] 【退】不做", "<@1> 【退】推荐鲸鱼娘", "[回复 橘：去做 K5a] 【升】太大了", "↪ 转给龙娘", "⏹ 已停", "📬 收到", "  "} {
+	for _, c := range []string{"【接】已派子 agent，做完交回", "@橘 【问】owner 填什么", "@橘【接】已派子 agent，做完交回", "<@1>【接】马上做", "@橘[回复 龙娘：好] 【退】不做", "<@1> 【退】推荐鲸鱼娘", "[回复 橘：去做 K5a] 【升】太大了", "↪ 转给龙娘", "⏹ 已停", "📬 收到", "⏳ 模型满载冷却中，这条 3 分钟后再处理", "✅ 完成", "🔄 重试", "⏸ 暂停", "  "} {
 		p.post("ws1", k5aOwner, c, at)
 	}
 	p.post("ws1", "someone-else", "我在干活", at)

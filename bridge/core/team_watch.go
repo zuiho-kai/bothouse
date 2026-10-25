@@ -277,10 +277,17 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 // Discord's maximum per request).
 const watchHistoryLimit = 100
 
-// watchNoProgressPrefixes: posts that are not progress. Gate status lines and the stance a
-// teammate opens with (【接】【问】【退】【升】: taking, asking, declining, escalating, not work
-// done). Same lists as the lead's d10-fire (STATUS_PREFIXES, STANCE_PREFIXES; #315 review).
-var watchNoProgressPrefixes = []string{"↪", "⏹", "📬", "【接】", "【问】", "【退】", "【升】"}
+// watchStatusPrefixes: status lines the bridge and the gate post (e.g. "⏳ 模型满载冷却中",
+// capacity_retry.go), not work done. The union of the lead's d10-fire STATUS_PREFIXES and the DSH
+// gateway's NOTICE_PREFIXES (dsh/collab/cloudweb.mjs); TestWatchConstantsMatchDSH keeps them in step.
+var watchStatusPrefixes = []string{"↪", "⏹", "📬", "✅", "⏳", "🔄", "⏸"}
+
+// watchStancePrefixes: the stance a teammate opens with (taking, asking, declining, escalating,
+// not work done). Same list as d10-fire STANCE_PREFIXES (#315 review).
+var watchStancePrefixes = []string{"【接】", "【问】", "【退】", "【升】"}
+
+// watchNoProgressPrefixes: posts that are not progress (status and stance lines).
+var watchNoProgressPrefixes = append(append([]string(nil), watchStatusPrefixes...), watchStancePrefixes...)
 
 // watchLeadingMentions: what a post opens with before its own text: mentions ("<@id>" live,
 // "@name" as channel history renders them; d10-fire LEADING_MENTION_RE) and the reply quote
