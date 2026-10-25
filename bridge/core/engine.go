@@ -17740,11 +17740,15 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.relayManager.AddToBind(p.Name(), chatID, otherProject)
 
 	// Get all bound projects for status message
-	binding := e.relayManager.GetBinding(chatID)
+	// Same view as a bare /bind: manual binding plus the wizard team (relay_team_bind.go).
+	binding := e.relayManager.EffectiveBinding(p.Name(), chatID)
 	var boundProjects []string
-	for proj := range binding.Bots {
-		boundProjects = append(boundProjects, proj)
+	if binding != nil {
+		for proj := range binding.Bots {
+			boundProjects = append(boundProjects, proj)
+		}
 	}
+	sort.Strings(boundProjects)
 
 	reply := fmt.Sprintf(e.i18n.T(MsgRelayBindSuccess), strings.Join(boundProjects, " ↔ "), otherProject, otherProject)
 

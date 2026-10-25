@@ -272,6 +272,11 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 
 	rm.mu.RLock()
 	binding := rm.effectiveBindingLocked(platform, chatID)
+	// teamFilled: the wizard team added members to this chat's binding. Then the sender
+	// must be in the binding too, or bots outside the team (external projects, members
+	// of another platform's team) could relay to team members without /bind. A chat
+	// bound only by a manual /bind keeps its old rule (relay_team_bind.go).
+	teamFilled := binding != nil && binding != rm.bindings[chatID]
 	targetEngine := rm.engines[req.To]
 	sourceEngine := rm.engines[req.From]
 	visibility := rm.visibility
@@ -288,6 +293,9 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 	}
 	if binding == nil {
 		return nil, notBound(req.To, "")
+	}
+	if _, ok := binding.Bots[req.From]; teamFilled && !ok {
+		return nil, notBound(req.From, "")
 	}
 	if req.TaskID != "" && (binding.Platform != platform || sourceEngine == nil || binding.Bots[req.From] == "") {
 		return nil, notBound(req.From, "")

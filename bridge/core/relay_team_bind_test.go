@@ -209,3 +209,30 @@ func TestRelayTeamBind_NoWizardStateKeepsManualOnly(t *testing.T) {
 		t.Fatal("manual binding was copied without a team")
 	}
 }
+
+// A plain relay (no task id) in a channel the team bound must come from a bound sender:
+// external projects and members of another platform's team still need /bind.
+func TestRelayTeamBind_PlainRelayChecksSender(t *testing.T) {
+	_, rm := teamBindFixture(t)
+	if err := relaySendOK(t, rm, "ext", "lead", "discord:room:u1"); !errors.Is(err, ErrNotBoundInChannel) {
+		t.Fatal("external source plain relay accepted without /bind:", err)
+	}
+	if err := relaySendOK(t, rm, "cw", "worker", "discord:room2:u1"); !errors.Is(err, ErrNotBoundInChannel) {
+		t.Fatal("cloud_web-only member plain relay accepted on Discord without /bind:", err)
+	}
+	// After /bind of ext, the sender is bound and the relay goes through.
+	rm.AddToBind("discord", "room", "ext")
+	if err := relaySendOK(t, rm, "ext", "lead", "discord:room:u1"); err != nil {
+		t.Fatal("plain relay after /bind ext:", err)
+	}
+}
+
+// A chat bound only by a manual /bind (no wizard team) keeps the old plain relay rule.
+func TestRelayTeamBind_ManualBindPlainRelayUnchanged(t *testing.T) {
+	rm := newTeamBindManager(t, t.TempDir())
+	rm.AddToBind("discord", "room", "lead")
+	rm.AddToBind("discord", "room", "worker")
+	if err := relaySendOK(t, rm, "ext", "lead", "discord:room:u1"); err != nil {
+		t.Fatal("manual /bind channel changed its plain relay rule:", err)
+	}
+}
