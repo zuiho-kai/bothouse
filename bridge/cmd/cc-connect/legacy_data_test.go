@@ -29,6 +29,15 @@ func TestLegacyDataProcess(t *testing.T) {
 }
 
 func TestLegacyCronStartup(t *testing.T) {
+	testLegacyCronStartup(t, false)
+}
+
+// Run in CI with the command package; local migration checks only need core.
+func TestLegacyMigrationFailureStartup(t *testing.T) {
+	testLegacyCronStartup(t, true)
+}
+
+func testLegacyCronStartup(t *testing.T, blockTimers bool) {
 	// Keep the home path short enough for macOS Unix-domain socket limits.
 	home, err := os.MkdirTemp("", "legacy-")
 	if err != nil {
@@ -42,6 +51,26 @@ func TestLegacyCronStartup(t *testing.T) {
 	}
 	dst := filepath.Join(home, ".bothouse")
 	if err := os.MkdirAll(dst, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if blockTimers {
+		// A regular file blocks creation of timers/jobs.json on every OS.
+		if err := os.WriteFile(filepath.Join(dst, "timers"), []byte("blocked"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		legacyTimers := filepath.Join(home, ".cc-connect", "timers")
+		if err := os.MkdirAll(legacyTimers, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(legacyTimers, "jobs.json"), []byte("[]"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	usage := filepath.Join(home, ".cc-connect", "usage")
+	if err := os.MkdirAll(usage, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(usage, "2026-10-24.json"), []byte("[]"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fixture := []byte(`[{"id":"legacy-outing","project":"dragon","session_key":"hotfake:room","cron_expr":"0 9 * * *","prompt":"isolated outing","enabled":false}]`)
@@ -95,6 +124,12 @@ func TestLegacyCronStartup(t *testing.T) {
 	startup, _ := os.ReadFile(logPath)
 	if !strings.Contains(string(startup), "legacy data migrated") {
 		t.Fatalf("missing migration log: %s", startup)
+	}
+	if blockTimers && !strings.Contains(string(startup), "legacy data migration incomplete, continuing startup") {
+		t.Fatalf("missing nonfatal migration warning: %s", startup)
+	}
+	if data, err := os.ReadFile(filepath.Join(dst, "usage/2026-10-24.json")); err != nil || string(data) != "[]" {
+		t.Fatalf("usage migration after timer failure: %q %v", data, err)
 	}
 	t.Logf("isolated daemon -> cron list:\n%s", output)
 }

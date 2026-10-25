@@ -382,8 +382,7 @@ func runMain() {
 	// Restore missing stores before any scheduler or usage ledger can load or
 	// create empty files in the newly selected default data directory.
 	if err := core.MigrateLegacyDataDir(cfg.DataDir); err != nil {
-		slog.Error("legacy data migration failed, refusing to start", "error", err)
-		os.Exit(1)
+		slog.Warn("legacy data migration incomplete, continuing startup", "error", err)
 	}
 
 	// run_as_user preflight + isolation audit. MUST run before any engine

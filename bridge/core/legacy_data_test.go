@@ -93,23 +93,56 @@ func TestMigrateLegacyDataDirExistingStores(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)
 	old, dst := filepath.Join(home, ".cc-connect"), filepath.Join(home, ".bothouse")
-	for _, rel := range []string{"crons/jobs.json", "timers/jobs.json", "usage/new.json"} {
+	for _, rel := range []string{"crons/jobs.json", "timers/jobs.json", "usage/2026-10-25.json", "usage/import-state.json"} {
 		writeLegacyFixture(t, dst, rel, []byte("[]"))
 	}
-	for _, rel := range []string{"crons/jobs.json", "timers/jobs.json", "usage/old.json"} {
+	for _, rel := range []string{"crons/jobs.json", "timers/jobs.json", "usage/2026-10-24.json", "usage/2026-10-25.json", "usage/import-state.json"} {
 		writeLegacyFixture(t, old, rel, []byte("legacy"))
 	}
 	if err := MigrateLegacyDataDir(dst); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{"crons/jobs.json", "timers/jobs.json", "usage/new.json"} {
+	for _, rel := range []string{"crons/jobs.json", "timers/jobs.json", "usage/2026-10-25.json", "usage/import-state.json"} {
 		data, err := os.ReadFile(filepath.Join(dst, rel))
 		if err != nil || string(data) != "[]" {
 			t.Fatalf("%s overwritten: %q %v", rel, data, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dst, "usage/old.json")); !os.IsNotExist(err) {
-		t.Fatal("usage stores merged")
+	data, err := os.ReadFile(filepath.Join(dst, "usage/2026-10-24.json"))
+	if err != nil || string(data) != "legacy" {
+		t.Fatalf("missing historical usage: %q %v", data, err)
+	}
+}
+
+func TestMigrateLegacyDataDirWriteFailureContinues(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	old, dst := filepath.Join(home, ".cc-connect"), filepath.Join(home, ".bothouse")
+	for _, rel := range []string{"crons/jobs.json", "timers/jobs.json", "usage/2026-10-24.json"} {
+		writeLegacyFixture(t, old, rel, []byte("[]"))
+	}
+	readonly := filepath.Join(dst, "crons")
+	if err := os.MkdirAll(readonly, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(readonly, 0o700) })
+	// Root and Windows may ignore directory write permissions.
+	if probe, err := os.CreateTemp(readonly, "probe"); err == nil {
+		probe.Close()
+		os.Remove(probe.Name())
+		t.Skip("filesystem does not enforce read-only directory permissions")
+	}
+	if err := MigrateLegacyDataDir(dst); err == nil {
+		t.Fatal("write failure was not reported")
+	}
+	if _, err := os.Stat(filepath.Join(dst, "crons/jobs.json")); !os.IsNotExist(err) {
+		t.Fatal("failed cron copy unexpectedly exists")
+	}
+	for _, rel := range []string{"timers/jobs.json", "usage/2026-10-24.json"} {
+		data, err := os.ReadFile(filepath.Join(dst, rel))
+		if err != nil || string(data) != "[]" {
+			t.Fatalf("write failure prevented %s migration: %q %v", rel, data, err)
+		}
 	}
 }
 
@@ -129,10 +162,14 @@ func TestMigrateLegacyDataDirMissingCustomAndInvalid(t *testing.T) {
 		t.Fatal("custom directory modified")
 	}
 	writeLegacyFixture(t, old, "timers/jobs.json", []byte("{bad"))
+	writeLegacyFixture(t, old, "usage/2026-10-24.json", []byte("[]"))
 	if err := MigrateLegacyDataDir(dst); err == nil {
 		t.Fatal("invalid legacy timers silently accepted")
 	}
 	if _, err := os.Stat(filepath.Join(dst, "timers/jobs.json")); !os.IsNotExist(err) {
 		t.Fatal("invalid timer destination created")
+	}
+	if _, err := os.Stat(filepath.Join(dst, "usage/2026-10-24.json")); err != nil {
+		t.Fatalf("invalid timer blocked usage migration: %v", err)
 	}
 }
