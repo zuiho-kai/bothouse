@@ -780,18 +780,6 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if err != nil {
 		return fail("config", err)
 	}
-	// The gate port: kept when free or this data dir's gate is on it; another install's gate (or
-	// anything else) there gets a new port, saved before the gate_urls below are written with it.
-	if req.gateOn() && !req.DryRun {
-		if port := pickGatePort(env.DataDir); port != LocalGatePort() {
-			if ps, ok := env.Store.(interface{ SetGatePort(int) error }); ok {
-				if err := ps.SetGatePort(port); err != nil {
-					return fail("gate port", err)
-				}
-			}
-			SetLocalGatePort(port)
-		}
-	}
 	// asked before writing: after the write the config is no longer the first-run template
 	storeIsFresh := false
 	if f, ok := env.Store.(interface{ IsFreshConfig() bool }); ok {
@@ -1021,6 +1009,21 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
 		finishWizardResult(res, req, pl, usable)
 		return res
+	}
+
+	// The gate port: kept when free or this data dir's gate is on it; another install's gate (or
+	// anything else) there gets a new port. Picked only now, after the tokens checked out and not on
+	// a dry run, so a failed or dry-run wizard writes nothing; saved before the plan below runs again
+	// inside the lock and writes the gate_urls with it.
+	if req.gateOn() {
+		if port := pickGatePort(env.DataDir); port != LocalGatePort() {
+			if ps, ok := env.Store.(interface{ SetGatePort(int) error }); ok {
+				if err := ps.SetGatePort(port); err != nil {
+					return fail("gate port", err)
+				}
+			}
+			SetLocalGatePort(port)
+		}
 	}
 
 	// 3. one locked read-modify-write of config.toml, planned on what is there now
