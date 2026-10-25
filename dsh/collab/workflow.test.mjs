@@ -164,6 +164,35 @@ test('watch: only the owner\'s own progress renews (not others, not a bare stanc
   tasks.close();
 });
 
+// #597 K5b: a workspace the bridge claimed is the bridge's to watch (core/team_watch.go), so the
+// gateway neither renews, parks nor reminds there, and arms no timer for it; one watcher per handoff.
+test('watch: a bridge-claimed workspace is left to the bridge watch', () => {
+  const { hub } = setup();
+  const ws = hub.store.createWorkspace(1, { bridge: true });
+  const plain = hub.store.createWorkspace(1);
+  let now = 10000;
+  const timers = [];
+  const tasks = new Tasks(hub, { now: () => now, setTimer: (_, ms) => { timers.push(ms); return {}; }, clearTimer() {} });
+  tasks.onWake(() => true);
+  const t = tasks.assign({ roomId: ws.id, title: '桥认领', owner: 'ds', actor: 'lead' });
+  timers.length = 0;
+  now = 10000 + 3 * CHECK_AFTER_S;
+  tasks.tick();
+  assert.equal(tasks.task(t.id).paused_at, null, 'not parked here');
+  assert.equal(tasks.task(t.id).renewals, 0, 'not renewed here');
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'still claimed');
+  assert.equal(hub.store.page(ws.id, undefined, 200).filter(m => /已暂停|还没交回/.test(m.text)).length, 0, 'no pause record, no reminder');
+  assert.deepEqual(timers, [], 'no timer for a bridge-claimed workspace (a past due would spin)');
+  // A gateway claim of another workspace is still watched.
+  const u = tasks.assign({ roomId: plain.id, title: '网关的', owner: 'ds', actor: 'lead', force: true });
+  assert.deepEqual(timers.slice(-1), [CHECK_AFTER_S * 1000]);
+  now += CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(u.id).paused_at, 'gateway workspace parked');
+  assert.equal(tasks.task(t.id).paused_at, null, 'bridge one still untouched');
+  tasks.close();
+});
+
 test('watch: upgrading an old store gives in-work workspace tasks 10 minutes from the upgrade', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'collab-watch-')), 'collab.db');
   let store = new Store(path);

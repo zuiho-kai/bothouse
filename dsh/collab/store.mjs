@@ -414,6 +414,14 @@ export class Store {
     return handoff !== undefined && (handoff.status === 'returned' || handoff.status === 'done');
   }
 
+  /**
+   * True while workspace roomId is held by a bridge claim: the bridge's handoff watch checks it
+   * (core/team_watch.go), so the task watch here leaves it alone (one watcher per handoff).
+   */
+  bridgeClaimed(roomId) {
+    return Boolean(this.db.prepare('SELECT claim_bridge FROM rooms WHERE id = ?').get(roomId)?.claim_bridge);
+  }
+
   /** Tasks in work in roomId (same statuses as tasks.mjs WORKING; paused ones do not count). */
   activeTasks(roomId) {
     return this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ?
