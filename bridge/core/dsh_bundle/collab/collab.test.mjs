@@ -3808,3 +3808,18 @@ for (const [decision, optionId] of [['allow', 'allow-once'], ['deny', 'reject-on
     assert.deepEqual(outcomes, [{ outcome: 'selected', optionId }]);
   });
 }
+
+test('CLI member without allow_always: typed 允许所有 goes back to ACP as allow-once and the card shows allowed', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  cliPermissionRun(hub, undefined, outcomes);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+  await settle();
+  const [card] = permCards(hub);
+  assert.ok(card, 'a permission card is posted');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '允许所有' });
+  await settle();
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-once' }]);
+  const state = JSON.parse(hub.store.message(card.id).card).state;
+  assert.equal(state, 'allowed', 'card shows what ACP got, not 已允许所有');
+});

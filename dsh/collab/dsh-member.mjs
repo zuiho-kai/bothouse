@@ -164,7 +164,10 @@ export function cliApprovalCard(request) {
   const arg = toolArgText(JSON.stringify(tc.rawInput ?? {})).trim();
   const words = { allow: '**允许**', deny: '**拒绝**', allow_all: '**允许所有**' };
   const lines = [`⚠️ **权限请求** ${tc.title ?? tc.kind ?? ''}`, arg && arg !== '{}' && `\`${arg.replace(/`/g, "'")}\``, `回复 ${actions.map(a => words[a.decision]).join(' / ')}`];
-  return { text: lines.filter(Boolean).join('\n').slice(0, MAX_TEXT), actions, byDecision };
+  // A text reply can say 允许所有 even when the CLI offered no allow_always: answer with
+  // its allow_once instead, and let the card show what was actually sent.
+  const mapDecision = d => (d === 'allow_all' && !byDecision.has(d) && byDecision.has('allow') ? 'allow' : d);
+  return { text: lines.filter(Boolean).join('\n').slice(0, MAX_TEXT), actions, byDecision, mapDecision };
 }
 
 /** Short text of a tool call's arguments for the card: the first string field (command, path, query), else the raw text. */
@@ -571,7 +574,7 @@ export class DshMembers {
       if (card.actions.length === 0) return { outcome: 'cancelled' };
       const { decision } = this.approvals.open({
         room: job.room_id, author: { id: member.id, name: member.name }, text: card.text, actions: card.actions,
-        signal: turnOver.signal, meta: { cliMember: member.id, jobId: job.id },
+        signal: turnOver.signal, meta: { cliMember: member.id, jobId: job.id }, mapDecision: card.mapDecision,
       });
       const d = await decision;
       const optionId = card.byDecision.get(d);

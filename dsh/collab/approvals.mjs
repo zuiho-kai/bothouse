@@ -11,6 +11,8 @@
 //     meta,                         // caller data, matched by expireWhere()
 //     check() {},                   // throw a CollabError to refuse a decision now (e.g. offline)
 //     onDecide(decision, by) {},    // 'allow' | 'deny' | 'allow_all'; by = 'button' | 'text'
+//     mapDecision(decision) {},     // optional: the decision actually applied (card state, decision, onDecide),
+//                                   // e.g. a text 'allow_all' becomes 'allow' when the asker has no allow-all
 //   });
 //   await decision;                 // 'allow' | 'deny' | 'allow_all' | 'expired'
 import { forMember, mentions } from './mentions.mjs';
@@ -53,12 +55,12 @@ export class ChannelApprovals {
    * Post a pending permission card in `room` as `author` and register it.
    * @returns { messageId, decision } — decision settles with the owner's choice, or 'expired'.
    */
-  open({ room, author, text, actions = DEFAULT_ACTIONS, signal, meta, check, onDecide }) {
+  open({ room, author, text, actions = DEFAULT_ACTIONS, signal, meta, check, onDecide, mapDecision }) {
     const card = { kind: 'permission', title: '权限请求', state: 'pending', actions: actions.map(a => ({ decision: a.decision, label: a.label })) };
     const { message } = this.hub.post(room, { authorKind: 'role', author: author.id, name: author.name, text, card: JSON.stringify(card) });
     let resolve;
     const decision = new Promise(r => { resolve = r; });
-    this.pending.set(message.id, { room, author: author.id, meta, check, onDecide, resolve });
+    this.pending.set(message.id, { room, author: author.id, meta, check, onDecide, mapDecision, resolve });
     if (signal !== undefined) {
       const onAbort = () => this.expire(message.id);
       if (signal.aborted) onAbort();
@@ -88,9 +90,10 @@ export class ChannelApprovals {
       throw new CollabError('conflict', '这个权限请求已过期');
     }
     p.check?.();
-    this.close(msgId, STATES[decision], row, by);
-    p.resolve(decision);
-    p.onDecide?.(decision, by);
+    const applied = p.mapDecision?.(decision) ?? decision;
+    this.close(msgId, STATES[applied], row, by);
+    p.resolve(applied);
+    p.onDecide?.(applied, by);
     return publicMessage(this.hub.store.message(msgId), this.hub.store);
   }
 
