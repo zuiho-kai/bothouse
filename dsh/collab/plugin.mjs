@@ -21,6 +21,7 @@ import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
+import { QqBridge } from './qq.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -100,6 +101,7 @@ export async function apply(ctx, rawConfig) {
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
+  const qq = new QqBridge(store, { dataDir: config.dataDir, logger: ctx.logger });
   for (const room of config.rooms) {
     store.ensureRoom(room.id, room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
@@ -160,6 +162,7 @@ export async function apply(ctx, rawConfig) {
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
     later.close();
+    qq.stop();
     tasks.close();
     gateway.closeAll();
     for (const end of streams) end();
@@ -170,6 +173,23 @@ export async function apply(ctx, rawConfig) {
   }, 'conest-collab: teardown');
 
   ctx.logger.info('conest-collab: %d room(s), %d DSH member(s), cloud-web %s', config.rooms.length, config.dshMembers.length, config.botToken ? 'on' : 'off');
+
+  /** QQ bridge: config, credential test, and process start/stop for the channels panel. */
+  async function qqRoute(req, res, url, bridge) {
+    const path = url.pathname.replace(/\/+$/, '');
+    try {
+      if (path === '/collab/api/qq') {
+        if (req.method === 'GET') return json(res, 200, bridge.view());
+        if (req.method === 'PUT' || req.method === 'POST') return await withBody(req, res, body => bridge.save(body));
+      }
+      if (path === '/collab/api/qq/start' && req.method === 'POST') return json(res, 200, bridge.start());
+      if (path === '/collab/api/qq/stop' && req.method === 'POST') return json(res, 200, bridge.stop());
+      if (path === '/collab/api/qq/test' && req.method === 'POST') return await withBody(req, res, body => bridge.test(body));
+      return json(res, 404, { error: 'not found' });
+    } catch (error) {
+      return json(res, 400, { error: error.message });
+    }
+  }
 
   /** cc-connect ChannelHistory: GET /api/rooms/{id}/messages?before=&limit= (bot token or owner). */
   function historyRoute(req, res) {
@@ -227,6 +247,7 @@ export async function apply(ctx, rawConfig) {
       if (bytes === undefined) return json(res, 404, { error: 'attachment not found' });
       return sendAttachment(req, res, row, bytes);
     }
+    if (path === '/collab/api/qq' || path.startsWith('/collab/api/qq/')) return qqRoute(req, res, url, qq);
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
     if (av !== null && req.method === 'GET') {
       const png = avatarImage(av[1]);

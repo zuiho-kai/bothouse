@@ -15,7 +15,9 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
-    "@zed-industries/claude-code-acp": "^0.16.2"
+    "@tencent-connect/qqbot-nodejs": "^1.0.5",
+    "@zed-industries/claude-code-acp": "^0.16.2",
+    "ws": "^8.22.0"
   },
   "optionalDependencies": {
     "@agentclientprotocol/codex-acp": "^2.2.2"

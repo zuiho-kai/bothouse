@@ -17,6 +17,7 @@ import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
+import { QqPanel } from './QqPanel.tsx'
 import { Avatar } from './Avatar.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import type { NS } from './locales.ts'
@@ -318,6 +319,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   // Member dialog: undefined closed, null adding, a member editing.
   const [dialog, setDialog] = useState<ChannelMember | null | undefined>(undefined)
   const [modelsOpen, setModelsOpen] = useState(false)
+  const [qqOpen, setQqOpen] = useState(false)
   const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
   // Wide-window side columns hidden by the user (#124); narrow windows use the drawers instead.
   const [roomsHidden, setRoomsHidden] = useState(false)
@@ -652,6 +654,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
+          <button type="button" className={css.qqButton} title={t('qqButton')} aria-label={t('qqButton')} aria-haspopup="dialog" onClick={() => { setQqOpen(true) }}>QQ</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
         <div
@@ -858,6 +861,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           <p>{t('configureModelHint')}</p>
         </section>
       </div>}
+      {qqOpen && (
+        <QqPanel rooms={state.rooms} defaultRoomId={state.roomId} onClose={() => { setQqOpen(false) }} t={t} />
+      )}
       {dialog !== undefined && (
         <MemberDialog
           member={dialog ?? undefined}

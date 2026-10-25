@@ -1203,3 +1203,75 @@
   max-width: 100%;
   overflow-x: auto;
 }
+
+/* QQ relay panel */
+.qqButton {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.qqButton:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.qqIntro {
+  margin: 0 0 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.qqStatus {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.qqStatus.qqOnline {
+  color: var(--dsw-alias-label-primary);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-label-success, #2ea043);
+}
+
+.qqCheck {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.qqNotice {
+  margin: 10px 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.qqLogBox {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.qqLog {
+  max-height: 140px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
