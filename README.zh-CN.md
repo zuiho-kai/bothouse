@@ -311,6 +311,7 @@ Discord / 飞书 / 自建网页频道
 | --- | --- |
 | [从零用起](docs/GETTING_STARTED.md) | 安装、向导、确认上线 |
 | [接进 Discord 或飞书](docs/connect-discord-feishu.md) | 向导每一步、让 AI 帮你配、第三方 API |
+| [Codex 会话隔离](docs/codex-session-isolation.md) | 机器人与桌面分开存储、登录准备及已有会话迁移 |
 | [装调度员和团队记忆](docs/ccm-and-wiki.md) | gate（谁来回话）和共享 wiki 记忆 |
 | [角色库：人设、头像和包](docs/persona-packs.md) | 挑人设和头像、自己做、装别人的包 |
 | [每角色 wiki 与夜间反思](bridge/contrib/wiki/README.md) | 每个角色一本 wiki、定时整理、复盘 |

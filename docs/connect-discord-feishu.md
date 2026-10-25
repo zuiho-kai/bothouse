@@ -185,6 +185,10 @@ bothouse 只是接进去：每个角色作为一个成员连平台的机器人�
   `"cloud_web": {"url": "<地址>", "token": "<token>"}`）。字段见 `bothouse setup apply -h`。
 - 以后要接的 DSH 网页走同一个协议，只是多一个预设（`bridge/core/setup_cloudweb.go` 的 `cloudWebPresets`，`allow_from` 不同）。
 
+## 8. Codex 会话不要混进桌面
+
+Codex 角色默认可能与桌面共用 `~/.codex`，所以平台聊天也会出现在桌面会话列表。给该角色的 `[projects.agent.options]` 配置独立 `codex_home`，先准备好登录与模型配置，再重启 bothouse。已有会话需要按 ID 迁移并验证恢复，随后才能归档桌面旧副本；换工作目录不能隔离存储。完整步骤见 [Codex 机器人与桌面会话隔离](codex-session-isolation.md)。
+
 ## 附录 A：手动接 Discord
 
 ### A1. 每个 bot 建一个应用
