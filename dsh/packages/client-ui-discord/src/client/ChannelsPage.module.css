@@ -313,13 +313,6 @@
   overflow-wrap: anywhere;
 }
 
-/* A message's single newlines are line breaks, as in the bridge web chat (whitespace-pre-wrap on
-   user text) and the DSH user bubble (pre-wrap); only prose runs, so code blocks keep their own rules. */
-.text p,
-.text li {
-  white-space: pre-wrap;
-}
-
 .card {
   margin-top: 4px;
   padding: 6px 10px;
