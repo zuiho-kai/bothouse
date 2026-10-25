@@ -7,6 +7,7 @@ import (
 	"fmt"
 	ccconnect "github.com/chenhg5/cc-connect"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -155,12 +156,16 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	defer signal.Stop(sigCh)
 	select {
 	case <-desktopShutdown:
+		slog.Info("shutdown requested", "source", "tray")
 		srv.Stop()
 		release()
-	case <-sigCh:
+		stopDesktopService()
+	case sig := <-sigCh:
+		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
 		srv.Stop()
 		release()
 	case <-core.RestartCh:
+		slog.Info("shutdown requested", "source", "restart_command")
 		srv.Stop()
 		release()
 		exe, err := os.Executable()

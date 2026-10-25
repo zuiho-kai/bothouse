@@ -76,6 +76,8 @@ Use `bothouse --headless` or `BOTHOUSE_TRAY=off` to hide it. The default
 `BOTHOUSE_TRAY=auto` also hides it over SSH and when HOME differs from the OS
 account's home (preview/test instances). `BOTHOUSE_TRAY=on` enables it for an
 isolated desktop instance; CLI commands and `--headless` still hide it.
+Tray Exit stops the supervising service as well as the bridge. Its startup
+registration stays installed for the next login or a manual start.
 
 
 Release downloads: `bothouse-mac.dmg` (universal Bothouse.app for Apple Silicon and Intel), `bothouse-windows.exe` (x64, also runs on ARM64 Windows; double-click), and `bothouse-linux-x64` / `bothouse-linux-arm64` (`chmod +x`, then run). First launch opens the browser setup wizard. Verify downloads with `SHA256SUMS`.

@@ -339,6 +339,7 @@ func runMain() {
 		os.Exit(1)
 	}
 	slog.Info("acquired instance lock", "path", instanceLock.Path())
+	slog.Info("desktop tray", "enabled", trayMode)
 
 	// After an upgrade, bring ~/.bothouse/dsh plugin code up to this version (user files kept).
 	// In the background: when its dependencies changed it runs pnpm install, which must not hold
@@ -787,10 +788,14 @@ func runMain() {
 
 	var restartReq *core.RestartRequest
 	select {
-	case <-sigCh:
+	case sig := <-sigCh:
+		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
 	case <-desktopShutdown:
+		slog.Info("shutdown requested", "source", "tray")
+		defer stopDesktopService()
 	case req := <-core.RestartCh:
 		restartReq = &req
+		slog.Info("shutdown requested", "source", "restart_command", "session", req.SessionKey)
 		slog.Info("restart requested via /restart command", "session", req.SessionKey, "platform", req.Platform)
 	}
 
