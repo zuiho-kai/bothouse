@@ -3654,6 +3654,58 @@ test('block B: DSH rejecting an image batch still delivers the text and advances
   await ds.close();
 });
 
+test('block B: DSH batch limit keeps the images that fit and notes the rest once', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-limit-')));
+  const attachments = files.save(['a', 'b', 'c'].map(n => ({ name: `${n}.png`, mime: 'image/png', data: Buffer.from(n).toString('base64') })));
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => {
+      if (parts.length > 1) throw new Error('too many images');
+      return parts.map(p => ({ type: 'image', attachment: { attachmentId: Buffer.from(p.data, 'base64').toString() } }));
+    },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  const content = agent.prompts[0].content;
+  assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'a' } }]);
+  assert.match(content[0].text, /b\.png: attachment not delivered \(too many images\)/);
+  assert.match(content[0].text, /c\.png: attachment not delivered \(too many images\)/);
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /b\.png（too many images）；c\.png（too many images）/);
+  assert.doesNotMatch(notes[0].text, /a\.png/);
+  await ds.close();
+});
+
+test('block B: DSH refusing every image of a batch delivers the text alone and notes all of them', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-allreject-')));
+  const attachments = files.save(['a', 'b'].map(n => ({ name: `${n}.png`, mime: 'image/png', data: Buffer.from(n).toString('base64') })));
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async () => { throw new Error('pixel limit'); },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts[0].content.length, 1);
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /a\.png（pixel limit）；b\.png（pixel limit）/);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  await ds.close();
+});
+
 test('block B: later survives restart, keeps offline wakes and delivers once to each member kind', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'blockb-later-')), 'collab.sqlite3');
   let store = new Store(path); store.ensureRoom(1, 'general');
