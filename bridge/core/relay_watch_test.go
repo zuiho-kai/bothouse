@@ -188,8 +188,8 @@ func TestRelayWatchStopsWhenDoneAfterTurnEnd(t *testing.T) {
 
 // The card ends (failed: the lead's reply was not sent; cancelled: /stop or
 // maxTurnTime; or accepted) while a relay still runs: the watch stays its one
-// keeper. The worker cannot report on an ended card, so at the due time it is
-// nudged and stopped; the card's state and summary are left as they were.
+// keeper with the same rule (renew on progress, nudge and stop without); the
+// card's state and summary are left as they were.
 func TestRelayWatchKeepsRunningRelayOnEndedCard(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -215,18 +215,23 @@ func TestRelayWatchKeepsRunningRelayOnEndedCard(t *testing.T) {
 			if n := p.relayWatchTick(due.Add(-time.Minute)); !n.Equal(due) {
 				t.Fatalf("running relay unwatched on ended card: next=%v want %v", n, due)
 			}
-			p.relayWatchTick(due)
+			relayWatchReport(t, p, d, 1) // the worker can still report on an ended card
+			next := p.relayWatchTick(due)
+			if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchRenewed != 1 || !next.Equal(due.Add(watchCheckAfter())) {
+				t.Fatalf("not renewed on progress: cancels=%d rc=%+v next=%v", relayWatchStopped(d), relayWatchReceipt(d), next)
+			}
+			p.relayWatchTick(next) // no progress in the second window
 			if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone || !strings.Contains(relayWatchLastEvent(d), "十分钟看门") {
 				t.Fatalf("not nudged and stopped: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
 			}
 			after, _ := p.Task(id)
 			if after.State != before.State || after.LatestProgress != before.LatestProgress {
-				t.Fatalf("watch moved the ended card: %v/%q -> %v/%q", before.State, before.LatestProgress, after.State, after.LatestProgress)
+				t.Fatalf("relay moved the ended card: %v/%q -> %v/%q", before.State, before.LatestProgress, after.State, after.LatestProgress)
 			}
 			if err := d.finish("partial", errRelayWatchStopped); err != nil {
 				t.Fatal(err)
 			}
-			if n := p.relayWatchTick(due.Add(time.Hour)); !n.IsZero() || relayWatchStopped(d) != 1 {
+			if n := p.relayWatchTick(next.Add(time.Hour)); !n.IsZero() || relayWatchStopped(d) != 1 {
 				t.Fatalf("watched a handed-back receipt: next=%v", n)
 			}
 		})

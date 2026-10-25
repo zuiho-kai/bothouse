@@ -104,12 +104,9 @@ func taskRelayActive(r *publicRun) bool {
 	return taskRelayLive(r)
 }
 
-// taskRelayLive: a dispatch already running on the card may still report
-// progress. Not gated on Closed or r.stopped(): the lead's turn ending
-// (finishRun closes every card of the turn) must not turn its reports away.
-// Same lifetime as member reports (reportMember): it ends on acceptance or a
-// terminal state. The ten-minute watch is not gated on the card at all
-// (relayWatchRun).
+// taskRelayLive: the card is neither accepted nor terminal. Relay progress
+// and the ten-minute watch are not gated on the card at all: they follow the
+// running receipt (reportTaskRelay, relayWatchRun).
 func taskRelayLive(r *publicRun) bool {
 	return !r.record.Accepted && !IsTerminalState(r.record.Task.State)
 }
@@ -192,7 +189,9 @@ func (p *PublicProgress) reportTaskRelay(d *taskRelay, req PublicProgressRequest
 	r := d.r
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if req.SessionKey != d.req.SessionKey || !taskRelayLive(r) {
+	// Gated on the receipt alone (below): a running dispatch keeps reporting
+	// after the card ends, so the watch can renew on its progress.
+	if req.SessionKey != d.req.SessionKey {
 		return "", errors.New("relay progress is not active for this session")
 	}
 	receipt := r.record.Relays[d.req.RequestID]
