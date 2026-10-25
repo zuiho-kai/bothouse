@@ -580,7 +580,7 @@ export class Store {
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
   bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId, roomId); }
-  /** Point an existing binding at another session id (a CLI member's real ACP sessionId), keeping its cursor. */
+  /** Point an existing binding at a new Session; the context cursor stays. */
   rebind(memberId, roomId, sessionId) { this.q.rebind.run(sessionId, memberId, roomId); }
   /**
    * Move a member's context cursor up to messageId, but never past a
