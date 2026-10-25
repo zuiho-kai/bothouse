@@ -2,7 +2,7 @@
 # d10 到点时由桥（bothouse / cc-connect）的 timer 调用：队友已交回就不发「暂停」，没交回才发。
 # 用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <发消息的 cc-connect project> [--renew N] [--dry-run]（d10 填好参数）
 # 续期：没交回时再看最近 10 分钟她有没有动静（团队文件里她的 "wt" 目录下有新提交；
-#   频道消息判交回/续期要桥提供读频道历史的接口，目前没有，见 fetch_messages），
+#   或她在频道里发了非表态消息；频道消息经桥的 GET /channel/history 读，见 fetch_messages），
 #   有就再挂一个 10 分钟的 d10-fire（--renew 计数），最多续 MAX_RENEW 次；续到上限仍没交回、或续期定时没挂上，照发暂停。
 # 来源：用户 2026-10-23「复盘一下现在的工作流程，看看怎么样更好的就是我们并行的团队模式的去搞」；
 #   事故：2026-10-23 上午 d10 计时 4 次在队友早已交回后白发「暂停」（03:46、10:39 彩虹猫，10:47 前后），
@@ -46,7 +46,11 @@ def is_handback(content: str) -> bool:
 def redispatched(messages, teammate_id: str, since: float) -> bool:
     # 派活后频道里又有人 @ 她 = 派了新活，旧 d10 不能再打断（事故二）。
     # 第一次 @ 是本次派活本身：d10 在同一轮里挂上，派活消息在这一轮结束才发出，晚于 since。
-    mention = re.compile(rf"<@!?{re.escape(str(teammate_id))}>")
+    # 桥返回的 Discord 正文里 <@id> 已换成 @用户名：用她在本段历史里发过的消息的用户名一并匹配
+    names = {str(m.get("author", {}).get("username") or "") for m in messages
+             if str(m.get("author", {}).get("id")) == str(teammate_id)} - {""}
+    alts = [rf"<@!?{re.escape(str(teammate_id))}>"] + [rf"@{re.escape(n)}(?![\w])" for n in sorted(names)]
+    mention = re.compile("|".join(alts))
     n = 0
     for m in messages:
         if ts_epoch(m) < since or str(m.get("author", {}).get("id")) == str(teammate_id):
@@ -57,8 +61,13 @@ def redispatched(messages, teammate_id: str, since: float) -> bool:
     return n >= 2
 
 
+FRAC_RE = re.compile(r"(\.\d{1,6})\d*")  # 桥（Go）的时间带 9 位小数，Python 3.9 fromisoformat 只认 3/6 位
+
+
 def ts_epoch(m) -> float:
-    return datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00")).timestamp()
+    t = m["timestamp"].replace("Z", "+00:00")
+    t = FRAC_RE.sub(lambda x: x.group(1).ljust(7, "0"), t, count=1)
+    return datetime.fromisoformat(t).timestamp()
 
 
 def handed_back(messages, teammate_id: str, since: float) -> bool:
@@ -121,11 +130,15 @@ def renew(tid, what, since, skey, proj, n, dry):
         return 1
 
 
-def fetch_messages(channel_id: str, since: float):
-    """频道里 since 之后的消息（Discord 消息形状）。不再用平台 token 直读 Discord（#597 K9：四平台通用、脚本不碰密钥）；
-    桥目前没有读频道历史的对外接口，返回 None = 没有频道信号，只按提交判断续期，否则照发暂停。
-    工作区交接的进展由桥里的看门判（core/team_watch.go workspaceProgress），不经这里。"""
-    return None
+def fetch_messages(skey: str, proj: str):
+    """skey 所在频道最近的消息（Discord 消息形状：author.id/username、content、timestamp）。
+    经桥的 GET /channel/history 读（_team.channel_history），脚本不碰平台 token（#597 K9）。
+    平台不支持读历史 → None：没有频道信号，只按提交判断续期，否则照发暂停。"""
+    rows = _team.channel_history(skey, proj)
+    if rows is None:
+        return None
+    return [{"author": {"id": str(r.get("author_id") or ""), "username": r.get("author_name") or "", "bot": bool(r.get("is_bot"))},
+             "content": r.get("content") or "", "timestamp": r.get("time") or "1970-01-01T00:00:00Z"} for r in rows]
 
 
 def main(argv):
@@ -144,12 +157,11 @@ def main(argv):
         print("用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <project> [--renew N] [--dry-run]", file=sys.stderr)
         return 2
     tid, what, since, skey, proj = args[0], args[1], float(args[2]), args[3], args[4]
-    channel = skey.split(":", 1)[1] if ":" in skey else skey
     active = False
     try:
-        msgs = fetch_messages(channel, since)
+        msgs = fetch_messages(skey, proj)
         if msgs is None:
-            raise LookupError("桥没有读频道历史的接口")
+            raise LookupError("这个平台不支持读频道历史")
         if redispatched(msgs, tid, since):
             print("派活后又派了新活，跳过暂停")
             return 0

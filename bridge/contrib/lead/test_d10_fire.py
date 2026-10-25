@@ -123,14 +123,16 @@ class T(unittest.TestCase):
         self.assertTrue(run.called)
 
     def test_no_token_needed(self):
-        # 不读 DISCORD_BOT_TOKEN：没有频道信号源时只按提交续期，不报「读不到 token」
+        # 不读 DISCORD_BOT_TOKEN：平台不支持读历史（桥回 501 → None）时只按提交续期，不报「读不到 token」
         with mock.patch.dict(os.environ, {}, clear=False) as env, \
+             mock.patch.object(d._team, "channel_history", return_value=None) as hist, \
              mock.patch.object(d, "last_commit_epoch", return_value=SINCE + 300), \
              mock.patch.object(d.time, "time", return_value=SINCE + 600), \
              mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
             env.pop("DISCORD_BOT_TOKEN", None)
             run.return_value.returncode = 0
             self.assertEqual(d.main([TID, "活", str(SINCE), "feishu:oc_1", "lead-proj"]), 0)
+        hist.assert_called_once_with("feishu:oc_1", "lead-proj")
         self.assertEqual(run.call_args[0][0][:3], ["cc-connect", "timer", "add"])
 
     def test_renew_fail_sends(self):
@@ -163,6 +165,77 @@ class T(unittest.TestCase):
     def test_dry_run_shows_renew(self):
         _, pr = self.run_fire([], commit=SINCE + 300, extra=("--dry-run",))
         self.assertIn("会续 10 分钟（第 1/2 次）", pr.call_args[0][0])
+
+
+class BridgeHistoryTest(unittest.TestCase):
+    """fetch_messages 经桥 api.sock GET /channel/history 读频道（假桥：临时 unix socket 上的 HTTP 服务）。"""
+    def serve(self, status, payload):
+        import http.server, socketserver, tempfile, threading, json
+        tmp = tempfile.mkdtemp(dir="/tmp")
+        os.makedirs(os.path.join(tmp, "run"))
+        sock = os.path.join(tmp, "run", "api.sock")
+        seen = []
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.path)
+                body = json.dumps(payload).encode() if status == 200 else b"not supported"
+                self.send_response(status); self.send_header("Content-Length", str(len(body))); self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *a): pass
+            def address_string(self): return "unix"
+        srv = socketserver.UnixStreamServer(sock, H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (srv.shutdown(), srv.server_close(), __import__("shutil").rmtree(tmp, ignore_errors=True)))
+        p = mock.patch.dict(os.environ, {"CC_DATA_DIR": tmp}); p.start(); self.addCleanup(p.stop)
+        return seen
+
+    JU = "1001"
+    def rows(self):
+        return {"messages": [
+            {"id": "1", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 派你一件，10 分钟：读帖子", "time": "2026-10-23T03:00:07.123456789Z"},
+            {"id": "2", "author_id": TID, "author_name": "龙娘", "is_bot": True, "content": "【接】", "time": "2026-10-23T03:00:30Z"},
+            {"id": "3", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 再派一件：体检", "time": "2026-10-23T03:08:13Z"},
+        ]}
+
+    def test_reads_via_bridge(self):
+        seen = self.serve(200, self.rows())
+        msgs = d.fetch_messages("discord:3003:9", "lead-proj")
+        self.assertIn("session_key=discord%3A3003%3A9", seen[0]); self.assertIn("project=lead-proj", seen[0])
+        self.assertEqual(msgs[1]["author"], {"id": TID, "username": "龙娘", "bot": True})
+        # 桥回的正文里 <@id> 已换成 @用户名：仍认得出又派了新活
+        self.assertTrue(d.redispatched(msgs, TID, SINCE))
+
+    def test_redispatch_via_bridge_skips_pause(self):
+        self.serve(200, self.rows())
+        with mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 0)
+        self.assertFalse(run.called)
+
+    def test_handback_via_bridge_skips_pause(self):
+        rows = self.rows(); rows["messages"] = rows["messages"][:2] + [
+            {"id": "4", "author_id": TID, "author_name": "龙娘", "is_bot": True, "content": "做完了 https://github.com/a/b/pull/1", "time": "2026-10-23T03:06:00Z"}]
+        self.serve(200, rows)
+        with mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 0)
+        self.assertFalse(run.called)
+
+    def test_unsupported_platform_commit_only(self):
+        self.serve(501, None)
+        self.assertIsNone(d.fetch_messages("feishu:oc_1", "lead-proj"))
+        with mock.patch.dict(os.environ, {"CC_BIN": "cc-connect"}), \
+             mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            run.return_value.returncode = 0
+            d.main([TID, "活", str(SINCE), "feishu:oc_1", "lead-proj"])
+        self.assertEqual(run.call_args[0][0][:2], ["cc-connect", "send"])  # 没提交 → 照发暂停
+
+    def test_bridge_down_raises(self):
+        import tempfile
+        with mock.patch.dict(os.environ, {"CC_DATA_DIR": tempfile.mkdtemp(dir="/tmp")}):
+            with self.assertRaises(OSError):
+                d.fetch_messages("discord:1", "p")
 
 
 class BridgeBinTest(unittest.TestCase):

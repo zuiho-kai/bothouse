@@ -4,12 +4,12 @@
   成员的 "id" 是平台用户 ID 原样字符串（Discord 数字、飞书 ou_…、DSH 成员 id 都认），"workspace" 是她的工作目录。
 - 当前主角色：复用 ../gate/lead.py（默认存产品数据目录的 lead.json，GATE_LEAD_FILE 可显式覆盖）。gate 不在 ../gate 时设 GATE_DIR。
 - 工作区频道：环境变量 WS_CHANNEL，否则团队文件顶层 "workspace"（平台频道 ID）；都没有 → None（ws-handoff 会新建）。
-- 不读平台 token：发消息、建工作区都走桥（<桥> send / workspace / timer），四平台通用。
+- 不读平台 token：发消息、建工作区都走桥（<桥> send / workspace / timer），读频道历史走桥的 api.sock GET /channel/history（channel_history），四平台通用。
 - 发消息/定时器用的身份：调用者自己的 CC_PROJECT（cc-connect 给每个会话设的），即正在当主的那位。
 - 队友工作目录：团队文件成员的 "wt"，没有就用 "workspace"（一个路径或路径列表，git 副本本身或放 git 副本的目录），d10-fire 看里面有没有新提交来续期；
   不写就只看频道里的动静。
 """
-import json, os, re, shutil, subprocess, sys
+import http.client, json, os, re, shutil, socket, subprocess, sys, urllib.parse
 from pathlib import Path
 
 _here = Path(__file__).resolve().parent
@@ -98,3 +98,41 @@ def name_of(proj):
         return proj
     k = lead.resolve(proj)
     return lead.NAME[k] if k is not None else proj
+
+
+def api_socket():
+    """桥的本地 API socket：CC_DATA_DIR（同 bothouse send 的找法）→ 产品数据目录，下面的 run/api.sock。"""
+    base = os.environ.get("CC_DATA_DIR", "").strip()
+    return Path(base).expanduser() / "run" / "api.sock" if base else datadir.data_dir() / "run" / "api.sock"
+
+
+class _UnixHTTP(http.client.HTTPConnection):
+    def __init__(self, path, timeout):
+        super().__init__("localhost", timeout=timeout)
+        self._path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(str(self._path))
+
+
+def channel_history(session_key, proj="", limit=50, timeout=10):
+    """session_key 所在频道最近 limit 条（旧→新），经桥 GET /channel/history，不碰平台 token。
+    每条 {"id","author_id","author_name","is_bot","is_self","content","time"}。
+    平台不支持读历史（桥回 501）返回 None；桥不在、未连上、读失败抛 OSError。"""
+    q = urllib.parse.urlencode({k: v for k, v in (("session_key", session_key), ("project", proj), ("limit", str(limit))) if v})
+    c = _UnixHTTP(api_socket(), timeout)
+    try:
+        c.request("GET", "/channel/history?" + q)
+        r = c.getresponse()
+        body = r.read().decode("utf-8", "replace")
+    except (OSError, http.client.HTTPException) as e:
+        raise OSError(f"桥 api.sock 读不到：{e}") from e
+    finally:
+        c.close()
+    if r.status == 501:
+        return None
+    if r.status != 200:
+        raise OSError(f"桥读频道历史失败（{r.status}）：{body.strip()}")
+    return json.loads(body).get("messages") or []
