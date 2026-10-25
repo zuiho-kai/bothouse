@@ -59,6 +59,16 @@ func collabDataDir() string {
 	return filepath.Join(home, ".conest-collab")
 }
 
+// dshMembersFile: what ConfigureDSH writes for the collab plugin (dsh/collab/roster.mjs reads it).
+func dshMembersFile() string { return filepath.Join(collabDataDir(), "wizard-members.json") }
+
+// DSHRouteConfigured: the wizard has set up DSH-native members on this machine. They take their
+// per-turn wiki pages and task board from the local gate, so bothouse runs the gate for them.
+func DSHRouteConfigured() bool {
+	_, err := os.Stat(dshMembersFile())
+	return err == nil
+}
+
 // ConfigureDSH saves the key, disables the sign-in prompt and writes the roles for the plugin.
 func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	var res DSHConfigureResult
@@ -97,7 +107,7 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return res, err
 	}
-	res.MembersFile = filepath.Join(dir, "wizard-members.json")
+	res.MembersFile = dshMembersFile()
 	b, _ := json.MarshalIndent(map[string]any{"members": req.Members}, "", "  ")
 	if err := os.WriteFile(res.MembersFile, b, 0o600); err != nil {
 		return res, err
@@ -310,7 +320,9 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		}
 	}
 	if dataDir != "" {
-		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json")}
+		// GATE_PORT: where the collab plugin asks the gate for each turn's wiki pages and task board
+		// (dsh/collab/gate-context.mjs), the port bothouse runs the gate on (gate_proc.go startLocked).
+		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
 		if fallback := dshFallbackLead(dataDir); fallback != "" {
 			env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
 		}
@@ -417,5 +429,6 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		mgmtError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	EnsureGateForDSH(m.wizardDataDir)
 	mgmtJSON(w, http.StatusOK, web)
 }

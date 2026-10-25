@@ -10,9 +10,11 @@ import (
 func init() { core.GateScriptFS = ccconnect.GateFiles }
 
 // startGate starts the supervisor of the local gate; it runs the gate while some project's
-// gate_url points at it, and a wizard run in this process reloads it.
+// gate_url points at it or DSH-native members are set up (they have no project, so a config with
+// only them runs in setup mode and starts the gate there too), and a wizard run in this process
+// reloads it.
 func startGate(cfg *config.Config) *core.GateSupervisor {
-	want := false
+	want := core.DSHRouteConfigured()
 	for _, p := range cfg.Projects {
 		if core.UsesLocalGate(p.GateURL) {
 			want = true

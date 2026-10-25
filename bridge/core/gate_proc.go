@@ -177,6 +177,15 @@ func (g *GateSupervisor) Reload(want bool) {
 	g.poke()
 }
 
+// Want turns the gate on without restarting a running one: the DSH route needs it once its
+// members are set up (EnsureGateForDSH), whatever the projects say.
+func (g *GateSupervisor) Want() {
+	g.mu.Lock()
+	g.want = true
+	g.mu.Unlock()
+	g.poke()
+}
+
 // Stop stops the loop and the gate.
 func (g *GateSupervisor) Stop() {
 	g.stopOnce.Do(func() { close(g.done) })
@@ -392,11 +401,21 @@ func reloadGateAfterWizard(dataDir string, s WizardSnapshot) {
 	if g == nil {
 		return
 	}
-	want := false
+	want := DSHRouteConfigured() // DSH-native members read /context too (dsh/collab/gate-context.mjs)
 	for _, p := range s.Projects {
 		if UsesLocalGate(p.GateURL) {
 			want = true
 		}
 	}
 	g.Reload(want)
+}
+
+// EnsureGateForDSH starts the gate of the service running in this process for the DSH route:
+// with only DSH-native members there is no project whose gate_url points at the local gate, so
+// nothing else would start it, and the members' per-turn /context (wiki pages, task board) would
+// never answer. Called when bothouse starts `dsh web` (openDSHWeb).
+func EnsureGateForDSH(dataDir string) {
+	if g := activeGateFor(dataDir); g != nil {
+		g.Want()
+	}
 }

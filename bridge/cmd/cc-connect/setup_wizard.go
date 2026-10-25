@@ -152,6 +152,9 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
 	wireAutostart(srv)
 	srv.Start()
+	// A machine with only DSH-native members stays in setup mode; their per-turn wiki pages and
+	// task board come from the gate (core.EnsureGateForDSH), so the gate runs here as well.
+	gateSup := startGate(cfg)
 	// The sign-in link carries the token: it goes into a file only you can read and into the
 	// browser; the terminal only shows it when no browser could be opened.
 	linkFile := setupLinkFile(configPath)
@@ -167,15 +170,18 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	case <-desktopShutdown:
 		slog.Info("shutdown requested", "source", "tray")
 		srv.Stop()
+		gateSup.Stop()
 		release()
 		stopDesktopService()
 	case sig := <-sigCh:
 		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
 		srv.Stop()
+		gateSup.Stop()
 		release()
 	case <-core.RestartCh:
 		slog.Info("shutdown requested", "source", "restart_command")
 		srv.Stop()
+		gateSup.Stop()
 		release()
 		exe, err := os.Executable()
 		if err == nil {
