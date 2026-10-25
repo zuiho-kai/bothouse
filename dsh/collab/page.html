@@ -31,6 +31,7 @@
   .card { border-left: 4px solid var(--accent); background: var(--side); padding: 6px 10px; border-radius: 4px; margin-top: 2px; }
   .card.completed { border-color: var(--ok); } .card.failed { border-color: #f23f43; }
   .card .title { font-weight: 600; font-size: 13px; }
+  .card .actions { display: flex; gap: 6px; margin-top: 6px; } .card .actions button { padding: 3px 10px; border-radius: 4px; border: 1px solid #ccc; cursor: pointer; }
   form { padding: 0 16px 20px; }
   textarea { width: 100%; resize: none; border: 0; border-radius: 8px; padding: 11px 14px; background: var(--input); color: var(--text); font: inherit; max-height: 40vh; }
   textarea:focus { outline: 2px solid var(--accent); }
@@ -127,6 +128,16 @@ function messageNode(m) {
     let meta = {}; try { meta = JSON.parse(m.card); } catch {}
     const card = el('div', 'card ' + (meta.state || ''));
     card.append(el('div', 'title', meta.title || ''), el('div', 'body', m.text));
+    // Pending permission card: one button per action, posting the decision (same route as a text reply).
+    if (meta.kind === 'permission' && meta.state === 'pending' && Array.isArray(meta.actions)) {
+      const bar = el('div', 'actions');
+      for (const a of meta.actions) {
+        const b = el('button', '', a.label);
+        b.onclick = () => { bar.querySelectorAll('button').forEach(x => { x.disabled = true; }); api(`/collab/api/messages/${m.id}/permission`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision: a.decision }) }); };
+        bar.append(b);
+      }
+      card.append(bar);
+    }
     col.append(card);
   } else col.append(el('div', 'body', m.text));
   row.append(col);

@@ -3175,7 +3175,7 @@ test('CLI member: ACP tool calls feed the same progress card', async () => {
  * Policy per permission preset: Default and Auto review ask; Full access never asks.
  */
 const PRESET_POLICY = { default: 'ask', auto: 'ask', 'full-access': 'never' };
-function askTool(dsh, members, agent, { preset = 'default', command = 'rm -rf build', signal } = {}) {
+function askTool(dsh, members, agent, { preset = 'default', command = 'rm -rf build', signal, displayReason } = {}) {
   const callId = `call-${agent.session.events.length}`;
   dsh.emit(agent, 'tool/call', { turn: agent.turns, callId, name: 'bash', arguments: JSON.stringify({ command }) });
   const ran = [];
@@ -3187,7 +3187,7 @@ function askTool(dsh, members, agent, { preset = 'default', command = 'rm -rf bu
   if (PRESET_POLICY[preset] === 'never') return { ran, outcome: Promise.resolve(runTool('rejected')) };
   let fellThrough = false;
   const outcome = members.onApprovalRequest(
-    { agent, toolName: 'bash', callId, reason: 'command needs to run outside the sandbox', signal },
+    { agent, toolName: 'bash', callId, reason: 'command needs to run outside the sandbox', displayReason, signal },
     () => { fellThrough = true; return Promise.resolve('unavailable'); },
   ).then(runTool);
   return { ran, outcome, fellThrough: () => fellThrough };
@@ -3203,6 +3203,18 @@ async function openTurn(hub, dsh, room, text = '@DeepSeek 清理一下') {
   dsh.turn(agent, [], null);
   return agent;
 }
+
+test('DSH approval #557: a localized displayReason shows as text, not [object Object]', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  askTool(dsh, members, agent, { displayReason: { en: 'needs network access' } });
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  assert.match(card.text, /needs network access/);
+  assert.doesNotMatch(card.text, /object Object/);
+});
 
 test('DSH approval #557: the card shows in the room that @-ed the member; 允许 lets the tool run and the turn reply', async () => {
   const hub = makeHub();

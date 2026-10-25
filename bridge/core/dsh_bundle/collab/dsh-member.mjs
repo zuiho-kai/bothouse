@@ -137,7 +137,9 @@ function approvalText(request, session, seqBefore) {
   const call = request.callId === undefined ? undefined
     : session.snapshotEvents(seqBefore).find(e => e.type === 'tool/call' && e.data?.callId === request.callId);
   const arg = call === undefined ? '' : toolArgText(call.data.arguments).trim();
-  const reason = String(request.displayReason ?? request.reason ?? '').trim();
+  // displayReason is a locale map ({ en, zh?, ... }) in DSH's escalation request; reason is a plain string.
+  const shown = request.displayReason;
+  const reason = String((shown && typeof shown === 'object' ? shown.zh ?? shown.en : shown) ?? request.reason ?? '').trim();
   const lines = [`⚠️ **权限请求** ${request.toolName}`, arg && `\`${arg.replace(/`/g, "'")}\``, reason, '回复 **允许** / **拒绝** / **允许所有**'];
   return lines.filter(Boolean).join('\n').slice(0, MAX_TEXT);
 }
