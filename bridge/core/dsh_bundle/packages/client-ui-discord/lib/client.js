@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".HDX7eq_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.HDX7eq_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.HDX7eq_rooms, .HDX7eq_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.HDX7eq_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.HDX7eq_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.HDX7eq_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.HDX7eq_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.HDX7eq_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.HDX7eq_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.HDX7eq_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.HDX7eq_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.HDX7eq_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.HDX7eq_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.HDX7eq_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.HDX7eq_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.HDX7eq_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.HDX7eq_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_system .HDX7eq_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.HDX7eq_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.HDX7eq_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.HDX7eq_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.HDX7eq_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.HDX7eq_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.HDX7eq_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.HDX7eq_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.HDX7eq_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.HDX7eq_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_messageBody {\n  min-width: 0;\n}\n\n.HDX7eq_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.HDX7eq_author {\n  font-weight: 600;\n}\n\n.HDX7eq_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.HDX7eq_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.HDX7eq_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.HDX7eq_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.HDX7eq_message:hover .HDX7eq_ownActions, .HDX7eq_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .HDX7eq_ownActions {\n    opacity: 1;\n  }\n}\n\n.HDX7eq_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.HDX7eq_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.HDX7eq_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_editBar .HDX7eq_time {\n  margin-right: auto;\n}\n\n.HDX7eq_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.HDX7eq_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.HDX7eq_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.HDX7eq_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.HDX7eq_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.HDX7eq_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.HDX7eq_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.HDX7eq_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.HDX7eq_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.HDX7eq_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.HDX7eq_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.HDX7eq_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.HDX7eq_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.HDX7eq_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.HDX7eq_quoteDeleted {\n  font-style: italic;\n}\n\n.HDX7eq_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.HDX7eq_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.HDX7eq_message:hover .HDX7eq_replyButton, .HDX7eq_message:focus-within .HDX7eq_replyButton, .HDX7eq_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .HDX7eq_replyButton {\n    opacity: 1;\n  }\n}\n\n.HDX7eq_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.HDX7eq_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.HDX7eq_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.HDX7eq_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.HDX7eq_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.HDX7eq_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n.HDX7eq_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.HDX7eq_sendButton:focus-visible, .HDX7eq_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.HDX7eq_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.HDX7eq_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.HDX7eq_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.HDX7eq_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_mentionName {\n  font-weight: 600;\n}\n\n.HDX7eq_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.HDX7eq_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.HDX7eq_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.HDX7eq_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  flex: 1;\n  min-width: 0;\n  padding: 10px 14px;\n}\n\n.HDX7eq_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .HDX7eq_composer {\n    padding: 0 8px 8px;\n  }\n\n  .HDX7eq_composerRow {\n    gap: 4px;\n  }\n\n  .HDX7eq_composerRow .HDX7eq_mentionButton {\n    width: 36px;\n    height: 36px;\n    font-size: 16px;\n  }\n\n  .HDX7eq_composerRow .HDX7eq_sendButton {\n    height: 36px;\n    padding: 0 10px;\n  }\n\n  .HDX7eq_input {\n    padding: 8px 10px;\n  }\n}\n\n.HDX7eq_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.HDX7eq_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_offline {\n  opacity: .5;\n}\n\n.HDX7eq_memberAvatar {\n  position: relative;\n}\n\n.HDX7eq_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.HDX7eq_offline .HDX7eq_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.HDX7eq_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.HDX7eq_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.HDX7eq_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .HDX7eq_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .HDX7eq_rooms, .HDX7eq_members {\n    display: none;\n  }\n}\n\n.HDX7eq_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.HDX7eq_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.HDX7eq_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_roomInput, .HDX7eq_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.HDX7eq_roomInput {\n  margin: 2px 0 6px;\n}\n\n.HDX7eq_roomInput:focus-visible, .HDX7eq_fieldInput:focus-visible, .HDX7eq_iconButton:focus-visible, .HDX7eq_linkButton:focus-visible, .HDX7eq_addMemberButton:focus-visible, .HDX7eq_primaryButton:focus-visible, .HDX7eq_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.HDX7eq_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.HDX7eq_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_memberRow .HDX7eq_member:hover {\n  background: none;\n}\n\n.HDX7eq_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.HDX7eq_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_memberRow:hover .HDX7eq_memberActions, .HDX7eq_memberRow:focus-within .HDX7eq_memberActions {\n  opacity: 1;\n}\n\n.HDX7eq_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.HDX7eq_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.HDX7eq_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.HDX7eq_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.HDX7eq_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.HDX7eq_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_field textarea {\n  resize: vertical;\n}\n\n.HDX7eq_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.HDX7eq_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.HDX7eq_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_primaryButton, .HDX7eq_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.HDX7eq_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.HDX7eq_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.HDX7eq_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.HDX7eq_memberFailed .HDX7eq_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.HDX7eq_memberFailed .HDX7eq_presence {\n  background: #ed4245;\n}\n\n.HDX7eq_mobileButton, .HDX7eq_drawerBackdrop {\n  display: none;\n}\n\n.HDX7eq_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.HDX7eq_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_panelToggleEnd {\n  margin-left: auto;\n}\n\n.HDX7eq_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.HDX7eq_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.HDX7eq_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .HDX7eq_page.HDX7eq_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .HDX7eq_page.HDX7eq_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .HDX7eq_page.HDX7eq_roomsHidden.HDX7eq_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .HDX7eq_roomsHidden > .HDX7eq_rooms, .HDX7eq_membersHidden > .HDX7eq_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .HDX7eq_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .HDX7eq_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .HDX7eq_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .HDX7eq_panelToggle {\n    display: none;\n  }\n\n  .HDX7eq_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .HDX7eq_rooms.HDX7eq_drawerOpen, .HDX7eq_members.HDX7eq_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .HDX7eq_rooms.HDX7eq_drawerOpen {\n    left: 0;\n  }\n\n  .HDX7eq_members.HDX7eq_drawerOpen {\n    right: 0;\n  }\n\n  .HDX7eq_memberActions {\n    opacity: 1;\n  }\n\n  .HDX7eq_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.HDX7eq_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.HDX7eq_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.HDX7eq_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.HDX7eq_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.HDX7eq_leadControl .HDX7eq_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.HDX7eq_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.HDX7eq_leadControl .HDX7eq_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.HDX7eq_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.HDX7eq_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.HDX7eq_leadOption:hover, .HDX7eq_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_taskSection + .HDX7eq_taskSection {\n  margin-top: 8px;\n}\n\n.HDX7eq_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.HDX7eq_taskOwnerGroup + .HDX7eq_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.HDX7eq_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.HDX7eq_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.HDX7eq_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.HDX7eq_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.HDX7eq_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.HDX7eq_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.HDX7eq_taskDone summary {\n  cursor: pointer;\n}\n\n.HDX7eq_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.HDX7eq_taskStatus[data-status=\"asked\"], .HDX7eq_taskStatus[data-status=\"escalated\"], .HDX7eq_taskStatus[data-status=\"declined\"], .HDX7eq_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.HDX7eq_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.HDX7eq_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.HDX7eq_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.HDX7eq_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.HDX7eq_taskMemberName {\n  font-weight: 600;\n}\n\n.HDX7eq_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.HDX7eq_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.HDX7eq_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.HDX7eq_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.HDX7eq_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.HDX7eq_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.HDX7eq_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.HDX7eq_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.HDX7eq_attachmentAudio audio {\n  width: 100%;\n}\n\n.HDX7eq_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.HDX7eq_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.HDX7eq_chatHead button, .HDX7eq_chatHead input, .HDX7eq_chatHead select, .HDX7eq_chatHead a, .HDX7eq_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.HDX7eq_text pre, .HDX7eq_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".vkiakq_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.vkiakq_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.vkiakq_rooms, .vkiakq_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.vkiakq_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.vkiakq_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.vkiakq_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.vkiakq_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.vkiakq_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.vkiakq_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.vkiakq_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.vkiakq_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.vkiakq_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.vkiakq_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.vkiakq_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.vkiakq_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.vkiakq_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.vkiakq_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_system .vkiakq_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.vkiakq_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.vkiakq_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.vkiakq_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.vkiakq_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.vkiakq_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.vkiakq_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.vkiakq_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.vkiakq_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.vkiakq_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_messageBody {\n  min-width: 0;\n}\n\n.vkiakq_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.vkiakq_author {\n  font-weight: 600;\n}\n\n.vkiakq_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.vkiakq_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.vkiakq_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.vkiakq_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.vkiakq_message:hover .vkiakq_ownActions, .vkiakq_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .vkiakq_ownActions {\n    opacity: 1;\n  }\n}\n\n.vkiakq_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.vkiakq_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.vkiakq_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_editBar .vkiakq_time {\n  margin-right: auto;\n}\n\n.vkiakq_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.vkiakq_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.vkiakq_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.vkiakq_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.vkiakq_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.vkiakq_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.vkiakq_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.vkiakq_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.vkiakq_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.vkiakq_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.vkiakq_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.vkiakq_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.vkiakq_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.vkiakq_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.vkiakq_quoteDeleted {\n  font-style: italic;\n}\n\n.vkiakq_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.vkiakq_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.vkiakq_message:hover .vkiakq_replyButton, .vkiakq_message:focus-within .vkiakq_replyButton, .vkiakq_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .vkiakq_replyButton {\n    opacity: 1;\n  }\n}\n\n.vkiakq_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.vkiakq_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.vkiakq_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.vkiakq_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.vkiakq_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.vkiakq_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n.vkiakq_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.vkiakq_sendButton:focus-visible, .vkiakq_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.vkiakq_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.vkiakq_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.vkiakq_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.vkiakq_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_mentionName {\n  font-weight: 600;\n}\n\n.vkiakq_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.vkiakq_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.vkiakq_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.vkiakq_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  flex: 1;\n  min-width: 0;\n  padding: 10px 14px;\n}\n\n.vkiakq_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .vkiakq_composer {\n    padding: 0 8px 8px;\n  }\n\n  .vkiakq_composerRow {\n    gap: 4px;\n  }\n\n  .vkiakq_composerRow .vkiakq_mentionButton {\n    width: 36px;\n    height: 36px;\n    font-size: 16px;\n  }\n\n  .vkiakq_composerRow .vkiakq_sendButton {\n    height: 36px;\n    padding: 0 10px;\n  }\n\n  .vkiakq_input {\n    padding: 8px 10px;\n  }\n}\n\n.vkiakq_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.vkiakq_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_offline {\n  opacity: .5;\n}\n\n.vkiakq_memberAvatar {\n  position: relative;\n}\n\n.vkiakq_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.vkiakq_offline .vkiakq_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.vkiakq_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.vkiakq_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.vkiakq_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .vkiakq_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .vkiakq_rooms, .vkiakq_members {\n    display: none;\n  }\n}\n\n.vkiakq_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.vkiakq_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.vkiakq_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_roomInput, .vkiakq_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.vkiakq_roomInput {\n  margin: 2px 0 6px;\n}\n\n.vkiakq_roomInput:focus-visible, .vkiakq_fieldInput:focus-visible, .vkiakq_iconButton:focus-visible, .vkiakq_linkButton:focus-visible, .vkiakq_addMemberButton:focus-visible, .vkiakq_primaryButton:focus-visible, .vkiakq_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.vkiakq_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.vkiakq_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_memberRow .vkiakq_member:hover {\n  background: none;\n}\n\n.vkiakq_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.vkiakq_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_memberRow:hover .vkiakq_memberActions, .vkiakq_memberRow:focus-within .vkiakq_memberActions {\n  opacity: 1;\n}\n\n.vkiakq_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.vkiakq_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.vkiakq_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.vkiakq_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.vkiakq_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.vkiakq_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_field textarea {\n  resize: vertical;\n}\n\n.vkiakq_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.vkiakq_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.vkiakq_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_primaryButton, .vkiakq_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.vkiakq_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.vkiakq_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.vkiakq_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.vkiakq_memberFailed .vkiakq_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.vkiakq_memberFailed .vkiakq_presence {\n  background: #ed4245;\n}\n\n.vkiakq_mobileButton, .vkiakq_drawerBackdrop {\n  display: none;\n}\n\n.vkiakq_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.vkiakq_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_panelToggleEnd {\n  margin-left: auto;\n}\n\n.vkiakq_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.vkiakq_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.vkiakq_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .vkiakq_page.vkiakq_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .vkiakq_page.vkiakq_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .vkiakq_page.vkiakq_roomsHidden.vkiakq_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .vkiakq_roomsHidden > .vkiakq_rooms, .vkiakq_membersHidden > .vkiakq_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .vkiakq_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .vkiakq_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .vkiakq_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .vkiakq_panelToggle {\n    display: none;\n  }\n\n  .vkiakq_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .vkiakq_rooms.vkiakq_drawerOpen, .vkiakq_members.vkiakq_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .vkiakq_rooms.vkiakq_drawerOpen {\n    left: 0;\n  }\n\n  .vkiakq_members.vkiakq_drawerOpen {\n    right: 0;\n  }\n\n  .vkiakq_memberActions {\n    opacity: 1;\n  }\n\n  .vkiakq_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.vkiakq_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.vkiakq_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.vkiakq_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.vkiakq_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.vkiakq_leadControl .vkiakq_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.vkiakq_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.vkiakq_leadControl .vkiakq_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.vkiakq_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.vkiakq_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.vkiakq_leadOption:hover, .vkiakq_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_taskSection + .vkiakq_taskSection {\n  margin-top: 8px;\n}\n\n.vkiakq_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.vkiakq_taskOwnerGroup + .vkiakq_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.vkiakq_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.vkiakq_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.vkiakq_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.vkiakq_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.vkiakq_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.vkiakq_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.vkiakq_taskDone summary {\n  cursor: pointer;\n}\n\n.vkiakq_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.vkiakq_taskStatus[data-status=\"asked\"], .vkiakq_taskStatus[data-status=\"escalated\"], .vkiakq_taskStatus[data-status=\"declined\"], .vkiakq_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.vkiakq_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.vkiakq_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.vkiakq_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.vkiakq_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.vkiakq_taskMemberName {\n  font-weight: 600;\n}\n\n.vkiakq_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.vkiakq_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.vkiakq_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.vkiakq_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.vkiakq_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.vkiakq_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.vkiakq_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.vkiakq_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.vkiakq_attachmentAudio audio {\n  width: 100%;\n}\n\n.vkiakq_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.vkiakq_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.vkiakq_chatHead button, .vkiakq_chatHead input, .vkiakq_chatHead select, .vkiakq_chatHead a, .vkiakq_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.vkiakq_text pre, .vkiakq_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -566,6 +566,9 @@ function createChannelSource(transport) {
 				const { routes } = await request("collab/api/models");
 				return routes;
 			},
+			async listPersonas() {
+				return await request("collab/api/personas");
+			},
 			async listClis() {
 				return await request("collab/api/clis");
 			},
@@ -681,7 +684,7 @@ function createChannelSource(transport) {
 function ChannelsIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUsersOutlineRegular, { size });
 }
-// ../../node_modules/mdast-util-to-string/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-to-string/lib/index.js
 /**
 * @typedef {import('mdast').Nodes} Nodes
 *
@@ -762,7 +765,7 @@ function all(values, includeImageAlt, includeHtml) {
 function node(value) {
 	return Boolean(value && typeof value === "object");
 }
-// ../../node_modules/character-entities/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/character-entities/index.js
 /**
 * Map of named character references.
 *
@@ -2895,7 +2898,7 @@ const characterEntities = {
 	zwj: "‍",
 	zwnj: "‌"
 };
-// ../../node_modules/decode-named-character-reference/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/decode-named-character-reference/index.js
 const own$1 = {}.hasOwnProperty;
 /**
 * Decode a single character reference (without the `&` or `;`).
@@ -2911,7 +2914,7 @@ const own$1 = {}.hasOwnProperty;
 function decodeNamedCharacterReference(value) {
 	return own$1.call(characterEntities, value) ? characterEntities[value] : false;
 }
-// ../../node_modules/micromark-util-chunked/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-chunked/index.js
 /**
 * Like `Array#splice`, but smarter for giant arrays.
 *
@@ -2980,7 +2983,7 @@ function push(list, items) {
 	}
 	return items;
 }
-// ../../node_modules/micromark-util-combine-extensions/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-combine-extensions/index.js
 /**
 * @import {
 *   Extension,
@@ -3050,7 +3053,7 @@ function constructs(existing, list) {
 	while (++index < list.length) (list[index].add === "after" ? existing : before).push(list[index]);
 	splice(existing, 0, 0, before);
 }
-// ../../node_modules/micromark-util-decode-numeric-character-reference/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-decode-numeric-character-reference/index.js
 /**
 * Turn the number (in string form as either hexa- or plain decimal) coming from
 * a numeric character reference into a character.
@@ -3070,7 +3073,7 @@ function decodeNumericCharacterReference(value, base) {
 	if (code < 9 || code === 11 || code > 13 && code < 32 || code > 126 && code < 160 || code > 55295 && code < 57344 || code > 64975 && code < 65008 || (code & 65535) === 65535 || (code & 65535) === 65534 || code > 1114111) return "�";
 	return String.fromCodePoint(code);
 }
-// ../../node_modules/micromark-util-normalize-identifier/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-normalize-identifier/index.js
 /**
 * Normalize an identifier (as found in references, definitions).
 *
@@ -3093,7 +3096,7 @@ function decodeNumericCharacterReference(value, base) {
 function normalizeIdentifier(value) {
 	return value.replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "").toLowerCase().toUpperCase();
 }
-// ../../node_modules/micromark-util-character/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3320,7 +3323,7 @@ function regexCheck(regex) {
 		return code !== null && code > -1 && regex.test(String.fromCharCode(code));
 	}
 }
-// ../../node_modules/micromark-factory-space/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-space/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -3426,7 +3429,7 @@ function factorySpaceMinMax(effects, ok, nok, type, min, max) {
 		return size >= min ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark/lib/initialize/content.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/content.js
 /**
 * @import {
 *   InitialConstruct,
@@ -3492,7 +3495,7 @@ function initializeContent(effects) {
 		return data;
 	}
 }
-// ../../node_modules/micromark-util-edit-map/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-edit-map/index.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -3637,7 +3640,7 @@ function addImplementation$1(editMap, at, remove, add, before) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../node_modules/micromark/lib/initialize/document.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/document.js
 /**
 * @import {
 *   Construct,
@@ -3856,7 +3859,7 @@ function initializeDocument(effects) {
 function tokenizeContainer(effects, ok, nok) {
 	return factorySpace(effects, effects.attempt(this.parser.constructs.document, ok, nok), "linePrefix", this.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4);
 }
-// ../../node_modules/micromark-util-classify-character/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-classify-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3878,7 +3881,7 @@ function classifyCharacter(code) {
 	if (code === null || markdownLineEndingOrSpace(code) || unicodeWhitespace(code)) return 1;
 	if (unicodePunctuation(code)) return 2;
 }
-// ../../node_modules/micromark-util-resolve-all/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-resolve-all/index.js
 /**
 * @import {Event, Resolver, TokenizeContext} from 'micromark-util-types'
 */
@@ -3907,7 +3910,7 @@ function resolveAll(constructs, events, context) {
 	}
 	return events;
 }
-// ../../node_modules/micromark-core-commonmark/lib/attention.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/attention.js
 /**
 * @import {
 *   Code,
@@ -4114,7 +4117,7 @@ function movePoint(point, offset) {
 	point.offset += offset;
 	point._bufferIndex += offset;
 }
-// ../../node_modules/micromark-core-commonmark/lib/autolink.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/autolink.js
 /**
 * @import {
 *   Construct,
@@ -4324,7 +4327,7 @@ function tokenizeAutolink(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/blank-line.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/blank-line.js
 /**
 * @import {
 *   Construct,
@@ -4380,7 +4383,7 @@ function tokenizeBlankLine(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/block-quote.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/block-quote.js
 /**
 * @import {
 *   Construct,
@@ -4506,7 +4509,7 @@ function tokenizeBlockQuoteContinuation(effects, ok, nok) {
 function exit$1(effects) {
 	effects.exit("blockQuote");
 }
-// ../../node_modules/micromark-core-commonmark/lib/character-escape.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/character-escape.js
 /**
 * @import {
 *   Construct,
@@ -4565,7 +4568,7 @@ function tokenizeCharacterEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/character-reference.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/character-reference.js
 /**
 * @import {
 *   Code,
@@ -4702,7 +4705,7 @@ function tokenizeCharacterReference(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
 /** @type {Construct} */
 const nonLazyContinuation$2 = {
 	partial: true,
@@ -4749,7 +4752,7 @@ function tokenizeNonLazyContinuation$2(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/code-fenced.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/code-fenced.js
 /**
 * @import {
 *   Code,
@@ -5129,7 +5132,7 @@ function tokenizeCodeFenced(effects, ok, nok) {
 		}
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/code-indented.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/code-indented.js
 /**
 * @import {
 *   Construct,
@@ -5260,7 +5263,7 @@ function tokenizeFurtherStart(effects, ok, nok) {
 		return markdownLineEnding(code) ? furtherStart(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/code-text.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/code-text.js
 /**
 * @import {
 *   Construct,
@@ -5444,7 +5447,7 @@ function tokenizeCodeText(effects, ok, nok) {
 		return data(code);
 	}
 }
-// ../../node_modules/micromark-util-subtokenize/lib/splice-buffer.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-subtokenize/lib/splice-buffer.js
 /**
 * Some of the internal operations of micromark do lots of editing
 * operations on very large arrays. This runs into problems with two
@@ -5673,7 +5676,7 @@ function chunkedPush(list, right) {
 		chunkStart += 1e4;
 	}
 }
-// ../../node_modules/micromark-util-subtokenize/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-subtokenize/index.js
 /**
 * @import {Chunk, Event, Token} from 'micromark-util-types'
 */
@@ -5827,7 +5830,7 @@ function subcontent(events, eventIndex) {
 	}
 	return gaps;
 }
-// ../../node_modules/micromark-core-commonmark/lib/content.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/content.js
 /**
 * @import {
 *   Construct,
@@ -5959,7 +5962,7 @@ function tokenizeContinuation(effects, ok, nok) {
 		return effects.interrupt(self.parser.constructs.flow, nok, ok)(code);
 	}
 }
-// ../../node_modules/micromark-factory-destination/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-destination/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -6142,7 +6145,7 @@ function factoryDestination(effects, ok, nok, type, literalType, literalMarkerTy
 		return raw(code);
 	}
 }
-// ../../node_modules/micromark-factory-label/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-label/index.js
 /**
 * @import {
 *   Effects,
@@ -6275,7 +6278,7 @@ function factoryLabel(effects, ok, nok, type, markerType, stringType) {
 		return labelInside(code);
 	}
 }
-// ../../node_modules/micromark-factory-title/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-title/index.js
 /**
 * @import {
 *   Code,
@@ -6419,7 +6422,7 @@ function factoryTitle(effects, ok, nok, type, markerType, stringType) {
 		return inside(code);
 	}
 }
-// ../../node_modules/micromark-factory-whitespace/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-whitespace/index.js
 /**
 * @import {Effects, State} from 'micromark-util-types'
 */
@@ -6458,7 +6461,7 @@ function factoryWhitespace(effects, ok) {
 		return ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/definition.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/definition.js
 /**
 * @import {
 *   Construct,
@@ -6672,7 +6675,7 @@ function tokenizeTitleBefore(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/hard-break-escape.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/hard-break-escape.js
 /**
 * @import {
 *   Construct,
@@ -6728,7 +6731,7 @@ function tokenizeHardBreakEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/heading-atx.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/heading-atx.js
 /**
 * @import {
 *   Construct,
@@ -6908,7 +6911,7 @@ function tokenizeHeadingAtx(effects, ok, nok) {
 		return data;
 	}
 }
-// ../../node_modules/micromark-util-html-tag-name/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-html-tag-name/index.js
 /**
 * List of lowercase HTML “block” tag names.
 *
@@ -7006,7 +7009,7 @@ const htmlRawNames = [
 	"style",
 	"textarea"
 ];
-// ../../node_modules/micromark-core-commonmark/lib/html-flow.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/html-flow.js
 /**
 * @import {
 *   Code,
@@ -7731,7 +7734,7 @@ function tokenizeBlankLineBefore(effects, ok, nok) {
 		return effects.attempt(blankLine, ok, nok);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/html-text.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/html-text.js
 /**
 * @import {
 *   Code,
@@ -8344,7 +8347,7 @@ function tokenizeHtmlText(effects, ok, nok) {
 		return returnState(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/label-end.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/label-end.js
 /**
 * @import {
 *   Construct,
@@ -8812,7 +8815,7 @@ function tokenizeReferenceCollapsed(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/label-start-image.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/label-start-image.js
 /**
 * @import {
 *   Construct,
@@ -8910,7 +8913,7 @@ function tokenizeLabelStartImage(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/label-start-link.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/label-start-link.js
 /**
 * @import {
 *   Construct,
@@ -8963,7 +8966,7 @@ function tokenizeLabelStartLink(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/line-ending.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/line-ending.js
 /**
 * @import {
 *   Construct,
@@ -8992,7 +8995,7 @@ function tokenizeLineEnding(effects, ok) {
 		return factorySpace(effects, ok, "linePrefix");
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/thematic-break.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/thematic-break.js
 /**
 * @import {
 *   Code,
@@ -9086,7 +9089,7 @@ function tokenizeThematicBreak(effects, ok, nok) {
 		return markdownSpace(code) ? factorySpace(effects, atBreak, "whitespace")(code) : atBreak(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/list.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/list.js
 /**
 * @import {
 *   Code,
@@ -9257,7 +9260,7 @@ function tokenizeListItemPrefixWhitespace(effects, ok, nok) {
 		return !markdownSpace(code) && tail && tail[1].type === "listItemPrefixWhitespace" ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/setext-underline.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/setext-underline.js
 /**
 * @import {
 *   Code,
@@ -9410,7 +9413,7 @@ function tokenizeSetextUnderline(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark/lib/initialize/flow.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/flow.js
 /**
 * @import {
 *   InitialConstruct,
@@ -9456,7 +9459,7 @@ function initializeFlow(effects) {
 		return initial;
 	}
 }
-// ../../node_modules/micromark/lib/initialize/text.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/text.js
 /**
 * @import {
 *   Code,
@@ -9631,7 +9634,7 @@ function resolveAllLineSuffixes(events, context) {
 	editMap.consume(events);
 	return events;
 }
-// ../../node_modules/micromark/lib/constructs.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/constructs.js
 /**
 * @import {Extension} from 'micromark-util-types'
 */
@@ -9708,7 +9711,7 @@ const insideSpan = { null: [attention, resolver] };
 const attentionMarkers = { null: [42, 95] };
 /** @satisfies {Extension['disable']} */
 const disable = { null: [] };
-// ../../node_modules/micromark/lib/create-tokenizer.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/create-tokenizer.js
 /**
 * @import {
 *   Chunk,
@@ -10174,7 +10177,7 @@ function serializeChunks(chunks, expandTabs) {
 	}
 	return result.join("");
 }
-// ../../node_modules/micromark/lib/parse.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/parse.js
 /**
 * @import {
 *   Create,
@@ -10217,7 +10220,7 @@ function parse(options) {
 		}
 	}
 }
-// ../../node_modules/micromark/lib/postprocess.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/postprocess.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -10231,7 +10234,7 @@ function postprocess(events) {
 	while (!subtokenize(events));
 	return events;
 }
-// ../../node_modules/micromark/lib/preprocess.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/preprocess.js
 /**
 * @import {Chunk, Code, Encoding, Value} from 'micromark-util-types'
 */
@@ -10322,7 +10325,7 @@ function preprocess() {
 		return chunks;
 	}
 }
-// ../../node_modules/micromark-util-decode-string/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-decode-string/index.js
 const characterEscapeOrReference = /\\([!-/:-@[-`{-~])|&(#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});/gi;
 /**
 * Decode markdown strings (which occur in places such as fenced code info
@@ -10358,7 +10361,7 @@ function decode($0, $1, $2) {
 	}
 	return decodeNamedCharacterReference($2) || $0;
 }
-// ../../node_modules/unist-util-stringify-position/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-stringify-position/lib/index.js
 /**
 * @typedef {import('unist').Node} Node
 * @typedef {import('unist').Point} Point
@@ -10421,7 +10424,7 @@ function position(pos) {
 function index(value) {
 	return value && typeof value === "number" ? value : 1;
 }
-// ../../node_modules/mdast-util-from-markdown/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-from-markdown/lib/index.js
 /**
 * @import {
 *   Break,
@@ -11467,7 +11470,7 @@ function defaultOnError(left, right) {
 		end: right.end
 	}) + ") is still open");
 }
-// ../../node_modules/ccount/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/ccount/index.js
 /**
 * Count how often a character (or substring) is used in a string.
 *
@@ -11489,12 +11492,12 @@ function ccount(value, character) {
 	}
 	return count;
 }
-// ../../node_modules/escape-string-regexp/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string) {
 	if (typeof string !== "string") throw new TypeError("Expected a string");
 	return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
 }
-// ../../node_modules/unist-util-is/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-is/lib/index.js
 /**
 * Generate an assertion from a test.
 *
@@ -11607,15 +11610,19 @@ function ok() {
 function looksLikeANode(value) {
 	return value !== null && typeof value === "object" && "type" in value;
 }
-// ../../node_modules/unist-util-visit-parents/lib/color.node.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-visit-parents/lib/color.node.js
 /**
+* Color a string.
+*
 * @param {string} d
+*   Value.
 * @returns {string}
+*   Colored value.
 */
 function color$1(d) {
 	return "\x1B[33m" + d + "\x1B[39m";
 }
-// ../../node_modules/unist-util-visit-parents/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-visit-parents/lib/index.js
 /**
 * @import {Node as UnistNode, Parent as UnistParent} from 'unist'
 */
@@ -11773,43 +11780,93 @@ function color$1(d) {
 *   List with one or two values, the first an action, the second an index.
 *
 * @typedef {Action | ActionTuple | Index | null | undefined | void} VisitorResult
-*   Any value that can be returned from a visitor.
+*   Any value that can be returned from an enter visitor.
+*
+*   Like `VisitorResultExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of the node,
+*   and `ActionTuple` can be used to combine an action with an index.
+*
+* @typedef {Index | boolean | null | undefined | void} VisitorResultExit
+*   Any value that can be returned from an exit visitor.
 */
 /**
 * @callback Visitor
-*   Handle a node (matching `test`, if given).
+*   Handle a node (matching `test`, if given) before its children.
 *
-*   Visitors are free to transform `node`.
-*   They can also transform the parent of node (the last of `ancestors`).
-*
-*   Replacing `node` itself, if `SKIP` is not returned, still causes its
-*   descendants to be walked (which is a bug).
-*
-*   When adding or removing previous siblings of `node` (or next siblings, in
-*   case of reverse), the `Visitor` should return a new `Index` to specify the
-*   sibling to traverse after `node` is traversed.
-*   Adding or removing next siblings of `node` (or previous siblings, in case
-*   of reverse) is handled as expected without needing to return a new `Index`.
-*
-*   Removing the children property of an ancestor still results in them being
-*   traversed.
+*   Changes inside `node` are walked next.
+*   Replacing or removing it is easier in `exit`.
+*   When replacing or removing it here,
+*   return `SKIP` (as otherwise its old children are walked),
+*   or `[SKIP, index]` to continue with the node now at `index`.
+*   Changing next siblings (in walk order) is fine;
+*   changing previous siblings needs a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
 * @param {Visited} node
 *   Found node.
 * @param {Array<VisitedParents>} ancestors
 *   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
 * @returns {VisitorResult}
 *   What to do next.
 *
-*   An `Index` is treated as a tuple of `[CONTINUE, Index]`.
-*   An `Action` is treated as a tuple of `[Action]`.
-*
-*   Passing a tuple back only makes sense if the `Action` is `SKIP`.
-*   When the `Action` is `EXIT`, that action can be returned.
-*   When the `Action` is `CONTINUE`, `Index` can be returned.
+*   Like `VisitorExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of `node`.
+*   Passing a tuple back (`ActionTuple`) only makes sense as `[SKIP, Index]`.
 * @template {UnistNode} [Visited=UnistNode]
 *   Visited node type.
 * @template {UnistParent} [VisitedParents=UnistParent]
 *   Ancestor type.
+*/
+/**
+* @callback VisitorExit
+*   Handle a node (matching `test`, if given) after its children.
+*
+*   Changes inside `node` are not walked,
+*   which makes this a good place to change `node` based on its children,
+*   or to replace or remove it.
+*   When removing `node` or changing previous siblings (in walk order),
+*   return a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
+* @param {Visited} node
+*   Found node.
+* @param {Array<VisitedParents>} ancestors
+*   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
+* @returns {VisitorResultExit}
+*   What to do next.
+*
+*   `CONTINUE` (`true`, nothing) continues as normal,
+*   `EXIT` (`false`) stops traversing,
+*   and `Index` continues at that sibling.
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+*/
+/**
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+* @typedef Visitors
+*   Handle nodes when entering and exiting them.
+*   The `enter` visitor is optional while `exit` is required.
+*
+*   Pass an `enter` visitor directly to only handle nodes when entering them.
+*
+*   `enter` is called before children (if any) are walked and `exit` after that.
+*   `exit` is still called when `enter` returns `SKIP`.
+*   Both `enter` and `exit` are only called for nodes that match an optional `test`.
+* @property {Visitor<Visited, VisitedParents> | null | undefined} [enter]
+*   Handle a node before its children (optional).
+* @property {VisitorExit<Visited, VisitedParents>} exit
+*   Handle a node after its children.
 */
 /**
 * @typedef {Visitor<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitor
@@ -11821,16 +11878,34 @@ function color$1(d) {
 * @template {Test} [Check=Test]
 *   Test type.
 */
+/**
+* @typedef {Visitors<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitors
+*   Build typed `Visitors` from a tree and a test.
+*
+*   It will infer which values are passed as `node` and which as `parents`.
+* @template {UnistNode} [Tree=UnistNode]
+*   Tree type.
+* @template {Test} [Check=Test]
+*   Test type.
+*/
 /** @type {Readonly<ActionTuple>} */
 const empty = [];
+/**
+* Do not traverse this node’s children.
+* Only works when entering a node.
+*/
+const SKIP = "skip";
 /**
 * Visit nodes, with ancestral information.
 *
 * This algorithm performs *depth-first* *tree traversal* in *preorder*
-* (**NLR**) or if `reverse` is given, in *reverse preorder* (**NRL**).
+* (**NLR**) or if `reverse` is given,
+* in *reverse preorder* (**NRL**).
+* An `exit` visitor is called in *postorder* (**LRN**)
+* or if `reverse` is given, in *reverse postorder* (**RLN**).
 *
-* You can choose for which nodes `visitor` is called by passing a `test`.
-* For complex tests, you should test yourself in `visitor`, as it will be
+* You can choose which nodes are visited by passing a `test`.
+* For complex tests, you should test yourself in a visitor, as it will be
 * faster and will have improved type information.
 *
 * Walking the tree is an intensive task.
@@ -11839,29 +11914,72 @@ const empty = [];
 * to check if a node matches, and then perform different operations.
 *
 * You can change the tree.
-* See `Visitor` for more info.
+* Changes inside a node made when entering it are walked,
+* changes made when exiting it are not.
+* See `Visitor` and `VisitorExit` for more info.
 *
 * @overload
 * @param {Tree} tree
+*   Tree to traverse.
 * @param {Check} check
-* @param {BuildVisitor<Tree, Check>} visitor
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitor<Tree, Check>} enter
+*   Handle each node when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
 *
 * @overload
 * @param {Tree} tree
-* @param {BuildVisitor<Tree>} visitor
+*   Tree to traverse.
+* @param {Check} check
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitors<Tree, Check>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitor<Tree>} enter
+*   Handle each node when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitors<Tree>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
 *
 * @param {UnistNode} tree
 *   Tree to traverse.
-* @param {Visitor | Test} test
-*   `unist-util-is`-compatible test
-* @param {Visitor | boolean | null | undefined} [visitor]
-*   Handle each node.
+* @param {Visitor | Visitors | Test} testOrEnterOrVisitors
+*   `unist-util-is`-compatible test, `enter`, or `visitors`.
+* @param {Visitor | Visitors | boolean | null | undefined} [enterOrVisitorsOrReverse]
+*   `enter`, `visitors`, or `reverse` after a test.
 * @param {boolean | null | undefined} [reverse]
-*   Traverse in reverse preorder (NRL) instead of the default preorder (NLR).
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
 *   Nothing.
 *
@@ -11870,20 +11988,46 @@ const empty = [];
 * @template {Test} Check
 *   `unist-util-is`-compatible test.
 */
-function visitParents(tree, test, visitor, reverse) {
+function visitParents(tree, testOrEnterOrVisitors, enterOrVisitorsOrReverse, reverse) {
+	if (!tree || typeof tree !== "object") throw new Error("Unexpected value `" + tree + "` for `tree`, expected node");
+	let preorder = true;
 	/** @type {Test} */
 	let check;
-	if (typeof test === "function" && typeof visitor !== "function") {
-		reverse = visitor;
-		visitor = test;
-	} else check = test;
+	/** @type {Visitors | Visitor} */
+	let visitors;
+	/** @type {Visitor | null | undefined} */
+	let enter;
+	/** @type {VisitorExit | null | undefined} */
+	let exit;
+	if (typeof enterOrVisitorsOrReverse === "function" || enterOrVisitorsOrReverse && typeof enterOrVisitorsOrReverse === "object") {
+		check = testOrEnterOrVisitors;
+		visitors = enterOrVisitorsOrReverse;
+		if (reverse) preorder = false;
+	} else {
+		visitors = testOrEnterOrVisitors;
+		if (enterOrVisitorsOrReverse) preorder = false;
+	}
+	if (typeof visitors === "function") enter = visitors;
+	else if (visitors && typeof visitors === "object") {
+		if (visitors.enter === null || visitors.enter === void 0) {} else if (typeof visitors.enter === "function") enter = visitors.enter;
+		else throw new Error("Unexpected value `" + visitors.enter + "` for `visitors.enter`, expected optional visitor");
+		if (typeof visitors.exit === "function") exit = visitors.exit;
+		else throw new Error("Unexpected value `" + visitors.exit + "` for `visitors.exit`, expected visitor (pass a visitor directly if you only want an enter visitor)");
+	} else throw new Error("Unexpected value `" + visitors + "` for `enter` or `visitors`, expected visitor or object with visitors");
 	const is = convert(check);
-	const step = reverse ? -1 : 1;
+	const step = preorder ? 1 : -1;
 	factory(tree, void 0, [])();
 	/**
+	* Create a function to visit a node.
+	*
 	* @param {UnistNode} node
+	*   Node to visit.
 	* @param {number | undefined} index
+	*   Index of `node` in its parent.
 	* @param {Array<UnistParent>} parents
+	*   Ancestors of `node`.
+	* @returns {() => Readonly<ActionTuple>}
+	*   Visit `node`.
 	*/
 	function factory(node, index, parents) {
 		const value = node && typeof node === "object" ? node : {};
@@ -11893,30 +12037,30 @@ function visitParents(tree, test, visitor, reverse) {
 		}
 		return visit;
 		function visit() {
+			const matches = !check || is(node, index, parents[parents.length - 1] || void 0);
 			/** @type {Readonly<ActionTuple>} */
 			let result = empty;
-			/** @type {Readonly<ActionTuple>} */
-			let subresult;
-			/** @type {number} */
-			let offset;
-			/** @type {Array<UnistParent>} */
-			let grandparents;
-			if (!test || is(node, index, parents[parents.length - 1] || void 0)) {
-				result = toResult(visitor(node, parents));
+			if (enter && matches) {
+				result = toResult(enter(node, parents, index));
 				if (result[0] === false) return result;
 			}
 			if ("children" in node && node.children) {
 				const nodeAsParent = node;
 				if (nodeAsParent.children && result[0] !== "skip") {
-					offset = (reverse ? nodeAsParent.children.length : -1) + step;
-					grandparents = parents.concat(nodeAsParent);
+					let offset = (preorder ? -1 : nodeAsParent.children.length) + step;
+					const grandparents = [...parents, nodeAsParent];
 					while (offset > -1 && offset < nodeAsParent.children.length) {
 						const child = nodeAsParent.children[offset];
-						subresult = factory(child, offset, grandparents)();
+						const subresult = factory(child, offset, grandparents)();
 						if (subresult[0] === false) return subresult;
 						offset = typeof subresult[1] === "number" ? subresult[1] : offset + step;
 					}
 				}
+			}
+			if (exit && matches) {
+				const exitResult = toResult(exit(node, parents, index));
+				if (exitResult[0] === "skip") throw new Error("Unexpected value `" + exitResult[0] + "` from `exit`, expected `CONTINUE`, `EXIT`, index, or nothing");
+				if (exitResult[0] === false || typeof exitResult[1] === "number") return exitResult;
 			}
 			return result;
 		}
@@ -11935,7 +12079,7 @@ function toResult(value) {
 	if (typeof value === "number") return [true, value];
 	return value === null || value === void 0 ? empty : [value];
 }
-// ../../node_modules/mdast-util-find-and-replace/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-find-and-replace/lib/index.js
 /**
 * @import {Nodes, Parents, PhrasingContent, Root, Text} from 'mdast'
 * @import {BuildVisitor, Test, VisitorResult} from 'unist-util-visit-parents'
@@ -12003,7 +12147,7 @@ function toResult(value) {
 * @param {FindAndReplaceList | FindAndReplaceTuple} list
 *   Patterns to find.
 * @param {Options | null | undefined} [options]
-*   Configuration (when `find` is not `Find`).
+*   Configuration (optional).
 * @returns {undefined}
 *   Nothing.
 */
@@ -12011,24 +12155,15 @@ function findAndReplace(tree, list, options) {
 	const ignored = convert((options || {}).ignore || []);
 	const pairs = toPairs(list);
 	let pairIndex = -1;
-	while (++pairIndex < pairs.length) visitParents(tree, "text", visitor);
+	while (++pairIndex < pairs.length) visitParents(tree, visitor);
 	/**
-	* Visit a text node, and handle it if it is not in an ignored parent.
+	* Handle text nodes and skip ignored nodes.
 	*
-	* @type {BuildVisitor<Root, 'text'>}
+	* @type {BuildVisitor<Root>}
 	*/
-	function visitor(node, parents) {
-		let index = -1;
-		/** @type {Parents | undefined} */
-		let grandparent;
-		while (++index < parents.length) {
-			const parent = parents[index];
-			/** @type {Array<Nodes> | undefined} */
-			const siblings = grandparent ? grandparent.children : void 0;
-			if (ignored(parent, siblings ? siblings.indexOf(parent) : void 0, grandparent)) return;
-			grandparent = parent;
-		}
-		if (grandparent) return handler(node, parents);
+	function visitor(node, parents, index) {
+		if (node.type === "text" && typeof index === "number") return handler(node, parents, index);
+		if (ignored(node, index, parents[parents.length - 1])) return SKIP;
 	}
 	/**
 	* Handle a text node which is not in an ignored parent.
@@ -12037,15 +12172,16 @@ function findAndReplace(tree, list, options) {
 	*   Text node to search in.
 	* @param {Array<Parents>} parents
 	*   Ancestors of `node`.
+	* @param {number} index
+	*   Index of `node` in its parent.
 	* @returns {VisitorResult}
 	*   Where to continue visiting.
 	*/
-	function handler(node, parents) {
+	function handler(node, parents, index) {
 		const parent = parents[parents.length - 1];
 		const find = pairs[pairIndex][0];
 		const replace = pairs[pairIndex][1];
 		let start = 0;
-		const index = parent.children.indexOf(node);
 		let change = false;
 		/** @type {Array<PhrasingContent>} */
 		let nodes = [];
@@ -12113,7 +12249,6 @@ function toPairs(tupleOrList) {
 	if (!Array.isArray(tupleOrList)) throw new TypeError("Expected find and replace tuple or list of tuples");
 	/** @type {Pairs} */
 	const result = [];
-	/** @type {FindAndReplaceList} */
 	const list = !tupleOrList[0] || Array.isArray(tupleOrList[0]) ? tupleOrList : [tupleOrList];
 	let index = -1;
 	while (++index < list.length) {
@@ -12146,7 +12281,7 @@ function toFunction(replace) {
 		return replace;
 	};
 }
-// ../../node_modules/mdast-util-gfm-autolink-literal/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-autolink-literal/lib/index.js
 /**
 * @import {RegExpMatchObject, ReplaceFunction} from 'mdast-util-find-and-replace'
 * @import {CompileContext, Extension as FromMarkdownExtension, Handle as FromMarkdownHandle, Transform as FromMarkdownTransform} from 'mdast-util-from-markdown'
@@ -12325,7 +12460,7 @@ function previous$1(match, email) {
 	const code = match.input.charCodeAt(match.index - 1);
 	return (match.index === 0 || unicodeWhitespace(code) || unicodePunctuation(code)) && (!email || code !== 47);
 }
-// ../../node_modules/mdast-util-gfm-footnote/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-footnote/lib/index.js
 /**
 * @import {
 *   CompileContext,
@@ -12459,7 +12594,7 @@ function gfmFootnoteFromMarkdown() {
 		}
 	};
 }
-// ../../node_modules/mdast-util-gfm-strikethrough/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-strikethrough/lib/index.js
 handleDelete.attention = attentionDelete;
 handleDelete.peek = peekDelete;
 /**
@@ -12539,7 +12674,7 @@ function attentionDelete() {
 function peekDelete() {
 	return "~";
 }
-// ../../node_modules/mdast-util-gfm-table/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-table/lib/index.js
 /**
 * @typedef {import('mdast').InlineCode} InlineCode
 * @typedef {import('mdast').Table} Table
@@ -12663,7 +12798,7 @@ function exitCodeText(token) {
 function replace($0, $1) {
 	return $1 === "|" ? $1 : $0;
 }
-// ../../node_modules/mdast-util-gfm-task-list-item/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-task-list-item/lib/index.js
 /**
 * @typedef {import('mdast').ListItem} ListItem
 * @typedef {import('mdast').Paragraph} Paragraph
@@ -12731,7 +12866,7 @@ function exitParagraphWithTaskListItem(token) {
 	}
 	this.exit(token);
 }
-// ../../node_modules/mdast-util-gfm/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm/lib/index.js
 /**
 * @import {Extension as FromMarkdownExtension} from 'mdast-util-from-markdown'
 * @import {Options} from 'mdast-util-gfm'
@@ -12754,7 +12889,7 @@ function gfmFromMarkdown() {
 		gfmTaskListItemFromMarkdown()
 	];
 }
-// ../../node_modules/mdast-util-math/lib/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-math/lib/index.js
 /**
 * @typedef {import('hast').Element} HastElement
 * @typedef {import('hast').ElementContent} HastElementContent
@@ -12902,7 +13037,7 @@ function mathFromMarkdown() {
 		this.config.exit.data.call(this, token);
 	}
 }
-// ../../node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
 /**
 * @import {Code, ConstructRecord, Event, Extension, Previous, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -13602,7 +13737,7 @@ function previousUnbalanced(events) {
 	if (events.length > 0 && !result) events[events.length - 1][1]._gfmAutolinkLiteralWalkedInto = true;
 	return result;
 }
-// ../../node_modules/micromark-extension-gfm-footnote/lib/syntax.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-footnote/lib/syntax.js
 /**
 * @import {Event, Exiter, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -14020,7 +14155,7 @@ function tokenizeIndent(effects, ok, nok) {
 		return tail && tail[1].type === "gfmFootnoteDefinitionIndent" && tail[2].sliceSerialize(tail[1], true).length === 4 ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-gfm-strikethrough'
 * @import {Event, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -14160,7 +14295,7 @@ function gfmStrikethrough(options) {
 		}
 	}
 }
-// ../../node_modules/micromark-extension-gfm-table/lib/edit-map.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-table/lib/edit-map.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14270,7 +14405,7 @@ function addImplementation(editMap, at, remove, add) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../node_modules/micromark-extension-gfm-table/lib/infer.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-table/lib/infer.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14307,7 +14442,7 @@ function gfmTableAlign(events, index) {
 	}
 	return align;
 }
-// ../../node_modules/micromark-extension-gfm-table/lib/syntax.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-table/lib/syntax.js
 /**
 * @import {Event, Extension, Point, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15023,7 +15158,7 @@ function getPoint(events, index) {
 	const side = event[0] === "enter" ? "start" : "end";
 	return event[1][side];
 }
-// ../../node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
 /**
 * @import {Extension, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15141,7 +15276,7 @@ function spaceThenNonSpace(effects, ok, nok) {
 		return code === null ? nok(code) : ok(code);
 	}
 }
-// ../../node_modules/micromark-extension-gfm/index.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm/index.js
 /**
 * @typedef {import('micromark-extension-gfm-footnote').HtmlOptions} HtmlOptions
 * @typedef {import('micromark-extension-gfm-strikethrough').Options} Options
@@ -15168,7 +15303,7 @@ function gfm(options) {
 		gfmTaskListItem()
 	]);
 }
-// ../../node_modules/micromark-extension-math/lib/math-flow.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-math/lib/math-flow.js
 /**
 * @import {Construct, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15472,7 +15607,7 @@ function tokenizeNonLazyContinuation$1(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../node_modules/micromark-extension-math/lib/math-text.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-math/lib/math-text.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Construct, Previous, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -15657,7 +15792,7 @@ function resolveMathText(events) {
 function previous(code) {
 	return code !== 36 || this.events[this.events.length - 1][1].type === "characterEscape";
 }
-// ../../node_modules/micromark-extension-math/lib/syntax.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-math/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Extension} from 'micromark-util-types'
@@ -15677,7 +15812,7 @@ function math(options) {
 		text: { [36]: mathText(options) }
 	};
 }
-// ../../node_modules/micromark-util-symbol/lib/codes.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-symbol/lib/codes.js
 /**
 * Character codes.
 *
@@ -15834,7 +15969,7 @@ const codes = {
 	byteOrderMarker: 65279,
 	replacementCharacter: 65533
 };
-// ../../node_modules/micromark-util-symbol/lib/constants.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-symbol/lib/constants.js
 /**
 * This module is compiled away!
 *
@@ -15879,7 +16014,7 @@ const constants = {
 	thematicBreakMarkerCountMin: 3,
 	v8MaxSafeChunkSize: 1e4
 };
-// ../../node_modules/micromark-util-symbol/lib/types.js
+// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-symbol/lib/types.js
 /**
 * This module is compiled away!
 *
@@ -16300,142 +16435,142 @@ function softBreaksToHard(text) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "HDX7eq_activeBusy",
-	"activeCount": "HDX7eq_activeCount",
-	"addMemberButton": "HDX7eq_addMemberButton",
-	"attachmentAudio": "HDX7eq_attachmentAudio",
-	"attachmentFile": "HDX7eq_attachmentFile",
-	"attachmentImage": "HDX7eq_attachmentImage",
-	"attachments": "HDX7eq_attachments",
-	"attachmentSize": "HDX7eq_attachmentSize",
-	"attachmentThumb": "HDX7eq_attachmentThumb",
-	"author": "HDX7eq_author",
-	"avatar": "HDX7eq_avatar",
-	"avatarAnchor": "HDX7eq_avatarAnchor",
-	"avatarButton": "HDX7eq_avatarButton",
-	"avatarImage": "HDX7eq_avatarImage",
-	"avatarMenu": "HDX7eq_avatarMenu",
-	"avatarMenuItem": "HDX7eq_avatarMenuItem",
-	"avatarMenuTitle": "HDX7eq_avatarMenuTitle",
-	"avatarOption": "HDX7eq_avatarOption",
-	"avatarPicker": "HDX7eq_avatarPicker",
-	"avatarSmall": "HDX7eq_avatarSmall",
-	"capabilityHelp": "HDX7eq_capabilityHelp",
-	"capabilityItem": "HDX7eq_capabilityItem",
-	"capabilityMenu": "HDX7eq_capabilityMenu",
-	"card": "HDX7eq_card",
-	"cardButtons": "HDX7eq_cardButtons",
-	"cardHead": "HDX7eq_cardHead",
-	"cardTitle": "HDX7eq_cardTitle",
-	"cardViewButton": "HDX7eq_cardViewButton",
-	"cardViews": "HDX7eq_cardViews",
-	"chat": "HDX7eq_chat",
-	"chatHead": "HDX7eq_chatHead",
-	"choice": "HDX7eq_choice",
-	"choiceRow": "HDX7eq_choiceRow",
-	"composer": "HDX7eq_composer",
-	"composerRow": "HDX7eq_composerRow",
-	"dialog": "HDX7eq_dialog",
-	"dialogActions": "HDX7eq_dialogActions",
-	"dialogBackdrop": "HDX7eq_dialogBackdrop",
-	"dialogTitle": "HDX7eq_dialogTitle",
-	"drawerBackdrop": "HDX7eq_drawerBackdrop",
-	"drawerOpen": "HDX7eq_drawerOpen",
-	"editBar": "HDX7eq_editBar",
-	"editBox": "HDX7eq_editBox",
-	"edited": "HDX7eq_edited",
-	"editInput": "HDX7eq_editInput",
-	"empty": "HDX7eq_empty",
-	"field": "HDX7eq_field",
-	"fieldInput": "HDX7eq_fieldInput",
-	"fieldLabel": "HDX7eq_fieldLabel",
-	"focused": "HDX7eq_focused",
-	"groupHead": "HDX7eq_groupHead",
-	"groupTitle": "HDX7eq_groupTitle",
-	"guide": "HDX7eq_guide",
-	"hash": "HDX7eq_hash",
-	"iconButton": "HDX7eq_iconButton",
-	"input": "HDX7eq_input",
-	"leadControl": "HDX7eq_leadControl",
-	"leadMenu": "HDX7eq_leadMenu",
-	"leadOption": "HDX7eq_leadOption",
-	"linkButton": "HDX7eq_linkButton",
-	"log": "HDX7eq_log",
-	"member": "HDX7eq_member",
-	"memberActions": "HDX7eq_memberActions",
-	"memberAvatar": "HDX7eq_memberAvatar",
-	"memberFailed": "HDX7eq_memberFailed",
-	"memberModel": "HDX7eq_memberModel",
-	"memberName": "HDX7eq_memberName",
-	"memberRow": "HDX7eq_memberRow",
-	"members": "HDX7eq_members",
-	"membersHidden": "HDX7eq_membersHidden",
-	"memberStatus": "HDX7eq_memberStatus",
-	"memberText": "HDX7eq_memberText",
-	"mentionActive": "HDX7eq_mentionActive",
-	"mentionButton": "HDX7eq_mentionButton",
-	"mentionHint": "HDX7eq_mentionHint",
-	"mentionItem": "HDX7eq_mentionItem",
-	"mentionMeta": "HDX7eq_mentionMeta",
-	"mentionName": "HDX7eq_mentionName",
-	"mentionPopup": "HDX7eq_mentionPopup",
-	"mentionTitle": "HDX7eq_mentionTitle",
-	"message": "HDX7eq_message",
-	"messageBody": "HDX7eq_messageBody",
-	"messageHead": "HDX7eq_messageHead",
-	"mobileButton": "HDX7eq_mobileButton",
-	"notice": "HDX7eq_notice",
-	"offline": "HDX7eq_offline",
-	"ownActions": "HDX7eq_ownActions",
-	"page": "HDX7eq_page",
-	"panelToggle": "HDX7eq_panelToggle",
-	"panelToggleEnd": "HDX7eq_panelToggleEnd",
-	"permActions": "HDX7eq_permActions",
-	"permScope": "HDX7eq_permScope",
-	"permStatus": "HDX7eq_permStatus",
-	"presence": "HDX7eq_presence",
-	"primaryButton": "HDX7eq_primaryButton",
-	"quote": "HDX7eq_quote",
-	"quoteAuthor": "HDX7eq_quoteAuthor",
-	"quoteDeleted": "HDX7eq_quoteDeleted",
-	"replyBar": "HDX7eq_replyBar",
-	"replyBarText": "HDX7eq_replyBarText",
-	"replyButton": "HDX7eq_replyButton",
-	"replyCancel": "HDX7eq_replyCancel",
-	"room": "HDX7eq_room",
-	"roomActive": "HDX7eq_roomActive",
-	"roomInput": "HDX7eq_roomInput",
-	"roomLabel": "HDX7eq_roomLabel",
-	"rooms": "HDX7eq_rooms",
-	"roomsHidden": "HDX7eq_roomsHidden",
-	"secondaryButton": "HDX7eq_secondaryButton",
-	"sendButton": "HDX7eq_sendButton",
-	"sendError": "HDX7eq_sendError",
-	"system": "HDX7eq_system",
-	"tag": "HDX7eq_tag",
-	"taskBoard": "HDX7eq_taskBoard",
-	"taskCard": "HDX7eq_taskCard",
-	"taskDone": "HDX7eq_taskDone",
-	"taskEmpty": "HDX7eq_taskEmpty",
-	"taskLine": "HDX7eq_taskLine",
-	"taskLinks": "HDX7eq_taskLinks",
-	"taskList": "HDX7eq_taskList",
-	"taskMember": "HDX7eq_taskMember",
-	"taskMemberName": "HDX7eq_taskMemberName",
-	"taskMembers": "HDX7eq_taskMembers",
-	"taskMeta": "HDX7eq_taskMeta",
-	"taskOwnerGroup": "HDX7eq_taskOwnerGroup",
-	"taskOwnerName": "HDX7eq_taskOwnerName",
-	"taskRow": "HDX7eq_taskRow",
-	"taskSection": "HDX7eq_taskSection",
-	"taskSectionTitle": "HDX7eq_taskSectionTitle",
-	"taskStatus": "HDX7eq_taskStatus",
-	"taskSub": "HDX7eq_taskSub",
-	"taskTitle": "HDX7eq_taskTitle",
-	"text": "HDX7eq_text",
-	"time": "HDX7eq_time",
-	"working": "HDX7eq_working",
-	"workspace": "HDX7eq_workspace"
+	"activeBusy": "vkiakq_activeBusy",
+	"activeCount": "vkiakq_activeCount",
+	"addMemberButton": "vkiakq_addMemberButton",
+	"attachmentAudio": "vkiakq_attachmentAudio",
+	"attachmentFile": "vkiakq_attachmentFile",
+	"attachmentImage": "vkiakq_attachmentImage",
+	"attachments": "vkiakq_attachments",
+	"attachmentSize": "vkiakq_attachmentSize",
+	"attachmentThumb": "vkiakq_attachmentThumb",
+	"author": "vkiakq_author",
+	"avatar": "vkiakq_avatar",
+	"avatarAnchor": "vkiakq_avatarAnchor",
+	"avatarButton": "vkiakq_avatarButton",
+	"avatarImage": "vkiakq_avatarImage",
+	"avatarMenu": "vkiakq_avatarMenu",
+	"avatarMenuItem": "vkiakq_avatarMenuItem",
+	"avatarMenuTitle": "vkiakq_avatarMenuTitle",
+	"avatarOption": "vkiakq_avatarOption",
+	"avatarPicker": "vkiakq_avatarPicker",
+	"avatarSmall": "vkiakq_avatarSmall",
+	"capabilityHelp": "vkiakq_capabilityHelp",
+	"capabilityItem": "vkiakq_capabilityItem",
+	"capabilityMenu": "vkiakq_capabilityMenu",
+	"card": "vkiakq_card",
+	"cardButtons": "vkiakq_cardButtons",
+	"cardHead": "vkiakq_cardHead",
+	"cardTitle": "vkiakq_cardTitle",
+	"cardViewButton": "vkiakq_cardViewButton",
+	"cardViews": "vkiakq_cardViews",
+	"chat": "vkiakq_chat",
+	"chatHead": "vkiakq_chatHead",
+	"choice": "vkiakq_choice",
+	"choiceRow": "vkiakq_choiceRow",
+	"composer": "vkiakq_composer",
+	"composerRow": "vkiakq_composerRow",
+	"dialog": "vkiakq_dialog",
+	"dialogActions": "vkiakq_dialogActions",
+	"dialogBackdrop": "vkiakq_dialogBackdrop",
+	"dialogTitle": "vkiakq_dialogTitle",
+	"drawerBackdrop": "vkiakq_drawerBackdrop",
+	"drawerOpen": "vkiakq_drawerOpen",
+	"editBar": "vkiakq_editBar",
+	"editBox": "vkiakq_editBox",
+	"edited": "vkiakq_edited",
+	"editInput": "vkiakq_editInput",
+	"empty": "vkiakq_empty",
+	"field": "vkiakq_field",
+	"fieldInput": "vkiakq_fieldInput",
+	"fieldLabel": "vkiakq_fieldLabel",
+	"focused": "vkiakq_focused",
+	"groupHead": "vkiakq_groupHead",
+	"groupTitle": "vkiakq_groupTitle",
+	"guide": "vkiakq_guide",
+	"hash": "vkiakq_hash",
+	"iconButton": "vkiakq_iconButton",
+	"input": "vkiakq_input",
+	"leadControl": "vkiakq_leadControl",
+	"leadMenu": "vkiakq_leadMenu",
+	"leadOption": "vkiakq_leadOption",
+	"linkButton": "vkiakq_linkButton",
+	"log": "vkiakq_log",
+	"member": "vkiakq_member",
+	"memberActions": "vkiakq_memberActions",
+	"memberAvatar": "vkiakq_memberAvatar",
+	"memberFailed": "vkiakq_memberFailed",
+	"memberModel": "vkiakq_memberModel",
+	"memberName": "vkiakq_memberName",
+	"memberRow": "vkiakq_memberRow",
+	"members": "vkiakq_members",
+	"membersHidden": "vkiakq_membersHidden",
+	"memberStatus": "vkiakq_memberStatus",
+	"memberText": "vkiakq_memberText",
+	"mentionActive": "vkiakq_mentionActive",
+	"mentionButton": "vkiakq_mentionButton",
+	"mentionHint": "vkiakq_mentionHint",
+	"mentionItem": "vkiakq_mentionItem",
+	"mentionMeta": "vkiakq_mentionMeta",
+	"mentionName": "vkiakq_mentionName",
+	"mentionPopup": "vkiakq_mentionPopup",
+	"mentionTitle": "vkiakq_mentionTitle",
+	"message": "vkiakq_message",
+	"messageBody": "vkiakq_messageBody",
+	"messageHead": "vkiakq_messageHead",
+	"mobileButton": "vkiakq_mobileButton",
+	"notice": "vkiakq_notice",
+	"offline": "vkiakq_offline",
+	"ownActions": "vkiakq_ownActions",
+	"page": "vkiakq_page",
+	"panelToggle": "vkiakq_panelToggle",
+	"panelToggleEnd": "vkiakq_panelToggleEnd",
+	"permActions": "vkiakq_permActions",
+	"permScope": "vkiakq_permScope",
+	"permStatus": "vkiakq_permStatus",
+	"presence": "vkiakq_presence",
+	"primaryButton": "vkiakq_primaryButton",
+	"quote": "vkiakq_quote",
+	"quoteAuthor": "vkiakq_quoteAuthor",
+	"quoteDeleted": "vkiakq_quoteDeleted",
+	"replyBar": "vkiakq_replyBar",
+	"replyBarText": "vkiakq_replyBarText",
+	"replyButton": "vkiakq_replyButton",
+	"replyCancel": "vkiakq_replyCancel",
+	"room": "vkiakq_room",
+	"roomActive": "vkiakq_roomActive",
+	"roomInput": "vkiakq_roomInput",
+	"roomLabel": "vkiakq_roomLabel",
+	"rooms": "vkiakq_rooms",
+	"roomsHidden": "vkiakq_roomsHidden",
+	"secondaryButton": "vkiakq_secondaryButton",
+	"sendButton": "vkiakq_sendButton",
+	"sendError": "vkiakq_sendError",
+	"system": "vkiakq_system",
+	"tag": "vkiakq_tag",
+	"taskBoard": "vkiakq_taskBoard",
+	"taskCard": "vkiakq_taskCard",
+	"taskDone": "vkiakq_taskDone",
+	"taskEmpty": "vkiakq_taskEmpty",
+	"taskLine": "vkiakq_taskLine",
+	"taskLinks": "vkiakq_taskLinks",
+	"taskList": "vkiakq_taskList",
+	"taskMember": "vkiakq_taskMember",
+	"taskMemberName": "vkiakq_taskMemberName",
+	"taskMembers": "vkiakq_taskMembers",
+	"taskMeta": "vkiakq_taskMeta",
+	"taskOwnerGroup": "vkiakq_taskOwnerGroup",
+	"taskOwnerName": "vkiakq_taskOwnerName",
+	"taskRow": "vkiakq_taskRow",
+	"taskSection": "vkiakq_taskSection",
+	"taskSectionTitle": "vkiakq_taskSectionTitle",
+	"taskStatus": "vkiakq_taskStatus",
+	"taskSub": "vkiakq_taskSub",
+	"taskTitle": "vkiakq_taskTitle",
+	"text": "vkiakq_text",
+	"time": "vkiakq_time",
+	"working": "vkiakq_working",
+	"workspace": "vkiakq_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
@@ -17065,6 +17200,7 @@ const CLI_CHOICES = [
 		label: "Gemini"
 	}
 ];
+const NO_MEMBERS = [];
 /** DSH's built-in permission presets in DSH's own order; default = DSH default workspace-write (collab/cli-member.mjs DEFAULT_PERMISSION_PRESET). */
 const PRESETS = [
 	{
@@ -17089,8 +17225,12 @@ const DEFAULT_PRESET = "workspace-write";
 * @param props - target member, actions, and copy.
 * @returns a modal form.
 */
-function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
-	const [name, setName] = (0, react.useState)(member?.name ?? "");
+function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, listPersonas, onSubmit, onClose, t }) {
+	const [name, setName] = (0, react.useState)(member?.name ?? "DSH");
+	const [nameCustomized, setNameCustomized] = (0, react.useState)(member === void 0 ? false : member.nameCustomized);
+	const [keepName, setKeepName] = (0, react.useState)(true);
+	const [personas, setPersonas] = (0, react.useState)([]);
+	const [personaSlug, setPersonaSlug] = (0, react.useState)("");
 	const [persona, setPersona] = (0, react.useState)(member?.persona ?? "");
 	const [modelKey, setModelKey] = (0, react.useState)(member?.model ? member.model.provider + SEP + member.model.model : "");
 	const [routes, setRoutes] = (0, react.useState)(void 0);
@@ -17101,6 +17241,22 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 	const [cli, setCli] = (0, react.useState)(member?.cli ?? "");
 	const [preset, setPreset] = (0, react.useState)(member?.permissionPreset ?? DEFAULT_PRESET);
 	const [avatar, setAvatar] = (0, react.useState)(member?.avatar !== void 0 && AVATARS.includes(member.avatar) ? member.avatar : "");
+	const backend = type === "cli" ? CLI_CHOICES.find((c) => c.cli === cli)?.label ?? "" : "DSH";
+	(0, react.useEffect)(() => {
+		if (nameCustomized !== false || !backend) return;
+		const used = new Set(members.filter((m) => m.id !== member?.id).map((m) => m.name.toLowerCase()));
+		let next = backend;
+		for (let n = 2; used.has(next.toLowerCase()); n++) next = `${backend}-${n}`;
+		setName(next);
+	}, [
+		backend,
+		nameCustomized,
+		members,
+		member?.id
+	]);
+	(0, react.useEffect)(() => {
+		if (listPersonas) listPersonas().then(setPersonas).catch((reason) => setError(String(reason)));
+	}, [listPersonas]);
 	(0, react.useEffect)(() => {
 		let live = true;
 		listModels().then((list) => {
@@ -17139,14 +17295,17 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 		const [provider, model] = modelKey === "" ? [] : modelKey.split(SEP);
 		setBusy(true);
 		setError(void 0);
+		const identity = nameCustomized === void 0 ? {} : { nameCustomized };
 		onSubmit(type === "cli" ? {
 			name: name.trim(),
+			...identity,
 			persona,
 			avatar,
 			cli,
 			permissionPreset: preset
 		} : {
 			name: name.trim(),
+			...identity,
 			persona,
 			avatar,
 			model: provider !== void 0 && model !== void 0 ? {
@@ -17180,44 +17339,93 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 					className: ChannelsPage_module_default.dialogTitle,
 					children: member === void 0 ? t("memberDialogAdd") : t("memberDialogEdit", { name: member.name })
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-					className: ChannelsPage_module_default.field,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberName") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: name === backend ? name : `${name}·${backend}` }),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("memberNoPersona") }),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", { children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", { children: t("memberOptional") }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: ChannelsPage_module_default.field,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberName") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							className: ChannelsPage_module_default.fieldInput,
+							value: name,
+							maxLength: 32,
+							onChange: (event) => {
+								const next = event.target.value;
+								if (personaSlug && keepName && name) setPersona(persona.split(name).join(next));
+								setName(next);
+								setNameCustomized(true);
+							}
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.field,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							id: "member-avatar-label",
+							children: t("memberAvatar")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ChannelsPage_module_default.avatarPicker,
+							role: "radiogroup",
+							"aria-labelledby": "member-avatar-label",
+							children: ["", ...AVATARS].map((slug) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								role: "radio",
+								"aria-checked": avatar === slug,
+								className: ChannelsPage_module_default.avatarOption,
+								title: slug === "" ? t("memberAvatarNone") : slug,
+								onClick: () => {
+									setAvatar(slug);
+								},
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+									id: member?.id ?? (name.trim() || "new"),
+									name: name.trim() || "?",
+									avatar: slug
+								})
+							}, slug === "" ? "none" : slug))
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("label", {
+						className: ChannelsPage_module_default.field,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							type: "checkbox",
+							checked: keepName,
+							onChange: (e) => setKeepName(e.target.checked)
+						}), t("memberKeepName")] })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
 						className: ChannelsPage_module_default.fieldInput,
-						value: name,
-						maxLength: 32,
-						autoFocus: true,
-						onChange: (event) => {
-							setName(event.target.value);
-						}
-					})]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: ChannelsPage_module_default.field,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						id: "member-avatar-label",
-						children: t("memberAvatar")
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ChannelsPage_module_default.avatarPicker,
-						role: "radiogroup",
-						"aria-labelledby": "member-avatar-label",
-						children: ["", ...AVATARS].map((slug) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							role: "radio",
-							"aria-checked": avatar === slug,
-							className: ChannelsPage_module_default.avatarOption,
-							title: slug === "" ? t("memberAvatarNone") : slug,
-							onClick: () => {
-								setAvatar(slug);
-							},
-							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-								id: member?.id ?? (name.trim() || "new"),
-								name: name.trim() || "?",
-								avatar: slug
-							})
-						}, slug === "" ? "none" : slug))
-					})]
-				}),
+						"aria-label": t("memberPersonaLibrary"),
+						value: personaSlug,
+						onChange: (e) => {
+							setPersonaSlug(e.target.value);
+							const p = personas.find((p) => p.slug === e.target.value);
+							setPersona(p ? keepName ? p.text.split(p.name).join(name) : p.text : "");
+							if (p) {
+								setAvatar(p.avatar || "");
+								if (!keepName) {
+									setName(p.name);
+									setNameCustomized(true);
+								}
+							}
+						},
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+							value: "",
+							children: t("memberPersonaNone")
+						}), personas.map((p) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+							value: p.slug,
+							children: p.name
+						}, p.slug))]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: ChannelsPage_module_default.field,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberPersona") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+							className: ChannelsPage_module_default.fieldInput,
+							rows: 4,
+							value: persona,
+							maxLength: 4e3,
+							onChange: (e) => setPersona(e.target.value)
+						})]
+					})
+				] }),
 				member === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: ChannelsPage_module_default.field,
 					role: "radiogroup",
@@ -17314,18 +17522,6 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 						]
 					})]
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-					className: ChannelsPage_module_default.field,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberPersona") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
-						className: ChannelsPage_module_default.fieldInput,
-						rows: 4,
-						value: persona,
-						maxLength: 4e3,
-						onChange: (event) => {
-							setPersona(event.target.value);
-						}
-					})]
-				}),
 				error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					className: ChannelsPage_module_default.sendError,
 					role: "alert",
@@ -17415,11 +17611,14 @@ const CLI_TAG = {
 	codex: "kindCodex",
 	gemini: "kindGemini"
 };
-function KindTag({ kind, cli, t }) {
-	if (cli !== void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-		className: ChannelsPage_module_default.tag,
-		children: t(CLI_TAG[cli])
-	});
+function KindTag({ kind, cli, name, t }) {
+	if (cli !== void 0) {
+		const label = t(CLI_TAG[cli]);
+		return name === label ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+			className: ChannelsPage_module_default.tag,
+			children: ["·", label]
+		});
+	}
 	if (kind === "dsh") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 		className: ChannelsPage_module_default.tag,
 		children: t("kindDsh")
@@ -17544,6 +17743,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								children: message.name
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
+								name: message.name,
 								kind: member?.kind,
 								cli: member?.cli,
 								t
@@ -17722,6 +17922,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 						className: ChannelsPage_module_default.memberName,
 						children: [m.name, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
+							name: m.name,
 							kind: m.kind,
 							cli: m.cli,
 							t
@@ -17766,7 +17967,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -18409,6 +18610,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 													children: m.name
 												}),
 												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
+													name: m.name,
 													kind: m.kind,
 													cli: m.cli,
 													t
@@ -18654,6 +18856,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				member: dialog ?? void 0,
 				listModels,
 				listClis,
+				listPersonas,
+				members: state.members,
 				onSubmit: (input) => dialog === null ? addMember(input) : updateMember(dialog.id, input),
 				onClose: () => {
 					setDialog(void 0);
@@ -18787,7 +18991,12 @@ const zh = {
 	withdrawRunning: "已撤回；{names} 已经在处理这条，没能停下",
 	memberDialogAdd: "添加 DSH 成员",
 	memberDialogEdit: "编辑成员「{name}」",
-	memberName: "名字（@ 时用，不能有空格）",
+	memberName: "名字（@ 时用）",
+	memberOptional: "可选：自定义名字、性格与说话风格、职责",
+	memberNoPersona: "默认不附加角色人设，可以直接开始工作。",
+	memberKeepName: "保留我的名字",
+	memberPersonaNone: "不使用人设",
+	memberPersonaLibrary: "从人设库选择",
 	memberModel: "模型",
 	memberModelDefault: "跟随 DSH 默认模型",
 	memberModelLoading: "正在读取可用模型…",
@@ -18940,7 +19149,12 @@ const en = {
 	withdrawRunning: "Withdrawn; {names} had already started on it and could not be stopped",
 	memberDialogAdd: "Add a DSH member",
 	memberDialogEdit: "Edit member \"{name}\"",
-	memberName: "Name (used for @, no spaces)",
+	memberName: "Name (used for @)",
+	memberOptional: "Optional: name, personality, speaking style and responsibilities",
+	memberNoPersona: "Ready to work without a persona.",
+	memberKeepName: "Keep my name",
+	memberPersonaNone: "No persona",
+	memberPersonaLibrary: "Choose from persona library",
 	memberModel: "Model",
 	memberModelDefault: "Follow the DSH default model",
 	memberModelLoading: "Loading available models…",
@@ -19004,6 +19218,7 @@ function apply(ctx) {
 		createRoom: channels.actions.createRoom,
 		listModels: channels.actions.listModels,
 		listClis: channels.actions.listClis,
+		listPersonas: channels.actions.listPersonas,
 		addMember: channels.actions.addMember,
 		updateMember: channels.actions.updateMember,
 		removeMember: channels.actions.removeMember,

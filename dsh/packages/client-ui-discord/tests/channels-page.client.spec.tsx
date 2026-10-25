@@ -434,7 +434,7 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
+    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', nameCustomized: true, persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
     expect(screen.getByRole('alert').textContent).toContain('already used')
     expect((screen.getByLabelText(zh.memberName) as HTMLInputElement).value).toBe('Coder')
     await act(async () => { fireEvent.submit(dialog) })

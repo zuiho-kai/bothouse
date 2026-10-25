@@ -54,7 +54,7 @@ const DEFAULT_PRESET: PermissionPreset = 'workspace-write'
  */
 export function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, listPersonas, onSubmit, onClose, t }: MemberDialogProps) {
   const [name, setName] = useState(member?.name ?? 'DSH')
-  const [nameCustomized, setNameCustomized] = useState(member?.nameCustomized ?? (member !== undefined))
+  const [nameCustomized, setNameCustomized] = useState<boolean | undefined>(member === undefined ? false : member.nameCustomized)
   const [keepName, setKeepName] = useState(true)
   const [personas, setPersonas] = useState<readonly MemberPersona[]>([])
   const [personaSlug, setPersonaSlug] = useState('')
@@ -72,7 +72,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
 
   const backend = type === 'cli' ? CLI_CHOICES.find(c => c.cli === cli)?.label ?? '' : 'DSH'
   useEffect(() => {
-    if (nameCustomized || !backend) return
+    if (nameCustomized !== false || !backend) return
     const used = new Set(members.filter(m => m.id !== member?.id).map(m => m.name.toLowerCase()))
     let next = backend
     for (let n = 2; used.has(next.toLowerCase()); n++) next = `${backend}-${n}`
@@ -112,9 +112,10 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     const [provider, model] = modelKey === '' ? [] : modelKey.split(SEP)
     setBusy(true)
     setError(undefined)
+    const identity = nameCustomized === undefined ? {} : { nameCustomized }
     const input: MemberInput = type === 'cli'
-      ? { name: name.trim(), nameCustomized, persona, avatar, cli, permissionPreset: preset }
-      : { name: name.trim(), nameCustomized, persona, avatar, model: provider !== undefined && model !== undefined ? { provider, model } : null }
+      ? { name: name.trim(), ...identity, persona, avatar, cli, permissionPreset: preset }
+      : { name: name.trim(), ...identity, persona, avatar, model: provider !== undefined && model !== undefined ? { provider, model } : null }
     onSubmit(input).then(onClose).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : String(reason))
     }).finally(() => { setBusy(false) })
@@ -139,7 +140,12 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
         <details><summary>{t('memberOptional')}</summary>
         <label className={css.field}>
           <span>{t('memberName')}</span>
-          <input className={css.fieldInput} value={name} maxLength={32} onChange={(event) => { setName(event.target.value); setNameCustomized(true) }} />
+          <input className={css.fieldInput} value={name} maxLength={32} onChange={(event) => {
+            const next = event.target.value
+            if (personaSlug && keepName && name) setPersona(persona.split(name).join(next))
+            setName(next)
+            setNameCustomized(true)
+          }} />
         </label>
 
         <div className={css.field}>
@@ -161,7 +167,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
           </span>
         </div>
         <label className={css.field}><span><input type="checkbox" checked={keepName} onChange={e => setKeepName(e.target.checked)} />{t('memberKeepName')}</span></label>
-        <select className={css.fieldInput} aria-label={t('memberPersona')} value={personaSlug} onChange={e => {
+        <select className={css.fieldInput} aria-label={t('memberPersonaLibrary')} value={personaSlug} onChange={e => {
           setPersonaSlug(e.target.value)
           const p = personas.find(p => p.slug === e.target.value)
           setPersona(p ? (keepName ? p.text.split(p.name).join(name) : p.text) : '')
