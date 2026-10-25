@@ -83,6 +83,32 @@ func TestTeamTaskBoardOldItemsPlaced(t *testing.T) {
 	}
 }
 
+// Live board.py shape: ch and chat are bare Discord channel IDs, no sk/ws.
+func TestTeamTaskBoardBareChatPlaced(t *testing.T) {
+	items := placeTeamTaskBoard(testTaskBoardPlacer(), []teamTaskBoardItem{
+		{ID: 1, What: "工作区活", Status: "在做", Who: "工作区橘", Ch: "777", Chat: "1558868087456014521"},
+		{ID: 2, What: "本频道活", Status: "在做", Who: "橘", Ch: "1558868087456014521", Chat: "1558868087456014521"},
+	})
+	if items[0].parent != "discord:1558868087456014521" || items[1].parent != "" {
+		t.Fatalf("parents = %q %q", items[0].parent, items[1].parent)
+	}
+	now := time.Now()
+	got := renderTeamTaskBoard(items, nil, "discord:1558868087456014521", now, nil)
+	if !strings.Contains(got, "#1 工作区活") || !strings.Contains(got, "#2 本频道活") {
+		t.Fatalf("chat board = %q", got)
+	}
+	for _, it := range items {
+		for _, c := range it.chats() {
+			if !strings.HasPrefix(c, "discord:") {
+				t.Fatalf("item %d on bogus chat %q", it.ID, c)
+			}
+		}
+	}
+	if !strings.Contains(renderTeamTaskBoard(items, nil, "discord:777", now, nil), "#1 工作区活") {
+		t.Fatal("workspace board missing its item")
+	}
+}
+
 func TestTeamTaskBoardDoneToday(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.Local)

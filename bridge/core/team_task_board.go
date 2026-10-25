@@ -124,8 +124,12 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 	default:
 		it.own = p.mainChat
 	}
-	if it.Chat != "" && chatOf(it.Chat) != it.own {
-		it.parent = chatOf(it.Chat)
+	chat := it.Chat
+	if chat != "" && !strings.Contains(chat, ":") {
+		chat = "discord:" + chat // board.py writes the bare Discord channel ID, like ch
+	}
+	if chat != "" && chatOf(chat) != it.own {
+		it.parent = chatOf(chat)
 	} else if p.parentOf != nil {
 		if parent, ok := p.parentOf(it.own); ok {
 			it.parent = chatOf(parent)
