@@ -122,7 +122,10 @@ func TestMigrateLegacyDataDirWriteFailureContinues(t *testing.T) {
 		writeLegacyFixture(t, old, rel, []byte("[]"))
 	}
 	readonly := filepath.Join(dst, "crons")
-	if err := os.MkdirAll(readonly, 0o500); err != nil {
+	if err := os.MkdirAll(readonly, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(readonly, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(readonly, 0o700) })
