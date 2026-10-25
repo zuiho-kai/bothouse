@@ -883,7 +883,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				// the bot's open_id goes into the team file (who is who for d10 / ws-handoff); not
 				// reachable now = the member is written without it, the role is still made
 				f := req.Feishu
-				if id, err := FeishuBotOpenID(ctx, f.AppID, f.AppSecret, f.PlatformType); err == nil {
+				if id, err := wizardFeishuBotOpenID(ctx, f.AppID, f.AppSecret, f.PlatformType); err == nil {
 					w.botID = id
 				}
 			}
@@ -2476,6 +2476,9 @@ func (m *ManagementServer) handleProjectPersona(w http.ResponseWriter, r *http.R
 		mgmtError(w, http.StatusMethodNotAllowed, "GET or PUT")
 	}
 }
+
+// wizardFeishuBotOpenID is FeishuBotOpenID; tests swap it (no network in core tests).
+var wizardFeishuBotOpenID = FeishuBotOpenID
 
 // gateTeamJSON is <data_dir>/gate-team.json, the one team file the gate and the collaboration
 // scripts (contrib/lead/_team.py: d10, ws-handoff) read to know who is who: every member has its
