@@ -3935,3 +3935,22 @@ test('attachments: undelivered reasons are shown in Chinese by DSH error code, u
   assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured per-side pixel limit.' }), '图片太长或太宽，超过单边像素上限');
   assert.equal(undeliveredReasonZh({ reason: 'something new' }), 'something new');
 });
+
+test('member names: automatic CLI suffixes, backend switch, custom persona, and legacy preservation', async () => {
+  const hub = makeHub(); const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  const first = await roster.create({ cli: 'codex', nameCustomized: false });
+  const second = await roster.create({ cli: 'codex', nameCustomized: false });
+  assert.equal(first.name, 'Codex'); assert.equal(second.name, 'Codex-2');
+  const changed = await roster.update(first.id, { name: first.name, cli: 'claude', nameCustomized: false, persona: '' });
+  assert.equal(changed.name, 'Claude Code'); assert.equal(changed.persona, '');
+  const custom = await roster.create({ name: '小码', cli: 'codex', nameCustomized: true, persona: '你是小码，认真工作。' });
+  const switched = await roster.update(custom.id, { name: custom.name, cli: 'claude', nameCustomized: true, persona: custom.persona });
+  assert.equal(switched.name, '小码'); assert.equal(switched.persona, custom.persona);
+  const legacy = await roster.create({ name: '旧名字', cli: 'codex', persona: '旧人设' });
+  assert.equal(legacy.nameCustomized, undefined);
+  const old = await roster.update(legacy.id, { name: legacy.name, cli: 'claude', persona: legacy.persona });
+  assert.equal(old.name, '旧名字'); assert.equal(old.persona, '旧人设');
+  assert.deepEqual([...mentions('@Claude Code 你好', hub.routable())], [first.id]);
+  assert.equal(hub.store.member(custom.id).name_customized, 1);
+});

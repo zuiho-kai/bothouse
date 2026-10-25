@@ -1,3 +1,4 @@
+import { personaLibrary } from './personas.mjs';
 // CoNest collab: Discord-style channels inside a DSH Web host. Load it by
 // absolute path from a --patch overlay (see dsh/README.md):
 //   - insert:
@@ -191,6 +192,7 @@ export async function apply(ctx, rawConfig) {
       return json(res, 401, { error: 'unauthorized' });
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
+    if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
       return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,
         effective_lead_id: hub.primaryMember()?.id ?? null,

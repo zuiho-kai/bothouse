@@ -688,11 +688,17 @@ func ApplyPersonaToRoles(dataDir string, store WizardStore, slug, text string) (
 			continue
 		}
 		roleText := text
-        if t.KeepPersonaName {
-            lib := LoadLibrary(dataDir, "zh", st)
-            for _, preset := range lib.Personas { if preset.Slug == slug && preset.Name != "" { roleText = strings.ReplaceAll(text, preset.Name, name); break } }
-        }
-        out := strings.TrimRight(roleText, "\r\n") + "\n\n" + string(b)[i:]
+		if t.KeepPersonaName {
+			lib := LoadLibrary(dataDir, "zh", st)
+			english := LoadLibrary(dataDir, "en", st)
+			for _, preset := range append(lib.Personas, english.Personas...) {
+				if preset.Slug == slug && preset.Name != "" && strings.Contains(text, preset.Name) {
+					roleText = strings.ReplaceAll(text, preset.Name, name)
+					break
+				}
+			}
+		}
+		out := strings.TrimRight(roleText, "\r\n") + "\n\n" + string(b)[i:]
 		if AtomicWriteFile(path, []byte(out), 0o644) != nil {
 			skipped = append(skipped, name)
 			continue

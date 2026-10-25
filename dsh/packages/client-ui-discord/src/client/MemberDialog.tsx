@@ -8,7 +8,7 @@
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ChannelMember, LocalCli, MemberInput, ModelRoute, PermissionPreset } from './channel-source.ts'
+import type { ChannelMember, LocalCli, MemberInput, MemberPersona, ModelRoute, PermissionPreset } from './channel-source.ts'
 import type { NS } from './locales.ts'
 import { Avatar } from './Avatar.tsx'
 import { AVATARS } from './avatars.ts'
@@ -17,6 +17,8 @@ import css from './ChannelsPage.module.css'
 /** Which member the dialog edits; absent member means "add". */
 export interface MemberDialogProps {
   readonly member: ChannelMember | undefined
+  readonly members?: readonly ChannelMember[]
+  readonly listPersonas?: () => Promise<readonly MemberPersona[]>
   readonly listModels: () => Promise<readonly ModelRoute[]>
   readonly listClis: () => Promise<readonly LocalCli[]>
   readonly onSubmit: (input: MemberInput) => Promise<void>
@@ -33,6 +35,8 @@ const CLI_CHOICES: readonly { readonly cli: string; readonly label: string }[] =
   { cli: 'gemini', label: 'Gemini' },
 ]
 
+const NO_MEMBERS: readonly ChannelMember[] = []
+
 type MemberType = 'dsh' | 'cli'
 
 /** DSH's built-in permission presets in DSH's own order; default = DSH default workspace-write (collab/cli-member.mjs DEFAULT_PERMISSION_PRESET). */
@@ -48,8 +52,12 @@ const DEFAULT_PRESET: PermissionPreset = 'workspace-write'
  * @param props - target member, actions, and copy.
  * @returns a modal form.
  */
-export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }: MemberDialogProps) {
-  const [name, setName] = useState(member?.name ?? '')
+export function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, listPersonas, onSubmit, onClose, t }: MemberDialogProps) {
+  const [name, setName] = useState(member?.name ?? 'DSH')
+  const [nameCustomized, setNameCustomized] = useState(member?.nameCustomized ?? (member !== undefined))
+  const [keepName, setKeepName] = useState(true)
+  const [personas, setPersonas] = useState<readonly MemberPersona[]>([])
+  const [personaSlug, setPersonaSlug] = useState('')
   const [persona, setPersona] = useState(member?.persona ?? '')
   const [modelKey, setModelKey] = useState(member?.model ? member.model.provider + SEP + member.model.model : '')
   const [routes, setRoutes] = useState<readonly ModelRoute[] | undefined>(undefined)
@@ -61,6 +69,18 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
   const [cli, setCli] = useState<string>(member?.cli ?? '')
   const [preset, setPreset] = useState<PermissionPreset>(member?.permissionPreset ?? DEFAULT_PRESET)
   const [avatar, setAvatar] = useState(member?.avatar !== undefined && (AVATARS as readonly string[]).includes(member.avatar) ? member.avatar : '')
+
+  const backend = type === 'cli' ? CLI_CHOICES.find(c => c.cli === cli)?.label ?? '' : 'DSH'
+  useEffect(() => {
+    if (nameCustomized || !backend) return
+    const used = new Set(members.filter(m => m.id !== member?.id).map(m => m.name.toLowerCase()))
+    let next = backend
+    for (let n = 2; used.has(next.toLowerCase()); n++) next = `${backend}-${n}`
+    setName(next)
+  }, [backend, nameCustomized, members, member?.id])
+  useEffect(() => {
+    if (listPersonas) listPersonas().then(setPersonas).catch(reason => setError(String(reason)))
+  }, [listPersonas])
 
   // One read of the host's model catalog per dialog opening.
   useEffect(() => {
@@ -93,8 +113,8 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
     setBusy(true)
     setError(undefined)
     const input: MemberInput = type === 'cli'
-      ? { name: name.trim(), persona, avatar, cli, permissionPreset: preset }
-      : { name: name.trim(), persona, avatar, model: provider !== undefined && model !== undefined ? { provider, model } : null }
+      ? { name: name.trim(), nameCustomized, persona, avatar, cli, permissionPreset: preset }
+      : { name: name.trim(), nameCustomized, persona, avatar, model: provider !== undefined && model !== undefined ? { provider, model } : null }
     onSubmit(input).then(onClose).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : String(reason))
     }).finally(() => { setBusy(false) })
@@ -114,10 +134,14 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
         onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}
       >
         <h2 className={css.dialogTitle}>{member === undefined ? t('memberDialogAdd') : t('memberDialogEdit', { name: member.name })}</h2>
+        <p>{name === backend ? name : `${name}·${backend}`}</p>
+        <p>{t('memberNoPersona')}</p>
+        <details><summary>{t('memberOptional')}</summary>
         <label className={css.field}>
           <span>{t('memberName')}</span>
-          <input className={css.fieldInput} value={name} maxLength={32} autoFocus onChange={(event) => { setName(event.target.value) }} />
+          <input className={css.fieldInput} value={name} maxLength={32} onChange={(event) => { setName(event.target.value); setNameCustomized(true) }} />
         </label>
+
         <div className={css.field}>
           <span id="member-avatar-label">{t('memberAvatar')}</span>
           <span className={css.avatarPicker} role="radiogroup" aria-labelledby="member-avatar-label">
@@ -136,6 +160,15 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
             ))}
           </span>
         </div>
+        <label className={css.field}><span><input type="checkbox" checked={keepName} onChange={e => setKeepName(e.target.checked)} />{t('memberKeepName')}</span></label>
+        <select className={css.fieldInput} aria-label={t('memberPersona')} value={personaSlug} onChange={e => {
+          setPersonaSlug(e.target.value)
+          const p = personas.find(p => p.slug === e.target.value)
+          setPersona(p ? (keepName ? p.text.split(p.name).join(name) : p.text) : '')
+          if (p) { setAvatar(p.avatar || ''); if (!keepName) { setName(p.name); setNameCustomized(true) } }
+        }}><option value="">{t('memberPersonaNone')}</option>{personas.map(p => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select>
+        <label className={css.field}><span>{t('memberPersona')}</span><textarea className={css.fieldInput} rows={4} value={persona} maxLength={4000} onChange={e => setPersona(e.target.value)} /></label>
+        </details>
         {member === undefined && (
           <div className={css.field} role="radiogroup" aria-label={t('memberType')}>
             <span>{t('memberType')}</span>
@@ -190,10 +223,6 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
             ))}
           </select>
         </label>}
-        <label className={css.field}>
-          <span>{t('memberPersona')}</span>
-          <textarea className={css.fieldInput} rows={4} value={persona} maxLength={4000} onChange={(event) => { setPersona(event.target.value) }} />
-        </label>
         {error !== undefined && <div className={css.sendError} role="alert">{error}</div>}
         <div className={css.dialogActions}>
           <button type="button" className={css.secondaryButton} onClick={onClose}>{t('cancel')}</button>

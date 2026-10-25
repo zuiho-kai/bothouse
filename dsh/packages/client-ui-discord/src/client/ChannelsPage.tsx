@@ -36,8 +36,8 @@ type T = TranslateNS<typeof NS>
 
 const CLI_TAG = { claude: 'kindClaude', codex: 'kindCodex', gemini: 'kindGemini' } as const
 
-function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cli?: ChannelMember['cli']; t: T }) {
-  if (cli !== undefined) return <span className={css.tag}>{t(CLI_TAG[cli])}</span>
+function KindTag({ kind, cli, name, t }: { name?: string; kind: ChannelMember['kind'] | undefined; cli?: ChannelMember['cli']; t: T }) {
+  if (cli !== undefined) { const label = t(CLI_TAG[cli]); return name === label ? null : <span className={css.tag}>·{label}</span> }
   if (kind === 'dsh') return <span className={css.tag}>{t('kindDsh')}</span>
   if (kind === 'bot') return <span className={css.tag}>{t('kindBot')}</span>
   return null
@@ -148,7 +148,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
         {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} />}
         <div className={css.messageHead}>
           <span className={css.author}>{message.name}</span>
-          <KindTag kind={member?.kind} cli={member?.cli} t={t} />
+          <KindTag name={message.name} kind={member?.kind} cli={member?.cli} t={t} />
           <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
           {message.edited_at !== undefined && <span className={css.edited} title={new Date(message.edited_at * 1000).toLocaleString()}>{t('messageEdited')}</span>}
           {own !== undefined && own.editing === undefined && (
@@ -250,7 +250,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
               <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />
             </span>
             <span className={css.memberText}>
-              <span className={css.memberName}>{m.name}<KindTag kind={m.kind} cli={m.cli} t={t} /></span>
+              <span className={css.memberName}>{m.name}<KindTag name={m.name} kind={m.kind} cli={m.cli} t={t} /></span>
               <span className={css.memberStatus}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
               {m.kind === 'dsh' && m.cli === undefined && (
                 <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
@@ -276,7 +276,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -721,7 +721,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                       {m.online && <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />}
                     </span>
                     <span className={css.mentionName}>{m.name}</span>
-                    <KindTag kind={m.kind} cli={m.cli} t={t} />
+                    <KindTag name={m.name} kind={m.kind} cli={m.cli} t={t} />
                     <span className={css.mentionMeta}>
                       {m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? `@${m.id}` : t('offline')}
                     </span>
@@ -861,6 +861,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           member={dialog ?? undefined}
           listModels={listModels}
           listClis={listClis}
+          listPersonas={listPersonas}
+          members={state.members}
           onSubmit={input => (dialog === null ? addMember(input) : updateMember(dialog.id, input))}
           onClose={() => { setDialog(undefined) }}
           t={t}

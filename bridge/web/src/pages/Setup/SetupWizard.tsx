@@ -152,6 +152,9 @@ export default function SetupWizard() {
     if (p.agent_type && p.agent_type !== r.agent_type && !r.nameCustomized && !r.reuse_project && p.name === undefined) {
       next.name = nextRoleName(p.agent_type, rs.filter(x => x.key !== key).map(x => x.name || '').concat(state?.project_display_names || []));
     }
+    if (next.name !== r.name && next.keepPersonaName !== false && next.personaSlug && p.persona === undefined) {
+      next.persona = personaWithName(next.persona, r.name || '', next.name || '');
+    }
     return next;
   }));
   const addRole = () => setRoles(rs => [...rs, { ...newRole(), agent_type: defaultAgent,
@@ -192,7 +195,7 @@ export default function SetupWizard() {
       if (!guildID) setGuildID(exGuild || info.guilds[0]?.id || '');
       if (reuse) {
         const ex = existing.find((b) => b.project === reuse);
-        patchRole(r.key, { agent_type: ex?.agent_type || r.agent_type, existingWorkDir: ex?.work_dir, editPersona: false, persona: '', existingPersona: undefined });
+        patchRole(r.key, { name: ex?.username || reuse, nameCustomized: true, agent_type: ex?.agent_type || r.agent_type, existingWorkDir: ex?.work_dir, editPersona: false, persona: '', existingPersona: undefined });
         if (ex?.work_dir) {
           getSetupPersona(ex.agent_type, ex.work_dir).then((p) => patchRole(r.key, { existingPersona: p })).catch(() => patchRole(r.key, { existingPersona: null }));
         } else {

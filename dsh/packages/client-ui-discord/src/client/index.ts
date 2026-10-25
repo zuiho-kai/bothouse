@@ -52,6 +52,7 @@ export function apply(ctx: ClientContext): void {
     createRoom: channels.actions.createRoom,
     listModels: channels.actions.listModels,
     listClis: channels.actions.listClis,
+    listPersonas: channels.actions.listPersonas,
     addMember: channels.actions.addMember,
     updateMember: channels.actions.updateMember,
     removeMember: channels.actions.removeMember,
