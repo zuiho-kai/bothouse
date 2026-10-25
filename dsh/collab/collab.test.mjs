@@ -1079,7 +1079,7 @@ test('clis: detection lists installed CLIs in order; handler answers GET with [{
 });
 
 test('roster: wizard roles are imported once, existing names skipped', async () => {
-  const { mkdtempSync, writeFileSync, existsSync } = await import('node:fs');
+  const { mkdtempSync, writeFileSync, existsSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
@@ -1095,7 +1095,10 @@ test('roster: wizard roles are imported once, existing names skipped', async () 
   assert.equal(members.config.get(ju.id).persona, '大姐头');
   assert.equal(members.config.get(ju.id).avatar, 'orange');
   assert.equal(existsSync(file), false);
-  assert.equal(existsSync(join(dir, 'wizard-members.imported.json')), true);
+  // each role carries the member id it really has (a Chinese name gets an m-xxxxxx id), for its wiki directory
+  const done = JSON.parse(readFileSync(join(dir, 'wizard-members.imported.json'), 'utf8')).members;
+  assert.deepEqual(done.map(m => [m.name, m.id]), [['橘', ju.id], ['DeepSeek', 'ds'], ['鲸鱼娘', hub.memberView().find(m => m.name === '鲸鱼娘').id]]);
+  assert.match(ju.id, /^m-[a-z0-9]{6}$/);
   assert.deepEqual(await roster.importWizard(file), []);
 });
 

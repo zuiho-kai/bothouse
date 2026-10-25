@@ -2,7 +2,7 @@
 // in the UI), UI members are created, edited and removed here. Names must be
 // unique across every channel member (DSH members and cc-connect bots alike)
 // because @-mentions are matched by name.
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { CollabError } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
 import { PERMISSION_PRESETS } from './cli-member.mjs';
@@ -55,8 +55,9 @@ export class Roster {
 
   /**
    * Add the roles the setup wizard wrote (bridge core/setup_dsh_configure.go: {"members":[{name,cli?,persona?}]})
-   * as UI members, once: names already in the channel are skipped, then the file becomes *.imported.json.
-   * Returns the names added.
+   * as UI members, once: names already in the channel are skipped, then the file becomes *.imported.json with
+   * each role's member id (the new one, or the one already holding the name), so bothouse names the role's wiki
+   * after the id the member really has (bridge core/setup_dsh_wiki.go). Returns the names added.
    */
   async importWizard(path, logger) {
     if (!existsSync(path)) return [];
@@ -68,18 +69,26 @@ export class Roster {
       return [];
     }
     const added = [];
+    const imported = [];
     for (const m of Array.isArray(members) ? members : []) {
       const name = String(m?.name ?? '').trim();
-      if (this.hub.memberList().some(x => x.name.toLowerCase() === name.toLowerCase())) continue;
+      const same = this.hub.memberList().find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (same !== undefined) {
+        imported.push({ ...m, id: same.id });
+        continue;
+      }
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
-        await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(avatar ? { avatar } : {}) });
+        const member = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(avatar ? { avatar } : {}) });
+        imported.push({ ...m, id: member.id });
         added.push(name);
       } catch (error) {
+        imported.push(m);
         logger?.warn?.('conest-collab: wizard member %s not added: %s', name, error?.message ?? error);
       }
     }
-    renameSync(path, path.replace(/\.json$/, '') + '.imported.json');
+    writeFileSync(path.replace(/\.json$/, '') + '.imported.json', JSON.stringify({ members: imported }, null, 2), { mode: 0o600 });
+    unlinkSync(path);
     return added;
   }
 

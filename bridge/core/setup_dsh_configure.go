@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -44,8 +43,6 @@ type DSHConfigureResult struct {
 	KeySaved    bool   `json:"key_saved"`
 	MembersFile string `json:"members_file"`
 	Members     int    `json:"members"`
-	// Wikis: each member's role wiki (setup_dsh_wiki.go); a member whose wiki failed is still added.
-	Wikis []DSHMemberWiki `json:"wikis,omitempty"`
 }
 
 // dshCLIs are the local CLIs a collab member may run as (dsh/collab/roster.mjs CLIS).
@@ -68,8 +65,12 @@ func dshMembersFile() string { return filepath.Join(collabDataDir(), "wizard-mem
 // DSHRouteConfigured: the wizard has set up DSH-native members on this machine. They take their
 // per-turn wiki pages and task board from the local gate, so bothouse runs the gate for them.
 func DSHRouteConfigured() bool {
-	_, err := os.Stat(dshMembersFile())
-	return err == nil
+	for _, f := range []string{dshMembersFile(), dshImportedFile()} { // the plugin renames it on import
+		if _, err := os.Stat(f); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // ConfigureDSH saves the key, disables the sign-in prompt and writes the roles for the plugin.
@@ -278,6 +279,9 @@ const dshChannelsHash = "#channels"
 // walkthrough (2026-10-23, /tmp/dshux) saw it print within seconds, this leaves wide margin.
 const dshWebStartTimeout = 60 * time.Second
 
+// dshWikiImportWait: how long after the open step the member wikis wait for the plugin to import the roles.
+const dshWikiImportWait = 2 * time.Minute
+
 var (
 	dshWebMu  sync.Mutex
 	dshWebURL = regexp.MustCompile(`dsh web: (https?://\S+)`)
@@ -419,12 +423,6 @@ func (m *ManagementServer) handleSetupDSHConfigure(w http.ResponseWriter, r *htt
 		mgmtError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res.Wikis = addDSHMemberWikis(r.Context(), m.wizardDataDir, req.Members)
-	for _, x := range res.Wikis {
-		if x.Error != "" {
-			slog.Warn("dsh member wiki not made", "member", x.Name, "error", x.Error)
-		}
-	}
 	mgmtJSON(w, http.StatusOK, res)
 }
 
@@ -439,5 +437,7 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		return
 	}
 	EnsureGateForDSH(m.wizardDataDir)
+	// the member ids exist once the plugin in `dsh web` has imported the roles: the wikis are named after them
+	go makeDSHMemberWikisOnImport(m.wizardDataDir, dshWikiImportWait)
 	mgmtJSON(w, http.StatusOK, web)
 }

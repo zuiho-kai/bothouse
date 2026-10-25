@@ -10,14 +10,6 @@ import (
 	"testing"
 )
 
-func TestDSHMemberID(t *testing.T) {
-	for in, want := range map[string]string{"Juzi": "juzi", "Big Whale!": "big-whale", "橘": "", "-x": "x", "_a": ""} {
-		if got := dshMemberID(in); got != want {
-			t.Fatalf("dshMemberID(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // A DSH-native member gets its role wiki (MEMORY.md there), and the gate's /context with bot=<member id> returns
 // wiki pages (ctxsvc.context, the function gate.py's POST /context calls).
 func TestAddDSHMemberWikis(t *testing.T) {
@@ -26,11 +18,13 @@ func TestAddDSHMemberWikis(t *testing.T) {
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
 	data := t.TempDir()
-	got := addDSHMemberWikis(context.Background(), data, []DSHMember{{Name: "Juzi", CLI: "claude"}, {Name: "鲸"}})
-	if len(got) != 2 || got[0].ID != "juzi" || got[0].Error != "" || got[1].ID != "" || got[1].Error != "" {
+	// the ids the collab plugin gave them (roster.mjs importWizard): a Chinese name has an m-xxxxxx id
+	got := addDSHMemberWikis(context.Background(), data, []DSHImportedMember{
+		{DSHMember: DSHMember{Name: "Juzi", CLI: "claude"}, ID: "juzi"}, {DSHMember: DSHMember{Name: "鲸"}, ID: "m-k3x9q2"}, {DSHMember: DSHMember{Name: "x"}}})
+	if len(got) != 3 || got[0].Error != "" || got[1].Error != "" || got[2].Error == "" {
 		t.Fatalf("wikis = %+v", got)
 	}
-	for _, p := range []string{"juzi", "dsh-2"} {
+	for _, p := range []string{"juzi", "m-k3x9q2"} {
 		w := filepath.Join(data, "roles", p, "wiki")
 		if !fileExists(filepath.Join(w, "MEMORY.md")) {
 			t.Fatalf("%s: no MEMORY.md in %s", p, w)
@@ -38,7 +32,7 @@ func TestAddDSHMemberWikis(t *testing.T) {
 	}
 	var bots map[string]map[string]string
 	b, _ := os.ReadFile(filepath.Join(RoleWikiDir(data), "bots.json"))
-	if err := json.Unmarshal(b, &bots); err != nil || bots["juzi"]["kind"] != "claudecode" || bots["dsh-2"]["kind"] != "dsh" {
+	if err := json.Unmarshal(b, &bots); err != nil || bots["juzi"]["kind"] != "claudecode" || bots["m-k3x9q2"]["kind"] != "dsh" || bots["m-k3x9q2"]["name"] != "鲸" {
 		t.Fatalf("bots.json = %s %v", b, err)
 	}
 	// a page the member's question hits, in the wiki the gate reads (GATE_WIKI = the main wiki)
@@ -58,7 +52,7 @@ print(json.dumps(ctxsvc.context({"key": "k", "text": "zebrafish", "bot": "juzi"}
 		t.Fatalf("context: %v %s", err, out)
 	}
 	// a second run keeps the entries and makes no new projects
-	again := addDSHMemberWikis(context.Background(), data, []DSHMember{{Name: "Juzi", CLI: "claude"}})
+	again := addDSHMemberWikis(context.Background(), data, []DSHImportedMember{{DSHMember: DSHMember{Name: "Juzi", CLI: "claude"}, ID: "juzi"}})
 	if again[0].Error != "" || again[0].Wiki != filepath.Join(data, "roles", "juzi", "wiki") {
 		t.Fatalf("rerun = %+v", again)
 	}
@@ -68,8 +62,29 @@ func TestAddDSHMemberWikisNoPrograms(t *testing.T) {
 	old := RoleWikiFS
 	RoleWikiFS = nil
 	t.Cleanup(func() { RoleWikiFS = old })
-	got := addDSHMemberWikis(context.Background(), t.TempDir(), []DSHMember{{Name: "a"}})
+	got := addDSHMemberWikis(context.Background(), t.TempDir(), []DSHImportedMember{{DSHMember: DSHMember{Name: "a"}, ID: "a"}})
 	if got[0].Error == "" {
 		t.Fatalf("want an error, got %+v", got)
+	}
+}
+
+// The wikis wait for the plugin's imported file and take the ids from it.
+func TestMakeDSHMemberWikisOnImport(t *testing.T) {
+	useRepoWiki(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("WIKI_DIR", filepath.Join(t.TempDir(), "wiki"))
+	collab := t.TempDir()
+	t.Setenv("CONEST_COLLAB_DATA", collab)
+	data := t.TempDir()
+	if got := makeDSHMemberWikisOnImport(data, 0); got != nil {
+		t.Fatalf("no imported file: %+v", got)
+	}
+	_ = os.WriteFile(filepath.Join(collab, "wizard-members.imported.json"), []byte(`{"members":[{"name":"橘","cli":"claude","id":"m-ab12cd"}]}`), 0o600)
+	got := makeDSHMemberWikisOnImport(data, 0)
+	if len(got) != 1 || got[0].Error != "" || got[0].Wiki != filepath.Join(data, "roles", "m-ab12cd", "wiki") {
+		t.Fatalf("wikis = %+v", got)
+	}
+	if !DSHRouteConfigured() {
+		t.Fatal("the imported file alone should keep the DSH route on")
 	}
 }
