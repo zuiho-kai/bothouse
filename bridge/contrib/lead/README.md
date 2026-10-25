@@ -13,7 +13,7 @@
 
 - `PLAYBOOK.zh-CN.md`（原文）/ `PLAYBOOK.md`（英文译本）：主角色怎么带团队并行干活。
   gate 的 `/context` 只给当前主角色附这份手册（`../gate/lead.py` 的 `playbook()`），当次的不附；换主后新主的下一轮收到一次。
-  `GATE_PLAYBOOK=<文件>` 换成英文版或自己的版本，`off` = 不附。gate 部署到别的目录时，把本目录一起带上或设 `GATE_PLAYBOOK`。
+  `GATE_PLAYBOOK=<文件>` 换成英文版或自己的版本，`off` = 不附。默认先读 `<数据目录>/collaboration/lead/PLAYBOOK.zh-CN.md`（向导装的 lead 工具），没有再读 gate 旁的 `../lead/`。
 - 手册里用到的脚本（都从 gate 已有的配置读，见 `_team.py`，不写死名字和 ID）：
   - `t10 <pid>`：后台活满 10 分钟连子进程一起停。
   - `d10 <队友名字/别名/ID> "<简称>"`：10 分钟后队友没交回，就以调用者（`CC_PROJECT`，即当主角色）的身份在当前频道（`CC_SESSION_KEY`）发「暂停」；队友 ID 从团队文件的 `"id"` 读。到点由 `d10-fire` 判断：
