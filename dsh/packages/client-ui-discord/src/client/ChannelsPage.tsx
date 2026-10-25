@@ -614,7 +614,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             aria-label={t('newRoom')}
             onChange={(event) => { setNewRoom(event.target.value) }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); submitRoom() }
+              if (event.key === 'Enter' && !isImeEnter(event)) { event.preventDefault(); submitRoom() }
               if (event.key === 'Escape') { setNewRoom(undefined); setRoomError(undefined) }
             }}
             onBlur={() => { if ((newRoom ?? '').trim() === '') setNewRoom(undefined) }}

@@ -2558,7 +2558,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							setNewRoom(event.target.value);
 						},
 						onKeyDown: (event) => {
-							if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+							if (event.key === "Enter" && !isImeEnter(event)) {
 								event.preventDefault();
 								submitRoom();
 							}

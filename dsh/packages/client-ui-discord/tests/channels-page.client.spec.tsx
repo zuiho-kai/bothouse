@@ -402,6 +402,16 @@ describe('channels page', () => {
     expect(p.createRoom).toHaveBeenCalledExactlyOnceWith('design')
   })
 
+  it('does not create a channel on the IME-confirming Enter (keyCode 229)', async () => {
+    const p = props({ ...ready, thinking: {} })
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.newRoom }))
+    const input = screen.getByRole('textbox', { name: zh.newRoom })
+    fireEvent.change(input, { target: { value: 'she ji' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 }) })
+    expect(p.createRoom).not.toHaveBeenCalled()
+  })
+
   it('adds a member through the dialog and keeps the form on a refusal', async () => {
     const p = props({ ...ready, thinking: {} })
     ;(p.listModels as ReturnType<typeof vi.fn>).mockResolvedValue([
