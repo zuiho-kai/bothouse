@@ -345,13 +345,13 @@ func warnJevRecommended(lang, fallbackName string) WizardWarning {
 	w := WizardWarning{Code: "jev_recommended"}
 	if isJA(lang) {
 		w.Message = "ロールが複数ありますが jev が未設定です：@ されていないメッセージはすべてメインロール「" + fallbackName + "」が答えるので、毎回そのロールが返事しているように見えます。jev を設定するのがおすすめです。無料の小型モデルで十分で、設定すると gate がメッセージごとに答えるべきか・誰が答えるかを賢く判断します。"
-		w.Fix = "ウィザードの jev ステップで Base URL・Key・モデル名を入力してください（AI：リクエストに \"jev\": {\"base_url\", \"api_key\", \"model\"} を追加）：SiliconFlow の無料 Qwen 小型モデル、またはローカルで Qwen3 0.6B を起動（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。その後 gate を入れてください：docs/ccm-and-wiki.md の「起 gate」の節を参照。"
+		w.Fix = "ウィザードの jev ステップで Base URL・Key・モデル名を入力してください（AI：リクエストに \"jev\": {\"base_url\", \"api_key\", \"model\"} を追加）：SiliconFlow の無料 Qwen 小型モデル、またはローカルで Qwen3 0.6B を起動（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。jev を設定すれば bothouse が自動で gate の判断を有効にします（gate を手で入れる必要はありません）。"
 	} else if isZH(lang) {
 		w.Message = "配了多个角色，但没填 jev：没被 @ 的消息都由主角色「" + fallbackName + "」回，看起来就是它每句都回。推荐填一个 jev，免费小模型就够；填了以后 gate 会更智能地判断每句话该不该回、该谁回。"
-		w.Fix = "在向导的 jev 一步填 Base URL、Key、模型名（AI：请求里加 \"jev\": {\"base_url\", \"api_key\", \"model\"}）：用硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。再装 gate：见 docs/ccm-and-wiki.md「起 gate」。"
+		w.Fix = "在向导的 jev 一步填 Base URL、Key、模型名（AI：请求里加 \"jev\": {\"base_url\", \"api_key\", \"model\"}）：用硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。装好 jev 后 bothouse 自动启用 gate 的智能判断，不用自己装 gate。"
 	} else {
 		w.Message = "Several roles but no jev: every message that @-mentions no one goes to the primary role \"" + fallbackName + "\", so it looks like that role answers everything. A jev is recommended, and a free small model is enough: with it the gate decides more smartly whether and which role should answer each message."
-		w.Fix = "Fill in Base URL, Key and model on the wizard's jev step (AI: add \"jev\": {\"base_url\", \"api_key\", \"model\"} to the request): a free small Qwen model on SiliconFlow, or run Qwen3 0.6B locally (mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit). Then install the gate: see docs/ccm-and-wiki.md \"start the gate\"."
+		w.Fix = "Fill in Base URL, Key and model on the wizard's jev step (AI: add \"jev\": {\"base_url\", \"api_key\", \"model\"} to the request): a free small Qwen model on SiliconFlow, or run Qwen3 0.6B locally (mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit). Once the jev is set, bothouse turns on the gate's smart routing by itself; no need to install the gate."
 	}
 	return w
 }

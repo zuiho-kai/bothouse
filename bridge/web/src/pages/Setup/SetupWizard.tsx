@@ -125,7 +125,8 @@ export default function SetupWizard() {
   const wikiInfo = state?.wiki;
 
   useEffect(() => {
-    getSetupState(lang).then(setState).catch(() => {});
+    // the routing checkbox starts from the saved choice (off stays off); no value = on
+    getSetupState(lang).then((s) => { setState(s); if (s.gate_enabled === false) setGateEnabled(false); }).catch(() => {});
     getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([]));
     getMatrix().then((r) => { setVendors(r.vendors); setMatrix(r.matrix); }).catch(() => {});
     getExistingBots().then((r) => setExisting(r.bots)).catch(() => {});
@@ -350,7 +351,8 @@ export default function SetupWizard() {
     }
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     // the submitted request and the copyable AI command carry the same routing setting
-    req.gate = wizardGate(visibleSteps.includes(4), gateEnabled);
+    const gate = wizardGate(visibleSteps.includes(4), gateEnabled);
+    if (gate) req.gate = gate;
     return req;
   };
 

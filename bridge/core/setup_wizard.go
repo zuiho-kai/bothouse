@@ -331,7 +331,10 @@ type SetupState struct {
 	CloudWebURL      string           `json:"cloud_web_url,omitempty"`
 	CloudWebFallback string           `json:"cloud_web_fallback,omitempty"`
 	CloudWebTeam     []SetupTeamEntry `json:"cloud_web_team,omitempty"`
-	UpdatedAt        string           `json:"updated_at,omitempty"`
+	// GateOff: the user turned the gate off in the wizard (gate.enabled false). A later run without a
+	// gate field (add role, single-role flows, AI) keeps it off; one with the field records the new choice.
+	GateOff   bool   `json:"gate_off,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 type SetupTeamEntry struct {
@@ -932,6 +935,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 
 	state := LoadSetupState(env.DataDir)
+	if req.Gate == nil && state.GateOff { // no gate field: keep the user's earlier "off"
+		req.Gate = &WizardGate{Enabled: false}
+	}
 	// 2. plan against a config snapshot: names, work dirs, team merge. It runs again
 	//    inside the lock against the config as it is then (H3.4).
 	plan := func(s WizardSnapshot) (*wizardPlan, error) {
@@ -1186,6 +1192,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		st.Language, st.UpdatedAt = req.Language, time.Now().Format(time.RFC3339)
 		st.CloudWebURL, st.CloudWebFallback, st.CloudWebTeam = cwBase, pl.fallback, pl.team
 	}
+	st.GateOff = !req.gateOn()
 	if err := writeJSONFile(filepath.Join(env.DataDir, setupStateFile), st, 0o644); err != nil {
 		return fail("state", err)
 	}
@@ -2018,6 +2025,7 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	out := map[string]any{"system_language": SystemLanguage(), "hardware": HardwarePresent(), "data_dir": m.wizardDataDir}
 	st := LoadSetupState(m.wizardDataDir)
 	out["setup"] = st
+	out["gate_enabled"] = !st.GateOff // the wizard's gate checkbox starts from this
 	if j, ok := LoadJevConfig(m.wizardDataDir); ok {
 		out["jev"] = map[string]any{"url": j.URL, "model": j.Model, "has_key": j.APIKey != "", "logprobs": j.Logprobs}
 	}

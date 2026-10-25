@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { wizardGate } from './wizardGate';
 
 describe('wizardGate', () => {
-  it('is on by default (checkbox shown, left ticked)', () => {
+  it('is on when the checkbox is shown and ticked (the default)', () => {
     expect(wizardGate(true, true)).toEqual({ enabled: true });
   });
 
@@ -10,9 +10,9 @@ describe('wizardGate', () => {
     expect(wizardGate(true, false)).toEqual({ enabled: false });
   });
 
-  it('stays on in the 飞书 flow, which has no checkbox', () => {
-    // the 飞书 flow skips the routing step, so the (default-ticked) checkbox state is never seen
-    expect(wizardGate(false, true)).toEqual({ enabled: true });
-    expect(wizardGate(false, false)).toEqual({ enabled: true });
+  it('sends no field in flows without the checkbox, so the server keeps the saved choice', () => {
+    // 飞书, single-role 自建平台 and add-role skip the routing step: an earlier "off" must stay off
+    expect(wizardGate(false, true)).toBeUndefined();
+    expect(wizardGate(false, false)).toBeUndefined();
   });
 });

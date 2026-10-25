@@ -35,8 +35,8 @@ bothouse 会自己拉起 gate（服务在跑就马上起，没在跑就下次启
 - bothouse 起的 gate 跟着 bothouse 走：bothouse 退出它也退出，崩了会自动重启。脚本释放在 `~/.bothouse/gate/`，
   运行日志在 `~/.bothouse/logs/gate.log`，判断日志在 `~/.bothouse/gate.jsonl`（用来调规则）。
 - 团队文件向导已经写好（`~/.bothouse/gate-team.json`，lead = 向导里选的主角色）；jev 在 `~/.bothouse/jev.json`（测出给概率的才用）。
-  向导保存后 bothouse 会重启自己起的 gate，让它读到新的团队和 jev。
-- 不想要分流：在向导里取消勾选（AI：请求里加 `"gate": {"enabled": false}`）。只清向导写的 gate 设置，自己手写的 `gate_url` 保留。
+  网页向导保存后，正在跑的 bothouse 马上重启自己起的 gate，让它读到新的团队和 jev；CLI `setup apply` 要等 bothouse 下次重启才生效。
+- 不想要分流：在向导里取消勾选（AI：请求里加 `"gate": {"enabled": false}`）。只清向导写的 gate 设置，自己手写的 `gate_url` 保留。关掉后会记住：之后加角色、不带 `gate` 字段的请求都保持关闭，要开回来再勾上。
 
 ### 高级：自己起 gate
 

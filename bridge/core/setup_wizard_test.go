@@ -1400,3 +1400,103 @@ func TestApplyWizardFeishuLarkGateTwoRuns(t *testing.T) {
 		})
 	}
 }
+
+// assertGateStaysOff: after the user turned the gate off, a run without a gate field keeps it off:
+// no project has a wizard gate_url (so reloadGateAfterWizard does not start one), no gate-team.json,
+// and the state still records the choice.
+func assertGateStaysOff(t *testing.T, store *memStore, dir string, res *WizardResult, str func(*string) string) {
+	t.Helper()
+	for name, p := range store.projects {
+		if isWizardGateURL(str(p.GateURL)) {
+			t.Errorf("%s got the wizard gate back: %q", name, str(p.GateURL))
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); !os.IsNotExist(err) {
+		t.Errorf("gate-team.json written after the gate was turned off: %v", err)
+	}
+	if res.GateStatus != GateStatusOff {
+		t.Errorf("gate status = %q, want off", res.GateStatus)
+	}
+	if !LoadSetupState(dir).GateOff {
+		t.Errorf("state lost the gate-off choice")
+	}
+}
+
+// Discord: full wizard with the gate off, then "add role" (no gate field): still off. An explicit
+// "on" is recorded too, and the next run without the field keeps it on.
+func TestApplyWizardDiscordGateOffKeptOnAddRole(t *testing.T) {
+	str := wizardGateTestEnv(t)
+	t1, t2, t3 := fakeToken("111"), fakeToken("222"), fakeToken("333")
+	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale", t3: "Cat"})
+	dir := t.TempDir()
+	store := newMemStore()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	run := func(roles []WizardRole, appendOnly bool, gate *WizardGate) *WizardResult {
+		t.Helper()
+		req := WizardRequest{Platform: "discord", Language: "zh", Roles: roles, Gate: gate, AppendOnly: appendOnly}
+		if !appendOnly {
+			req.FallbackRole = "whale"
+		}
+		req.Discord = &struct {
+			GuildID   string `json:"guild_id"`
+			ChannelID string `json:"channel_id"`
+		}{GuildID: "900", ChannelID: "1"}
+		res := ApplyWizard(context.Background(), env, req)
+		if !res.OK {
+			t.Fatalf("apply (gate=%+v) failed: %+v", gate, res)
+		}
+		return res
+	}
+
+	// no record, no field: on
+	run([]WizardRole{{Token: t1}, {Token: t2}}, false, nil)
+	if str(store.projects["whale"].GateURL) != defaultGateURL || LoadSetupState(dir).GateOff {
+		t.Fatalf("no record + no field: gate = %q, state off = %v", str(store.projects["whale"].GateURL), LoadSetupState(dir).GateOff)
+	}
+
+	// full wizard, gate off
+	os.Remove(filepath.Join(dir, gateTeamFile))
+	run([]WizardRole{{Token: t1}, {Token: t2}}, false, &WizardGate{Enabled: false})
+
+	// add a role, no gate field: stays off
+	res := run([]WizardRole{{Token: t3}}, true, nil)
+	if store.projects["cat"] == nil {
+		t.Fatalf("add role: projects = %v", store.order)
+	}
+	assertGateStaysOff(t, store, dir, res, str)
+
+	// explicitly on again, then another run without the field keeps it on
+	run([]WizardRole{{Token: t1}, {Token: t2}, {Token: t3}}, false, &WizardGate{Enabled: true})
+	os.Remove(filepath.Join(dir, gateTeamFile))
+	run([]WizardRole{{Token: t1}, {Token: t2}, {Token: t3}}, false, nil)
+	if str(store.projects["whale"].GateURL) != defaultGateURL || LoadSetupState(dir).GateOff {
+		t.Errorf("on again + no field: gate = %q", str(store.projects["whale"].GateURL))
+	}
+	if _, err := os.Stat(filepath.Join(dir, gateTeamFile)); err != nil {
+		t.Errorf("on again: gate-team.json not written: %v", err)
+	}
+}
+
+// cloud_web: full wizard with the gate off, then a single-role / add-role run (no gate field): still off.
+func TestApplyWizardCloudWebGateOffKeptOnAddRole(t *testing.T) {
+	str := wizardGateTestEnv(t)
+	noLocalHub(t)
+	hub := fakeHub(t, "bot-secret")
+	dir := t.TempDir()
+	store := newMemStore()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+
+	req := cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Juzi"}, WizardRole{Name: "Whale"})
+	req.FallbackRole, req.Gate = "Juzi", &WizardGate{Enabled: false}
+	if res := ApplyWizard(context.Background(), env, req); !res.Saved {
+		t.Fatalf("full wizard failed: %+v", res)
+	}
+
+	add := cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Cat"})
+	add.AppendOnly = true
+	res := ApplyWizard(context.Background(), env, add)
+	if !res.Saved || store.projects["cat"] == nil {
+		t.Fatalf("add role failed: %v %+v", store.order, res)
+	}
+	assertGateStaysOff(t, store, dir, res, str)
+}
