@@ -605,6 +605,17 @@ class LeadParse(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIsNone(self.parse(text))
 
+    def test_role_followed_by_more_text_is_not_a_switch(self):
+        for text in ("你是主角，我是反派", "你是主bot的跟班", "你是负责人，你说了算"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.parse(text))
+        # 测试团队里没有「码农」，用同结构的「鲸鱼」代替
+        self.assertIsNone(self.parse("鲸鱼现在是主bot的跟班", me="", mentioned=False))
+        self.assertEqual(self.parse("鲸鱼现在是主bot", me="", mentioned=False), "jingyu")
+        for text in ("你现在是主bot", "你是主角色"):
+            with self.subTest(text=text):
+                self.assertEqual(self.parse(text), "jingyu")
+
     def test_from_bot_never_switches(self):
         self.assertIsNone(self.parse("你现在是主bot", from_bot=True))
 
