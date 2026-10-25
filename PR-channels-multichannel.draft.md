@@ -12,13 +12,14 @@ Previously all members and bridge bots shared a global roster and new member ses
 - Bridge connections may declare room=1 or room=room-1. Same names are allowed in disjoint channel scopes. Bot IDs remain instance-wide. Disconnect removes the bot from the in-memory roster; historical messages remain.
 - The native channel UI filters its roster, mention candidates and lead choices; newly added members receive the current parent chat channel scope.
 - Store.close is repeatable. drafts returns an empty list after database close, allowing late dropDrafts cleanup. Ordinary database queries still fail after close.
+- fix: member ranking no longer depends on the system locale. The original implementation fails two frontend tests under zh-CN because mixed Chinese/Latin names sort differently from en-US. A fixed name-sort locale preserves the existing ranking priority, with regression coverage simulating both system defaults.
 
 ## Verification
 
 Author-run checks before the final cleanup:
 
 - cd dsh/collab && node --test *.test.mjs: 203 passed, 0 failed.
-- cd dsh && pnpm test: 10 files, 139 tests passed.
+- cd dsh && pnpm test: 10 files, 140 tests passed (including the new locale regression; full script run under LANG=zh_CN.UTF-8).
 - git diff --check: passed.
 
 New executable developer check: node dsh/collab/verify-multichannel.mjs. Uses a temporary CONEST_COLLAB_DATA. Exit 1 indicates test failure; exit 2 indicates suites passed but acceptance remains incomplete. It does not certify all nine acceptance criteria. Independent reviewer must execute checks themselves.

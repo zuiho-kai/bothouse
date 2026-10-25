@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { activeMention, applyMention, insertMention, rankMembers } from '../src/client/mention-complete.ts'
 import type { ChannelMember } from '../src/client/channel-source.ts'
 
@@ -26,6 +26,23 @@ describe('mention completion', () => {
     expect(rankMembers(members, 'EEP').map(m => m.id)).toEqual(['ds'])
     expect(rankMembers(members, '娘').map(m => m.id)).toEqual(['dragon', 'whale'])
     expect(rankMembers(members, 'zzz')).toEqual([])
+  })
+
+  it('keeps the same mixed-language ranking with Chinese and English system defaults', () => {
+    const original = String.prototype.localeCompare
+    const expected = ['ds', 'ju', 'dragon', 'whale', 'owner']
+    for (const systemLocale of ['zh-CN', 'en-US']) {
+      const compare = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(function (
+        this: string, other: string, locales?: Intl.LocalesArgument, options?: Intl.CollatorOptions,
+      ) {
+        return original.call(this, other, locales ?? systemLocale, options)
+      })
+      try {
+        expect(rankMembers(members, '').map(m => m.id)).toEqual(expected)
+      } finally {
+        compare.mockRestore()
+      }
+    }
   })
 
   it('splices @name into the draft and moves the caret after it', () => {
