@@ -50,7 +50,8 @@
 ## 任务板、过会儿回来、安全重启
 
 - `board`（实现在 `../gate/board.py`）：谁手上有哪件事、做在哪、做到哪。`board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看]`、
-  `board update <编号> <状态> …`、`board done <编号>`、`board pause <编号> [原因]` / `board resume <编号>`。
+  `board update <编号> <状态> …`、`board done <编号> <返工次数> [原因]`（返工次数必填，大于 0 时原因必填）、`board pause <编号> [原因]` / `board resume <编号>`。
+  `board add` 拒收纯回看条目（事情以「#编号」开头指向板上另一条，或状态以「等着」开头又没有 PR 号/路径），回看用 `later <编号>`；`board next` 只给 later 用（要 `BOARD_LATER=1`）。
   ws-handoff 建的条目绑着工作区：`board pause`，或 `board update` 把「谁」改成别人时，跑 `<桥> workspace park`
   放掉它在那里的那件交接；那里没别的活在做，桥把工作区放回池子并清会话。手动 add 的条目不动桥。板子存 `BOARD_DIR`（默认 `<GATE_SETUP_DIR>/team`），
   `../gate/ctxsvc.py` 把整张板附进每个 bot 每轮的上下文（板子变了才重推，没用过任务板不附）。
@@ -74,10 +75,11 @@ Python 3 and a POSIX-compatible shell are required. Configure `GATE_TEAM` or
 `GATE_SETUP_DIR/gate-team.json`, `BOARD_DIR`, and platform credentials separately;
 the example team is only a template. The scripts are installed, not a gate service.
 
-`later` accepts `CC_BIN` for the bridge executable and otherwise searches
+`later`, `d10`, `d10-fire` and `ws-forward` accept `CC_BIN` for the bridge executable and otherwise search
 `bothouse`, then `cc-connect`. DSH exports `CC_SESSION`
 from its runtime session key before its subprocess environment filter.
-`board done <id> <rework-count> "<reason>"` archives rework data;
+`board done <id> <rework-count> "<reason>"` archives rework data (count required, reason required when it is above 0);
+`board add` refuses pure look-back items (use `later <id>`), and `board next` is reserved for `later` (`BOARD_LATER=1`);
 `board rework [days]` summarizes the last 14 days by default.
 `safe-restart` requires macOS launchctl and explicit `CC_LAUNCHD_LABEL`;
 installation does not invoke it or restart a running bridge.

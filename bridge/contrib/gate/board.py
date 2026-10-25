@@ -15,7 +15,8 @@
   board                                  # 列出进行中的事
   board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看]   # 新加一条，打印编号
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
-  board done <编号> [返工次数 [原因]]      # 结束：移出任务板，记进 board-done.jsonl
+  board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
+  board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
   board pause <编号> [原因]               # 暂停：留在板上、卡片单列「暂停」块，不算做完、不进 board-done.jsonl；
                                          #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
@@ -23,8 +24,10 @@
   board resume <编号>                     # 恢复：回到「在做」
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），卡片那行末尾出「[卡](链接)」
   board refresh                          # 只重画所有已有的置顶卡（让「已过」到点就出现，可由定时调用）
-  --next：下次几点回来看这件事（如 14:30），显示在板上，让用户知道后面还会不会处理。
-    只有 later 能写（它先挂好定时，挂不上就撤掉这行；用环境变量 BOARD_LATER=1 标明），手写 --next 会被拒：
+  add 拒绝纯回看条目：事情以「#编号」开头指向板上另一条，或状态以「等着」开头且没有 PR 号/路径；
+    改用完成通知，或在原条目上 board update / later <编号>（later 在原条目上记「下次看」，不新建回看条目）。
+  --next / board next：下次几点回来看这件事（如 14:30），显示在板上，让用户知道后面还会不会处理。
+    只有 later 能写（它先改好 next 再挂定时，挂不上就改回原值；用环境变量 BOARD_LATER=1 标明），手写会被拒：
     板上写了「下次看」却没挂定时，就没人兑现（2026-10-23 PR #81 审查）。
 
 频道卡片（用户 2026-10-23「我这根本感知不到你后面还可以去处理……也没看到有任何sub表」）：
@@ -157,6 +160,38 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None):
         cur.append(it)
         _write(cur)
     return nid
+
+
+# 纯回看条目：见文件头「add 拒绝纯回看条目」
+def _lookback_reason(what, where, status):
+    m = re.match(r"\s*#(\d+)", what)
+    if m and any(i.get("id") == int(m.group(1)) for i in _read()):
+        return f"「{what}」指向板上已有的 #{m.group(1)}"
+    if status.lstrip().startswith("等着"):
+        has_ref = where.strip() not in ("", "-") or re.search(r"PR\s*#?\d+|/", what + status)
+        if not has_ref:
+            return f"状态「{status}」只是在等、没有 PR 号/路径"
+    return None
+
+
+def set_next(nid, nxt=None, restore=None):
+    """later 用：只改条目的「下次看」。nxt 给几点就设上；restore 给改前的记录（{} = 原来没有）就原样放回。
+    返回 (改前的 next 记录, 事情)；没这个编号返回 None。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return None
+        prev = {k: hit[k] for k in ("next", "next_ts") if k in hit}
+        hit.pop("next", None), hit.pop("next_ts", None)
+        if restore is not None:
+            hit.update({k: restore[k] for k in ("next", "next_ts") if k in restore})
+        else:
+            hit["next"], hit["next_ts"] = nxt, _deadline(nxt)
+        if not hit.get("ch") and _cur_channel():
+            hit["ch"] = _cur_channel()
+        _write(cur)
+    return prev, hit.get("what", "")
 
 
 def update(nid, status, where=None, who=None, nxt=None):
@@ -671,7 +706,7 @@ def _split_next(argv):
         if k + 1 >= len(argv):
             sys.exit("--next 后面要写几点，比如 --next 14:30")
         if os.environ.get("BOARD_LATER") != "1":
-            sys.exit("--next 只能由 later 写（它会同时挂定时）：later 10m \"<事情>\" \"<到点要做什么>\"")
+            sys.exit("--next 只能由 later 写（它会同时挂定时）：later <编号> 10m \"<到点要做什么>\"")
         return argv[:k] + argv[k + 2:], argv[k + 1]
     return argv, None
 
@@ -702,8 +737,26 @@ def main(argv):
         if cmd in ("list", "ls"):
             print("\n".join(lines()) or "（任务板是空的）")
         elif cmd == "add" and len(argv) == 5:
+            why = _lookback_reason(*argv[1:4])
+            if why:
+                sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")
             nid = add(*argv[1:5], nxt=nxt)
             print(f"#{nid}")
+            refresh({_chan_of(nid), _cur_channel()})
+        elif cmd == "next" and len(argv) in (3, 4):
+            if os.environ.get("BOARD_LATER") != "1":
+                sys.exit("「下次看」只能由 later 写（它会同时挂定时）：later <编号> 10m \"<到点要做什么>\"")
+            nid = int(argv[1].lstrip("#"))
+            if len(argv) == 4 and argv[2] == "--restore":
+                r = set_next(nid, restore=json.loads(argv[3]))
+            elif len(argv) == 3 and re.fullmatch(r"\d\d:\d\d", argv[2]):
+                r = set_next(nid, argv[2])
+            else:
+                sys.exit("用法：board next <编号> <几点如 14:30> | board next <编号> --restore '<JSON>'")
+            if r is None:
+                sys.exit(f"没有 #{nid}：later 只能挂在任务板已有的条目上，先 board add 正经条目（事情、分支/PR/路径、状态、谁）")
+            print(json.dumps(r[0], ensure_ascii=False))
+            print(str(r[1]).replace("\n", " "))
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "update" and 3 <= len(argv) <= 5:
             nid = int(argv[1].lstrip("#"))
@@ -727,11 +780,17 @@ def main(argv):
                     print("工作区已放回池子，会话已清")
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "done" and 2 <= len(argv) <= 4:
+            # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))
-            rework = int(argv[2]) if len(argv) > 2 else None
-            if rework is not None and rework < 0:
+            if len(argv) < 3:
+                sys.exit("要写返工次数：board done <编号> <返工次数> [原因]，没返工写 0，比如 board done 3 0")
+            rework = int(argv[2])
+            if rework < 0:
                 sys.exit("返工次数要是 0 或正整数，比如 board done 3 1 \"没先读现有实现\"")
-            if not done(nid, rework, argv[3] if len(argv) > 3 else None):
+            why = argv[3].strip() if len(argv) > 3 else ""
+            if rework > 0 and not why:
+                sys.exit(f"返工 {rework} 次要写原因，比如 board done {nid} {rework} \"没先读现有实现\"")
+            if not done(nid, rework, why or None):
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已结束")
             refresh({_chan_of(nid), _cur_channel()})

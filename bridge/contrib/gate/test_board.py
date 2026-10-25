@@ -32,7 +32,7 @@ class Board(unittest.TestCase):
         out = cli()[1].splitlines()
         self.assertEqual(len(out), 2)
         self.assertTrue(out[0].startswith("#1 @ 路由修复｜PR #236｜已合并｜橘｜"), out[0])
-        self.assertEqual(cli("done", "1")[0], 0)
+        self.assertEqual(cli("done", "1", "0")[0], 0)
         self.assertTrue(cli()[1].startswith("#2 "))
         self.assertEqual(cli("add", "a", "b", "c", "龙娘"), (0, "#3"))  # 结束过的编号不再用
         self.assertIn('"done_at"', (Path(TMP) / "board-done.jsonl").read_text())
@@ -42,6 +42,44 @@ class Board(unittest.TestCase):
         self.assertNotEqual(cli("done", "x")[0], 0)
         self.assertNotEqual(cli("add", "只有一项")[0], 0)
         self.assertEqual(cli(), (0, "（任务板是空的）"))
+
+    def test_add_refuses_lookback(self):
+        self.assertEqual(cli("add", "修登录页", "-", "在做", "橘"), (0, "#1"))
+        rc, out = cli("add", "#1 回来看", "-", "在做", "橘")
+        self.assertNotEqual(rc, 0); self.assertIn("指向板上已有的 #1", out)
+        rc, out = cli("add", "回头看看", "-", "等着 CI", "橘")
+        self.assertNotEqual(rc, 0); self.assertIn("没有 PR 号/路径", out)
+        self.assertEqual(cli("add", "#9 不在板上", "-", "在做", "橘"), (0, "#2"))  # 指向不存在的编号不算回看
+        self.assertEqual(cli("add", "等 CI", "PR #12", "等着 CI", "橘"), (0, "#3"))  # 等着但有 PR 号
+        self.assertEqual(cli("add", "等合并", "-", "等着 PR #13 合", "橘"), (0, "#4"))
+        self.assertEqual(len(cli()[1].splitlines()), 4)
+
+    def test_done_needs_rework_and_reason(self):
+        cli("add", "x", "-", "s", "橘")
+        rc, out = cli("done", "1")
+        self.assertNotEqual(rc, 0); self.assertIn("要写返工次数", out)
+        rc, out = cli("done", "1", "2")
+        self.assertNotEqual(rc, 0); self.assertIn("要写原因", out)
+        self.assertNotEqual(cli("done", "1", "1", "  ")[0], 0)
+        self.assertEqual(cli()[1].count("#1 "), 1)  # 被拒的不结束
+        self.assertEqual(cli("done", "1", "1", "没先读现有实现"), (0, "已结束"))
+
+    def test_next_subcommand_needs_later(self):
+        cli("add", "x", "-", "s", "橘")
+        rc = subprocess.run([str(HERE.parent / "lead" / "board"), "next", "1", "14:30"], capture_output=True, text=True,
+                                 env={k: v for k, v in os.environ.items() if k != "BOARD_LATER"} | {"BOARD_DIR": TMP}).returncode
+        self.assertNotEqual(rc, 0)
+        self.assertNotIn("next", board.items()[0])
+        env = {**os.environ, "BOARD_DIR": TMP, "BOARD_LATER": "1"}
+        p = subprocess.run([str(HERE.parent / "lead" / "board"), "next", "1", "14:30"], capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.splitlines(), ["{}", "x"])
+        self.assertEqual(board.items()[0]["next"], "14:30")
+        p = subprocess.run([str(HERE.parent / "lead" / "board"), "next", "1", "--restore", "{}"], capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("next", board.items()[0])
+        p = subprocess.run([str(HERE.parent / "lead" / "board"), "next", "9", "14:30"], capture_output=True, text=True, env=env)
+        self.assertNotEqual(p.returncode, 0)
 
     def test_context_push_changes_with_board(self):
         self.assertEqual(ctxsvc.board_items(), [])  # 没用过任务板不附
@@ -95,7 +133,7 @@ class Card(unittest.TestCase):
         self.assertIn("测试中", self.calls[0][2]["content"])
         self.assertIn("下次看 14:30", self.calls[0][2]["content"])  # 不给 --next 就保留原来的
         self.calls.clear()
-        board.main(["done", "1"])
+        board.main(["done", "1", "0"])
         self.assertIn("没有进行中的事", self.calls[0][2]["content"])
 
     def test_next_only_from_later(self):
@@ -146,7 +184,7 @@ class Card(unittest.TestCase):
             self.assertLess(chat.index("**工作区1**"), chat.index("工作区的事"))
             self.assertIn("工作区的事", ws); self.assertNotIn("聊天频道的事", ws)
             self.calls.clear()
-            board.main(["done", "2"])
+            board.main(["done", "2", "0"])
             chat = next(c[2]["content"] for c in self.calls if "/111/" in c[1])
             self.assertIn("工作区1·工作区1橘：工作区的事", chat)
         finally:
@@ -345,7 +383,8 @@ esac
         cli("done", "1", "2", "没先读现有实现")
         cli("done", "2", "1", "没先读现有实现")
         cli("done", "3", "0")
-        cli("done", "4")
+        self.assertNotEqual(cli("done", "4")[0], 0)  # 返工次数必填
+        board.done(4)  # 规矩之前结束的旧记录没填返工次数，汇总照样算「未填」
         out = cli("rework")[1].splitlines()
         self.assertEqual(out[0], "最近 14 天结束 4 件：返工 2 件，没返工 1 件，未填 1 件")
         self.assertTrue(out[1].startswith("没先读现有实现：3 次｜#1 事0（2）"), out[1])

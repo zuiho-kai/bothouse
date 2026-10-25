@@ -27,7 +27,7 @@ def append_result(path: str, summary: str, now: str):
 
 
 def timer_cmd(ws: str, path: str):
-    return ["cc-connect", "timer", "add", "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
+    return [_team.cc_bin() or "cc-connect", "timer", "add", "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
             "--desc", "工作区转交", "--prompt", f"主频道转来新结果，读 {path} 末尾「转交结果」节最新一条，接着推进"]
 
 
