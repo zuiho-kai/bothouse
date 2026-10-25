@@ -93,17 +93,18 @@ export class TeamExit {
       this.db.prepare('UPDATE team_exit_asks SET answered = 1, answer_source_id = ? WHERE id = ?').run(msg.id, answer.id);
       return message;
     }
-    if (msg.author_kind !== 'role' || msg.card != null) return;
-    const mark = /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i.exec(msg.text.trim());
-    if (!mark) return;
+    if (msg.author_kind !== 'role') return;
+    const mark = msg.card == null ? /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i.exec(msg.text.trim()) : null;
     const room = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(msg.room_id);
     if (!room?.parent_id || room.parent_id === room.id) return;
-    const ask = mark[1].toLowerCase() === 'ask';
+    const ask = mark?.[1].toLowerCase() === 'ask';
     if (ask) {
       const problems = askEvidenceProblems(mark[2]);
       if (problems.length) return this.bounce(room, msg, problems);
     }
+    // Any reply without a bounced [ask] ends the run of bounces.
     this.bounces.delete(`${room.id}:${msg.author}`);
+    if (!mark) return;
     let record;
     if (ask) {
       this.db.prepare(`INSERT OR IGNORE INTO team_exit_asks (id, parent_id, workspace_id, member_id, source_id)

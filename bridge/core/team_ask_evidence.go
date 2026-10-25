@@ -15,11 +15,11 @@ import (
 // Same check in DSH: dsh/collab/team-exit.mjs askEvidenceProblems.
 
 var (
-	askSelfCheckRe = regexp.MustCompile(`自验\s*[：:]`)
-	askCategoryRe  = regexp.MustCompile(`类别\s*[：:]`)
+	askSelfCheckRe = regexp.MustCompile(`自验[\s\x{3000}]*[：:]`)
+	askCategoryRe  = regexp.MustCompile(`类别[\s\x{3000}]*[：:]`)
 	// The four categories that may wait on the user without evidence.
 	askExemptRe  = regexp.MustCompile(`方向|花钱|成品|权限`)
-	askNoCheckRe = regexp.MustCompile(`^(无需|不需要|无|免)([\s，。,.;；（(]|$)`)
+	askNoCheckRe = regexp.MustCompile(`^(无需|不需要|无|免)([\s\x{3000}，。,.;；（(]|$)`)
 )
 
 const (

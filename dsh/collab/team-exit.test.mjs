@@ -34,6 +34,8 @@ test('askEvidenceProblems: what an [ask] body lacks', () => {
     ['点授权\n自验: 无需\n类别: 权限确认', []],
     ['合不合？\n自验：\n```\nok core\n```\n类别：验收', []],
     ['合不合？\n类别：验收\n自验：截图 /tmp/a.png', []],
+    ['选哪条路？\n自验\u3000：无需\u3000\n类别\u3000：方向', []],
+    ['合不合？\n自验：无需\u3000看过\n类别：验收', [ASK_NO_CHECK_NOT_EXEMPT]],
   ];
   for (const [body, want] of cases) assert.deepEqual(askEvidenceProblems(body), want, body);
 });
@@ -86,4 +88,15 @@ test('only two bounces in a row wake the member; a good ask resets', async () =>
   await say('[ask]\n选哪个\n自验：无需\n类别：方向');
   await say('[ask]\n又问');
   assert.equal(woken.length, 3);
+});
+
+test('a plain reply between bounces resets the count; the next bad ask wakes again', async () => {
+  const { say, woken, back } = setup();
+  await say('[ask]\n问一下 1');
+  await say('[ask]\n问一下 2');
+  assert.equal(woken.length, 2);
+  await say('好，我先自己查一下');
+  await say('[ask]\n又问');
+  assert.equal(back().length, 3);
+  assert.equal(woken.length, 3, 'third bounce still wakes after a plain reply');
 });

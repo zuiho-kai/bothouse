@@ -139,6 +139,14 @@ func newAskID() string {
 // It returns the forwarded ask id ("" for a report or when nothing was sent).
 func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) string {
 	kind, body, ok := parseExitKind(reply)
+	var problems []string
+	if ok && kind == exitKindAsk {
+		problems = askEvidenceProblems(body)
+	}
+	if problems == nil {
+		// Any reply without a bounced [ask] ends the run of bounces.
+		e.clearAskBounces(sessionKey)
+	}
 	if !ok || p == nil {
 		return ""
 	}
@@ -151,13 +159,10 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	if !ok {
 		return ""
 	}
-	if kind == exitKindAsk {
-		if problems := askEvidenceProblems(body); problems != nil {
-			e.bounceWorkspaceAsk(p, rec, sessionKey, problems)
-			return ""
-		}
+	if problems != nil {
+		e.bounceWorkspaceAsk(p, rec, sessionKey, problems)
+		return ""
 	}
-	e.clearAskBounces(sessionKey)
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
 	if err != nil {
 		slog.Warn("team exit: chat channel unreachable", "parent", parent, "error", err)

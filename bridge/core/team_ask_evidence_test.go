@@ -18,6 +18,8 @@ func TestAskEvidenceProblems(t *testing.T) {
 		"点一下授权\n自验: 无需\n类别: 权限确认":                   nil,
 		"合不合？\n自验：\n```\nok  core 1.2s\n```\n类别：验收": nil,
 		"合不合？\n类别：验收\n自验：截图 /tmp/a.png":             nil,
+		"选哪条路？\n自验\u3000：无需\u3000\n类别\u3000：方向":     nil,
+		"合不合？\n自验：无需\u3000看过\n类别：验收":                {askNoCheckNotExempt},
 	} {
 		got := askEvidenceProblems(body)
 		if strings.Join(got, "|") != strings.Join(want, "|") {
@@ -112,5 +114,30 @@ func TestAskBounceWakeLimit(t *testing.T) {
 	e.teamExit.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("good ask did not reset bounces: %d", n)
+	}
+}
+
+// Any reply without a bounced [ask] ends the run, so a later bad [ask] wakes the bot again.
+func TestAskBounceResetByPlainReply(t *testing.T) {
+	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	e.cancel() // no posts or turns: only the counter is under test
+	count := func() int {
+		e.teamExit.mu.Lock()
+		defer e.teamExit.mu.Unlock()
+		return e.teamExit.bounces[exitWSKey]
+	}
+	for i := 0; i < askBounceWakeLimit; i++ {
+		e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")
+	}
+	if n := count(); n != askBounceWakeLimit {
+		t.Fatalf("bounces = %d", n)
+	}
+	e.forwardWorkspaceExit(p, exitWSKey, "好，我先自己查一下")
+	if n := count(); n != 0 {
+		t.Fatalf("plain reply did not reset bounces: %d", n)
+	}
+	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n又问")
+	if n := count(); n != 1 {
+		t.Fatalf("third bad ask would not wake: bounces = %d", n)
 	}
 }
