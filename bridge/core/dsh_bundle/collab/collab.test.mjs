@@ -306,6 +306,8 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
  */
 function fakeDsh() {
   const sessions = new Map();
+  const unloaded = new Set();
+  const deleted = new Set();
   const made = [];
   let ids = 0;
   let members;
@@ -324,21 +326,28 @@ function fakeDsh() {
   const ctx = {
     agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-v4' }) },
     agents: {
-      get: id => sessions.get(id),
+      get: id => (unloaded.has(id) ? undefined : sessions.get(id)),
       created: [], resumes: 0, active: 0, maxActive: 0,
       async create(options) { const agent = agentFor(options.sessionId); made.push(options.sessionId); this.created.push(options); await options.setup?.({ on() {} }); return { agent }; },
       async resume({ resumeSessionId }) {
         this.resumes++; this.active++; this.maxActive = Math.max(this.maxActive, this.active);
         await tick();
         this.active--;
+        if (deleted.has(resumeSessionId)) throw new Error(`session ${resumeSessionId} not found`);
+        unloaded.delete(resumeSessionId);
         return { agent: sessions.get(resumeSessionId) ?? agentFor(resumeSessionId) };
       },
     },
     agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount() {} },
     permissionPresets: { set() {} },
     sessionTitle: { renamed: [], rename(s, t) { this.renamed.push(t); } },
-    workspaceRegistry: { async create(path) { return { path, async attachSession() {} }; } },
+    workspaceRegistry: { archivedSessionIds: [], async create(path) { return { path, async attachSession() {} }; } },
+    sessionPersistence: { async stat(id) { return deleted.has(id) ? undefined : { header: { id } }; } },
   };
+  /** A process restart: every Session is persisted but none is loaded. */
+  const restart = () => { for (const id of sessions.keys()) unloaded.add(id); };
+  /** The user deletes a Session: it is unloaded and gone from persistence. */
+  const remove = (id) => { unloaded.add(id); deleted.add(id); };
   const emit = (agent, type, data) => {
     const event = { type, data, seq: agent.session.events.length + 1 };
     agent.session.events.push(event);
@@ -362,7 +371,7 @@ function fakeDsh() {
     members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet }, list, options);
     return members;
   };
-  return { ctx, sessions, made, emit, turn, attach };
+  return { ctx, sessions, made, emit, turn, attach, restart, remove };
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
@@ -399,6 +408,112 @@ test('DSH member: @ admits one prompt, its turn posts the reply, duplicates neve
   assert.equal(dsh.made.length, 1, 'the bound Session is reused');
   assert.equal(agent.prompts.length, 2);
   assert.doesNotMatch(agent.prompts[1].content[0].text, /先说一句/, 'only unseen messages are sent');
+});
+
+test('DSH member: a new Session is held by the plugin, out of the DSH conversation list', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你好' });
+  await settle();
+  assert.equal(dsh.ctx.agents.created.length, 1);
+  // DSH's list hides origin "subagent" Sessions (dsh-client-ui-workspace sessionVisible).
+  assert.equal(dsh.ctx.agents.created[0].meta.origin, 'subagent');
+});
+
+/** Bind ds in room 1 with one answered turn; returns the bound agent. */
+async function boundOnce(hub, dsh) {
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 第一次' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, ['第一次的回答']);
+  await settle();
+  return agent;
+}
+
+/** @ ds again and answer the turn; returns the agent that got the prompt. */
+async function askAgain(hub, dsh, text) {
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text });
+  await settle();
+  const agent = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(agent, [`回答：${text}`]);
+  await settle();
+  return agent;
+}
+
+for (const [label, lose] of [
+  ['archived', (dsh, id) => dsh.ctx.workspaceRegistry.archivedSessionIds.push(id)],
+  ['deleted', (dsh, id) => dsh.remove(id)],
+]) {
+  test(`DSH member: a bound Session that was ${label} is replaced by a new hidden one and the @ is answered`, async () => {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+    const old = await boundOnce(hub, dsh);
+    lose(dsh, old.session.id);
+    const agent = await askAgain(hub, dsh, '@DeepSeek 第二次');
+    assert.notEqual(agent.session.id, old.session.id, 'a new Session is bound');
+    assert.equal(old.prompts.length, 1, 'nothing goes to the lost Session');
+    assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+    assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
+    assert.equal(hub.store.openJobs().length, 0);
+    assert.ok(!hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'no failure card');
+  });
+}
+
+test('DSH member: a Session that fails to resume is replaced and the @ is answered', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  const resume = dsh.ctx.agents.resume;
+  dsh.ctx.agents.resume = async () => { throw new Error('corrupt log'); };
+  const agent = await askAgain(hub, dsh, '@DeepSeek 第二次');
+  dsh.ctx.agents.resume = resume;
+  assert.notEqual(agent.session.id, old.session.id);
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
+});
+
+test('DSH member: after a restart a bound hidden Session is resumed, and one deleted meanwhile is replaced', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  const resumes = dsh.ctx.agents.resumes;
+  const agent = await askAgain(hub, dsh, '@DeepSeek 重启后');
+  assert.equal(agent, old, 'the same Session answers');
+  assert.equal(dsh.ctx.agents.resumes, resumes + 1);
+  assert.equal(dsh.ctx.agents.created.length, 1);
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 重启后');
+
+  dsh.restart();
+  dsh.remove(old.session.id);
+  const fresh = await askAgain(hub, dsh, '@DeepSeek 删了以后');
+  assert.notEqual(fresh.session.id, old.session.id);
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 删了以后');
+});
+
+test('DSH member: /new gives the addressed member a new hidden Session that reads on from /new', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
+  const old = await boundOnce(hub, dsh);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '旧话题' });
+  const { message: cmd } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek /new' });
+  await settle();
+  const fresh = hub.store.binding('ds', 1);
+  assert.notEqual(fresh.session_id, old.session.id, '/new rebinds');
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+  assert.equal(fresh.context_cursor, cmd.id, 'the new Session starts after /new');
+  assert.equal(old.prompts.length, 1, '/new is not sent to the model');
+  assert.equal(hub.store.binding('qw', 1), undefined, 'a member not addressed is left alone');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '✅ DeepSeek 的新会话已创建');
+  const agent = await askAgain(hub, dsh, '@DeepSeek 新话题');
+  assert.equal(agent.session.id, fresh.session_id);
+  assert.doesNotMatch(agent.prompts[0].content[0].text, /旧话题/);
 });
 
 test('DSH member: a turn started from the DSH Web UI is never posted to the channel', async () => {
