@@ -110,6 +110,8 @@ export class TeamExit {
         clientKey: `team-answer:${answer.member_id}:${answer.id}`,
       });
       this.db.prepare('UPDATE team_exit_asks SET answered = 1, answer_source_id = ? WHERE id = ?').run(msg.id, answer.id);
+      // #597 G35: the watch waited on the user (Tasks.watch awaitingUser); it starts again from here.
+      this.hub.tasks?.rewatch?.(answer.workspace_id, answer.member_id);
       return message;
     }
     if (msg.author_kind !== 'role') return;

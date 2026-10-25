@@ -422,21 +422,23 @@ export class Tasks {
     this.verdictsOf(msg);
     const stance = this.stanceOf(msg);
     const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
-    if (dsh && this.inWorkspace(msg.room_id)) {
+    const dshWorkspace = dsh && this.inWorkspace(msg.room_id);
+    if (dshWorkspace) {
       // #597 G35: a DSH member (local CLI members too, dsh-member.mjs) posts one reply per turn, but a
       // turn ending is not a delivery. In a workspace only a reply marked [report] (team-exit exitMark,
       // first line or the turn's last part) hands its task back; a 【接】 alone (accepted, waiting) and an
       // [ask] (a question, forwarded by TeamExit) leave the task in work with its 10-minute watch.
+      // Only the hand-back changes here: the lead's dispatch below (fromChat) goes on as before.
       const mark = exitMark(msg.text, { lastLine: true });
-      const task = stance ?? (this.foreignStance(msg) ? undefined : this.openOf(msg.room_id, msg.author));
+      // A stance line naming #id speaks for that task only (gone or done: nothing to hand back).
+      const named = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0])?.[2] !== undefined;
+      const task = stance ?? (named ? undefined : this.openOf(msg.room_id, msg.author));
       if (mark?.kind === 'report' && (stance === undefined || stance.status === 'accepted') && task !== undefined && WORKING.includes(task.status)) {
         return this.handBack(task.id, { actor: msg.author, messageId: msg.id });
       }
-      return stance;
-    }
-    // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
-    // A bridge bot may keep working after its 【接】, so its stance stays a stance.
-    if (stance?.status === 'accepted' && dsh) {
+    } else if (stance?.status === 'accepted' && dsh) {
+      // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
+      // A bridge bot may keep working after its 【接】, so its stance stays a stance.
       return this.handBack(stance.id, { actor: msg.author, messageId: msg.id });
     }
     if (stance !== undefined) return stance;
@@ -445,7 +447,7 @@ export class Tasks {
     // A 【问】【退】【升】 reply with no task to answer is a question or a pushback, never a hand-back.
     if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routable()).trimStart())) return undefined;
     if (NOTICE_PREFIXES.some(p => String(msg.text).trimStart().startsWith(p))) return undefined;
-    return this.fromChat(msg);
+    return this.fromChat(msg, { handBack: !dshWorkspace });
   }
 
   /**
@@ -524,7 +526,7 @@ export class Tasks {
    * hands its open task back; the dispatcher's next message accepts what was handed back here
    * (a workspace task needs its 【验收】#id line, verdictsOf).
    */
-  fromChat(msg) {
+  fromChat(msg, { handBack = true } = {}) {
     const lead = this.hub.primaryMember();
     const team = this.hub.routable();
     const text = String(msg.text);
@@ -543,6 +545,8 @@ export class Tasks {
       for (const owner of called) this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
       return undefined;
     }
+    // handBack false: a DSH reply in a workspace, which hands back only with [report] (fromMessage).
+    if (!handBack) return undefined;
     const callsLead = lead !== undefined && (mentions(text, team).has(lead.id) || nameCalled(text, lead.name, team.map(m => m.name)));
     if (!callsLead) return undefined;
     const open = this.q.openChat.get(msg.room_id, msg.author, lead.id, ...WORKING);
@@ -635,6 +639,13 @@ export class Tasks {
    */
   watch(task, now) {
     const renewals = task.renewals ?? 0;
+    // #597 G35: an owner waiting on its [ask] waits on the user, not stuck: no progress check, no
+    // reminder, no pause (which would release the workspace the answer comes back to). The watch
+    // only moves on, renewals untouched; the answer re-arms it (rewatch).
+    if (this.awaitingUser(task)) {
+      if (this.q.renew.get(now + CHECK_AFTER_S, renewals, task.id, ...WORKING) !== undefined) this.changed(task.id);
+      return;
+    }
     if (renewals < MAX_RENEWALS && this.progressed(task, watchDue(task) - CHECK_AFTER_S)) {
       if (this.q.renew.get(now + CHECK_AFTER_S, renewals + 1, task.id, ...WORKING) !== undefined) this.changed(task.id);
       return;
@@ -645,6 +656,29 @@ export class Tasks {
     const message = this.record(task, 'pause', `@${this.nameOf(task.owner)} #${task.id}「${task.title}」${why}，已暂停。`
       + `做完了就交回：回复第一行写【接】#${task.id}，下面写 [report] 和结果；没做完就第一行写【问】#${task.id}，说明做到哪一步、卡在哪。${this.briefing(task)}`);
     if (this.pauseTask(task.id)) this.wake(task.owner, message);
+  }
+
+  /**
+   * #597 G35: the task's owner has an [ask] in the task's workspace (team-exit team_exit_asks, posted
+   * after the task was handed over) the user has not answered yet.
+   */
+  awaitingUser(task) {
+    if (!this.hub.teamExit?.enabled) return false;
+    return this.db.prepare(`SELECT 1 FROM team_exit_asks WHERE workspace_id = ? AND member_id = ? AND answered = 0
+      AND source_id > ? LIMIT 1`).get(task.room_id, task.owner, task.assign_msg_id ?? 0) !== undefined;
+  }
+
+  /**
+   * #597 G35: the user's answer to owner's [ask] reached workspace roomId (TeamExit): the owner's
+   * tasks in work there get a fresh CHECK_AFTER_S watch window from now.
+   */
+  rewatch(roomId, owner) {
+    const now = this.now();
+    for (const task of this.q.allBusy.all(...WORKING)) {
+      if (task.room_id !== roomId || task.owner !== owner || !this.watched(task) || this.awaitingUser(task)) continue;
+      if (this.q.renew.get(now + CHECK_AFTER_S, task.renewals ?? 0, task.id, ...WORKING) !== undefined) this.changed(task.id);
+    }
+    this.arm();
   }
 
   /**

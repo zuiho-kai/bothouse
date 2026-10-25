@@ -4637,6 +4637,68 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
   assert.equal(woken.length, 0);
 });
 
+test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps the workspace; the answer re-arms it', async () => {
+  const { hub, tasks, clock, woken, ws, assign } = g34Setup();
+  const t = assign();
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  tasks.fromMessage(row);
+  hub.teamExit.onMessage(row);
+  await settle();
+  // 30 minutes and more of silence from the user: three watch windows.
+  for (let i = 1; i <= 4; i++) {
+    clock.t = 1000 + i * CHECK_AFTER_S;
+    tasks.tick();
+  }
+  const waiting = tasks.task(t.id);
+  assert.equal(waiting.paused_at, null, 'not parked while the user has not answered');
+  assert.equal(waiting.renewals, 0, 'waiting on the user spends no renewal');
+  assert.equal(waiting.next_check_at, clock.t + CHECK_AFTER_S);
+  assert.equal(woken.filter(([id]) => id === 'fu').length, 0, 'the owner is never woken');
+  assert.equal(hub.store.page(ws.id, undefined, 50).filter(m => /已暂停/.test(m.text)).length, 0, 'no pause record');
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'the workspace stays with its chat channel');
+  // The user answers the forwarded [ask]: it reaches the workspace and the watch starts again from now.
+  const fwd = hub.store.page(1, undefined, 50).find(m => /ask-[0-9a-f]{8}/.test(m.text));
+  clock.t += 120;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '选 A', replyTo: fwd.id });
+  await settle();
+  assert.ok(hub.store.page(ws.id, undefined, 50).some(m => /用户回复 ask-/.test(m.text)), 'the answer reaches the workspace');
+  assert.equal(tasks.task(t.id).next_check_at, clock.t + CHECK_AFTER_S, 'the watch is re-armed on the answer');
+  clock.t += CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at, 'answered and then silent: the watch parks it again');
+  assert.ok(woken.some(([id, , text]) => id === 'fu' && /已暂停/.test(text)));
+});
+
+test('G35: in a workspace the lead @-ing a teammate still opens its mention task, watched there', async () => {
+  const { hub, tasks, ws, assign, say } = g34Setup();
+  const t = assign('zhu');
+  say(ws.id, '@副 测试和 README 交给你写', 'zhu');
+  await settle();
+  const listed = tasks.list(ws.id).find(r => r.owner === 'fu');
+  assert.ok(listed, 'the dispatch opens a task on the board');
+  const sub = tasks.task(listed.id);
+  assert.equal(sub.source, 'mention');
+  assert.equal(sub.status, 'assigned');
+  assert.ok(tasks.watched(sub) && sub.next_check_at != null, 'and its 10-minute watch');
+  assert.equal(tasks.task(t.id).status, 'assigned', 'the lead\'s own task stays as it was');
+  // The teammate's reply @-ing the lead without [report] is no hand-back in a workspace.
+  say(ws.id, '@主 收到，先写测试');
+  await settle();
+  assert.equal(tasks.task(sub.id).status, 'assigned', 'no [report], no hand-back');
+});
+
+test('G35: a [report] under 【接】#id of a task already done hands back no other open task', async () => {
+  const { tasks, ws, assign, say } = g34Setup();
+  const done = assign();
+  say(ws.id, `【接】#${done.id}\n\n[report]\n做完了`);
+  await settle();
+  tasks.review(done.id, { actor: 'zhu', verdict: 'done' });
+  const open = assign();
+  say(ws.id, `【接】#${done.id}\n\n[report]\n再补一句`);
+  await settle();
+  assert.equal(tasks.task(open.id).status, 'assigned', 'the other task stays open');
+});
+
 test('G35: a DSH reply whose last part is [report] hands back, with or without a stance line', async () => {
   const { tasks, ws, assign, say } = g34Setup();
   const t = assign();
