@@ -14,7 +14,7 @@ import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster } from './roster.mjs';
-import { Tasks } from './tasks.mjs';
+import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
@@ -184,7 +184,7 @@ export async function apply(ctx, rawConfig) {
     if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
     if (routed !== undefined) return routed;
-    const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner });
+    const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
     if (opened !== undefined) return opened;
     if (!owner(req)) {
       if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
@@ -439,15 +439,57 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
  * opens the next 工作区<n+1> under that chat channel. Anyone else gets 401.
  * Returns undefined when the request is not for this route, else a Promise of the reply.
  */
-export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
+export function workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh }) {
   const m = /^\/collab\/api\/rooms\/(\d+)\/workspaces\/?$/.exec(url.pathname);
   if (m === null || req.method !== 'POST') return undefined;
-  if (!owner(req) && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  if (!owner(req) && !gateway.authorized(req, url)) {
+    if (req.headers['x-later-ticket'] === undefined || !later || !tasks) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+    return ticketWorkspace(req, res, Number(m[1]), { store, hub, gateway, later, tasks, dsh });
+  }
   return withBody(req, res, () => {
     const workspace = store.createWorkspace(Number(m[1]));
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
     return { workspace };
   }, false);
+}
+
+/**
+ * #597 G24: a DSH member's (member, room) later ticket opens a workspace and hands the job over in
+ * one step. Only the primary role at request time may do it (tickets never expire, so a ticket of a
+ * former primary is refused here). The task is opened directly (owner defaults to the primary itself),
+ * the handoff line is a system message (no chat parsing, so an earlier @ dispatch is not opened twice)
+ * and the owner is woken explicitly. A ticket pasted into the channel is useless to anyone but the
+ * primary. An open chat-side task of the same owner from the primary is handed over and closed.
+ */
+function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, dsh }) {
+  const claims = later.verify(req.headers['x-later-ticket']);
+  if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  if (claims.room !== roomId) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
+  if (hub.selectedPrimaryMember()?.id !== claims.member) return Promise.resolve(json(res, 403, { error: 'only the primary role opens workspaces' }));
+  return withBody(req, res, body => {
+    const lead = claims.member;
+    const taskOwner = body?.owner === undefined || body.owner === '' ? lead : String(body.owner);
+    if (!hub.routable().some(r => r.id === taskOwner)) throw new CollabError('member-missing', 'unknown owner');
+    const title = String(body?.title ?? '').trim();
+    if (!title) throw new CollabError('invalid', 'workspace handoff requires a title');
+    if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+    const workspace = store.createWorkspace(roomId);
+    hub.emit({ type: 'rooms', rooms: store.roomsView() });
+    const name = hub.members.get(taskOwner)?.name ?? taskOwner;
+    const reason = typeof body?.reason === 'string' ? body.reason : undefined;
+    const { message } = hub.post(workspace.id, { authorKind: 'system', author: 'system', name: '交接',
+      text: `【交接】${name}：${title}${reason ? `\n${reason}` : ''}` });
+    const task = tasks.assign({ roomId: workspace.id, owner: taskOwner, actor: lead, title, reason, messageId: message.id, force: true });
+    tasks.q.setSource.run('workspace', task.id);
+    const chat = workspace.parent_id ?? roomId;
+    const open = tasks.q.openChat.get(chat, taskOwner, lead, ...WORKING);
+    if (open !== undefined) {
+      tasks.handBack(open.id, { actor: open.owner, messageId: message.id });
+      tasks.review(open.id, { actor: lead, verdict: 'done', note: `转到${workspace.name} #${task.id}` });
+    }
+    if (!dsh?.nudge(taskOwner, message)) gateway.nudge?.(taskOwner, message);
+    return { workspace, task: tasks.task(task.id) };
+  });
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };

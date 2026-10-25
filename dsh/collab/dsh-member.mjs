@@ -22,6 +22,11 @@ export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
   const section = parts.find(p => p.startsWith(`${mode}\n`)) ?? parts.find(p => p.startsWith(`${DEFAULT_DISPATCH_MODE}\n`));
   return `${common.trim()}\n${section.slice(section.indexOf('\n') + 1).trim()}`;
 }
+/** #597 G24: the open-workspace command, for the selected primary role only, never in bridge prompts. */
+export function workspaceHint(hub, later, memberId, roomId) {
+  if (!later?.workspaceInstructions || hub?.selectedPrimaryMember?.()?.id !== memberId) return '';
+  return later.workspaceInstructions(memberId, roomId);
+}
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
 export function memberStatus(hub, tasks = hub?.tasks) {
@@ -511,7 +516,7 @@ export class DshMembers {
     const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
     const wiki = await this.turnContext(member, room, agent.session.id, unseen);
     if (this.closed) return;
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     wiki.commit();
@@ -621,7 +626,7 @@ export class DshMembers {
           });
         }
       };
-      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '');
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
       wiki.commit();
       const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;

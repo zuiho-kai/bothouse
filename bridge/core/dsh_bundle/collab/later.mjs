@@ -90,6 +90,17 @@ export class Later {
     const local = this.origin ? `用本机命令登记（重启后仍触发）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} ${quote(this.origin)} ${quote(ticket)} 10m '事情' '到点要做什么'\n` : '';
     return `\n【一次性回查】要过会儿回来，${local}或 POST /collab/api/rooms/${room}/later（头 X-Later-Ticket: ${ticket}，JSON: delay, title, todo）。凭据只对你和本房间有效。登记成功才说已挂；到点在原房间唤醒你。\n`;
   }
+  /**
+   * #597 G24: how a DSH member opens a workspace and hands work to it (one call: workspace, task,
+   * ten-minute watch, wake). Only DSH members get this (dsh-member.mjs); bridge bots use
+   * `bothouse workspace new`, so it stays out of instructions().
+   */
+  workspaceInstructions(member, room) {
+    const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
+    const ticket = this.ticket(member, room);
+    const local = this.origin ? `本机命令：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} workspace ${quote(this.origin)} ${quote(ticket)} '任务标题' [接活人id]\n` : '';
+    return `\n【开工作区】整块活要交出去时，${local}或 POST /collab/api/rooms/${room}/workspaces（头 X-Later-Ticket: ${ticket}，JSON: title, owner 可省=你自己, reason）。一步建好工作区、开任务、挂十分钟看门并叫醒接活人；不要再在频道里 @ 同一件活。\n`;
+  }
   tick() {
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE announced = 0').all()) {
       this.hub.post(row.room_id, { authorKind: 'system', author: 'system', name: '回查登记',
@@ -110,7 +121,16 @@ export class Later {
   }
   close() { clearInterval(this.timer); }
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === 'workspace') {
+  const [origin, ticket, title, owner] = process.argv.slice(3);
+  const room = ticketClaims(ticket)?.r;
+  if (!origin || !Number.isSafeInteger(room) || !title) { console.error('usage: later.mjs workspace <origin> <ticket> <title> [owner] (ticket from your prompt)'); process.exit(2); }
+  const res = await fetch(new URL(`/collab/api/rooms/${room}/workspaces`, origin), { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ title, ...(owner ? { owner } : {}) }) });
+  const body = await res.text();
+  if (!res.ok) { console.error(`workspace: ${res.status} ${body}`); process.exit(1); }
+  console.log(body);
+} else if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [origin, ticket, delay, title, todo] = process.argv.slice(2);
   const room = ticketClaims(ticket)?.r;
   if (!origin || !Number.isSafeInteger(room)) { console.error('usage: later.mjs <origin> <ticket> <delay> <title> <todo> (ticket from your prompt)'); process.exit(2); }
