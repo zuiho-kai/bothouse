@@ -523,6 +523,24 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 		err := p.flushRun(ctx, r)
 		r.mu.Lock()
 		id := r.record.Task.ID
+		if errors.Is(err, ErrDeliveryUnrecoverable) {
+			// The platform refused for good (channel or card deleted, access
+			// lost). Retrying every tick cannot succeed and floods the log:
+			// mark what was accepted so far as handled, so neither this loop
+			// nor a restart retries it. A newer fact on this task tries once more.
+			channel := r.record.Task.ChannelID
+			r.record.CardSeq, r.record.FactSeq = r.record.Task.Seq, r.record.Task.Seq
+			saveErr := p.save(r)
+			p.mu.Lock()
+			delete(p.pending, id)
+			p.mu.Unlock()
+			r.mu.Unlock()
+			slog.Warn("public progress delivery dropped: destination unrecoverable", "task_id", id, "channel", channel, "error", err)
+			if saveErr != nil {
+				slog.Error("public progress: persist dropped delivery failed", "task_id", id, "error", saveErr)
+			}
+			continue
+		}
 		if err == nil && r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq {
 			p.mu.Lock()
 			delete(p.pending, id)

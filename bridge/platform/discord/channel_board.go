@@ -58,7 +58,7 @@ func (p *Platform) PostChannelBoard(ctx context.Context, channelID, content stri
 		Embeds: []*discordgo.MessageEmbed{embed}, AllowedMentions: noMentions(),
 	}, discordgo.WithContext(ctx))
 	if err != nil {
-		return "", fmt.Errorf("discord: post channel board: %w", err)
+		return "", fmt.Errorf("discord: post channel board: %w", unrecoverableErr(err))
 	}
 	return m.ID, nil
 }
@@ -82,7 +82,7 @@ func (p *Platform) EditChannelBoard(ctx context.Context, channelID, messageID, c
 		if isDiscordUnknownMessage(err) {
 			return fmt.Errorf("%w: %v", core.ErrChannelBoardGone, err)
 		}
-		return fmt.Errorf("discord: edit channel board: %w", err)
+		return fmt.Errorf("discord: edit channel board: %w", unrecoverableErr(err))
 	}
 	return nil
 }
@@ -127,7 +127,7 @@ func (p *Platform) FindChannelBoard(ctx context.Context, channelID string) (stri
 	// Messages: limit default 50, max 100 — 沿用 the default page.
 	recent, err := s.ChannelMessages(channelID, 50, "", "", "", discordgo.WithContext(ctx))
 	if err != nil {
-		return "", false, fmt.Errorf("discord: list messages: %w", err)
+		return "", false, fmt.Errorf("discord: list messages: %w", unrecoverableErr(err))
 	}
 	return p.findBoardIn(recent), false, nil
 }

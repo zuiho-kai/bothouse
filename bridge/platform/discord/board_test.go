@@ -336,7 +336,7 @@ func TestBoard404JSONBodyCode0IsUnrecoverable(t *testing.T) {
 	rest := &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound},
 		ResponseBody: []byte(`{"message": "404: Not Found", "code": 0}`),
 		Message:      &discordgo.APIErrorMessage{Code: 0, Message: "404: Not Found"}}
-	if !boardUnrecoverable(rest) {
+	if !discordUnrecoverable(rest) {
 		t.Fatal("404 with JSON body, code 0 must be unrecoverable")
 	}
 	api := &stubBoardAPI{delErr: rest, editErr: rest, sendErr: rest}

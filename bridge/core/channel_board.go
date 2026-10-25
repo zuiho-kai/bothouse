@@ -568,6 +568,9 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 
 	if id == "" {
 		found, foundPinned, err := poster.FindChannelBoard(ctx, ch)
+		if errors.Is(err, ErrDeliveryUnrecoverable) {
+			return h.giveUp(ch, err)
+		}
 		if err != nil {
 			slog.Warn("channel board: look for an existing board failed", "channel", ch, "error", err)
 		}
@@ -578,6 +581,8 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 		if errors.Is(err, ErrChannelBoardGone) {
 			slog.Info("channel board: message gone, posting a new one", "channel", ch, "message", id)
 			id, pinned, pinRetried = "", false, false
+		} else if errors.Is(err, ErrDeliveryUnrecoverable) {
+			return h.giveUp(ch, err)
 		} else if err != nil {
 			slog.Warn("channel board: edit failed", "channel", ch, "message", id, "error", err)
 			return false
@@ -586,6 +591,9 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 	posted := false
 	if id == "" {
 		newID, err := poster.PostChannelBoard(ctx, ch, content)
+		if errors.Is(err, ErrDeliveryUnrecoverable) {
+			return h.giveUp(ch, err)
+		}
 		if err != nil || newID == "" {
 			slog.Warn("channel board: post failed", "channel", ch, "error", err)
 			return false
@@ -613,6 +621,14 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 		}
 	}
 	h.mu.Unlock()
+	return true
+}
+
+// giveUp drops a board send the platform refused for good (channel deleted,
+// access lost): it logs once and reports the send as settled, so work stops
+// retrying. The next change in the channel tries once more.
+func (h *channelBoardHub) giveUp(ch string, err error) bool {
+	slog.Warn("channel board: destination unrecoverable, not retrying until the channel changes", "channel", ch, "error", err)
 	return true
 }
 

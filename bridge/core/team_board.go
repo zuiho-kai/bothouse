@@ -147,7 +147,7 @@ func (e *Engine) retireTeamBoards() {
 				ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
 				err := remover.RemoveBoard(ctx, b.SessionKey, b.MessageID)
 				cancel()
-				if errors.Is(err, ErrBoardUnremovable) {
+				if errors.Is(err, ErrDeliveryUnrecoverable) {
 					// Retrying cannot help (archived thread, lost access): forget it.
 					slog.Warn("team board: old board cannot be removed, giving up", "chat", chat, "error", err)
 					delete(boards, chat)
@@ -240,7 +240,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.MessageID = id
 			changed = true
 		}
-		if errors.Is(err, ErrBoardUnremovable) {
+		if errors.Is(err, ErrDeliveryUnrecoverable) {
 			slog.Warn("team board: board can no longer be edited, giving up until new activity", "chat", chat, "error", err)
 			// Never earlier than the activity just seen, so it is not retried again.
 			b.GaveUpAt = time.Now()

@@ -48,7 +48,14 @@ func (p *Platform) findPublicFact(ctx context.Context, channel, marker string, s
 	return "", errors.New("task delivery history exceeds reconciliation window; retry after manual inspection")
 }
 
+// EnsureTaskCard posts or edits the task card. A destination Discord refuses
+// for good (deleted channel or card, lost access, archived thread) is reported
+// wrapping core.ErrDeliveryUnrecoverable, so core stops retrying it.
 func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
+	return unrecoverableErr(p.ensureTaskCard(ctx, task, lang))
+}
+
+func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
 	if p.session == nil || p.botID == "" {
 		return errors.New("discord session is not ready")
 	}
@@ -170,6 +177,10 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 		if err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part); err != nil {
 			// Missing access or thread is permanent for this account; core
 			// reports it visibly instead of blocking later facts on retries.
+			// A refusal with Discord's error body also wraps
+			// core.ErrDeliveryUnrecoverable: core drops it if no other
+			// account can post it.
+			err = unrecoverableErr(err)
 			var rest *discordgo.RESTError
 			if errors.As(err, &rest) && rest.Response != nil && (rest.Response.StatusCode == 403 || rest.Response.StatusCode == 404) {
 				return fmt.Errorf("%w: %w", core.ErrTaskFactUndeliverable, err)

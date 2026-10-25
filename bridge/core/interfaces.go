@@ -370,7 +370,7 @@ var ErrPostOutcomeUnknown = errors.New("post outcome unknown")
 // returned ID is where the board now lives. Implementations post a new message
 // when the previous one was deleted. When the board's channel can no longer be
 // written to (e.g. an archived thread) they return an error wrapping
-// ErrBoardUnremovable instead, and the caller leaves that chat alone until it
+// ErrDeliveryUnrecoverable instead, and the caller leaves that chat alone until it
 // sees newer activity there.
 type BoardPoster interface {
 	UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error)
@@ -380,14 +380,20 @@ type BoardPoster interface {
 // is no longer the lead does not leave a stale board behind. A message that is
 // already gone counts as removed. A board that can never be deleted (e.g. it
 // sits in an archived thread, or the bot lost access) is reported by wrapping
-// ErrBoardUnremovable, so the caller gives up instead of retrying.
+// ErrDeliveryUnrecoverable, so the caller gives up instead of retrying.
 type BoardRemover interface {
 	RemoveBoard(ctx context.Context, sessionKey, messageID string) error
 }
 
-// ErrBoardUnremovable marks a RemoveBoard or UpsertBoard failure that no retry
-// can fix (archived thread, deleted channel, lost access).
-var ErrBoardUnremovable = errors.New("board cannot be removed")
+// ErrDeliveryUnrecoverable marks a platform delivery (post, edit, delete) that
+// no retry can fix: the channel or message is gone, the bot lost access, or
+// the thread is archived. Callers drop that delivery, log it once and do not
+// retry it (the board tries again only after newer activity in that chat).
+var ErrDeliveryUnrecoverable = errors.New("delivery unrecoverable")
+
+// ErrBoardUnremovable is the board's older name for ErrDeliveryUnrecoverable;
+// it is the same error value, so errors.Is matches either name.
+var ErrBoardUnremovable = ErrDeliveryUnrecoverable
 
 // StatusFooterSender is an optional Platform extension for sending a reply
 // with a structured per-turn status footer rendered using platform-specific
