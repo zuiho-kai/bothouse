@@ -3428,3 +3428,22 @@ test('DSH approval #557: Default and Auto review show a card when DSH asks; Full
     assert.equal(await outcome, 'allowed-once');
   }
 });
+
+test('CLI member: /new drops the saved ACP session and resets the binding to the placeholder', async () => {
+  const hub = makeHub();
+  const asks = [];
+  cliMembers(hub, async (_text, _room, _onText, _onTool, opts) => {
+    asks.push(opts.resumeId);
+    opts.onSession({ sessionId: `acp-${asks.length}`, lost: false });
+    return '好';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'acp-1');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+  await settle();
+  assert.match(hub.store.binding('cc', 1).session_id, /^cli:/, '/new puts the placeholder back');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined, undefined], 'the turn after /new does not resume the old ACP session');
+});
