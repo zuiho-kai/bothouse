@@ -12,6 +12,7 @@ import { exitTarget } from './team-exit.mjs';
 import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
+import { GateContext } from './gate-context.mjs';
 // Shared with the bridge (bridge/core/team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8');
@@ -110,6 +111,11 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
     '',
     ...lines,
   ].join('\n');
+}
+
+/** The teammate status, then the gate's block (each '' when absent). */
+function withBlock(status, block) {
+  return [status, block].filter(Boolean).join('\n\n');
 }
 
 /** One-line turn/end reason: kind plus a truncated error message when present. */
@@ -285,6 +291,8 @@ export class DshMembers {
     this.approvals = ChannelApprovals.of(hub);
     /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card. */
     this.allowAll = new Set();
+    /** Per-turn wiki pages and task board from the local gate, each page once per conversation. */
+    this.gateContext = runtime.gateContext ?? new GateContext({ logger: runtime.logger });
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -498,9 +506,12 @@ export class DshMembers {
     // never advances the cursor, so the same image would block the room.
     const { parts: media, dropped: refused } = await nativeAttachmentBlocks(this.rt.ctx.attachments, namedAttachmentBlocks(this.rt.files, unseen));
     const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
+    const wiki = await this.turnContext(member, room, agent.session.id, unseen);
+    if (this.closed) return;
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
+    wiki.commit();
     if (refused.length) {
       this.hub.post(room.id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${jobId}-attachments-dropped`,
@@ -526,6 +537,8 @@ export class DshMembers {
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
+    const wiki = await this.turnContext(member, room, undefined, unseen);
+    if (this.closed) return;
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     let entry = this.cliAgents.get(member.id);
     if (entry === undefined) {
@@ -593,7 +606,9 @@ export class DshMembers {
           });
         }
       };
-      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? ''), String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '');
+      wiki.commit();
+      const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
@@ -612,8 +627,15 @@ export class DshMembers {
     }
   }
 
+  /** The gate's pages for this turn (wiki, task board), queried with the message that @-ed the member. */
+  turnContext(member, room, session, unseen) {
+    const trigger = unseen.at(-1);
+    return this.gateContext.turn({ member: member.id, room: room.id, session, text: trigger?.text ?? '' });
+  }
+
   /** A released workspace starts over: drop each local CLI member's ACP session for roomId. */
   resetRoom(roomId) {
+    this.gateContext.resetRoom(roomId);
     for (const { agent } of this.cliAgents.values()) {
       agent.sessions?.delete(String(roomId));
       agent.saved?.delete(String(roomId));
