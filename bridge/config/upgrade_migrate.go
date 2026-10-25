@@ -66,7 +66,7 @@ func SetAgentOptionsIfAbsent(edits []AgentOptionEdit) (applied []AgentOptionEdit
 	for _, e := range edits {
 		idx := projectIndex(cfg, e.Project)
 		if idx < 0 {
-			failures = append(failures, fmt.Errorf("project %q not found", e.Project))
+			failures = append(failures, roleSkipped(fmt.Errorf("project %q not found", e.Project)))
 			continue
 		}
 		if _, ok := cfg.Projects[idx].Agent.Options[e.Key]; ok {
@@ -74,17 +74,17 @@ func SetAgentOptionsIfAbsent(edits []AgentOptionEdit) (applied []AgentOptionEdit
 		}
 		cand, perr := patchProjectAgentOptionText(cur, e.Project, e.Key, e.Value)
 		if perr != nil {
-			failures = append(failures, fmt.Errorf("project %q: %w", e.Project, perr))
+			failures = append(failures, roleSkipped(fmt.Errorf("project %q: %w", e.Project, perr)))
 			continue
 		}
 		candDoc, perr := parseTomlDoc(cand)
 		if perr != nil {
-			failures = append(failures, fmt.Errorf("project %q: patch gives invalid TOML, skipped: %w", e.Project, perr))
+			failures = append(failures, roleSkipped(fmt.Errorf("project %q: patch gives invalid TOML, skipped: %w", e.Project, perr)))
 			continue
 		}
 		want, _ := parseTomlDoc(cur)
 		if !setDocAgentOption(want, idx, e.Key, e.Value) || !reflect.DeepEqual(want, candDoc) {
-			failures = append(failures, fmt.Errorf("project %q: patch would change more than options.%s, skipped", e.Project, e.Key))
+			failures = append(failures, roleSkipped(fmt.Errorf("project %q: patch would change more than options.%s, skipped", e.Project, e.Key)))
 			continue
 		}
 		cur = cand
@@ -142,12 +142,20 @@ func SetAgentOptionsIfAbsent(edits []AgentOptionEdit) (applied []AgentOptionEdit
 // (core.KnownAgentYoloMode) gets that mode written, the same default new roles
 // get from the setup wizard. Roles with any mode (default, plan, …) and other
 // agent types are left alone. The run is marked done only when every role was
-// written; otherwise the next start retries (roles written meanwhile are skipped
-// because they now have a mode).
+// written or permanently skipped (a role whose options cannot be patched as
+// text, e.g. an inline table or dotted keys); an I/O failure leaves it unmarked
+// so the next start retries (roles written meanwhile are skipped because they
+// now have a mode). A symlinked config.toml is left alone entirely.
 func MigrateYoloDefaults(dataDir string, cfg *Config) (applied []AgentOptionEdit, backup string, err error) {
 	done, err := migrationDone(dataDir, YoloDefaultMigrationID)
 	if err != nil || done {
 		return nil, "", err
+	}
+	if ConfigPath != "" {
+		if fi, lerr := os.Lstat(ConfigPath); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			slog.Warn("upgrade: config.toml is a symlink, permission-mode migration skipped", "path", ConfigPath)
+			return nil, "", nil
+		}
 	}
 	var edits []AgentOptionEdit
 	for _, p := range cfg.Projects {
@@ -165,11 +173,43 @@ func MigrateYoloDefaults(dataDir string, cfg *Config) (applied []AgentOptionEdit
 		for _, e := range applied {
 			slog.Info("upgrade: role without a permission mode set to full-auto", "project", e.Project, "mode", e.Value, "backup", backup)
 		}
-		if err != nil {
+		if err != nil && !onlyRoleSkips(err) {
 			return applied, backup, err
 		}
 	}
-	return applied, backup, markMigrationDone(dataDir, YoloDefaultMigrationID)
+	if merr := markMigrationDone(dataDir, YoloDefaultMigrationID); merr != nil {
+		return applied, backup, errors.Join(err, merr)
+	}
+	return applied, backup, err
+}
+
+// roleSkipError marks a role that cannot be migrated because of how its config
+// is written; retrying will not help.
+type roleSkipError struct{ err error }
+
+func (e roleSkipError) Error() string { return e.err.Error() }
+func (e roleSkipError) Unwrap() error { return e.err }
+
+func roleSkipped(err error) error { return roleSkipError{err} }
+
+// onlyRoleSkips reports whether err (possibly an errors.Join) holds nothing but
+// roleSkipError values.
+func onlyRoleSkips(err error) bool {
+	if err == nil {
+		return true
+	}
+	if _, ok := err.(roleSkipError); ok {
+		return true
+	}
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range j.Unwrap() {
+			if !onlyRoleSkips(e) {
+				return false
+			}
+		}
+		return len(j.Unwrap()) > 0
+	}
+	return false
 }
 
 // RestoreConfigBackup puts a backup returned by SetAgentOptionsIfAbsent back.

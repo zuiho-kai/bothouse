@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
@@ -3103,6 +3104,10 @@ func patchProjectAgentOption(projectName, key, value string) error {
 	return writeRawConfig(out)
 }
 
+// ErrNonStandardOptionsTable means a project's agent options are written as an
+// inline table or dotted keys, so they cannot be patched as text.
+var ErrNonStandardOptionsTable = errors.New("agent options are not a [projects.agent.options] table (inline or dotted keys), skipped")
+
 // patchProjectAgentOptionText is patchProjectAgentOption on a string: it
 // returns raw with the key set, without touching the file.
 func patchProjectAgentOptionText(raw, projectName, key, value string) (string, error) {
@@ -3129,6 +3134,12 @@ func patchProjectAgentOptionText(raw, projectName, key, value string) (string, e
 	}
 	projSpan := spans[projectIdx]
 
+	if projSpan.agentOptionsStart < 0 && cfg.Projects[projectIdx].Agent.Options != nil {
+		// Options exist but not under a [projects.agent.options] header (inline
+		// table or dotted keys such as options.work_dir = ...). Adding a header
+		// would define the table twice: BurntSushi accepts that, tomllib does not.
+		return "", ErrNonStandardOptionsTable
+	}
 	if projSpan.agentOptionsStart < 0 {
 		// [projects.agent.options] doesn't exist; create it.
 		insertAt := projSpan.agentEnd + 1

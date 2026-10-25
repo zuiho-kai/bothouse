@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -177,8 +178,8 @@ func TestMigrateYoloDefaults(t *testing.T) {
 
 func TestMigrateYoloDefaultsInlineTableSkipped(t *testing.T) {
 	// A hand-written inline options table: the text patch would add a second
-	// [projects.agent.options] and break the file. It must be skipped, the rest
-	// written, the file must still load, and the run must not be marked done.
+	// [projects.agent.options] and break the file. It is skipped for good, the
+	// rest written, the file must still load, and the run is marked done.
 	content := `[[projects]]
 name = "inl"
 [projects.agent]
@@ -198,32 +199,113 @@ type = "discord"
 [projects.platforms.options]
 token = "B"
 `
+	assertSkippedRole(t, content, "inl")
+}
+
+func TestMigrateYoloDefaultsDottedOptionsSkipped(t *testing.T) {
+	// options.work_dir under [projects.agent]: adding [projects.agent.options]
+	// would define the table twice (tomllib rejects that), so the role is skipped.
+	content := `[[projects]]
+name = "dot"
+[projects.agent]
+type = "codex"
+options.work_dir = "/tmp/d"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "A"
+
+[[projects]]
+name = "ok"
+[projects.agent]
+type = "codex"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "B"
+`
+	assertSkippedRole(t, content, "dot")
+	raw, _ := os.ReadFile(ConfigPath)
+	if n := strings.Count(string(raw), "[projects.agent.options]"); n != 1 {
+		t.Fatalf("[projects.agent.options] headers = %d, want 1 (only for \"ok\"):\n%s", n, raw)
+	}
+	assertTomllibLoads(t, ConfigPath)
+}
+
+func assertSkippedRole(t *testing.T, content, skipped string) {
+	t.Helper()
 	dataDir := setupMigrate(t, content)
 	cfg, err := Load(ConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	applied, _, err := MigrateYoloDefaults(dataDir, cfg)
-	if err == nil || !strings.Contains(err.Error(), `"inl"`) {
+	if err == nil || !strings.Contains(err.Error(), `"`+skipped+`"`) {
 		t.Fatalf("err = %v", err)
 	}
 	if len(applied) != 1 || applied[0].Project != "ok" {
 		t.Fatalf("applied = %+v", applied)
 	}
 	got := loadModes(t) // Load must succeed
-	if got["inl"] != nil || got["ok"] != "yolo" {
+	if got[skipped] != nil || got["ok"] != "yolo" {
 		t.Fatalf("modes = %v", got)
 	}
-	if done, _ := migrationDone(dataDir, YoloDefaultMigrationID); done {
-		t.Fatal("marked done after a failed role")
+	if done, _ := migrationDone(dataDir, YoloDefaultMigrationID); !done {
+		t.Fatal("not marked done: a structural skip is permanent")
 	}
-	// Next start: nothing writable left, so no new backup piles up.
 	cfg, _ = Load(ConfigPath)
-	if applied, _, err = MigrateYoloDefaults(dataDir, cfg); err == nil || len(applied) != 0 {
-		t.Fatalf("retry applied=%v err=%v", applied, err)
+	if applied, _, err = MigrateYoloDefaults(dataDir, cfg); err != nil || len(applied) != 0 {
+		t.Fatalf("second run applied=%v err=%v", applied, err)
 	}
 	if len(backups(t)) != 1 {
 		t.Fatalf("backups = %v", backups(t))
+	}
+}
+
+// assertTomllibLoads parses path with Python's tomllib (what companion uses)
+// when python3 >= 3.11 is available.
+func assertTomllibLoads(t *testing.T, path string) {
+	t.Helper()
+	if err := exec.Command("python3", "-c", "import tomllib").Run(); err != nil {
+		t.Log("python3 with tomllib (>=3.11) not available; relying on the header count check")
+		return
+	}
+	out, err := exec.Command("python3", "-c", `import tomllib,sys;tomllib.load(open(sys.argv[1],"rb"))`, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("tomllib rejects migrated config: %v\n%s", err, out)
+	}
+}
+
+func TestMigrateYoloDefaultsSymlinkSkipped(t *testing.T) {
+	content := "[[projects]]\nname = \"ok\"\n[projects.agent]\ntype = \"codex\"\n[[projects.platforms]]\ntype = \"discord\"\n[projects.platforms.options]\ntoken = \"B\"\n"
+	dataDir := setupMigrate(t, content)
+	real := ConfigPath + ".real"
+	if err := os.Rename(ConfigPath, real); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, ConfigPath); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	cfg, err := Load(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, backup, err := MigrateYoloDefaults(dataDir, cfg)
+	if err != nil || len(applied) != 0 || backup != "" {
+		t.Fatalf("applied=%v backup=%q err=%v", applied, backup, err)
+	}
+	if b, _ := os.ReadFile(real); string(b) != content {
+		t.Fatal("symlink target changed")
+	}
+	if fi, _ := os.Lstat(ConfigPath); fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink replaced")
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "symlink") {
+		t.Fatalf("no warn:\n%s", logs.String())
 	}
 }
 
