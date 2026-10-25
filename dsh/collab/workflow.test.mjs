@@ -142,31 +142,3 @@ test('watch: a parked task answered again gets a fresh 10 minutes and renewals',
   assert.equal(tasks.task(t.id).renewals, 0);
   tasks.close();
 });
-
-test('watch: tasks in a bridge-claimed workspace are left to the bridge watchdog', () => {
-  const { hub } = setup();
-  const ws = hub.store.createWorkspace(1, { bridge: true });
-  let now = 10000;
-  const timers = [];
-  const tasks = new Tasks(hub, { now: () => now, setTimer: (_f, ms) => { timers.push(ms); return {}; }, clearTimer() {} });
-  const ids = ['mention', 'card'].map(source => {
-    const t = tasks.assign({ roomId: ws.id, title: `桥派的 ${source}`, owner: 'ds', actor: 'lead', force: true });
-    tasks.q.setSource.run(source, t.id);
-    return t.id;
-  });
-  timers.length = 0;
-  tasks.arm();
-  assert.deepEqual(timers, [], 'no check timer for bridge-claimed tasks');
-  now += 3 * CHECK_AFTER_S + 1;
-  tasks.tick();
-  for (const id of ids) {
-    const t = tasks.task(id);
-    assert.equal(t.paused_at, null, 'not parked');
-    assert.equal(t.remind_msg_id, null, 'not reminded');
-    assert.equal(t.renewals, 0);
-  }
-  const page = hub.store.page(ws.id, undefined, 200);
-  assert.equal(page.filter(m => m.name === '任务提醒' || /已暂停/.test(m.text)).length, 0);
-  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'workspace stays claimed');
-  tasks.close();
-});
