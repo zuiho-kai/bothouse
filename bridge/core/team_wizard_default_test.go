@@ -34,6 +34,8 @@ func TestWizardTeamDefaults(t *testing.T) {
 		{"no wizard state", ``, "lead", false, false, ""},
 		{"fallback unset = first role", `{"team":[{"project":"a","name":"A"},{"project":"b","name":"B"}]}`, "a", true, true, "A"},
 		{"cloud_web team", `{"cloud_web_fallback":"b","cloud_web_team":[{"project":"a","name":"A"},{"project":"b","name":"B"}]}`, "b", true, true, "B"},
+		{"both teams, different leads", `{"fallback_role":"a","team":[{"project":"a","name":"A"},{"project":"b","name":"B"}],"cloud_web_fallback":"b","cloud_web_team":[{"project":"a","name":"A"},{"project":"b","name":"B"}]}`, "a", false, false, ""},
+		{"both teams, same lead", `{"fallback_role":"a","team":[{"project":"a","name":"A"},{"project":"b","name":"B"}],"cloud_web_fallback":"a","cloud_web_team":[{"project":"a","name":"A"},{"project":"b","name":"B"}]}`, "b", true, false, "B"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()

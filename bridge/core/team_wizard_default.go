@@ -8,7 +8,8 @@ import "path/filepath"
 // these defaults its lead never gets the team board or workspaces.
 //
 // ok is false — and the project keeps running without team status, as before — unless project is
-// one of at least two roles in the recorded Discord team or cloud_web team. dir is
+// one of at least two roles in the recorded Discord team or cloud_web team, and — when it is
+// in both teams — both teams have the same lead. dir is
 // <data_dir>/team, name the role's name from the wizard, and lead reports whether project is that
 // team's fallback role (the wizard's default: the first role), which the team status code treats
 // as the configured lead (team_status_inject) until lead.json names another.
@@ -17,6 +18,7 @@ func WizardTeamDefaults(dataDir, project string) (dir, name string, lead, ok boo
 		return "", "", false, false
 	}
 	s := LoadSetupState(dataDir)
+	found, foundFallback := false, ""
 	for _, team := range []struct {
 		members  []SetupTeamEntry
 		fallback string
@@ -32,8 +34,22 @@ func WizardTeamDefaults(dataDir, project string) (dir, name string, lead, ok boo
 			if fallback == "" {
 				fallback = team.members[0].Project
 			}
-			return filepath.Join(dataDir, "team"), m.Name, project == fallback, true
+			if found {
+				// The project is in both wizard teams. The defaults apply to the whole project, so
+				// they are only safe when both teams have the same lead; otherwise keep the
+				// pre-wizard behaviour (no team status).
+				if fallback != foundFallback {
+					return "", "", false, false
+				}
+				break
+			}
+			found, foundFallback = true, fallback
+			dir, name, lead = filepath.Join(dataDir, "team"), m.Name, project == fallback
+			break
 		}
 	}
-	return "", "", false, false
+	if !found {
+		return "", "", false, false
+	}
+	return dir, name, lead, true
 }
