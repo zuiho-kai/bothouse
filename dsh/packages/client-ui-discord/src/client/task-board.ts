@@ -73,6 +73,15 @@ export interface BoardSection {
 }
 
 /**
+ * Heading of a board block: the room's own name, for the chat channel as for a workspace.
+ * A fixed "chat channel" label hid which channel a board belongs to once several chat
+ * channels are in use.
+ */
+export function sectionTitle(section: BoardSection, t: T): string {
+  return t(section.chat ? 'taskBoardChat' : 'taskBoardWorkspace', { room: section.name })
+}
+
+/**
  * The board grouped as chat channel -> workspace -> owner, the shape the owner asked for:
  * a chat channel's board covers all of its workspaces, and inside each block the tasks are
  * listed per member. A task belongs to the room it was dispatched in (its room_id); the

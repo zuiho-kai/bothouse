@@ -5,7 +5,7 @@
  * with its elapsed time). Data comes from the snapshot's `tasks`.
  */
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
-import { boardSections, cardMembers, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
+import { boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 
 function clock(seconds: number): string {
@@ -55,7 +55,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
       {sections.map(section => (
         <div key={section.roomId} className={css.taskSection} data-room-id={section.roomId}>
           <h4 className={css.taskSectionTitle}>
-            {section.chat ? t('taskBoardChat') : t('taskBoardWorkspace', { room: section.name })}
+            {sectionTitle(section, t)}
           </h4>
           {section.owners.map(group => (
             <div key={group.owner} className={css.taskOwnerGroup} data-owner={group.owner}>

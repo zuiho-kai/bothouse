@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boardGroups, boardSections, cardMembers, elapsed, formatDuration, STATUS_KEY, type T } from '../src/client/task-board.ts'
+import { boardGroups, boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from '../src/client/task-board.ts'
 import type { ChannelRoom, ChannelTask, TaskStatus } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -81,6 +81,17 @@ describe('task board', () => {
     expect(boardSections(tasks, rooms, undefined)).toEqual([])
     // viewing the chat channel keeps every workspace block it has tasks for
     expect(boardSections(tasks, rooms, 1, 1).map(s => s.roomId)).toEqual([1, 1000001])
+  })
+
+  it('heads each block with its own room name, so two chat channels are told apart', () => {
+    const rooms: ChannelRoom[] = [
+      { id: 1, name: '聊天', kind: 'chat', parent_id: null },
+      { id: 1000001, name: '工作区2', kind: 'workspace', parent_id: 1 },
+      { id: 9, name: '量化', kind: 'chat', parent_id: null },
+    ]
+    const tasks = [task(1, 'assigned', { room_id: 1 }), task(2, 'assigned', { room_id: 1000001 }), task(3, 'assigned', { room_id: 9 })]
+    expect(boardSections(tasks, rooms, 1).map(s => sectionTitle(s, t))).toEqual(['聊天', '工作区2'])
+    expect(boardSections(tasks, rooms, 9).map(s => sectionTitle(s, t))).toEqual(['量化'])
   })
 
   it('keeps the chat channel block when it has no tasks of its own', () => {
