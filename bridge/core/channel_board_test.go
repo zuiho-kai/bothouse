@@ -27,6 +27,7 @@ type boardPlatform struct {
 	pinErr    error
 	gone      map[string]bool // message IDs that no longer exist
 	failEdits int             // the next this many edits fail (network down)
+	editErr   error           // when set, every edit fails with it
 	block     chan struct{}   // when set, Post/Edit wait for it (or ctx) first
 	editTries int             // edit calls, failed ones included
 	found     string          // FindChannelBoard result
@@ -85,6 +86,9 @@ func (p *boardPlatform) EditChannelBoard(ctx context.Context, _, id, content str
 	p.editTries++
 	if p.gone[id] {
 		return fmt.Errorf("%w: 10008", ErrChannelBoardGone)
+	}
+	if p.editErr != nil {
+		return p.editErr
 	}
 	if p.failEdits > 0 {
 		p.failEdits--
