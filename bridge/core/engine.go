@@ -575,6 +575,7 @@ type Engine struct {
 	dataDir        string
 	publicProgress *PublicProgress
 	productPyBin   atomic.Value // string: bin dir holding the product python3, resolved once in Start (role_env.go)
+	productPyWG    sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
 
 	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
 	teamExit     teamExitState
@@ -2896,6 +2897,7 @@ func (e *Engine) Stop() error {
 	// Cancellation requests shutdown; joining ensures no accepted message or
 	// event reader can persist state after Stop returns.
 	e.messageWorkers.Wait()
+	e.productPyWG.Wait() // the role-PATH python3 link is not written into the data dir after Stop
 	if len(errs) > 0 {
 		return fmt.Errorf("engine stop errors: %v", errs)
 	}

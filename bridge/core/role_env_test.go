@@ -139,3 +139,45 @@ func TestRoleSessionEnv_NoProductPythonOrTools(t *testing.T) {
 	}
 	t.Fatal("no PATH in role env")
 }
+
+// Start resolves the product Python in the background; Stop must cancel and join that work, so once Stop
+// returns this engine no longer writes the python3 link into the data dir (hot reload / test TempDir cleanup).
+func TestRoleProductPython_StopJoinsLookup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no python3 link on Windows")
+	}
+	dataDir, _ := stubPythonEnv(t)
+	py := filepath.Join(t.TempDir(), "python3.12")
+	if err := os.WriteFile(py, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	pathPython312 = func() string { close(entered); <-release; return py }
+
+	e := newTestEngine()
+	e.SetDataDir(dataDir)
+	if err := e.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-entered // the lookup is in flight
+	done := make(chan error, 1)
+	go func() { done <- e.Stop() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop blocked on the product-Python lookup")
+	}
+	close(release)
+	if got := lastProductPython(); got != py { // takes the lookup's lock: the lookup has finished
+		t.Fatalf("lookup result = %q, want %q", got, py)
+	}
+	if _, err := os.Lstat(filepath.Join(dataDir, "tools", "bin")); !os.IsNotExist(err) {
+		t.Fatalf("data dir written after Stop: tools/bin stat err = %v", err)
+	}
+	if v := e.productPyBin.Load(); v != nil {
+		t.Fatalf("productPyBin set after Stop: %v", v)
+	}
+}

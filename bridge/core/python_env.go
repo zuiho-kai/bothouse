@@ -98,6 +98,12 @@ func ProductPythonBinDir(dataDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return productPythonLink(dataDir, py)
+}
+
+// productPythonLink makes <dataDir>/tools/bin/python3 point at py (on Windows: py's own directory, nothing
+// is written) and returns that directory.
+func productPythonLink(dataDir, py string) (string, error) {
 	if runtime.GOOS == "windows" {
 		return filepath.Dir(py), nil
 	}

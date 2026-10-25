@@ -67,16 +67,40 @@ func (e *Engine) resolveRoleProductPython() {
 			e.productPyBin.Store(dir)
 		}
 	}
+	// The lookup is shared by the whole process (the gate waits on the same one) and cannot be cancelled,
+	// so it runs on its own; the engine only waits for it while running. The link into the data dir is
+	// written by the tracked goroutine, which Stop cancels (e.ctx) and joins, so nothing of this engine
+	// writes into the data dir after Stop returns.
+	ctx, dataDir := e.ctx, e.dataDir
+	found := make(chan productPythonResult, 1)
 	go func() {
-		dir, err := ProductPythonBinDir(e.dataDir)
-		if err != nil {
-			slog.Warn("role env: no product Python for role PATH; lead scripts use the system python3", "project", e.name, "error", err)
+		py, err := ProductPython(dataDir)
+		found <- productPythonResult{py, err}
+	}()
+	e.productPyWG.Add(1)
+	go func() {
+		defer e.productPyWG.Done()
+		var r productPythonResult
+		select {
+		case <-ctx.Done():
 			return
+		case r = <-found:
 		}
-		if dirExists(dir) {
-			e.productPyBin.Store(dir)
+		if r.err == nil && ctx.Err() == nil {
+			var dir string
+			if dir, r.err = productPythonLink(dataDir, r.py); r.err == nil && dirExists(dir) {
+				e.productPyBin.Store(dir)
+			}
+		}
+		if r.err != nil && ctx.Err() == nil {
+			slog.Warn("role env: no product Python for role PATH; lead scripts use the system python3", "project", e.name, "error", r.err)
 		}
 	}()
+}
+
+type productPythonResult struct {
+	py  string
+	err error
 }
 
 func dirExists(p string) bool {
