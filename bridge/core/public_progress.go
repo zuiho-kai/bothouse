@@ -584,21 +584,33 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.mu.Lock()
 	platform := state.platform
 	state.mu.Unlock()
-	token := e.publicProgress.begin(platform, session, e.i18n.CurrentLang(), state.isStopped)
+	token := e.beginPublicProgress(platform, session, state.isStopped, fromVoice)
 	if token == "" {
 		return prompt
-	}
-	if fromVoice {
-		e.publicProgress.mu.Lock()
-		r := e.publicProgress.runs[token]
-		e.publicProgress.mu.Unlock()
-		r.mu.Lock()
-		r.record.Task.Origin = "voice"
-		r.mu.Unlock()
 	}
 	state.mu.Lock()
 	state.publicProgressRun = token
 	state.mu.Unlock()
+	return e.publicProgressInstructions(token, session) + prompt
+}
+
+// beginPublicProgress issues a turn token whose card is published on the
+// session's own channel. Voice turns are marked so the card shows its origin.
+func (e *Engine) beginPublicProgress(platform Platform, session string, stopped func() bool, fromVoice bool) string {
+	token := e.publicProgress.begin(platform, session, e.i18n.CurrentLang(), stopped)
+	if token == "" || !fromVoice {
+		return token
+	}
+	e.publicProgress.mu.Lock()
+	r := e.publicProgress.runs[token]
+	e.publicProgress.mu.Unlock()
+	r.mu.Lock()
+	r.record.Task.Origin = "voice"
+	r.mu.Unlock()
+	return token
+}
+
+func (e *Engine) publicProgressInstructions(token, session string) string {
 	command := "bothouse"
 	if path, err := os.Executable(); err == nil {
 		command = path
@@ -618,7 +630,7 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 		"RUN_TOKEN", token,
 		"RESUME_NOTE", resumeNote,
 		"RELAY_COMMAND", quote(command)+" relay send --from "+quote(e.name)+" --session "+quote(session)+" --data-dir "+quote(e.publicProgress.dataDir),
-	).Replace(publicProgressPrompt+publicTaskMembersPrompt) + prompt
+	).Replace(publicProgressPrompt + publicTaskMembersPrompt)
 }
 
 const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' --ref 'path:line of the existing implementation to follow' (for a configured bot, use --reporter-project EXACT_BOUND_PROJECT_ID; its name comes from that project, never from --name). Native children use --name 'explicit child name' and optional --parent existing-member-id; they inherit their owning bot account. --ref is required: name the existing implementation (path:line); for non-code work write --ref '无（新建）'. When several members edit the same files, put 多人改 in the title and add --base BRANCH; the member that changes the shared interface merges first. Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. A --reporter-project member gets no report_command (report_via is set instead): dispatch it with the task relay and that bot receives its own member report command there. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"

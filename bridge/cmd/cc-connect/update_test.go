@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestIsNewer(t *testing.T) {
@@ -422,5 +424,30 @@ func TestUpdateSocketPathFollowsHomeNotInheritedDataDir(t *testing.T) {
 	}
 	if got, want := updateSocketPath(cfgPath), filepath.Join(dataDir, "run", "api.sock"); got != want {
 		t.Fatalf("--config: got %q want %q", got, want)
+	}
+}
+
+// `bothouse update` with no running bothouse: a self-built binary (or, on macOS, one without the
+// release signature) refuses before downloading anything (#299).
+func TestInstallDirectRefusesSelfBuilt(t *testing.T) {
+	oldID, oldHash, oldDl := core.ReleaseSignerID, core.ReleaseSignerHash, downloadUpdateAssetFn
+	t.Cleanup(func() { core.ReleaseSignerID, core.ReleaseSignerHash, downloadUpdateAssetFn = oldID, oldHash, oldDl })
+	downloaded := 0
+	downloadUpdateAssetFn = func(string, string) (string, error) { downloaded++; return "", errors.New("stub") }
+
+	cases := map[string][2]string{"self-built": {"", ""}}
+	if runtime.GOOS == "darwin" {
+		// the test binary is ad-hoc signed, not by the release certificate
+		cases["not release-signed"] = [2]string{"ai.bothouse.desktop", "90C081464BA60F81CE7FF6E18767F40D5E650CD1"}
+	}
+	for name, c := range cases {
+		core.ReleaseSignerID, core.ReleaseSignerHash = c[0], c[1]
+		_, err := installDirect("https://example.invalid", "v99.0.0")
+		if !errors.Is(err, core.ErrSelfBuiltUpdate) || !strings.Contains(err.Error(), "本机自编译版不支持自我升级") {
+			t.Fatalf("%s: got %v", name, err)
+		}
+	}
+	if downloaded != 0 {
+		t.Fatalf("downloaded %d times", downloaded)
 	}
 }

@@ -335,6 +335,20 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 		toSend = &pending
 	}
 	prompt := withSubagentPolicy(e.withVoiceDesk(req.Message), "", true)
+	// A spoken task opens its card on the voice channel the device is bound to;
+	// that channel is already verified by voiceTarget.
+	if token := e.voicePublicProgress(ctx, req.SessionKey); token != "" {
+		prompt = e.publicProgressInstructions(token, req.SessionKey) + prompt
+		defer func() {
+			outcome := "result"
+			if errors.Is(err, context.Canceled) {
+				outcome = "cancelled"
+			} else if err != nil {
+				outcome = "failed"
+			}
+			e.publicProgress.finish(token, outcome)
+		}()
+	}
 	send := func() error { return session.Send(prompt, req.RequestID, nil, nil) }
 	if strict, ok := session.(StrictResumeSession); ok && session.CurrentSessionID() != "" {
 		id := session.CurrentSessionID()
@@ -482,4 +496,20 @@ func (s *APIServer) handleVoiceRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	apiJSON(w, 200, entry.Result)
+}
+
+func (e *Engine) voicePublicProgress(ctx context.Context, sessionKey string) string {
+	if e.publicProgress == nil {
+		return ""
+	}
+	name, _, ok := strings.Cut(sessionKey, ":")
+	if !ok {
+		return ""
+	}
+	for _, p := range e.platforms {
+		if p.Name() == name {
+			return e.beginPublicProgress(p, sessionKey, func() bool { return ctx.Err() != nil }, true)
+		}
+	}
+	return ""
 }

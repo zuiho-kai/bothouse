@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
 
@@ -710,4 +713,99 @@ it('shows retrying only while the retry request is pending, then hides the butto
   expect(screen.queryByRole('button', { name: zh.retry })).toBeNull()
   expect(screen.queryByRole('button', { name: zh.retrying })).toBeNull()
   expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
+})
+
+describe('multi-line messages and the narrow composer', () => {
+  const cssText = () => readFileSync(join(import.meta.dirname, '../src/client/ChannelsPage.module.css'), 'utf8')
+  const rule = (selector: string) => {
+    const at = cssText().indexOf(selector + ' {')
+    expect(at).toBeGreaterThanOrEqual(0)
+    return cssText().slice(at, cssText().indexOf('}', at))
+  }
+
+  it('keeps single newlines of a message as line breaks, without breaking code blocks or lists', () => {
+    const text = '回车测试甲\n回车测试乙\n\n```\ncode 1\ncode 2\n```\n\n- 一\n- 二'
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
+    const paragraph = screen.getByText(/回车测试甲/)
+    expect(paragraph.tagName).toBe('P')
+    expect(paragraph.querySelectorAll('br')).toHaveLength(1)
+    expect(paragraph.textContent?.replace(/\n/g, '')).toBe('回车测试甲回车测试乙')
+    expect(document.querySelector('pre')?.textContent).toContain('code 1\ncode 2')
+    expect(document.querySelector('pre br')).toBeNull()
+    expect(Array.from(document.querySelectorAll('li')).map(li => li.textContent)).toEqual(['一', '二'])
+    expect(document.querySelectorAll('li br')).toHaveLength(0)
+    // Line breaks come from <br>, not from whitespace styling, so markdown's own "\n" text stays invisible.
+    expect(cssText()).not.toContain('pre-wrap')
+  })
+
+  // Before this fix (develop) messages went to MarkdownText unchanged; these shapes must render the same.
+  it.each([
+    ['loose list', '- 一\n\n- 二\n\n- 三'],
+    ['list item with sub-list and code', '- 一\n  - 子\n- 二\n\n  ```\n  x = 1\n  ```'],
+    ['hard breaks', '行一  \n行二\\\n行三'],
+    ['table', '| a | b |\n| --- | --- |\n| 1 | 2 |'],
+  ])('renders a %s exactly as before (no extra blank lines)', (_name, text) => {
+    const labels = { code: { copyLabel: zh.copyCode, copiedLabel: zh.copiedCode }, footnotes: zh.footnotes }
+    const markdown = () => document.querySelector('[class*="_markdown_"]')?.innerHTML
+    render(<MarkdownText text={text} labels={labels} />)
+    const before = markdown()
+    expect(before).toBeTruthy()
+    cleanup()
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
+    expect(markdown()).toBe(before)
+  })
+
+  // Markdown that members actually send, with the edge cases earlier line-regex versions got wrong.
+  // Against develop (text unchanged) the only difference allowed is a <br> where a paragraph had a
+  // soft line ending; code, math, tables and HTML render byte for byte the same.
+  it.each([
+    ['inline code at line start', '```x``` 是行内\n甲\n乙', 2],
+    ['fence on a list item line', '- ```bash\n  a\n  b\n  ```\n\n甲\n乙', 1],
+    ['fence in a block quote', '> 引\n> ```\n> a\n> b\n> ```\n> 尾', 0],
+    ['fence in a nested list', '- 外\n  - 内\n    ```\n    a\n    b\n    ```', 0],
+    ['unclosed fence', '前\n甲\n\n```\na\nb', 1],
+    ['quoted fence ended by the quote', '> ```\n> a\n\n甲\n乙', 1],
+    ['inline code across lines', '用 `a\nb` 跑\n下一行', 1],
+    ['trailing backslash and spaces', '行一  \n行二\\\n行三\n行四', 1],
+    ['math block', '前\n\n$$\na\nb\n$$\n\n后\n行', 1],
+    ['TeX display math', '\\[\na \\\\\nb\n\\]\n\n后', 0],
+    ['table', '说明\n\n| a | b |\n| --- | --- |\n| 1 | 2 |', 0],
+    ['HTML block', '<div>\na\nb\n</div>', 0],
+    ['CRLF', '甲\r\n乙\r\n\r\n```\r\na\r\nb\r\n```', 1],
+  ])('renders %s like develop plus line breaks', (_name, text, breaks) => {
+    const labels = { code: { copyLabel: zh.copyCode, copiedLabel: zh.copiedCode }, footnotes: zh.footnotes }
+    const markdown = () => document.querySelector('[class*="_markdown_"]')?.innerHTML ?? ''
+    const codes = () => Array.from(document.querySelectorAll('pre, code, .katex-display')).map(node => node.textContent?.replace(/\r/g, ''))
+    render(<MarkdownText text={text} labels={labels} />)
+    const before = markdown()
+    const beforeCodes = codes()
+    const beforeBreaks = document.querySelectorAll('br').length
+    expect(before).toBeTruthy()
+    cleanup()
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
+    expect(document.querySelectorAll('[class*="_markdown_"] br').length - beforeBreaks).toBe(breaks)
+    expect(codes()).toEqual(beforeCodes)
+    for (const code of codes()) expect(code).not.toMatch(/ \n/)
+    // CRLF becomes LF before parsing, so code copied from a CRLF message has LF line endings.
+    const plain = (html: string) => html.replace(/<br>\n?/g, '\n').replace(/\r/g, '')
+    expect(plain(markdown())).toBe(plain(before))
+  })
+
+  it('breaks a continued list item onto its own line', () => {
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text: '- 甲\n  续行\n- 乙' }] })} />)
+    const items = document.querySelectorAll('li')
+    expect(items).toHaveLength(2)
+    expect(items[0].querySelectorAll('br')).toHaveLength(1)
+    expect(items[1].querySelectorAll('br')).toHaveLength(0)
+  })
+
+  it('keeps the composer placeholder on one line and the text box flexible', () => {
+    const placeholder = rule('.input::placeholder')
+    expect(placeholder).toContain('white-space: nowrap')
+    expect(placeholder).toContain('text-overflow: ellipsis')
+    const input = rule('.input')
+    expect(input).toContain('flex: 1')
+    expect(input).toContain('min-width: 0')
+    expect(cssText()).toMatch(/@media \(max-width: 600px\) \{\n {2}\.composer \{ padding: 0 8px 8px; \}/)
+  })
 })

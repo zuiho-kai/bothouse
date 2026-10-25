@@ -139,6 +139,10 @@ var (
 // SelfUpdate downloads and installs the given release version.
 // If preferGitee is true, tries Gitee download first.
 func SelfUpdate(tag string, preferGitee bool) error {
+	// Last line of defence; every entry checks this before it starts (#299).
+	if err := UpdateRefusal(); err != nil {
+		return err
+	}
 	bases := []string{githubDownload}
 	if preferGitee {
 		bases[0] = giteeDownload

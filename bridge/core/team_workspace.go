@@ -160,6 +160,9 @@ type TeamWorkspace struct {
 	// work (not closed, not paused) and the paused ones, from the bridge's own record.
 	Open   int `json:"open,omitempty"`
 	Parked int `json:"parked,omitempty"`
+	// WatchDue: in TeamWorkspacePool only, the earliest check time of the ten-minute watch on
+	// its tasks in work (zero: not watched by the bridge).
+	WatchDue time.Time `json:"watch_due,omitzero"`
 }
 
 // teamWorkspaceBusy: a workspace with this many tasks in work counts as busy; a new handoff
@@ -233,6 +236,17 @@ type TeamHandoff struct {
 	// for the user or someone else). A parked task does not keep the workspace: it is the chat
 	// channel's to-do and is handed off again (to any free workspace) when it resumes.
 	Parked time.Time `json:"parked,omitzero"`
+	// The ten-minute watch (team_watch.go). Owner: who the task was handed to (a platform
+	// user/bot id, mentioned in the nudge; "" = nobody is mentioned). Title: the task's short
+	// name for the nudge. Due: the next check time (zero: not watched, e.g. a handoff recorded
+	// before the watch existed). Renewed: renewals given for progress. Nudged: the nudge was
+	// sent. ParkFails: parks that failed at the check time (retried, then reported).
+	Owner     string    `json:"owner,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	Due       time.Time `json:"due,omitzero"`
+	Renewed   int       `json:"renewed,omitempty"`
+	Nudged    bool      `json:"nudged,omitempty"`
+	ParkFails int       `json:"park_fails,omitempty"`
 }
 
 // teamHandoffOpen: the handoff is in work (neither closed nor paused).
@@ -819,6 +833,14 @@ func teamWorkspaceOwnerLocked(st *teamWorkspaceState, plat, wsID string) (string
 // like teamWorkspaceOp, so a claim never interleaves with a create that is saving a listing
 // taken before the claim.
 func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
+	return e.ClaimTeamWorkspaceFor(channel, wsID, name, "", "")
+}
+
+// ClaimTeamWorkspaceFor is ClaimTeamWorkspace naming who the task goes to (taskOwner, optional:
+// mentioned when the ten-minute watch nudges) and its short title (optional). Once the watch is
+// started on e, every claim is watched: its handoff gets a check time watchCheckAfter() from now
+// (team_watch.go); before that no check time is recorded.
+func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title string) error {
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
 		return errors.New("team workspace claim: chat channel and workspace id are required")
 	}
@@ -911,7 +933,12 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 		st.Handoffs = map[string][]TeamHandoff{}
 	}
 	wk := plat + ":" + wsID
-	st.Handoffs[wk] = append(st.Handoffs[wk], TeamHandoff{Chat: chat, At: time.Now()})
+	now := time.Now()
+	h := TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title}
+	if e.handoffWatchOn.Load() {
+		h.Due = now.Add(watchCheckAfter())
+	}
+	st.Handoffs[wk] = append(st.Handoffs[wk], h)
 	return saveTeamWorkspacesLocked(path, st)
 }
 
@@ -1222,7 +1249,9 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	}
 	pname, _, _ := strings.Cut(chat, ":")
 	owners := map[string]string{}
-	counts := map[string][2]int{} // workspace id → open, parked handoffs
+	counts := map[string][2]int{}  // workspace id → open, parked handoffs
+	dues := map[string]time.Time{} // workspace id → watch check time (watch started only)
+	watched := e.handoffWatchOn.Load()
 	if e.dataDir != "" {
 		teamWorkspaceStore.mu.Lock()
 		st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
@@ -1230,6 +1259,9 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			if p, id, _ := strings.Cut(key, ":"); p == pname {
 				open, parked := teamWorkspaceCountsLocked(st, key)
 				counts[id] = [2]int{open, parked}
+				if watched {
+					dues[id] = teamWorkspaceWatchDueLocked(st, key)
+				}
 			}
 		}
 		for parent, list := range st.Parents {
@@ -1253,6 +1285,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			}
 			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner}
 			w.Open, w.Parked = counts[c.ID][0], counts[c.ID][1]
+			w.WatchDue = dues[c.ID]
 			out = append(out, w)
 		}
 	}

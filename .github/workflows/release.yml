@@ -85,6 +85,13 @@ jobs:
     timeout-minutes: 30
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      # Fixed release signing identity (#299): macOS keeps privacy (TCC) permissions across updates
+      # only while the identifier and certificate stay the same. The hash is the public SHA-1 of the
+      # self-signed "Bothouse Release Signing" certificate; its key lives only in a keychain on the
+      # self-hosted Mac (~/.config/bothouse-signing/). Both are compiled in, so the in-app update
+      # can tell a release binary from a self-built one (bridge/core/update_sign.go).
+      SIGN_ID: ai.bothouse.desktop
+      SIGN_HASH: 90C081464BA60F81CE7FF6E18767F40D5E650CD1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -131,7 +138,9 @@ jobs:
             cgo=0
             cc="${CC:-cc}"
             ldflags="-s -w -X main.version=${TAG} -X main.commit=${commit} -X main.buildTime=${built}"
+            ldflags="$ldflags -X github.com/chenhg5/cc-connect/core.ReleaseSignerID=${SIGN_ID}"
             if [ "$os" = darwin ]; then
+              ldflags="$ldflags -X github.com/chenhg5/cc-connect/core.ReleaseSignerHash=${SIGN_HASH}"
               cgo=1
               cpu=$arch; [ "$arch" != amd64 ] || cpu=x86_64
               cc="clang -arch $cpu"
@@ -154,6 +163,17 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             lipo -create build/bothouse-darwin-arm64/bothouse build/bothouse-darwin-amd64/bothouse \
               -output build/bothouse-universal
+            # Sign the single binary (not the .app): the in-app update swaps only this file, so its
+            # signature must stand on its own. Nothing may modify the file after this.
+            signdir="$HOME/.config/bothouse-signing"
+            keychain="$signdir/bothouse-signing.keychain-db"
+            # password from stdin, never in argv; the keychain's key partition list already allows codesign
+            # (security set-key-partition-list -S apple-tool:,apple:,codesign:), so signing does not prompt
+            security unlock-keychain "$keychain" < "$signdir/keychain.pass" >/dev/null
+            trap 'security lock-keychain "$keychain"' EXIT
+            codesign --force --keychain "$keychain" --sign "$SIGN_HASH" --identifier "$SIGN_ID" build/bothouse-universal
+            security lock-keychain "$keychain"
+            codesign --verify "-R=identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\"" build/bothouse-universal
             ../.github/release-check/package-dmg.sh build/bothouse-universal ../dist/bothouse-mac.dmg "$TAG"
           fi
           cd ../dist
@@ -176,6 +196,13 @@ jobs:
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch arm64
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch x86_64
           "$mount/Bothouse.app/Contents/MacOS/bothouse" --version
+          # the same check the in-app guard runs (core/update_sign.go): the copied-out single file must carry a full,
+          # valid release signature; inside the unsealed .app only the resource seal is skipped
+          req="identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\""
+          single=$(mktemp -d)/bothouse
+          cp "$mount/Bothouse.app/Contents/MacOS/bothouse" "$single"
+          codesign --verify "-R=$req" "$single"
+          codesign --verify --ignore-resources "-R=$req" "$mount/Bothouse.app/Contents/MacOS/bothouse"
           hdiutil detach "$mount"
       - name: zstd for the cache archive (macOS)
         # actions/cache falls back to gzip when zstd is missing, and a gzip entry has a different cache version, so the

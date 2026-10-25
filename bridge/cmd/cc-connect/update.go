@@ -278,21 +278,8 @@ func runUpdate(args []string) {
 		return
 	}
 
-	tmpFile, err := downloadUpdateAsset(downloadBase, latest)
+	execPath, err := installDirect(downloadBase, latest)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	defer os.Remove(tmpFile)
-
-	execPath, err := os.Executable()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot locate current binary: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := replaceExecutable(execPath, tmpFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -301,6 +288,30 @@ func runUpdate(args []string) {
 
 	fmt.Printf("Updated to %s\n", latest)
 	fmt.Println("Restart bothouse to use the new version.")
+}
+
+// Swappable in tests.
+var downloadUpdateAssetFn = downloadUpdateAsset
+
+// installDirect replaces this program with release tag when no running bothouse does it.
+// A self-built binary refuses before downloading anything (#299, same rule as core's entries).
+func installDirect(base, tag string) (string, error) {
+	if err := core.UpdateRefusal(); err != nil {
+		return "", err
+	}
+	tmpFile, err := downloadUpdateAssetFn(base, tag)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpFile)
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("cannot locate current binary: %w", err)
+	}
+	if err := replaceExecutable(execPath, tmpFile); err != nil {
+		return "", err
+	}
+	return execPath, nil
 }
 
 // fetchRelease returns the latest release. If pre=true, includes pre-releases.
