@@ -145,7 +145,9 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 
 桥接本身是一个 QQ 官方 SDK 客户端（`qq-bridge.mjs`）：以 cc-connect 兼容的 bot 身份连上 `/cloud-web/ws`，把 QQ 消息 @ 到频道，再把频道的回复用被动消息发回 QQ；`mirror` 打开时，频道里其他人的新消息也会推到 QQ（受主动消息额度限制）。
 
-注意：同一个 QQ 机器人只能有一份桥接在跑。以前用 launchd 常驻的桥接要先停掉，否则两边各回一遍。
+面板保存过的配置会在 DSH 下次启动时自动拉起桥接；「停止」只对当次运行有效。
+
+注意：同一个 QQ 机器人只能有一份桥接在跑。以前用 launchd 常驻的桥接要先停掉（`launchctl bootout gui/$(id -u)/com.dsh.qq-channel-bridge`），否则两边各回一遍。
 
 ## 行为约定
 

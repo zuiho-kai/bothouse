@@ -102,6 +102,15 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   const qq = new QqBridge(store, { dataDir: config.dataDir, logger: ctx.logger });
+  // The relay is a child of this process: after a restart nothing else would start it,
+  // so a configured bridge comes back on its own (stop from the panel still applies
+  // until the next boot).
+  try {
+    const saved = qq.read();
+    if (saved.appId !== '' && saved.appSecret !== '') qq.start();
+  } catch (error) {
+    ctx.logger.warn('conest-collab: QQ bridge auto-start failed: %s', error.message);
+  }
   for (const room of config.rooms) {
     store.ensureRoom(room.id, room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
