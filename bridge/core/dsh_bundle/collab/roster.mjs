@@ -42,7 +42,13 @@ export class Roster {
   /** Write config members as seeds, then publish every active member. */
   load(configMembers) {
     this.store.transaction(() => { for (const m of configMembers) this.store.seedMember(m); });
-    for (const row of this.store.members()) this.dsh.putMember(rowToMember(row));
+    // The members table has no preset columns: a config member's agentPreset and
+    // permissionPreset come from the config itself, or they never reach its Sessions.
+    const presets = new Map(configMembers.map(m => [m.id, {
+      ...(m.agentPreset === undefined ? {} : { agentPreset: m.agentPreset }),
+      ...(m.permissionPreset === undefined ? {} : { permissionPreset: m.permissionPreset }),
+    }]));
+    for (const row of this.store.members()) this.dsh.putMember({ ...rowToMember(row), ...(row.source === 'ui' ? {} : presets.get(row.id)) });
   }
 
   /**

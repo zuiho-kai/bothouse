@@ -904,6 +904,15 @@ function fakeLlm() {
   };
 }
 
+test('roster: a config member keeps its agent preset and permission preset', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, []);
+  new Roster(hub, members, fakeLlm()).load([{ id: 'fa', name: 'FullAccess', agentPreset: 'standard', permissionPreset: 'danger-full-access' }]);
+  assert.equal(members.config.get('fa').permissionPreset, 'danger-full-access');
+  assert.equal(members.config.get('fa').agentPreset, 'standard');
+});
+
 test('roster: config seeds are read-only, UI members are created, edited and removed, names stay unique', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
