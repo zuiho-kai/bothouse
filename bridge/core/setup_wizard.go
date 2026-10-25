@@ -695,6 +695,9 @@ type wizardPlan struct {
 	fallbackBot  string
 	note         string
 	writes       []WizardProjectWrite
+	// soloShared: a single-role run while the data dir has another wizard team of two or more
+	// roles; that team owns gate-team.json and the gate wiring, so the single role gets neither
+	soloShared bool
 	// bots whose allow_from was set to AllowFromUnset (nobody known to allow)
 	allowFromUnset []string
 }
@@ -1163,7 +1166,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 
 	// a single role gets the file too, as its lead with no subs (the gate's wiki and task board)
-	if (req.Platform == "discord" || cloudWeb || isFeishu) && len(pl.team) > 0 && req.gateOn() {
+	if (req.Platform == "discord" || cloudWeb || isFeishu) && (len(pl.team) > 1 || len(pl.team) == 1 && !pl.soloShared) && req.gateOn() {
 		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
 		for _, t := range pl.team {
 			if t.Project != pl.fallback {
@@ -1642,7 +1645,8 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	if isFeishuPlatform(req.Platform) && len(pl.team) > 1 {
 		pl.writes = feishuTeamWrites(pl.writes, pl.team, s, pl.fallback, req.gateOn())
 	}
-	if (req.Platform == "discord" || cloudWeb || isFeishuPlatform(req.Platform)) && len(pl.team) == 1 {
+	pl.soloShared = len(pl.team) == 1 && otherWizardTeam(s, state, pl.team[0].Project)
+	if (req.Platform == "discord" || cloudWeb || isFeishuPlatform(req.Platform)) && len(pl.team) == 1 && !pl.soloShared {
 		pl.writes = soloGateWrites(pl.writes, pl.team[0].Project, req.Platform, s, req.gateOn())
 	}
 	return pl, nil
@@ -1885,6 +1889,25 @@ func feishuTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wiza
 		}
 	}
 	return writes
+}
+
+// otherWizardTeam reports whether the recorded wizard teams (Discord / Feishu and cloud_web) hold
+// a team of at least two roles still in the snapshot that has a role other than project. Such a
+// team owns <data_dir>/gate-team.json, so a single-role run must not rewrite it.
+func otherWizardTeam(s WizardSnapshot, state SetupState, project string) bool {
+	for _, team := range [][]SetupTeamEntry{state.Team, state.CloudWebTeam} {
+		live, other := 0, false
+		for _, t := range team {
+			if _, ok := s.project(t.Project); ok {
+				live++
+				other = other || t.Project != project
+			}
+		}
+		if live >= 2 && other {
+			return true
+		}
+	}
+	return false
 }
 
 // soloGateWrites gives a single-role install the gate a team lead gets: gate_url (the lead's, no

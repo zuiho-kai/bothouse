@@ -1594,3 +1594,39 @@ func TestApplyWizardSingleRoleGetsLeadSetup(t *testing.T) {
 		check(t, dir, store, "juzi", "Juzi", str)
 	})
 }
+
+// #597 K12: a Discord team [A, B] owns gate-team.json and <data_dir>/team. A later cloud_web run
+// that installs only C must leave both alone: C gets no team defaults and no lead gate, and
+// gate-team.json still names A the lead and B its sub.
+func TestApplyWizardSingleRoleKeepsOtherTeam(t *testing.T) {
+	str := wizardGateTestEnv(t)
+	noLocalHub(t)
+	ta, tb := fakeToken("111"), fakeToken("222")
+	fakeDiscord(t, map[string]string{ta: "Aka", tb: "Bai"})
+	dir, store := t.TempDir(), newMemStore()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	if res := ApplyWizard(context.Background(), env, discordReq("900", WizardRole{Token: ta}, WizardRole{Token: tb})); !res.OK {
+		t.Fatalf("discord team: %+v", res)
+	}
+	lead0, _, subs0 := readGateTeam(t, dir)
+	if lead0 != "Aka" || len(subs0) != 1 {
+		t.Fatalf("discord team gate-team.json: lead=%q subs=%v", lead0, subs0)
+	}
+
+	hub := fakeHub(t, "bot-secret")
+	if res := ApplyWizard(context.Background(), env, cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Cha"})); !res.Saved {
+		t.Fatalf("cloud_web single role: %+v", res)
+	}
+	if lead, _, subs := readGateTeam(t, dir); lead != "Aka" || len(subs) != 1 || subs[0] != subs0[0] {
+		t.Errorf("gate-team.json after cloud_web single role: lead=%q subs=%v, want Aka/%v", lead, subs, subs0)
+	}
+	if p := store.projects["cha"]; p == nil || p.GateURL != nil {
+		t.Errorf("cloud_web single role got the lead gate: %v", str(p.GateURL))
+	}
+	if _, _, _, ok := WizardTeamDefaults(dir, "cha"); ok {
+		t.Errorf("cloud_web single role got team defaults next to a Discord team")
+	}
+	if _, _, lead, ok := WizardTeamDefaults(dir, "aka"); !ok || !lead {
+		t.Errorf("discord lead lost its team defaults: lead=%v ok=%v", lead, ok)
+	}
+}
