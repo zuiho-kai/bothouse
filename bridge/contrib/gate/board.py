@@ -33,7 +33,7 @@
 频道卡片（用户 2026-10-23「我这根本感知不到你后面还可以去处理……也没看到有任何sub表」）：
   本脚本不再自己发置顶卡、不读平台 token（#597 K9）：桥的原生团队板（core/team_task_board.go）读同一个
   <BOARD_DIR>/board.jsonl，在每个条目所在频道（add 时记的 sk；工作区交接的条目也上交活的聊天频道 chat）的团队板里
-  出一节「任务板」（在做 + 暂停，带「下次看」），四平台都走桥的 BoardPoster。要出板，BOARD_DIR 和 team_status_dir 须是同一个目录。
+  出一节「任务板」（在做按本频道 + 名下各工作区分块、暂停、今天做完；「下次看」到点且定时已不在标「已过」；没记频道的老条目按 ch 归频道，都没有就出在主聊天频道），四平台都走桥的 BoardPoster。要出板，BOARD_DIR 和 team_status_dir 须是同一个目录。
   done 之后若设了 BOARD_PR_REPO（owner/name），用 gh 列出自己在该仓库还开着的 PR 作提醒；不设、gh 不在或失败都静默跳过。
 """
 import fcntl, json, os, re, shutil, subprocess, sys, time
