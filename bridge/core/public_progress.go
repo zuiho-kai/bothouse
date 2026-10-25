@@ -97,6 +97,9 @@ type PublicProgress struct {
 	dataDir         string
 	project         string
 	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
+	// notBound tells the channel once that project must be /bind-ed there (bound=false), or
+	// forgets that notice once it is bound (team_hints.go).
+	notBound func(session, project string, bound bool)
 	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
 	reporterName func(project, session string) string
 	// projectName is a configured project's name for people (team_name, e.g. 橘 for
@@ -573,6 +576,7 @@ func (e *Engine) EnablePublicProgress() error {
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
 	p.reporterName = e.taskReporterName
+	p.notBound = e.noteBound
 	p.projectName = e.projectDisplayName
 	return nil
 }

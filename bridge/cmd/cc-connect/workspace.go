@@ -106,6 +106,9 @@ func runWorkspace(args []string) {
 			return
 		}
 		fmt.Printf("chat %s\n", r.Parent)
+		if r.Hint != "" {
+			fmt.Println(r.Hint)
+		}
 		for _, w := range r.Workspaces {
 			fmt.Printf("%s\t%s\n", w.ID, w.Name)
 		}

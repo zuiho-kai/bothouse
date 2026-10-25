@@ -430,6 +430,7 @@ type Engine struct {
 	instantReply     InstantReplyCfg
 	references       ReferenceRenderCfg
 	relayManager     *RelayManager
+	notBoundNoticed  sync.Map // notBoundKey → posted (team_hints.go)
 	eventIdleTimeout time.Duration
 	maxTurnTime      time.Duration // absolute wall-clock cap per turn (0 = disabled)
 	// agentSessionIdleTimeoutNanos 在单轮正常结束后关闭空闲的 live agent 进程，

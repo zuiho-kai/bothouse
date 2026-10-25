@@ -182,7 +182,15 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		req.ReporterProject = p.project
 	}
 	if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, req.SessionKey, r.publisher); err != nil {
+		// Unbound teammate: the command says what to do, and so does the channel (#587).
+		var nb *notBoundError
+		if errors.As(err, &nb) && p.notBound != nil {
+			p.notBound(req.SessionKey, nb.project, false)
+		}
 		return nil, err
+	}
+	if p.notBound != nil {
+		p.notBound(req.SessionKey, req.ReporterProject, true)
 	}
 	if memberIndex(r.record.Task, req.MemberID) >= 0 {
 		p.mu.Lock()

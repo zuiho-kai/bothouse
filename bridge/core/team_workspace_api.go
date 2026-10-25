@@ -84,6 +84,9 @@ type TeamWorkspaceListResult struct {
 	// ten-minute watch on its tasks in work (zero: not watched; the lead's d10 scripts skip a
 	// watched workspace).
 	WatchDue time.Time `json:"watch_due,omitzero"`
+	// Hint: what to do next when the chat channel has no workspace at all (none of its own and
+	// none in the pool) — workspaces are only made on request, so say how (#587).
+	Hint string `json:"hint,omitempty"`
 }
 
 func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Request) {
@@ -102,8 +105,12 @@ func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Reque
 		parent = p
 	}
 	res := TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent), WatchDue: e.teamWorkspaceWatchDue(key)}
-	if pool, err := e.TeamWorkspacePool(parent); err == nil {
+	pool, err := e.TeamWorkspacePool(parent)
+	if err == nil {
 		res.Pool = pool
+	}
+	if len(res.Workspaces) == 0 && err == nil && len(pool) == 0 {
+		res.Hint = teamWorkspaceNoneHint
 	}
 	apiJSON(w, http.StatusOK, res)
 }
@@ -212,7 +219,18 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 	}
 	freed, err := s.parkAndReset(e, key, req.Chat, before)
 	if errors.Is(err, ErrTeamWorkspaceNotOwned) {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		msg := err.Error()
+		parent := key
+		if p, ok := e.WorkspaceParent(key); ok {
+			parent = p
+		}
+		if req.Chat != "" {
+			parent = teamChatKey(req.Chat)
+		}
+		if len(e.TeamWorkspacesOf(parent)) == 0 {
+			msg += "; " + teamWorkspaceNoneHint
+		}
+		http.Error(w, msg, http.StatusNotFound)
 		return
 	}
 	if err != nil {

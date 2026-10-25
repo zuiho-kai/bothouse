@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"fmt"
 )
 
 // ErrTaskFactUndeliverable marks a permanent refusal (e.g. Discord 403/404)
@@ -25,7 +24,7 @@ func (p *PublicProgress) taskReporter(project, platform, session string, creator
 
 func (e *Engine) resolveTaskReporter(project, platform, session string) (TaskCardPublisher, error) {
 	if e.relayManager == nil {
-		return nil, errors.New("task reporter requires a relay binding")
+		return nil, &notBoundError{project: project}
 	}
 	return e.relayManager.ResolveTaskReporter(e.name, project, platform, session)
 }
@@ -48,16 +47,16 @@ func (rm *RelayManager) ResolveTaskReporter(source, project, platform, session s
 		// Bindings are loaded with the relay manager, so this is permanent
 		// (e.g. runtime `/bind -<worker>`), not a startup race: retrying
 		// would block every later fact of the card.
-		return nil, fmt.Errorf("%w: task reporter is not bound in this channel", ErrTaskFactUndeliverable)
+		return nil, &notBoundError{project: project, permanent: true}
 	}
 	if _, ok := binding.Bots[source]; !ok {
-		return nil, errors.New("task creator is not bound in this channel")
+		return nil, &notBoundError{project: source}
 	}
 	if _, ok := binding.Bots[project]; !ok {
 		// Bindings are loaded with the relay manager, so this is permanent
 		// (e.g. runtime `/bind -<worker>`), not a startup race: retrying
 		// would block every later fact of the card.
-		return nil, fmt.Errorf("%w: task reporter is not bound in this channel", ErrTaskFactUndeliverable)
+		return nil, &notBoundError{project: project, permanent: true}
 	}
 	for _, candidate := range target.platforms {
 		if candidate.Name() != platform {

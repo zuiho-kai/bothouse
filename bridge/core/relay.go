@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -250,11 +251,16 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 	visibility := rm.visibility
 	rm.mu.RUnlock()
 
+	// An unbound bot: the command and the channel both say which /bind to send (#587).
+	notBound := func(project, detail string) error {
+		sourceEngine.noticeNotBound(req.SessionKey, project)
+		return fmt.Errorf("relay: %w", &notBoundError{project: project, detail: detail})
+	}
 	if binding == nil {
-		return nil, fmt.Errorf("relay: no binding for this chat. Use /bind <project> first")
+		return nil, notBound(req.To, "")
 	}
 	if req.TaskID != "" && (binding.Platform != platform || sourceEngine == nil || binding.Bots[req.From] == "") {
-		return nil, fmt.Errorf("relay: task source is not bound in this chat")
+		return nil, notBound(req.From, "")
 	}
 	if _, ok := binding.Bots[req.To]; !ok {
 		var bound []string
@@ -263,8 +269,14 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 				bound = append(bound, proj)
 			}
 		}
-		return nil, fmt.Errorf("relay: project %q is not bound in this chat. Available targets: %s (use the exact name)", req.To, strings.Join(bound, ", "))
+		sort.Strings(bound)
+		detail := "本频道没有已绑定的其他机器人"
+		if len(bound) > 0 {
+			detail = "已绑定：" + strings.Join(bound, ", ") + "，名字要写准"
+		}
+		return nil, notBound(req.To, detail)
 	}
+	sourceEngine.clearNotBound(req.SessionKey, req.To)
 	if targetEngine == nil {
 		return nil, fmt.Errorf("relay: target engine %q not found (is the project running?)", req.To)
 	}
