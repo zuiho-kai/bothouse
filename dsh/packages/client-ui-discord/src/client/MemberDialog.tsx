@@ -168,7 +168,7 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
         {type === 'cli' && (
           <label className={css.field}>
             <span>{t('memberPermission')}</span>
-            <select className={css.fieldInput} value={preset} onChange={(event) => { setPreset(event.target.value as PermissionPreset) }}>
+            <select className={css.fieldInput} aria-label={t('memberPermission')} value={preset} onChange={(event) => { setPreset(event.target.value as PermissionPreset) }}>
               {PRESETS.map(p => <option key={p.id} value={p.id}>{t(p.label)}</option>)}
             </select>
             <span>{t(PRESETS.find(p => p.id === preset)?.hint ?? 'permissionWorkspaceWriteHint')}</span>
