@@ -44,7 +44,7 @@ func teamScript(t *testing.T, dir, code string) string {
 		t.Skip("python3 not found")
 	}
 	leadDir, _ := filepath.Abs(filepath.Join("..", "contrib", "lead"))
-	cmd := exec.Command(py, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import _team\n"+code, leadDir)
+	cmd := exec.Command(py, "-B", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import _team\n"+code, leadDir)
 	cmd.Env = append(os.Environ(), "GATE_SETUP_DIR="+dir, "GATE_TEAM=", "GATE_LEAD_FILE="+filepath.Join(dir, "lead.json"))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
