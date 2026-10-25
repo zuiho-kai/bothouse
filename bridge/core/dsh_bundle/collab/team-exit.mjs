@@ -47,14 +47,14 @@ const LINE_MARK = /(?:^|\n)[ \t]*\[(ask|report)\][ \t]*/gi;
 
 /**
  * The [ask] / [report] mark of a role reply: { kind, body } or undefined. Marked on the first
- * line, or, for a reply that is one row for the whole turn (a DSH member: first line 【接】#id,
- * then everything it said), on the line starting the turn's last part: the last line that opens
- * with the mark. Same marks as the bridge (core/team_exit.go parseExitKind).
+ * line, as the bridge reads it (core/team_exit.go parseExitKind, first line only). lastLine (a
+ * DSH member, whose reply is one row for the whole turn: first line 【接】#id, then everything it
+ * said) also takes the line starting the turn's last part: the last line that opens with the mark.
  */
-export function exitMark(text) {
+export function exitMark(text, { lastLine = false } = {}) {
   const t = String(text ?? '').trim();
   let m = FIRST_MARK.exec(t);
-  if (m === null) {
+  if (m === null && lastLine) {
     const last = [...t.matchAll(LINE_MARK)].at(-1);
     if (last !== undefined) m = FIRST_MARK.exec(`[${last[1]}]${t.slice(last.index + last[0].length)}`);
   }
@@ -113,7 +113,7 @@ export class TeamExit {
       return message;
     }
     if (msg.author_kind !== 'role') return;
-    const mark = msg.card == null ? exitMark(msg.text) : undefined;
+    const mark = msg.card == null ? exitMark(msg.text, this.markOpts(msg)) : undefined;
     const room = this.workspaceOf(msg);
     if (!room) return;
     const ask = mark?.kind === 'ask';
@@ -145,6 +145,11 @@ export class TeamExit {
     }
   }
 
+  /** A DSH member's one-row reply may carry its mark on a later line; a bridge bot's only on the first. */
+  markOpts(msg) {
+    return { lastLine: this.hub.members?.get(msg.author)?.kind === 'dsh' };
+  }
+
   /** The workspace room msg was posted in (with a chat channel above it), or undefined. */
   workspaceOf(msg) {
     if (!this.enabled) return undefined;
@@ -172,7 +177,7 @@ export class TeamExit {
   forwardResult(msg) {
     const room = this.workspaceOf(msg);
     if (!room || msg.author_kind !== 'role' || msg.card != null) return undefined;
-    const mark = exitMark(msg.text);
+    const mark = exitMark(msg.text, this.markOpts(msg));
     if (mark?.kind === 'ask') return undefined;
     const lines = String(msg.text).trim().split('\n');
     if (/^\s*(?:@\S+\s+)*【(接|问|退|升)】/.test(lines[0])) lines.shift();

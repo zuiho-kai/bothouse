@@ -4417,7 +4417,7 @@ test('G34: 【接】#id in the chat channel about a workspace task neither accep
   assert.notEqual(tasks.task(t.id).next_check_at, null, 'the watch stays armed');
 });
 
-test('G34: a workspace hand-back brings its [report] body to the chat channel and wakes the dispatcher, whose next reply accepts it', async () => {
+test('G34: a workspace hand-back brings its [report] body to the chat channel and wakes the dispatcher, who accepts it with 【验收】#id', async () => {
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
   say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report]\n40 个测试通过，README 第一行写了暗号`);
@@ -4428,7 +4428,12 @@ test('G34: a workspace hand-back brings its [report] body to the chat channel an
   assert.match(copies[0].text, /40 个测试通过/);
   assert.doesNotMatch(copies[0].text, /先规划结构/, 'only the [report] part');
   assert.deepEqual(woken, [['zhu', 1, copies[0].text]], 'the dispatcher is woken in the chat channel on the result');
+  assert.match(copies[0].text, new RegExp(`【验收】#${t.id}`), 'the wake says how to accept');
+  assert.match(copies[0].text, new RegExp(`【返工】#${t.id} 原因`), 'and how to send back');
   say(1, '验收了，结果没问题。', 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned', 'a reply without the 【验收】 line accepts nothing');
+  say(1, `看过了。\n【验收】#${t.id}`, 'zhu');
   await settle();
   assert.equal(tasks.task(t.id).status, 'done');
 
@@ -4441,6 +4446,49 @@ test('G34: a workspace hand-back brings its [report] body to the chat channel an
   assert.match(copy.text, /全做完了，测试通过/);
   assert.doesNotMatch(copy.text, /【接】/);
   assert.equal(g.woken.length, 1);
+});
+
+test('G34: only an explicit 【验收】/【返工】 line by the dispatcher, in its chat channel, reviews a workspace task', async () => {
+  const { hub, tasks, clock, woken, ws, assign, say } = g34Setup();
+  hub.setMember({ id: 'x', name: '旁', kind: 'dsh', online: true });
+  const reworks = () => hub.store.page(ws.id, undefined, 100).filter(m => m.card && JSON.parse(m.card).event === 'rework').length;
+  const t = assign();
+  say(ws.id, `【接】#${t.id}\n\n[report]\n做完了`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  // The dispatcher answering something else meanwhile, or a send-back without the line.
+  say(1, '好的，我先回答一下用户的问题：明天下雨。', 'zhu');
+  say(1, '@副 返工：测试没跑', 'zhu');
+  // Someone who did not dispatch it, and the line in another chat channel.
+  say(1, `【验收】#${t.id}`, 'x');
+  const other = hub.store.createRoom('别处');
+  say(other.id, `【验收】#${t.id}`, 'zhu');
+  say(ws.id, `【验收】#${t.id}`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned', 'nothing but the dispatcher\'s explicit line reviews it');
+  assert.equal(reworks(), 0, 'nor sends it back');
+  const before = tasks.list(1).filter(r => r.owner === 'fu').length;
+
+  woken.length = 0;
+  // The test clock past every row so far (hub.post stamps rows with the real time).
+  const t0 = clock.t = Math.ceil(Date.now() / 1000) + 100;
+  say(1, `@副 改一下\n【返工】#${t.id} 测试没跑`, 'zhu');
+  await settle();
+  const row = tasks.task(t.id);
+  assert.equal(row.status, 'rework', 'the same task goes back, no new one');
+  assert.equal(row.note, '测试没跑');
+  assert.equal(reworks(), 1, 'one rework recorded on the task');
+  assert.equal(row.next_check_at, t0 + CHECK_AFTER_S, 'the watch is armed again');
+  assert.equal(row.renewals, 0);
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'the workspace is claimed back for the chat channel');
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, before, 'the @ in the same reply opens no new task');
+  const wake = woken.find(([id, room]) => id === 'fu' && room === ws.id);
+  assert.ok(wake, 'the owner is woken in the workspace on the rework');
+  assert.match(wake[2], new RegExp(`【接】#${t.id}`));
+  // The watch runs again: no progress in the window parks it.
+  clock.t = t0 + CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at, 'the rework is watched');
 });
 
 test('G34: a paused task resumed and handed back frees its workspace again', async () => {
