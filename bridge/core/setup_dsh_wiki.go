@@ -56,6 +56,10 @@ func makeDSHMemberWikisOnImport(dataDir string, wait time.Duration) []DSHMemberW
 		// wizard-members.json still there = the plugin has not imported this run's roles yet
 		_, pendingErr := os.Stat(dshMembersFile())
 		if members, ok := readDSHImported(); ok && pendingErr != nil {
+			// first, so the wikis' lead (dshFallbackLead) and the gate know the members
+			if err := registerDSHMembersInGateTeam(dataDir, members); err != nil {
+				slog.Warn("dsh members not added to the gate team file", "error", err)
+			}
 			out := addDSHMemberWikis(context.Background(), dataDir, members)
 			for _, x := range out {
 				if x.Error != "" {
