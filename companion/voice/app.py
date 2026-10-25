@@ -281,6 +281,7 @@ class VoiceService:
     async def run(self, turn: dict):
         request_id = 'voice-' + turn['id']
         sentences = None
+        relay_stream = False
         try:
             if turn.get('_device', {}).get('stop_requested'):
                 turn.update(status='stopped')
@@ -290,7 +291,16 @@ class VoiceService:
                 return
             if self.roles[turn['project']].relay_project:
                 from .relay import relay_turn
-                result = await relay_turn(self, turn, request_id)
+                if (self.settings.sentence_stream and turn.get('_binding') and
+                        callable(getattr(self.speech, 'synthesize_stream', None))):
+                    from .sentence_stream import SentenceSpeech
+                    role = self.roles[turn['project']]
+                    options = {'voice': role.tts_voice} if role.tts_voice is not None else {}
+                    sentences = SentenceSpeech(self, turn, request_id, options)
+                    relay_stream = True
+                    result = await relay_turn(self, turn, request_id, sentences)
+                else:
+                    result = await relay_turn(self, turn, request_id)
             else:
                 body = {
                     'request_id': request_id, 'project': turn['project'],
@@ -344,9 +354,12 @@ class VoiceService:
                 turn.update(status='stopped')
                 return
             if sentences:
-                await sentences.feed(result, final=True)
+                if relay_stream:
+                    await sentences.feed_sentences(result, final=True)
+                else:
+                    await sentences.feed(result, final=True)
                 audio = await sentences.finish()
-                if sentences.blocked:
+                if sentences.blocked and not relay_stream:
                     turn['speech_truncated'] = True
                     if audio is None:
                         raise BridgeError('回答包含不适合逐句朗读的内容，请查看文字结果。', 422)
@@ -379,6 +392,10 @@ class VoiceService:
                     turn['audio_complete'] = not self.output_stopped(turn)
             turn['timings']['tts_ms'] = round((time.monotonic() - tts_start) * 1000)
         except BridgeError as exc:
+            if relay_stream and sentences and sentences.worker is not None:
+                await sentences.close()
+                if not self.output_stopped(turn):
+                    turn['speech_incomplete'] = bool(turn.get('audio_chunks'))
             turn['status'] = 'error'
             turn['error'] = str(exc)
         except asyncio.CancelledError:
@@ -451,7 +468,8 @@ def build_service(settings: Settings, speech=None, bridge=None, roles=None) -> V
         elif settings.tts_volc_credentials:
             from .volc_tts import HybridTTS, VolcTTS
             tts = HybridTTS(tts, VolcTTS(settings.tts_volc_credentials))
-        speech = Speech(settings.model_path, settings.voice, tts=tts)
+        speech = Speech(settings.model_path, settings.voice, tts=tts,
+                        remote_url=settings.asr_remote_url, remote_timeout=settings.asr_remote_timeout_s)
     return VoiceService(settings, speech, bridge, roles)
 
 

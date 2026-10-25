@@ -7,6 +7,8 @@ import wave
 
 from .bridge import BridgeError
 
+_MARKUP = ('<', chr(96), '[[')
+
 
 class SentenceSpeech:
     def __init__(self, service, turn, request_id, options):
@@ -16,6 +18,8 @@ class SentenceSpeech:
         self.pending = ''
         self.spoken = 0
         self.blocked = False
+        self.sentences = []  # relay receipt sentences already accepted
+        self.played = 0      # how many of them were enqueued for speech
         self.queue = asyncio.Queue(maxsize=64)
         self.worker = None
         self.audio = []
@@ -57,6 +61,39 @@ class SentenceSpeech:
         if final and self.raw:
             await self.enqueue(self.pending)
             self.pending = ''
+
+    async def feed_sentences(self, result, *, final=False):
+        """Relay receipts carry complete public sentences; replay of a poll is
+        a no-op and a rewritten prefix stops the turn. Markup stops streaming
+        and the remainder is left for final handling, like ``rest``."""
+        if self.worker and self.worker.done():
+            self.worker.result()
+        if self.service.output_stopped(self.turn):
+            raise BridgeError('本轮播放已停止。', 409)
+        sentences = result.get('sentences', [])
+        rest = result.get('rest', '')
+        if (not isinstance(sentences, list) or not all(isinstance(s, str) for s in sentences)
+                or len(sentences) > 64 or sum(len(s.encode()) for s in sentences) > 16384
+                or not isinstance(rest, str)):
+            raise BridgeError('增量回答格式不正确；已停止本轮播放。', 422)
+        if sentences[:len(self.sentences)] != self.sentences:
+            raise BridgeError('增量回答发生改写；已停止本轮播放。', 422)
+        if final and ('sentences' in result or 'rest' in result or self.sentences) and result.get('text') != ''.join(sentences) + rest:
+            raise BridgeError('最终回答与已播放片段不一致；已停止本轮播放。', 422)
+        self.sentences = list(sentences)
+        while not self.blocked and self.played < len(self.sentences):
+            sentence = self.sentences[self.played]
+            if any(token in sentence for token in _MARKUP):
+                self.blocked = True
+                break
+            self.played += 1
+            await self.enqueue(sentence)
+        if final and self.worker is not None:
+            # Same spoken processing the full answer would get; only the part
+            # not yet spoken. Without any streamed sentence, the caller keeps
+            # the existing whole-answer path.
+            await self.enqueue(''.join(self.sentences[self.played:]) + rest)
+            self.played = len(self.sentences)
 
     async def enqueue(self, text):
         from .app import spoken_answer

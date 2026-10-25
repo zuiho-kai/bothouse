@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { PublicReplyStream } from './stream.mjs';
 
 const MAX_STREAM_BYTES = 2 * 1024 * 1024;
 const MAX_REPLY_CHARS = 16000;
@@ -57,6 +58,14 @@ function checkCancellation(signal) {
 }
 
 async function collect(stream, signal) {
+  const iterator = inspect(stream, signal);
+  while (true) {
+    const row = await iterator.next();
+    if (row.done) return row.value;
+  }
+}
+
+async function* inspect(stream, signal) {
   // DSH indexes correlate interleaved blocks; block-end order is not content
   // order. Text/reasoning may also be delta-only (BlockAssembler contract).
   const indexed = new Map();
@@ -78,10 +87,10 @@ async function collect(stream, signal) {
       if (finish) throw new PublicStreamError('stream_after_finish');
       bytes += Buffer.byteLength(JSON.stringify(chunk));
       if (bytes > MAX_STREAM_BYTES) throw new PublicStreamError('stream_limit');
-      if (chunk.type === 'usage') { usage = chunk.usage; continue; }
+      if (chunk.type === 'usage') { usage = chunk.usage; yield chunk; continue; }
       if (chunk.type === 'finish') {
         if (typeof chunk.reason?.kind !== 'string') throw new PublicStreamError('stream_contract');
-        finish = chunk; continue;
+        finish = chunk; yield chunk; continue;
       }
       if (!['block-start','block-end','text-delta','reasoning-delta','tool-call-delta'].includes(chunk.type) ||
           !Number.isInteger(chunk.index) || chunk.index < 0) throw new PublicStreamError('stream_contract');
@@ -99,6 +108,7 @@ async function collect(stream, signal) {
         if (typeof chunk.text !== 'string') throw new PublicStreamError('stream_contract');
         state.text += chunk.text;
       }
+      yield chunk;
     }
     if (!finish) throw new PublicStreamError('stream_incomplete');
     // An explicit failure can interrupt an unfinished tool block. Preserve
@@ -191,7 +201,7 @@ function terminalCause(kind) {
 }
 
 /** One agent model step. Tool execution remains in DSH, outside this function. */
-export async function* guard(options, next, complete, onDiagnostic = ()=>{}) {
+export async function* guard(options, next, complete, onDiagnostic = ()=>{}, streamPublic = false) {
   // Only module-owned enums and counters reach diagnostics. Never include
   // exception messages, unknown provider codes/bodies, requests or identifiers.
   const report = (stage, attempt, cause, failure) => {
@@ -237,11 +247,29 @@ export async function* guard(options, next, complete, onDiagnostic = ()=>{}) {
   const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal.aborted) { report('finalize',attempt,options.signal?.aborted ? 'cancelled' : 'timeout'); break; }
-    let result;
-    try { result = await collect(complete(finalRequest(options,signal,attempt > 0)),signal); }
+    let result, published = '';
+    const publicStream = streamPublic ? new PublicReplyStream() : null;
+    let inspected;
+    try {
+      inspected = inspect(complete(finalRequest(options,signal,attempt > 0)),signal);
+      while (true) {
+        const row = await inspected.next();
+        if (row.done) { result = row.value; break; }
+        let delta;
+        try { delta = publicStream?.push(row.value); }
+        catch { throw new PublicStreamError('invalid_reply'); }
+        if (delta) {
+          if (!published) yield {type:'block-start',index:0,blockType:'text'};
+          published += delta;
+          yield {type:'text-delta',index:0,text:delta};
+        }
+      }
+    }
     catch (error) {
       report('finalize',attempt+1,signal.aborted ? (options.signal?.aborted ? 'cancelled' : 'timeout') : caughtCause(error));
-      break; // Transport errors do not justify blind model retries.
+      break; // Published prefixes and transport errors never justify a retry.
+    } finally {
+      await inspected?.return();
     }
     usage = addUsage(usage,result.usage);
     if (signal.aborted) { report('finalize',attempt+1,options.signal?.aborted ? 'cancelled' : 'timeout'); break; }
@@ -255,13 +283,20 @@ export async function* guard(options, next, complete, onDiagnostic = ()=>{}) {
       raw = calls[0].arguments;
     } else if (finalKind === 'stop' && result.blocks.every(b=>b.type==='text' || b.type==='reasoning')) {
       raw = result.blocks.filter(b=>b.type==='text').map(b=>b.text).join('');
-    } else { report('finalize',attempt+1,'unexpected_block'); continue; }
+    } else { report('finalize',attempt+1,'unexpected_block'); if (published) break; continue; }
     const reply = parseReply(raw);
     if (reply !== null) {
-      yield* emit([{type:'text',text:reply}],usage,{kind:'stop'});
+      if (published) {
+        if (!reply.startsWith(published)) break;
+        if (reply.length > published.length) yield {type:'text-delta',index:0,text:reply.slice(published.length)};
+        yield {type:'block-end',index:0,block:{type:'text',text:reply}};
+        if (usage) yield {type:'usage',usage};
+        yield {type:'finish',reason:{kind:'stop'}};
+      } else yield* emit([{type:'text',text:reply}],usage,{kind:'stop'});
       return;
     }
     report('finalize',attempt+1,'invalid_reply');
+    if (published) break;
   }
   yield* emit([],usage,options.signal?.aborted ? aborted : unavailable);
 }

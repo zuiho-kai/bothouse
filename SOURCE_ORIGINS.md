@@ -7,6 +7,9 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 | bridge/ | zuiho-kai/cc-connect 的 maomao，8b27736e5b6f2dba61bc0cfb2d5397b73224156c；其 Go module 为 github.com/chenhg5/cc-connect | 保留 Git 祖先历史，移入子目录，包含本机后续桥接补丁 |
 | companion/ | Zssan12/yijiazi，b408538ab1428604c93827928b24971ff9b00a5b 之后的本地语音、活动、日报实现 | 导入当前相关源码和测试；旧网页 demo 留在原仓库 |
 | skills/ | 同一产品开发阶段的项目协作技能 | 纳入产品工作流 |
+| integrations/dsh-acp-stream/ | DeepSeek Harness（MIT）本机 steer 基线 ecc89fff43a85d7f836a99472dd31e672fd89c26 | 源码补丁、测试与文档，保留 MIT 许可，不随附运行凭据 |
+
+#284 的语音转发原型来自 CoNest PR #228 的 2cfe70cd1e551c6e96296d3a66b421a9d257ffa9，迁移时保留 bothouse 当前的语音总台与 user_text。远程 ASR 客户端、服务工具及诊断来自 CoNest main e504a05b50a9a6fa9c7680e768c5b38fe2ff6d4b，用于保持本地现有硬件识别配置兼容。
 
 项目自有代码（包括 `companion/`）按 Apache-2.0 授权；上游组件与第三方依赖仍按各自许可使用，详见 [LICENSING.md](LICENSING.md)。
 
