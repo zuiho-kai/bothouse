@@ -66,3 +66,17 @@ test('[ask] pauses the bound owner task and leaves its row on the source board',
   assert.equal(tasks.list(1)[0].id, task.id);
   tasks.close();
 });
+
+test('single-line [ask] without a task number falls back to the room task and pauses it', async () => {
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  new TeamExit(hub);
+  const task = tasks.assign({ roomId: ws.id, title: 'choose', owner: 'ds', actor: 'owner' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask] PR #280 要不要合' });
+  await new Promise(r => setImmediate(r));
+  assert.ok(tasks.task(task.id).paused_at);
+  tasks.close();
+});

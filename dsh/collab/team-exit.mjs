@@ -41,7 +41,7 @@ export class TeamExit {
       return message;
     }
     if (msg.author_kind !== 'role' || msg.card != null) return;
-    const mark = /^\[(ask|report)\]\s*\n([\s\S]+)$/i.exec(msg.text.trim());
+    const mark = /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i.exec(msg.text.trim());
     if (!mark) return;
     const room = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(msg.room_id);
     if (!room?.parent_id || room.parent_id === room.id) return;
