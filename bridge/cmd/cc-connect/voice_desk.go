@@ -10,6 +10,9 @@ import (
 )
 
 func runVoiceDesk(args []string) {
+	if len(args) > 0 && isHelpArg(args[0]) {
+		args = []string{"-h"} // the flag set prints the usage and returns flag.ErrHelp
+	}
 	if err := voiceDeskCommand(args, os.Stdout); err != nil && !errors.Is(err, flag.ErrHelp) {
 		fmt.Fprintf(os.Stderr, "voice-desk: %v\n", err)
 		os.Exit(1)
