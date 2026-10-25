@@ -44,6 +44,7 @@ const COLUMNS = [
   // Id of the current claim, bumped by every claim (claimWorkspace, createWorkspace): a release
   // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
+  ['rooms', 'workspace_path', 'TEXT'], // Optional chat directory; workspace rooms inherit their current parent.
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
@@ -77,7 +78,9 @@ export class Store {
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge)
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
           ?, 'workspace', ?, 0, ? RETURNING id, name, kind, parent_id`),
-      ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
+      ensureRoom: this.db.prepare('INSERT INTO rooms (id, name, workspace_path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, workspace_path = excluded.workspace_path'),
+      workspacePath: this.db.prepare(`SELECT COALESCE(parent.workspace_path, room.workspace_path) AS path
+        FROM rooms room LEFT JOIN rooms parent ON room.kind = 'workspace' AND parent.id = room.parent_id WHERE room.id = ?`),
       insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to, attachments)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
@@ -327,13 +330,13 @@ export class Store {
    * predates that range or someone configured an id inside it. Refuse loudly instead of
    * moving the workspace: bot sessions are keyed room-<id> and must never see it change.
    */
-  ensureRoom(id, name) {
+  ensureRoom(id, name, workspacePath) {
     this.transaction(() => {
       if (this.q.room.get(id)?.kind === 'workspace') {
         throw new CollabError('workspace-id-conflict',
           `config room id ${id} collides with workspace room ${id}; workspace ids start at ${WORKSPACE_ID_MIN} and cannot be reassigned`);
       }
-      this.q.ensureRoom.run(id, name);
+      this.q.ensureRoom.run(id, name, workspacePath || null);
     });
   }
   /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
@@ -528,6 +531,7 @@ export class Store {
     return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
+  workspacePath(roomId, fallback) { return this.q.workspacePath.get(roomId)?.path || fallback; }
   room(id) { return this.q.room.get(id); }
   rooms() { return this.q.rooms.all(); }
   /** Rooms for clients: each carries kind, parent_id and its open task count. */

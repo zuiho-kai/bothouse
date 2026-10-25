@@ -34,6 +34,16 @@
 
 3. 启动：`dsh --profile web --patch ./collab.yml`（源码仓库里用 `node --import tsx/esm apps/cli/src/bin.ts --profile web --patch ./collab.yml`），浏览器先打开终端打印的登录链接，再访问 `/collab`。
 
+## 每频道工作目录
+
+`rooms` 中可为每个聊天频道设置绝对路径 `workspacePath`，例如
+`{ id: 1, name: general, workspacePath: /absolute/path/to/game }` 和
+`{ id: 2, name: office, workspacePath: /absolute/path/to/office }`。
+省略、空字符串或 null 使用实例的 `workspacePath`，旧配置保持原行为。
+工作区在创建会话时继承当前所属聊天频道的目录；CLI 成员也按目录分别创建进程。
+配置变更需重启插件。已有原生 DSH Session 保留原目录和历史，修改频道目录后应在该频道
+发送 `/new` 再创建会话；新目录应事先存在。外部 cc-connect bot 的目录仍由它自己的配置管理。
+
 ## 安装原生「频道」入口
 
 先按 [DSH 构建说明](../README.md#目录与用法)准备固定版本的独立 checkout 并完成 `build:artifacts`。原生入口需要额外安装前端包并加入 overlay；原有 `/collab` 页面仍可使用。

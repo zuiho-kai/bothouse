@@ -46,6 +46,11 @@ export function resolveConfig(config, env = process.env) {
   if (!Array.isArray(rooms) || rooms.length === 0 || rooms.some(r => !Number.isSafeInteger(r?.id) || r.id <= 0 || typeof r.name !== 'string' || !r.name.trim())) {
     throw Error('conest-collab: rooms must be [{ id: positive integer, name }]');
   }
+  for (const room of rooms) {
+    if (room.workspacePath != null && room.workspacePath !== '' && (typeof room.workspacePath !== 'string' || !isAbsolute(room.workspacePath))) {
+      throw Error('conest-collab: rooms[].workspacePath must be an absolute path or empty');
+    }
+  }
   const members = c.dshMembers ?? [];
   const ids = new Set();
   for (const m of members) {
@@ -93,7 +98,7 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   for (const room of config.rooms) {
-    store.ensureRoom(room.id, room.name.trim());
+    store.ensureRoom(room.id, room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
   }
   const leadState = new LeadState(config.leadFile, ctx.logger);

@@ -4821,3 +4821,51 @@ test('G37: an [ask] answer reaches the workspace @-ing the member by name, not b
   await settle();
   assert.ok(hub.store.page(ws.id, undefined, 50).some(m => /^@gone 用户回复 ask-/.test(m.text)), 'a member no longer there falls back to its id');
 });
+
+test('channel directories: native sessions inherit the current parent and default remains unchanged', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'general', '/channel-a');
+  hub.store.ensureRoom(2, 'other', '/channel-b');
+  hub.store.ensureRoom(3, 'legacy');
+  const workspace = hub.store.createWorkspace(1);
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, []);
+  const member = { id: 'ds', name: 'DS' };
+  for (const id of [1, 2, workspace.id, 3]) await members.ensureAgent(member, hub.store.room(id));
+  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/channel-a', '/channel-b', '/channel-a', '/w']);
+  hub.store.ensureRoom(1, 'general', '/changed');
+  assert.equal(hub.store.workspacePath(workspace.id, '/w'), '/changed');
+  hub.store.ensureRoom(1, 'general', '');
+  assert.equal(hub.store.workspacePath(workspace.id, '/w'), '/w');
+  await members.close(); hub.store.close();
+});
+
+test('channel directories: CLI processes use separate directories and all close on member removal', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'general', '/channel-a');
+  hub.store.ensureRoom(2, 'other', '/channel-b');
+  const members = cliMembers(hub, async () => 'done');
+  const created = []; const closed = [];
+  members.rt.createCliMember = ({ cwd }) => {
+    created.push(cwd);
+    return { ask: async () => 'done', close() { closed.push(cwd); } };
+  };
+  for (const id of [1, 2, 1]) {
+    hub.post(id, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC work' });
+    await settle();
+  }
+  assert.deepEqual(created, ['/channel-a', '/channel-b']);
+  members.dropCli('cc');
+  assert.deepEqual(closed, ['/channel-a', '/channel-b']);
+  await members.close(); hub.store.close();
+});
+
+test('channel directories: configuration rejects relative paths and accepts empty overrides', () => {
+  const base = { dataDir: '/d', workspacePath: '/w' };
+  for (const workspacePath of [null, '', '/channel']) {
+    assert.doesNotThrow(() => resolveConfig({ ...base, rooms: [{ id: 1, name: 'general', workspacePath }] }));
+  }
+  for (const workspacePath of ['relative', 42, {}]) {
+    assert.throws(() => resolveConfig({ ...base, rooms: [{ id: 1, name: 'general', workspacePath }] }), /workspacePath/);
+  }
+});

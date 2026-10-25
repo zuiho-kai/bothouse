@@ -561,11 +561,13 @@ export class DshMembers {
     const wiki = await this.turnContext(member, room, undefined, unseen);
     if (this.closed) return;
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
-    let entry = this.cliAgents.get(member.id);
+    const cwd = this.store.workspacePath(room.id, this.rt.workspacePath);
+    const cliKey = JSON.stringify([member.id, cwd]);
+    let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
       // Persona goes through promptText every turn, so an edit applies without restarting the CLI.
-      entry = { cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd: this.rt.workspacePath, persona: '' }) };
-      this.cliAgents.set(member.id, entry);
+      entry = { memberId: member.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '' }) };
+      this.cliAgents.set(cliKey, entry);
     }
     this.hub.setError(member.id, undefined);
     this.hub.setThinking(job.room_id, member.id, true);
@@ -685,8 +687,11 @@ export class DshMembers {
   }
 
   dropCli(id) {
-    this.cliAgents.get(id)?.agent.close();
-    this.cliAgents.delete(id);
+    for (const [key, entry] of this.cliAgents) {
+      if (entry.memberId !== id) continue;
+      entry.agent.close();
+      this.cliAgents.delete(key);
+    }
   }
 
   /** Watch for the consuming turn, admit the input, and post the outcome. */
@@ -814,7 +819,7 @@ export class DshMembers {
     let handle;
     let workspace;
     try {
-      workspace = await ctx.workspaceRegistry.create(this.rt.workspacePath);
+      workspace = await ctx.workspaceRegistry.create(this.store.workspacePath(room.id, this.rt.workspacePath));
       handle = await ctx.agents.create({
         sessionId,
         meta: { cwd: workspace.path, agentPreset: preset.id, origin: 'subagent' },
@@ -850,9 +855,11 @@ export class DshMembers {
     if (member.cli !== undefined) {
       // Drop the live and the persisted ACP session and point the binding back at
       // runCli's placeholder, so the next turn has no resumeId to session/load.
-      const agent = this.cliAgents.get(member.id)?.agent;
-      agent?.sessions?.delete(String(room.id));
-      agent?.saved?.delete(String(room.id));
+      for (const entry of this.cliAgents.values()) {
+        if (entry.memberId !== member.id) continue;
+        entry.agent.sessions?.delete(String(room.id));
+        entry.agent.saved?.delete(String(room.id));
+      }
       if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
       // runCli keys a CLI member's context records by (member, room) alone, so clear them here:
       // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
@@ -986,7 +993,8 @@ export class DshMembers {
     this.closed = true;
     for (const w of this.watching.values()) w.resolve(INTERRUPTED);
     this.watching.clear();
-    for (const id of [...this.cliAgents.keys()]) this.dropCli(id);
+    for (const { agent } of this.cliAgents.values()) agent.close();
+    this.cliAgents.clear();
     // A queue still waiting on the host (for example a resume during shutdown) must not block unload forever.
     let timer;
     const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_TIMEOUT_MS); });
