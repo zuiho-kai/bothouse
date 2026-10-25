@@ -10,7 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { exitTarget } from './team-exit.mjs';
 import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
-import { ChannelApprovals } from './approvals.mjs';
+import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
+import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 // Shared with the bridge (bridge/core/team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8');
@@ -143,6 +144,27 @@ function approvalText(request, session, seqBefore) {
   const reason = String((shown && typeof shown === 'object' ? shown.zh ?? shown.en : shown) ?? request.reason ?? '').trim();
   const lines = [`⚠️ **权限请求** ${request.toolName}`, arg && `\`${arg.replace(/`/g, "'")}\``, reason, '回复 **允许** / **拒绝** / **允许所有**'];
   return lines.filter(Boolean).join('\n').slice(0, MAX_TEXT);
+}
+
+/**
+ * Card of one ACP session/request_permission from a local CLI member: the same
+ * layout as approvalText, with only the buttons the CLI offered. ACP option
+ * kinds (agentclientprotocol.com/protocol/tool-calls#permission-options) map to
+ * the card decisions: allow_once -> allow, allow_always -> allow_all, reject_* -> deny.
+ */
+export function cliApprovalCard(request) {
+  const kinds = { allow_once: 'allow', allow_always: 'allow_all', reject_once: 'deny', reject_always: 'deny' };
+  const byDecision = new Map();
+  for (const o of request.options ?? []) {
+    const d = kinds[o.kind];
+    if (d !== undefined && !byDecision.has(d)) byDecision.set(d, o.optionId);
+  }
+  const actions = DEFAULT_ACTIONS.filter(a => byDecision.has(a.decision));
+  const tc = request.toolCall ?? {};
+  const arg = toolArgText(JSON.stringify(tc.rawInput ?? {})).trim();
+  const words = { allow: '**允许**', deny: '**拒绝**', allow_all: '**允许所有**' };
+  const lines = [`⚠️ **权限请求** ${tc.title ?? tc.kind ?? ''}`, arg && arg !== '{}' && `\`${arg.replace(/`/g, "'")}\``, `回复 ${actions.map(a => words[a.decision]).join(' / ')}`];
+  return { text: lines.filter(Boolean).join('\n').slice(0, MAX_TEXT), actions, byDecision };
 }
 
 /** Short text of a tool call's arguments for the card: the first string field (command, path, query), else the raw text. */
@@ -535,6 +557,26 @@ export class DshMembers {
       if (u.sessionUpdate === 'tool_call') progress.call(u.toolCallId, u.title ?? u.kind ?? '', JSON.stringify(u.rawInput ?? {}));
       if (u.status === 'completed' || u.status === 'failed') progress.result(u.toolCallId, u.status === 'failed');
     };
+    // Tool approval follows the member's DSH permission preset (cli-member.mjs presetDecision):
+    // Full access answers at once, Read Only refuses, Workspace Write asks the owner in the room.
+    // No timeout while the card waits, as cc-connect (bridge core/engine.go handlePendingPermission
+    // has none); the turn ending withdraws the card and the request is cancelled.
+    const turnOver = new AbortController();
+    const onPermission = async (request) => {
+      const preset = member.permissionPreset ?? DEFAULT_PERMISSION_PRESET;
+      const fixed = presetDecision(preset, request.options ?? []);
+      if (fixed === null) return { outcome: 'cancelled' };
+      if (fixed !== 'ask') return { outcome: 'selected', ...fixed };
+      const card = cliApprovalCard(request);
+      if (card.actions.length === 0) return { outcome: 'cancelled' };
+      const { decision } = this.approvals.open({
+        room: job.room_id, author: { id: member.id, name: member.name }, text: card.text, actions: card.actions,
+        signal: turnOver.signal, meta: { cliMember: member.id, jobId: job.id },
+      });
+      const d = await decision;
+      const optionId = card.byDecision.get(d);
+      return optionId === undefined ? { outcome: 'cancelled' } : { outcome: 'selected', optionId };
+    };
     let done = false;
     try {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
@@ -547,7 +589,7 @@ export class DshMembers {
           });
         }
       };
-      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? ''), String(room.id), onText, onTool, { resumeId, onSession, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? ''), String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
@@ -557,6 +599,7 @@ export class DshMembers {
       done = true;
       this.store.finishJob(job.id, 'done', message.id);
     } finally {
+      turnOver.abort();
       latest = '';
       progress.end(done ? 'completed' : 'failed');
       // Error, cancel or empty turn: drop the partial draft so the room never keeps a cut-off reply.

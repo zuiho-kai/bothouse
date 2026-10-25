@@ -15,6 +15,26 @@ const ADAPTERS = {
   gemini: { cmd: 'gemini', args: ['--acp'] },
 }
 
+// DSH 原生权限档位：与 DSH 预设同名（@deepseek-ai/dsh-base cordis.patch.yml:264-276 预设表；
+// UI 名见 @deepseek-ai/dsh-client-ui-permission-presets README.zh.md:32）。默认档 = DSH 默认
+// workspace-write（dsh-base cordis.patch.yml:243-262：DSH_PERMISSION_MODE ?? 'workspace-write'）。
+// collab 运行时拿不到 DSH 包里的常量（DSH 由宿主提供），故照抄。
+export const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access']
+export const DEFAULT_PERMISSION_PRESET = 'workspace-write'
+
+/**
+ * 按档位决定一条 ACP 权限请求：返回 { optionId }（直接答）或 'ask'（发审批卡）。
+ * danger-full-access = DSH approval never：不弹窗直接放行；workspace-write = approval ask：问用户；
+ * read-only：只读档下 CLI 的工具调用（ACP 只在要动手时才来问）一律拒。
+ */
+export function presetDecision(preset, options) {
+  const p = PERMISSION_PRESETS.includes(preset) ? preset : DEFAULT_PERMISSION_PRESET
+  if (p === 'workspace-write') return 'ask'
+  const want = p === 'danger-full-access' ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always']
+  const o = want.map((k) => options.find((x) => x.kind === k)).find(Boolean)
+  return o ? { optionId: o.optionId } : null
+}
+
 function resolveBin(pkg) {
   try {
     const pj = require.resolve(`${pkg}/package.json`)
@@ -41,6 +61,7 @@ export class CliMember {
     this.buffers = new Map() // sessionId -> string
     this.onText = new Map() // sessionId -> (textSoFar) => void（#121 流式）
     this.onTool = new Map() // sessionId -> (update) => void：tool_call / tool_call_update / agent_thought_chunk，给进度卡
+    this.onPermission = new Map() // sessionId -> async (request) => ACP outcome：本轮的审批处理器
     this.queue = new Map() // room -> Promise（同房间串行）
     this.ready = null
   }
@@ -48,9 +69,10 @@ export class CliMember {
   /** ACP Client 回调（单独拆出来便于测试）。 */
   _client() {
     return {
-      async requestPermission(r) {
-        const o = r.options.find((x) => x.kind?.startsWith('allow')) || r.options[0]
-        return { outcome: { outcome: 'selected', optionId: o.optionId } }
+      requestPermission: async (r) => {
+        // 没有处理器（不在某一轮里）就没有地方问：按 DSH 无应答者的处理当取消（dsh-acp lib/index.js:1202-1228）。
+        const h = this.onPermission.get(r.sessionId)
+        return { outcome: h ? await h(r) : { outcome: 'cancelled' } }
       },
       sessionUpdate: async (n) => {
         const u = n.update
@@ -127,6 +149,7 @@ export class CliMember {
    * onText(textSoFar) 在每个公开文字分片到达时调用（#121）；onTool(update) 在每个工具调用开始/更新和每个思考分片到达时调用。
    * opts.resumeId：要续上的 sessionId；opts.onSession({ sessionId, resumed, lost })：会话就绪后、发提示词前调用。
    * opts.attachments：随提示词发给 CLI 的 ACP 内容块（图片/音频/资源）。
+   * opts.onPermission(request)：本轮的 ACP session/request_permission 处理器，返回 ACP outcome。
    */
   ask(text, room = 'default', onText, onTool, opts = {}) {
     const prev = this.queue.get(room) || Promise.resolve()
@@ -135,7 +158,7 @@ export class CliMember {
     return run
   }
 
-  async _ask(text, room, onText, onTool, { resumeId, onSession, attachments = [] } = {}) {
+  async _ask(text, room, onText, onTool, { resumeId, onSession, attachments = [], onPermission } = {}) {
     const s = await this._session(room, resumeId)
     await onSession?.(s)
     // persona 每轮都拼：续上的或新开的会话都不会丢人设。
@@ -143,6 +166,7 @@ export class CliMember {
     this.buffers.set(s.sessionId, '')
     if (onText) this.onText.set(s.sessionId, onText)
     if (onTool) this.onTool.set(s.sessionId, onTool)
+    if (onPermission) this.onPermission.set(s.sessionId, onPermission)
     try {
       await Promise.race([
         this.conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: body }, ...attachments] }),
@@ -153,6 +177,7 @@ export class CliMember {
       this.buffers.delete(s.sessionId)
       this.onText.delete(s.sessionId)
       this.onTool.delete(s.sessionId)
+      this.onPermission.delete(s.sessionId)
     }
   }
 
