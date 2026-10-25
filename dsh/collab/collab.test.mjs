@@ -703,6 +703,7 @@ test('DSH member: the preset scope is released when Workspace creation fails', a
   await settle();
   assert.equal(dsh.ctx.agentPresets.released, 1);
   assert.match(hub.store.page(1, undefined, 1)[0].text, /no such directory/);
+  assert.match(hub.store.page(1, undefined, 1)[0].text, /频道 #general 的工作目录 \/w 无法打开/);
 });
 
 test('DSH member: the prompt always contains the trigger, however much is unread', async () => {

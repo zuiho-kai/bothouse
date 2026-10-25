@@ -820,7 +820,12 @@ export class DshMembers {
     let handle;
     let workspace;
     try {
-      workspace = await ctx.workspaceRegistry.create(this.store.workspacePath(room.id, this.rt.workspacePath));
+      const path = this.store.workspacePath(room.id, this.rt.workspacePath);
+      try {
+        workspace = await ctx.workspaceRegistry.create(path);
+      } catch (error) {
+        throw new Error(`频道 #${room.name} 的工作目录 ${path} 无法打开：${error.message}`, { cause: error });
+      }
       handle = await ctx.agents.create({
         sessionId,
         meta: { cwd: workspace.path, agentPreset: preset.id, origin: 'subagent' },
