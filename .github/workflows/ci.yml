@@ -171,6 +171,8 @@ jobs:
         if: env.RUN_GO == 'true'
       - run: python3 -I contrib/gate/test_lead_playbook.py
         if: env.RUN_GO == 'true'
+      - run: python3 -I contrib/gate/test_datadir.py
+        if: env.RUN_GO == 'true'
       - name: Install channel test dependencies
         working-directory: .
         # Keep each job's tools isolated, and install the committed dependency tree.
