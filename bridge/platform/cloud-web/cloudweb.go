@@ -839,7 +839,14 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	}
 	replyCtx, ok := p.lookupReplyCtx(sessionKey)
 	if !ok {
-		return nil, fmt.Errorf("cloud_web: no stored reply context for session %q", sessionKey)
+		// A hub room is addressed by its id (rh/cloudweb.py and dsh/collab/cloudweb.mjs accept
+		// reply_ctx "room-<id>"), like Discord rebuilds from the channel id: a room this bridge
+		// only posted to (a team workspace, team watch nudge) has no inbound message stored.
+		room, isRoom := p.roomFromSessionKey(sessionKey)
+		if !isRoom {
+			return nil, fmt.Errorf("cloud_web: no stored reply context for session %q", sessionKey)
+		}
+		replyCtx = room
 	}
 	return replyContext{SessionKey: sessionKey, ReplyCtx: replyCtx}, nil
 }
