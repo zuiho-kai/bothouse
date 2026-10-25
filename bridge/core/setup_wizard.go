@@ -1256,7 +1256,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if err := writeJSONFile(filepath.Join(env.DataDir, setupStateFile), st, 0o644); err != nil {
 		return fail("state", err)
 	}
-	wikiSession := "" // the self-hosted platform has no fixed channel to anchor a cron job to: models only
+	wikiSession := cloudWebWikiSession // the self-hosted platform has no fixed channel: the muted jobs need none
 	if !cloudWeb {
 		ch := st.ChannelID
 		if ch == "" {

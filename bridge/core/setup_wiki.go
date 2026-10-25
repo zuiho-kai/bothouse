@@ -314,8 +314,13 @@ func subWikiCommand(py, sub, mode string) string {
 	return shellRun(py, "-X", "utf8", "-I", cmdQuote(sub), mode)
 }
 
+// wikiExec: the main wiki's ingest.py, then the role wikis' sub-wiki.py. dir "" = no main part (a main wiki the
+// wizard did not make is never written to: rolewiki.go mainWikiLead).
 func wikiExec(dir, sub, arg string) string {
 	py := wikiPython()
+	if dir == "" {
+		return subWikiCommand(py, sub, arg)
+	}
 	cmd := shellRun(py, "-X", "utf8", "-I", cmdQuote(filepath.Join(dir, "bin", "ingest.py")), "--"+arg)
 	if home, _ := os.UserHomeDir(); dir != filepath.Join(home, "wiki") {
 		if runtime.GOOS == "windows" {
@@ -331,6 +336,7 @@ func wikiExec(dir, sub, arg string) string {
 }
 
 // AddWikiCronJobs adds the wiki's runs that are not there yet (by description). Muted: nothing goes to the channel.
+// dir "": no main wiki part (see wikiExec); then sub must be set.
 // No time limit: the author's launchd jobs had none, and the first run may take hours (docs/ccm-and-wiki.md step 4).
 func AddWikiCronJobs(c WizardCron, project, sessionKey, dir, sub string) (added, kept []string, err error) {
 	jobs, err := c.List()
@@ -344,6 +350,10 @@ func AddWikiCronJobs(c WizardCron, project, sessionKey, dir, sub string) (added,
 	noLimit := 0
 	for _, w := range wikiCronJobs {
 		if j := have[w.desc]; j != nil {
+			if dir == "" { // the user's own main wiki: their job is left as it is
+				kept = append(kept, w.desc)
+				continue
+			}
 			// a job from before the role wikis (#35) runs only the main wiki: add the sub-wiki part; one from
 			// before sub-wiki.py runs sub-wiki.sh with zsh or sh (no sh on Windows): rewrite it to python
 			if sub != "" && !strings.Contains(j.Exec, "sub-wiki.py") {
@@ -364,6 +374,10 @@ func AddWikiCronJobs(c WizardCron, project, sessionKey, dir, sub string) (added,
 	}
 	return added, kept, nil
 }
+
+// cloudWebWikiSession: the session the wiki jobs are anchored to on cloud_web, which has no fixed room. They are
+// muted shell jobs, so they run without a reply context (engine.go ExecuteCronJob).
+const cloudWebWikiSession = "cloud_web:wiki"
 
 // wizardSessionKey: the channel the wiki jobs are anchored to (cron needs one; they post nothing).
 func wizardSessionKey(platform, discordChannel, feishuChat string) string {
@@ -400,6 +414,17 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 		addStep(res, "wiki cron", nil, "skipped: no default channel; add them by hand, bridge/contrib/wiki/README.md step 4")
 		return
 	}
+	mainDir := dir
+	if _, made := mainWikiLead(dir); !made { // the user's own main wiki: searched, never written (G16)
+		if env.WikiSubScript == "" {
+			addStep(res, "wiki cron", nil, tr3(req.Language,
+				"跳过：主 wiki "+dir+" 不是向导建的（只查不写），没加 wiki 整理定时",
+				"スキップ：メイン wiki "+dir+" はウィザードが作ったものではない（検索のみ・書き込まない）ため、wiki の定期整理を追加していません",
+				"skipped: the main wiki "+dir+" was not made by the wizard (searched, never written), so the wiki cron jobs were not added"))
+			return
+		}
+		mainDir = "" // the role wikis' runs only
+	}
 	c := env.Cron
 	if c == nil {
 		st, err := NewCronStore(env.DataDir)
@@ -409,7 +434,7 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 		}
 		c = storeCron{st}
 	}
-	added, kept, err := AddWikiCronJobs(c, project, sessionKey, dir, env.WikiSubScript)
+	added, kept, err := AddWikiCronJobs(c, project, sessionKey, mainDir, env.WikiSubScript)
 	detail := ""
 	if len(added) > 0 {
 		detail = "added: " + strings.Join(added, ", ")

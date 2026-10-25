@@ -1760,7 +1760,12 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	if replyCtx == nil {
 		replyCtx, err = rc.ReconstructReplyCtx(runSessionKey)
 		if err != nil {
-			return fmt.Errorf("reconstruct reply context: %w", err)
+			if !job.Mute || !job.IsShellJob() {
+				return fmt.Errorf("reconstruct reply context: %w", err)
+			}
+			// a muted shell job posts nothing, so it needs no chat to reply in: the setup wizard's wiki jobs on
+			// cloud_web are anchored to a session no one chats in (core/setup_wizard.go cloudWebWikiSession)
+			replyCtx = nil
 		}
 	}
 
