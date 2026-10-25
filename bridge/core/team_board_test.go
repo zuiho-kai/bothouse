@@ -296,15 +296,18 @@ func TestFormerLeadGivesUpUnremovableBoard(t *testing.T) {
 	}
 }
 
-// stubBoardEditFails fails every edit of one chat's board with editErr.
+// stubBoardEditFails fails every update of one chat's board with editErr.
 type stubBoardEditFails struct {
 	stubBoardPlatform
+	mu      sync.Mutex
 	failFor string
 	editErr error
 	tries   int
 }
 
 func (p *stubBoardEditFails) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if sessionKey == p.failFor {
 		p.tries++
 		return messageID, p.editErr
@@ -312,42 +315,52 @@ func (p *stubBoardEditFails) UpsertBoard(ctx context.Context, sessionKey, messag
 	return p.stubBoardPlatform.UpsertBoard(ctx, sessionKey, messageID, content)
 }
 
-// A board the platform will no longer let us edit (archived thread) is tried
-// once, logged once and given up for good: no retries, and no new board that
-// would bump the thread. A temporary failure keeps being retried.
+func (p *stubBoardEditFails) triesSoFar() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.tries
+}
+
+// A board the platform will no longer let us edit or post (archived thread) is
+// tried once, logged once and left alone while the channel has no newer
+// activity: no retries, and no new board that would bump the thread. Newer
+// activity earns exactly one more try. A temporary failure keeps being retried.
 func TestTeamBoardEditGivesUp(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		editErr error
-		tries   int
-		gaveUp  bool
+		name      string
+		messageID string
+		editErr   error
+		tries     int
+		gaveUp    bool
 	}{
-		{"unremovable given up", fmt.Errorf("discord: edit board: %w: 50083", ErrBoardUnremovable), 1, true},
-		{"temporary retried", errors.New("network"), 3, false},
+		{"edit unremovable given up", "m1", fmt.Errorf("discord: edit board: %w: 50083", ErrBoardUnremovable), 1, true},
+		{"send unremovable given up", "", fmt.Errorf("discord: send board: %w: 50001", ErrBoardUnremovable), 1, true},
+		{"temporary retried", "m1", errors.New("network"), 3, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &stubBoardEditFails{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
 				failFor: "discord:111", editErr: tc.editErr}
 			e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
-			boards := map[string]*boardChat{"discord:111": {SessionKey: "discord:111", MessageID: "m1", Content: "old"}}
+			boards := map[string]*boardChat{"discord:111": {SessionKey: "discord:111", MessageID: tc.messageID, Content: "old"}}
+			before := time.Now().Add(-time.Minute)
 			logs, restore := captureSlog(t)
-			changed := e.updateTeamBoards(boardFiles(time.Now()), boards)
+			changed := e.updateTeamBoards(boardFiles(before), boards)
 			for i := 0; i < 2; i++ {
-				e.updateTeamBoards(boardFiles(time.Now()), boards)
+				e.updateTeamBoards(boardFiles(before), boards)
 			}
 			restore()
 			if p.tries != tc.tries {
-				t.Fatalf("edit tries = %d, want %d", p.tries, tc.tries)
+				t.Fatalf("update tries = %d, want %d", p.tries, tc.tries)
 			}
 			b := boards["discord:111"]
-			if b == nil || b.MessageID != "m1" || b.Content != "old" {
+			if b == nil || b.MessageID != tc.messageID || b.Content != "old" {
 				t.Fatalf("board = %+v, want the old message kept and no new board", b)
 			}
 			if p.content["discord:111"] != "" {
 				t.Fatal("a new board was posted for the failing channel")
 			}
-			if b.GaveUp != tc.gaveUp {
-				t.Fatalf("gave up = %v, want %v", b.GaveUp, tc.gaveUp)
+			if gaveUp := !b.GaveUpAt.IsZero(); gaveUp != tc.gaveUp {
+				t.Fatalf("gave up = %v, want %v", gaveUp, tc.gaveUp)
 			}
 			if !tc.gaveUp {
 				if n := strings.Count(logs.String(), "team board: update failed"); n != tc.tries {
@@ -358,7 +371,7 @@ func TestTeamBoardEditGivesUp(t *testing.T) {
 			if !changed {
 				t.Fatal("giving up must be persisted")
 			}
-			if n := strings.Count(logs.String(), "giving up on this channel"); n != 1 {
+			if n := strings.Count(logs.String(), "giving up until new activity"); n != 1 {
 				t.Fatalf("give-up logged %d times, want 1:\n%s", n, logs)
 			}
 			if strings.Contains(logs.String(), "update failed") {
@@ -366,9 +379,114 @@ func TestTeamBoardEditGivesUp(t *testing.T) {
 			}
 			out, _ := json.Marshal(boards)
 			restored := map[string]*boardChat{}
-			if err := json.Unmarshal(out, &restored); err != nil || !restored["discord:111"].GaveUp {
-				t.Fatalf("gave-up flag not persisted: %s, %v", out, err)
+			if err := json.Unmarshal(out, &restored); err != nil || !restored["discord:111"].GaveUpAt.Equal(b.GaveUpAt) {
+				t.Fatalf("gave_up_at not persisted: %s, %v", out, err)
+			}
+
+			// Newer activity in the channel: exactly one more try, one more warning.
+			newer := b.GaveUpAt.Add(time.Second)
+			logs, restore = captureSlog(t)
+			for i := 0; i < 3; i++ {
+				e.updateTeamBoards(boardFiles(newer), boards)
+			}
+			restore()
+			if p.tries != tc.tries+1 {
+				t.Fatalf("tries after new activity = %d, want %d", p.tries, tc.tries+1)
+			}
+			if n := strings.Count(logs.String(), "giving up until new activity"); n != 1 {
+				t.Fatalf("re-give-up logged %d times, want 1:\n%s", n, logs)
+			}
+			if b.GaveUpAt.Before(newer) {
+				t.Fatalf("gave_up_at = %v, want refreshed after the retry", b.GaveUpAt)
 			}
 		})
+	}
+}
+
+// After a restart the lead reads gave_up_at back from its state file: with no
+// newer activity runTeamBoard leaves the board alone tick after tick; newer
+// activity earns one try, and the new give-up time is saved again.
+func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
+	old := teamBoardInterval
+	teamBoardInterval = 5 * time.Millisecond
+	defer func() { teamBoardInterval = old }()
+
+	p := &stubBoardEditFails{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
+		failFor: "discord:111", editErr: fmt.Errorf("discord: edit board: %w: 50083", ErrBoardUnremovable)}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true, inject: true}
+	gaveUp := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	statePath := filepath.Join(dir, "lead"+teamBoardFileExt)
+	state := fmt.Sprintf(`{"discord:111":{"session_key":"discord:111","message_id":"m1","content":"old","gave_up_at":%q}}`, gaveUp.Format(time.RFC3339))
+	if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeStatus := func(since time.Time) {
+		t.Helper()
+		raw, _ := json.Marshal(teamFile{Project: "a", Name: "G哥", Updated: time.Now(), Sessions: []teamEntry{
+			{Key: "discord:111", Chat: "general", Task: "预解码原型", Busy: true, Worked: true, Since: since},
+		}})
+		if err := AtomicWriteFile(filepath.Join(dir, "a"+teamStatusFileExt), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// updateTeamBoards on the read-back state: old activity is skipped.
+	boards := map[string]*boardChat{}
+	if err := json.Unmarshal([]byte(state), &boards); err != nil || !boards["discord:111"].GaveUpAt.Equal(gaveUp) {
+		t.Fatalf("read back gave_up_at: %+v, %v", boards["discord:111"], err)
+	}
+	if e.updateTeamBoards([]teamFile{{Project: "a", Name: "G哥", Updated: time.Now(), Sessions: []teamEntry{
+		{Key: "discord:111", Chat: "general", Task: "x", Busy: true, Worked: true, Since: gaveUp.Add(-time.Minute)},
+	}}}, boards) || p.triesSoFar() != 0 {
+		t.Fatalf("old activity retried a given-up board: tries=%d", p.triesSoFar())
+	}
+
+	writeStatus(gaveUp.Add(-time.Minute))
+	logs, restore := captureSlog(t)
+	done := make(chan struct{})
+	go func() {
+		e.runTeamBoard()
+		close(done)
+	}()
+	stopped := false
+	stop := func() {
+		if !stopped {
+			stopped = true
+			e.cancel()
+			<-done
+			restore()
+		}
+	}
+	defer stop()
+	time.Sleep(100 * time.Millisecond) // many ticks
+	if n := p.triesSoFar(); n != 0 {
+		t.Fatalf("restart retried a given-up board with no new activity: tries=%d", n)
+	}
+
+	writeStatus(time.Now())
+	deadline := time.Now().Add(2 * time.Second)
+	for p.triesSoFar() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond) // many more ticks
+	stop()
+	if n := p.triesSoFar(); n != 1 {
+		t.Fatalf("tries after new activity = %d, want exactly 1", n)
+	}
+	if n := strings.Count(logs.String(), "giving up until new activity"); n != 1 {
+		t.Fatalf("give-up logged %d times, want 1:\n%s", n, logs)
+	}
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := map[string]*boardChat{}
+	if err := json.Unmarshal(raw, &saved); err != nil || saved["discord:111"] == nil || !saved["discord:111"].GaveUpAt.After(gaveUp) {
+		t.Fatalf("state after retry = %s, %v; want a newer gave_up_at", raw, err)
+	}
+	if saved["discord:111"].MessageID != "m1" || saved["discord:111"].Content != "old" {
+		t.Fatalf("state after retry = %s; want the old board kept", raw)
 	}
 }

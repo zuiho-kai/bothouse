@@ -20,8 +20,10 @@ import (
 	"time"
 )
 
+// teamBoardInterval is how often the lead refreshes its boards (a var so tests can shorten it).
+var teamBoardInterval = 10 * time.Second
+
 const (
-	teamBoardInterval  = 10 * time.Second
 	teamBoardWorkAfter = time.Minute
 	teamBoardTaskRunes = 40
 	teamBoardFileExt   = ".board"
@@ -32,10 +34,11 @@ type boardChat struct {
 	SessionKey string `json:"session_key"`
 	MessageID  string `json:"message_id"`
 	Content    string `json:"content"`
-	// GaveUp marks a board the platform will no longer let us edit (e.g. it
-	// sits in an archived thread). It is kept so the channel is not given a
-	// new board, which would bump the thread.
-	GaveUp bool `json:"gave_up,omitempty"`
+	// GaveUpAt is when the platform stopped letting us edit this board (e.g.
+	// it sits in an archived thread). Until the channel has newer activity the
+	// board is left alone: no retries and no new board that would bump the
+	// thread. Newer activity earns one more try, so a reopened thread heals.
+	GaveUpAt time.Time `json:"gave_up_at,omitzero"`
 }
 
 // SetTeamBoard turns the live board on or off. It only runs on the primary role; a
@@ -175,6 +178,15 @@ func (e *Engine) retireTeamBoards() {
 // updateTeamBoards posts or edits each channel's board; it reports whether boards changed.
 func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat) bool {
 	// A channel gets a board once real work shows up there; after that it stays and is kept current.
+	// lastActive is each channel's newest work time, used to retry a given-up board.
+	lastActive := map[string]time.Time{}
+	noteActive := func(chat string, ts ...time.Time) {
+		for _, t := range ts {
+			if t.After(lastActive[chat]) {
+				lastActive[chat] = t
+			}
+		}
+	}
 	for _, f := range files {
 		for _, task := range f.Tasks {
 			if !listedTaskState(task.State) || !safeTaskURL(task.URL) || task.SessionKey == "" {
@@ -184,20 +196,31 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			if boards[chat] == nil {
 				boards[chat] = &boardChat{SessionKey: task.SessionKey}
 			}
+			noteActive(chat, task.UpdatedAt)
+			for _, m := range task.Members {
+				noteActive(chat, m.UpdatedAt)
+			}
 		}
 		for _, s := range f.Sessions {
 			if !s.Worked || s.Chat == "" {
 				continue
 			}
-			if _, ok := boards[chatOf(s.Key)]; !ok {
-				boards[chatOf(s.Key)] = &boardChat{SessionKey: s.Key}
+			chat := chatOf(s.Key)
+			if _, ok := boards[chat]; !ok {
+				boards[chat] = &boardChat{SessionKey: s.Key}
 			}
+			noteActive(chat, s.Since, s.DoneAt)
 		}
 	}
 	changed := false
 	for chat, b := range boards {
-		if b.GaveUp {
-			continue
+		if !b.GaveUpAt.IsZero() {
+			if !lastActive[chat].After(b.GaveUpAt) {
+				continue
+			}
+			// New activity since we gave up: try once more (thread may be reopened).
+			b.GaveUpAt = time.Time{}
+			changed = true
 		}
 		content := renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang())
 		if content == b.Content {
@@ -218,8 +241,12 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			changed = true
 		}
 		if errors.Is(err, ErrBoardUnremovable) {
-			slog.Warn("team board: board can no longer be edited, giving up on this channel", "chat", chat, "error", err)
-			b.GaveUp = true
+			slog.Warn("team board: board can no longer be edited, giving up until new activity", "chat", chat, "error", err)
+			// Never earlier than the activity just seen, so it is not retried again.
+			b.GaveUpAt = time.Now()
+			if lastActive[chat].After(b.GaveUpAt) {
+				b.GaveUpAt = lastActive[chat]
+			}
 			changed = true
 			continue
 		}

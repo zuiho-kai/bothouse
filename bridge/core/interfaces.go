@@ -370,7 +370,8 @@ var ErrPostOutcomeUnknown = errors.New("post outcome unknown")
 // returned ID is where the board now lives. Implementations post a new message
 // when the previous one was deleted. When the board's channel can no longer be
 // written to (e.g. an archived thread) they return an error wrapping
-// ErrBoardUnremovable instead, and the caller stops updating that chat.
+// ErrBoardUnremovable instead, and the caller leaves that chat alone until it
+// sees newer activity there.
 type BoardPoster interface {
 	UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error)
 }

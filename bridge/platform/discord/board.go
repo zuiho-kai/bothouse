@@ -125,6 +125,9 @@ func upsertBoard(api boardAPI, channelID, messageID, content string, options ...
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}, options...)
 	if err != nil {
+		if boardUnrecoverable(err) {
+			return "", fmt.Errorf("discord: send board: %w: %w", core.ErrBoardUnremovable, err)
+		}
 		return "", fmt.Errorf("discord: send board: %w", err)
 	}
 	if err := api.ChannelMessagePin(channelID, sent.ID, options...); err != nil {
