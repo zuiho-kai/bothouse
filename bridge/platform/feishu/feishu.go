@@ -173,6 +173,7 @@ type Platform struct {
 	// without requiring another @bot mention. Value is the last-seen time so
 	// stale entries can be expired by a future TTL sweep if needed.
 	activeThreadSessions sync.Map // sessionKey -> time.Time
+	boardPinned          sync.Map // team board message ID -> struct{} once pinned by this process
 
 	richCardImageMu         sync.Mutex
 	richCardImageResolved   map[string]string

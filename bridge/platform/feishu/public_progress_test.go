@@ -247,4 +247,20 @@ func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
 	if errors.Is(err, core.ErrDeliveryUnrecoverable) {
 		t.Fatal("pin failure must not give up the board")
 	}
+	// Still refused next round: the edit succeeds, the pin failure is only logged.
+	if got, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", id, "**板**\ny"); err != nil || got != id {
+		t.Fatalf("edit with pin still refused: %q, %v", got, err)
+	}
+	// Scope granted: the next successful edit pins the board, once.
+	f.mu.Lock()
+	f.pinFail = false
+	f.mu.Unlock()
+	for _, body := range []string{"**板**\nz", "**板**\nw"} {
+		if got, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", id, body); err != nil || got != id {
+			t.Fatalf("edit after scope granted: %q, %v", got, err)
+		}
+	}
+	if len(f.pins) != 1 || f.pins[0] != id {
+		t.Fatalf("board not re-pinned exactly once: %v", f.pins)
+	}
 }

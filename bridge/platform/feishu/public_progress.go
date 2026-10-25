@@ -99,6 +99,7 @@ func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, conte
 	if messageID != "" {
 		err := p.patchCardMessage(ctx, messageID, cardJSON)
 		if err == nil {
+			p.repinBoard(ctx, chat, messageID)
 			return messageID, nil
 		}
 		if !isFeishuMessageGone(err) {
@@ -112,7 +113,24 @@ func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, conte
 	if err := p.pinMessage(ctx, id); err != nil {
 		return id, fmt.Errorf("feishu: pin board: %w", err)
 	}
+	p.boardPinned.Store(id, struct{}{})
 	return id, nil
+}
+
+// repinBoard pins an edited board this process has not seen pinned yet (a pin
+// refused earlier, e.g. scope granted later, or a board from before a restart),
+// like discord/board.go re-pins after an edit. The edit already shows the new
+// content, so a pin failure is only logged: returning it would make core retry
+// the same edit forever.
+func (p *Platform) repinBoard(ctx context.Context, chat, messageID string) {
+	if _, ok := p.boardPinned.Load(messageID); ok {
+		return
+	}
+	if err := p.pinMessage(ctx, messageID); err != nil {
+		slog.Warn("feishu: board: re-pin after edit failed", "chat", chat, "message", messageID, "error", err)
+		return
+	}
+	p.boardPinned.Store(messageID, struct{}{})
 }
 
 func isFeishuMessageGone(err error) bool {
