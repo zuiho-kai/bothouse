@@ -14,7 +14,8 @@ import (
 // retry can fix: the channel or message is gone (10003, 10008), the bot has no
 // access or permission (50001, 50013), the thread is archived (50083), or any
 // 403/404 that carries Discord's JSON error body. A bare 403/404 (e.g. an HTML
-// page from a proxy or CDN), 429, 5xx and network errors stay temporary.
+// page from a proxy or CDN), any 429 or 5xx (even with one of those codes)
+// and network errors stay temporary.
 //
 // 10008 (Unknown Message) counts as unrecoverable here. Callers that answer a
 // deleted message by posting a new one (board and channel-board edits) check
@@ -23,6 +24,9 @@ func discordUnrecoverable(err error) bool {
 	var rest *discordgo.RESTError
 	if !errors.As(err, &rest) || rest.Message == nil {
 		return false
+	}
+	if rest.Response != nil && (rest.Response.StatusCode == http.StatusTooManyRequests || rest.Response.StatusCode >= 500) {
+		return false // a 429 or 5xx is temporary whatever its body says
 	}
 	switch rest.Message.Code {
 	case discordgo.ErrCodeUnknownChannel,

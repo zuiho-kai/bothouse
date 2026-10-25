@@ -14,13 +14,17 @@ type unrecoverableProgressPlatform struct {
 	*progressTestPlatform
 	err   error
 	tries int
+	hook  func() // runs while a failing request is "in flight"
 }
 
 func (p *unrecoverableProgressPlatform) EnsureTaskCard(ctx context.Context, task *Task, lang Language) error {
 	p.pm.Lock()
 	p.tries++
-	err := p.err
+	err, hook := p.err, p.hook
 	p.pm.Unlock()
+	if hook != nil {
+		hook()
+	}
 	if err != nil {
 		return err
 	}
@@ -132,4 +136,37 @@ func TestChannelBoard_UnrecoverableEditNotRetried(t *testing.T) {
 	}
 	h.beginTurn(e, "discord:c1", "新活") // newer activity: one more try
 	waitBoard(t, "retried after new activity", func() bool { p.bmu.Lock(); defer p.bmu.Unlock(); return p.editTries == 2 })
+}
+
+// A fact accepted while the refused request was in flight is not marked
+// handled with it: it stays pending and gets one try of its own.
+func TestPublicProgressFlush_UnrecoverableKeepsFactAddedInFlight(t *testing.T) {
+	plat := &unrecoverableProgressPlatform{progressTestPlatform: newProgressPlatform(),
+		err: fmt.Errorf("%w: 10003", ErrDeliveryUnrecoverable)}
+	p, id, run := startProgressCard(t, t.TempDir(), plat)
+	plat.hook = func() {
+		plat.hook = nil
+		if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room:gone", Run: run, TaskID: id, Seq: 2, Kind: "update", Summary: "in flight"}); err != nil {
+			t.Error(err)
+		}
+	}
+	p.Flush(context.Background())
+	p.mu.Lock()
+	_, queued := p.pending[id]
+	r := p.records[id]
+	p.mu.Unlock()
+	r.mu.Lock()
+	cardSeq, seq := r.record.CardSeq, r.record.Task.Seq
+	r.mu.Unlock()
+	if !queued || cardSeq != 1 || seq != 2 {
+		t.Fatalf("queued=%v cardSeq=%d seq=%d, want queued, 1, 2", queued, cardSeq, seq)
+	}
+	p.Flush(context.Background())
+	p.Flush(context.Background())
+	p.mu.Lock()
+	_, queued = p.pending[id]
+	p.mu.Unlock()
+	if plat.tries != 2 || queued {
+		t.Fatalf("tries=%d queued=%v, want 2 tries then dropped", plat.tries, queued)
+	}
 }

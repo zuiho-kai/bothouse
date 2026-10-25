@@ -19,10 +19,14 @@ type memberIdentityPlatform struct {
 	*progressTestPlatform
 	threads map[string]string
 	loseACK bool
-	refuse  bool // permanent refusal, like Discord 403 in the thread
+	refuse  bool  // permanent refusal, like Discord 403 in the thread
+	refused error // when set, the refusal returned instead of the 403
 }
 
 func (p *memberIdentityPlatform) PublishTaskFact(ctx context.Context, task *Task, ev TaskEvent, lang Language) error {
+	if p.refuse && p.refused != nil {
+		return p.refused
+	}
 	if p.refuse {
 		return fmt.Errorf("%w: HTTP 403 Missing Access", ErrTaskFactUndeliverable)
 	}
@@ -223,7 +227,18 @@ func TestTaskMemberWorkerTokenOnlyInWorkerRelay(t *testing.T) {
 // Regression (#108 review 2): a worker that may not post in the thread must
 // not block the creator's later facts; the creator posts a visible note.
 func TestTaskMemberRefusedFactDoesNotBlockCard(t *testing.T) {
+	testTaskMemberRefusedFact(t, nil)
+}
+
+// An unrecoverable refusal of the worker's account (Discord 50083, archived
+// thread) also gets the creator's note instead of dropping the card.
+func TestTaskMemberUnrecoverableFactCreatorPostsNote(t *testing.T) {
+	testTaskMemberRefusedFact(t, fmt.Errorf("%w: %w: HTTP 400 50083 thread archived", ErrDeliveryUnrecoverable, ErrTaskFactUndeliverable))
+}
+
+func testTaskMemberRefusedFact(t *testing.T, refused error) {
 	p, lead, worker, api, _ := memberIdentityFixture(t)
+	worker.refused = refused
 	session := "discord:room:user"
 	run, id := startCard(t, p, lead, session, "Task")
 	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {

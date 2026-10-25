@@ -52,10 +52,11 @@ func (p *Platform) findPublicFact(ctx context.Context, channel, marker string, s
 // for good (deleted channel or card, lost access, archived thread) is reported
 // wrapping core.ErrDeliveryUnrecoverable, so core stops retrying it.
 func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
-	return unrecoverableErr(p.ensureTaskCard(ctx, task, lang))
+	return unrecoverableErr(p.ensureTaskCard(ctx, task, lang, false))
 }
 
-func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
+// reposted is set on the second pass after the card was found deleted.
+func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang core.Language, reposted bool) error {
 	if p.session == nil || p.botID == "" {
 		return errors.New("discord session is not ready")
 	}
@@ -98,6 +99,13 @@ func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang cor
 	embeds = render(view)
 	_, err := p.session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: task.MessageID, Channel: task.ChannelID, Embeds: &embeds, Components: &components, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx))
 	if err != nil {
+		if !reposted && isDiscordUnknownMessage(err) {
+			// The card was deleted (e.g. by hand): post it again, like the
+			// boards do. Its thread, if any, outlives the message and is kept.
+			slog.Info("discord: task card deleted, posting it again", "task_id", task.ID, "channel", task.ChannelID, "message", task.MessageID)
+			task.MessageID, task.CardURL = "", ""
+			return p.ensureTaskCard(ctx, task, lang, true)
+		}
 		return err
 	}
 	p.cardViews.remember(task.MessageID, cardRender{lang: string(lang), embeds: render})
@@ -177,12 +185,12 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 		if err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part); err != nil {
 			// Missing access or thread is permanent for this account; core
 			// reports it visibly instead of blocking later facts on retries.
-			// A refusal with Discord's error body also wraps
-			// core.ErrDeliveryUnrecoverable: core drops it if no other
-			// account can post it.
+			// An unrecoverable refusal (e.g. 50083 archived thread) is also
+			// undeliverable for this account: core has the creator post a
+			// note instead, and drops the fact only if that fails too.
 			err = unrecoverableErr(err)
 			var rest *discordgo.RESTError
-			if errors.As(err, &rest) && rest.Response != nil && (rest.Response.StatusCode == 403 || rest.Response.StatusCode == 404) {
+			if errors.Is(err, core.ErrDeliveryUnrecoverable) || errors.As(err, &rest) && rest.Response != nil && (rest.Response.StatusCode == 403 || rest.Response.StatusCode == 404) {
 				return fmt.Errorf("%w: %w", core.ErrTaskFactUndeliverable, err)
 			}
 			return err

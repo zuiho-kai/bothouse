@@ -520,20 +520,24 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		err := p.flushRun(ctx, r)
+		attempted, err := p.flushRun(ctx, r)
 		r.mu.Lock()
 		id := r.record.Task.ID
 		if errors.Is(err, ErrDeliveryUnrecoverable) {
 			// The platform refused for good (channel or card deleted, access
 			// lost). Retrying every tick cannot succeed and floods the log:
-			// mark what was accepted so far as handled, so neither this loop
-			// nor a restart retries it. A newer fact on this task tries once more.
+			// mark what this delivery tried as handled, so neither this loop
+			// nor a restart retries it. Facts accepted while the request was
+			// in flight stay pending and get one try of their own.
 			channel := r.record.Task.ChannelID
-			r.record.CardSeq, r.record.FactSeq = r.record.Task.Seq, r.record.Task.Seq
+			r.record.CardSeq = max(r.record.CardSeq, attempted)
+			r.record.FactSeq = max(r.record.FactSeq, attempted)
 			saveErr := p.save(r)
-			p.mu.Lock()
-			delete(p.pending, id)
-			p.mu.Unlock()
+			if r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq {
+				p.mu.Lock()
+				delete(p.pending, id)
+				p.mu.Unlock()
+			}
 			r.mu.Unlock()
 			slog.Warn("public progress delivery dropped: destination unrecoverable", "task_id", id, "channel", channel, "error", err)
 			if saveErr != nil {
@@ -553,7 +557,10 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 	}
 }
 
-func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
+// flushRun delivers r's pending card state and facts. attempted is the task
+// sequence this delivery read: facts accepted while it was in flight are not
+// part of it.
+func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempted int64, err error) {
 	// Serialise delivery, not reporting. A slow Discord call must not delay a
 	// new progress report, cancellation, or the spoken final result.
 	r.deliveryMu.Lock()
@@ -561,13 +568,14 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	r.mu.Lock()
-	err := p.save(r) // retries a failed terminal-state checkpoint before sending
+	err = p.save(r) // retries a failed terminal-state checkpoint before sending
 	task, cardSeq, factSeq, lang := r.record.Task.Clone(), r.record.CardSeq, r.record.FactSeq, r.record.Lang
 	platform := r.record.Platform
 	r.mu.Unlock()
+	attempted = task.Seq
 	p.displayNames(task)
 	if err != nil {
-		return err
+		return attempted, err
 	}
 	if cardSeq < task.Seq {
 		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
@@ -582,10 +590,10 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 		err = p.save(r)
 		r.mu.Unlock()
 		if err != nil {
-			return err
+			return attempted, err
 		}
 		if deliveryErr != nil {
-			return deliveryErr
+			return attempted, deliveryErr
 		}
 	}
 	for _, ev := range task.Events {
@@ -612,13 +620,13 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 				err = p.save(r)
 				r.mu.Unlock()
 				if err != nil {
-					return err
+					return attempted, err
 				}
 				slog.Warn("public progress: reporter cannot post; creator posted note", "task_id", task.ID, "reporter", ev.ReporterProject)
 				err = r.publisher.PublishTaskFact(ctx, task, note, lang)
 			}
 			if err != nil {
-				return err
+				return attempted, err
 			}
 		}
 		r.mu.Lock()
@@ -626,10 +634,10 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 		err = p.save(r)
 		r.mu.Unlock()
 		if err != nil {
-			return err
+			return attempted, err
 		}
 	}
-	return nil
+	return attempted, nil
 }
 
 func (e *Engine) EnablePublicProgress() error {

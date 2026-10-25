@@ -35,6 +35,7 @@ func TestDiscordUnrecoverableClassification(t *testing.T) {
 		{"bare 404", &discordgo.RESTError{Response: &http.Response{StatusCode: 404}}, false},
 		{"429", withBody(429, 0), false},
 		{"500", withBody(500, 0), false},
+		{"500 with 10003 body", withBody(500, discordgo.ErrCodeUnknownChannel), false},
 		{"network", errors.New("dial tcp: i/o timeout"), false},
 		{"nil", nil, false},
 	} {
@@ -91,8 +92,8 @@ func TestEnsureTaskCardDeletedChannelUnrecoverable(t *testing.T) {
 	}
 }
 
-// Task facts: a refusal with Discord's body is unrecoverable and still
-// undeliverable (so another account's fact is reposted by the creator).
+// Task facts: an unrecoverable refusal (incl. 50083) is also undeliverable,
+// so another account's refused fact gets the creator's note.
 func TestPublishTaskFactUnrecoverable(t *testing.T) {
 	for _, tc := range []struct {
 		status, code         int
@@ -100,7 +101,8 @@ func TestPublishTaskFactUnrecoverable(t *testing.T) {
 	}{
 		{404, discordgo.ErrCodeUnknownChannel, true, true},
 		{403, discordgo.ErrCodeMissingPermissions, true, true},
-		{500, discordgo.ErrCodeUnknownChannel, false, true},
+		{400, discordgo.ErrCodePerformedOperationOnArchivedThread, true, true},
+		{500, discordgo.ErrCodeUnknownChannel, false, false},
 		{502, 0, false, false},
 	} {
 		p, _ := statusPlatform(tc.status, tc.code)
@@ -133,5 +135,62 @@ func TestChannelBoardUnrecoverable(t *testing.T) {
 	p, _ = statusPlatform(503, 0)
 	if _, err := p.PostChannelBoard(context.Background(), "c1", payload); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
 		t.Fatalf("503 post: %v", err)
+	}
+}
+
+// repostREST: the card "old" was deleted by hand (PATCH → 10008); a new POST
+// succeeds unless postCode is set.
+type repostREST struct {
+	posts, patches int
+	postCode       int
+}
+
+func (r *repostREST) RoundTrip(req *http.Request) (*http.Response, error) {
+	reply := func(status int, body any) (*http.Response, error) {
+		b, _ := json.Marshal(body)
+		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(b))), Request: req}, nil
+	}
+	switch {
+	case req.Method == "GET" && strings.HasSuffix(req.URL.Path, "/messages"):
+		return reply(200, []any{})
+	case req.Method == "POST" && strings.HasSuffix(req.URL.Path, "/messages"):
+		r.posts++
+		if r.postCode != 0 {
+			return reply(404, map[string]any{"code": r.postCode, "message": "x"})
+		}
+		return reply(200, &discordgo.Message{ID: "new", ChannelID: "room"})
+	case req.Method == "PATCH" && strings.HasSuffix(req.URL.Path, "/messages/old"):
+		r.patches++
+		return reply(404, map[string]any{"code": discordgo.ErrCodeUnknownMessage, "message": "Unknown Message"})
+	case req.Method == "PATCH":
+		r.patches++
+		return reply(200, &discordgo.Message{ID: "new", ChannelID: "room"})
+	case req.Method == "GET":
+		return reply(200, &discordgo.Channel{ID: "room", GuildID: "g", Type: discordgo.ChannelTypeGuildText})
+	}
+	return nil, errors.New("unexpected " + req.Method + " " + req.URL.Path)
+}
+
+// A card the user deleted (edit → 10008) is posted again, keeping its thread;
+// if the repost is refused for good, the delivery is unrecoverable.
+func TestEnsureTaskCardRepostsDeletedCard(t *testing.T) {
+	newP := func(tr *repostREST) *Platform {
+		session, _ := discordgo.New("Bot fixture")
+		session.Client = &http.Client{Transport: tr}
+		session.MaxRestRetries = 0
+		return &Platform{session: session, botID: "bot"}
+	}
+	tr := &repostREST{}
+	task := &core.Task{ID: "task-del", Title: "t", ChannelID: "room", MessageID: "old", ThreadID: "thread", CardURL: "https://discord.com/channels/g/room/old", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := newP(tr).EnsureTaskCard(context.Background(), task, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	if task.MessageID != "new" || task.ThreadID != "thread" || task.CardURL != "https://discord.com/channels/g/room/new" || tr.posts != 1 {
+		t.Fatalf("not reposted: %+v posts=%d", task, tr.posts)
+	}
+	tr = &repostREST{postCode: discordgo.ErrCodeUnknownChannel}
+	task = &core.Task{ID: "task-del", Title: "t", ChannelID: "room", MessageID: "old", ThreadID: "thread", CardURL: "x", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := newP(tr).EnsureTaskCard(context.Background(), task, core.LangEnglish); !errors.Is(err, core.ErrDeliveryUnrecoverable) || tr.posts != 1 {
+		t.Fatalf("repost refused: err=%v posts=%d", err, tr.posts)
 	}
 }
