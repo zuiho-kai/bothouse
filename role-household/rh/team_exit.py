@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import re
 import secrets
+import sys
+
+from . import hub as _hub   # 只取 Conflict；hub 经 cloudweb 间接引本模块，不能 from-import
 
 # #574 B4：[ask] 要带「自验：」和「类别：」才去等用户；只有方向、花钱、需要用户看的成品、权限确认可写「自验：无需」。
 # 同 team-exit.mjs、bridge/core/team_ask_evidence.go askEvidenceProblems。
@@ -21,7 +24,8 @@ ASK_MISSING_CATEGORY = "缺「类别：」（方向、花钱、需要用户看�
 ASK_NO_CHECK_NOT_EXEMPT = "「自验：无需」只限方向、花钱、需要用户看的成品、权限确认四类，其它类别要附证据"
 BOUNCE_WAKE_LIMIT = 2   # 连续退回几次还叫醒提问的 bot，再多只贴不叫。来源：team-exit.mjs、team_ask_evidence.go askBounceWakeLimit
 MARK = re.compile(r"^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$", re.I)   # 同 team-exit.mjs:97
-TOKEN = re.compile(r"\bask-[0-9a-f]{8}\b")
+# re.ASCII：Python 的 \b 默认把汉字也算单词字符，「回复ask-xxxxxxxx：」会认不出；JS（team-exit.mjs:79）的 \b 只按 ASCII 算
+TOKEN = re.compile(r"\bask-[0-9a-f]{8}\b", re.ASCII)
 ANSWER_KEY = re.compile(r"^team-answer:([^:]+):")
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS team_exit_asks (
@@ -86,10 +90,18 @@ class TeamExit:
                         (msg["room_id"], token.group(0)))
         if ask is None or self.hub.workspace_owner(ask["workspace_id"]) != ask["parent_id"]:
             return None   # 工作区已放回或换了主：按普通消息走
+        ws = self.hub.room(ask["workspace_id"])
+        if ws is None or ws["archived_at"] is not None:
+            return None   # 工作区已归档：贴不进去，不拦，按普通消息走
         return ask
 
-    async def _post(self, room_id: int, body: dict) -> dict:
-        msg, new = self.hub.create(room_id, body)
+    async def _post(self, room_id: int, body: dict) -> dict | None:
+        """贴帖；频道已归档（Conflict）时不贴、返回 None。异常不往上冒：on_new 跑在 bot 连接的收帧循环里，冒出去会断连接。"""
+        try:
+            msg, new = self.hub.create(room_id, body)
+        except _hub.Conflict as e:
+            print(f"[team-exit] 频道 {room_id} 没贴上：{e}", file=sys.stderr, flush=True)
+            return None
         if new:
             await self.hub.broadcast({"type": "message", "message": msg}, room_id)
             await self.hub.notify_new(msg)
@@ -101,9 +113,10 @@ class TeamExit:
             if answer["answered"]:
                 return
             # 以用户身份贴进工作区、@ 提问的 bot；client_key 稳定，重试不重复贴
-            await self._post(answer["workspace_id"], {
-                "author_kind": "user", "text": f"@{answer['member_id']} 用户回复 {answer['id']}：\n{msg['text']}",
-                "client_key": f"team-answer:{answer['member_id']}:{answer['id']}"})
+            if await self._post(answer["workspace_id"], {
+                    "author_kind": "user", "text": f"@{answer['member_id']} 用户回复 {answer['id']}：\n{msg['text']}",
+                    "client_key": f"team-answer:{answer['member_id']}:{answer['id']}"}) is None:
+                return
             with self.db:
                 self.db.execute("UPDATE team_exit_asks SET answered=1, answer_source_id=? WHERE id=?",
                                 (msg["id"], answer["id"]))
@@ -136,7 +149,7 @@ class TeamExit:
             head = f"📬 来自 {room['name']} · {msg['name']} · 阶段结果"
         fwd = await self._post(parent, {"author_kind": "system", "text": f"{head}\n{mark.group(2)}",
                                         "client_key": f"team-exit:{msg['id']}"})
-        if record is not None:
+        if record is not None and fwd is not None:
             with self.db:
                 self.db.execute("UPDATE team_exit_asks SET forwarded_id=? WHERE id=?", (fwd["id"], record["id"]))
 
@@ -147,5 +160,5 @@ class TeamExit:
         notice = await self._post(room["id"], {"author_kind": "system",
                                                "text": f"📬 @{msg['name']} {ask_bounce_text(problems)}",
                                                "client_key": f"team-exit-bounce:{msg['id']}"})
-        if count <= BOUNCE_WAKE_LIMIT:
+        if notice is not None and count <= BOUNCE_WAKE_LIMIT:
             await self.cw.nudge(msg["author"], notice)

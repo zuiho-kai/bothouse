@@ -275,6 +275,40 @@ class TeamExitRoute(CloudWebBase):
         await wait_for(lambda: self.system_in(other), what="新主的转发帖")
         self.assertEqual(len(self.system_in(1)), 1)
 
+    async def test_token_glued_to_chinese_recognized(self):
+        _, ask = await self.ask()
+        await self.frame(self.ju, lambda m: "要不要换方案" in m["content"])
+        # 中文不加空格是常态：编号前后紧贴汉字也要认（TOKEN 带 re.ASCII）
+        await self.post(f"回复{ask['id']}：换吧")
+        m = await self.frame(self.ln, lambda m: True)
+        self.assertEqual(m["content"], f"用户回复 {ask['id']}：\n回复{ask['id']}：换吧")
+        await self.nothing(self.ju)
+        self.assertEqual(self.hub.db.execute("SELECT answered FROM team_exit_asks").fetchone()[0], 1)
+
+    async def test_archived_chat_room_drops_forward_keeps_bot(self):
+        async with self.http.post(f"{self.url}/api/rooms", json={"name": "二号"}, headers=AUTH) as r:
+            other = (await r.json())["id"]
+        w2 = self.hub.create_workspace(other)["id"]
+        self.hub.update_room(other, {"archived": True})   # 归档不放工作区，工作区还归它
+        self.assertEqual(self.hub.workspace_owner(w2), other)
+        await self.say(self.ln, w2, "[report]\n主频道归档后的结果")
+        await self.say(self.ln, w2, ASK)
+        await self.say(self.ln, self.w, "[report]\n别的工作区照常")
+        await wait_for(lambda: self.system_in(1), what="照常的转发帖")
+        # 没贴进已归档的主频道，也没抛出去断掉龙娘的连接
+        self.assertEqual(self.system_in(other), [])
+        self.assertIn("longniang", self.hub.bots_online)
+
+    async def test_archived_workspace_answer_is_normal_chat(self):
+        _, ask = await self.ask()
+        await self.frame(self.ju, lambda m: "要不要换方案" in m["content"])
+        self.hub.update_room(self.w, {"archived": True})
+        # 工作区归档后带编号回答：发送成功，按普通聊天给聊天频道的 bot，ask 仍未答
+        status, _ = await self.post(f"{ask['id']} 换吧")
+        self.assertEqual(status, 200)
+        self.assertIn("换吧", (await self.frame(self.ju, lambda m: "换吧" in m["content"]))["content"])
+        self.assertEqual(self.hub.db.execute("SELECT answered FROM team_exit_asks").fetchone()[0], 0)
+
     async def test_pending_ask_survives_restart(self):
         _, ask = await self.ask()
         for ws in self.ws_list:
