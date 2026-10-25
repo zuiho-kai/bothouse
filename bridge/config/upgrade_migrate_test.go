@@ -374,3 +374,118 @@ token = "A"
 		t.Fatalf("agent.options.model = %q, want gpt-5.4", got)
 	}
 }
+
+const hintFixture = `[[projects]]
+name = "cursor-acp"
+[projects.agent]
+type = "acp"
+[projects.agent.options]
+work_dir = "/tmp/c"
+cmd = "agent"
+args = ["acp"]
+auth_method = "cursor_login"
+display_name = "Cursor"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "A"
+
+[[projects]]
+name = "dsh1"
+[projects.agent]
+type = "dsh"
+[projects.agent.options]
+work_dir = "/tmp/dsh"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "B"
+
+[[projects]]
+name = "acp-moded"
+[projects.agent]
+type = "acp"
+[projects.agent.options]
+cmd = "agent"
+args = ["acp"]
+mode = "plan"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "C"
+
+[[projects]]
+name = "cc"
+[projects.agent]
+type = "claudecode"
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "D"
+`
+
+func TestHintRolesWithoutKnownMode(t *testing.T) {
+	dataDir := setupMigrate(t, hintFixture)
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	// An old data dir: the full-auto migration already ran before acp/dsh had a hint.
+	if err := markMigrationDone(dataDir, YoloDefaultMigrationID); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied, _, err := MigrateYoloDefaults(dataDir, cfg); err != nil || len(applied) != 0 {
+		t.Fatalf("yolo migration re-ran: %v %v", applied, err)
+	}
+	hinted, err := HintRolesWithoutKnownMode(dataDir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cursor-acp and dsh without mode are hinted; a role with a mode and a known type are not.
+	if strings.Join(hinted, ",") != "cursor-acp,dsh1" {
+		t.Fatalf("hinted = %v", hinted)
+	}
+	out := logs.String()
+	if n := strings.Count(out, "permission mode not set automatically"); n != 2 {
+		t.Fatalf("hint lines = %d:\n%s", n, out)
+	}
+	if n := strings.Count(out, "agent/plan/ask"); n != 1 {
+		t.Fatalf("cursor note lines = %d:\n%s", n, out)
+	}
+	// Config is not written: no mode, no backup.
+	got := loadModes(t)
+	if got["cursor-acp"] != nil || got["dsh1"] != nil || got["acp-moded"] != "plan" || got["cc"] != nil {
+		t.Fatalf("modes changed: %v", got)
+	}
+	if raw, _ := os.ReadFile(ConfigPath); string(raw) != hintFixture || len(backups(t)) != 0 {
+		t.Fatal("hint changed config.toml")
+	}
+	// Once only.
+	logs.Reset()
+	hinted, err = HintRolesWithoutKnownMode(dataDir, cfg)
+	if err != nil || len(hinted) != 0 || strings.Contains(logs.String(), "not set automatically") {
+		t.Fatalf("second run hinted=%v err=%v logs=%s", hinted, err, logs.String())
+	}
+}
+
+func TestIsCursorACP(t *testing.T) {
+	for _, c := range []struct {
+		opts map[string]any
+		want bool
+	}{
+		{map[string]any{"cmd": "agent", "args": []any{"acp"}}, true},
+		{map[string]any{"command": "/Users/x/.local/bin/cursor-agent", "args": []string{"acp"}}, true},
+		{map[string]any{"cmd": "agent acp"}, true},
+		{map[string]any{"cmd": "agent"}, false},
+		{map[string]any{"cmd": "devin", "args": []any{"acp"}}, false},
+		{map[string]any{}, false},
+	} {
+		if got := isCursorACP(c.opts); got != c.want {
+			t.Errorf("isCursorACP(%v) = %v, want %v", c.opts, got, c.want)
+		}
+	}
+}

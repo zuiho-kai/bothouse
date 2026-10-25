@@ -402,6 +402,11 @@ func runMain() {
 			cfg = newCfg
 		}
 	}
+	// Roles of a type with no known full-auto mode (dsh, acp, …) are not
+	// guessed at; say once in the log that they may still ask for approval.
+	if _, err := config.HintRolesWithoutKnownMode(cfg.DataDir, cfg); err != nil {
+		slog.Warn("upgrade: permission-mode hint not recorded, it will repeat next start", "error", err)
+	}
 
 	// DSH roles set up before the image size limit was written get it in their overlay now (an upgrade restarts here).
 	for _, proj := range cfg.Projects {

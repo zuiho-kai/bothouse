@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -18,6 +19,12 @@ import (
 // YoloDefaultMigrationID marks, in <data_dir>/migrations.json, that roles set up
 // before new roles defaulted to full-auto (#225) have been given a mode once.
 const YoloDefaultMigrationID = "yolo-default-2026-10"
+
+// ModeHintMigrationID marks that roles whose type has no known full-auto mode
+// (dsh, acp, …) and no mode of their own were told about, once, in the log. It
+// is separate from YoloDefaultMigrationID so data dirs that already ran that
+// migration still get the hint.
+const ModeHintMigrationID = "mode-hint-unknown-type-2026-10"
 
 const migrationsFile = "migrations.json"
 
@@ -145,7 +152,7 @@ func SetAgentOptionsIfAbsent(edits []AgentOptionEdit) (applied []AgentOptionEdit
 // have no "mode" key and whose type has a known full-auto mode
 // (core.KnownAgentYoloMode) gets that mode written, the same default new roles
 // get from the setup wizard. Roles with any mode (default, plan, …) and other
-// agent types are left alone. The run is marked done only when every role was
+// agent types are left alone (HintRolesWithoutKnownMode logs those). The run is marked done only when every role was
 // written or permanently skipped (a role whose options cannot be patched as
 // text, e.g. an inline table or dotted keys); an I/O failure leaves it unmarked
 // so the next start retries (roles written meanwhile are skipped because they
@@ -185,6 +192,73 @@ func MigrateYoloDefaults(dataDir string, cfg *Config) (applied []AgentOptionEdit
 		return applied, backup, errors.Join(err, merr)
 	}
 	return applied, backup, err
+}
+
+// HintRolesWithoutKnownMode runs once per data dir: every role with no "mode"
+// key whose type has no known full-auto mode (core.KnownAgentYoloMode: dsh,
+// acp, …) gets one warning saying its approval mode was not changed and how to
+// set it. Nothing is written to config.toml: for these types there is no
+// verified mode value to write (Cursor's `agent acp` only offers the session
+// modes agent / plan / ask, none of which skips approval). hinted lists the
+// projects that were logged.
+func HintRolesWithoutKnownMode(dataDir string, cfg *Config) (hinted []string, err error) {
+	done, err := migrationDone(dataDir, ModeHintMigrationID)
+	if err != nil || done {
+		return nil, err
+	}
+	for _, p := range cfg.Projects {
+		if _, ok := p.Agent.Options["mode"]; ok {
+			continue
+		}
+		if _, ok := core.KnownAgentYoloMode(p.Agent.Type); ok {
+			continue
+		}
+		attrs := []any{"project", p.Name, "type", p.Agent.Type,
+			"how_to_set", "web: role details > permission mode, or config.toml: mode under [projects.agent.options]"}
+		if isCursorACP(p.Agent.Options) {
+			attrs = append(attrs, "note", "Cursor ACP offers the session modes agent/plan/ask; none of them skips approval")
+		}
+		slog.Warn("upgrade: role permission mode not set automatically (no known full-auto mode for this agent type); it may still ask for approval", attrs...)
+		hinted = append(hinted, p.Name)
+	}
+	if err := markMigrationDone(dataDir, ModeHintMigrationID); err != nil {
+		return hinted, err
+	}
+	return hinted, nil
+}
+
+// isCursorACP reports whether acp agent options run Cursor's CLI as an ACP
+// server: cmd (or command) is "agent" or "cursor-agent" and args contain "acp".
+func isCursorACP(opts map[string]any) bool {
+	cmd, _ := opts["cmd"].(string)
+	if cmd == "" {
+		cmd, _ = opts["command"].(string)
+	}
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 {
+		return false
+	}
+	base := strings.TrimSuffix(strings.ToLower(filepath.Base(fields[0])), ".exe")
+	if base != "agent" && base != "cursor-agent" {
+		return false
+	}
+	args := append([]string(nil), fields[1:]...)
+	switch a := opts["args"].(type) {
+	case []string:
+		args = append(args, a...)
+	case []any:
+		for _, v := range a {
+			if s, ok := v.(string); ok {
+				args = append(args, s)
+			}
+		}
+	}
+	for _, a := range args {
+		if a == "acp" {
+			return true
+		}
+	}
+	return false
 }
 
 // roleSkipError marks a role that cannot be migrated because of how its config
