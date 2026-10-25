@@ -114,6 +114,8 @@ export async function apply(ctx, rawConfig) {
   ctx.on('session/event', (session, event) => dsh.onSessionEvent(session, event));
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => dsh.onClaimed(agent.session.id, message.id, turn));
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
+  // #557: a channel-started turn asks in its room; prepended so a DSH Web UI tab never takes a hidden Session's ask.
+  ctx.on('approval/request', (request, next) => dsh.onApprovalRequest(request, next), { prepend: true });
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
   tasks.start();
@@ -245,10 +247,10 @@ export async function apply(ctx, rawConfig) {
     }
     const edited = ownMessageRoute(req, res, path, { store, hub, gateway, dsh });
     if (edited !== undefined) return edited;
-    // #120: owner-only (checked above) decision on a cloud-web bot's permission prompt.
+    // #120/#557: owner-only (checked above) decision on a permission card (cloud-web bot or DSH member).
     const pm = /^\/collab\/api\/messages\/(\d+)\/permission$/.exec(path);
     if (pm !== null && req.method === 'POST') {
-      return withBody(req, res, body => ({ message: gateway.decidePermission(Number(pm[1]), String(body?.decision ?? '')) }));
+      return withBody(req, res, body => ({ message: hub.approvals.decide(Number(pm[1]), String(body?.decision ?? '')) }));
     }
     // #146: owner-only (checked above) retry on a failed message or error card.
     const rm = /^\/collab\/api\/messages\/(\d+)\/retry$/.exec(path);

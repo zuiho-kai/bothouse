@@ -9,7 +9,8 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { exitTarget } from './team-exit.mjs';
-import { DEFAULT_DISPATCH_MODE } from './store.mjs';
+import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
+import { ChannelApprovals } from './approvals.mjs';
 // Shared with the bridge (bridge/core/team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8');
@@ -128,6 +129,19 @@ export function friendlyFailure(raw) {
   return `这次没能完成，请检查配置后重试。原始错误：${text}`;
 }
 
+/**
+ * Card text of one approval request, in cc-connect's permission prompt layout:
+ * the tool, what it wants to run (the call's first argument), and DSH's reason.
+ */
+function approvalText(request, session, seqBefore) {
+  const call = request.callId === undefined ? undefined
+    : session.snapshotEvents(seqBefore).find(e => e.type === 'tool/call' && e.data?.callId === request.callId);
+  const arg = call === undefined ? '' : toolArgText(call.data.arguments).trim();
+  const reason = String(request.displayReason ?? request.reason ?? '').trim();
+  const lines = [`⚠️ **权限请求** ${request.toolName}`, arg && `\`${arg.replace(/`/g, "'")}\``, reason, '回复 **允许** / **拒绝** / **允许所有**'];
+  return lines.filter(Boolean).join('\n').slice(0, MAX_TEXT);
+}
+
 /** Short text of a tool call's arguments for the card: the first string field (command, path, query), else the raw text. */
 function toolArgText(raw) {
   try {
@@ -239,6 +253,10 @@ export class DshMembers {
     this.hooked = new WeakSet();
     /** memberId -> { cli, agent } live local CLI agents (members with a `cli` field). */
     this.cliAgents = new Map();
+    /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
+    this.approvals = ChannelApprovals.of(hub);
+    /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card. */
+    this.allowAll = new Set();
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -311,6 +329,7 @@ export class DshMembers {
       if (w?.jobId !== job.id || agent === undefined) { running.push(job.member_id); continue; }
       // Close the job first, so neither the discarded listener nor the settle path posts a card or a reply.
       this.store.finishJob(job.id, 'interrupted');
+      this.approvals.expireWhere(p => p.meta?.sessionId === job.session_id);
       if (w.turn === undefined && agent.inbox.remove(job.input_id)) continue;
       this.watching.delete(job.session_id);
       w.resolve(INTERRUPTED);
@@ -318,6 +337,33 @@ export class DshMembers {
       stopped.push(job.member_id);
     }
     return { stopped, running };
+  }
+
+  /**
+   * #557: root approval/request answerer (installed prepended by the plugin).
+   * The Session is held out of the DSH conversation list, so its approval
+   * popup has nowhere to show: a turn the channel started asks in the room of
+   * its job, as a permission card (approvals.mjs). Any other turn — one started
+   * from the DSH Web UI — goes on to the next answerer. The approval service
+   * applies the Session's policy first (Full access: no request at all;
+   * \`never\`: rejected before any answerer), so a card appears exactly when
+   * DSH would have asked. Withdrawing the request (turn cancelled or recalled)
+   * expires the card.
+   */
+  async onApprovalRequest(request, next) {
+    const session = request.agent?.session;
+    const w = session === undefined ? undefined : this.watching.get(session.id);
+    const job = w === undefined ? undefined : this.store.job(w.jobId);
+    const member = job === undefined ? undefined : this.config.get(job.member_id);
+    if (member === undefined || member.cli !== undefined) return next();
+    if (this.allowAll.has(session.id)) return 'allowed-once';
+    const { decision } = this.approvals.open({
+      room: job.room_id, author: { id: member.id, name: member.name }, text: approvalText(request, session, w.seqBefore),
+      signal: request.signal, meta: { sessionId: session.id },
+    });
+    const d = await decision;
+    if (d === 'allow_all') this.allowAll.add(session.id);
+    return d === 'allow' || d === 'allow_all' ? 'allowed-once' : d === 'deny' ? 'rejected' : 'cancelled';
   }
 
   /** Root agent/inbox/discarded listener: a withdrawn input ends its job. */
@@ -339,11 +385,13 @@ export class DshMembers {
     // Solo mode keeps agent-to-agent relays inside the lead's own runtime;
     // an explicit user mention still routes to the named DSH member.
     if (mode === 'solo' && msg.author_kind === 'role') return undefined;
+    // An owner text reply that decides (or is withheld from) a member's permission card is not a new ask for it.
+    const answered = this.approvals.answerByText(msg);
     const hit = mentions(msg.text, this.hub.routable());
     const only = this.hub.replyRoute(msg);
     const leadID = this.hub.selectedPrimaryMember()?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
-    const targets = [...this.config.keys()].filter(id => id !== msg.author && (!target || target === id)
+    const targets = [...this.config.keys()].filter(id => id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
     if (targets.length === 0) return undefined;
     // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
