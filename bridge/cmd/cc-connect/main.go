@@ -379,6 +379,13 @@ func runMain() {
 
 	setupLogger(cfg.Log.Level, logWriter)
 
+	// Restore missing stores before any scheduler or usage ledger can load or
+	// create empty files in the newly selected default data directory.
+	if err := core.MigrateLegacyDataDir(cfg.DataDir); err != nil {
+		slog.Error("legacy data migration failed, refusing to start", "error", err)
+		os.Exit(1)
+	}
+
 	// run_as_user preflight + isolation audit. MUST run before any engine
 	// or agent is constructed. If any project fails, abort startup
 	// entirely — never half-spawn. See core/runas_check.go and
