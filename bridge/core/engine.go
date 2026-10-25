@@ -540,8 +540,9 @@ type Engine struct {
 	interactiveStates map[string]*interactiveState // key = sessionKey
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
-	// handoffWatchOn: startHandoffWatch ran on this engine (team_watch.go); until then a claim
-	// records no check time and the list shows no watch_due.
+	// handoffWatchOn: the API server's handoff watch runs on this engine (team_watch.go
+	// startHandoffWatch, called when the API server starts and again when projects are hot-loaded
+	// or removed); while false a claim records no check time and the list shows no watch_due.
 	handoffWatchOn atomic.Bool
 
 	platformLifecycleMu sync.Mutex

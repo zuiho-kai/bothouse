@@ -10,11 +10,12 @@ package core
 // team workspace file, so a restart re-arms it and a check missed while down fires on start.
 //
 // B9a: the watcher, its tick and the claim fields. B9b part 1 (#597 K5a): the progress signals
-// (workspaceProgress). Nothing starts it yet (the startHandoffWatch call comes with #597 K5b), so
-// the bridge behaves as before: until
-// the watch is started on an engine (Engine.handoffWatchOn) a claim records no check time and the
-// list shows no watch_due, so the team workspace file is exactly as before. Handoffs recorded
-// before the start are old records and are not watched.
+// (workspaceProgress). B9b part 2 (#597 K5b): APIServer.Start starts it (startHandoffWatch), and
+// a hot load or removal moves it when another engine owns the team workspaces now. Until the
+// watch is started on an engine (Engine.handoffWatchOn) a claim records no check time and the
+// list shows no watch_due. Handoffs recorded before the start are old records and are not
+// watched. The DSH gateway leaves bridge-claimed rooms to this watch (tasks.mjs tick), so one
+// handoff has one watcher.
 
 import (
 	"context"
@@ -25,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -88,12 +90,36 @@ func newHandoffWatch(e *Engine) *handoffWatch {
 	return w
 }
 
+// handoffWatchRun: the one watch an API server runs (all engines share the data dir, so one
+// team workspace file and one watcher for it).
+type handoffWatchRun struct {
+	mu      sync.Mutex
+	serving bool               // Start ran: register/unregister re-pick the engine
+	e       *Engine            // the engine it runs on; nil = none
+	stop    context.CancelFunc // ends it
+	done    chan struct{}      // closed when its goroutine returned
+}
+
 // startHandoffWatch runs the watch on the team workspace engine until the bridge stops.
 // BOTHOUSE_WATCH_TEST_SECONDS (seconds, only for checking the watch end to end) shortens the
-// check time. Called once, after the platforms are added and before the API starts serving
-// (B9b); claims are watched from then on.
+// check time. Called when the API server starts (after the platforms are added, before it
+// serves) and after a project is hot-loaded or removed: when teamWorkspaceEngine() is another
+// engine now, the old watch is stopped and waited for first, so one handoff is never checked by
+// two watchers.
 func (s *APIServer) startHandoffWatch() {
 	e := s.teamWorkspaceEngine()
+	r := &s.watch
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if e == r.e {
+		return // already running there (or no engine, none before)
+	}
+	if r.e != nil {
+		r.stop()
+		<-r.done
+		r.e.handoffWatchOn.Store(false)
+		r.e, r.stop, r.done = nil, nil, nil
+	}
 	if e == nil {
 		return
 	}
@@ -116,7 +142,25 @@ func (s *APIServer) startHandoffWatch() {
 		}
 		return out
 	}
-	go w.run(e.ctx)
+	ctx, stop := context.WithCancel(e.ctx)
+	done := make(chan struct{})
+	r.e, r.stop, r.done = e, stop, done
+	go func() {
+		defer close(done)
+		w.run(ctx)
+	}()
+	slog.Info("team workspace watch started", "project", e.name, "check_after", watchCheckAfter())
+}
+
+// rewatchIfServing re-picks the watch engine after the engine set changed (hot load, removal);
+// before Start the call in Start does it once.
+func (s *APIServer) rewatchIfServing() {
+	s.watch.mu.Lock()
+	serving := s.watch.serving
+	s.watch.mu.Unlock()
+	if serving {
+		s.startHandoffWatch()
+	}
 }
 
 func (w *handoffWatch) run(ctx context.Context) {

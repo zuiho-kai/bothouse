@@ -38,6 +38,8 @@ type APIServer struct {
 	maxAttachmentBytes int64
 	mu                 sync.RWMutex
 	inputs             inputStore
+	// watch: the handoff watch on the team workspace engine (team_watch.go startHandoffWatch).
+	watch handoffWatchRun
 }
 
 // SendRequest is the JSON body for POST /send.
@@ -138,11 +140,12 @@ func (s *APIServer) SocketPath() string {
 
 func (s *APIServer) RegisterEngine(name string, e *Engine) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.engines[name] = e
 	if s.relay != nil {
 		s.relay.RegisterEngine(name, e)
 	}
+	s.mu.Unlock()
+	s.rewatchIfServing() // a hot-loaded project may now own the team workspaces
 }
 
 func (s *APIServer) SetRelayManager(rm *RelayManager) {
@@ -195,6 +198,11 @@ func (s *APIServer) sendBodyLimit() int64 {
 }
 
 func (s *APIServer) Start() {
+	// The platforms are added by now (main starts every engine first) and nothing is served yet.
+	s.watch.mu.Lock()
+	s.watch.serving = true
+	s.watch.mu.Unlock()
+	s.startHandoffWatch()
 	s.server = &http.Server{Handler: s.mux, ConnContext: withPeerConn}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
