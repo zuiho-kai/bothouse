@@ -37,10 +37,8 @@ def _load():
 
 
 def team():
-    t = _load()
-    if t is None:
-        sys.exit(f"读不到团队文件 {os.environ.get('GATE_TEAM') or SETUP / 'gate-team.json'}：先跑一遍 bothouse 向导（它会写这份文件）")
-    return t
+    """团队文件内容；没有（还没跑过向导）→ {}：认不出队友，工作区频道只看 WS_CHANNEL。"""
+    return _load() or {}
 
 
 def workspace():
@@ -50,7 +48,8 @@ def workspace():
 def member_id(who):
     """名字 / 别名 / key / 平台 ID（<@id>、平台:id 也行）→ 团队文件里的平台 ID；认不出 → None。
     ID 不假设是数字：飞书 open_id、DSH 成员 id 原样比对。"""
-    team()
+    if _load() is None:
+        return str(who) if str(who).isdigit() else None
     w = str(who).strip()
     m = re.fullmatch(r"<@!?([^>]+)>", w)
     if m:
