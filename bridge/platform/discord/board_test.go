@@ -30,7 +30,7 @@ func TestBoardBeforeConnectionAndAfterStop(t *testing.T) {
 				if operation == "remove" {
 					err = p.RemoveBoard(context.Background(), "discord:123:456", "789")
 				} else {
-					_, err = p.UpsertBoard(context.Background(), "discord:123:456", "789", "status")
+					_, err = p.UpsertBoard(context.Background(), "discord:123:456", "789", "status", false)
 				}
 				if err == nil || !strings.Contains(err.Error(), "not connected") {
 					t.Fatalf("want retryable not-connected error, got %v", err)
@@ -68,7 +68,7 @@ func TestBoardRetryAfterConnection(t *testing.T) {
 	if err := p.RemoveBoard(ctx, "discord:123:456", "789"); err == nil {
 		t.Fatal("disconnected removal must remain retryable")
 	}
-	if _, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status"); err == nil {
+	if _, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status", false); err == nil {
 		t.Fatal("disconnected update must remain retryable")
 	}
 	session, err := discordgo.New("Bot test")
@@ -83,7 +83,7 @@ func TestBoardRetryAfterConnection(t *testing.T) {
 	if err := p.RemoveBoard(ctx, "discord:123:456", "789"); err != nil {
 		t.Fatal(err)
 	}
-	if id, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status"); err != nil || id != "789" {
+	if id, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status", false); err != nil || id != "789" {
 		t.Fatalf("connected update = (%q, %v)", id, err)
 	}
 	// Concurrent maintenance and shutdown must not race on p.session or panic.
@@ -97,7 +97,7 @@ func TestBoardRetryAfterConnection(t *testing.T) {
 				if err != nil && !strings.Contains(err.Error(), "not connected") {
 					t.Errorf("remove during stop: %v", err)
 				}
-				_, err = p.UpsertBoard(ctx, "discord:123:456", "789", "status")
+				_, err = p.UpsertBoard(ctx, "discord:123:456", "789", "status", false)
 				if err != nil && !strings.Contains(err.Error(), "not connected") {
 					t.Errorf("upsert during stop: %v", err)
 				}
@@ -112,7 +112,7 @@ func TestBoardRetryAfterConnection(t *testing.T) {
 	if err := p.RemoveBoard(ctx, "discord:123:456", "789"); err == nil {
 		t.Fatal("removal after stop must fail")
 	}
-	if _, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status"); err == nil {
+	if _, err := p.UpsertBoard(ctx, "discord:123:456", "789", "status", false); err == nil {
 		t.Fatal("update after stop must fail")
 	}
 	if transport.calls.Load() != calls {

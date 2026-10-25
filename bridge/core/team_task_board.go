@@ -46,6 +46,8 @@ type teamTaskBoardItem struct {
 	SK string `json:"sk"`
 	// WS: the workspace a handoff item is bound to; dropped when the item leaves it (pause).
 	WS string `json:"ws"`
+	// Bound: when the item was bound to WS (RFC 3339), just after the bridge recorded that handoff.
+	Bound string `json:"bound"`
 	// Chat: for a handoff, the chat it came from; the item also shows on that chat's board.
 	Chat string `json:"chat"`
 	// Ch: bare Discord channel ID, the only channel field of items written before sk existed.
@@ -55,6 +57,9 @@ type teamTaskBoardItem struct {
 	own    string // the chat the item is in
 	parent string // for an item in a workspace: the chat the workspace belongs to
 	wsName string // that workspace's name
+	// wsEnded: WS has stopped working on the item's handoff (finished or paused there,
+	// TeamHandoffEnded); the item waits for the lead (board done / resume) and is not live work.
+	wsEnded bool
 }
 
 // readTeamTaskBoardFile loads <dir>/<name>; a missing file or bad lines are skipped.
@@ -101,10 +106,12 @@ type teamTaskBoardPlacer struct {
 	mainChat   string                            // for items with no chat recorded; "" = not shown
 	parentOf   func(ws string) (string, bool)    // workspace key → chat key
 	workspaces func(chat string) []TeamWorkspace // a chat's workspaces, in order
+	// handoffEnded: TeamHandoffEnded (workspace, chat that handed off, bound); nil = unknown.
+	handoffEnded func(ws, chat string, bound time.Time) bool
 }
 
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
-	return teamTaskBoardPlacer{mainChat: teamMainChat(e.dataDir), parentOf: e.WorkspaceParent, workspaces: e.TeamWorkspacesOf}
+	return teamTaskBoardPlacer{mainChat: teamMainChat(e.dataDir), parentOf: e.WorkspaceParent, workspaces: e.TeamWorkspacesOf, handoffEnded: e.TeamHandoffEnded}
 }
 
 // teamMainChat: the main chat channel the setup wizard bound the roles to (conest-setup.json
@@ -146,6 +153,10 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 	if chat != "" && !strings.Contains(chat, ":") {
 		chat = "discord:" + chat // board.py writes the bare Discord channel ID, like ch
 	}
+	if it.WS != "" && p.handoffEnded != nil {
+		bound, _ := time.Parse(time.RFC3339Nano, it.Bound) // unparsable: zero, the chat's newest handoff
+		it.wsEnded = p.handoffEnded(it.WS, chat, bound)
+	}
 	if chat != "" && chatOf(chat) != it.own {
 		it.parent = chatOf(chat)
 	} else if p.parentOf != nil {
@@ -172,6 +183,28 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 		p.place(&items[i])
 	}
 	return items
+}
+
+// shownIn: the item is on chat's board.
+func (it teamTaskBoardItem) shownIn(chat string) bool {
+	for _, c := range it.chats() {
+		if c == chat {
+			return true
+		}
+	}
+	return false
+}
+
+// teamTaskBoardLive: chat's task-board section has live work: an open item that is not paused and,
+// for a handoff item, whose workspace is still on it (not wsEnded). The board card's state uses it,
+// from the same placed items the section is rendered from.
+func teamTaskBoardLive(items []teamTaskBoardItem, chat string) bool {
+	for _, it := range items {
+		if it.shownIn(chat) && it.Paused == "" && !it.wsEnded {
+			return true
+		}
+	}
+	return false
 }
 
 // chats: the chats this item shows on (its own, and the chat its workspace belongs to).
@@ -281,14 +314,7 @@ func renderTeamTaskBoardFit(items, done []teamTaskBoardItem, chat string, now ti
 // Items must be placed (placeTeamTaskBoard). Running: the chat's own items first, then one block
 // per workspace of the chat; then paused; then done today (workspace items marked "<name>·").
 func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob, st teamTaskBoardStage) string {
-	in := func(it teamTaskBoardItem) bool {
-		for _, c := range it.chats() {
-			if c == chat {
-				return true
-			}
-		}
-		return false
-	}
+	in := func(it teamTaskBoardItem) bool { return it.shownIn(chat) }
 	row := func(it teamTaskBoardItem) string {
 		line := fmt.Sprintf("#%d %s｜%s｜%s｜%s", it.ID, shortLabel(it.What, st.whatCap), boardLabel(it.Who), shortLabel(it.Status, st.statusCap), boardLabel(it.At))
 		if it.Paused != "" {
@@ -434,40 +460,4 @@ func cutTeamBoardLines(s string, limit int, note string) string {
 		out = append(out, ln)
 	}
 	return strings.Join(out, "\n")
-}
-
-// TeamBoardActive reports whether a rendered team board shows live work: a relay task row
-// ("• ", only running / waiting tasks are listed), a busy or assigned teammate (🔧/📋/⏳), or a
-// "#" row of the task-board section outside 暂停 and 今天做完. Platforms use it to pick the
-// board card's state instead of always Running.
-func TeamBoardActive(content string) bool {
-	section := ""
-	for _, raw := range strings.Split(content, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "**") && !strings.Contains(line, "　") {
-			// Section heading: "**任务板**", a workspace name, "**暂停**", "**今天做完** N 件".
-			section = strings.TrimSpace(strings.Trim(strings.SplitN(line[2:], "**", 2)[0], "*"))
-			continue
-		}
-		if strings.HasPrefix(line, "#") {
-			if section != "暂停" && section != "今天做完" {
-				return true
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "• ") {
-			return true
-		}
-		if _, status, ok := strings.Cut(line, "　"); ok {
-			for _, icon := range []string{"🔧", "📋", "⏳"} {
-				if strings.HasPrefix(status, icon) {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }

@@ -91,7 +91,7 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 // UpsertBoard edits the pinned board card or posts and pins a new one. As on
 // Discord, a pin refused after a successful send returns the new ID with the
 // error, so the next round edits that card instead of posting another.
-func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
+func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, content string, _ bool) (string, error) {
 	chat, err := p.TaskCardDestination(sessionKey)
 	if err != nil {
 		return "", err

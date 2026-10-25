@@ -17,18 +17,21 @@ type stubBoardPlatform struct {
 	stubPlatformEngine
 	posts   int
 	content map[string]string // session key → last board
+	live    map[string]bool   // session key → last board's state
 	fail    bool
 }
 
-func (p *stubBoardPlatform) UpsertBoard(_ context.Context, sessionKey, messageID, content string) (string, error) {
+func (p *stubBoardPlatform) UpsertBoard(_ context.Context, sessionKey, messageID, content string, live bool) (string, error) {
 	if p.fail {
 		return "", errors.New("boom")
 	}
 	p.posts++
 	if p.content == nil {
 		p.content = map[string]string{}
+		p.live = map[string]bool{}
 	}
 	p.content[sessionKey] = content
+	p.live[sessionKey] = live
 	if messageID == "" {
 		messageID = "m-" + sessionKey
 	}
@@ -305,14 +308,14 @@ type stubBoardEditFails struct {
 	tries   int
 }
 
-func (p *stubBoardEditFails) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
+func (p *stubBoardEditFails) UpsertBoard(ctx context.Context, sessionKey, messageID, content string, live bool) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if sessionKey == p.failFor {
 		p.tries++
 		return messageID, p.editErr
 	}
-	return p.stubBoardPlatform.UpsertBoard(ctx, sessionKey, messageID, content)
+	return p.stubBoardPlatform.UpsertBoard(ctx, sessionKey, messageID, content, live)
 }
 
 func (p *stubBoardEditFails) triesSoFar() int {

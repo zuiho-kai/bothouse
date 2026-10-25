@@ -99,6 +99,13 @@ func taskIndexLabel(text string, limit int) string {
 }
 
 func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) string {
+	text, _ := teamBoardWithTasks(files, chat, lang)
+	return text
+}
+
+// teamBoardWithTasks is renderTeamBoardWithTasks and whether it shows live work: a member line
+// in work (teamBoardMembers) or a relay task in the index (only running / waiting are listed).
+func teamBoardWithTasks(files []teamFile, chat string, lang Language) (string, bool) {
 	type entry struct {
 		teamTaskLink
 		name, project string
@@ -119,9 +126,9 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 	for _, task := range tasks {
 		members = append(members, task.Members...)
 	}
-	board := renderTeamBoardMembers(files, chat, members)
+	board, live := teamBoardMembers(files, chat, members)
 	if len(tasks) == 0 {
-		return board
+		return board, live
 	}
 	sort.Slice(tasks, func(i, j int) bool {
 		a, b := tasks[i], tasks[j]
@@ -167,5 +174,5 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 		lines = append(lines, i18n.Tf(MsgBoardTasksMore, len(tasks)-shown))
 	}
 	title, roster, _ := strings.Cut(board, "\n")
-	return title + "\n" + strings.Join(lines, "\n") + "\n\n" + roster
+	return title + "\n" + strings.Join(lines, "\n") + "\n\n" + roster, true
 }

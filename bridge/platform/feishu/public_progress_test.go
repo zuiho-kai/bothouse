@@ -265,7 +265,7 @@ func TestFeishuBoardPostPinThenEdit(t *testing.T) {
 	f := newFakeFeishuIM()
 	p := newFakeFeishuPlatform(t, f)
 	ctx := context.Background()
-	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**团队任务板**\n龙娘 进行中")
+	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**团队任务板**\n龙娘 进行中", false)
 	if err != nil || id == "" {
 		t.Fatalf("UpsertBoard post: %q, %v", id, err)
 	}
@@ -275,7 +275,7 @@ func TestFeishuBoardPostPinThenEdit(t *testing.T) {
 	if !strings.Contains(f.content[id], "团队任务板") || !strings.Contains(f.content[id], "龙娘 进行中") {
 		t.Fatalf("board card = %s", f.content[id])
 	}
-	got, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n龙娘 已完成")
+	got, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n龙娘 已完成", false)
 	if err != nil || got != id {
 		t.Fatalf("UpsertBoard edit: %q, %v", got, err)
 	}
@@ -285,7 +285,7 @@ func TestFeishuBoardPostPinThenEdit(t *testing.T) {
 
 	// Board deleted by hand: post and pin a new one.
 	f.gone[id] = true
-	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n空")
+	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n空", false)
 	if err != nil || again == "" || again == id || len(f.pins) != 2 {
 		t.Fatalf("deleted board not reposted: %q, %v, pins=%v", again, err, f.pins)
 	}
@@ -297,7 +297,7 @@ func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
 	f := newFakeFeishuIM()
 	f.pinFail = true
 	p := newFakeFeishuPlatform(t, f)
-	id, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", "", "**板**\nx")
+	id, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", "", "**板**\nx", false)
 	if err == nil || id == "" {
 		t.Fatalf("want id with pin error, got %q, %v", id, err)
 	}
@@ -305,7 +305,7 @@ func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
 		t.Fatal("pin failure must not give up the board")
 	}
 	// Still refused next round: the edit succeeds, the pin failure is only logged.
-	if got, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", id, "**板**\ny"); err != nil || got != id {
+	if got, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", id, "**板**\ny", false); err != nil || got != id {
 		t.Fatalf("edit with pin still refused: %q, %v", got, err)
 	}
 	// Scope granted: the next successful edit pins the board, once.
@@ -313,7 +313,7 @@ func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
 	f.pinFail = false
 	f.mu.Unlock()
 	for _, body := range []string{"**板**\nz", "**板**\nw"} {
-		if got, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", id, body); err != nil || got != id {
+		if got, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", id, body, false); err != nil || got != id {
 			t.Fatalf("edit after scope granted: %q, %v", got, err)
 		}
 	}
@@ -348,10 +348,10 @@ func TestFeishuPermanentRefusalIsUnrecoverable(t *testing.T) {
 		if err := p.PublishTaskFact(ctx, task, ev, core.LangEnglish); !errors.Is(err, core.ErrTaskFactUndeliverable) || !errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%v: fact err = %v", ref, err)
 		}
-		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "om_b", "**板**\nx"); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "om_b", "**板**\nx", false); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%v: board edit err = %v", ref, err)
 		}
-		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx"); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx", false); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%v: board send err = %v", ref, err)
 		}
 	}
@@ -392,10 +392,10 @@ func TestFeishuRateLimitHTTP400IsNotPermanent(t *testing.T) {
 		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%d: patch card err = %v", code, err)
 		}
-		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "om_b", "**板**\nx"); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "om_b", "**板**\nx", false); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%d: board edit err = %v", code, err)
 		}
-		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx"); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx", false); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%d: board send err = %v", code, err)
 		}
 	}
@@ -407,12 +407,12 @@ func TestFeishuExpiredCardIsPostedAgain(t *testing.T) {
 	f := newFakeFeishuIM()
 	p := newFakeFeishuPlatform(t, f)
 	ctx := context.Background()
-	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx")
+	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.expired[id] = true
-	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**板**\ny")
+	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**板**\ny", false)
 	if err != nil || again == "" || again == id || len(f.pins) != 2 || f.pins[1] != again {
 		t.Fatalf("expired board not reposted+pinned: %q, %v, pins=%v", again, err, f.pins)
 	}

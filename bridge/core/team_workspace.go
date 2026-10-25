@@ -1137,6 +1137,32 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 	return true, nil
 }
 
+// TeamHandoffEnded reports whether the workspace has stopped working on chat's task handed off
+// at or before bound: that handoff is closed (the workspace finished it and its session was reset,
+// releaseTeamWorkspace) or paused. The pick is ParkTeamWorkspaceFor's: chat's newest handoff at or
+// before bound (bound zero: chat's newest; chat "": any chat's). false when no such handoff is
+// recorded (not known to have ended). The team board uses it for a handoff item's live state.
+func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool {
+	if e == nil || e.dataDir == "" || workspace == "" {
+		return false
+	}
+	key := teamChatKey(workspace)
+	if chat != "" {
+		chat = teamChatKey(chat)
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	pick := -1
+	list := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
+	for i, h := range list {
+		if (chat != "" && teamChatKey(h.Chat) != chat) || (!bound.IsZero() && h.At.After(bound)) {
+			continue
+		}
+		pick = i
+	}
+	return pick >= 0 && !teamHandoffOpen(list[pick])
+}
+
 // ResetTeamWorkspaceSessions gives every session of this engine in workspace key
 // ("<platform>:<id>") a fresh, empty context: the running agent is stopped and the old
 // transcript is not handed on (unlike /new), so the next task there starts clean. Used when a

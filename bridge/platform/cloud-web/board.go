@@ -48,7 +48,7 @@ func (b *boardState) nextSeq() int64 {
 // UpsertBoard edits the board message when messageID is set, otherwise posts a
 // new one. A room the gateway can no longer post to (handle "") is reported as
 // ErrDeliveryUnrecoverable, so the board stops retrying until new activity.
-func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
+func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, content string, live bool) (string, error) {
 	room, err := p.TaskCardDestination(sessionKey)
 	if errors.Is(err, core.ErrNotSupported) {
 		// An older gateway that cannot edit messages: retrying cannot help.
@@ -58,7 +58,7 @@ func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, conte
 		return messageID, err
 	}
 	b := &p.board
-	text := renderBoardText(content)
+	text := renderBoardText(content, live)
 	seq := b.nextSeq()
 	if messageID != "" {
 		return messageID, p.sendWire(ctx, map[string]any{
@@ -127,8 +127,8 @@ func (p *Platform) RemoveBoard(ctx context.Context, sessionKey, messageID string
 // card: the gateway stores it with a card, which keeps it out of the text-draft
 // cleanup when the bot reconnects. The first line is the title; markdown bold
 // markers are dropped because card rows are plain text. The card is Running
-// while the board shows live work (core.TeamBoardActive), otherwise Done.
-func renderBoardText(content string) string {
+// while live (the caller's state of the same board, #597 G33), otherwise Done.
+func renderBoardText(content string, live bool) string {
 	lines := strings.Split(strings.ReplaceAll(content, "**", ""), "\n")
 	title := strings.TrimSpace(lines[0])
 	var items []core.ProgressCardEntry
@@ -141,7 +141,7 @@ func renderBoardText(content string) string {
 		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: title})
 	}
 	state := core.ProgressCardStateCompleted
-	if core.TeamBoardActive(content) {
+	if live {
 		state = core.ProgressCardStateRunning
 	}
 	return core.BuildProgressCardPayloadV2(items, false, "📋 "+title, "", state)
