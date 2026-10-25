@@ -6,7 +6,7 @@
 
 在独立 DSH 工作区核对上述基线，执行 `git apply --check /path/to/source.patch`，再执行 `git apply /path/to/source.patch`。使用该安装原有锁文件安装依赖，完成其 `build:artifacts` 后再执行 `build:check`。禁止清理本地目录时，可通过 tsc 构建 ACP 及依赖类型，再用 tsdown 按 ACP 包筛选并传 --no-clean 增量构建；这不等于执行了上游全仓构建验证。源码与构建产物须来自同一版本；不要修改正在运行的安装。
 
-部署 [公开答复插件](../dsh-public-output/README.md) 的三个源码文件，将 `voice.patch.yml` 中的完整设置合入现有对应 config，完整保留 provider、model、providers 和其他原配置。DSH 的后置 patch 会替换 config，不能直接追加只含流式字段的映射；使用完整模板追加时，必须先填入本机原有路由和名单。语音进程通过 `CC_VOICE_STREAM=1` 同时启用 ACP `streamText` 与公开插件 `streamPublic`；普通请求保持关闭。桥接私密语音转发从 `stream: true` 请求设置该环境变量。companion 还须配置 `sentence_stream: true`，协议见 [按句播放](../../docs/VOICE_SENTENCE_STREAM.md)。
+部署 [公开答复插件](../dsh-public-output/README.md) 的四个源码文件，将 `voice.patch.yml` 中的完整设置合入现有对应 config，完整保留 provider、model、providers 和其他原配置。DSH 的后置 patch 会替换 config，不能直接追加只含流式字段的映射；使用完整模板追加时，必须先填入本机原有路由和名单。语音进程通过 `CC_VOICE_STREAM=1` 同时启用 ACP `streamText` 与公开插件 `streamPublic`；普通请求保持关闭。桥接私密语音转发从 `stream: true` 请求设置该环境变量；`voiceHistory` 对流式和非流式语音均启用，去掉历史中的过期机器包装，普通频道保持关闭。companion 还须配置 `sentence_stream: true`，协议见 [按句播放](../../docs/VOICE_SENTENCE_STREAM.md)。
 
 historyEnvelope 和 publicReplyJson 必须成对开启：模型历史保留规范 JSON，ACP 展示时解码为正文；旧历史不改写。普通聊天也需启用这对设置，实时转发开关仅按语音请求开启。
 

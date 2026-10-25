@@ -27,15 +27,17 @@ const toolInputCacheMaxEntries = 1000
 
 type acpSession struct {
 	core.SubTaskTracker
-	subTaskRuns subTaskRuns
-	modelInfo acpModelInfo // what the server advertised for model / effort selection (models.go)
-	workDir   string
-	events    chan core.Event
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	alive     atomic.Bool
-	closeOnce sync.Once
+	subTaskRuns    subTaskRuns
+	modelInfo      acpModelInfo // what the server advertised for model / effort selection (models.go)
+	workDir        string
+	events         chan core.Event
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	alive          atomic.Bool
+	closeOnce      sync.Once
+	closeErr       error // published by closeOnce
+	closeSupported bool  // immutable after a successful session binding
 
 	cmd *exec.Cmd
 	tr  *transport
@@ -220,6 +222,8 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		return fmt.Errorf("acp: parse initialize result: %w", err)
 	}
 	listSupported := len(initOut.AgentCapabilities.SessionCapabilities.List) > 0
+	closeCapability := bytes.TrimSpace(initOut.AgentCapabilities.SessionCapabilities.Close)
+	closeSupported := len(closeCapability) > 0 && closeCapability[0] == '{'
 	slog.Debug("acp: initialized",
 		"protocol", initOut.ProtocolVersion,
 		"load_session", initOut.AgentCapabilities.LoadSession,
@@ -290,6 +294,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 				s.setACPSessionID(lr.SessionID)
 				s.absorbModes(lr.Modes)
 				s.absorbModelInfo(lr.Models, lr.ConfigOptions)
+				s.closeSupported = closeSupported
 				return nil
 			}
 		}
@@ -318,6 +323,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	s.setACPSessionID(sn.SessionID)
 	s.absorbModes(sn.Modes)
 	s.absorbModelInfo(sn.Models, sn.ConfigOptions)
+	s.closeSupported = closeSupported
 	return nil
 }
 
@@ -949,6 +955,17 @@ func (s *acpSession) Close() error {
 	s.CloseSubTasks()
 	s.closeOnce.Do(func() {
 		s.alive.Store(false)
+		// The prompt response can precede durable storage. Let capable servers
+		// drain and flush the session before CommandContext kills the process.
+		if sid := s.currentACPSessionID(); s.closeSupported && sid != "" && s.ctx.Err() == nil {
+			ctx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+			_, err := s.tr.call(ctx, "session/close", map[string]any{"sessionId": sid})
+			cancel()
+			if err != nil {
+				s.closeErr = fmt.Errorf("acp: close session before process teardown: %w", err)
+				slog.Warn("acp: session close failed; persistence unconfirmed", "error", s.closeErr)
+			}
+		}
 		s.cancel()
 		if s.cmd != nil && s.cmd.Process != nil {
 			_ = s.cmd.Process.Kill()
@@ -969,7 +986,7 @@ func (s *acpSession) Close() error {
 			slog.Warn("acp: close timed out waiting for session workers")
 		}
 	})
-	return nil
+	return s.closeErr
 }
 
 // summarizeACPToolInput extracts a human-readable summary from ACP tool rawInput.

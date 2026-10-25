@@ -48,6 +48,7 @@ type acpInitializeResult struct {
 			// treat "field present" as "supported" regardless of contents.
 			List   json.RawMessage `json:"list,omitempty"`
 			Resume json.RawMessage `json:"resume,omitempty"`
+			Close  json.RawMessage `json:"close,omitempty"`
 		} `json:"sessionCapabilities"`
 		PromptCapabilities struct {
 			// Image: session/prompt accepts ACP image content blocks.

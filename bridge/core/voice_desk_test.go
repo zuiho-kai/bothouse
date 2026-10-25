@@ -2,7 +2,10 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -75,6 +78,55 @@ func TestRenderVoiceDeskBrief(t *testing.T) {
 	}
 	if strings.Contains(got, "私密的事") {
 		t.Fatalf("private chat task leaked:\n%s", got)
+	}
+}
+
+func TestVoiceRelay_TeamStateIsQueriedNotAddedToEveryTurn(t *testing.T) {
+	rm, api, a, _ := voiceFixture(t, t.TempDir())
+	e := rm.engines["target"]
+	useDeskFiles(t, e, deskFiles(time.Now()))
+	api.engines = map[string]*Engine{"target": e}
+	if _, _, err := rm.submitVoice(voiceReq("isolated")); err != nil {
+		t.Fatal(err)
+	}
+	s := <-a.sessions
+	prompt := <-s.prompts
+	for _, other := range []string{"测帧率", "discord:fw", "私密的事", "各伙伴进度"} {
+		if strings.Contains(prompt, other) {
+			t.Fatalf("other-channel state in voice history: %q", other)
+		}
+	}
+	if !strings.Contains(prompt, "voice-desk --project 'target'") {
+		t.Fatal("on-demand query unavailable")
+	}
+	s.events <- Event{Type: EventResult, Content: "hello", Done: true}
+	if r := voiceWait(t, rm, "isolated"); r.Status != "completed" {
+		t.Fatal(r.Status)
+	}
+	w := httptest.NewRecorder()
+	api.handleVoiceDesk(w, httptest.NewRequest(http.MethodGet, "/voice/desk?project=target", nil))
+	var result map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || !strings.Contains(result["brief"], "测帧率") || strings.Contains(result["brief"], "私密的事") {
+		t.Fatal("query lost public progress or exposed private task")
+	}
+	for _, tc := range []struct {
+		method, project string
+		code            int
+	}{{http.MethodPost, "target", 405}, {http.MethodGet, "missing", 404}} {
+		w := httptest.NewRecorder()
+		api.handleVoiceDesk(w, httptest.NewRequest(tc.method, "/voice/desk?project="+tc.project, nil))
+		if w.Code != tc.code {
+			t.Fatalf("status=%d want=%d", w.Code, tc.code)
+		}
+	}
+	e.SetVoiceDesk(false)
+	w = httptest.NewRecorder()
+	api.handleVoiceDesk(w, httptest.NewRequest(http.MethodGet, "/voice/desk?project=target", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatal("disabled desk remains readable")
 	}
 }
 

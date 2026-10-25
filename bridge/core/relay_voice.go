@@ -296,6 +296,19 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	}()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	var progressToken string
+	defer func() {
+		if progressToken == "" {
+			return
+		}
+		outcome := "result"
+		if errors.Is(err, context.Canceled) {
+			outcome = "cancelled"
+		} else if err != nil {
+			outcome = "failed"
+		}
+		e.publicProgress.finish(progressToken, outcome)
+	}()
 	agent, _, _, err := e.relayContextForSourceSessionKey(req.From, req.SessionKey)
 	if err != nil {
 		return "", err
@@ -317,7 +330,11 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	if err != nil {
 		return "", err
 	}
-	defer func() { cancel(); _ = session.Close() }()
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil && err == nil {
+			answer, err = "", fmt.Errorf("voice relay: persist session: %w", closeErr)
+		}
+	}()
 	if prior.ID != "" && session.CurrentSessionID() != prior.ID {
 		return "", fmt.Errorf("relay resume identity mismatch")
 	}
@@ -334,21 +351,14 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	if confirmed {
 		toSend = &pending
 	}
-	prompt := withSubagentPolicy(e.withVoiceDesk(req.Message), "", true)
+	prompt := withSubagentPolicy(e.withVoiceDesk(""), "", true)
 	// A spoken task opens its card on the voice channel the device is bound to;
 	// that channel is already verified by voiceTarget.
 	if token := e.voicePublicProgress(ctx, req.SessionKey); token != "" {
-		prompt = e.publicProgressInstructions(token, req.SessionKey) + prompt
-		defer func() {
-			outcome := "result"
-			if errors.Is(err, context.Canceled) {
-				outcome = "cancelled"
-			} else if err != nil {
-				outcome = "failed"
-			}
-			e.publicProgress.finish(token, outcome)
-		}()
+		progressToken = token
+		prompt = e.voiceProgressInstructions(token, req.SessionKey) + prompt
 	}
+	prompt = "[Bothouse voice context]\n" + prompt + "\n[/Bothouse voice context]\n\n" + req.Message
 	send := func() error { return session.Send(prompt, req.RequestID, nil, nil) }
 	if strict, ok := session.(StrictResumeSession); ok && session.CurrentSessionID() != "" {
 		id := session.CurrentSessionID()

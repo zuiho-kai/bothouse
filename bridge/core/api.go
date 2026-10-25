@@ -97,6 +97,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	activeAPISocket.Store(sockPath)
 	s.mux.HandleFunc("/send", s.handleSend)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
+	s.mux.HandleFunc("/voice/desk", s.handleVoiceDesk)
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)
 	s.mux.HandleFunc("/task/assign", s.handleTaskAssign)

@@ -2,8 +2,8 @@ package core
 
 // maomao fork: voice desk.
 //
-// The owner talks to one voice conversation and uses it as a front desk. Each voice turn carries a
-// brief of what every teammate is doing in which channel (from the team status files). To hand an
+// The owner talks to one voice conversation and uses it as a front desk. Teammate progress is
+// queried only when needed, rather than copied into every voice turn. To hand an
 // instruction to a teammate the model only proposes it (<待转达 ...>); the bridge resolves the
 // teammate and channel, stores the proposal and reads back exactly what it would send. The bridge
 // posts it, with an @ of the teammate in that channel, only when the owner's next voice message is
@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -128,20 +130,44 @@ func voiceUserText(req RelayRequest) string {
 	return t
 }
 
-// withVoiceDesk prepends the teammates' progress and the hand-off protocol to a voice message.
+// withVoiceDesk offers an on-demand query without importing other channels' state.
 func (e *Engine) withVoiceDesk(message string) string {
-	files := e.voiceDeskFiles()
-	if len(files) == 0 {
+	if !e.voiceDesk.on.Load() || e.team == nil {
 		return message
 	}
-	return renderVoiceDeskBrief(files, time.Now()) + "\n\n" + message
+	command := "bothouse"
+	if path, err := os.Executable(); err == nil {
+		command = path
+	}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+	query := quote(command) + " voice-desk --project " + quote(e.name) + " --data-dir " + quote(e.dataDir)
+	return "[Voice desk]\nThis conversation contains only this voice channel's history. Only when the owner asks about teammates or asks to pass a message, query current status with " + query + ". Never infer their current status from old history. The query provides the hand-off protocol; sending still requires the owner's next-turn confirmation.\n[/Voice desk]\n\n" + message
+}
+
+func (s *APIServer) handleVoiceDesk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.RLock()
+	e := s.engines[r.URL.Query().Get("project")]
+	s.mu.RUnlock()
+	if e == nil {
+		http.Error(w, "unknown project", http.StatusNotFound)
+		return
+	}
+	if !e.voiceDesk.on.Load() || e.team == nil {
+		http.Error(w, "voice desk is disabled", http.StatusServiceUnavailable)
+		return
+	}
+	apiJSON(w, http.StatusOK, map[string]string{"brief": renderVoiceDeskBrief(e.voiceDeskFiles(), time.Now())})
 }
 
 // renderVoiceDeskBrief lists each teammate's busy or recently finished work with the channel key
 // a hand-off would use. Private chats (no channel name) show no task text.
 func renderVoiceDeskBrief(files []teamFile, now time.Time) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "（语音总台：各伙伴进度，%s 更新，系统自动附上，只供你回答和转达用，不要逐条念）\n", now.Format("15:04"))
+	fmt.Fprintf(&b, "（语音总台：各伙伴进度，%s 查询，只供本次回答和转达用，不要逐条念）\n", now.Format("15:04"))
 	for _, f := range files {
 		var lines []string
 		for _, s := range f.Sessions {

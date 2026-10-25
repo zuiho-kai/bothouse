@@ -15,13 +15,14 @@ import (
 
 type voiceAgentFake struct {
 	controllableAgent
-	mu        sync.Mutex
-	starts    []string
-	env       []string
-	sessions  chan *inputTestSession
-	fail      bool
-	blocking  bool
-	unknownID bool
+	mu         sync.Mutex
+	starts     []string
+	env        []string
+	sessions   chan *inputTestSession
+	fail       bool
+	blocking   bool
+	unknownID  bool
+	closeCheck func(context.Context) error
 }
 
 func (a *voiceAgentFake) StartVoiceRelay(ctx context.Context, id string, env []string) (AgentSession, error) {
@@ -43,7 +44,42 @@ func (a *voiceAgentFake) StartVoiceRelay(ctx context.Context, id string, env []s
 	if a.blocking {
 		return &blockingVoiceSession{inputTestSession: s, ctx: ctx}, nil
 	}
+	if a.closeCheck != nil {
+		return &closingVoiceSession{inputTestSession: s, close: func() error { return a.closeCheck(ctx) }}, nil
+	}
 	return s, nil
+}
+
+type closingVoiceSession struct {
+	*inputTestSession
+	close func() error
+}
+
+func (s *closingVoiceSession) Close() error { return s.close() }
+
+func TestVoiceRelay_CloseBeforeCancelAndReportFlushFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		rm, _, a, _ := voiceFixture(t, "")
+		a.closeCheck = func(ctx context.Context) error {
+			if ctx.Err() != nil {
+				return errors.New("process killed before flush")
+			}
+			if fail {
+				return errors.New("synthetic persistence failure")
+			}
+			return nil
+		}
+		if _, _, err := rm.submitVoice(voiceReq("close")); err != nil {
+			t.Fatal(err)
+		}
+		s := <-a.sessions
+		<-s.prompts
+		s.events <- Event{Type: EventResult, Content: "answer", Done: true}
+		r := voiceWait(t, rm, "close")
+		if (r.Status == "completed") == fail {
+			t.Fatalf("flush fail=%v result=%+v", fail, r)
+		}
+	}
 }
 
 type blockingVoiceSession struct {

@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { guard, publicReplyTool, publicReplyInstruction, jsonReplyInstruction } from './output.mjs';
+import { installVoiceHistory } from './voice-history.mjs';
 
 export const name = 'conest-public-output';
 export const inject = ['llm'];
@@ -13,6 +14,7 @@ export async function apply(ctx, config) {
   const require = createRequire(realpathSync(process.argv[1]));
   const { isAgentLoopRequest } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
   if (typeof isAgentLoopRequest !== 'function') throw Error('conest-public-output: unsupported DSH runtime');
+  if (config.voiceHistory === true) installVoiceHistory(ctx);
   if (config.directReply === true) {
     if (!ctx.get('systemPrompt')) throw Error('conest-public-output: directReply requires systemPrompt');
     // Assemble before DSH logs/marks the request; do not rewrite a request

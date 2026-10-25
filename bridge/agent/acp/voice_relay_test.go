@@ -37,6 +37,9 @@ func TestVoiceRelayACPProcess(t *testing.T) {
 		switch r.Method {
 		case "initialize":
 			result = map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true}}
+			if os.Getenv("CONEST_VOICE_TEST_CLOSE") == "1" {
+				result = map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"sessionCapabilities": map[string]any{"close": map[string]any{}}}}
+			}
 		case "session/new":
 			result = map[string]any{"sessionId": "voice-id"}
 		case "session/prompt":
@@ -52,6 +55,31 @@ func TestVoiceRelayACPProcess(t *testing.T) {
 		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": r.ID, "result": result})
 	}
 	os.Exit(0)
+}
+
+func TestVoiceRelayACP_CloseCapabilityBeforeKill(t *testing.T) {
+	for _, supported := range []string{"0", "1"} {
+		log := filepath.Join(t.TempDir(), "calls")
+		a := &Agent{cmd: os.Args[0], args: []string{"-test.run=^TestVoiceRelayACPProcess$"}, workDir: t.TempDir(),
+			extraEnv: []string{"CONEST_VOICE_ACP_TEST=1", "CONEST_VOICE_TEST_LOG=" + log, "CONEST_VOICE_TEST_STOP=end_turn", "CONEST_VOICE_TEST_CLOSE=" + supported}}
+		s, err := a.StartVoiceRelay(context.Background(), "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Send("synthetic voice", "test", nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "session/close|") != (supported == "1") {
+			t.Fatalf("close capability ignored: %s", data)
+		}
+	}
 }
 
 func TestVoiceRelayACP_EnvironmentAndStrictRestore(t *testing.T) {
