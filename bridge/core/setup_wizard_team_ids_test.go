@@ -174,6 +174,65 @@ func TestApplyWizardGateTeamIDsFeishuLookupFails(t *testing.T) {
 	}
 }
 
+// a deleted member whose name comes back on a new app, with the open_id lookup failing, does not
+// inherit the deleted bot's id: neither from the wizard state (only the same app_id keeps an id)
+// nor from the team file on disk ("id" is never merged back from it)
+func TestApplyWizardGateTeamIDsFeishuRecreatedNoOldID(t *testing.T) {
+	wizardGateTestEnv(t)
+	old := wizardFeishuBotOpenID
+	t.Cleanup(func() { wizardFeishuBotOpenID = old })
+	fail := false
+	wizardFeishuBotOpenID = func(_ context.Context, appID, _, _ string) (string, error) {
+		if fail {
+			return "", errors.New("feishu bot info: code=99991663 app has no bot")
+		}
+		return "ou_" + appID, nil
+	}
+	dir, store := t.TempDir(), newMemStore()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	run := func(app, name string) *WizardResult {
+		res := ApplyWizard(context.Background(), env, WizardRequest{Platform: "feishu", Language: "zh",
+			Feishu: &WizardFeishu{AppID: app, AppSecret: "s", ChatID: "oc_1"}, Roles: []WizardRole{{Name: name}}})
+		if !res.OK && !res.Saved {
+			t.Fatalf("run %s failed: %+v", name, res)
+		}
+		return res
+	}
+	run("cli_a", "Juzi")
+	run("cli_b", "Whale")
+	if _, subs := readGateTeamMembers(t, dir); subs["whale"].ID != "ou_cli_b" {
+		t.Fatalf("setup: subs %+v", subs)
+	}
+	// the user removes the whale project from the config (the wizard state still lists it)
+	delete(store.projects, "whale")
+	for i, n := range store.order {
+		if n == "whale" {
+			store.order = append(store.order[:i], store.order[i+1:]...)
+			break
+		}
+	}
+
+	fail = true
+	res := run("cli_d", "Whale") // a new app under the same name, lookup fails
+	if !hasWarning(res, "feishu_bot_id_unknown") {
+		t.Errorf("no feishu_bot_id_unknown warning: %+v", res.Warnings)
+	}
+	lead, subs := readGateTeamMembers(t, dir)
+	var w gateTeamMember
+	n := 0
+	for _, m := range subs {
+		if m.Name == "Whale" {
+			w, n = m, n+1
+		}
+	}
+	if n != 1 || w.ID != "" {
+		t.Errorf("new Whale should have no id: subs %+v", subs)
+	}
+	if lead.ID != "ou_cli_a" {
+		t.Errorf("lead id lost: %+v", lead)
+	}
+}
+
 func hasWarning(res *WizardResult, code string) bool {
 	for _, w := range res.Warnings {
 		if w.Code == code {

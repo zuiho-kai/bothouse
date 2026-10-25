@@ -1517,8 +1517,10 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		for _, old := range append(append([]SetupTeamEntry{}, state.Team...), state.CloudWebTeam...) {
 			if old.Project == r.project { // not passed = keep what the state has
 				e.Persona, e.Avatar = old.Persona, old.Avatar
-				if e.BotID == "" && old.BotID != "" && isFeishuPlatform(req.Platform) && isFeishuPlatform(state.Platform) {
-					e.BotID = old.BotID // open_id not reachable this run: keep the one found before
+				// open_id not reachable this run: keep the one found before, but only for the same bot
+				// (r.reused: sameFeishuApp found the same app_id), never for a new app on a reused key/name
+				if e.BotID == "" && old.BotID != "" && r.reused && isFeishuPlatform(req.Platform) && isFeishuPlatform(state.Platform) {
+					e.BotID = old.BotID
 				}
 				break
 			}
@@ -2488,8 +2490,9 @@ func (m *ManagementServer) handleProjectPersona(w http.ResponseWriter, r *http.R
 
 // mergeGateTeam carries over from the team file already on disk what the wizard does not write
 // itself: top-level keys (e.g. the workspace channel id "workspace") and, per member, keys the user
-// added by hand (e.g. "wt") or an "id" this run could not look up. A member is matched by its id,
-// else by its project key / name; what the wizard wrote now always wins.
+// added by hand (e.g. "wt"). A member is matched by its id, else by its project key / name; what the
+// wizard wrote now always wins. "id" and "workspace" (work dir) are the wizard's own keys and are never
+// carried over: a matched-by-name old member may be a deleted bot (the id comes from planWizard/state only).
 func mergeGateTeam(gt, prev map[string]any) {
 	for k, v := range prev {
 		if _, ok := gt[k]; !ok {
@@ -2528,6 +2531,9 @@ func mergeGateTeam(gt, prev map[string]any) {
 	fill := func(key string, m map[string]any) {
 		if o := find(key, m); o != nil {
 			for k, v := range o {
+				if k == "id" || k == "workspace" {
+					continue
+				}
 				if _, ok := m[k]; !ok {
 					m[k] = v
 				}
