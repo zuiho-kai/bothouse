@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,6 +23,11 @@ type taskRelayRecord struct {
 	Error    string           `json:"error,omitempty"`
 	LastSeq  int64            `json:"last_seq,omitempty"`
 	Reports  map[int64]string `json:"reports,omitempty"`
+	// Ten-minute watch (relay_watch.go); kept with the receipt, never a workspace handoff.
+	WatchDue     time.Time `json:"watch_due,omitempty"`
+	WatchSeq     int64     `json:"watch_seq,omitempty"` // LastSeq at the last check
+	WatchRenewed int       `json:"watch_renewed,omitempty"`
+	WatchDone    bool      `json:"watch_done,omitempty"` // nudged+stopped, or interrupted reported once
 }
 
 type taskRelay struct {
@@ -30,6 +36,8 @@ type taskRelay struct {
 	req         RelayRequest
 	name, token string
 	started     time.Time // when this dispatch was accepted
+	cancel      func()    // stops this run (watch); set by sendTask
+	watchStop   atomic.Bool
 }
 
 // Task relays share execution tracking with ordinary relays, but keep each
@@ -61,11 +69,14 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	}
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
+	source.publicProgress.mu.Lock()
+	d.cancel = cancel
+	source.publicProgress.mu.Unlock()
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
 	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope, func(response string, runErr error) {
-		if err := d.finish(response, runErr); err != nil {
+		if err := d.finish(response, d.watchErr(runErr)); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
 	})
@@ -73,6 +84,7 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if errors.As(runErr, &draining) {
 		return nil, fmt.Errorf("relay: wait ended; execution continues, do not redispatch: %w", runErr)
 	}
+	runErr = d.watchErr(runErr)
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
 	}
@@ -146,7 +158,7 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 		return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 	}
 	old := snapshotTaskRelay(r)
-	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running"}
+	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running", WatchDue: relayWatchNow().UTC().Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
