@@ -604,9 +604,9 @@ export class DshMembers {
 
   /**
    * Live Agent for (member, room): loaded, resumed, or newly created and bound.
-   * A bound Session that was archived, is gone from session persistence, or
-   * fails to resume is replaced by a new one (rebind), so the member keeps
-   * answering; its old memory stays in the old Session.
+   * A bound Session that was archived or is gone from session persistence is
+   * replaced by a new one (rebind), so the member keeps answering; its old
+   * memory stays in the old Session. Other resume errors propagate.
    */
   async ensureAgent(member, room) {
     const binding = this.store.binding(member.id, room.id);
@@ -620,14 +620,9 @@ export class DshMembers {
     const { ctx } = this.rt;
     const why = ctx.workspaceRegistry.archivedSessionIds?.includes(sessionId) ? 'archived'
       : ctx.agents.get(sessionId) === undefined && await ctx.sessionPersistence.stat(sessionId) === undefined ? 'missing' : undefined;
-    if (why === undefined) {
-      try {
-        return await this.liveAgent(sessionId, member);
-      } catch (error) {
-        this.rt.logger.warn('collab: Session %s did not resume, starting a new one: %s', sessionId, error?.stack ?? error);
-        return undefined;
-      }
-    }
+    // Any other resume error is a real failure: let it surface so the old
+    // Session (and the member's memory in it) is not silently replaced.
+    if (why === undefined) return this.liveAgent(sessionId, member);
     this.rt.logger.info('collab: Session %s is %s, starting a new one', sessionId, why);
     return undefined;
   }

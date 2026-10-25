@@ -461,7 +461,7 @@ for (const [label, lose] of [
   });
 }
 
-test('DSH member: a Session that fails to resume is replaced and the @ is answered', async () => {
+test('DSH member: a resume error on a Session that is still there does not rebind it', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
@@ -469,10 +469,12 @@ test('DSH member: a Session that fails to resume is replaced and the @ is answer
   dsh.restart();
   const resume = dsh.ctx.agents.resume;
   dsh.ctx.agents.resume = async () => { throw new Error('corrupt log'); };
-  const agent = await askAgain(hub, dsh, '@DeepSeek 第二次');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 第二次' });
+  await settle();
   dsh.ctx.agents.resume = resume;
-  assert.notEqual(agent.session.id, old.session.id);
-  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
+  assert.equal(hub.store.binding('ds', 1).session_id, old.session.id, 'the binding keeps the old Session');
+  assert.equal(dsh.ctx.agents.created.length, 1, 'no new Session');
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'the failure is shown');
 });
 
 test('DSH member: after a restart a bound hidden Session is resumed, and one deleted meanwhile is replaced', async () => {
