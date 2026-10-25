@@ -53,6 +53,17 @@
   background: #fffcf5;
   color: #2a2420;
 }
+/* Placeholders lighter than typed text (#2A2420) so an empty field does not read as filled:
+   #9a8f80 from page.html:22 (3.2:1 on white; the plain light style's gray-400 is 2.5:1). */
+.theme-yellow input::placeholder,
+.theme-yellow textarea::placeholder {
+  color: #9a8f80;
+}
+/* Focus edge on form fields: the fill orange #F2994A is 2.2:1 on white, below the 3:1 a focus
+   indicator needs; use the text orange #A84F16 (5.5:1). The soft ring stays as a glow. */
+.theme-yellow :is(input, textarea, select):focus {
+  border-color: rgb(var(--color-accent-text));
+}
 
 body {
   margin: 0;

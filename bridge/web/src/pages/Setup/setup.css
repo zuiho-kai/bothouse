@@ -61,7 +61,7 @@
 .setup-platform p { line-height: 1.8; margin-top: 12px; }
 .setup-platform:hover { transform: translateY(-2px); }
 .setup-wizard :is(button, a, input, select, textarea):focus-visible {
-  outline: 2px solid rgb(var(--color-accent)); outline-offset: 3px;
+  outline: 2px solid rgb(var(--color-accent-text)); outline-offset: 3px; /* >= 3:1 in every style */
 }
 .setup-card > :last-child { padding-top: 20px; }
 .dark .setup-welcome h1 { color: #fff; }

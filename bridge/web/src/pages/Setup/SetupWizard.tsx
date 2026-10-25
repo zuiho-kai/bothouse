@@ -465,7 +465,7 @@ export default function SetupWizard() {
       {/* stepper */}
       <div className="setup-steps flex flex-wrap gap-1.5" aria-label={T.title}>
         {(picked === 'dsh' ? [0] : visibleSteps).map((s, i) => (
-          <span key={s} aria-current={s === step ? 'step' : undefined} className={`px-2.5 py-1 rounded-full text-xs ${s === step ? 'bg-accent text-white dark:text-black yellow:text-gray-900' : i < pos ? 'bg-accent/15 text-accent' : 'bg-gray-100 dark:bg-white/[0.06] text-gray-500'}`}>
+          <span key={s} aria-current={s === step ? 'step' : undefined} className={`px-2.5 py-1 rounded-full text-xs ${s === step ? 'bg-accent text-white dark:text-black yellow:text-gray-900' : i < pos ? 'bg-accent/15 text-accent' : 'bg-gray-100 dark:bg-white/[0.06] text-gray-500 yellow:bg-white yellow:ring-1 yellow:ring-inset yellow:ring-gray-200'}`}>
             {i + 1}. {T.steps[s]}
           </span>
         ))}
