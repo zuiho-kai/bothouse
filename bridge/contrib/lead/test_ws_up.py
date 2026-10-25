@@ -97,7 +97,7 @@ class WsUpTest(unittest.TestCase):
         notes = []
         for n in ("a", "b"):
             p = self.tmp / f"{n}.md"
-            p.write_text("# 用户原话\n# 进度\n# 规矩\n", encoding="utf-8")
+            p.write_text("# 用户原话\n# 进度\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
             notes.append(str(p))
         self.assertEqual(self.handoff(notes[0], "A", key="test:100").returncode, 0)
         self.env["WS_CHANNEL"] = "901"
@@ -178,7 +178,7 @@ class WsPoolTest(unittest.TestCase):
 
     def note(self, n):
         p = self.tmp / f"{n}.md"
-        p.write_text("# 用户原话\n# 进度\n# 规矩\n", encoding="utf-8")
+        p.write_text("# 用户原话\n# 进度\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
         return str(p)
 
     def handoff(self, notes, task, chat="test:100"):
@@ -321,6 +321,50 @@ class WsPoolTest(unittest.TestCase):
         self.assertEqual(p["工作区3"]["open"], 1)  # 只剩旧交接、板上没在做的：放回后被 A 领走
         self.assertEqual(p["工作区3"]["parked"], 1)
         self.assertEqual((p["工作区4"]["open"], p["工作区4"]["owner"]), (1, "test:300"))  # 别的聊天频道的不碰
+
+class HandoffNotesCheckTest(unittest.TestCase):
+    """交接文件要带参照实现（文件:行 或「无（新建）」）；写了多人改同组文件还要底分支。缺了不建定时、不上任务板。"""
+    setUp, handoff, timers = WsUpTest.setUp, WsUpTest.handoff, WsUpTest.timers
+    BASE = "# 交接\n## 用户原话\n「x」\n## 进度\n| a |\n## 规矩\n- y\n"
+    GOOD = BASE + "## 参照实现\n- bridge/contrib/lead/ws-up:120（差异：不发卡）\n"
+
+    def check(self, text):
+        drv = ("import sys; from importlib.machinery import SourceFileLoader as L; "
+               "m = L('ws_handoff', sys.argv[1]).load_module(); r = m.check_notes(sys.stdin.read()); print(r or 'OK')")
+        r = subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff")], input=text,
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def refused(self, text):
+        p = self.tmp / "n.md"
+        p.write_text(text, encoding="utf-8")
+        r = self.handoff(str(p), "任务", key="test:100")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.timers(), [])  # 没建定时
+        self.assertFalse((self.setup / "team" / "board.jsonl").exists())  # 没上任务板
+        return r.stderr
+
+    def test_missing_ref_refused(self):
+        err = self.refused(self.BASE)
+        self.assertIn("缺参照实现：写 文件:行，非代码活写「无（新建）」", err)
+        self.assertIn(":120", err)  # 带一行示例
+        # 节里只有时间、引用在别的节里，都不算
+        self.assertIn("缺参照实现", self.refused(self.BASE + "## 参照实现\n- 还没找，14:30 再说\n## 其他\n- a.py:3\n"))
+
+    def test_ref_passes(self):
+        for t in (self.GOOD, self.BASE + "参照实现：bridge/contrib/lead/ws-up:120，差异：不发卡\n",
+                  self.BASE + "## 3. 参照实现与差异\n看 `gate/board.py:88`\n",
+                  self.BASE + "- 参照实现：无（新建）\n"):
+            self.assertEqual(self.check(t), "OK", t)
+
+    def test_multi_editor_needs_base(self):
+        self.assertIn("底分支", self.refused(self.GOOD + "## 共改文件\n- agent_hooks.go\n"))
+        self.assertIn("底分支", self.check(self.GOOD + "## 多人改\n- x\n底分支：\n"))
+        self.assertEqual(self.check(self.GOOD + "## 共改文件\n- agent_hooks.go\n底分支：feat/approvals\n"), "OK")
+        self.assertEqual(self.check(self.GOOD + "- 底分支: main\n## 多人改\n"), "OK")
+        self.assertEqual(self.check(self.GOOD + "正文提到多人改，但没有这一节\n"), "OK")
+
 
 if __name__ == "__main__":
     unittest.main()
