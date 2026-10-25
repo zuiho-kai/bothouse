@@ -71,6 +71,9 @@ type progressRecord struct {
 	LastSeq  int64                      `json:"last_seq"`
 	CardSeq  int64                      `json:"card_seq"`
 	FactSeq  int64                      `json:"fact_seq"`
+	// Auto marks a card the bridge opened for a turn whose agent did not
+	// (public_progress_auto.go). Cleared once the agent starts it as its own.
+	Auto bool `json:"auto,omitempty"`
 }
 
 type publicRun struct {
@@ -84,6 +87,11 @@ type publicRun struct {
 	// a fresh request always opens its own card.
 	candidate  *publicRun
 	reportBase int64 // sequence at this turn's adoption; budget is per turn, not per card
+	// Automatic card trigger for this turn (public_progress_auto.go); guarded by mu.
+	autoTimer *time.Timer
+	autoTitle string
+	autoTools int
+	autoOff   bool // the agent manages its own card, the turn is scheduled, or the card is open
 }
 
 // PublicProgress owns run authorization, durable public facts and delivery.
@@ -175,7 +183,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			}
 		}
 		p.records[r.record.Task.ID] = r
-		if resumableTask(r.record.Task, r.record.Accepted, time.Now()) {
+		if !rec.Auto && resumableTask(r.record.Task, r.record.Accepted, time.Now()) {
 			if prev := p.open[r.record.Task.SessionKey]; prev == nil || prev.record.Task.UpdatedAt.Before(r.record.Task.UpdatedAt) {
 				p.open[r.record.Task.SessionKey] = r
 			}
@@ -333,8 +341,14 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	case "start":
 		t.Title = strings.TrimSpace(req.Title)
 		t.Agent = req.Project
-		t.CreatedAt = time.Now().UTC()
 		kind, key = TaskEventCreated, true
+		if r.record.Auto {
+			// The agent takes over the card the bridge opened: same card, its title.
+			r.record.Auto = false
+			kind = TaskEventFactUpdated
+		} else {
+			t.CreatedAt = time.Now().UTC()
+		}
 	case "milestone":
 		kind, key = TaskEventFactUpdated, true
 	case "waiting":
@@ -366,6 +380,14 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if r != source {
 		r.stopped = source.stopped
 		r.reportBase = base
+		if req.TaskID == "" {
+			// The agent continued an earlier card after the bridge had opened one
+			// for this turn: that automatic card is folded into the continued one.
+			// No other path nests two run locks, so source.mu under r.mu is safe.
+			source.mu.Lock()
+			p.mergeAuto(source, t.Title)
+			source.mu.Unlock()
+		}
 	}
 	p.mu.Lock()
 	if req.TaskID == "" {
@@ -404,6 +426,30 @@ func (p *PublicProgress) finish(token, outcome string) {
 	p.mu.Unlock()
 	if r == nil {
 		return
+	}
+	r.mu.Lock()
+	if r.autoTimer != nil {
+		r.autoTimer.Stop()
+	}
+	auto := r.autoUntouched()
+	r.mu.Unlock()
+	if auto && len(cards) > 0 {
+		// The agent delegated this turn's work onto task-assigned cards after the
+		// bridge had opened one: fold the automatic card into them.
+		title := ""
+		for _, card := range cards {
+			if card != r {
+				card.mu.Lock()
+				title = card.record.Task.Title
+				card.mu.Unlock()
+				break
+			}
+		}
+		if title != "" {
+			r.mu.Lock()
+			p.mergeAuto(r, title)
+			r.mu.Unlock()
+		}
 	}
 	seen := map[*publicRun]bool{r: true}
 	for _, card := range cards {
@@ -594,7 +640,9 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	}
 	state.mu.Lock()
 	state.publicProgressRun = token
+	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
+	e.publicProgress.armAuto(token, desc, scheduled)
 	return e.publicProgressInstructions(token, session) + prompt
 }
 

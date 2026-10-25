@@ -671,6 +671,10 @@ type interactiveState struct {
 	boardChannel string
 	boardKey     string // interactive key of the board row
 
+	// turnScheduled: the current turn is a cron/timer/heartbeat routine, which
+	// never gets an automatic task card (public_progress_auto.go).
+	turnScheduled bool
+
 	// agentSessionIdleCancel 取消当前会话的 idle 关闭计时器。
 	agentSessionIdleCancel context.CancelFunc
 	agentSessionIdleToken  uint64
@@ -4563,6 +4567,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.fromVoice = msg.FromVoice
 		state.sideText = ""
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
+		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.mu.Unlock()
 
 		// Run Send concurrently with processInteractiveEvents. Some agents block inside
@@ -6121,6 +6126,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		case EventToolUse:
 			toolCount++
 			e.teamNoteWork(sessionKey)
+			e.notePublicProgressTool(state, event.ToolInput)
 			if hasRichCard {
 				// When tool messages are suppressed, skip card updates on tool events.
 				if !e.display.ToolMessages {
@@ -7066,6 +7072,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.fromVoice = queued.fromVoice
 				state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
 				state.turnDesc = queued.boardDesc // maomao fork: channel task board
+				state.turnScheduled = scheduledTurnUser(queued.userID)
 				state.mu.Unlock()
 
 				// Stop the previous turn's typing indicator
@@ -7548,6 +7555,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.fromVoice = queued.fromVoice
 		state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
 		state.turnDesc = queued.boardDesc // maomao fork: channel task board
+		state.turnScheduled = scheduledTurnUser(queued.userID)
 		state.mu.Unlock()
 
 		e.i18n.DetectAndSet(queued.content)

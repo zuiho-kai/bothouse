@@ -86,7 +86,10 @@ func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) 
 		return nil, errors.New("run is not active for this session")
 	}
 	cand := r.candidate
-	if r.record.Task.Seq > 0 || cand == nil || req.Kind == "start" {
+	// An automatic card the agent has not reported on does not block continuing
+	// the earlier card (public_progress_auto.go); Report then folds it in.
+	auto := r.autoUntouched()
+	if (r.record.Task.Seq > 0 && !auto) || cand == nil || req.Kind == "start" {
 		return r, nil
 	}
 	r.mu.Unlock()
@@ -94,6 +97,12 @@ func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) 
 	if !cand.record.Closed || cand.record.Task.SessionKey != req.SessionKey || cand.record.LastSeq == 0 ||
 		!resumableTask(cand.record.Task, cand.record.Accepted, time.Now()) || req.Seq != cand.record.LastSeq+1 {
 		cand.mu.Unlock()
+		if auto {
+			// Not a continuation: the report belongs on the automatic card. The
+			// caller holds transitionMu, so the run cannot change in between.
+			r.mu.Lock()
+			return r, nil
+		}
 		return nil, errors.New("card cannot be continued with this sequence")
 	}
 	return cand, nil

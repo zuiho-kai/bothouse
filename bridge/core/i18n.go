@@ -666,6 +666,14 @@ const (
 	MsgBackgroundAutoDenied     MsgKey = "background_auto_denied"
 )
 
+// Automatic task card (public_progress_auto.go).
+const (
+	MsgPublicAutoTitle        MsgKey = "MsgPublicAutoTitle"
+	MsgPublicAutoStartedTools MsgKey = "MsgPublicAutoStartedTools"
+	MsgPublicAutoStartedTime  MsgKey = "MsgPublicAutoStartedTime"
+	MsgPublicAutoMerged       MsgKey = "MsgPublicAutoMerged"
+)
+
 const (
 	MsgBoardTasksRunning MsgKey = "board_tasks_running"
 	MsgBoardTasksWaiting MsgKey = "board_tasks_waiting"
@@ -914,6 +922,26 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "本輪已結束，結果見最終答覆；驗收尚未確認。",
 		LangJapanese:           "ターンは終了しました。最終回答を確認してください。検収は未確認です。",
 		LangSpanish:            "Turno terminado; consulte la respuesta final. Aceptación pendiente.",
+	},
+	MsgPublicAutoTitle: {
+		LangEnglish:            "Task in progress",
+		LangChinese:            "处理中的任务",
+		LangTraditionalChinese: "處理中的任務",
+	},
+	MsgPublicAutoStartedTools: {
+		LangEnglish:            "Started working (several tool steps).",
+		LangChinese:            "已开始处理（用了多步工具）。",
+		LangTraditionalChinese: "已開始處理（用了多步工具）。",
+	},
+	MsgPublicAutoStartedTime: {
+		LangEnglish:            "Started working (over 1 minute so far).",
+		LangChinese:            "已开始处理（已超过 1 分钟）。",
+		LangTraditionalChinese: "已開始處理（已超過 1 分鐘）。",
+	},
+	MsgPublicAutoMerged: {
+		LangEnglish:            "Merged into “%s”.",
+		LangChinese:            "已并入「%s」。",
+		LangTraditionalChinese: "已併入「%s」。",
 	},
 	MsgTaskKeyFact: {
 		LangEnglish:            "Key update",
