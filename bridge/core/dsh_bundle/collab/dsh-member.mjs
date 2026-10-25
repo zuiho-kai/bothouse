@@ -27,6 +27,19 @@ export function workspaceHint(hub, later, memberId, roomId) {
   if (!later?.workspaceInstructions || hub?.selectedPrimaryMember?.()?.id !== memberId) return '';
   return later.workspaceInstructions(memberId, roomId);
 }
+/**
+ * #597 G24: DSH members have no bridge session, so the shared line about `bothouse workspace new` /
+ * the bare workspaces POST is swapped (whole line, DSH side only) for the ticketed command. The
+ * shared file stays as is: the bridge reads the same line. Throws when the line is gone so a reword
+ * of the shared file fails tests instead of silently dropping the swap.
+ */
+const WORKSPACE_LINE = /^- .*\/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces.*$/m;
+export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或接口（头 X-Later-Ticket 带你的票据，只对你和本频道有效），一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区进行中的活默认达到 3 件就算忙，有把握可往上加。';
+export function dshTeamModeRules(mode) {
+  const rules = teamModeRules(mode);
+  if (!WORKSPACE_LINE.test(rules)) throw new Error('team-mode-rules.md: the workspace line moved; update WORKSPACE_LINE');
+  return rules.replace(WORKSPACE_LINE, DSH_WORKSPACE_RULE);
+}
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
 export function memberStatus(hub, tasks = hub?.tasks) {
@@ -111,7 +124,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
     ...persona,
-    teamModeRules(mode),
+    dshTeamModeRules(mode),
     status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',

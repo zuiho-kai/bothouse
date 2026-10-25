@@ -4274,3 +4274,45 @@ test('G24: no or bad ticket is refused; owner must be a routable member', async 
   assert.equal((await call('bad.ticket', { title: 'x' })).status, 401);
   assert.equal((await call(later.ticket('ju', 1), { title: 'x', owner: 'owner' })).status, 404);
 });
+
+test('G24: handed to a workspace first, then @-ed in the chat channel: still one open task', async () => {
+  const { hub, tasks, later, call } = await g24Setup(['ju', 'long']);
+  const res = await call(later.ticket('ju', 1), { title: '修登录页', owner: 'long' });
+  assert.equal(res.status, 200);
+  hub.post(1, { authorKind: 'role', author: 'ju', name: 'ju', text: '@long 修登录页 已交到工作区1' });
+  tasks.fromMessage(hub.store.page(1).at(-1));
+  const open = tasks.list(1).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status));
+  assert.equal(open.length, 1, 'the @ after the handoff opens no chat-side task');
+  assert.equal(open[0].room_id, res.body.workspace.id);
+  assert.equal(tasks.list(1).filter(t => t.room_id === 1).length, 0, 'no task in the chat channel to remind about');
+});
+
+test('G24: the local workspace command carries a reason into the owner\'s turn in the workspace', async () => {
+  const { workspacesRoute } = await import('./plugin.mjs');
+  const hub = makeHub();
+  hub.setMember({ id: 'cc', name: 'CC', kind: 'dsh', online: true });
+  hub.leadState = { selected: () => 'cc' };
+  const tasks = new Tasks(hub, { start: false });
+  hub.tasks = tasks;
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const prompts = [];
+  const dsh = cliMembers(hub, async text => { prompts.push(text); return '收到'; });
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const server = createServer((req, res) => workspacesRoute(req, res, new URL(req.url, 'http://x'), { store: hub.store, hub, gateway, owner: () => false, later, tasks, dsh })
+    ?? (res.writeHead(404), res.end('{}')));
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    later.origin = `http://127.0.0.1:${server.address().port}`;
+    assert.match(later.workspaceInstructions('cc', 1), /交接说明[\s\S]*用户原话[\s\S]*参照[\s\S]*分支[\s\S]*验收标准/);
+    const reason = '用户原话：登录页点了没反应。参照 auth/legacy.mjs，以 main 为底，验收：点登录跳到首页';
+    const out = await new Promise(resolve => {
+      const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, 'workspace', later.origin, later.ticket('cc', 1), '修登录页', '', reason]);
+      let text = ''; child.stdout.on('data', d => { text += d; }); child.stderr.on('data', d => { text += d; });
+      child.on('close', status => resolve({ status, text }));
+    });
+    assert.equal(out.status, 0, out.text);
+    await settle();
+    assert.equal(prompts.length, 1, 'the owner is woken once in the workspace');
+    assert.ok(prompts[0].includes(reason), 'the owner\'s turn sees the reason');
+  } finally { server.close(); later.close(); }
+});

@@ -56,6 +56,15 @@ class SameWord(unittest.TestCase):
         lead.configure({"lead": {"name": name[""], "aliases": aliases[""], "id": ids.get("")},
                         "subs": {k: {"name": name[k], "aliases": aliases[k], "id": ids.get(k)} for k in keys if k}})
 
+    def test_dsh_lead_gets_short_playbook(self):
+        lead.set_lead("dsh-claude")
+        short = lead.playbook("dsh:claude")["desc"]
+        self.assertIn("DSH 版", short)
+        self.assertIn("【开工作区】", short)
+        for gone in ("ws-handoff", "ws-forward", "ws-up", "board pause", "bothouse workspace new"):
+            self.assertNotIn(gone, short)
+        self.assertIn("ws-handoff", lead.playbook("dsh-claude")["desc"])  # 桥 bot 带键，照发完整版
+
     def test_member_by_namespace(self):
         self.assertEqual(lead.member("claude"), "claude")
         self.assertEqual(lead.member("dsh:claude"), "dsh-claude")

@@ -98,8 +98,8 @@ export class Later {
   workspaceInstructions(member, room) {
     const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
     const ticket = this.ticket(member, room);
-    const local = this.origin ? `本机命令：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} workspace ${quote(this.origin)} ${quote(ticket)} '任务标题' [接活人id]\n` : '';
-    return `\n【开工作区】整块活要交出去时，${local}或 POST /collab/api/rooms/${room}/workspaces（头 X-Later-Ticket: ${ticket}，JSON: title, owner 可省=你自己, reason）。一步建好工作区、开任务、挂十分钟看门并叫醒接活人；不要再在频道里 @ 同一件活。\n`;
+    const local = this.origin ? `本机命令：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} workspace ${quote(this.origin)} ${quote(ticket)} '任务标题' '接活人id（空串=你自己）' '交接说明'\n` : '';
+    return `\n【开工作区】整块活要交出去时，${local}或 POST /collab/api/rooms/${room}/workspaces（头 X-Later-Ticket: ${ticket}，JSON: title, owner 可省=你自己, reason=交接说明）。一步建好工作区、开任务、挂十分钟看门并叫醒接活人；不要再在频道里 @ 同一件活。工作区里的接活人是新会话，只看得到交接说明：里面要写清用户原话、参照的现成实现、以哪个分支为底、验收标准。\n`;
   }
   tick() {
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE announced = 0').all()) {
@@ -122,11 +122,11 @@ export class Later {
   close() { clearInterval(this.timer); }
 }
 if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === 'workspace') {
-  const [origin, ticket, title, owner] = process.argv.slice(3);
+  const [origin, ticket, title, owner, reason] = process.argv.slice(3);
   const room = ticketClaims(ticket)?.r;
-  if (!origin || !Number.isSafeInteger(room) || !title) { console.error('usage: later.mjs workspace <origin> <ticket> <title> [owner] (ticket from your prompt)'); process.exit(2); }
+  if (!origin || !Number.isSafeInteger(room) || !title) { console.error('usage: later.mjs workspace <origin> <ticket> <title> [owner] [reason] (ticket from your prompt; owner \'\' = yourself)'); process.exit(2); }
   const res = await fetch(new URL(`/collab/api/rooms/${room}/workspaces`, origin), { method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ title, ...(owner ? { owner } : {}) }) });
+    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ title, ...(owner ? { owner } : {}), ...(reason ? { reason } : {}) }) });
   const body = await res.text();
   if (!res.ok) { console.error(`workspace: ${res.status} ${body}`); process.exit(1); }
   console.log(body);

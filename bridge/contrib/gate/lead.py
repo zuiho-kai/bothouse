@@ -242,13 +242,20 @@ _pb = os.environ.get("GATE_PLAYBOOK", str(_default_playbook())).strip()
 PLAYBOOK = None if _pb.lower() in ("", "off") else Path(_pb).expanduser()
 
 
+DSH_PLAYBOOK = "PLAYBOOK.dsh.zh-CN.md"
+
+
 def playbook(bot):
     """bot 是当前主角色 → 手册段（ctxsvc 拼进上下文），否则 None。
     path 里带切换时间：cc-connect 按 path 每个会话只推一次，换主后新主的下一轮收到一次。"""
     s = state()
     if member(bot) != s["lead"] or PLAYBOOK is None or not PLAYBOOK.is_file():
         return None
-    return {"path": f"【主角色工作手册：{PLAYBOOK}，{s['at'] or '默认主角色'}】",
-            "desc": PLAYBOOK.read_text(encoding="utf-8").strip()}
+    book = PLAYBOOK
+    # DSH 成员没有桥会话：ws-handoff、bothouse workspace new 用不了，给同目录的短版（#597 G24）。
+    if str(bot or "").startswith("dsh:") and (PLAYBOOK.parent / DSH_PLAYBOOK).is_file():
+        book = PLAYBOOK.parent / DSH_PLAYBOOK
+    return {"path": f"【主角色工作手册：{book}，{s['at'] or '默认主角色'}】",
+            "desc": book.read_text(encoding="utf-8").strip()}
 
 configure(_default_team())

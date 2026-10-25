@@ -120,6 +120,9 @@ export class Tasks {
         AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
       returnedChat: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND created_by = ? AND source IS NOT NULL AND status = 'returned' ORDER BY id"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
+      // #597 G24: a job the lead already handed to one of this chat channel's workspaces.
+      openHanded: this.tree ? this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND created_by = ? AND source = 'workspace'
+        AND status IN (${PLACEHOLDERS}) AND room_id IN (SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ?) ORDER BY id DESC LIMIT 1`) : undefined,
     };
     hub.onMessage(message => this.fromMessage(message));
     // A member coming online (cloud-web register, DSH member published) gets its pending reminders.
@@ -423,9 +426,13 @@ export class Tasks {
     return this.handBack(open.id, { actor: msg.author, messageId: msg.id });
   }
 
-  /** Open a chat-side task unless the owner already has one open from this lead in this room. */
+  /**
+   * Open a chat-side task unless the owner already has one open from this lead in this room, or one
+   * the lead handed to a workspace under it (the lead's later @ just tells the owner about it).
+   */
   openFromChat({ roomId, owner, lead, title, messageId, source }) {
     if (!this.hub.members.has(owner) || this.q.openChat.get(roomId, owner, lead, ...WORKING) !== undefined) return undefined;
+    if (this.q.openHanded?.get(owner, lead, ...WORKING, roomId) !== undefined) return undefined;
     // force: the channel already dispatched it; the board records it even if the owner is busy elsewhere.
     const task = this.assign({ roomId, title, owner, actor: lead, messageId, force: true });
     this.q.setSource.run(source, task.id);
