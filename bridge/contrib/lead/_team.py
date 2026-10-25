@@ -5,6 +5,8 @@
 - 工作区频道：环境变量 WS_CHANNEL，否则团队文件顶层 "workspace"（平台频道 ID）；都没有 → None（ws-handoff 会新建）。
 - Discord token：环境变量 DISCORD_BOT_TOKEN，否则 <GATE_SETUP_DIR>/secrets.env 里的同名变量。
 - 发消息/定时器用的身份：调用者自己的 CC_PROJECT（cc-connect 给每个会话设的），即正在当主的那位。
+- 队友工作目录：团队文件成员可写 "wt"（一个路径或路径列表，git 副本本身或放 git 副本的目录），d10-fire 看里面有没有新提交来续期；
+  不写就只看频道里的动静。
 """
 import json, os, subprocess, sys
 from pathlib import Path
@@ -31,6 +33,22 @@ def member_id(who):
         return str(who)
     k = lead.resolve(who)
     return lead.ID.get(k) if k is not None else None
+
+
+def worktrees(tid):
+    """平台 ID → 团队文件里她的 "wt" 下的 git 副本目录列表（路径本身是 git 副本就是它，否则取它下面一层的子目录）。"""
+    t = team()
+    members = [t.get("lead") or {}, *(t.get("subs") or {}).values()]
+    m = next((x for x in members if isinstance(x, dict) and str(x.get("id") or "") == str(tid)), None)
+    raw = (m or {}).get("wt") or []
+    out = []
+    for p in [raw] if isinstance(raw, str) else raw:
+        d = Path(str(p)).expanduser()
+        if (d / ".git").exists():
+            out.append(d)
+        elif d.is_dir():
+            out += sorted(x for x in d.iterdir() if x.is_dir())
+    return out
 
 
 def project():
