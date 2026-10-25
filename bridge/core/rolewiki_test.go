@@ -282,7 +282,35 @@ func oneRoleRequest(t *testing.T) WizardRequest {
 	return req
 }
 
-// A rerun that only reuses roles, on a HOME with no main wiki: the main wiki is made anyway, then its cron jobs.
+// assertMainWikiLead: the main wiki is marked for juzi and its config.json reads her transcripts with her persona as
+// the rule file (want = "juzi"), or it is nobody's and reads no sessions (want = "").
+func assertMainWikiLead(t *testing.T, data, mainWiki, want string) {
+	t.Helper()
+	m, err := os.ReadFile(filepath.Join(mainWiki, mainWikiMark))
+	if err != nil || strings.TrimSpace(string(m)) != want {
+		t.Fatalf("mark = %q %v, want %q", m, err, want)
+	}
+	var cfg map[string]any
+	c, _ := os.ReadFile(filepath.Join(mainWiki, "config.json"))
+	if err := json.Unmarshal(c, &cfg); err != nil {
+		t.Fatalf("config.json %s: %v", c, err)
+	}
+	rules, _ := cfg["rule_files"].([]any)
+	if want == "" {
+		if cfg["transcripts"] != filepath.Join(mainWiki, ".no-sessions") || len(rules) != 0 {
+			t.Fatalf("nobody's main config = %v", cfg)
+		}
+		return
+	}
+	persona := PersonaFilePath("claudecode", filepath.Join(data, "roles", want))
+	if cfg["transcripts"] != filepath.Join(realPath(RoleWikiDir(data)), "transcripts", want) || len(rules) != 1 || rules[0] != persona {
+		t.Fatalf("main config = %v (want transcripts/%s, rule %s)", cfg, want, persona)
+	}
+}
+
+// A rerun that only reuses roles, on a HOME with no main wiki: the main wiki is made anyway, then its cron jobs. The
+// lead this wizard made earlier writes to the main wiki (bots.json "wiki"), so the one made again is hers: marked
+// juzi, reading her transcripts (else her sessions would silently stop going in).
 func TestApplyWizardMainWikiNoNewRole(t *testing.T) {
 	useRepoWiki(t)
 	noHardware(t)
@@ -309,12 +337,86 @@ func TestApplyWizardMainWikiNoNewRole(t *testing.T) {
 	if !fileExists(filepath.Join(mainWiki, "bin", "ingest.py")) {
 		t.Fatal("main wiki not made")
 	}
-	// every role reused: the lead is no new role, so the main wiki is nobody's (empty mark), not hers
-	if m, err := os.ReadFile(filepath.Join(mainWiki, mainWikiMark)); err != nil || strings.TrimSpace(string(m)) != "" {
-		t.Fatalf("mark = %q %v", m, err)
-	}
+	assertMainWikiLead(t, data, mainWiki, "juzi")
 	if s := steps["wiki cron"]; !s.OK || !strings.Contains(s.Detail, "added") || len(cron.jobs) == 0 {
 		t.Fatalf("wiki cron = %+v, jobs %d", s, len(cron.jobs))
+	}
+}
+
+// The same rerun with a lead an older wizard made (no bots.json entry sending her to the main wiki): the main wiki
+// made again is nobody's and reads no sessions; she keeps her own role wiki.
+func TestApplyWizardMainWikiNoNewRoleOldLead(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore()}
+	if res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req); !res.Saved {
+		t.Fatalf("first apply: %+v", res)
+	}
+	if err := os.RemoveAll(mainWiki); err != nil {
+		t.Fatal(err)
+	}
+	bots := readBotsJSON(t, data)
+	delete(bots, "juzi")
+	b, _ := json.Marshal(bots)
+	if err := os.WriteFile(filepath.Join(RoleWikiDir(data), "bots.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req)
+	if s := wizardSteps(res)["wiki"]; !res.Saved || !s.OK {
+		t.Fatalf("rerun: wiki step %+v (all %+v)", s, res.Steps)
+	}
+	assertMainWikiLead(t, data, mainWiki, "")
+}
+
+// Adding only a teammate (AppendOnly) while the main wiki is gone: the lead is an old member, not in this run's
+// roles, but bots.json sends her sessions to the main wiki, so the one made again is hers.
+func TestApplyWizardAppendTeammateRemakesLeadMainWiki(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	t1, t2 := fakeToken("111"), fakeToken("222")
+	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
+	req := WizardRequest{Platform: "discord", Language: "en", Roles: []WizardRole{{Token: t1}}}
+	req.Discord = &struct {
+		GuildID   string `json:"guild_id"`
+		ChannelID string `json:"channel_id"`
+	}{GuildID: "900", ChannelID: "1"}
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	data := t.TempDir()
+	store := &hookMemStore{memStore: newMemStore()}
+	if res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, req); !res.Saved {
+		t.Fatalf("first apply: %+v", res)
+	}
+	if err := os.RemoveAll(mainWiki); err != nil {
+		t.Fatal(err)
+	}
+	add := req
+	add.Roles, add.AppendOnly = []WizardRole{{Token: t2, AgentType: "codex"}}, true
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: &memCron{}}, add)
+	steps := wizardSteps(res)
+	if !res.Saved || res.FallbackRole != "juzi" || !steps["wiki"].OK || !steps["role 1 wiki"].OK {
+		t.Fatalf("add: fallback %q steps %+v", res.FallbackRole, res.Steps)
+	}
+	assertMainWikiLead(t, data, mainWiki, "juzi")
+}
+
+// A directory setup_wiki.py refuses (no mark: the user's, or half-made by an older wizard) is reported in the user's
+// language with the way out: remove it and run the wizard again.
+func TestNotWikiHint(t *testing.T) {
+	err := errors.New("python3 -X utf8 -I setup_wiki.py --main /tmp/w Juzi juzi: exit status 1: /tmp/w exists and is not a wiki (no bin/ingest.py): not touching it")
+	for lang, want := range map[string]string{"zh": "删掉这个目录再重跑向导", "ja": "このフォルダを削除してから", "en": "remove this folder and run the wizard again"} {
+		got := notWikiHint(lang, err).Error()
+		if !strings.HasPrefix(got, "/tmp/w ") || !strings.Contains(got, want) || !errors.Is(notWikiHint(lang, err), err) {
+			t.Fatalf("%s: %s", lang, got)
+		}
+	}
+	other := errors.New("git not found")
+	if notWikiHint("en", other) != other {
+		t.Fatal("other errors are kept as they are")
 	}
 }
 

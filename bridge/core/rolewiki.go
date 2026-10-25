@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -283,6 +284,26 @@ func wikiQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// notWikiMsg: what setup_wiki.py prints when it refuses a directory that is there but is no wiki it made.
+var notWikiMsg = regexp.MustCompile(`(?m)^(.+) exists and is not a wiki \(`)
+
+// notWikiHint: setup_wiki.py refused a directory (the user's, or one an older wizard left half-made: no mark, so it
+// is not removed). Say so in the user's language, and that a half-made one can be removed and the wizard run again.
+func notWikiHint(lang string, err error) error {
+	m := notWikiMsg.FindStringSubmatch(err.Error())
+	if m == nil {
+		return err
+	}
+	d := m[1]
+	if i := strings.LastIndex(d, ": "); i >= 0 { // roleWikiRun's "<cmd>: exit status 1: <output>"
+		d = d[i+2:]
+	}
+	return fmt.Errorf("%s (%w)", tr3(lang,
+		d+" 已存在，但不是向导建的 wiki，没有动它。如果这是向导上次没建完留下的，删掉这个目录再重跑向导",
+		d+" は既にありますが、ウィザードが作った wiki ではないため触っていません。前回ウィザードが作りかけで残したものなら、このフォルダを削除してからウィザードをやり直してください",
+		d+" is there but is not a wiki the wizard made: not touched. If the wizard left it half-made last time, remove this folder and run the wizard again"), err)
+}
+
 // roleWikiRun is replaceable in tests.
 var roleWikiRun = func(ctx context.Context, env []string, name string, args ...string) (string, error) {
 	// 来源：setup_wiki.py 本机实测建一本 wiki 约 1 秒（2026-10-22）；给慢盘留余量
@@ -322,14 +343,15 @@ type roleWikiSetup struct {
 // wizardLead: what --main needs of the lead (pl.fallback): her project and persona, and the team's names.
 type wizardLead struct {
 	name, project, persona string
+	fallback               string // pl.fallback, to look her up in bots.json when she is no new role
 	team                   []string
 }
 
-// The project (and persona) is set only when the lead is a new role this run: a reused lead (an old member, e.g.
-// AppendOnly adding someone) gets no bots.json entry here, so a main wiki marked hers would read transcripts
-// nobody exports.
+// planLead: the project (and persona) is set here only when the lead is a new role this run. A reused lead (an old
+// member: a rerun, or AppendOnly adding someone) gets them in prepareRoleWikis only when bots.json already sends her
+// sessions to this main wiki (leadOfMain); otherwise a main wiki marked hers would read transcripts nobody exports.
 func planLead(pl *wizardPlan) wizardLead {
-	l := wizardLead{name: pl.fallbackName}
+	l := wizardLead{name: pl.fallbackName, fallback: pl.fallback}
 	for _, r := range pl.roles {
 		l.team = append(l.team, r.Name)
 		if r.project == pl.fallback && !r.reused && r.workDir != "" {
@@ -337,6 +359,39 @@ func planLead(pl *wizardPlan) wizardLead {
 		}
 	}
 	return l
+}
+
+// samePath: a and b name the same place (symlinks resolved; a path not there yet by its resolved parent).
+func samePath(a, b string) bool {
+	real := func(p string) string {
+		p = filepath.Clean(p)
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		if d, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+			return filepath.Join(d, filepath.Base(p))
+		}
+		return p
+	}
+	return real(a) == real(b)
+}
+
+// leadOfMain: the lead's project and persona when her bots.json entry writes to the main wiki mw (a lead an earlier
+// run made, whose main wiki is gone now): the main wiki made again is hers, so her sessions still go in. "" when
+// she has no entry or writes to a wiki of her own (a lead from before the main wiki was hers).
+func (s *roleWikiSetup) leadOfMain(project, mw string) (string, string) {
+	all, err := s.readBots()
+	if err != nil || project == "" {
+		return "", ""
+	}
+	var e struct{ Wiki, Persona, Kind, Workdir string }
+	if raw, ok := all[project]; !ok || json.Unmarshal(raw, &e) != nil || e.Wiki == "" || !samePath(e.Wiki, mw) {
+		return "", ""
+	}
+	if e.Persona == "" && e.Workdir != "" {
+		e.Persona = PersonaFilePath(e.Kind, e.Workdir)
+	}
+	return project, e.Persona
 }
 
 // prepareRoleWikis installs the programs (or uses the user's) and makes the main wiki when there is none (--main
@@ -362,6 +417,9 @@ func prepareRoleWikis(ctx context.Context, env WizardEnv, lead wizardLead, engin
 	mw, ok := FindWiki()
 	s.main = mw
 	if !ok {
+		if lead.project == "" {
+			lead.project, lead.persona = s.leadOfMain(lead.fallback, mw)
+		}
 		eng := enginesJSON(engines)
 		team, _ := json.Marshal(lead.team)
 		if _, err := roleWikiRun(ctx, []string{"LLM_WIKI_SRC=" + filepath.Join(s.dir, "template"), "WIKI_ENGINES=" + eng,
@@ -520,9 +578,9 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 		if len(pl.roles) > 0 {
 			engines = roleWikiConfig(env.DataDir, pl.roles[0], req.Wiki, clis)
 		}
-		// no project: no new lead this run, so nobody would export to a main wiki marked hers
-		if _, detail, err := prepareRoleWikis(ctx, env, wizardLead{name: pl.fallbackName}, engines); err != nil {
-			addStep(res, "wiki", err, "")
+		// no new lead this run: the main wiki is hers only when bots.json sends her sessions there (leadOfMain)
+		if _, detail, err := prepareRoleWikis(ctx, env, planLead(pl), engines); err != nil {
+			addStep(res, "wiki", notWikiHint(req.Language, err), "")
 		} else if detail != "" {
 			addStep(res, "wiki", nil, detail)
 		}
@@ -530,7 +588,7 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 	}
 	s, detail, err := prepareRoleWikis(ctx, env, planLead(pl), roleWikiConfig(env.DataDir, pl.roles[roles[0]], req.Wiki, clis))
 	if err != nil {
-		addStep(res, "wiki", err, "")
+		addStep(res, "wiki", notWikiHint(req.Language, err), "")
 		for _, i := range roles {
 			addStep(res, fmt.Sprintf("role %d memory_index", i+1), errMemoryIndexNoWiki(req.Language), "")
 		}
@@ -564,7 +622,7 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 		} else {
 			var err error
 			if wiki, err = s.addRole(ctx, r, pl.fallbackName, roleWikiConfig(env.DataDir, r, req.Wiki, clis)); err != nil {
-				addStep(res, step, err, "")
+				addStep(res, step, notWikiHint(req.Language, err), "")
 				addStep(res, fmt.Sprintf("role %d memory_index", i+1), errMemoryIndexNoWiki(req.Language), "")
 				continue
 			}

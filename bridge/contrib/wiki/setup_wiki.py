@@ -103,7 +103,7 @@ def main_wiki(w, lead, project=""):
         print(w, "exists")
         return
     if w.exists() and any(w.iterdir()):
-        sys.exit(f"{w} exists and is not a wiki (no bin/ingest.py): not touching it")
+        sys.exit(f"{w} exists and is not a wiki (no bin/ingest.py): not touching it (if an earlier run left it half-made, remove it and run again)")
     if w.exists():
         w.rmdir()
     from_template(w)
@@ -141,7 +141,7 @@ def main(bot):
         print(bot, w, "exists")
         return
     if w.exists() and any(w.iterdir()):
-        sys.exit(f"{w} exists and is not a wiki (no config.json): not touching it")
+        sys.exit(f"{w} exists and is not a wiki (no config.json): not touching it (if an earlier run left it half-made, remove it and run again)")
     if w.exists():
         w.rmdir()
     from_template(w)
