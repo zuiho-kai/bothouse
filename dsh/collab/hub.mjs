@@ -24,6 +24,13 @@ export class Hub {
 
   memberList() { return [...this.members.values()]; }
 
+  membersInRoom(roomId) {
+    const channel = this.store.settingsRoom(roomId);
+    return this.memberList().filter(m => !m.rooms?.length || m.rooms.includes(channel));
+  }
+
+  routableIn(roomId) { return this.membersInRoom(roomId).filter(m => m.kind !== 'human'); }
+
   /** Members whose @-forms are parsed in channel text (agents only; humans are not routed). */
   routable() { return this.memberList().filter(m => m.kind !== 'human'); }
 
@@ -76,8 +83,8 @@ export class Hub {
   }
 
   memberView() {
-    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, avatar, source, error }) => ({
-      id, name, kind, online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar } : {}),
+    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, avatar, source, error, rooms }) => ({
+      id, name, kind, ...(rooms ? { rooms } : {}), online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar } : {}),
       ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), persona: persona ?? '', editable: source === 'ui' } : {}),
     }));
   }

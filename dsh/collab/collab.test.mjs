@@ -4887,3 +4887,23 @@ test('channel directories: a released workspace uses its next owner directory an
   assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/first', '/second']);
   await members.close(); hub.store.close();
 });
+
+
+test('member room scope: rename and reload retain scope, workspaces follow the parent, legacy stays global', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members);
+  const a = await roster.create({ name: 'Shared', rooms: [1] });
+  const b = await roster.create({ name: 'Shared', rooms: [2] });
+  const global = await roster.create({ name: 'Global' });
+  await roster.update(a.id, { name: 'Renamed' });
+  assert.deepEqual(JSON.parse(hub.store.member(a.id).rooms), [1]);
+  roster.load([]);
+  assert.deepEqual(hub.routableIn(1).map(m => m.id).sort(), [a.id, global.id].sort());
+  assert.deepEqual(hub.routableIn(2).map(m => m.id).sort(), [b.id, global.id].sort());
+  const workspace = hub.store.createWorkspace(2);
+  assert.deepEqual(hub.routableIn(workspace.id).map(m => m.id).sort(), [b.id, global.id].sort());
+  await assert.rejects(roster.create({ name: 'Shared', rooms: [2] }), /already used/);
+  await assert.rejects(roster.create({ name: 'Bad', rooms: [999] }), /existing chat/);
+  await members.close(); hub.store.close();
+});

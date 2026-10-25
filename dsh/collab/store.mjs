@@ -19,6 +19,7 @@ const SCHEMA_VERSION = 11;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
+  ['members', 'rooms', 'TEXT'], // NULL or [] retains legacy global visibility.
   ['members', 'cli', 'TEXT'], // v4: a member may be a local CLI agent (claude | codex | gemini) instead of a model route.
   ['members', 'avatar', 'TEXT'], // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
   // A local CLI member's DSH permission preset (cli-member.mjs PERMISSION_PRESETS); NULL means DSH's default.
@@ -116,13 +117,13 @@ export class Store {
       createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
-      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
+      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, rooms, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, provider = excluded.provider, model = excluded.model,
-          cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, permission_preset = excluded.permission_preset, source = 'config', removed = 0`),
-      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
-      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?
+          cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, permission_preset = excluded.permission_preset, rooms = excluded.rooms, source = 'config', removed = 0`),
+      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, rooms, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
+      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?, rooms = ?
         WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *`),
       removeMember: this.db.prepare("UPDATE members SET removed = 1 WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *"),
     };
@@ -521,14 +522,14 @@ export class Store {
   member(id) { return this.q.member.get(id); }
   /** Upsert a config member; config always wins for its own ids. */
   seedMember(m, now = Date.now() / 1000) {
-    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, now);
+    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
   }
   addMember(m, now = Date.now() / 1000) {
-    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, now);
+    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
   updateMember(id, m) {
-    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, id);
+    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
   workspacePath(roomId, fallback) { return this.q.workspacePath.get(roomId)?.path || fallback; }
