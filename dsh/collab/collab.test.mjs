@@ -329,17 +329,22 @@ function fakeDsh() {
       get: id => (unloaded.has(id) ? undefined : sessions.get(id)),
       created: [], resumes: 0, active: 0, maxActive: 0,
       async create(options) { const agent = agentFor(options.sessionId); made.push(options.sessionId); this.created.push(options); await options.setup?.({ on() {} }); return { agent }; },
-      async resume({ resumeSessionId }) {
+      resumedTools: [],
+      async resume({ resumeSessionId, setup }) {
         this.resumes++; this.active++; this.maxActive = Math.max(this.maxActive, this.active);
         await tick();
         this.active--;
         if (deleted.has(resumeSessionId)) throw new Error(`session ${resumeSessionId} not found`);
         unloaded.delete(resumeSessionId);
+        // Like DSH: a resumed Agent starts with only the built-in tool; its setup adds the rest.
+        const resumedCtx = { on() {}, tools: ['working_directory'] };
+        await setup?.(resumedCtx);
+        this.resumedTools.push(resumedCtx.tools);
         return { agent: sessions.get(resumeSessionId) ?? agentFor(resumeSessionId) };
       },
     },
-    agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount() {} },
-    permissionPresets: { set() {} },
+    agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount(agentCtx) { agentCtx.tools?.push('bash', 'read', 'edit'); } },
+    permissionPresets: { sets: [], set(session, preset) { this.sets.push([session.id, preset]); } },
     sessionTitle: { renamed: [], rename(s, t) { this.renamed.push(t); } },
     workspaceRegistry: { archivedSessionIds: [], async create(path) { return { path, async attachSession() {} }; } },
     sessionPersistence: { async stat(id) { return deleted.has(id) ? undefined : { header: { id } }; } },
@@ -475,6 +480,19 @@ test('DSH member: a resume error on a Session that is still there does not rebin
   assert.equal(hub.store.binding('ds', 1).session_id, old.session.id, 'the binding keeps the old Session');
   assert.equal(dsh.ctx.agents.created.length, 1, 'no new Session');
   assert.ok(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'the failure is shown');
+});
+
+test('DSH member: after a restart the resumed Session gets its agent preset tools and permission preset', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek', permissionPreset: 'danger-full-access' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  dsh.ctx.permissionPresets.sets.length = 0;
+  const agent = await askAgain(hub, dsh, '@DeepSeek 重启后 fa');
+  assert.equal(agent, old, 'the same Session answers');
+  assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('bash'), 'the agent preset is mounted on resume');
+  assert.deepEqual(dsh.ctx.permissionPresets.sets, [[old.session.id, 'danger-full-access']], 'the permission preset is applied on resume');
 });
 
 test('DSH member: after a restart a bound hidden Session is resumed, and one deleted meanwhile is replaced', async () => {
