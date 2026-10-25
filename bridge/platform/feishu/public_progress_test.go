@@ -1,0 +1,250 @@
+package feishu
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/chenhg5/cc-connect/core"
+	lark "github.com/larksuite/oapi-sdk-go/v3"
+)
+
+// fakeFeishuIM is a fake Feishu IM API: it records sends, patches, replies and
+// pins, and de-duplicates sends by uuid like the real API.
+type fakeFeishuIM struct {
+	mu      sync.Mutex
+	nextID  int
+	byUUID  map[string]string
+	content map[string]string // message ID -> card JSON
+	gone    map[string]bool   // deleted message IDs
+	creates []map[string]any
+	patches []string
+	replies []map[string]any
+	pins    []string
+	pinFail bool
+}
+
+func newFakeFeishuIM() *fakeFeishuIM {
+	return &fakeFeishuIM{byUUID: map[string]string{}, content: map[string]string{}, gone: map[string]bool{}}
+}
+
+func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		ok := func(data map[string]any) { writeJSON(t, w, map[string]any{"code": 0, "msg": "success", "data": data}) }
+		switch {
+		case r.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal":
+			writeJSON(t, w, map[string]any{"code": 0, "msg": "success", "expire": 7200, "tenant_access_token": "tok"})
+		case r.Method == http.MethodPost && r.URL.Path == "/open-apis/im/v1/messages":
+			f.creates = append(f.creates, body)
+			uuid, _ := body["uuid"].(string)
+			if id, seen := f.byUUID[uuid]; seen && uuid != "" {
+				ok(map[string]any{"message_id": id})
+				return
+			}
+			f.nextID++
+			id := "om_" + string(rune('a'+f.nextID))
+			if uuid != "" {
+				f.byUUID[uuid] = id
+			}
+			f.content[id], _ = body["content"].(string)
+			ok(map[string]any{"message_id": id})
+		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/messages/"):
+			id := strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/")
+			if f.gone[id] {
+				writeJSON(t, w, map[string]any{"code": 230011, "msg": "The message was withdrawn."})
+				return
+			}
+			f.patches = append(f.patches, id)
+			f.content[id], _ = body["content"].(string)
+			ok(map[string]any{})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/reply"):
+			body["root"] = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/"), "/reply")
+			f.replies = append(f.replies, body)
+			ok(map[string]any{"message_id": "om_reply"})
+		case r.Method == http.MethodPost && r.URL.Path == "/open-apis/im/v1/pins":
+			if f.pinFail {
+				writeJSON(t, w, map[string]any{"code": 99991672, "msg": "no permission"})
+				return
+			}
+			id, _ := body["message_id"].(string)
+			f.pins = append(f.pins, id)
+			ok(map[string]any{})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}
+}
+
+func newFakeFeishuPlatform(t *testing.T, f *fakeFeishuIM) *Platform {
+	t.Helper()
+	srv := httptest.NewServer(f.handler(t))
+	t.Cleanup(srv.Close)
+	const appID, appSecret = "cli_task_card", "secret"
+	return &Platform{
+		platformName: "feishu",
+		domain:       srv.URL,
+		appID:        appID,
+		appSecret:    appSecret,
+		client:       lark.NewClient(appID, appSecret, lark.WithOpenBaseUrl(srv.URL), lark.WithHttpClient(srv.Client())),
+		replayClient: lark.NewClient(appID, appSecret, lark.WithEnableTokenCache(false), lark.WithOpenBaseUrl(srv.URL), lark.WithHttpClient(srv.Client())),
+	}
+}
+
+func TestFeishuTaskCardDestination(t *testing.T) {
+	p := &Platform{platformName: "feishu"}
+	if got, err := p.TaskCardDestination("feishu:oc_chat:ou_user"); err != nil || got != "oc_chat" {
+		t.Fatalf("TaskCardDestination = %q, %v", got, err)
+	}
+	if _, err := p.TaskCardDestination("discord:123:456"); err == nil {
+		t.Fatal("foreign session key accepted")
+	}
+}
+
+func TestFeishuTaskCardPostThenEdit(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	task := &core.Task{ID: "task-1", Title: "整理周报", SessionKey: "feishu:oc_chat:ou_u", ChannelID: "oc_chat", State: core.TaskStateInProgress, LatestProgress: "开始读数据"}
+
+	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
+		t.Fatalf("first EnsureTaskCard: %v", err)
+	}
+	if task.MessageID == "" || len(f.creates) != 1 || len(f.patches) != 0 {
+		t.Fatalf("want one card posted, got id=%q creates=%d patches=%d", task.MessageID, len(f.creates), len(f.patches))
+	}
+	if c := f.creates[0]; c["msg_type"] != "interactive" || c["receive_id"] != "oc_chat" || c["uuid"] == "" {
+		t.Fatalf("create body = %v", c)
+	}
+	if !strings.Contains(f.content[task.MessageID], "开始读数据") {
+		t.Fatalf("card lacks progress: %s", f.content[task.MessageID])
+	}
+
+	first := task.MessageID
+	task.LatestProgress = "写完第二节"
+	task.State = core.TaskStateCompleted
+	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
+		t.Fatalf("second EnsureTaskCard: %v", err)
+	}
+	if task.MessageID != first || len(f.creates) != 1 || len(f.patches) != 1 {
+		t.Fatalf("want an in-place edit, got id=%q creates=%d patches=%d", task.MessageID, len(f.creates), len(f.patches))
+	}
+	if !strings.Contains(f.content[first], "写完第二节") {
+		t.Fatalf("edited card lacks new progress: %s", f.content[first])
+	}
+}
+
+// A lost response to the first post: core retries with no MessageID, and the
+// uuid makes the fake (like Feishu) return the same card, not a second one.
+func TestFeishuTaskCardLostAckDoesNotDuplicate(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	a := &core.Task{ID: "task-2", Title: "t", ChannelID: "oc_chat"}
+	b := &core.Task{ID: "task-2", Title: "t", ChannelID: "oc_chat"}
+	if err := p.EnsureTaskCard(ctx, a, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.EnsureTaskCard(ctx, b, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	if a.MessageID != b.MessageID || len(f.content) != 1 {
+		t.Fatalf("retry posted a second card: %q vs %q, messages=%d", a.MessageID, b.MessageID, len(f.content))
+	}
+}
+
+func TestFeishuTaskCardDeletedIsPostedAgain(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	task := &core.Task{ID: "task-3", Title: "t", ChannelID: "oc_chat"}
+	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
+		t.Fatal(err)
+	}
+	old := task.MessageID
+	f.gone[old] = true
+	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
+		t.Fatalf("EnsureTaskCard after delete: %v", err)
+	}
+	if task.MessageID == "" || task.MessageID == old {
+		t.Fatalf("deleted card not reposted: %q (old %q)", task.MessageID, old)
+	}
+}
+
+func TestFeishuPublishTaskFactRepliesInThread(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	task := &core.Task{ID: "task-4", Title: "t", ChannelID: "oc_chat", MessageID: "om_card"}
+	ev := core.TaskEvent{ID: "task-4:1", TaskID: "task-4", Seq: 1, Summary: "读完了数据"}
+	if err := p.PublishTaskFact(ctx, task, ev, core.LangChinese); err != nil {
+		t.Fatalf("PublishTaskFact: %v", err)
+	}
+	if len(f.replies) != 1 {
+		t.Fatalf("replies = %d", len(f.replies))
+	}
+	r := f.replies[0]
+	if r["root"] != "om_card" || r["reply_in_thread"] != true || r["uuid"] == "" {
+		t.Fatalf("reply body = %v", r)
+	}
+	if err := p.PublishTaskFact(ctx, &core.Task{ID: "x"}, ev, core.LangChinese); err == nil {
+		t.Fatal("fact before card accepted")
+	}
+}
+
+func TestFeishuBoardPostPinThenEdit(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**团队任务板**\n龙娘 进行中")
+	if err != nil || id == "" {
+		t.Fatalf("UpsertBoard post: %q, %v", id, err)
+	}
+	if len(f.pins) != 1 || f.pins[0] != id {
+		t.Fatalf("board not pinned: %v", f.pins)
+	}
+	if !strings.Contains(f.content[id], "团队任务板") || !strings.Contains(f.content[id], "龙娘 进行中") {
+		t.Fatalf("board card = %s", f.content[id])
+	}
+	got, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n龙娘 已完成")
+	if err != nil || got != id {
+		t.Fatalf("UpsertBoard edit: %q, %v", got, err)
+	}
+	if len(f.creates) != 1 || len(f.patches) != 1 || !strings.Contains(f.content[id], "龙娘 已完成") {
+		t.Fatalf("want in-place edit: creates=%d patches=%d content=%s", len(f.creates), len(f.patches), f.content[id])
+	}
+
+	// Board deleted by hand: post and pin a new one.
+	f.gone[id] = true
+	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n空")
+	if err != nil || again == "" || again == id || len(f.pins) != 2 {
+		t.Fatalf("deleted board not reposted: %q, %v, pins=%v", again, err, f.pins)
+	}
+}
+
+// Pin refused (e.g. missing scope): the posted ID still comes back with the
+// error, so core keeps it and edits that card next time.
+func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
+	f := newFakeFeishuIM()
+	f.pinFail = true
+	p := newFakeFeishuPlatform(t, f)
+	id, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", "", "**板**\nx")
+	if err == nil || id == "" {
+		t.Fatalf("want id with pin error, got %q, %v", id, err)
+	}
+	if errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		t.Fatal("pin failure must not give up the board")
+	}
+}
