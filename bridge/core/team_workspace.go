@@ -836,10 +836,10 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 	return e.ClaimTeamWorkspaceFor(channel, wsID, name, "", "")
 }
 
-// ClaimTeamWorkspaceFor is ClaimTeamWorkspace naming who the task goes to (owner, optional:
+// ClaimTeamWorkspaceFor is ClaimTeamWorkspace naming who the task goes to (taskOwner, optional:
 // mentioned when the ten-minute watch nudges) and its short title (optional). Every claim is
 // watched: its handoff gets a check time watchCheckAfter from now (team_watch.go).
-func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, owner, title string) error {
+func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title string) error {
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
 		return errors.New("team workspace claim: chat channel and workspace id are required")
 	}
@@ -933,7 +933,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, owner, title string)
 	}
 	wk := plat + ":" + wsID
 	now := time.Now()
-	st.Handoffs[wk] = append(st.Handoffs[wk], TeamHandoff{Chat: chat, At: now, Owner: owner, Title: title, Due: now.Add(watchCheckAfter)})
+	st.Handoffs[wk] = append(st.Handoffs[wk], TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title, Due: now.Add(watchCheckAfter)})
 	return saveTeamWorkspacesLocked(path, st)
 }
 
