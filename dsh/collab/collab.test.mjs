@@ -3710,3 +3710,28 @@ test('block B: due follow-up enters native, CLI and cloud-web member routing in 
   native.turn(agent, ['checked']); await settle();
   later.close(); gateway.closeAll(); await members.close();
 });
+
+import { writeFileSync as writeKeyFile, readFileSync as readKeyFile } from 'node:fs';
+test('later: empty or short key file is regenerated to 32 bytes; old tickets stop verifying', () => {
+  for (const bad of ['', 'abcd']) {
+    const dir = mkdtempSync(join(tmpdir(), 'later-key-'));
+    const path = join(dir, 'collab.sqlite3'); const keyFile = join(dir, 'later.key');
+    const store = new Store(path); store.ensureRoom(1, 'general');
+    const hub = makeHubFrom(store);
+    const first = new Later(hub, path, () => false, { start: false });
+    const oldTicket = first.ticket('cli', 1);
+    assert.deepEqual(first.verify(oldTicket), { member: 'cli', room: 1 });
+    writeKeyFile(keyFile, bad);
+    const second = new Later(hub, path, () => false, { start: false });
+    assert.equal(second.key.length, 32, `regenerated from ${JSON.stringify(bad)}`);
+    assert.equal(Buffer.from(readKeyFile(keyFile, 'utf8').trim(), 'hex').length, 32);
+    assert.equal(statSync(keyFile).mode & 0o777, 0o600);
+    assert.equal(second.verify(oldTicket), undefined, 'old ticket no longer verifies');
+    const forged = `${oldTicket.split('.')[0]}.${createHmacForTest(Buffer.alloc(0), oldTicket.split('.')[0])}`;
+    assert.equal(second.verify(forged), undefined, 'empty-key forgery rejected');
+    assert.deepEqual(second.verify(second.ticket('cli', 1)), { member: 'cli', room: 1 }, 'new ticket verifies');
+    assert.deepEqual(new Later(hub, path, () => false, { start: false }).verify(second.ticket('cli', 1)), { member: 'cli', room: 1 }, 'key persists');
+  }
+});
+import { createHmac as createHmacTest } from 'node:crypto';
+function createHmacForTest(key, payload) { return createHmacTest('sha256', key).update(payload).digest('base64url'); }

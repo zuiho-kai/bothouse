@@ -2,7 +2,7 @@
 // plugin's HTTP route and is bound to (member, room) by an HMAC ticket the plugin
 // hands each member with its prompt; the plugin owns delivery through the member routers.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CollabError } from './store.mjs';
@@ -25,12 +25,28 @@ export function registerLater(db, { member, room, delay, title, todo }, now = Da
   return db.prepare('INSERT INTO member_later (member_id, room_id, due_at, title, todo) VALUES (?, ?, ?, ?, ?) RETURNING *')
     .get(member, room, now + ms, title.trim(), todo.trim());
 }
-/** Load the plugin's ticket key, creating it (0600) on first use; ':memory:' stores get a per-process key. */
+/**
+ * Load the plugin's ticket key, creating it (0600) when missing; ':memory:' stores get a per-process key.
+ * A key file that does not decode to 32 bytes (empty, truncated, garbage) is replaced atomically
+ * (temp 0600 -> fsync -> rename) and re-read, so racing processes settle on the renamed file.
+ * Never falls back to an empty key: an unreadable result throws.
+ */
 function loadKey(file) {
   if (!file) return randomBytes(32);
-  try { return Buffer.from(readFileSync(file, 'utf8').trim(), 'hex'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  try { writeFileSync(file, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
-  return Buffer.from(readFileSync(file, 'utf8').trim(), 'hex');
+  const read = () => {
+    try { const key = Buffer.from(readFileSync(file, 'utf8').trim(), 'hex'); return key.length === 32 ? key : undefined; } catch (error) { if (error.code === 'ENOENT') return undefined; throw error; }
+  };
+  const existing = read();
+  if (existing) return existing;
+  const tmp = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    const fd = openSync(tmp, 'wx', 0o600);
+    try { writeSync(fd, randomBytes(32).toString('hex')); fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(tmp, file);
+  } catch (error) { try { unlinkSync(tmp); } catch {} throw error; }
+  const key = read();
+  if (!key) throw new Error(`later: ticket key ${file} is not 32 bytes after regeneration`);
+  return key;
 }
 const b64 = value => Buffer.from(value).toString('base64url');
 /** Unverified decode, for the local command to find the room; the plugin verifies. */
