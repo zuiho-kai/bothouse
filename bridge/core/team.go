@@ -73,6 +73,38 @@ func (e *Engine) readLeadSelection() (string, bool) {
 	return strings.TrimSpace(selection.Lead), true
 }
 
+// selectedTeamLead is the shared lead selection, ignored when it names a role
+// this bridge cannot find. lead.json lives in the shared data directory and can
+// outlive a removed role; trusting it then would leave the whole team silent,
+// so the configured lead takes over instead.
+func (e *Engine) selectedTeamLead() (string, bool) {
+	selected, ok := e.readLeadSelection()
+	if !ok {
+		return "", false
+	}
+	if selected == e.name || e.leadCandidateKnown(selected) {
+		return selected, true
+	}
+	return "", false
+}
+
+// leadCandidateKnown reports whether name is a role this bridge can see: a
+// project running in this process, or a teammate writing to the shared team
+// status board. Without a relay manager there is no member list to check
+// against, so the selection is trusted as before.
+func (e *Engine) leadCandidateKnown(name string) bool {
+	rm := e.relayManager
+	if rm == nil || rm.HasEngine(name) {
+		return true
+	}
+	if t := e.team; t != nil && t.dir != "" && !strings.ContainsAny(name, `/\`) {
+		if _, err := os.Stat(filepath.Join(t.dir, name+teamStatusFileExt)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // suppressUnaddressedGroup prevents a no-gate team sub from starting a turn
 // for a group message that has no explicit recipient. A configured gate owns
 // this decision when present, so this is deliberately only called by the
@@ -87,16 +119,25 @@ func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
 		// A multi-role setup from the wizard names its lead in team_lead_bot on every
 		// member but may have no team status board; without a gate that setting alone
 		// decides: the lead answers unaddressed messages, the subs only listen.
+		// A lead chosen later (DSH member bar, gate sentence, `lead me`) is in the
+		// shared lead.json and wins over team_lead_bot, but only for members of
+		// such a team: a solo bot never reads it.
 		self, ok := p.(ConfiguredTeamLeadSelf)
 		if !hasLead || !ok {
 			return false
 		}
-		return msg.AddressedOther || !self.IsConfiguredTeamLead()
+		if msg.AddressedOther {
+			return true
+		}
+		if selected, ok := e.selectedTeamLead(); ok {
+			return selected != e.name
+		}
+		return !self.IsConfiguredTeamLead()
 	}
 	if hasLead && msg.AddressedOther {
 		return true // @-ed or named a teammate: that teammate answers, not the lead
 	}
-	if selected, ok := e.readLeadSelection(); ok {
+	if selected, ok := e.selectedTeamLead(); ok {
 		return selected != e.name
 	}
 	if !hasLead {
@@ -414,7 +455,7 @@ func (e *Engine) isTeamLead() bool {
 		return false
 	}
 	if path := e.leadStatePath(); path != "" {
-		if selected, ok := e.readLeadSelection(); ok {
+		if selected, ok := e.selectedTeamLead(); ok {
 			return selected == e.name
 		}
 		// No explicit selection means the configured wizard lead remains active.
