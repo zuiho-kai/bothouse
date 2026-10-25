@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
@@ -3835,6 +3836,24 @@ test('block B: ACP prompt actually includes image/resource blocks', async () => 
   assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
 });
 
+test('later command: entry point runs from a path containing Chinese, spaces and percent signs', async () => {
+  const { copyFileSync, realpathSync } = await import('node:fs');
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), '提醒 测试%-')));
+  for (const name of ['later.mjs', 'store.mjs']) copyFileSync(new URL(`./${name}`, import.meta.url), join(dir, name));
+  // pathToFileURL also escapes literal percent signs in filesystem paths.
+  const { pathToFileURL } = await import('node:url');
+  const script = fileURLToPath(pathToFileURL(join(dir, 'later.mjs')));
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script]);
+    let stderr = '';
+    child.stderr.on('data', data => { stderr += data; });
+    child.on('error', reject);
+    child.on('close', status => resolve({ status, stderr }));
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /usage: later\.mjs/);
+});
+
 test('block B: local later command registers through the ticketed HTTP route, not the database', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'blockb-command-'));
   const path = join(dir, 'collab.sqlite3');
@@ -3849,7 +3868,7 @@ test('block B: local later command registers through the ticketed HTTP route, no
   try {
   later.origin = `http://127.0.0.1:${server.address().port}`;
   assert.match(later.instructions('cli', 1), new RegExp(later.ticket('cli', 1).replace(/[.]/g, '\\.')));
-  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [fileURLToPath(new URL('./later.mjs', import.meta.url)), ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
   assert.notEqual((await run([later.origin, 'forged.ticket', '1s', 'check', 'read results'])).status, 0);
   assert.notEqual((await run([later.origin, later.ticket('cli', 1).slice(0, -2) + 'xx', '1s', 'check', 'read results'])).status, 0, 'tampered ticket rejected');
   const result = await run([later.origin, later.ticket('cli', 1), '1s', 'check', 'read results']);
