@@ -297,6 +297,104 @@ func TestWatchStartedFires(t *testing.T) {
 	t.Fatal("started watch did not park the task")
 }
 
+// #597 K5b: the bridge starts the watch with its API server (main: engines started, then
+// apiSrv.Start); BOTHOUSE_WATCH_TEST_SECONDS shortens the check so a claim is checked and, with
+// no progress, nudged once and parked.
+func TestWatchStartsWithAPIServer(t *testing.T) {
+	setWatchCheckAfter(t, watchCheckAfter()) // restore after the env var changed it
+	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "1")
+	e, _, p := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
+	e.teamWS = newTeamWorkspaces()
+	dir, err := os.MkdirTemp("", "k5b") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	old := activeAPISocket.Load()
+	t.Cleanup(func() {
+		if old != nil {
+			activeAPISocket.Store(old)
+		}
+	})
+	s, err := NewAPIServer(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.RegisterEngine("orange", e)
+	if e.handoffWatchOn.Load() {
+		t.Fatal("registering before Start must not start the watch")
+	}
+	s.Start()
+	t.Cleanup(s.Stop)
+	if !e.handoffWatchOn.Load() || watchCheckAfter() != time.Second {
+		t.Fatalf("Start: watch on %v, check after %v", e.handoffWatchOn.Load(), watchCheckAfter())
+	}
+	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "u1", "K5b"); err != nil {
+		t.Fatal(err)
+	}
+	if h := handoffsOf(e, "discord:ws1")[0]; h.Due.Sub(h.At) != time.Second {
+		t.Fatalf("claim due %v after the claim, want 1s", h.Due.Sub(h.At))
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !handoffsOf(e, "discord:ws1")[0].Parked.IsZero() {
+			time.Sleep(50 * time.Millisecond)
+			if n := len(p.sentTo("discord:ws1")); n != 1 {
+				t.Fatalf("one nudge, got %d", n)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the started bridge did not check the claim")
+}
+
+// A hot load (RegisterEngine after Start) or removal that changes the team workspace engine
+// moves the watch there: the old one is stopped first, so one file has one watcher.
+func TestWatchMovesWithTeamWorkspaceEngine(t *testing.T) {
+	setWatchCheckAfter(t, 30*time.Millisecond)
+	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "")
+	orange, _, p := exitFixture(t, nil)
+	orange.SetTeam(t.TempDir(), "橘", true)
+	orange.markPlatformReady(p)
+	orange.teamWS = newTeamWorkspaces()
+	alpha, _, _ := exitFixture(t, nil)
+	alpha.teamWS = newTeamWorkspaces()
+	other, _, _ := exitFixture(t, nil) // no team workspaces: never the watch engine
+	s := &APIServer{engines: map[string]*Engine{"orange": orange}}
+	s.watch.serving = true
+	s.startHandoffWatch()
+	s.RegisterEngine("beta", other)
+	if !orange.handoffWatchOn.Load() || other.handoffWatchOn.Load() {
+		t.Fatal("an engine without team workspaces does not take the watch")
+	}
+	s.RegisterEngine("alpha", alpha) // sorts first: teamWorkspaceEngine() is alpha now
+	if !alpha.handoffWatchOn.Load() || orange.handoffWatchOn.Load() {
+		t.Fatalf("hot load: watch on alpha %v, orange %v", alpha.handoffWatchOn.Load(), orange.handoffWatchOn.Load())
+	}
+	s.UnregisterEngine("alpha")
+	if alpha.handoffWatchOn.Load() || !orange.handoffWatchOn.Load() {
+		t.Fatalf("removal: watch on alpha %v, orange %v", alpha.handoffWatchOn.Load(), orange.handoffWatchOn.Load())
+	}
+	if err := orange.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "u1", "t"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !handoffsOf(orange, "discord:ws1")[0].Parked.IsZero() {
+			time.Sleep(100 * time.Millisecond)
+			if n := len(p.sentTo("discord:ws1")); n != 1 {
+				t.Fatalf("one watcher: one nudge, got %d", n)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the moved watch did not park the task")
+}
+
 func TestWatchListShowsDue(t *testing.T) {
 	e, _, _, h := watchFixture(t, "u1", "")
 	if got := e.teamWorkspaceWatchDue("discord:ws1"); !got.Equal(h.Due) {
