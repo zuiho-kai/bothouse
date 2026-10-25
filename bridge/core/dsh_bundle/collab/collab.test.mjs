@@ -3210,6 +3210,25 @@ test('CLI member: the placeholder binding becomes the real ACP sessionId, and a 
   assert.equal(hub2.store.page(1, undefined, 20).filter(m => m.author === 'system' && /新会话/.test(m.text)).length, 0);
 });
 
+test('CLI member: /new drops the stored ACP session, so the next turn does not resume it', async () => {
+  const hub = makeHub();
+  const asks = [];
+  cliMembers(hub, async (_text, _room, _onText, _onTool, opts) => {
+    asks.push(opts.resumeId);
+    opts.onSession({ sessionId: `acp-${asks.length}`, lost: false });
+    return '好';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'acp-1');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'cli:claude:cc:1', '/new points the binding back at the placeholder');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined, undefined], 'the turn after /new has no resumeId');
+});
+
 test('CLI member: a session that cannot be resumed is announced in the channel', async () => {
   const hub = makeHub();
   hub.store.bind('cc', 1, 'acp-old');

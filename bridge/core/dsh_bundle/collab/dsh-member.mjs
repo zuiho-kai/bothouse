@@ -722,8 +722,14 @@ export class DshMembers {
     const member = this.config.get(memberId);
     const room = this.store.room(msg.room_id);
     if (member === undefined || room === undefined) return;
-    if (member.cli !== undefined) this.cliAgents.get(member.id)?.agent.sessions?.delete(String(room.id));
-    else await this.createAgent(member, room);
+    if (member.cli !== undefined) {
+      // Drop the live and the persisted ACP session and point the binding back at
+      // runCli's placeholder, so the next turn has no resumeId to session/load.
+      const agent = this.cliAgents.get(member.id)?.agent;
+      agent?.sessions?.delete(String(room.id));
+      agent?.saved?.delete(String(room.id));
+      if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+    } else await this.createAgent(member, room);
     if (this.closed) return;
     this.store.advanceCursor(member.id, room.id, msg.id);
     this.hub.post(room.id, {
