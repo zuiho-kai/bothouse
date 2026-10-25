@@ -755,6 +755,42 @@ describe('multi-line messages and the narrow composer', () => {
     expect(markdown()).toBe(before)
   })
 
+  // Markdown that members actually send, with the edge cases earlier line-regex versions got wrong.
+  // Against develop (text unchanged) the only difference allowed is a <br> where a paragraph had a
+  // soft line ending; code, math, tables and HTML render byte for byte the same.
+  it.each([
+    ['inline code at line start', '```x``` 是行内\n甲\n乙', 2],
+    ['fence on a list item line', '- ```bash\n  a\n  b\n  ```\n\n甲\n乙', 1],
+    ['fence in a block quote', '> 引\n> ```\n> a\n> b\n> ```\n> 尾', 0],
+    ['fence in a nested list', '- 外\n  - 内\n    ```\n    a\n    b\n    ```', 0],
+    ['unclosed fence', '前\n甲\n\n```\na\nb', 1],
+    ['quoted fence ended by the quote', '> ```\n> a\n\n甲\n乙', 1],
+    ['inline code across lines', '用 `a\nb` 跑\n下一行', 1],
+    ['trailing backslash and spaces', '行一  \n行二\\\n行三\n行四', 1],
+    ['math block', '前\n\n$$\na\nb\n$$\n\n后\n行', 1],
+    ['TeX display math', '\\[\na \\\\\nb\n\\]\n\n后', 0],
+    ['table', '说明\n\n| a | b |\n| --- | --- |\n| 1 | 2 |', 0],
+    ['HTML block', '<div>\na\nb\n</div>', 0],
+    ['CRLF', '甲\r\n乙\r\n\r\n```\r\na\r\nb\r\n```', 1],
+  ])('renders %s like develop plus line breaks', (_name, text, breaks) => {
+    const labels = { code: { copyLabel: zh.copyCode, copiedLabel: zh.copiedCode }, footnotes: zh.footnotes }
+    const markdown = () => document.querySelector('[class*="_markdown_"]')?.innerHTML ?? ''
+    const codes = () => Array.from(document.querySelectorAll('pre, code, .katex-display')).map(node => node.textContent?.replace(/\r/g, ''))
+    render(<MarkdownText text={text} labels={labels} />)
+    const before = markdown()
+    const beforeCodes = codes()
+    const beforeBreaks = document.querySelectorAll('br').length
+    expect(before).toBeTruthy()
+    cleanup()
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
+    expect(document.querySelectorAll('[class*="_markdown_"] br').length - beforeBreaks).toBe(breaks)
+    expect(codes()).toEqual(beforeCodes)
+    for (const code of codes()) expect(code).not.toMatch(/ \n/)
+    // CRLF becomes LF before parsing, so code copied from a CRLF message has LF line endings.
+    const plain = (html: string) => html.replace(/<br>\n?/g, '\n').replace(/\r/g, '')
+    expect(plain(markdown())).toBe(plain(before))
+  })
+
   it('breaks a continued list item onto its own line', () => {
     render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text: '- 甲\n  续行\n- 乙' }] })} />)
     const items = document.querySelectorAll('li')
