@@ -3566,6 +3566,29 @@ test('block B: native and CLI members receive image and file blocks via shared w
   await ds.close();
 });
 
+test('block B: DSH rejecting an image batch still delivers the text and advances', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-reject-')));
+  const attachments = files.save([{ name: 'a.png', mime: 'image/png', data: Buffer.from('png').toString('base64') }]);
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async () => { throw new Error('too many images'); },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1);
+  assert.match(agent.prompts[0].content[0].text, /a\.png: attachment not delivered \(too many images\)/);
+  assert.equal(agent.prompts[0].content.length, 1);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  await ds.close();
+});
+
 test('block B: later survives restart, keeps offline wakes and delivers once to each member kind', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'blockb-later-')), 'collab.sqlite3');
   let store = new Store(path); store.ensureRoom(1, 'general');

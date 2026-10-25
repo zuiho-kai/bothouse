@@ -35,7 +35,7 @@ export function memberStatus(hub, tasks = hub?.tasks) {
   }).join('\n');
 }
 import { mentions, nameCalled, split } from './mentions.mjs';
-import { quotePrefix } from './store.mjs';
+import { messageAttachments, quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
 import { attachmentBlocks, nativeAttachmentBlocks } from './attachments.mjs';
 
@@ -467,8 +467,18 @@ export class DshMembers {
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
       .slice(-CONTEXT_LIMIT);
-    const media = await nativeAttachmentBlocks(this.rt.ctx.attachments, attachmentBlocks(this.rt.files, unseen));
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
+    // DSH validates images again (count, total bytes, type, pixels). If it rejects the
+    // batch, drop the attachments and tell the member in text instead of failing the
+    // turn: a failed turn never advances the cursor, so the same image would block the room.
+    let media = [];
+    let dropped = '';
+    try {
+      media = await nativeAttachmentBlocks(this.rt.ctx.attachments, attachmentBlocks(this.rt.files, unseen));
+    } catch (err) {
+      const names = unseen.flatMap(messageAttachments).map(a => a.name);
+      dropped = `\n\n[${names.join(', ')}: attachment not delivered (${err?.message ?? err})]`;
+    }
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     await this.admitAndSettle(job, member, agent, input, seqBefore);
