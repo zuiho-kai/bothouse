@@ -4,6 +4,8 @@ DSH 首次向导另走 /setup/dsh/status 与 /setup/dsh/install，复用 dsh/ins
 
 bothouse 把聊天平台与本机智能体连接起来，在会话层增加团队协作、进展反馈与可选的共享记忆。平台入口、模型后端和记忆目录分别配置。
 
+私密硬件语音通过 `/relay/voice` 使用独立会话。可选的 [公开正文流式播放](VOICE_SENTENCE_STREAM.md) 将答复字段增量经 ACP、桥接句子回执送入 TTS，设备可在完整答复前取音频；思考与工具参数不进入朗读，失败停止后续输出。
+
 ## 消息如何流动
 
 ```mermaid

@@ -38,6 +38,10 @@ type voiceRelayResult struct {
 	Text           string `json:"text"`
 	Error          string `json:"error"`
 	AgentSessionID string `json:"agent_session_id"`
+	// Only for requests with stream=true: complete public sentences so far,
+	// and once completed, the public text after them. Cleared on failure.
+	Sentences []string `json:"sentences,omitempty"`
+	Rest      string   `json:"rest,omitempty"`
 }
 type voiceRelayEntry struct {
 	Digest string           `json:"digest"`
@@ -89,6 +93,7 @@ func (rm *RelayManager) initVoiceRelay(dataDir string) {
 			entry.Result.Status = "failed"
 			entry.Result.Error = "relay interrupted by restart; outcome unknown; do not resubmit"
 			entry.Result.Text = ""
+			entry.Result.Sentences, entry.Result.Rest = nil, ""
 		}
 	}
 	v.saveLocked()
@@ -215,10 +220,35 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 		v.Entries[req.RequestID].Result.AgentSessionID = id
 		return v.saveLocked()
 	}
-	text, err := e.collectVoiceRelay(ctx, req, prior, saveID)
+	var split *voiceSentenceSplitter
+	var progress func(string, bool)
+	if req.Stream {
+		split = &voiceSentenceSplitter{}
+		progress = func(delta string, boundary bool) {
+			v.mu.Lock()
+			defer v.mu.Unlock()
+			entry := v.Entries[req.RequestID]
+			// Cancelled or failed receipts never grow again.
+			if entry == nil || entry.Result.Status != "running" {
+				split.frozen = true
+				return
+			}
+			var added []string
+			if boundary {
+				added = split.boundary()
+			} else {
+				added = split.feed(delta)
+			}
+			entry.Result.Sentences = append(entry.Result.Sentences, added...)
+		}
+	}
+	text, err := e.collectVoiceRelay(ctx, req, prior, saveID, progress)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	entry := v.Entries[req.RequestID]
+	if err == nil && split != nil && !strings.HasPrefix(text, strings.Join(entry.Result.Sentences, "")) {
+		err = fmt.Errorf("final voice answer changed its published prefix")
+	}
 	if err == nil && ctx.Err() != nil {
 		err = ctx.Err()
 	}
@@ -236,21 +266,28 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 	if err != nil {
 		entry.Result.Status = "failed"
 		entry.Result.Error = "voice relay failed; no complete public answer; check conversation before retrying"
+		entry.Result.Sentences = nil
 	} else {
 		entry.Result.Status = "completed"
 		entry.Result.Text = text
+		if split != nil && len(entry.Result.Sentences) > 0 {
+			entry.Result.Rest = strings.TrimPrefix(text, strings.Join(entry.Result.Sentences, ""))
+		}
 	}
 	if v.saveLocked() != nil {
 		entry.Result.Status = "failed"
 		entry.Result.Text = ""
 		entry.Result.Error = "receipt persistence failed; outcome unknown"
+		entry.Result.Sentences, entry.Result.Rest = nil, ""
 	}
 }
 
 // collectVoiceRelay shares relay workspace resolution, but has a fail-closed
 // result collector: no group visibility, partial success, tool output or
 // automatic permission approval. An unknown prior ID is never cleared.
-func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior voiceRelayConversation, saveID func(string, string) error) (answer string, err error) {
+// progress (stream requests only) receives public text deltas, and a boundary
+// when a tool call ends the current assistant message.
+func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior voiceRelayConversation, saveID func(string, string) error, progress func(string, bool)) (answer string, err error) {
 	submitted := false
 	defer func() {
 		if err != nil && !submitted {
@@ -270,8 +307,12 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	if !ok {
 		return "", fmt.Errorf("backend does not support isolated voice relay")
 	}
+	stream := "0"
+	if req.Stream {
+		stream = "1"
+	}
 	session, err := starter.StartVoiceRelay(ctx, prior.ID, []string{
-		"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey,
+		"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey, "CC_VOICE_STREAM=" + stream,
 	})
 	if err != nil {
 		return "", err
@@ -348,6 +389,13 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 					return "", fmt.Errorf("relay answer too large")
 				}
 				text.WriteString(event.Content)
+				if progress != nil && event.Content != "" {
+					progress(event.Content, false)
+				}
+			case EventToolUse:
+				if progress != nil {
+					progress("", true)
+				}
 			case EventResult:
 				if !event.Done {
 					continue
@@ -427,6 +475,7 @@ func (s *APIServer) handleVoiceRelay(w http.ResponseWriter, r *http.Request) {
 		entry.Result.Status = "failed"
 		entry.Result.Text = ""
 		entry.Result.Error = "voice relay cancelled; execution may already have occurred"
+		entry.Result.Sentences, entry.Result.Rest = nil, ""
 		if err := rm.voice.saveLocked(); err != nil {
 			inputHTTPError(w, 503, err)
 			return
