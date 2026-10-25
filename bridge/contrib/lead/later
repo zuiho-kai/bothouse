@@ -4,8 +4,7 @@
 #   「补，我要大家都能这样，而不是只有你」
 # 2026-10-25 起记在原条目上、不再新建回看条目（回看条目占了当天收尾条目的大半，把任务板刷满）。
 # 用法：later <任务板编号> <延时如 10m/1h> "<到点要做什么>"
-# 依赖任务板的 `board next <编号> <几点>` / `board next <编号> --restore '<JSON>'`（只改「下次看」，要 BOARD_LATER=1；
-#   打印两行：改前的 next 记录 JSON、条目的事情）。
+# 「下次看」由下面的 setnext 直接改任务板（../gate/board.py 的条目，同一把锁），只改 next/next_ts，不动状态和「谁」。
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 usage='用法：later <任务板编号> <延时如 10m> "<到点要做什么>"（编号是任务板上已有的条目，没有就先 board add 正经条目）'
@@ -24,12 +23,39 @@ if [ -z "$cc" ]; then
   cc=$(command -v bothouse || command -v cc-connect) || { echo "later：找不到 bothouse / cc-connect（可设 CC_BIN）" >&2; exit 1; }
 fi
 at=$(python3 -c 'import datetime,sys;print((datetime.datetime.now()+datetime.timedelta(minutes=int(sys.argv[1]))).strftime("%H:%M"))' "$mins")
-# board next：只改「下次看」；第一行改前记录（回滚用），第二行条目的事情（定时描述要等于它，任务板靠它对上定时）
-out=$(BOARD_LATER=1 "$here/board" next "$id" "$at") || exit 1
+gate=${GATE_DIR:-$here/../gate}
+# setnext <编号> <几点> | setnext <编号> --restore '<JSON>'：只改「下次看」并重画置顶卡；
+#   打印两行：改前的 next 记录（JSON，回滚用）、条目的事情（定时描述要等于它，任务板靠它对上定时）
+setnext() {
+  python3 -I -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import board
+nid, arg = int(sys.argv[2]), sys.argv[3:]
+with board._locked():
+    cur = board._read()
+    hit = next((i for i in cur if i["id"] == nid), None)
+    if hit is None:
+        sys.exit(f"没有 #{nid}：later 只能挂在任务板已有的条目上，先 board add 正经条目（事情、分支/PR/路径、状态、谁）")
+    prev = {k: hit[k] for k in ("next", "next_ts") if k in hit}
+    hit.pop("next", None), hit.pop("next_ts", None)
+    if arg[0] == "--restore":
+        hit.update({k: v for k, v in json.loads(arg[1]).items() if k in ("next", "next_ts")})
+    else:
+        hit["next"], hit["next_ts"] = arg[0], board._deadline(arg[0])
+    if not hit.get("ch") and board._cur_channel():
+        hit["ch"] = board._cur_channel()
+    board._write(cur)
+print(json.dumps(prev, ensure_ascii=False))
+print(str(hit.get("what", "")).replace("\n", " "))
+board.refresh({board._chan_of(nid), board._cur_channel()})
+' "$gate" "$@"
+}
+out=$(setnext "$id" "$at") || exit 1
 prev=$(printf '%s\n' "$out" | sed -n 1p)
 what=$(printf '%s\n' "$out" | sed -n 2p)
 # 卡片上有「下次看」⇔ 定时真挂上了：timer 失败就把 next 改回原值再报错
 "$cc" timer add -p "$proj" -s "$sk" --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #$id：$todo；做完照常 board done $id，没做完 later $id <延时> \"<到点要做什么>\" 再挂。" >/dev/null || {
-  BOARD_LATER=1 "$here/board" next "$id" --restore "$prev" >/dev/null || true
+  setnext "$id" --restore "$prev" >/dev/null || true
   echo "定时没挂上，#$id 的「下次看」已改回原值" >&2; exit 1; }
 echo "已挂：$at 回来，任务板 #$id"

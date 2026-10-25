@@ -43,7 +43,7 @@
   `../gate/ctxsvc.py` 把整张板附进每个 bot 每轮的上下文（板子变了才重推，没用过任务板不附）。
   每次增改结束后，在条目所在频道（`CC_SESSION_KEY`）把「还没做完的事」编辑进同一条置顶消息；
   Discord token 读 `DISCORD_BOT_TOKEN` 或 `<GATE_SETUP_DIR>/secrets.env`，读不到只警告。
-- `later <任务板编号> <延时如 10m> "<到点要做什么>"`：挂 `cc-connect timer`，并在任务板上这条已有条目记「下次看 几点」（`board next`，
+- `later <任务板编号> <延时如 10m> "<到点要做什么>"`：挂 `cc-connect timer`，并在任务板上这条已有条目记「下次看 几点」（只改「下次看」，
   不新建回看条目），用户在置顶卡片上看得见。所有角色（主和次）都能用：没有条目先 `board add` 正经条目；会话按 `CC_SESSION_KEY`、
   `CC_SESSION` 顺序取，都没有就报错、不写板；定时挂不上会把「下次看」改回原值。DSH 运行时会删掉名字含 KEY 的环境变量（dsh-subprocess 过滤
   `/KEY|PASSWORD|SECRET|TOKEN/i`），所以 DSH 的启动入口要加一行 `export CC_SESSION="${CC_SESSION_KEY:-}"`。
