@@ -20,7 +20,7 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
   // framework seats are deliberately absent so an accidental new read fails.
   return {
     useChannels: (select: (s: ChannelSnapshot) => unknown) => select(state),
-    selectRoom: vi.fn(), send,
+    selectRoom: vi.fn(), send, openModelSettings: () => false,
     createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
     setLead: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}),
@@ -142,6 +142,21 @@ describe('channels page', () => {
     expect(() => render(<ChannelsPage {...props(withCard)} />)).not.toThrow()
     expect(screen.getByText('need model')).toBeTruthy()
     expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
+  })
+
+  it.each([true, false])('routes model configuration with shell available=%s', (available) => {
+    const card = JSON.stringify({ title: 'model', state: 'error', action: 'configure-model' })
+    const state = { ...ready, messages: [{ ...ready.messages[0], card }] }
+    const openModelSettings = vi.fn(() => available)
+    render(<ChannelsPage {...props(state)} openModelSettings={openModelSettings} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.configureModel }))
+    expect(openModelSettings).toHaveBeenCalledOnce()
+    if (available) expect(screen.queryByText(zh.configureModelHint)).toBeNull()
+    else {
+      expect(screen.getByText(zh.configureModelHint)).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: zh.close }))
+      expect(screen.queryByText(zh.configureModelHint)).toBeNull()
+    }
   })
 
   it('renders configured rooms, members, working state and message text without interpreting HTML', () => {

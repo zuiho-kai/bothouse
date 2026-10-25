@@ -23,6 +23,8 @@ import css from './ChannelsPage.module.css'
 
 /** Injected share: the channel snapshot source and its actions. */
 export interface ChannelsInjected extends ChannelActions {
+  /** Open shell models, or return false for the standalone web hint. */
+  readonly openModelSettings: () => boolean
   readonly hooks: { readonly channels: HostObservable<ChannelSnapshot> }
 }
 
@@ -260,7 +262,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -658,7 +660,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   message={m}
                   member={byId.get(m.author)}
                   t={t}
-                  onConfigure={() => { setModelsOpen(true) }}
+                  onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
                   menuOpen={avatarMenu === m.id}
                   cardView={cardView}
                   onCardView={chooseCardView}
