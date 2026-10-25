@@ -67,7 +67,10 @@ test('finalizer failure never routes through original-step recovery',async()=>{
 const installed={skip:!process.env.DSH_CONTRACT_ENTRY && 'set DSH_CONTRACT_ENTRY to installed dsh bin.js'};
 async function runtime(name) {
   const require=createRequire(realpathSync(process.env.DSH_CONTRACT_ENTRY));
-  return import(pathToFileURL(require.resolve('@deepseek-ai/'+name)).href);
+  // The base profile owns retry; newer CLI manifests no longer expose that
+  // transitive dependency directly to Node's package resolver.
+  const owner=name === 'dsh-llm-retry' ? createRequire(require.resolve('@deepseek-ai/dsh-base')) : require;
+  return import(pathToFileURL(owner.resolve('@deepseek-ai/'+name)).href);
 }
 
 // Use the real installed recovery policy/projection. Only storage, dispatch

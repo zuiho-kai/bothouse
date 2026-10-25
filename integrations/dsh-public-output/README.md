@@ -39,6 +39,14 @@ plugin.mjs 从实际运行的 DSH 安装解析 dsh-llm，确保使用同一个 l
 
 ## 验证与代价
 
+### 一次生成原型：不可部署
+
+`singlePass: true` 是尚未通过真实模型验收的实验选项，默认关闭。它在原请求组装时加入公开答复 schema 和格式说明；直接接收专用数据调用，或从正文起点开始的完整公开原文字段 conest_public_reply。公开字段外文字不进入正文，真实执行工具保持原 ID 和参数。混合公开字段与执行工具、字段缺失或无效、取消和流中断都失败；不回退到第二次生成，也不公开原始草稿。
+
+开启该选项但原请求缺少公开 schema 时，在模型请求之前以 public_schema_missing 终止。不得因为组装链漏加 schema 而静默回到旧模式。默认旧模式的补答 schema 与描述保持原样。
+
+原文标记消除了 JSON 反斜线转义，但实际多轮模型会漏标记；即使本轮说明记入日志，第五轮仍失败。当前中转的最小测试未遵守 Chat Completions 的严格 schema / strict + required 工具选择，Messages 的 any 工具选择也返回普通正文。历史投影一致化本身不能提供缺失的强制约束。必须先在实际接口证明可靠的公开输出契约，再做真实隔离工具、多轮、恢复和取消验收。详见 [测量记录](../../docs/VOICE_LATENCY_OPTIONS_20261025.md)。已有运行配置不启用此选项。
+
 v5 支持 `streamPublic: true`，默认关闭。启用后只增量解码专用 `conest_public_reply` 调用的 `reply` 字符串，公开首字立即下发；原始草稿、普通补答正文、思考和其他工具参数不实时公开。字符串转义和跨块 Unicode 保持完整，疑似标签从 `<` 起暂缓，最终仍做原有完整校验。已发布前缀后出现无效格式、改写、取消或失败会终止本轮，不重试拼接另一个答案，已发前缀无法撤回。仅声明专用字段不代表事实已完成，使用方须尊重最终失败状态。语音部署还需 [ACP 增量补丁](../dsh-acp-stream/README.md) 和 companion 按句播放；打开插件单独一个开关不能证明端到端实时。
 
 ~~~sh
@@ -79,6 +87,7 @@ v2 在失败分支写一条 `conest-public-output` 警告，只含 `stage`、`at
 | transport | 流/请求抛出异常；没有记录或推测供应商错误内容 |
 | provider_error / provider_aborted / max_tokens / unexpected_finish | 供应商返回已分类终态或未知终态；未知原值不写日志 |
 | invalid_reply / unexpected_block | reply 严格校验失败或补答包含非文本/非reasoning块；可以消耗第二次格式尝试 |
+| public_schema_missing / mixed_public_tools | 一次生成请求没有公开 schema，或混合公开字段与执行工具；明确终止，不启动第二次生成 |
 | cancelled / timeout | 调用方取消或共用60秒补答期限触发；不会再尝试 |
 
 这些枚举用于定位下一次失败，不代替上述修复或还原过去现场。若供应商完全不响应取消，其底层请求可能仍在运行/计费；插件能保证自身结束等待并丢弃迟到输出，不能强制终止第三方实现。

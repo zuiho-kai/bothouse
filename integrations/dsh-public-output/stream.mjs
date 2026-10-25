@@ -1,3 +1,39 @@
+export const PUBLIC_OPEN = '<conest_public_reply>';
+export const PUBLIC_CLOSE = '</conest_public_reply>';
+
+// An anchored public field carries literal text, including paths and newlines.
+// Nothing before its opening marker is scanned for a possible public answer.
+export class PublicTextReplyStream {
+  blocks = new Map();
+  sent = '';
+  get raw() { return [...this.blocks.values()].map(block=>block.text).join(''); }
+  get selected() { return this.raw.trimStart().startsWith(PUBLIC_OPEN); }
+
+  push(chunk) {
+    const start = chunk.type === 'block-start' && chunk.blockType === 'text';
+    const end = chunk.type === 'block-end' && chunk.block.type === 'text';
+    if (!start && !end && chunk.type !== 'text-delta') return '';
+    let state = this.blocks.get(chunk.index);
+    if (!state) { state = {text:'',closed:false}; this.blocks.set(chunk.index,state); }
+    if (state.closed) throw Error('closed public text');
+    if (end) { state.text = chunk.block.text; state.closed = true; }
+    else if (!start) state.text += chunk.text;
+    const raw = this.raw.trimStart();
+    let prefix = raw.startsWith(PUBLIC_OPEN) ? raw.slice(PUBLIC_OPEN.length).trimStart() : '';
+    const marker = prefix.indexOf('<');
+    if (marker >= 0) prefix = prefix.slice(0,marker);
+    prefix = prefix.trimEnd();
+    const last = prefix.charCodeAt(prefix.length-1);
+    if (last >= 0xd800 && last <= 0xdbff) prefix = prefix.slice(0,-1);
+    if (prefix.length > 16000) throw Error('public field limit');
+    if ('NO_REPLY'.startsWith(prefix)) prefix = '';
+    if (!prefix.startsWith(this.sent)) throw Error('rewritten public prefix');
+    const delta = prefix.slice(this.sent.length);
+    this.sent = prefix;
+    return delta;
+  }
+}
+
 // Only a named data call's reply string becomes public before completion.
 export class PublicReplyStream {
   index; id; name;

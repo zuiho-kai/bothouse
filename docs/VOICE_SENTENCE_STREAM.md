@@ -24,6 +24,10 @@ companion 每0.4秒轮询，核对 request_id、relay_key 与稳定的 agent_ses
 
 ## 验证
 
+双向 TTS 客户端候选位于 companion/voice/volc_bidirectional.py，应用尚未实例化，没有启用开关。调用者先 await tts.preconnect(voice)，再将公开文字的异步迭代器及 WAV 回调传给 await tts.synthesize(parts, on_chunk, voice=voice)。关闭服务前先取消并等待当前任务，再 await tts.close()。
+
+只有成功 SessionFinished 才复用连接；取消、文字源/音频回调失败、错误终态、身份不符或超时会取消收发任务并关闭连接，不重新合成，迟到音频不会进入新连接。保留现有0.6秒音频分块、500字输入、300秒音频上限；Opus仍应由网关整轮连续编码。已通过本地 WebSocket 测试和肥鱼当前音色的真实接口测试，详见 [时序记录](VOICE_LATENCY_OPTIONS_20261025.md)。relay 运行回执仍只传完整句子，未传句中 token；VoiceService、SentenceSpeech 和网关尚未接此客户端，不能写成板子已接通双向 TTS。发布仍先解决一次生成契约。
+
 公开插件回归在首字后暂停补答；ACP 回归在首字后暂停模型，验证请求尚未完成但客户端已收到文字，提交后无全文重放。Go 覆盖切句、工具边界、失败、取消、迟到与上限；Python 覆盖重复回执、尾句、改写、会话变更与失败停止。设备 API 回归在模型回执暂停时取得首段 WAV，验证无需等待 completed。
 
 相关测试：`node --test integrations/dsh-public-output/*.test.mjs`；bridge 内运行 `go test -tags no_web ./core -run 'TestVoice(Relay|Sentence)|Test.*VoiceDesk' -count=1`；companion 内运行 `uv run python -m pytest tests/test_voice_relay_stream.py tests/test_voice_sentence_stream.py tests/test_voice_device_app.py`。真实模型首字、首音耗时和板子连续播放需另行实测。
