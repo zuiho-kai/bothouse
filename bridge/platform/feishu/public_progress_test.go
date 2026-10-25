@@ -28,7 +28,13 @@ type fakeFeishuIM struct {
 	replies    []map[string]any
 	pins       []string
 	pinFail    bool
-	createFail int // fail this many creates with HTTP 500 before succeeding
+	createFail int          // fail this many creates with HTTP 500 before succeeding
+	refuse     *fakeRefusal // when set, every create/patch/reply answers with it
+}
+
+type fakeRefusal struct {
+	status, code int
+	msg          string
 }
 
 func newFakeFeishuIM() *fakeFeishuIM {
@@ -44,6 +50,11 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		ok := func(data map[string]any) { writeJSON(t, w, map[string]any{"code": 0, "msg": "success", "data": data}) }
+		if f.refuse != nil && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/messages") {
+			w.WriteHeader(f.refuse.status)
+			writeJSON(t, w, map[string]any{"code": f.refuse.code, "msg": f.refuse.msg})
+			return
+		}
 		switch {
 		case r.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal":
 			writeJSON(t, w, map[string]any{"code": 0, "msg": "success", "expire": 7200, "tenant_access_token": "tok"})
@@ -302,5 +313,56 @@ func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
 	}
 	if len(f.pins) != 1 || f.pins[0] != id {
 		t.Fatalf("board not re-pinned exactly once: %v", f.pins)
+	}
+}
+
+// Bot removed from the chat / scope missing: card, fact and board errors wrap
+// core's give-up errors, so core stops retrying every tick.
+func TestFeishuPermanentRefusalIsUnrecoverable(t *testing.T) {
+	for _, ref := range []fakeRefusal{
+		{status: http.StatusBadRequest, code: feishuBotNotInChatCode, msg: "Bot is not in the chat"},
+		{status: http.StatusOK, code: feishuNoPermissionCode, msg: "no permission"},
+	} {
+		f := newFakeFeishuIM()
+		f.refuse = &ref
+		p := newFakeFeishuPlatform(t, f)
+		ctx := context.Background()
+		task := &core.Task{ID: "task-p", Title: "t", ChannelID: "oc_chat"}
+		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%v: create card err = %v", ref, err)
+		}
+		task.MessageID = "om_x"
+		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%v: patch card err = %v", ref, err)
+		}
+		if len(f.creates) != 0 {
+			t.Fatalf("%v: chat-level refusal treated as deleted card, reposted", ref)
+		}
+		ev := core.TaskEvent{ID: "e", TaskID: task.ID, Seq: 1, Summary: "x"}
+		if err := p.PublishTaskFact(ctx, task, ev, core.LangEnglish); !errors.Is(err, core.ErrTaskFactUndeliverable) || !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%v: fact err = %v", ref, err)
+		}
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "om_b", "**板**\nx"); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%v: board edit err = %v", ref, err)
+		}
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx"); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%v: board send err = %v", ref, err)
+		}
+	}
+}
+
+// A server error stays retryable, and "chat not exist" text alone is not a
+// deleted card.
+func TestFeishuTransientRefusalIsRetryable(t *testing.T) {
+	f := newFakeFeishuIM()
+	f.refuse = &fakeRefusal{status: http.StatusInternalServerError, code: 1, msg: "chat not exist"}
+	p := newFakeFeishuPlatform(t, f)
+	task := &core.Task{ID: "task-t", Title: "t", ChannelID: "oc_chat", MessageID: "om_x"}
+	err := p.EnsureTaskCard(context.Background(), task, core.LangEnglish)
+	if err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) || isFeishuMessageGone(err) {
+		t.Fatalf("err = %v", err)
+	}
+	if task.MessageID != "om_x" || len(f.creates) != 0 {
+		t.Fatalf("transient patch error reposted the card")
 	}
 }

@@ -4789,7 +4789,7 @@ func (p *Platform) patchCardMessage(ctx context.Context, messageID, cardJSON str
 				return fmt.Errorf("%s: patch message: %w", p.tag(), err)
 			}
 			if !resp.Success() {
-				return fmt.Errorf("%s: patch message code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
+				return p.imAPIErr("patch message", resp.ApiResp, resp.Code, resp.Msg)
 			}
 			return nil
 		})

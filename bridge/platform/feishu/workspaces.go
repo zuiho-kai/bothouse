@@ -49,10 +49,16 @@ func (p *Platform) workspaceErr(op string, resp *larkcore.ApiResp, code int, msg
 		status = resp.StatusCode
 	}
 	err := fmt.Errorf("%s: workspace %s: HTTP %d code=%d msg=%s", p.tag(), op, status, code, msg)
-	if code == feishuNoPermissionCode || (status >= http.StatusBadRequest && status < http.StatusInternalServerError && status != http.StatusTooManyRequests) {
+	if feishuPermanent(status, code) {
 		return fmt.Errorf("%w: %w", core.ErrTeamWorkspacePermanent, err)
 	}
 	return err
+}
+
+// feishuPermanent is the rule above: a missing scope or an HTTP 4xx other than
+// 429. Network errors, 429 and 5xx stay retryable.
+func feishuPermanent(status, code int) bool {
+	return code == feishuNoPermissionCode || (status >= http.StatusBadRequest && status < http.StatusInternalServerError && status != http.StatusTooManyRequests)
 }
 
 // TeamGuildChannels returns the chat group and every group the bot is in (Feishu has no

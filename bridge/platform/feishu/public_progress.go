@@ -51,7 +51,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	if task.MessageID != "" {
 		err := p.patchCardMessage(ctx, task.MessageID, cardJSON)
 		if err == nil || !isFeishuMessageGone(err) {
-			return err
+			return unrecoverableErr(err)
 		}
 		slog.Info("feishu: task card deleted, posting it again", "task_id", task.ID, "chat", task.ChannelID, "message", task.MessageID)
 		// A new uuid: the old one would return the deleted message. Keep
@@ -61,7 +61,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	}
 	id, err := p.createMessageID(ctx, task.ChannelID, "interactive", cardJSON, uuid)
 	if err != nil {
-		return err
+		return unrecoverableErr(err)
 	}
 	task.MessageID = id
 	return nil
@@ -80,8 +80,8 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 	msgType, body := buildReplyContent(text)
 	uuid := feishuUUID("fact", task.ID, ev.ID, fmt.Sprint(ev.Seq))
 	if err := p.replyInThread(ctx, task.MessageID, msgType, body, uuid); err != nil {
-		if isFeishuMessageGone(err) {
-			return fmt.Errorf("%w: %w", core.ErrTaskFactUndeliverable, err)
+		if isFeishuMessageGone(err) || isFeishuIMPermanent(err) {
+			return fmt.Errorf("%w: %w", core.ErrTaskFactUndeliverable, unrecoverableErr(err))
 		}
 		return err
 	}
@@ -104,12 +104,12 @@ func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, conte
 			return messageID, nil
 		}
 		if !isFeishuMessageGone(err) {
-			return messageID, fmt.Errorf("feishu: edit board: %w", err)
+			return messageID, fmt.Errorf("feishu: edit board: %w", unrecoverableErr(err))
 		}
 	}
 	id, err := p.createMessageID(ctx, chat, "interactive", cardJSON, "")
 	if err != nil {
-		return "", fmt.Errorf("feishu: send board: %w", err)
+		return "", fmt.Errorf("feishu: send board: %w", unrecoverableErr(err))
 	}
 	if err := p.pinMessage(ctx, id); err != nil {
 		return id, fmt.Errorf("feishu: pin board: %w", err)
@@ -134,12 +134,59 @@ func (p *Platform) repinBoard(ctx context.Context, chat, messageID string) {
 	p.boardPinned.Store(messageID, struct{}{})
 }
 
-func isFeishuMessageGone(err error) bool {
-	if err == nil {
-		return false
+// feishuMessageWithdrawnCode: the message was withdrawn/deleted (same code
+// isMessageWithdrawnCode uses).
+const feishuMessageWithdrawnCode = 230011
+
+// feishuBotNotInChatCode: the bot is not in the chat (removed, or the chat was
+// disbanded). SPEC unverified against the Feishu error code list; such
+// requests also come back as HTTP 400, which feishuPermanent already covers.
+const feishuBotNotInChatCode = 230002
+
+// feishuIMError keeps the Feishu response code and HTTP status of a refused IM
+// call, so callers decide by code instead of by error text. The text keeps
+// the old "<op> code=N msg=..." shape that existing log/retry checks read.
+type feishuIMError struct {
+	Tag, Op string
+	Status  int
+	Code    int
+	Msg     string
+}
+
+func (e *feishuIMError) Error() string {
+	return fmt.Sprintf("%s: %s code=%d msg=%s", e.Tag, e.Op, e.Code, e.Msg)
+}
+
+func (p *Platform) imAPIErr(op string, resp *larkcore.ApiResp, code int, msg string) error {
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
 	}
-	// 230011: message withdrawn (same code isMessageWithdrawnCode uses).
-	return strings.Contains(err.Error(), "code=230011") || isMessageWithdrawnError(err)
+	return &feishuIMError{Tag: p.tag(), Op: op, Status: status, Code: code, Msg: msg}
+}
+
+// isFeishuMessageGone: the card itself was deleted, so it can be posted again.
+// Chat-level errors (bot removed, chat gone) are not this: reposting there
+// fails too.
+func isFeishuMessageGone(err error) bool {
+	var e *feishuIMError
+	return errors.As(err, &e) && e.Code == feishuMessageWithdrawnCode
+}
+
+// isFeishuIMPermanent uses the workspaceErr rule (missing scope, HTTP 4xx other
+// than 429) plus the bot-not-in-chat code.
+func isFeishuIMPermanent(err error) bool {
+	var e *feishuIMError
+	return errors.As(err, &e) && (e.Code == feishuBotNotInChatCode || feishuPermanent(e.Status, e.Code))
+}
+
+// unrecoverableErr wraps a permanent refusal with core.ErrDeliveryUnrecoverable
+// so core stops retrying it (same role as discord/unrecoverable.go).
+func unrecoverableErr(err error) error {
+	if err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) || !isFeishuIMPermanent(err) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", core.ErrDeliveryUnrecoverable, err)
 }
 
 // feishuUUID is a stable send de-dup key. SPEC (Feishu send/reply message API):
@@ -164,7 +211,7 @@ func (p *Platform) createMessageID(ctx context.Context, chatID, msgType, content
 				return fmt.Errorf("%s: create card api call: %w", p.tag(), err)
 			}
 			if !resp.Success() {
-				return fmt.Errorf("%s: create card failed code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
+				return p.imAPIErr("create card failed", resp.ApiResp, resp.Code, resp.Msg)
 			}
 			if resp.Data == nil || resp.Data.MessageId == nil || *resp.Data.MessageId == "" {
 				return fmt.Errorf("%s: create card: no message id in response", p.tag())
@@ -188,7 +235,7 @@ func (p *Platform) replyInThread(ctx context.Context, rootID, msgType, content, 
 				return fmt.Errorf("%s: reply task fact api call: %w", p.tag(), err)
 			}
 			if !resp.Success() {
-				return fmt.Errorf("%s: reply task fact failed code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
+				return p.imAPIErr("reply task fact failed", resp.ApiResp, resp.Code, resp.Msg)
 			}
 			return nil
 		})
@@ -204,7 +251,7 @@ func (p *Platform) pinMessage(ctx context.Context, messageID string) error {
 				return fmt.Errorf("%s: pin message api call: %w", p.tag(), err)
 			}
 			if !resp.Success() {
-				return fmt.Errorf("%s: pin message failed code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
+				return p.imAPIErr("pin message failed", resp.ApiResp, resp.Code, resp.Msg)
 			}
 			return nil
 		})
