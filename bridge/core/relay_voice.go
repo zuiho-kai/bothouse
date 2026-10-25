@@ -30,6 +30,9 @@ type VoiceRelayAgent interface {
 
 // This error is produced only before invoking Send. A crash or any failure
 // after invoking Send remains ambiguous and must never reset identity.
+// Exception: a new conversation (no prior ID) whose session was not confirmed
+// persisted at Close drops its ID, because strict resume of a session the
+// backend never stored fails every later turn on that channel.
 type voiceNotSubmittedError struct{ error }
 
 type voiceRelayResult struct {
@@ -346,6 +349,12 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 		if closeErr = session.Close(); closeErr != nil && err == nil {
 			slog.Warn("voice relay: persist session failed; answer kept, next turn may not resume this context",
 				"session_key", req.SessionKey, "error", closeErr)
+		}
+		// A cancelled or timed-out turn may skip the backend's persist step
+		// (ACP skips session/close once its context is done), so persistence
+		// is unconfirmed even when Close reports nil.
+		if closeErr == nil && ctx.Err() != nil {
+			closeErr = fmt.Errorf("voice relay: session not persisted: %w", ctx.Err())
 		}
 	}()
 	if prior.ID != "" && session.CurrentSessionID() != prior.ID {
