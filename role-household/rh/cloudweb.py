@@ -49,6 +49,7 @@ import re
 from aiohttp import WSCloseCode, WSMsgType, web
 
 from .meeting import MAX_TEXT_CHARS, clean
+from .team_exit import TeamExit, exit_target
 
 MAX_NAME = 64  # bot id、显示名最长多少字。来源：沿用 hub.py MAX_NAME（存消息时作者按它截，不同长会认不出自己）。
 
@@ -222,6 +223,7 @@ class CloudWeb:
     def __init__(self, hub):
         self.hub = hub
         self.bots: dict[str, Bot] = {}
+        self.exit = None   # rh/team_exit.py TeamExit（attach 里建）
 
     # ---------- @ ----------
     def _aliases(self) -> list[tuple[str, str]]:
@@ -309,6 +311,10 @@ class CloudWeb:
         """hub 里新建了一条消息（Hub.notify_new 调）：转给在线的 bot。"""
         if msg["author_kind"] == "system" or not self.bots:
             return
+        # 用户回工作区 [ask] 的答案不给聊天频道的 bot（team_exit 贴回工作区），同 collab/cloudweb.mjs onNew
+        if self.exit is not None and self.exit.answer_for(msg):
+            return
+        target = exit_target(msg)   # 贴回工作区的答案只给提问的 bot
         from_bot = msg["author_kind"] == "role"
         text = msg["text"]
         if from_bot:
@@ -317,33 +323,47 @@ class CloudWeb:
             text = FOOTER.sub("", text).strip()
             if not text:
                 return   # 只有尾注
-        from .hub import session_key   # hub.py 导入本模块，放这里免得循环导入
-        chat = session_key(msg["room_id"])
         room = self.hub.room(msg["room_id"])
         author = self.bots.get(msg["author"]) if from_bot else None
         mentioned = self.mentions(text)
         sends = []
         for b in list(self.bots.values()):
-            if from_bot and msg["author"] == b.id:
+            if (target and target != b.id) or (from_bot and msg["author"] == b.id):
                 continue
             content = self.for_bot(text, b)
-            hit = b.id in mentioned or (from_bot and self.name_called(text, b.name))
+            hit = target == b.id or b.id in mentioned or (from_bot and self.name_called(text, b.name))
             if from_bot and not content:
                 continue   # 队友只发了个 @：同 Discord 丢掉，不空开一轮（复审第 3 条）
             if from_bot:
                 content = f"【{msg['name']}】{content}"
             elif hit and not content:
                 content = BARE_MENTION
-            frame = {"type": "message", "msg_id": f"hub-{msg['id']}", "chat_id": chat,
-                     "chat_type": "group", "user_id": msg["author"], "user_name": msg["name"], "content": content,
-                     "reply_ctx": chat, "mentioned": hit, "from_bot": from_bot}
-            if room is not None:
-                # 「队友状态」里显示频道名（conest core/team.go ChatName）；压成一行，频道名里的换行不能在队友状态里伪造出一行（审查第 3 条）
-                frame["chat_name"] = " ".join(room["name"].split())
+            frame = self._frame(msg, room, content, hit, from_bot)
             if author is not None and author.mention_id:
                 frame["user_mention_id"] = author.mention_id   # 认主角色派的活，同 Discord 作者 ID（conest cloud-web lead_return.go）
             sends.append(self._send(b.ws, frame))
         await asyncio.gather(*sends)
+
+    def _frame(self, msg: dict, room: dict | None, content: str, hit: bool, from_bot: bool) -> dict:
+        from .hub import session_key   # hub.py 导入本模块，放这里免得循环导入
+        chat = session_key(msg["room_id"])
+        frame = {"type": "message", "msg_id": f"hub-{msg['id']}", "chat_id": chat,
+                 "chat_type": "group", "user_id": msg["author"], "user_name": msg["name"], "content": content,
+                 "reply_ctx": chat, "mentioned": hit, "from_bot": from_bot}
+        if room is not None:
+            # 「队友状态」里显示频道名（conest core/team.go ChatName）；压成一行，频道名里的换行不能在队友状态里伪造出一行（审查第 3 条）
+            frame["chat_name"] = " ".join(room["name"].split())
+        return frame
+
+    async def nudge(self, bot_id: str, msg: dict) -> bool:
+        """把一条 system 消息当 @ 发给一个在线的 bot（on_new 不转 system）；不在线返回 False。
+        同 collab/cloudweb.mjs nudge：工作区 [ask] 被退回时叫醒提问的 bot（rh/team_exit.py）。"""
+        b = self.bots.get(bot_id)
+        if b is None:
+            return False
+        content = self.for_bot(msg["text"], b) or msg["text"]
+        await self._send(b.ws, self._frame(msg, self.hub.room(msg["room_id"]), content, True, False))
+        return True
 
     async def _send(self, ws: web.WebSocketResponse, frame: dict) -> None:
         try:
@@ -540,6 +560,8 @@ class CloudWeb:
 def attach(app: web.Application, hub) -> CloudWeb:
     cw = CloudWeb(hub)
     hub.listeners.append(cw.on_new)
+    cw.exit = TeamExit(hub, cw)   # 工作区的 [ask]/[report] 出口（#597 G1b）
+    hub.listeners.append(cw.exit.on_new)
     app.router.add_get(WS_PATH, cw.handle)
 
     async def close_bots(app):  # 同 hub.py close_all：不主动断，老进程会被 bot 的连接拖着不退
