@@ -75,6 +75,24 @@ class T(unittest.TestCase):
         self.assertEqual(d(g.NAMES[me][0] + " 暂停", False, True), "abort")
         self.assertEqual(d("暂停", True, False), "reply")
 
+    def test_single_role_decide_always_replies(self):
+        """单角色（gate-team.json 没有 subs）：有 jev 也不判，/decide 一律 reply。"""
+        d = Path(tempfile.mkdtemp())
+        (d / "team.json").write_text(json.dumps({"lead": {"name": "C酱"}, "subs": {}}))
+        g = load_gate(team=str(d / "team.json"))
+        g.route = lambda *a, **k: self.fail("single role /decide must not judge")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), g.H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            for body in ({"content": "好的", "mentioned": False, "busy": False}, {"content": "你好", "mentioned": True, "busy": True}):
+                req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/decide", json.dumps(body).encode(),
+                                             {"Content-Type": "application/json"})
+                r = urllib.request.urlopen(req, timeout=5)
+                self.assertEqual((r.status, json.loads(r.read())["action"]), (200, "reply"))
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
     def test_no_jev_serves_context_and_lead_not_decide(self):
         """干净机器没填 jev：gate 照样起，/context 有 wiki，/lead 能用，/decide 回 503 让 cc-connect 按 gate_fallback 兜底。"""
         d = Path(tempfile.mkdtemp())

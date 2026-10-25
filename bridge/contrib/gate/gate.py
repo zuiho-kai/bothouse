@@ -826,6 +826,8 @@ class H(BaseHTTPRequestHandler):
             return
         if url.path != "/decide" or (bot and bot not in SUBS):
             self.send_error(404); return
+        if not SUBS:  # 单角色（向导写的 gate-team.json 没有 subs）：没有队友可让，/decide 一律回，gate 只管 /context
+            return self._json({"action": "reply", "reason": "no teammate: reply"})
         if SCORER_KIND == "none":  # 没 jev：不判谁回，cc-connect 按 gate_fallback 兜底（core/gate.go fallbackFor）
             return self._json({"error": "no jev: /decide is off, use gate_fallback"}, 503)
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
