@@ -4124,3 +4124,39 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
     await gate.close();
   }
 });
+
+test('CLI member: a session that could not be resumed gets its MEMORY.md and the task board again next turn', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
+  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  process.env.BOTHOUSE_DATA_DIR = data;
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text, _room, _onText, _onTool, opts) => {
+      prompts.push(text);
+      // the second turn's resume fails: the CLI is in a new session
+      opts.onSession({ sessionId: `acp-${prompts.length}`, lost: prompts.length === 2 });
+      return '好';
+    });
+    for (const [i, t] of ['第一轮', '第二轮', '第三轮', '第四轮'].entries()) {
+      hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: `@CC ${t}` });
+      await until(() => prompts.length === i + 1);
+      await settle();
+    }
+    assert.match(prompts[0], /你的记忆/);
+    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context so far: not again');
+    assert.match(prompts[2], /你的记忆/, 'session lost: MEMORY.md again');
+    assert.match(prompts[2], /【任务板 aaa111】/, 'session lost: the unchanged board again');
+    assert.doesNotMatch(prompts[3], /你的记忆|任务板/, 'given to the new session: not again');
+  } finally {
+    delete process.env.BOTHOUSE_DATA_DIR;
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});

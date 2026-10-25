@@ -88,3 +88,65 @@ func TestMakeDSHMemberWikisOnImport(t *testing.T) {
 		t.Fatal("the imported file alone should keep the DSH route on")
 	}
 }
+
+// A wizard re-run drops the last run's imported roster, and the wikis do not start from it while
+// this run's roles are still waiting for the plugin.
+func TestDSHReRunWaitsForTheNewImport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	collab := filepath.Join(home, "collab")
+	t.Setenv("CONEST_COLLAB_DATA", collab)
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	_ = os.MkdirAll(collab, 0o700)
+	_ = os.WriteFile(dshImportedFile(), []byte(`{"members":[{"name":"旧","cli":"claude","id":"m-old"}]}`), 0o600)
+	if _, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "橘", CLI: "claude"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dshImportedFile()); !os.IsNotExist(err) {
+		t.Fatalf("the old imported roster is still there: %v", err)
+	}
+	// an imported file next to a waiting roster (a plugin that has not imported this run) is not used
+	_ = os.WriteFile(dshImportedFile(), []byte(`{"members":[{"name":"旧","cli":"claude","id":"m-old"}]}`), 0o600)
+	if got := makeDSHMemberWikisOnImport(t.TempDir(), 0); got != nil {
+		t.Fatalf("wikis made from the old roster: %+v", got)
+	}
+}
+
+// A `dsh web` still running from before has not imported the waiting roles: opening stops it.
+func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	collab := filepath.Join(home, "collab")
+	t.Setenv("CONEST_COLLAB_DATA", collab)
+	t.Setenv("PATH", t.TempDir()) // no dsh: the new start fails after the old one is stopped
+	_ = os.MkdirAll(collab, 0o700)
+	_ = os.WriteFile(dshMembersFile(), []byte(`{"members":[{"name":"橘"}]}`), 0o600)
+	cmd := exec.Command("/bin/sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Skip("no sleep:", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	b, _ := json.Marshal(DSHWeb{URL: "http://127.0.0.1:1/", PID: cmd.Process.Pid})
+	_ = os.MkdirAll(filepath.Dir(dshWebStatePath()), 0o700)
+	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
+	web, err := openDSHWeb(context.Background(), t.TempDir())
+	if err == nil && web.PID == cmd.Process.Pid {
+		t.Fatalf("reused the old dsh web: %+v", web)
+	}
+	if processAlive(cmd.Process.Pid) {
+		t.Fatal("the old dsh web is still running")
+	}
+	// no roles waiting: a running dsh web is reused
+	cmd2 := exec.Command("/bin/sleep", "60")
+	_ = cmd2.Start()
+	go func() { _ = cmd2.Wait() }()
+	t.Cleanup(func() { _ = cmd2.Process.Kill() })
+	_ = os.Remove(dshMembersFile())
+	b, _ = json.Marshal(DSHWeb{URL: "http://127.0.0.1:1/", PID: cmd2.Process.Pid})
+	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
+	if web, err := openDSHWeb(context.Background(), t.TempDir()); err != nil || web.PID != cmd2.Process.Pid {
+		t.Fatalf("want the running one reused: %+v %v", web, err)
+	}
+}

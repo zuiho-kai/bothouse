@@ -49,6 +49,11 @@ export class MemoryIndex {
     this.given.delete(`${member}\u0000${room}`);
   }
 
+  /** This member's conversation in room lost its context (a CLI session that could not be resumed): give it again. */
+  forget(member, room) {
+    this.given.delete(`${member}\u0000${room}`);
+  }
+
   /** A released workspace starts its conversations over: give the index again. */
   resetRoom(room) {
     for (const key of this.given.keys()) if (key.endsWith(`\u0000${room}`)) this.given.delete(key);

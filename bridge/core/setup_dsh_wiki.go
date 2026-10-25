@@ -53,7 +53,9 @@ func readDSHImported() ([]DSHImportedMember, bool) {
 func makeDSHMemberWikisOnImport(dataDir string, wait time.Duration) []DSHMemberWiki {
 	deadline := time.Now().Add(wait)
 	for {
-		if members, ok := readDSHImported(); ok {
+		// wizard-members.json still there = the plugin has not imported this run's roles yet
+		_, pendingErr := os.Stat(dshMembersFile())
+		if members, ok := readDSHImported(); ok && pendingErr != nil {
 			out := addDSHMemberWikis(context.Background(), dataDir, members)
 			for _, x := range out {
 				if x.Error != "" {

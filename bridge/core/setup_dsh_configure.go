@@ -112,6 +112,10 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 		return res, err
 	}
 	res.MembersFile = dshMembersFile()
+	// The last run's imported roster is stale now: the wikis wait for the plugin to import this one.
+	if err := os.Remove(dshImportedFile()); err != nil && !os.IsNotExist(err) {
+		return res, fmt.Errorf("remove the old imported roles: %w", err)
+	}
 	b, _ := json.MarshalIndent(map[string]any{"members": req.Members}, "", "  ")
 	if err := os.WriteFile(res.MembersFile, b, 0o600); err != nil {
 		return res, err
@@ -304,7 +308,13 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	statePath := dshWebStatePath()
 	var prev DSHWeb
 	if b, err := os.ReadFile(statePath); err == nil && json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && prev.URL != "" {
-		return prev, nil
+		// The collab plugin imports the wizard's roles only at boot: with roles still waiting, start it over.
+		if _, err := os.Stat(dshMembersFile()); err != nil {
+			return prev, nil
+		}
+		if err := stopDSHWebForImport(prev.PID); err != nil {
+			return DSHWeb{}, err
+		}
 	}
 	bin, err := LookDSH()
 	if err != nil {
@@ -369,6 +379,21 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		case <-tick.C:
 		}
 	}
+}
+
+// dshWebStopWait: how long a running `dsh web` gets to exit before the wizard gives up on restarting it.
+var dshWebStopWait = 10 * time.Second
+
+// stopDSHWebForImport stops the `dsh web` at pid so a new one imports the waiting roles; it errs if it stays up.
+func stopDSHWebForImport(pid int) error {
+	stopProcess(pid)
+	for deadline := time.Now().Add(dshWebStopWait); processAlive(pid); time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("新角色还没导入：正在运行的 dsh web（pid %d）没有退出，结束它后再打开一次", pid)
+		}
+	}
+	_ = os.Remove(dshWebStatePath())
+	return nil
 }
 
 func dshFallbackLead(dataDir string) string {

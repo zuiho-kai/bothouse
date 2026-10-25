@@ -603,6 +603,9 @@ export class DshMembers {
       const onSession = ({ sessionId: acpId, lost }) => {
         if (this.store.binding(member.id, room.id)?.session_id !== acpId) this.store.rebind(member.id, room.id, acpId);
         if (lost) {
+          // the CLI's new session has none of what this conversation was given: the next turn gives it again
+          this.memoryIndex.forget(member.id, room.id);
+          this.gateContext.forget(member.id, room.id);
           this.hub.post(job.room_id, {
             authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${job.id}-session-lost`,
             text: `${member.name}（${member.cli}）这轮起是新会话，之前的上下文没了：${member.cli} 不支持续上原会话，或续会话失败。`,
