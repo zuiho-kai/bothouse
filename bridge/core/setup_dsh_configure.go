@@ -456,6 +456,11 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		mgmtError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+	// before `dsh web` starts: it is given the gate port (GATE_PORT)
+	if err := pickGatePortForDSH(m.wizardDataDir, m.wizardStore); err != nil {
+		mgmtError(w, http.StatusInternalServerError, "gate port: "+err.Error())
+		return
+	}
 	web, err := openDSHWeb(r.Context(), m.wizardDataDir)
 	if err != nil {
 		mgmtError(w, http.StatusBadGateway, err.Error())

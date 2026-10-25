@@ -4,7 +4,10 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -223,4 +226,50 @@ func TestPickFreePortSkipsWildcardHeldPort(t *testing.T) {
 	if p := PickFreePort(busy); p == busy || p <= 0 {
 		t.Fatalf("PickFreePort(*:%d held) = %d", busy, p)
 	}
+}
+
+// #597 G17: an install with only DSH-native members and an older gate (501 on /whoami) on the
+// gate port: the open step moves the gate to another port before `dsh web` starts, saves it as
+// [gate] port, hands it to `dsh web` as GATE_PORT, and this data dir's gate starts there.
+func TestDSHOpenMovesOffTakenGatePort(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake dsh is a shell script")
+	}
+	dataDir := setupFakeGate(t, false)
+	taken := localGateAddr()
+	oldGateServer(t, taken)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CONEST_COLLAB_DATA", t.TempDir())
+	if err := os.WriteFile(dshMembersFile(), []byte(`{"members":[{"name":"ds"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho \"$GATE_PORT\" > \"$HOME/gate-port\"\necho 'dsh web: http://127.0.0.1:1/?token=t'\nsleep 2\n"
+	if err := os.WriteFile(filepath.Join(bin, "dsh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	store := &gatePortStore{memStore: newMemStore()}
+	g := NewGateSupervisor(dataDir)
+	SetActiveGateSupervisor(g)
+	t.Cleanup(func() { SetActiveGateSupervisor(nil) })
+	g.Run(false)
+	defer g.Stop()
+
+	m := &ManagementServer{wizardStore: store, wizardDataDir: dataDir}
+	rec := httptest.NewRecorder()
+	m.handleSetupDSHOpen(rec, httptest.NewRequest(http.MethodPost, "/setup/dsh/open", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("open: %d %s", rec.Code, rec.Body.String())
+	}
+	_, takenPort, _ := net.SplitHostPort(taken)
+	if store.port == 0 || strconv.Itoa(store.port) == takenPort || store.port != LocalGatePort() {
+		t.Fatalf("saved gate port %d (taken %s, in use %d)", store.port, takenPort, LocalGatePort())
+	}
+	waitGate(t, "dsh web got the new port", 5*time.Second, func() bool {
+		b, _ := os.ReadFile(filepath.Join(home, "gate-port"))
+		return strings.TrimSpace(string(b)) == strconv.Itoa(store.port)
+	})
+	waitGate(t, "own gate on the new port", 10*time.Second, func() bool { return gateIsOurs(dataDir) })
 }

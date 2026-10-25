@@ -545,6 +545,37 @@ func reloadGateAfterWizard(dataDir string, s WizardSnapshot) {
 	g.Reload(want)
 }
 
+// pickGatePortForDSH: the DSH route's gate port, by the wizard's rule (pickGatePort), picked
+// before `dsh web` is given it as GATE_PORT. A DSH-only install has no setup apply to do this, so
+// a gate of another install (or an older one without /whoami) on 9930 would keep its own from
+// starting. A new port is saved as [gate] port: through the wizard store when it has one (it
+// writes the first config too), else PersistGatePort.
+func pickGatePortForDSH(dataDir string, store WizardStore) error {
+	cur := LocalGatePort()
+	pointsHere := false
+	if store != nil {
+		if snap, err := store.Snapshot(); err == nil {
+			pointsHere = snap.pointsAtGatePort(cur)
+		}
+	}
+	port := pickGatePort(dataDir, pointsHere)
+	if port == cur {
+		return nil
+	}
+	save := PersistGatePort
+	if ps, ok := store.(interface{ SetGatePort(int) error }); ok {
+		save = ps.SetGatePort
+	}
+	if save != nil {
+		if err := save(port); err != nil {
+			return err
+		}
+	}
+	SetLocalGatePort(port)
+	slog.Info("gate: the DSH route moved the gate port", "from", cur, "to", port)
+	return nil
+}
+
 // EnsureGateForDSH starts the gate of the service running in this process for the DSH route:
 // with only DSH-native members there is no project whose gate_url points at the local gate, so
 // nothing else would start it, and the members' per-turn /context (wiki pages, task board) would
