@@ -240,7 +240,7 @@ const ja: Texts = {
   fallbackQ: 'メインロール：jev が未設定・テスト不合格、または誰が答えるべきか判断できないとき、このボットが答えます。',
   gateEnabled: '振り分け：メイン bot が誰が答えるかを決定（おすすめ）',
   gateOnHint: '既定でオンです。メイン bot がまとめて返事し、@ されたロールは通常どおり返事します。Python 3.12 以上と利用可能な jev を設定すると、bothouse が gate を自動起動して、賢い振り分けを有効にします。',
-  gateOffHint: 'オフにすると、向 wizard の gate 振り分けを使わず、各 bot はそれぞれの設定で返事します。手動で設定した gate URL は保持されます。',
+  gateOffHint: 'オフにすると、ウィザードの gate 振り分けを使わず、各 bot はそれぞれの設定で返事します。手動で設定した gate URL は保持されます。',
   jevTitle: 'jev：メッセージにどのロールが答えるかを判断',
   jevQ: '確率を返すモデル（Base URL / Key / モデル）。おすすめ：SiliconFlow、OpenRouter、DeepSeek、MiniMax、ローカルの小型モデル。',
   jevNoClaude: 'Claude と GPT は確率を返さないため使えません。',

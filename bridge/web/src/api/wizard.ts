@@ -69,11 +69,6 @@ export interface WizardResult {
   hot_load?: { projects_added: string[]; projects_failed?: Record<string, string>; hot_load_error?: string; projects_removed?: string[]; rollback_error?: string; restart_keys?: string[]; reload_error?: string };
 }
 
-/** Keep the submitted request and the copyable AI command on the same routing setting. */
-export function withWizardGate(request: WizardRequest, enabled = true): WizardRequest {
-  return { ...request, gate: { enabled } };
-}
-
 /** The self-hosted platform on this machine (core/setup_cloudweb.go LocalHubStatus). */
 export interface LocalHubStatus {
   running: boolean; url?: string; managed: boolean; token_known: boolean; open_url?: string;

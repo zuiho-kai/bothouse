@@ -10,10 +10,11 @@ import { restartSystem } from '@/api/status';
 import { shownNames } from '@/api/projects';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
-  startLocalHub, testCloudWeb, testJev, saveJev, withWizardGate,
+  startLocalHub, testCloudWeb, testJev, saveJev,
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
+import { wizardGate } from './wizardGate';
 import DSHSetup from './DSHSetup';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
@@ -348,7 +349,9 @@ export default function SetupWizard() {
       if (Object.keys(w).length) req.wiki = w;
     }
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
-    return withWizardGate(req, visibleSteps.includes(4) ? gateEnabled : undefined);
+    // the submitted request and the copyable AI command carry the same routing setting
+    req.gate = wizardGate(visibleSteps.includes(4), gateEnabled);
+    return req;
   };
 
   const save = async () => {
