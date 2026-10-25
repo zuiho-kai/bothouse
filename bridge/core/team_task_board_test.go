@@ -276,8 +276,8 @@ func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 			t.Fatalf("%q appears %d times, want %d:\n%s", want, c, n, got)
 		}
 	}
-	if !TeamBoardActive(got) {
-		t.Fatalf("running item, card must be Running:\n%s", got)
+	if TeamBoardActive(got) {
+		t.Fatalf("open item but every teammate idle, card must be Completed (#597 G33):\n%s", got)
 	}
 	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","paused":"10-26 04:00","pause_why":"等回复","sk":"cloud_web:room-1"}`+"\n")
 	e.updateTeamBoards(files, map[string]*boardChat{})
@@ -294,17 +294,46 @@ func TestTeamBoardActiveTaskBoardLayout(t *testing.T) {
 		"**谁在干啥**\n**橘**　🔧 x（03:00 起）":                                                       true,
 		"**谁在干啥**\n**橘**　📋 x（进行中 · 03:00）":                                                   true,
 		"**谁在干啥**\n**进行中**\n• x · 橘\n\n**橘**　💤 空闲":                                           true,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜10-26 03:00":                           true,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**工作区1**\n#3 交接｜工作区1橘｜-｜-":           true,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜10-26 03:00":                           false,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**工作区1**\n#3 交接｜工作区1橘｜-｜-":           false,
 		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘｜-｜-｜暂停：等回复":           false,
 		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完**\n- 橘：写文档": false,
 		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完** 4 件":      false,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 a｜x　y｜-｜-":                                      true,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 a｜x　y｜-｜-":                                      false,
 	}
 	for in, want := range cases {
 		if got := TeamBoardActive(in); got != want {
 			t.Errorf("TeamBoardActive(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// #597 G33: the workspace reported back (board update <id> done) and went idle; the item
+// waits in board.jsonl for the lead's acceptance. The text says idle/done, so the card state
+// must follow and close; while the workspace still runs a turn it stays Running.
+func TestTeamBoardIdleMembersCloseCard(t *testing.T) {
+	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	defer e.cancel()
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true}
+	now := time.Now()
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"实现 release.py","status":"done","who":"工作区1ayi","at":"10-26 06:57","sk":"cloud_web:room-2","ws":"cloud_web:room-2","chat":"cloud_web:room-1"}`+"\n")
+	ws := teamEntry{Key: "cloud_web:room-2", Chat: "room-2", Task: "实现 release.py", Worked: true, Since: now.Add(-10 * time.Minute)}
+	busy := ws
+	busy.Busy = true
+	files := []teamFile{{Project: "ayi", Name: "ayi", Updated: now, Sessions: []teamEntry{busy}}}
+	e.updateTeamBoards(files, map[string]*boardChat{})
+	got := p.content["cloud_web:room-1"]
+	if !strings.Contains(got, "#1 实现 release.py") || !TeamBoardActive(got) {
+		t.Fatalf("workspace busy, card must be Running:\n%s", got)
+	}
+	ws.DoneAt = now
+	files[0].Sessions = []teamEntry{ws}
+	e.updateTeamBoards(files, map[string]*boardChat{})
+	got = p.content["cloud_web:room-1"]
+	if !strings.Contains(got, "💤 空闲") || !strings.Contains(got, "#1 实现 release.py｜工作区1ayi｜done") || TeamBoardActive(got) {
+		t.Fatalf("every teammate idle, card must be Completed:\n%s", got)
 	}
 }
 

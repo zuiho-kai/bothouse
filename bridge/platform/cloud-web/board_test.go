@@ -200,8 +200,10 @@ func TestTeamBoardNeedsEditableMessages(t *testing.T) {
 func TestTeamBoardStateFollowsLiveWork(t *testing.T) {
 	for content, want := range map[string]string{
 		"**谁在干啥**\n**橘**　💤 空闲":                           `"state":"completed"`,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜x": `"state":"running"`,
-		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完**\n- 橘：修登录": `"state":"completed"`,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n#1 修登录｜橘｜在做｜x": `"state":"completed"`, // #597 G33: idle teammates close the card
+		"**谁在干啥**\n**ayi**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**room-2**\n#1 实现 release.py｜工作区1ayi｜done｜10-26 06:57":                        `"state":"completed"`,
+		"**谁在干啥**\n**ayi**　🔧 在#room-2忙（06:48 起）\n\n**任务板**\n现在没有进行中的事。\n\n**room-2**\n#1 实现 release.py｜工作区1ayi｜in_progress｜10-26 06:48": `"state":"running"`,
+		"**谁在干啥**\n**橘**　💤 空闲\n\n**任务板**\n现在没有进行中的事。\n\n**暂停**\n#2 x｜橘\n\n**今天做完**\n- 橘：修登录":                                            `"state":"completed"`,
 		"**谁在干啥**\n**橘**　🔧 修登录（03:00 起）": `"state":"running"`,
 	} {
 		if got := renderBoardText(content); !strings.Contains(got, want) {

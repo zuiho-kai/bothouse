@@ -437,24 +437,21 @@ func cutTeamBoardLines(s string, limit int, note string) string {
 }
 
 // TeamBoardActive reports whether a rendered team board shows live work: a relay task row
-// ("• ", only running / waiting tasks are listed), a busy or assigned teammate (🔧/📋/⏳), or a
-// "#" row of the task-board section outside 暂停 and 今天做完. Platforms use it to pick the
-// board card's state instead of always Running.
+// ("• ", only running / waiting tasks are listed) or a busy or assigned teammate (🔧/📋/⏳).
+// Platforms use it to pick the board card's state instead of always Running. The task-board
+// section ("**任务板**" and below) is a to-do list, not live work: an open item whose owner and
+// workspace are idle (e.g. the workspace reported back and the item waits for acceptance) must
+// not keep the card Running once every teammate is idle or done (#597 G33).
 func TeamBoardActive(content string) bool {
-	section := ""
 	for _, raw := range strings.Split(content, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
 		}
 		if strings.HasPrefix(line, "**") && !strings.Contains(line, "　") {
-			// Section heading: "**任务板**", a workspace name, "**暂停**", "**今天做完** N 件".
-			section = strings.TrimSpace(strings.Trim(strings.SplitN(line[2:], "**", 2)[0], "*"))
-			continue
-		}
-		if strings.HasPrefix(line, "#") {
-			if section != "暂停" && section != "今天做完" {
-				return true
+			// Section heading of the member board ("**进行中**"), or the task-board section.
+			if strings.TrimSpace(strings.Trim(strings.SplitN(line[2:], "**", 2)[0], "*")) == "任务板" {
+				return false
 			}
 			continue
 		}
