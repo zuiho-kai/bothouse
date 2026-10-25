@@ -659,13 +659,17 @@ export class Tasks {
   }
 
   /**
-   * #597 G35: the task's owner has an [ask] in the task's workspace (team-exit team_exit_asks, posted
-   * after the task was handed over) the user has not answered yet.
+   * #597 G35: the task's owner is waiting on the user: its latest own text row in the task's
+   * workspace is an [ask] (team-exit team_exit_asks, posted after the task was handed over) the user
+   * has not answered yet. An older unanswered [ask] the owner moved on from (a later reply, a
+   * hand-back, a rework turn) does not hold the watch.
    */
   awaitingUser(task) {
     if (!this.hub.teamExit?.enabled) return false;
     return this.db.prepare(`SELECT 1 FROM team_exit_asks WHERE workspace_id = ? AND member_id = ? AND answered = 0
-      AND source_id > ? LIMIT 1`).get(task.room_id, task.owner, task.assign_msg_id ?? 0) !== undefined;
+      AND source_id > ? AND source_id = (SELECT MAX(id) FROM messages WHERE room_id = ? AND author = ?
+        AND deleted = 0 AND card IS NULL) LIMIT 1`)
+      .get(task.room_id, task.owner, task.assign_msg_id ?? 0, task.room_id, task.owner) !== undefined;
   }
 
   /**

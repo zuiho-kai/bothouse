@@ -4669,6 +4669,27 @@ test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps 
   assert.ok(woken.some(([id, , text]) => id === 'fu' && /已暂停/.test(text)));
 });
 
+test('G35: an unanswered [ask] the owner moved on from (hand-back, rework) does not hold the watch', async () => {
+  const { hub, tasks, clock, woken, ws, assign, say } = g34Setup();
+  const t = assign();
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n要不要顺手改 B？\n自验：无需\n类别：方向` }, 1100).message;
+  tasks.fromMessage(row);
+  hub.teamExit.onMessage(row);
+  await settle();
+  say(ws.id, '[report]\n先按 A 做完了');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  say(1, `【返工】#${t.id} 测试没跑`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'rework');
+  for (let i = 1; i <= 4; i++) {
+    clock.t = 1000 + i * (CHECK_AFTER_S + 1);
+    tasks.tick();
+  }
+  assert.ok(tasks.task(t.id).paused_at, 'a stale [ask] does not push the watch forever');
+  assert.ok(woken.some(([id, , text]) => id === 'fu' && /已暂停/.test(text)), 'the owner is nudged');
+});
+
 test('G35: in a workspace the lead @-ing a teammate still opens its mention task, watched there', async () => {
   const { hub, tasks, ws, assign, say } = g34Setup();
   const t = assign('zhu');
