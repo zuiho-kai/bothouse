@@ -464,12 +464,26 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		// another port (config.toml's ws_url points at this one): find out who holds it.
 		return localHubPortTaken(ctx, dataDir, lang, s)
 	}
-	// startHubProcess downloads uv first when there is none: the wait below starts after that.
-	if err := startHubProcess(dataDir, &s); err != nil {
+	// uv is downloaded first when there is none: the wait below starts after that.
+	uv, err := localHubUV(dataDir, true)
+	if err != nil {
+		return LocalHubStatus{Missing: "uv"}, fmt.Errorf("%s %v", tr3(lang,
+			"下载 uv（Python 的运行工具）失败：检查网络后再点「在本机启动」，或者自己装好 uv 后点「重新检测」。原始报错：",
+			"uv（Python の実行ツール）のダウンロードに失敗しました。ネットワークを確認して「このマシンで起動」をもう一度押すか、uv を自分で入れてから「再検出」を押してください。元のエラー：",
+			"Downloading uv (a Python runner) failed: check the network and click \"Start on this machine\" again, or install uv yourself and click \"Detect again\". Original error:"), err)
+	}
+	if err := startHubProcess(dataDir, uv, &s); err != nil {
 		return LocalHubStatus{}, err
 	}
+	wait := localHubStartWait
+	if uv == ownUV(dataDir) {
+		// our own uv: the first start also downloads Python into <data_dir>/tools/python (the hint says a
+		// minute or two). 来源：实现者定，放宽到 3 倍
+		wait *= 3
+	}
+	secs := strconv.Itoa(int(wait.Round(time.Second) / time.Second))
 	base, _ := cloudWebWSBase(localHubURL(s.Port))
-	deadline := time.Now().Add(localHubStartWait)
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if code, _, err := cloudWebHandshake(ctx, base, s.BotToken); err == nil && code == http.StatusSwitchingProtocols {
 			return GetLocalHubStatus(ctx, dataDir, lang), nil
@@ -481,8 +495,8 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		}
 	}
 	logFile := filepath.Join(localHubDir(dataDir), "hub.log")
-	return LocalHubStatus{LogFile: logFile}, fmt.Errorf("%s %s", tr3(lang, "自建平台没在 90 秒内起来，看日志：", "プラットフォームが 90 秒以内に起動しませんでした。ログ：",
-		"The platform did not come up within 90 seconds; see the log:"), logFile+tailFile(logFile, 600))
+	return LocalHubStatus{LogFile: logFile}, fmt.Errorf("%s %s", tr3(lang, "自建平台没在 "+secs+" 秒内起来，看日志：", "プラットフォームが "+secs+" 秒以内に起動しませんでした。ログ：",
+		"The platform did not come up within "+secs+" seconds; see the log:"), logFile+tailFile(logFile, 600))
 }
 
 // localHubPortTaken: hub.json's port is in use. Asked with our bot token:
@@ -540,14 +554,20 @@ func EnsureLocalHub(ctx context.Context, dataDir string) {
 		slog.Warn("local hub: its port is taken by something else", "port", s.Port)
 		return
 	}
-	if err := startHubProcess(dataDir, &s); err != nil {
+	uv, err := localHubUV(dataDir, true)
+	if err != nil {
+		slog.Warn("local hub: no uv", "error", err)
+		return
+	}
+	if err := startHubProcess(dataDir, uv, &s); err != nil {
 		slog.Warn("local hub: start failed", "error", err)
 		return
 	}
 	slog.Info("local hub: started", "url", localHubURL(s.Port))
 }
 
-func startHubProcess(dataDir string, s *localHubState) error {
+// startHubProcess runs uv (localHubUV's) on the unpacked hub source.
+func startHubProcess(dataDir, uv string, s *localHubState) error {
 	dir := localHubDir(dataDir)
 	src := filepath.Join(dir, "src")
 	if err := extractHubSource(src); err != nil {
@@ -556,10 +576,6 @@ func startHubProcess(dataDir string, s *localHubState) error {
 	s.StartedAt = time.Now().Format(time.RFC3339)
 	if err := writeJSONFile(filepath.Join(dir, "hub.json"), s, 0o600); err != nil {
 		return err
-	}
-	uv, err := localHubUV(dataDir, true)
-	if err != nil {
-		return fmt.Errorf("uv: %w", err)
 	}
 	logf, err := os.OpenFile(filepath.Join(dir, "hub.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -571,9 +587,13 @@ func startHubProcess(dataDir string, s *localHubState) error {
 	cmd := exec.Command(uv, args...)
 	cmd.Dir = src
 	// PYTHONIOENCODING：stdout 接到日志文件时 Windows 的 Python 默认按 cp1252 写，hub 打印中文启动行就崩（PR #5 Windows 实测）
-	// uvOwnEnv：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是装开发工具的桩）；Python 装在
-	// <data_dir>/tools/python，和 gate 共用
-	cmd.Env = MergeEnv(os.Environ(), append(uvOwnEnv(dataDir), "RH_HUB_TOKEN="+s.WebToken, "RH_BOT_TOKEN="+s.BotToken, "PYTHONIOENCODING=utf-8"))
+	env := []string{"RH_HUB_TOKEN=" + s.WebToken, "RH_BOT_TOKEN=" + s.BotToken, "PYTHONIOENCODING=utf-8"}
+	if uv == ownUV(dataDir) {
+		// uvOwnEnv, only for the uv we downloaded：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是
+		// 装开发工具的桩）；Python 装在 <data_dir>/tools/python，和 gate 共用。用户自己的 uv 照旧用用户的 Python 和 uv.toml（镜像）。
+		env = append(uvOwnEnv(dataDir), env...)
+	}
+	cmd.Env = MergeEnv(os.Environ(), env)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {

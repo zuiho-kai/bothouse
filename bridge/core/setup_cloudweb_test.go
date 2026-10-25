@@ -720,7 +720,7 @@ func TestStartLocalHubDownloadsUV(t *testing.T) {
 	go func() { defer wg.Done(); gateUV, gateErr = ensureUV(dataDir) }()
 	_, err := StartLocalHub(context.Background(), dataDir, "zh")
 	wg.Wait()
-	if err == nil || !strings.Contains(err.Error(), "90 秒") {
+	if err == nil || !strings.Contains(err.Error(), "秒内起来") {
 		t.Fatalf("want the wait to time out (fake uv starts no hub): %v", err)
 	}
 	own := filepath.Join(dataDir, "tools", "uv", uvExe())
@@ -754,5 +754,50 @@ func TestStartLocalHubDownloadsUV(t *testing.T) {
 	// a second start reuses the downloaded uv
 	if _, err := localHubUV(dataDir, true); err != nil || fetches != 1 {
 		t.Fatalf("second lookup: %v, %d downloads", err, fetches)
+	}
+}
+
+// G5: the user's own uv (found by lookPath) runs the hub as before: none of uvOwnEnv's variables, so it uses
+// the user's Pythons and uv.toml (mirrors); nothing is downloaded.
+func TestStartLocalHubUserUVKeepsEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake uv is a shell script")
+	}
+	noLocalHub(t)
+	dataDir, _ := stubPythonEnv(t)
+	bin := t.TempDir()
+	userUV := filepath.Join(bin, "uv")
+	if err := os.WriteFile(userUV, []byte("#!/bin/sh\n/usr/bin/env > ../uv-env.tmp && /bin/mv ../uv-env.tmp ../uv-env.txt\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldFS, oldLook, oldWait := hubSourceFS, lookPath, localHubStartWait
+	hubSourceFS = fstest.MapFS{"rh/hub.py": &fstest.MapFile{Data: []byte("# hub")}}
+	lookPath = func(string) (string, bool, error) { return userUV, true, nil }
+	localHubStartWait = 300 * time.Millisecond // 来源：测试里假 uv 不起 hub
+	t.Cleanup(func() { hubSourceFS, lookPath, localHubStartWait = oldFS, oldLook, oldWait })
+	fetchUV = func(url string) ([]byte, error) { t.Errorf("downloaded %s", url); return nil, exec.ErrNotFound }
+
+	_, err := StartLocalHub(context.Background(), dataDir, "zh")
+	if err == nil || !strings.Contains(err.Error(), "没在 0 秒内起来") {
+		t.Fatalf("want the 300ms wait (not widened for the user's uv) to time out: %v", err)
+	}
+	envFile := filepath.Join(dataDir, "hub", "uv-env.txt")
+	var env []byte
+	for i := 0; i < 100; i++ {
+		if env, err = os.ReadFile(envFile); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("the user's uv was not run: %v", err)
+	}
+	for _, bad := range []string{"UV_PYTHON_PREFERENCE=", "UV_NO_CONFIG=", "UV_PYTHON_INSTALL_DIR="} {
+		if strings.Contains(string(env), bad) {
+			t.Errorf("user uv got %s", bad)
+		}
+	}
+	if !strings.Contains(string(env), "RH_BOT_TOKEN=") {
+		t.Errorf("hub env lacks RH_BOT_TOKEN")
 	}
 }
