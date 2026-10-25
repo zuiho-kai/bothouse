@@ -53,6 +53,11 @@ type Manager interface {
 	Restart() error
 	Status() (*Status, error)
 	Platform() string
+	// Autostart reports whether the installed service starts at login/boot.
+	Autostart() (bool, error)
+	// SetAutostart turns start-at-login/boot on or off for the installed
+	// service. It never stops or restarts the running service.
+	SetAutostart(enabled bool) error
 }
 
 // NewManager returns a platform-specific daemon manager.

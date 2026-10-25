@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,8 +17,20 @@ import (
 )
 
 const (
-	launchdLabel = "com.bothouse.service"
+	defaultLaunchdLabel = "com.bothouse.service"
+	// launchdLabelEnv overrides the launchd label, for tests and side-by-side
+	// instances that must never touch the real com.bothouse.service job.
+	launchdLabelEnv = "BOTHOUSE_LAUNCHD_LABEL"
 )
+
+var launchdLabelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+func launchdLabel() string {
+	if l := strings.TrimSpace(os.Getenv(launchdLabelEnv)); l != "" && launchdLabelPattern.MatchString(l) {
+		return l
+	}
+	return defaultLaunchdLabel
+}
 
 var runLaunchctl = func(args ...string) (string, error) {
 	cmd := exec.Command("launchctl", args...)
@@ -40,10 +53,17 @@ func newPlatformManager() (Manager, error) {
 func (*launchdManager) Platform() string { return "launchd" }
 
 func (m *launchdManager) Install(cfg Config) error {
-	plistPath := launchdPlistPath()
+	// Autostart (start at login) is off for a new install. A reinstall or
+	// upgrade keeps what the user has: a plist already in ~/Library/LaunchAgents
+	// (every install before this setting existed) stays there, so it stays on.
+	plistPath := launchdParkedPlistPath()
+	otherPath := launchdAutostartPlistPath()
+	if launchdAutostartOn() {
+		plistPath, otherPath = otherPath, plistPath
+	}
 
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0755); err != nil {
-		return fmt.Errorf("create LaunchAgents dir: %w", err)
+		return fmt.Errorf("create plist dir: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(cfg.LogFile), 0755); err != nil {
 		return fmt.Errorf("create log dir: %w", err)
@@ -66,6 +86,9 @@ func (m *launchdManager) Install(cfg Config) error {
 	if err := os.Chmod(plistPath, 0600); err != nil {
 		return fmt.Errorf("chmod plist: %w", err)
 	}
+	if err := os.Remove(otherPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale plist: %w", err)
+	}
 
 	domain := preferredLaunchdDomain()
 	if out, err := runLaunchctl("bootstrap", domain, plistPath); err != nil {
@@ -81,11 +104,63 @@ func (m *launchdManager) Install(cfg Config) error {
 func (m *launchdManager) Uninstall() error {
 	bootoutLaunchdTargets()
 
-	plistPath := launchdPlistPath()
-	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove plist: %w", err)
+	for _, plistPath := range []string{launchdAutostartPlistPath(), launchdParkedPlistPath()} {
+		if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove plist: %w", err)
+		}
 	}
 	return nil
+}
+
+// Autostart reports whether the service starts at login: launchd loads only
+// the plists in ~/Library/LaunchAgents at login.
+func (*launchdManager) Autostart() (bool, error) {
+	return launchdAutostartOn(), nil
+}
+
+// SetAutostart moves the plist into or out of ~/Library/LaunchAgents. It does
+// not call launchctl: the loaded job (and the running service with its panel)
+// is left as it is; launchd only reads that directory at the next login.
+// KeepAlive implies RunAtLoad (launchd.plist(5)), so RunAtLoad=false alone
+// would not stop the start at login; `launchctl disable` would also make
+// the next bootstrap (restart, start) fail.
+func (*launchdManager) SetAutostart(enabled bool) error {
+	from, to := launchdAutostartPlistPath(), launchdParkedPlistPath()
+	if enabled {
+		from, to = to, from
+	}
+	if _, err := os.Stat(to); err == nil {
+		if _, err := os.Stat(from); err == nil {
+			_ = os.Remove(from)
+		}
+		return nil // already in place
+	}
+	if _, err := os.Stat(from); err != nil {
+		return fmt.Errorf("service is not installed (no plist at %s)", from)
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0755); err != nil {
+		return fmt.Errorf("create plist dir: %w", err)
+	}
+	if err := os.Rename(from, to); err != nil {
+		return fmt.Errorf("move plist: %w", err)
+	}
+	return nil
+}
+
+// supervisedBySelf: launchd sets XPC_SERVICE_NAME to the job label in every
+// process it starts (and children inherit it). Ours = our label. Another
+// launchd job (e.g. a hand-written com.example.bridge plist) = external.
+// "0", empty or "application.*" (Terminal, Finder, Dock) = not a service.
+func supervisedBySelf() (string, string) {
+	name := strings.TrimSpace(os.Getenv("XPC_SERVICE_NAME"))
+	switch {
+	case name == launchdLabel():
+		return SupervisorSelf, name
+	case name == "" || name == "0" || strings.HasPrefix(name, "application."):
+		return SupervisorNone, ""
+	default:
+		return SupervisorExternal, name
+	}
 }
 
 func (*launchdManager) Start() error {
@@ -190,9 +265,31 @@ func (*launchdManager) Status() (*Status, error) {
 
 // ── helpers ─────────────────────────────────────────────────
 
-func launchdPlistPath() string {
+// launchdAutostartPlistPath is where the plist lives while autostart is on.
+func launchdAutostartPlistPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist")
+	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel()+".plist")
+}
+
+// launchdParkedPlistPath is where the plist lives while autostart is off:
+// outside LaunchAgents, so login does not load it, but bootstrap (install,
+// start, restart) still can.
+func launchdParkedPlistPath() string {
+	return filepath.Join(DefaultDataDir(), "launchd", launchdLabel()+".plist")
+}
+
+func launchdAutostartOn() bool {
+	_, err := os.Stat(launchdAutostartPlistPath())
+	return err == nil
+}
+
+// launchdPlistPath is the installed plist: the LaunchAgents one when present,
+// else the parked one.
+func launchdPlistPath() string {
+	if launchdAutostartOn() {
+		return launchdAutostartPlistPath()
+	}
+	return launchdParkedPlistPath()
 }
 
 func launchdUserDomain() string {
@@ -222,7 +319,7 @@ func launchdDomains() []string {
 }
 
 func launchdTarget(domain string) string {
-	return fmt.Sprintf("%s/%s", domain, launchdLabel)
+	return fmt.Sprintf("%s/%s", domain, launchdLabel())
 }
 
 func launchdTargets() []string {
@@ -348,5 +445,5 @@ func buildPlist(cfg Config) string {
 	<string>/dev/null</string>
 </dict>
 </plist>
-`, launchdLabel, xmlEscape(cfg.BinaryPath), xmlEscape(cfg.WorkDir), xmlEscape(cfg.LogFile), cfg.LogMaxSize, cfg.LogMaxBackups, xmlEscape(envPATH), envExtra)
+`, xmlEscape(launchdLabel()), xmlEscape(cfg.BinaryPath), xmlEscape(cfg.WorkDir), xmlEscape(cfg.LogFile), cfg.LogMaxSize, cfg.LogMaxBackups, xmlEscape(envPATH), envExtra)
 }

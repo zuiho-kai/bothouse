@@ -50,6 +50,10 @@ func (m *systemdManager) Platform() string {
 
 func (m *systemdManager) Install(cfg Config) error {
 	unitPath := m.unitPath()
+	wasEnabled := false
+	if _, err := os.Stat(unitPath); err == nil {
+		wasEnabled, _ = m.Autostart()
+	}
 
 	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
 		return fmt.Errorf("create systemd dir: %w", err)
@@ -73,11 +77,15 @@ func (m *systemdManager) Install(cfg Config) error {
 		return fmt.Errorf("chmod unit file: %w", err)
 	}
 
-	for _, cmdArgs := range [][]string{
-		m.sysArgs("daemon-reload"),
-		m.sysArgs("enable", systemdServiceName),
-		m.sysArgs("restart", systemdServiceName),
-	} {
+	// Autostart (start at boot/login) is off for a new install; a reinstall or
+	// upgrade keeps it on when the unit was already enabled (every install
+	// before this setting existed enabled it).
+	steps := [][]string{m.sysArgs("daemon-reload")}
+	if wasEnabled {
+		steps = append(steps, m.sysArgs("enable", systemdServiceName))
+	}
+	steps = append(steps, m.sysArgs("restart", systemdServiceName))
+	for _, cmdArgs := range steps {
 		if out, err := runSystemctl(cmdArgs...); err != nil {
 			return fmt.Errorf("systemctl %s: %s (%w)", strings.Join(cmdArgs, " "), out, err)
 		}
@@ -100,6 +108,63 @@ func (m *systemdManager) Uninstall() error {
 		slog.Warn("systemd: daemon-reload failed", "error", err)
 	}
 	return nil
+}
+
+// Autostart: `systemctl is-enabled` prints "enabled" (exit 0) or
+// "disabled" (exit 1).
+func (m *systemdManager) Autostart() (bool, error) {
+	out, err := runSystemctl(m.sysArgs("is-enabled", systemdServiceName)...)
+	state := strings.TrimSpace(out)
+	if state == "enabled" || state == "enabled-runtime" {
+		return true, nil
+	}
+	if state == "disabled" || err == nil {
+		return false, nil
+	}
+	return false, fmt.Errorf("is-enabled: %s (%w)", out, err)
+}
+
+// SetAutostart enables or disables the unit without --now: the running
+// service keeps running.
+func (m *systemdManager) SetAutostart(enabled bool) error {
+	verb := "disable"
+	if enabled {
+		verb = "enable"
+	}
+	if out, err := runSystemctl(m.sysArgs(verb, systemdServiceName)...); err != nil {
+		return fmt.Errorf("systemctl %s: %s (%w)", verb, out, err)
+	}
+	return nil
+}
+
+// supervisedBySelf reads the unit that owns this process from
+// /proc/self/cgroup: bothouse.service = ours, another *.service = external,
+// a session/app *.scope = started by hand.
+func supervisedBySelf() (string, string) {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return SupervisorNone, ""
+	}
+	return classifySystemdCgroup(string(data))
+}
+
+func classifySystemdCgroup(cgroup string) (string, string) {
+	for _, line := range strings.Split(strings.TrimSpace(cgroup), "\n") {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		segs := strings.Split(strings.Trim(parts[2], "/"), "/")
+		unit := segs[len(segs)-1]
+		if !strings.HasSuffix(unit, ".service") {
+			continue
+		}
+		if unit == systemdServiceName {
+			return SupervisorSelf, unit
+		}
+		return SupervisorExternal, unit
+	}
+	return SupervisorNone, ""
 }
 
 func (m *systemdManager) Start() error {

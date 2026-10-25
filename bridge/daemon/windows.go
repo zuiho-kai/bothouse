@@ -63,7 +63,11 @@ func (m *schtasksManager) Install(cfg Config) error {
 		return fmt.Errorf("chmod task script: %w", err)
 	}
 
-	handedOff, err := stopOrHandOff("install", windowsDeleteTaskPS()+windowsCreateTaskPS(scriptPath)+windowsStartTaskPS())
+	// Autostart (the logon trigger) is off for a new install; a reinstall or
+	// upgrade keeps it on when the existing task's trigger was enabled (every
+	// install before this setting existed).
+	autostart, _ := m.Autostart()
+	handedOff, err := stopOrHandOff("install", windowsDeleteTaskPS()+windowsCreateTaskPS(scriptPath, autostart)+windowsStartTaskPS())
 	if err != nil {
 		slog.Warn("schtasks: stop existing task failed", "error", err)
 	}
@@ -80,7 +84,7 @@ func (m *schtasksManager) Install(cfg Config) error {
 		return err
 	}
 
-	if err := createWindowsTask(scriptPath); err != nil {
+	if err := createWindowsTask(scriptPath, autostart); err != nil {
 		return err
 	}
 
@@ -162,8 +166,8 @@ func windowsTaskActionArgs(scriptPath string) string {
 	return fmt.Sprintf(`-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"`, scriptPath)
 }
 
-func createWindowsTask(scriptPath string) error {
-	out, err := runPowerShell(windowsCreateTaskPS(scriptPath))
+func createWindowsTask(scriptPath string, autostart bool) error {
+	out, err := runPowerShell(windowsCreateTaskPS(scriptPath, autostart))
 	if err != nil {
 		return fmt.Errorf("register scheduled task: %s (%w)", out, err)
 	}
@@ -304,13 +308,72 @@ if ($null -ne (Get-ScheduledTask -TaskName %[1]s -ErrorAction SilentlyContinue))
 `, powerShellLiteral(windowsTaskName))
 }
 
-func windowsCreateTaskPS(scriptPath string) string {
+func windowsCreateTaskPS(scriptPath string, autostart bool) string {
 	return fmt.Sprintf(`
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument %s
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$trigger.Enabled = %s
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName %s -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-`, powerShellLiteral(windowsTaskActionArgs(scriptPath)), powerShellLiteral(windowsTaskName))
+`, powerShellLiteral(windowsTaskActionArgs(scriptPath)), powerShellBool(autostart), powerShellLiteral(windowsTaskName))
+}
+
+func powerShellBool(b bool) string {
+	if b {
+		return "$true"
+	}
+	return "$false"
+}
+
+// Autostart: the task's logon trigger is enabled. No task = off.
+func (*schtasksManager) Autostart() (bool, error) {
+	out, err := runPowerShell(windowsAutostartQueryPS())
+	if err != nil {
+		return false, nil
+	}
+	return strings.EqualFold(strings.TrimSpace(out), "true"), nil
+}
+
+func windowsAutostartQueryPS() string {
+	return fmt.Sprintf(`
+$task = Get-ScheduledTask -TaskName %s -ErrorAction SilentlyContinue
+if ($null -eq $task) { exit 1 }
+$on = $false
+foreach ($t in @($task.Triggers)) { if ($t.Enabled) { $on = $true } }
+Write-Output $on.ToString().ToLower()
+`, powerShellLiteral(windowsTaskName))
+}
+
+// SetAutostart only enables or disables the task's logon trigger
+// (Set-ScheduledTask -Trigger). The task is not deleted, stopped or
+// re-registered, so the running service keeps running and Start-ScheduledTask
+// still works.
+func (*schtasksManager) SetAutostart(enabled bool) error {
+	out, err := runPowerShell(windowsSetAutostartPS(enabled))
+	if err != nil {
+		return fmt.Errorf("set logon trigger: %s (%w)", out, err)
+	}
+	return nil
+}
+
+func windowsSetAutostartPS(enabled bool) string {
+	return fmt.Sprintf(`
+$task = Get-ScheduledTask -TaskName %[1]s -ErrorAction SilentlyContinue
+if ($null -eq $task) { throw 'scheduled task not found' }
+$triggers = @($task.Triggers)
+if ($triggers.Count -eq 0) { $triggers = @(New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) }
+foreach ($t in $triggers) { $t.Enabled = %[2]s }
+Set-ScheduledTask -TaskName %[1]s -Trigger $triggers | Out-Null
+`, powerShellLiteral(windowsTaskName), powerShellBool(enabled))
+}
+
+// supervisedBySelf: the bothouse task script sets CC_SUPERVISED=1
+// (buildWindowsTaskScript) for the cc-connect it runs.
+func supervisedBySelf() (string, string) {
+	if os.Getenv("CC_SUPERVISED") == "1" {
+		return SupervisorSelf, windowsTaskName
+	}
+	return SupervisorNone, ""
 }
 
 // windowsHandOffLog is where a detached stop / restart / install / uninstall writes how it went.

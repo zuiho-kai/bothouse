@@ -78,7 +78,7 @@ func TestWindowsTaskCreateUsesLimitedInteractivePrincipal(t *testing.T) {
 		return "", nil
 	}
 
-	if err := createWindowsTask(`C:\Users\me\.bothouse\bothouse-daemon.ps1`); err != nil {
+	if err := createWindowsTask(`C:\Users\me\.bothouse\bothouse-daemon.ps1`, false); err != nil {
 		t.Fatalf("createWindowsTask() error = %v", err)
 	}
 	for _, want := range []string{

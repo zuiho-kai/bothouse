@@ -15,3 +15,5 @@ func newPlatformManager() (Manager, error) {
 func CheckLinger() (enabled bool, user string) {
 	return false, ""
 }
+
+func supervisedBySelf() (string, string) { return SupervisorNone, "" }
