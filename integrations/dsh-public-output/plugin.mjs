@@ -13,7 +13,7 @@ export async function apply(ctx, config) {
   const require = createRequire(realpathSync(process.argv[1]));
   const { isAgentLoopRequest } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
   if (typeof isAgentLoopRequest !== 'function') throw Error('conest-public-output: unsupported DSH runtime');
-  ctx.logger.info('conest-public-output: structured public replies enabled (v4, reply schema)');
+  ctx.logger.info('conest-public-output: structured public replies enabled (v5, streamPublic=%s)',config.streamPublic === true);
   ctx.on('llm/stream', (options,next) => {
     if (!config.providers.includes(options.provider) || !isAgentLoopRequest(options)) return next();
     return guard(options,next,request=>ctx.llm.stream(request),diagnostic=>{
@@ -21,6 +21,6 @@ export async function apply(ctx, config) {
       // guard supplies only module-owned enums/counters, never provider text.
       process.stderr.write(`[conest-public-output] ${JSON.stringify(diagnostic)}\n`);
       ctx.logger.warn('conest-public-output: %s',JSON.stringify(diagnostic));
-    });
+    },config.streamPublic === true);
   });
 }

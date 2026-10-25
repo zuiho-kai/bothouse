@@ -16,7 +16,7 @@ Issue #145。仅在需要阻止执行过程直接进入聊天正文的 ACP 部�
 
 ## 启用
 
-将本目录两个源码文件（output.mjs、plugin.mjs）放到一个固定发布目录，在该 ACP 启动器的最后一层 patch 追加：
+将本目录三个源码文件（output.mjs、plugin.mjs、stream.mjs）放到一个固定发布目录，在该 ACP 启动器的最后一层 patch 追加：
 
 ~~~yaml
 - insert:
@@ -38,6 +38,8 @@ tool_messages = false
 plugin.mjs 从实际运行的 DSH 安装解析 dsh-llm，确保使用同一个 loop-marker 实例。不支持的运行时或配置缺失会启动失败，不静默放行。升级 DSH 后必须重跑隔离真实 ACP 验收。源码/patch/二进制应作为一个发布单元备份、切换和回滚。
 
 ## 验证与代价
+
+v5 支持 `streamPublic: true`，默认关闭。启用后只增量解码专用 `conest_public_reply` 调用的 `reply` 字符串，公开首字立即下发；原始草稿、普通补答正文、思考和其他工具参数不实时公开。字符串转义和跨块 Unicode 保持完整，疑似标签从 `<` 起暂缓，最终仍做原有完整校验。已发布前缀后出现无效格式、改写、取消或失败会终止本轮，不重试拼接另一个答案，已发前缀无法撤回。仅声明专用字段不代表事实已完成，使用方须尊重最终失败状态。语音部署还需 [ACP 增量补丁](../dsh-acp-stream/README.md) 和 companion 按句播放；打开插件单独一个开关不能证明端到端实时。
 
 ~~~sh
 node --test integrations/dsh-public-output/*.test.mjs

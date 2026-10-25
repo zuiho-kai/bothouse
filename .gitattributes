@@ -1,0 +1,2 @@
+# Unified patch context uses a single space on unchanged blank lines.
+integrations/dsh-acp-stream/source.patch -whitespace
