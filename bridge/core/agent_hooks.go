@@ -115,11 +115,11 @@ func FindPython() (string, error) {
 		if err != nil {
 			continue
 		}
-		if runtime.GOOS == "windows" && strings.Contains(strings.ToLower(p), `\windowsapps\`) {
-			continue // the Microsoft Store stub opens the store instead of running Python
-		}
 		if abs, err := filepath.Abs(p); err == nil {
 			p = abs
+		}
+		if isPythonStub(p) {
+			continue // the Microsoft Store stub / the macOS one without Command Line Tools: they open a dialog instead of running Python (python_env.go)
 		}
 		return p, nil
 	}

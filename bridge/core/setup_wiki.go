@@ -274,8 +274,12 @@ func SubWikiScriptFromHooks(commands []string) string {
 	return ""
 }
 
-// wikiPython: the Python the wiki commands run (FindPython), "python3" if none is found now.
+// wikiPython: the Python the wiki commands run: the one the role wikis were set up with in this run
+// (ProductPython), else FindPython, else "python3".
 func wikiPython() string {
+	if p := lastProductPython(); p != "" {
+		return p
+	}
 	if p, err := FindPython(); err == nil {
 		return p
 	}

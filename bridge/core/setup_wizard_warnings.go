@@ -320,7 +320,11 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 		if req.gateOn() {
 			res.GateStatus = gateStatusAfterWizard(res.dataDir)
 		}
-		res.GateHint = GateHint(req.Language, res.GateStatus, pl.fallbackName)
+		hint := res.GateStatus
+		if req.gateOn() && !jevUsable && (hint == GateStatusRunning || hint == GateStatusStarting) {
+			hint = GateStatusJevMissing // the gate runs (wiki, task board) but does not choose who answers: the lead does
+		}
+		res.GateHint = GateHint(req.Language, hint, pl.fallbackName)
 		switch res.GateStatus {
 		case GateStatusPythonMissing, GateStatusPythonTooOld:
 			res.Warnings = append(res.Warnings, warnGatePython(req.Language, res.GateStatus))
@@ -356,7 +360,8 @@ func warnJevRecommended(lang, fallbackName string) WizardWarning {
 	return w
 }
 
-// warnGatePython: the gate is on but this machine has no Python it can run on, so it is not started.
+// warnGatePython: the gate is on but this machine has no Python it can run on, and bothouse could not fetch
+// one (ProductPython: uv downloaded into <data_dir>/tools), so it is not started.
 // Not blocking: the lead still answers every message that names no one (core/gate.go fallbackFor).
 func warnGatePython(lang, status string) WizardWarning {
 	w := WizardWarning{Code: "gate_python_missing", URL: "https://www.python.org/downloads/"}
@@ -366,19 +371,19 @@ func warnGatePython(lang, status string) WizardWarning {
 		if old {
 			w.Message = "Python が古い（3.12 未満）ため、gate（誰が答えるかの賢い判断）はまだ起動していません。振り分けは有効で、メインのボットがまとめて返事します。"
 		}
-		w.Fix = "Python 3.12 以上を入れてください（リンク）。入れると bothouse が自動で gate を起動します。"
+		w.Fix = "bothouse による uv と Python 3.12 の自動ダウンロードに失敗しました（ネットワークを確認）。Python 3.12 以上か uv を入れてください（リンク）。入れると bothouse が自動で gate を起動し、毎回の wiki とタスクボードの注入も始まります。"
 	} else if isZH(lang) {
 		w.Message = "没找到 Python 3.12 以上，gate（智能判断谁回）还没启动。分流已生效，主 bot 统一回话。"
 		if old {
 			w.Message = "Python 版本太旧（低于 3.12），gate（智能判断谁回）还没启动。分流已生效，主 bot 统一回话。"
 		}
-		w.Fix = "装 Python 3.12 以上（见链接）；装好后 bothouse 会自动启动 gate。"
+		w.Fix = "bothouse 自动下载 uv 和 Python 3.12 没成功（检查网络）。装 Python 3.12 以上或 uv（见链接）；装好后 bothouse 会自动启动 gate，每轮的 wiki 和任务板注入也随之生效。"
 	} else {
 		w.Message = "No Python 3.12 or newer found, so the gate (smart choice of who answers) is not started yet. Routing is on: the primary role answers for the team."
 		if old {
 			w.Message = "Python is older than 3.12, so the gate (smart choice of who answers) is not started yet. Routing is on: the primary role answers for the team."
 		}
-		w.Fix = "Install Python 3.12 or newer (link); bothouse then starts the gate by itself."
+		w.Fix = "bothouse could not download uv and Python 3.12 by itself (check the network). Install Python 3.12 or newer, or uv (link); bothouse then starts the gate by itself, and with it each turn's wiki pages and task board."
 	}
 	return w
 }

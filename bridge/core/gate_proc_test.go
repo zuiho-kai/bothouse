@@ -1,6 +1,8 @@
 package core
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -60,7 +62,7 @@ func setupFakeGate(t *testing.T, withJev bool) (dataDir string) {
 	})
 	GateScriptFS = fstest.MapFS{"contrib/gate/gate.py": {Data: []byte(fakeGatePy)}}
 	gateAddr = addr
-	findPythonForGate = func() (string, error) { return py, nil }
+	findPythonForGate = func(string) (string, error) { return py, nil }
 	gatePythonOK.Store(py, true)
 	gateQuickExit, gateMaxBackoff, gateRecheck, gateStopWait = 2*time.Second, time.Second, 200*time.Millisecond, 2*time.Second
 	return dataDir
@@ -151,21 +153,28 @@ func TestGateSupervisorLeavesExternalGate(t *testing.T) {
 	}
 }
 
-func TestGateSupervisorNoJevNoStart(t *testing.T) {
+func TestGateSupervisorStartsWithoutJev(t *testing.T) {
+	// a clean machine has no jev: the gate still starts (gate.py then serves /context and /lead only;
+	// /decide falls back to gate_fallback), so each turn still gets its wiki pages and task board
 	dataDir := setupFakeGate(t, false)
-	if _, reason := GatePrereq(dataDir); reason != GateStatusJevMissing {
-		t.Fatalf("GatePrereq reason = %q, want %q", reason, GateStatusJevMissing)
+	if _, reason := GatePrereq(dataDir); reason != "" {
+		t.Fatalf("GatePrereq reason = %q without a jev, want none", reason)
 	}
 	g := NewGateSupervisor(dataDir)
 	g.Run(true)
 	defer g.Stop()
-	time.Sleep(time.Second)
-	if n := gateStarts(dataDir); n != 0 {
-		t.Fatalf("started %d gates without a jev, want 0", n)
+	waitGate(t, "start without a jev", 10*time.Second, GateRunning)
+}
+
+func TestGatePrereqPythonReasons(t *testing.T) {
+	old := findPythonForGate
+	t.Cleanup(func() { findPythonForGate = old })
+	findPythonForGate = func(string) (string, error) { return "", fmt.Errorf("%w; download failed", ErrPythonTooOld) }
+	if _, r := GatePrereq(t.TempDir()); r != GateStatusPythonTooOld {
+		t.Fatalf("too old: %q", r)
 	}
-	// filled in later (the wizard's jev step): picked up on the next recheck
-	if err := writeJSONFile(filepath.Join(dataDir, jevFile), JevConfig{Backend: "llm", URL: "http://127.0.0.1:1/v1", Model: "m", Logprobs: true}, 0o600); err != nil {
-		t.Fatal(err)
+	findPythonForGate = func(string) (string, error) { return "", errors.New("no python, no uv, download failed") }
+	if _, r := GatePrereq(t.TempDir()); r != GateStatusPythonMissing {
+		t.Fatalf("missing: %q", r)
 	}
-	waitGate(t, "start once the jev is there", 10*time.Second, GateRunning)
 }

@@ -1132,7 +1132,7 @@ func TestApplyWizardDiscordGateToggle(t *testing.T) {
 	oldAddr, oldFind := gateAddr, findPythonForGate
 	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
 	gateAddr = "127.0.0.1:1" // nothing listens: never the gate running on this machine
-	findPythonForGate = func() (string, error) { return "", errors.New("no python") }
+	findPythonForGate = func(string) (string, error) { return "", errors.New("no python") }
 
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
@@ -1214,7 +1214,7 @@ func wizardGateTestEnv(t *testing.T) func(*string) string {
 	oldAddr, oldFind := gateAddr, findPythonForGate
 	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
 	gateAddr = "127.0.0.1:1" // nothing listens: never the gate running on this machine
-	findPythonForGate = func() (string, error) { return "", errors.New("no python") }
+	findPythonForGate = func(string) (string, error) { return "", errors.New("no python") }
 	return func(p *string) string {
 		if p == nil {
 			return "<unset>"

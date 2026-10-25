@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,8 +19,11 @@ import (
 // `uv run gate.py`. One code path for macOS, Linux and Windows; the gate comes and goes with bothouse
 // (which `bothouse daemon install` can already run as a service).
 //
-// Without Python (or one older than the gate needs) or without a jev, the gate is not started and
-// core/gate.go fallbackFor applies: an @-mentioned bot answers, every other message goes to the lead.
+// The Python is ProductPython (python_env.go: PATH, else uv, else uv downloaded into <data_dir>/tools), the
+// same one the role wikis use. Without one the gate is not started. Without a jev the gate still starts and
+// serves /context (each turn's wiki pages and task board) and /lead, but not /decide: there, as when the gate
+// is not running, core/gate.go fallbackFor applies: an @-mentioned bot answers, every other message goes to
+// the lead.
 
 // GateScriptFS holds contrib/gate/{gate,scorer_remote,ctxsvc,wiki_search,lead,board}.py and
 // team.example.json (embed_gate.go, set in cmd/cc-connect).
@@ -53,33 +55,22 @@ runpy.run_path("gate.py", run_name="__main__")`
 const gatePythonCheck = "import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)"
 
 // findPythonForGate is swappable in tests.
-var findPythonForGate = FindPython
+var findPythonForGate = ProductPython
 
-// gatePythonOK caches the version check per interpreter path.
+// gatePythonOK caches the version check per interpreter path (python312).
 var gatePythonOK sync.Map
 
 // GatePrereq reports whether the gate can start on this machine: the Python to run it with, or
-// the reason it can't (python_missing | python_too_old | jev_missing).
+// the reason it can't (python_missing | python_too_old). A missing jev does not stop it: the gate then
+// serves /context and /lead only (contrib/gate/gate.py make_scorer). The first call may download uv and
+// Python (ProductPython).
 func GatePrereq(dataDir string) (python, reason string) {
-	p, err := findPythonForGate() // skips the Windows Store stub (core/agent_hooks.go)
+	p, err := findPythonForGate(dataDir)
+	if errors.Is(err, ErrPythonTooOld) {
+		return "", GateStatusPythonTooOld
+	}
 	if err != nil {
 		return "", GateStatusPythonMissing
-	}
-	ok, cached := gatePythonOK.Load(p)
-	if !cached {
-		// 10s：首次运行的 python 可能要编译缓存，足够；只是一次版本检查
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		cmd := exec.CommandContext(ctx, p, "-c", gatePythonCheck)
-		hideWindow(cmd)
-		ok = cmd.Run() == nil
-		cancel()
-		gatePythonOK.Store(p, ok)
-	}
-	if !ok.(bool) {
-		return p, GateStatusPythonTooOld
-	}
-	if _, has := activeJev(dataDir); !has { // gate.py make_scorer exits at startup without one
-		return p, GateStatusJevMissing
 	}
 	return p, ""
 }
@@ -233,6 +224,14 @@ func exitedOrNever(c chan struct{}) <-chan struct{} {
 
 // step looks at the gate once and returns when to look again.
 func (g *GateSupervisor) step() time.Duration {
+	g.mu.Lock()
+	need := g.want && !g.external && g.cmd == nil
+	g.mu.Unlock()
+	if need {
+		// the first time this may download uv and Python (minutes): outside the locks, so Reload / Stop
+		// do not wait on it; GatePrereq below then gets the cached answer
+		_, _ = findPythonForGate(g.dataDir)
+	}
 	g.op.Lock()
 	defer g.op.Unlock()
 	g.mu.Lock()
@@ -290,7 +289,7 @@ func (g *GateSupervisor) step() time.Duration {
 
 // inputsLocked: what the gate reads at startup. A quick failure is retried once one changes.
 func (g *GateSupervisor) inputsLocked() string {
-	py, _ := findPythonForGate()
+	py, _ := findPythonForGate(g.dataDir)
 	fp := py
 	for _, f := range []string{jevFile, gateTeamFile} {
 		if st, err := os.Stat(filepath.Join(g.dataDir, f)); err == nil {

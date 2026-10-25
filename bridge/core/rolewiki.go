@@ -256,12 +256,12 @@ type roleWikiSetup struct {
 
 // prepareRoleWikis installs the programs (or uses the user's) and makes the main wiki when there is none.
 func prepareRoleWikis(ctx context.Context, env WizardEnv, lead string, engines map[string]any) (*roleWikiSetup, string, error) {
-	py, err := FindPython()
+	py, err := ProductPython(env.DataDir) // the gate's Python (python_env.go): may fetch one the first time
 	if err != nil {
 		return nil, "", err
 	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return nil, "", errors.New("git not found: the wikis are git repositories")
+	if g, err := exec.LookPath("git"); err != nil || isMacCLTStub(g) {
+		return nil, "", errors.New("git not found: the wikis are git repositories (macOS: xcode-select --install)")
 	}
 	s := &roleWikiSetup{python: py}
 	if env.WikiSubScript != "" {
