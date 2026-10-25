@@ -46,6 +46,7 @@ export interface WizardRequest {
   cloud_web?: { url?: string; token?: string };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
+  gate?: { enabled: boolean };
   allow_from?: string;
   wiki?: WizardWiki;
   dry_run?: boolean;
@@ -55,7 +56,8 @@ export interface WizardWarning { code: string; project?: string; blocking: boole
 export interface WizardResult {
   ok: boolean; dry_run: boolean; error?: string;
   saved?: boolean; needs_user_action?: boolean; warnings?: WizardWarning[]; invite_urls?: string[]; allow_from?: string;
-  gate_running?: boolean; gate_hint?: string; next_steps?: string[];
+  gate_running?: boolean; gate_status?: 'off' | 'running' | 'starting' | 'python_missing' | 'python_too_old' | 'jev_missing';
+  gate_hint?: string; next_steps?: string[];
   steps: { step: string; ok: boolean; detail?: string }[];
   roles: { project: string; name: string; agent_type: string; work_dir: string; persona_file: string; bot_id?: string;
     invite_url?: string; in_guild?: boolean; provider?: string; provider_via?: string; fallback: boolean; reused: boolean; persona_written: boolean;
@@ -65,6 +67,11 @@ export interface WizardResult {
   // the running service started the roles this save added: projects_added are online, projects_failed says why one is not
   // projects_removed: failed roles taken back out of config.toml; restart_keys / reload_error: why the running roles still need a restart
   hot_load?: { projects_added: string[]; projects_failed?: Record<string, string>; hot_load_error?: string; projects_removed?: string[]; rollback_error?: string; restart_keys?: string[]; reload_error?: string };
+}
+
+/** Keep the submitted request and the copyable AI command on the same routing setting. */
+export function withWizardGate(request: WizardRequest, enabled = true): WizardRequest {
+  return { ...request, gate: { enabled } };
 }
 
 /** The self-hosted platform on this machine (core/setup_cloudweb.go LocalHubStatus). */

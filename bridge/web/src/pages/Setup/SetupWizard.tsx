@@ -10,7 +10,7 @@ import { restartSystem } from '@/api/status';
 import { shownNames } from '@/api/projects';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
-  startLocalHub, testCloudWeb, testJev, saveJev,
+  startLocalHub, testCloudWeb, testJev, saveJev, withWizardGate,
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
@@ -107,6 +107,7 @@ export default function SetupWizard() {
   const [chats, setChats] = useState<{ chat_id: string; name: string }[] | null>(null);
   const [chatID, setChatID] = useState('');
   const [fallback, setFallback] = useState('');
+  const [gateEnabled, setGateEnabled] = useState(true);
   const [jev, setJev] = useState({ base_url: '', api_key: '', model: '' });
   // jevTest: the gate-style test (nothing written); jevSave: what 下一步 / 跳过 did to jev.json
   const [jevTest, setJevTest] = useState<{ running: boolean; usable?: boolean; reason?: string; hint?: string }>({ running: false });
@@ -347,7 +348,7 @@ export default function SetupWizard() {
       if (Object.keys(w).length) req.wiki = w;
     }
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
-    return req;
+    return withWizardGate(req, visibleSteps.includes(4) ? gateEnabled : undefined);
   };
 
   const save = async () => {
@@ -778,9 +779,14 @@ export default function SetupWizard() {
           </div>
         )}
 
-        {/* 4 fallback role */}
+        {/* 4 routing and primary role */}
         {step === 4 && (
           <div className="space-y-3">
+            <label className="flex items-start gap-2 text-sm font-medium text-gray-900 dark:text-white">
+              <input type="checkbox" className="mt-0.5" data-testid="gate-enabled" checked={gateEnabled} onChange={(e) => setGateEnabled(e.target.checked)} />
+              {T.gateEnabled}
+            </label>
+            <p className="text-xs text-gray-600 dark:text-gray-400">{gateEnabled ? T.gateOnHint : T.gateOffHint}</p>
             <p className="text-sm text-gray-700 dark:text-gray-300">{T.fallbackQ}</p>
             <div className="space-y-1.5">
               {roles.map((r) => (
@@ -908,7 +914,7 @@ export default function SetupWizard() {
                 ))}
                 {result.allow_from && <p className="text-xs text-gray-600 dark:text-gray-400" data-testid="allow-from-saved">{T.allowFromSaved}<code>{result.allow_from}</code></p>}
                 {result.gate_hint && (
-                  <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5" data-testid="gate-hint">
+                  <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5" data-testid="gate-hint" data-gate-status={result.gate_status}>
                     <p className="font-medium">{T.gateTitle}</p><p>{result.gate_hint}</p>
                   </div>
                 )}
