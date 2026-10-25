@@ -1,5 +1,5 @@
 """任务板（board.py）和它进每轮上下文（ctxsvc.board_items）的最小测试：python3 -I test_board.py"""
-import os, subprocess, sys, tempfile, unittest
+import json, os, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -36,6 +36,14 @@ class Board(unittest.TestCase):
         self.assertTrue(cli()[1].startswith("#2 "))
         self.assertEqual(cli("add", "a", "b", "c", "龙娘"), (0, "#3"))  # 结束过的编号不再用
         self.assertIn('"done_at"', (Path(TMP) / "board-done.jsonl").read_text())
+
+    def test_done_record_status_is_done(self):
+        # #597 N3：结束的条目进 board-done.jsonl 时 status 要是「已完成」，不能带着原来的「进行中」
+        board.add("写 hello.py", "-", "进行中", "橘")
+        self.assertTrue(board.done(1, 0))
+        rec = json.loads((Path(TMP) / "board-done.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(rec["status"], "已完成")
+        self.assertIn("done_at", rec)
 
     def test_bad_input(self):
         self.assertNotEqual(cli("done", "9")[0], 0)

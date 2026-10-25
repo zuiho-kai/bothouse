@@ -416,7 +416,7 @@ def done(nid, rework=None, why=None):
             return False
         _write([i for i in cur if i["id"] != nid])
         with open(_path("board-done.jsonl"), "a") as f:
-            rec = {**hit, "done_at": _now()}
+            rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
             if rework is not None:  # 不填就不写这两项，汇总时算「未填」
                 rec["rework"] = rework
                 if why:
