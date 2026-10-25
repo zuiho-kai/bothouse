@@ -240,13 +240,16 @@ type TeamHandoff struct {
 	// user/bot id, mentioned in the nudge; "" = nobody is mentioned). Title: the task's short
 	// name for the nudge. Due: the next check time (zero: not watched, e.g. a handoff recorded
 	// before the watch existed). Renewed: renewals given for progress. Nudged: the nudge was
-	// sent. ParkFails: parks that failed at the check time (retried, then reported).
+	// sent. ParkFails: parks that failed at the check time (retried, then reported). ReadFails: below.
 	Owner     string    `json:"owner,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	Due       time.Time `json:"due,omitzero"`
 	Renewed   int       `json:"renewed,omitempty"`
 	Nudged    bool      `json:"nudged,omitempty"`
 	ParkFails int       `json:"park_fails,omitempty"`
+	// ReadFails: checks whose progress signal could not be read (the channel history request
+	// failed); retried like ParkFails, then counted as no progress.
+	ReadFails int `json:"read_fails,omitempty"`
 }
 
 // teamHandoffOpen: the handoff is in work (neither closed nor paused).

@@ -69,8 +69,9 @@ type handoffWatch struct {
 	// park pauses the handoff (chat, at) of workspace key and frees the workspace when it was the
 	// last task there (APIServer.parkAndReset: also resets the teammates' sessions).
 	park func(key, chat string, at time.Time) (bool, error)
-	// progress: the workspace showed progress since `since` (workspaceProgress; nil = none).
-	progress func(key string, h TeamHandoff, since time.Time) bool
+	// progress: the workspace showed progress since `since` (workspaceProgress; nil = none). An
+	// error: the signal could not be read this time (retried, see check).
+	progress func(key string, h TeamHandoff, since time.Time) (bool, error)
 	// engines: the role engines whose sessions in the workspace count as work in progress (all
 	// engines of the bridge once started; the watch's own engine before).
 	engines func() []*Engine
@@ -212,12 +213,33 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		if h.At.After(since) {
 			since = h.At
 		}
-		if w.progress(key, h, since) {
+		progressed, perr := w.progress(key, h, since)
+		if perr != nil {
+			// A failed read (network, Discord 5xx/429) is not a verdict: retry after
+			// watchRetryDelay, like a failed park; only when the retries are used up is it no
+			// progress (B9 plan「读信号失败…当作无进展」).
+			fails := h.ReadFails + 1
+			if fails < watchParkRetries {
+				due := now.Add(watchRetryDelay)
+				slog.Warn("team watch: cannot read the progress signal; retrying", "workspace", key, "attempt", fails, "error", perr)
+				ok, serr := w.updateHandoff(key, h, func(x *TeamHandoff) { x.ReadFails = fails; x.Due = due })
+				if !ok && serr == nil {
+					return time.Time{}
+				}
+				if serr == nil {
+					return due
+				}
+				slog.Warn("team watch: save read retry failed; counted as no progress", "workspace", key, "error", serr)
+			} else {
+				slog.Warn("team watch: cannot read the progress signal; counted as no progress", "workspace", key, "attempts", fails, "error", perr)
+			}
+		}
+		if progressed {
 			due := h.Due.Add(watchCheckAfter())
 			if !due.After(now) {
 				due = now.Add(watchCheckAfter())
 			}
-			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due; x.Renewed++ })
+			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due; x.Renewed++; x.ReadFails = 0 })
 			if !ok && err == nil {
 				return time.Time{}
 			}
@@ -300,25 +322,29 @@ var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 // workspaceProgress: the task in workspace key showed progress since `since`. Either a session of
 // the workspace is running a turn now (Session.Busy, checked first: a long turn is not stopped), or
 // the owner posted in the workspace channel since then, not counting status and stance lines. A
-// signal that cannot be read counts as no progress (B9 plan「读信号失败…当作无进展」).
-func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) bool {
+// platform that cannot read channel history (Feishu) uses the sessions instead: a session of the
+// workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
+// request failed (check retries it).
+func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (bool, error) {
 	if w.workspaceBusy(key) {
 		slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat)
-		return true
+		return true, nil
 	}
 	spoke, err := w.ownerSpoke(key, h.Owner, since)
-	if err != nil {
-		slog.Warn("team watch: cannot read the workspace channel; counted as no progress", "workspace", key, "error", err)
-		return false
+	if errors.Is(err, errWatchNoHistory) {
+		return w.workspaceTurnSince(key, since), nil
 	}
-	return spoke
+	return spoke, err
 }
 
-// workspaceBusy: a session of workspace key ("<platform>:<id>") on any role engine is locked for a
-// turn. Lists the existing sessions only (ListSessions, never creates one).
-func (w *handoffWatch) workspaceBusy(key string) bool {
+// errWatchNoHistory: the platform cannot read channel history (no ChannelHistoryReader).
+var errWatchNoHistory = errors.New("platform cannot read channel history")
+
+// sessionsOf calls f on every existing session of workspace key on any role engine (ListSessions,
+// never creates one); f returns true to stop.
+func (w *handoffWatch) sessionsOf(key string, f func(*Session) bool) {
 	if w.engines == nil {
-		return false
+		return
 	}
 	for _, x := range w.engines() {
 		if x == nil || x.sessions == nil {
@@ -329,13 +355,33 @@ func (w *handoffWatch) workspaceBusy(key string) bool {
 				continue
 			}
 			for _, s := range x.sessions.ListSessions(k) {
-				if s.Busy() {
-					return true
+				if f(s) {
+					return
 				}
 			}
 		}
 	}
-	return false
+}
+
+// workspaceTurnSince: a session of workspace key ended a turn at or after since (local, no network).
+func (w *handoffWatch) workspaceTurnSince(key string, since time.Time) bool {
+	found := false
+	w.sessionsOf(key, func(s *Session) bool {
+		found = !s.GetUpdatedAt().Before(since)
+		return found
+	})
+	return found
+}
+
+// workspaceBusy: a session of workspace key ("<platform>:<id>") on any role engine is locked for a
+// turn. Lists the existing sessions only (ListSessions, never creates one).
+func (w *handoffWatch) workspaceBusy(key string) bool {
+	busy := false
+	w.sessionsOf(key, func(s *Session) bool {
+		busy = s.Busy()
+		return busy
+	})
+	return busy
 }
 
 // ownerSpoke: owner posted progress in the channel of workspace key at or after since. No owner
@@ -351,7 +397,7 @@ func (w *handoffWatch) ownerSpoke(key, owner string, since time.Time) (bool, err
 	}
 	r, ok := p.(ChannelHistoryReader)
 	if !ok {
-		return false, fmt.Errorf("platform %s cannot read channel history", plat)
+		return false, fmt.Errorf("%s: %w", plat, errWatchNoHistory)
 	}
 	msgs, err := r.ChannelHistory(ch, "", watchHistoryLimit)
 	if err != nil {

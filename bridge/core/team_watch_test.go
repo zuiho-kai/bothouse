@@ -178,7 +178,7 @@ func TestWatchIgnoresOldHandoffs(t *testing.T) {
 
 func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
 	e, p, w, h := watchFixture(t, "u1", "")
-	w.progress = func(string, TeamHandoff, time.Time) bool { return true }
+	w.progress = func(string, TeamHandoff, time.Time) (bool, error) { return true, nil }
 	now := h.Due
 	for i := 1; i <= watchMaxRenew; i++ {
 		next := w.tick(now)
@@ -481,7 +481,7 @@ func TestWatchNoOwnerSelfPostRenews(t *testing.T) {
 	at := h.Due.Add(-time.Minute)
 	p.post("ws1", k5aOwner, "别人的进度", at)
 	p.postSelf("ws1", "【接】已派龙娘", at)
-	if w.workspaceProgress("discord:ws1", h, h.At) {
+	if ok, _ := w.workspaceProgress("discord:ws1", h, h.At); ok {
 		t.Fatal("another author or a stance line of this bot is not progress")
 	}
 	p.postSelf("ws1", "龙娘交回了第一块，在派第二块", at)
@@ -580,33 +580,96 @@ func TestWatchBusyOnAnyEngine(t *testing.T) {
 	other := mate.sessions.GetOrCreateActive("discord:ws9:u1")
 	other.TryLock()
 	defer other.Unlock()
-	if w.workspaceProgress("discord:ws1", h, h.At) {
+	if ok, _ := w.workspaceProgress("discord:ws1", h, h.At); ok {
 		t.Fatal("a turn in another channel is not progress here")
 	}
 	s := mate.sessions.GetOrCreateActive("discord:ws1:mate")
 	s.TryLock()
 	defer s.Unlock()
-	if !w.workspaceProgress("discord:ws1", h, h.At) {
+	if ok, _ := w.workspaceProgress("discord:ws1", h, h.At); !ok {
 		t.Fatal("a teammate's turn in the workspace is progress")
 	}
 }
 
-// Reading the channel fails: counted as no progress, nudged and parked (not renewed, not dropped).
-func TestWatchSignalErrorIsNoProgress(t *testing.T) {
+// Reading the channel fails (a network blip, Discord 5xx/429): not a verdict. Retried after
+// watchRetryDelay without a nudge; still failing after watchParkRetries reads: no progress,
+// nudged and parked (not renewed, not dropped).
+func TestWatchSignalErrorRetriesThenNoProgress(t *testing.T) {
 	e, p, w, h := progressFixture(t, k5aOwner)
 	p.post("ws1", k5aOwner, "进度：做完一半", h.Due.Add(-time.Minute))
-	p.err = errors.New("discord: channel history: 403")
-	if next := w.tick(h.Due); !next.IsZero() {
-		t.Fatalf("stopped, next %v", next)
+	p.err = errors.New("discord: channel history: 503")
+	now := h.Due
+	for i := 1; i < watchParkRetries; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if !next.Equal(now.Add(watchRetryDelay)) || got.ReadFails != i || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
+			t.Fatalf("read failure %d: retry in %v silently, got %+v, next %v, sent %v", i, watchRetryDelay, got, next, p.out)
+		}
+		now = next
+	}
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("retries used up: stopped, next %v", next)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
-		t.Fatalf("read error: nudged once and parked, got %+v, sent %v", got, p.out)
+		t.Fatalf("read error after retries: nudged once and parked, got %+v, sent %v", got, p.out)
 	}
-	// A platform without channel history (exitTestPlatform) is the same.
-	e2, p2, w2, h2 := watchFixture(t, k5aOwner, "")
-	w2.tick(h2.Due)
-	if got := handoffsOf(e2, "discord:ws1")[0]; got.Parked.IsZero() || len(p2.sentTo("discord:ws1")) != 1 {
-		t.Fatalf("no history reader: nudged and parked, got %+v", got)
+}
+
+// The connection comes back on the retry: the post in the window renews and the failures reset.
+func TestWatchSignalErrorThenReconnectRenews(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	p.post("ws1", k5aOwner, "进度：做完一半", h.Due.Add(-time.Minute))
+	p.err = errors.New("discord: connection reset")
+	next := w.tick(h.Due)
+	p.mu.Lock()
+	p.err = nil
+	p.mu.Unlock()
+	w.tick(next)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 1 || got.ReadFails != 0 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("back online: renewed silently, got %+v, sent %v", got, p.out)
+	}
+}
+
+// feishuWatchFixture: watchFixture on Feishu, whose platform reads no channel history.
+func feishuWatchFixture(t *testing.T) (*Engine, *exitTestPlatform, *handoffWatch, TeamHandoff) {
+	t.Helper()
+	e, _, p := exitFixture(t, nil)
+	p.n = "feishu"
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
+	e.handoffWatchOn.Store(true)
+	if err := e.ClaimTeamWorkspaceFor("feishu:chatA", "ws1", "工作区1", `<at user_id="ou_x"></at>`, "K5a"); err != nil {
+		t.Fatal(err)
+	}
+	return e, p, newHandoffWatch(e), handoffsOf(e, "feishu:ws1")[0]
+}
+
+// Feishu (no channel history): a session of the workspace that ended a turn in the window is
+// progress (Session.UpdatedAt); none, or only an older one, is no progress.
+func TestWatchFeishuUsesSessionUpdate(t *testing.T) {
+	e, p, w, h := feishuWatchFixture(t)
+	s := e.sessions.GetOrCreateActive("feishu:ws1:ou_x")
+	s.mu.Lock()
+	s.UpdatedAt = h.At.Add(-time.Minute)
+	s.mu.Unlock()
+	if ok, err := w.workspaceProgress("feishu:ws1", h, h.At); ok || err != nil {
+		t.Fatalf("a turn before the window is no progress, got %v %v", ok, err)
+	}
+	s.mu.Lock()
+	s.UpdatedAt = h.Due.Add(-time.Minute)
+	s.mu.Unlock()
+	w.tick(h.Due)
+	got := handoffsOf(e, "feishu:ws1")[0]
+	if got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("a turn ended in the window renews silently, got %+v, sent %v", got, p.out)
+	}
+	// Next window: no turn since then: nudged and parked, not retried (no read error).
+	if next := w.tick(got.Due); !next.IsZero() {
+		t.Fatalf("no turn in the window: stopped, next %v", next)
+	}
+	if got := handoffsOf(e, "feishu:ws1")[0]; got.Parked.IsZero() || got.ReadFails != 0 || len(p.sentTo("feishu:ws1")) != 1 {
+		t.Fatalf("nudged once and parked, got %+v, sent %v", got, p.out)
 	}
 }
 
