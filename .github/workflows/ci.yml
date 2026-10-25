@@ -233,6 +233,9 @@ jobs:
           test -n "$names"
           echo "$(echo "$names" | wc -l) tests in this shard"
           go test -tags no_web -p 1 -count=1 -run "^($(echo "$names" | paste -sd'|' -))\$" ./core
+      - name: Voice relay streaming race checks
+        if: matrix.shard == 'core-1'
+        run: go test -race -tags no_web ./core -run 'TestVoiceRelayStream|TestVoiceSentenceSplitter' -count=1
 
   bridge:
     needs: [changes, bridge-checks, bridge-go]

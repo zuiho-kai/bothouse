@@ -220,6 +220,8 @@ type RelayRequest struct {
 	Message    string `json:"message"`
 	// UserText (voice mode) is the speaker's own words without the entry prompt in Message.
 	UserText string `json:"user_text,omitempty"`
+	// Stream enables early public speech for this private voice request.
+	Stream bool `json:"stream,omitempty"`
 }
 
 // RelayResponse is the result of a relay send.

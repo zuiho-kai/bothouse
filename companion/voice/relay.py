@@ -11,6 +11,8 @@ from urllib.parse import urlencode
 
 from .bridge import BridgeError
 
+POLL_SECONDS = 0.4
+
 
 def payload_identity(service, project, scope):
     return {'from': service.settings.project,
@@ -28,14 +30,15 @@ async def relay_binding(service, project, scope):
     return result
 
 
-async def relay_turn(service, turn, request_id):
+async def relay_turn(service, turn, request_id, sentences=None):
+    """``sentences`` (SentenceSpeech, opt-in) receives complete public sentences
+    while the receipt is still running; without it the request is unchanged."""
     expected = turn['_binding']
     scope = turn.get('device_id', 'desktop')
     body = dict(payload_identity(service, turn['project'], scope),
-                mode='voice', request_id=request_id, message=turn['prompt'],
-                # The owner's own words, apart from the entry prompt: the bridge confirms a
-                # voice-desk hand-off only from this, never from the prompt text.
-                user_text=turn.get('input_text', ''))
+                mode='voice', request_id=request_id, message=turn['prompt'], user_text=turn.get('input_text', ''))
+    if sentences is not None:
+        body['stream'] = True
     path = '/relay/voice/' + request_id
     deadline = time.monotonic() + 190
     submitted = False
@@ -66,6 +69,13 @@ async def relay_turn(service, turn, request_id):
                     or result.get('relay_key') != expected['relay_key']):
                 raise BridgeError('转发回执与本轮绑定不符；本轮不播放。', 422)
             status = result.get('status')
+            identity = result.get('agent_session_id')
+            if identity:
+                if turn.get('_relay_agent_session_id', identity) != identity:
+                    raise BridgeError('转发会话身份发生变化；已停止本轮播放。', 422)
+                turn['_relay_agent_session_id'] = identity
+            if result.get('sentences') and not identity:
+                raise BridgeError('增量语音的会话身份未确认；本轮不播放。', 422)
             if status == 'completed':
                 if not isinstance(result.get('text'), str) or not result['text'].strip():
                     raise BridgeError('转发没有完整公开回答，本轮不播放。', 502)
@@ -75,9 +85,11 @@ async def relay_turn(service, turn, request_id):
                 return result
             if status != 'running':
                 submitted = False
-                raise BridgeError('转发未完成；不会播放半截回答，请检查目标会话或权限。', 502)
-            await asyncio.sleep(0.4)
-        raise BridgeError('转发等待超时；不会重复发送或播放半截回答。', 504)
+                raise BridgeError('转发未完成；已停止后续播放，请检查目标会话或权限。', 502)
+            if sentences is not None:
+                await sentences.feed_sentences(result)
+            await asyncio.sleep(POLL_SECONDS)
+        raise BridgeError('转发等待超时；已停止后续播放，不会重复发送。', 504)
     finally:
         if submitted:
             try:

@@ -17,3 +17,7 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 上游项目 [chenhg5/cc-connect](https://github.com/chenhg5/cc-connect) 的 README 声明 MIT，但仓库根目录没有 LICENSE 文件；本仓库 `bridge/` 中该来源代码的许可依据是这一 README 声明。zuiho-kai/cc-connect 的 maomao fork 后来补充了 MIT LICENSE（[zuiho-kai/cc-connect#1](https://github.com/zuiho-kai/cc-connect/pull/1)，版权行 `Copyright (c) chenhg5 and cc-connect contributors`），其原样副本保留在 `bridge/LICENSE-MIT-upstream`。保留的上游代码按其 MIT 声明使用；本项目自有代码的 Apache-2.0 授权见 [LICENSING.md](LICENSING.md)。
 
 本仓库不包含实际 Discord token、CLI 登录态、会话正文、语音录音、模型权重和运行配置。历史部署仍在原工作目录；源码整合不等于运行迁移。
+
+## DSH ACP 流式补丁
+
+integrations/dsh-acp-stream/source.patch 基于 DeepSeek Harness 提交 ecc89fff43a85d7f836a99472dd31e672fd89c26，扩展已有 ACP 接口，包含本项目的流式展示和 JSON 历史解码修改。原始代码与修改遵循 MIT，许可副本见该目录 LICENSE-MIT-DeepSeek。部署需应用到匹配源码并构建，不修改已安装 node_modules。

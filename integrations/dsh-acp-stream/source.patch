@@ -1,0 +1,637 @@
+diff --git a/docs/config-catalog.md b/docs/config-catalog.md
+index 60484ba795..b6d48b4de9 100644
+--- a/docs/config-catalog.md
++++ b/docs/config-catalog.md
+@@ -25,6 +25,10 @@ export interface AcpConfig {
+   provider?: string
+   /** Model name for created agents. */
+   model?: string
++  /** Publish transient text; failed requests may leave a visible prefix. */
++  streamText?: boolean
++  /** Decode a paired public-output plugin's JSON history without displaying its envelope. */
++  publicReplyJson?: boolean
+   /** Maximum summaries returned by one session/list page. */
+   sessionListPageSize?: number
+   /** Runtime-only transport override; production uses stdio. */
+diff --git a/docs/config-catalog.zh.md b/docs/config-catalog.zh.md
+index 8460650010..4f8f0da841 100644
+--- a/docs/config-catalog.zh.md
++++ b/docs/config-catalog.zh.md
+@@ -27,6 +27,10 @@ export interface AcpConfig {
+   provider?: string
+   /** Model name for created agents. */
+   model?: string
++  /** Publish transient text; failed requests may leave a visible prefix. */
++  streamText?: boolean
++  /** Decode a paired public-output plugin's JSON history without displaying its envelope. */
++  publicReplyJson?: boolean
+   /** Maximum summaries returned by one session/list page. */
+   sessionListPageSize?: number
+   /** Runtime-only transport override; production uses stdio. */
+diff --git a/docs/event-producer-consumer.md b/docs/event-producer-consumer.md
+index 3d1bbaf987..de8f7daad4 100644
+--- a/docs/event-producer-consumer.md
++++ b/docs/event-producer-consumer.md
+@@ -10,7 +10,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
+ | --- | --- | --- | --- | --- |
+ | `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:249`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
+ | `agent-preset/selected` | `emit` | [`packages/preset/agent-preset-registry/src/types.ts:69`](../packages/preset/agent-preset-registry/src/types.ts) | [`agent-preset-registry`](../packages/preset/agent-preset-registry) (`emit`) | `remotes` |
+-| `agent/assistant-stream` | `emit` | [`packages/core/agent/src/runtime-types.ts:363`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`headless`](../packages/bundle/headless), `session-controller` |
++| `agent/assistant-stream` | `emit` | [`packages/core/agent/src/runtime-types.ts:363`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/acp/acp), [`headless`](../packages/bundle/headless), `session-controller` |
+ | `agent/created` | `serial` | [`packages/core/agent/src/runtime-types.ts:261`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`serial`) | `agent-team`, `browser-use-runtime`, `claude-code-mods`, [`file-reference-local`](../packages/context/file-reference-local), [`goal`](../packages/goal/goal), [`goal-round-driver`](../packages/goal/goal-round-driver), [`hooks-claude-code`](../packages/experimental/hooks-claude-code), [`hooks-codex`](../packages/experimental/hooks-codex), [`loader-smoke`](../packages/test-support/loader-smoke), `session-controller`, `tool-agent-team`, [`tool-subagent`](../packages/subagent/tool-subagent) |
+ | `agent/disposed` | `emit` | [`packages/core/agent/src/runtime-types.ts:270`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), `claude-code-mods`, [`file-reference-local`](../packages/context/file-reference-local), [`goal-round-driver`](../packages/goal/goal-round-driver), `session-controller`, [`subagent`](../packages/subagent/subagent), `tool-agent-team`, [`tool-subagent`](../packages/subagent/tool-subagent) |
+ | `agent/error` | `emit` | [`packages/core/agent/src/runtime-types.ts:393`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/acp/acp), [`deepseek-account`](../packages/credentials/deepseek-account), [`goal-round-driver`](../packages/goal/goal-round-driver), [`headless`](../packages/bundle/headless), `server`, `session-controller`, [`session-telemetry`](../packages/session/session-telemetry), [`subagent`](../packages/subagent/subagent) |
+diff --git a/docs/event-producer-consumer.zh.md b/docs/event-producer-consumer.zh.md
+index 213180e82e..0dff7c36eb 100644
+--- a/docs/event-producer-consumer.zh.md
++++ b/docs/event-producer-consumer.zh.md
+@@ -12,7 +12,7 @@
+ | --- | --- | --- | --- | --- |
+ | `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:249`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
+ | `agent-preset/selected` | `emit` | [`packages/preset/agent-preset-registry/src/types.ts:69`](../packages/preset/agent-preset-registry/src/types.ts) | [`agent-preset-registry`](../packages/preset/agent-preset-registry) (`emit`) | `remotes` |
+-| `agent/assistant-stream` | `emit` | [`packages/core/agent/src/runtime-types.ts:363`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`headless`](../packages/bundle/headless), `session-controller` |
++| `agent/assistant-stream` | `emit` | [`packages/core/agent/src/runtime-types.ts:363`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/acp/acp), [`headless`](../packages/bundle/headless), `session-controller` |
+ | `agent/created` | `serial` | [`packages/core/agent/src/runtime-types.ts:261`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`serial`) | `agent-team`, `browser-use-runtime`, `claude-code-mods`, [`file-reference-local`](../packages/context/file-reference-local), [`goal`](../packages/goal/goal), [`goal-round-driver`](../packages/goal/goal-round-driver), [`hooks-claude-code`](../packages/experimental/hooks-claude-code), [`hooks-codex`](../packages/experimental/hooks-codex), [`loader-smoke`](../packages/test-support/loader-smoke), `session-controller`, `tool-agent-team`, [`tool-subagent`](../packages/subagent/tool-subagent) |
+ | `agent/disposed` | `emit` | [`packages/core/agent/src/runtime-types.ts:270`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), `claude-code-mods`, [`file-reference-local`](../packages/context/file-reference-local), [`goal-round-driver`](../packages/goal/goal-round-driver), `session-controller`, [`subagent`](../packages/subagent/subagent), `tool-agent-team`, [`tool-subagent`](../packages/subagent/tool-subagent) |
+ | `agent/error` | `emit` | [`packages/core/agent/src/runtime-types.ts:393`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/acp/acp), [`deepseek-account`](../packages/credentials/deepseek-account), [`goal-round-driver`](../packages/goal/goal-round-driver), [`headless`](../packages/bundle/headless), `server`, `session-controller`, [`session-telemetry`](../packages/session/session-telemetry), [`subagent`](../packages/subagent/subagent) |
+diff --git a/packages/acp/acp/README.i18n.yaml b/packages/acp/acp/README.i18n.yaml
+index 68c18de182..55b19d5814 100644
+--- a/packages/acp/acp/README.i18n.yaml
++++ b/packages/acp/acp/README.i18n.yaml
+@@ -21,8 +21,8 @@
+   en: c3f5f144daf83157
+   zh: a65a64842fd35bef
+ /deepseek-ai-dsh-acp/use-this-package/minimal-configuration:
+-  en: 320139cc5ebcf34a
+-  zh: 89beb58d9a0511ba
++  en: 12aff2567acf84ea
++  zh: 4595c18114fc77f5
+ /deepseek-ai-dsh-acp/use-this-package/start-a-server:
+   en: 4ed8e37834267edb
+   zh: a32d5dedb4e8e919
+diff --git a/packages/acp/acp/README.md b/packages/acp/acp/README.md
+index fa713b872f..bc3879ebeb 100644
+--- a/packages/acp/acp/README.md
++++ b/packages/acp/acp/README.md
+@@ -46,10 +46,16 @@ Every session the server creates uses the provider and model configured here. Bo
+ |---|---|---|
+ | `provider` | — | Provider route for every session's agent |
+ | `model` | — | Model for every session's agent |
++| `streamText` | `false` | Forward transient text before message completion; a failed prompt may leave a visible prefix |
++| `publicReplyJson` | `false` | Decode a paired public-output producer's canonical JSON for ACP display while retaining it in model history |
+ | `sessionListPageSize` | `100` | Maximum summaries returned in one `session/list` page |
+ 
+ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-acp) is the exhaustive source for every accepted field and its JSDoc.
+ 
++With `streamText: true`, text from the owned Agent's active prompt reaches `agent_message_chunk` as it arrives, in block order. Committed text is not replayed; thoughts, tool updates, images, and usage retain their committed delivery. A failed or abandoned attempt after published text fails the prompt instead of joining a replacement answer to its prefix. Consumers must stop playback on failure or cancellation and cannot retract text already delivered. Only enable this on a provider whose text stream is suitable for public output.
++
++`publicReplyJson: true` requires a paired producer that emits public prose in live text deltas and a canonical JSON object with only a nonempty `reply` string in the final text block. ACP decodes the final block for display and prefix comparison; the durable message remains JSON so subsequent prompts and resumed sessions see a consistent output format. `NO_REPLY` stays unchanged. Invalid final envelopes fail delivery with fixed diagnostics. Enable and roll back both producer and ACP settings together; this option is unsuitable for unwrapped provider text.
++
+ ### Start a server
+ 
+ `pnpm dsh --profile acp` starts the shipped stdio server. The `acp` profile mounts session persistence, so clients can list, resume, and close persistent sessions. [`@deepseek-ai/dsh-subagent-acp`](../../subagent/subagent-acp/README.md) starts the same profile for out-of-process delegation.
+diff --git a/packages/acp/acp/README.zh.md b/packages/acp/acp/README.zh.md
+index e62e154191..83b4f21199 100644
+--- a/packages/acp/acp/README.zh.md
++++ b/packages/acp/acp/README.zh.md
+@@ -46,10 +46,16 @@ kind: "package-reference"
+ |---|---|---|
+ | `provider` | — | 每个会话 agent 的提供方路由 |
+ | `model` | — | 每个会话 agent 的模型 |
++| `streamText` | `false` | 消息完成前转发正文增量；请求失败时可能已经发布部分正文 |
++| `publicReplyJson` | `false` | 展示时解码配套公开答复插件的规范 JSON，模型历史仍保留该格式 |
+ | `sessionListPageSize` | `100` | 单页 `session/list` 返回的最大摘要数量 |
+ 
+ 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-acp)是每个受支持字段及其 JSDoc 的穷尽式真源。
+ 
++启用 `streamText: true` 后，所属 Agent 的当前请求正文按块顺序即时进入 `agent_message_chunk`，提交后不重复全文；思考、工具更新、图片和用量仍在提交后发送。已发布正文的尝试失败或被放弃时，请求失败，不把重试答案拼到原前缀。使用方须在失败或取消时停止播放，已经发送的文字无法撤回。仅对正文增量适合公开发布的提供方启用。
++
++`publicReplyJson: true` 要求配套的输出方在实时正文增量中发布公开文字，并在最终文本块中给出仅含非空 `reply` 字符串的规范 JSON 对象。ACP 解码最终块用于展示和前缀比较，持久化消息仍为 JSON，使后续请求及恢复的会话看到一致的输出格式。`NO_REPLY` 保持不变。无效的最终包装会中止输出，只给固定诊断。输出方与 ACP 设置必须一起启用、一起回滚；此选项不适用于未包装的供应商正文。
++
+ ### 启动服务器
+ 
+ `pnpm dsh --profile acp` 会启动随附的 stdio 服务器。`acp` profile 会挂载会话持久化，因此客户端可以列出、恢复和关闭持久会话。[`@deepseek-ai/dsh-subagent-acp`](../../subagent/subagent-acp/README.zh.md) 会启动同一 profile 来执行进程外委派。
+diff --git a/packages/acp/acp/src/index.ts b/packages/acp/acp/src/index.ts
+index dae3258149..35f7487d1a 100644
+--- a/packages/acp/acp/src/index.ts
++++ b/packages/acp/acp/src/index.ts
+@@ -77,6 +77,10 @@ export interface AcpConfig {
+   provider?: string
+   /** Model name for created agents. */
+   model?: string
++  /** Publish transient text; failed requests may leave a visible prefix. */
++  streamText?: boolean
++  /** Decode a paired public-output plugin's JSON history without displaying its envelope. */
++  publicReplyJson?: boolean
+   /** Maximum summaries returned by one session/list page. */
+   sessionListPageSize?: number
+   /** Runtime-only transport override; production uses stdio. */
+@@ -86,6 +90,8 @@ export interface AcpConfig {
+ export const Config: Schema<AcpConfig> = Schema.object({
+   provider: Schema.string(),
+   model: Schema.string(),
++  streamText: Schema.boolean().default(false),
++  publicReplyJson: Schema.boolean().default(false),
+   sessionListPageSize: Schema.natural().min(1).default(DEFAULT_SESSION_LIST_PAGE_SIZE),
+ })
+ 
+@@ -141,6 +147,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
+     ownedRecord(agent)?.onInboxClaimed(message, turn)
+   })
+ 
++  ctx.on('agent/assistant-stream', ({ agent, frame }) => {
++    ownedRecord(agent)?.onAssistantStream(frame)
++  })
++
+   ctx.on('agent/error', ({ agent, error }) => {
+     ownedRecord(agent)?.onAgentError(error)
+   })
+@@ -214,6 +224,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
+           mcpServers: params.mcpServers,
+           agentOptions: agentOptions(config),
+           fallbackSelection: initialSelection(config),
++          streamText: config.streamText === true,
++          publicReplyJson: config.publicReplyJson === true,
+           signal,
+           notify,
+         })
+@@ -265,6 +277,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
+             mcpServers: params.mcpServers ?? [],
+             agentOptions: agentOptions(config),
+             fallbackSelection: initialSelection(config),
++            streamText: config.streamText === true,
++            publicReplyJson: config.publicReplyJson === true,
+             signal,
+             notify,
+           })
+diff --git a/packages/acp/acp/src/live-text.ts b/packages/acp/acp/src/live-text.ts
+new file mode 100644
+index 0000000000..8bacfd1193
+--- /dev/null
++++ b/packages/acp/acp/src/live-text.ts
+@@ -0,0 +1,113 @@
++/** Ordered transient text projection; committed events supply non-text content. */
++import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
++import type { SessionUpdate } from '@agentclientprotocol/sdk'
++import type { ContentBlock } from '@deepseek-ai/dsh-llm'
++import { publicReplyText } from './public-reply.ts'
++
++/** One opt-in attempt's text offsets, owned by its ACP session. */
++export class AcpLiveText {
++  private readonly blocks = new Map<number, { type: string; text: string; sent: number; closed: boolean }>()
++  private attempt: Extract<AssistantStreamFrame, { type: 'start' }> | undefined
++
++  constructor(private readonly publicReplyJson = false) {}
++
++  /**
++   * Whether the live attempt owns this committed message.
++   * @param turn - Committed message's turn.
++   * @param step - Committed message's step.
++   * @returns Whether both belong to the live attempt.
++   */
++  matches(turn: number, step: number): boolean {
++    return this.attempt?.turn === turn && this.attempt.step === step
++  }
++
++  /**
++   * Reject late frames from a replaced attempt.
++   * @param frame - Incoming transient frame.
++   * @returns Whether the current attempt owns the frame.
++   */
++  owns(frame: AssistantStreamFrame): boolean {
++    return this.attempt?.attemptId === frame.attemptId
++  }
++
++  /**
++   * Flush authoritative text, including blocks whose earlier peer never closed.
++   * @param content - Committed blocks assembled from the same attempt.
++   * @returns Newly available text updates in block order.
++   */
++  complete(content: readonly ContentBlock[]): SessionUpdate[] {
++    const texts = content.filter(block => block.type === 'text')
++    let index = 0
++    for (const block of this.blocks.values()) {
++      if (block.type === 'text') {
++        const text = publicReplyText(texts[index++]?.text ?? '', this.publicReplyJson)
++        if (!text.startsWith(block.text.slice(0, block.sent))) throw new Error('committed text changed its streamed prefix')
++        block.text = text
++      }
++      block.closed = true
++    }
++    return this.flush()
++  }
++
++  /**
++   * Apply an owned attempt frame; reasoning and tool deltas stay unpublished.
++   * @param frame - Incoming frame owned by this session.
++   * @returns Newly available text updates in block order.
++   */
++  push(frame: AssistantStreamFrame): SessionUpdate[] {
++    if (frame.type === 'start') {
++      this.blocks.clear()
++      this.attempt = frame
++      return []
++    }
++    if (this.attempt?.attemptId !== frame.attemptId) return []
++    if (frame.type === 'end') {
++      this.attempt = undefined
++      return []
++    }
++    const chunk = frame.chunk
++    if (!('index' in chunk)) return []
++    const type = chunk.type === 'block-start' ? chunk.blockType
++      : chunk.type === 'block-end' ? chunk.block.type
++        : chunk.type === 'text-delta' ? 'text' : chunk.type === 'reasoning-delta' ? 'reasoning' : 'tool-call'
++    let block = this.blocks.get(chunk.index)
++    if (block === undefined) {
++      block = { type, text: '', sent: 0, closed: false }
++      this.blocks.set(chunk.index, block)
++    }
++    if (block.closed) return []
++    if (chunk.type === 'text-delta') block.text += chunk.text
++    if (chunk.type === 'block-end') {
++      if (chunk.block.type === 'text') {
++        const text = publicReplyText(chunk.block.text, this.publicReplyJson)
++        if (!text.startsWith(block.text.slice(0, block.sent))) throw new Error('streamed text was rewritten')
++        block.text = text
++      }
++      block.closed = true
++    }
++    return this.flush()
++  }
++
++  private flush(): SessionUpdate[] {
++    const attempt = this.attempt
++    if (attempt === undefined) return []
++    const updates: SessionUpdate[] = []
++    for (const [index, current] of this.blocks) {
++      if (current.type === 'text' && current.text.length > current.sent) {
++        updates.push({
++          sessionUpdate: 'agent_message_chunk',
++          messageId: `${attempt.attemptId}:${index}`,
++          content: { type: 'text', text: current.text.slice(current.sent) },
++        })
++        current.sent = current.text.length
++      }
++      if (!current.closed) break
++    }
++    return updates
++  }
++
++  /** A failed published prefix cannot be silently replaced by a retry. */
++  get published(): boolean {
++    return [...this.blocks.values()].some(block => block.sent > 0)
++  }
++}
+diff --git a/packages/acp/acp/src/public-reply.ts b/packages/acp/acp/src/public-reply.ts
+new file mode 100644
+index 0000000000..9342b422aa
+--- /dev/null
++++ b/packages/acp/acp/src/public-reply.ts
+@@ -0,0 +1,19 @@
++/**
++ * Decode the opt-in public-reply envelope only for ACP presentation.
++ * @param text - Authoritative text from the paired public-output producer.
++ * @param enabled - Whether this deployment retains JSON in model history.
++ * @returns Public text without changing the durable model message.
++ * @throws When an enabled producer supplies an invalid envelope; stop delivery.
++ */
++export function publicReplyText(text: string, enabled: boolean): string {
++  if (!enabled || text === 'NO_REPLY') return text
++  let value: unknown
++  try { value = JSON.parse(text) } catch (_error) {
++    // JSON parser errors may quote rejected model text; keep diagnostics fixed.
++    throw new Error('ACP public reply envelope is not valid JSON')
++  }
++  if (value === null || typeof value !== 'object' || Array.isArray(value)
++    || Object.keys(value).length !== 1 || !('reply' in value) || typeof value.reply !== 'string'
++    || value.reply.trim().length === 0) throw new Error('ACP public reply envelope requires one nonempty reply')
++  return value.reply
++}
+diff --git a/packages/acp/acp/src/session.ts b/packages/acp/acp/src/session.ts
+index 95630e39d7..88ce35d425 100644
+--- a/packages/acp/acp/src/session.ts
++++ b/packages/acp/acp/src/session.ts
+@@ -10,13 +10,14 @@ import {
+   type SessionNotification,
+   type StopReason,
+ } from '@agentclientprotocol/sdk'
+-import type { Agent, AgentHandle, AgentOptions, AgentStatus, ModelSelection } from '@deepseek-ai/dsh-agent'
++import type { Agent, AgentHandle, AgentOptions, AgentStatus, AssistantStreamFrame, ModelSelection } from '@deepseek-ai/dsh-agent'
+ import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
+ import { type Session, type SessionEvent, type SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+ import { AcpContentError, admitAcpPrompt } from './content.ts'
+ import { turnEndToStopReason } from './codec.ts'
+ import { mountAcpMcpServers } from './mcp.ts'
+ import { AcpModelControl } from './model-control.ts'
++import { AcpLiveText } from './live-text.ts'
+ import { assistantUpdates, toolCallUpdate, toolResultUpdate } from './updates.ts'
+ 
+ /** Subagent completion and teardown without depending on the subagent package. */
+@@ -33,6 +34,8 @@ interface AcpSessionBuildOptions {
+   mcpServers: readonly McpServer[]
+   agentOptions: AgentOptions
+   fallbackSelection: ModelSelection | undefined
++  streamText: boolean
++  publicReplyJson?: boolean
+   signal: AbortSignal
+   notify: (notification: SessionNotification) => Promise<void>
+ }
+@@ -109,6 +112,7 @@ export class AcpSession {
+   readonly agent: Agent
+   private readonly modelControl: AcpModelControl
+   private outputTail = Promise.resolve()
++  private readonly liveText: AcpLiveText
+   private inflight: InflightPrompt | undefined
+   private closing: Promise<void> | undefined
+   private readonly pendingSelections = new Map<string, ModelSelection>()
+@@ -118,7 +122,10 @@ export class AcpSession {
+     handle: AgentHandle,
+     modelControl: AcpModelControl,
+     private readonly notify: (notification: SessionNotification) => Promise<void>,
++    private readonly streamText: boolean,
++    private readonly publicReplyJson: boolean,
+   ) {
++    this.liveText = new AcpLiveText(publicReplyJson)
+     this.agent = handle.agent
+     this.modelControl = modelControl
+     this.disposeAgent = () => handle.dispose()
+@@ -144,7 +151,7 @@ export class AcpSession {
+         await mountAcpMcpServers(agentCtx, options.mcpServers, options.cwd)
+       },
+     })
+-    return new AcpSession(ctx, handle, modelControl, options.notify)
++    return new AcpSession(ctx, handle, modelControl, options.notify, options.streamText, options.publicReplyJson === true)
+   }
+ 
+   /**
+@@ -174,7 +181,7 @@ export class AcpSession {
+       throw internalError('session/resume did not compose model selection')
+     }
+     /* v8 ignore stop */
+-    return new AcpSession(ctx, handle, modelControl, options.notify)
++    return new AcpSession(ctx, handle, modelControl, options.notify, options.streamText, options.publicReplyJson === true)
+   }
+ 
+   /**
+@@ -390,6 +397,34 @@ export class AcpSession {
+     if (inflight === undefined) this.agent.cancel({ kind: 'user' })
+   }
+ 
++  /**
++   * Forward transient text from the exact owned Agent's active prompt.
++   * @param frame - Attempt frame emitted by this session's Agent.
++   */
++  onAssistantStream(frame: AssistantStreamFrame): void {
++    const inflight = this.inflight
++    if (!this.streamText || inflight === undefined
++      || inflight.admissionController.signal.aborted || inflight.outputError !== undefined) return
++    if (frame.type === 'start' && frame.turn !== inflight.turn) return
++    if (frame.type !== 'start' && !this.liveText.owns(frame)) return
++    if (frame.type === 'end' && this.liveText.published && (frame.outcome.kind === 'abandoned' || frame.outcome.eventType === 'assistant/attempt')) {
++      inflight.outputError = new Error('streamed answer did not complete')
++      this.agent.cancel({ kind: 'user' })
++    }
++    try {
++      const updates = this.liveText.push(frame)
++      const sessionId = this.agent.session.id
++      this.outputTail = this.outputTail.then(async () => {
++        for (const update of updates) await this.notify({ sessionId, update })
++      }).catch((error: unknown) => {
++        inflight.outputError ??= new Error(errorChain(error))
++      })
++    } catch (error: unknown) {
++      inflight.outputError ??= new Error(errorChain(error))
++      this.agent.cancel({ kind: 'user' })
++    }
++  }
++
+   /**
+    * Process one durable event and enqueue its standard ACP projections.
+    * @param session - exact event-owning Session.
+@@ -403,9 +438,19 @@ export class AcpSession {
+     try {
+       if (event.type === 'assistant/message') {
+         const inflight = this.inflight?.turn === event.data.turn ? this.inflight : undefined
++        const streamed = this.streamText && this.liveText.matches(event.data.turn, event.data.step)
++        let liveUpdates: SessionNotification['update'][] = []
++        try {
++          if (streamed) liveUpdates = this.liveText.complete(event.data.message.content)
++        } catch (error: unknown) {
++          if (inflight !== undefined) inflight.outputError ??= new Error(errorChain(error))
++          this.agent.cancel({ kind: 'user' })
++          return
++        }
+         const previous = this.outputTail
+         const delivery = previous.then(async () => {
+-          for (const update of await assistantUpdates(this.ctx, session, event)) {
++          for (const update of liveUpdates) await this.notify({ sessionId: this.agent.session.id, update })
++          for (const update of await assistantUpdates(this.ctx, session, event, streamed, this.publicReplyJson)) {
+             await this.notify({ sessionId: this.agent.session.id, update })
+           }
+         })
+diff --git a/packages/acp/acp/src/updates.ts b/packages/acp/acp/src/updates.ts
+index 71ac4f0e42..798442ad01 100644
+--- a/packages/acp/acp/src/updates.ts
++++ b/packages/acp/acp/src/updates.ts
+@@ -5,21 +5,27 @@ import type { SessionUpdate, ToolCallContent } from '@agentclientprotocol/sdk'
+ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+ import type {} from '@deepseek-ai/dsh-token-meter'
+ import { assistantBlockToAcp } from './content.ts'
++import { publicReplyText } from './public-reply.ts'
+ 
+ /**
+  * Convert one committed assistant message and its context usage in block order.
+  * @param ctx - bridge context carrying attachment and token-meter services.
+  * @param session - durable session used for context pressure.
+  * @param event - committed assistant message event.
++ * @param streamedText - omit text already delivered through transient frames.
++ * @param publicReplyJson - decode canonical public reply JSON for presentation.
+  * @returns ordered standard thought, message, and optional usage updates.
+  */
+ export async function assistantUpdates(
+   ctx: Context,
+   session: Session,
+   event: SessionEvent<'assistant/message'>,
++  streamedText = false,
++  publicReplyJson = false,
+ ): Promise<SessionUpdate[]> {
+   const updates: SessionUpdate[] = []
+   for (const block of event.data.message.content) {
++    if (streamedText && block.type === 'text') continue
+     if (block.type === 'reasoning') {
+       if (block.text.length > 0) {
+         updates.push({
+@@ -30,7 +36,8 @@ export async function assistantUpdates(
+       }
+       continue
+     }
+-    const content = await assistantBlockToAcp(ctx, block)
++    const presented = block.type === 'text' ? { ...block, text: publicReplyText(block.text, publicReplyJson) } : block
++    const content = await assistantBlockToAcp(ctx, presented)
+     if (content !== undefined) {
+       updates.push({
+         sessionUpdate: 'agent_message_chunk',
+diff --git a/packages/acp/acp/tests/live-stream.spec.ts b/packages/acp/acp/tests/live-stream.spec.ts
+new file mode 100644
+index 0000000000..0f401a730b
+--- /dev/null
++++ b/packages/acp/acp/tests/live-stream.spec.ts
+@@ -0,0 +1,91 @@
++/** Public text reaches ACP before model completion, only when opted in. */
++import { afterEach, expect, it, vi } from 'vitest'
++import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
++import { mkdtemp } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { makeBridgeHarness, textResponse, errorResponse, type BridgeHarness } from './harness.ts'
++
++let harness: BridgeHarness | undefined
++afterEach(async () => { await harness?.dispose(); harness = undefined })
++
++for (const streamText of [false, true]) {
++  it('keeps canonical reply history across prompts with ACP plain text, streaming=' + streamText, async () => {
++    const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-public-history-'))
++    harness = await makeBridgeHarness({ persistenceRoot, script: [textResponse('你好。'), textResponse('再见。')], config: { streamText, publicReplyJson: true } })
++    harness.ctx.on('llm/stream', async function* (_options, next) {
++      for await (const chunk of next()) {
++        if (chunk.type === 'block-end' && chunk.block.type === 'text') {
++          yield { ...chunk, block: { ...chunk.block, text: JSON.stringify({ reply: chunk.block.text }) } }
++        } else yield chunk
++      }
++    })
++    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
++    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
++    for (const text of ['hello', 'again']) {
++      expect((await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text }] })).stopReason).toBe('end_turn')
++    }
++    const text = harness.updates.flatMap(update => update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text' ? [update.content.text] : []).join('')
++    expect(text).toBe('你好。再见。')
++    const history = harness.adapter.requests[1]!.messages.filter(message => message.role === 'assistant')
++    expect(history[0]!.content).toEqual([{ type: 'text', text: JSON.stringify({ reply: '你好。' }) }])
++  })
++}
++
++it('streams the first character while the model is paused and does not replay committed text', async () => {
++  const release = Promise.withResolvers<undefined>()
++  const paused = Promise.withResolvers<undefined>()
++  const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-live-stream-'))
++  harness = await makeBridgeHarness({ persistenceRoot, script: [textResponse('你好。')], config: { streamText: true } })
++  harness.ctx.on('llm/stream', async function* (_options, next) {
++    let first = true
++    for await (const chunk of next()) {
++      yield chunk
++      if (chunk.type === 'text-delta' && first) {
++        first = false
++        paused.resolve(undefined)
++        await release.promise
++      }
++    }
++  })
++  await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
++  const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
++  let done = false
++  const prompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'hello' }] }).finally(() => { done = true })
++  const text = () => harness!.updates.flatMap(update => update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text' ? [update.content.text] : []).join('')
++  try {
++    await paused.promise
++    await vi.waitFor(() => { expect(text()).toBe('你') }, { timeout: 500 })
++    expect(done).toBe(false)
++  } finally {
++    release.resolve(undefined)
++    await prompt
++  }
++  expect(text()).toBe('你好。')
++})
++
++it('fails a published prefix instead of silently recovering into a different answer', async () => {
++  const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-live-failure-'))
++  harness = await makeBridgeHarness({ persistenceRoot, script: [errorResponse('fixture failure'), textResponse('replacement')], config: { streamText: true } })
++  await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
++  const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
++  await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'hello' }] })).rejects.toThrow()
++  const text = harness.updates.flatMap(update => update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text' ? [update.content.text] : []).join('')
++  expect(text).toBe('partial')
++  expect(harness.adapter.requests).toHaveLength(1)
++})
++
++it('cancels a live prefix and keeps the next prompt independent', async () => {
++  const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-live-cancel-'))
++  harness = await makeBridgeHarness({ persistenceRoot, script: ['hang', textResponse('fresh')], config: { streamText: true } })
++  await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
++  const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
++  const prompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'hello' }] })
++  await vi.waitFor(() => { expect(harness!.updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true) })
++  await harness.client.cancel({ sessionId })
++  expect((await prompt).stopReason).toBe('cancelled')
++  const before = harness.updates.length
++  await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'again' }] })
++  const text = harness.updates.slice(before).flatMap(update => update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text' ? [update.content.text] : []).join('')
++  expect(text).toBe('fresh')
++})
+diff --git a/packages/acp/acp/tests/live-text.spec.ts b/packages/acp/acp/tests/live-text.spec.ts
+new file mode 100644
+index 0000000000..3596dd8f90
+--- /dev/null
++++ b/packages/acp/acp/tests/live-text.spec.ts
+@@ -0,0 +1,60 @@
++/** Transient text preserves block order and committed prefixes. */
++import { expect, it } from 'vitest'
++import { LlmAttemptId, type StreamChunk } from '@deepseek-ai/dsh-llm'
++import { AcpLiveText } from '../src/live-text.ts'
++import { publicReplyText } from '../src/public-reply.ts'
++
++const attemptId = LlmAttemptId('fixture:1')
++const start = { type: 'start' as const, attemptId, revision: 1, turn: 1, step: 1 }
++const chunk = (value: StreamChunk) => ({ type: 'chunk' as const, attemptId, revision: 2, index: 0, time: 0, chunk: value })
++
++it('keeps model history encoded while ACP publishes the already decoded stream once', () => {
++  const live = new AcpLiveText(true)
++  live.push(start)
++  const delta = live.push(chunk({ type: 'text-delta', index: 0, text: '你好。' }))
++  expect(delta[0]).toMatchObject({ content: { text: '你好。' } })
++  const text = JSON.stringify({ reply: '你好。后半句' })
++  const ending = live.push(chunk({ type: 'block-end', index: 0, block: { type: 'text', text } }))
++  expect(ending[0]).toMatchObject({ content: { text: '后半句' } })
++  expect(live.complete([{ type: 'text', text }])).toEqual([])
++})
++
++it('fails invalid envelopes without exposing their contents and keeps legacy mode unchanged', () => {
++  for (const text of ['PRIVATE', '{"reply":"PUBLIC","extra":"PRIVATE"}', '{"reply":""}']) {
++    expect(() => publicReplyText(text, true)).toThrow(/ACP public reply envelope/)
++    expect(publicReplyText(text, false)).toBe(text)
++  }
++  expect(publicReplyText('NO_REPLY', true)).toBe('NO_REPLY')
++  expect(publicReplyText(JSON.stringify({ reply: 'C:\\tmp\n"name"' }), true)).toBe('C:\\tmp\n"name"')
++})
++
++it('holds later blocks until an earlier delta-only reasoning block commits', () => {
++  const live = new AcpLiveText()
++  live.push(start)
++  expect(live.push(chunk({ type: 'reasoning-delta', index: 3, text: 'private' }))).toEqual([])
++  expect(live.push(chunk({ type: 'text-delta', index: 7, text: 'public' }))).toEqual([])
++  const updates = live.complete([{ type: 'reasoning', text: 'private' }, { type: 'text', text: 'public' }])
++  expect(updates).toHaveLength(1)
++  expect(updates[0]).toMatchObject({ sessionUpdate: 'agent_message_chunk', content: { text: 'public' } })
++  expect(live.complete([{ type: 'reasoning', text: 'private' }, { type: 'text', text: 'public' }])).toEqual([])
++})
++
++it('never accepts an authoritative rewrite of already published text', () => {
++  const live = new AcpLiveText()
++  live.push(start)
++  live.push(chunk({ type: 'text-delta', index: 0, text: 'yes' }))
++  expect(() => live.push(chunk({ type: 'block-end', index: 0, block: { type: 'text', text: 'no' } }))).toThrow('rewritten')
++  expect(() => live.complete([{ type: 'text', text: 'no' }])).toThrow('changed')
++})
++
++it('ignores frames from a different attempt and keeps sessions independent', () => {
++  const first = new AcpLiveText(), second = new AcpLiveText()
++  first.push(start)
++  second.push({ ...start, attemptId: LlmAttemptId('fixture:2') })
++  const frame = chunk({ type: 'text-delta', index: 0, text: 'one' })
++  expect(first.push(frame)).toHaveLength(1)
++  expect(second.push(frame)).toEqual([])
++  expect(second.published).toBe(false)
++  expect(first.matches(1, 1)).toBe(true)
++  expect(first.matches(1, 2)).toBe(false)
++})
