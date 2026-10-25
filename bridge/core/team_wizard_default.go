@@ -10,7 +10,8 @@ import "path/filepath"
 //
 // ok is false — and the project keeps running without team status, as before — unless project is
 // one of the roles in the recorded Discord / Feishu team or cloud_web team, and — when it is
-// in both teams — both teams have the same lead. dir is
+// in both teams — both teams have the same lead. A role alone in its team gets no defaults while
+// the other team has two or more roles and not this one. dir is
 // <data_dir>/team, name the role's name from the wizard, and lead reports whether project is that
 // team's fallback role (the wizard's default: the first role), which the team status code treats
 // as the configured lead (team_status_inject) until lead.json names another.
@@ -19,11 +20,23 @@ func WizardTeamDefaults(dataDir, project string) (dir, name string, lead, ok boo
 		return "", "", false, false
 	}
 	s := LoadSetupState(dataDir)
-	found, foundFallback := false, ""
-	for _, team := range []struct {
+	teams := []struct {
 		members  []SetupTeamEntry
 		fallback string
-	}{{s.Team, s.FallbackRole}, {s.CloudWebTeam, s.CloudWebFallback}} {
+	}{{s.Team, s.FallbackRole}, {s.CloudWebTeam, s.CloudWebFallback}}
+	// A single role is its team's lead only while the other wizard team is empty or holds it too:
+	// next to another team of two or more roles that has not got it, it would be a second lead in
+	// the same <data_dir>/team, so it keeps the pre-wizard behaviour.
+	for i, team := range teams {
+		if len(team.members) == 1 && team.members[0].Project == project {
+			other := teams[1-i].members
+			if len(other) >= 2 && !teamHas(other, project) {
+				return "", "", false, false
+			}
+		}
+	}
+	found, foundFallback := false, ""
+	for _, team := range teams {
 		if len(team.members) == 0 {
 			continue
 		}
@@ -53,4 +66,13 @@ func WizardTeamDefaults(dataDir, project string) (dir, name string, lead, ok boo
 		return "", "", false, false
 	}
 	return dir, name, lead, true
+}
+
+func teamHas(team []SetupTeamEntry, project string) bool {
+	for _, m := range team {
+		if m.Project == project {
+			return true
+		}
+	}
+	return false
 }
