@@ -63,7 +63,9 @@ mkdir -p "$ROOT/run" "$ROOT/log" "$ROOT/bin" "$H" "$ROOT/data/collab" "$ROOT/dat
   "$ROOT/work" "$ROOT/docs" "$CACHE"
 
 # 进程只拿到这几个变量（PATH 用于找 node/dsh/python3），其余一律清掉。
-ISO=(env -i BOTHOUSE_TRAY=off PATH="$PATH" HOME="$H" TMPDIR="${TMPDIR:-/tmp}" LANG=en_US.UTF-8
+# XPC_SERVICE_NAME 透传：launchd 托管本脚本时它是任务 label，面板据此显示「开机自启由外部管理」，
+# 清掉会被判成「未作为服务运行」并提示另装服务。终端里跑时它是 0 或空，无影响。
+ISO=(env -i BOTHOUSE_TRAY=off PATH="$PATH" HOME="$H" TMPDIR="${TMPDIR:-/tmp}" LANG=en_US.UTF-8 XPC_SERVICE_NAME="${XPC_SERVICE_NAME:-}"
   XDG_CONFIG_HOME="$H/.config" XDG_DATA_HOME="$H/.local/share" XDG_STATE_HOME="$H/.local/state"
   XDG_CACHE_HOME="$H/.cache" DSH_HOME="$H/.dsh" npm_config_store_dir="$CACHE/pnpm-store")
 

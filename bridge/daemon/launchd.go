@@ -68,7 +68,21 @@ func CheckLinger() (enabled bool, user string) {
 }
 
 func newPlatformManager() (Manager, error) {
+	if err := checkLaunchdLabelEnv(); err != nil {
+		return nil, err
+	}
 	return &launchdManager{}, nil
+}
+
+// checkLaunchdLabelEnv: a set but malformed BOTHOUSE_LAUNCHD_LABEL is an
+// error, not a silent fallback to com.bothouse.service — a typo in a test
+// would otherwise install over, stop or move the real service.
+func checkLaunchdLabelEnv() error {
+	l := strings.TrimSpace(os.Getenv(launchdLabelEnv))
+	if l != "" && !launchdLabelPattern.MatchString(l) {
+		return fmt.Errorf("%s=%q is not a valid launchd label (letters, digits, '.', '_', '-')", launchdLabelEnv, l)
+	}
+	return nil
 }
 
 func (*launchdManager) Platform() string { return "launchd" }
@@ -296,8 +310,15 @@ func launchdAutostartPlistPath() string {
 // launchdParkedPlistPath is where the plist lives while autostart is off:
 // outside LaunchAgents, so login does not load it, but bootstrap (install,
 // start, restart) still can.
+//
+// A fixed path under ~/Library/Application Support, not the data dir: the
+// data dir falls back to ~/.cc-connect while ~/.bothouse does not exist and
+// switches as soon as anything creates ~/.bothouse, which would lose a plist
+// parked there (Status "not installed", start fails). A fixed ~/.bothouse
+// path would itself create ~/.bothouse and switch a legacy user's data dir.
 func launchdParkedPlistPath() string {
-	return filepath.Join(DefaultDataDir(), "launchd", launchdLabel()+".plist")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Library", "Application Support", "bothouse", "launchd", launchdLabel()+".plist")
 }
 
 func launchdAutostartOn() bool {

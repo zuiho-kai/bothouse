@@ -225,3 +225,56 @@ func TestInstallLaunchd_SideBySideLabelKeepsHomeAndLabel(t *testing.T) {
 		t.Fatalf("parked plist outside test HOME: %s", launchdParkedPlistPath())
 	}
 }
+
+// A legacy user (data dir ~/.cc-connect) turns autostart off, then something
+// creates ~/.bothouse and the data dir switches: the parked plist must still
+// be found, and parking it must not create ~/.bothouse.
+func TestLaunchdParkedPlistSurvivesDataDirSwitch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	recordLaunchctl(t)
+	if err := os.MkdirAll(filepath.Join(home, ".cc-connect"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mgr := &launchdManager{}
+	if err := mgr.Install(autostartTestCfg(t)); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if err := mgr.SetAutostart(true); err != nil {
+		t.Fatalf("SetAutostart(true): %v", err)
+	}
+	if err := mgr.SetAutostart(false); err != nil {
+		t.Fatalf("SetAutostart(false): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".bothouse")); !os.IsNotExist(err) {
+		t.Fatalf("parking the plist created ~/.bothouse (stat err %v)", err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".bothouse", "dsh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := mgr.Status(); st == nil || !st.Installed {
+		t.Fatal("Status().Installed = false after the data dir switched to ~/.bothouse")
+	}
+	if err := mgr.SetAutostart(true); err != nil {
+		t.Fatalf("SetAutostart(true) after the switch: %v", err)
+	}
+	if on, _ := mgr.Autostart(); !on {
+		t.Fatal("Autostart() = false after turning it on")
+	}
+}
+
+// A malformed test label is an error, never a fallback to the real label.
+func TestLaunchdInvalidLabelEnvIsError(t *testing.T) {
+	t.Setenv(launchdLabelEnv, "com.bothouse.test/../x")
+	if _, err := newPlatformManager(); err == nil {
+		t.Fatal("newPlatformManager accepted a malformed BOTHOUSE_LAUNCHD_LABEL")
+	}
+	t.Setenv(launchdLabelEnv, "com.bothouse.test-ok")
+	if _, err := newPlatformManager(); err != nil {
+		t.Fatalf("valid label rejected: %v", err)
+	}
+	t.Setenv(launchdLabelEnv, "")
+	if _, err := newPlatformManager(); err != nil {
+		t.Fatalf("unset label rejected: %v", err)
+	}
+}
