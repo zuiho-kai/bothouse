@@ -127,7 +127,6 @@ def main(argv):
             hit = board.pause(nid, "等待用户答复")
             if hit:
                 board.park_workspace(hit)
-        board.refresh({board._cur_channel()})
     else:
         for nid in handoffs(last)[path].get("board") or []:
             board.progress(nid)

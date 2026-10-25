@@ -249,7 +249,6 @@ def main(argv):
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
     nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat)
-    board.refresh({board._chan_of(nid), board._cur_channel()})
     record_last(path, ws, task, chat, nid)
     print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
