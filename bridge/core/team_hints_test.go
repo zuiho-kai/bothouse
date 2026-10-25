@@ -84,6 +84,29 @@ func TestRelaySendUnboundSaysBind(t *testing.T) {
 	}
 }
 
+// #587: a misspelled target is not a missing /bind — no channel notice, the old error.
+func TestRelaySendUnknownTargetNoBindNotice(t *testing.T) {
+	src := &relayVisibilityPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	source := NewEngine("source", &stubAgent{}, []Platform{src}, "", LangEnglish)
+	t.Cleanup(source.cancel)
+	rm := NewRelayManager("")
+	rm.RegisterEngine("source", source)
+	rm.Bind("discord", "room", map[string]string{"source": "Source"})
+	req := RelayRequest{From: "source", To: "tagret", SessionKey: "discord:room:user", Message: "hi"}
+
+	_, err := rm.Send(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "not found") || errors.Is(err, ErrNotBoundInChannel) {
+		t.Fatalf("unknown target: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	src.mu.Lock()
+	n := len(src.sent)
+	src.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("unknown target sent %d channel notices", n)
+	}
+}
+
 // #587: a chat channel with no workspace is told how to make the first one; workspaces are
 // still never made by themselves.
 func TestTeamWorkspaceListEmptySaysNew(t *testing.T) {

@@ -256,6 +256,10 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 		sourceEngine.noticeNotBound(req.SessionKey, project)
 		return fmt.Errorf("relay: %w", &notBoundError{project: project, detail: detail})
 	}
+	// An unknown target name is a typo, not a missing /bind: no channel notice.
+	if targetEngine == nil {
+		return nil, fmt.Errorf("relay: target engine %q not found (is the project running?)", req.To)
+	}
 	if binding == nil {
 		return nil, notBound(req.To, "")
 	}
@@ -277,9 +281,6 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 		return nil, notBound(req.To, detail)
 	}
 	sourceEngine.clearNotBound(req.SessionKey, req.To)
-	if targetEngine == nil {
-		return nil, fmt.Errorf("relay: target engine %q not found (is the project running?)", req.To)
-	}
 
 	fromName := req.From
 	if binding.Bots[req.From] != "" {
