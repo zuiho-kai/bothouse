@@ -373,6 +373,34 @@ func TestFeishuTransientRefusalIsRetryable(t *testing.T) {
 	}
 }
 
+// Feishu rate limits (230020, 99991400) come back as HTTP 400: they stay
+// retryable, not permanent.
+func TestFeishuRateLimitHTTP400IsNotPermanent(t *testing.T) {
+	for _, code := range []int{feishuIMRateLimitCode, feishuGenericRateLimitCode} {
+		if feishuPermanent(http.StatusBadRequest, code) {
+			t.Fatalf("code %d with HTTP 400 judged permanent", code)
+		}
+		f := newFakeFeishuIM()
+		f.refuse = &fakeRefusal{status: http.StatusBadRequest, code: code, msg: "rate limited"}
+		p := newFakeFeishuPlatform(t, f)
+		ctx := context.Background()
+		task := &core.Task{ID: "task-r", Title: "t", ChannelID: "oc_chat"}
+		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%d: create card err = %v", code, err)
+		}
+		task.MessageID = "om_x"
+		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%d: patch card err = %v", code, err)
+		}
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "om_b", "**板**\nx"); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%d: board edit err = %v", code, err)
+		}
+		if _, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**板**\nx"); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
+			t.Fatalf("%d: board send err = %v", code, err)
+		}
+	}
+}
+
 // Board or card older than 14 days cannot be edited: post (and pin) a new one
 // instead of failing every round.
 func TestFeishuExpiredCardIsPostedAgain(t *testing.T) {
