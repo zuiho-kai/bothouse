@@ -91,6 +91,7 @@ type Platform struct {
 	groupReplyAllChannels      []string // conest: when set, groupReplyAll only applies in these channels (and their threads)
 	shareSessionInChannel      bool
 	threadIsolation            bool
+	threadOps                  discordThreadOps // tests only; nil = the live session
 	respondToAtEveryoneAndHere bool
 	proxyURL                   *url.URL
 	handler                    core.MessageHandler
@@ -446,6 +447,20 @@ func parseDiscordSessionKeyChannelID(sessionKey string) (string, error) {
 		return "", fmt.Errorf("discord: invalid session key %q", sessionKey)
 	}
 	return parts[1], nil
+}
+
+func (p *Platform) threadOpsOrSession() discordThreadOps {
+	if p.threadOps != nil {
+		return p.threadOps
+	}
+	return sessionThreadOps{session: p.session}
+}
+
+// inThread reports whether channelID is a Discord thread. A failed lookup
+// counts as not a thread.
+func inThread(channelID string, ops discordThreadOps) bool {
+	ch, err := ops.ResolveChannel(channelID)
+	return err == nil && ch != nil && isThreadChannelType(ch.Type)
 }
 
 func resolveSessionKeyForChannel(channelID, userID string, shareSessionInChannel bool, threadIsolation bool, ops discordThreadOps) string {
@@ -823,7 +838,8 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 	}
 	// "/stop all" from a user reaches every bot in the channel, mentioned or not.
-	stopAll := !fromBot && (core.IsStopAllCommand(approvalContent) || isBareStop(m, mentioned, p.botID))
+	bareStop := !fromBot && isBareStop(m, mentioned, p.botID)
+	stopAll := !fromBot && (core.IsStopAllCommand(approvalContent) || bareStop)
 	if m.GuildID != "" && !replyAll && !stopAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
@@ -852,8 +868,12 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// which never exists. Empty value falls back to SessionKey extraction
 	// (the historical, non-isolated behavior).
 	channelKey := ""
-	if p.threadIsolation && m.GuildID != "" {
-		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.botID, sessionThreadOps{session: p.session})
+	if p.threadIsolation && m.GuildID != "" && stopAll && !mentioned && !inThread(m.ChannelID, p.threadOpsOrSession()) {
+		// A stop for the whole parent channel: keep the channel session key. Thread
+		// resolution would open a new thread titled after the stop word and stop nothing.
+		channelKey = m.ChannelID
+	} else if p.threadIsolation && m.GuildID != "" {
+		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.botID, p.threadOpsOrSession())
 		if err != nil {
 			slog.Warn("discord: thread isolation setup failed, falling back", "message", m.ID, "channel", m.ChannelID, "error", err)
 		} else {
@@ -902,6 +922,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
 	}
 	msg.AddressedOther = !fromBot && !msg.Mentioned && addressedOther(m.Content, p.botID)
+	msg.StopAll = bareStop && !msg.Mentioned && !msg.AddressedOther
 	// Consume explicit approvals before bot labels, batching or the gate.
 	if fromBot && strings.HasPrefix(approvalContent, "/permit") {
 		if m.WebhookID == "" && mentioned && p.CanApprovePermission(m.Author.ID) {

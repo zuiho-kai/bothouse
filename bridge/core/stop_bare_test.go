@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +23,7 @@ func newStopBot(t *testing.T, name, dataDir string) (*Engine, *stubPlatformEngin
 
 func bareStop(sessionKey, content string) *Message {
 	return &Message{SessionKey: sessionKey, Platform: "discord", MessageID: "m1",
-		UserID: "u1", UserName: "user", Content: content, ReplyCtx: "ctx"}
+		UserID: "u1", UserName: "user", Content: content, ReplyCtx: "ctx", StopAll: true}
 }
 
 // A stop word that calls no bot stops every bot's work in the channel, other
@@ -172,6 +173,10 @@ func TestBareStopIgnored(t *testing.T) {
 		{"long sentence", func(m *Message) { m.Content = "停止一下吧我再看看" }},
 		{"reply prefix", func(m *Message) { m.Content = "[replying to X: hi]\n停" }},
 		{"direct", func(m *Message) { m.Direct = true }},
+		{"stop then more words", func(m *Message) { m.Content = "停一下我看看" }},
+		{"with file", func(m *Message) { m.Files = []FileAttachment{{FileName: "a.txt", Data: []byte{1}}} }},
+		{"with voice", func(m *Message) { m.Audio = &AudioAttachment{Format: "ogg", Data: []byte{1}} }},
+		{"platform did not mark it", func(m *Message) { m.StopAll = false }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newStopFixture()
@@ -242,5 +247,39 @@ func TestClaimStopAck(t *testing.T) {
 	e, _ = newStopBot(t, "bot-a", bad)
 	if !e.claimStopAck(msg) {
 		t.Error("claim error should fall back to confirming")
+	}
+}
+
+type startRecordingAgent struct {
+	stubAgent
+	started chan string
+}
+
+func (a *startRecordingAgent) StartSession(ctx context.Context, id string) (AgentSession, error) {
+	select {
+	case a.started <- id:
+	default:
+	}
+	return a.stubAgent.StartSession(ctx, id)
+}
+
+// Platforms other than discord never set StopAll, and weixin/qq/line do not
+// fill Direct: a "停" in a weixin private chat reaches the agent as usual.
+func TestBareStopWeixinPrivateChatReachesAgent(t *testing.T) {
+	p := &stubPlatformEngine{n: "weixin"}
+	a := &startRecordingAgent{started: make(chan string, 1)}
+	e := NewEngine("bot-a", a, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.SetDataDir(t.TempDir())
+	msg := &Message{SessionKey: "weixin:u1:u1", Platform: "weixin", MessageID: "m1",
+		UserID: "u1", UserName: "user", Content: "停", ReplyCtx: "ctx"}
+	if e.isUnaddressedStop(msg) {
+		t.Fatal("weixin private 停 counted as an unaddressed stop")
+	}
+	e.handleMessage(p, msg)
+	select {
+	case <-a.started:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("weixin private 停 did not reach the agent; sent %#v", p.getSent())
 	}
 }

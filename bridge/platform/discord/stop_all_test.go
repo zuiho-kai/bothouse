@@ -109,3 +109,47 @@ func TestIsBareStop(t *testing.T) {
 		t.Error("a name call 肥鱼，停 is not unaddressed")
 	}
 }
+
+// With thread_isolation on and group_reply_all off, a bare 停 in the parent
+// channel keeps the channel session key and opens no thread; a bare 停 inside a
+// thread keeps that thread's key.
+func TestHandleMessageCreate_BareStopThreadIsolationNoNewThread(t *testing.T) {
+	run := func(channelID string, isThread bool) (*core.Message, bool) {
+		var got *core.Message
+		started := false
+		ops := fakeThreadOps{
+			resolveChannel: func(id string) (*discordgo.Channel, error) {
+				if isThread {
+					return &discordgo.Channel{ID: id, Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "parent"}, nil
+				}
+				return &discordgo.Channel{ID: id, Type: discordgo.ChannelTypeGuildText}, nil
+			},
+			startThread: func(channelID, messageID, name string, _ int) (*discordgo.Channel, error) {
+				started = true
+				return &discordgo.Channel{ID: "new-thread"}, nil
+			},
+		}
+		p := &Platform{botID: "100", botName: "bot100", allowFrom: "*", teamLead: "100",
+			threadIsolation: true, threadOps: ops}
+		p.channelNameCache.Store(channelID, "test")
+		p.handler = func(_ core.Platform, msg *core.Message) { got = msg }
+		p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{ID: "m-" + channelID,
+			GuildID: "guild", ChannelID: channelID, Author: &discordgo.User{ID: "human"},
+			Timestamp: time.Now(), Content: "停"}})
+		return got, started
+	}
+	got, started := run("parent", false)
+	if started {
+		t.Fatal("bare 停 in the parent channel started a thread")
+	}
+	if got == nil || !got.StopAll || got.SessionKey != "discord:parent:human" && got.SessionKey != "discord:parent" {
+		t.Fatalf("parent bare 停 = %+v", got)
+	}
+	got, started = run("thr", true)
+	if started {
+		t.Fatal("bare 停 in a thread started a thread")
+	}
+	if got == nil || !got.StopAll || got.SessionKey != buildThreadSessionKey("thr") {
+		t.Fatalf("thread bare 停 = %+v", got)
+	}
+}
