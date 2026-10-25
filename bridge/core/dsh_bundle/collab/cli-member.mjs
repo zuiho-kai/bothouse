@@ -62,6 +62,7 @@ export class CliMember {
     this.sessions = new Map() // room -> { sessionId }（当前 ACP 进程里活着的会话）
     this.saved = new Map() // room -> sessionId：进程退出后留着，下次用 loadSession 续上
     this.buffers = new Map() // sessionId -> string
+    this.toolSince = new Set() // sessionId：上一段话之后有过工具调用
     this.onText = new Map() // sessionId -> (textSoFar) => void（#121 流式）
     this.onTool = new Map() // sessionId -> (update) => void：tool_call / tool_call_update / agent_thought_chunk，给进度卡
     this.onPermission = new Map() // sessionId -> async (request) => ACP outcome：本轮的审批处理器
@@ -80,10 +81,15 @@ export class CliMember {
       sessionUpdate: async (n) => {
         const u = n.update
         if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && this.buffers.has(n.sessionId)) {
-          const full = this.buffers.get(n.sessionId) + u.content.text
+          // 工具调用隔开的两段话是两条消息：另起一段，[report]/[ask] 这类首行标记才落在行首（team-exit.mjs exitMark）。
+          const prev = this.buffers.get(n.sessionId)
+          const gap = this.toolSince.has(n.sessionId) && prev.trim() && !/\n\s*$/.test(prev) ? '\n\n' : ''
+          this.toolSince.delete(n.sessionId)
+          const full = prev + gap + u.content.text
           this.buffers.set(n.sessionId, full)
           this.onText.get(n.sessionId)?.(full)
         }
+        if (u?.sessionUpdate === 'tool_call' && this.buffers.has(n.sessionId)) this.toolSince.add(n.sessionId)
         if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk') && this.buffers.has(n.sessionId)) this.onTool.get(n.sessionId)?.(u)
       },
     }
@@ -167,6 +173,7 @@ export class CliMember {
     // persona 每轮都拼：续上的或新开的会话都不会丢人设。
     const body = this.persona ? `${this.persona}\n\n${text}` : text
     this.buffers.set(s.sessionId, '')
+    this.toolSince.delete(s.sessionId)
     if (onText) this.onText.set(s.sessionId, onText)
     if (onTool) this.onTool.set(s.sessionId, onTool)
     if (onPermission) this.onPermission.set(s.sessionId, onPermission)
@@ -178,6 +185,7 @@ export class CliMember {
       return this.buffers.get(s.sessionId)
     } finally {
       this.buffers.delete(s.sessionId)
+      this.toolSince.delete(s.sessionId)
       this.onText.delete(s.sessionId)
       this.onTool.delete(s.sessionId)
       this.onPermission.delete(s.sessionId)

@@ -42,6 +42,25 @@ export function askBounceText(problems) {
     + '方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」。';
 }
 
+const FIRST_MARK = /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i;
+const LINE_MARK = /(?:^|\n)[ \t]*\[(ask|report)\][ \t]*/gi;
+
+/**
+ * The [ask] / [report] mark of a role reply: { kind, body } or undefined. Marked on the first
+ * line, or, for a reply that is one row for the whole turn (a DSH member: first line 【接】#id,
+ * then everything it said), on the line starting the turn's last part: the last line that opens
+ * with the mark. Same marks as the bridge (core/team_exit.go parseExitKind).
+ */
+export function exitMark(text) {
+  const t = String(text ?? '').trim();
+  let m = FIRST_MARK.exec(t);
+  if (m === null) {
+    const last = [...t.matchAll(LINE_MARK)].at(-1);
+    if (last !== undefined) m = FIRST_MARK.exec(`[${last[1]}]${t.slice(last.index + last[0].length)}`);
+  }
+  return m === null ? undefined : { kind: m[1].toLowerCase(), body: m[2] };
+}
+
 export class TeamExit {
   constructor(hub) {
     this.hub = hub;
@@ -94,12 +113,12 @@ export class TeamExit {
       return message;
     }
     if (msg.author_kind !== 'role') return;
-    const mark = msg.card == null ? /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i.exec(msg.text.trim()) : null;
-    const room = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(msg.room_id);
-    if (!room?.parent_id || room.parent_id === room.id) return;
-    const ask = mark?.[1].toLowerCase() === 'ask';
+    const mark = msg.card == null ? exitMark(msg.text) : undefined;
+    const room = this.workspaceOf(msg);
+    if (!room) return;
+    const ask = mark?.kind === 'ask';
     if (ask) {
-      const problems = askEvidenceProblems(mark[2]);
+      const problems = askEvidenceProblems(mark.body);
       if (problems.length) return this.bounce(room, msg, problems);
     }
     // Any reply without a bounced [ask] ends the run of bounces.
@@ -111,15 +130,12 @@ export class TeamExit {
         VALUES (?, ?, ?, ?, ?)`).run(`ask-${randomBytes(4).toString('hex')}`, room.parent_id, room.id, msg.author, msg.id);
       record = this.db.prepare('SELECT * FROM team_exit_asks WHERE source_id = ?').get(msg.id);
     }
-    const { message } = this.hub.post(room.parent_id, {
-      authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`,
-      text: `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${record.id}` : ' · 阶段结果'}\n${mark[2]}`,
-    });
+    const message = this.forward(room, msg, mark.body, record);
     if (ask) {
       this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
       const tasks = this.hub.tasks;
       if (tasks) {
-        const taskId = /任务\s*#(\d+)\b/.exec(mark[2])?.[1];
+        const taskId = /任务\s*#(\d+)\b/.exec(mark.body)?.[1];
         const inRoom = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
           .filter(t => t.room_id === room.id);
         const marked = taskId ? tasks.task(Number(taskId)) : undefined;
@@ -127,5 +143,40 @@ export class TeamExit {
         if (selected?.room_id === room.id) tasks.pauseTask(selected.id);
       }
     }
+  }
+
+  /** The workspace room msg was posted in (with a chat channel above it), or undefined. */
+  workspaceOf(msg) {
+    if (!this.enabled) return undefined;
+    const room = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(msg.room_id);
+    return room?.parent_id && room.parent_id !== room.id ? room : undefined;
+  }
+
+  /**
+   * Copy a workspace reply into its chat channel (once per source row: a repeated client key
+   * returns the copy already posted). ask: its team_exit_asks record; otherwise a 阶段结果.
+   */
+  forward(room, msg, body, ask) {
+    return this.hub.post(room.parent_id, {
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`,
+      text: `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${ask.id}` : ' · 阶段结果'}\n${body}`,
+    }).message;
+  }
+
+  /**
+   * The delivery msg of a workspace task, copied into the chat channel (Tasks.handBack): its
+   * [report] body, already forwarded by onMessage, or else the reply without its stance line, so
+   * the chat channel always gets the result and not only the 交回 record. undefined outside a
+   * workspace and for an [ask] (a question, not a result).
+   */
+  forwardResult(msg) {
+    const room = this.workspaceOf(msg);
+    if (!room || msg.author_kind !== 'role' || msg.card != null) return undefined;
+    const mark = exitMark(msg.text);
+    if (mark?.kind === 'ask') return undefined;
+    const lines = String(msg.text).trim().split('\n');
+    if (/^\s*(?:@\S+\s+)*【(接|问|退|升)】/.test(lines[0])) lines.shift();
+    const body = mark?.body ?? (lines.join('\n').trim() || String(msg.text).trim());
+    return this.forward(room, msg, body);
   }
 }

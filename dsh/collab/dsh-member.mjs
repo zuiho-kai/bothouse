@@ -519,7 +519,7 @@ export class DshMembers {
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
+      .filter(m => turnSees(m, job, binding, member))
       .slice(-CONTEXT_LIMIT);
     // DSH validates images again (count, total bytes, type, pixels). Attachments it
     // refuses are dropped one by one (the rest still go through), the member is told in
@@ -556,7 +556,7 @@ export class DshMembers {
     const sessionId = binding.session_id;
     const resumeId = sessionId.startsWith('cli:') ? undefined : sessionId;
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
+      .filter(m => turnSees(m, job, binding, member))
       .slice(-CONTEXT_LIMIT);
     const wiki = await this.turnContext(member, room, undefined, unseen);
     if (this.closed) return;
@@ -993,4 +993,14 @@ export class DshMembers {
     await Promise.race([Promise.allSettled(this.queues.values()), limit]);
     clearTimeout(timer);
   }
+}
+
+/**
+ * A row a member's turn reads: unread, not its own, no draft; system rows and cards only as the
+ * trigger itself (a task reminder or pause record carries a task card and must still reach the member).
+ */
+function turnSees(m, job, binding, member) {
+  const trigger = m.id === job.trigger_id;
+  return (m.id > binding.context_cursor || trigger) && m.author !== member.id
+    && (m.author_kind !== 'system' || trigger) && (m.card === null || trigger) && !m.draft;
 }
