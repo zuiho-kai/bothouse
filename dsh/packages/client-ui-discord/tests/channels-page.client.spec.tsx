@@ -40,7 +40,7 @@ describe('channels page', () => {
     expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
     fireEvent.change(input, { target: { value: '/' } })
     const help = within(screen.getByRole('region', { name: zh.capabilities }))
-    expect(help.getAllByRole('button')).toHaveLength(7) // six capabilities and close
+    expect(help.getAllByRole('button')).toHaveLength(8) // seven capabilities and close
     for (const [name, usage] of [
       [zh.capabilityTaskBoard, zh.capabilityTaskBoardHelp],
       [zh.capabilityLater, zh.capabilityLaterHelp],
