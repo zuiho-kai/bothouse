@@ -123,7 +123,8 @@ _lock = threading.Lock()
 
 
 def state():
-    """→ {"lead": key, "at": 切换时间 或 ""}；没切过 / 文件坏了 = 橘（现状）。"""
+    """→ {"lead": key, "at": 切换时间 或 "", "auto": bool}；没切过 / 文件坏了 = 橘（现状）。
+    auto = 安装时自动选的（bridge/core/setup_dsh_team.go selectDSHLeadIfUnset 写 "auto": true），不是用户切换。"""
     def canonical(value):
         value = str(value or "").strip()
         if value in KEYS:
@@ -139,12 +140,12 @@ def state():
         except (OSError, ValueError):
             return None
         key = canonical(raw.get("lead"))
-        return None if key is None else {"lead": key, "at": raw.get("at", "")}
+        return None if key is None else {"lead": key, "at": raw.get("at", ""), "auto": raw.get("auto") is True}
 
     # Once the product file exists it is the sole source of truth. This also
     # prevents a stale legacy choice from overriding an explicit fallback.
     if LEAD_FILE.exists():
-        return read(LEAD_FILE) or {"lead": "", "at": ""}
+        return read(LEAD_FILE) or {"lead": "", "at": "", "auto": False}
 
     # Migrate the first valid legacy selection once, so bridge and DSH read it.
     for path in _LEGACY_LEAD_FILES:
@@ -160,7 +161,7 @@ def state():
         tmp.write_text(json.dumps(payload, ensure_ascii=False))
         tmp.replace(LEAD_FILE)
         return selected
-    return {"lead": "", "at": ""}
+    return {"lead": "", "at": "", "auto": False}
 
 
 def current():
@@ -184,9 +185,11 @@ def resolve(who):
 
 
 def set_lead(key):
-    """四个 bot 会同时为同一条消息问 gate：已经是它就不动（时间戳不变，身份段不重复推）。"""
+    """四个 bot 会同时为同一条消息问 gate：已经是它就不动（时间戳不变，身份段不重复推）。
+    安装时自动选的（auto）照写：用户这句才是真切换，写完不带 auto，身份段出现。"""
     with _lock:
-        if state()["lead"] == key and LEAD_FILE.exists():
+        s = state()
+        if s["lead"] == key and LEAD_FILE.exists() and not s["auto"]:
             return False
         LEAD_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = LEAD_FILE.with_suffix(".tmp")
@@ -208,9 +211,10 @@ def member(bot):
 
 def identity(bot):
     """给 bot 这一轮附的主/次身份段（ctxsvc 拼进上下文）。没切换过 → None：人设文件现在写的就是橘为主。
+    安装时自动选的（auto，#597 G32）也 → None：用户没切换过，不说「用户切换」。
     第一步只改 gate；bridge 的交接回报/升级/仲裁仍发给 team_lead_bot（橘），第二步改成读这里。"""
     s = state()
-    if not s["at"]:
+    if not s["at"] or s["auto"]:
         return None
     L, me = s["lead"], member(bot)
     lead = f"{NAME[L]}（<@{ID[L]}>）" if L in ID else NAME[L]

@@ -34,6 +34,25 @@ class T(unittest.TestCase):
         self.assertFalse(has_playbook(""))
         self.assertIn(lead.state()["at"], lead.playbook(new)["path"])  # 换主后 path 变，cc-connect 会再推一次
 
+    def test_auto_selected_lead_is_no_user_switch(self):
+        # #597 G32：安装时自动选的主角色（bridge setup_dsh_team.go 写 "auto": true）不算用户切换，每一轮都不附「用户切换」段
+        f = Path(os.environ["GATE_LEAD_FILE"])
+        f.write_text(json.dumps({"lead": "", "name": lead.NAME[""], "at": "2026-10-25T21:38:09Z", "auto": True}))
+        for k in lead.KEYS:
+            self.assertIsNone(lead.identity(k), k)
+            self.assertFalse(any("用户切换" in x["path"] for x in ctxsvc.context({"bot": k, "text": "在吗"})["wiki"]), k)
+        self.assertTrue(has_playbook(""))
+        # 用户一句话选了同一个：这才是切换，写成不带 auto，身份段出现（主角色收到一句确认的提示）
+        self.assertTrue(lead.set_lead(""))
+        self.assertNotIn("auto", json.loads(f.read_text()))
+        self.assertIn("用户切换", lead.identity("")["path"])
+        self.assertFalse(lead.set_lead(""))  # 再说一遍不重写
+
+    def test_user_choice_without_auto_still_notes_switch(self):
+        # PATCH /collab/api/lead（dsh/collab/lead-state.mjs LeadState.set）写 {lead,name,at}，不带 auto
+        Path(os.environ["GATE_LEAD_FILE"]).write_text(json.dumps({"lead": lead.KEYS[1], "name": "x", "at": "2026-10-26T01:00:00Z"}))
+        self.assertIn("用户切换", lead.identity(lead.KEYS[1])["path"])
+
     def test_first_rule_is_assign_idle_teammates(self):
         for name in ("PLAYBOOK.zh-CN.md", "PLAYBOOK.md"):
             text = (Path(__file__).resolve().parent.parent / "lead" / name).read_text(encoding="utf-8")

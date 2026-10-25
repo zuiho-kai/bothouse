@@ -14,6 +14,12 @@ import (
 // says whether the lead's playbook came with it.
 func gateContextPlaybook(t *testing.T, dataDir, bot string) bool {
 	t.Helper()
+	return strings.Contains(gateContext(t, dataDir, bot), "主角色工作手册")
+}
+
+// gateContext: what the gate's /context adds to bot's turn (contrib/gate/ctxsvc.py), as JSON text.
+func gateContext(t *testing.T, dataDir, bot string) string {
+	t.Helper()
 	py, _ := ProductPython(dataDir)
 	gate, _ := filepath.Abs(filepath.Join("..", "contrib", "gate"))
 	pb := filepath.Join(dataDir, "PLAYBOOK.md")
@@ -26,7 +32,7 @@ print(json.dumps(ctxsvc.context({"key": "k", "text": "在吗", "bot": sys.argv[2
 	if err != nil {
 		t.Fatalf("context: %v %s", err, out)
 	}
-	return strings.Contains(string(out), "主角色工作手册")
+	return string(out)
 }
 
 // Only DSH set up: no team file yet, so one is made; the first member is the lead and gets the playbook by its id.
@@ -144,6 +150,29 @@ func TestDSHImportSelectsTeamLeadOnce(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(leadFile); !strings.Contains(string(b), `"m-nn8hur"`) {
 		t.Fatalf("the user's choice was replaced: %s", b)
+	}
+}
+
+// #597 G32: the install's own pick is not a user switch: no role's turn gets the gate's
+// "【主角色：…用户切换】" note for it; a later user choice (PATCH /collab/api/lead writes no "auto") still does.
+func TestDSHAutoSelectedLeadIsNoUserSwitch(t *testing.T) {
+	data := t.TempDir()
+	members := []DSHImportedMember{{DSHMember: DSHMember{Name: "主"}, ID: "m-mv889t"}, {DSHMember: DSHMember{Name: "副"}, ID: "m-nn8hur"}}
+	if err := registerDSHMembersInGateTeam(data, members); err != nil {
+		t.Fatal(err)
+	}
+	leadFile := filepath.Join(data, "lead.json")
+	if b, _ := os.ReadFile(leadFile); !strings.Contains(string(b), `"auto":true`) {
+		t.Fatalf("lead.json not marked as the install's pick: %s", b)
+	}
+	for _, bot := range []string{"dsh:m-mv889t", "dsh:m-nn8hur"} {
+		if out := gateContext(t, data, bot); strings.Contains(out, "用户切换") {
+			t.Fatalf("%s told the user switched the primary role: %s", bot, out)
+		}
+	}
+	_ = os.WriteFile(leadFile, []byte(`{"lead":"m-nn8hur","name":"副","at":"2026-10-26T01:00:00Z"}`+"\n"), 0o600)
+	if out := gateContext(t, data, "dsh:m-nn8hur"); !strings.Contains(out, "用户切换") {
+		t.Fatalf("a user choice got no switch note: %s", out)
 	}
 }
 

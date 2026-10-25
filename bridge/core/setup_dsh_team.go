@@ -164,7 +164,10 @@ func selectDSHLeadIfUnset(dataDir string) (bool, error) {
 		return false, err
 	}
 	defer os.Remove(tmp.Name())
-	line, _ := json.Marshal(map[string]string{"lead": id, "name": name, "at": time.Now().UTC().Format(time.RFC3339Nano)})
+	// "auto": the install picked it, the user did not switch: the gate (contrib/gate/lead.py identity) adds no
+	// "user switched the primary role" note for it. A real choice (PATCH /collab/api/lead, the gate) rewrites
+	// the file without the flag.
+	line, _ := json.Marshal(map[string]any{"lead": id, "name": name, "at": time.Now().UTC().Format(time.RFC3339Nano), "auto": true})
 	if _, err := tmp.Write(append(line, '\n')); err != nil {
 		tmp.Close()
 		return false, err
