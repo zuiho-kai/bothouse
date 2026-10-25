@@ -65,7 +65,7 @@ func (p *Platform) RenameTeamWorkspaceChannel(ctx context.Context, channelID, na
 
 const (
 	permManageChannels = "管理频道 (Manage Channels)"
-	permManageMessages = "管理消息 (Manage Messages)"
+	permPinMessages    = "置顶消息 (Pin Messages)"
 )
 
 // missingPermissionErr turns Discord's bare 50013 Missing Permissions into an error that names
@@ -76,7 +76,7 @@ func (p *Platform) missingPermissionErr(err error, perm string) error {
 	if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeMissingPermissions {
 		return err
 	}
-	return fmt.Errorf("Discord bot 缺「%s」权限。打开这个链接把 bot 重新邀请进服务器即可补上（不用先移出）：%s ；原始错误：%w",
+	return fmt.Errorf("Discord bot 缺「%s」权限。打开这个链接把 bot 重新邀请进服务器即可补上（不用先移出）：%s ；频道单独设了权限的，还要去该频道设置里给 bot 放开这项权限。原始错误：%w",
 		perm, core.DiscordInviteURL(p.appID, p.guildID), err)
 }
 

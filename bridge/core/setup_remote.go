@@ -70,11 +70,12 @@ type DiscordBotInfo struct {
 // what bothouse itself calls:
 //   - basics: View Channels(1<<10), Send Messages(1<<11), Read Message History(1<<16),
 //     Embed Links(1<<14), Attach Files(1<<15), Add Reactions(1<<6)
-//   - team mode: Manage Channels(1<<4) creates 「工作区n」, Manage Messages(1<<13) pins the board
+//   - team mode: Manage Channels(1<<4) creates 「工作区n」, Pin Messages(1<<51) pins the board
+//     (Discord split pinning out of Manage Messages(1<<13); both are kept)
 //   - slash commands: Use Application Commands(1<<31)
 //   - threads: Manage Threads(1<<34), Create Public Threads(1<<35), Send Messages in Threads(1<<38)
 const DiscordInvitePermissions int64 = 1<<10 | 1<<11 | 1<<16 | 1<<14 | 1<<15 | 1<<6 |
-	1<<4 | 1<<13 | 1<<31 | 1<<34 | 1<<35 | 1<<38
+	1<<4 | 1<<13 | 1<<51 | 1<<31 | 1<<34 | 1<<35 | 1<<38 // = 2252128378809424
 
 // DiscordInviteURL builds the "add bot to server" link.
 func DiscordInviteURL(appID, guildID string) string {

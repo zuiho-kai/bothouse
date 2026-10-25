@@ -15,7 +15,7 @@ import (
 func TestMissingPermissionErrNamesPermissionAndReinviteLink(t *testing.T) {
 	p := &Platform{appID: "123"}
 	denied := &discordgo.RESTError{Response: &http.Response{StatusCode: 403, Status: "403 Forbidden"}, ResponseBody: []byte(`{"message": "Missing Permissions", "code": 50013}`), Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingPermissions, Message: "Missing Permissions"}}
-	for _, perm := range []string{permManageChannels, permManageMessages} {
+	for _, perm := range []string{permManageChannels, permPinMessages} {
 		err := p.missingPermissionErr(denied, perm)
 		msg := err.Error()
 		for _, want := range []string{perm, "client_id=123", "permissions=" + strconv.FormatInt(core.DiscordInvitePermissions, 10), "Missing Permissions"} {

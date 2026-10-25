@@ -104,7 +104,7 @@ func (p *Platform) PinChannelBoard(ctx context.Context, channelID, messageID str
 		return nil
 	}
 	if err2 := s.ChannelMessagePin(channelID, messageID, discordgo.WithContext(ctx)); err2 != nil {
-		return p.missingPermissionErr(fmt.Errorf("discord: pin channel board: %w (deprecated endpoint: %v)", err, err2), permManageMessages)
+		return p.missingPermissionErr(fmt.Errorf("discord: pin channel board: %w (deprecated endpoint: %v)", err, err2), permPinMessages)
 	}
 	return nil
 }

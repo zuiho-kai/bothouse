@@ -13,12 +13,15 @@ func TestDiscordInvitePermissionsBits(t *testing.T) {
 	}{
 		{"View Channels", 10}, {"Send Messages", 11}, {"Read Message History", 16},
 		{"Embed Links", 14}, {"Attach Files", 15}, {"Add Reactions", 6},
-		{"Manage Channels", 4}, {"Manage Messages", 13}, {"Use Application Commands", 31},
+		{"Manage Channels", 4}, {"Manage Messages", 13}, {"Pin Messages", 51}, {"Use Application Commands", 31},
 		{"Manage Threads", 34}, {"Create Public Threads", 35}, {"Send Messages in Threads", 38},
 	} {
 		if DiscordInvitePermissions&(int64(1)<<b.bit) == 0 {
 			t.Errorf("DiscordInvitePermissions lacks %s (1<<%d)", b.name, b.bit)
 		}
+	}
+	if DiscordInvitePermissions != 2252128378809424 {
+		t.Errorf("DiscordInvitePermissions = %d, want 2252128378809424", DiscordInvitePermissions)
 	}
 	u, err := url.Parse(DiscordInviteURL("123", ""))
 	if err != nil {
