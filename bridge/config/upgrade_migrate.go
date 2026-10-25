@@ -21,6 +21,9 @@ const YoloDefaultMigrationID = "yolo-default-2026-10"
 
 const migrationsFile = "migrations.json"
 
+// testAfterAgentOptionsWrite lets tests damage the file between write and re-check.
+var testAfterAgentOptionsWrite func()
+
 // AgentOptionEdit sets one string key under [projects.agent.options].
 type AgentOptionEdit struct {
 	Project string
@@ -103,6 +106,9 @@ func SetAgentOptionsIfAbsent(edits []AgentOptionEdit) (applied []AgentOptionEdit
 	}
 	if err := writeRawConfig(cur); err != nil {
 		return restore(fmt.Errorf("write config: %w", err))
+	}
+	if testAfterAgentOptionsWrite != nil {
+		testAfterAgentOptionsWrite()
 	}
 
 	// Re-read what is on disk: it must equal the original (as writeRawConfig

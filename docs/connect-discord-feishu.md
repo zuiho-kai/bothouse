@@ -214,7 +214,7 @@ Discord 设置 → 高级 → 打开**开发者模式**。之后右键就能「�
 - `group_reply_all = true`：群里不 @ 也听，交给 gate 判断回不回。
 - `share_session_in_channel = true`：一个频道一份会话。
 - `allow_bots`：队友 bot 的 ID。队友 @ 我才开一轮，没 @ 只当上下文；不列的 bot 的消息全忽略。
-- `team_lead_bot`：主 bot 的 ID。两个 sub 互相 @ 超过 3 轮，交给主 bot。
+- `team_lead_bot`：主 bot 的 ID。没配 gate 时，群里没点名的消息由主 bot 接，sub 只听；点了谁的名就由谁接。
 
 ### A4. 怎么验证
 
@@ -240,7 +240,7 @@ bothouse feishu setup --project <你的 project 名>
 这些只在 Discord 上实现了，飞书上一个 bot 照常对话，但：
 
 - gate 拿不到「这句 @ 了谁」（`mentioned` 只有 Discord 填），只能靠消息里叫的名字判断。
-- 没有 `allow_bots`、`team_lead_bot`：bot 之间不会互相接话、交接，也没有 sub 互 @ 超过 3 轮交给主 bot 的保护。
+- 没有 `allow_bots`、`team_lead_bot`：bot 之间不会互相接话、交接。
   所以飞书上先只放一个 bot，不要把一主多 sub 原样搬过去。
 
 ### 3. 怎么验证

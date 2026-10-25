@@ -278,3 +278,19 @@ func TestDSH_DefaultYoloAutoApprovesPermission(t *testing.T) {
 		t.Fatalf("expected behavior allow, got %q", lastRes.Behavior)
 	}
 }
+
+func TestKnownAgentYoloModeOnlyListedTypes(t *testing.T) {
+	for typ, want := range map[string]string{"claudecode": "bypassPermissions", "copilot": "bypassPermissions", "cursor": "force", "codex": "yolo", "gemini": "yolo"} {
+		if got, ok := KnownAgentYoloMode(typ); !ok || got != want {
+			t.Errorf("%s = %q,%v want %q", typ, got, ok, want)
+		}
+	}
+	for _, typ := range []string{"dsh", "acp", "", "unknown"} {
+		if got, ok := KnownAgentYoloMode(typ); ok {
+			t.Errorf("%s should be unknown, got %q", typ, got)
+		}
+	}
+	if DefaultAgentYoloMode("dsh") != "yolo" {
+		t.Error("DefaultAgentYoloMode fallback changed")
+	}
+}
