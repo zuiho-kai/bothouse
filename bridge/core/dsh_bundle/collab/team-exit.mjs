@@ -41,7 +41,7 @@ export class TeamExit {
       return message;
     }
     if (msg.author_kind !== 'role' || msg.card != null) return;
-    const mark = /^\[(ask|report)\]\s*\n([\s\S]+)$/i.exec(msg.text.trim());
+    const mark = /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i.exec(msg.text.trim());
     if (!mark) return;
     const room = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(msg.room_id);
     if (!room?.parent_id || room.parent_id === room.id) return;
@@ -60,11 +60,11 @@ export class TeamExit {
       this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
       const tasks = this.hub.tasks;
       if (tasks) {
-        const taskId = /#(\d+)\b/.exec(mark[2])?.[1];
-        const selected = taskId
-          ? tasks.task(Number(taskId))
-          : tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
-            .filter(t => t.room_id === room.id).at(-1);
+        const taskId = /任务\s*#(\d+)\b/.exec(mark[2])?.[1];
+        const inRoom = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
+          .filter(t => t.room_id === room.id);
+        const marked = taskId ? tasks.task(Number(taskId)) : undefined;
+        const selected = marked?.room_id === room.id ? marked : inRoom[0];
         if (selected?.room_id === room.id) tasks.pauseTask(selected.id);
       }
     }

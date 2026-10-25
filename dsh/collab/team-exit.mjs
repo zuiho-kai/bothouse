@@ -60,7 +60,7 @@ export class TeamExit {
       this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
       const tasks = this.hub.tasks;
       if (tasks) {
-        const taskId = /\b任务\s+#(\d+)\b/.exec(mark[2])?.[1];
+        const taskId = /任务\s*#(\d+)\b/.exec(mark[2])?.[1];
         const inRoom = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
           .filter(t => t.room_id === room.id);
         const marked = taskId ? tasks.task(Number(taskId)) : undefined;

@@ -80,3 +80,20 @@ test('single-line [ask] without a task number falls back to the room task and pa
   assert.ok(tasks.task(task.id).paused_at);
   tasks.close();
 });
+
+test('[ask] naming 任务 #N pauses that task even when another room task is newer', async () => {
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  new TeamExit(hub);
+  const first = tasks.assign({ roomId: ws.id, title: 'first', owner: 'ds', actor: 'owner' });
+  hub.setMember({ id: 'ds2', name: 'DeepSeek2', kind: 'dsh', online: true });
+  const second = tasks.assign({ roomId: ws.id, title: 'second', owner: 'ds2', actor: 'owner' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] 任务 #${first.id} 选 A 还是 B` });
+  await new Promise(r => setImmediate(r));
+  assert.ok(tasks.task(first.id).paused_at);
+  assert.ok(!tasks.task(second.id).paused_at);
+  tasks.close();
+});
