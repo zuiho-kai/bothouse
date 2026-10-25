@@ -51,6 +51,8 @@ type Platform struct {
 	replyCtxMu sync.RWMutex
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
 
+	board boardState // team board creates awaiting an ack (board.go)
+
 	liveMu       sync.RWMutex   // guards teamLead, which ReloadOptions swaps while running
 	botName      string         // maomao fork: the hub's name for this bot, for leading-name calls (name_call.go)
 	teamLead     string         // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
