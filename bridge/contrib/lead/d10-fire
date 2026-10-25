@@ -1,21 +1,21 @@
 #!/usr/bin/env -S python3 -I
 # d10 到点时由桥（bothouse / cc-connect）的 timer 调用：队友已交回就不发「暂停」，没交回才发。
 # 用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <发消息的 cc-connect project> [--renew N] [--dry-run]（d10 填好参数）
-# 续期：没交回时再看最近 10 分钟她有没有动静（团队文件里她的 "wt" 目录下有新提交，或频道里她发了非状态行、非表态的新消息），
+# 续期：没交回时再看最近 10 分钟她有没有动静（团队文件里她的 "wt" 目录下有新提交；
+#   频道消息判交回/续期要桥提供读频道历史的接口，目前没有，见 fetch_messages），
 #   有就再挂一个 10 分钟的 d10-fire（--renew 计数），最多续 MAX_RENEW 次；续到上限仍没交回、或续期定时没挂上，照发暂停。
 # 来源：用户 2026-10-23「复盘一下现在的工作流程，看看怎么样更好的就是我们并行的团队模式的去搞」；
 #   事故：2026-10-23 上午 d10 计时 4 次在队友早已交回后白发「暂停」（03:46、10:39 彩虹猫，10:47 前后），
 #   还打断了队友手上的下一件活。规则靠自觉管不住，改成到点自动判断。
 # 事故二：2026-10-24 队友结果和【接】写在同一条（577 字，没有「交付」等词），被判成接单表态发了暂停，打断了她新接的活。
 #   改为：交回 = 派活后她发的非纯表态实质回复；派活后她又被 @ 派了新活，旧 d10 一律不发暂停。
-import json, os, re, shlex, subprocess, sys, time, urllib.request
+import os, re, shlex, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 
-DISCORD_EPOCH_MS = 1420070400000
 STATUS_PREFIXES = ("↪", "⏹", "📬")  # gate 状态行（本任务原话）
 MIN_LEN = 80                         # 短于 80 字视为状态行（本任务原话）
 # PR 链接一律算交回（接单消息「【接】已派子 agent」不算交回）
@@ -122,14 +122,10 @@ def renew(tid, what, since, skey, proj, n, dry):
 
 
 def fetch_messages(channel_id: str, since: float):
-    after = (int(since * 1000) - DISCORD_EPOCH_MS) << 22
-    url = f"https://discord.com/api/v10/channels/{channel_id}/messages?limit=50&after={after}"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bot {_team.token()}",
-        "User-Agent": "DiscordBot (bothouse, 1)",
-    })
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r)
+    """频道里 since 之后的消息（Discord 消息形状）。不再用平台 token 直读 Discord（#597 K9：四平台通用、脚本不碰密钥）；
+    桥目前没有读频道历史的对外接口，返回 None = 没有频道信号，只按提交判断续期，否则照发暂停。
+    工作区交接的进展由桥里的看门判（core/team_watch.go workspaceProgress），不经这里。"""
+    return None
 
 
 def main(argv):
@@ -152,6 +148,8 @@ def main(argv):
     active = False
     try:
         msgs = fetch_messages(channel, since)
+        if msgs is None:
+            raise LookupError("桥没有读频道历史的接口")
         if redispatched(msgs, tid, since):
             print("派活后又派了新活，跳过暂停")
             return 0

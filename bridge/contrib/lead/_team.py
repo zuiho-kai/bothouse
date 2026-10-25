@@ -1,10 +1,10 @@
-"""d10 / ws-handoff / ws-forward 共用：团队名单、当前主角色、工作区频道、Discord token 都从 gate 已有的配置读，不写死。
+"""d10 / ws-handoff / ws-forward 共用：团队名单、当前主角色、工作区频道都从 gate 已有的配置读，不写死。
 
 - 团队文件：只认向导写的那一份（GATE_TEAM，否则 <GATE_SETUP_DIR>/gate-team.json），不回退到 team.example.json；
   成员的 "id" 是平台用户 ID 原样字符串（Discord 数字、飞书 ou_…、DSH 成员 id 都认），"workspace" 是她的工作目录。
 - 当前主角色：复用 ../gate/lead.py（默认存产品数据目录的 lead.json，GATE_LEAD_FILE 可显式覆盖）。gate 不在 ../gate 时设 GATE_DIR。
 - 工作区频道：环境变量 WS_CHANNEL，否则团队文件顶层 "workspace"（平台频道 ID）；都没有 → None（ws-handoff 会新建）。
-- Discord token：环境变量 DISCORD_BOT_TOKEN，否则 <GATE_SETUP_DIR>/secrets.env 里的同名变量。
+- 不读平台 token：发消息、建工作区都走桥（<桥> send / workspace / timer），四平台通用。
 - 发消息/定时器用的身份：调用者自己的 CC_PROJECT（cc-connect 给每个会话设的），即正在当主的那位。
 - 队友工作目录：团队文件成员的 "wt"，没有就用 "workspace"（一个路径或路径列表，git 副本本身或放 git 副本的目录），d10-fire 看里面有没有新提交来续期；
   不写就只看频道里的动静。
@@ -90,17 +90,6 @@ def cc_bin():
     """桥程序：CC_BIN，否则 PATH 里的 bothouse / cc-connect（同目录 later 的找法）；都没有返回 None。
     只装了 bothouse 的用户也要能挂 d10、续期、发暂停（原先 d10 / d10-fire 写死 cc-connect）。"""
     return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
-
-
-def token():
-    if os.environ.get("DISCORD_BOT_TOKEN"):
-        return os.environ["DISCORD_BOT_TOKEN"]
-    env = SETUP / "secrets.env"
-    out = subprocess.run(["/bin/sh", "-c", 'set -a; . "$1"; printf %s "$DISCORD_BOT_TOKEN"', "sh", str(env)],
-                         capture_output=True, text=True).stdout.strip() if env.is_file() else ""
-    if not out:
-        sys.exit(f"读不到 DISCORD_BOT_TOKEN（环境变量或 {env}）")
-    return out
 
 
 def name_of(proj):

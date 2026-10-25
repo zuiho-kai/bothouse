@@ -122,6 +122,17 @@ class T(unittest.TestCase):
             d.main([TID, "活", str(SINCE), "discord:1", "lead-proj"])
         self.assertTrue(run.called)
 
+    def test_no_token_needed(self):
+        # 不读 DISCORD_BOT_TOKEN：没有频道信号源时只按提交续期，不报「读不到 token」
+        with mock.patch.dict(os.environ, {}, clear=False) as env, \
+             mock.patch.object(d, "last_commit_epoch", return_value=SINCE + 300), \
+             mock.patch.object(d.time, "time", return_value=SINCE + 600), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            env.pop("DISCORD_BOT_TOKEN", None)
+            run.return_value.returncode = 0
+            self.assertEqual(d.main([TID, "活", str(SINCE), "feishu:oc_1", "lead-proj"]), 0)
+        self.assertEqual(run.call_args[0][0][:3], ["cc-connect", "timer", "add"])
+
     def test_renew_fail_sends(self):
         # timer add 返回非 0 → 退回发暂停
         with mock.patch.object(d, "fetch_messages", return_value=[]), \
