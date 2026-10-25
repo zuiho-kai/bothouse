@@ -187,14 +187,21 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			}
 		}
 	}
-	var items []teamTaskBoardItem
+	var items, done []teamTaskBoardItem
+	var pending []*TimerJob
+	now := time.Now()
 	if e.team != nil {
-		items = readTeamTaskBoard(e.team.dir)
+		place := e.teamTaskBoardPlacer()
+		items = placeTeamTaskBoard(place, readTeamTaskBoard(e.team.dir))
+		done = placeTeamTaskBoard(place, readTeamTaskBoardDoneToday(e.team.dir, now))
+		if e.timerScheduler != nil {
+			pending = append([]*TimerJob{}, e.timerScheduler.Store().ListPending()...)
+		}
 	}
 	for _, it := range items { // a chat with task-board items gets a board too (board.py no longer posts its own card)
-		for _, key := range []string{it.SK, it.Chat} {
-			if key != "" && boards[chatOf(key)] == nil {
-				boards[chatOf(key)] = &boardChat{SessionKey: key}
+		for _, key := range it.chats() {
+			if boards[key] == nil {
+				boards[key] = &boardChat{SessionKey: key}
 			}
 		}
 	}
@@ -233,7 +240,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
-		content := withTeamTaskBoard(renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang()), renderTeamTaskBoard(items, chat))
+		content := withTeamTaskBoard(renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang()), renderTeamTaskBoard(items, done, chat, now, pending))
 		if content == b.Content {
 			continue
 		}
