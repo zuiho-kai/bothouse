@@ -152,6 +152,8 @@ elif a[1] == "new":
     w = {"id": str(n), "name": f"工作区{n}", "owner": "", "open": 0, "parked": 0}
     st["ws"].append(w); save(); print(json.dumps({"workspace": w}))
 elif a[1] == "park":
+    if st.get("park_fail"):
+        print("dial tcp 127.0.0.1:9820: connection refused", file=sys.stderr); sys.exit(1)
     w = ws.get(sk.split(":")[1])
     if not w or not w["owner"] or not w["open"] or ("--chat" in a and a[a.index("--chat") + 1].split(":u")[0] != w["owner"]):
         print("workspace is not owned by any chat channel", file=sys.stderr); sys.exit(1)
@@ -342,11 +344,11 @@ class HandoffAlignTest(WsPoolTest):
         self.assertEqual(c[c.index("--title") + 1], "改登录页")
         self.assertEqual(c[c.index("--session-key") + 1], "test:100")
 
-    def test_timer_injects_and_marks_handoff(self):
+    def test_timer_queues_and_marks_handoff(self):
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         self.handoff(self.note("a"), "改登录页")
         t = [c for c in self.calls() if c[:2] == ["timer", "add"]][-1]
-        self.assertIn("--inject-if-busy", t)
+        self.assertNotIn("--inject-if-busy", t)  # 忙时排队、轮到时自己开卡，不插进别的活那一轮
         self.assertIn("--handoff", t)
         prompt = t[t.index("--prompt") + 1]
         nid = self.items()[0]["id"]
@@ -367,6 +369,22 @@ class HandoffAlignTest(WsPoolTest):
         w = self.pool()["工作区1"]
         self.assertEqual((w["open"], w["owner"]), (0, ""))  # 刚 claim 的那件放回
         self.assertFalse((self.tmp / "setup" / "ws-handoff-last.json").exists())
+
+    def test_timer_failure_park_failed_says_not_parked(self):
+        # 桥没响应：timer add 和紧跟的 workspace park 都失败，交接还在桥里，不能说撤掉了（审稿 pr410 必须改 2）
+        f = Path(str(self.fake) + ".json")
+        f.write_text(json.dumps({"ws": [{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}],
+                                 "timer_fail": True, "park_fail": True}))
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("timer add 失败", r.stderr)
+        self.assertRegex(r.stderr, r"任务板已撤，交接没放回（[^）]*connection refused[^）]*）")
+        self.assertIn("桥恢复后跑 workspace park", r.stderr)
+        self.assertNotIn("和这件交接", r.stderr)
+        self.assertEqual(self.items(), [])  # 任务板照样撤掉
+        w = self.pool()["工作区1"]
+        self.assertEqual((w["open"], w["owner"]), (1, "test:100"))  # 交接确实还在桥里
 
 
 class HandoffNotesCheckTest(unittest.TestCase):

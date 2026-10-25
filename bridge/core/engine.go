@@ -2183,8 +2183,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		// inject_if_busy: fold the prompt into the running turn, the same way a gate mid-turn
 		// message is (same checks: canInjectInto); otherwise, or on failure, fall through to queuing.
 		// It carries the scheduled-turn mark and sender header a new timer turn would, so it is
-		// not taken for something the user just said.
-		if job.InjectIfBusy && e.canInjectInto(agent, iKey) &&
+		// not taken for something the user just said. A handoff wake-up (#597 G25) never folds in:
+		// that path skips the turn setup that opens its own progress card, so it queues instead.
+		if job.InjectIfBusy && !job.Handoff && e.canInjectInto(agent, iKey) &&
 			e.injectIntoRunningTurn(iKey, e.buildSenderPrompt(withScheduledMark(msg.Content), msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey), msg.ReplyCtx, nil, nil) {
 			slog.Info("timer: session busy, job injected into current turn", "id", job.ID, "session", sessionKey)
 			return nil
