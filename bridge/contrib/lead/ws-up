@@ -8,7 +8,7 @@
 #   老格式（没有 tasks）只认顶层 channel/chat。
 #   叫醒的身份是调用者自己的 CC_PROJECT（即正在当主的那位，见 _team.py），平台/频道 ID 都不写死。
 #   Discord 工作区里另发一条看得见的短消息（不 @ 任何人），发不出只警告。
-import json, os, shutil, subprocess, sys, urllib.request
+import json, os, shutil, subprocess, sys
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
@@ -85,18 +85,17 @@ def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str):
             "--inject-if-busy", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
 
 
-def say(session_key: str, text: str):
-    """Discord 工作区里发一条看得见的短消息；失败只打 stderr 警告，不影响 timer 和退出码。"""
-    if not session_key.startswith("discord:"):
+def say(session_key: str, text: str, proj: str):
+    """工作区里发一条看得见的短消息：走桥现成的 send（/send 接口，四平台通用，不读平台 token）；
+    失败只打 stderr 警告，不影响 timer 和退出码。"""
+    if not session_key:
         return
     try:
-        body = {"content": text.replace("<@", "<​@"), "allowed_mentions": {"parse": []}}
-        req = urllib.request.Request(f"https://discord.com/api/v10/channels/{bare(session_key)}/messages", method="POST",
-                                     data=json.dumps(body).encode(),
-                                     headers={"Authorization": f"Bot {_team.token()}", "User-Agent": "DiscordBot (bothouse, 1)",
-                                              "Content-Type": "application/json"})
-        urllib.request.urlopen(req, timeout=20).close()
-    except (Exception, SystemExit) as e:
+        r = subprocess.run([cc_bin(), "send", "-p", proj, "-s", session_key, "--message", text.replace("<@", "<\u200b@")],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}")
+    except Exception as e:
         print(f"ws-up: 工作区发消息失败（timer 已建，不影响）：{e}", file=sys.stderr)
 
 
@@ -132,7 +131,7 @@ def main(argv):
     else:
         for nid in handoffs(last)[path].get("board") or []:
             board.progress(nid)
-    say(key, f"📤 已报回聊天频道：{rest[0][:300]}")
+    say(key, f"📤 已报回聊天频道：{rest[0][:300]}", _team.project())
     print(f"ws-up: 已交给聊天频道 {chat}（{'提问' if ask else '上报'}）", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 

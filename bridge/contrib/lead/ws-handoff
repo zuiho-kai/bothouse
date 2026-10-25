@@ -8,11 +8,10 @@
 #   工作区里挑（件数少的先，同件数编号小的先），都忙才 new（桥先复用空号，没有才建 工作区n+1），再 claim
 #   记一件交接（桥按件计数，连交时刚交的也算）。暂停的活（board pause → <桥> workspace park）不算件数，
 #   它的工作区已放回池子，会被先复用。
-#   配了 WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）就固定用它；配的频道已删时，
-#   用 Discord API 在当前频道（CC_SESSION_KEY）同分类下建「工作区」文字频道，并提示把 ID 写进团队文件。
+#   配了 WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）就固定用它（不读平台 token、不自己建频道）。
 # 来源：用户 2026-10-23「如果你觉得已经开始管不过来了，你可以去开新的频道，就叫工作区，然后把任务整个大颗粒度的交给那边的橘」
 #   「方便任意人当主角色，并且也能放到仓库」。
-import json, os, re, shutil, subprocess, sys, urllib.error, urllib.request
+import json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -27,17 +26,6 @@ REQUIRED = ["用户原话", "进度", "规矩"]
 # 一个工作区进行中的活达到这么多件就算忙。来源：dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认
 # 达到 3 件就算忙」（团队模式规矩，用户 2026-10-24）；桥里同值 core/team_workspace.go teamWorkspaceBusy。
 BUSY = 3
-API = "https://discord.com/api/v10"
-
-
-def api(method, path, body=None):
-    req = urllib.request.Request(API + path, method=method,
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bot {_team.token()}",
-                                          "User-Agent": "DiscordBot (bothouse, 1)",
-                                          "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r)
 
 
 def missing_sections(text: str):
@@ -97,24 +85,13 @@ def check_notes(text: str):
     return None
 
 
-def ensure_channel() -> str:
+def fixed_channel(chat: str) -> str:
+    """配了 WS_CHANNEL / 团队文件 "workspace" 时固定用它；不带平台前缀就沿用当前聊天频道的平台（都没有按 discord）。
+    不再自己用平台 token 查/建频道：配的频道没了，timer add 会报错；不配就走桥的共享池（workspace new 由桥建频道/建群）。"""
     ws = _team.workspace()
-    if ws:
-        try:
-            api("GET", f"/channels/{ws}")
-            return ws
-        except urllib.error.HTTPError as e:
-            if e.code != 404:
-                raise
-    # DSH 会删名字带 KEY 的环境变量，退回 DSH 入口导出的 CC_SESSION（同 later）
-    cur = (os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")).removeprefix("discord:")
-    if not cur.isdigit():
-        sys.exit("ws-handoff: 没有可用的工作区频道，也没有当前频道（CC_SESSION_KEY）可取分类")
-    ch = api("GET", f"/channels/{cur}")
-    new = api("POST", f"/guilds/{ch['guild_id']}/channels",
-              {"name": "工作区", "type": 0, "parent_id": ch.get("parent_id")})
-    print(f'ws-handoff: 新建工作区频道 {new["id"]}，把 "workspace": "{new["id"]}" 写进团队文件', file=sys.stderr)
-    return new["id"]
+    if ":" in ws:
+        return ws
+    return f"{chat.split(':', 1)[0] if ':' in chat else 'discord'}:{ws}"
 
 
 def cc_bin() -> str:
@@ -259,8 +236,10 @@ def main(argv):
     if err:
         sys.exit(f"ws-handoff: {err}")
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
-    if _team.workspace() or ":" not in chat:
-        ws, name = ensure_channel(), "工作区"
+    if _team.workspace():
+        ws, name = fixed_channel(chat), "工作区"
+    elif ":" not in chat:
+        sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
         ws, name = pick_pool(chat)
     r = subprocess.run(timer_cmd(ws, path, task), capture_output=True, text=True)

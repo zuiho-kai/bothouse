@@ -27,9 +27,9 @@ class WsUpTest(unittest.TestCase):
                               env={**self.env, var: key})
 
     def handoff(self, *args, key):
-        """ws-handoff 原样跑，只把 Discord API（查/建工作区频道）换成桩，不走网络。"""
+        """ws-handoff 原样跑；桥（timer/workspace/send）是假脚本，不读平台 token、不走网络。"""
         drv = ("import sys; from importlib.machinery import SourceFileLoader as L; "
-               "m = L('ws_handoff', sys.argv[1]).load_module(); m.api = lambda *a, **k: {}; m.main(sys.argv[2:])")
+               "m = L('ws_handoff', sys.argv[1]).load_module(); m.main(sys.argv[2:])")
         return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args], capture_output=True,
                               text=True, env={**self.env, "CC_SESSION_KEY": key})
 
@@ -104,7 +104,8 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(self.handoff(notes[1], "B", key="test:200").returncode, 0)
         last = json.loads(self.last.read_text(encoding="utf-8"))
         self.assertEqual(last["file"], notes[1])
-        self.assertEqual(last["tasks"][notes[0]], {"channel": "900", "chat": "test:100", "task": "A", "board": [1]})
+        self.assertEqual(last["tasks"][notes[0]], {"channel": "900", "chat": "test:100", "task": "A", "board": [1],
+                                                  "ws_key": "test:900"})  # 配的工作区沿用聊天频道的平台
         # 工作区 900 报回交 a 进来的聊天频道
         self.assertEqual(self.run_tool("ws-up", "done", key="test:900").returncode, 0)
         rows = [json.loads(line) for line in (self.setup / "team" / "board.jsonl").read_text().splitlines()]
@@ -115,7 +116,7 @@ class WsUpTest(unittest.TestCase):
         r = self.run_tool("ws-forward", "--notes", notes[0], "用户说选 A", key="test:100")
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = self.timers()[-1]
-        self.assertEqual(argv[argv.index("-s") + 1], "discord:900")
+        self.assertEqual(argv[argv.index("-s") + 1], "test:900")
         self.assertIn("用户说选 A", Path(notes[0]).read_text(encoding="utf-8"))
         self.assertNotIn("用户说选 A", Path(notes[1]).read_text(encoding="utf-8"))
 
