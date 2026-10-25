@@ -160,3 +160,62 @@ func TestDelegatedPermission_PromptAndNonce(t *testing.T) {
 		t.Fatal("human question delegated")
 	}
 }
+
+// A later approver's /permit for the same request is ignored silently: one adapter call, one receipt.
+func TestDelegatedPermission_SecondApproverSequential(t *testing.T) {
+	e := newTestEngine()
+	s := &incidentPermissionSession{}
+	p := &delegatedTestPlatform{}
+	e.interactiveStates["channel"] = &interactiveState{agentSession: s, pending: &pendingPermission{ApprovalID: "token", RequestID: "request", Resolved: make(chan struct{})}}
+	for _, id := range []string{"gge", "cjiang"} {
+		e.handlePendingPermission(p, &Message{SessionKey: "channel", UserID: id, FromBot: true, IsPermissionResponse: true, PermissionApprovalID: "token"}, "allow", "channel")
+	}
+	if s.calls.Load() != 1 || len(p.getSent()) != 1 {
+		t.Fatalf("calls=%d sent=%v", s.calls.Load(), p.getSent())
+	}
+	if !strings.Contains(p.getSent()[0], "gge") {
+		t.Fatalf("receipt should name the first approver: %v", p.getSent())
+	}
+}
+
+type delegatedFlakySession struct {
+	stubAgentSession
+	calls int
+}
+
+func (s *delegatedFlakySession) RespondPermission(string, PermissionResult) error {
+	s.calls++
+	if s.calls == 1 {
+		return fmt.Errorf("adapter unavailable")
+	}
+	return nil
+}
+
+// When the first approver's decision fails, no success receipt is sent and the second approver still decides.
+func TestDelegatedPermission_FailureThenSecondApprover(t *testing.T) {
+	e := newTestEngine()
+	p := &delegatedTestPlatform{}
+	s := &delegatedFlakySession{}
+	pending := &pendingPermission{ApprovalID: "token", RequestID: "request", Resolved: make(chan struct{})}
+	state := &interactiveState{agentSession: s, pending: pending}
+	e.interactiveStates["channel"] = state
+	e.handlePendingPermission(p, &Message{SessionKey: "channel", UserID: "gge", FromBot: true, IsPermissionResponse: true, PermissionApprovalID: "token"}, "allow", "channel")
+	for _, sent := range p.getSent() {
+		if strings.HasPrefix(sent, "✅") {
+			t.Fatalf("success receipt after a failed decision: %v", p.getSent())
+		}
+	}
+	e.handlePendingPermission(p, &Message{SessionKey: "channel", UserID: "cjiang", FromBot: true, IsPermissionResponse: true, PermissionApprovalID: "token"}, "allow", "channel")
+	if s.calls != 2 || state.pending != nil {
+		t.Fatalf("second approver did not decide: calls=%d pending=%v", s.calls, state.pending)
+	}
+	receipts := 0
+	for _, sent := range p.getSent() {
+		if strings.HasPrefix(sent, "✅") {
+			receipts++
+		}
+	}
+	if receipts != 1 {
+		t.Fatalf("receipts=%d sent=%v", receipts, p.getSent())
+	}
+}
