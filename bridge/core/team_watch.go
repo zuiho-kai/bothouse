@@ -284,8 +284,9 @@ var watchNoProgressPrefixes = []string{"↪", "⏹", "📬", "【接】", "【�
 
 // watchLeadingMentions: what a post opens with before its own text: mentions ("<@id>" live,
 // "@name" as channel history renders them; d10-fire LEADING_MENTION_RE) and the reply quote
-// Discord's history puts first ("[回复 name：…] ").
-var watchLeadingMentions = regexp.MustCompile(`^(?:(?:<@[!&]?\d+>|@\S+|\[回复 [^\]]*\])\s*)+`)
+// Discord's history puts first ("[回复 name：…] "). "@name" stops at 【 and [: "<@橘>【接】…" with no
+// space renders as "@橘【接】…" and the stance line must stay visible.
+var watchLeadingMentions = regexp.MustCompile(`^(?:(?:<@[!&]?\d+>|@[^\s【\[]+|\[回复 [^\]]*\])\s*)+`)
 
 var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 

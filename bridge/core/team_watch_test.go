@@ -443,7 +443,7 @@ func TestWatchNoOwnerSelfPostRenews(t *testing.T) {
 func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 	e, p, w, h := progressFixture(t, k5aOwner)
 	at := h.Due.Add(-time.Minute)
-	for _, c := range []string{"【接】已派子 agent，做完交回", "@橘 【问】owner 填什么", "<@1> 【退】推荐鲸鱼娘", "[回复 橘：去做 K5a] 【升】太大了", "↪ 转给龙娘", "⏹ 已停", "📬 收到", "  "} {
+	for _, c := range []string{"【接】已派子 agent，做完交回", "@橘 【问】owner 填什么", "@橘【接】已派子 agent，做完交回", "<@1>【接】马上做", "@橘[回复 龙娘：好] 【退】不做", "<@1> 【退】推荐鲸鱼娘", "[回复 橘：去做 K5a] 【升】太大了", "↪ 转给龙娘", "⏹ 已停", "📬 收到", "  "} {
 		p.post("ws1", k5aOwner, c, at)
 	}
 	p.post("ws1", "someone-else", "我在干活", at)
