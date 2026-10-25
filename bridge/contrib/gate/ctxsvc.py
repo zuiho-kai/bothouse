@@ -3,7 +3,7 @@
 用 wiki_search.py 的逐行 BM25（纯词法，不用模型）查这条消息，把命中行折成页，列出前几页和命中行。
 同一页同一会话只推一次由 cc-connect 管（core/gate.go turnContext）。
 
-wiki 在哪：环境变量 GATE_WIKI（默认 ~/wiki，即 llm-wiki 装在 ~/wiki）；设成空或 off = 不推 wiki 页。
+wiki 在哪：环境变量 GATE_WIKI（默认 ~/wiki，即 llm-wiki 装在 ~/wiki）；设成空或 off = 不推 wiki 页（主 wiki 和角色 wiki 都不查）。
 目录不存在也不推（不报错）。wiki 的分层和安装见 zuiho-kai/llm-wiki 和 docs/ccm-and-wiki.md。
 bothouse 起的 gate 由 core/gate_proc.go 传 GATE_WIKI（FindWiki 的主 wiki）和 GATE_WIKI_BOTS（向导写的 bots.json）。
 
@@ -63,7 +63,11 @@ def role_wiki(bot):
     e = _bots.get(bot) if isinstance(_bots, dict) else None
     if not isinstance(e, dict):
         return None
-    w = e.get("wiki") or (Path(e["workdir"]) / "wiki" if e.get("workdir") else None)
+    w, wd = e.get("wiki"), e.get("workdir")
+    if not w and wd:
+        w = Path(wd) / "wiki" if isinstance(wd, str) else None
+    elif w and not isinstance(w, str):  # 手改坏了（数字、列表）：跳过角色 wiki，主 wiki 照查
+        w = None
     return Path(w).expanduser() if w else None
 
 
@@ -115,7 +119,7 @@ def context(req):
     who = lead.identity(bot) if lead else None
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
     text = req.get("text") or ""
-    own = role_wiki(bot)
+    own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
     mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     return {"wiki": [x for x in (who, pb) if x] + board_items() + match_wiki(text) + mine}  # 主 wiki 在前
 

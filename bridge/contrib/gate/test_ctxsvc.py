@@ -145,5 +145,24 @@ class T(unittest.TestCase):
                     self.assertEqual(got, want)
 
 
+    def test_wiki_off_skips_role_wiki(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._team(d)
+            ctxsvc.WIKI = None  # GATE_WIKI=off 或空：主 wiki 和角色 wiki 都不查
+            for bot in ("proj-a", "proj-b"):
+                self.assertEqual(ctxsvc.context({"text": "代理端口多少", "bot": bot}), {"wiki": []}, bot)
+
+    def test_bad_role_wiki_field_main_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            main, _, _ = self._team(d)
+            want = [(main / "notes/port.md").as_posix()]
+            for e in ({"wiki": 5}, {"workdir": 7}, {"wiki": ["x"]}):  # bots.json 手改坏了：跳过角色 wiki，主 wiki 照查
+                with self.subTest(entry=e):
+                    ctxsvc.BOTS.write_text(json.dumps({"a": e}), encoding="utf-8")
+                    ctxsvc._bots_src = None
+                    got = [x["path"] for x in ctxsvc.context({"text": "代理端口多少", "bot": "a"})["wiki"]]
+                    self.assertEqual(got, want)
+
+
 if __name__ == "__main__":
     unittest.main()
