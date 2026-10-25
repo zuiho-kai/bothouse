@@ -8,7 +8,7 @@
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ChannelMember, LocalCli, MemberInput, ModelRoute } from './channel-source.ts'
+import type { ChannelMember, LocalCli, MemberInput, ModelRoute, PermissionPreset } from './channel-source.ts'
 import type { NS } from './locales.ts'
 import { Avatar } from './Avatar.tsx'
 import { AVATARS } from './avatars.ts'
@@ -35,6 +35,14 @@ const CLI_CHOICES: readonly { readonly cli: string; readonly label: string }[] =
 
 type MemberType = 'dsh' | 'cli'
 
+/** DSH's built-in permission presets in DSH's own order; default = DSH default workspace-write (collab/cli-member.mjs DEFAULT_PERMISSION_PRESET). */
+const PRESETS = [
+  { id: 'read-only', label: 'permissionReadOnly', hint: 'permissionReadOnlyHint' },
+  { id: 'workspace-write', label: 'permissionWorkspaceWrite', hint: 'permissionWorkspaceWriteHint' },
+  { id: 'danger-full-access', label: 'permissionFullAccess', hint: 'permissionFullAccessHint' },
+] as const satisfies readonly { readonly id: PermissionPreset; readonly label: string; readonly hint: string }[]
+const DEFAULT_PRESET: PermissionPreset = 'workspace-write'
+
 /**
  * Render the member dialog.
  * @param props - target member, actions, and copy.
@@ -51,6 +59,7 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
   const [type, setType] = useState<MemberType>(member?.cli !== undefined ? 'cli' : 'dsh')
   const [clis, setClis] = useState<readonly LocalCli[] | undefined>(undefined)
   const [cli, setCli] = useState<string>(member?.cli ?? '')
+  const [preset, setPreset] = useState<PermissionPreset>(member?.permissionPreset ?? DEFAULT_PRESET)
   const [avatar, setAvatar] = useState(member?.avatar !== undefined && (AVATARS as readonly string[]).includes(member.avatar) ? member.avatar : '')
 
   // One read of the host's model catalog per dialog opening.
@@ -84,7 +93,7 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
     setBusy(true)
     setError(undefined)
     const input: MemberInput = type === 'cli'
-      ? { name: name.trim(), persona, avatar, cli }
+      ? { name: name.trim(), persona, avatar, cli, permissionPreset: preset }
       : { name: name.trim(), persona, avatar, model: provider !== undefined && model !== undefined ? { provider, model } : null }
     onSubmit(input).then(onClose).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -155,6 +164,15 @@ export function MemberDialog({ member, listModels, listClis, onSubmit, onClose, 
               })}
             </span>
           </div>
+        )}
+        {type === 'cli' && (
+          <label className={css.field}>
+            <span>{t('memberPermission')}</span>
+            <select className={css.fieldInput} aria-label={t('memberPermission')} value={preset} onChange={(event) => { setPreset(event.target.value as PermissionPreset) }}>
+              {PRESETS.map(p => <option key={p.id} value={p.id}>{t(p.label)}</option>)}
+            </select>
+            <span>{t(PRESETS.find(p => p.id === preset)?.hint ?? 'permissionWorkspaceWriteHint')}</span>
+          </label>
         )}
         {type === 'dsh' && <label className={css.field}>
           <span>{t('memberModel')}</span>

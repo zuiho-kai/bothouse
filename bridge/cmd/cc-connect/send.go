@@ -20,6 +20,11 @@ import (
 )
 
 func runSend(args []string) {
+	// A lone "help" is a usage request, not a message (send it with --message help).
+	if len(args) == 1 && isHelpArg(args[0]) {
+		printSendUsage()
+		return
+	}
 	req, dataDir, err := parseSendArgs(args)
 	if err != nil {
 		if errors.Is(err, errSendUsage) {

@@ -4,11 +4,13 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -175,20 +177,53 @@ func updateSocketPath(configFlag string) string {
 	return filepath.Join(".bothouse", "run", "api.sock")
 }
 
-func runUpdate(args []string) {
-	// a pre-release build (v0.1.0-rc1) follows pre-releases: there may be no stable release at all
-	pre := isPrereleaseVersion(version)
-	configFlag := rootConfigPath
+const updateUsage = `Usage: bothouse update [--pre] [--config path]
+
+Download the newest release and replace this program with it.
+If this same program is running as bothouse (same --config / HOME), the running bothouse installs
+it instead, restarts and goes back to the old version if the new one does not start. A running
+bothouse that is a different program (another install, a test copy) is left alone.
+
+Flags:
+  --pre, --beta    Include pre-releases
+  --config PATH    The config of the instance this program belongs to
+  -h, --help       Show this help
+`
+
+// parseUpdateArgs reads `bothouse update` arguments. help=true: print usage and do nothing else.
+func parseUpdateArgs(args []string, pre bool, configFlag string) (bool, string, bool, error) {
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
+		case isHelpArg(arg):
+			return pre, configFlag, true, nil
 		case arg == "--pre" || arg == "--beta":
 			pre = true
-		case arg == "--config" && i+1 < len(args):
+		case arg == "--config":
+			if i+1 >= len(args) {
+				return pre, configFlag, false, fmt.Errorf("missing value for --config")
+			}
 			i++
 			configFlag = args[i]
 		case strings.HasPrefix(arg, "--config="):
 			configFlag = strings.TrimPrefix(arg, "--config=")
+		default:
+			return pre, configFlag, false, fmt.Errorf("unknown argument %q", arg)
 		}
+	}
+	return pre, configFlag, false, nil
+}
+
+func runUpdate(args []string) {
+	// a pre-release build (v0.1.0-rc1) follows pre-releases: there may be no stable release at all
+	// Arguments first, before any network or socket: an ignored --help once ran a real update.
+	pre, configFlag, help, err := parseUpdateArgs(args, isPrereleaseVersion(version), rootConfigPath)
+	if help {
+		fmt.Print(updateUsage)
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bothouse update: %v\n\n%s", err, updateUsage)
+		os.Exit(2)
 	}
 
 	fmt.Printf("bothouse %s\n", version)
@@ -222,7 +257,11 @@ func runUpdate(args []string) {
 	if sock := updateSocketPath(configFlag); fileExistsCmd(sock) {
 		err := updateViaRunning(sock, latest)
 		viaRunning = err == nil
-		if errors.Is(err, errNoRunningUpdate) {
+		var other *otherProgramError
+		if errors.As(err, &other) {
+			fmt.Fprintf(os.Stderr, "A different bothouse is running (%s); updating only this program (%s).\n"+
+				"To update that one, use the update button on its web page or /upgrade in its chat.\n", other.running, other.self)
+		} else if errors.Is(err, errNoRunningUpdate) {
 			// Leftover socket (bothouse was killed / crashed) or an older bothouse without /update:
 			// install directly below, as before this self-check existed.
 			fmt.Fprintf(os.Stderr, "Running bothouse cannot install the update (%v); installing directly.\n", err)
@@ -239,21 +278,8 @@ func runUpdate(args []string) {
 		return
 	}
 
-	tmpFile, err := downloadUpdateAsset(downloadBase, latest)
+	execPath, err := installDirect(downloadBase, latest)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	defer os.Remove(tmpFile)
-
-	execPath, err := os.Executable()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot locate current binary: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := replaceExecutable(execPath, tmpFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -262,6 +288,30 @@ func runUpdate(args []string) {
 
 	fmt.Printf("Updated to %s\n", latest)
 	fmt.Println("Restart bothouse to use the new version.")
+}
+
+// Swappable in tests.
+var downloadUpdateAssetFn = downloadUpdateAsset
+
+// installDirect replaces this program with release tag when no running bothouse does it.
+// A self-built binary refuses before downloading anything (#299, same rule as core's entries).
+func installDirect(base, tag string) (string, error) {
+	if err := core.UpdateRefusal(); err != nil {
+		return "", err
+	}
+	tmpFile, err := downloadUpdateAssetFn(base, tag)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpFile)
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("cannot locate current binary: %w", err)
+	}
+	if err := replaceExecutable(execPath, tmpFile); err != nil {
+		return "", err
+	}
+	return execPath, nil
 }
 
 // fetchRelease returns the latest release. If pre=true, includes pre-releases.
@@ -551,10 +601,14 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func checkUpdate() {
+func checkUpdate(args []string) {
 	// a pre-release build (v0.1.0-rc1) follows pre-releases: there may be no stable release at all
 	pre := isPrereleaseVersion(version)
-	for _, arg := range os.Args[2:] {
+	for _, arg := range args {
+		if isHelpArg(arg) {
+			fmt.Println("Usage: bothouse check-update [--pre]\n\nTell whether a newer release exists (prints nothing when up to date). Changes nothing.")
+			return
+		}
 		if arg == "--pre" || arg == "--beta" {
 			pre = true
 		}
@@ -725,13 +779,69 @@ func syncNpmPackageVersion(execPath, newVer string) {
 // without /update); the CLI then installs directly.
 var errNoRunningUpdate = errors.New("no running bothouse to install the update")
 
-// updateViaRunning asks the running bothouse (local API socket, POST /update) to install tag
-// through its guarded update. Swappable in tests.
-var updateViaRunning = func(sockPath, tag string) error {
-	payload, _ := json.Marshal(map[string]string{"tag": tag})
-	resp, err := apiPost(sockPath, "/update", payload)
+// otherProgramError: the bothouse answering on the socket runs a different binary than this CLI
+// (another install, a test copy sharing HOME). It must not be asked to update itself; the CLI
+// updates only its own file.
+type otherProgramError struct{ running, self string }
+
+func (e *otherProgramError) Error() string {
+	return fmt.Sprintf("the running bothouse is %s, not this program (%s)", e.running, e.self)
+}
+
+// cliExecutable is this CLI's binary. Swappable in tests (never the test binary).
+var cliExecutable = os.Executable
+
+func unixHTTPClient(sockPath string) *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sockPath)
+		}},
+	}
+}
+
+// runningProgram asks GET /version which binary the running bothouse runs ("" = it does not say:
+// a version from before the check).
+func runningProgram(sockPath string) (string, error) {
+	resp, err := unixHTTPClient(sockPath).Get("http://unix/version")
 	if err != nil {
 		// Nobody listening on the socket (stale file left by a crash or kill -9).
+		return "", fmt.Errorf("%w: contact running bothouse: %v", errNoRunningUpdate, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil
+	}
+	var v struct {
+		Exe string `json:"exe"`
+	}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&v)
+	return v.Exe, nil
+}
+
+// updateViaRunning asks the running bothouse (local API socket, POST /update) to install tag
+// through its guarded update, but only after GET /version showed it runs this very binary: the
+// update replaces the running program's file, so handing it to another program would update
+// that program instead of this one. Swappable in tests.
+var updateViaRunning = func(sockPath, tag string) error {
+	self, err := cliExecutable()
+	if err != nil {
+		return fmt.Errorf("%w: cannot locate this program: %v", errNoRunningUpdate, err)
+	}
+	running, err := runningProgram(sockPath)
+	if err != nil {
+		return err
+	}
+	if running == "" {
+		// An older bothouse that does not say which program it is: do not hand it the update.
+		return fmt.Errorf("%w: running bothouse does not report its program (older version)", errNoRunningUpdate)
+	}
+	if !core.SameProgram(running, self) {
+		return &otherProgramError{running: running, self: self}
+	}
+	payload, _ := json.Marshal(map[string]string{"tag": tag, "exe": self})
+	resp, err := apiPost(sockPath, "/update", payload)
+	if err != nil {
 		return fmt.Errorf("%w: contact running bothouse: %v", errNoRunningUpdate, err)
 	}
 	defer resp.Body.Close()

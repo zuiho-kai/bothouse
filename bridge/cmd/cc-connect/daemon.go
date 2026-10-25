@@ -18,10 +18,45 @@ func runDaemon(args []string) {
 		printDaemonUsage()
 		os.Exit(1)
 	}
+	if isHelpArg(args[0]) {
+		printDaemonUsage()
+		return
+	}
+	// Every subcommand drives the service manager or reads its state: answer --help, and refuse
+	// arguments it does not take, before touching launchd/systemd.
+	sub, rest := args[0], args[1:]
+	allowed := map[string][]string{
+		"uninstall": nil, "start": nil, "stop": nil, "status": nil, "restart": {"--force"},
+	}
+	if want, ok := allowed[sub]; ok {
+		for _, a := range rest {
+			if isHelpArg(a) {
+				printDaemonUsage()
+				return
+			}
+			known := false
+			for _, w := range want {
+				known = known || a == w
+			}
+			if !known {
+				fmt.Fprintf(os.Stderr, "daemon %s: unknown argument %q\n\n", sub, a)
+				printDaemonUsage()
+				os.Exit(2)
+			}
+		}
+	}
+	if sub == "install" || sub == "logs" {
+		for _, a := range rest {
+			if isHelpArg(a) {
+				printDaemonUsage()
+				return
+			}
+		}
+	}
 
-	switch args[0] {
+	switch sub {
 	case "install":
-		daemonInstall(args[1:])
+		daemonInstall(rest)
 	case "uninstall":
 		daemonUninstall()
 	case "start":
@@ -29,11 +64,11 @@ func runDaemon(args []string) {
 	case "stop":
 		daemonStop()
 	case "restart":
-		daemonRestart(args[1:])
+		daemonRestart(rest)
 	case "status":
 		daemonStatus()
 	case "logs":
-		daemonLogs(args[1:])
+		daemonLogs(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown daemon command: %s\n\n", args[0])
 		printDaemonUsage()

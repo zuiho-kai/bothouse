@@ -12,7 +12,32 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
+const webUsage = `Usage: bothouse web [--no-browser]
+
+Open the web admin of this bothouse in the browser. With no bots configured yet it starts the setup
+wizard; when the web admin is off it switches it on in config.toml first.
+
+Flags:
+  -n, --no-browser   Print the URL and token instead of opening the browser
+  -h, --help         Show this help
+`
+
 func runWeb(args []string) {
+	// Arguments first: without config this starts the setup wizard, and with the web admin off it
+	// writes config.toml.
+	noBrowser := false
+	for _, a := range args {
+		switch {
+		case isHelpArg(a):
+			fmt.Print(webUsage)
+			return
+		case a == "--no-browser" || a == "-n":
+			noBrowser = true
+		default:
+			fmt.Fprintf(os.Stderr, "bothouse web: unknown argument %q\n\n%s", a, webUsage)
+			os.Exit(2)
+		}
+	}
 	configPath := resolveConfigPath("")
 	// conest: no bots configured yet → the setup wizard, same as a first `cc-connect`.
 	if needsSetup(configPath) {
@@ -63,13 +88,6 @@ func runWeb(args []string) {
 	}
 
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
-
-	noBrowser := false
-	for _, a := range args {
-		if a == "--no-browser" || a == "-n" {
-			noBrowser = true
-		}
-	}
 
 	if noBrowser {
 		fmt.Printf("URL:   %s\n", baseURL)

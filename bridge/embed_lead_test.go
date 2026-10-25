@@ -43,7 +43,7 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 		t.Fatalf("persona: %s", data)
 	}
 	bin := result["tools_dir"]
-	for _, name := range []string{"board", "later", "safe-restart", "lead", "d10", "d10-fire", "t10", "ws-forward", "ws-handoff", "ws-up"} {
+	for _, name := range []string{"board", "later", "safe-restart", "lead", "d10", "d10-fire", "t10", "ws-forward", "ws-handoff", "ws-up", "iso-check", "rehearse-copy"} {
 		p := filepath.Join(bin, name)
 		info, err := os.Stat(p)
 		if err != nil {
@@ -75,7 +75,8 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 	t.Setenv("CC_BIN", mock)
 	t.Setenv("CC_PROJECT", "test-role")
 	t.Setenv("CC_SESSION", "test:isolated")
-	run("later", "10m", "comeback", "continue")
+	back := strings.TrimSpace(run("board", "add", "comeback", "-", "doing", "role"))
+	run("later", back, "10m", "continue")
 	args, err := os.ReadFile(filepath.Join(home, "timer.args"))
 	if err != nil {
 		t.Fatal(err)
@@ -84,10 +85,18 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 		t.Fatalf("session lost: %s", args)
 	}
 	t.Setenv("CC_BIN", "/usr/bin/false")
-	if out, err := exec.Command(filepath.Join(bin, "later"), "10m", "rollback", "continue").CombinedOutput(); err == nil {
+	rb := strings.TrimSpace(run("board", "add", "rollback", "-", "doing", "role"))
+	if out, err := exec.Command(filepath.Join(bin, "later"), rb, "10m", "continue").CombinedOutput(); err == nil {
 		t.Fatalf("failure ignored: %s", out)
 	}
-	if active := run("board"); strings.Contains(active, "rollback") || !strings.Contains(active, "comeback") {
-		t.Fatalf("rollback failed: %s", active)
+	active := run("board")
+	for _, line := range strings.Split(active, "\n") {
+		// later 只改原条目的「下次看」：挂上的那条有，定时没挂上的那条改回原值（没有）；不新建条目
+		if strings.Contains(line, "rollback") == strings.Contains(line, "下次看") && strings.TrimSpace(line) != "" {
+			t.Fatalf("later next: %s", active)
+		}
+	}
+	if strings.Count(active, "\n") != 2 {
+		t.Fatalf("later added items: %s", active)
 	}
 }

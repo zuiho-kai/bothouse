@@ -358,6 +358,9 @@ func runCronDel(args []string) {
 				i++
 				dataDir = args[i]
 			}
+		case "--help", "-h", "-help":
+			printCronUsage()
+			return
 		default:
 			id = args[i]
 		}

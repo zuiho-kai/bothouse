@@ -212,31 +212,29 @@ var topLevelCommandHandlers = map[string]func([]string){
 	core.UpdateGuardArg: func(_ []string) {
 		os.Exit(core.RunUpdateGuard())
 	},
-	"update": runUpdate,
-	"check-update": func(_ []string) {
-		checkUpdate()
-	},
-	"provider":  runProviderCommand,
-	"send":      runSend,
-	"progress":  runProgress,
-	"task":      runTask,
-	"cron":      runCron,
-	"model":     runModel,
-	"workspace": runWorkspace,
-	"timer":     runTimer,
-	"at":        runTimer,
-	"relay":     runRelay,
-	"sessions":  runSessions,
-	"session":   runSession,
-	"agent-sid": runAgentSID,
-	"daemon":    runDaemon,
-	"feishu":    runFeishu,
-	"tuitui":    runTuiTui,
-	"weixin":    runWeixin,
-	"yuanbao":   runYuanbao,
-	"doctor":    runDoctor,
-	"web":       runWeb,
-	"setup":     runSetup,
+	"update":       runUpdate,
+	"check-update": checkUpdate,
+	"provider":     runProviderCommand,
+	"send":         runSend,
+	"progress":     runProgress,
+	"task":         runTask,
+	"cron":         runCron,
+	"model":        runModel,
+	"workspace":    runWorkspace,
+	"timer":        runTimer,
+	"at":           runTimer,
+	"relay":        runRelay,
+	"sessions":     runSessions,
+	"session":      runSession,
+	"agent-sid":    runAgentSID,
+	"daemon":       runDaemon,
+	"feishu":       runFeishu,
+	"tuitui":       runTuiTui,
+	"weixin":       runWeixin,
+	"yuanbao":      runYuanbao,
+	"doctor":       runDoctor,
+	"web":          runWeb,
+	"setup":        runSetup,
 }
 
 func main() {
@@ -383,6 +381,18 @@ func runMain() {
 	// create empty files in the newly selected default data directory.
 	if err := core.MigrateLegacyDataDir(cfg.DataDir); err != nil {
 		slog.Warn("legacy data migration incomplete, continuing startup", "error", err)
+	}
+
+	// DSH roles set up before the image size limit was written get it in their overlay now (an upgrade restarts here).
+	for _, proj := range cfg.Projects {
+		if proj.Agent.Type != "dsh" {
+			continue
+		}
+		if changed, err := core.EnsureDSHRoleAttachmentPatch(proj.Agent.Options); err != nil {
+			slog.Warn("dsh overlay: image size limit not written", "project", proj.Name, "error", err)
+		} else if changed {
+			slog.Info("dsh overlay: image size limit written", "project", proj.Name)
+		}
 	}
 
 	// run_as_user preflight + isolation audit. MUST run before any engine

@@ -149,3 +149,7 @@ corepack pnpm run build:check
 - 原生页面首次加载最近 100 条，重连补齐当前窗口；尚无向上翻历史控件。
 - 当前窄屏（小于 900px）隐藏频道和成员栏，不能切换频道。
 - 尚无服务器创建、成员编辑、@ 自动补全和可交互审批卡。
+
+### One-shot member follow-ups
+
+All three member types can register a one-shot wake with `POST /collab/api/rooms/{id}/later` (owner session or bot bearer token): `{ "member": "role-id", "delay": "10m", "title": "Check build", "todo": "Read the build log and report failures" }`. Native and local CLI prompts also contain the local `node later.mjs <database> <member> <room> <delay> <title> <todo>` command. The SQLite queue survives restart; offline members retain their pending wake. Attachment inputs share the existing `wire()` MIME/5 MB image policy; larger or unsupported images are files.

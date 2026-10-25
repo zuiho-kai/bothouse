@@ -1,7 +1,8 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
 # 用法：ws-handoff <交接文件> "<一句话任务>"
-#   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行）。
+#   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行），和「参照实现」（文件:行，非代码活写
+#   「无（新建）」）；有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
 #   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
 #   core/team_workspace.go，Discord、飞书、DSH、网页版同一套）：本频道名下或空着、进行中不到 3 件的
 #   工作区里挑（件数少的先，同件数编号小的先），都忙才 new（桥先复用空号，没有才建 工作区n+1），再 claim
@@ -42,6 +43,58 @@ def api(method, path, body=None):
 def missing_sections(text: str):
     heads = [l for l in text.splitlines() if l.lstrip().startswith("#")]
     return [s for s in REQUIRED if not any(s in h for h in heads)]
+
+
+# 交活必须带参照实现（派活字段 ref）；多人改同组文件时还要写底分支（字段 base）。
+# 「参照实现」节：# 标题含「参照实现」，或某行（前面可有 -、*、> 和空白）以「参照实现」开头；从这行到下一个 # 标题之间
+#   至少一个 `路径:行号` 引用（路径里要有 / 或 .，排除 14:30 这类时间）；非代码活写「无（新建）」也算。
+# 多人改判据：有一个 # 标题含「共改文件」或「多人改」→ 必须有一行「底分支：<分支名>」（全角/半角冒号都认）。
+REF_RE = re.compile(r"[~\w.\-/]*[A-Za-z_][~\w.\-/]*:\d+")
+NO_REF = "无（新建）"
+LEAD = "#-*> \t"
+REF_MSG = "缺参照实现：写 文件:行，非代码活写「无（新建）」"
+REF_EXAMPLE = "## 参照实现\n- bridge/contrib/lead/ws-up:120（和它的差异：…）"
+BASE_EXAMPLE = "底分支：feat/approvals-card"
+
+
+def _until_head(lines):
+    for x in lines:
+        if x.lstrip().startswith("#"):
+            return
+        yield x
+
+
+def has_ref_impl(text: str) -> bool:
+    lines = text.splitlines()
+    for i, l in enumerate(lines):
+        if not (l.lstrip(LEAD).startswith("参照实现") or (l.lstrip().startswith("#") and "参照实现" in l)):
+            continue
+        seg = [l] + list(_until_head(lines[i + 1:]))
+        if any(NO_REF in x for x in seg):
+            return True
+        if any("/" in m or "." in m.split(":")[0] for x in seg for m in REF_RE.findall(x)):
+            return True
+    return False
+
+
+def multi_editor(text: str) -> bool:
+    return any(l.lstrip().startswith("#") and ("共改文件" in l or "多人改" in l) for l in text.splitlines())
+
+
+def has_base(text: str) -> bool:
+    return any(re.match(r"底分支\s*[:：]\s*\S+", l.lstrip(LEAD)) for l in text.splitlines())
+
+
+def check_notes(text: str):
+    """交接文件不合格时返回报错文字（含要补什么和示例），合格返回 None。"""
+    miss = missing_sections(text)
+    if miss:
+        return f"交接文件缺小节：{'、'.join(miss)}"
+    if not has_ref_impl(text):
+        return f"{REF_MSG}。示例：\n{REF_EXAMPLE}"
+    if multi_editor(text) and not has_base(text):
+        return f"交接文件写了多人改同组文件（「共改文件」/「多人改」节），缺「底分支：<分支名>」一行。示例：\n{BASE_EXAMPLE}"
+    return None
 
 
 def ensure_channel() -> str:
@@ -200,9 +253,9 @@ def main(argv):
     if not os.path.isfile(path):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}")
     with open(path, encoding="utf-8") as fh:
-        miss = missing_sections(fh.read())
-    if miss:
-        sys.exit(f"ws-handoff: 交接文件缺小节：{'、'.join(miss)}")
+        err = check_notes(fh.read())
+    if err:
+        sys.exit(f"ws-handoff: {err}")
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     if _team.workspace() or ":" not in chat:
         ws, name = ensure_channel(), "工作区"

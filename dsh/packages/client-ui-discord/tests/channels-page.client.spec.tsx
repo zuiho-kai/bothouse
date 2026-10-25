@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
@@ -20,7 +22,7 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
   // framework seats are deliberately absent so an accidental new read fails.
   return {
     useChannels: (select: (s: ChannelSnapshot) => unknown) => select(state),
-    selectRoom: vi.fn(), send,
+    selectRoom: vi.fn(), send, openModelSettings: () => false,
     createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
     setLead: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}),
@@ -40,7 +42,7 @@ describe('channels page', () => {
     expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
     fireEvent.change(input, { target: { value: '/' } })
     const help = within(screen.getByRole('region', { name: zh.capabilities }))
-    expect(help.getAllByRole('button')).toHaveLength(7) // six capabilities and close
+    expect(help.getAllByRole('button')).toHaveLength(8) // seven capabilities and close
     for (const [name, usage] of [
       [zh.capabilityTaskBoard, zh.capabilityTaskBoardHelp],
       [zh.capabilityLater, zh.capabilityLaterHelp],
@@ -144,6 +146,21 @@ describe('channels page', () => {
     expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
   })
 
+  it.each([true, false])('routes model configuration with shell available=%s', (available) => {
+    const card = JSON.stringify({ title: 'model', state: 'error', action: 'configure-model' })
+    const state = { ...ready, messages: [{ ...ready.messages[0], card }] }
+    const openModelSettings = vi.fn(() => available)
+    render(<ChannelsPage {...props(state)} openModelSettings={openModelSettings} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.configureModel }))
+    expect(openModelSettings).toHaveBeenCalledOnce()
+    if (available) expect(screen.queryByText(zh.configureModelHint)).toBeNull()
+    else {
+      expect(screen.getByText(zh.configureModelHint)).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: zh.close }))
+      expect(screen.queryByText(zh.configureModelHint)).toBeNull()
+    }
+  })
+
   it('renders configured rooms, members, working state and message text without interpreting HTML', () => {
     const view = render(<ChannelsPage {...props(ready)} />)
     expect(screen.getByRole('button', { name: 'general' })).toBeTruthy()
@@ -210,6 +227,69 @@ describe('channels page', () => {
     await act(async () => { finish() })
     expect(input.value).toBe('')
     expect(input.disabled).toBe(false)
+  })
+
+  it('sends from the send button through the same path as Enter, multi-line drafts included', async () => {
+    const send = vi.fn(() => Promise.resolve())
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const button = screen.getByRole('button', { name: '发送' }) as HTMLButtonElement
+    expect(input.getAttribute('enterkeyhint')).toBe('send')
+    expect(button.disabled).toBe(true)
+    fireEvent.change(input, { target: { value: '第一行\n第二行' } })
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(send).toHaveBeenCalledExactlyOnceWith('第一行\n第二行')
+    await act(async () => {})
+    expect(input.value).toBe('')
+  })
+
+  it('does not send on the Enter that confirms an iOS/Safari IME composition (keyCode 229)', () => {
+    const send = vi.fn(() => Promise.resolve())
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'ni hao' } })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).toHaveBeenCalledExactlyOnceWith('ni hao')
+  })
+
+  it('does not save a message edit on the IME-confirming Enter (keyCode 229)', async () => {
+    const mine: ChannelSnapshot = {
+      ...ready,
+      messages: [{ id: 9, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '旧', created_at: 1, card: null, from_turn: null }],
+    }
+    const editMessage = vi.fn(async () => {})
+    render(<ChannelsPage {...props(mine)} editMessage={editMessage} withdrawMessage={vi.fn(async () => {})} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.messageEdit }))
+    const box = screen.getByRole('textbox', { name: zh.messageEdit })
+    fireEvent.change(box, { target: { value: 'xin' } })
+    fireEvent.keyDown(box, { key: 'Enter', keyCode: 229 })
+    expect(editMessage).not.toHaveBeenCalled()
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(editMessage).toHaveBeenCalledExactlyOnceWith(9, 'xin')
+  })
+
+  it('does not pick an @ candidate on the IME-confirming Enter (keyCode 229)', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '@', selectionStart: 1, selectionEnd: 1 } })
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(input.value).toBe('@')
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('uses the short placeholder on touch or narrow screens', () => {
+    const original = window.matchMedia
+    window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+    try {
+      render(<ChannelsPage {...props(ready)} />)
+      expect(screen.getByRole('combobox').getAttribute('placeholder')).toBe('发消息到 #general')
+    } finally { window.matchMedia = original }
   })
 
   it('keeps a failed draft and its error in the room where it was sent', async () => {
@@ -324,6 +404,16 @@ describe('channels page', () => {
     expect(p.createRoom).toHaveBeenCalledExactlyOnceWith('design')
   })
 
+  it('does not create a channel on the IME-confirming Enter (keyCode 229)', async () => {
+    const p = props({ ...ready, thinking: {} })
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.newRoom }))
+    const input = screen.getByRole('textbox', { name: zh.newRoom })
+    fireEvent.change(input, { target: { value: 'she ji' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 }) })
+    expect(p.createRoom).not.toHaveBeenCalled()
+  })
+
   it('adds a member through the dialog and keeps the form on a refusal', async () => {
     const p = props({ ...ready, thinking: {} })
     ;(p.listModels as ReturnType<typeof vi.fn>).mockResolvedValue([
@@ -402,7 +492,27 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="dragon"]')?.getAttribute('aria-checked')).toBe('true')
     fireEvent.click(dialog.querySelector('[role="radio"][title="lanxi"]') as Element)
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '本地', avatar: 'lanxi', cli: 'claude' })
+    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '本地', avatar: 'lanxi', cli: 'claude', permissionPreset: 'workspace-write' })
+  })
+
+  it('a CLI member shows its DSH permission preset and sends the picked one', async () => {
+    const state: ChannelSnapshot = {
+      ...ready, thinking: {},
+      members: [{ id: 'cc', name: 'CC', kind: 'dsh', online: true, cli: 'claude', permissionPreset: 'danger-full-access', persona: '', editable: true }],
+    }
+    const p = props(state)
+    ;(p as unknown as { listClis: unknown }).listClis = vi.fn(async () => [{ cli: 'claude', path: '/bin/claude' }])
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
+    const dialog = await screen.findByRole('dialog')
+    await act(async () => {})
+    const select = screen.getByRole('combobox', { name: zh.memberPermission }) as HTMLSelectElement
+    expect(select.value).toBe('danger-full-access')
+    expect([...select.options].map(o => o.textContent)).toEqual([zh.permissionReadOnly, zh.permissionWorkspaceWrite, zh.permissionFullAccess])
+    expect(screen.getByText(zh.permissionFullAccessHint)).toBeTruthy()
+    fireEvent.change(select, { target: { value: 'read-only' } })
+    await act(async () => { fireEvent.submit(dialog) })
+    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '', avatar: '', cli: 'claude', permissionPreset: 'read-only' })
   })
   it('guides to add a member when the channel has no role members', async () => {
     const p = props({ ...ready, members: [{ id: 'owner', name: '我', kind: 'human', online: true }], messages: [], thinking: {} })
@@ -602,4 +712,35 @@ it('shows retrying only while the retry request is pending, then hides the butto
   expect(screen.queryByRole('button', { name: zh.retry })).toBeNull()
   expect(screen.queryByRole('button', { name: zh.retrying })).toBeNull()
   expect(screen.getByRole('button', { name: zh.configureModel })).toBeTruthy()
+})
+
+describe('multi-line messages and the narrow composer', () => {
+  const cssText = () => readFileSync(join(import.meta.dirname, '../src/client/ChannelsPage.module.css'), 'utf8')
+  const rule = (selector: string) => {
+    const at = cssText().indexOf(selector + ' {')
+    expect(at).toBeGreaterThanOrEqual(0)
+    return cssText().slice(at, cssText().indexOf('}', at))
+  }
+
+  it('keeps single newlines of a message as line breaks, without breaking code blocks or lists', () => {
+    const text = '回车测试甲\n回车测试乙\n\n```\ncode 1\ncode 2\n```\n\n- 一\n- 二'
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0], id: 3, text }] })} />)
+    const paragraph = screen.getByText(/回车测试甲/)
+    expect(paragraph.tagName).toBe('P')
+    expect(paragraph.textContent).toBe('回车测试甲\n回车测试乙')
+    expect(document.querySelector('pre')?.textContent).toContain('code 1\ncode 2')
+    expect(Array.from(document.querySelectorAll('li')).map(li => li.textContent)).toEqual(['一', '二'])
+    // The newline is kept in the DOM; the message text style shows it (pre-wrap on prose only).
+    expect(rule('.text p,\n.text li')).toContain('white-space: pre-wrap')
+  })
+
+  it('keeps the composer placeholder on one line and the text box flexible', () => {
+    const placeholder = rule('.input::placeholder')
+    expect(placeholder).toContain('white-space: nowrap')
+    expect(placeholder).toContain('text-overflow: ellipsis')
+    const input = rule('.input')
+    expect(input).toContain('flex: 1')
+    expect(input).toContain('min-width: 0')
+    expect(cssText()).toMatch(/@media \(max-width: 600px\) \{\n {2}\.composer \{ padding: 0 8px 8px; \}/)
+  })
 })

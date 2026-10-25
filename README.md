@@ -101,7 +101,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 
 | Platform | Status | What works today |
 | --- | --- | --- |
-| Discord | Full | The full team: call by name, handoffs, teammate status, log channel |
+| Discord | Full | The full team: call by name, handoffs, teammate status, log channel; slash commands in servers and bot DMs |
 | Self-hosted channel | Team mode | A Discord-like web channel you can start on your own machine; several roles, call by name, handoffs |
 | Feishu (Lark) | Single role | One role chatting, for now |
 | DSH web | Experimental | A Channels page inside DSH web, see [DSH channels](dsh/collab/README.md) |
@@ -350,3 +350,7 @@ The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstre
 ### Local token usage
 
 The management API exposes daily, hourly, role, and model usage totals, with optional configured price estimates. Accounting starts from installation; backends without complete billing usage remain explicitly unknown. See [usage API and pricing](docs/api/usage.md).
+
+## Community
+
+- [linux.do](https://linux.do) - A thriving developer community.

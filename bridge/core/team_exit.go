@@ -51,6 +51,7 @@ type teamExitState struct {
 	resolver WorkspaceParentResolver
 	asks     map[string]*teamAsk
 	loaded   bool
+	bounces  map[string]int // session key -> consecutive [ask] bounces (team_ask_evidence.go)
 }
 
 const (
@@ -138,6 +139,14 @@ func newAskID() string {
 // It returns the forwarded ask id ("" for a report or when nothing was sent).
 func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) string {
 	kind, body, ok := parseExitKind(reply)
+	var problems []string
+	if ok && kind == exitKindAsk {
+		problems = askEvidenceProblems(body)
+	}
+	if problems == nil {
+		// Any reply without a bounced [ask] ends the run of bounces.
+		e.clearAskBounces(sessionKey)
+	}
 	if !ok || p == nil {
 		return ""
 	}
@@ -148,6 +157,10 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
+		return ""
+	}
+	if problems != nil {
+		e.bounceWorkspaceAsk(p, rec, sessionKey, problems)
 		return ""
 	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)

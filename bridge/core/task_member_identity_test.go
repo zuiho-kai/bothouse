@@ -78,7 +78,7 @@ func TestTaskMemberReporterIdentityAndDurableRetry(t *testing.T) {
 	p, lead, worker, api, _ := memberIdentityFixture(t)
 	session := "discord:room:user"
 	run, id := startCard(t, p, lead, session, "Task")
-	assignment := TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Name: "forged nickname", Title: "Check"}
+	assignment := TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Name: "forged nickname", Title: "Check"}
 	grant, status := assignMemberHTTP(t, api, assignment)
 	if status != http.StatusOK {
 		t.Fatal("valid bound project rejected", status)
@@ -193,11 +193,11 @@ func TestTaskMemberWorkerTokenOnlyInWorkerRelay(t *testing.T) {
 	p, lead, _, api, _ := memberIdentityFixture(t)
 	session := "discord:room:user"
 	run, id := startCard(t, p, lead, session, "Task")
-	grant, status := assignMemberHTTP(t, api, TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"})
+	grant, status := assignMemberHTTP(t, api, TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"})
 	if status != http.StatusOK {
 		t.Fatal("assign failed", status)
 	}
-	own, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "native", Name: "Native", Title: "Check"})
+	own, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "native", Name: "Native", Title: "Check"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestTaskMemberRefusedFactDoesNotBlockCard(t *testing.T) {
 	p, lead, worker, api, _ := memberIdentityFixture(t)
 	session := "discord:room:user"
 	run, id := startCard(t, p, lead, session, "Task")
-	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
+	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
 		t.Fatal("assign failed", status)
 	}
 	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: session, Run: relayedMemberTokens(t, p, id, "gjiang")["worker"], Seq: 1, Kind: "update", Summary: "worker started"}); err != nil {
@@ -256,7 +256,7 @@ func TestTaskMemberUnboundWorkerDoesNotBlockCard(t *testing.T) {
 	p, lead, worker, api, rm := memberIdentityFixture(t)
 	session := "discord:room:user"
 	run, id := startCard(t, p, lead, session, "Task")
-	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
+	if _, status := assignMemberHTTP(t, api, TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "gjiang", Title: "Check"}); status != http.StatusOK {
 		t.Fatal("assign failed", status)
 	}
 	tok := relayedMemberTokens(t, p, id, "gjiang")["worker"]
@@ -285,7 +285,7 @@ func TestTaskMemberReporterRequiresBoundProject(t *testing.T) {
 	p, lead, _, api, rm := memberIdentityFixture(t)
 	session := "discord:room:user"
 	run, id := startCard(t, p, lead, session, "Task")
-	req := TaskMemberAssignment{Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "大豆包", Title: "Check"}
+	req := TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: session, Run: run, TaskID: id, MemberID: "worker", ReporterProject: "大豆包", Title: "Check"}
 	if _, code := assignMemberHTTP(t, api, req); code != http.StatusConflict {
 		t.Fatal("display name accepted as project identity")
 	}
@@ -310,7 +310,7 @@ func TestTaskMemberUpdatePublishedInThread(t *testing.T) {
 		t.Fatal(err)
 	}
 	run, id := startCard(t, p, platform, "room", "Task")
-	grant, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "child", Name: "Child A", Title: "Check"})
+	grant, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "child", Name: "Child A", Title: "Check"})
 	if err != nil {
 		t.Fatal(err)
 	}

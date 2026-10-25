@@ -28,7 +28,7 @@ func runAgentSID(args []string) {
 				i++
 				dataDir = args[i]
 			}
-		case "--help", "-h":
+		case "--help", "-h", "-help", "help":
 			printAgentSIDUsage()
 			return
 		}

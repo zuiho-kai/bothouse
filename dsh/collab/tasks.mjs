@@ -25,9 +25,11 @@ export const WORKING = ['assigned', 'accepted', 'asked', 'rework'];
 const REVIEWABLE = ['returned', 'declined', 'escalated'];
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
-// User, 2026-10-24: "稳定的一放一收，以小时为力度". An unfinished task
-// with no progress for one hour returns to the existing paused queue.
-const STALE_AFTER_S = 60 * 60;
+// Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW): at the check time a
+// workspace task with new role messages since its window opened gets another CHECK_AFTER_S, at
+// most MAX_RENEWALS times; otherwise it is parked (paused queue). Replaces the old one-hour park.
+// Source: 聊天频道橘 10-25 15:19 「有新进展续 10 分钟，最多续 2 次，没有就暂停」.
+export const MAX_RENEWALS = 2;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
@@ -37,6 +39,26 @@ const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
 // point) keeps its status but is not in progress: no check timer, not counted. Any status
 // change by its owner or the lead (stance, hand-back, review) resumes it.
 const LIVE = `status IN (${PLACEHOLDERS}) AND paused_at IS NULL`;
+// #574 dispatch fields (same checks as contrib/lead/ws-handoff has_ref_impl/multi_editor/has_base,
+// user 2026-10-25 「交活带参照实现，非代码活写『无（新建）』算过」): `ref` names the existing
+// implementation to follow as `file:line`, or 无（新建） for work with none; when the task says
+// several members edit the same files (「共改文件」/「多人改」) it also needs `base`, the branch to start from.
+const REF_RE = /[~\w.\-/]*[A-Za-z_][~\w.\-/]*:\d+/g;
+const NO_REF = /^无\s*[（(]\s*新建\s*[)）]/;
+export const MISSING_REF = '缺参照实现：写 文件:行，非代码活写「无（新建）」';
+const REF_EXAMPLE = '示例：ref: "dsh/collab/tasks.mjs:226"，或 ref: "无（新建）"';
+const MISSING_BASE = '多人改同组文件要写底分支：base 填分支名，示例：base: "feat/approvals-card"';
+const MISSING_REWORK_NOTE = '返工要写原因：note 填为什么打回，示例：note: "没先读现有实现"';
+
+/** True when ref is 无（新建） or holds at least one `path:line` (path with / or ., so 14:30 does not count). */
+export function hasRef(ref) {
+  const s = String(ref ?? '').trim();
+  if (NO_REF.test(s)) return true;
+  return (s.match(REF_RE) ?? []).some(m => m.includes('/') || m.split(':')[0].includes('.'));
+}
+
+/** The task says several members edit the same files. */
+export function multiEditor(text) { return /共改文件|多人改/.test(String(text ?? '')); }
 
 export class Tasks {
   /**
@@ -64,10 +86,12 @@ export class Tasks {
     this.tree = cols.has('parent_id') && cols.has('kind');
     this.q = {
       get: this.db.prepare('SELECT * FROM tasks WHERE id = ?'),
-      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason)
-        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?) RETURNING *`),
+      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason, ref, base)
+        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
-      set: this.db.prepare('UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
+      // A resumed (was paused) task starts a fresh watch: renewals back to 0 (rework: resetRenewals).
+      set: this.db.prepare(`UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END,
+        renewals = CASE WHEN paused_at IS NOT NULL THEN 0 ELSE renewals END WHERE id = ? AND status = ? RETURNING *`),
       handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', paused_at = NULL, next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
         WHERE id = ? AND status = ? RETURNING *`),
       bindAssign: this.db.prepare('UPDATE tasks SET assign_msg_id = ? WHERE id = ? AND assign_msg_id IS NULL'),
@@ -82,8 +106,10 @@ export class Tasks {
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
-      workspaceActivity: this.db.prepare("SELECT MAX(created_at) AS at FROM messages WHERE room_id = ? AND author_kind = 'role' AND card IS NULL AND deleted = 0"),
+      ownerSaid: this.db.prepare("SELECT text FROM messages WHERE room_id = ? AND author_kind = 'role' AND author = ? AND card IS NULL AND deleted = 0 AND created_at > ?"),
       // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
+      resetRenewals: this.db.prepare('UPDATE tasks SET renewals = 0 WHERE id = ?'),
+      renew: this.db.prepare(`UPDATE tasks SET next_check_at = ?, renewals = ? WHERE id = ? AND ${LIVE} RETURNING *`),
       park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
@@ -157,7 +183,7 @@ export class Tasks {
       id: t.id, room_id: t.room_id, parent_task: t.parent_task, title: t.title,
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
-      note: t.note, reason: t.reason, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
+      note: t.note, reason: t.reason, ref: t.ref ?? null, base: t.base ?? null, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
       paused_at: t.paused_at ?? null,
     };
   }
@@ -222,8 +248,10 @@ export class Tasks {
    * Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`.
    * `reason` is the dispatcher's own one-line why-this-member, shown in the record (team mode C).
    * `force` allows assigning even if the member has an in-progress task in any room.
+   * `ref`/`base` (#574): an API dispatch passes ref (string, checked by hasRef) and, for a
+   * multi-editor task, base; undefined ref (tasks opened from chat or bridge cards) skips the check.
    */
-  assign({ roomId, title, owner, actor, parentTask, messageId, reason, force = false }) {
+  assign({ roomId, title, owner, actor, parentTask, messageId, reason, ref, base, force = false }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const text = String(title ?? '').trim();
@@ -232,6 +260,8 @@ export class Tasks {
     this.member(actor);
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
+    if (ref !== undefined && !hasRef(ref)) throw new CollabError('invalid', `${MISSING_REF}。${REF_EXAMPLE}`);
+    if (ref !== undefined && multiEditor(text) && !clip(base)) throw new CollabError('invalid', MISSING_BASE);
     const excludeIds = parentTask != null ? this.ancestorsOf(parentTask) : new Set();
     const busy = this.busyInfo(owner, excludeIds);
     if (busy.busy && !force) {
@@ -240,9 +270,12 @@ export class Tasks {
     }
     const now = this.now();
     const why = clip(reason);
-    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why);
+    const refText = ref === undefined ? null : clip(ref);
+    const baseText = ref === undefined ? null : clip(base);
+    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why, refText, baseText);
+    const refNote = `${refText ? `，参照：${refText}` : ''}${baseText ? `，底分支：${baseText}` : ''}`;
     const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
-    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${busyNote ? ` ${busyNote}` : ''}`);
+    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`);
     if (messageId == null) this.q.bindAssign.run(record.id, task.id);
     return this.changed(task.id);
   }
@@ -257,7 +290,9 @@ export class Tasks {
     const status = STANCES[mark];
     this.resumeClaim(task, true);
     // 退/升 hand the turn to the lead: the reminder is cancelled.
-    const check = status === 'declined' || status === 'escalated' ? null : task.next_check_at;
+    // A paused task answered again is back in work with a fresh check time.
+    const check = status === 'declined' || status === 'escalated' ? null
+      : task.paused_at != null ? this.now() + CHECK_AFTER_S : task.next_check_at;
     const row = this.q.set.get(status, check, clip(note), this.now(), check === null ? 0 : 1, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     const tail = row.note ? `：${row.note}` : '';
@@ -286,10 +321,13 @@ export class Tasks {
     if (actor !== task.created_by && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.created_by)} can review task ${id}`);
     if (!REVIEWABLE.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to review`);
     if (verdict !== 'done' && verdict !== 'rework') throw new CollabError('invalid', 'verdict must be done or rework');
+    // #574: a send-back always says why (same rule as board done: rework count > 0 needs a reason).
+    if (verdict === 'rework' && !clip(note)) throw new CollabError('invalid', MISSING_REWORK_NOTE);
     // Rework is a new round with the same check time as a dispatch (source above).
     const check = verdict === 'rework' ? this.now() + CHECK_AFTER_S : null;
     const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), 0, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    if (verdict === 'rework') this.q.resetRenewals.run(id);
     const tail = clip(note) ? `：${clip(note)}` : '';
     this.record(row, verdict, verdict === 'done'
       ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
@@ -317,7 +355,7 @@ export class Tasks {
     }
     const optional = v => (v == null || v === '' ? undefined : Number(v));
     switch (action) {
-      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason, force: Boolean(body.force) });
+      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason, ref: String(body.ref ?? ''), base: body.base, force: Boolean(body.force) });
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });
@@ -428,15 +466,18 @@ export class Tasks {
     }
   }
 
-  /** Post the reminder for every task past its check time, once each, and wake its owner. */
+  /**
+   * At its check time a workspace task is renewed or parked (watch); a task in any other room
+   * gets one reminder @-ing the owner, which also wakes it.
+   */
   tick() {
     if (this.closed || !this.started) return;
+    const now = this.now();
     for (const task of this.q.allBusy.all(...WORKING)) {
-      if (this.store.room(task.room_id)?.kind !== 'workspace') continue;
-      const activity = this.q.workspaceActivity.get(task.room_id).at ?? task.updated_at;
-      if (this.now() - Math.max(task.updated_at, activity) >= STALE_AFTER_S) this.pauseTask(task.id);
+      if (this.store.room(task.room_id)?.kind === 'workspace' && watchDue(task) <= now) this.watch(task, now);
     }
-    for (const task of this.q.due.all(this.now(), ...WORKING)) {
+    for (const task of this.q.due.all(now, ...WORKING)) {
+      if (this.store.room(task.room_id)?.kind === 'workspace') continue;
       const name = this.nameOf(task.owner);
       const { message } = this.hub.post(task.room_id, {
         authorKind: 'system', author: 'system', name: '任务提醒',
@@ -448,6 +489,34 @@ export class Tasks {
       this.changed(task.id);
     }
     this.arm();
+  }
+
+  /**
+   * A workspace task at its check time: progress by its owner since the window opened
+   * (watchDue - CHECK_AFTER_S) and fewer than MAX_RENEWALS renewals → another CHECK_AFTER_S;
+   * otherwise it is parked through pauseTask, and the pause record @-s the owner and wakes it
+   * (the record goes first, while the workspace still names its chat channel).
+   */
+  watch(task, now) {
+    const renewals = task.renewals ?? 0;
+    if (renewals < MAX_RENEWALS && this.progressed(task, watchDue(task) - CHECK_AFTER_S)) {
+      if (this.q.renew.get(now + CHECK_AFTER_S, renewals + 1, task.id, ...WORKING) !== undefined) this.changed(task.id);
+      return;
+    }
+    const why = renewals >= MAX_RENEWALS ? `已续期 ${MAX_RENEWALS} 次` : `${CHECK_AFTER_S / 60} 分钟内没有新进展`;
+    const message = this.record(task, 'pause', `@${this.nameOf(task.owner)} #${task.id}「${task.title}」${why}，已暂停；表态或交回即恢复`);
+    if (this.pauseTask(task.id)) this.wake(task.owner, message);
+  }
+
+  /**
+   * Progress = the owner's own messages since `since`, not counting stance lines (【接】【问】
+   * 【退】【升】) or status notices. Same rule as contrib/lead/d10-fire chat_active.
+   */
+  progressed(task, since) {
+    return this.q.ownerSaid.all(task.room_id, task.owner, since).some(({ text }) => {
+      const body = withoutLeadingMentions(String(text ?? ''), this.hub.routable()).trim();
+      return body !== '' && !/^【(接|问|退|升)】/.test(body) && !NOTICE_PREFIXES.some(p => body.startsWith(p));
+    });
   }
 
   /** Retry every undelivered reminder whose task is still the owner's turn. */
@@ -463,14 +532,18 @@ export class Tasks {
     const task = this.q.takeRemind.get(taskId, msgId);
     if (task === undefined) return;
     if (message === undefined) return;
-    let taken = false;
     this.delivering = true;
-    try {
-      for (const wake of this.wakers) {
-        try { if (wake(task.owner, message)) { taken = true; break; } } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
-      }
-    } finally { this.delivering = false; }
+    let taken;
+    try { taken = this.wake(task.owner, message); } finally { this.delivering = false; }
     if (!taken) this.q.putRemind.run(msgId, taskId);
+  }
+
+  /** Start memberId on message through the first waker that takes it; true if one did. */
+  wake(memberId, message) {
+    for (const wake of this.wakers) {
+      try { if (wake(memberId, message)) return true; } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
+    }
+    return false;
   }
 
   /** Schedule tick() for the earliest pending check time. */
@@ -478,10 +551,11 @@ export class Tasks {
     if (this.timer !== undefined) this.clearTimer(this.timer);
     this.timer = undefined;
     if (this.closed) return;
-    const stale = this.q.allBusy.all(...WORKING)
-      .filter(t => this.store.room(t.room_id)?.kind === 'workspace')
-      .map(t => Math.max(t.updated_at, this.q.workspaceActivity.get(t.room_id).at ?? 0) + STALE_AFTER_S);
-    const at = [this.q.next.get(...WORKING).at, ...stale].filter(t => t != null).sort((a, b) => a - b)[0];
+    // Workspace tasks without a check time (spent by an older reminder) are still watched.
+    const unchecked = this.q.allBusy.all(...WORKING)
+      .filter(t => t.next_check_at == null && this.store.room(t.room_id)?.kind === 'workspace')
+      .map(watchDue);
+    const at = [this.q.next.get(...WORKING).at, ...unchecked].filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));
     this.timer = this.setTimer(() => { this.timer = undefined; this.tick(); }, ms);
@@ -603,6 +677,11 @@ function withoutLeadingMentions(text, team) {
   let i = 0;
   while (i < parts.length && (parts[i][1] !== null || !parts[i][0].trim())) i++;
   return parts.slice(i).map(([seg]) => seg).join('').trimStart();
+}
+
+/** When a workspace task's watch is due: its check time, or CHECK_AFTER_S after its last change. */
+function watchDue(task) {
+  return task.next_check_at ?? task.updated_at + CHECK_AFTER_S;
 }
 
 function clip(note) {

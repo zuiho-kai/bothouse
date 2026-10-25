@@ -18,7 +18,7 @@ func TestTaskBatchesExplicitContinuationRebindsRun(t *testing.T) {
 	}
 	stopped := false
 	run := p.begin(platform, "room", LangEnglish, func() bool { return stopped })
-	grant, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, BatchID: "A", MemberID: "worker", Name: "Worker", Title: "Work"})
+	grant, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, BatchID: "A", MemberID: "worker", Name: "Worker", Title: "Work"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestTaskBatchesExplicitContinuationRebindsRun(t *testing.T) {
 	p.finish(run, "result")
 	stopped = true
 	next := p.begin(platform, "room", LangEnglish, nil)
-	continued, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: next, TaskID: grant.TaskID, MemberID: "reviewer", Name: "Reviewer", Title: "Review"})
+	continued, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: next, TaskID: grant.TaskID, MemberID: "reviewer", Name: "Reviewer", Title: "Review"})
 	if err != nil || continued.TaskID != grant.TaskID || continued.LeadNextSeq != 65 {
 		t.Fatalf("explicit continuation: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestTaskBatchesLaterLeadTurnClosesReleasedCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := p.begin(platform, "room", LangEnglish, nil)
-	grant, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, BatchID: "A", MemberID: "w", Name: "W", Title: "Work"})
+	grant, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, BatchID: "A", MemberID: "w", Name: "W", Title: "Work"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestTaskBatchesAssignByIDKeepsResumeSequence(t *testing.T) {
 	if !ok || cid != id {
 		t.Fatalf("resume candidate %s %v, want %s", cid, ok, id)
 	}
-	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: next, TaskID: cid, MemberID: "w", Name: "W", Title: "Work"}); err != nil {
+	if _, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: next, TaskID: cid, MemberID: "w", Name: "W", Title: "Work"}); err != nil {
 		t.Fatal("assign:", err)
 	}
 	if _, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "room", Run: next, Seq: seq, Kind: "update", Summary: "continue"}); err != nil {
@@ -121,7 +121,7 @@ func TestTaskBatchesAssignmentIsAtomicAndScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := p.begin(platform, "room", LangEnglish, nil)
-	req := TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, BatchID: "A", MemberID: "worker", Name: "Worker", Title: "Work"}
+	req := TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, BatchID: "A", MemberID: "worker", Name: "Worker", Title: "Work"}
 	bad := req
 	bad.ParentID = "missing"
 	if _, err := p.AssignMember(bad); err == nil || len(p.Tasks("", 10)) != 0 {
@@ -203,7 +203,7 @@ func TestTaskBatchesNewWorkDoesNotContinueReportedCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := p.Task(oldID)
-	grant, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: next, BatchID: "new-work", MemberID: "worker", Name: "Worker", Title: "New work"})
+	grant, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: next, BatchID: "new-work", MemberID: "worker", Name: "Worker", Title: "New work"})
 	if err != nil || grant.TaskID == oldID {
 		t.Fatalf("new delegation continued old progress: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestTaskBatchesTerminalReportsIsolateCard(t *testing.T) {
 			run := p.begin(platform, "room", LangEnglish, nil)
 			assign := func(batch string) *TaskMemberGrant {
 				t.Helper()
-				g, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, BatchID: batch, MemberID: "worker", Name: "Worker", Title: batch})
+				g, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, BatchID: batch, MemberID: "worker", Name: "Worker", Title: batch})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -275,7 +275,7 @@ func TestTaskMembersIndependentReportsOneCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment := TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "worker", Name: "肥鱼", Title: "回归测试"}
+	assignment := TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "worker", Name: "肥鱼", Title: "回归测试"}
 	g, err := p.AssignMember(assignment)
 	if err != nil {
 		t.Fatal(err)
@@ -388,7 +388,7 @@ func TestTaskMembersRestartAndCancellation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			g, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "worker", Name: "Worker", Title: "Test"})
+			g, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "worker", Name: "Worker", Title: "Test"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -437,7 +437,7 @@ func TestTaskMembersSurviveStoppedLead(t *testing.T) {
 		t.Fatal(err)
 	}
 	assign := func(member string) string {
-		g, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: member, Name: member, Title: "t"})
+		g, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: member, Name: member, Title: "t"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -481,7 +481,7 @@ func TestAssignMemberReusesStaleRowWithSameName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "私有房间"}); err != nil {
+	if _, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "私有房间"}); err != nil {
 		t.Fatal(err)
 	}
 	// The lead turn ends and the card is released: the row keeps its queued status but its
@@ -498,7 +498,7 @@ func TestAssignMemberReusesStaleRowWithSameName(t *testing.T) {
 	if staleToken == "" {
 		t.Fatal("first assignment registered no token")
 	}
-	second, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "私有房间与真机验收"})
+	second, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "私有房间与真机验收"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,10 +532,10 @@ func TestAssignMemberKeepsLiveRowWithSameName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "第一件"}); err != nil {
+	if _, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "第一件"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "第二件"}); err != nil {
+	if _, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "第二件"}); err != nil {
 		t.Fatal(err)
 	}
 	task, _ := p.Task(id)
@@ -557,7 +557,7 @@ func TestAssignMemberKeepsCompletedRowWithSameName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "第一件"})
+	g, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-1", Name: "G哥", Title: "第一件"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +571,7 @@ func TestAssignMemberKeepsCompletedRowWithSameName(t *testing.T) {
 	p.mu.Lock()
 	p.revokeMemberRuns(p.runs[run])
 	p.mu.Unlock()
-	if _, err := p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "第二件"}); err != nil {
+	if _, err := p.AssignMember(TaskMemberAssignment{Ref: "无（新建）", Project: "fish", SessionKey: "room", Run: run, TaskID: id, MemberID: "gge-2", Name: "G哥", Title: "第二件"}); err != nil {
 		t.Fatal(err)
 	}
 	task, _ := p.Task(id)

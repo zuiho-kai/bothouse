@@ -194,7 +194,7 @@ func (s *APIServer) sendBodyLimit() int64 {
 }
 
 func (s *APIServer) Start() {
-	s.server = &http.Server{Handler: s.mux}
+	s.server = &http.Server{Handler: s.mux, ConnContext: withPeerConn}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
 			slog.Error("api server error", "error", err)

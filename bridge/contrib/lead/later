@@ -1,12 +1,16 @@
 #!/bin/sh
-# 要过一会儿才回来时用：挂定时 + 在频道置顶任务板上记一行「下次看 几点」，用户看得见。所有角色共用。
+# 要过一会儿才回来时用：挂定时 + 在任务板原条目上记「下次看 几点」，用户在置顶卡片上看得见。所有角色共用。
 # 用户原话（2026-10-23）：「比如说你要10分钟之后才会回来，看那种你搞的定时任务，并且我可见的，否则我不知道」
 #   「补，我要大家都能这样，而不是只有你」
-# 用法：later <延时如 10m/1h> "<事情>" "<到点要做什么>"
-set -e
+# 2026-10-25 起记在原条目上、不再新建回看条目（回看条目占了当天收尾条目的大半，把任务板刷满）。
+# 用法：later <任务板编号> <延时如 10m/1h> "<到点要做什么>"
+# 「下次看」由下面的 setnext（= BOARD_LATER=1 board next）改任务板（../gate/board.py 的条目，同一把锁），只改 next/next_ts，不动状态和「谁」。
+set -eu
 here=$(cd "$(dirname "$0")" && pwd)
-[ "$#" -eq 3 ] || { echo '用法：later <延时如 10m> "<事情>" "<到点要做什么>"' >&2; exit 1; }
-delay=$1 what=$2 todo=$3
+usage='用法：later <任务板编号> <延时如 10m> "<到点要做什么>"（编号是任务板上已有的条目，没有就先 board add 正经条目）'
+[ "$#" -eq 3 ] || { echo "$usage" >&2; exit 1; }
+id=${1#\#} delay=$2 todo=$3
+case $id in ''|*[!0-9]*) echo "$usage" >&2; exit 1;; esac
 mins=$(python3 -c 'import re,sys;s=sys.argv[1];print(sum(int(n)*{"h":60,"m":1}[u] for n,u in re.findall(r"(\d+)([hm])",s)))' "$delay")
 [ "$mins" -gt 0 ] || { echo "延时要写成 10m、1h30m 这样" >&2; exit 1; }
 proj=${CC_PROJECT:-}
@@ -14,18 +18,20 @@ proj=${CC_PROJECT:-}
 sk=${CC_SESSION_KEY:-${CC_SESSION:-}}
 [ -n "$proj" ] && [ -n "$sk" ] || { echo "later：没有 CC_PROJECT / CC_SESSION_KEY（或 CC_SESSION），只能在 cc-connect 会话里用" >&2; exit 1; }
 export CC_SESSION_KEY=$sk   # board 按它记频道
-# 「谁」= 团队文件里的名字（../gate/lead.py 解析项目名），认不出就用项目名
-who=$(python3 -I -c 'import sys;sys.path.insert(0,sys.argv[1]);import _team;print(_team.name_of(sys.argv[2]))' "$here" "$proj")
 cc=${CC_BIN:-}
 if [ -z "$cc" ]; then
   cc=$(command -v bothouse || command -v cc-connect) || { echo "later：找不到 bothouse / cc-connect（可设 CC_BIN）" >&2; exit 1; }
 fi
 at=$(python3 -c 'import datetime,sys;print((datetime.datetime.now()+datetime.timedelta(minutes=int(sys.argv[1]))).strftime("%H:%M"))' "$mins")
-card_id=
-card_id=$(BOARD_LATER=1 "$here/board" add "$what" "-" "等着，${at} 回来接着做" "$who" --next "$at" | grep -oE '[0-9]+' | head -1 || true)
-[ -n "${card_id:-}" ] || { echo "任务板没记上，定时没挂" >&2; exit 1; }
-# 卡片上有这行 ⇔ 定时真挂上了：timer 失败就把刚记的这行撤掉再报错
-"$cc" timer add -p "$proj" -s "$sk" --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #$card_id「$what」：$todo。做完 board done $card_id；没做完先 board done $card_id，再用 later 挂下一次（写进度和回来时间）。" >/dev/null || {
-  "$here/board" done "$card_id" >/dev/null || true
-  echo "定时没挂上，已从任务板撤掉 #$card_id" >&2; exit 1; }
-echo "已挂：$at 回来，任务板 #$card_id"
+gate=${GATE_DIR:-$here/../gate}
+# setnext <编号> <几点> | setnext <编号> --restore '<JSON>'：只改「下次看」并重画置顶卡；
+#   打印两行：改前的 next 记录（JSON，回滚用）、条目的事情（定时描述要等于它，任务板靠它对上定时）
+setnext() { BOARD_LATER=1 python3 -I "$gate/board.py" next "$@"; }
+out=$(setnext "$id" "$at") || exit 1
+prev=$(printf '%s\n' "$out" | sed -n 1p)
+what=$(printf '%s\n' "$out" | sed -n 2p)
+# 卡片上有「下次看」⇔ 定时真挂上了：timer 失败就把 next 改回原值再报错
+"$cc" timer add -p "$proj" -s "$sk" --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #$id：$todo；做完照常 board done $id <返工次数> [原因]，没做完 later $id <延时> \"<到点要做什么>\" 再挂。" >/dev/null || {
+  setnext "$id" --restore "$prev" >/dev/null || true
+  echo "定时没挂上，#$id 的「下次看」已改回原值" >&2; exit 1; }
+echo "已挂：$at 回来，任务板 #$id"

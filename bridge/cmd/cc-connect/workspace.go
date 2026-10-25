@@ -28,6 +28,8 @@ func runWorkspace(args []string) {
 	jsonOut := fs.Bool("json", false, "print raw JSON")
 	chat := fs.String("chat", "", "park: the chat channel that handed the task off; refused unless it owns the workspace")
 	before := fs.String("before", "", "park: RFC 3339 time the task was bound; parks that chat's newest handoff at or before it")
+	owner := fs.String("owner", "", "claim: who the task goes to (platform user/bot id), mentioned if the ten-minute check finds no progress")
+	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
 	_ = fs.Parse(rest)
 	if *session == "" {
 		workspaceFail(fmt.Errorf("no channel: run this inside a bothouse agent session or pass --session-key discord:<channel id>"))
@@ -56,7 +58,7 @@ func runWorkspace(args []string) {
 		if fs.NArg() < 1 {
 			workspaceFail(fmt.Errorf("usage: bothouse workspace claim <workspace channel id>"))
 		}
-		body, _ := json.Marshal(map[string]string{"session_key": *session, "workspace_id": fs.Arg(0)})
+		body, _ := json.Marshal(map[string]string{"session_key": *session, "workspace_id": fs.Arg(0), "owner": *owner, "title": *title})
 		resp, err := apiPost(sock, "/team/workspace/claim", body)
 		if err != nil {
 			workspaceFail(err)
@@ -124,7 +126,9 @@ func printWorkspaceUsage() {
 
   new    create 「工作区(max+1)」 in the category's shared pool for this chat channel
   list   list this chat channel's workspaces and the category's shared pool
-  claim  record this chat channel as the one handing off to <workspace id> (also resumes a paused task)
+  claim  record this chat channel as the one handing off to <workspace id> (also resumes a paused task);
+         [--owner <id>] [--title <short name>]: who the task goes to and what it is, for the
+         ten-minute check (no progress then: a nudge in the workspace and the task is paused)
   park   pause one task of <workspace id> (default: this workspace); with no other task in
          work there the workspace goes back to the pool and its sessions are reset;
          --chat <chat key> [--before <RFC 3339>]: only that chat channel's task, refused

@@ -29,7 +29,7 @@ Do not start a line with several names in a row; the gate treats that as an inte
 When the primary role judges it is losing track (missed items, duplicate assignments, forgotten timers), hand a whole large task to the primary role in the "workspace" channel.
 Reference only: more than about 6 parallel threads, or more than half of your context used. The 6 comes from the 2026-10-23 review data: with 8 parallel threads that day, timers were left running 3 times and one task was assigned twice. Your own judgment decides.
 
-Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls). Then:
+Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
 
 - `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start.
 - `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.
@@ -50,13 +50,19 @@ The primary role in a workspace does not ask the user directly. The chat channel
 Work that cannot finish in 10 minutes must be cut (user, 2026-10-23: "if it can't be done in 10 minutes, drop it").
 
 - For background work, run `t10 <pid>` right after starting it: at 10 minutes it stops the process and its children.
-- For work assigned to a teammate in the channel, run `d10 <teammate name or ID> "<label>"` in the same turn: if she has not handed back by then, the primary role sends "pause"; if she has, nothing is sent.
+- For work assigned to a teammate in the channel, run `d10 <teammate name or ID> "<label>"` in the same turn: if she has not handed back by then, the primary role sends "pause"; if she has, nothing is sent; if she has not but committed or posted in the last 10 minutes, it waits another 10 minutes, at most twice.
 - Do not claim a watchdog is set unless you set it.
 
 ## 7. Always isolate tests
 
 When you assign test work, give it its own HOME, data directory and port in the prompt. Check the live directories before and after.
 If anything changed, report it as an incident. (2026-10-23: a test deleted a live socket and wrote into a live data directory.)
+
+- Before testing, run `iso-check before` and note the `ISO_DIR` it prints. Put the test's HOME, data directory and ports under it.
+- After testing, run `iso-check after <ISO_DIR>`. The directory is required. It only deletes directories registered by this session and refuses other sessions' directories.
+- Rehearse on a copy of the real config, not on an allow-all empty config: `rehearse-copy <real config>`. It runs `cp -a` into an isolated directory, replaces secrets with REDACTED by default, and keeps permission fields unchanged. When done, run `iso-check after <REHEARSE_DIR>`.
+- Change the live config only after the rehearsal passes. Use the setup wizard or `setup apply`: before writing, it keeps the old file as `config.toml.bak-<time>`.
+- If something breaks after the change, run `rehearse-copy --restore <config.toml> --dry-run` to see which backup it will use, then run it without `--dry-run` to put back the pre-change file, and restart the bridge. Hand edits leave no backup; before a hand edit, run `cp -p config.toml config.toml.bak-$(date +%Y%m%d-%H%M%S)` yourself.
 
 ## 8. At most two review rounds
 
@@ -77,3 +83,8 @@ If it is over an hour, start it in the background, write the log and result path
 
 A teammate's reply starts with one of four tags: 【接】 take it and start, 【问】 not enough information, list what is missing, 【退】 not mine, say who fits better, 【升】 irreversible action, spending or a direction call, escalate to the primary role.
 To get a specific teammate to answer, @ her or start a line with her name followed by a comma; a name in the middle of a sentence will not reach her, so do not write it that way when you only mean to mention her.
+
+## 12. Fixed budget for always-on rules: add one, remove one
+
+Always-on rules (the team-mode rules, the rule section in a persona) have a total cap: before adding a rule, remove or merge one; a byte-size test in `core` guards the cap on the team-mode rules.
+When the same kind of mistake happens a second time, turn it into a check (a script, hook or test) instead of adding more text; `contrib/hooks/lessons.py` reads the "N 次" (N times) count of each entry in the wiki lessons table (`rule-candidates-recurrence*.md`) and reminds the agent on the first turn and when the user corrects it — an entry that reaches 2 should become a check.

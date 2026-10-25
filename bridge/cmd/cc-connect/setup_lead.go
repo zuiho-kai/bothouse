@@ -20,6 +20,11 @@ func runSetupLead(args []string) {
 	agent := fs.String("agent", "claudecode", "role agent type")
 	cfgPath := fs.String("config", "", "config path (for data_dir)")
 	force := fs.Bool("force", false, "overwrite installed tools that differ from the bundled version")
+	if len(args) > 0 && isHelpArg(args[0]) {
+		fs.SetOutput(os.Stdout)
+		fs.Usage()
+		return
+	}
 	if len(args) == 0 || args[0] != "install" {
 		fs.Usage()
 		os.Exit(2)

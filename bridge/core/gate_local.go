@@ -8,6 +8,7 @@ package core
 // affected:
 //   - the message is just a stop word → the running turn is cancelled (same path as the gate's
 //     "abort") and the stop word itself starts no new turn;
+//   - an explicit stop-and-redirect → cancel the running turn, then start the replacement task;
 //   - anything else → written into the running turn (same path as the gate's busy "reply"), when
 //     the agent supports mid-turn input.
 // Everything else (idle sessions, messages that don't call the bot, agents without mid-turn input,
@@ -26,7 +27,9 @@ import (
 
 // localStopWords are whole messages that cancel the running turn.
 // Source: 自定（橘，2026-10-23，用户未给词表）: 「暂停」「停一下」「别做了」 plus English stop / pause.
+// The exact single-character stop comes from the owner-DM replay acceptance case (2026-10-25).
 var localStopWords = map[string]bool{
+	"停":     true,
 	"暂停":    true,
 	"停一下":   true,
 	"别做了":   true,
@@ -37,20 +40,21 @@ var localStopWords = map[string]bool{
 var (
 	// "[replying to X: …]\n" prepended by the Discord adapter (applyReferencedMessage).
 	localReplyPrefix = "[replying to "
+	// Explicit cancellation followed by a nonempty replacement task.
+	localRedirectRe = regexp.MustCompile(`^(?:先)?别做(?:这个|了)[，,、；;]?\s*改(?:做|成)\s*\S`)
 	// The "@name(你)" label the Discord adapter leaves for this bot's own @ (labelSelfMention);
 	// the name may contain spaces. Other people's mentions (<@id>, @everyone, @name) are kept, so
 	// "@彩虹猫 暂停" in a reply to this bot is not a stop for this bot.
 	localSelfMentionRe = regexp.MustCompile(`@[^@\n]+?\(你\)`)
 )
 
-// isLocalStopWord reports whether text is only a stop word (ignoring a reply quote, this bot's own
-// @ label, whitespace, punctuation and case). A longer sentence that merely contains one, or one
-// that also @-s someone else, is not a stop.
-func isLocalStopWord(text string) bool {
+// localGateText removes adapter reply context, self mentions and surrounding punctuation.
+// Mentions of other recipients remain so they cannot match a local control instruction.
+func localGateText(text string) string {
 	if strings.HasPrefix(text, localReplyPrefix) {
 		i := strings.LastIndex(text, "]\n")
 		if i < 0 {
-			return false
+			return ""
 		}
 		text = text[i+2:]
 	}
@@ -59,7 +63,15 @@ func isLocalStopWord(text string) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '　' ||
 			strings.ContainsRune("。.!！~～、,，…", r)
 	})
-	return localStopWords[strings.ToLower(text)]
+	return text
+}
+
+func isLocalStopWord(text string) bool {
+	return localStopWords[strings.ToLower(localGateText(text))]
+}
+
+func isLocalRedirect(text string) bool {
+	return localRedirectRe.MatchString(localGateText(text))
 }
 
 // SetGateLocal turns the built-in busy rules on or off; they only apply while no gate service is
@@ -77,7 +89,8 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 	if !e.gateLocal || msg.FromBot || !(msg.Mentioned || msg.Direct) || !session.Busy() {
 		return false
 	}
-	if isLocalStopWord(userTextOf(msg)) {
+	stopOnly := isLocalStopWord(userTextOf(msg))
+	if stopOnly || isLocalRedirect(userTextOf(msg)) {
 		stopped := e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx)
 		if !stopped {
 			// Same fallback as /stop (cmdStop): the state may be stored under a workspace-prefixed key.
@@ -86,6 +99,9 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 			}
 		}
 		if !stopped {
+			if !stopOnly {
+				return false // queue the replacement rather than inject it into the old turn
+			}
 			// Nothing to cancel: answer like /stop does and drop the stop word, so it never becomes
 			// the next turn's prompt.
 			slog.Info("gate(local): stop word but no running turn to cancel", "session", msg.SessionKey)
@@ -98,7 +114,7 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		if e.waitForSessionLock(session, recalledStopLockWait) {
 			session.UnlockWithoutUpdate()
 		}
-		return true
+		return stopOnly // a redirect continues through normal dispatch as a new turn
 	}
 	if !e.canInjectInto(e.agent, interactiveKey) {
 		return false // no mid-turn input, or a stuck turn: queue it instead of pretending to deliver

@@ -16,6 +16,9 @@ import (
 
 func TestIsLocalStopWord(t *testing.T) {
 	for text, want := range map[string]bool{
+		"停":               true,
+		" 停！ ":            true,
+		"停车场":             false,
 		"暂停":              true,
 		" 暂停。":            true,
 		"停一下！":            true,
@@ -75,7 +78,7 @@ func TestLocalGate_BusyCalledMessageIsInjected(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, running, p, s := newLocalGateEngine(t)
-			msg := localMsg("顺便看下这个")
+			msg := localMsg("另外帮我做X")
 			tc.msg(msg)
 			if !e.applyGate(p, msg, s, "k") {
 				t.Fatal("a busy message that calls the bot must be handled (injected)")
@@ -83,7 +86,7 @@ func TestLocalGate_BusyCalledMessageIsInjected(t *testing.T) {
 			running.mu.Lock()
 			mid := append([]string(nil), running.mid...)
 			running.mu.Unlock()
-			if len(mid) != 1 || !strings.Contains(mid[0], "顺便看下这个") {
+			if len(mid) != 1 || !strings.Contains(mid[0], "另外帮我做X") {
 				t.Fatalf("SendMidTurn got %q, want the message", mid)
 			}
 			if sent := p.getSent(); len(sent) != 1 || sent[0] != e.i18n.T(MsgLocalGateInserted) {
@@ -515,5 +518,23 @@ func TestLocalGate_ReplyToBotStopWordEndToEnd(t *testing.T) {
 	defer sess.mu.Unlock()
 	if sess.cancels != 1 || len(sess.prompts) != 1 {
 		t.Fatalf("cancels=%d prompts=%q, want one cancel and no new turn", sess.cancels, sess.prompts)
+	}
+}
+
+func TestIsLocalRedirect(t *testing.T) {
+	for text, want := range map[string]bool{
+		"别做这个，改做X":                              true,
+		"先别做了，改成另一个":                            true,
+		"@Foo Bar(你) 别做这个，改做X":                  true,
+		"[replying to bot: old task]\n别做这个，改做X": true,
+		"另外帮我做X":                                false,
+		"如果用户说别做这个，改做X怎么办":                      false,
+		"<@123> 别做这个，改做X":                       false,
+		"别做这个，改做":                               false,
+		"别做这个，改做   ":                            false,
+	} {
+		if got := isLocalRedirect(text); got != want {
+			t.Errorf("isLocalRedirect(%q) = %v, want %v", text, got, want)
+		}
 	}
 }

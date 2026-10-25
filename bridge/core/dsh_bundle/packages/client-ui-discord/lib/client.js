@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".YuWt4a_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.YuWt4a_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.YuWt4a_rooms, .YuWt4a_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.YuWt4a_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.YuWt4a_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.YuWt4a_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.YuWt4a_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.YuWt4a_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.YuWt4a_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.YuWt4a_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.YuWt4a_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.YuWt4a_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.YuWt4a_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.YuWt4a_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.YuWt4a_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.YuWt4a_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.YuWt4a_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.YuWt4a_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_system .YuWt4a_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.YuWt4a_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.YuWt4a_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.YuWt4a_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.YuWt4a_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.YuWt4a_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.YuWt4a_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.YuWt4a_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.YuWt4a_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.YuWt4a_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_messageBody {\n  min-width: 0;\n}\n\n.YuWt4a_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.YuWt4a_author {\n  font-weight: 600;\n}\n\n.YuWt4a_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.YuWt4a_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.YuWt4a_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.YuWt4a_ownActions {\n  opacity: 0;\n  gap: 8px;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.YuWt4a_message:hover .YuWt4a_ownActions, .YuWt4a_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .YuWt4a_ownActions {\n    opacity: 1;\n  }\n}\n\n.YuWt4a_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.YuWt4a_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.YuWt4a_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.YuWt4a_editBar .YuWt4a_time {\n  margin-right: auto;\n}\n\n.YuWt4a_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.YuWt4a_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.YuWt4a_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.YuWt4a_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.YuWt4a_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.YuWt4a_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.YuWt4a_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.YuWt4a_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.YuWt4a_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.YuWt4a_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.YuWt4a_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.YuWt4a_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.YuWt4a_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.YuWt4a_message {\n  position: relative;\n}\n\n.YuWt4a_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.YuWt4a_quoteDeleted {\n  font-style: italic;\n}\n\n.YuWt4a_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.YuWt4a_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.YuWt4a_message:hover .YuWt4a_replyButton, .YuWt4a_message:focus-within .YuWt4a_replyButton, .YuWt4a_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .YuWt4a_replyButton {\n    opacity: 1;\n  }\n}\n\n.YuWt4a_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.YuWt4a_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.YuWt4a_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.YuWt4a_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.YuWt4a_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.YuWt4a_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.YuWt4a_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.YuWt4a_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.YuWt4a_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.YuWt4a_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.YuWt4a_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.YuWt4a_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.YuWt4a_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_mentionName {\n  font-weight: 600;\n}\n\n.YuWt4a_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.YuWt4a_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.YuWt4a_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.YuWt4a_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.YuWt4a_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.YuWt4a_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.YuWt4a_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.YuWt4a_offline {\n  opacity: .5;\n}\n\n.YuWt4a_memberAvatar {\n  position: relative;\n}\n\n.YuWt4a_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.YuWt4a_offline .YuWt4a_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.YuWt4a_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.YuWt4a_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.YuWt4a_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .YuWt4a_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .YuWt4a_rooms, .YuWt4a_members {\n    display: none;\n  }\n}\n\n.YuWt4a_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.YuWt4a_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.YuWt4a_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_roomInput, .YuWt4a_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.YuWt4a_roomInput {\n  margin: 2px 0 6px;\n}\n\n.YuWt4a_roomInput:focus-visible, .YuWt4a_fieldInput:focus-visible, .YuWt4a_iconButton:focus-visible, .YuWt4a_linkButton:focus-visible, .YuWt4a_addMemberButton:focus-visible, .YuWt4a_primaryButton:focus-visible, .YuWt4a_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.YuWt4a_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.YuWt4a_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.YuWt4a_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_memberRow .YuWt4a_member:hover {\n  background: none;\n}\n\n.YuWt4a_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.YuWt4a_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.YuWt4a_memberRow:hover .YuWt4a_memberActions, .YuWt4a_memberRow:focus-within .YuWt4a_memberActions {\n  opacity: 1;\n}\n\n.YuWt4a_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.YuWt4a_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.YuWt4a_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.YuWt4a_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.YuWt4a_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.YuWt4a_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.YuWt4a_field textarea {\n  resize: vertical;\n}\n\n.YuWt4a_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.YuWt4a_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.YuWt4a_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.YuWt4a_primaryButton, .YuWt4a_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.YuWt4a_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.YuWt4a_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.YuWt4a_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.YuWt4a_memberFailed .YuWt4a_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.YuWt4a_memberFailed .YuWt4a_presence {\n  background: #ed4245;\n}\n\n.YuWt4a_mobileButton, .YuWt4a_drawerBackdrop {\n  display: none;\n}\n\n.YuWt4a_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.YuWt4a_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.YuWt4a_panelToggleEnd {\n  margin-left: auto;\n}\n\n.YuWt4a_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.YuWt4a_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.YuWt4a_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.YuWt4a_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .YuWt4a_page.YuWt4a_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .YuWt4a_page.YuWt4a_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .YuWt4a_page.YuWt4a_roomsHidden.YuWt4a_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .YuWt4a_roomsHidden > .YuWt4a_rooms, .YuWt4a_membersHidden > .YuWt4a_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .YuWt4a_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .YuWt4a_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .YuWt4a_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .YuWt4a_panelToggle {\n    display: none;\n  }\n\n  .YuWt4a_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .YuWt4a_rooms.YuWt4a_drawerOpen, .YuWt4a_members.YuWt4a_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .YuWt4a_rooms.YuWt4a_drawerOpen {\n    left: 0;\n  }\n\n  .YuWt4a_members.YuWt4a_drawerOpen {\n    right: 0;\n  }\n\n  .YuWt4a_memberActions {\n    opacity: 1;\n  }\n\n  .YuWt4a_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.YuWt4a_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.YuWt4a_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.YuWt4a_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.YuWt4a_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.YuWt4a_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.YuWt4a_leadControl .YuWt4a_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.YuWt4a_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.YuWt4a_leadControl .YuWt4a_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.YuWt4a_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.YuWt4a_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.YuWt4a_leadOption:hover, .YuWt4a_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_taskSection + .YuWt4a_taskSection {\n  margin-top: 8px;\n}\n\n.YuWt4a_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.YuWt4a_taskOwnerGroup + .YuWt4a_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.YuWt4a_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.YuWt4a_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.YuWt4a_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.YuWt4a_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.YuWt4a_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.YuWt4a_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.YuWt4a_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.YuWt4a_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.YuWt4a_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.YuWt4a_taskDone summary {\n  cursor: pointer;\n}\n\n.YuWt4a_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.YuWt4a_taskStatus[data-status=\"asked\"], .YuWt4a_taskStatus[data-status=\"escalated\"], .YuWt4a_taskStatus[data-status=\"declined\"], .YuWt4a_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.YuWt4a_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.YuWt4a_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.YuWt4a_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.YuWt4a_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.YuWt4a_taskMemberName {\n  font-weight: 600;\n}\n\n.YuWt4a_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.YuWt4a_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.YuWt4a_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.YuWt4a_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.YuWt4a_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.YuWt4a_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.YuWt4a_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.YuWt4a_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.YuWt4a_attachmentAudio audio {\n  width: 100%;\n}\n\n.YuWt4a_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.YuWt4a_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.YuWt4a_chatHead button, .YuWt4a_chatHead input, .YuWt4a_chatHead select, .YuWt4a_chatHead a, .YuWt4a_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.YuWt4a_text pre, .YuWt4a_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".rGZAAW_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.rGZAAW_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.rGZAAW_rooms, .rGZAAW_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.rGZAAW_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.rGZAAW_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.rGZAAW_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.rGZAAW_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.rGZAAW_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.rGZAAW_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.rGZAAW_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.rGZAAW_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.rGZAAW_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.rGZAAW_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.rGZAAW_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.rGZAAW_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.rGZAAW_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.rGZAAW_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.rGZAAW_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_system .rGZAAW_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.rGZAAW_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.rGZAAW_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.rGZAAW_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.rGZAAW_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.rGZAAW_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.rGZAAW_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.rGZAAW_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.rGZAAW_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.rGZAAW_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_messageBody {\n  min-width: 0;\n}\n\n.rGZAAW_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.rGZAAW_author {\n  font-weight: 600;\n}\n\n.rGZAAW_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.rGZAAW_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.rGZAAW_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.rGZAAW_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.rGZAAW_message:hover .rGZAAW_ownActions, .rGZAAW_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .rGZAAW_ownActions {\n    opacity: 1;\n  }\n}\n\n.rGZAAW_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.rGZAAW_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.rGZAAW_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.rGZAAW_editBar .rGZAAW_time {\n  margin-right: auto;\n}\n\n.rGZAAW_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.rGZAAW_text p, .rGZAAW_text li {\n  white-space: pre-wrap;\n}\n\n.rGZAAW_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.rGZAAW_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.rGZAAW_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.rGZAAW_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.rGZAAW_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.rGZAAW_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.rGZAAW_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.rGZAAW_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.rGZAAW_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.rGZAAW_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.rGZAAW_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.rGZAAW_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.rGZAAW_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.rGZAAW_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.rGZAAW_quoteDeleted {\n  font-style: italic;\n}\n\n.rGZAAW_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.rGZAAW_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.rGZAAW_message:hover .rGZAAW_replyButton, .rGZAAW_message:focus-within .rGZAAW_replyButton, .rGZAAW_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .rGZAAW_replyButton {\n    opacity: 1;\n  }\n}\n\n.rGZAAW_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.rGZAAW_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.rGZAAW_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.rGZAAW_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.rGZAAW_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.rGZAAW_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.rGZAAW_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.rGZAAW_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n.rGZAAW_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.rGZAAW_sendButton:focus-visible, .rGZAAW_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.rGZAAW_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.rGZAAW_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.rGZAAW_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.rGZAAW_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.rGZAAW_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_mentionName {\n  font-weight: 600;\n}\n\n.rGZAAW_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.rGZAAW_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.rGZAAW_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.rGZAAW_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  flex: 1;\n  min-width: 0;\n  padding: 10px 14px;\n}\n\n.rGZAAW_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .rGZAAW_composer {\n    padding: 0 8px 8px;\n  }\n\n  .rGZAAW_composerRow {\n    gap: 4px;\n  }\n\n  .rGZAAW_composerRow .rGZAAW_mentionButton {\n    width: 36px;\n    height: 36px;\n    font-size: 16px;\n  }\n\n  .rGZAAW_composerRow .rGZAAW_sendButton {\n    height: 36px;\n    padding: 0 10px;\n  }\n\n  .rGZAAW_input {\n    padding: 8px 10px;\n  }\n}\n\n.rGZAAW_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.rGZAAW_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.rGZAAW_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.rGZAAW_offline {\n  opacity: .5;\n}\n\n.rGZAAW_memberAvatar {\n  position: relative;\n}\n\n.rGZAAW_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.rGZAAW_offline .rGZAAW_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.rGZAAW_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.rGZAAW_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.rGZAAW_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .rGZAAW_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .rGZAAW_rooms, .rGZAAW_members {\n    display: none;\n  }\n}\n\n.rGZAAW_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.rGZAAW_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.rGZAAW_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_roomInput, .rGZAAW_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.rGZAAW_roomInput {\n  margin: 2px 0 6px;\n}\n\n.rGZAAW_roomInput:focus-visible, .rGZAAW_fieldInput:focus-visible, .rGZAAW_iconButton:focus-visible, .rGZAAW_linkButton:focus-visible, .rGZAAW_addMemberButton:focus-visible, .rGZAAW_primaryButton:focus-visible, .rGZAAW_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.rGZAAW_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.rGZAAW_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.rGZAAW_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_memberRow .rGZAAW_member:hover {\n  background: none;\n}\n\n.rGZAAW_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.rGZAAW_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.rGZAAW_memberRow:hover .rGZAAW_memberActions, .rGZAAW_memberRow:focus-within .rGZAAW_memberActions {\n  opacity: 1;\n}\n\n.rGZAAW_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.rGZAAW_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.rGZAAW_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.rGZAAW_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.rGZAAW_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.rGZAAW_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.rGZAAW_field textarea {\n  resize: vertical;\n}\n\n.rGZAAW_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.rGZAAW_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.rGZAAW_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.rGZAAW_primaryButton, .rGZAAW_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.rGZAAW_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.rGZAAW_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.rGZAAW_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.rGZAAW_memberFailed .rGZAAW_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.rGZAAW_memberFailed .rGZAAW_presence {\n  background: #ed4245;\n}\n\n.rGZAAW_mobileButton, .rGZAAW_drawerBackdrop {\n  display: none;\n}\n\n.rGZAAW_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.rGZAAW_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.rGZAAW_panelToggleEnd {\n  margin-left: auto;\n}\n\n.rGZAAW_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.rGZAAW_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.rGZAAW_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.rGZAAW_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .rGZAAW_page.rGZAAW_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .rGZAAW_page.rGZAAW_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .rGZAAW_page.rGZAAW_roomsHidden.rGZAAW_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .rGZAAW_roomsHidden > .rGZAAW_rooms, .rGZAAW_membersHidden > .rGZAAW_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .rGZAAW_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .rGZAAW_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .rGZAAW_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .rGZAAW_panelToggle {\n    display: none;\n  }\n\n  .rGZAAW_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .rGZAAW_rooms.rGZAAW_drawerOpen, .rGZAAW_members.rGZAAW_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .rGZAAW_rooms.rGZAAW_drawerOpen {\n    left: 0;\n  }\n\n  .rGZAAW_members.rGZAAW_drawerOpen {\n    right: 0;\n  }\n\n  .rGZAAW_memberActions {\n    opacity: 1;\n  }\n\n  .rGZAAW_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.rGZAAW_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.rGZAAW_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.rGZAAW_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.rGZAAW_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.rGZAAW_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.rGZAAW_leadControl .rGZAAW_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.rGZAAW_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.rGZAAW_leadControl .rGZAAW_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.rGZAAW_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.rGZAAW_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.rGZAAW_leadOption:hover, .rGZAAW_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_taskSection + .rGZAAW_taskSection {\n  margin-top: 8px;\n}\n\n.rGZAAW_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.rGZAAW_taskOwnerGroup + .rGZAAW_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.rGZAAW_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.rGZAAW_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.rGZAAW_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.rGZAAW_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.rGZAAW_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.rGZAAW_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.rGZAAW_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.rGZAAW_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.rGZAAW_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.rGZAAW_taskDone summary {\n  cursor: pointer;\n}\n\n.rGZAAW_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.rGZAAW_taskStatus[data-status=\"asked\"], .rGZAAW_taskStatus[data-status=\"escalated\"], .rGZAAW_taskStatus[data-status=\"declined\"], .rGZAAW_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.rGZAAW_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.rGZAAW_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.rGZAAW_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.rGZAAW_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.rGZAAW_taskMemberName {\n  font-weight: 600;\n}\n\n.rGZAAW_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.rGZAAW_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.rGZAAW_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.rGZAAW_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.rGZAAW_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.rGZAAW_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.rGZAAW_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.rGZAAW_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.rGZAAW_attachmentAudio audio {\n  width: 100%;\n}\n\n.rGZAAW_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.rGZAAW_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.rGZAAW_chatHead button, .rGZAAW_chatHead input, .rGZAAW_chatHead select, .rGZAAW_chatHead a, .rGZAAW_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.rGZAAW_text pre, .rGZAAW_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
@@ -672,141 +672,142 @@ function ChannelsIcon({ size }) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "YuWt4a_activeBusy",
-	"activeCount": "YuWt4a_activeCount",
-	"addMemberButton": "YuWt4a_addMemberButton",
-	"attachmentAudio": "YuWt4a_attachmentAudio",
-	"attachmentFile": "YuWt4a_attachmentFile",
-	"attachmentImage": "YuWt4a_attachmentImage",
-	"attachments": "YuWt4a_attachments",
-	"attachmentSize": "YuWt4a_attachmentSize",
-	"attachmentThumb": "YuWt4a_attachmentThumb",
-	"author": "YuWt4a_author",
-	"avatar": "YuWt4a_avatar",
-	"avatarAnchor": "YuWt4a_avatarAnchor",
-	"avatarButton": "YuWt4a_avatarButton",
-	"avatarImage": "YuWt4a_avatarImage",
-	"avatarMenu": "YuWt4a_avatarMenu",
-	"avatarMenuItem": "YuWt4a_avatarMenuItem",
-	"avatarMenuTitle": "YuWt4a_avatarMenuTitle",
-	"avatarOption": "YuWt4a_avatarOption",
-	"avatarPicker": "YuWt4a_avatarPicker",
-	"avatarSmall": "YuWt4a_avatarSmall",
-	"capabilityHelp": "YuWt4a_capabilityHelp",
-	"capabilityItem": "YuWt4a_capabilityItem",
-	"capabilityMenu": "YuWt4a_capabilityMenu",
-	"card": "YuWt4a_card",
-	"cardButtons": "YuWt4a_cardButtons",
-	"cardHead": "YuWt4a_cardHead",
-	"cardTitle": "YuWt4a_cardTitle",
-	"cardViewButton": "YuWt4a_cardViewButton",
-	"cardViews": "YuWt4a_cardViews",
-	"chat": "YuWt4a_chat",
-	"chatHead": "YuWt4a_chatHead",
-	"choice": "YuWt4a_choice",
-	"choiceRow": "YuWt4a_choiceRow",
-	"composer": "YuWt4a_composer",
-	"composerRow": "YuWt4a_composerRow",
-	"dialog": "YuWt4a_dialog",
-	"dialogActions": "YuWt4a_dialogActions",
-	"dialogBackdrop": "YuWt4a_dialogBackdrop",
-	"dialogTitle": "YuWt4a_dialogTitle",
-	"drawerBackdrop": "YuWt4a_drawerBackdrop",
-	"drawerOpen": "YuWt4a_drawerOpen",
-	"editBar": "YuWt4a_editBar",
-	"editBox": "YuWt4a_editBox",
-	"edited": "YuWt4a_edited",
-	"editInput": "YuWt4a_editInput",
-	"empty": "YuWt4a_empty",
-	"field": "YuWt4a_field",
-	"fieldInput": "YuWt4a_fieldInput",
-	"fieldLabel": "YuWt4a_fieldLabel",
-	"focused": "YuWt4a_focused",
-	"groupHead": "YuWt4a_groupHead",
-	"groupTitle": "YuWt4a_groupTitle",
-	"guide": "YuWt4a_guide",
-	"hash": "YuWt4a_hash",
-	"iconButton": "YuWt4a_iconButton",
-	"input": "YuWt4a_input",
-	"leadControl": "YuWt4a_leadControl",
-	"leadMenu": "YuWt4a_leadMenu",
-	"leadOption": "YuWt4a_leadOption",
-	"linkButton": "YuWt4a_linkButton",
-	"log": "YuWt4a_log",
-	"member": "YuWt4a_member",
-	"memberActions": "YuWt4a_memberActions",
-	"memberAvatar": "YuWt4a_memberAvatar",
-	"memberFailed": "YuWt4a_memberFailed",
-	"memberModel": "YuWt4a_memberModel",
-	"memberName": "YuWt4a_memberName",
-	"memberRow": "YuWt4a_memberRow",
-	"members": "YuWt4a_members",
-	"membersHidden": "YuWt4a_membersHidden",
-	"memberStatus": "YuWt4a_memberStatus",
-	"memberText": "YuWt4a_memberText",
-	"mentionActive": "YuWt4a_mentionActive",
-	"mentionButton": "YuWt4a_mentionButton",
-	"mentionHint": "YuWt4a_mentionHint",
-	"mentionItem": "YuWt4a_mentionItem",
-	"mentionMeta": "YuWt4a_mentionMeta",
-	"mentionName": "YuWt4a_mentionName",
-	"mentionPopup": "YuWt4a_mentionPopup",
-	"mentionTitle": "YuWt4a_mentionTitle",
-	"message": "YuWt4a_message",
-	"messageBody": "YuWt4a_messageBody",
-	"messageHead": "YuWt4a_messageHead",
-	"mobileButton": "YuWt4a_mobileButton",
-	"notice": "YuWt4a_notice",
-	"offline": "YuWt4a_offline",
-	"ownActions": "YuWt4a_ownActions",
-	"page": "YuWt4a_page",
-	"panelToggle": "YuWt4a_panelToggle",
-	"panelToggleEnd": "YuWt4a_panelToggleEnd",
-	"permActions": "YuWt4a_permActions",
-	"permScope": "YuWt4a_permScope",
-	"permStatus": "YuWt4a_permStatus",
-	"presence": "YuWt4a_presence",
-	"primaryButton": "YuWt4a_primaryButton",
-	"quote": "YuWt4a_quote",
-	"quoteAuthor": "YuWt4a_quoteAuthor",
-	"quoteDeleted": "YuWt4a_quoteDeleted",
-	"replyBar": "YuWt4a_replyBar",
-	"replyBarText": "YuWt4a_replyBarText",
-	"replyButton": "YuWt4a_replyButton",
-	"replyCancel": "YuWt4a_replyCancel",
-	"room": "YuWt4a_room",
-	"roomActive": "YuWt4a_roomActive",
-	"roomInput": "YuWt4a_roomInput",
-	"roomLabel": "YuWt4a_roomLabel",
-	"rooms": "YuWt4a_rooms",
-	"roomsHidden": "YuWt4a_roomsHidden",
-	"secondaryButton": "YuWt4a_secondaryButton",
-	"sendError": "YuWt4a_sendError",
-	"system": "YuWt4a_system",
-	"tag": "YuWt4a_tag",
-	"taskBoard": "YuWt4a_taskBoard",
-	"taskCard": "YuWt4a_taskCard",
-	"taskDone": "YuWt4a_taskDone",
-	"taskEmpty": "YuWt4a_taskEmpty",
-	"taskLine": "YuWt4a_taskLine",
-	"taskLinks": "YuWt4a_taskLinks",
-	"taskList": "YuWt4a_taskList",
-	"taskMember": "YuWt4a_taskMember",
-	"taskMemberName": "YuWt4a_taskMemberName",
-	"taskMembers": "YuWt4a_taskMembers",
-	"taskMeta": "YuWt4a_taskMeta",
-	"taskOwnerGroup": "YuWt4a_taskOwnerGroup",
-	"taskOwnerName": "YuWt4a_taskOwnerName",
-	"taskRow": "YuWt4a_taskRow",
-	"taskSection": "YuWt4a_taskSection",
-	"taskSectionTitle": "YuWt4a_taskSectionTitle",
-	"taskStatus": "YuWt4a_taskStatus",
-	"taskSub": "YuWt4a_taskSub",
-	"taskTitle": "YuWt4a_taskTitle",
-	"text": "YuWt4a_text",
-	"time": "YuWt4a_time",
-	"working": "YuWt4a_working",
-	"workspace": "YuWt4a_workspace"
+	"activeBusy": "rGZAAW_activeBusy",
+	"activeCount": "rGZAAW_activeCount",
+	"addMemberButton": "rGZAAW_addMemberButton",
+	"attachmentAudio": "rGZAAW_attachmentAudio",
+	"attachmentFile": "rGZAAW_attachmentFile",
+	"attachmentImage": "rGZAAW_attachmentImage",
+	"attachments": "rGZAAW_attachments",
+	"attachmentSize": "rGZAAW_attachmentSize",
+	"attachmentThumb": "rGZAAW_attachmentThumb",
+	"author": "rGZAAW_author",
+	"avatar": "rGZAAW_avatar",
+	"avatarAnchor": "rGZAAW_avatarAnchor",
+	"avatarButton": "rGZAAW_avatarButton",
+	"avatarImage": "rGZAAW_avatarImage",
+	"avatarMenu": "rGZAAW_avatarMenu",
+	"avatarMenuItem": "rGZAAW_avatarMenuItem",
+	"avatarMenuTitle": "rGZAAW_avatarMenuTitle",
+	"avatarOption": "rGZAAW_avatarOption",
+	"avatarPicker": "rGZAAW_avatarPicker",
+	"avatarSmall": "rGZAAW_avatarSmall",
+	"capabilityHelp": "rGZAAW_capabilityHelp",
+	"capabilityItem": "rGZAAW_capabilityItem",
+	"capabilityMenu": "rGZAAW_capabilityMenu",
+	"card": "rGZAAW_card",
+	"cardButtons": "rGZAAW_cardButtons",
+	"cardHead": "rGZAAW_cardHead",
+	"cardTitle": "rGZAAW_cardTitle",
+	"cardViewButton": "rGZAAW_cardViewButton",
+	"cardViews": "rGZAAW_cardViews",
+	"chat": "rGZAAW_chat",
+	"chatHead": "rGZAAW_chatHead",
+	"choice": "rGZAAW_choice",
+	"choiceRow": "rGZAAW_choiceRow",
+	"composer": "rGZAAW_composer",
+	"composerRow": "rGZAAW_composerRow",
+	"dialog": "rGZAAW_dialog",
+	"dialogActions": "rGZAAW_dialogActions",
+	"dialogBackdrop": "rGZAAW_dialogBackdrop",
+	"dialogTitle": "rGZAAW_dialogTitle",
+	"drawerBackdrop": "rGZAAW_drawerBackdrop",
+	"drawerOpen": "rGZAAW_drawerOpen",
+	"editBar": "rGZAAW_editBar",
+	"editBox": "rGZAAW_editBox",
+	"edited": "rGZAAW_edited",
+	"editInput": "rGZAAW_editInput",
+	"empty": "rGZAAW_empty",
+	"field": "rGZAAW_field",
+	"fieldInput": "rGZAAW_fieldInput",
+	"fieldLabel": "rGZAAW_fieldLabel",
+	"focused": "rGZAAW_focused",
+	"groupHead": "rGZAAW_groupHead",
+	"groupTitle": "rGZAAW_groupTitle",
+	"guide": "rGZAAW_guide",
+	"hash": "rGZAAW_hash",
+	"iconButton": "rGZAAW_iconButton",
+	"input": "rGZAAW_input",
+	"leadControl": "rGZAAW_leadControl",
+	"leadMenu": "rGZAAW_leadMenu",
+	"leadOption": "rGZAAW_leadOption",
+	"linkButton": "rGZAAW_linkButton",
+	"log": "rGZAAW_log",
+	"member": "rGZAAW_member",
+	"memberActions": "rGZAAW_memberActions",
+	"memberAvatar": "rGZAAW_memberAvatar",
+	"memberFailed": "rGZAAW_memberFailed",
+	"memberModel": "rGZAAW_memberModel",
+	"memberName": "rGZAAW_memberName",
+	"memberRow": "rGZAAW_memberRow",
+	"members": "rGZAAW_members",
+	"membersHidden": "rGZAAW_membersHidden",
+	"memberStatus": "rGZAAW_memberStatus",
+	"memberText": "rGZAAW_memberText",
+	"mentionActive": "rGZAAW_mentionActive",
+	"mentionButton": "rGZAAW_mentionButton",
+	"mentionHint": "rGZAAW_mentionHint",
+	"mentionItem": "rGZAAW_mentionItem",
+	"mentionMeta": "rGZAAW_mentionMeta",
+	"mentionName": "rGZAAW_mentionName",
+	"mentionPopup": "rGZAAW_mentionPopup",
+	"mentionTitle": "rGZAAW_mentionTitle",
+	"message": "rGZAAW_message",
+	"messageBody": "rGZAAW_messageBody",
+	"messageHead": "rGZAAW_messageHead",
+	"mobileButton": "rGZAAW_mobileButton",
+	"notice": "rGZAAW_notice",
+	"offline": "rGZAAW_offline",
+	"ownActions": "rGZAAW_ownActions",
+	"page": "rGZAAW_page",
+	"panelToggle": "rGZAAW_panelToggle",
+	"panelToggleEnd": "rGZAAW_panelToggleEnd",
+	"permActions": "rGZAAW_permActions",
+	"permScope": "rGZAAW_permScope",
+	"permStatus": "rGZAAW_permStatus",
+	"presence": "rGZAAW_presence",
+	"primaryButton": "rGZAAW_primaryButton",
+	"quote": "rGZAAW_quote",
+	"quoteAuthor": "rGZAAW_quoteAuthor",
+	"quoteDeleted": "rGZAAW_quoteDeleted",
+	"replyBar": "rGZAAW_replyBar",
+	"replyBarText": "rGZAAW_replyBarText",
+	"replyButton": "rGZAAW_replyButton",
+	"replyCancel": "rGZAAW_replyCancel",
+	"room": "rGZAAW_room",
+	"roomActive": "rGZAAW_roomActive",
+	"roomInput": "rGZAAW_roomInput",
+	"roomLabel": "rGZAAW_roomLabel",
+	"rooms": "rGZAAW_rooms",
+	"roomsHidden": "rGZAAW_roomsHidden",
+	"secondaryButton": "rGZAAW_secondaryButton",
+	"sendButton": "rGZAAW_sendButton",
+	"sendError": "rGZAAW_sendError",
+	"system": "rGZAAW_system",
+	"tag": "rGZAAW_tag",
+	"taskBoard": "rGZAAW_taskBoard",
+	"taskCard": "rGZAAW_taskCard",
+	"taskDone": "rGZAAW_taskDone",
+	"taskEmpty": "rGZAAW_taskEmpty",
+	"taskLine": "rGZAAW_taskLine",
+	"taskLinks": "rGZAAW_taskLinks",
+	"taskList": "rGZAAW_taskList",
+	"taskMember": "rGZAAW_taskMember",
+	"taskMemberName": "rGZAAW_taskMemberName",
+	"taskMembers": "rGZAAW_taskMembers",
+	"taskMeta": "rGZAAW_taskMeta",
+	"taskOwnerGroup": "rGZAAW_taskOwnerGroup",
+	"taskOwnerName": "rGZAAW_taskOwnerName",
+	"taskRow": "rGZAAW_taskRow",
+	"taskSection": "rGZAAW_taskSection",
+	"taskSectionTitle": "rGZAAW_taskSectionTitle",
+	"taskStatus": "rGZAAW_taskStatus",
+	"taskSub": "rGZAAW_taskSub",
+	"taskTitle": "rGZAAW_taskTitle",
+	"text": "rGZAAW_text",
+	"time": "rGZAAW_time",
+	"working": "rGZAAW_working",
+	"workspace": "rGZAAW_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
@@ -1230,6 +1231,7 @@ function TaskCard({ taskId, tasks, t }) {
 /** On-demand help for existing capabilities; selecting help never executes an action. */
 const CAPABILITIES = [
 	["capabilityTaskBoard", "capabilityTaskBoardHelp"],
+	["capabilityAttachments", "capabilityAttachmentsHelp"],
 	["capabilityLater", "capabilityLaterHelp"],
 	["capabilityReminder", "capabilityReminderHelp"],
 	["capabilityWorkspace", "capabilityWorkspaceHelp"],
@@ -1435,6 +1437,25 @@ const CLI_CHOICES = [
 		label: "Gemini"
 	}
 ];
+/** DSH's built-in permission presets in DSH's own order; default = DSH default workspace-write (collab/cli-member.mjs DEFAULT_PERMISSION_PRESET). */
+const PRESETS = [
+	{
+		id: "read-only",
+		label: "permissionReadOnly",
+		hint: "permissionReadOnlyHint"
+	},
+	{
+		id: "workspace-write",
+		label: "permissionWorkspaceWrite",
+		hint: "permissionWorkspaceWriteHint"
+	},
+	{
+		id: "danger-full-access",
+		label: "permissionFullAccess",
+		hint: "permissionFullAccessHint"
+	}
+];
+const DEFAULT_PRESET = "workspace-write";
 /**
 * Render the member dialog.
 * @param props - target member, actions, and copy.
@@ -1450,6 +1471,7 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 	const [type, setType] = (0, react.useState)(member?.cli !== void 0 ? "cli" : "dsh");
 	const [clis, setClis] = (0, react.useState)(void 0);
 	const [cli, setCli] = (0, react.useState)(member?.cli ?? "");
+	const [preset, setPreset] = (0, react.useState)(member?.permissionPreset ?? DEFAULT_PRESET);
 	const [avatar, setAvatar] = (0, react.useState)(member?.avatar !== void 0 && AVATARS.includes(member.avatar) ? member.avatar : "");
 	(0, react.useEffect)(() => {
 		let live = true;
@@ -1493,7 +1515,8 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 			name: name.trim(),
 			persona,
 			avatar,
-			cli
+			cli,
+			permissionPreset: preset
 		} : {
 			name: name.trim(),
 			persona,
@@ -1612,6 +1635,25 @@ function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
 							}, id);
 						})
 					})]
+				}),
+				type === "cli" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+					className: ChannelsPage_module_default.field,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberPermission") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
+							className: ChannelsPage_module_default.fieldInput,
+							"aria-label": t("memberPermission"),
+							value: preset,
+							onChange: (event) => {
+								setPreset(event.target.value);
+							},
+							children: PRESETS.map((p) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+								value: p.id,
+								children: t(p.label)
+							}, p.id))
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t(PRESETS.find((p) => p.id === preset)?.hint ?? "permissionWorkspaceWriteHint") })
+					]
 				}),
 				type === "dsh" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 					className: ChannelsPage_module_default.field,
@@ -1760,6 +1802,14 @@ function KindTag({ kind, cli, t }) {
 	});
 	return null;
 }
+/** IME candidate confirmation (desktop isComposing, iOS/Android keyCode 229) must not send/select/save. */
+function isImeEnter(event) {
+	return Reflect.get(event.nativeEvent, "isComposing") === true || Reflect.get(event.nativeEvent, "keyCode") === 229;
+}
+/** Touch or narrow screens get the short composer placeholder (the long one wraps beside the send button). */
+function compactComposer() {
+	return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (max-width: 600px)").matches;
+}
 /** The quoted original above a reply; a deleted original shows only a placeholder. */
 function Quote({ quote, t }) {
 	if (quote.deleted === true) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -1907,7 +1957,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								if (event.key === "Escape") {
 									event.preventDefault();
 									own.onEditCancel();
-								} else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+								} else if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 									event.preventDefault();
 									own.onEditSave();
 								}
@@ -2086,7 +2136,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -2427,7 +2477,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		}));
 	};
 	const onKeyDown = (event) => {
-		if (draft === "/" && !capabilitiesDismissed && !event.nativeEvent.isComposing) {
+		if (draft === "/" && !capabilitiesDismissed && !isImeEnter(event)) {
 			if (event.key === "Escape") {
 				event.preventDefault();
 				setCapabilitiesDismissed(true);
@@ -2438,7 +2488,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				return;
 			}
 		}
-		if (popupOpen && !event.nativeEvent.isComposing) {
+		if (popupOpen && !isImeEnter(event)) {
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				event.preventDefault();
 				const step = event.key === "ArrowDown" ? 1 : -1;
@@ -2456,7 +2506,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				return;
 			}
 		}
-		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+		if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 			event.preventDefault();
 			submit();
 		}
@@ -2508,7 +2558,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							setNewRoom(event.target.value);
 						},
 						onKeyDown: (event) => {
-							if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+							if (event.key === "Enter" && !isImeEnter(event)) {
 								event.preventDefault();
 								submitRoom();
 							}
@@ -2643,7 +2693,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							member: byId.get(m.author),
 							t,
 							onConfigure: () => {
-								setModelsOpen(true);
+								if (!openModelSettings()) setModelsOpen(true);
 							},
 							menuOpen: avatarMenu === m.id,
 							cardView,
@@ -2778,9 +2828,10 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 										ref: inputRef,
 										className: ChannelsPage_module_default.input,
 										rows: 1,
+										enterKeyHint: "send",
 										value: draft,
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
-										placeholder: t("placeholder", { room: room?.name ?? "" }),
+										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
 										role: "combobox",
 										"aria-expanded": popupOpen,
 										"aria-controls": "channel-mention-list",
@@ -2814,6 +2865,18 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
 										onClick: openPicker,
 										children: "@"
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ChannelsPage_module_default.sendButton,
+										title: t("sendButton"),
+										"aria-label": t("sendButton"),
+										disabled: state.roomId === void 0 || sending[state.roomId] === true || draft.trim() === "" && (pendingFiles[state.roomId] ?? []).length === 0,
+										onMouseDown: (event) => {
+											event.preventDefault();
+										},
+										onClick: submit,
+										children: t("sendButton")
 									})
 								]
 							})
@@ -2982,13 +3045,15 @@ const zh = {
 	panel: "频道",
 	capabilities: "能力清单",
 	capabilityTaskBoard: "任务板",
+	capabilityAttachments: "图片和文件",
+	capabilityAttachmentsHelp: "cc-connect、DSH 原生成员和本机 CLI 成员都可接收频道附件。PNG/JPEG/GIF/WebP 不超过 5 MB 时作为图片，其余作为文件。",
 	capabilityLater: "过会儿回来",
 	capabilityReminder: "催办",
 	capabilityWorkspace: "工作区",
 	capabilityLead: "换主角色",
 	capabilityDm: "私信",
 	capabilityTaskBoardHelp: "在右侧任务板查看负责人、状态和下次查看时间，点「派工消息」或「交回消息」回到对应记录。",
-	capabilityLaterHelp: "告诉角色何时回来、回来做什么，例如「十分钟后回来检查测试结果」。",
+	capabilityLaterHelp: "三类成员都可登记一次性回查：告诉角色何时回来、回来做什么。登记后频道显示下次回查时间，服务重启后仍会在原房间叫醒原成员。",
 	capabilityReminderHelp: "通过任务分发派出的任务，到点会自动催办一次；负责人交回结果或说明卡在哪里。",
 	capabilityWorkspaceHelp: "在聊天频道把任务交给角色，需要时由角色创建工作区。工作区的问题和阶段结果会送回聊天频道。",
 	capabilityLeadHelp: "在成员栏的「主角色」里选择角色。切换后，没有点名的消息由新的主角色接收。",
@@ -3054,6 +3119,7 @@ const zh = {
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
+	placeholderShort: "发消息到 #{room}",
 	placeholder: "发消息到 #{room}，@成员 让它干活（Enter 发送，Shift+Enter 换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
@@ -3066,6 +3132,7 @@ const zh = {
 	mentionTitleQuery: "匹配「{query}」的成员",
 	mentionHint: "↑↓ 选择 · Enter / Tab 确认 · Esc 关闭",
 	mentionButton: "@ 一个成员",
+	sendButton: "发送",
 	attachButton: "添加图片或文件",
 	removeAttachment: "移除附件",
 	attachmentsTooLarge: "附件太大：一条消息合计不能超过 {limit}",
@@ -3101,6 +3168,13 @@ const zh = {
 	memberCli: "本机 CLI",
 	memberCliLoading: "正在检测本机 CLI…",
 	memberCliMissing: "未检测到",
+	memberPermission: "权限",
+	permissionReadOnly: "仅可查看",
+	permissionWorkspaceWrite: "工作区内修改",
+	permissionFullAccess: "完全权限",
+	permissionReadOnlyHint: "CLI 要动手的工具调用一律拒绝。",
+	permissionWorkspaceWriteHint: "CLI 要动手时在频道里发审批卡，由你决定。",
+	permissionFullAccessHint: "启用完全权限后，智能体将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。",
 	memberPersona: "人设（可选）：它是谁、负责什么、说话风格",
 	memberAvatar: "头像",
 	memberAvatarNone: "不用头像（显示首字）",
@@ -3153,13 +3227,15 @@ const en = {
 	panel: "Channels",
 	capabilities: "Capabilities",
 	capabilityTaskBoard: "Task board",
+	capabilityAttachments: "Images and files",
+	capabilityAttachmentsHelp: "cc-connect, native DSH and local CLI members receive channel attachments. PNG/JPEG/GIF/WebP up to 5 MB are images; other uploads are files.",
 	capabilityLater: "Come back later",
 	capabilityReminder: "Reminders",
 	capabilityWorkspace: "Workspaces",
 	capabilityLead: "Primary role",
 	capabilityDm: "Direct messages",
 	capabilityTaskBoardHelp: "View owners, status and next-check times in the task board on the right. Open Dispatch or Delivery to jump to its message.",
-	capabilityLaterHelp: "Tell a role when to return and what to do, for example “Check the test results in ten minutes.”",
+	capabilityLaterHelp: "All three member types can schedule one-shot follow-ups. Tell the role when to return and what to do. Registration appears in the channel, and wakes the original member in the original room after restart.",
 	capabilityReminderHelp: "Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.",
 	capabilityWorkspaceHelp: "Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.",
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
@@ -3196,6 +3272,7 @@ const en = {
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
+	placeholderShort: "Message #{room}",
 	placeholder: "Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)",
 	loading: "Connecting to the channel service…",
 	unavailable: "The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.",
@@ -3208,6 +3285,7 @@ const en = {
 	mentionTitleQuery: "Members matching \"{query}\"",
 	mentionHint: "↑↓ select · Enter / Tab confirm · Esc close",
 	mentionButton: "Mention a member",
+	sendButton: "Send",
 	attachButton: "Attach images or files",
 	removeAttachment: "Remove attachment",
 	attachmentsTooLarge: "Attachments too large: one message can carry at most {limit} in total",
@@ -3243,6 +3321,13 @@ const en = {
 	memberCli: "Local CLI",
 	memberCliLoading: "Detecting CLIs on this machine…",
 	memberCliMissing: "not found",
+	memberPermission: "Permission",
+	permissionReadOnly: "Read Only",
+	permissionWorkspaceWrite: "Workspace Write",
+	permissionFullAccess: "Full access",
+	permissionReadOnlyHint: "Tool calls that would change anything are refused.",
+	permissionWorkspaceWriteHint: "When the CLI wants to act, an approval card is posted in the channel for you to decide.",
+	permissionFullAccessHint: "Full access reduces confirmation steps and lets the agent perform more actions directly, including sensitive operations, file changes, or external commands. Only use it when you trust the current task.",
 	memberPersona: "Persona (optional): who it is, what it does, how it talks",
 	memberAvatar: "Avatar",
 	memberAvatarNone: "No avatar (show initial)",
@@ -3278,7 +3363,8 @@ function apply(ctx) {
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
-	const injected = () => ({
+	const injected = (openModelSettings) => ({
+		openModelSettings,
 		hooks: { channels: channels.source },
 		selectRoom: channels.actions.selectRoom,
 		send: channels.actions.send,
@@ -3299,14 +3385,36 @@ function apply(ctx) {
 		withdrawMessage: channels.actions.withdrawMessage
 	});
 	ctx.slots.inject("main", () => {
-		const dispose = ctx.slots.register({
-			name: "main",
-			key: PANEL_ID,
-			locale: NS,
-			inject: injected
-		}, ChannelsPage);
+		let currentStore;
+		let disposePanel;
+		const bindPanel = () => {
+			const shellStore = ctx.slots.entriesOfSlot("sidebar.settings")[0]?.store;
+			if (disposePanel && shellStore === currentStore) return;
+			disposePanel?.();
+			currentStore = shellStore;
+			disposePanel = shellStore ? ctx.slots.register({
+				name: "main",
+				key: PANEL_ID,
+				locale: NS,
+				store: shellStore,
+				inject: (actions) => injected(() => {
+					actions.openSection("models");
+					return true;
+				})
+			}, ChannelsPage) : ctx.slots.register({
+				name: "main",
+				key: PANEL_ID,
+				locale: NS,
+				inject: () => injected(() => false)
+			}, ChannelsPage);
+		};
+		bindPanel();
+		const unsubscribe = ctx.slots.subscribe("sidebar.settings", bindPanel);
 		if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID);
-		return dispose;
+		return () => {
+			unsubscribe();
+			disposePanel?.();
+		};
 	});
 	ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
 		name: "sidebar.panellist",

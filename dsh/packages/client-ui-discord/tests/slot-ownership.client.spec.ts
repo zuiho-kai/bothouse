@@ -35,6 +35,8 @@ it('source: every child slot the channel plugin declares is its own', () => {
     effect: (effect: () => (() => void)) => { cleanups.push(effect()) },
     locale: { register: () => () => {}, bind: () => (key: string) => key },
     slots: {
+      entriesOfSlot: () => [],
+      subscribe: () => () => {},
       inject: (_slot: string, register: () => (() => void)) => { cleanups.push(register()) },
       register: (definition: { children?: Record<string, unknown> }) => {
         declared.push(...Object.keys(definition.children ?? {}))

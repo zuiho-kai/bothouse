@@ -7,6 +7,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type { StoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { browserTransport, createChannelSource } from './channel-source.ts'
 import { ChannelsIcon } from './ChannelsIcon.tsx'
@@ -23,6 +24,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
+// Borrow the settings shell root store seat; the renderer shares its instance.
+type SettingsStore = StoreHandle<object, { openSection(draft: object, id: string): void }>
+
 const PANEL_ID = 'channels' as MainPanelId
 
 /** Required browser services. */
@@ -37,7 +41,8 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const channels = createChannelSource(browserTransport())
   ctx.effect(() => channels.dispose, 'client-ui-discord: channel stream')
-  const injected = (): ChannelsInjected => ({
+  const injected = (openModelSettings: () => boolean): ChannelsInjected => ({
+    openModelSettings,
     hooks: { channels: channels.source },
     selectRoom: channels.actions.selectRoom,
     send: channels.actions.send,
@@ -58,16 +63,29 @@ export function apply(ctx: ClientContext): void {
     withdrawMessage: channels.actions.withdrawMessage,
   })
   ctx.slots.inject('main', () => {
-    const dispose = ctx.slots.register({
-      name: 'main',
-      key: PANEL_ID,
-      locale: NS,
-      inject: injected,
-    }, ChannelsPage)
+    let currentStore: SettingsStore | undefined
+    let disposePanel: (() => void) | undefined
+    const bindPanel = () => {
+      const shellStore = ctx.slots.entriesOfSlot('sidebar.settings')[0]?.store as SettingsStore | undefined
+      if (disposePanel && shellStore === currentStore) return
+      disposePanel?.()
+      currentStore = shellStore
+      disposePanel = shellStore
+        ? ctx.slots.register({
+            name: 'main', key: PANEL_ID, locale: NS, store: shellStore,
+            inject: actions => injected(() => { actions.openSection('models'); return true }),
+          }, ChannelsPage)
+        : ctx.slots.register({
+            name: 'main', key: PANEL_ID, locale: NS,
+            inject: () => injected(() => false),
+          }, ChannelsPage)
+    }
+    bindPanel()
+    const unsubscribe = ctx.slots.subscribe('sidebar.settings', bindPanel)
     // Deep link: the setup wizard opens `…#channels` (bridge core/setup_dsh_configure.go dshChannelsHash).
     // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
     if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID)
-    return dispose
+    return () => { unsubscribe(); disposePanel?.() }
   })
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',

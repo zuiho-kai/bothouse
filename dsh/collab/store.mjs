@@ -21,6 +21,8 @@ const COLUMNS = [
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
   ['members', 'cli', 'TEXT'], // v4: a member may be a local CLI agent (claude | codex | gemini) instead of a model route.
   ['members', 'avatar', 'TEXT'], // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
+  // A local CLI member's DSH permission preset (cli-member.mjs PERMISSION_PRESETS); NULL means DSH's default.
+  ['members', 'permission_preset', 'TEXT'],
   // v6 (#121): a streamed reply is stored as a draft (shown, not fanned out) until commit
   // clears the flag. Durable, so a restart between commit and finishJob never fans it out twice.
   ['messages', 'draft', 'INTEGER NOT NULL DEFAULT 0'],
@@ -88,6 +90,7 @@ export class Store {
       // A fresh session starts reading after the room's last release (room_resets), not from its start.
       bind: this.db.prepare(`INSERT INTO bindings (member_id, room_id, session_id, context_cursor)
         VALUES (?, ?, ?, COALESCE((SELECT message_id FROM room_resets WHERE room_id = ?), 0))`),
+      rebind: this.db.prepare('UPDATE bindings SET session_id = ? WHERE member_id = ? AND room_id = ?'),
       cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
       firstDraft: this.db.prepare(`SELECT MIN(id) AS id FROM messages WHERE room_id = ? AND id <= ? AND author <> ?
         AND draft = 1 AND deleted = 0 AND card IS NULL`),
@@ -105,13 +108,13 @@ export class Store {
       createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
-      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
+      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, provider = excluded.provider, model = excluded.model,
-          cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, source = 'config', removed = 0`),
-      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
-      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?
+          cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, permission_preset = excluded.permission_preset, source = 'config', removed = 0`),
+      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
+      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?
         WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *`),
       removeMember: this.db.prepare("UPDATE members SET removed = 1 WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *"),
     };
@@ -201,12 +204,22 @@ export class Store {
         reason TEXT,
         paused_at REAL,
         paused_chat INTEGER,
-        source TEXT)`);
+        source TEXT,
+        ref TEXT,
+        base TEXT,
+        renewals INTEGER NOT NULL DEFAULT 0)`);
     } else {
       const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
       for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT']]) {
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
+      }
+      // #574 B2 upgrade: workspace tasks in work with no check time start their 10-minute watch
+      // now (tasks.mjs CHECK_AFTER_S), not from their last change, so an upgrade parks none at once.
+      if (!cols.has('renewals')) {
+        this.db.prepare(`UPDATE tasks SET next_check_at = ? WHERE next_check_at IS NULL AND paused_at IS NULL
+          AND status IN ('assigned', 'accepted', 'asked', 'rework') AND room_id IN (SELECT id FROM rooms WHERE kind = 'workspace')`)
+          .run(Date.now() / 1000 + 10 * 60);
       }
     }
     this.db.exec('CREATE INDEX IF NOT EXISTS tasks_room ON tasks (room_id, id)');
@@ -471,14 +484,14 @@ export class Store {
   member(id) { return this.q.member.get(id); }
   /** Upsert a config member; config always wins for its own ids. */
   seedMember(m, now = Date.now() / 1000) {
-    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, now);
+    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, now);
   }
   addMember(m, now = Date.now() / 1000) {
-    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, now);
+    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
   updateMember(id, m) {
-    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, id);
+    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
   room(id) { return this.q.room.get(id); }
@@ -579,6 +592,8 @@ export class Store {
 
   binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
   bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId, roomId); }
+  /** Point an existing binding at a new Session; the context cursor stays. */
+  rebind(memberId, roomId, sessionId) { this.q.rebind.run(sessionId, memberId, roomId); }
   /**
    * Move a member's context cursor up to messageId, but never past a
    * teammate's uncommitted text draft (#121): it keeps its old id when it

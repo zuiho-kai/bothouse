@@ -1,10 +1,14 @@
 #!/usr/bin/env -S python3 -I
-# d10 到点时由 cc-connect timer 调用：队友已交回就不发「暂停」，没交回才发。
-# 用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <发消息的 cc-connect project> [--dry-run]（d10 填好参数）
+# d10 到点时由桥（bothouse / cc-connect）的 timer 调用：队友已交回就不发「暂停」，没交回才发。
+# 用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <发消息的 cc-connect project> [--renew N] [--dry-run]（d10 填好参数）
+# 续期：没交回时再看最近 10 分钟她有没有动静（团队文件里她的 "wt" 目录下有新提交，或频道里她发了非状态行、非表态的新消息），
+#   有就再挂一个 10 分钟的 d10-fire（--renew 计数），最多续 MAX_RENEW 次；续到上限仍没交回、或续期定时没挂上，照发暂停。
 # 来源：用户 2026-10-23「复盘一下现在的工作流程，看看怎么样更好的就是我们并行的团队模式的去搞」；
 #   事故：2026-10-23 上午 d10 计时 4 次在队友早已交回后白发「暂停」（03:46、10:39 彩虹猫，10:47 前后），
 #   还打断了队友手上的下一件活。规则靠自觉管不住，改成到点自动判断。
-import json, os, re, subprocess, sys, urllib.request
+# 事故二：2026-10-24 队友结果和【接】写在同一条（577 字，没有「交付」等词），被判成接单表态发了暂停，打断了她新接的活。
+#   改为：交回 = 派活后她发的非纯表态实质回复；派活后她又被 @ 派了新活，旧 d10 一律不发暂停。
+import json, os, re, shlex, subprocess, sys, time, urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -14,21 +18,43 @@ import _team  # noqa: E402
 DISCORD_EPOCH_MS = 1420070400000
 STATUS_PREFIXES = ("↪", "⏹", "📬")  # gate 状态行（本任务原话）
 MIN_LEN = 80                         # 短于 80 字视为状态行（本任务原话）
-# 「交回」关键词与 PR 链接（本任务原话：接单消息「【接】已派子 agent」不算交回）
-HANDBACK_RE = re.compile(r"交付|交回|PR|commit|已停手|做完|完成")
+# PR 链接一律算交回（接单消息「【接】已派子 agent」不算交回）
 PR_LINK_RE = re.compile(r"github\.com/[^\s]+/pull/\d+")
+# 【接】开头的消息达到这个长度就算带结果的交回，不是纯表态（事故二：带结果的【接】577 字；纯接单约 90 字）
+ACCEPT_WITH_RESULT_LEN = 300
+LEADING_MENTION_RE = re.compile(r"^(<@!?\d+>\s*)+")
+PAUSE_MARK = "暂停（「"  # d10-fire 自己发的暂停消息，不算新派活
+# 续期上限 2 次：续期也要有新进展，最多 30 分钟（用户 2026-10-23「这10分钟之内搞不完就滚蛋」）
+MAX_RENEW = 2
+STANCE_PREFIXES = ("【接】", "【问】", "【退】", "【升】")
+WINDOW = 600  # 看「最近 10 分钟」有没有动静，和 d10 的 10 分钟一致
 
 
 def is_handback(content: str) -> bool:
-    c = (content or "").strip()
+    # 交回 = 不是 gate 状态行、不是纯接单表态的实质回复；不靠关键词判断（事故二）
+    c = LEADING_MENTION_RE.sub("", (content or "").strip())
     if not c or c.startswith(STATUS_PREFIXES):
         return False
-    if c.startswith("【接】") and not PR_LINK_RE.search(c):
-        # 接单表态里常写「做完交回」，不算交回（本任务原话「先发一条【接】……再干活，这不算交回」）
-        return False
-    if len(c) < MIN_LEN:
-        return False
-    return bool(HANDBACK_RE.search(c) or PR_LINK_RE.search(c))
+    if PR_LINK_RE.search(c):
+        return True
+    if c.startswith("【接】"):
+        # 纯接单表态里常写「做完交回」，不算交回；结果和【接】写在同一条时算交回（事故二）
+        return len(c) >= ACCEPT_WITH_RESULT_LEN
+    return len(c) >= MIN_LEN
+
+
+def redispatched(messages, teammate_id: str, since: float) -> bool:
+    # 派活后频道里又有人 @ 她 = 派了新活，旧 d10 不能再打断（事故二）。
+    # 第一次 @ 是本次派活本身：d10 在同一轮里挂上，派活消息在这一轮结束才发出，晚于 since。
+    mention = re.compile(rf"<@!?{re.escape(str(teammate_id))}>")
+    n = 0
+    for m in messages:
+        if ts_epoch(m) < since or str(m.get("author", {}).get("id")) == str(teammate_id):
+            continue
+        content = m.get("content") or ""
+        if mention.search(content) and PAUSE_MARK not in content:
+            n += 1
+    return n >= 2
 
 
 def ts_epoch(m) -> float:
@@ -46,6 +72,55 @@ def handed_back(messages, teammate_id: str, since: float) -> bool:
     return False
 
 
+def chat_active(messages, teammate_id: str, start: float) -> bool:
+    # 她在 start 之后发过非空、非 gate 状态行、非开头表态的消息 = 还在干（空正文是进度卡；【接】【问】【退】【升】是表态不是进展）
+    for m in messages:
+        if str(m.get("author", {}).get("id")) != str(teammate_id) or ts_epoch(m) < start:
+            continue
+        c = LEADING_MENTION_RE.sub("", (m.get("content") or "").strip())
+        if c and not c.startswith(STATUS_PREFIXES + STANCE_PREFIXES):
+            return True
+    return False
+
+
+def last_commit_epoch(teammate_id: str) -> float:
+    # 她工作目录（团队文件成员的 "wt"，见 _team.worktrees）里各 git 副本 HEAD 的最新提交时间
+    # （committer date，rebase/amend 也会刷新）；没配或找不到返回 0（只看频道动静）
+    latest = 0.0
+    for d in _team.worktrees(teammate_id):
+        try:
+            out = subprocess.run(["git", "-C", str(d), "log", "-1", "--format=%ct", "HEAD"],
+                                 capture_output=True, text=True, timeout=10).stdout.strip()
+            latest = max(latest, float(out or 0))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+    return latest
+
+
+def cc_bin():
+    return _team.cc_bin()
+
+
+def renew(tid, what, since, skey, proj, n, dry):
+    me = str(Path(__file__).resolve())
+    cmd = " ".join(shlex.quote(x) for x in (me, tid, what, f"{since:.0f}", skey, proj, "--renew", str(n)))
+    cc = cc_bin()
+    if not cc:
+        print("续期定时没挂上（找不到 bothouse / cc-connect，可设 CC_BIN）", file=sys.stderr)
+        return 1
+    argv = [cc, "timer", "add", "-p", proj, "-s", skey, "--delay", "10m",
+            "--desc", f"10分钟砍活:{what}(续{n})", "--exec", cmd]
+    if dry:
+        print(f"有新动静，会续 10 分钟（第 {n}/{MAX_RENEW} 次）：{' '.join(argv)}")
+        return 0
+    print(f"有新动静，续 10 分钟（第 {n}/{MAX_RENEW} 次）")
+    try:
+        return subprocess.run(argv).returncode
+    except OSError as e:
+        print(f"续期定时没挂上（{type(e).__name__}）", file=sys.stderr)
+        return 1
+
+
 def fetch_messages(channel_id: str, since: float):
     after = (int(since * 1000) - DISCORD_EPOCH_MS) << 22
     url = f"https://discord.com/api/v10/channels/{channel_id}/messages?limit=50&after={after}"
@@ -60,24 +135,48 @@ def fetch_messages(channel_id: str, since: float):
 def main(argv):
     dry = "--dry-run" in argv
     args = [a for a in argv if a != "--dry-run"]
+    n = 0
+    if "--renew" in args:
+        i = args.index("--renew")
+        try:
+            n = int(args[i + 1])
+        except (IndexError, ValueError):
+            print("--renew 后要跟次数", file=sys.stderr)
+            return 2
+        del args[i:i + 2]
     if len(args) != 5:
-        print("用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <project> [--dry-run]", file=sys.stderr)
+        print("用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <project> [--renew N] [--dry-run]", file=sys.stderr)
         return 2
     tid, what, since, skey, proj = args[0], args[1], float(args[2]), args[3], args[4]
     channel = skey.split(":", 1)[1] if ":" in skey else skey
+    active = False
     try:
-        done = handed_back(fetch_messages(channel, since), tid, since)
+        msgs = fetch_messages(channel, since)
+        if redispatched(msgs, tid, since):
+            print("派活后又派了新活，跳过暂停")
+            return 0
+        done = handed_back(msgs, tid, since)
+        active = chat_active(msgs, tid, max(since, time.time() - WINDOW))
     except Exception as e:  # 读不到频道就按原行为发暂停，不吞掉打断
-        print(f"读频道失败（{type(e).__name__}），按原行为发暂停", file=sys.stderr)
+        print(f"读频道失败（{type(e).__name__}），只按提交判断续期，否则照发暂停", file=sys.stderr)
         done = False
     if done:
         print("已交回，跳过暂停")
         return 0
+    if n < MAX_RENEW and (active or last_commit_epoch(tid) >= max(since, time.time() - WINDOW)):
+        # 续期失败（timer 没挂上）就退回发暂停，不吞掉打断（同上面读不到频道的约定）
+        if renew(tid, what, since, skey, proj, n + 1, dry) == 0:
+            return 0
+        print("续期失败，按原行为发暂停", file=sys.stderr)
     msg = f"<@{tid}> 暂停（「{what}」到 10 分钟了，停手，把做到哪一步交回来）"
     if dry:
         print(f"未交回，会发暂停：{msg}")
         return 0
-    return subprocess.run(["cc-connect", "send", "-p", proj, "-s", skey, "--message", msg]).returncode
+    cc = cc_bin()
+    if not cc:
+        print("暂停没发出（找不到 bothouse / cc-connect，可设 CC_BIN）", file=sys.stderr)
+        return 1
+    return subprocess.run([cc, "send", "-p", proj, "-s", skey, "--message", msg]).returncode
 
 
 if __name__ == "__main__":

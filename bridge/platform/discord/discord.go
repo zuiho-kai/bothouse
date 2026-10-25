@@ -82,7 +82,7 @@ type Platform struct {
 	teamLead                   string            // maomao fork: bot ID of the primary role; a reply to its @ is routed back to it (lead_return.go)
 	botName                    string            // maomao fork: this bot's username, for self-mention marking and name calls (mentions.go)
 	auxChannels                map[string]string // maomao fork: main channel ID → log channel ID; see aux_channels.go
-	guildID                    string            // optional: per-guild registration (instant) vs global (up to 1h propagation)
+	guildID                    string            // optional: instant guild registration, plus DM-only global commands
 	progressStyle              string
 	cardEntries                int
 	cardLineLen                int
@@ -626,20 +626,34 @@ func (p *Platform) RegisterCommands(commands []core.BotCommandInfo) error {
 		return nil
 	}
 
-	registered, err := p.session.ApplicationCommandBulkOverwrite(p.appID, p.guildID, cmds)
-	if err != nil {
-		slog.Error("discord: failed to register slash commands — "+
-			"make sure the bot was invited with BOTH 'bot' AND 'applications.commands' OAuth2 scopes. "+
-			"Re-invite URL: https://discord.com/oauth2/authorize?client_id="+p.appID+
-			"&scope=bot+applications.commands&permissions=2147485696",
-			"error", err, "guild_id", p.guildID)
-		return err
-	}
-	scope := "global (may take up to 1h to appear — set guild_id for instant)"
+	// Guild commands cannot appear in DMs. Keep instant guild registration,
+	// then overwrite the global scope with BotDM-only commands so a guild
+	// never sees a second copy. Without guild_id, one global set serves both.
+	scopes := []string{""}
 	if p.guildID != "" {
-		scope = "guild:" + p.guildID
+		scopes = []string{p.guildID, ""}
 	}
-	slog.Info("discord: registered slash commands", "count", len(registered), "scope", scope)
+	for _, guildID := range scopes {
+		if guildID == "" {
+			contexts := []discordgo.InteractionContextType{discordgo.InteractionContextBotDM}
+			if p.guildID == "" {
+				contexts = []discordgo.InteractionContextType{discordgo.InteractionContextGuild, discordgo.InteractionContextBotDM}
+			}
+			for _, cmd := range cmds {
+				cmd.Contexts = &contexts
+			}
+		}
+		registered, err := p.session.ApplicationCommandBulkOverwrite(p.appID, guildID, cmds)
+		if err != nil {
+			slog.Error("discord: failed to register slash commands — "+
+				"make sure the bot was invited with BOTH 'bot' AND 'applications.commands' OAuth2 scopes. "+
+				"Re-invite URL: https://discord.com/oauth2/authorize?client_id="+p.appID+
+				"&scope=bot+applications.commands&permissions=2147485696",
+				"error", err, "guild_id", guildID)
+			return fmt.Errorf("discord: register slash commands (guild_id=%q): %w", guildID, err)
+		}
+		slog.Info("discord: registered slash commands", "count", len(registered), "guild_id", guildID)
+	}
 
 	return nil
 }
@@ -1073,7 +1087,7 @@ func (p *Platform) handleInteraction(s *discordgo.Session, i *discordgo.Interact
 		MessageID: i.ID,
 		ChannelID: i.ChannelID,
 		UserID:    userID, UserName: userName,
-		Content: cmdText, ReplyCtx: rctx,
+		Content: cmdText, ReplyCtx: rctx, Direct: i.GuildID == "",
 	}
 	msg.ChatName, _ = p.ResolveChannelName(channelID)
 	p.dispatchMessage(msg)

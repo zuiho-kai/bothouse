@@ -1,0 +1,246 @@
+#!/usr/bin/env -S python3 -I
+"""用法：rehearse-copy <真实配置路径> [<目录>] [--keep-secrets]
+      rehearse-copy --restore <config.toml> [<备份文件>] [--dry-run]
+
+把线上真实配置（文件或整个目录，如 <数据目录>/config.toml、DSH 的 profile 目录）
+cp -a 到隔离目录，打印预演要用的 HOME 和配置路径。预演用它，不用全放行的空配置。
+（全放行的空配置测不出线上 allow_from 这类权限设置带来的问题。）
+
+- 目录缺省：调 iso-check before 新建 /tmp/iso.XXXXXX 并登记到本会话（iso-check after <目录> 能删掉它）；
+  登记失败（如取不到会话键）就中止，不留没人认领的目录。
+- 真实配置在 $HOME 下时，副本放到 <目录>/home/<同一相对路径>，打印 HOME=<目录>/home。
+- 缺省脱敏：键名含 token/secret/password/api_key/key_id/encrypt_key/aes_key/wps_sid/webhook_url 的值换成
+  REDACTED（键名对照 bridge/platform/*/ 读 opts 的凭据键；带引号的键、TOML 多行串也处理），
+  URL 里的 token= 和 userinfo（http://user:pass@host 的 user:pass）也换；
+  所有能按 UTF-8 读的文本都扫（含 config.toml.bak-* 备份、export 行、toml 行内表）。
+  理由：副本若带真 bot token，预演实例会用同一个 bot 身份连上真频道，抢消息、重复回复。
+  --keep-secrets 关掉脱敏（只在预演必须真连外部服务时用）。
+  allow_from、admin_from 等权限字段原样保留——这正是预演要测的东西。
+- 副本里仍指向真实 $HOME 的绝对路径会列出来提醒（不改写，保持与线上同形）。
+
+回滚到改前配置（--restore）：设置向导 / setup apply 改 config.toml 前会把原文件留成
+config.toml.bak-<时间>（bridge/config/wizard.go 的 backupPath）。--restore 把指定的那份
+（缺省：从新到旧第一份内容与当前文件不同的，所以连跑几次会逐份往前退）装回 <config.toml>；
+装回前把当前文件留成 config.toml.pre-restore-<时间>——不用 .bak- 名，免得下一次 --restore 把它
+当最新备份装回去；要撤销回滚就显式给它：rehearse-copy --restore <config.toml> <pre-restore 文件>。
+--dry-run 只打印会用哪份备份、不写文件。装回后重启桥才生效。
+"""
+import os, re, shutil, subprocess, sys, tempfile, time
+
+# 键名片段对照 bridge/platform/*/ 读 opts 的凭据键：token/bot_token/app_token/access_token/callback_token/
+# channel_token、*_secret、*password、encrypt_key（飞书）、callback_aes_key（企业微信）、wps_sid（WPS）、
+# webhook_url（URL 本身带凭据）；key[_-]?id：ALPACA_KEY_ID 这类。proxy 的 user:pass@ 由 URL_USERINFO 处理。
+FRAG = r'(?:token|secret|password|passwd|api[_-]?key|apikey|key[_-]?id|encrypt[_-]?key|aes[_-]?key|private[_-]?key|wps[_-]?sid|webhook[_-]?url)'
+BARE = r'[A-Za-z0-9_.-]*' + FRAG + r'[A-Za-z0-9_.-]*'
+# toml 允许带引号的键："bot_token" = "..."、'bot_token' = '...'
+KEY = r'(?:' + BARE + r'|"[^"\n]*' + FRAG + r'[^"\n]*"|\'[^\'\n]*' + FRAG + r'[^\'\n]*\')'
+# 值：TOML 多行串（三引号，可跨行）放最前，否则 "" 会先吃掉开头两个引号把文件写坏
+VAL = r'("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:[^"\\\n]|\\.)*"|\'[^\'\n]*\'|'
+PATS = [
+    # toml / env / ini：key = "v" | key=v | export KEY=v | key = """多行"""
+    re.compile(r'(?im)^(\s*(?:export\s+)?' + KEY + r'\s*=\s*)' + VAL + r'[^\s#\n]+)'),
+    # toml 行内表：x = { token = "v", api_key = "v" }（{ 或 , 之后的键）
+    re.compile(r'(?i)([{,]\s*' + KEY + r'\s*=\s*)' + VAL + r'[^\s#\n,}]+)'),
+    # json："key": "v"
+    re.compile(r'(?i)("' + BARE + r'"\s*:\s*)("(?:[^"\\\n]|\\.)*")'),
+    # yaml：key: v
+    re.compile(r'(?im)^(\s*' + KEY + r'\s*:\s+)("[^"\n]*"|\'[^\'\n]*\'|[^\s#\n]+)'),
+]
+URL_TOKEN = re.compile(r'([?&](?:token|access_token|key)=)[^&#"\s]+', re.I)
+# scheme://userinfo@host：proxy = "http://user:pass@host"、webhook 里的凭据
+URL_USERINFO = re.compile(r'([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s"\'<>]+)@')
+
+
+def redact_text(s):
+    n = 0
+    def rep(m):
+        nonlocal n
+        v = m.group(2)
+        if v.strip('"\'').isdigit():  # max_tokens = 4096 这类数值不是密钥，原样留（保持与线上同形）
+            return m.group(0)
+        q = v[:3] if v[:3] in ('"""', "'''") else (v[0] if v[:1] in '"\'' else '')
+        if v[len(q):-len(q) or None] == 'REDACTED':
+            return m.group(0)
+        n += 1
+        return m.group(1) + q + 'REDACTED' + q
+    for p in PATS:
+        s = p.sub(rep, s)
+    def rep_ui(m):
+        nonlocal n
+        if m.group(2) in ('REDACTED', 'REDACTED:REDACTED'):
+            return m.group(0)
+        n += 1
+        return m.group(1) + ('REDACTED:REDACTED' if ':' in m.group(2) else 'REDACTED') + '@'
+    s = URL_USERINFO.sub(rep_ui, s)
+    s, k = URL_TOKEN.subn(lambda m: m.group(1) + 'REDACTED', s)
+    return s, n + k
+
+
+# 与 bridge/config/wizard.go backupPath 同名规则：<配置>.bak-YYYYMMDD-HHMMSS，重名追加 -2、-3…
+BAK = re.compile(r'\.bak-(\d{8}-\d{6})(?:-(\d+))?$')
+# --restore 装回前留底用的名字；不是 .bak-，backups() 不选它（否则连跑两次会把刚换下的坏配置装回去）
+PRE = re.compile(r'\.pre-restore-(\d{8}-\d{6})(?:-(\d+))?$')
+
+
+def backups(cfg):
+    d, base = os.path.dirname(cfg), os.path.basename(cfg)
+    out = []
+    for f in os.listdir(d):
+        if f.startswith(base + '.bak-'):
+            m = BAK.search(f[len(base):])
+            if m and m.start() == 0:
+                out.append(((m.group(1), int(m.group(2) or 1)), os.path.join(d, f)))
+    return [p for _, p in sorted(out)]
+
+
+def keep_path(cfg):
+    base = cfg + '.pre-restore-' + time.strftime('%Y%m%d-%H%M%S')
+    p, n = base, 2
+    while os.path.lexists(p):
+        p, n = f'{base}-{n}', n + 1
+    return p
+
+
+def restore(args):
+    dry = '--dry-run' in args
+    args = [a for a in args if a != '--dry-run']
+    if not args or len(args) > 2:
+        print(__doc__.strip())
+        return 2
+    cfg = os.path.abspath(os.path.expanduser(args[0]))
+    if not os.path.isfile(cfg):
+        print(f'rehearse-copy: 找不到配置文件 {cfg}', file=sys.stderr)
+        return 1
+    if len(args) == 2:
+        bak = os.path.abspath(os.path.expanduser(args[1]))
+        suf = bak[len(cfg):] if bak.startswith(cfg) else ''
+        ok = any((m := r.search(suf)) and m.start() == 0 for r in (BAK, PRE))
+        if os.path.dirname(bak) != os.path.dirname(cfg) or not ok:
+            print(f'rehearse-copy: {bak} 不是 {os.path.basename(cfg)}.bak-<时间> 或 .pre-restore-<时间> 形状的备份', file=sys.stderr)
+            return 1
+        if not os.path.isfile(bak):
+            print(f'rehearse-copy: 找不到备份 {bak}', file=sys.stderr)
+            return 1
+    else:
+        bs = backups(cfg)
+        if not bs:
+            print(f'rehearse-copy: {os.path.dirname(cfg)} 下没有 {os.path.basename(cfg)}.bak-* 备份，无可回滚', file=sys.stderr)
+            return 1
+        with open(cfg, 'rb') as fh:
+            cur = fh.read()
+        diff = [b for b in bs if open(b, 'rb').read() != cur]
+        if not diff:
+            print(f'rehearse-copy: 所有 {os.path.basename(cfg)}.bak-* 都与当前文件相同，无可回滚', file=sys.stderr)
+            return 1
+        bak = diff[-1]
+    keep = keep_path(cfg)
+    if dry:
+        print(f'DRY-RUN 会用备份：{bak}')
+        print(f'DRY-RUN 当前文件会先留成：{keep}')
+        return 0
+    shutil.copy2(cfg, keep)
+    tmp = cfg + '.restore.tmp'
+    shutil.copy2(bak, tmp)
+    os.replace(tmp, cfg)
+    print(f'RESTORED={cfg}')
+    print(f'来自：{bak}')
+    print(f'回滚前的文件留在：{keep}（要撤销回滚：rehearse-copy --restore {cfg} {keep}）')
+    print('重启桥后生效。')
+    return 0
+
+
+def files_under(p):
+    if os.path.isfile(p):
+        yield p
+        return
+    for root, dirs, fs in os.walk(p):
+        dirs[:] = [d for d in dirs if d not in ('node_modules', '.git')]
+        for f in fs:
+            yield os.path.join(root, f)
+
+
+def main(argv):
+    if argv[:1] == ['--restore']:
+        return restore(argv[1:])
+    keep = '--keep-secrets' in argv
+    args = [a for a in argv if a != '--keep-secrets']
+    if not args or args[0] in ('-h', '--help') or len(args) > 2:
+        print(__doc__.strip())
+        return 0 if args and args[0] in ('-h', '--help') else 2
+    src = os.path.abspath(os.path.expanduser(args[0]))
+    if not os.path.exists(src):
+        print(f'rehearse-copy: 找不到 {src}', file=sys.stderr)
+        return 1
+    if len(args) == 2:
+        out = os.path.abspath(args[1])
+        os.makedirs(out, exist_ok=True)
+    else:
+        # 调 iso-check before 建目录并登记到本会话，iso-check after 只删本会话登记过的目录；登记失败就中止
+        r = subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), 'iso-check'), 'before'],
+                           capture_output=True, text=True)
+        got = [l[len('ISO_DIR='):].split('（')[0] for l in r.stdout.splitlines() if l.startswith('ISO_DIR=')]
+        if r.returncode != 0 or not got:
+            print(f'rehearse-copy: iso-check before 失败，中止：{r.stderr.strip()}', file=sys.stderr)
+            return 1
+        out = got[0]
+    home = os.path.realpath(os.path.expanduser('~'))
+    rsrc = os.path.realpath(src)
+    if rsrc == home or rsrc.startswith(home + os.sep):
+        new_home = os.path.join(out, 'home')
+        dst = os.path.join(new_home, os.path.relpath(rsrc, home))
+    else:
+        new_home = None
+        dst = os.path.join(out, os.path.basename(rsrc))
+    if os.path.exists(dst):
+        print(f'rehearse-copy: 目标已存在 {dst}，换个目录', file=sys.stderr)
+        return 1
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    # cp -a：保留权限、时间、软链
+    rc = os.spawnvp(os.P_WAIT, 'cp', ['cp', '-a', rsrc, dst])
+    if rc != 0:
+        print('rehearse-copy: cp -a 失败', file=sys.stderr)
+        return 1
+
+    redacted, home_refs = 0, []
+    for f in files_under(dst):
+        # 不按扩展名挑：能按 UTF-8 读的文本都扫（config.toml.bak-* 这类备份也带 token）
+        if os.path.islink(f):
+            continue
+        try:
+            if os.path.getsize(f) > 2_000_000:
+                continue
+            with open(f, encoding='utf-8') as fh:
+                s = fh.read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        if '\x00' in s:  # 含 NUL 的按二进制跳过
+            continue
+        if not keep:
+            s2, n = redact_text(s)
+            if n:
+                os.chmod(f, os.stat(f).st_mode | 0o200)
+                with open(f, 'w', encoding='utf-8') as fh:
+                    fh.write(s2)
+                redacted += n
+        for i, line in enumerate(s.splitlines(), 1):
+            if home in line:
+                home_refs.append(f'{os.path.relpath(f, out)}:{i}')
+
+    print(f'REHEARSE_DIR={out}')
+    if new_home:
+        print(f'HOME={new_home}')
+    print(f'CONFIG={dst}')
+    print(f'脱敏：{"关（--keep-secrets）" if keep else f"{redacted} 处"}')
+    if home_refs:
+        print(f'注意：副本里 {len(home_refs)} 行仍指向真实 {home}（预演实例会读写真实目录，按需改）：')
+        for r in home_refs[:10]:
+            print('  ' + r)
+        if len(home_refs) > 10:
+            print(f'  …另 {len(home_refs) - 10} 行')
+    print(f'回滚：改线上配置用设置向导或 setup apply（会先留 .bak-<时间>），出问题跑 rehearse-copy --restore <config.toml>')
+    print(f'用完：iso-check after {out}' if os.path.basename(out).startswith('iso.') else f'用完：rm -rf {out}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

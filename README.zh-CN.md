@@ -105,7 +105,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 
 | 平台 | 现状 | 现在能做什么 |
 | --- | --- | --- |
-| Discord | 完整 | 多角色团队全部功能：点名、派活交差、队友状态、日志频道 |
+| Discord | 完整 | 多角色团队全部功能：点名、派活交差、队友状态、日志频道；服务器和机器人私聊均支持斜杠命令 |
 | 自建平台 | 团队模式 | 自带一个类 Discord 的网页频道，可以在本机启动；多角色点名、派活交差 |
 | 飞书 | 单角色 | 先接一个角色对话 |
 | DSH 网页 | 实验 | DSH 网页里的「频道」页，见 [DSH 频道入口](dsh/collab/README.md) |
@@ -330,3 +330,7 @@ Discord / 飞书 / 自建网页频道
 bothouse 按 [Apache-2.0](LICENSE) 授权，详见[许可说明](LICENSING.md)。
 
 随附桥接组件的上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，感谢原作者和贡献者。第三方依赖许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
+
+## 社区
+
+- [linux.do](https://linux.do) - 一个活跃的开发者社区。

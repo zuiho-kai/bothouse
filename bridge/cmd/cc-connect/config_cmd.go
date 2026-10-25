@@ -14,6 +14,10 @@ func runConfig(args []string) {
 		printConfigUsage()
 		os.Exit(1)
 	}
+	if isHelpArg(args[0]) {
+		printConfigUsage()
+		return
+	}
 	switch args[0] {
 	case "example":
 		fmt.Print(ccconnect.ConfigExampleTOML)

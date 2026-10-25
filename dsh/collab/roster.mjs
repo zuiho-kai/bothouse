@@ -5,6 +5,7 @@
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { CollabError } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
+import { PERMISSION_PRESETS } from './cli-member.mjs';
 
 const MAX_NAME = 32;
 const MAX_PERSONA = 4000;
@@ -20,6 +21,7 @@ export function rowToMember(row) {
     name: row.name,
     ...(row.provider && row.model ? { model: { provider: row.provider, model: row.model } } : {}),
     ...(row.cli ? { cli: row.cli } : {}),
+    ...(row.cli && row.permission_preset ? { permissionPreset: row.permission_preset } : {}),
     persona: row.persona ?? '',
     ...(row.avatar ? { avatar: row.avatar } : {}),
     source: row.source,
@@ -42,7 +44,13 @@ export class Roster {
   /** Write config members as seeds, then publish every active member. */
   load(configMembers) {
     this.store.transaction(() => { for (const m of configMembers) this.store.seedMember(m); });
-    for (const row of this.store.members()) this.dsh.putMember(rowToMember(row));
+    // The members table has no preset columns: a config member's agentPreset and
+    // permissionPreset come from the config itself, or they never reach its Sessions.
+    const presets = new Map(configMembers.map(m => [m.id, {
+      ...(m.agentPreset === undefined ? {} : { agentPreset: m.agentPreset }),
+      ...(m.permissionPreset === undefined ? {} : { permissionPreset: m.permissionPreset }),
+    }]));
+    for (const row of this.store.members()) this.dsh.putMember({ ...rowToMember(row), ...(row.source === 'ui' ? {} : presets.get(row.id)) });
   }
 
   /**
@@ -103,6 +111,10 @@ export class Roster {
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
     const m = await this.validate(input, id);
+    // An edit that leaves out the approval tier keeps the stored one instead of falling back to the default.
+    if (m.cli !== undefined && input?.permissionPreset === undefined && existing.cli && existing.permission_preset) {
+      m.permissionPreset = existing.permission_preset;
+    }
     const row = this.store.updateMember(id, m);
     const member = rowToMember(row);
     this.dsh.putMember(member);
@@ -132,7 +144,10 @@ export class Roster {
       // A local CLI member brings its own model; no provider route to check.
       const cli = String(input.cli);
       if (!CLIS.includes(cli)) throw new CollabError('invalid', `cli must be one of ${CLIS.join(', ')}`);
-      return { name, persona, avatar, cli };
+      // Tool approval tier: one of DSH's permission presets; absent = DSH's default (cli-member.mjs).
+      const preset = input.permissionPreset == null || input.permissionPreset === '' ? undefined : String(input.permissionPreset);
+      if (preset !== undefined && !PERMISSION_PRESETS.includes(preset)) throw new CollabError('invalid', `permissionPreset must be one of ${PERMISSION_PRESETS.join(', ')}`);
+      return { name, persona, avatar, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
     }
     let model;
     if (input?.model != null) {

@@ -65,6 +65,8 @@ bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记
 
 fix-claim-guard 和 promise-guard 认的是中文措辞。
 
+这些 hook 就是「同类错第 2 次写成检查，不再往规则里加字」的落点：`lessons.py`（由 wiki-context 加载）按 wiki 教训表里的「N 次」提醒，某条到 2 次就在这里加一个 hook 或测试，常驻规则本身加一删一。
+
 ### subagent-ctx-hook（默认开）
 
 `subagent-ctx-hook` 管子 agent 的上下文：子 agent 的上下文到 15 万 token 后，PreToolUse 拒绝它之后的每次工具调用，拒绝理由里要求它写简短交接（做到哪、文件在哪、下一步）作为最终回复后收工；主会话（hook 输入里没有 `agent_id`）不管。上下文取子 agent 转录里最新一条 assistant 的 usage（Codex 子线程取 rollout 里最后一条 token_count，DSH 用 dsh-cc-compat 补的 `context_tokens`）。出错一律放行。

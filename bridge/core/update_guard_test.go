@@ -310,9 +310,9 @@ func TestUpdateEntry_ChatUpgradeGuardFailsUndoesAndSays(t *testing.T) {
 }
 
 func TestUpdateEntry_SocketUpdateArmsGuard(t *testing.T) {
-	_, got := armFixture(t, nil)
+	spec, got := armFixture(t, nil)
 	rec := httptest.NewRecorder()
-	handleSocketUpdate(rec, httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(`{"tag":"v0.1.5"}`)))
+	handleSocketUpdate(rec, socketUpdateRequest(spec.Exe, "v0.1.5"))
 	if !strings.Contains(rec.Body.String(), `"restarting"`) {
 		t.Fatalf("reply %s", rec.Body.String())
 	}
@@ -340,13 +340,13 @@ func TestUpdateGuard_RollbackTellsChat(t *testing.T) {
 
 // Management off: the update still gets a self-check, probing the local socket's /version.
 func TestUpdateEntry_NoManagementUsesSocket(t *testing.T) {
-	_, got := armFixture(t, nil)
+	spec, got := armFixture(t, nil)
 	activeMgmt.Store(nil)
 	oldSock, _ := activeAPISocket.Load().(string)
 	t.Cleanup(func() { activeAPISocket.Store(oldSock) })
 	activeAPISocket.Store("/tmp/bh-test/api.sock")
 	rec := httptest.NewRecorder()
-	handleSocketUpdate(rec, httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(`{"tag":"v0.1.5"}`)))
+	handleSocketUpdate(rec, socketUpdateRequest(spec.Exe, "v0.1.5"))
 	if len(*got) != 1 || (*got)[0].SocketPath != "/tmp/bh-test/api.sock" || (*got)[0].StatusURL != "" {
 		t.Fatalf("guard %+v", *got)
 	}
@@ -361,7 +361,7 @@ func TestUpdateEntry_NoProbeUndoes(t *testing.T) {
 	t.Cleanup(func() { activeAPISocket.Store(oldSock) })
 	activeAPISocket.Store("")
 	rec := httptest.NewRecorder()
-	handleSocketUpdate(rec, httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(`{"tag":"v0.1.5"}`)))
+	handleSocketUpdate(rec, socketUpdateRequest(spec.Exe, "v0.1.5"))
 	if len(*got) != 0 || len(RestartCh) != 0 || readFile(t, spec.Exe) != "OLD" {
 		t.Fatalf("restarted unguarded: guards=%d restarts=%d", len(*got), len(RestartCh))
 	}

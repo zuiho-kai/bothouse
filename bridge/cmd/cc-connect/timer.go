@@ -304,6 +304,9 @@ func runTimerDel(args []string) {
 				i++
 				dataDir = args[i]
 			}
+		case "--help", "-h", "-help":
+			printTimerUsage()
+			return
 		default:
 			id = args[i]
 		}

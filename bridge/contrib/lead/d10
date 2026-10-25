@@ -23,11 +23,14 @@ def main(argv):
         sys.exit("d10: 读不到 CC_SESSION_KEY（要在 cc-connect 会话里跑）")
     fire = Path(__file__).resolve().with_name("d10-fire")
     cmd = " ".join(shlex.quote(x) for x in (str(fire), tid, argv[1], str(int(time.time())), skey, _team.project()))
-    r = subprocess.run(["cc-connect", "timer", "add", "--delay", DELAY, "--desc", f"10分钟砍活:{argv[1]}", "--exec", cmd],
+    cc = _team.cc_bin()
+    if not cc:
+        sys.exit("d10: 找不到 bothouse / cc-connect（可设 CC_BIN）")
+    r = subprocess.run([cc, "timer", "add", "--delay", DELAY, "--desc", f"10分钟砍活:{argv[1]}", "--exec", cmd],
                        capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"d10: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
-    print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
+    print((r.stdout.strip().splitlines() or [""])[0])  # 桥输出第一行就是 timer id
 
 
 if __name__ == "__main__":

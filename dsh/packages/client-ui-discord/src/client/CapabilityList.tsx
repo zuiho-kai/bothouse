@@ -6,6 +6,7 @@ import css from './ChannelsPage.module.css'
 
 const CAPABILITIES = [
   ['capabilityTaskBoard', 'capabilityTaskBoardHelp'],
+  ['capabilityAttachments', 'capabilityAttachmentsHelp'],
   ['capabilityLater', 'capabilityLaterHelp'],
   ['capabilityReminder', 'capabilityReminderHelp'],
   ['capabilityWorkspace', 'capabilityWorkspaceHelp'],

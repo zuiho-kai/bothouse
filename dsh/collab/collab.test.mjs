@@ -6,7 +6,7 @@ import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } from './dsh-member.mjs';
-import { resolveConfig } from './plugin.mjs';
+import { resolveConfig, installApprovalAnswerer } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules, TurnProgress } from './dsh-member.mjs';
@@ -126,7 +126,7 @@ test('team exit: forwards asks and returns answers to the recorded workspace', a
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   new TeamExit(hub);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案\n自验：无需\n类别：方向' });
   await tick();
   const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
   assert.ok(forwarded);
@@ -306,6 +306,8 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
  */
 function fakeDsh() {
   const sessions = new Map();
+  const unloaded = new Set();
+  const deleted = new Set();
   const made = [];
   let ids = 0;
   let members;
@@ -324,21 +326,33 @@ function fakeDsh() {
   const ctx = {
     agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-v4' }) },
     agents: {
-      get: id => sessions.get(id),
+      get: id => (unloaded.has(id) ? undefined : sessions.get(id)),
       created: [], resumes: 0, active: 0, maxActive: 0,
       async create(options) { const agent = agentFor(options.sessionId); made.push(options.sessionId); this.created.push(options); await options.setup?.({ on() {} }); return { agent }; },
-      async resume({ resumeSessionId }) {
+      resumedTools: [],
+      async resume({ resumeSessionId, setup }) {
         this.resumes++; this.active++; this.maxActive = Math.max(this.maxActive, this.active);
         await tick();
         this.active--;
+        if (deleted.has(resumeSessionId)) throw new Error(`session ${resumeSessionId} not found`);
+        unloaded.delete(resumeSessionId);
+        // Like DSH: a resumed Agent starts with only the built-in tool; its setup adds the rest.
+        const resumedCtx = { on() {}, tools: ['working_directory'] };
+        await setup?.(resumedCtx);
+        this.resumedTools.push(resumedCtx.tools);
         return { agent: sessions.get(resumeSessionId) ?? agentFor(resumeSessionId) };
       },
     },
-    agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount() {} },
-    permissionPresets: { set() {} },
+    agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount(agentCtx) { agentCtx.tools?.push('bash', 'read', 'edit'); } },
+    permissionPresets: { sets: [], set(session, preset) { this.sets.push([session.id, preset]); } },
     sessionTitle: { renamed: [], rename(s, t) { this.renamed.push(t); } },
-    workspaceRegistry: { async create(path) { return { path, async attachSession() {} }; } },
+    workspaceRegistry: { archivedSessionIds: [], async create(path) { return { path, async attachSession() {} }; } },
+    sessionPersistence: { async stat(id) { return deleted.has(id) ? undefined : { header: { id } }; } },
   };
+  /** A process restart: every Session is persisted but none is loaded. */
+  const restart = () => { for (const id of sessions.keys()) unloaded.add(id); };
+  /** The user deletes a Session: it is unloaded and gone from persistence. */
+  const remove = (id) => { unloaded.add(id); deleted.add(id); };
   const emit = (agent, type, data) => {
     const event = { type, data, seq: agent.session.events.length + 1 };
     agent.session.events.push(event);
@@ -362,7 +376,7 @@ function fakeDsh() {
     members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet }, list, options);
     return members;
   };
-  return { ctx, sessions, made, emit, turn, attach };
+  return { ctx, sessions, made, emit, turn, attach, restart, remove };
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
@@ -399,6 +413,146 @@ test('DSH member: @ admits one prompt, its turn posts the reply, duplicates neve
   assert.equal(dsh.made.length, 1, 'the bound Session is reused');
   assert.equal(agent.prompts.length, 2);
   assert.doesNotMatch(agent.prompts[1].content[0].text, /先说一句/, 'only unseen messages are sent');
+});
+
+test('DSH member: a new Session is held by the plugin, out of the DSH conversation list', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你好' });
+  await settle();
+  assert.equal(dsh.ctx.agents.created.length, 1);
+  // DSH's list hides origin "subagent" Sessions (dsh-client-ui-workspace sessionVisible).
+  assert.equal(dsh.ctx.agents.created[0].meta.origin, 'subagent');
+});
+
+/** Bind ds in room 1 with one answered turn; returns the bound agent. */
+async function boundOnce(hub, dsh) {
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 第一次' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, ['第一次的回答']);
+  await settle();
+  return agent;
+}
+
+/** @ ds again and answer the turn; returns the agent that got the prompt. */
+async function askAgain(hub, dsh, text) {
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text });
+  await settle();
+  const agent = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(agent, [`回答：${text}`]);
+  await settle();
+  return agent;
+}
+
+for (const [label, lose] of [
+  ['archived', (dsh, id) => dsh.ctx.workspaceRegistry.archivedSessionIds.push(id)],
+  ['deleted', (dsh, id) => dsh.remove(id)],
+]) {
+  test(`DSH member: a bound Session that was ${label} is replaced by a new hidden one and the @ is answered`, async () => {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+    const old = await boundOnce(hub, dsh);
+    lose(dsh, old.session.id);
+    const agent = await askAgain(hub, dsh, '@DeepSeek 第二次');
+    assert.notEqual(agent.session.id, old.session.id, 'a new Session is bound');
+    assert.equal(old.prompts.length, 1, 'nothing goes to the lost Session');
+    assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+    assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
+    assert.equal(hub.store.openJobs().length, 0);
+    assert.ok(!hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'no failure card');
+  });
+}
+
+test('DSH member: a resume error on a Session that is still there does not rebind it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  const resume = dsh.ctx.agents.resume;
+  dsh.ctx.agents.resume = async () => { throw new Error('corrupt log'); };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 第二次' });
+  await settle();
+  dsh.ctx.agents.resume = resume;
+  assert.equal(hub.store.binding('ds', 1).session_id, old.session.id, 'the binding keeps the old Session');
+  assert.equal(dsh.ctx.agents.created.length, 1, 'no new Session');
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'the failure is shown');
+});
+
+test('DSH member: after a restart the resumed Session gets its agent preset tools and permission preset', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek', permissionPreset: 'danger-full-access' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  dsh.ctx.permissionPresets.sets.length = 0;
+  const agent = await askAgain(hub, dsh, '@DeepSeek 重启后 fa');
+  assert.equal(agent, old, 'the same Session answers');
+  assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('bash'), 'the agent preset is mounted on resume');
+  assert.deepEqual(dsh.ctx.permissionPresets.sets, [[old.session.id, 'danger-full-access']], 'the permission preset is applied on resume');
+});
+
+test('DSH member: the request hook is installed once per Agent, after create and after resume, however often it is @-ed', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const setups = [];
+  const setup = members.setup.bind(members);
+  members.setup = (agentCtx, member, agent) => { setups.push(member.id); return setup(agentCtx, member, agent); };
+  const created = await boundOnce(hub, dsh);
+  await askAgain(hub, dsh, '@DeepSeek 第二次');
+  assert.equal(setups.length, 1, 'created: hooked once');
+  // Like DSH, a resume after a restart hands back a new Agent object.
+  dsh.restart();
+  dsh.sessions.delete(created.session.id);
+  const resumed = await askAgain(hub, dsh, '@DeepSeek 重启后一次');
+  await askAgain(hub, dsh, '@DeepSeek 重启后两次');
+  assert.notEqual(resumed, created);
+  assert.equal(setups.length, 2, 'resumed: hooked once more, not on every @');
+});
+
+test('DSH member: after a restart a bound hidden Session is resumed, and one deleted meanwhile is replaced', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  const resumes = dsh.ctx.agents.resumes;
+  const agent = await askAgain(hub, dsh, '@DeepSeek 重启后');
+  assert.equal(agent, old, 'the same Session answers');
+  assert.equal(dsh.ctx.agents.resumes, resumes + 1);
+  assert.equal(dsh.ctx.agents.created.length, 1);
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 重启后');
+
+  dsh.restart();
+  dsh.remove(old.session.id);
+  const fresh = await askAgain(hub, dsh, '@DeepSeek 删了以后');
+  assert.notEqual(fresh.session.id, old.session.id);
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 删了以后');
+});
+
+test('DSH member: /new gives the addressed member a new hidden Session that reads on from /new', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
+  const old = await boundOnce(hub, dsh);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '旧话题' });
+  const { message: cmd } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek /new' });
+  await settle();
+  const fresh = hub.store.binding('ds', 1);
+  assert.notEqual(fresh.session_id, old.session.id, '/new rebinds');
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+  assert.equal(fresh.context_cursor, cmd.id, 'the new Session starts after /new');
+  assert.equal(old.prompts.length, 1, '/new is not sent to the model');
+  assert.equal(hub.store.binding('qw', 1), undefined, 'a member not addressed is left alone');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '✅ DeepSeek 的新会话已创建');
+  const agent = await askAgain(hub, dsh, '@DeepSeek 新话题');
+  assert.equal(agent.session.id, fresh.session_id);
+  assert.doesNotMatch(agent.prompts[0].content[0].text, /旧话题/);
 });
 
 test('DSH member: a turn started from the DSH Web UI is never posted to the channel', async () => {
@@ -750,6 +904,15 @@ function fakeLlm() {
   };
 }
 
+test('roster: a config member keeps its agent preset and permission preset', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, []);
+  new Roster(hub, members, fakeLlm()).load([{ id: 'fa', name: 'FullAccess', agentPreset: 'standard', permissionPreset: 'danger-full-access' }]);
+  assert.equal(members.config.get('fa').permissionPreset, 'danger-full-access');
+  assert.equal(members.config.get('fa').agentPreset, 'standard');
+});
+
 test('roster: config seeds are read-only, UI members are created, edited and removed, names stay unique', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
@@ -865,6 +1028,21 @@ test('roster: a local CLI member is created without a model check and survives r
   const reloaded = fakeDsh().attach(makeHubFrom(hub.store), []);
   new Roster(reloaded.hub, reloaded, fakeLlm()).load([]);
   assert.equal(reloaded.config.get('cc').cli, 'codex');
+});
+
+test('roster: editing a CLI member without permissionPreset keeps the stored tier', async () => {
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  roster.load([]);
+  await roster.create({ name: 'CC', cli: 'claude', permissionPreset: 'danger-full-access' });
+  assert.equal(hub.memberView().find(m => m.id === 'cc').permissionPreset, 'danger-full-access');
+  const kept = await roster.update('cc', { name: 'CC', cli: 'claude', avatar: 'dragon' });
+  assert.equal(kept.permissionPreset, 'danger-full-access', 'absent tier keeps the old one, not the default');
+  assert.equal(hub.store.member('cc').permission_preset, 'danger-full-access');
+  const changed = await roster.update('cc', { name: 'CC', cli: 'claude', permissionPreset: 'read-only' });
+  assert.equal(changed.permissionPreset, 'read-only');
+  await assert.rejects(roster.update('cc', { name: 'CC', cli: 'claude', permissionPreset: 'yolo' }), /permissionPreset must be one of/);
 });
 
 test('store: a v3 database gains the cli column and keeps its members', async () => {
@@ -1045,7 +1223,7 @@ test('hub: a draft is shown but never fanned out; commit writes the full text an
 
 function cliMembers(hub, ask) {
   const dsh = fakeDsh();
-  const agent = { ask };
+  const agent = { ask, close() {} };
   return new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
@@ -1473,7 +1651,7 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   const { message } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: 'result' });
   tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
   assert.deepEqual(latest(), [0, 0]);
-  tasks.review(task.id, { actor: 'lead', verdict: 'rework' });
+  tasks.review(task.id, { actor: 'lead', verdict: 'rework', note: '再补一段' });
   assert.deepEqual(latest(), [0, 1]);
   tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
   tasks.review(task.id, { actor: 'lead', verdict: 'done' });
@@ -1742,7 +1920,7 @@ test('tasks API: owner acts as owner, bots name themselves with the bot token, o
   };
   assert.equal(tasksRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/state'), { tasks, gateway: gw, owner: () => true }), undefined);
   assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'x', owner: 'ds', actor: 'lead' })).status, 401);
-  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead' }, { token: 't' });
+  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead', ref: '无（新建）' }, { token: 't' });
   assert.equal(made.status, 200);
   assert.equal(made.json.task.created_by, 'lead');
   const id = made.json.task.id;
@@ -1795,7 +1973,7 @@ test('tasks identity: the bot token cannot impersonate the owner or review; a so
   assert.equal(ack.ok, true);
   assert.equal(ack.task.status, 'done');
   // A frame dispatch is recorded as the sending bot.
-  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3' });
+  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3', task_ref: '无（新建）' });
   await new Promise(r => setImmediate(r));
   assert.equal(lead.of('task_ack')[1].task.created_by, 'lead');
 });
@@ -2078,7 +2256,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
   assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案\n自验：无需\n类别：方向' });
   await tick();
   assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
   assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
@@ -3048,4 +3226,712 @@ test('CLI member: ACP tool calls feed the same progress card', async () => {
   assert.equal(card.brief.split('\n').length, 2, 'a repeated completed update adds no step');
   assert.match(card.brief, /✅ Read · 成功/);
   assert.match(row.text, /Read — \/w\/x\.md/);
+});
+
+test('CLI member: the placeholder binding becomes the real ACP sessionId, and a restart resumes it', async () => {
+  const hub = makeHub();
+  const asks = [];
+  const first = cliMembers(hub, async (_text, _room, _onText, _onTool, opts) => {
+    asks.push(opts.resumeId);
+    opts.onSession({ sessionId: 'acp-1', lost: false });
+    return '好';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined], 'the first turn has nothing to resume');
+  assert.equal(hub.store.binding('cc', 1).session_id, 'acp-1', 'the placeholder cli:... is replaced by the ACP id');
+  await first.close();
+  const hub2 = makeHubFrom(hub.store);
+  cliMembers(hub2, async (_text, _room, _onText, _onTool, opts) => {
+    asks.push(opts.resumeId);
+    opts.onSession({ sessionId: opts.resumeId, lost: false });
+    return '接着';
+  });
+  hub2.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 重启后' });
+  await settle();
+  assert.deepEqual(asks, [undefined, 'acp-1'], 'after a restart the new instance asks to resume the stored id');
+  assert.equal(hub2.store.page(1, undefined, 20).filter(m => m.author === 'system' && /新会话/.test(m.text)).length, 0);
+});
+
+test('CLI member: /new drops the stored ACP session, so the next turn does not resume it', async () => {
+  const hub = makeHub();
+  const asks = [];
+  cliMembers(hub, async (_text, _room, _onText, _onTool, opts) => {
+    asks.push(opts.resumeId);
+    opts.onSession({ sessionId: `acp-${asks.length}`, lost: false });
+    return '好';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'acp-1');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'cli:claude:cc:1', '/new points the binding back at the placeholder');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined, undefined], 'the turn after /new has no resumeId');
+});
+
+test('CLI member: /new also drops the ACP id saved from an exited process, so the next turn does not load it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const asks = [];
+  // Like CliAgent.ask: an empty resumeId falls back to the id saved when the process exited.
+  const agent = {
+    saved: new Map(),
+    async ask(_text, room, _onText, _onTool, opts) {
+      const prevId = opts.resumeId || this.saved.get(room);
+      this.saved.delete(room);
+      asks.push(prevId);
+      opts.onSession({ sessionId: `acp-${asks.length}`, lost: false });
+      return '好';
+    },
+    close() {},
+  };
+  new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  agent.saved.set('1', 'acp-old');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+  await settle();
+  assert.equal(agent.saved.has('1'), false, '/new deletes the saved ACP id for the room');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined, undefined], 'the turn after /new does not resume the saved id');
+});
+
+test('CLI member: a session that cannot be resumed is announced in the channel', async () => {
+  const hub = makeHub();
+  hub.store.bind('cc', 1, 'acp-old');
+  cliMembers(hub, async (_text, _room, _onText, _onTool, opts) => {
+    assert.equal(opts.resumeId, 'acp-old');
+    opts.onSession({ sessionId: 'acp-new', lost: true });
+    return '好';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 在吗' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'acp-new');
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.author === 'system' && /这轮起是新会话/.test(m.text));
+  assert.equal(notes.length, 1, 'one system message says the context was lost');
+});
+
+// #557: approvals of a DSH member's hidden Session show as permission cards in the channel.
+/**
+ * One tool call that needs approval in `agent`'s open turn, the way DSH asks:
+ * tools pipeline → ApprovalService.request → (policy) → approval/request waterfall,
+ * here with the collab answerer as the only listener before the fail-closed end.
+ * Policy per permission preset: Default and Auto review ask; Full access never asks.
+ */
+const PRESET_POLICY = { default: 'ask', auto: 'ask', 'full-access': 'never' };
+function askTool(dsh, members, agent, { preset = 'default', command = 'rm -rf build', signal, displayReason } = {}) {
+  const callId = `call-${agent.session.events.length}`;
+  dsh.emit(agent, 'tool/call', { turn: agent.turns, callId, name: 'bash', arguments: JSON.stringify({ command }) });
+  const ran = [];
+  const runTool = (outcome) => {
+    if (outcome === 'allowed-once') ran.push(command);
+    dsh.emit(agent, 'tool/result', { turn: agent.turns, message: { toolCallId: callId, isError: outcome !== 'allowed-once' } });
+    return outcome;
+  };
+  if (PRESET_POLICY[preset] === 'never') return { ran, outcome: Promise.resolve(runTool('rejected')) };
+  let fellThrough = false;
+  const outcome = members.onApprovalRequest(
+    { agent, toolName: 'bash', callId, reason: 'command needs to run outside the sandbox', displayReason, signal },
+    () => { fellThrough = true; return Promise.resolve('unavailable'); },
+  ).then(runTool);
+  return { ran, outcome, fellThrough: () => fellThrough };
+}
+/**
+ * Waits for a card's outcome, failing instead of hanging when no decision ever
+ * comes (a lost signal, allowAll or expiry would otherwise leave the test pending).
+ */
+function decided(outcome, ms = 2000) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`no approval outcome within ${ms} ms`)), ms); });
+  return Promise.race([outcome, timeout]).finally(() => clearTimeout(timer));
+}
+
+const cardsIn = (hub, room) => hub.store.page(room, undefined, 50).filter(m => m.card !== null && JSON.parse(m.card).kind === 'permission');
+const cardState = (hub, id) => JSON.parse(hub.store.message(id).card).state;
+
+/** @ the member in `room`, open the turn that takes the input, and return its agent. */
+async function openTurn(hub, dsh, room, text = '@DeepSeek 清理一下') {
+  hub.post(room, { authorKind: 'user', author: 'owner', name: '我', text });
+  await settle();
+  const agent = dsh.sessions.get(hub.store.binding('ds', room).session_id);
+  dsh.turn(agent, [], null);
+  return agent;
+}
+
+test('DSH approval #557: a localized displayReason shows as text, not [object Object]', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  askTool(dsh, members, agent, { displayReason: { en: 'needs network access' } });
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  assert.match(card.text, /needs network access/);
+  assert.doesNotMatch(card.text, /object Object/);
+});
+
+test('DSH approval #557: the card shows in the room that @-ed the member; 允许 lets the tool run and the turn reply', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 2);
+  const { ran, outcome } = askTool(dsh, members, agent);
+  await settle();
+  assert.equal(cardsIn(hub, 1).length, 0, 'no card in a room that did not ask');
+  const [card] = cardsIn(hub, 2);
+  assert.ok(card, 'the card is in the room of the job');
+  assert.equal(card.author, 'ds');
+  assert.match(card.text, /权限请求\*\* bash/);
+  assert.match(card.text, /rm -rf build/);
+  assert.deepEqual(JSON.parse(card.card).actions.map(a => a.decision), ['allow', 'deny', 'allow_all']);
+
+  hub.approvals.decide(card.id, 'allow');
+  assert.equal(await decided(outcome), 'allowed-once');
+  assert.deepEqual(ran, ['rm -rf build']);
+  assert.equal(cardState(hub, card.id), 'allowed');
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: '清理完了' }] } });
+  dsh.emit(agent, 'turn/end', { turn: agent.turns, reason: { kind: 'completed' } });
+  await settle();
+  assert.equal(hub.store.page(2, undefined, 1)[0].text, '清理完了');
+  assert.throws(() => hub.approvals.decide(card.id, 'deny'), /已经处理/);
+});
+
+test('DSH approval #557: 拒绝 rejects the call and the tool does not run', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  const { ran, outcome } = askTool(dsh, members, agent);
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  hub.approvals.decide(card.id, 'deny');
+  assert.equal(await decided(outcome), 'rejected');
+  assert.deepEqual(ran, []);
+  assert.equal(cardState(hub, card.id), 'denied');
+});
+
+test('DSH approval #557: two rooms @ the same member, each card shows and is decided in its own room', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const a1 = await openTurn(hub, dsh, 1, '@DeepSeek 一号');
+  const a2 = await openTurn(hub, dsh, 2, '@DeepSeek 二号');
+  assert.notEqual(a1.session.id, a2.session.id);
+  const t1 = askTool(dsh, members, a1, { command: 'make one' });
+  const t2 = askTool(dsh, members, a2, { command: 'make two' });
+  await settle();
+  const [c1] = cardsIn(hub, 1);
+  const [c2] = cardsIn(hub, 2);
+  assert.equal(cardsIn(hub, 1).length, 1);
+  assert.equal(cardsIn(hub, 2).length, 1);
+  assert.match(c1.text, /make one/);
+  assert.match(c2.text, /make two/);
+  hub.approvals.decide(c2.id, 'deny');
+  assert.equal(await decided(t2.outcome), 'rejected');
+  assert.equal(cardState(hub, c1.id), 'pending', 'the other room is untouched');
+  hub.approvals.decide(c1.id, 'allow');
+  assert.equal(await decided(t1.outcome), 'allowed-once');
+  assert.deepEqual([t1.ran, t2.ran], [['make one'], []]);
+});
+
+test('DSH approval #557: an owner text reply decides the card and starts no new ask; 允许所有 covers that Session only', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: "ds", name: "DeepSeek" }]);
+  const agent = await openTurn(hub, dsh, 1);
+  const first = askTool(dsh, members, agent);
+  await settle();
+  const jobs = hub.store.openJobs().length;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 允许所有' });
+  assert.equal(await decided(first.outcome), 'allowed-once');
+  const [card] = cardsIn(hub, 1);
+  assert.equal(cardState(hub, card.id), 'allowed_all');
+  assert.equal(JSON.parse(hub.store.message(card.id).card).decided_by, 'text');
+  await settle();
+  assert.equal(hub.store.openJobs().length, jobs, 'the reply is an answer, not a new job');
+  assert.equal(agent.prompts.length, 1);
+  // Later asks in the same Session: allowed, no card.
+  const later = askTool(dsh, members, agent, { command: 'ls' });
+  assert.equal(await decided(later.outcome), 'allowed-once');
+  assert.equal(cardsIn(hub, 1).length, 1);
+});
+
+test('DSH approval #557: a cancelled or recalled turn expires its card; a Web UI turn goes to the next answerer', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  const abort = new AbortController();
+  const cancelled = askTool(dsh, members, agent, { signal: abort.signal });
+  await settle();
+  const [c1] = cardsIn(hub, 1);
+  abort.abort(); // DSH's stop button aborts the tool call's signal
+  assert.equal(await decided(cancelled.outcome), 'cancelled');
+  assert.deepEqual(cancelled.ran, []);
+  assert.equal(cardState(hub, c1.id), 'expired');
+  assert.throws(() => hub.approvals.decide(c1.id, 'allow'), /过期/);
+
+  // The owner withdraws the @ while a card waits.
+  const recalled = askTool(dsh, members, agent);
+  await settle();
+  const c2 = cardsIn(hub, 1).at(-1);
+  const job = hub.store.openJobs()[0];
+  members.recall(job.trigger_id);
+  assert.equal(await decided(recalled.outcome), 'cancelled');
+  assert.equal(cardState(hub, c2.id), 'expired');
+
+  // A turn the channel did not start (DSH Web UI) is not ours to answer.
+  dsh.turn(agent, [], null, { id: 'web-1', role: 'user', content: [] });
+  const web = askTool(dsh, members, agent);
+  assert.equal(await decided(web.outcome), 'unavailable');
+  assert.equal(web.fellThrough(), true);
+  assert.equal(cardsIn(hub, 1).length, 2);
+});
+
+test('DSH approval #557: after a restart an undecided card is expired on click, like a cloud-web prompt', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  askTool(dsh, members, agent);
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  const hub2 = new Hub(hub.store, quiet);
+  const again = fakeDsh();
+  again.attach(hub2, [{ id: 'ds', name: 'DeepSeek' }]);
+  assert.throws(() => hub2.approvals.decide(card.id, 'allow'), /过期/);
+  assert.equal(cardState(hub2, card.id), 'expired');
+});
+
+test('DSH approval #557: Default and Auto review show a card when DSH asks; Full access shows none', async () => {
+  for (const preset of ['default', 'auto', 'full-access']) {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek', permissionPreset: preset }]);
+    const agent = await openTurn(hub, dsh, 1);
+    const { outcome } = askTool(dsh, members, agent, { preset });
+    await settle();
+    const cards = cardsIn(hub, 1);
+    if (preset === 'full-access') {
+      assert.equal(cards.length, 0, 'Full access: no card');
+      assert.equal(await decided(outcome), 'rejected');
+      continue;
+    }
+    assert.equal(cards.length, 1, `${preset}: one card`);
+    hub.approvals.decide(cards[0].id, 'allow');
+    assert.equal(await decided(outcome), 'allowed-once');
+  }
+});
+
+test('DSH approval #557: another plugin answering approval/request first does not take a DSH member\'s ask', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  // A waterfall like Cordis: prepended listeners run first, each may call next().
+  const listeners = [];
+  const ctx = { on(name, fn, { prepend = false } = {}) { assert.equal(name, 'approval/request'); prepend ? listeners.unshift(fn) : listeners.push(fn); } };
+  const run = (request, i = 0) => (i < listeners.length ? listeners[i](request, () => run(request, i + 1)) : Promise.resolve('unavailable'));
+  // An auto-review style answerer registered before the collab plugin answers every ask itself.
+  ctx.on('approval/request', async () => 'allowed-once');
+  installApprovalAnswerer(ctx, members);
+  const outcome = run({ agent, toolName: 'bash', callId: 'c1', reason: 'outside the sandbox' });
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  assert.ok(card, 'the DSH member\'s card still shows');
+  hub.approvals.decide(card.id, 'deny');
+  assert.equal(await decided(outcome), 'rejected');
+});
+
+// Block B: regressions for member media and durable one-shot wake routing.
+import { Attachments, attachmentBlocks, nativeAttachmentBlocks, MAX_IMAGE_BYTES } from './attachments.mjs';
+import { Later, registerLater } from './later.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('block B: native and CLI members receive image and file blocks via shared wire policy', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-media-')));
+  const attachments = files.save([
+    { name: 'photo.png', mime: 'image/png', data: Buffer.from('png').toString('base64') },
+    { name: 'notes.txt', mime: 'text/plain', data: Buffer.from('hello').toString('base64') },
+    { name: 'large.png', mime: 'image/png', data: Buffer.alloc(MAX_IMAGE_BYTES + 1).toString('base64') },
+    { name: 'vector.svg', mime: 'image/svg+xml', data: Buffer.from('<svg/>').toString('base64') },
+  ]);
+  const hub = makeHub();
+  const captured = [];
+  const members = cliMembers(hub, async (...args) => { captured.push(args); return 'received'; });
+  members.rt.files = files;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC check', attachments });
+  await settle();
+  assert.deepEqual(captured[0][4].attachments.map(b => b.type), ['image', 'resource', 'resource', 'resource']);
+  assert.equal(captured[0][4].attachments[1].resource.blob, Buffer.from('hello').toString('base64'));
+  const native = fakeDsh();
+  const nativeHub = makeHub();
+  const ds = native.attach(nativeHub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => parts.map(b => b.type === 'image' ? { type: 'image', attachment: { attachmentId: 'image' } } : b),
+  };
+  nativeHub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.deepEqual(agent.prompts[0].content.slice(-4).map(b => b.type), ['image', 'file', 'file', 'file']);
+  native.turn(agent, ['received']);
+  await settle();
+  await ds.close();
+});
+
+test('block B: DSH refusing one image of a batch drops only that image and tells the channel', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-partial-')));
+  const attachments = files.save([
+    { name: 'huge.png', mime: 'image/png', data: Buffer.from('huge').toString('base64') },
+    { name: 'small.png', mime: 'image/png', data: Buffer.from('small').toString('base64') },
+  ]);
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  const pixelLimit = 'Image exceeds the configured decoded-pixel limit.';
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => {
+      if (parts.some(p => p.type === 'image' && Buffer.from(p.data, 'base64').toString() === 'huge')) throw new Error(pixelLimit);
+      return parts.map(p => ({ type: 'image', attachment: { attachmentId: Buffer.from(p.data, 'base64').toString() } }));
+    },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1);
+  const content = agent.prompts[0].content;
+  assert.match(content[0].text, /@Native check/);
+  assert.match(content[0].text, /huge\.png: 附件未送达（/);
+  assert.doesNotMatch(content[0].text, /small\.png: 附件未送达/);
+  assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'small' } }]);
+  const note = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.ok(note, 'channel shows a system note for the dropped attachment');
+  assert.match(note.text, /Native/);
+  assert.match(note.text, /huge\.png（图片太大，超过像素上限）/);
+  assert.doesNotMatch(note.text, /exceeds/, 'the channel note is in Chinese, not DSH\'s English message');
+  assert.doesNotMatch(note.text, /small\.png/);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  const trigger = hub.store.page(1, undefined, 20).find(m => m.text === '@Native check');
+  assert.ok(hub.store.binding('native', 1).context_cursor >= trigger.id, 'cursor advanced past the trigger');
+  assert.equal(agent.prompts.length, 1, 'the system note does not start another turn');
+  await ds.close();
+});
+
+test('block B: DSH rejecting an image batch still delivers the text and advances', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-reject-')));
+  const attachments = files.save([{ name: 'a.png', mime: 'image/png', data: Buffer.from('png').toString('base64') }]);
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async () => { throw new Error('too many images'); },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1);
+  assert.match(agent.prompts[0].content[0].text, /a\.png: 附件未送达（/);
+  assert.equal(agent.prompts[0].content.length, 1);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  await ds.close();
+});
+
+test('block B: DSH batch limit keeps the images that fit and notes the rest once', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-limit-')));
+  const attachments = files.save(['a', 'b', 'c'].map(n => ({ name: `${n}.png`, mime: 'image/png', data: Buffer.from(n).toString('base64') })));
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => {
+      if (parts.length > 1) throw new Error('too many images');
+      return parts.map(p => ({ type: 'image', attachment: { attachmentId: Buffer.from(p.data, 'base64').toString() } }));
+    },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  const content = agent.prompts[0].content;
+  assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'a' } }]);
+  assert.match(content[0].text, /b\.png: 附件未送达（/);
+  assert.match(content[0].text, /c\.png: 附件未送达（/);
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /b\.png（too many images）；c\.png（too many images）/);
+  assert.doesNotMatch(notes[0].text, /a\.png/);
+  await ds.close();
+});
+
+test('block B: DSH refusing every image of a batch delivers the text alone and notes all of them', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-allreject-')));
+  const attachments = files.save(['a', 'b'].map(n => ({ name: `${n}.png`, mime: 'image/png', data: Buffer.from(n).toString('base64') })));
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async () => { throw new Error('pixel limit'); },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts[0].content.length, 1);
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /a\.png（pixel limit）；b\.png（pixel limit）/);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  await ds.close();
+});
+
+test('block B: later survives restart, keeps offline wakes and delivers once to each member kind', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'blockb-later-')), 'collab.sqlite3');
+  let store = new Store(path); store.ensureRoom(1, 'general');
+  let hub = makeHubFrom(store);
+  let now = 1000;
+  let later = new Later(hub, path, () => false, { now: () => now, start: false });
+  for (const member of ['native', 'cli', 'bridge']) registerLater(store.db, { member, room: 1, delay: '2s', title: 'check', todo: 'read build log' }, now);
+  assert.throws(() => registerLater(store.db, { member: 'cli', room: 1, delay: '0m', title: 'check', todo: 'log' }), /later requires/);
+  later.tick();
+  assert.equal(store.page(1, undefined, 20).length, 3, 'registration visible before wake');
+  later.close(); store.close();
+  store = new Store(path); hub = makeHubFrom(store);
+  const received = [];
+  let online = false;
+  now = 4000;
+  later = new Later(hub, path, (id, message) => { if (!online) return false; received.push([id, message]); return true; }, { now: () => now, start: false });
+  later.tick();
+  const pending = store.db.prepare('SELECT message_id FROM member_later').all();
+  assert.equal(received.length, 0);
+  online = true; later.tick(); later.tick();
+  assert.deepEqual(received.map(([id]) => id), ['native', 'cli', 'bridge']);
+  assert.deepEqual(received.map(([, m]) => m.id), pending.map(r => r.message_id));
+  assert.ok(received.every(([, m]) => m.room_id === 1 && m.text.includes('read build log')));
+  assert.equal(store.page(1, undefined, 20).length, 6);
+  later.close(); store.close();
+});
+
+import { CliMember } from './cli-member.mjs';
+import { laterRoute } from './plugin.mjs';
+import { Readable } from 'node:stream';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { statSync } from 'node:fs';
+
+test('block B: ACP prompt actually includes image/resource blocks', async () => {
+  const member = new CliMember({ cli: 'claude', cwd: '/tmp' });
+  member._session = async () => ({ sessionId: 'test', first: false });
+  let prompt;
+  member.conn = { prompt: async value => { prompt = value; member.buffers.set('test', 'done'); } };
+  const media = [{ type: 'image', mimeType: 'image/png', data: 'cG5n' }, { type: 'resource', resource: { uri: 'attachment:///a.txt', mimeType: 'text/plain', blob: 'aGk=' } }];
+  assert.equal(await member.ask('read', 'room', undefined, undefined, { attachments: media }), 'done');
+  assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
+});
+
+test('block B: local later command registers through the ticketed HTTP route, not the database', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'blockb-command-'));
+  const path = join(dir, 'collab.sqlite3');
+  const store = new Store(path); store.ensureRoom(1, 'general');
+  const hub = makeHubFrom(store); hub.setMember({ id: 'cli', name: 'CLI', kind: 'dsh', online: true });
+  const woke = [];
+  let now = Date.now();
+  const later = new Later(hub, path, (id, m) => { woke.push([id, m]); return true; }, { now: () => now, start: false });
+  assert.equal(statSync(join(dir, 'later.key')).mode & 0o777, 0o600, 'key file is private');
+  const server = createServer((req, res) => laterRoute(req, res, new URL(req.url, 'http://x'), { hub, later, owner: () => false, gateway: { authorized: () => false } }) ?? (res.headersSent || (res.writeHead(404), res.end('{}'))));
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+  later.origin = `http://127.0.0.1:${server.address().port}`;
+  assert.match(later.instructions('cli', 1), new RegExp(later.ticket('cli', 1).replace(/[.]/g, '\\.')));
+  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+  assert.notEqual((await run([later.origin, 'forged.ticket', '1s', 'check', 'read results'])).status, 0);
+  assert.notEqual((await run([later.origin, later.ticket('cli', 1).slice(0, -2) + 'xx', '1s', 'check', 'read results'])).status, 0, 'tampered ticket rejected');
+  const result = await run([later.origin, later.ticket('cli', 1), '1s', 'check', 'read results']);
+  assert.equal(result.status, 0);
+  const { reminder } = JSON.parse(result.out);
+  assert.equal(reminder.member_id, 'cli'); assert.equal(reminder.room_id, 1);
+  now = reminder.due_at; later.tick();
+  assert.equal(woke.length, 1); assert.equal(woke[0][0], 'cli'); assert.equal(woke[0][1].room_id, 1);
+  assert.match(woke[0][1].text, /read results/);
+  } finally { server.close(); later.close(); store.close(); }
+});
+
+test('block B: later API only accepts a ticket bound to the same member and room', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  for (const id of ['a', 'b']) hub.setMember({ id, name: id, kind: 'dsh', online: true });
+  let now = 1000;
+  const woke = [];
+  const later = new Later(hub, ':memory:', (id, m) => { woke.push([id, m.room_id]); return true; }, { now: () => now, start: false });
+  const request = async (ticket, body, room = 1) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'POST';
+    req.headers = ticket === undefined ? {} : { 'x-later-ticket': ticket };
+    const res = { writeHead(status) { this.status = status; }, end(data) { this.body = JSON.parse(data); } };
+    // Owner session and shared bot token are both present: neither may register on its own.
+    await laterRoute(req, res, new URL(`http://localhost/collab/api/rooms/${room}/later`), { hub, later, owner: () => true, gateway: { authorized: () => true } });
+    return res;
+  };
+  const body = { delay: '1s', title: 'check', todo: 'read log' };
+  const ticketA = later.ticket('a', 1);
+  assert.equal((await request(undefined, { ...body, member: 'a' })).status, 401, 'no ticket');
+  assert.equal((await request(ticketA.slice(0, -2) + 'xx', body)).status, 401, 'tampered ticket');
+  assert.equal((await request(ticketA, { ...body, member: 'b' })).status, 403, "A's ticket cannot register B");
+  assert.equal((await request(ticketA, body, 2)).status, 403, "A's ticket cannot register another room");
+  assert.equal((await request(ticketA, { ...body, room: 2 })).status, 403, 'body room must match the ticket');
+  assert.equal((await request(later.ticket('missing', 1), body)).status, 404);
+  const ok = await request(ticketA, body);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.reminder.member_id, 'a'); assert.equal(ok.body.reminder.room_id, 1);
+  now = ok.body.reminder.due_at; later.tick();
+  assert.deepEqual(woke, [['a', 1]], 'only A wakes, in the original room');
+  later.close();
+});
+
+test('block B: due follow-up enters native, CLI and cloud-web member routing in the original room', async () => {
+  const hub = makeHub();
+  const native = fakeDsh();
+  const members = native.attach(hub, [{ id: 'native', name: 'Native' }, { id: 'cli', name: 'CLI', cli: 'claude' }]);
+  const cliPrompts = [];
+  members.rt.createCliMember = () => ({ ask: async text => { cliPrompts.push(text); return 'checked'; }, close() {} });
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const ws = connect(gateway, 'token=secret&bot=bridge&name=Bridge');
+  let now = 1000;
+  const later = new Later(hub, ':memory:', (id, msg) => members.nudge(id, msg) || gateway.nudge(id, msg), { now: () => now, start: false });
+  for (const member of ['native', 'cli', 'bridge']) registerLater(hub.store.db, { member, room: 1, delay: '1s', title: 'results', todo: 'read log now' }, now);
+  now = 3000; later.tick(); later.tick(); await settle();
+  assert.equal(cliPrompts.length, 1); assert.match(cliPrompts[0], /read log now/);
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1); assert.match(agent.prompts[0].content[0].text, /read log now/);
+  const frames = ws.of('message').filter(f => f.content.includes('read log now'));
+  assert.equal(frames.length, 1); assert.equal(frames[0].chat_id, 'room-1'); assert.equal(frames[0].mentioned, true);
+  native.turn(agent, ['checked']); await settle();
+  later.close(); gateway.closeAll(); await members.close();
+});
+
+import { writeFileSync as writeKeyFile, readFileSync as readKeyFile } from 'node:fs';
+test('later: empty or short key file is regenerated to 32 bytes; old tickets stop verifying', () => {
+  for (const bad of ['', 'abcd']) {
+    const dir = mkdtempSync(join(tmpdir(), 'later-key-'));
+    const path = join(dir, 'collab.sqlite3'); const keyFile = join(dir, 'later.key');
+    const store = new Store(path); store.ensureRoom(1, 'general');
+    const hub = makeHubFrom(store);
+    const first = new Later(hub, path, () => false, { start: false });
+    const oldTicket = first.ticket('cli', 1);
+    assert.deepEqual(first.verify(oldTicket), { member: 'cli', room: 1 });
+    writeKeyFile(keyFile, bad);
+    const second = new Later(hub, path, () => false, { start: false });
+    assert.equal(second.key.length, 32, `regenerated from ${JSON.stringify(bad)}`);
+    assert.equal(Buffer.from(readKeyFile(keyFile, 'utf8').trim(), 'hex').length, 32);
+    assert.equal(statSync(keyFile).mode & 0o777, 0o600);
+    assert.equal(second.verify(oldTicket), undefined, 'old ticket no longer verifies');
+    const forged = `${oldTicket.split('.')[0]}.${createHmacForTest(Buffer.alloc(0), oldTicket.split('.')[0])}`;
+    assert.equal(second.verify(forged), undefined, 'empty-key forgery rejected');
+    assert.deepEqual(second.verify(second.ticket('cli', 1)), { member: 'cli', room: 1 }, 'new ticket verifies');
+    assert.deepEqual(new Later(hub, path, () => false, { start: false }).verify(second.ticket('cli', 1)), { member: 'cli', room: 1 }, 'key persists');
+  }
+});
+import { createHmac as createHmacTest } from 'node:crypto';
+function createHmacForTest(key, payload) { return createHmacTest('sha256', key).update(payload).digest('base64url'); }
+
+// CLI member tool approval follows the member's DSH permission preset (cli-member.mjs presetDecision).
+const ACP_PERMISSION = {
+  sessionId: 's1',
+  toolCall: { toolCallId: 't1', title: 'Bash', rawInput: { command: 'rm -rf build' } },
+  options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' }],
+};
+
+function cliPermissionRun(hub, permissionPreset, outcomes) {
+  const dsh = fakeDsh();
+  const agent = {
+    async ask(_text, _room, _onText, _onTool, opts) { outcomes.push(await opts.onPermission(ACP_PERMISSION)); return '好'; },
+    close() {},
+  };
+  return new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude', ...(permissionPreset ? { permissionPreset } : {}) }]);
+}
+const permCards = hub => hub.store.page(1, undefined, 20).filter(m => m.card !== null && JSON.parse(m.card).kind === 'permission');
+
+test('CLI member, Full access preset: tool call allowed at once, no card', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  cliPermissionRun(hub, 'danger-full-access', outcomes);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+  await settle();
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-once' }]);
+  assert.equal(permCards(hub).length, 0);
+});
+
+test('CLI member, Read Only preset: tool call refused, no card', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  cliPermissionRun(hub, 'read-only', outcomes);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+  await settle();
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'reject-once' }]);
+  assert.equal(permCards(hub).length, 0);
+});
+
+for (const [decision, optionId] of [['allow', 'allow-once'], ['deny', 'reject-once']]) {
+  test(`CLI member, default Workspace Write preset: card in the room, ${decision} goes back to ACP as ${optionId}`, async () => {
+    const hub = makeHub();
+    const outcomes = [];
+    cliPermissionRun(hub, undefined, outcomes);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+    await settle();
+    const [card] = permCards(hub);
+    assert.ok(card, 'a permission card is posted');
+    assert.equal(card.author, 'cc');
+    assert.match(card.text, /权限请求\*\* Bash/);
+    assert.match(card.text, /rm -rf build/);
+    assert.deepEqual(JSON.parse(card.card).actions.map(a => a.decision), ['allow', 'deny'], 'only the buttons ACP offered');
+    assert.deepEqual(outcomes, []);
+    hub.approvals.decide(card.id, decision);
+    await settle();
+    assert.deepEqual(outcomes, [{ outcome: 'selected', optionId }]);
+  });
+}
+
+test('CLI member without allow_always: typed 允许所有 goes back to ACP as allow-once and the card shows allowed', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  cliPermissionRun(hub, undefined, outcomes);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+  await settle();
+  const [card] = permCards(hub);
+  assert.ok(card, 'a permission card is posted');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '允许所有' });
+  await settle();
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-once' }]);
+  const state = JSON.parse(hub.store.message(card.id).card).state;
+  assert.equal(state, 'allowed', 'card shows what ACP got, not 已允许所有');
+});
+
+test('attachments: undelivered reasons are shown in Chinese by DSH error code, unknown ones stay as-is', async () => {
+  const { undeliveredReasonZh } = await import('./attachments.mjs');
+  assert.equal(undeliveredReasonZh({ reason: 'whatever', code: 'IMAGE_TOO_MANY_PIXELS' }), '图片太大，超过像素上限');
+  assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured byte limit.' }), '图片文件太大，超过大小上限');
+  assert.equal(undeliveredReasonZh({ reason: 'Unsupported or malformed image data.', code: 'INVALID_IMAGE' }), '图片格式不支持或已损坏');
+  assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured per-side pixel limit.' }), '图片太长或太宽，超过单边像素上限');
+  assert.equal(undeliveredReasonZh({ reason: 'something new' }), 'something new');
 });

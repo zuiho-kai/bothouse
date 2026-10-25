@@ -23,6 +23,8 @@ import css from './ChannelsPage.module.css'
 
 /** Injected share: the channel snapshot source and its actions. */
 export interface ChannelsInjected extends ChannelActions {
+  /** Open shell models, or return false for the standalone web hint. */
+  readonly openModelSettings: () => boolean
   readonly hooks: { readonly channels: HostObservable<ChannelSnapshot> }
 }
 
@@ -38,6 +40,16 @@ function KindTag({ kind, cli, t }: { kind: ChannelMember['kind'] | undefined; cl
   if (kind === 'dsh') return <span className={css.tag}>{t('kindDsh')}</span>
   if (kind === 'bot') return <span className={css.tag}>{t('kindBot')}</span>
   return null
+}
+
+/** IME candidate confirmation (desktop isComposing, iOS/Android keyCode 229) must not send/select/save. */
+export function isImeEnter(event: { nativeEvent: KeyboardEvent | Event }): boolean {
+  return Reflect.get(event.nativeEvent, 'isComposing') === true || Reflect.get(event.nativeEvent, 'keyCode') === 229
+}
+
+/** Touch or narrow screens get the short composer placeholder (the long one wraps beside the send button). */
+function compactComposer(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(hover: none), (max-width: 600px)').matches
 }
 
 /** The quoted original above a reply; a deleted original shows only a placeholder. */
@@ -153,7 +165,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                   onChange={(event) => { own.onEditChange(event.target.value) }}
                   onKeyDown={(event) => {
                     if (event.key === 'Escape') { event.preventDefault(); own.onEditCancel() }
-                    else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); own.onEditSave() }
+                    else if (event.key === 'Enter' && !event.shiftKey && !isImeEnter(event)) { event.preventDefault(); own.onEditSave() }
                   }}
                 />
                 <div className={css.editBar}>
@@ -260,7 +272,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -554,11 +566,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (draft === '/' && !capabilitiesDismissed && !event.nativeEvent.isComposing) {
+    if (draft === '/' && !capabilitiesDismissed && !isImeEnter(event)) {
       if (event.key === 'Escape') { event.preventDefault(); setCapabilitiesDismissed(true); return }
       if (event.key === 'Enter') { event.preventDefault(); return }
     }
-    if (popupOpen && !event.nativeEvent.isComposing) {
+    if (popupOpen && !isImeEnter(event)) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
         const step = event.key === 'ArrowDown' ? 1 : -1
@@ -576,7 +588,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         return
       }
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    // Same rule as DSH's own editor (dsh-client-ui-primitives: Enter sends unless Shift or an IME
+    // is composing; keyCode 229 covers Safari/iOS, which reports composition that way).
+    if (event.key === 'Enter' && !event.shiftKey && !isImeEnter(event)) {
       event.preventDefault()
       submit()
     }
@@ -600,7 +614,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
             aria-label={t('newRoom')}
             onChange={(event) => { setNewRoom(event.target.value) }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); submitRoom() }
+              if (event.key === 'Enter' && !isImeEnter(event)) { event.preventDefault(); submitRoom() }
               if (event.key === 'Escape') { setNewRoom(undefined); setRoomError(undefined) }
             }}
             onBlur={() => { if ((newRoom ?? '').trim() === '') setNewRoom(undefined) }}
@@ -658,7 +672,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
                   message={m}
                   member={byId.get(m.author)}
                   t={t}
-                  onConfigure={() => { setModelsOpen(true) }}
+                  onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
                   menuOpen={avatarMenu === m.id}
                   cardView={cardView}
                   onCardView={chooseCardView}
@@ -737,9 +751,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               ref={inputRef}
               className={css.input}
               rows={1}
+              enterKeyHint="send"
               value={draft}
               disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={t('placeholder', { room: room?.name ?? '' })}
+              placeholder={t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
               role="combobox"
               aria-expanded={popupOpen}
               aria-controls="channel-mention-list"
@@ -769,6 +784,20 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               onClick={openPicker}
             >
               @
+            </button>
+            {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
+                has a send button, as the desktop chat does; it runs the same submit as Enter. */}
+            <button
+              type="button"
+              className={css.sendButton}
+              title={t('sendButton')}
+              aria-label={t('sendButton')}
+              disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
+              // Keep focus (and the soft keyboard) in the textarea when tapped.
+              onMouseDown={(event) => { event.preventDefault() }}
+              onClick={submit}
+            >
+              {t('sendButton')}
             </button>
           </div>
         </div>

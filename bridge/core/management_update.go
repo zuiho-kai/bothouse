@@ -3,8 +3,11 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -154,6 +157,10 @@ func (m *ManagementServer) handleUpdateApply(w http.ResponseWriter, r *http.Requ
 		fail(http.StatusOK, "开发版不检查更新 / development build: update check disabled", releasesPage)
 		return
 	}
+	if err := UpdateRefusal(); err != nil {
+		fail(http.StatusOK, err.Error(), releasesPage)
+		return
+	}
 	if !updateMu.TryLock() {
 		fail(http.StatusConflict, "update already in progress", releasesPage)
 		return
@@ -188,6 +195,14 @@ func (m *ManagementServer) handleUpdateApply(w http.ResponseWriter, r *http.Requ
 // POST /update on the local socket: `bothouse update` asks the running bothouse to install tag
 // (the CLI picked it, honouring --pre), so the CLI goes through the same replace → self-check →
 // restart as the web button instead of swapping the file under a running process.
+//
+// It refuses (never with 404: an older CLI reads 404 as "no /update here" and installs its own
+// copy, which is harmless; 403/409 make it stop and touch nothing):
+//   - a development build, like the web button and chat /upgrade;
+//   - a self-built binary (UpdateRefusal, #299);
+//   - a tag that is not newer than this version (no downgrade through the socket);
+//   - a request from another program: the peer process (kernel credentials) or, where the
+//     platform cannot tell, the exe named in the request must be this very binary.
 func handleSocketUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -195,9 +210,39 @@ func handleSocketUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Tag string `json:"tag"`
+		Exe string `json:"exe"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Tag == "" {
 		http.Error(w, "tag is required", http.StatusBadRequest)
+		return
+	}
+	cur := CurrentVersion
+	if isDevVersion(cur) {
+		http.Error(w, "development build: update disabled", http.StatusConflict)
+		return
+	}
+	if err := UpdateRefusal(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if semverCompare(req.Tag, cur) <= 0 {
+		http.Error(w, fmt.Sprintf("%s is not newer than the running %s", req.Tag, cur), http.StatusConflict)
+		return
+	}
+	self := updateExePath()
+	// The peer path must be absolute to mean anything: macOS kern.procargs2 holds the path as
+	// passed to execve (`./bothouse update` → "./bothouse"), which would resolve against our cwd.
+	// Then the peer counts as unknown and the exe the CLI names (os.Executable, absolute) decides.
+	who, known := socketPeerExeFn(r)
+	if !known || !filepath.IsAbs(who) {
+		who = req.Exe
+	}
+	if !SameProgram(who, self) || (req.Exe != "" && !SameProgram(req.Exe, self)) {
+		if who == "" {
+			who = "(not given)"
+		}
+		slog.Warn("update: refused /update from another program", "from", who, "self", self, "tag", req.Tag)
+		http.Error(w, fmt.Sprintf("this bothouse (%s) only updates itself for its own program; request came from %s", self, who), http.StatusForbidden)
 		return
 	}
 	if !updateMu.TryLock() {

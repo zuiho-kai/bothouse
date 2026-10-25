@@ -1,0 +1,71 @@
+#!/bin/zsh
+# 用法：iso-check before            —— 拍快照、新建隔离目录，打出 ISO_DIR=…
+#       iso-check after <目录>      —— 对比快照判干净/不干净，并删掉这个目录（只删本会话登记过的）
+#       以上都可加 --owner <名>：显式指定会话键。
+# 测试前后对比线上环境有没有被测试弄脏（PLAYBOOK 第 7 节）。测试的 HOME、数据目录、端口都放 ISO_DIR 下面，
+# after 检查完删掉它。
+# 会话键 = --owner > $CC_SESSION_KEY（桥给每个频道/工作区设的，子进程继承）> $CC_SESSION（DSH 会删名字含 KEY 的
+#          环境变量，见 README）> $CLAUDE_CODE_SESSION_ID；都没有就拒绝。不用 pid：每次调用的父进程可能不同。
+# 记录   = $STATE/<会话键>/<目录名>.before（快照）和 .owner（会话键原文+目录路径）；
+#          STATE 缺省 /tmp/iso-check.d，ISO_CHECK_STATE 可改（测试用）。
+# after 必须给目录，只删本会话记录里有的、形如 /tmp/iso.* 的目录；快照也按目录取，不和别的会话串。
+# 快照看哪些线上位置：数据目录（$BOTHOUSE_DATA_DIR、~/.bothouse、旧名 ~/.cc-connect）及其 run/api.sock、
+#   DSH 协作库（$CONEST_COLLAB_DATA 或 ~/.conest-collab）、/Volumes 下名字含 bothouse 的卷、管理端口
+#   （$ISO_CHECK_PORTS，空格分隔，缺省 9820）的监听；
+#   桥程序文件（$CC_BIN、PATH 上的 bothouse/cc-connect）的指纹和同目录同名前缀文件列表——测试里跑
+#   `bothouse update` 若连到线上桥，线上桥会自升级换掉程序文件（改名成 .old*），只看目录测不出来。
+snap() {
+  local p port
+  local -a paths=(${BOTHOUSE_DATA_DIR:-} ~/.bothouse ~/.cc-connect ${CONEST_COLLAB_DATA:-~/.conest-collab})
+  for p in ${(u)paths}; do
+    [[ -n $p ]] || continue
+    echo "path:$p:$([[ -e $p || -L $p ]] && echo 1 || echo 0)"
+    [[ $p == */.bothouse || $p == */.cc-connect || $p == ${BOTHOUSE_DATA_DIR:-/nonexistent} ]] &&
+      echo "sock:$p/run/api.sock:$([[ -e $p/run/api.sock ]] && echo 1 || echo 0)"
+  done
+  [[ -d /Volumes ]] && echo "vols:$(ls /Volumes 2>/dev/null | grep -i bothouse | tr '\n' ' ')"
+  for port in ${=ISO_CHECK_PORTS:-9820}; do
+    echo "port$port:$(lsof -nP -iTCP:$port -sTCP:LISTEN -t 2>/dev/null | wc -l | tr -d ' ')"
+  done
+  local b; local -a bins=(${CC_BIN:-} ${$(whence -p bothouse):-} ${$(whence -p cc-connect):-}) sib
+  for b in ${(u)bins}; do
+    [[ -n $b ]] || continue
+    echo "binfp:$b:$([[ -f $b ]] && shasum -a 256 $b | cut -c1-16)"
+    sib=(${b:h}/${b:t}*(N:t))
+    echo "binls:$b:${sib[*]}"
+  done
+}
+die() { echo "iso-check: $*" >&2; exit 2; }
+cmd=$1; shift
+owner=${CC_SESSION_KEY:-${CC_SESSION:-$CLAUDE_CODE_SESSION_ID}}; args=()
+while (( $# )); do
+  case $1 in --owner) [[ $# -ge 2 && -n $2 ]] || die "--owner 后面要跟名字"; owner=$2; shift 2;; *) args+=$1; shift;; esac
+done
+[[ -n $owner ]] || die "取不到会话键（没有 CC_SESSION_KEY/CC_SESSION/CLAUDE_CODE_SESSION_ID），请加 --owner <名>"
+state=${ISO_CHECK_STATE:-/tmp/iso-check.d}
+rec=$state/${owner//[^A-Za-z0-9._-]/_}
+# 只认 /tmp/iso.<名> 一层（mktemp 建的形状），不允许 .. 和子路径
+isodir() { [[ $1 == /tmp/iso.* && $1 != *..* && ${1#/tmp/} != */* && -d $1 && ! -L $1 ]]; }
+case $cmd in
+  before)
+    d=$(mktemp -d /tmp/iso.XXXXXX) || die "mktemp 失败"
+    b=${d:t}
+    mkdir -p $rec && snap > $rec/$b.before && printf '%s\n%s\n' "$owner" "$d" > $rec/$b.owner || { rmdir $d; die "写记录失败"; }
+    cat $rec/$b.before
+    echo "ISO_DIR=$d（本次测试的 HOME、数据目录、gocache、worktree 都建在它下面；跑 iso-check after $d 会删掉它）";;
+  after)
+    d=${args[1]}
+    [[ -n $d ]] || die "必须给目录：iso-check after <目录>（before 打出的 ISO_DIR）。不猜「最近一个」。"
+    d=${d%/}; b=${d:t}
+    [[ -f $rec/$b.owner && $(sed -n 2p $rec/$b.owner) == $d ]] || die "$d 不是本会话（$owner）登记的隔离目录，拒绝删除和对比。是你的就用建它时的会话键 --owner。"
+    snap > $rec/$b.after
+    if isodir $d; then
+      chmod -R u+w $d 2>/dev/null; rm -rf $d && echo "iso-check: 已删隔离目录 $d"
+    else
+      echo "iso-check: $d 已不在或形状不对，未删"
+    fi
+    if diff $rec/$b.before $rec/$b.after; then r=0; echo "iso-check: 干净"; else r=1; echo "iso-check: 线上环境被改动（见上），按事故报"; fi
+    rm -f $rec/$b.before $rec/$b.after $rec/$b.owner; rmdir $rec 2>/dev/null
+    exit $r;;
+  *) die "用法：iso-check before | after <目录>  [--owner <名>]";;
+esac
