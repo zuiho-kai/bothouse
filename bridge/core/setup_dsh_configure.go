@@ -89,6 +89,9 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	if err := setDSHPatchConfig(patch, "ui-settings-models", "credentialOnboarding", false); err != nil {
 		return res, fmt.Errorf("profile patch: %w", err)
 	}
+	if err := setDSHPatchConfig(patch, "attachment-local", "maxImageDimension", DSHMaxImageDimension); err != nil {
+		return res, fmt.Errorf("profile patch: %w", err)
+	}
 	dir := collabDataDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return res, err
@@ -155,9 +158,19 @@ func writeDSHCredential(path, name, value string) error {
 	return writeYAML(path, &doc, 0o600)
 }
 
-// setDSHPatchConfig sets config.<key> on the `- id: <id>` override entry of a profile's
-// cordis.patch.yml (a top-level list; install.sh writes the `locale` entry the same way).
-func setDSHPatchConfig(path, id, key string, value bool) error {
+// setDSHPatchConfig sets config.<key> (a bool or int) on the `- id: <id>` override entry of a profile's
+// cordis.patch.yml (a top-level list; install.sh writes the `locale` entry the same way); the entry's
+// other keys stay.
+func setDSHPatchConfig(path, id, key string, value any) error {
+	var val *yaml.Node
+	switch v := value.(type) {
+	case bool:
+		val = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(v)}
+	case int:
+		val = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(v)}
+	default:
+		return fmt.Errorf("unsupported patch value %T", value)
+	}
 	var doc yaml.Node
 	b, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -194,7 +207,7 @@ func setDSHPatchConfig(path, id, key string, value bool) error {
 		cfg = &yaml.Node{Kind: yaml.MappingNode}
 		mapSet(entry, "config", cfg)
 	}
-	mapSet(cfg, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(value)})
+	mapSet(cfg, key, val)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

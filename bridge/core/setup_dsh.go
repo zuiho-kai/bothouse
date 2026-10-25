@@ -71,6 +71,17 @@ func DSHEnvPath(dataDir, project string) string {
 	return filepath.Join(dataDir, "dsh", project+".env")
 }
 
+// DSHMaxImageDimension is the per-side pixel limit written for dsh-attachment-local (config maxImageDimension).
+// Its default 8192 refuses long screenshots outright ("Image exceeds the configured per-side pixel limit");
+// an accepted image is still scaled down to the normalized image budget before it goes to the model,
+// so a higher limit does not make requests bigger. 65535 is the largest PNG/WebP side.
+const DSHMaxImageDimension = 65535
+
+// dshAttachmentPatch is the overlay entry that raises the per-side limit (see DSHMaxImageDimension).
+func dshAttachmentPatch() string {
+	return fmt.Sprintf("- id: attachment-local\n  config:\n    maxImageDimension: %d\n", DSHMaxImageDimension)
+}
+
 // dshProviderPatch points llm-deepseek at the vendor's Anthropic endpoint and makes model the default.
 func dshProviderPatch(project, baseURL, model string) string {
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) } // JSON string = YAML double-quoted scalar
@@ -130,16 +141,17 @@ func dshRoleLaunch(dshPath, dataDir, project, workDir string, p *WizardProvider)
 	return cmd, args, env
 }
 
-// writeDSHProviderPatch writes the role's overlay: the third-party API in p (nil = the user's own model setup,
-// an empty overlay "[]"); a hook bridge block already in it is kept.
+// writeDSHProviderPatch writes the role's overlay: the third-party API in p (nil = the user's own model setup)
+// and the image size limit (dshAttachmentPatch); a hook bridge block already in it is kept.
 func writeDSHProviderPatch(dataDir, project string, p *WizardProvider) (string, error) {
 	path := DSHPatchPath(dataDir, project)
-	body := "[]\n"
+	body := dshAttachmentPatch()
 	if p != nil {
-		var err error
-		if body, err = dshProviderBody(project, *p); err != nil {
+		prov, err := dshProviderBody(project, *p)
+		if err != nil {
 			return "", err
 		}
+		body = prov + body
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return "", err
 		}
@@ -150,9 +162,6 @@ func writeDSHProviderPatch(dataDir, project string, p *WizardProvider) (string, 
 	}
 	if old, err := os.ReadFile(path); err == nil {
 		if i := strings.Index(string(old), dshPatchBegin); i >= 0 {
-			if strings.TrimSpace(body) == "[]" {
-				body = ""
-			}
 			body += string(old[i:])
 		}
 	}

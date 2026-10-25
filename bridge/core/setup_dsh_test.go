@@ -181,7 +181,8 @@ func TestApplyWizardDSHRole(t *testing.T) {
 	if i := strings.Index(pt, dshPatchBegin); i >= 0 {
 		pt = pt[:i] // the provider part; the bridge block is checked below
 	}
-	for _, want := range []string{`baseURL: "https://api.deepseek.com/anthropic"`, "apiKeyEnv: " + DSHKeyEnv, `- id: "deepseek-chat"`, "- id: acp"} {
+	for _, want := range []string{`baseURL: "https://api.deepseek.com/anthropic"`, "apiKeyEnv: " + DSHKeyEnv, `- id: "deepseek-chat"`, "- id: acp",
+		"- id: attachment-local\n  config:\n    maxImageDimension: 65535\n"} {
 		if !strings.Contains(pt, want) {
 			t.Errorf("patch lacks %q:\n%s", want, pt)
 		}
