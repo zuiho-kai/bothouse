@@ -3614,8 +3614,8 @@ test('block B: DSH refusing one image of a batch drops only that image and tells
   assert.equal(agent.prompts.length, 1);
   const content = agent.prompts[0].content;
   assert.match(content[0].text, /@Native check/);
-  assert.match(content[0].text, /huge\.png: attachment not delivered \(Image exceeds the configured decoded-pixel limit\.\)/);
-  assert.doesNotMatch(content[0].text, /small\.png: attachment not delivered/);
+  assert.match(content[0].text, /huge\.png: 附件未送达（/);
+  assert.doesNotMatch(content[0].text, /small\.png: 附件未送达/);
   assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'small' } }]);
   const note = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
   assert.ok(note, 'channel shows a system note for the dropped attachment');
@@ -3647,7 +3647,7 @@ test('block B: DSH rejecting an image batch still delivers the text and advances
   await settle();
   const agent = native.sessions.get(native.made[0]);
   assert.equal(agent.prompts.length, 1);
-  assert.match(agent.prompts[0].content[0].text, /a\.png: attachment not delivered \(too many images\)/);
+  assert.match(agent.prompts[0].content[0].text, /a\.png: 附件未送达（/);
   assert.equal(agent.prompts[0].content.length, 1);
   native.turn(agent, ['received']);
   await settle();
@@ -3674,8 +3674,8 @@ test('block B: DSH batch limit keeps the images that fit and notes the rest once
   const agent = native.sessions.get(native.made[0]);
   const content = agent.prompts[0].content;
   assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'a' } }]);
-  assert.match(content[0].text, /b\.png: attachment not delivered \(too many images\)/);
-  assert.match(content[0].text, /c\.png: attachment not delivered \(too many images\)/);
+  assert.match(content[0].text, /b\.png: 附件未送达（/);
+  assert.match(content[0].text, /c\.png: 附件未送达（/);
   const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
   assert.equal(notes.length, 1);
   assert.match(notes[0].text, /b\.png（too many images）；c\.png（too many images）/);

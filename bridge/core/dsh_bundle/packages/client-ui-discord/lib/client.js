@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent="._3MmRKW_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n._3MmRKW_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n._3MmRKW_rooms, ._3MmRKW_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n._3MmRKW_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._3MmRKW_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._3MmRKW_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._3MmRKW_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n._3MmRKW_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._3MmRKW_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n._3MmRKW_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n._3MmRKW_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n._3MmRKW_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n._3MmRKW_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n._3MmRKW_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n._3MmRKW_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n._3MmRKW_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n._3MmRKW_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n._3MmRKW_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_system ._3MmRKW_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n._3MmRKW_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n._3MmRKW_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n._3MmRKW_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n._3MmRKW_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n._3MmRKW_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n._3MmRKW_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n._3MmRKW_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n._3MmRKW_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n._3MmRKW_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_messageBody {\n  min-width: 0;\n}\n\n._3MmRKW_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n._3MmRKW_author {\n  font-weight: 600;\n}\n\n._3MmRKW_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n._3MmRKW_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n._3MmRKW_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n._3MmRKW_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n._3MmRKW_message:hover ._3MmRKW_ownActions, ._3MmRKW_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  ._3MmRKW_ownActions {\n    opacity: 1;\n  }\n}\n\n._3MmRKW_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n._3MmRKW_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n._3MmRKW_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n._3MmRKW_editBar ._3MmRKW_time {\n  margin-right: auto;\n}\n\n._3MmRKW_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n._3MmRKW_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n._3MmRKW_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n._3MmRKW_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n._3MmRKW_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n._3MmRKW_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._3MmRKW_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n._3MmRKW_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n._3MmRKW_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n._3MmRKW_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n._3MmRKW_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n._3MmRKW_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n._3MmRKW_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._3MmRKW_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n._3MmRKW_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n._3MmRKW_quoteDeleted {\n  font-style: italic;\n}\n\n._3MmRKW_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n._3MmRKW_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n._3MmRKW_message:hover ._3MmRKW_replyButton, ._3MmRKW_message:focus-within ._3MmRKW_replyButton, ._3MmRKW_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  ._3MmRKW_replyButton {\n    opacity: 1;\n  }\n}\n\n._3MmRKW_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._3MmRKW_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n._3MmRKW_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n._3MmRKW_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n._3MmRKW_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n._3MmRKW_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._3MmRKW_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n._3MmRKW_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n._3MmRKW_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n._3MmRKW_sendButton:focus-visible, ._3MmRKW_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._3MmRKW_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n._3MmRKW_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n._3MmRKW_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._3MmRKW_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._3MmRKW_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_mentionName {\n  font-weight: 600;\n}\n\n._3MmRKW_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n._3MmRKW_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n._3MmRKW_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n._3MmRKW_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n._3MmRKW_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._3MmRKW_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n._3MmRKW_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._3MmRKW_offline {\n  opacity: .5;\n}\n\n._3MmRKW_memberAvatar {\n  position: relative;\n}\n\n._3MmRKW_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n._3MmRKW_offline ._3MmRKW_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._3MmRKW_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n._3MmRKW_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n._3MmRKW_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  ._3MmRKW_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._3MmRKW_rooms, ._3MmRKW_members {\n    display: none;\n  }\n}\n\n._3MmRKW_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n._3MmRKW_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n._3MmRKW_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_roomInput, ._3MmRKW_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n._3MmRKW_roomInput {\n  margin: 2px 0 6px;\n}\n\n._3MmRKW_roomInput:focus-visible, ._3MmRKW_fieldInput:focus-visible, ._3MmRKW_iconButton:focus-visible, ._3MmRKW_linkButton:focus-visible, ._3MmRKW_addMemberButton:focus-visible, ._3MmRKW_primaryButton:focus-visible, ._3MmRKW_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._3MmRKW_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n._3MmRKW_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n._3MmRKW_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_memberRow ._3MmRKW_member:hover {\n  background: none;\n}\n\n._3MmRKW_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n._3MmRKW_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n._3MmRKW_memberRow:hover ._3MmRKW_memberActions, ._3MmRKW_memberRow:focus-within ._3MmRKW_memberActions {\n  opacity: 1;\n}\n\n._3MmRKW_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n._3MmRKW_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n._3MmRKW_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n._3MmRKW_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n._3MmRKW_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n._3MmRKW_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n._3MmRKW_field textarea {\n  resize: vertical;\n}\n\n._3MmRKW_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n._3MmRKW_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n._3MmRKW_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._3MmRKW_primaryButton, ._3MmRKW_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n._3MmRKW_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n._3MmRKW_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n._3MmRKW_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n._3MmRKW_memberFailed ._3MmRKW_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n._3MmRKW_memberFailed ._3MmRKW_presence {\n  background: #ed4245;\n}\n\n._3MmRKW_mobileButton, ._3MmRKW_drawerBackdrop {\n  display: none;\n}\n\n._3MmRKW_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n._3MmRKW_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._3MmRKW_panelToggleEnd {\n  margin-left: auto;\n}\n\n._3MmRKW_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n._3MmRKW_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n._3MmRKW_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._3MmRKW_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  ._3MmRKW_page._3MmRKW_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  ._3MmRKW_page._3MmRKW_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  ._3MmRKW_page._3MmRKW_roomsHidden._3MmRKW_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._3MmRKW_roomsHidden > ._3MmRKW_rooms, ._3MmRKW_membersHidden > ._3MmRKW_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  ._3MmRKW_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  ._3MmRKW_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  ._3MmRKW_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  ._3MmRKW_panelToggle {\n    display: none;\n  }\n\n  ._3MmRKW_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  ._3MmRKW_rooms._3MmRKW_drawerOpen, ._3MmRKW_members._3MmRKW_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  ._3MmRKW_rooms._3MmRKW_drawerOpen {\n    left: 0;\n  }\n\n  ._3MmRKW_members._3MmRKW_drawerOpen {\n    right: 0;\n  }\n\n  ._3MmRKW_memberActions {\n    opacity: 1;\n  }\n\n  ._3MmRKW_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n._3MmRKW_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n._3MmRKW_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n._3MmRKW_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n._3MmRKW_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n._3MmRKW_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n._3MmRKW_leadControl ._3MmRKW_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n._3MmRKW_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n._3MmRKW_leadControl ._3MmRKW_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n._3MmRKW_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n._3MmRKW_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n._3MmRKW_leadOption:hover, ._3MmRKW_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_taskSection + ._3MmRKW_taskSection {\n  margin-top: 8px;\n}\n\n._3MmRKW_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._3MmRKW_taskOwnerGroup + ._3MmRKW_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n._3MmRKW_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n._3MmRKW_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n._3MmRKW_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n._3MmRKW_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._3MmRKW_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n._3MmRKW_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n._3MmRKW_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._3MmRKW_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n._3MmRKW_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n._3MmRKW_taskDone summary {\n  cursor: pointer;\n}\n\n._3MmRKW_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n._3MmRKW_taskStatus[data-status=\"asked\"], ._3MmRKW_taskStatus[data-status=\"escalated\"], ._3MmRKW_taskStatus[data-status=\"declined\"], ._3MmRKW_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n._3MmRKW_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._3MmRKW_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n._3MmRKW_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n._3MmRKW_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n._3MmRKW_taskMemberName {\n  font-weight: 600;\n}\n\n._3MmRKW_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._3MmRKW_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n._3MmRKW_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n._3MmRKW_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n._3MmRKW_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n._3MmRKW_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n._3MmRKW_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n._3MmRKW_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n._3MmRKW_attachmentAudio audio {\n  width: 100%;\n}\n\n._3MmRKW_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n._3MmRKW_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n._3MmRKW_chatHead button, ._3MmRKW_chatHead input, ._3MmRKW_chatHead select, ._3MmRKW_chatHead a, ._3MmRKW_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n._3MmRKW_text pre, ._3MmRKW_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".AKWTXG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.AKWTXG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.AKWTXG_rooms, .AKWTXG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.AKWTXG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.AKWTXG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.AKWTXG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.AKWTXG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.AKWTXG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.AKWTXG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.AKWTXG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.AKWTXG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.AKWTXG_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.AKWTXG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.AKWTXG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.AKWTXG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.AKWTXG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.AKWTXG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_system .AKWTXG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.AKWTXG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.AKWTXG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.AKWTXG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.AKWTXG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.AKWTXG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.AKWTXG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.AKWTXG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.AKWTXG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.AKWTXG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_messageBody {\n  min-width: 0;\n}\n\n.AKWTXG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.AKWTXG_author {\n  font-weight: 600;\n}\n\n.AKWTXG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.AKWTXG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.AKWTXG_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.AKWTXG_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.AKWTXG_message:hover .AKWTXG_ownActions, .AKWTXG_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .AKWTXG_ownActions {\n    opacity: 1;\n  }\n}\n\n.AKWTXG_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.AKWTXG_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.AKWTXG_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_editBar .AKWTXG_time {\n  margin-right: auto;\n}\n\n.AKWTXG_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.AKWTXG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.AKWTXG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.AKWTXG_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.AKWTXG_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.AKWTXG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.AKWTXG_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.AKWTXG_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.AKWTXG_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.AKWTXG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.AKWTXG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.AKWTXG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.AKWTXG_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.AKWTXG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.AKWTXG_quoteDeleted {\n  font-style: italic;\n}\n\n.AKWTXG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.AKWTXG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.AKWTXG_message:hover .AKWTXG_replyButton, .AKWTXG_message:focus-within .AKWTXG_replyButton, .AKWTXG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .AKWTXG_replyButton {\n    opacity: 1;\n  }\n}\n\n.AKWTXG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.AKWTXG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.AKWTXG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.AKWTXG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.AKWTXG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.AKWTXG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n.AKWTXG_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.AKWTXG_sendButton:focus-visible, .AKWTXG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.AKWTXG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.AKWTXG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.AKWTXG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.AKWTXG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_mentionName {\n  font-weight: 600;\n}\n\n.AKWTXG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.AKWTXG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.AKWTXG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.AKWTXG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.AKWTXG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.AKWTXG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_offline {\n  opacity: .5;\n}\n\n.AKWTXG_memberAvatar {\n  position: relative;\n}\n\n.AKWTXG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.AKWTXG_offline .AKWTXG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.AKWTXG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.AKWTXG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.AKWTXG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .AKWTXG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .AKWTXG_rooms, .AKWTXG_members {\n    display: none;\n  }\n}\n\n.AKWTXG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.AKWTXG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.AKWTXG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_roomInput, .AKWTXG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.AKWTXG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.AKWTXG_roomInput:focus-visible, .AKWTXG_fieldInput:focus-visible, .AKWTXG_iconButton:focus-visible, .AKWTXG_linkButton:focus-visible, .AKWTXG_addMemberButton:focus-visible, .AKWTXG_primaryButton:focus-visible, .AKWTXG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.AKWTXG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.AKWTXG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_memberRow .AKWTXG_member:hover {\n  background: none;\n}\n\n.AKWTXG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.AKWTXG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_memberRow:hover .AKWTXG_memberActions, .AKWTXG_memberRow:focus-within .AKWTXG_memberActions {\n  opacity: 1;\n}\n\n.AKWTXG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.AKWTXG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.AKWTXG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.AKWTXG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.AKWTXG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.AKWTXG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_field textarea {\n  resize: vertical;\n}\n\n.AKWTXG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.AKWTXG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.AKWTXG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_primaryButton, .AKWTXG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.AKWTXG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.AKWTXG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.AKWTXG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.AKWTXG_memberFailed .AKWTXG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.AKWTXG_memberFailed .AKWTXG_presence {\n  background: #ed4245;\n}\n\n.AKWTXG_mobileButton, .AKWTXG_drawerBackdrop {\n  display: none;\n}\n\n.AKWTXG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.AKWTXG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_panelToggleEnd {\n  margin-left: auto;\n}\n\n.AKWTXG_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.AKWTXG_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.AKWTXG_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .AKWTXG_page.AKWTXG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .AKWTXG_page.AKWTXG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .AKWTXG_page.AKWTXG_roomsHidden.AKWTXG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .AKWTXG_roomsHidden > .AKWTXG_rooms, .AKWTXG_membersHidden > .AKWTXG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .AKWTXG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .AKWTXG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .AKWTXG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .AKWTXG_panelToggle {\n    display: none;\n  }\n\n  .AKWTXG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .AKWTXG_rooms.AKWTXG_drawerOpen, .AKWTXG_members.AKWTXG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .AKWTXG_rooms.AKWTXG_drawerOpen {\n    left: 0;\n  }\n\n  .AKWTXG_members.AKWTXG_drawerOpen {\n    right: 0;\n  }\n\n  .AKWTXG_memberActions {\n    opacity: 1;\n  }\n\n  .AKWTXG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.AKWTXG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.AKWTXG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.AKWTXG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.AKWTXG_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.AKWTXG_leadControl .AKWTXG_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.AKWTXG_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.AKWTXG_leadControl .AKWTXG_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.AKWTXG_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.AKWTXG_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.AKWTXG_leadOption:hover, .AKWTXG_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_taskSection + .AKWTXG_taskSection {\n  margin-top: 8px;\n}\n\n.AKWTXG_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.AKWTXG_taskOwnerGroup + .AKWTXG_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.AKWTXG_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.AKWTXG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.AKWTXG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.AKWTXG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.AKWTXG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.AKWTXG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.AKWTXG_taskDone summary {\n  cursor: pointer;\n}\n\n.AKWTXG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.AKWTXG_taskStatus[data-status=\"asked\"], .AKWTXG_taskStatus[data-status=\"escalated\"], .AKWTXG_taskStatus[data-status=\"declined\"], .AKWTXG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.AKWTXG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.AKWTXG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.AKWTXG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.AKWTXG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.AKWTXG_taskMemberName {\n  font-weight: 600;\n}\n\n.AKWTXG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.AKWTXG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.AKWTXG_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.AKWTXG_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.AKWTXG_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.AKWTXG_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.AKWTXG_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.AKWTXG_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.AKWTXG_attachmentAudio audio {\n  width: 100%;\n}\n\n.AKWTXG_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.AKWTXG_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.AKWTXG_chatHead button, .AKWTXG_chatHead input, .AKWTXG_chatHead select, .AKWTXG_chatHead a, .AKWTXG_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.AKWTXG_text pre, .AKWTXG_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
@@ -672,142 +672,142 @@ function ChannelsIcon({ size }) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "_3MmRKW_activeBusy",
-	"activeCount": "_3MmRKW_activeCount",
-	"addMemberButton": "_3MmRKW_addMemberButton",
-	"attachmentAudio": "_3MmRKW_attachmentAudio",
-	"attachmentFile": "_3MmRKW_attachmentFile",
-	"attachmentImage": "_3MmRKW_attachmentImage",
-	"attachments": "_3MmRKW_attachments",
-	"attachmentSize": "_3MmRKW_attachmentSize",
-	"attachmentThumb": "_3MmRKW_attachmentThumb",
-	"author": "_3MmRKW_author",
-	"avatar": "_3MmRKW_avatar",
-	"avatarAnchor": "_3MmRKW_avatarAnchor",
-	"avatarButton": "_3MmRKW_avatarButton",
-	"avatarImage": "_3MmRKW_avatarImage",
-	"avatarMenu": "_3MmRKW_avatarMenu",
-	"avatarMenuItem": "_3MmRKW_avatarMenuItem",
-	"avatarMenuTitle": "_3MmRKW_avatarMenuTitle",
-	"avatarOption": "_3MmRKW_avatarOption",
-	"avatarPicker": "_3MmRKW_avatarPicker",
-	"avatarSmall": "_3MmRKW_avatarSmall",
-	"capabilityHelp": "_3MmRKW_capabilityHelp",
-	"capabilityItem": "_3MmRKW_capabilityItem",
-	"capabilityMenu": "_3MmRKW_capabilityMenu",
-	"card": "_3MmRKW_card",
-	"cardButtons": "_3MmRKW_cardButtons",
-	"cardHead": "_3MmRKW_cardHead",
-	"cardTitle": "_3MmRKW_cardTitle",
-	"cardViewButton": "_3MmRKW_cardViewButton",
-	"cardViews": "_3MmRKW_cardViews",
-	"chat": "_3MmRKW_chat",
-	"chatHead": "_3MmRKW_chatHead",
-	"choice": "_3MmRKW_choice",
-	"choiceRow": "_3MmRKW_choiceRow",
-	"composer": "_3MmRKW_composer",
-	"composerRow": "_3MmRKW_composerRow",
-	"dialog": "_3MmRKW_dialog",
-	"dialogActions": "_3MmRKW_dialogActions",
-	"dialogBackdrop": "_3MmRKW_dialogBackdrop",
-	"dialogTitle": "_3MmRKW_dialogTitle",
-	"drawerBackdrop": "_3MmRKW_drawerBackdrop",
-	"drawerOpen": "_3MmRKW_drawerOpen",
-	"editBar": "_3MmRKW_editBar",
-	"editBox": "_3MmRKW_editBox",
-	"edited": "_3MmRKW_edited",
-	"editInput": "_3MmRKW_editInput",
-	"empty": "_3MmRKW_empty",
-	"field": "_3MmRKW_field",
-	"fieldInput": "_3MmRKW_fieldInput",
-	"fieldLabel": "_3MmRKW_fieldLabel",
-	"focused": "_3MmRKW_focused",
-	"groupHead": "_3MmRKW_groupHead",
-	"groupTitle": "_3MmRKW_groupTitle",
-	"guide": "_3MmRKW_guide",
-	"hash": "_3MmRKW_hash",
-	"iconButton": "_3MmRKW_iconButton",
-	"input": "_3MmRKW_input",
-	"leadControl": "_3MmRKW_leadControl",
-	"leadMenu": "_3MmRKW_leadMenu",
-	"leadOption": "_3MmRKW_leadOption",
-	"linkButton": "_3MmRKW_linkButton",
-	"log": "_3MmRKW_log",
-	"member": "_3MmRKW_member",
-	"memberActions": "_3MmRKW_memberActions",
-	"memberAvatar": "_3MmRKW_memberAvatar",
-	"memberFailed": "_3MmRKW_memberFailed",
-	"memberModel": "_3MmRKW_memberModel",
-	"memberName": "_3MmRKW_memberName",
-	"memberRow": "_3MmRKW_memberRow",
-	"members": "_3MmRKW_members",
-	"membersHidden": "_3MmRKW_membersHidden",
-	"memberStatus": "_3MmRKW_memberStatus",
-	"memberText": "_3MmRKW_memberText",
-	"mentionActive": "_3MmRKW_mentionActive",
-	"mentionButton": "_3MmRKW_mentionButton",
-	"mentionHint": "_3MmRKW_mentionHint",
-	"mentionItem": "_3MmRKW_mentionItem",
-	"mentionMeta": "_3MmRKW_mentionMeta",
-	"mentionName": "_3MmRKW_mentionName",
-	"mentionPopup": "_3MmRKW_mentionPopup",
-	"mentionTitle": "_3MmRKW_mentionTitle",
-	"message": "_3MmRKW_message",
-	"messageBody": "_3MmRKW_messageBody",
-	"messageHead": "_3MmRKW_messageHead",
-	"mobileButton": "_3MmRKW_mobileButton",
-	"notice": "_3MmRKW_notice",
-	"offline": "_3MmRKW_offline",
-	"ownActions": "_3MmRKW_ownActions",
-	"page": "_3MmRKW_page",
-	"panelToggle": "_3MmRKW_panelToggle",
-	"panelToggleEnd": "_3MmRKW_panelToggleEnd",
-	"permActions": "_3MmRKW_permActions",
-	"permScope": "_3MmRKW_permScope",
-	"permStatus": "_3MmRKW_permStatus",
-	"presence": "_3MmRKW_presence",
-	"primaryButton": "_3MmRKW_primaryButton",
-	"quote": "_3MmRKW_quote",
-	"quoteAuthor": "_3MmRKW_quoteAuthor",
-	"quoteDeleted": "_3MmRKW_quoteDeleted",
-	"replyBar": "_3MmRKW_replyBar",
-	"replyBarText": "_3MmRKW_replyBarText",
-	"replyButton": "_3MmRKW_replyButton",
-	"replyCancel": "_3MmRKW_replyCancel",
-	"room": "_3MmRKW_room",
-	"roomActive": "_3MmRKW_roomActive",
-	"roomInput": "_3MmRKW_roomInput",
-	"roomLabel": "_3MmRKW_roomLabel",
-	"rooms": "_3MmRKW_rooms",
-	"roomsHidden": "_3MmRKW_roomsHidden",
-	"secondaryButton": "_3MmRKW_secondaryButton",
-	"sendButton": "_3MmRKW_sendButton",
-	"sendError": "_3MmRKW_sendError",
-	"system": "_3MmRKW_system",
-	"tag": "_3MmRKW_tag",
-	"taskBoard": "_3MmRKW_taskBoard",
-	"taskCard": "_3MmRKW_taskCard",
-	"taskDone": "_3MmRKW_taskDone",
-	"taskEmpty": "_3MmRKW_taskEmpty",
-	"taskLine": "_3MmRKW_taskLine",
-	"taskLinks": "_3MmRKW_taskLinks",
-	"taskList": "_3MmRKW_taskList",
-	"taskMember": "_3MmRKW_taskMember",
-	"taskMemberName": "_3MmRKW_taskMemberName",
-	"taskMembers": "_3MmRKW_taskMembers",
-	"taskMeta": "_3MmRKW_taskMeta",
-	"taskOwnerGroup": "_3MmRKW_taskOwnerGroup",
-	"taskOwnerName": "_3MmRKW_taskOwnerName",
-	"taskRow": "_3MmRKW_taskRow",
-	"taskSection": "_3MmRKW_taskSection",
-	"taskSectionTitle": "_3MmRKW_taskSectionTitle",
-	"taskStatus": "_3MmRKW_taskStatus",
-	"taskSub": "_3MmRKW_taskSub",
-	"taskTitle": "_3MmRKW_taskTitle",
-	"text": "_3MmRKW_text",
-	"time": "_3MmRKW_time",
-	"working": "_3MmRKW_working",
-	"workspace": "_3MmRKW_workspace"
+	"activeBusy": "AKWTXG_activeBusy",
+	"activeCount": "AKWTXG_activeCount",
+	"addMemberButton": "AKWTXG_addMemberButton",
+	"attachmentAudio": "AKWTXG_attachmentAudio",
+	"attachmentFile": "AKWTXG_attachmentFile",
+	"attachmentImage": "AKWTXG_attachmentImage",
+	"attachments": "AKWTXG_attachments",
+	"attachmentSize": "AKWTXG_attachmentSize",
+	"attachmentThumb": "AKWTXG_attachmentThumb",
+	"author": "AKWTXG_author",
+	"avatar": "AKWTXG_avatar",
+	"avatarAnchor": "AKWTXG_avatarAnchor",
+	"avatarButton": "AKWTXG_avatarButton",
+	"avatarImage": "AKWTXG_avatarImage",
+	"avatarMenu": "AKWTXG_avatarMenu",
+	"avatarMenuItem": "AKWTXG_avatarMenuItem",
+	"avatarMenuTitle": "AKWTXG_avatarMenuTitle",
+	"avatarOption": "AKWTXG_avatarOption",
+	"avatarPicker": "AKWTXG_avatarPicker",
+	"avatarSmall": "AKWTXG_avatarSmall",
+	"capabilityHelp": "AKWTXG_capabilityHelp",
+	"capabilityItem": "AKWTXG_capabilityItem",
+	"capabilityMenu": "AKWTXG_capabilityMenu",
+	"card": "AKWTXG_card",
+	"cardButtons": "AKWTXG_cardButtons",
+	"cardHead": "AKWTXG_cardHead",
+	"cardTitle": "AKWTXG_cardTitle",
+	"cardViewButton": "AKWTXG_cardViewButton",
+	"cardViews": "AKWTXG_cardViews",
+	"chat": "AKWTXG_chat",
+	"chatHead": "AKWTXG_chatHead",
+	"choice": "AKWTXG_choice",
+	"choiceRow": "AKWTXG_choiceRow",
+	"composer": "AKWTXG_composer",
+	"composerRow": "AKWTXG_composerRow",
+	"dialog": "AKWTXG_dialog",
+	"dialogActions": "AKWTXG_dialogActions",
+	"dialogBackdrop": "AKWTXG_dialogBackdrop",
+	"dialogTitle": "AKWTXG_dialogTitle",
+	"drawerBackdrop": "AKWTXG_drawerBackdrop",
+	"drawerOpen": "AKWTXG_drawerOpen",
+	"editBar": "AKWTXG_editBar",
+	"editBox": "AKWTXG_editBox",
+	"edited": "AKWTXG_edited",
+	"editInput": "AKWTXG_editInput",
+	"empty": "AKWTXG_empty",
+	"field": "AKWTXG_field",
+	"fieldInput": "AKWTXG_fieldInput",
+	"fieldLabel": "AKWTXG_fieldLabel",
+	"focused": "AKWTXG_focused",
+	"groupHead": "AKWTXG_groupHead",
+	"groupTitle": "AKWTXG_groupTitle",
+	"guide": "AKWTXG_guide",
+	"hash": "AKWTXG_hash",
+	"iconButton": "AKWTXG_iconButton",
+	"input": "AKWTXG_input",
+	"leadControl": "AKWTXG_leadControl",
+	"leadMenu": "AKWTXG_leadMenu",
+	"leadOption": "AKWTXG_leadOption",
+	"linkButton": "AKWTXG_linkButton",
+	"log": "AKWTXG_log",
+	"member": "AKWTXG_member",
+	"memberActions": "AKWTXG_memberActions",
+	"memberAvatar": "AKWTXG_memberAvatar",
+	"memberFailed": "AKWTXG_memberFailed",
+	"memberModel": "AKWTXG_memberModel",
+	"memberName": "AKWTXG_memberName",
+	"memberRow": "AKWTXG_memberRow",
+	"members": "AKWTXG_members",
+	"membersHidden": "AKWTXG_membersHidden",
+	"memberStatus": "AKWTXG_memberStatus",
+	"memberText": "AKWTXG_memberText",
+	"mentionActive": "AKWTXG_mentionActive",
+	"mentionButton": "AKWTXG_mentionButton",
+	"mentionHint": "AKWTXG_mentionHint",
+	"mentionItem": "AKWTXG_mentionItem",
+	"mentionMeta": "AKWTXG_mentionMeta",
+	"mentionName": "AKWTXG_mentionName",
+	"mentionPopup": "AKWTXG_mentionPopup",
+	"mentionTitle": "AKWTXG_mentionTitle",
+	"message": "AKWTXG_message",
+	"messageBody": "AKWTXG_messageBody",
+	"messageHead": "AKWTXG_messageHead",
+	"mobileButton": "AKWTXG_mobileButton",
+	"notice": "AKWTXG_notice",
+	"offline": "AKWTXG_offline",
+	"ownActions": "AKWTXG_ownActions",
+	"page": "AKWTXG_page",
+	"panelToggle": "AKWTXG_panelToggle",
+	"panelToggleEnd": "AKWTXG_panelToggleEnd",
+	"permActions": "AKWTXG_permActions",
+	"permScope": "AKWTXG_permScope",
+	"permStatus": "AKWTXG_permStatus",
+	"presence": "AKWTXG_presence",
+	"primaryButton": "AKWTXG_primaryButton",
+	"quote": "AKWTXG_quote",
+	"quoteAuthor": "AKWTXG_quoteAuthor",
+	"quoteDeleted": "AKWTXG_quoteDeleted",
+	"replyBar": "AKWTXG_replyBar",
+	"replyBarText": "AKWTXG_replyBarText",
+	"replyButton": "AKWTXG_replyButton",
+	"replyCancel": "AKWTXG_replyCancel",
+	"room": "AKWTXG_room",
+	"roomActive": "AKWTXG_roomActive",
+	"roomInput": "AKWTXG_roomInput",
+	"roomLabel": "AKWTXG_roomLabel",
+	"rooms": "AKWTXG_rooms",
+	"roomsHidden": "AKWTXG_roomsHidden",
+	"secondaryButton": "AKWTXG_secondaryButton",
+	"sendButton": "AKWTXG_sendButton",
+	"sendError": "AKWTXG_sendError",
+	"system": "AKWTXG_system",
+	"tag": "AKWTXG_tag",
+	"taskBoard": "AKWTXG_taskBoard",
+	"taskCard": "AKWTXG_taskCard",
+	"taskDone": "AKWTXG_taskDone",
+	"taskEmpty": "AKWTXG_taskEmpty",
+	"taskLine": "AKWTXG_taskLine",
+	"taskLinks": "AKWTXG_taskLinks",
+	"taskList": "AKWTXG_taskList",
+	"taskMember": "AKWTXG_taskMember",
+	"taskMemberName": "AKWTXG_taskMemberName",
+	"taskMembers": "AKWTXG_taskMembers",
+	"taskMeta": "AKWTXG_taskMeta",
+	"taskOwnerGroup": "AKWTXG_taskOwnerGroup",
+	"taskOwnerName": "AKWTXG_taskOwnerName",
+	"taskRow": "AKWTXG_taskRow",
+	"taskSection": "AKWTXG_taskSection",
+	"taskSectionTitle": "AKWTXG_taskSectionTitle",
+	"taskStatus": "AKWTXG_taskStatus",
+	"taskSub": "AKWTXG_taskSub",
+	"taskTitle": "AKWTXG_taskTitle",
+	"text": "AKWTXG_text",
+	"time": "AKWTXG_time",
+	"working": "AKWTXG_working",
+	"workspace": "AKWTXG_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
@@ -1802,6 +1802,14 @@ function KindTag({ kind, cli, t }) {
 	});
 	return null;
 }
+/** IME candidate confirmation (desktop isComposing, iOS/Android keyCode 229) must not send/select/save. */
+function isImeEnter(event) {
+	return Reflect.get(event.nativeEvent, "isComposing") === true || Reflect.get(event.nativeEvent, "keyCode") === 229;
+}
+/** Touch or narrow screens get the short composer placeholder (the long one wraps beside the send button). */
+function compactComposer() {
+	return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (max-width: 600px)").matches;
+}
 /** The quoted original above a reply; a deleted original shows only a placeholder. */
 function Quote({ quote, t }) {
 	if (quote.deleted === true) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -1949,7 +1957,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								if (event.key === "Escape") {
 									event.preventDefault();
 									own.onEditCancel();
-								} else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+								} else if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 									event.preventDefault();
 									own.onEditSave();
 								}
@@ -2469,7 +2477,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		}));
 	};
 	const onKeyDown = (event) => {
-		if (draft === "/" && !capabilitiesDismissed && !event.nativeEvent.isComposing) {
+		if (draft === "/" && !capabilitiesDismissed && !isImeEnter(event)) {
 			if (event.key === "Escape") {
 				event.preventDefault();
 				setCapabilitiesDismissed(true);
@@ -2480,7 +2488,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				return;
 			}
 		}
-		if (popupOpen && !event.nativeEvent.isComposing) {
+		if (popupOpen && !isImeEnter(event)) {
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				event.preventDefault();
 				const step = event.key === "ArrowDown" ? 1 : -1;
@@ -2498,7 +2506,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				return;
 			}
 		}
-		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && Reflect.get(event.nativeEvent, "keyCode") !== 229) {
+		if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 			event.preventDefault();
 			submit();
 		}
@@ -2823,7 +2831,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 										enterKeyHint: "send",
 										value: draft,
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
-										placeholder: t("placeholder", { room: room?.name ?? "" }),
+										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
 										role: "combobox",
 										"aria-expanded": popupOpen,
 										"aria-controls": "channel-mention-list",
@@ -3111,6 +3119,7 @@ const zh = {
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
+	placeholderShort: "发消息到 #{room}",
 	placeholder: "发消息到 #{room}，@成员 让它干活（Enter 发送，Shift+Enter 换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
@@ -3263,6 +3272,7 @@ const en = {
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
+	placeholderShort: "Message #{room}",
 	placeholder: "Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)",
 	loading: "Connecting to the channel service…",
 	unavailable: "The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.",

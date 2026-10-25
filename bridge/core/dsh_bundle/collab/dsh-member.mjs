@@ -497,7 +497,7 @@ export class DshMembers {
     // text and the channel gets a system note, instead of failing the turn: a failed turn
     // never advances the cursor, so the same image would block the room.
     const { parts: media, dropped: refused } = await nativeAttachmentBlocks(this.rt.ctx.attachments, namedAttachmentBlocks(this.rt.files, unseen));
-    const dropped = refused.map(d => `\n\n[${d.name}: attachment not delivered (${d.reason})]`).join('');
+    const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
     const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
