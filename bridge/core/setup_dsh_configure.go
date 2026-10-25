@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -43,6 +44,8 @@ type DSHConfigureResult struct {
 	KeySaved    bool   `json:"key_saved"`
 	MembersFile string `json:"members_file"`
 	Members     int    `json:"members"`
+	// Wikis: each member's role wiki (setup_dsh_wiki.go); a member whose wiki failed is still added.
+	Wikis []DSHMemberWiki `json:"wikis,omitempty"`
 }
 
 // dshCLIs are the local CLIs a collab member may run as (dsh/collab/roster.mjs CLIS).
@@ -415,6 +418,12 @@ func (m *ManagementServer) handleSetupDSHConfigure(w http.ResponseWriter, r *htt
 	if err != nil {
 		mgmtError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	res.Wikis = addDSHMemberWikis(r.Context(), m.wizardDataDir, req.Members)
+	for _, x := range res.Wikis {
+		if x.Error != "" {
+			slog.Warn("dsh member wiki not made", "member", x.Name, "error", x.Error)
+		}
 	}
 	mgmtJSON(w, http.StatusOK, res)
 }
