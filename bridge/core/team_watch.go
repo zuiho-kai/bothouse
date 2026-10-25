@@ -166,13 +166,6 @@ func (s *APIServer) rewatchIfServing() {
 func (w *handoffWatch) run(ctx context.Context) {
 	for {
 		next := w.tick(w.now())
-		if w.engines != nil {
-			for _, e := range w.engines() {
-				if n := e.publicProgress.relayWatchTick(relayWatchNow()); !n.IsZero() && (next.IsZero() || n.Before(next)) {
-					next = n
-				}
-			}
-		}
 		wait := watchIdleWake()
 		if !next.IsZero() {
 			if d := next.Sub(w.now()); d < wait {

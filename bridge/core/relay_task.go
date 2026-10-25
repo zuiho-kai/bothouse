@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -25,7 +25,8 @@ type taskRelayRecord struct {
 	Reports  map[int64]string `json:"reports,omitempty"`
 	// Ten-minute watch (relay_watch.go); kept with the receipt, never a workspace handoff.
 	WatchDue     time.Time `json:"watch_due,omitempty"`
-	WatchSeq     int64     `json:"watch_seq,omitempty"` // LastSeq at the last check
+	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
+	WatchSeq     int64     `json:"watch_seq,omitempty"`  // LastSeq at the last check
 	WatchRenewed int       `json:"watch_renewed,omitempty"`
 	WatchDone    bool      `json:"watch_done,omitempty"` // nudged+stopped, or interrupted reported once
 }
@@ -35,14 +36,14 @@ type taskRelay struct {
 	r           *publicRun
 	req         RelayRequest
 	name, token string
-	started     time.Time // when this dispatch was accepted
-	cancel      func()    // stops this run (watch); set by sendTask
-	watchStop   atomic.Bool
+	started     time.Time     // when this dispatch was accepted
+	stop        chan struct{} // closed by the watch (stopWatch): close the session now
+	stopOnce    sync.Once
 }
 
 // Task relays share execution tracking with ordinary relays, but keep each
 // dispatch in a distinct conversation and exclude raw tools from public facts.
-func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, message, taskScope string, complete func(string, error)) (string, error) {
+func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, message, taskScope string, stop <-chan struct{}, complete func(string, error)) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -53,7 +54,7 @@ func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if taskScope != "" {
 		key += ":task:" + taskScope
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", complete)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", stop, complete)
 }
 
 func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, target *Engine, name string) (*RelayResponse, error) {
@@ -67,16 +68,14 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if err != nil || cached != nil {
 		return cached, err
 	}
+	source.publicProgress.ensureRelayWatch(source.ctx)
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
-	source.publicProgress.mu.Lock()
-	d.cancel = cancel
-	source.publicProgress.mu.Unlock()
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
-	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope, func(response string, runErr error) {
-		if err := d.finish(response, d.watchErr(runErr)); err != nil {
+	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope, d.stop, func(response string, runErr error) {
+		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
 	})
@@ -84,9 +83,11 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if errors.As(runErr, &draining) {
 		return nil, fmt.Errorf("relay: wait ended; execution continues, do not redispatch: %w", runErr)
 	}
-	runErr = d.watchErr(runErr)
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
+	}
+	if errors.Is(runErr, errRelayWatchStopped) && strings.TrimSpace(response) != "" {
+		return nil, fmt.Errorf("relay: %w\n\n部分结果：\n%s", runErr, response)
 	}
 	if runErr != nil {
 		return nil, fmt.Errorf("relay: %w", runErr)
@@ -158,14 +159,15 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 		return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 	}
 	old := snapshotTaskRelay(r)
-	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running", WatchDue: relayWatchNow().UTC().Add(watchCheckAfter())}
+	now := time.Now().UTC()
+	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
 		r.record = old
 		return nil, nil, err
 	}
-	d := &taskRelay{p: p, r: r, req: req, name: name, token: randomProgressID(32), started: time.Now().UTC()} // source: existing public progress token size
+	d := &taskRelay{p: p, r: r, req: req, name: name, token: randomProgressID(32), started: now, stop: make(chan struct{})} // source: existing public progress token size
 	p.mu.Lock()
 	if p.relayRuns == nil {
 		p.relayRuns = map[string]*taskRelay{}
@@ -273,7 +275,7 @@ func (d *taskRelay) prompt() string {
 		command = exe
 	}
 	prefix := shellQuoteRelay(command) + " progress --project " + shellQuoteRelay(d.p.project) + " --session " + shellQuoteRelay(d.req.SessionKey) + " --data-dir " + shellQuoteRelay(d.p.dataDir) + " --run " + d.token
-	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
+	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Report progress with --seq every few minutes (an update on your own row on this card counts too): a run with no progress for ten minutes is stopped, its session closed, and the text so far handed back as a partial result. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
 }
 
 // Member rows bound to this target publish under its account; their tokens

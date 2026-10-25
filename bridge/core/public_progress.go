@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -126,6 +127,7 @@ type PublicProgress struct {
 	open    map[string]*publicRun
 	pending map[string]*publicRun
 	listed  map[string]*publicRun // live tasks and durable requests awaiting a human
+	watchOn atomic.Bool           // the task relay watch loop runs (relay_watch.go)
 }
 
 func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicProgress, error) {

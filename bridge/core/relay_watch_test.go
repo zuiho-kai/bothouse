@@ -1,26 +1,31 @@
 package core
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
 )
 
-func relayWatchFixture(t *testing.T) (*PublicProgress, *taskRelay, *time.Time, *int) {
+// relayWatchStopped: the watch closed the run's stop channel (counted as 1 stop).
+func relayWatchStopped(d *taskRelay) int {
+	select {
+	case <-d.stop:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// now is the start of the receipt's first window (its due time minus the check time).
+func relayWatchFixture(t *testing.T) (*PublicProgress, *taskRelay, *time.Time) {
 	t.Helper()
-	now := time.Date(2026, 10, 26, 4, 0, 0, 0, time.UTC)
-	old := relayWatchNow
-	relayWatchNow = func() time.Time { return now }
-	t.Cleanup(func() { relayWatchNow = old })
 	p, _, _, id := taskRelayFixture(t)
 	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cancels := 0
-	d.cancel = func() { cancels++ }
-	return p, d, &now, &cancels
+	now := relayWatchReceipt(d).WatchDue.Add(-watchCheckAfter())
+	return p, d, &now
 }
 
 func relayWatchReceipt(d *taskRelay) taskRelayRecord {
@@ -46,18 +51,18 @@ func relayWatchReport(t *testing.T, p *PublicProgress, d *taskRelay, seq int64) 
 }
 
 func TestRelayWatchNoProgressNudgesAndStops(t *testing.T) {
-	p, d, now, cancels := relayWatchFixture(t)
-	if n := p.relayWatchTick(now.Add(time.Minute)); !n.Equal(now.Add(watchCheckAfter())) || *cancels != 0 {
-		t.Fatalf("before due: next=%v cancels=%d", n, *cancels)
+	p, d, now := relayWatchFixture(t)
+	if n := p.relayWatchTick(now.Add(time.Minute)); !n.Equal(now.Add(watchCheckAfter())) || relayWatchStopped(d) != 0 {
+		t.Fatalf("before due: next=%v cancels=%d", n, relayWatchStopped(d))
 	}
 	p.relayWatchTick(now.Add(watchCheckAfter()))
-	if *cancels != 1 || !d.watchStop.Load() || !relayWatchReceipt(d).WatchDone {
-		t.Fatalf("not stopped: cancels=%d", *cancels)
+	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
+		t.Fatalf("not stopped: cancels=%d", relayWatchStopped(d))
 	}
 	if !strings.Contains(relayWatchLastEvent(d), "十分钟看门") {
 		t.Fatalf("no nudge in thread: %q", relayWatchLastEvent(d))
 	}
-	if err := d.finish("partial text", d.watchErr(errors.New("context canceled"))); err != nil {
+	if err := d.finish("partial text", errRelayWatchStopped); err != nil {
 		t.Fatal(err)
 	}
 	rc := relayWatchReceipt(d)
@@ -65,38 +70,38 @@ func TestRelayWatchNoProgressNudgesAndStops(t *testing.T) {
 		t.Fatalf("receipt %+v", rc)
 	}
 	p.relayWatchTick(now.Add(time.Hour)) // handed back: skipped
-	if *cancels != 1 {
+	if relayWatchStopped(d) != 1 {
 		t.Fatal("watched a finished receipt again")
 	}
 }
 
 func TestRelayWatchProgressRenewsThenStopsAfterTwo(t *testing.T) {
-	p, d, now, cancels := relayWatchFixture(t)
+	p, d, now := relayWatchFixture(t)
 	at := *now
 	for i := 1; i <= watchMaxRenew; i++ {
 		relayWatchReport(t, p, d, int64(i))
 		at = relayWatchReceipt(d).WatchDue
 		next := p.relayWatchTick(at)
-		if *cancels != 0 || relayWatchReceipt(d).WatchRenewed != i || !next.Equal(at.Add(watchCheckAfter())) {
-			t.Fatalf("renew %d: cancels=%d rc=%+v next=%v", i, *cancels, relayWatchReceipt(d), next)
+		if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchRenewed != i || !next.Equal(at.Add(watchCheckAfter())) {
+			t.Fatalf("renew %d: cancels=%d rc=%+v next=%v", i, relayWatchStopped(d), relayWatchReceipt(d), next)
 		}
 	}
 	relayWatchReport(t, p, d, int64(watchMaxRenew+1)) // progress, but renewals used up
 	p.relayWatchTick(relayWatchReceipt(d).WatchDue)
-	if *cancels != 1 || !relayWatchReceipt(d).WatchDone {
-		t.Fatalf("not stopped after %d renewals: cancels=%d", watchMaxRenew, *cancels)
+	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
+		t.Fatalf("not stopped after %d renewals: cancels=%d", watchMaxRenew, relayWatchStopped(d))
 	}
 }
 
 func TestRelayWatchRestartReportsInterruptedOnce(t *testing.T) {
-	p, d, now, cancels := relayWatchFixture(t)
+	p, d, now := relayWatchFixture(t)
 	p.mu.Lock()
 	delete(p.relayRuns, d.token) // the in-memory run is gone after a restart
 	p.mu.Unlock()
 	due := now.Add(watchCheckAfter())
 	p.relayWatchTick(due)
-	if !strings.Contains(relayWatchLastEvent(d), "请重派") || *cancels != 0 {
-		t.Fatalf("event %q cancels=%d", relayWatchLastEvent(d), *cancels)
+	if !strings.Contains(relayWatchLastEvent(d), "请重派") || relayWatchStopped(d) != 0 {
+		t.Fatalf("event %q cancels=%d", relayWatchLastEvent(d), relayWatchStopped(d))
 	}
 	d.r.mu.Lock()
 	n := len(d.r.record.Task.Events)

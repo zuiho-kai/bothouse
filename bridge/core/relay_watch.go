@@ -1,8 +1,8 @@
 package core
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 )
@@ -10,31 +10,76 @@ import (
 // Ten-minute watch for work sent with task assign + relay --task. The record is
 // the task receipt (taskRelayRecord.Watch*), not a workspace handoff, so
 // `workspace list` watch_due never includes it. Progress = the receipt was
-// handed back (status not running) or LastSeq grew since the last check; a busy
-// session is not progress (a relay turn is busy until it returns). Cadence and
-// renew limit are team_watch's (watchCheckAfter, watchMaxRenew). The existing
-// relay timeout + drain (~30 minutes) stays the only hard stop.
-
-// relayWatchNow is the watch clock; tests replace it.
-var relayWatchNow = time.Now
+// handed back (status not running), LastSeq grew, or the worker's own member
+// row on the card was updated since the window began; a busy session is not
+// progress (a relay turn is busy until it returns). Cadence and renew limit are
+// team_watch's (watchCheckAfter, watchMaxRenew). A stop closes the worker's
+// session at once (handleTrackedRelay's stop channel), not the relay drain.
 
 // errRelayWatchStopped marks a run the watch stopped, like d10 stopping a turn.
-var errRelayWatchStopped = errors.New("十分钟看门停止：到点没有进展，已停下，做到的部分已交回")
-
-func (d *taskRelay) watchErr(runErr error) error {
-	if d.watchStop.Load() {
-		if runErr == nil {
-			return errRelayWatchStopped
-		}
-		return fmt.Errorf("%w (%v)", errRelayWatchStopped, runErr)
-	}
-	return runErr
-}
+var errRelayWatchStopped = errors.New("十分钟看门停止：到点没有交回结果，会话已关，做到的部分作为部分结果交回")
 
 const (
-	relayWatchNudge       = "十分钟看门：到点还没进展。请交回结果，或说明卡在哪；这一轮先停下，做到的部分交回。"
+	relayWatchNudge       = "十分钟看门：到点还没交回结果。这一轮已停下，做到的部分作为部分结果交回；请看结果再决定是否重派。"
 	relayWatchInterrupted = "十分钟看门：这次派活的执行已中断（桥重启过），请重派。"
 )
+
+// stopWatch closes the run's stop channel once; handleTrackedRelay closes the session.
+func (d *taskRelay) stopWatch() { d.stopOnce.Do(func() { close(d.stop) }) }
+
+// ensureRelayWatch runs the receipt watch loop for p unless it is running. It
+// is started by every task dispatch, so the watch needs no API server, team
+// lead or workspace watch. The loop ends when nothing is left to watch.
+func (p *PublicProgress) ensureRelayWatch(ctx context.Context) {
+	if ctx == nil || ctx.Err() != nil {
+		slog.Error("relay watch: not started, engine is stopping; this dispatch has no ten-minute watch", "project", p.project)
+		return
+	}
+	if !p.watchOn.CompareAndSwap(false, true) {
+		return
+	}
+	go p.runRelayWatch(ctx)
+}
+
+func (p *PublicProgress) runRelayWatch(ctx context.Context) {
+	for {
+		next := p.relayWatchTick(time.Now())
+		if next.IsZero() {
+			// Hand the loop back, then look once more: a dispatch that saw the
+			// loop still on just before this added a receipt nobody would watch.
+			p.watchOn.Store(false)
+			if p.relayWatchTick(time.Now()).IsZero() || !p.watchOn.CompareAndSwap(false, true) {
+				return
+			}
+			continue
+		}
+		wait := time.Until(next)
+		if idle := watchIdleWake(); wait > idle {
+			wait = idle
+		}
+		if wait <= 0 {
+			wait = time.Millisecond
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			p.watchOn.Store(false)
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// relayMemberProgress: the worker updated its own row on the card since `since`.
+func relayMemberProgress(t *Task, project string, since time.Time) bool {
+	for _, m := range t.Members {
+		if m.ReporterProject == project && !m.StartedAt.IsZero() && m.UpdatedAt.After(since) {
+			return true
+		}
+	}
+	return false
+}
 
 // relayWatchTick checks every running receipt whose watch is due and returns
 // the next due time (zero if none).
@@ -49,7 +94,7 @@ func (p *PublicProgress) relayWatchTick(now time.Time) time.Time {
 	}
 	live := make(map[string]*taskRelay, len(p.relayRuns))
 	for _, d := range p.relayRuns {
-		live[d.r.record.Task.ID+"\x00"+d.req.RequestID] = d
+		live[d.req.TaskID+"\x00"+d.req.RequestID] = d
 	}
 	p.mu.Unlock()
 	var next time.Time
@@ -87,9 +132,10 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 		case d == nil: // restart: the run is gone; report once, no nudge, no retry
 			rc.WatchDone = true
 			p.appendEvent(r, TaskEventProgress, relayWatchInterrupted, true)
-		case rc.LastSeq > rc.WatchSeq && rc.WatchRenewed < watchMaxRenew:
+		case (rc.LastSeq > rc.WatchSeq || relayMemberProgress(r.record.Task, rc.Target, rc.WatchFrom)) && rc.WatchRenewed < watchMaxRenew:
 			rc.WatchRenewed++
 			rc.WatchSeq = rc.LastSeq
+			rc.WatchFrom = now
 			rc.WatchDue = now.Add(watchCheckAfter())
 			if next.IsZero() || rc.WatchDue.Before(next) {
 				next = rc.WatchDue
@@ -111,13 +157,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 	}
 	p.queueTaskRelay(r)
 	for _, d := range stop {
-		d.watchStop.Store(true)
-		p.mu.Lock()
-		cancel := d.cancel
-		p.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
+		d.stopWatch()
 	}
 	return next
 }

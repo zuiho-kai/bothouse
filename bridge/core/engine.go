@@ -17355,7 +17355,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if err != nil {
 		return "", err
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil)
 }
 
 // relayGateQuery is the text the gate searches the wiki with: the assignment
@@ -17373,7 +17373,10 @@ func relayGateQuery(message string) string {
 // handleTrackedRelay owns execution and team lifecycle after the caller has
 // resolved its conversation key. Task-scoped relays can pass their scoped key
 // here to share timeout/drain behavior without sharing conversation history.
-func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, completion ...func(string, error)) (string, error) {
+// Closing stop (task relays' ten-minute watch; nil = never) closes the session
+// at once, unlike the wait timeout: a result already received is returned as
+// done, otherwise the text so far comes back with errRelayWatchStopped.
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, completion ...func(string, error)) (string, error) {
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -17488,7 +17491,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, completion)
+			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -17496,6 +17499,17 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		case <-e.ctx.Done():
 			agentSession.Close()
 			return "", e.ctx.Err()
+		case <-stop:
+			textParts, response, resultReceived = relayTakeBuffered(events, textParts, response, resultReceived)
+			agentSession.Close()
+			if resultReceived {
+				slog.Info("relay: watch stop after the result; recorded as done", "from", fromProject, "to", e.name)
+				teamOutcome = teamWorkCompleted
+				return response, nil
+			}
+			slog.Warn("relay: ten-minute watch stopped the run; session closed", "from", fromProject, "to", e.name)
+			teamOutcome = teamWorkFailed
+			return strings.Join(textParts, ""), errRelayWatchStopped
 		case err := <-sendDone:
 			sendDone = nil
 			if err != nil {
@@ -17584,6 +17598,35 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	return "", fmt.Errorf("relay: agent process exited without response")
 }
 
+// relayTakeBuffered reads the events already waiting (without blocking), so a
+// stop keeps text and a result the worker produced just before it.
+func relayTakeBuffered(events <-chan Event, textParts []string, response string, resultReceived bool) ([]string, string, bool) {
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return textParts, response, resultReceived
+			}
+			switch ev.Type {
+			case EventText:
+				if ev.Content != "" {
+					textParts = append(textParts, ev.Content)
+				}
+			case EventResult:
+				response, resultReceived = ev.Content, true
+				if response == "" {
+					response = strings.Join(textParts, "")
+				}
+				if response == "" {
+					response = "(empty response)"
+				}
+			}
+		default:
+			return textParts, response, resultReceived
+		}
+	}
+}
+
 func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, toProject string) (string, error) {
 	if len(textParts) == 0 {
 		return "", ctxErr
@@ -17603,7 +17646,7 @@ func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, 
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs.
-func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -17677,6 +17720,17 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 					UpdatedInput: ev.ToolInputRaw,
 				})
 			}
+		case <-stop:
+			textParts, response, resultReceived = relayTakeBuffered(events, textParts, response, resultReceived)
+			agentSession.Close()
+			if resultReceived {
+				teamOutcome, completionErr = teamWorkCompleted, nil
+				return
+			}
+			slog.Warn("relay: ten-minute watch stopped the drained run; session closed", "relay_key", relaySessionKey)
+			teamOutcome, completionErr = teamWorkFailed, errRelayWatchStopped
+			response = strings.Join(textParts, "")
+			return
 		case <-timer.C:
 			slog.Warn("relay: background drain timed out, closing session",
 				"relay_key", relaySessionKey)
