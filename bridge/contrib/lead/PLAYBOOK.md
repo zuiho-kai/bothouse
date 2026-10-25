@@ -24,10 +24,10 @@ Merge the change to the shared interface first, then have the others rebase onto
 Do not start a line with several names in a row; the gate treats that as an interrupt.
 (2026-10-23: one line with three names interrupted a teammate's work.)
 
-## 5. If you judge you can no longer keep up, open a "workspace"
+## 5. Hand big tasks to a "workspace"
 
-When the primary role judges it is losing track (missed items, duplicate assignments, forgotten timers), hand a whole large task to the primary role in the "workspace" channel.
-Reference only: more than about 6 parallel threads, or more than half of your context used. The 6 comes from the 2026-10-23 review data: with 8 parallel threads that day, timers were left running 3 times and one task was assigned twice. Your own judgment decides.
+When a task will likely take more than 10 minutes, or needs code changes, test runs or waiting on commands (builds, long live tests), hand it to the primary role in the "workspace" channel in the same turn you accept it; do not do it in the chat channel. This holds even when it is your only task.
+Also hand whole tasks over when you judge you are losing track (missed items, duplicate assignments, forgotten timers). Reference: more than about 6 parallel threads, or more than half of your context used (2026-10-23 review: with 8 parallel threads, timers were left running 3 times and one task was assigned twice).
 
 Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
 
