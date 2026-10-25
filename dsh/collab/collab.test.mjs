@@ -3930,6 +3930,46 @@ test('CLI member without allow_always: typed 允许所有 goes back to ACP as al
   assert.equal(state, 'allowed', 'card shows what ACP got, not 已允许所有');
 });
 
+test('CLI member: after 允许所有 the next command in the same session is allowed without a card', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  const request = (id, command) => ({
+    sessionId: 's1',
+    toolCall: { toolCallId: id, title: 'Bash', rawInput: { command } },
+    options: [
+      { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+      { optionId: 'allow-always', name: 'Always allow', kind: 'allow_always' },
+      { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+    ],
+  });
+  const dsh = fakeDsh();
+  let turn = 0;
+  const agent = {
+    async ask(_text, _room, _onText, _onTool, opts) {
+      turn += 1;
+      outcomes.push(await opts.onPermission(request(`t${turn}a`, `ls ${turn}`)));
+      outcomes.push(await opts.onPermission(request(`t${turn}b`, `git status ${turn}`)));
+      return '好';
+    },
+    close() {},
+  };
+  new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 跑一下' });
+  await settle();
+  const [card] = permCards(hub);
+  assert.ok(card, 'the first command asks');
+  assert.deepEqual(JSON.parse(card.card).actions.map(a => a.decision), ['allow', 'deny', 'allow_all']);
+  hub.approvals.decide(card.id, 'allow_all');
+  await settle();
+  assert.equal(permCards(hub).length, 1, 'the next command in the same turn posts no card');
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-always' }, { outcome: 'selected', optionId: 'allow-once' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 再跑一下' });
+  await settle();
+  assert.equal(permCards(hub).length, 1, 'a later turn of the member in this room posts no card either');
+  assert.deepEqual(outcomes.slice(2), [{ outcome: 'selected', optionId: 'allow-once' }, { outcome: 'selected', optionId: 'allow-once' }]);
+});
+
 test('attachments: undelivered reasons are shown in Chinese by DSH error code, unknown ones stay as-is', async () => {
   const { undeliveredReasonZh } = await import('./attachments.mjs');
   assert.equal(undeliveredReasonZh({ reason: 'whatever', code: 'IMAGE_TOO_MANY_PIXELS' }), '图片太大，超过像素上限');

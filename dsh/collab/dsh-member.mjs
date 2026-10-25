@@ -290,7 +290,7 @@ export class DshMembers {
     this.cliAgents = new Map();
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
     this.approvals = ChannelApprovals.of(hub);
-    /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card. */
+    /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card (CLI members: `cli:<ACP session id>`). */
     this.allowAll = new Set();
     /** Per-turn wiki pages and task board from the local gate, each page once per conversation. */
     this.gateContext = runtime.gateContext ?? new GateContext({ logger: runtime.logger });
@@ -589,11 +589,20 @@ export class DshMembers {
       if (fixed !== 'ask') return { outcome: 'selected', ...fixed };
       const card = cliApprovalCard(request);
       if (card.actions.length === 0) return { outcome: 'cancelled' };
+      // 允许所有 holds for the rest of this ACP session (one per member and room), as
+      // onApprovalRequest does for DSH-native members: the CLI's own allow_always may
+      // only cover that one command, so collab remembers it and answers without a card.
+      const allowAllKey = `cli:${request.sessionId}`;
+      if (this.allowAll.has(allowAllKey)) {
+        const optionId = card.byDecision.get('allow') ?? card.byDecision.get('allow_all');
+        if (optionId !== undefined) return { outcome: 'selected', optionId };
+      }
       const { decision } = this.approvals.open({
         room: job.room_id, author: { id: member.id, name: member.name }, text: card.text, actions: card.actions,
         signal: turnOver.signal, meta: { cliMember: member.id, jobId: job.id }, mapDecision: card.mapDecision,
       });
       const d = await decision;
+      if (d === 'allow_all') this.allowAll.add(allowAllKey);
       const optionId = card.byDecision.get(d);
       return optionId === undefined ? { outcome: 'cancelled' } : { outcome: 'selected', optionId };
     };
