@@ -142,6 +142,7 @@ export async function apply(ctx, rawConfig) {
     path: WS_PATH,
     handler: (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://collab.invalid');
+      later.origin ??= localOrigin(req);
       if (!gateway.authorized(req, url)) {
         socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
         return;
@@ -165,6 +166,7 @@ export async function apply(ctx, rawConfig) {
   /** cc-connect ChannelHistory: GET /api/rooms/{id}/messages?before=&limit= (bot token or owner). */
   function historyRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
+    later.origin ??= localOrigin(req);
     const m = /^\/api\/rooms\/(\d+)\/messages$/.exec(url.pathname);
     if (req.method !== 'GET' || m === null) return json(res, 404, { error: 'not found' });
     if (!gateway.authorized(req, url) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
@@ -177,6 +179,7 @@ export async function apply(ctx, rawConfig) {
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
+    later.origin ??= localOrigin(req);
     const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
     if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
@@ -513,6 +516,11 @@ export async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
   }
 }
 
+/** Loopback origin of the server that accepted req, for the local later command. */
+function localOrigin(req) {
+  const port = req.socket?.localPort;
+  return Number.isInteger(port) ? `http://127.0.0.1:${port}` : undefined;
+}
 function json(res, status, value) { text(res, status, 'application/json; charset=utf-8', JSON.stringify(value)); }
 
 function text(res, status, type, body) {
@@ -541,10 +549,15 @@ export function laterRoute(req, res, url, { hub, gateway, owner, later }) {
   const path = url.pathname.replace(/\/+$/, '');
   const laterMatch = /^\/collab\/api\/rooms\/(\d+)\/later$/.exec(path);
   if (laterMatch && req.method === 'POST') {
-    if (!owner(req) && !gateway.authorized(req, url)) return json(res, 401, { error: 'unauthorized' });
+    // Only a (member, room) ticket from later.instructions() registers; owner and the shared bot token do not.
+    const claims = later.verify(req.headers['x-later-ticket']);
+    if (!claims) return json(res, 401, { error: 'unauthorized' });
+    if (claims.room !== Number(laterMatch[1])) return json(res, 403, { error: 'ticket is for another room' });
     return withBody(req, res, body => {
-      if (!hub.routable().some(m => m.id === body?.member)) throw new CollabError('member-missing', 'unknown member');
-      const reminder = registerLater(hub.store.db, { ...body, room: Number(laterMatch[1]) });
+      if (body?.member !== undefined && body.member !== claims.member) throw new CollabError('forbidden', 'ticket is for another member');
+      if (body?.room !== undefined && Number(body.room) !== claims.room) throw new CollabError('forbidden', 'ticket is for another room');
+      if (!hub.routable().some(m => m.id === claims.member)) throw new CollabError('member-missing', 'unknown member');
+      const reminder = registerLater(hub.store.db, { ...body, member: claims.member, room: claims.room });
       later.tick();
       return { reminder };
     });

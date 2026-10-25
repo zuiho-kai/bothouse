@@ -1,6 +1,9 @@
-// Durable one-shot wakes for every channel member. The local CLI writes only
-// the queue; the plugin owns delivery through the existing member routers.
-import { DatabaseSync } from 'node:sqlite';
+// Durable one-shot wakes for every channel member. Registration goes through the
+// plugin's HTTP route and is bound to (member, room) by an HMAC ticket the plugin
+// hands each member with its prompt; the plugin owns delivery through the member routers.
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CollabError } from './store.mjs';
 
@@ -22,9 +25,24 @@ export function registerLater(db, { member, room, delay, title, todo }, now = Da
   return db.prepare('INSERT INTO member_later (member_id, room_id, due_at, title, todo) VALUES (?, ?, ?, ?, ?) RETURNING *')
     .get(member, room, now + ms, title.trim(), todo.trim());
 }
+/** Load the plugin's ticket key, creating it (0600) on first use; ':memory:' stores get a per-process key. */
+function loadKey(file) {
+  if (!file) return randomBytes(32);
+  try { return Buffer.from(readFileSync(file, 'utf8').trim(), 'hex'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  try { writeFileSync(file, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+  return Buffer.from(readFileSync(file, 'utf8').trim(), 'hex');
+}
+const b64 = value => Buffer.from(value).toString('base64url');
+/** Unverified decode, for the local command to find the room; the plugin verifies. */
+export function ticketClaims(ticket) {
+  try { const [payload] = String(ticket).split('.'); const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); return claims && typeof claims === 'object' ? claims : undefined; } catch { return undefined; }
+}
 export class Later {
-  constructor(hub, filename, wake, { now = Date.now, start = true } = {}) {
+  constructor(hub, filename, wake, { now = Date.now, start = true, keyFile = filename === ':memory:' ? undefined : join(dirname(filename), 'later.key') } = {}) {
     this.hub = hub; this.db = hub.store.db; this.filename = filename; this.wake = wake; this.now = now;
+    this.key = loadKey(keyFile);
+    /** Local origin of the DSH web server, learned from the first request the plugin serves. */
+    this.origin = undefined;
     schema(this.db);
     if (start) this.start();
   }
@@ -33,9 +51,28 @@ export class Later {
     this.timer = setInterval(() => this.tick(), 1000);
     this.timer.unref();
   }
+  sign(payload) { return createHmac('sha256', this.key).update(payload).digest('base64url'); }
+  /** Ticket binding one member to one room: base64url({m, r}).HMAC. */
+  ticket(member, room) {
+    const payload = b64(JSON.stringify({ m: String(member), r: Number(room) }));
+    return `${payload}.${this.sign(payload)}`;
+  }
+  /** Verified (member, room) of a ticket, or undefined; constant-time signature check. */
+  verify(ticket) {
+    if (typeof ticket !== 'string') return undefined;
+    const [payload, mac, extra] = ticket.split('.');
+    if (!payload || !mac || extra !== undefined) return undefined;
+    const want = Buffer.from(this.sign(payload)); const got = Buffer.from(mac);
+    if (want.length !== got.length || !timingSafeEqual(want, got)) return undefined;
+    const claims = ticketClaims(ticket);
+    if (typeof claims?.m !== 'string' || !Number.isSafeInteger(claims.r)) return undefined;
+    return { member: claims.m, room: claims.r };
+  }
   instructions(member, room) {
     const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
-    return `\n【一次性回查】要过会儿回来，用本机命令登记（重启后仍触发）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} ${quote(this.filename)} ${quote(member)} ${room} 10m '事情' '到点要做什么'\n登记成功才说已挂；到点在原房间唤醒你。远程 cc-connect 成员可用自己的 timer，或 POST /collab/api/rooms/${room}/later（bot token 认证，JSON: member, delay, title, todo）。\n`;
+    const ticket = this.ticket(member, room);
+    const local = this.origin ? `用本机命令登记（重启后仍触发）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} ${quote(this.origin)} ${quote(ticket)} 10m '事情' '到点要做什么'\n` : '';
+    return `\n【一次性回查】要过会儿回来，${local}或 POST /collab/api/rooms/${room}/later（头 X-Later-Ticket: ${ticket}，JSON: delay, title, todo）。凭据只对你和本房间有效。登记成功才说已挂；到点在原房间唤醒你。\n`;
   }
   tick() {
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE announced = 0').all()) {
@@ -58,8 +95,11 @@ export class Later {
   close() { clearInterval(this.timer); }
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const [filename, member, room, delay, title, todo] = process.argv.slice(2);
-  const db = new DatabaseSync(filename); db.exec('PRAGMA busy_timeout=5000');
-  try { console.log(JSON.stringify(registerLater(db, { member, room: Number(room), delay, title, todo }))); }
-  finally { db.close(); }
+  const [origin, ticket, delay, title, todo] = process.argv.slice(2);
+  const room = ticketClaims(ticket)?.r;
+  const res = await fetch(new URL(`/collab/api/rooms/${room}/later`, origin), { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ delay, title, todo }) });
+  const body = await res.text();
+  if (!res.ok) { console.error(`later: ${res.status} ${body}`); process.exit(1); }
+  console.log(body);
 }

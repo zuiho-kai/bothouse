@@ -3619,7 +3619,9 @@ test('block B: later survives restart, keeps offline wakes and delivers once to 
 import { CliMember } from './cli-member.mjs';
 import { laterRoute } from './plugin.mjs';
 import { Readable } from 'node:stream';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { statSync } from 'node:fs';
 
 test('block B: ACP prompt actually includes image/resource blocks', async () => {
   const member = new CliMember({ cli: 'claude', cwd: '/tmp' });
@@ -3631,35 +3633,59 @@ test('block B: ACP prompt actually includes image/resource blocks', async () => 
   assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
 });
 
-test('block B: local later CLI persists a wake that a restarted plugin can consume', () => {
-  const path = join(mkdtempSync(join(tmpdir(), 'blockb-command-')), 'collab.sqlite3');
+test('block B: local later command registers through the ticketed HTTP route, not the database', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'blockb-command-'));
+  const path = join(dir, 'collab.sqlite3');
   const store = new Store(path); store.ensureRoom(1, 'general');
-  const result = spawnSync(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, path, 'cli', '1', '1s', 'check', 'read results'], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
-  const receipt = JSON.parse(result.stdout);
+  const hub = makeHubFrom(store); hub.setMember({ id: 'cli', name: 'CLI', kind: 'dsh', online: true });
   const woke = [];
-  const later = new Later(makeHubFrom(store), path, (id, m) => { woke.push([id, m]); return true; }, { now: () => receipt.due_at, start: false });
-  later.tick();
-  assert.equal(woke[0][0], 'cli');
+  let now = Date.now();
+  const later = new Later(hub, path, (id, m) => { woke.push([id, m]); return true; }, { now: () => now, start: false });
+  assert.equal(statSync(join(dir, 'later.key')).mode & 0o777, 0o600, 'key file is private');
+  const server = createServer((req, res) => laterRoute(req, res, new URL(req.url, 'http://x'), { hub, later, owner: () => false, gateway: { authorized: () => false } }) ?? res.end());
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  later.origin = `http://127.0.0.1:${server.address().port}`;
+  assert.match(later.instructions('cli', 1), new RegExp(later.ticket('cli', 1).replace(/[.]/g, '\\.')));
+  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+  assert.notEqual((await run([later.origin, 'forged.ticket', '1s', 'check', 'read results'])).status, 0);
+  const result = await run([later.origin, later.ticket('cli', 1), '1s', 'check', 'read results']);
+  server.close();
+  assert.equal(result.status, 0);
+  const { reminder } = JSON.parse(result.out);
+  assert.equal(reminder.member_id, 'cli'); assert.equal(reminder.room_id, 1);
+  now = reminder.due_at; later.tick();
+  assert.equal(woke.length, 1); assert.equal(woke[0][0], 'cli'); assert.equal(woke[0][1].room_id, 1);
   assert.match(woke[0][1].text, /read results/);
   later.close(); store.close();
 });
 
-test('block B: later API rejects unauthenticated callers and accepts owner or bot token', async () => {
-  const hub = makeHub(); hub.setMember({ id: 'cli', name: 'CLI', kind: 'dsh', online: true });
-  const later = new Later(hub, ':memory:', () => false, { start: false });
-  const request = async (human, bot, body) => {
+test('block B: later API only accepts a ticket bound to the same member and room', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  for (const id of ['a', 'b']) hub.setMember({ id, name: id, kind: 'dsh', online: true });
+  let now = 1000;
+  const woke = [];
+  const later = new Later(hub, ':memory:', (id, m) => { woke.push([id, m.room_id]); return true; }, { now: () => now, start: false });
+  const request = async (ticket, body, room = 1) => {
     const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'POST';
+    req.headers = ticket === undefined ? {} : { 'x-later-ticket': ticket };
     const res = { writeHead(status) { this.status = status; }, end(data) { this.body = JSON.parse(data); } };
-    await laterRoute(req, res, new URL('http://localhost/collab/api/rooms/1/later'), { hub, later, owner: () => human, gateway: { authorized: () => bot } });
+    // Owner session and shared bot token are both present: neither may register on its own.
+    await laterRoute(req, res, new URL(`http://localhost/collab/api/rooms/${room}/later`), { hub, later, owner: () => true, gateway: { authorized: () => true } });
     return res;
   };
-  const body = { member: 'cli', delay: '10m', title: 'check', todo: 'read log' };
-  assert.equal((await request(false, false, body)).status, 401);
-  assert.equal((await request(true, false, body)).status, 200);
-  assert.equal((await request(false, true, body)).status, 200);
-  assert.equal((await request(true, false, null)).status, 404);
-  assert.equal((await request(true, false, { ...body, member: 'missing' })).status, 404);
+  const body = { delay: '1s', title: 'check', todo: 'read log' };
+  const ticketA = later.ticket('a', 1);
+  assert.equal((await request(undefined, { ...body, member: 'a' })).status, 401, 'no ticket');
+  assert.equal((await request(ticketA.slice(0, -2) + 'xx', body)).status, 401, 'tampered ticket');
+  assert.equal((await request(ticketA, { ...body, member: 'b' })).status, 403, "A's ticket cannot register B");
+  assert.equal((await request(ticketA, body, 2)).status, 403, "A's ticket cannot register another room");
+  assert.equal((await request(ticketA, { ...body, room: 2 })).status, 403, 'body room must match the ticket');
+  assert.equal((await request(later.ticket('missing', 1), body)).status, 404);
+  const ok = await request(ticketA, body);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.reminder.member_id, 'a'); assert.equal(ok.body.reminder.room_id, 1);
+  now = ok.body.reminder.due_at; later.tick();
+  assert.deepEqual(woke, [['a', 1]], 'only A wakes, in the original room');
   later.close();
 });
 
