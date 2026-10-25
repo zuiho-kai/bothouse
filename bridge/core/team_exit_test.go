@@ -71,7 +71,7 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 	e.SetTeam(t.TempDir(), "橘", false)
 	exitSay(e, p, exitWSKey, "ws1", "开始")
 	prompt := inputPrompt(t, a)
-	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "工作区 n+1", "/collab/api/rooms/{聊天频道 id}/workspaces", "主角色或正在干活的角色决定", "默认达到 3 件就算忙", "拿不准的设定", "主角色拿不准也一样", "写的人不验收自己的活", "派活方式：混合", "[ask]", "[report]"} {
+	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "工作区 n+1", "/collab/api/rooms/{聊天频道 id}/workspaces", "主角色或正在干活的角色决定", "默认达到 3 件就算忙", "拿不准的设定", "主角色拿不准也一样", "写的人不验收自己的活", "派活方式：混合", "[ask]", "[report]", "参照的现成实现", "「无（新建）」", "写明底分支", "改公共接口的那份先合", "每 10 分钟前推一次半成品分支", "「自验：」", "「类别：」", "方向、花钱、需要用户看的成品、权限确认", "在发布包上验", "审过的 PR 当场合", "整点只做发版、重启和真实入口验证", "真实配置的副本（去掉密钥）", "回到改前配置"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("team rules missing %q in %q", want, prompt)
 		}
