@@ -1,0 +1,15 @@
+# Fill in the existing route and provider list before appending this overlay.
+# DSH replaces config mappings; a stream-only mapping erases those settings.
+- id: acp
+  config:
+    provider: your-provider-id
+    model: your-model-id
+    publicReplyJson: true
+    streamText: !!js process.env.CC_VOICE_STREAM === '1'
+- id: conest-public-output
+  config:
+    directReply: true
+    historyEnvelope: true
+    providers:
+      - your-provider-id
+    streamPublic: !!js process.env.CC_VOICE_STREAM === '1'

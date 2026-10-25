@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { guard, publicReplyTool, publicReplyInstruction } from './output.mjs';
+import { guard, publicReplyTool, publicReplyInstruction, jsonReplyInstruction } from './output.mjs';
 
 export const name = 'conest-public-output';
 export const inject = ['llm'];
@@ -22,12 +22,12 @@ export async function apply(ctx, config) {
       if (!config.providers.includes(assembly.variables.provider)) return assembly;
       if (assembly.tools.some(tool=>tool.name === 'conest_public_reply')) throw Error('conest-public-output: duplicate public schema');
       return {...assembly,
-        tools:[...assembly.tools,publicReplyTool()],
-        sections:[...assembly.sections,{name:'conest:public-reply',text:publicReplyInstruction,interpolate:false}],
+        tools:config.historyEnvelope === true ? assembly.tools : [...assembly.tools,publicReplyTool()],
+        sections:[...assembly.sections,{name:'conest:public-reply',text:config.historyEnvelope === true ? jsonReplyInstruction : publicReplyInstruction,interpolate:false}],
       };
     },{prepend:true});
   }
-  ctx.logger.info('conest-public-output: structured public replies enabled (v5, directReply=%s)',config.directReply === true);
+  ctx.logger.info('conest-public-output: structured public replies enabled (v6, directReply=%s, streamPublic=%s)',config.directReply === true,config.streamPublic === true);
   ctx.on('llm/stream', (options,next) => {
     if (!config.providers.includes(options.provider) || !isAgentLoopRequest(options)) return next();
     return guard(options,next,request=>ctx.llm.stream(request),diagnostic=>{
@@ -35,6 +35,6 @@ export async function apply(ctx, config) {
       // guard supplies only module-owned enums/counters, never provider text.
       process.stderr.write(`[conest-public-output] ${JSON.stringify(diagnostic)}\n`);
       ctx.logger.warn('conest-public-output: %s',JSON.stringify(diagnostic));
-    },config.directReply === true);
+    },config.directReply === true,config.streamPublic === true,config.historyEnvelope === true);
   });
 }

@@ -27,3 +27,5 @@ bothouse 是接入 [cc-connect](https://github.com/chenhg5/cc-connect)、DSH 等
 ## 贡献
 
 贡献需在每个提交中签署 DCO（`Signed-off-by`），见 [CONTRIBUTING.md](CONTRIBUTING.md#贡献签署dco) 和 [DCO](DCO)。
+
+integrations/dsh-acp-stream/source.patch 及其派生代码采用 MIT；DeepSeek Harness 版权与许可保留于 integrations/dsh-acp-stream/LICENSE-MIT-DeepSeek。
