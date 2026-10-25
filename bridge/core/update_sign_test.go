@@ -118,6 +118,9 @@ func identifierOnly(t *testing.T) {
 }
 
 func TestVerifyReleaseSignature_Pass(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("codesign is macOS only")
+	}
 	identifierOnly(t)
 	for name, exe := range map[string]func() string{
 		"single file": func() string { return signedCopy(t, t.TempDir(), "bothouse") },
@@ -132,6 +135,9 @@ func TestVerifyReleaseSignature_Pass(t *testing.T) {
 }
 
 func TestVerifyReleaseSignature_Refuses(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("codesign is macOS only")
+	}
 	forged := `-r=designated => identifier "` + testID + `" and certificate leaf = H"` + testHash + `"`
 	cases := map[string]func(t *testing.T) string{
 		"unsigned": func(t *testing.T) string {
