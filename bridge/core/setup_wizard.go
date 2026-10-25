@@ -1308,8 +1308,16 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		}
 	}
 	taken := map[string]bool{}
+	workDirs := map[string]string{} // absolute, cleaned work_dir → owning project
 	for _, p := range s.Projects {
 		taken[p.Name] = true
+		if p.WorkDir != "" {
+			dir, err := filepath.Abs(p.WorkDir)
+			if err != nil {
+				return nil, fmt.Errorf("project %q work_dir: %w", p.Name, err)
+			}
+			workDirs[dir] = p.Name
+		}
 	}
 	used := map[string]bool{}
 	for i, w := range ids {
@@ -1420,6 +1428,14 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			if r.workDir == "" {
 				r.workDir = filepath.Join(dataDir, "roles", r.project)
 			}
+			dir, err := filepath.Abs(r.workDir)
+			if err != nil {
+				return nil, fmt.Errorf("project %q work_dir: %w", r.project, err)
+			}
+			if owner, exists := workDirs[dir]; exists {
+				return nil, fmt.Errorf("%s", sharedWorkDirText(req.Language, r.project, owner, dir))
+			}
+			workDirs[dir] = r.project
 		}
 		if r.reused && r.workDir == "" && r.writesPersona() {
 			return nil, fmt.Errorf("project %q has no work_dir, so there is no persona file to write", r.project)

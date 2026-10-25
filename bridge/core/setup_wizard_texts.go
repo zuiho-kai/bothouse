@@ -13,6 +13,13 @@ import (
 // translates them (web/src/pages/Setup/texts.ts stepLabel). Warnings: setup_wizard_warnings.go.
 // Source for ja: user 2026-10-21「改动量比较大的话，可以就中文，英文，日文。」
 
+func sharedWorkDirText(lang, project, owner, dir string) string {
+	return tr3(lang,
+		fmt.Sprintf("角色 %q 的 work_dir %q 已被角色 %q 使用；请为每个角色选择独立的工作目录。", project, dir, owner),
+		fmt.Sprintf("ロール %q の work_dir %q はロール %q が使用中です。ロールごとに別の作業ディレクトリを指定してください。", project, dir, owner),
+		fmt.Sprintf("role %q work_dir %q is already used by role %q; choose a separate working directory for each role.", project, dir, owner))
+}
+
 // discordTokenInvalidText: Discord answered 401 for a token (the web token check shows only this).
 func discordTokenInvalidText(lang string) string {
 	return tr3(lang,
