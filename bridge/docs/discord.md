@@ -299,8 +299,9 @@ Check:
 
 ### Q: Bot has insufficient permissions?
 
-1. Generate a new invite link with the correct permissions
-2. Re-invite the bot to the server
+1. If the bot is not in the server yet, open the invite link (it already carries the permissions the bridge needs).
+2. If the bot is already in the server, go to **Server Settings → Roles**, open the bot's role and turn on the missing permissions. Opening the invite link again does not update the permissions of a bot that is already in the server.
+3. If a channel has its own permission overrides, allow the permission for the bot in that channel's settings too.
 
 ---
 

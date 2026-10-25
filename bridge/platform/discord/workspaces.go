@@ -63,6 +63,10 @@ func (p *Platform) RenameTeamWorkspaceChannel(ctx context.Context, channelID, na
 	return workspaceErr(p.missingPermissionErr(err, permManageChannels))
 }
 
+// roleSettingsHint: Discord only applies an invite's permissions when the bot joins, so re-opening
+// the link does nothing for a bot already in the server; the role has to be edited instead.
+const roleSettingsHint = "如果 bot 已在服务器，请到「服务器设置 → 身份组」里，给 bot 的身份组勾上缺的权限，重新点链接不会更新权限。"
+
 const (
 	permManageChannels = "管理频道 (Manage Channels)"
 	permPinMessages    = "置顶消息 (Pin Messages)"
@@ -76,8 +80,8 @@ func (p *Platform) missingPermissionErr(err error, perm string) error {
 	if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeMissingPermissions {
 		return err
 	}
-	return fmt.Errorf("Discord bot 缺「%s」权限。打开这个链接把 bot 重新邀请进服务器即可补上（不用先移出）：%s ；频道单独设了权限的，还要去该频道设置里给 bot 放开这项权限。原始错误：%w",
-		perm, core.DiscordInviteURL(p.appID, p.guildID), err)
+	return fmt.Errorf("Discord bot 缺「%s」权限。bot 还没进服务器的，打开这个链接邀请：%s ；%s频道单独设了权限的，还要去该频道设置里给 bot 放开这项权限。原始错误：%w",
+		perm, core.DiscordInviteURL(p.appID, p.guildID), roleSettingsHint, err)
 }
 
 // workspaceErr marks Discord 4xx other than 429 (no permission, channel gone) as permanent so

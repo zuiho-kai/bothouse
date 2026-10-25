@@ -18,7 +18,7 @@ func TestMissingPermissionErrNamesPermissionAndReinviteLink(t *testing.T) {
 	for _, perm := range []string{permManageChannels, permPinMessages} {
 		err := p.missingPermissionErr(denied, perm)
 		msg := err.Error()
-		for _, want := range []string{perm, "client_id=123", "permissions=" + strconv.FormatInt(core.DiscordInvitePermissions, 10), "Missing Permissions"} {
+		for _, want := range []string{perm, "client_id=123", "permissions=" + strconv.FormatInt(core.DiscordInvitePermissions, 10), "Missing Permissions", "服务器设置 → 身份组", "重新点链接不会更新权限"} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("error %q lacks %q", msg, want)
 			}

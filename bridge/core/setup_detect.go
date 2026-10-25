@@ -66,12 +66,13 @@ func jsonHasKey(path, key string) bool {
 
 // Binary names follow each agent's ParseCmdOpts default (agent/*/*.go).
 // Login checks look at whether the CLI's own credential file exists. The one exception is
-// Claude Code: ~/.claude.json exists for logged-out users too and the OAuth token itself
+// Claude Code (besides ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, both passed
+// through to the child process): ~/.claude.json exists for logged-out users too and the OAuth token itself
 // lives in the macOS keychain, so the file is parsed and only the presence of the
 // "oauthAccount" key is checked; values are discarded and never logged or returned.
 var cliSpecs = []cliSpec{
 	{"claudecode", "Claude Code", []string{"claude"}, ProtocolAnthropic, func(h string) string {
-		if os.Getenv("ANTHROPIC_API_KEY") != "" || fileExists(filepath.Join(h, ".claude", ".credentials.json")) ||
+		if os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" || fileExists(filepath.Join(h, ".claude", ".credentials.json")) ||
 			jsonHasKey(filepath.Join(h, ".claude.json"), "oauthAccount") {
 			return "logged_in"
 		}
