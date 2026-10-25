@@ -286,3 +286,78 @@ func TestApplyWizardDSHOwnSetupAndFailures(t *testing.T) {
 		t.Fatalf("dry run steps = %+v", res.Steps)
 	}
 }
+
+// DSH replaces an entry's whole config with a later layer's, so the role's attachment-local entry carries the
+// keys the user set in DSH_HOME (home patch over the acp profile's) next to maxImageDimension.
+func TestDSHAttachmentPatchKeepsUserKeys(t *testing.T) {
+	home := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(home, "profiles", "acp"), 0o755)
+	_ = os.WriteFile(filepath.Join(home, "profiles", "acp", "cordis.patch.yml"),
+		[]byte("- id: attachment-local\n  config:\n    maxImageBytes: 100\n"), 0o644)
+	got, err := dshAttachmentPatch(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "- id: attachment-local\n  config:\n    maxImageBytes: 100\n    maxImageDimension: 65535\n"; got != want {
+		t.Fatalf("patch = %q, want %q", got, want)
+	}
+	// the home patch is the later layer: its config wins over the profile's whole
+	_ = os.WriteFile(filepath.Join(home, "cordis.patch.yml"),
+		[]byte("- id: tool-web\n  config:\n    search: false\n- id: attachment-local\n  config:\n    maxImageBytes: 200\n    maxImageDimension: 8192\n"), 0o644)
+	got, _ = dshAttachmentPatch(home, nil)
+	if want := "- id: attachment-local\n  config:\n    maxImageBytes: 200\n    maxImageDimension: 65535\n"; got != want {
+		t.Fatalf("patch = %q, want %q", got, want)
+	}
+}
+
+// an overlay written before the limit existed gets it once at start; the rest stays
+func TestEnsureDSHAttachmentPatchUpgrade(t *testing.T) {
+	home := t.TempDir()
+	_ = os.WriteFile(filepath.Join(home, "cordis.patch.yml"), []byte("- id: attachment-local\n  config:\n    maxImageBytes: 100\n"), 0o644)
+	dir := t.TempDir()
+	patch := filepath.Join(dir, "whale.patch.yml")
+	old := dshProviderPatch("whale", "https://x/anthropic", "m") + dshHookPatch("/b.js", "/s.json", "/w")
+	_ = os.WriteFile(patch, []byte(old), 0o644)
+	opts := map[string]any{"args": []any{"--profile", "acp", "--patch", patch}, "env": map[string]any{"DSH_HOME": home}}
+	changed, err := EnsureDSHRoleAttachmentPatch(opts)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+	b, _ := os.ReadFile(patch)
+	want := dshProviderPatch("whale", "https://x/anthropic", "m") +
+		"- id: attachment-local\n  config:\n    maxImageBytes: 100\n    maxImageDimension: 65535\n" +
+		dshHookPatch("/b.js", "/s.json", "/w")
+	if string(b) != want {
+		t.Fatalf("overlay =\n%s\nwant\n%s", b, want)
+	}
+	if changed, err := EnsureDSHRoleAttachmentPatch(opts); err != nil || changed {
+		t.Fatalf("second run changed=%v err=%v", changed, err)
+	}
+	if b2, _ := os.ReadFile(patch); string(b2) != want {
+		t.Fatalf("second run rewrote the overlay:\n%s", b2)
+	}
+	// the hook bridge refresh keeps it
+	if s := withoutDSHPatch(want); !strings.Contains(s, "maxImageDimension: 65535") {
+		t.Fatal("entry must sit outside the hook block")
+	}
+	// "[]" overlay (hooks removed), an overlay entry of its own, no --patch, no overlay file
+	_ = os.WriteFile(patch, []byte("[]\n"), 0o644)
+	if _, err := EnsureDSHAttachmentPatch(patch, home); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(patch); string(b) != "- id: attachment-local\n  config:\n    maxImageBytes: 100\n    maxImageDimension: 65535\n" {
+		t.Fatalf("[] overlay = %q", b)
+	}
+	_ = os.WriteFile(patch, []byte("- id: attachment-local\n  config:\n    allowedRoots: [/x]\n"), 0o644)
+	_, _ = EnsureDSHAttachmentPatch(patch, home)
+	if s, _ := os.ReadFile(patch); !strings.Contains(string(s), "maxImageBytes: 100\n    allowedRoots: [/x]\n    maxImageDimension: 65535\n") ||
+		!strings.Contains(string(s), "maxImageBytes: 100") {
+		t.Fatalf("own config not merged:\n%s", s)
+	}
+	if changed, _ := EnsureDSHRoleAttachmentPatch(map[string]any{"args": []string{"--profile", "acp"}}); changed {
+		t.Fatal("a role without --patch must be left alone")
+	}
+	if changed, err := EnsureDSHAttachmentPatch(filepath.Join(dir, "none.yml"), home); changed || err != nil {
+		t.Fatalf("missing overlay changed=%v err=%v", changed, err)
+	}
+}

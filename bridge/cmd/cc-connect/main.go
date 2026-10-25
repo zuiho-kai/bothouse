@@ -385,6 +385,18 @@ func runMain() {
 		slog.Warn("legacy data migration incomplete, continuing startup", "error", err)
 	}
 
+	// DSH roles set up before the image size limit was written get it in their overlay now (an upgrade restarts here).
+	for _, proj := range cfg.Projects {
+		if proj.Agent.Type != "dsh" {
+			continue
+		}
+		if changed, err := core.EnsureDSHRoleAttachmentPatch(proj.Agent.Options); err != nil {
+			slog.Warn("dsh overlay: image size limit not written", "project", proj.Name, "error", err)
+		} else if changed {
+			slog.Info("dsh overlay: image size limit written", "project", proj.Name)
+		}
+	}
+
 	// run_as_user preflight + isolation audit. MUST run before any engine
 	// or agent is constructed. If any project fails, abort startup
 	// entirely — never half-spawn. See core/runas_check.go and

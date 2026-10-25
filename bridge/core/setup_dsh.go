@@ -26,6 +26,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // DSHKeyEnv is the env variable that carries a wizard-picked API key to DSH (llm-deepseek apiKeyEnv).
@@ -77,9 +79,122 @@ func DSHEnvPath(dataDir, project string) string {
 // so a higher limit does not make requests bigger. 65535 is the largest PNG/WebP side.
 const DSHMaxImageDimension = 65535
 
-// dshAttachmentPatch is the overlay entry that raises the per-side limit (see DSHMaxImageDimension).
-func dshAttachmentPatch() string {
-	return fmt.Sprintf("- id: attachment-local\n  config:\n    maxImageDimension: %d\n", DSHMaxImageDimension)
+// dshAttachmentID is DSH's attachment-local entry, the one that has maxImageDimension.
+const dshAttachmentID = "attachment-local"
+
+// dshAttachmentPatch is the overlay entry that raises the per-side limit (see DSHMaxImageDimension). DSH replaces
+// an entry's whole config with a later layer's (cordis-plugin-include applyEntryPatches), so the entry carries the
+// attachment-local config the user set in dshHome (profiles/acp/cordis.patch.yml, then cordis.patch.yml: DSH's
+// layer order) and then the keys of own (the overlay's earlier config, nil = none), with maxImageDimension raised
+// (as ConfigureDSH does in the web profile).
+func dshAttachmentPatch(dshHome string, own *yaml.Node) (string, error) {
+	home := DSHHome(dshHome)
+	cfg := &yaml.Node{Kind: yaml.MappingNode}
+	user := dshPatchEntryConfig(filepath.Join(home, "profiles", "acp", "cordis.patch.yml"), dshAttachmentID)
+	if c := dshPatchEntryConfig(filepath.Join(home, "cordis.patch.yml"), dshAttachmentID); c != nil {
+		user = c
+	}
+	for _, c := range []*yaml.Node{user, own} {
+		if c == nil {
+			continue
+		}
+		for i := 0; i+1 < len(c.Content); i += 2 {
+			mapSet(cfg, c.Content[i].Value, c.Content[i+1])
+		}
+	}
+	mapSet(cfg, "maxImageDimension", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(DSHMaxImageDimension)})
+	entry := &yaml.Node{Kind: yaml.MappingNode}
+	mapSet(entry, "id", &yaml.Node{Kind: yaml.ScalarNode, Value: dshAttachmentID})
+	mapSet(entry, "config", cfg)
+	var buf strings.Builder
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{entry}}); err != nil {
+		return "", err
+	}
+	if err := enc.Close(); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// dshPatchEntryConfig is the config the patch list at path gives entry id (the last `- id: <id>` with a config
+// mapping wins, as in DSH); nil when there is none or the file cannot be read.
+func dshPatchEntryConfig(path, id string) *yaml.Node {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal(b, &doc) != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.SequenceNode {
+		return nil
+	}
+	var cfg *yaml.Node
+	for _, it := range doc.Content[0].Content {
+		if it.Kind != yaml.MappingNode || mapGet(it, "insert") != nil {
+			continue
+		}
+		if v := mapGet(it, "id"); v != nil && v.Value == id {
+			if c := mapGet(it, "config"); c != nil && c.Kind == yaml.MappingNode {
+				cfg = c
+			}
+		}
+	}
+	return cfg
+}
+
+// EnsureDSHAttachmentPatch adds the attachment-local entry (dshAttachmentPatch) to a role's existing overlay that
+// lacks maxImageDimension: roles set up before it was written get it at start. The rest of the overlay is kept;
+// the entry goes before the hook bridge block. A missing overlay, or one that has it, is left as is.
+func EnsureDSHAttachmentPatch(patch, dshHome string) (bool, error) {
+	b, err := os.ReadFile(patch)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	own := dshPatchEntryConfig(patch, dshAttachmentID)
+	if own != nil && mapGet(own, "maxImageDimension") != nil {
+		return false, nil
+	}
+	entry, err := dshAttachmentPatch(dshHome, own)
+	if err != nil {
+		return false, err
+	}
+	s := string(b)
+	head, tail := s, ""
+	if i := strings.Index(s, dshPatchBegin); i >= 0 {
+		head, tail = s[:i], s[i:]
+	}
+	if strings.TrimSpace(head) == "[]" {
+		head = "" // an empty flow list cannot take block items after it
+	}
+	if head = strings.TrimRight(head, "\n"); head != "" {
+		head += "\n"
+	}
+	return true, AtomicWriteFile(patch, []byte(head+entry+tail), 0o644)
+}
+
+// EnsureDSHRoleAttachmentPatch runs EnsureDSHAttachmentPatch for a DSH role from its agent options: the overlay
+// is the args' --patch (roles without one are left alone), dsh_home is the role's DSH_HOME.
+func EnsureDSHRoleAttachmentPatch(opts map[string]any) (bool, error) {
+	var args []string
+	switch a := opts["args"].(type) {
+	case []string:
+		args = a
+	case []any:
+		for _, v := range a {
+			s, _ := v.(string)
+			args = append(args, s)
+		}
+	}
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--patch" {
+			return EnsureDSHAttachmentPatch(args[i+1], DSHHomeFromOptions(opts))
+		}
+	}
+	return false, nil
 }
 
 // dshProviderPatch points llm-deepseek at the vendor's Anthropic endpoint and makes model the default.
@@ -145,7 +260,10 @@ func dshRoleLaunch(dshPath, dataDir, project, workDir string, p *WizardProvider)
 // and the image size limit (dshAttachmentPatch); a hook bridge block already in it is kept.
 func writeDSHProviderPatch(dataDir, project string, p *WizardProvider) (string, error) {
 	path := DSHPatchPath(dataDir, project)
-	body := dshAttachmentPatch()
+	body, err := dshAttachmentPatch(DSHHome(""), nil)
+	if err != nil {
+		return "", err
+	}
 	if p != nil {
 		prov, err := dshProviderBody(project, *p)
 		if err != nil {
