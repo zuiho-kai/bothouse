@@ -26,7 +26,7 @@ func TestChannelHistory_ReturnsMessages(t *testing.T) {
 	p := &historyPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, history: []ChannelHistoryMessage{
 		{ID: "100", Author: "lead", AuthorID: "1", IsSelf: true, IsBot: true, Content: "<@2> do it", Time: at},
 		{ID: "101", Author: "dragon", AuthorID: "2", IsBot: true, Content: "done", Time: at.Add(time.Minute)},
-		{ID: "102", Author: "user", AuthorID: "3", Content: "ok", Time: at.Add(2 * time.Minute)},
+		{ID: "102", Author: "user", AuthorID: "3", Content: "@dragon ok", MentionIDs: []string{"2"}, Time: at.Add(2 * time.Minute)},
 	}}
 	rec := getHistory(historyAPI(t, p), "/channel/history?project=lead&session_key=discord:555:3&limit=2")
 	if rec.Code != http.StatusOK {
@@ -42,6 +42,9 @@ func TestChannelHistory_ReturnsMessages(t *testing.T) {
 	m := res.Messages[0]
 	if m.ID != "101" || m.AuthorID != "2" || m.AuthorName != "dragon" || !m.IsBot || m.Content != "done" || !m.Time.Equal(at.Add(time.Minute)) {
 		t.Fatalf("first message = %+v", m)
+	}
+	if got := res.Messages[1].Mentions; len(got) != 1 || got[0] != "2" {
+		t.Fatalf("mentions = %v", got)
 	}
 	if res.Messages[1].IsBot {
 		t.Fatalf("user message marked bot: %+v", res.Messages[1])

@@ -1729,10 +1729,21 @@ func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core
 		out = append(out, core.ChannelHistoryMessage{
 			ID: m.ID, Author: m.Author.Username, AuthorID: m.Author.ID, IsBot: m.Author.Bot,
 			IsSelf: m.Author.ID == p.botID, FromTurn: p.turnSent.has(m.ID), Content: text, Time: m.Timestamp,
-			Attachments: historyAttachments(m.Attachments),
+			Attachments: historyAttachments(m.Attachments), MentionIDs: mentionIDs(m.Mentions),
 		})
 	}
 	return out, nil
+}
+
+// mentionIDs: the user ids a post @-ed (ContentWithMentionsReplaced drops the raw <@id>).
+func mentionIDs(users []*discordgo.User) []string {
+	var out []string
+	for _, u := range users {
+		if u != nil && u.ID != "" {
+			out = append(out, u.ID)
+		}
+	}
+	return out
 }
 
 // historyAttachments lists a post's attachments for channel backfill (maomao fork); core

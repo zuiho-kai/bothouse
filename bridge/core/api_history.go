@@ -26,6 +26,8 @@ type ChannelHistoryItem struct {
 	IsSelf     bool      `json:"is_self"`
 	Content    string    `json:"content"`
 	Time       time.Time `json:"time"`
+	// Mentions: ids of the users the message @-ed, when the platform reports them (Discord).
+	Mentions []string `json:"mentions,omitempty"`
 }
 
 // ChannelHistoryResult is the reply of GET /channel/history.
@@ -107,7 +109,7 @@ func (s *APIServer) handleChannelHistory(w http.ResponseWriter, r *http.Request)
 	for _, m := range msgs {
 		out.Messages = append(out.Messages, ChannelHistoryItem{
 			ID: m.ID, AuthorID: m.AuthorID, AuthorName: m.Author, IsBot: m.IsBot, IsSelf: m.IsSelf,
-			Content: m.Content, Time: m.Time,
+			Content: m.Content, Time: m.Time, Mentions: m.MentionIDs,
 		})
 	}
 	apiJSON(w, http.StatusOK, out)

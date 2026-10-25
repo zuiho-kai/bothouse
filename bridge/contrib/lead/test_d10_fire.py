@@ -205,6 +205,22 @@ class BridgeHistoryTest(unittest.TestCase):
         # 桥回的正文里 <@id> 已换成 @用户名：仍认得出又派了新活
         self.assertTrue(d.redispatched(msgs, TID, SINCE))
 
+    def test_redispatch_by_mention_ids(self):
+        # 她窗口内一条没发（用户名无从得知），被 @ 两次：靠桥给的 mentions ID 认出重新派活（审查 #4）
+        rows = {"messages": [
+            {"id": "1", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 派你一件，10 分钟：读帖子", "mentions": [TID], "time": "2026-10-23T03:00:07Z"},
+            {"id": "2", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@别人 顺手看下", "mentions": ["9"], "time": "2026-10-23T03:04:00Z"},
+            {"id": "3", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 再派一件：体检", "mentions": [TID], "time": "2026-10-23T03:08:13Z"},
+        ]}
+        self.serve(200, rows)
+        msgs = d.fetch_messages("discord:3003", "lead-proj")
+        self.assertTrue(d.redispatched(msgs, TID, SINCE))
+        self.assertFalse(d.redispatched(msgs[:2], TID, SINCE))  # 只 @ 过一次（本次派活）不算
+        with mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 0)
+        self.assertFalse(run.called)
+
     def test_redispatch_via_bridge_skips_pause(self):
         self.serve(200, self.rows())
         with mock.patch.object(d, "last_commit_epoch", return_value=0.0), \

@@ -46,7 +46,8 @@ def is_handback(content: str) -> bool:
 def redispatched(messages, teammate_id: str, since: float) -> bool:
     # 派活后频道里又有人 @ 她 = 派了新活，旧 d10 不能再打断（事故二）。
     # 第一次 @ 是本次派活本身：d10 在同一轮里挂上，派活消息在这一轮结束才发出，晚于 since。
-    # 桥返回的 Discord 正文里 <@id> 已换成 @用户名：用她在本段历史里发过的消息的用户名一并匹配
+    # 桥返回的 Discord 正文里 <@id> 已换成 @用户名：先看桥给的被 @ 用户 ID 列表（mentions）；
+    # 平台没给 mentions 时退回正文匹配 <@id> 和她在本段历史里发过的消息的用户名
     names = {str(m.get("author", {}).get("username") or "") for m in messages
              if str(m.get("author", {}).get("id")) == str(teammate_id)} - {""}
     alts = [rf"<@!?{re.escape(str(teammate_id))}>"] + [rf"@{re.escape(n)}(?![\w])" for n in sorted(names)]
@@ -56,7 +57,9 @@ def redispatched(messages, teammate_id: str, since: float) -> bool:
         if ts_epoch(m) < since or str(m.get("author", {}).get("id")) == str(teammate_id):
             continue
         content = m.get("content") or ""
-        if mention.search(content) and PAUSE_MARK not in content:
+        ids = m.get("mentions")
+        hit = str(teammate_id) in ids if ids is not None else bool(mention.search(content))
+        if hit and PAUSE_MARK not in content:
             n += 1
     return n >= 2
 
@@ -138,7 +141,8 @@ def fetch_messages(skey: str, proj: str):
     if rows is None:
         return None
     return [{"author": {"id": str(r.get("author_id") or ""), "username": r.get("author_name") or "", "bot": bool(r.get("is_bot"))},
-             "content": r.get("content") or "", "timestamp": r.get("time") or "1970-01-01T00:00:00Z"} for r in rows]
+             "content": r.get("content") or "", "timestamp": r.get("time") or "1970-01-01T00:00:00Z",
+             **({"mentions": [str(x) for x in r["mentions"]]} if isinstance(r.get("mentions"), list) else {})} for r in rows]
 
 
 def main(argv):
