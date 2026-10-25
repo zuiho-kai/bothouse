@@ -3642,21 +3642,22 @@ test('block B: local later command registers through the ticketed HTTP route, no
   let now = Date.now();
   const later = new Later(hub, path, (id, m) => { woke.push([id, m]); return true; }, { now: () => now, start: false });
   assert.equal(statSync(join(dir, 'later.key')).mode & 0o777, 0o600, 'key file is private');
-  const server = createServer((req, res) => laterRoute(req, res, new URL(req.url, 'http://x'), { hub, later, owner: () => false, gateway: { authorized: () => false } }) ?? res.end());
+  const server = createServer((req, res) => laterRoute(req, res, new URL(req.url, 'http://x'), { hub, later, owner: () => false, gateway: { authorized: () => false } }) ?? (res.headersSent || (res.writeHead(404), res.end('{}'))));
   await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
   later.origin = `http://127.0.0.1:${server.address().port}`;
   assert.match(later.instructions('cli', 1), new RegExp(later.ticket('cli', 1).replace(/[.]/g, '\\.')));
   const run = args => new Promise(resolve => { const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
   assert.notEqual((await run([later.origin, 'forged.ticket', '1s', 'check', 'read results'])).status, 0);
+  assert.notEqual((await run([later.origin, later.ticket('cli', 1).slice(0, -2) + 'xx', '1s', 'check', 'read results'])).status, 0, 'tampered ticket rejected');
   const result = await run([later.origin, later.ticket('cli', 1), '1s', 'check', 'read results']);
-  server.close();
   assert.equal(result.status, 0);
   const { reminder } = JSON.parse(result.out);
   assert.equal(reminder.member_id, 'cli'); assert.equal(reminder.room_id, 1);
   now = reminder.due_at; later.tick();
   assert.equal(woke.length, 1); assert.equal(woke[0][0], 'cli'); assert.equal(woke[0][1].room_id, 1);
   assert.match(woke[0][1].text, /read results/);
-  later.close(); store.close();
+  } finally { server.close(); later.close(); store.close(); }
 });
 
 test('block B: later API only accepts a ticket bound to the same member and room', async () => {

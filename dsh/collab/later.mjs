@@ -97,6 +97,7 @@ export class Later {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [origin, ticket, delay, title, todo] = process.argv.slice(2);
   const room = ticketClaims(ticket)?.r;
+  if (!origin || !Number.isSafeInteger(room)) { console.error('usage: later.mjs <origin> <ticket> <delay> <title> <todo> (ticket from your prompt)'); process.exit(2); }
   const res = await fetch(new URL(`/collab/api/rooms/${room}/later`, origin), { method: 'POST',
     headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ delay, title, todo }) });
   const body = await res.text();
