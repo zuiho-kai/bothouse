@@ -10,7 +10,10 @@ package core
 // team workspace file, so a restart re-arms it and a check missed while down fires on start.
 //
 // B9a: the watcher, its tick and the claim fields. Nothing starts it yet (startHandoffWatch is
-// called from B9b, together with the progress signals), so the bridge behaves as before.
+// called from B9b, together with the progress signals), so the bridge behaves as before: until
+// the watch is started on an engine (Engine.handoffWatchOn) a claim records no check time and the
+// list shows no watch_due, so the team workspace file is exactly as before. Handoffs recorded
+// before the start are old records and are not watched.
 
 import (
 	"context"
@@ -20,25 +23,42 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
-// Vars only so tests (and BOTHOUSE_WATCH_TEST_SECONDS) can shorten them; not configurable.
-var (
-	// Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」; same as tasks.mjs CHECK_AFTER_S.
-	watchCheckAfter = 10 * time.Minute
-	// Source: d10-fire MAX_RENEW = 2 (lead ruling 2026-10-25, at most 30 minutes); same as tasks.mjs MAX_RENEWALS.
-	watchMaxRenew = 2
-)
+// Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」; same as tasks.mjs CHECK_AFTER_S.
+const watchCheckAfterDefault = 10 * time.Minute
+
+// watchCheckAfterNs: the check time after a claim, in nanoseconds. Atomic only so tests (and
+// BOTHOUSE_WATCH_TEST_SECONDS, read by startHandoffWatch) can shorten it while claims read it;
+// not configurable.
+var watchCheckAfterNs atomic.Int64
+
+func init() { watchCheckAfterNs.Store(int64(watchCheckAfterDefault)) }
+
+// watchCheckAfter is the current check time after a claim (see watchCheckAfterNs).
+func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Load()) }
+
+// Var only so tests can change it; not configurable.
+// Source: d10-fire MAX_RENEW = 2 (lead ruling 2026-10-25, at most 30 minutes); same as tasks.mjs MAX_RENEWALS.
+var watchMaxRenew = 2
 
 const (
 	// Source: B9 plan v3「park 返回其他错误…Due 推后 1 分钟重试，最多 3 次」.
 	watchParkRetries = 3
 	// Source: same plan line (retry after 1 minute); also used for a platform not connected yet.
 	watchRetryDelay = time.Minute
-	// The watcher re-reads the state at least this often (same value as the retry delay).
-	watchIdleWake = watchRetryDelay
 )
+
+// watchIdleWake: the watcher re-reads the state at least this often (the retry delay, or the
+// check time when shorter), so a claim made while it sleeps is checked on time.
+func watchIdleWake() time.Duration {
+	if d := watchCheckAfter(); d < watchRetryDelay {
+		return d
+	}
+	return watchRetryDelay
+}
 
 // handoffWatch checks the handoffs of one engine's team workspace file.
 type handoffWatch struct {
@@ -61,7 +81,8 @@ func newHandoffWatch(e *Engine) *handoffWatch {
 
 // startHandoffWatch runs the watch on the team workspace engine until the bridge stops.
 // BOTHOUSE_WATCH_TEST_SECONDS (seconds, only for checking the watch end to end) shortens the
-// check time. Called once, after the platforms are added (B9b).
+// check time. Called once, after the platforms are added and before the API starts serving
+// (B9b); claims are watched from then on.
 func (s *APIServer) startHandoffWatch() {
 	e := s.teamWorkspaceEngine()
 	if e == nil {
@@ -69,8 +90,11 @@ func (s *APIServer) startHandoffWatch() {
 	}
 	if v := os.Getenv("BOTHOUSE_WATCH_TEST_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			watchCheckAfter = time.Duration(n) * time.Second
+			watchCheckAfterNs.Store(int64(time.Duration(n) * time.Second))
 		}
+	}
+	if !e.handoffWatchOn.CompareAndSwap(false, true) {
+		return // already running
 	}
 	w := newHandoffWatch(e)
 	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at) }
@@ -80,7 +104,7 @@ func (s *APIServer) startHandoffWatch() {
 func (w *handoffWatch) run(ctx context.Context) {
 	for {
 		next := w.tick(w.now())
-		wait := watchIdleWake
+		wait := watchIdleWake()
 		if !next.IsZero() {
 			if d := next.Sub(w.now()); d < wait {
 				wait = d
@@ -160,20 +184,21 @@ func (w *handoffWatch) updateHandoff(key string, h TeamHandoff, f func(*TeamHand
 func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	key, h := d.key, d.h
 	plat, _, _ := strings.Cut(key, ":")
-	p := w.e.platformForName(plat)
-	if _, ok := p.(platformNameOnly); ok {
-		// The platform is not added (yet): try again later, never drop the check.
+	p := w.e.lookupReadyPlatform(plat)
+	if p == nil {
+		// The platform is not connected (yet): nothing is sent or parked; try again later, never
+		// drop the check.
 		return now.Add(watchRetryDelay)
 	}
 	if h.ParkFails == 0 && h.Renewed < watchMaxRenew && w.progress != nil {
-		since := h.Due.Add(-watchCheckAfter)
+		since := h.Due.Add(-watchCheckAfter())
 		if h.At.After(since) {
 			since = h.At
 		}
 		if w.progress(key, h, since) {
-			due := h.Due.Add(watchCheckAfter)
+			due := h.Due.Add(watchCheckAfter())
 			if !due.After(now) {
-				due = now.Add(watchCheckAfter)
+				due = now.Add(watchCheckAfter())
 			}
 			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due; x.Renewed++ })
 			if !ok && err == nil {
@@ -187,12 +212,20 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		}
 	}
 
-	// No progress (or renewals used up): nudge once in the workspace channel, then park.
+	// No progress (or renewals used up): nudge once in the workspace channel, then park. Nudged
+	// is saved before the send: a task handed back meanwhile gets no nudge, and a crash between
+	// the two loses at most that one nudge, never sends it twice.
 	if !h.Nudged {
-		if err := w.send(p, key, watchNudgeText(plat, h)); err != nil {
-			slog.Warn("team watch: nudge failed; parking anyway", "workspace", key, "error", err)
-		} else if _, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Nudged = true }); err != nil {
-			slog.Warn("team watch: save nudge failed", "workspace", key, "error", err)
+		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Nudged = true })
+		switch {
+		case err != nil:
+			slog.Warn("team watch: save nudge failed; parking without it", "workspace", key, "error", err)
+		case !ok:
+			return time.Time{} // handed back, closed or parked meanwhile
+		default:
+			if err := w.send(p, key, watchNudgeText(plat, h)); err != nil {
+				slog.Warn("team watch: nudge failed; parking anyway", "workspace", key, "error", err)
+			}
 		}
 	}
 	freed, err := w.park(key, h.Chat, h.At)
@@ -268,15 +301,22 @@ func watchMention(plat, owner string) string {
 // teamWorkspaceWatchDue: the earliest check time of the tasks in work in workspace key
 // ("<platform>:<id>[:user]") that the bridge watches; zero = not watched, so the lead's d10
 // scripts keep watching it themselves.
+// Zero while the watch is not started on e.
 func (e *Engine) teamWorkspaceWatchDue(key string) time.Time {
-	if e == nil || e.dataDir == "" {
+	if e == nil || e.dataDir == "" || !e.handoffWatchOn.Load() {
 		return time.Time{}
 	}
 	key = teamChatKey(key)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
+	return teamWorkspaceWatchDueLocked(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)), key)
+}
+
+// teamWorkspaceWatchDueLocked: the earliest check time of the tasks in work of workspace key
+// (already "<platform>:<id>") in st; the caller holds teamWorkspaceStore.mu.
+func teamWorkspaceWatchDueLocked(st *teamWorkspaceState, key string) time.Time {
 	var due time.Time
-	for _, h := range loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key] {
+	for _, h := range st.Handoffs[key] {
 		if teamHandoffOpen(h) && !h.Due.IsZero() && (due.IsZero() || h.Due.Before(due)) {
 			due = h.Due
 		}

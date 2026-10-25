@@ -3,6 +3,9 @@ package core
 import (
 	"errors"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,6 +19,8 @@ func watchFixture(t *testing.T, owner, title string) (*Engine, *exitTestPlatform
 	t.Helper()
 	e, _, p := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
+	e.handoffWatchOn.Store(true) // as startHandoffWatch does, without the goroutine
 	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", owner, title); err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +28,8 @@ func watchFixture(t *testing.T, owner, title string) (*Engine, *exitTestPlatform
 	if len(hs) != 1 || hs[0].Due.IsZero() {
 		t.Fatalf("claim must arm the watch: %+v", hs)
 	}
-	if d := hs[0].Due.Sub(hs[0].At); d != watchCheckAfter {
-		t.Fatalf("due %v after the claim, want %v", d, watchCheckAfter)
+	if d := hs[0].Due.Sub(hs[0].At); d != watchCheckAfter() {
+		t.Fatalf("due %v after the claim, want %v", d, watchCheckAfter())
 	}
 	return e, p, newHandoffWatch(e), hs[0]
 }
@@ -75,11 +80,14 @@ func TestWatchParksWhenNudgeFails(t *testing.T) {
 	e, _, w, h := watchFixture(t, "u1", "")
 	w.e = e
 	// A platform without ReplyContextReconstructor cannot be sent to.
-	e.platforms = []Platform{&stubPlatformEngine{n: "discord"}}
+	stub := &stubPlatformEngine{n: "discord"}
+	e.platforms = []Platform{stub}
+	e.platformReady = map[Platform]bool{}
+	e.markPlatformReady(stub)
 	w.tick(h.Due)
 	got := handoffsOf(e, "discord:ws1")[0]
-	if got.Parked.IsZero() || got.Nudged {
-		t.Fatalf("send failed: still parked, not marked nudged: %+v", got)
+	if got.Parked.IsZero() || !got.Nudged {
+		t.Fatalf("send failed: still parked (nudged is marked before the send): %+v", got)
 	}
 }
 
@@ -152,14 +160,12 @@ func TestWatchSurvivesReload(t *testing.T) {
 func TestWatchIgnoresOldHandoffs(t *testing.T) {
 	e, _, p := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
+	// A handoff recorded before the watch started has no check time (an old record).
 	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	// A handoff recorded before the watch existed has no check time.
-	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
-	st.Handoffs["discord:ws1"][0].Due = time.Time{}
-	teamWorkspaceStore.mu.Unlock()
+	e.handoffWatchOn.Store(true)
 	w := newHandoffWatch(e)
 	if next := w.tick(time.Now().Add(24 * time.Hour)); !next.IsZero() || len(p.out) != 0 {
 		t.Fatalf("old handoff must not be watched; next %v sent %v", next, p.out)
@@ -175,7 +181,7 @@ func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
 	now := h.Due
 	for i := 1; i <= watchMaxRenew; i++ {
 		next := w.tick(now)
-		if !next.Equal(now.Add(watchCheckAfter)) {
+		if !next.Equal(now.Add(watchCheckAfter())) {
 			t.Fatalf("renewal %d: next %v", i, next)
 		}
 		now = next
@@ -189,36 +195,94 @@ func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
 	}
 }
 
-// Not started (B9a): a claim only records the check time; nothing nudges or parks by itself.
+// setWatchCheckAfter shortens the check time for one test.
+func setWatchCheckAfter(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := watchCheckAfterNs.Swap(int64(d))
+	t.Cleanup(func() { watchCheckAfterNs.Store(old) })
+}
+
+// Not started (B9a): a claim records no check time, the list shows no watch_due, and nothing
+// nudges or parks by itself; the team workspace file is as before the watch existed.
 func TestWatchNotStartedDoesNothing(t *testing.T) {
-	old := watchCheckAfter
-	watchCheckAfter = 20 * time.Millisecond
-	defer func() { watchCheckAfter = old }()
+	setWatchCheckAfter(t, 20*time.Millisecond)
 	e, _, p := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
-	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+	e.markPlatformReady(p)
+	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "u1", "t"); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
-	if got := handoffsOf(e, "discord:ws1")[0]; !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
+	got := handoffsOf(e, "discord:ws1")[0]
+	if !got.Due.IsZero() || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
 		t.Fatalf("watch not started, yet the task was touched: %+v %v", got, p.out)
+	}
+	if due := e.teamWorkspaceWatchDue("discord:ws1"); !due.IsZero() {
+		t.Fatalf("watch not started: no watch_due, got %v", due)
+	}
+	b, err := os.ReadFile(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"due"`) {
+		t.Fatalf("watch not started: no check time in the file: %s", b)
+	}
+	e.teamWS = newTeamWorkspaces()
+	s := &APIServer{engines: map[string]*Engine{"orange": e}}
+	rec := httptest.NewRecorder()
+	s.handleTeamWorkspaceList(rec, httptest.NewRequest(http.MethodGet, "/team/workspace/list?session_key=discord:ws1", nil))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "watch_due") {
+		t.Fatalf("watch not started: list has no watch_due: %s", rec.Body.String())
+	}
+}
+
+// The platform is not connected yet at the check time: nothing is sent or parked, the check is
+// retried; once it is ready the task gets exactly one nudge and is parked.
+func TestWatchWaitsForReadyPlatform(t *testing.T) {
+	e, p, w, h := watchFixture(t, "u1", "")
+	e.markPlatformUnavailable(p)
+	for i := 0; i < 3; i++ {
+		now := h.Due.Add(time.Duration(i) * watchRetryDelay)
+		if next := w.tick(now); !next.Equal(now.Add(watchRetryDelay)) {
+			t.Fatalf("not ready: retry in %v, got %v", watchRetryDelay, next)
+		}
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; len(p.out) != 0 || got.Nudged || !got.Parked.IsZero() {
+		t.Fatalf("not ready: nothing sent or parked: %+v %v", got, p.out)
+	}
+	e.markPlatformReady(p)
+	w.tick(h.Due.Add(5 * watchRetryDelay))
+	w.tick(h.Due.Add(6 * watchRetryDelay))
+	if n := len(p.sentTo("discord:ws1")); n != 1 {
+		t.Fatalf("ready: one nudge, got %d", n)
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() {
+		t.Fatalf("ready: parked: %+v", got)
+	}
+}
+
+// A task handed back after the check was taken gets no nudge (Nudged is saved before the send).
+func TestWatchNoNudgeAfterHandBack(t *testing.T) {
+	e, p, w, h := watchFixture(t, "u1", "")
+	e.releaseTeamWorkspace("discord:ws1", h.At.Add(time.Second), false) // handed back meanwhile
+	if next := w.check(watchDue{"discord:ws1", h}, h.Due); !next.IsZero() || len(p.out) != 0 {
+		t.Fatalf("handed back: no nudge; next %v sent %v", next, p.out)
 	}
 }
 
 // Started (B9b wires the call): the watch fires by itself through the API server's park.
 func TestWatchStartedFires(t *testing.T) {
-	old := watchCheckAfter
-	watchCheckAfter = 20 * time.Millisecond
-	defer func() { watchCheckAfter = old }()
+	setWatchCheckAfter(t, 20*time.Millisecond)
 	e, _, p := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
 	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "")
 	e.teamWS = newTeamWorkspaces()
 	s := &APIServer{engines: map[string]*Engine{"orange": e}}
+	s.startHandoffWatch()
 	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	s.startHandoffWatch()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if !handoffsOf(e, "discord:ws1")[0].Parked.IsZero() {
@@ -280,8 +344,8 @@ func TestWatchConstantsMatchDSH(t *testing.T) {
 		}
 		return n
 	}
-	if got := num(`export const CHECK_AFTER_S = ([0-9 *]+);`); time.Duration(got)*time.Second != watchCheckAfter {
-		t.Fatalf("tasks.mjs CHECK_AFTER_S = %ds, Go watchCheckAfter = %v", got, watchCheckAfter)
+	if got := num(`export const CHECK_AFTER_S = ([0-9 *]+);`); time.Duration(got)*time.Second != watchCheckAfterDefault {
+		t.Fatalf("tasks.mjs CHECK_AFTER_S = %ds, Go watchCheckAfterDefault = %v", got, watchCheckAfterDefault)
 	}
 	if got := num(`export const MAX_RENEWALS = ([0-9 *]+);`); got != watchMaxRenew {
 		t.Fatalf("tasks.mjs MAX_RENEWALS = %d, Go watchMaxRenew = %d", got, watchMaxRenew)

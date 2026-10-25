@@ -539,6 +539,10 @@ type Engine struct {
 	interactiveStates map[string]*interactiveState // key = sessionKey
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
+	// handoffWatchOn: startHandoffWatch ran on this engine (team_watch.go); until then a claim
+	// records no check time and the list shows no watch_due.
+	handoffWatchOn atomic.Bool
+
 	platformLifecycleMu sync.Mutex
 	platformReady       map[Platform]bool
 	platformConnectErr  map[Platform]error // last connect error an async platform reported (WaitPlatformsReady)

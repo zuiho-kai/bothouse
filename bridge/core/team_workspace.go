@@ -837,8 +837,9 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 }
 
 // ClaimTeamWorkspaceFor is ClaimTeamWorkspace naming who the task goes to (taskOwner, optional:
-// mentioned when the ten-minute watch nudges) and its short title (optional). Every claim is
-// watched: its handoff gets a check time watchCheckAfter from now (team_watch.go).
+// mentioned when the ten-minute watch nudges) and its short title (optional). Once the watch is
+// started on e, every claim is watched: its handoff gets a check time watchCheckAfter() from now
+// (team_watch.go); before that no check time is recorded.
 func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title string) error {
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
 		return errors.New("team workspace claim: chat channel and workspace id are required")
@@ -933,7 +934,11 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	}
 	wk := plat + ":" + wsID
 	now := time.Now()
-	st.Handoffs[wk] = append(st.Handoffs[wk], TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title, Due: now.Add(watchCheckAfter)})
+	h := TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title}
+	if e.handoffWatchOn.Load() {
+		h.Due = now.Add(watchCheckAfter())
+	}
+	st.Handoffs[wk] = append(st.Handoffs[wk], h)
 	return saveTeamWorkspacesLocked(path, st)
 }
 
@@ -1244,7 +1249,9 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	}
 	pname, _, _ := strings.Cut(chat, ":")
 	owners := map[string]string{}
-	counts := map[string][2]int{} // workspace id → open, parked handoffs
+	counts := map[string][2]int{}  // workspace id → open, parked handoffs
+	dues := map[string]time.Time{} // workspace id → watch check time (watch started only)
+	watched := e.handoffWatchOn.Load()
 	if e.dataDir != "" {
 		teamWorkspaceStore.mu.Lock()
 		st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
@@ -1252,6 +1259,9 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			if p, id, _ := strings.Cut(key, ":"); p == pname {
 				open, parked := teamWorkspaceCountsLocked(st, key)
 				counts[id] = [2]int{open, parked}
+				if watched {
+					dues[id] = teamWorkspaceWatchDueLocked(st, key)
+				}
 			}
 		}
 		for parent, list := range st.Parents {
@@ -1275,7 +1285,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			}
 			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner}
 			w.Open, w.Parked = counts[c.ID][0], counts[c.ID][1]
-			w.WatchDue = e.teamWorkspaceWatchDue(pname + ":" + c.ID)
+			w.WatchDue = dues[c.ID]
 			out = append(out, w)
 		}
 	}
