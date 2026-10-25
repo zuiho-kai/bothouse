@@ -3340,7 +3340,8 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
-	if !msg.FromBot && len(msg.Images) == 0 && IsStopAllCommand(msg.Content) {
+	// A stop word that calls no bot (no @, no reply) means the same.
+	if !msg.FromBot && len(msg.Images) == 0 && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg)) {
 		e.cmdStopAll(p, msg)
 		return
 	}

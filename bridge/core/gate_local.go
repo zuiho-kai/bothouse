@@ -14,6 +14,8 @@ package core
 // Everything else (idle sessions, messages that don't call the bot, agents without mid-turn input,
 // a refused injection, a turn idle for deadTurnAfter) keeps the upstream path: a normal turn or the
 // busy queue. A stop word with nothing to cancel is answered like /stop and dropped.
+// A stop word that calls no bot (no @, no reply, no DM) is not handled here: handleMessage treats
+// it like "/stop all", so every bot in the channel stops (stop_all.go isUnaddressedStop).
 //
 // "Calls the bot" comes from the platform: Message.Mentioned (an @ or a reply to the bot) and
 // Message.Direct (a private chat). Set by discord, telegram, cloud-web, feishu, slack, webex

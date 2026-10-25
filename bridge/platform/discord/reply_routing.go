@@ -1,6 +1,10 @@
 package discord
 
-import "github.com/bwmarrin/discordgo"
+import (
+	"github.com/bwmarrin/discordgo"
+
+	"github.com/chenhg5/cc-connect/core"
+)
 
 // humanReplyRoute resolves addressing before quoted content reaches the gate,
 // command handling, or a running turn. Group-reply-all is only a fallback for
@@ -39,4 +43,14 @@ func (p *Platform) humanReplyRoute(m *discordgo.MessageCreate, roleID string, me
 	}
 	// Replies between humans retain the existing channel/gate policy.
 	return mentioned, true
+}
+
+// isBareStop reports whether a person's guild message is only a stop word that
+// calls no bot: no user, role or @everyone mention, not a reply, and no teammate
+// named at the start. It reaches every bot like "/stop all", so each stops its
+// own work in the channel. The engine checks the same again (isUnaddressedStop).
+func isBareStop(m *discordgo.MessageCreate, mentioned bool, selfID string) bool {
+	return !mentioned && len(m.Mentions) == 0 && len(m.MentionRoles) == 0 &&
+		!m.MentionEveryone && m.ReferencedMessage == nil && m.Type != discordgo.MessageTypeReply &&
+		!addressedOther(m.Content, selfID) && core.IsBareStopWord(m.Content)
 }

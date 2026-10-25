@@ -823,7 +823,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 	}
 	// "/stop all" from a user reaches every bot in the channel, mentioned or not.
-	stopAll := !fromBot && core.IsStopAllCommand(approvalContent)
+	stopAll := !fromBot && (core.IsStopAllCommand(approvalContent) || isBareStop(m, mentioned, p.botID))
 	if m.GuildID != "" && !replyAll && !stopAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
