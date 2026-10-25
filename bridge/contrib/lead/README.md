@@ -32,15 +32,15 @@
 
 ## 测试隔离和预演（PLAYBOOK 第 7 节）
 
-- `iso-check before | register <目录> | after <目录> [--owner <名>]`：测前拍线上环境快照并新建 `/tmp/iso.*` 隔离目录；
+- `iso-check before | after <目录> [--owner <名>]`：测前拍线上环境快照并新建 `/tmp/iso.*` 隔离目录；
   测完对比快照、删掉目录。按会话登记（会话键 `--owner` > `CC_SESSION_KEY` > `CC_SESSION` > `CLAUDE_CODE_SESSION_ID`），
   after 必须给目录，只删本会话登记过的。快照看数据目录（`BOTHOUSE_DATA_DIR`、`~/.bothouse`、`~/.cc-connect`）和其中的
   `run/api.sock`、`CONEST_COLLAB_DATA`/`~/.conest-collab`、管理端口（`ISO_CHECK_PORTS`，缺省 9820）、桥程序文件
-  （`CC_BIN`、PATH 上的 bothouse/cc-connect）；`ISO_CHECK_WATCH`（冒号分隔）可再加路径。记录目录 `ISO_CHECK_STATE`（缺省 `/tmp/iso-check.d`）。
-- `rehearse-copy <真实配置> [<目录>] [--keep-secrets]`：把真实配置 `cp -a` 进隔离目录（缺省新建 `/tmp/iso.rehearse.*` 并登记），
-  默认脱敏（键名含 token/secret/password/api_key/key_id 的值、URL 的 token=；所有文本文件都扫，含 `.bak-*`），打印 `HOME=`、`CONFIG=`。
+  （`CC_BIN`、PATH 上的 bothouse/cc-connect）。记录目录 `ISO_CHECK_STATE`（缺省 `/tmp/iso-check.d`）。
+- `rehearse-copy <真实配置> [<目录>] [--keep-secrets]`：把真实配置 `cp -a` 进隔离目录（缺省调 `iso-check before` 新建 `/tmp/iso.*`，登记失败就中止），
+  默认脱敏（键名含 token/secret/password/api_key/key_id/encrypt_key/aes_key/wps_sid/webhook_url 的值，含带引号键和 TOML 多行串；URL 的 token= 和 `user:pass@`；所有文本文件都扫，含 `.bak-*`），打印 `HOME=`、`CONFIG=`。
 - `rehearse-copy --restore <config.toml> [<备份>] [--dry-run]`：把设置向导/`setup apply` 写配置前留的 `config.toml.bak-<时间>`
-  （缺省最新一份）装回，装回前把当前文件也留一份。重启桥后生效。
+  （缺省最新一份里与当前内容不同的那份，连跑会逐份往前退）装回；装回前把当前文件留成 `config.toml.pre-restore-<时间>`（不算备份，不会被下次 --restore 选中，可显式给它撤销回滚）。重启桥后生效。
 - 测试：`python3 -I test_iso_rehearse.py`（可设 `ISO_DIR` 放临时文件；假 HOME、假 PATH，不读写真实配置）。
 
 ## 任务板、过会儿回来、安全重启

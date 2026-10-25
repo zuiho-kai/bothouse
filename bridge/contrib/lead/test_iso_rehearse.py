@@ -8,11 +8,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ISO = os.path.join(HERE, 'iso-check')
 BIN = HERE
 BASE = os.environ.get('ISO_DIR') or None
-CLEAR = ('CC_SESSION_KEY', 'CC_SESSION', 'CLAUDE_CODE_SESSION_ID', 'BOTHOUSE_DATA_DIR', 'CONEST_COLLAB_DATA', 'ISO_CHECK_WATCH')
+CLEAR = ('CC_SESSION_KEY', 'CC_SESSION', 'CLAUDE_CODE_SESSION_ID', 'BOTHOUSE_DATA_DIR', 'CONEST_COLLAB_DATA')
 
 
 def run(args, home):
-    # rehearse-copy 会调 iso-check register；记录放进测试自己的目录，不写真实 /tmp/iso-check.d
+    # rehearse-copy 缺省目录会调 iso-check before；记录放进测试自己的目录，不写真实 /tmp/iso-check.d
     env = {k: v for k, v in os.environ.items() if k not in CLEAR}
     env.update(HOME=home, ISO_CHECK_STATE=os.path.join(home, '.iso-state'), CC_SESSION_KEY='test:rehearse')
     return subprocess.run(args, env=env, capture_output=True, text=True, timeout=30)
@@ -91,14 +91,6 @@ class IsoCheck(unittest.TestCase):
         self.assertIn('api.sock', r.stdout)
         self.assertFalse(os.path.exists(a))
 
-    def test_watch_env(self):
-        w = os.path.join(self.home, 'extra')
-        a = self.before('discord:A', extra={'ISO_CHECK_WATCH': w})
-        os.makedirs(w)
-        r = self.run_iso('after', a, owner='discord:A', extra={'ISO_CHECK_WATCH': w})
-        self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn(w, r.stdout)
-
     def test_bridge_binary_replaced_or_renamed(self):
         # 测试里 bothouse update 连到线上桥时，线上桥会自升级换掉程序文件
         p = os.path.join(self.bindir, 'bothouse')
@@ -126,23 +118,17 @@ class IsoCheck(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertTrue(os.path.isdir(d))
 
-    def test_register_and_no_steal(self):
-        d = tempfile.mkdtemp(prefix='iso.rehearse.', dir='/tmp')
+    def test_no_register_subcommand(self):
+        # 没有 register：别的会话不能把已有目录（包括别人的）登记成自己的再删
+        d = tempfile.mkdtemp(prefix='iso.', dir='/tmp')
         self.mine.append(d)
-        self.assertEqual(self.run_iso('register', d, owner='discord:A').returncode, 0)
-        r = self.run_iso('register', d, owner='discord:B')
-        self.assertEqual(r.returncode, 2)
-        self.assertIn('另一会话', r.stderr)
-        r = self.run_iso('after', d, owner='discord:A')
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertFalse(os.path.exists(d))
-
-    def test_register_rejects_non_iso(self):
-        d = tempfile.mkdtemp(prefix='notiso.', dir=BASE)
-        try:
-            self.assertEqual(self.run_iso('register', d, owner='discord:A').returncode, 2)
-        finally:
-            shutil.rmtree(d)
+        self.assertEqual(self.run_iso('register', d, owner='discord:A').returncode, 2)
+        self.assertEqual(self.run_iso('after', d, owner='discord:A').returncode, 2)
+        self.assertTrue(os.path.isdir(d))
+        b = self.before('discord:B')
+        self.assertEqual(self.run_iso('register', b, owner='discord:A').returncode, 2)
+        self.assertEqual(self.run_iso('after', b, owner='discord:A').returncode, 2)
+        self.assertTrue(os.path.isdir(b))
 
     def test_cc_session_fallback(self):
         # DSH 会删名字含 KEY 的变量，只剩 CC_SESSION：也要认得出会话
@@ -234,6 +220,37 @@ class RehearseCopy(unittest.TestCase):
         self.assertIn('api_key = REDACTED }', allt)
         self.assertEqual(open(os.path.join(dst, 'blob.bin'), 'rb').read(), b'\x00\x01token=BINTOK777')  # 二进制不动
 
+    def test_platform_credential_keys(self):
+        # bridge/platform/*/ 读 opts 的真实凭据键名，逐个造值，副本里一个都不能留
+        keys = ('token', 'bot_token', 'app_token', 'access_token', 'callback_token', 'channel_token', 'app_secret',
+                'bot_secret', 'client_secret', 'corp_secret', 'channel_secret', 'webhook_secret', 'proxy_password',
+                'cross_signing_password', 'encrypt_key', 'callback_aes_key', 'wps_sid', 'webhook_url')
+        body = '[[projects.platforms]]\n  type = "x"\n'
+        body += ''.join(f'  {k} = "LEAK{i:02d}x"\n' for i, k in enumerate(keys))
+        body += '[q]\n  "bot_token" = "QUOTEDLEAK1"\n  \'app_secret\' = \'QUOTEDLEAK2\'\n'
+        body += '  proxy = "http://puser:PROXYPASS@10.0.0.1:8080"\n'
+        body += '  webhook_url = "https://open.feishu.cn/hook/HOOKLEAK"\n'
+        body += '  token2 = """MULTI\nLINELEAK\n"""\n  after_multi = "kept"\n'
+        body += "  secret3 = '''LITLEAK'''\n  allow_from = \"u1\"\n"
+        f = os.path.join(self.home, '.bothouse', 'plat.toml')
+        open(f, 'w').write(body)
+        r = run([os.path.join(BIN, 'rehearse-copy'), f, self.out], self.home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = open(os.path.join(self.out, 'home', '.bothouse', 'plat.toml')).read()
+        for leak in ['LEAK%02dx' % i for i in range(len(keys))] + ['QUOTEDLEAK1', 'QUOTEDLEAK2', 'PROXYPASS', 'puser',
+                                                                  'HOOKLEAK', 'MULTI', 'LINELEAK', 'LITLEAK']:
+            self.assertNotIn(leak, s)
+        self.assertIn('proxy = "http://REDACTED:REDACTED@10.0.0.1:8080"', s)
+        self.assertIn('token2 = """REDACTED"""\n  after_multi = "kept"', s)  # 多行串整体换掉，后面的行不被写坏
+        self.assertIn("secret3 = '''REDACTED'''", s)
+        self.assertIn('"bot_token" = "REDACTED"', s)
+        self.assertIn('allow_from = "u1"', s)
+        try:
+            import tomllib
+        except ImportError:  # Python < 3.11 没有 tomllib，跳过语法检查
+            return
+        tomllib.loads(s)  # 脱敏后仍是合法 TOML
+
     def test_keep_secrets(self):
         r = run([os.path.join(BIN, 'rehearse-copy'), self.cfg, self.out, '--keep-secrets'], self.home)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -245,13 +262,25 @@ class RehearseCopy(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         d = [l.split('=', 1)[1] for l in r.stdout.splitlines() if l.startswith('REHEARSE_DIR=')][0]
         try:
-            self.assertTrue(d.startswith('/tmp/iso.rehearse.'))
+            self.assertTrue(d.startswith('/tmp/iso.'))
             self.assertIn(f'iso-check after {d}', r.stdout)
+            self.assertNotIn('path:', r.stdout)  # iso-check 的快照不混进输出
+            a = run([ISO, 'after', d], self.home)  # 同一会话键登记过，能删
+            self.assertEqual(a.returncode, 0, a.stdout + a.stderr)
+            self.assertFalse(os.path.exists(d))
         finally:
-            if d.startswith('/tmp/iso.rehearse.'):
+            if d.startswith('/tmp/iso.') and os.path.isdir(d):
                 shutil.rmtree(d)
         r = run([os.path.join(BIN, 'rehearse-copy'), self.home + '/nope'], self.home)
         self.assertEqual(r.returncode, 1)
+
+    def test_default_dir_aborts_without_session(self):
+        env = {k: v for k, v in os.environ.items() if k not in CLEAR}
+        env.update(HOME=self.home, ISO_CHECK_STATE=os.path.join(self.home, '.iso-state'))
+        r = subprocess.run([os.path.join(BIN, 'rehearse-copy'), self.cfg], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn('中止', r.stderr)
+        self.assertNotIn('REHEARSE_DIR=', r.stdout)
 
     def test_outside_home(self):
         other = tempfile.mkdtemp(prefix='rcother.', dir=BASE)
@@ -299,6 +328,19 @@ class Restore(unittest.TestCase):
         r = self.rc(self.cfg, keep)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(open(self.cfg).read(), 'v = 4\n')
+
+    def test_restore_twice_steps_back(self):
+        # 连跑两次：第二次不能把第一次换下的当前文件（v = 4）装回去，要退到更早一份
+        r = self.rc(self.cfg)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(open(self.cfg).read(), 'v = 3\n')
+        r = self.rc(self.cfg)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(open(self.cfg).read(), 'v = 2\n')
+        pre = sorted(f for f in os.listdir(self.dir) if '.pre-restore-' in f)
+        self.assertEqual(len(pre), 2)
+        self.assertFalse(any('.bak-' in f and f not in ('config.toml.bak-20261020-121500', 'config.toml.bak-20261024-090000',
+                             'config.toml.bak-20261024-090000-2', 'config.toml.bak-junk') for f in os.listdir(self.dir)))
 
     def test_restore_named_and_rejects_foreign(self):
         r = self.rc(self.cfg, os.path.join(self.dir, 'config.toml.bak-20261020-121500'))

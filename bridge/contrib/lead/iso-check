@@ -1,6 +1,5 @@
 #!/bin/zsh
 # 用法：iso-check before            —— 拍快照、新建隔离目录，打出 ISO_DIR=…
-#       iso-check register <目录>   —— 把已建好的 /tmp/iso.* 目录登记到本会话并拍快照（rehearse-copy 用）
 #       iso-check after <目录>      —— 对比快照判干净/不干净，并删掉这个目录（只删本会话登记过的）
 #       以上都可加 --owner <名>：显式指定会话键。
 # 测试前后对比线上环境有没有被测试弄脏（PLAYBOOK 第 7 节）。测试的 HOME、数据目录、端口都放 ISO_DIR 下面，
@@ -12,12 +11,12 @@
 # after 必须给目录，只删本会话记录里有的、形如 /tmp/iso.* 的目录；快照也按目录取，不和别的会话串。
 # 快照看哪些线上位置：数据目录（$BOTHOUSE_DATA_DIR、~/.bothouse、旧名 ~/.cc-connect）及其 run/api.sock、
 #   DSH 协作库（$CONEST_COLLAB_DATA 或 ~/.conest-collab）、/Volumes 下名字含 bothouse 的卷、管理端口
-#   （$ISO_CHECK_PORTS，空格分隔，缺省 9820）的监听；$ISO_CHECK_WATCH（冒号分隔）可再加路径；
+#   （$ISO_CHECK_PORTS，空格分隔，缺省 9820）的监听；
 #   桥程序文件（$CC_BIN、PATH 上的 bothouse/cc-connect）的指纹和同目录同名前缀文件列表——测试里跑
 #   `bothouse update` 若连到线上桥，线上桥会自升级换掉程序文件（改名成 .old*），只看目录测不出来。
 snap() {
   local p port
-  local -a paths=(${BOTHOUSE_DATA_DIR:-} ~/.bothouse ~/.cc-connect ${CONEST_COLLAB_DATA:-~/.conest-collab} ${(s.:.)ISO_CHECK_WATCH:-})
+  local -a paths=(${BOTHOUSE_DATA_DIR:-} ~/.bothouse ~/.cc-connect ${CONEST_COLLAB_DATA:-~/.conest-collab})
   for p in ${(u)paths}; do
     [[ -n $p ]] || continue
     echo "path:$p:$([[ -e $p || -L $p ]] && echo 1 || echo 0)"
@@ -45,25 +44,15 @@ done
 [[ -n $owner ]] || die "取不到会话键（没有 CC_SESSION_KEY/CC_SESSION/CLAUDE_CODE_SESSION_ID），请加 --owner <名>"
 state=${ISO_CHECK_STATE:-/tmp/iso-check.d}
 rec=$state/${owner//[^A-Za-z0-9._-]/_}
-# 只认 /tmp/iso.<名> 一层（mktemp/rehearse-copy 建的形状），不允许 .. 和子路径
+# 只认 /tmp/iso.<名> 一层（mktemp 建的形状），不允许 .. 和子路径
 isodir() { [[ $1 == /tmp/iso.* && $1 != *..* && ${1#/tmp/} != */* && -d $1 && ! -L $1 ]]; }
-reg() {  # $1=目录：拍快照并登记到本会话
-  local d=$1 b=${1:t} o
-  for o in $state/*/$b.owner(N); do
-    [[ $o == $rec/$b.owner ]] || die "$d 已被另一会话登记（$(head -1 $o)），不重复登记"
-  done
-  mkdir -p $rec && snap > $rec/$b.before && printf '%s\n%s\n' "$owner" "$d" > $rec/$b.owner
-  cat $rec/$b.before
-}
 case $cmd in
   before)
     d=$(mktemp -d /tmp/iso.XXXXXX) || die "mktemp 失败"
-    reg $d
+    b=${d:t}
+    mkdir -p $rec && snap > $rec/$b.before && printf '%s\n%s\n' "$owner" "$d" > $rec/$b.owner || { rmdir $d; die "写记录失败"; }
+    cat $rec/$b.before
     echo "ISO_DIR=$d（本次测试的 HOME、数据目录、gocache、worktree 都建在它下面；跑 iso-check after $d 会删掉它）";;
-  register)
-    d=${args[1]}; [[ -n $d ]] || die "用法：iso-check register <目录>"
-    isodir $d || die "$d 不是已存在的 /tmp/iso.* 目录"
-    reg $d && echo "iso-check: 已登记 $d（会话 $owner）";;
   after)
     d=${args[1]}
     [[ -n $d ]] || die "必须给目录：iso-check after <目录>（before 打出的 ISO_DIR）。不猜「最近一个」。"
@@ -78,5 +67,5 @@ case $cmd in
     if diff $rec/$b.before $rec/$b.after; then r=0; echo "iso-check: 干净"; else r=1; echo "iso-check: 线上环境被改动（见上），按事故报"; fi
     rm -f $rec/$b.before $rec/$b.after $rec/$b.owner; rmdir $rec 2>/dev/null
     exit $r;;
-  *) die "用法：iso-check before | register <目录> | after <目录>  [--owner <名>]";;
+  *) die "用法：iso-check before | after <目录>  [--owner <名>]";;
 esac
