@@ -886,6 +886,11 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				return fail(step+" discord", err)
 			}
 			w.botID, w.username = info.BotID, info.Username
+			if r.NameCustomized != nil && !*r.NameCustomized {
+				w.Name = info.Username
+				customized := true // platform names stay stable when the CLI changes
+				w.NameCustomized = &customized
+			}
 			rr := WizardRoleResult{BotID: info.BotID}
 			in := guildID == ""
 			for _, g := range info.Guilds {
@@ -936,6 +941,15 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 					w.botID = id
 				} else { // not blocking; err carries only the API's code/msg, never the secret or token
 					res.Warnings = append(res.Warnings, warnFeishuBotIDUnknown(req.Language, w.Name, err))
+				}
+				if r.ReuseProject == "" && (r.Name == "" || r.NameCustomized != nil && !*r.NameCustomized) {
+					name, err := FeishuBotName(ctx, f.AppID, f.AppSecret, f.PlatformType)
+					if err != nil {
+						return fail(step+" bot name", err)
+					}
+					w.Name = name
+					customized := true
+					w.NameCustomized = &customized
 				}
 			}
 			res.Roles = append(res.Roles, WizardRoleResult{BotID: w.botID})
@@ -1416,7 +1430,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		case isFeishuPlatform(req.Platform) && sameFeishuApp(s, req.Feishu, used) != "":
 			// the same Feishu / Lark app is already configured: update it, don't add a second project
 			r.project, r.reused = sameFeishuApp(s, req.Feishu, used), true
-		case cloudWeb && sameCloudWebMember(s, cwBase, w, used) != "":
+		case cloudWeb && !req.AppendOnly && sameCloudWebMember(s, cwBase, w, used) != "":
 			// the same member of the same platform is already configured: update it, don't add name-2
 			r.project, r.reused = sameCloudWebMember(s, cwBase, w, used), true
 		default:
@@ -1465,7 +1479,8 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 			r.project = name
 		}
-		if req.AppendOnly && (r.reused || renamed) {
+		autoNamed := w.NameCustomized != nil && !*w.NameCustomized
+		if req.AppendOnly && (r.reused || renamed && !autoNamed) {
 			given := w.Name // the name the user typed, not the project name it maps to
 			if given == "" {
 				given = w.Project
