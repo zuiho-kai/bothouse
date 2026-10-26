@@ -141,6 +141,9 @@ func TestSplitCursorStreamErrorKeepsNormalText(t *testing.T) {
 		"hello",
 		"The error: retry later",
 		"Done.\n\nErrors: none",
+		// A normal answer quoting a log line must survive byte-for-byte.
+		"运行结果：\n\nError: file not found",
+		"运行结果：\n\nError: file not found\n\n重试后成功。",
 	} {
 		prefix, detail := splitCursorStreamError(text)
 		if prefix != text || detail != "" {
@@ -149,7 +152,90 @@ func TestSplitCursorStreamErrorKeepsNormalText(t *testing.T) {
 	}
 }
 
-func servePromptReply(t *testing.T, rReq *io.PipeReader, wResp *io.PipeWriter, text string) {
+// A normal answer that quotes a log line beginning with Cursor's marker is not
+// a backend failure: the turn must succeed and keep the quoted text intact.
+func TestCursorStreamErrorQuotedInAnswerStaysSuccessful(t *testing.T) {
+	s, wResp, rReq := newTestSession(t, nil)
+	s.cursorStreamErrors = true
+	const quoted = "运行结果：\n\nError: file not found"
+	servePromptReply(t, rReq, wResp, quoted)
+
+	if err := s.Send("hi", "", nil, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	var text strings.Builder
+	var results int
+	for _, ev := range drainEvents(s) {
+		switch ev.Type {
+		case core.EventText:
+			text.WriteString(ev.Content)
+		case core.EventResult:
+			results++
+		case core.EventError:
+			t.Fatalf("unexpected error event: %v", ev.Error)
+		}
+	}
+	if got := text.String(); got != quoted {
+		t.Fatalf("text = %q, want %q", got, quoted)
+	}
+	if results != 1 {
+		t.Fatalf("result events = %d, want 1", results)
+	}
+}
+
+// A genuine backend error may arrive split across ACP chunks; joining the
+// chunks must still recognize it and surface one typed error.
+func TestCursorStreamedErrorSplitAcrossChunksStillFails(t *testing.T) {
+	s, wResp, rReq := newTestSession(t, nil)
+	s.cursorStreamErrors = true
+	servePromptReply(t, rReq, wResp, "\n\nError: v: WritableIterable ", "is closed")
+
+	err := s.Send("hi", "", nil, nil)
+	if err == nil {
+		t.Fatal("Send succeeded after a chunked backend error")
+	}
+	var backend *core.BackendUnavailableError
+	if !errors.As(err, &backend) {
+		t.Fatalf("Send error is not BackendUnavailableError: %v", err)
+	}
+	events := drainEvents(s)
+	if len(events) != 1 || events[0].Type != core.EventError {
+		t.Fatalf("events = %+v, want exactly one EventError", events)
+	}
+}
+
+// Text after the marker in a later chunk also proves the marker was quoted.
+func TestCursorStreamErrorMarkerBeforeLaterTextStaysSuccessful(t *testing.T) {
+	s, wResp, rReq := newTestSession(t, nil)
+	s.cursorStreamErrors = true
+	const first = "运行结果：\n\nError: file not found"
+	const second = "\n\n重试后成功。"
+	servePromptReply(t, rReq, wResp, first, second)
+
+	if err := s.Send("hi", "", nil, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	var text strings.Builder
+	var results int
+	for _, ev := range drainEvents(s) {
+		switch ev.Type {
+		case core.EventText:
+			text.WriteString(ev.Content)
+		case core.EventResult:
+			results++
+		case core.EventError:
+			t.Fatalf("unexpected error event: %v", ev.Error)
+		}
+	}
+	if got, want := text.String(), first+second; got != want {
+		t.Fatalf("text = %q, want %q", got, want)
+	}
+	if results != 1 {
+		t.Fatalf("result events = %d, want 1", results)
+	}
+}
+
+func servePromptReply(t *testing.T, rReq *io.PipeReader, wResp *io.PipeWriter, chunks ...string) {
 	t.Helper()
 	go func() {
 		scan := bufio.NewScanner(rReq)
@@ -159,7 +245,9 @@ func servePromptReply(t *testing.T, rReq *io.PipeReader, wResp *io.PipeWriter, t
 			if json.Unmarshal(scan.Bytes(), &req) != nil || req.Method != "session/prompt" {
 				continue
 			}
-			_ = enc.Encode(inputUpdate("test-session-id", text))
+			for _, text := range chunks {
+				_ = enc.Encode(inputUpdate("test-session-id", text))
+			}
 			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"stopReason": "end_turn"}})
 			return
 		}

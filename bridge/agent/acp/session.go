@@ -45,11 +45,11 @@ type acpSession struct {
 	acpSessMu sync.RWMutex
 	acpSessID string
 
-	outputMu        sync.Mutex
-	outputFilter    privateOutput
-	outputMessageID string
-	outputTurn      privateOutputTurn
-	streamErrDetail string // Cursor backend error streamed as text; guarded by outputMu
+	outputMu           sync.Mutex
+	outputFilter       privateOutput
+	outputMessageID    string
+	outputTurn         privateOutputTurn
+	streamErrCandidate string // Cursor trailing error text held until the prompt ends; guarded by outputMu
 
 	sendMu         sync.Mutex
 	promptInFlight atomic.Bool // a session/prompt RPC is outstanding (sendLocked)
@@ -495,12 +495,8 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 				s.outputMessageID = id
 			}
 			content := ev.Content
-			if s.cursorStreamErrors {
-				prefix, detail := splitCursorStreamError(content)
-				if detail != "" {
-					s.streamErrDetail = detail
-					content = prefix
-				}
+			if s.cursorStreamErrors && s.promptInFlight.Load() {
+				content = s.holdTrailingStreamError(content)
 			}
 			ev.Content = s.outputFilter.feed(content)
 			s.outputTurn.public = s.outputTurn.public || strings.TrimSpace(ev.Content) != ""
@@ -760,7 +756,7 @@ func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAt
 func (s *acpSession) sendLocked(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, strict bool) error {
 	s.resetPrivateOutput()
 	s.outputMu.Lock()
-	s.streamErrDetail = ""
+	s.streamErrCandidate = ""
 	s.outputMu.Unlock()
 
 	sid := s.currentACPSessionID()
@@ -798,15 +794,23 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	}
 	validResult := json.Unmarshal(res, &result) == nil
 	s.outputMu.Lock()
-	streamErrDetail := s.streamErrDetail
-	s.streamErrDetail = ""
+	streamErrCandidate := s.streamErrCandidate
+	s.streamErrCandidate = ""
 	s.outputMu.Unlock()
-	if streamErrDetail != "" {
-		// Cursor reported a backend failure as assistant text but still
-		// returned end_turn. Surface one typed error; never a successful turn.
-		backendErr := s.backendErrorForStream(streamErrDetail)
-		s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: backendErr})
-		return fmt.Errorf("acp: session/prompt: %w", backendErr)
+	if streamErrCandidate != "" {
+		if output.public {
+			// A normal answer already streamed, so the trailing marker was
+			// quoted text rather than the turn's only content. Publish it
+			// intact and finish normally.
+			s.emit(core.Event{Type: core.EventText, SessionID: sid, Content: streamErrCandidate})
+		} else {
+			// Cursor reported a backend failure as assistant text but still
+			// returned end_turn. Surface one typed error; never a successful turn.
+			_, detail := splitCursorStreamError(streamErrCandidate)
+			backendErr := s.backendErrorForStream(detail)
+			s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: backendErr})
+			return fmt.Errorf("acp: session/prompt: %w", backendErr)
+		}
 	}
 	if strict {
 		s.finishInputUpdates()

@@ -21,12 +21,16 @@ const cursorBackendName = "Cursor"
 // splitCursorStreamError recognizes the error text Cursor's ACP server streams
 // as an ordinary assistant message before returning stopReason end_turn.
 // Cursor prefixes thrown errors with two newlines ("\n\nError: ...") and writes
-// login/plan notices as fixed sentences. A valid reply preceding the marker is
-// returned as prefix so it is not discarded.
+// login/plan notices as fixed sentences. Only a marker that is the last line
+// of an otherwise empty answer counts: a marker followed by more content, or
+// preceded by a normal reply, is a log line quoted by that answer, not a fatal
+// stream error. Such text is returned unchanged so nothing is truncated.
 func splitCursorStreamError(text string) (prefix, detail string) {
-	if i := strings.Index(text, "\n\nError: "); i >= 0 {
-		detail = strings.TrimSpace(text[i+2:])
-		return text[:i], strings.TrimPrefix(detail, "Error: ")
+	if i := strings.LastIndex(text, "\n\nError: "); i >= 0 {
+		tail := strings.TrimSpace(text[i+2:])
+		if !strings.Contains(tail, "\n") && strings.TrimSpace(text[:i]) == "" {
+			return "", strings.TrimPrefix(tail, "Error: ")
+		}
 	}
 	switch body := strings.TrimSpace(text); body {
 	case "Please sign in to continue",
@@ -36,6 +40,22 @@ func splitCursorStreamError(text string) (prefix, detail string) {
 		return "", body
 	}
 	return text, ""
+}
+
+// holdTrailingStreamError buffers a possible Cursor backend error until the
+// prompt response arrives. Chunks are joined first so an error split across
+// chunks is still recognized; text that follows the marker with a newline
+// proves it was quoted from a log. It returns the text safe to publish now.
+// Caller holds outputMu.
+func (s *acpSession) holdTrailingStreamError(text string) string {
+	text = s.streamErrCandidate + text
+	prefix, detail := splitCursorStreamError(text)
+	if detail == "" {
+		s.streamErrCandidate = ""
+		return text
+	}
+	s.streamErrCandidate = text[len(prefix):]
+	return prefix
 }
 
 // backendErrorForStream turns Cursor's opaque streamed text into a typed
