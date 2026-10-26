@@ -12,14 +12,14 @@ const env = { ...process.env, CONEST_COLLAB_DATA: data };
 console.log(`Isolated CONEST_COLLAB_DATA: ${data}`);
 const cases = [
   ['Legacy configuration', 'Automated coverage: default directory and global member scope'],
-  ['Upgrade visibility snapshot', 'Automated coverage: one-time snapshot and restart idempotence'],
+  ['Upgrade visibility', 'Automated coverage: global legacy scope and restart idempotence'],
   ['Channel routing and same-name bots', 'Automated coverage: channel routing and channel bots tests'],
-  ['New channel contains only owner', 'Automated coverage: owner only without explicitly global members'],
+  ['New channel retains global members', 'Automated coverage: legacy and explicitly global members remain visible'],
   ['Separate directories and workspace reuse', 'Automated coverage: native/CLI directory selection; real model file writes not exercised'],
   ['Rename/model edit retains room scope', 'Automated coverage: rename and reload retain scope; model edit needs a dedicated check'],
   ['Application shutdown', 'Automated coverage: late cleanup; real desktop shutdown not exercised'],
-  ['Never-spoken legacy member survives upgrade', 'Automated coverage: snapshot migration regression'],
-  ['Post-upgrade new channel excludes old members', 'Automated coverage: snapshot migration regression'],
+  ['Never-spoken legacy member survives upgrade', 'Automated coverage: global migration regression'],
+  ['Post-upgrade new channel routes to primary', 'Automated coverage: plain message dispatch to the legacy primary'],
 ];
 for (const [i, [name, status]] of cases.entries()) console.log(`${i + 1}. ${name}: ${status}`);
 const serverTests = readdirSync(collab, { withFileTypes: true })

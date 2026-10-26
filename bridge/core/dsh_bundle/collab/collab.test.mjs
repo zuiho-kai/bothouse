@@ -4951,10 +4951,10 @@ test('channel bots: same-channel name overlaps are refused, cross-channel names 
 });
 
 
-test('member snapshot migration: legacy UI scope survives restart and future channels start clean', async () => {
+test('member scope migration: legacy members and primary stay visible in future channels', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
+  const { join, dirname } = await import('node:path');
   const path = join(mkdtempSync(join(tmpdir(), 'member-snapshot-')), 'collab.sqlite3');
   let store = new Store(path);
   store.ensureRoom(1, 'general'); store.ensureRoom(2, 'office');
@@ -4965,32 +4965,38 @@ test('member snapshot migration: legacy UI scope survives restart and future cha
   store.addMember({ id: 'explicit-global', name: 'ExplicitGlobal', rooms: [] });
   store.seedMember({ id: 'config', name: 'Configured' });
   assert.equal(store.migrateMemberRooms(), true);
-  assert.deepEqual(JSON.parse(store.member('old').rooms), [1, 2]);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), []);
   assert.deepEqual(JSON.parse(store.member('scoped').rooms), [2]);
   assert.deepEqual(JSON.parse(store.member('explicit-global').rooms), []);
   assert.deepEqual(JSON.parse(store.member('config').rooms), []);
   const third = store.createRoom('fresh');
   store.close(); store = new Store(path);
   assert.equal(store.migrateMemberRooms(), false);
-  assert.deepEqual(JSON.parse(store.member('old').rooms), [1, 2]);
-  const hub = new Hub(store, quiet);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), []);
+  const leadState = new LeadState(join(dirname(path), 'lead.json'), quiet);
+  leadState.set('old', 'Old');
+  const hub = new Hub(store, quiet, leadState);
   hub.setMember({ id: 'owner', name: 'Owner', kind: 'human', online: true });
   const dsh = fakeDsh(); const members = dsh.attach(hub, []);
   const roster = new Roster(hub, members); roster.load([]);
-  // Explicitly global/config members remain visible by the documented exception.
-  assert.equal(hub.membersInRoom(third.id).some(m => m.id === 'old'), false);
-  hub.removeMember('config'); hub.removeMember('explicit-global');
-  assert.deepEqual(hub.membersInRoom(third.id).map(m => m.id), ['owner']);
-  assert.deepEqual(hub.routableIn(third.id), []);
+  assert.deepEqual(hub.routableIn(third.id).map(m => m.id).sort(), ['config', 'explicit-global', 'old']);
+  assert.equal(hub.membersInRoom(third.id).some(m => m.id === 'old'), true);
+  assert.equal(hub.selectedPrimaryMember().id, 'old');
+  hub.post(third.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'hello in the new channel' });
+  await settle();
+  assert.equal(store.openJobs().at(-1).member_id, 'old');
+  assert.equal(store.openJobs().at(-1).room_id, third.id);
   for (const id of [1, 2]) assert.equal(hub.membersInRoom(id).some(m => m.id === 'old'), true);
   await members.close(); store.close();
 });
 
-test('member snapshot migration: no chat channels defers the snapshot', () => {
+test('member scope migration: legacy scope is global even before any channels exist', () => {
   const store = new Store(':memory:');
   assert.equal(store.migrateMemberRooms(), false);
-  store.ensureRoom(1, 'general');
+  store.addMember({ id: 'old', name: 'Old' });
+  store.db.prepare('UPDATE members SET rooms = NULL WHERE id = ?').run('old');
   assert.equal(store.migrateMemberRooms(), true);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), []);
   assert.equal(store.migrateMemberRooms(), false);
   store.close();
 });

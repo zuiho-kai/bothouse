@@ -522,19 +522,9 @@ export class Store {
     return mode;
   }
 
-  /** Pin legacy UI members to the chat channels present on first upgrade. */
+  /** Keep legacy members visible in all channels, including future ones. */
   migrateMemberRooms() {
-    return this.transaction(() => {
-      this.db.exec('CREATE TABLE IF NOT EXISTS member_scope_migrations (name TEXT PRIMARY KEY, applied_at REAL NOT NULL)');
-      const name = 'ui-member-room-snapshot-v1';
-      if (this.db.prepare('SELECT 1 FROM member_scope_migrations WHERE name = ?').get(name)) return false;
-      const rooms = this.rooms().filter(r => r.kind === 'chat').map(r => r.id);
-      // No channels yet: defer rather than convert an empty snapshot into global scope.
-      if (!rooms.length) return false;
-      this.db.prepare("UPDATE members SET rooms = ? WHERE source = 'ui' AND rooms IS NULL").run(JSON.stringify(rooms));
-      this.db.prepare('INSERT INTO member_scope_migrations (name, applied_at) VALUES (?, ?)').run(name, Date.now() / 1000);
-      return true;
-    });
+    return this.db.prepare("UPDATE members SET rooms = '[]' WHERE rooms IS NULL").run().changes > 0;
   }
 
   /** Active DSH members, config seeds and UI-created alike. */

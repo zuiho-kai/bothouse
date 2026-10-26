@@ -34,6 +34,29 @@
 
 3. 启动：`dsh --profile web --patch ./collab.yml`（源码仓库里用 `node --import tsx/esm apps/cli/src/bin.ts --profile web --patch ./collab.yml`），浏览器先打开终端打印的登录链接，再访问 `/collab`。
 
+## 每频道工作目录
+
+`rooms` 中可为每个聊天频道设置绝对路径 `workspacePath`，例如
+`{ id: 1, name: general, workspacePath: /absolute/path/to/game }` 和
+`{ id: 2, name: office, workspacePath: /absolute/path/to/office }`。
+省略、空字符串或 null 使用实例的 `workspacePath`，旧配置保持原行为。
+工作区在创建会话时继承当前所属聊天频道的目录；CLI 成员也按目录分别创建进程。
+配置变更需重启插件。已有原生 DSH Session 保留原目录和历史，修改频道目录后应在该频道
+发送 `/new` 再创建会话；新目录应事先存在。外部 cc-connect bot 的目录仍由它自己的配置管理。
+
+## 成员按频道归属
+
+配置成员可写 `rooms: [1]` 或 `rooms: [1, 2]`；省略或空数组沿用全频道可见的兼容行为。每次启动都以配置覆盖该成员的归属，因此从配置删除 `rooms` 后，该配置成员会恢复全频道可见。
+原生频道界面添加成员时自动归当前聊天频道，编辑名字或模型不会清空归属。
+工作区的成员列表、点名候选、队友状态及派活按所属聊天频道筛选。
+升级时，未设置归属（数据库 NULL）的旧成员保持全局可见；未指定 `rooms` 或显式设置空数组的成员也对所有频道可见，包括以后新建的频道。已有明确归属不变，配置成员仍按配置处理；通过频道界面新建的成员仍归属当前频道。全局主角色在新频道中继续接收未 @ 成员的消息。
+
+桥连接可在 WebSocket URL 加 `room=1`（也接受 `room=room-1`）；不写仍按旧行为接收各频道消息。
+不同频道可有同名 bot，同一频道与其他成员重名会被拒绝；bot ID 仍须在整个实例内唯一。
+连接断开后 bot 从成员列表移除，历史消息保留。
+
+开发验收可在仓库根目录运行 `node dsh/collab/verify-multichannel.mjs`。这是验收脚本，非运行时依赖，启动插件不需要执行它；退出码 2 表示自动测试通过但人工验收尚未完成。
+
 ## 安装原生「频道」入口
 
 先按 [DSH 构建说明](../README.md#目录与用法)准备固定版本的独立 checkout 并完成 `build:artifacts`。原生入口需要额外安装前端包并加入 overlay；原有 `/collab` 页面仍可使用。
