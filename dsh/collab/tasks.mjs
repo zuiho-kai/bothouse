@@ -26,6 +26,9 @@ export const WORKING = ['assigned', 'accepted', 'asked', 'rework'];
 const REVIEWABLE = ['returned', 'declined', 'escalated'];
 /** The owner delivered: handed back, or the lead accepted it (fromChat reads the next call as an answer). */
 const DELIVERED = ['returned', 'done'];
+// #597 r12: how long a bare-name call after a delivery waits for the owner's stance (Tasks.pendingCalls).
+// Source: 聊天频道橘 10-26「超过 30 分钟没回也丢弃」.
+const PENDING_CALL_S = 30 * 60;
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW): at the check time a
@@ -91,6 +94,11 @@ export class Tasks {
     this.wakers = [];
     /** released(roomId) -> a workspace finished its last task and went back to the pool. */
     this.releasers = [];
+    /**
+     * #597 r12: bare-name calls after a delivery, waiting for the owner's stance line, keyed
+     * `room\0owner`: { roomId, owner, lead, title, messageId, at }. In memory only: a restart drops them.
+     */
+    this.pendingCalls = new Map();
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
     // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
     this.tree = cols.has('parent_id') && cols.has('kind');
@@ -424,6 +432,7 @@ export class Tasks {
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     this.verdictsOf(msg);
+    this.settleCall(msg);
     const stance = this.stanceOf(msg);
     const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
     const dshWorkspace = dsh && this.inWorkspace(msg.room_id);
@@ -552,13 +561,14 @@ export class Tasks {
       if (!title) return undefined;
       for (const owner of called) {
         // #597 r12: structure, not wording. Once the owner's newest task here is handed back or
-        // accepted, only an explicit @ opens a new one; a bare name is talk about the delivery
-        // (praise, a review), and rework goes by the 【验收】/【返工】 lines (verdictsOf). A task
-        // still waiting for review gets a hint how to answer it. A first call, or one while her task
-        // is in work, dispatches as before.
+        // accepted, a bare name may be talk about the delivery (praise) or a send-back: the task
+        // opens only when her next message here opens with a stance line (settleCall). An explicit
+        // @, a first call, or one while her task is in work dispatches at once, as before.
+        const key = `${msg.room_id}\0${owner}`;
+        this.pendingCalls.delete(key);
         const latest = this.q.latestOf.get(msg.room_id, owner);
         if (DELIVERED.includes(latest?.status) && !explicit.has(owner)) {
-          if (latest.status === 'returned') this.reviewHint(latest);
+          this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
           continue;
         }
         this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
@@ -574,10 +584,25 @@ export class Tasks {
     return this.handBack(open.id, { actor: msg.author, messageId: msg.id });
   }
 
-  /** #597 r12: the lead named a teammate whose task waits for review: say how to review or dispatch. */
-  reviewHint(task) {
-    const text = `#${task.id} 待验收：通过写【验收】#${task.id}，打回写【返工】#${task.id} 原因；派新活请 @她`;
-    this.hub.post(task.room_id, { authorKind: 'system', author: 'system', name: '任务', text });
+  /**
+   * #597 r12: the owner's next message in a room settles the lead's bare-name call waiting there
+   * (fromChat). A first line 【接】【问】【退】【升】 without #id opens the task, which stanceOf then
+   * answers with that stance; anything else (thanks, chat), a stance naming #id, or a reply after
+   * PENDING_CALL_S drops it.
+   */
+  settleCall(msg) {
+    const key = `${msg.room_id}\0${msg.author}`;
+    const call = this.pendingCalls.get(key);
+    if (call === undefined) return;
+    this.pendingCalls.delete(key);
+    if (this.now() - call.at > PENDING_CALL_S) return;
+    const m = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0]);
+    if (m === null || m[2] !== undefined) return;
+    try {
+      this.openFromChat({ ...call, source: 'mention' });
+    } catch (error) {
+      this.hub.logger?.warn?.('collab: pending call failed: %s', error?.message ?? error);
+    }
   }
 
   /**
