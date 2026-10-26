@@ -105,6 +105,7 @@ func handoffCommand(args []string, out io.Writer) error {
 			}
 			h := st.Handoff
 			if *project != "" && (h == nil || h.To != *project) {
+				h = nil
 				for i := len(st.History) - 1; i >= 0; i-- {
 					if st.History[i].To == *project {
 						h = &st.History[i]

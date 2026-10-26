@@ -364,3 +364,86 @@ func TestHandoffDoesNotInjectInWorkspace(t *testing.T) {
 		t.Fatalf("handoff leaked into a workspace: %s", got)
 	}
 }
+
+func TestLeadHandoffShowUsesRequestedProjectOnly(t *testing.T) {
+	dir := t.TempDir()
+	writeHandoffLead(t, dir, "lead-d", "Lead D", "")
+	st := LeadHandoffState{
+		Version: 1, Lead: "lead-d", LeadName: "Lead D",
+		Pending: &LeadHandoff{
+			ID: "handoff-1", From: "lead-a", FromName: "Lead A",
+			To: "lead-d", ToName: "Lead D", At: time.Now().UTC(), Status: LeadHandoffActive,
+		},
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lead-handoff.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	text, err := BuildLeadHandoffText(dir, "lead-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "handoff-1") || strings.Contains(text, "Lead A") {
+		t.Fatalf("show for another project leaked the pending record:\n%s", text)
+	}
+	if !strings.Contains(text, "没有交接记录") {
+		t.Fatalf("show for another project should report no record:\n%s", text)
+	}
+}
+
+func TestLeadHandoffDeltaIncludesRoutineUpdateAfterSwitch(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	old := now.Add(-time.Hour)
+	since := old.Add(30 * time.Minute)
+	rec := progressRecord{
+		Task: &Task{
+			ID: "task-1", Title: "实现 274", Agent: "lead-a",
+			State: TaskStateInProgress, FactStage: FactStageCodeModified,
+			LatestProgress: "普通进展：已补测试", UpdatedAt: now,
+			Events: []TaskEvent{{
+				ID: "evt-old", TaskID: "task-1", Kind: TaskEventBlocked,
+				Summary: "旧阻塞", Timestamp: old,
+			}},
+		},
+		Platform: "discord", Lang: LangChinese, Closed: false, LastSeq: 1,
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskDir := filepath.Join(dir, "public-progress", "abc123")
+	if err := os.MkdirAll(taskDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "task-1.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", since, nil, nil)
+	if !strings.Contains(delta, "状态更新为") || !strings.Contains(delta, "普通进展：已补测试") {
+		t.Fatalf("routine update after the switch was dropped:\n%s", delta)
+	}
+}
+
+func TestLeadHandoffCompletedResultIsNotLabeledPending(t *testing.T) {
+	text := renderLeadHandoffBlock(&LeadHandoff{
+		ID: "handoff-1", From: "lead-a", FromName: "Lead A",
+		To: "lead-d", ToName: "Lead D", At: time.Now().UTC(), Status: LeadHandoffActive,
+	}, &LeadHandoffSnapshot{
+		GeneratedAt: time.Now().UTC(), TaskTotal: 1,
+		Tasks: []LeadHandoffTask{{
+			TaskID: "task-1", Title: "实现 274", Agent: "lead-a",
+			State: TaskStateCompleted, FactStage: FactStageVerified,
+			ResultSummary: "已验收",
+		}},
+	})
+	if strings.Contains(text, "已有结果（待验收") {
+		t.Fatalf("completed task was labeled as awaiting acceptance:\n%s", text)
+	}
+	if !strings.Contains(text, "结果：已验收") {
+		t.Fatalf("completed result missing:\n%s", text)
+	}
+}

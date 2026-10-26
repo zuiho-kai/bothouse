@@ -553,6 +553,7 @@ func buildLeadHandoffSnapshot(dataDir, self, from string, known, chats map[strin
 	snap.Missing = append(snap.Missing,
 		"旧主的 CLI 内部 session、隐藏状态和正在运行的工具进程不在交接范围；新主从任务、工作区和 [ask] 记录接续。",
 		"工具审批请求绑定旧主会话，不迁移、不会自动批准；旧主未决审批保持原状。",
+		"没有写进任务卡或 [ask] 的对话决策无法恢复；已确认决策请以任务卡的要求、关键事件和结果记录为准。",
 		"旧主未写入的模型总结不可得；以上任务状态和事实来自 bothouse 持久记录，未知项会明确标注。",
 	)
 	if len(snap.Tasks) == 0 {
@@ -784,12 +785,17 @@ func buildLeadHandoffDelta(dataDir, self, from string, since time.Time, known, c
 	snap := buildLeadHandoffSnapshot(dataDir, self, from, known, chats)
 	var lines []string
 	for _, task := range snap.Tasks {
+		hasNewEvent := false
 		for _, ev := range task.Events {
 			if ev.Timestamp.After(since) {
+				hasNewEvent = true
 				lines = append(lines, fmt.Sprintf("- [%s「%s」] %s：%s（%s）", task.TaskID, task.Title, leadHandoffEventLabel(ev.Kind), leadHandoffOneLine(ev.Summary), handoffTime(ev.Timestamp)))
 			}
 		}
-		if task.UpdatedAt.After(since) && len(task.Events) == 0 {
+		// The event window keeps only the latest key facts, so a routine update
+		// after the switch can coexist with older events in that window. Use the
+		// task timestamp, not "has any events", to decide whether it is new.
+		if !hasNewEvent && task.UpdatedAt.After(since) {
 			lines = append(lines, fmt.Sprintf("- [%s「%s」] 状态更新为%s：%s（%s）", task.TaskID, task.Title, taskStateLabel(task.State), leadHandoffOneLine(task.LatestProgress), handoffTime(task.UpdatedAt)))
 		}
 	}
@@ -841,7 +847,11 @@ func renderLeadHandoffBlock(h *LeadHandoff, snap *LeadHandoffSnapshot) string {
 			fmt.Fprintf(&b, "  下一步：%s\n", leadHandoffOneLine(t.NextSteps))
 		}
 		if t.ResultSummary != "" {
-			fmt.Fprintf(&b, "  已有结果（待验收，不是已完成）：%s\n", leadHandoffOneLine(t.ResultSummary))
+			label := "已有结果（待验收，不是已完成）"
+			if t.State == TaskStateCompleted {
+				label = "结果"
+			}
+			fmt.Fprintf(&b, "  %s：%s\n", label, leadHandoffOneLine(t.ResultSummary))
 		}
 		if t.Verification != "" || t.DeliverableURL != "" {
 			fmt.Fprintf(&b, "  验证证据：%s%s\n", leadHandoffOneLine(t.Verification), leadHandoffURL(t.DeliverableURL))
@@ -1079,6 +1089,7 @@ func BuildLeadHandoffText(dataDir, project string) (string, error) {
 	}
 	h := st.Pending
 	if project != "" && (h == nil || h.To != project) {
+		h = nil
 		for i := len(st.History) - 1; i >= 0; i-- {
 			if st.History[i].To == project {
 				h = &st.History[i]

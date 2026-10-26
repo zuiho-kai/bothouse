@@ -95,3 +95,18 @@ func TestHandoffCLIUsage(t *testing.T) {
 		t.Fatalf("switch without target: %v", err)
 	}
 }
+
+func TestHandoffCLIShowWrongProject(t *testing.T) {
+	dir := handoffCLIFixture(t)
+	var out bytes.Buffer
+	if err := handoffCommand([]string{"show", "--data-dir", dir, "--project", "lead-x", "--json"}, &out); err == nil {
+		t.Fatalf("show for another project returned a record:\n%s", out.String())
+	}
+	out.Reset()
+	if err := handoffCommand([]string{"show", "--data-dir", dir, "--project", "lead-x"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "task-1") || strings.Contains(out.String(), "Lead D") {
+		t.Fatalf("show for another project leaked the record:\n%s", out.String())
+	}
+}

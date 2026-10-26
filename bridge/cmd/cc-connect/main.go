@@ -1757,6 +1757,11 @@ Commands:
     show <id>        Show session messages (-n N for last N)
   session new        Reset this agent session after the current turn (--after-turn)
 
+  handoff            Manually hand the primary role to another connected bot
+    status           Show the current primary role and the last switch record
+    show             Print the stored handoff snapshot (works while stopped)
+    switch           Switch the primary role (--to <project>; needs the running bridge)
+
   agent-sid          Print the agent session ID for the current session
 
   relay              Cross-project message relay
