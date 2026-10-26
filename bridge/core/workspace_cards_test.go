@@ -236,3 +236,34 @@ func TestCardEntriesRefusedOutsideWorkspace(t *testing.T) {
 		t.Fatalf("voice relay in chat channel got card instructions %q", got)
 	}
 }
+
+// core/channel_board.go (channel_board = true) is a pinned overview too: posted in a workspace or
+// team chat channel, never in a side chat channel.
+func TestChannelBoardOnlyInTeamChannels(t *testing.T) {
+	h := newChannelBoardHub()
+	p := newBoardPlatform()
+	e := NewEngine("maomao", &stubAgent{}, []Platform{p}, "", LangChinese)
+	defaultChannelBoard.removeSource(e)
+	e.board = h
+	h.addSource(e)
+	t.Cleanup(func() { e.Stop() })
+	recordWorkspaces(t, e, "discord:chat", []string{"ws1"})
+	e.SetChannelBoard(true)
+	posted := func() map[string]int {
+		p.bmu.Lock()
+		defer p.bmu.Unlock()
+		out := map[string]int{}
+		for _, ch := range p.postCh {
+			out[ch]++
+		}
+		return out
+	}
+	h.beginTurn(e, "discord:startup:u", "闲聊里的活")
+	h.beginTurn(e, "discord:chat:u", "聊天频道的活")
+	h.beginTurn(e, "discord:ws1:u", "工作区的活")
+	waitBoard(t, "chat and workspace boards", func() bool { n := posted(); return n["chat"] == 1 && n["ws1"] == 1 })
+	time.Sleep(100 * time.Millisecond) // the side channel's worker ran too
+	if n := posted()["startup"]; n != 0 {
+		t.Fatalf("side channel got %d channel boards", n)
+	}
+}
