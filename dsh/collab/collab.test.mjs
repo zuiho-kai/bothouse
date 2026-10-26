@@ -95,6 +95,30 @@ test('relay settings: integer bounds, channel isolation, workspace inheritance a
   reopened.close();
 });
 
+test('relay settings: instance default, room precedence and roomsView are read-only with cached statements', () => {
+  const s = new Store(':memory:', { maxRelay: 10 });
+  s.ensureRoom(1, 'A'); s.ensureRoom(2, 'B');
+  const ws = s.createWorkspace(1);
+  const rows = s.db.prepare('SELECT COUNT(*) AS n FROM room_settings');
+  const before = rows.get().n;
+  s.db.exec('PRAGMA query_only = ON');
+  const prepare = s.db.prepare;
+  s.db.prepare = () => { throw Error('read path must reuse prepared statements'); };
+  assert.equal(s.relaySetting(1).max_relay, 10);
+  assert.equal(s.relaySetting(ws.id).max_relay, 10);
+  assert.equal(s.dispatchMode(1), 'mixed');
+  assert.deepEqual(s.roomsView().map(r => r.max_relay), [10, 10, 10]);
+  assert.equal(rows.get().n, before, 'reads create no settings rows');
+  s.db.prepare = prepare;
+  s.db.exec('PRAGMA query_only = OFF');
+  s.setMaxRelay(1, 8);
+  s.db.exec('PRAGMA query_only = ON');
+  assert.equal(s.relaySetting(ws.id).max_relay, 8);
+  assert.equal(s.relaySetting(2).max_relay, 10);
+  assert.deepEqual(s.roomsView().map(r => r.max_relay), [8, 10, 8]);
+  s.close();
+});
+
 test('relay settings: existing databases gain max_relay without losing dispatch settings', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general'); s.setDispatchMode(1, 'team');
@@ -846,6 +870,25 @@ test('DSH member: close drains waiting jobs before the store closes', async () =
   await settle();
   assert.equal(dsh.made.length, 1, 'the in-flight create finished but admitted nothing after close');
   assert.equal(dsh.sessions.get(dsh.made[0]).prompts.length, 0);
+});
+
+test('relay cap: plan uses instance default until the parent channel overrides it', async () => {
+  const store = new Store(':memory:', { maxRelay: 8 });
+  store.ensureRoom(1, 'general');
+  const hub = new Hub(store, quiet);
+  const ws = store.createWorkspace(1);
+  const members = fakeDsh().attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  members.enqueue = () => {};
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  for (let i = 1; i <= 8; i++) hub.post(ws.id, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek hi' });
+  assert.equal(store.openJobs().length, 8);
+  hub.post(ws.id, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek blocked' });
+  await settle();
+  assert.match(store.page(ws.id).at(-1).text, /连续接力 8 次以上/);
+  store.setMaxRelay(1, 10);
+  hub.post(ws.id, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek allowed after override' });
+  assert.equal(store.openJobs().length, 9);
+  await members.close(); store.close();
 });
 
 for (const cap of [6, 8, 20]) test(`relay cap ${cap}: the next role message is stopped in a workspace`, async () => {

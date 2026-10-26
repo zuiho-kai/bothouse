@@ -60,7 +60,8 @@ export const WORKSPACE_ID_MIN = 1000000;
 export const QUOTE_CHARS = 40;
 
 export class Store {
-  constructor(path) {
+  constructor(path, { maxRelay = 6 } = {}) {
+    this.defaultMaxRelay = maxRelay;
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
@@ -72,6 +73,12 @@ export class Store {
     this.q = {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      roomSettings: this.db.prepare('SELECT dispatch_mode, dispatch_explicit, max_relay FROM room_settings WHERE room_id = ?'),
+      ensureRoomSettings: this.db.prepare('INSERT OR IGNORE INTO room_settings (room_id) VALUES (?)'),
+      setMaxRelay: this.db.prepare('UPDATE room_settings SET max_relay = ? WHERE room_id = ?'),
+      setDispatchMode: this.db.prepare('UPDATE room_settings SET dispatch_mode = ?, dispatch_explicit = 1 WHERE room_id = ?'),
+      activeTasks: this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
+        WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge)
@@ -484,41 +491,36 @@ export class Store {
   }
 
   ensureRoomSettings(roomId) {
-    this.db.prepare('INSERT OR IGNORE INTO room_settings (room_id) VALUES (?)').run(roomId);
+    this.q.ensureRoomSettings.run(roomId);
   }
 
   /** The chat channel whose setting a room uses: a workspace's parent (needs rooms.parent_id), else itself. */
   settingsRoom(roomId) {
-    if (!this.db.prepare('PRAGMA table_info(rooms)').all().some(c => c.name === 'parent_id')) return roomId;
-    const parent = this.db.prepare('SELECT parent_id FROM rooms WHERE id = ?').get(roomId)?.parent_id;
+    const parent = this.q.room.get(roomId)?.parent_id;
     return parent == null || parent === roomId ? roomId : parent;
   }
 
   /** Dispatch mode of a room; a workspace inherits its chat channel's (PR #138 review 6). */
   dispatchMode(roomId) {
-    roomId = this.settingsRoom(roomId);
-    this.ensureRoomSettings(roomId);
-    return this.db.prepare('SELECT dispatch_mode FROM room_settings WHERE room_id = ?').get(roomId).dispatch_mode;
+    return this.dispatchSetting(roomId).dispatch_mode;
   }
 
   dispatchSetting(roomId) {
     roomId = this.settingsRoom(roomId);
-    this.ensureRoomSettings(roomId);
-    const row = this.db.prepare('SELECT dispatch_mode, dispatch_explicit FROM room_settings WHERE room_id = ?').get(roomId);
-    return { dispatch_mode: row.dispatch_mode, dispatch_explicit: Boolean(row.dispatch_explicit) };
+    const row = this.q.roomSettings.get(roomId);
+    return { dispatch_mode: row?.dispatch_mode ?? DEFAULT_DISPATCH_MODE, dispatch_explicit: Boolean(row?.dispatch_explicit) };
   }
 
   relaySetting(roomId) {
     roomId = this.settingsRoom(roomId);
-    this.ensureRoomSettings(roomId);
-    return { max_relay: this.db.prepare('SELECT max_relay FROM room_settings WHERE room_id = ?').get(roomId).max_relay ?? 6 };
+    return { max_relay: this.q.roomSettings.get(roomId)?.max_relay ?? this.defaultMaxRelay };
   }
 
   setMaxRelay(roomId, value) {
     if (!Number.isInteger(value) || value < 6 || value > 20) throw new CollabError('invalid', 'max_relay must be an integer between 6 and 20');
     roomId = this.settingsRoom(roomId);
     this.ensureRoomSettings(roomId);
-    this.db.prepare('UPDATE room_settings SET max_relay = ? WHERE room_id = ?').run(value, roomId);
+    this.q.setMaxRelay.run(value, roomId);
     return value;
   }
 
@@ -526,7 +528,7 @@ export class Store {
     if (!DISPATCH_MODES.includes(mode)) throw new CollabError('invalid', `dispatch mode must be ${DISPATCH_MODES.join(', ')}`);
     roomId = this.settingsRoom(roomId); // set on a workspace = set on its chat channel
     this.ensureRoomSettings(roomId);
-    this.db.prepare('UPDATE room_settings SET dispatch_mode = ?, dispatch_explicit = 1 WHERE room_id = ?').run(mode, roomId);
+    this.q.setDispatchMode.run(mode, roomId);
     return mode;
   }
 
@@ -549,8 +551,7 @@ export class Store {
   rooms() { return this.q.rooms.all(); }
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
   roomsView() {
-    const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
-      WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
+    const counts = new Map(this.q.activeTasks.all().map(t => [t.room_id, t.n]));
     return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
   }
 

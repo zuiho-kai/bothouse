@@ -108,7 +108,7 @@ export async function apply(ctx, rawConfig) {
   const { WebSocketServer } = require('ws');
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
-  const store = new Store(join(config.dataDir, 'collab.sqlite3'));
+  const store = new Store(join(config.dataDir, 'collab.sqlite3'), { maxRelay: config.maxRelay });
   for (const room of config.rooms) {
     store.ensureRoom(room.id, room.name.trim());
     store.ensureRoomSettings(room.id);
