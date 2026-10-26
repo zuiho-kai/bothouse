@@ -166,8 +166,10 @@ func TestSubTaskTable_UpdatesOutsideTurn(t *testing.T) {
 	defer e.Stop()
 	sess := newSubTaskSession()
 	state := &interactiveState{agentSession: sess, platform: p, replyCtx: "ctx-1"}
-	e.ensureSubTaskTable(state)
-	e.ensureSubTaskTable(state) // idempotent: one updater per agent session
+	allChatsAreWorkspaces(e)
+	e.ensureSubTaskTable(state, "test:ws")
+	allChatsAreWorkspaces(e)
+	e.ensureSubTaskTable(state, "test:ws") // idempotent: one updater per agent session
 
 	start := time.Now()
 	bg := SubTask{ID: "b1", Description: "后台跑测试", Background: true, Status: SubTaskRunning, StartedAt: start, Step: "Running go test"}
@@ -202,7 +204,8 @@ func TestSubTaskTable_ThrottleKeepsLastChange(t *testing.T) {
 	defer e.Stop()
 	sess := newSubTaskSession()
 	state := &interactiveState{agentSession: sess, platform: p, replyCtx: "ctx-1"}
-	e.ensureSubTaskTable(state)
+	allChatsAreWorkspaces(e)
+	e.ensureSubTaskTable(state, "test:ws")
 
 	row := SubTask{ID: "a1", Description: "d", Status: SubTaskRunning, StartedAt: time.Now()}
 	sess.set(1, row)
@@ -302,7 +305,8 @@ func TestSubTaskTable_PreviousBatchGetsFinalEdit(t *testing.T) {
 	defer e.Stop()
 	sess := newSubTaskSession()
 	state := &interactiveState{agentSession: sess, platform: p, replyCtx: "ctx-1"}
-	e.ensureSubTaskTable(state)
+	allChatsAreWorkspaces(e)
+	e.ensureSubTaskTable(state, "test:ws")
 
 	one := SubTask{ID: "a1", Description: "第一批", Status: SubTaskRunning, StartedAt: time.Now()}
 	sess.set(1, one)
@@ -331,7 +335,8 @@ func TestSubTaskTable_StopMarksRunningRowsStopped(t *testing.T) {
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangChinese)
 	sess := newSubTaskSession()
 	state := &interactiveState{agentSession: sess, platform: p, replyCtx: "ctx-1"}
-	e.ensureSubTaskTable(state)
+	allChatsAreWorkspaces(e)
+	e.ensureSubTaskTable(state, "test:ws")
 	sess.set(1, SubTask{ID: "a1", Description: "后台", Background: true, Status: SubTaskRunning, StartedAt: time.Now()})
 	waitSub(t, "table", func() bool { return p.lastOn("h1") != nil })
 	time.Sleep(2 * p.interval) // the stop edit is not held back by the throttle in this test
@@ -447,7 +452,8 @@ func newLatestSubTable(t *testing.T) (*latestSubTablePlatform, *subTaskSession) 
 	t.Cleanup(func() { _ = e.Stop() })
 	sess := newSubTaskSession()
 	state := &interactiveState{agentSession: sess, platform: p, replyCtx: "ctx-1"}
-	e.ensureSubTaskTable(state)
+	allChatsAreWorkspaces(e)
+	e.ensureSubTaskTable(state, "test:ws")
 	return p, sess
 }
 

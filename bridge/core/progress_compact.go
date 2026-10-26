@@ -285,7 +285,42 @@ type progressCardPayloadHintProvider interface {
 	supportsProgressCardPayloadHint() bool
 }
 
+// ProgressStyleHinter is a platform reply context that may override the platform's progress
+// style for its target (ok=false: no override). Discord's reply context does it for a channel
+// that is not a workspace (CompactProgressMarker).
+type ProgressStyleHinter interface {
+	ProgressStyleHint() (style string, ok bool)
+}
+
+// ProgressCardPayloadHinter is the same for whether the progress card payload is sent.
+type ProgressCardPayloadHinter interface {
+	ProgressCardPayloadHint() (payload bool, ok bool)
+}
+
+// CompactProgressMarker is implemented by platforms whose reply contexts can carry the hints
+// above. MarkCompactProgress returns replyCtx marked "progress as one compact line, no card
+// payload" (ProgressStyleHint = compact, ProgressCardPayloadHint = false).
+type CompactProgressMarker interface {
+	MarkCompactProgress(replyCtx any) any
+}
+
+// progressReplyCtx: the reply context the progress writer uses for a turn in sessionKey. Outside
+// a workspace channel (isTeamWorkspaceChat) it is marked compact, so the progress shows as one
+// small line edited in place, not a card (user, 2026-10-26 10:43: 「那个任务卡只在工作区显示，任何
+// 非其他工作区都不要显示太大，太占位置了」).
+func (e *Engine) progressReplyCtx(p Platform, replyCtx any, sessionKey string) any {
+	if m, ok := p.(CompactProgressMarker); ok && !e.isTeamWorkspaceChat(sessionKey) {
+		return m.MarkCompactProgress(replyCtx)
+	}
+	return replyCtx
+}
+
 func progressStyleForTarget(p Platform, replyCtx any) string {
+	if hint, ok := replyCtx.(ProgressStyleHinter); ok {
+		if style, ok := hint.ProgressStyleHint(); ok {
+			return normalizeProgressStyle(style)
+		}
+	}
 	if hint, ok := replyCtx.(progressStyleHintProvider); ok {
 		return normalizeProgressStyle(hint.progressStyleHint())
 	}
@@ -293,6 +328,11 @@ func progressStyleForTarget(p Platform, replyCtx any) string {
 }
 
 func progressCardPayloadForTarget(p Platform, replyCtx any) bool {
+	if hint, ok := replyCtx.(ProgressCardPayloadHinter); ok {
+		if payload, ok := hint.ProgressCardPayloadHint(); ok {
+			return payload
+		}
+	}
 	if hint, ok := replyCtx.(progressCardPayloadHintProvider); ok {
 		return hint.supportsProgressCardPayloadHint()
 	}

@@ -258,16 +258,19 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			}
 		}
 	}
-	// Boards only in workspace channels (isTeamWorkspaceChat); looked up once per chat per pass.
-	wsChat := map[string]bool{}
-	isWS := func(chat string) bool {
-		ws, ok := wsChat[chat]
+	// The full board (who is doing what, task board, other channels) only in workspace channels
+	// (isTeamWorkspaceChat); a team chat channel (isTeamChat) keeps its pinned task-board summary
+	// alone; any other channel gets no board. Looked up once per chat per pass.
+	kinds := map[string]teamBoardKind{}
+	kindOf := func(chat string) teamBoardKind {
+		k, ok := kinds[chat]
 		if !ok {
-			ws = e.isTeamWorkspaceChat(chat)
-			wsChat[chat] = ws
+			k = e.teamBoardKindOf(chat)
+			kinds[chat] = k
 		}
-		return ws
+		return k
 	}
+	isWS := func(chat string) bool { return kindOf(chat) == teamBoardFull }
 	var items, done []teamTaskBoardItem
 	var pending []*TimerJob
 	now := time.Now()
@@ -281,7 +284,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	for _, it := range items { // a chat with task-board items gets a board too (board.py no longer posts its own card)
 		for _, key := range it.chats() {
-			if boards[key] == nil && isWS(key) {
+			if boards[key] == nil && kindOf(key) != teamBoardNone {
 				boards[key] = &boardChat{SessionKey: key}
 			}
 		}
@@ -313,8 +316,9 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	changed := false
 	for chat, b := range boards {
-		if !isWS(chat) {
-			// A board posted before boards were limited to workspaces: delete it.
+		kind := kindOf(chat)
+		if kind == teamBoardNone {
+			// A board posted before boards were limited to workspaces and team chats: delete it.
 			if e.removeTeamBoard(chat, b) {
 				delete(boards, chat)
 				changed = true
@@ -329,10 +333,22 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
-		members, live := teamBoardWithTasks(files, chat, e.i18n.CurrentLang())
-		content := withTeamTaskBoard(members, func(budget int) string {
-			return renderTeamTaskBoardFit(items, done, chat, now, pending, budget)
-		})
+		var content string
+		var live bool
+		if kind == teamBoardFull {
+			var members string
+			members, live = teamBoardWithTasks(files, chat, e.i18n.CurrentLang())
+			content = withTeamTaskBoard(members, func(budget int) string {
+				return renderWorkspaceTaskBoardFit(items, done, chat, now, pending, budget)
+			})
+		} else {
+			// Team chat: the task-board summary only, no 谁在干啥 lines (not a big card here).
+			content = renderTeamTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
+			if content == "" {
+				content = "**任务板**\n现在没有进行中的事。"
+			}
+			content = cutTeamBoardLines(content, backfillMaxMsgRunes, "")
+		}
 		// The card state comes from the same data as the text: someone shown working, a relay
 		// task in the index, or a task-board item still in work (#597 G33).
 		live = live || teamTaskBoardLive(items, chat)
@@ -371,6 +387,26 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		changed = true
 	}
 	return changed
+}
+
+// teamBoardKind: what board a channel gets.
+type teamBoardKind int
+
+const (
+	teamBoardNone    teamBoardKind = iota // no board; an old one is deleted
+	teamBoardSummary                      // team chat: the pinned task-board summary only
+	teamBoardFull                         // workspace: who is doing what, task board, other channels
+)
+
+// teamBoardKindOf: the board chat gets (isTeamWorkspaceChat, else isTeamChat).
+func (e *Engine) teamBoardKindOf(chat string) teamBoardKind {
+	switch {
+	case e.isTeamWorkspaceChat(chat):
+		return teamBoardFull
+	case e.isTeamChat(chat):
+		return teamBoardSummary
+	}
+	return teamBoardNone
 }
 
 // removeTeamBoard deletes chat's board message (BoardRemover); it reports whether the board is
@@ -420,7 +456,7 @@ func readTeamFiles(dir string, now time.Time) []teamFile {
 
 // renderTeamBoard renders one line per teammate for the board in chat. Times are wall-clock
 // ("10:42 起") rather than elapsed, so the text only changes when someone's state changes.
-// Task text from another channel is never shown here; only that the teammate is busy elsewhere.
+// A teammate busy in another channel shows that channel (a link, teamChatRef) and its task.
 func renderTeamBoard(files []teamFile, chat string) string {
 	return renderTeamBoardMembers(files, chat, nil)
 }
@@ -507,12 +543,9 @@ func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (
 			case 4:
 				line = fmt.Sprintf("🔧 %s（%s 起）", task, best.Since.Local().Format("15:04"))
 			case 3:
-				where := "别的频道"
-				if best.Chat != "" {
-					where = "#" + best.Chat
-				}
-				// Not 🔧: that icon means busy here (TeamBoardActive).
-				line = fmt.Sprintf("↗️ 在%s忙（%s 起）%s", where, best.Since.Local().Format("15:04"), teamElsewhereNote)
+				// Busy in another channel: which one (a link), on what (user, 2026-10-26: 「谁在干啥卡
+				// 关联其他频道角色情况」). Not 🔧: that icon means busy here (TeamBoardActive).
+				line = fmt.Sprintf("↗️ 在%s忙：%s（%s 起）%s", teamChatRef(best.Key, best.Chat), task, best.Since.Local().Format("15:04"), teamElsewhereNote)
 			case 2:
 				switch best.Outcome {
 				case teamWorkFailed:

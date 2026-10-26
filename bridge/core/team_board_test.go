@@ -60,16 +60,16 @@ func TestRenderTeamBoard(t *testing.T) {
 	got := renderTeamBoard(boardFiles(now), "discord:111")
 	for _, want := range []string{
 		"**G哥**　🔧 预解码原型",
-		"**大豆包**　↗️ 在#dev忙（",
-		"**Grok**　💤 空闲",      // a chat reply without tools is not work
-		"**C酱**　✅ 做完：审 #139", // per-user key of the same channel
+		"**大豆包**　↗️ 在<#222>忙：私密的活（", // busy elsewhere: that channel (a link) and its task (#613)
+		"**Grok**　💤 空闲",             // a chat reply without tools is not work
+		"**C酱**　✅ 做完：审 #139",        // per-user key of the same channel
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("board missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "私密的活") || strings.Contains(got, "随便聊聊") {
-		t.Errorf("board leaked another channel's task or a chat reply:\n%s", got)
+	if strings.Contains(got, "随便聊聊") {
+		t.Errorf("board shows a chat reply:\n%s", got)
 	}
 }
 
@@ -87,8 +87,8 @@ func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
 	}
 	got, live := teamBoardMembers(files, "discord:111", nil)
 	for _, want := range []string{
-		"**大豆包**　↗️ 在#外出忙（",
-		"**小橙**　↗️ 在别的频道忙（",
+		"**大豆包**　↗️ 在<#222>忙：外出巡逻（",
+		"**小橙**　↗️ 在<#333>忙：私聊里的活（",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("board missing %q:\n%s", want, got)

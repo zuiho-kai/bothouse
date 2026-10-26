@@ -5803,7 +5803,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.ctx, workspaceRenderer)
-	cp := newCompactProgressWriter(e.ctx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
+	cp := newCompactProgressWriter(e.ctx, inputOutputPlatform(state.platform, input), e.progressReplyCtx(state.platform, markAgentReply(state.platform, state.replyCtx, session), sessionKey), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	state.mu.Unlock()
 
 	// maomao fork: this turn's row on the channel task board; the card's steps
@@ -5847,7 +5847,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// maomao fork: sub-agent table, and the progress card kept alive while the
 	// turn waits for a foreground sub-agent (refreshed at the card's own edit
 	// interval).
-	e.ensureSubTaskTable(state)
+	e.ensureSubTaskTable(state, sessionKey)
 	var subWaitTick <-chan time.Time
 	subReporter, hasSubReporter := state.agentSession.(SubTaskReporter)
 	if hasSubReporter && cp.Active() && cp.minUpdateInterval > 0 {
@@ -7185,7 +7185,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					return e.renderOutgoingContentForWorkspace(queued.platform, content, workspaceDir)
 				}
 				sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx, session), e.ctx, queuedRenderer)
-				cp = newCompactProgressWriter(e.ctx, queued.platform, markAgentReply(queued.platform, queued.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
+				cp = newCompactProgressWriter(e.ctx, queued.platform, e.progressReplyCtx(queued.platform, markAgentReply(queued.platform, queued.replyCtx, session), sessionKey), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
 				board = e.boardBegin(state, sessionKey) // maomao fork: the queued turn's board row
 				cp.onStep = board.step
 
