@@ -551,9 +551,9 @@ export class Tasks {
       if (!title) return undefined;
       for (const owner of called) {
         // #597 r12: a call that follows the owner's delivery (her newest task here was handed back or
-        // accepted, nothing dispatched since) is the lead's answer to it — praise, thanks, a close-out —
-        // unless it asks for more work. A first call (no task yet) dispatches as before.
-        if (DELIVERED.includes(this.q.latestOf.get(msg.room_id, owner)?.status) && !asksWork(text, team)) continue;
+        // accepted, nothing dispatched since) still opens a task — a rework, a defect, the next piece —
+        // unless it only accepts it (praise, thanks, a close-out). A first call dispatches as before.
+        if (DELIVERED.includes(this.q.latestOf.get(msg.room_id, owner)?.status) && isPureAck(text, team)) continue;
         this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
       }
       return undefined;
@@ -877,25 +877,46 @@ function taskTitle(text, team) {
   return line.slice(0, MAX_TEXT);
 }
 
-// asksWork: what in a lead's call after a delivery still asks for work. Requests (把/请/帮我/麻烦/交给/
-// 还要, "…一下", "你来/你去…") anywhere in a clause, or a clause opening with a work verb, after
-// the name and sequencing words (接下来/然后/再/继续…). A verb followed by 得/了/完/好/过/的 rates what was
-// done ("做得不错", "改好了"), it does not ask. Not user-specified wording; the shape of a request.
+// Requests (把/请/帮我/麻烦/交给/还要, "…一下", "你来/你去…") anywhere in a clause, or a clause opening with a
+// work verb after sequencing words (接下来/然后/再/继续…). A verb followed by 得/了/完/好/过/的 rates what
+// was done ("做得不错", "改好了"), it does not ask.
 const REQUEST = /把|请|帮我|帮忙|麻烦|劳驾|交给|一下|还要|还需要|需要你|你(?:来|去|负责|接着|继续)/;
 const LEADIN = /^(?:你|也|就|先|再|然后|接下来|下一步|接着|继续|顺便|另外|最后)+/;
 const WORK_VERB = /^(?:改|修|写|做|跑|查|加|补|删|实现|添加|更新|检查|整理|看看|试试|部署|提交|重构|优化|核对|确认|处理|接手|搞|弄)(?![得了完好过的])/;
-function asksWork(text, team) {
+// isPureAck: a lead's call after a delivery that only accepts it — praise, thanks, a close-out — opens
+// no task; anything else does (a rework, a defect, a question, the next piece of work). The line that
+// calls her must be all ack: each clause, without the name and punctuation, is made of ack phrases
+// only. Other lines (an acceptance report under it) may say anything but a defect or a request.
+// The phrase lists are the shape of an ack, not user-specified wording.
+const ACK_RATED = /^(?:这次|这版|这轮|这个|这块|返工|整体)?(?:做|改|写|处理|修复|修|完成|干|弄|搞|实现|跑|补)得(?:很|非常|真|挺|特别|相当|比较)?(?:好|不错|漂亮|扎实|到位|棒|干净|利索)/;
+const ACK_TOKEN = /^(?:好的|好嘞|好|收到|辛苦了|辛苦啦|辛苦|谢谢|多谢|感谢|谢了|完美|可以合并了|可以合了|可以合|可以了|可以|行了|行|没问题|没有问题|先这样|就这样|就这些|确认无误|无误|继续保持|保持住|保持|很好|不错|很棒|棒|漂亮|扎实|稳|靠谱|赞|通过了|通过|验收通过|已验收|看看就行|看一眼就行|就行了|就行|不用改|不用动|不用再改|无需修改|ok|OK|okay|lgtm|LGTM|你|也|都|真|很|非常|挺|太|了|的|啊|呀|哦|哈|啦|嗯|吧)/;
+const DEFECT = /返工|重做|重新|没改|没写|没跑|没过|没开|没加|没做|没提|没测|未|红了|变红|挂了|失败了|报错|不对|错了|有问题|还差|还缺|还有|还没|漏|少了|缺|呢$|为什么|为啥|怎么|也加|也做|下一个|接下来|然后|开始|继续(?!保持)|接着|再来|负责|看下|看一下/;
+function isAckClause(clause) {
+  let s = clause.replace(/\s+/g, '');
+  while (s !== '') {
+    const m = ACK_RATED.exec(s) ?? ACK_TOKEN.exec(s);
+    if (!m) return false;
+    s = s.slice(m[0].length);
+  }
+  return true;
+}
+function isPureAck(text, team) {
   const names = team.map(m => m.name).filter(Boolean).sort((a, b) => b.length - a.length);
-  const body = String(text).replace(/```[\s\S]*?```/g, '').split('\n')
-    .map(l => split(l, team).map(([seg, id]) => (id ? '' : seg)).join('')).join('\n');
-  return body.split(/[\n，,。.！!？?；;：:]+/).some(raw => {
-    const clause = raw.replace(/^[\s\-*·•>、]+/, '').trim();
-    if (clause === '' || STANCE_LINE.test(clause)) return false;
-    if (REQUEST.test(clause)) return true;
-    // The name calling her ("副，…" / "副把…") is not the clause's verb.
-    const named = names.find(n => clause.startsWith(n));
-    return WORK_VERB.test((named ? clause.slice(named.length) : clause).trimStart().replace(LEADIN, ''));
-  });
+  const lines = String(text).replace(/```[\s\S]*?```/g, '').split('\n').map(l => {
+    const segs = split(l, team);
+    const body = segs.map(([seg, id]) => (id ? '' : seg)).join('');
+    const clauses = body.split(/[，,。.！!？?；;：:、~～…]+/).map(raw => {
+      let c = raw.replace(/^[\s\-*·•>]+/, '').trim();
+      const named = names.find(n => c.startsWith(n));
+      return (named ? c.slice(named.length) : c).trim();
+    }).filter(c => c !== '' && !STANCE_LINE.test(c));
+    // A clause ending in ？ asks something ("sqrt 呢？" / "为什么"), even if its words would not say so.
+    return { called: segs.some(([, id]) => id) || names.some(n => nameCalled(l, n, names)), clauses, asks: /[？?]/.test(body) };
+  }).filter(l => l.clauses.length > 0);
+  if (lines.length === 0) return false;
+  const head = lines.find(l => l.called) ?? lines[0];
+  if (head.asks || !head.clauses.every(isAckClause)) return false;
+  return lines.every(l => l === head || l.clauses.every(c => isAckClause(c) || !(DEFECT.test(c) || REQUEST.test(c) || WORK_VERB.test(c.replace(LEADIN, '')))));
 }
 
 /** When a workspace task's watch is due: its check time, or CHECK_AFTER_S after its last change. */

@@ -4820,6 +4820,32 @@ test('r12: a first call 「副，把 X 改一下」 dispatches; after a delivery
   assert.equal(tasks.list(ws.id).filter(r => r.owner === 'fu').length, 2, 'a work verb after 再 asks for work');
 });
 
+// #597 r12 review: the gate is turned around — after a delivery a call opens a task unless the
+// whole call only accepts it. Every case, with the task handed back and with it accepted.
+const R12_OPENS = ['副，返工：第 2 条没改', '@副 返工：测试没跑', '副，重做', '副，重新跑一遍', '副，开始 K2', '副，继续',
+  '副，看下 CI 为什么红', '副，你看下', '副，sqrt 也加上', '副，K2 也做了吧', '副，再来一个 sqrt', '副，还差 README',
+  '副，测试没过', '副，CI 红了', '副，PR 没开', '副，sqrt 呢？', '副，下一个：K2', '副，接下来是 K2', '副，sqrt 还没写',
+  '副，接着做 K2', '副，这块你负责', '副，做得很好！接下来把 sqrt 子命令也加上'];
+const R12_ACKS = ['副，返工完成得很好！', '副，辛苦了，先这样', '副，好的收到', '副，完美，可以合了', '副，做得很好',
+  '副，修复得不错', '副，确认无误', '副，看看就行，不用改', '副，完成得很好，继续保持'];
+for (const state of ['returned', 'done']) {
+  test(`r12: after a delivery (${state}) a rework, defect or next piece opens a task; a pure ack does not`, async () => {
+    const run = async text => {
+      const { tasks, ws, assign, say } = g34Setup();
+      const t = assign();
+      say(ws.id, '@主 [report]\n已完成');
+      await settle();
+      assert.equal(tasks.task(t.id).status, 'returned');
+      if (state === 'done') tasks.review(t.id, { actor: 'zhu', verdict: 'done' });
+      say(ws.id, text, 'zhu');
+      await settle();
+      return tasks.list(ws.id).filter(r => r.owner === 'fu' && r.id !== t.id).length;
+    };
+    for (const text of R12_OPENS) assert.equal(await run(text), 1, `opens a task: ${text}`);
+    for (const text of R12_ACKS) assert.equal(await run(text), 0, `opens nothing: ${text}`);
+  });
+}
+
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
   const t = assign();
