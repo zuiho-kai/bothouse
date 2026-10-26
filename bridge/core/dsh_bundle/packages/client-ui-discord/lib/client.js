@@ -17221,6 +17221,23 @@ const PRESETS = [
 ];
 const DEFAULT_PRESET = "workspace-write";
 /**
+* Rewrite only the identity references in a persona text. Replacing every
+* occurrence also changes ordinary prose such as 橘色长发, 女仆长制服 or
+* 一只渡鸦 when the persona name happens to be a common word.
+*/
+function renamePersonaIdentity(text, oldName, newName) {
+	if (!oldName || oldName === newName) return text;
+	let out = text;
+	for (const [from, to] of [
+		[`「${oldName}」`, `「${newName}」`],
+		[`"${oldName}"`, `"${newName}"`],
+		[`“${oldName}”`, `“${newName}”`],
+		[`# 角色：${oldName}`, `# 角色：${newName}`],
+		[`# Character: ${oldName}`, `# Character: ${newName}`]
+	]) out = out.split(from).join(to);
+	return out;
+}
+/**
 * Render the member dialog.
 * @param props - target member, actions, and copy.
 * @returns a modal form.
@@ -17247,12 +17264,17 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		const used = new Set(members.filter((m) => m.id !== member?.id).map((m) => m.name.toLowerCase()));
 		let next = backend;
 		for (let n = 2; used.has(next.toLowerCase()); n++) next = `${backend}-${n}`;
+		if (next === name) return;
+		if (keepName && persona) setPersona((text) => renamePersonaIdentity(text, name, next));
 		setName(next);
 	}, [
 		backend,
 		nameCustomized,
 		members,
-		member?.id
+		member?.id,
+		name,
+		keepName,
+		persona
 	]);
 	(0, react.useEffect)(() => {
 		if (listPersonas) listPersonas().then(setPersonas).catch((reason) => setError(String(reason)));
@@ -17351,7 +17373,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 							maxLength: 32,
 							onChange: (event) => {
 								const next = event.target.value;
-								if (personaSlug && keepName && name) setPersona(persona.split(name).join(next));
+								if (personaSlug && keepName && name) setPersona(renamePersonaIdentity(persona, name, next));
 								setName(next);
 								setNameCustomized(true);
 							}
@@ -17398,7 +17420,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 						onChange: (e) => {
 							setPersonaSlug(e.target.value);
 							const p = personas.find((p) => p.slug === e.target.value);
-							setPersona(p ? keepName ? p.text.split(p.name).join(name) : p.text : "");
+							setPersona(p ? keepName ? renamePersonaIdentity(p.text, p.name, name) : p.text : "");
 							if (p) {
 								setAvatar(p.avatar || "");
 								if (!keepName) {
