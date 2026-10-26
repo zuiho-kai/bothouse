@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 )
@@ -360,6 +362,50 @@ func TestParseConfigEnv_DoesNotMutateInput(t *testing.T) {
 	if !equalStrings(got, []string{"FOO=mutated", "NEW=added"}) {
 		t.Errorf("expected fresh read on each call, got %v", got)
 	}
+}
+
+// TestParseCmdOpts_CmdPathWithSpaces is the regression test for issue #441:
+// the setup wizard writes a CLI path as a plain string, and a path containing
+// spaces used to be truncated by whitespace splitting ("D:\\my tools\\cli.exe"
+// became command "D:\\my"). The path must be kept whole — unquoted when it is
+// an existing file, or quoted when it also carries arguments.
+func TestParseCmdOpts_CmdPathWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "O'Brien", "my cli", "agent.exe")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(exe, []byte("x"), 0o755); err != nil {
+		t.Fatalf("write exe: %v", err)
+	}
+
+	t.Run("unquoted existing path with spaces (wizard shape)", func(t *testing.T) {
+		gotCmd, gotArgs := ParseCmdOpts(map[string]any{"cmd": exe}, "fallback")
+		if gotCmd != exe {
+			t.Fatalf("cmd = %q, want whole path %q", gotCmd, exe)
+		}
+		if len(gotArgs) != 0 {
+			t.Fatalf("args = %v, want none", gotArgs)
+		}
+	})
+
+	t.Run("quoted path with spaces plus args", func(t *testing.T) {
+		raw := `"` + exe + `" --flag value`
+		gotCmd, gotArgs := ParseCmdOpts(map[string]any{"cmd": raw}, "fallback")
+		if gotCmd != exe {
+			t.Fatalf("cmd = %q, want %q", gotCmd, exe)
+		}
+		if !slicesEqual(gotArgs, []string{"--flag", "value"}) {
+			t.Fatalf("args = %v, want [--flag value]", gotArgs)
+		}
+	})
+
+	t.Run("plain multi-token cmd still splits", func(t *testing.T) {
+		gotCmd, gotArgs := ParseCmdOpts(map[string]any{"cmd": "my-cli code -t foo"}, "fallback")
+		if gotCmd != "my-cli" || !slicesEqual(gotArgs, []string{"code", "-t", "foo"}) {
+			t.Fatalf("cmd/args = %q/%v, want my-cli/[code -t foo]", gotCmd, gotArgs)
+		}
+	})
 }
 
 // equalStrings compares two string slices for unordered-set equality.
