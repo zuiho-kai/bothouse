@@ -58,14 +58,24 @@ func (e *Engine) watchTarget(key, owner string) *Engine {
 }
 
 func (e *Engine) watchBusy(key string) bool {
-	if e.sessions == nil {
-		return false
+	managers := []*SessionManager{e.sessions}
+	if e.workspacePool != nil {
+		for _, ws := range e.workspacePool.All() {
+			ws.mu.Lock()
+			managers = append(managers, ws.sessions)
+			ws.mu.Unlock()
+		}
 	}
-	for _, k := range e.sessions.UserKeys() {
-		if teamChatKey(k) == key {
-			for _, s := range e.sessions.ListSessions(k) {
-				if s.Busy() {
-					return true
+	for _, manager := range managers {
+		if manager == nil {
+			continue
+		}
+		for _, k := range manager.UserKeys() {
+			if teamChatKey(k) == key {
+				for _, s := range manager.ListSessions(k) {
+					if s.Busy() {
+						return true
+					}
 				}
 			}
 		}
@@ -103,6 +113,10 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 		return
 	}
 	key = teamChatKey(key)
+	// Timer wrappers may omit optional platform capabilities.
+	if raw := e.lookupReadyPlatform(p.Name()); raw != nil {
+		p = raw
+	}
 	returned := cardResult || strings.HasPrefix(strings.TrimSpace(text), "[report]") ||
 		strings.HasPrefix(strings.TrimSpace(text), "【交回】")
 	// A validated user question waits for the user's answer, not an idle wake.
@@ -151,7 +165,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	escalate, wake := false, false
 	h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 		// Ignore timers belonging to a prior turn or a task already handed back.
-		if h.Idle.Returned || h.Idle.Reported || !h.Idle.Ended.Equal(a.h.Idle.Ended) {
+		if h.Idle.Returned || h.Idle.Reported || h.Idle.Wakes != a.h.Idle.Wakes || !h.Idle.Ended.Equal(a.h.Idle.Ended) {
 			return
 		}
 		if h.Idle.Wakes >= 2 {
@@ -199,7 +213,8 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	// bot posts the mention, the platform supplies the normal user turn.
 	if sender == e {
 		go func() {
-			if err := e.ExecuteTimerJob(&TimerJob{SessionKey: a.key, Prompt: text, Description: h.Title, Mute: true, Handoff: true}); err != nil {
+			silent := true
+			if err := e.ExecuteTimerJob(&TimerJob{SessionKey: a.key, Prompt: text, Description: h.Title, Silent: &silent, Handoff: true}); err != nil {
 				slog.Warn("idle watch: local wake failed", "error", err)
 			}
 		}()
@@ -255,19 +270,60 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 	}
 	key := teamChatKey(req.Session)
 	lead := s.teamWorkspaceEngine()
-	if lead != nil && !lead.teamWorkspaceWatchDue(key).IsZero() {
-		apiJSON(w, http.StatusOK, map[string]any{"covered": true})
-		return
-	}
+	covered := lead != nil && !lead.teamWorkspaceWatchDue(key).IsZero()
 	target := sender.watchTarget(key, req.Owner)
 	if target == nil {
-		http.Error(w, "assigned role is not connected to this bridge", http.StatusNotFound)
+		http.Error(w, "assigned role is not connected to this bridge", http.StatusConflict)
 		return
+	}
+	// G6's task relay already delivers every terminal outcome to its task
+	// thread, including errors. It remains the single keeper of that dispatch.
+	if p := sender.publicProgress; p != nil {
+		p.mu.Lock()
+		runs := make([]*publicRun, 0, len(p.records))
+		for _, run := range p.records {
+			runs = append(runs, run)
+		}
+		p.mu.Unlock()
+		for _, run := range runs {
+			run.mu.Lock()
+			watched := false
+			for _, receipt := range run.record.Relays {
+				execution := run.record.Task.SessionKey
+				if receipt.Workspace != "" {
+					execution = receipt.Workspace
+				}
+				if teamChatKey(execution) == key && receipt.Target == target.name && receipt.Status == "running" && !receipt.WatchDone && !receipt.WatchDue.IsZero() {
+					watched = true
+					break
+				}
+			}
+			run.mu.Unlock()
+			if watched {
+				apiJSON(w, http.StatusOK, map[string]any{"covered": true})
+				return
+			}
+		}
+	}
+	chat := key
+	if lead != nil {
+		if parent, ok := lead.WorkspaceParent(key); ok {
+			chat = parent
+		}
 	}
 	at := time.Unix(req.Since, 0)
 	teamWorkspaceStore.mu.Lock()
 	path := teamWorkspacePath(sender.dataDir)
 	st := loadTeamWorkspacesLocked(path)
+	if covered {
+		for _, h := range st.Handoffs[key] {
+			if teamHandoffOpen(h) && !h.Idle.Returned && watchOwnerID(h.Owner) == watchOwnerID(req.Owner) {
+				teamWorkspaceStore.mu.Unlock()
+				apiJSON(w, http.StatusOK, map[string]any{"covered": true})
+				return
+			}
+		}
+	}
 	if st.ScriptWatches == nil {
 		st.ScriptWatches = map[string][]TeamHandoff{}
 	}
@@ -285,7 +341,7 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 				h.Closed = time.Now()
 			}
 		}
-		h := TeamHandoff{Chat: key, Owner: req.Owner, Title: req.Title, Sender: req.Project, At: at, Due: at.Add(watchCheckAfter())}
+		h := TeamHandoff{Chat: chat, Owner: req.Owner, Title: req.Title, Sender: req.Project, At: at, Due: at.Add(watchCheckAfter())}
 		st.ScriptWatches[key] = append(st.ScriptWatches[key], h)
 		found = &st.ScriptWatches[key][len(st.ScriptWatches[key])-1]
 	}
@@ -317,5 +373,5 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 	if req.Action == "wake" && teamHandoffOpen(h) && !h.Idle.Returned && !h.Idle.Reported {
 		target.armIdleWake(idleAssignment{key, h, true})
 	}
-	apiJSON(w, http.StatusOK, map[string]any{"covered": false, "returned": h.Idle.Returned || !teamHandoffOpen(h), "busy": target.watchBusy(key)})
+	apiJSON(w, http.StatusOK, map[string]any{"covered": covered, "returned": h.Idle.Returned || !teamHandoffOpen(h), "busy": target.watchBusy(key)})
 }

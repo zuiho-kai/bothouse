@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
+import _watch
 
 STATUS_PREFIXES = ("↪", "⏹", "📬")  # gate 状态行（本任务原话）
 MIN_LEN = 80                         # 短于 80 字视为状态行（本任务原话）
@@ -27,7 +28,8 @@ ACCEPT_WITH_RESULT_LEN = 300
 LEADING_MENTION_RE = re.compile(r"^((<@!?\d+>|@[^\s【@]+)\s*)+")
 # 桥给回复加的前缀「[回复 X：被回复正文前 40 字…] 」（discord.go ChannelHistory）；只看她自己写的正文（审查 PR #377）
 REPLY_PREFIX_RE = re.compile(r"^\[回复 [^：\n]{1,100}：(?:.{40}…|.{0,40}?)\] ", re.S)
-PAUSE_MARK = "暂停（「"  # d10-fire 自己发的暂停消息，不算新派活
+PAUSE_MARK = "暂停（「"
+WATCH_MARKS = (PAUSE_MARK, "接着做 ", "到检查时间了", "到了检查时间")
 # 续期上限：0 = 不设上限，有进展就一直续（用户 2026-10-26「有进展就一直续，没进展才停」#429）；
 # 续期也必须有新进展，否则照发暂停。
 MAX_RENEW = 0
@@ -70,7 +72,7 @@ def redispatched(messages, teammate_id: str, since: float) -> bool:
         content = REPLY_PREFIX_RE.sub("", (m.get("content") or "").strip(), count=1)  # 被回复的原文里的 @ 不算
         ids = m.get("mentions")  # 桥只给正文里明写的 @（回复默认 ping 的那个不算，discord.go mentionIDs）
         hit = str(teammate_id) in ids if ids is not None else bool(mention.search(content))
-        if hit and PAUSE_MARK not in content:
+        if hit and not any(mark in content for mark in WATCH_MARKS):
             n += 1
     return n >= 2
 
@@ -127,6 +129,7 @@ def cc_bin():
 def renew(tid, what, since, skey, proj, n, dry):
     me = str(Path(__file__).resolve())
     cmd = " ".join(shlex.quote(x) for x in (me, tid, what, f"{since:.0f}", skey, proj, "--renew", str(n)))
+    cmd = "D10_API_SOCKET=" + shlex.quote(str(_watch.socket_path())) + " " + cmd
     cc = cc_bin()
     if not cc:
         print("续期定时没挂上（找不到 bothouse / cc-connect，可设 CC_BIN）", file=sys.stderr)
@@ -172,20 +175,36 @@ def main(argv):
         print("用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <project> [--renew N] [--dry-run]", file=sys.stderr)
         return 2
     tid, what, since, skey, proj = args[0], args[1], float(args[2]), args[3], args[4]
+    state = _watch.request("status", proj, skey, tid, what, since)
+    if state and (state.get("covered") or state.get("returned")):
+        print("桥已覆盖或任务已交回，跳过")
+        return 0
+    if state and not state.get("busy"):
+        if dry:
+            print(f"已停工，会叫醒：接着做 {what}，不用回话")
+        else:
+            _watch.request("wake", proj, skey, tid, what, since)
+        return 0
     active = False
     try:
         msgs = fetch_messages(skey, proj)
         if msgs is None:
             raise LookupError("这个平台不支持读频道历史")
         if redispatched(msgs, tid, since):
+            if state and not dry:
+                _watch.request("close", proj, skey, tid, what, since)
             print("派活后又派了新活，跳过暂停")
             return 0
-        done = handed_back(msgs, tid, since)
+        # With registration, only the terminal event / explicit result decides
+        # handback. A long progress update must not close an ongoing assignment.
+        done = handed_back(msgs, tid, since) if state is None else False
         active = chat_active(msgs, tid, max(since, time.time() - WINDOW))
     except Exception as e:  # 读不到频道就按原行为发暂停，不吞掉打断
         print(f"读频道失败（{type(e).__name__}），只按提交判断续期，否则照发暂停", file=sys.stderr)
         done = False
     if done:
+        if state and not dry:
+            _watch.request("close", proj, skey, tid, what, since)
         print("已交回，跳过暂停")
         return 0
     if (MAX_RENEW <= 0 or n < MAX_RENEW) and (active or last_commit_epoch(tid) >= max(since, time.time() - WINDOW)):
@@ -193,7 +212,7 @@ def main(argv):
         if renew(tid, what, since, skey, proj, n + 1, dry) == 0:
             return 0
         print("续期失败，按原行为发暂停", file=sys.stderr)
-    msg = f"<@{tid}> 暂停（「{what}」到 10 分钟了，停手，把做到哪一步交回来）"
+    msg = f"<@{tid}> 到检查时间了，请交回「{what}」做到哪一步。"
     if dry:
         print(f"未交回，会发暂停：{msg}")
         return 0
@@ -201,6 +220,8 @@ def main(argv):
     if not cc:
         print("暂停没发出（找不到 bothouse / cc-connect，可设 CC_BIN）", file=sys.stderr)
         return 1
+    if state:
+        _watch.request("close", proj, skey, tid, what, since)
     return subprocess.run([cc, "send", "-p", proj, "-s", skey, "--message", msg]).returncode
 
 

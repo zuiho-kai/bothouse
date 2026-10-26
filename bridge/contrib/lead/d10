@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
+import _watch
 
 DELAY = "10m"  # 来源：用户 2026-10-23「这10分钟之内搞不完就滚蛋」
 
@@ -22,14 +23,24 @@ def main(argv):
     skey = os.environ.get("CC_SESSION_KEY", "") or os.environ.get("CC_SESSION", "")
     if not skey:
         sys.exit("d10: 读不到 CC_SESSION_KEY 或 CC_SESSION（要在 cc-connect 会话里跑）")
+    since = int(time.time())
+    registered = _watch.request("register", _team.project(), skey, tid, argv[1], since)
+    if registered and registered.get("covered"):
+        print("桥内看门已覆盖，跳过")
+        return
+    if registered is None:
+        print("桥尚未支持轮次结束叫醒，保留原到点看门", file=sys.stderr)
     fire = Path(__file__).resolve().with_name("d10-fire")
-    cmd = " ".join(shlex.quote(x) for x in (str(fire), tid, argv[1], str(int(time.time())), skey, _team.project()))
+    cmd = " ".join(shlex.quote(x) for x in (str(fire), tid, argv[1], str(since), skey, _team.project()))
+    cmd = "D10_API_SOCKET=" + shlex.quote(str(_watch.socket_path())) + " " + cmd
     cc = _team.cc_bin()
     if not cc:
         sys.exit("d10: 找不到 bothouse / cc-connect（可设 CC_BIN）")
     r = subprocess.run([cc, "timer", "add", "-p", _team.project(), "-s", skey, "--delay", DELAY, "--desc", f"10分钟砍活:{argv[1]}", "--exec", cmd],
                        capture_output=True, text=True)
     if r.returncode != 0:
+        if registered:
+            _watch.request("close", _team.project(), skey, tid, argv[1], since)
         sys.exit(f"d10: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
     print((r.stdout.strip().splitlines() or [""])[0])  # 桥输出第一行就是 timer id
 
