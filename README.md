@@ -36,7 +36,7 @@ Real channel footage: the main channel hands work to a workspace → members spl
 
 Even with just one installed Codex CLI or one DeepSeek API account, you can create several independent members. They share the underlying account but have separate names, personas, responsibilities and sessions. Three DeepSeek members, for example, can plan, implement and review code, assigning and returning work through mentions in the shared channel.
 
-In DSH web, open **Channels → Add member**, select the same model or local CLI, and save each member with a different name and responsibility. Set the channel's dispatch mode to **Full team**. Session contexts are independent; account quotas and rate limits remain shared. See [a team from one CLI](docs/single-cli-team.md).
+In DSH web, open **Channels → Add member**, select the same model or local CLI, and save each member with a different name and responsibility. Set the channel's dispatch mode to **Full team**. Session contexts are independent; account quotas and rate limits remain shared. See [a team from one CLI](docs/single-cli-team.en.md).
 
 ---
 
@@ -47,15 +47,17 @@ In DSH web, open **Channels → Add member**, select the same model or local CLI
 Download your platform's package from [Releases](https://github.com/zuiho-kai/bothouse/releases). No Go or Node installation is needed. We recommend the one-line installer below, which verifies SHA256 automatically. For manual downloads, compare the file's SHA256 hash with that release's SHA256SUMS before opening it or bypassing an OS warning. See the [installation guide](docs/GETTING_STARTED.md) for more details.
 
 - **macOS:** `bothouse-mac.dmg` for Apple Silicon and Intel. Drag it into Applications; because it is unsigned, **right-click → Open** on first launch.
-- **Windows:** `bothouse-windows.exe` for x64 and ARM64 Windows. If SmartScreen blocks it, choose **More info → Run anyway**.
+- **Windows:** `bothouse-windows.exe` is the x64 (amd64) build; ARM64 Windows runs it under x64 emulation. If SmartScreen blocks it, choose **More info → Run anyway**.
 - **Linux:** `bothouse-linux-x64` or `bothouse-linux-arm64`. Run `chmod +x` on the file, then launch it.
 
 Or install the latest release, including prereleases, with one command. SHA256 verification is included; set `BOTHOUSE_VERSION=<tag>` to pin a version.
 
 ~~~sh
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && bothouse
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 ~~~
+
+If the installer reports that `~/.local/bin` is not on PATH, run the PATH command it prints first, then run `bothouse`.
 
 ~~~powershell
 # Windows (PowerShell)
@@ -74,8 +76,10 @@ For background operation, run `bothouse daemon install` to register and immediat
 
 To let a small model decide who should answer, or enable shared memory, install the optional dispatcher and Wiki components. See [dispatcher and team memory](docs/ccm-and-wiki.md) and [Getting started](docs/GETTING_STARTED.md).
 
+### DSH channel (experimental)
+
 <details>
-<summary><b>DSH channel setup (experimental)</b></summary>
+<summary><b>Requirements and setup steps</b></summary>
 
 You need DSH `>= 0.2.1-rc.2`, `pnpm` on PATH, and Node `>= 22.12.0`. Choose DSH in the first wizard step, then detect dsh → install plugins → run the returned command to open DSH web. Configure bots, CLIs and personas in DSH afterwards. Set `BOTHOUSE_DSH_DIR` for development or to override the directory.
 The equivalent CLI command is `bothouse setup dsh install --lang en`. You can also install the plugin directly from GitHub:
@@ -228,7 +232,7 @@ Most guides below are currently in Chinese; the self-hosted platform protocol is
 | Guide | Contents |
 | --- | --- |
 | [Getting started](docs/GETTING_STARTED.md) | Installation, wizard and first run |
-| [A team from one CLI](docs/single-cli-team.md) | Multiple roles from one DeepSeek or Codex account, with configuration and session boundaries |
+| [A team from one CLI](docs/single-cli-team.en.md) | Multiple roles from one DeepSeek or Codex account, with configuration and session boundaries |
 | [Discord and Feishu setup](docs/connect-discord-feishu.md) | Platform connections, AI-assisted setup and third-party APIs |
 | [Dispatcher and team memory](docs/ccm-and-wiki.md) | jev and the shared Wiki |
 | [Role packs](docs/persona-packs.md) | Choose, build and import personas and avatars |
@@ -242,4 +246,4 @@ To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md
 ## License and community
 
 - **License:** Apache-2.0; see [LICENSING.md](LICENSING.md). The bundled bridge retains its upstream MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
-- **Community:** linux.do
+- **Community:** [linux.do](https://linux.do)

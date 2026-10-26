@@ -53,15 +53,17 @@
 直接从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载对应系统的包（无需预装 Go 或 Node）。推荐使用下方自带 SHA256 校验的一行安装命令。手动下载时，先将文件的 SHA256 与同一发布的 SHA256SUMS 对照核验，再按下述方式首次打开。安装详情见[完整指南](docs/GETTING_STARTED.md)。
 
 - **macOS**：`bothouse-mac.dmg`（Apple Silicon / Intel 通用。因未签名，拖入 Applications 后**首次打开请「右键 → 打开」**）
-- **Windows**：`bothouse-windows.exe`（x64 / ARM64 通用。若弹出 SmartScreen 拦截，点「更多信息 → 仍要运行」）
+- **Windows**：`bothouse-windows.exe` 只有 x64（amd64）包；ARM64 Windows 通过 x64 模拟运行。若弹出 SmartScreen 拦截，点「更多信息 → 仍要运行」
 - **Linux**：`bothouse-linux-x64` 或 `bothouse-linux-arm64`（`chmod +x` 后直接运行）
 
 或者一行命令直接装最新发布的版本（含预发布，自带 SHA256 校验；需固定版本可设 `BOTHOUSE_VERSION=<tag>`）：
 
 ```sh
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && bothouse
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 ```
+
+如果安装器提示 `~/.local/bin` 不在 PATH，先执行它打印的 PATH 命令，再运行 `bothouse`。
 
 ```powershell
 # Windows (PowerShell)
@@ -81,8 +83,10 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 想让小模型自动判断“群里这句话该谁回”（调度员 gate），或者开启共享记忆库，可继续安装两个配套组件，详见[装调度员和团队记忆](docs/ccm-and-wiki.md)与[从零用起完整指南](docs/GETTING_STARTED.md)。
 
+### DSH 频道（实验）
+
 <details>
-<summary><b>附：DSH 频道接入说明（实验性）</b></summary>
+<summary><b>要求与接入步骤</b></summary>
 
 需要本机已有 DSH（>= 0.2.1-rc.2）、pnpm（需在 PATH 中）及 Node >= 22.12.0。
 向导第 1 步选 DSH，按提示「检测 dsh → 安装插件 → 运行返回命令打开 DSH 网页」，后续在 DSH 页面内配好机器人、CLI 和人设即可（开发或覆盖目录可用 `BOTHOUSE_DSH_DIR` 指定）。
@@ -248,4 +252,4 @@ Discord / 飞书 / 自建网页频道
 ## 许可与社区
 
 - **开源协议**：本项目按 Apache-2.0 授权，详见 [LICENSING.md](LICENSING.md)。随附桥接组件的上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，第三方依赖见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
-- **交流社区**：linux.do
+- **交流社区**：[linux.do](https://linux.do)
