@@ -109,7 +109,13 @@ export class CliMember {
     const stream = acp.ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout))
     this.conn = new acp.ClientSideConnection(() => client, stream)
     const exited = new Promise((_, rej) => {
-      proc.once('error', rej)
+      proc.once('error', cause => {
+        const error = new Error(`CLI ${this.cli} 在目录 ${this.cwd} 无法启动：${cause.message}`, { cause })
+        error.code = 'COLLAB_CLI_START'
+        error.cwd = this.cwd
+        error.cli = this.cli
+        rej(error)
+      })
       proc.once('exit', (code) => {
         this.ready = null
         // 会话 id 留到 saved，新进程起来后用 loadSession 续上（不支持时由调用方提示频道）。
