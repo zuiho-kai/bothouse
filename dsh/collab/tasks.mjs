@@ -24,6 +24,8 @@ const STANCE_WORDS = { accept: '接', ask: '问', decline: '退', escalate: '升
 export const WORKING = ['assigned', 'accepted', 'asked', 'rework'];
 /** Waiting for the lead: review may close or send back. */
 const REVIEWABLE = ['returned', 'declined', 'escalated'];
+/** The owner delivered: handed back, or the lead accepted it (fromChat reads the next call as an answer). */
+const DELIVERED = ['returned', 'done'];
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW): at the check time a
@@ -124,6 +126,8 @@ export class Tasks {
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
       latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
+      // The owner's newest task in a room, whatever its status (fromChat: did she just deliver?).
+      latestOf: this.db.prepare('SELECT * FROM tasks WHERE room_id = ? AND owner = ? ORDER BY id DESC LIMIT 1'),
       // Chat-side tasks (source 'mention' / 'card'): opened from the lead's @ or the bridge task card.
       setSource: this.db.prepare('UPDATE tasks SET source = ? WHERE id = ?'),
       openChat: this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND created_by = ? AND source IS NOT NULL
@@ -545,7 +549,13 @@ export class Tasks {
       called.delete(lead.id);
       const title = taskTitle(text, team);
       if (!title) return undefined;
-      for (const owner of called) this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
+      for (const owner of called) {
+        // #597 r12: a call that follows the owner's delivery (her newest task here was handed back or
+        // accepted, nothing dispatched since) is the lead's answer to it — praise, thanks, a close-out —
+        // unless it asks for more work. A first call (no task yet) dispatches as before.
+        if (DELIVERED.includes(this.q.latestOf.get(msg.room_id, owner)?.status) && !asksWork(text, team)) continue;
+        this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
+      }
       return undefined;
     }
     // handBack false: a DSH reply in a workspace, which hands back only with [report] (fromMessage).
@@ -865,6 +875,27 @@ function taskTitle(text, team) {
   // The line that calls the teammate says what the task is; else the first line of content.
   const line = (lines.find(l => l.called) ?? lines[0])?.text ?? '';
   return line.slice(0, MAX_TEXT);
+}
+
+// asksWork: what in a lead's call after a delivery still asks for work. Requests (把/请/帮我/麻烦/交给/
+// 还要, "…一下", "你来/你去…") anywhere in a clause, or a clause opening with a work verb, after
+// the name and sequencing words (接下来/然后/再/继续…). A verb followed by 得/了/完/好/过/的 rates what was
+// done ("做得不错", "改好了"), it does not ask. Not user-specified wording; the shape of a request.
+const REQUEST = /把|请|帮我|帮忙|麻烦|劳驾|交给|一下|还要|还需要|需要你|你(?:来|去|负责|接着|继续)/;
+const LEADIN = /^(?:你|也|就|先|再|然后|接下来|下一步|接着|继续|顺便|另外|最后)+/;
+const WORK_VERB = /^(?:改|修|写|做|跑|查|加|补|删|实现|添加|更新|检查|整理|看看|试试|部署|提交|重构|优化|核对|确认|处理|接手|搞|弄)(?![得了完好过的])/;
+function asksWork(text, team) {
+  const names = team.map(m => m.name).filter(Boolean).sort((a, b) => b.length - a.length);
+  const body = String(text).replace(/```[\s\S]*?```/g, '').split('\n')
+    .map(l => split(l, team).map(([seg, id]) => (id ? '' : seg)).join('')).join('\n');
+  return body.split(/[\n，,。.！!？?；;：:]+/).some(raw => {
+    const clause = raw.replace(/^[\s\-*·•>、]+/, '').trim();
+    if (clause === '' || STANCE_LINE.test(clause)) return false;
+    if (REQUEST.test(clause)) return true;
+    // The name calling her ("副，…" / "副把…") is not the clause's verb.
+    const named = names.find(n => clause.startsWith(n));
+    return WORK_VERB.test((named ? clause.slice(named.length) : clause).trimStart().replace(LEADIN, ''));
+  });
 }
 
 /** When a workspace task's watch is due: its check time, or CHECK_AFTER_S after its last change. */

@@ -4780,6 +4780,46 @@ test('G37: the lead\'s [report] in a workspace hands back its task and its @ sti
   assert.equal(tasks.task(sub.id).title, '请你核对 README', 'the title is content, not the stance line or the mark');
 });
 
+// #597 r12 (K10 r12 msg 41): after 副's task was accepted, the lead's 「副，返工完成得很好！…」 opened task #2.
+// A call that follows a delivery opens a task only when it asks for more work.
+test('r12: praise or thanks after a delivery opens no task; a request after it does', async () => {
+  const { tasks, ws, assign, say } = g34Setup();
+  const t = assign();
+  say(ws.id, '@主 [report]\n已完成，测试 27 个通过');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  const fuTasks = () => tasks.list(ws.id).filter(r => r.owner === 'fu');
+  say(ws.id, '副，辛苦了，谢谢！', 'zhu');
+  await settle();
+  assert.equal(fuTasks().length, 1, 'thanks after a hand-back opens nothing');
+  tasks.review(t.id, { actor: 'zhu', verdict: 'done' });
+  say(ws.id, '副，返工完成得很好！\n\n幂运算功能已验收通过：\n- pow 函数实现正确，支持正数、负数和浮点数运算\n- 测试覆盖完整（27个用例全过）\n- README 文档已更新\n\n做得不错，继续保持。\n\n——主·松针', 'zhu');
+  say(ws.id, '副，做得很扎实。\n\n计算器项目功能已经完备，代码质量也达标。\n\n等待新任务。', 'zhu');
+  await settle();
+  assert.equal(fuTasks().length, 1, 'praise after acceptance opens nothing');
+  say(ws.id, '副，做得很好！接下来把 sqrt 子命令也加上', 'zhu');
+  await settle();
+  const next = fuTasks().find(r => r.id !== t.id);
+  assert.ok(next, 'a request after the praise dispatches');
+  assert.equal(tasks.task(next.id).source, 'mention');
+});
+
+test('r12: a first call 「副，把 X 改一下」 dispatches; after a delivery a bare work verb still does', async () => {
+  const { tasks, ws, say } = g34Setup();
+  say(ws.id, '副，把 README 的用法一节改一下', 'zhu');
+  await settle();
+  const first = tasks.list(ws.id).find(r => r.owner === 'fu');
+  assert.ok(first, 'a first call dispatches');
+  assert.equal(tasks.task(first.id).title, '副，把 README 的用法一节改一下');
+  say(ws.id, '[report]\n改好了', 'fu');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'returned');
+  tasks.review(first.id, { actor: 'zhu', verdict: 'done' });
+  say(ws.id, '副，很好。再写个 sqrt 的测试', 'zhu');
+  await settle();
+  assert.equal(tasks.list(ws.id).filter(r => r.owner === 'fu').length, 2, 'a work verb after 再 asks for work');
+});
+
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
   const t = assign();
