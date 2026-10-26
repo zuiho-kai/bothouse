@@ -19,6 +19,8 @@ import (
 // ProjectSettingsUpdate is passed to SetSaveProjectSettings to persist management API PATCH fields.
 // The implementation (typically in cmd/cc-connect) maps this to config.ProjectSettingsUpdate.
 type ProjectSettingsUpdate struct {
+	DisplayName          *string
+	NameCustomized       *bool
 	Language             *string
 	AdminFrom            *string
 	DisabledCommands     []string
@@ -864,6 +866,8 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			WorkDir              *string           `json:"work_dir"`
 			Mode                 *string           `json:"mode"`
 			AgentType            *string           `json:"agent_type"`
+			DisplayName          *string           `json:"display_name"`
+			NameCustomized       *bool             `json:"name_customized"`
 			ShowContextIndicator *bool             `json:"show_context_indicator"`
 			ShowWorkdirIndicator *bool             `json:"show_workdir_indicator"`
 			ReplyFooter          *bool             `json:"reply_footer"`
@@ -873,6 +877,14 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 			return
+		}
+		if body.DisplayName != nil {
+			value := strings.TrimSpace(*body.DisplayName)
+			if value == "" || len([]rune(value)) > 128 {
+				mgmtError(w, http.StatusBadRequest, "display_name must be 1-128 characters")
+				return
+			}
+			body.DisplayName = &value
 		}
 		if body.WorkDir != nil {
 			workDir, err := validateProjectWorkDir(*body.WorkDir)
@@ -945,6 +957,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 
 		if m.saveProjectSettings != nil {
 			patch := ProjectSettingsUpdate{
+				DisplayName: body.DisplayName, NameCustomized: body.NameCustomized,
 				Language:             body.Language,
 				AdminFrom:            body.AdminFrom,
 				DisabledCommands:     body.DisabledCommands,
@@ -959,11 +972,13 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			}
 			if err := m.saveProjectSettings(name, patch); err != nil {
 				slog.Warn("management: failed to persist project settings", "project", name, "error", err)
+				mgmtError(w, http.StatusInternalServerError, "save project settings: "+err.Error())
+				return
 			}
 		}
 
 		resp := map[string]any{"message": "settings updated"}
-		if restartRequired {
+		if restartRequired || body.DisplayName != nil {
 			resp["restart_required"] = true
 		}
 		mgmtJSON(w, http.StatusOK, resp)

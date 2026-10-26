@@ -32,7 +32,7 @@ export interface WikiEngine { id: string; label: string; agent_type: string }
 export interface WizardWiki { daily?: string; night?: string; split?: string }
 
 export interface WizardRole {
-  project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
+  name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
   provider?: { vendor: string; base_url?: string; api_key?: string; model?: string };
   /** library persona slug / avatar slug; omitted = keep what setup state has, "" = clear */

@@ -103,7 +103,7 @@ The packages are unsigned. macOS: drag **Bothouse.app** into Applications, then 
 **You'll need:** a Discord server (or a Feishu workspace) and at least one AI CLI you're already logged into (Claude Code, Codex or Gemini CLI). The wizard walks you through creating the bot.
 
 1. **Install**: download and open the app, or run the one-liner above.
-2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save (new roles default to YOLO / auto-approve permission mode, adjustable in project settings).
+2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → save (new roles default to YOLO / auto-approve permission mode, adjustable in project settings). Names start with the CLI label (`Codex`, then `Codex-2`); personas are optional and applied only when selected. Optional settings let you customize a name and keep it when selecting a library persona. Custom names display beside the backend, for example `Coder·Codex`, and stay when switching CLI; untouched default names follow the new backend. Existing roles keep their names and personas.
    Or tell your Claude Code / Codex "set up bothouse and connect it to Discord"; it asks for everything once.
 3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
 

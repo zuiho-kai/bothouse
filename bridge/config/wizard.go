@@ -16,20 +16,21 @@ import (
 // WizardProjectOptions describes one role (= one project = one bot) written by the wizard.
 // Empty fields leave the existing value alone.
 type WizardProjectOptions struct {
-	Name         string
-	AgentType    string
-	WorkDir      string
-	PlatformType string         // "discord", "feishu", …
-	Options      map[string]any // merged into the first platform of PlatformType (created if missing)
-	GateURL      *string
-	GateFallback *string
-	Provider     *ProviderConfig   // inline provider, becomes the active provider
-	OwnerOpenID  string            // feishu/lark: merged into allow_from (same rule as the QR save)
-	AgentCmd     string            // agent option cmd (absolute CLI path found outside PATH)
-	AgentArgs    []string          // agent option args (nil = leave)
-	AgentOptions map[string]any    // set in the agent's options (nil = leave)
-	AgentEnv     map[string]string // merged into agent option env
-	DisplayName  string            // team_name: the name shown for the project ("" = leave)
+	Name           string
+	AgentType      string
+	WorkDir        string
+	PlatformType   string         // "discord", "feishu", …
+	Options        map[string]any // merged into the first platform of PlatformType (created if missing)
+	GateURL        *string
+	GateFallback   *string
+	Provider       *ProviderConfig   // inline provider, becomes the active provider
+	OwnerOpenID    string            // feishu/lark: merged into allow_from (same rule as the QR save)
+	AgentCmd       string            // agent option cmd (absolute CLI path found outside PATH)
+	AgentArgs      []string          // agent option args (nil = leave)
+	AgentOptions   map[string]any    // set in the agent's options (nil = leave)
+	AgentEnv       map[string]string // merged into agent option env
+	NameCustomized *bool
+	DisplayName    string // team_name: the name shown for the project ("" = leave)
 }
 
 // UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
@@ -318,6 +319,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 				opts["allow_from"] = merged
 			}
 		}
+	}
+	if o.NameCustomized != nil {
+		p["name_customized"] = *o.NameCustomized
 	}
 	if o.DisplayName != "" {
 		p["team_name"] = o.DisplayName

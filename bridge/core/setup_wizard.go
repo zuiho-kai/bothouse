@@ -83,16 +83,18 @@ type WizardFeishu struct {
 }
 
 type WizardRole struct {
-	Project       string          `json:"project,omitempty"`
-	Name          string          `json:"name,omitempty"`
-	Token         string          `json:"token,omitempty"`         // discord bot token (new bot)
-	ReuseProject  string          `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
-	AgentType     string          `json:"agent_type,omitempty"`
-	WorkDir       string          `json:"work_dir,omitempty"`
-	Persona       string          `json:"persona,omitempty"`
-	EditPersona   bool            `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
-	ReplyLanguage string          `json:"reply_language,omitempty"`
-	Provider      *WizardProvider `json:"provider,omitempty"` // nil = the CLI's own local login
+	Project         string          `json:"project,omitempty"`
+	Name            string          `json:"name,omitempty"`
+	NameCustomized  *bool           `json:"name_customized,omitempty"`
+	KeepPersonaName bool            `json:"keep_persona_name,omitempty"`
+	Token           string          `json:"token,omitempty"`         // discord bot token (new bot)
+	ReuseProject    string          `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
+	AgentType       string          `json:"agent_type,omitempty"`
+	WorkDir         string          `json:"work_dir,omitempty"`
+	Persona         string          `json:"persona,omitempty"`
+	EditPersona     bool            `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
+	ReplyLanguage   string          `json:"reply_language,omitempty"`
+	Provider        *WizardProvider `json:"provider,omitempty"` // nil = the CLI's own local login
 	// Library picks; nil / "" = keep what the state already has for this project.
 	PersonaPreset *string `json:"persona_preset,omitempty"` // library persona slug ("" via pointer = clear)
 	Avatar        *string `json:"avatar,omitempty"`         // library avatar slug ("" via pointer = clear)
@@ -200,7 +202,8 @@ type WizardProjectWrite struct {
 	FeishuOwnerOpenID                      string // feishu: merged into allow_from when it is empty
 	// DisplayName is the name the user gave the role when it differs from the project name (a
 	// non-ASCII name maps to role-N); written as team_name, which the panel shows. "" = leave
-	DisplayName string
+	DisplayName    string
+	NameCustomized *bool
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -350,12 +353,13 @@ type SetupState struct {
 }
 
 type SetupTeamEntry struct {
-	Project   string `json:"project"`
-	Name      string `json:"name"`
-	BotID     string `json:"bot_id,omitempty"`
-	AgentType string `json:"agent_type,omitempty"`
-	Persona   string `json:"persona,omitempty"` // library persona slug the role was made from
-	Avatar    string `json:"avatar,omitempty"`  // library avatar slug ("" = initial-letter badge)
+	Project         string `json:"project"`
+	Name            string `json:"name"`
+	BotID           string `json:"bot_id,omitempty"`
+	AgentType       string `json:"agent_type,omitempty"`
+	Persona         string `json:"persona,omitempty"` // library persona slug the role was made from
+	KeepPersonaName bool   `json:"keep_persona_name,omitempty"`
+	Avatar          string `json:"avatar,omitempty"` // library avatar slug ("" = initial-letter badge)
 }
 
 // JevConfig is <data_dir>/jev.json — read by contrib/gate (scorer) and by
@@ -1584,7 +1588,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		e := SetupTeamEntry{Project: r.project, Name: r.Name, BotID: id, AgentType: r.AgentType}
 		for _, old := range append(append([]SetupTeamEntry{}, state.Team...), state.CloudWebTeam...) {
 			if old.Project == r.project { // not passed = keep what the state has
-				e.Persona, e.Avatar = old.Persona, old.Avatar
+				e.Persona, e.Avatar, e.KeepPersonaName = old.Persona, old.Avatar, old.KeepPersonaName
 				// open_id not reachable this run: keep the one found before, but only for the same bot
 				// (r.reused: sameFeishuApp found the same app_id), never for a new app on a reused key/name
 				if e.BotID == "" && old.BotID != "" && r.reused && isFeishuPlatform(req.Platform) && isFeishuPlatform(state.Platform) {
@@ -1595,6 +1599,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		}
 		if r.PersonaPreset != nil {
 			e.Persona = *r.PersonaPreset
+			e.KeepPersonaName = r.KeepPersonaName
 		}
 		if r.Avatar != nil {
 			e.Avatar = *r.Avatar
@@ -1654,6 +1659,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		ex, exists := s.project(r.project)
 		if !r.reused {
 			pw.WorkDir = r.workDir
+			pw.NameCustomized = r.NameCustomized
 			if r.Name != r.project {
 				pw.DisplayName = r.Name
 			}

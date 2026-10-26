@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Card, Badge, Button, EmptyState } from '@/components/ui';
 import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
+import { roleLabel } from '@/lib/roleIdentity';
 import { shownName } from '@/api/projects';
 
 export default function RoleList() {
@@ -132,7 +133,7 @@ export default function RoleList() {
                       </div>
                       <div>
                         <div className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                          <span>{shown}</span>
+                          <span>{roleLabel(shown, role.agent_type)}</span>
                           {shown !== role.name && (
                             <span className="text-[11px] font-normal font-mono text-gray-400">{role.name}</span>
                           )}

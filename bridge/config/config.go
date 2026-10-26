@@ -5,6 +5,7 @@ import (
 	"fmt"
 	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -559,7 +560,8 @@ type ProjectConfig struct {
 	// so teammates can see them. Empty disables the status board.
 	TeamStatusDir string `toml:"team_status_dir,omitempty"`
 	// TeamName is this project's display name in the team status (default: project name).
-	TeamName string `toml:"team_name,omitempty"`
+	TeamName       string `toml:"team_name,omitempty"`
+	NameCustomized *bool  `toml:"name_customized,omitempty"`
 	// TeamStatusInject prepends the other projects' status to each turn (for the main bot).
 	TeamStatusInject bool `toml:"team_status_inject,omitempty"`
 	// ChannelBoard (maomao fork): this project's Discord bot posts, pins and edits one
@@ -3551,6 +3553,8 @@ func extractLineComment(line string) string {
 
 // ProjectSettingsUpdate carries optional field updates for SaveProjectSettings.
 type ProjectSettingsUpdate struct {
+	DisplayName          *string
+	NameCustomized       *bool
 	Language             *string
 	AdminFrom            *string
 	DisabledCommands     []string
@@ -3589,8 +3593,44 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 			continue
 		}
 		proj := &cfg.Projects[i]
+		if update.DisplayName != nil {
+			proj.TeamName = strings.TrimSpace(*update.DisplayName)
+		}
+		if update.NameCustomized != nil {
+			proj.NameCustomized = update.NameCustomized
+		}
 		if update.AgentType != nil && *update.AgentType != proj.Agent.Type {
 			newType := *update.AgentType
+			if proj.NameCustomized != nil {
+				if !*proj.NameCustomized && update.DisplayName == nil {
+					taken := []string{}
+					for _, other := range cfg.Projects {
+						if other.Name != projectName {
+							n := other.TeamName
+							if n == "" {
+								n = other.Name
+							}
+							taken = append(taken, n)
+						}
+					}
+					proj.TeamName = core.NextRoleName(core.AgentDisplayName(newType), taken)
+				}
+				wd, _ := proj.Agent.Options["work_dir"].(string)
+				if wd != "" {
+					from, to := core.PersonaFilePath(proj.Agent.Type, wd), core.PersonaFilePath(newType, wd)
+					if from != to {
+						content, err := os.ReadFile(from)
+						if err != nil && !os.IsNotExist(err) {
+							return fmt.Errorf("read role instructions: %w", err)
+						}
+						if err == nil {
+							if err := core.AtomicWriteFile(to, content, 0o644); err != nil {
+								return fmt.Errorf("preserve role instructions: %w", err)
+							}
+						}
+					}
+				}
+			}
 			proj.Agent.Type = newType
 			// Filter out provider_refs incompatible with the new agent type.
 			globalByName := make(map[string]ProviderConfig, len(cfg.Providers))
@@ -3626,6 +3666,23 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 						delete(opts, "provider")
 					}
 				}
+			}
+		}
+		if proj.NameCustomized != nil && proj.TeamName != "" {
+			for j := range proj.Platforms {
+				platform := &proj.Platforms[j]
+				if platform.Type != "cloud_web" {
+					continue
+				}
+				raw, _ := platform.Options["ws_url"].(string)
+				u, err := url.Parse(raw)
+				if err != nil {
+					return fmt.Errorf("role platform URL: %w", err)
+				}
+				q := u.Query()
+				q.Set("name", proj.TeamName)
+				u.RawQuery = q.Encode()
+				platform.Options["ws_url"] = u.String()
 			}
 		}
 		if update.AdminFrom != nil {
@@ -3717,6 +3774,9 @@ func GetProjectConfigDetails(projectName string) map[string]any {
 			continue
 		}
 		result := map[string]any{}
+		if p.NameCustomized != nil {
+			result["name_customized"] = *p.NameCustomized
+		}
 		if p.Agent.Options != nil {
 			if wd, ok := p.Agent.Options["work_dir"].(string); ok && strings.TrimSpace(wd) != "" {
 				result["work_dir"] = wd

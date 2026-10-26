@@ -123,7 +123,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
   const persona = member.persona?.trim() ? ['你的人设：', member.persona.trim(), ''] : [];
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
-    ...persona,
+    ...(persona.length ? persona : ['显示名只用于频道 @ 和路由，不要求扮演人物。没有人设时，以实际 AI 身份直接完成工作。']),
     dshTeamModeRules(mode),
     status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',

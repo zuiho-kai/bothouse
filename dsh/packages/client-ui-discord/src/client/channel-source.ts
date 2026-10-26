@@ -72,6 +72,8 @@ export interface MemberModel {
   readonly model: string
 }
 
+export interface MemberPersona { readonly slug: string; readonly name: string; readonly text: string; readonly avatar?: string }
+
 /** One channel member: the human owner, a DSH-native member, or a bothouse bot. */
 export interface ChannelMember {
   readonly rooms?: readonly number[]
@@ -87,6 +89,7 @@ export interface ChannelMember {
   /** Local CLI members only: DSH permission preset for its tool calls; absent means DSH's default (workspace-write). */
   readonly permissionPreset?: PermissionPreset
   /** DSH members only. */
+  readonly nameCustomized?: boolean
   readonly persona?: string
   /** DSH members only: created in the UI (editable) rather than the config file. */
   readonly editable?: boolean
@@ -99,6 +102,7 @@ export interface DshMemberInput {
   readonly rooms?: readonly number[]
   readonly name: string
   readonly model: MemberModel | null
+  readonly nameCustomized?: boolean
   readonly persona: string
   /** Built-in avatar slug, or '' for the initial badge. */
   readonly avatar?: string
@@ -108,6 +112,7 @@ export interface DshMemberInput {
 export interface CliMemberInput {
   readonly rooms?: readonly number[]
   readonly name: string
+  readonly nameCustomized?: boolean
   readonly persona: string
   /** CLI id as listed by `GET /collab/api/clis`. */
   readonly cli: string
@@ -268,6 +273,7 @@ export interface ChannelActions {
   listModels(): Promise<readonly ModelRoute[]>
   /** CLI agents installed on this machine, for the "local CLI" member type. */
   listClis(): Promise<readonly LocalCli[]>
+  listPersonas?(): Promise<readonly MemberPersona[]>
   /** Add a DSH member; rejects with the service's reason (name taken, model unavailable…). */
   addMember(input: MemberInput): Promise<void>
   /** Edit a UI-created DSH member. */
@@ -766,6 +772,9 @@ export function createChannelSource(transport: ChannelTransport): {
     async listModels() {
       const { routes } = await request<{ routes: ModelRoute[] }>('collab/api/models')
       return routes
+    },
+    async listPersonas() {
+      return await request<MemberPersona[]>('collab/api/personas')
     },
     async listClis() {
       return await request<LocalCli[]>('collab/api/clis')
