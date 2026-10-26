@@ -46,3 +46,14 @@ func signalProcessGroup(cmd *exec.Cmd, sig syscall.Signal) error {
 func forceKillCmd(cmd *exec.Cmd) error {
 	return signalProcessGroup(cmd, syscall.SIGKILL)
 }
+
+// processGroupOf: the CLI runs in its own group (prepareCmdForKill sets Setpgid).
+func processGroupOf(pid int) int {
+	if pid <= 0 {
+		return 0
+	}
+	if pgid, err := syscall.Getpgid(pid); err == nil {
+		return pgid
+	}
+	return pid
+}

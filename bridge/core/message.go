@@ -435,6 +435,10 @@ type Message struct {
 	// maomao fork: this is the one re-run of a turn the provider refused as too long, on a
 	// fresh session (retryFreshOnPromptTooLong); its user entry is already in the history.
 	freshRetried bool
+	// #618 K1: what started this turn (TurnTrigger*; "" = derived) and, for a
+	// resumed turn, the journal TurnID it continues.
+	turnTrigger string
+	resumedFrom string
 }
 
 // EventType distinguishes different kinds of agent output.

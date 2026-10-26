@@ -1567,3 +1567,14 @@ func filterEnv(env []string, key string) []string {
 	}
 	return out
 }
+
+// ProcessID is the CLI's pid (core.AgentProcessInfo, #618 K1 turn journal).
+func (cs *claudeSession) ProcessID() int {
+	if cs.cmd == nil || cs.cmd.Process == nil {
+		return 0
+	}
+	return cs.cmd.Process.Pid
+}
+
+// ProcessGroupID is the CLI's process group id (0 when unknown).
+func (cs *claudeSession) ProcessGroupID() int { return processGroupOf(cs.ProcessID()) }

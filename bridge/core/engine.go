@@ -371,6 +371,10 @@ type RateLimitCfg struct {
 
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
+	// #618 K1: running-turn journal (turn_journal.go), opened on first use.
+	turnJournal     *TurnJournal
+	turnJournalOnce sync.Once
+
 	name                  string
 	agent                 Agent
 	platforms             []Platform
@@ -595,6 +599,7 @@ type workspaceInitFlow struct {
 // The message is NOT sent to agent stdin at queue time; the event loop
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
+	turnTrigger       string // #618 K1: Message.turnTrigger, kept across the queue
 	messageID         string
 	platform          Platform
 	replyCtx          any
@@ -1812,6 +1817,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	}
 
 	msg := &Message{
+		turnTrigger:  TurnTriggerCron,
 		SessionKey:   sessionKey,
 		Platform:     platformName,
 		UserID:       "cron",
@@ -2111,6 +2117,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	msg := &Message{
+		turnTrigger:  timerTurnTrigger(job),
 		SessionKey:   sessionKey,
 		Platform:     platformName,
 		UserID:       timerTurnUser(job),
@@ -3793,6 +3800,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		turnCtxQuery:        msg.TurnCtxQuery,
 		modeOverride:        msg.ModeOverride,
 		scheduledFrom:       scheduledFrom,
+		turnTrigger:         msg.turnTrigger,
 		scheduledBackfilled: msg.scheduledBackfilled,
 		msgPlatform:         msg.Platform,
 		msgSessionKey:       msg.SessionKey,
@@ -4492,6 +4500,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		e.reply(inputOutputPlatform(p, msg.inputTurn), msg.ReplyCtx, text)
 		return
 	}
+	// #618 K1: record the running turn; a bridge killed mid-turn leaves it on disk.
+	journalTurnID := e.journalTurnBegin(msg, interactiveKey, workspaceDir, session, state.agentSession)
+	defer e.journalTurnEnd(interactiveKey, journalTurnID)
 	e.cancelAgentSessionIdleClose(state)
 
 	if workspaceDir != "" && e.workspacePool != nil {
