@@ -415,7 +415,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
 
   const room = state.rooms.find(r => r.id === state.roomId)
   const channelId = room?.parent_id ?? room?.id
-  const visibleMembers = state.members.filter(m => (!m.rooms?.length || (channelId !== undefined && m.rooms.includes(channelId))) && (m.kind !== 'bot' || m.online))
+  const visibleMembers = state.members.filter(m => !m.rooms?.length || (channelId !== undefined && m.rooms.includes(channelId)))
   const openTaskOwners = new Set(
     (state.tasks ?? []).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status)).map(t => t.owner)
   )
@@ -863,7 +863,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           member={dialog ?? undefined}
           listModels={listModels}
           listClis={listClis}
-          onSubmit={input => (dialog === null ? addMember({ ...input, ...(channelId === undefined ? {} : { rooms: [channelId] }) }) : updateMember(dialog.id, input))}
+          onSubmit={input => (dialog === null ? addMember(input) : updateMember(dialog.id, input))}
           onClose={() => { setDialog(undefined) }}
           t={t}
         />

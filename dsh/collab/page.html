@@ -95,7 +95,7 @@ function renderMembers() {
   const busy = new Set(state.thinking[state.room] || []);
   const room = state.rooms.find(r => r.id === state.room);
   const channel = room?.parent_id ?? room?.id;
-  const visible = state.members.filter(m => (!m.rooms?.length || m.rooms.includes(channel)) && (m.kind !== 'bot' || m.online));
+  const visible = state.members.filter(m => !m.rooms?.length || m.rooms.includes(channel));
   const groups = [['Agent', visible.filter(m => m.kind !== 'human')], ['真人', visible.filter(m => m.kind === 'human')]];
   const nodes = [];
   for (const [title, list] of groups) {
