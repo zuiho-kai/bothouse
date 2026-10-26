@@ -122,6 +122,7 @@ func inputFixture(t *testing.T) (*APIServer, *Engine, *inputTestAgent, *inputTes
 	ag := &inputTestAgent{session: as, requested: make(chan string, 32)}
 	p := &inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
 	e := NewEngine("gge", ag, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	session := e.sessions.GetOrCreateActive(inputTestKey)
 	session.SetAgentSessionID(as.id, ag.Name())
 	api := &APIServer{engines: map[string]*Engine{"gge": e}}
