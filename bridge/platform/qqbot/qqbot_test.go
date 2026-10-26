@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
+	"github.com/gorilla/websocket"
 )
 
 // Interaction routing also acknowledges the click. Supply both authentication
@@ -611,6 +612,279 @@ func TestHandleGroupMessage_QuoteFromMsgElements(t *testing.T) {
 	want := "[引用消息]\n之前的讨论内容\n\n看看这个"
 	if got.Content != want {
 		t.Fatalf("content = %q, want %q", got.Content, want)
+	}
+}
+
+// TestHandleGroupMessage_SetsMentionedAndChannelKey covers the team-mode inputs
+// core reads off a message: GROUP_AT_MESSAGE_CREATE is only delivered when the
+// bot was @-mentioned (core/gate_local.go), so a group message that reaches this
+// handler names us; the group openid is the channel a workspace binds to
+// (core/engine.go effectiveWorkspaceChannelKey).
+func TestHandleGroupMessage_SetsMentionedAndChannelKey(t *testing.T) {
+	p := &Platform{
+		allowFrom:    "*",
+		messageCache: map[string]cachedMessage{},
+	}
+
+	got := make(chan *core.Message, 1)
+	p.handler = func(_ core.Platform, msg *core.Message) {
+		got <- msg
+	}
+
+	payload := map[string]any{
+		"id":           "group-msg-1",
+		"group_openid": "group-openid-1",
+		"content":      "<@!bot123> 大家好",
+		"timestamp":    time.Now().Format(time.RFC3339),
+		"author": map[string]any{
+			"member_openid": "member-openid-1",
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.handleGroupMessage(data)
+
+	select {
+	case msg := <-got:
+		if !msg.Mentioned {
+			t.Error("Mentioned = false, want true: GROUP_AT_MESSAGE_CREATE is only delivered for @-mentions")
+		}
+		if msg.Direct {
+			t.Error("Direct = true, want false for a group message")
+		}
+		if msg.ChannelKey != "group-openid-1" {
+			t.Errorf("ChannelKey = %q, want %q", msg.ChannelKey, "group-openid-1")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler was not called for group message")
+	}
+}
+
+// TestHandleC2CMessage_SetsDirectAndChannelKey: a C2C message is a private chat,
+// so it calls the bot through Direct, not Mentioned (core/gate_local.go); the user
+// openid is the channel a workspace binds to.
+func TestHandleC2CMessage_SetsDirectAndChannelKey(t *testing.T) {
+	p := &Platform{
+		allowFrom:    "*",
+		messageCache: map[string]cachedMessage{},
+	}
+
+	got := make(chan *core.Message, 1)
+	p.handler = func(_ core.Platform, msg *core.Message) {
+		got <- msg
+	}
+
+	payload := map[string]any{
+		"id":        "c2c-msg-1",
+		"content":   "你好",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"author": map[string]any{
+			"user_openid": "user-openid-1",
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.handleC2CMessage(data)
+
+	select {
+	case msg := <-got:
+		if !msg.Direct {
+			t.Error("Direct = false, want true for a C2C message")
+		}
+		if msg.Mentioned {
+			t.Error("Mentioned = true, want false: a DM calls the bot through Direct, not an @")
+		}
+		if msg.ChannelKey != "user-openid-1" {
+			t.Errorf("ChannelKey = %q, want %q", msg.ChannelKey, "user-openid-1")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler was not called for c2c message")
+	}
+}
+
+// TestHandleInteractionCreate_SetsDirectAndChannelKey: a button click synthesizes
+// a message that must carry the chat it came from, otherwise the engine cannot
+// tell a group button from a DM button (core/gate_local.go, workspace binding).
+func TestHandleInteractionCreate_SetsDirectAndChannelKey(t *testing.T) {
+	mockInteractionACK(t)
+
+	tests := []struct {
+		name           string
+		chatType       int
+		groupOpenID    string
+		groupMemberID  string
+		userOpenID     string
+		buttonData     string
+		wantDirect     bool
+		wantChannelKey string
+	}{
+		{
+			name:           "group",
+			chatType:       1,
+			groupOpenID:    "group-1",
+			groupMemberID:  "member-1",
+			userOpenID:     "user-1",
+			buttonData:     "perm:allow:qqbot:group-1:member-1",
+			wantDirect:     false,
+			wantChannelKey: "group-1",
+		},
+		{
+			name:           "c2c",
+			chatType:       2,
+			userOpenID:     "user-2",
+			buttonData:     "perm:allow:qqbot:user-2",
+			wantDirect:     true,
+			wantChannelKey: "user-2",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Platform{allowFrom: "*"}
+			got := make(chan *core.Message, 1)
+			p.handler = func(_ core.Platform, msg *core.Message) {
+				got <- msg
+			}
+
+			payload := map[string]any{
+				"id":                  "interact-" + tt.name,
+				"group_openid":        tt.groupOpenID,
+				"group_member_openid": tt.groupMemberID,
+				"user_openid":         tt.userOpenID,
+				"chat_type":           tt.chatType,
+				"data": map[string]any{
+					"type": 11,
+					"resolved": map[string]any{
+						"button_data": tt.buttonData,
+						"button_id":   "b_0_0",
+					},
+				},
+			}
+			data, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.handleInteractionCreate(data)
+
+			select {
+			case msg := <-got:
+				if msg.Direct != tt.wantDirect {
+					t.Errorf("Direct = %v, want %v", msg.Direct, tt.wantDirect)
+				}
+				if msg.ChannelKey != tt.wantChannelKey {
+					t.Errorf("ChannelKey = %q, want %q", msg.ChannelKey, tt.wantChannelKey)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("handler was not called for interaction")
+			}
+		})
+	}
+}
+
+// TestReadLoop_DispatchDoesNotBlockHeartbeatAck is a regression test: the engine
+// turn started by a handler can run for minutes, while heartbeat ACKs arrive on
+// the same read loop. Dispatching synchronously starves the ACK, flips
+// heartbeatOK false and forces a reconnect (core reads the same symptom as
+// "qqbot: no heartbeat ACK received, reconnecting").
+func TestReadLoop_DispatchDoesNotBlockHeartbeatAck(t *testing.T) {
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondReceived := make(chan struct{}, 1)
+
+	upgrader := websocket.Upgrader{}
+	serverConn := make(chan *websocket.Conn, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serverConn <- conn
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		server.Close()
+		t.Fatalf("dial fake gateway: %v", err)
+	}
+
+	p := &Platform{}
+	p.wsConn = conn
+	p.handler = func(_ core.Platform, msg *core.Message) {
+		switch msg.MessageID {
+		case "msg-block":
+			close(firstStarted)
+			<-releaseFirst
+		case "msg-after":
+			secondReceived <- struct{}{}
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	loopDone := make(chan struct{})
+	go func() {
+		defer close(loopDone)
+		p.readLoop(ctx)
+	}()
+	t.Cleanup(func() {
+		close(releaseFirst)
+		cancel()
+		_ = conn.Close()
+		server.Close()
+		<-loopDone
+	})
+
+	gw := <-serverConn
+
+	writeEvent := func(id string) {
+		t.Helper()
+		payload, err := json.Marshal(map[string]any{
+			"id":        id,
+			"content":   "hello",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"author":    map[string]any{"user_openid": "user-1"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		seq := int64(1)
+		if err := gw.WriteJSON(wsPayload{Op: opDispatch, T: "C2C_MESSAGE_CREATE", D: payload, S: &seq}); err != nil {
+			t.Fatalf("write dispatch event: %v", err)
+		}
+	}
+
+	writeEvent("msg-block")
+
+	select {
+	case <-firstStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first dispatch never reached the handler")
+	}
+
+	// While the first handler is still blocked, the read loop must keep consuming
+	// frames: queue a heartbeat ACK and then the next event. Frames arrive in
+	// order, so once the second handler runs the ACK above has been read too.
+	p.heartbeatOK.Store(false)
+	seq := int64(2)
+	if err := gw.WriteJSON(wsPayload{Op: opHeartbeatACK, S: &seq}); err != nil {
+		t.Fatalf("write heartbeat ack: %v", err)
+	}
+	writeEvent("msg-after")
+
+	select {
+	case <-secondReceived:
+	case <-time.After(3 * time.Second):
+		t.Fatal("second event was not dispatched while the first handler was blocked: read loop is stuck in user code, so heartbeat ACKs are starved too")
+	}
+	if !p.heartbeatOK.Load() {
+		t.Error("heartbeat ACK was not consumed before the second event: read loop is blocked by user code")
 	}
 }
 
