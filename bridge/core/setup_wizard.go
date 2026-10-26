@@ -1418,6 +1418,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	for i, w := range ids {
 		r := plannedRole{wizardIdentity: w}
 		renamed := false // a new bot's name was taken and got -N
+		// a default name (backend display name, not typed by the user) takes -N when taken;
+		// a name the user typed that is already in use is refused when adding
+		autoNamed := w.NameCustomized != nil && !*w.NameCustomized
 		switch {
 		case w.reuse != "":
 			if _, ok := s.project(w.reuse); !ok {
@@ -1430,7 +1433,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		case isFeishuPlatform(req.Platform) && sameFeishuApp(s, req.Feishu, used) != "":
 			// the same Feishu / Lark app is already configured: update it, don't add a second project
 			r.project, r.reused = sameFeishuApp(s, req.Feishu, used), true
-		case cloudWeb && !req.AppendOnly && sameCloudWebMember(s, cwBase, w, used) != "":
+		case cloudWeb && !(req.AppendOnly && autoNamed) && sameCloudWebMember(s, cwBase, w, used) != "":
 			// the same member of the same platform is already configured: update it, don't add name-2
 			r.project, r.reused = sameCloudWebMember(s, cwBase, w, used), true
 		default:
@@ -1479,7 +1482,6 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 			r.project = name
 		}
-		autoNamed := w.NameCustomized != nil && !*w.NameCustomized
 		if req.AppendOnly && (r.reused || renamed && !autoNamed) {
 			given := w.Name // the name the user typed, not the project name it maps to
 			if given == "" {
