@@ -8,20 +8,35 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 TMP = tempfile.mkdtemp()
-os.environ["BOARD_DIR"] = TMP
-os.environ.pop("CC_SESSION_KEY", None)
-os.environ.pop("BOARD_AUTO_PRUNE", None)
-os.environ.pop("BOARD_PRUNE_IDLE_HOURS", None)
-os.environ["BOARD_PR_REPO"] = "zuiho-kai/bothouse"
-os.environ["CC_BIN"] = "false"
 FAKEBIN = Path(TMP) / "fakebin"
 FAKEBIN.mkdir()
 GH_LOG = Path(TMP) / "gh.log"
 # 假 gh：记一次调用，输出 FAKE_GH_OUT（没设就失败 = gh 查不到）
 (FAKEBIN / "gh").write_text(f'#!/bin/sh\necho call >> "{GH_LOG}"\n[ -n "$FAKE_GH_OUT" ] || exit 1\nprintf %s "$FAKE_GH_OUT"\n')
 (FAKEBIN / "gh").chmod(0o755)
-os.environ["PATH"] = f"{FAKEBIN}:{os.environ['PATH']}"
 import board  # noqa: E402
+
+# 环境和 board.DIR 在模块开始/结束时设/还原：pytest 同进程跑多个测试文件时，board 可能已被别的文件按它的
+# BOARD_DIR 导入过（DIR 是导入时定的），不改这里会和子进程读的 BOARD_DIR 对不上
+_SAVED = {}
+
+
+def setUpModule():
+    _SAVED["env"] = dict(os.environ)
+    _SAVED["dir"] = board.DIR
+    os.environ["BOARD_DIR"] = TMP
+    for k in ("CC_SESSION_KEY", "BOARD_AUTO_PRUNE", "BOARD_PRUNE_IDLE_HOURS", "FAKE_GH_OUT"):
+        os.environ.pop(k, None)
+    os.environ["BOARD_PR_REPO"] = "zuiho-kai/bothouse"
+    os.environ["CC_BIN"] = "false"
+    os.environ["PATH"] = f"{FAKEBIN}:{os.environ['PATH']}"
+    board.DIR = Path(TMP)
+
+
+def tearDownModule():
+    os.environ.clear()
+    os.environ.update(_SAVED["env"])
+    board.DIR = _SAVED["dir"]
 
 SAMPLES = [341, 462, 467, 557, 574, 575, 583, 584]
 KEEP = [589, 591, 600, 602, 607, 609]
