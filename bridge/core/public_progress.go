@@ -617,7 +617,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			continue
 		}
 		if ev.IsKeyFact {
-			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.SessionKey, r.publisher)
+			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.ChannelID, r.publisher)
 			if err == nil {
 				err = publisher.PublishTaskFact(ctx, task, ev, lang)
 			}
@@ -660,13 +660,32 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 // 10:43: 「那个任务卡只在工作区显示，任何非其他工作区都不要显示太大，太占位置了」).
 var errCardOutsideWorkspace = errors.New("task cards are only shown in workspace channels; this channel is not a workspace, so no card was opened: reply in plain text here, or hand the work to a workspace")
 
-// checkWorkspaceCard refuses a new card (progress start, task assign, task relay) for a session
-// outside a workspace channel.
+// checkWorkspaceCard refuses a task card for a session outside a workspace
+// channel.
 func (p *PublicProgress) checkWorkspaceCard(session string) error {
 	if p.workspaceChat != nil && !p.workspaceChat(session) {
 		return errCardOutsideWorkspace
 	}
 	return nil
+}
+
+// checkAssignmentCard refuses a new task card for a chat-channel source only
+// when no execution workspace is named. With an explicit workspace the card
+// opens there, never in the chat channel (#453).
+func (p *PublicProgress) checkAssignmentCard(session, workspace string) error {
+	if strings.TrimSpace(workspace) != "" {
+		return nil
+	}
+	return p.checkWorkspaceCard(session)
+}
+
+// cardSession is the channel a task card lives in: the source workspace, or
+// the execution workspace when the source is a chat channel.
+func (p *PublicProgress) cardSession(source, exec string) string {
+	if exec != "" && p.workspaceChat != nil && !p.workspaceChat(source) {
+		return exec
+	}
+	return source
 }
 
 func (e *Engine) EnablePublicProgress() error {

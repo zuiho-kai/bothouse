@@ -316,6 +316,7 @@ func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
 	defer e.cancel()
+	allChatsAreWorkspaces(e)
 	dataDir := t.TempDir()
 	e.SetDataDir(dataDir)
 	dir := t.TempDir()

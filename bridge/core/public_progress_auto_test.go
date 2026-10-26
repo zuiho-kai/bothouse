@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -379,8 +380,8 @@ func markWorkspace(t *testing.T, e *Engine, sessions ...string) {
 }
 
 // User 2026-10-26: 「聊天频道不要自动任务卡，太占位置」. Automatic cards open only in workspace
-// channels; a chat channel, a voice turn or a private chat gets none, and the agent's own start
-// still opens a card anywhere.
+// channels; a chat channel, a voice turn or a private chat gets none. Since 10-26 10:43 the
+// agent's own start is refused outside workspaces too.
 func TestAutoProgress_OnlyWorkspaceChannelsGetAutoCard(t *testing.T) {
 	platform := newProgressPlatform()
 	e := NewEngine("fish", &stubAgent{}, []Platform{platform}, "", LangChinese)
@@ -412,13 +413,17 @@ func TestAutoProgress_OnlyWorkspaceChannelsGetAutoCard(t *testing.T) {
 	if n := len(e.publicProgress.Tasks("room:wsvoice", 10)); n != 0 {
 		t.Fatalf("voice turn opened %d automatic cards", n)
 	}
-	// The agent's own start in a chat channel still opens its card.
+	// User 2026-10-26 10:43: no card at all outside workspaces — the card prompt is not
+	// injected and the agent's own start is refused with a clear error.
 	chat := &interactiveState{platform: platform, turnDesc: "改动画"}
-	e.withPublicProgress("prompt", chat, "room:chat2", false, false)
-	if _, err := e.publicProgress.Report(PublicProgressRequest{Project: "fish", SessionKey: "room:chat2", Run: chat.publicProgressRun, Seq: 1, Kind: "start", Title: "改动画", Summary: "开始"}); err != nil {
-		t.Fatal(err)
+	if got := e.withPublicProgress("prompt", chat, "room:chat2", false, false); got != "prompt" || chat.publicProgressRun != "" {
+		t.Fatalf("chat channel got card prompt %q / token %q", got, chat.publicProgressRun)
 	}
-	if tasks := e.publicProgress.Tasks("room:chat2", 10); len(tasks) != 1 || tasks[0].Title != "改动画" {
+	_, err := e.publicProgress.Report(PublicProgressRequest{Project: "fish", SessionKey: "room:chat2", Run: strings.Repeat("a", 64), Seq: 1, Kind: "start", Title: "改动画", Summary: "开始"})
+	if !errors.Is(err, errCardOutsideWorkspace) {
+		t.Fatalf("start in chat channel: err = %v", err)
+	}
+	if tasks := e.publicProgress.Tasks("room:chat2", 10); len(tasks) != 0 {
 		t.Fatalf("agent card in chat channel = %+v", tasks)
 	}
 }

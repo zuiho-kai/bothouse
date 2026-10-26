@@ -17504,7 +17504,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if err != nil {
 		return "", err
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil)
 }
 
 // relayGateQuery is the text the gate searches the wiki with: the assignment
@@ -17520,12 +17520,15 @@ func relayGateQuery(message string) string {
 }
 
 // handleTrackedRelay owns execution and team lifecycle after the caller has
-// resolved its conversation key. Task-scoped relays can pass their scoped key
-// here to share timeout/drain behavior without sharing conversation history.
+// resolved its conversation key. sourceSessionKey stays the task identity for
+// reports and team work; ccSessionKey is where the process really runs, so it
+// gets CC_SESSION_KEY (a workspace B for a cross-workspace dispatch, else the
+// source session). Task-scoped relays can pass their scoped key here to share
+// timeout/drain behavior without sharing conversation history.
 // Closing stop (task relays' ten-minute watch; nil = never) closes the session
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
-func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, completion ...func(string, error)) (string, error) {
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, ccSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, completion ...func(string, error)) (string, error) {
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -17543,7 +17546,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	}()
 
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		inj.SetSessionEnv(e.roleSessionEnv(sourceSessionKey))
+		inj.SetSessionEnv(e.roleSessionEnv(ccSessionKey))
 	}
 	e.applySessionModel(agent, relaySessionKey)
 	e.applySessionInstructions(agent, relaySessionKey)

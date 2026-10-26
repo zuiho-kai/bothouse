@@ -87,8 +87,8 @@ func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
 	}
 	got, live := teamBoardMembers(files, "discord:111", nil)
 	for _, want := range []string{
-		"**大豆包**　↗️ 在#外出忙（",
-		"**小橙**　↗️ 在别的频道忙（",
+		"**大豆包**　↗️ 在<#222>忙：外出巡逻（",
+		"**小橙**　↗️ 在私聊忙（",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("board missing %q:\n%s", want, got)
@@ -128,6 +128,7 @@ func TestRenderTeamBoardStableOverTime(t *testing.T) {
 func TestUpdateTeamBoards(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	now := time.Now()
 	boards := map[string]*boardChat{}
 
@@ -162,6 +163,7 @@ func TestUpdateTeamBoards(t *testing.T) {
 func TestUpdateTeamBoardsKeepsStateOnFailure(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, fail: true}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	boards := map[string]*boardChat{}
 	if e.updateTeamBoards(boardFiles(time.Now()), boards) {
 		t.Fatal("failed posts must not count as changes")
@@ -399,6 +401,7 @@ func TestTeamBoardEditGivesUp(t *testing.T) {
 			p := &stubBoardEditFails{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
 				failFor: "discord:111", editErr: tc.editErr}
 			e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+			allChatsAreWorkspaces(e)
 			boards := map[string]*boardChat{"discord:111": {SessionKey: "discord:111", MessageID: tc.messageID, Content: "old"}}
 			before := time.Now().Add(-time.Minute)
 			logs, restore := captureSlog(t)
@@ -472,6 +475,7 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	p := &stubBoardEditFails{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
 		failFor: "discord:111", editErr: fmt.Errorf("discord: edit board: %w: 50083", ErrBoardUnremovable)}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true, inject: true}
 	gaveUp := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
@@ -554,6 +558,7 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 func TestRetireBoardPyCards(t *testing.T) {
 	p := &stubBoardRemover{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}, failFor: "m2"}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	dir := t.TempDir()
 	path := filepath.Join(dir, boardPyCardsFile)
 	if err := os.WriteFile(path, []byte(`{"111":"m1","222":"m2"}`), 0o600); err != nil {
