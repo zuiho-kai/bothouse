@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
-import type { ChannelSnapshot } from '../src/client/channel-source.ts'
+import { createChannelSource, type ChannelSnapshot, type ChannelTransport } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from '../src/client/ChannelsPage.module.css'
@@ -25,7 +25,7 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
   return {
     useChannels: (select: (s: ChannelSnapshot) => unknown) => select(state),
     selectRoom: vi.fn(), send, openModelSettings: () => false,
-    createRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
+    createRoom: vi.fn(async () => {}), renameRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
     setLead: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}),
     t: (key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
@@ -42,7 +42,9 @@ describe('channels page', () => {
     const member = screen.getByTitle(zh.mentionPick.replace('{name}', '橘'))
     expect(member.parentElement?.classList.contains(css.offline)).toBe(true)
     expect(member.textContent).toContain(zh.offline)
-    expect(screen.getByRole('button', { name: zh.lead }).textContent).toContain('橘')
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
+    expect(lead.selectedOptions[0].textContent).toContain('橘')
   })
 
   it('keeps offline channel members in the legacy roster and dims them', () => {
@@ -83,7 +85,45 @@ describe('channels page', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '@' } })
     expect(screen.getAllByRole('option').some(o => o.textContent?.includes('OfficeOnly'))).toBe(true)
     expect(screen.getAllByRole('option').some(o => o.textContent?.includes('GameOnly'))).toBe(false)
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = within(screen.getByRole('combobox', { name: zh.channelLead }))
+    expect(lead.queryByRole('option', { name: 'GameOnly' })).toBeNull()
+    expect(lead.getByRole('option', { name: 'OfficeOnly' })).toBeTruthy()
   })
+  it('edits the three channel settings through shared actions and shows rename failures', async () => {
+    const p = props({ ...ready, members: [...ready.members, { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true }] })
+    const renameRoom = vi.fn(async () => { throw Error('rename failed') })
+    render(<ChannelsPage {...p} renameRoom={renameRoom} />)
+    const sidebar = within(screen.getByRole('complementary'))
+    expect(sidebar.queryByRole('button', { name: zh.lead })).toBeNull()
+    expect(sidebar.queryByRole('group', { name: zh.dispatchMode })).toBeNull()
+    expect(sidebar.getByRole('button', { name: zh.channelSettings })).toBeTruthy()
+    expect(sidebar.getByRole('button', { name: `+ ${zh.addMember}` })).toBeTruthy()
+    expect(sidebar.getByTitle(zh.mentionPick.replace('{name}', '橘'))).toBeTruthy()
+    fireEvent.click(sidebar.getByRole('button', { name: zh.channelSettings }))
+    const dialog = within(screen.getByRole('dialog', { name: zh.channelSettings }))
+    await act(async () => { fireEvent.click(dialog.getByRole('radio', { name: zh.dispatchTeam })) })
+    expect(p.setDispatchMode).toHaveBeenCalledWith(1, 'team')
+    await act(async () => { fireEvent.change(dialog.getByRole('combobox', { name: zh.channelLead }), { target: { value: 'ds' } }) })
+    expect(p.setLead).toHaveBeenCalledWith('ds')
+    const name = dialog.getByRole('textbox', { name: zh.channelName })
+    fireEvent.change(name, { target: { value: 'bad name' } })
+    expect((dialog.getByRole('button', { name: zh.messageSave }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(name, { target: { value: '新频道' } })
+    await act(async () => { fireEvent.click(dialog.getByRole('button', { name: zh.messageSave })) })
+    expect(renameRoom).toHaveBeenCalledWith(1, '新频道')
+    expect(dialog.getByRole('alert').textContent).toBe('rename failed')
+  })
+
+  it('keeps workspace names fixed in settings', () => {
+    render(<ChannelsPage {...props({ ...ready, rooms: [{ id: 1, name: '工作区1', kind: 'workspace', parent_id: 2 }] })} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const dialog = within(screen.getByRole('dialog', { name: zh.channelSettings }))
+    expect((dialog.getByRole('textbox', { name: zh.channelName }) as HTMLInputElement).disabled).toBe(true)
+    expect(dialog.getByText(zh.workspaceNameFixed)).toBeTruthy()
+  })
+
   it('shows only six existing capabilities for a slash draft, with usage and no side effects', () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
@@ -140,6 +180,7 @@ describe('channels page', () => {
   it('selects dispatch mode and reports a failed save', async () => {
     const save = vi.fn(async () => { throw Error('save failed') })
     render(<ChannelsPage {...props(ready)} setDispatchMode={save} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
     const selector = screen.getByRole('radio', { name: zh.dispatchMixed })
     expect((selector as HTMLInputElement).checked).toBe(true)
     expect(screen.getByText(zh.dispatchSolo)).toBeTruthy()
@@ -172,10 +213,10 @@ describe('channels page', () => {
       { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true },
     ] }
     render(<ChannelsPage {...props(state)} setLead={setLead} />)
-    const trigger = screen.getByRole('button', { name: zh.lead })
-    expect(trigger.textContent).toContain('橘')
-    fireEvent.click(trigger)
-    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '鲸鱼娘' })) })
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
+    expect(lead.selectedOptions[0].textContent).toContain('橘')
+    await act(async () => { fireEvent.change(lead, { target: { value: 'ds' } }) })
     expect(setLead).toHaveBeenCalledExactlyOnceWith('ds')
   })
 
@@ -183,8 +224,9 @@ describe('channels page', () => {
     const setLead = vi.fn(async () => {})
     const state: ChannelSnapshot = { ...ready, leadId: null, effectiveLeadId: 'ju' }
     render(<ChannelsPage {...props(state)} setLead={setLead} />)
-    fireEvent.click(screen.getByRole('button', { name: zh.lead }))
-    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '橘' })) })
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
+    await act(async () => { fireEvent.change(lead, { target: { value: 'ju' } }) })
     expect(setLead).toHaveBeenCalledExactlyOnceWith('ju')
   })
 
@@ -466,7 +508,48 @@ describe('channels page', () => {
     expect(p.createRoom).not.toHaveBeenCalled()
   })
 
-  it('adds a globally visible member without a room scope and keeps the form on a refusal', async () => {
+  it.each([2, 1000000])('binds a member submitted from room %i to its chat channel', async (roomId) => {
+    const posted: unknown[] = []
+    const transport: ChannelTransport = {
+      url: path => `/${path}`,
+      openEvents: () => ({ onopen: null, onmessage: null, onerror: null, close() {} }),
+      fetch: async (url, init) => {
+        let body: unknown = { messages: [] }
+        if (url === '/collab/api/state') body = {
+          ...ready,
+          rooms: [...ready.rooms, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 2 }],
+        }
+        if (url === '/collab/api/models') body = { routes: [{ provider: 'relay', name: 'Relay', models: [{ id: 'm1', name: 'M1' }] }] }
+        // The member dialog reads the persona library on open; an array keeps it rendering.
+        if (url === '/collab/api/personas') body = []
+        if (url === '/collab/api/members') {
+          expect(init?.method).toBe('POST')
+          posted.push(JSON.parse(String(init?.body)))
+          body = {}
+        }
+        return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+      },
+    }
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    try {
+      await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+      await actions.selectRoom(roomId)
+      render(<ChannelsPage {...props(source.getSnapshot())} {...actions} />)
+      fireEvent.click(screen.getByRole('button', { name: '+ ' + zh.addMember }))
+      const dialog = await screen.findByRole('dialog')
+      await act(async () => {})
+      fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
+      fireEvent.change(screen.getByLabelText(zh.memberModel), { target: { value: 'relay\u0000m1' } })
+      await act(async () => { fireEvent.submit(dialog) })
+      expect(posted).toEqual([expect.objectContaining({ name: 'Coder', rooms: [2] })])
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('submits member details and keeps the form on a refusal', async () => {
     const p = props({ ...ready, thinking: {} })
     ;(p.listModels as ReturnType<typeof vi.fn>).mockResolvedValue([
       { provider: 'relay', name: '中转站', models: [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }] },

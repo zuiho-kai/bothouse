@@ -18012,8 +18012,8 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.relayManager.AddToBind(p.Name(), chatID, otherProject)
 
 	// Get all bound projects for status message
-	// Same view as a bare /bind: manual binding plus the wizard team (relay_team_bind.go).
-	binding := e.relayManager.EffectiveBinding(p.Name(), chatID)
+	// Same view as a bare /bind: manual binding plus this project's team (relay_team_bind.go).
+	binding := e.relayManager.EffectiveBindingFor(p.Name(), chatID, e.name)
 	var boundProjects []string
 	if binding != nil {
 		for proj := range binding.Bots {
@@ -18034,7 +18034,7 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 }
 
 func (e *Engine) cmdBindStatus(p Platform, replyCtx any, platform, chatID string) {
-	binding := e.relayManager.EffectiveBinding(platform, chatID)
+	binding := e.relayManager.EffectiveBindingFor(platform, chatID, e.name)
 	if binding == nil {
 		e.reply(p, replyCtx, e.i18n.T(MsgRelayNoBinding))
 		return

@@ -4,7 +4,7 @@
  */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
-import type { NS } from './locales.ts'
+import type { NS, zh } from './locales.ts'
 
 export type T = TranslateNS<typeof NS>
 
@@ -14,13 +14,14 @@ export const STATUS_KEY = {
   escalated: 'taskEscalated', returned: 'taskReturned', done: 'taskDone', rework: 'taskRework',
 } as const satisfies Record<TaskStatus, string>
 
-/** Board order: the owner's turn first (tasks.mjs WORKING), then waiting for the lead, then finished. */
-const GROUPS: readonly (readonly TaskStatus[])[] = [
-  ['assigned', 'accepted', 'asked', 'rework'],
-  ['returned', 'declined', 'escalated'],
-  ['done'],
+/** Single source for tab membership and board ordering; an empty list means all statuses. */
+export const BOARD_TABS: readonly { id: string; label: keyof typeof zh; statuses: readonly TaskStatus[]; initial?: boolean }[] = [
+  { id: 'all', label: 'taskTabAll', statuses: [] },
+  { id: 'working', label: 'taskTabWorking', statuses: ['assigned', 'accepted', 'asked', 'rework'], initial: true },
+  { id: 'review', label: 'taskTabReview', statuses: ['returned', 'declined', 'escalated'] },
+  { id: 'done', label: 'taskTabDone', statuses: ['done'] },
 ]
-const groupOf = (status: TaskStatus): number => GROUPS.findIndex(g => g.includes(status))
+const groupOf = (status: TaskStatus): number => BOARD_TABS.findIndex(g => g.statuses.includes(status))
 
 /** Board rows, grouped as above and newest first inside a group. */
 export function boardOrder(tasks: readonly ChannelTask[]): ChannelTask[] {

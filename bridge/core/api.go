@@ -915,15 +915,22 @@ func (s *APIServer) handleRelayBinding(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "chat_id is required", http.StatusBadRequest)
 		return
 	}
-	// platform (optional) adds the wizard team of that platform; without it, the manual
-	// binding's own platform is used.
+	// platform (optional) adds the configured/wizard team of that platform; without it,
+	// the manual binding's own platform is used. project (optional) limits the team to
+	// that project's team, so two teams on one platform stay isolated.
 	platform := r.URL.Query().Get("platform")
 	if platform == "" {
 		if b := s.relay.GetBinding(chatID); b != nil {
 			platform = b.Platform
 		}
 	}
-	binding := s.relay.EffectiveBinding(platform, chatID)
+	project := r.URL.Query().Get("project")
+	var binding *RelayBinding
+	if project != "" {
+		binding = s.relay.EffectiveBindingFor(platform, chatID, project)
+	} else {
+		binding = s.relay.EffectiveBinding(platform, chatID)
+	}
 	if binding == nil {
 		http.Error(w, "no binding found", http.StatusNotFound)
 		return

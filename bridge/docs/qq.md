@@ -136,6 +136,73 @@ Both need the roles to run in one process: each `qq` platform registers itself b
 
 `http_url` is NapCat's HTTP API endpoint (e.g. `http://127.0.0.1:3000`). With it set, receiving a file re-resolves an expiring CDN link via `get_group_file_url` / `get_file`, and sending a file goes over HTTP instead of the WebSocket, avoiding large frames and cross-container path issues.
 
+### 消息上报格式必须是 array / The report format must be array
+
+NapCat 的 OneBot 配置里，每个 server 都要设 `"messagePostFormat": "array"`。设成 `string` 时消息以 CQ 码字符串上报，图片、文件、@ 这些 segment 都拿不到结构化字段，图片尤其会直接解析失败。这是接 NapCat 最容易踩的一个坑。
+
+Set `"messagePostFormat": "array"` on every server in NapCat's OneBot config. With `string`, messages arrive as one CQ-code string: images, files and @ lose their structured fields, and images in particular fail to parse. This is the easiest trap when wiring up NapCat.
+
+（这条来自公开实现 [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) 的踩坑记录，不是我们自己试出来的。）
+
+(From the notes of the public [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) project, not something we hit ourselves.)
+
+### 模型写出纯文本 @ 时 / When the model writes a plain @
+
+模型常常把 `@123456` 当普通文字输出。直接发出去，对方只会看到「@123456」这几个字，不会收到提醒。所以发送前会把纯文本的 `@数字` 转成 `[CQ:at,qq=数字]`（`@all` → `qq=all`），已经是 CQ 码的不动。
+
+Models often emit `@123456` as plain text. Sent as-is, the person just sees the literal characters and gets no notification. Outgoing messages therefore turn a plain `@digits` into `[CQ:at,qq=digits]` (`@all` → `qq=all`), leaving existing CQ codes alone.
+
+两个公开的 OneBot 桥接都做了同一件事，我们是照它们做的：[openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) 的 `convertPlainAtToCq`、[qqbot-claude](https://github.com/foggyww/qqbot-claude) 的 `normalizeOutgoingMessage`。两边也都只把它当作「模型没按格式输出」的兜底，而不是主路径。
+
+Two public OneBot bridges do exactly this, and ours follows them: `convertPlainAtToCq` in [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) and `normalizeOutgoingMessage` in [qqbot-claude](https://github.com/foggyww/qqbot-claude). Both treat it as a safety net for a model that ignored the format, not as the main path.
+
+## 接到 DSH 频道 / Bridging into DSH channels
+
+DSH（`dsh/`）的频道要接 QQ，**不需要写 QQ 插件**：DSH 的外部 bot 一律走 `cloud_web` 协议（`dsh/collab/README.md`「接入 cc-connect 成员」），QQ 则由 cc-connect 当平台接进来。一个项目同时挂这两个平台，QQ 群和 DSH 频道就是同一个 agent 的两个入口。
+
+There is **no QQ plugin to write** for DSH channels: DSH takes external bots over the `cloud_web` protocol (`dsh/collab/README.md`), and QQ is a cc-connect platform. One project mounting both platforms makes a QQ group and a DSH channel two doors into the same agent.
+
+```
+QQ 群 ←→ NapCat ←WebSocket→ cc-connect ⟨qq 平台⟩
+                                    ↕ 同一个 agent / 同一份记忆
+DSH 频道 ←WebSocket→ cc-connect ⟨cloud_web 平台⟩
+```
+
+```toml
+[[projects]]
+name = "ju"
+
+[[projects.platforms]]
+type = "qq"
+[projects.platforms.options]
+ws_url = "ws://127.0.0.1:3001"
+allow_from = "*"
+share_session_in_channel = true
+
+[[projects.platforms]]
+type = "cloud_web"
+[projects.platforms.options]
+transport = "websocket"
+base_url = "http://127.0.0.1:<DSH 端口>"
+ws_url = "ws://127.0.0.1:<DSH 端口>/cloud-web/ws?bot=ju&name=%E6%A9%98"
+token = "${CONEST_COLLAB_BOT_TOKEN}"
+allow_from = "*"
+share_session_in_channel = true
+group_reply_all = false
+```
+
+两边各自是一个会话（`qq:<群号>`、`cloud_web:<频道>`），共用同一个 agent 和工作目录，所以在 QQ 群里交代的事，DSH 频道里接着问也记得。
+
+Each side is its own session (`qq:<group id>`, `cloud_web:<channel>`), shared agent and working directory: work started in a QQ group is still there when you ask from the DSH channel.
+
+`share_session_in_channel = true` 两边都要开，否则群里每人一个会话，@ 谁都不像一个群。
+
+Set `share_session_in_channel = true` on both, otherwise each person in the group gets their own session and the group does not behave like one channel.
+
+> 这条链路目前**没有真机验过**：QQ 侧和 `cloud_web` 侧各自的收发都有测试，但「QQ 群 → cc-connect → DSH 频道 → 回复回 QQ 群」这个完整来回还没在真实环境跑过。#345 的第 4 部分就是这件事。
+>
+> This path is **not verified end to end yet**: each side has its own tests, but a full QQ group → cc-connect → DSH channel → reply round trip has not run against real services. That is the fourth part of #345.
+
 ## 常见问题 / FAQ
 
 **Q: 连接失败？/ Connection failed?**
