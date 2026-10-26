@@ -17,6 +17,7 @@ type threadArchiveTestPlatform struct {
 	mu             sync.Mutex
 	archived       []string
 	err            error
+	factErr        error
 	activity       time.Time
 	activityErr    error
 	threadArchived map[string]bool
@@ -54,8 +55,12 @@ func (p *threadArchiveTestPlatform) TaskThreadLastActivity(_ context.Context, _ 
 
 func (p *threadArchiveTestPlatform) PublishTaskFact(ctx context.Context, task *Task, ev TaskEvent, lang Language) error {
 	p.mu.Lock()
+	factErr := p.factErr
 	archived := p.threadArchived[task.ID]
 	p.mu.Unlock()
+	if factErr != nil {
+		return factErr
+	}
 	if archived {
 		return fmt.Errorf("%w: %w", ErrTaskFactUndeliverable, ErrDeliveryUnrecoverable)
 	}
@@ -78,6 +83,18 @@ func (p *threadArchiveTestPlatform) setActivity(at time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.activity = at
+}
+
+func (p *threadArchiveTestPlatform) setFactErr(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.factErr = err
+}
+
+func (p *threadArchiveTestPlatform) setThreadReopened(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.threadArchived[id] = false
 }
 
 func (p *threadArchiveTestPlatform) reopenedTasks() []string {
@@ -469,5 +486,97 @@ func TestTaskThreadAcceptAfterArchiveReopensAndDeliversFact(t *testing.T) {
 	}
 	if !accepted {
 		t.Fatal("acceptance fact was not delivered after reopening the thread")
+	}
+}
+
+// A thread the bridge archived was reopened by a reply or by hand. The marker
+// must not freeze it as "already archived": after the new activity's wait it
+// has to be archived again.
+func TestTaskThreadArchiveReArmsAfterReplyOrReopen(t *testing.T) {
+	p, platform := newArchiveProgress(t)
+	id := makeCardInState(t, p, platform, "result_ready")
+	at := time.Now().UTC()
+	setTaskUpdatedAt(t, p, id, at)
+	wait := defaultResultReadyThreadArchiveAfter
+
+	first := at.Add(wait)
+	p.archiveFinishedThreads(context.Background(), first)
+	if got := platform.archivedTasks(); len(got) != 1 || got[0] != id {
+		t.Fatalf("first archive = %v, want [%s]", got, id)
+	}
+
+	reply := first.Add(2 * time.Hour)
+	platform.setActivity(reply)
+	platform.setThreadReopened(id)
+
+	p.archiveFinishedThreads(context.Background(), reply.Add(wait-time.Minute))
+	if got := platform.archivedTasks(); len(got) != 1 {
+		t.Fatalf("archived before the reply's wait elapsed: %v", got)
+	}
+	task, ok := p.Task(id)
+	if !ok || task.ThreadArchivedAt != nil {
+		t.Fatal("thread_archived_at not cleared after the thread was reopened")
+	}
+
+	p.archiveFinishedThreads(context.Background(), reply.Add(wait))
+	if got := platform.archivedTasks(); len(got) != 2 || got[1] != id {
+		t.Fatalf("second archive = %v, want the same thread archived again", got)
+	}
+	task, ok = p.Task(id)
+	if !ok || task.ThreadArchivedAt == nil {
+		t.Fatal("thread_archived_at not set after the second archive")
+	}
+
+	// A third sweep must not call archive again while the thread is still
+	// archived and has no newer activity.
+	p.archiveFinishedThreads(context.Background(), reply.Add(2*wait))
+	if got := platform.archivedTasks(); len(got) != 2 {
+		t.Fatalf("re-archived without new activity: %v", got)
+	}
+}
+
+// A retryable failure while delivering the acceptance must keep the accepted
+// fact pending; the next Flush can still post it.
+func TestTaskThreadAcceptAfterArchiveKeepsFactPendingOnRetryableFailure(t *testing.T) {
+	p, platform := newArchiveProgress(t)
+	id := makeCardInState(t, p, platform, "result_ready")
+	at := time.Now().UTC()
+	setTaskUpdatedAt(t, p, id, at)
+	p.archiveFinishedThreads(context.Background(), at.Add(defaultResultReadyThreadArchiveAfter))
+	beforeFacts := len(platform.recordedFacts())
+
+	platform.setFactErr(errors.New("discord: rate limited"))
+	if _, err := p.Accept(id, "主人"); err != nil {
+		t.Fatalf("accept after archive: %v", err)
+	}
+	p.Flush(context.Background())
+
+	p.mu.Lock()
+	pending := p.pending[id] != nil
+	p.mu.Unlock()
+	if !pending {
+		t.Fatal("retryable failure dropped the pending acceptance")
+	}
+	task, ok := p.Task(id)
+	if !ok || task.State != TaskStateCompleted {
+		t.Fatalf("state after accept = %+v, want completed", task)
+	}
+	if task.ThreadArchivedAt != nil {
+		t.Fatal("thread_archived_at not cleared before retrying the acceptance")
+	}
+	if got := len(platform.recordedFacts()); got != beforeFacts {
+		t.Fatalf("failed fact was recorded as delivered: %d -> %d", beforeFacts, got)
+	}
+
+	platform.setFactErr(nil)
+	p.Flush(context.Background())
+	if got := len(platform.recordedFacts()); got != beforeFacts+1 {
+		t.Fatalf("retry delivered %d facts, want %d", got, beforeFacts+1)
+	}
+	p.mu.Lock()
+	pending = p.pending[id] != nil
+	p.mu.Unlock()
+	if pending {
+		t.Fatal("pending acceptance was not cleared after successful retry")
 	}
 }

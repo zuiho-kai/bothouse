@@ -46,7 +46,8 @@ type TaskThreadReopener interface {
 // TaskThreadActivityReader is an optional platform capability: return when the
 // thread last saw activity (a message or a reopen). The archive sweep waits
 // from the later of this and the card's UpdatedAt, so a fresh reply is not
-// hidden by the same sweep.
+// hidden by the same sweep. Activity newer than the bridge's own archive
+// marker re-arms an archived thread for another archive after the wait.
 type TaskThreadActivityReader interface {
 	TaskThreadLastActivity(context.Context, *Task) (time.Time, error)
 }
@@ -650,8 +651,9 @@ func (p *PublicProgress) startFinishedThreadArchiveLoop(ctx context.Context) {
 // result_ready cards whose longer wait has passed. A card whose latest public
 // fact is still pending is skipped: archiving first would make the platform
 // refuse that final delivery. Nothing is deleted; Discord reopens a thread when
-// someone posts in it again. Archiving a result_ready card never changes its
-// state, so the owner can still accept it.
+// someone posts in it again, and the sweep re-arms an archived thread when that
+// activity arrives so it can be archived again after the wait. Archiving a
+// result_ready card never changes its state, so the owner can still accept it.
 func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Time) {
 	terminalAfter, resultReadyAfter := p.archiveAfter, p.resultReadyArchiveAfter
 	if terminalAfter <= 0 && resultReadyAfter <= 0 {
@@ -678,9 +680,20 @@ func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Ti
 		case t.State == TaskStateResultReady:
 			wait = resultReadyAfter
 		}
+		archivedAt := t.ThreadArchivedAt
+		_, canReadActivity := r.publisher.(TaskThreadActivityReader)
 		due := wait > 0 && t.ThreadID != "" && t.ThreadID != t.ChannelID &&
-			t.ThreadArchivedAt == nil && !t.UpdatedAt.IsZero() && now.Sub(t.UpdatedAt) >= wait &&
-			r.record.CardSeq >= t.Seq && r.record.FactSeq >= t.Seq
+			!t.UpdatedAt.IsZero() && r.record.CardSeq >= t.Seq && r.record.FactSeq >= t.Seq
+		if due {
+			if archivedAt == nil {
+				due = now.Sub(t.UpdatedAt) >= wait
+			} else {
+				// An archived thread is only interesting again once its wait
+				// has elapsed; the activity read below tells us whether a
+				// reply or a manual reopen actually brought it back.
+				due = canReadActivity && now.Sub(*archivedAt) >= wait
+			}
+		}
 		if !due {
 			r.mu.Unlock()
 			continue
@@ -699,9 +712,29 @@ func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Ti
 				slog.Warn("public progress: read task thread activity failed", "task_id", snapshot.ID, "thread", snapshot.ThreadID, "error", err)
 				continue
 			}
-			// A reply or reopen after the card's last progress event restarts
-			// the wait, so the same sweep does not hide the fresh discussion.
-			if activity.After(snapshot.UpdatedAt) && now.Sub(activity) < wait {
+			if archivedAt != nil {
+				if !activity.After(*archivedAt) {
+					continue
+				}
+				// Someone replied or reopened the thread after the bridge
+				// archived it. Clear the marker so the normal wait applies
+				// again from this activity; if enough time has already passed,
+				// archive it again in this same sweep.
+				r.mu.Lock()
+				if r.record.Task.ThreadArchivedAt != nil {
+					r.record.Task.ThreadArchivedAt = nil
+					if err := p.save(r); err != nil {
+						slog.Error("public progress: persist re-armed thread marker failed", "task_id", snapshot.ID, "error", err)
+					}
+				}
+				r.mu.Unlock()
+				if now.Sub(activity) < wait {
+					continue
+				}
+			} else if activity.After(snapshot.UpdatedAt) && now.Sub(activity) < wait {
+				// A reply or reopen after the card's last progress event
+				// restarts the wait, so the same sweep does not hide the fresh
+				// discussion.
 				continue
 			}
 		}
