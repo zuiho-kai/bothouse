@@ -2,6 +2,7 @@ package core
 
 import (
 	"log/slog"
+	"os"
 	"strings"
 )
 
@@ -58,15 +59,86 @@ func ParseCmdOpts(opts map[string]any, defaultBin string) (cmd string, extraArgs
 	return defaultBin, nil
 }
 
-// splitCmdString splits a whitespace-separated cmd string into ordered parts.
+// splitCmdString splits a cmd string into ordered parts.
 // Returns nil when the string is empty or whitespace-only so the caller can
 // fall through to the next priority.
+//
+// Paths containing spaces are supported in two ways (issue #441 — the setup
+// wizard writes a CLI path as a plain string, and Windows paths often contain
+// spaces such as `C:\Program Files\...`):
+//
+//  1. an unquoted string that points at an existing file is kept as a single
+//     command (whole string is the executable path);
+//  2. otherwise double or single quotes group one argument, e.g.
+//     `"C:\Program Files\cli.exe" --flag`.
+//
+// Anything else keeps the historical whitespace-separated behaviour.
 func splitCmdString(s string) []string {
-	parts := strings.Fields(strings.TrimSpace(s))
-	if len(parts) == 0 {
+	t := strings.TrimSpace(s)
+	if t == "" {
 		return nil
 	}
-	return parts
+	if !strings.ContainsAny(t, `"'`) && isExistingFile(t) {
+		return []string{t}
+	}
+	if parts, ok := splitQuoted(t); ok {
+		return parts
+	}
+	return strings.Fields(t)
+}
+
+// isExistingFile reports whether s names an existing regular file. Only
+// path-like strings are checked so plain command names (e.g. "claude") keep
+// going through the normal PATH lookup instead of a cwd-relative stat.
+func isExistingFile(s string) bool {
+	if !strings.ContainsAny(s, `/\`) {
+		return false
+	}
+	info, err := os.Stat(s)
+	return err == nil && !info.IsDir()
+}
+
+// splitQuoted splits s on whitespace while honoring double and single quotes.
+// Backslashes are kept literally (Windows paths are common here), and an
+// unbalanced quote returns ok=false so the caller can fall back to the old
+// whitespace-separated behaviour instead of guessing.
+func splitQuoted(s string) ([]string, bool) {
+	var parts []string
+	var cur strings.Builder
+	var quote rune
+	started := false
+	for _, r := range s {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '"' || r == '\'':
+			quote = r
+			started = true
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			if started || cur.Len() > 0 {
+				parts = append(parts, cur.String())
+				cur.Reset()
+				started = false
+			}
+		default:
+			cur.WriteRune(r)
+			started = true
+		}
+	}
+	if quote != 0 {
+		return nil, false
+	}
+	if started || cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
+	if len(parts) == 0 {
+		return nil, false
+	}
+	return parts, true
 }
 
 // toStringArray accepts the shape TOML produces for inline arrays
