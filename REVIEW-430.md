@@ -32,3 +32,9 @@
 - `completion` is called once per drain; normal pre-timeout return does not call it, so no double wake there.
 - DSH/bridge bundle copies are byte-identical.
 - Plain relay keeps its 10-minute safety limit.
+
+## Checkpoint update
+
+- PR #430 was merged during this review at `d7fced88a39d65ed9b424482176f8c055387f646` (02:45:53Z); code tree matches reviewed head `0ddd12da` (only `docs/astrbot-bridge.md` differs because main advanced).
+- Throwaway probes (not committed) confirmed: (a) six busy checks renew 1..6 and never park; (b) source engine ctx canceled => `relay watch: not started` and task relay session still open 10x safety period after wait ends.
+- Final posted body: `review-body.md`.
