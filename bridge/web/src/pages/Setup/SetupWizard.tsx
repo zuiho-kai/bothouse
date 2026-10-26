@@ -89,7 +89,7 @@ export default function SetupWizard() {
     () => shownNames((state?.projects || []).map((name, i) => ({ name, display_name: state?.project_display_names?.[i] }))),
     [state],
   );
-  // Display names already in use; a project id whose team_name differs is not one of them.
+  // Display names remain independent from stable project IDs; the server suffixes ID collisions.
   const configuredNames = useMemo(
     () => (state?.projects || []).map((name, i) => state?.project_display_names?.[i] || name).filter(Boolean),
     [state],
@@ -156,19 +156,21 @@ export default function SetupWizard() {
           if (r.name) used.add(r.name);
           return r;
         }
-        const name = nextRoleName(r.agent_type || defaultAgent, [...used]);
+        const name = platform === 'discord' && r.info?.username ? r.info.username
+          : platform === 'feishu' ? '' : nextRoleName(r.agent_type || defaultAgent, [...used]);
         used.add(name);
         return { ...r, agent_type: r.agent_type || defaultAgent, name };
       });
     });
-  }, [defaultAgent, configuredNames]);
+  }, [defaultAgent, configuredNames, platform]);
 
   const patchRole = (key: number, p: Partial<RoleDraft>) => setRoles((rs) => rs.map((r) => {
     if (r.key !== key) return r;
     const next = { ...r, ...p };
     const taken = [...configuredNames, ...rs.filter((x) => x.key !== key).map((x) => x.name || '')];
     if (p.agent_type && p.agent_type !== r.agent_type && !r.nameCustomized && !r.reuse_project && p.name === undefined) {
-      next.name = nextRoleName(p.agent_type, taken);
+      next.name = platform === 'discord' && r.info?.username ? r.info.username
+        : platform === 'feishu' ? '' : nextRoleName(p.agent_type, taken);
     }
     if (next.name !== r.name && next.keepPersonaName !== false && next.personaSlug && p.persona === undefined) {
       next.persona = personaWithName(next.persona, r.name || '', next.name || '');
@@ -207,7 +209,8 @@ export default function SetupWizard() {
       // A pasted token of a bot that is already configured is that existing bot: switch to the
       // reuse view (its persona is shown read-only and only written when 改人设 is ticked).
       const reuse = body.reuse_project || existing.find((b) => b.bot_id && b.bot_id === info.bot_id)?.project;
-      patchRole(r.key, { info, checking: false, ...(reuse ? { reuse_project: reuse, token: '' } : {}) });
+      patchRole(r.key, { info, checking: false, ...(!r.nameCustomized ? { name: info.username } : {}),
+        ...(reuse ? { reuse_project: reuse, token: '' } : {}) });
       // an existing bot keeps its server: default to the guild already in its config (H3.3)
       const exGuild = reuse ? existing.find((b) => b.project === reuse)?.guild_id : undefined;
       if (!guildID) setGuildID(exGuild || info.guilds[0]?.id || '');
@@ -353,7 +356,10 @@ export default function SetupWizard() {
       language: lang,
       roles: roles.map((r, i) => ({
         ...(r.reuse_project ? { reuse_project: r.reuse_project } : platform === 'discord' ? { token: mask(r.token, `<BOT_TOKEN_${i + 1}>`) } : {}),
-        ...(!r.reuse_project ? { name: nameOf(r), name_customized: !!r.nameCustomized, keep_persona_name: r.keepPersonaName } : {}),
+        ...(!r.reuse_project ? {
+          name: platform !== 'cloud_web' && !r.nameCustomized ? undefined : nameOf(r),
+          name_customized: !!r.nameCustomized, keep_persona_name: r.keepPersonaName,
+        } : {}),
         agent_type: r.agent_type,
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),

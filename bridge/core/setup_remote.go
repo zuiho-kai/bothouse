@@ -321,16 +321,30 @@ func feishuTenantToken(ctx context.Context, client *http.Client, base, appID, ap
 // FeishuBotOpenID is the bot's open_id (飞书 bot/v3/info, the call platform/feishu makes at start):
 // the id other members @ it by, written to gate-team.json.
 func FeishuBotOpenID(ctx context.Context, appID, appSecret, platformType string) (string, error) {
+	id, _, err := feishuBotIdentity(ctx, appID, appSecret, platformType)
+	return id, err
+}
+
+// FeishuBotName returns the platform's own bot name for new role defaults.
+func FeishuBotName(ctx context.Context, appID, appSecret, platformType string) (string, error) {
+	_, name, err := feishuBotIdentity(ctx, appID, appSecret, platformType)
+	if err == nil && name == "" {
+		err = fmt.Errorf("feishu bot info: bot name is empty")
+	}
+	return name, err
+}
+
+func feishuBotIdentity(ctx context.Context, appID, appSecret, platformType string) (string, string, error) {
 	base, client := feishuBase(platformType), &http.Client{Timeout: setupHTTPTimeout}
 	tok, err := feishuTenantToken(ctx, client, base, appID, appSecret)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/open-apis/bot/v3/info", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("feishu bot info: %w", err)
+		return "", "", fmt.Errorf("feishu bot info: %w", err)
 	}
 	defer resp.Body.Close()
 	var r struct {
@@ -338,12 +352,13 @@ func FeishuBotOpenID(ctx context.Context, appID, appSecret, platformType string)
 		Msg  string `json:"msg"`
 		Bot  struct {
 			OpenID string `json:"open_id"`
+			Name   string `json:"app_name"`
 		} `json:"bot"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil || r.Code != 0 || r.Bot.OpenID == "" {
-		return "", fmt.Errorf("feishu bot info: code=%d %s", r.Code, r.Msg)
+		return "", "", fmt.Errorf("feishu bot info: code=%d %s", r.Code, r.Msg)
 	}
-	return r.Bot.OpenID, nil
+	return r.Bot.OpenID, strings.TrimSpace(r.Bot.Name), nil
 }
 
 // ── jev: test once whether the gate could use the model ─────

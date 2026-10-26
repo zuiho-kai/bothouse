@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/chenhg5/cc-connect/core"
@@ -3627,6 +3628,17 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 						if oldName != "" && oldName != proj.TeamName {
 							content = []byte(core.RenamePersonaIdentity(string(content), oldName, proj.TeamName))
 						}
+						existing, err := os.ReadFile(to)
+						if err != nil && !os.IsNotExist(err) {
+							return fmt.Errorf("read target role instructions: %w", err)
+						}
+						if err == nil {
+							if err := core.AtomicWriteFile(backupPath(to, time.Now()), existing, 0o644); err != nil {
+								return fmt.Errorf("backup target role instructions: %w", err)
+							}
+							// Keep the target's repository instructions as well as the role persona.
+							content = append(append(existing, []byte("\n\n")...), content...)
+						}
 						if err := core.AtomicWriteFile(to, content, 0o644); err != nil {
 							return fmt.Errorf("preserve role instructions: %w", err)
 						}
@@ -3753,7 +3765,28 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 				proj.Platforms[j].Options["allow_from"] = strings.TrimSpace(af)
 			}
 		}
-		return saveConfig(cfg)
+		if err := saveConfig(cfg); err != nil {
+			return err
+		}
+		if oldName != proj.TeamName || update.AgentType != nil {
+			dataDir := cfg.DataDir
+			if dataDir == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("resolve setup data directory: %w", err)
+				}
+				dataDir = ccconnect.DataDir(home)
+			}
+			snapshot := core.WizardSnapshot{}
+			for _, p := range snapshotOf(cfg) {
+				snapshot.Projects = append(snapshot.Projects, core.WizardExistingProject{
+					Name: p.Name, DisplayName: p.TeamName, AgentType: p.AgentType, WorkDir: p.WorkDir,
+					Platforms: p.Platforms, GateURL: p.GateURL, GateFallback: p.GateFallback,
+				})
+			}
+			return core.RefreshSetupRoleIdentity(dataDir, snapshot, projectName, oldName)
+		}
+		return nil
 	}
 	return fmt.Errorf("project %q not found", projectName)
 }
