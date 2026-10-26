@@ -851,10 +851,19 @@ export class Tasks {
   }
 }
 
-/** First non-empty line of a dispatch with the @-mentions taken out (the task title). */
+/**
+ * First non-empty line of a dispatch with the @-mentions taken out (the task title). A stance line
+ * and an [ask]/[report] mark are not content (#597 G37: a lead's [report] opening 【接】#id dispatches too);
+ * the line calling the teammate comes first.
+ */
 function taskTitle(text, team) {
-  const plain = split(text, team).map(([seg, id]) => (id ? '' : seg)).join('');
-  const line = plain.split('\n').map(l => l.replace(/^[\s，,：:、]+/, '').trim()).find(Boolean) ?? '';
+  const clean = l => l.replace(/^[\s，,：:、]+/, '').replace(/^\[(?:ask|report)\]/i, '').replace(/^[\s，,：:、]+/, '').trim();
+  const lines = String(text).split('\n').map(l => {
+    const segs = split(l, team);
+    return { called: segs.some(([, id]) => id), text: clean(segs.map(([seg, id]) => (id ? '' : seg)).join('')) };
+  }).filter(l => l.text !== '' && !STANCE_LINE.test(l.text));
+  // The line that calls the teammate says what the task is; else the first line of content.
+  const line = (lines.find(l => l.called) ?? lines[0])?.text ?? '';
   return line.slice(0, MAX_TEXT);
 }
 

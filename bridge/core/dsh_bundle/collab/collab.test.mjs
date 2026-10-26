@@ -4764,6 +4764,7 @@ test('G37: the lead\'s [report] in a workspace hands back its task and its @ sti
   const sub = tasks.list(ws.id).find(r => r.owner === 'fu');
   assert.ok(sub, 'the @副 in the [report] opens her task');
   assert.equal(tasks.task(sub.id).source, 'mention');
+  assert.equal(tasks.task(sub.id).title, '请你核对 README', 'the title is content, not the stance line or the mark');
 });
 
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
