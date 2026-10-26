@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
 # 用法：ws-handoff <交接文件> "<一句话任务>"
+#   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
 #   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行），和「参照实现」（文件:行，非代码活写
 #   「无（新建）」）；有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
 #   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
@@ -23,6 +24,8 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
 REQUIRED = ["用户原话", "进度", "规矩"]
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>"\n'
+         "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。")
 # 交出成功后打给主角色的话（stdout 第二行起；第一行仍是 timer id）。来源：团队模式规矩「聊天频道要保持畅通…交出就结束本轮」
 DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep 或查任务板看进度。"
         "工作区做完会用 [report] 把结果转回本频道，到时再看、再验收。")
@@ -203,7 +206,8 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>"):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
     轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
-    开工提示对照本机 ws-handoff timer_cmd：任务板编号、上报方式。"""
+    开工提示对照本机 ws-handoff timer_cmd：任务板编号、上报方式。--desc 带任务：桥把它当这一轮的任务名（谁在干啥、
+    频道任务板，core/team.go teamNoteTurn → boardDescOf），不是把开工提示当任务名（#597 G36）。"""
     prompt = (f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
               f"先读交接 {path}。这块活交活时已在任务板建好 #{nid}，接手后用 board update {nid} <状态> 更新，"
               f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明，并把还没派的活当场派出去。"
@@ -213,7 +217,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>"):
               f"这是你手上最后一件活时，同一轮跑 `{cc_bin()} session new --after-turn` 空出工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
-            "--handoff", "--desc", "工作区接手", "--prompt", prompt]
+            "--handoff", "--desc", f"工作区接手：{task}", "--prompt", prompt]
 
 
 def record_last(path: str, ws: str, task: str, chat: str, nid=None):
@@ -246,10 +250,10 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
 
 def main(argv):
     if len(argv) != 2 or not argv[1].strip():
-        sys.exit('用法：ws-handoff <交接文件> "<一句话任务>"')
+        sys.exit(USAGE)
     path, task = os.path.abspath(os.path.expanduser(argv[0])), argv[1]
     if not os.path.isfile(path):
-        sys.exit(f"ws-handoff: 交接文件不存在 {path}")
+        sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
         err = check_notes(fh.read())
     if err:

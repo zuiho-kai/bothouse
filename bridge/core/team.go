@@ -251,10 +251,10 @@ func (e *Engine) teamNoteTurn(msg *Message, session *Session) {
 	if t == nil {
 		return
 	}
-	task := strings.Join(strings.Fields(userTextOf(msg)), " ") // what the user wrote, not the bridge's notes
-	if r := []rune(task); len(r) > teamTaskMaxRunes {
-		task = string(r[:teamTaskMaxRunes]) + "…"
-	}
+	// What the user wrote, not the bridge's notes; a cron/timer turn (a ws-handoff wake-up too)
+	// has its job label, not the prompt the bridge sends the agent (#597 G36: the wake-up prompt
+	// showed as the task on 谁在干啥). Same text as the channel board (boardDescOf).
+	task := boardDescOf(msg)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	ts := t.seen[msg.SessionKey]

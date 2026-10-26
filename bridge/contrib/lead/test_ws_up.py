@@ -93,6 +93,19 @@ class WsUpTest(unittest.TestCase):
             self.run_tool("ws-up", *args, key="test:900")
         self.assertEqual(self.timers(), [])
 
+    def test_handoff_says_where_notes_go(self):
+        """#597 G36：v0.1.24 网页验收里主角色把交接写到 /tmp 根下（隔离目录外）。用法和手册都写明默认位置
+        notes/<名>.md（当前目录 = 角色目录，在数据目录下），同本机做法。"""
+        for args in ([], [str(self.tmp / "nope.md"), "任务"]):
+            r = self.handoff(*args, key="test:100")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("notes/<名>.md", r.stderr, args)
+        for name, want in (("PLAYBOOK.zh-CN.md", "notes/<名>.md"), ("PLAYBOOK.md", "notes/<name>.md")):
+            text = (HERE / name).read_text(encoding="utf-8")
+            sec = text[text.index("## 5."):text.index("ws-handoff <")]
+            self.assertIn(want, sec, name)
+        self.assertEqual(self.timers(), [])
+
     def test_handoff_records_chat_and_forward_by_notes(self):
         notes = []
         for n in ("a", "b"):
@@ -193,7 +206,7 @@ class WsPoolTest(unittest.TestCase):
                            env={**self.env, "CC_SESSION_KEY": chat})
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
-                if c[:2] == ["timer", "add"] and "--desc" in c and c[c.index("--desc") + 1] == "工作区接手"][-1]
+                if c[:2] == ["timer", "add"] and "--desc" in c and c[c.index("--desc") + 1].startswith("工作区接手")][-1]
         return argv[argv.index("-s") + 1]
 
     def board(self, *args):
@@ -350,6 +363,8 @@ class HandoffAlignTest(WsPoolTest):
         t = [c for c in self.calls() if c[:2] == ["timer", "add"]][-1]
         self.assertNotIn("--inject-if-busy", t)  # 忙时排队、轮到时自己开卡，不插进别的活那一轮
         self.assertIn("--handoff", t)
+        # #597 G36：任务写进 --desc，桥拿它当这一轮的任务名（谁在干啥），不把开工提示当任务名
+        self.assertEqual(t[t.index("--desc") + 1], "工作区接手：改登录页")
         prompt = t[t.index("--prompt") + 1]
         nid = self.items()[0]["id"]
         self.assertIn(f"#{nid}", prompt)

@@ -147,6 +147,22 @@ func TestTeamNoteWorkResetsOnFreshTurn(t *testing.T) {
 	}
 }
 
+// #597 G36: a timer turn (ws-handoff wake-up) shows its job label on 谁在干啥, not the prompt the
+// bridge sends the agent (v0.1.24 web check: 「✅ 做完：你是工作区频道里的主角色，从主频道接手…」).
+func TestTeamNoteTurnTimerUsesJobLabel(t *testing.T) {
+	e := newTestEngine()
+	e.team = &teamState{dir: t.TempDir(), name: "C酱", seen: map[string]*teamSession{}}
+	e.teamNoteTurn(&Message{SessionKey: "cloud_web:room-2", Content: "你是工作区频道里的主角色，从主频道接手一整块大活：写脚本。先读交接 /x.md",
+		boardLabel: "⏰ " + boardJobDesc("工作区接手：写脚本", "你是工作区频道里的主角色…", "")}, nil)
+	if got := e.team.seen["cloud_web:room-2"].task; got != "⏰ 工作区接手：写脚本" {
+		t.Fatalf("task = %q", got)
+	}
+	e.teamNoteTurn(&Message{SessionKey: "discord:111", Content: "  跑\n测试 "}, nil)
+	if got := e.team.seen["discord:111"].task; got != "跑 测试" {
+		t.Fatalf("user turn task = %q", got)
+	}
+}
+
 func TestBoardDisableStopsPublisher(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

@@ -103,15 +103,15 @@ func readTeamTaskBoardDoneToday(dir string, now time.Time) []teamTaskBoardItem {
 
 // teamTaskBoardPlacer tells where items go: which chat a workspace belongs to and its name.
 type teamTaskBoardPlacer struct {
-	mainChat   string                            // for items with no chat recorded; "" = not shown
-	parentOf   func(ws string) (string, bool)    // workspace key → chat key
-	workspaces func(chat string) []TeamWorkspace // a chat's workspaces, in order
+	mainChat string                         // for items with no chat recorded; "" = not shown
+	parentOf func(ws string) (string, bool) // workspace key → chat key
+	wsName   func(ws string) string         // a workspace's name (TeamWorkspaceName); "" = not recorded
 	// handoffEnded: TeamHandoffEnded (workspace, chat that handed off, bound); nil = unknown.
 	handoffEnded func(ws, chat string, bound time.Time) bool
 }
 
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
-	return teamTaskBoardPlacer{mainChat: teamMainChat(e.dataDir), parentOf: e.WorkspaceParent, workspaces: e.TeamWorkspacesOf, handoffEnded: e.TeamHandoffEnded}
+	return teamTaskBoardPlacer{mainChat: teamMainChat(e.dataDir), parentOf: e.WorkspaceParent, wsName: e.TeamWorkspaceName, handoffEnded: e.TeamHandoffEnded}
 }
 
 // teamMainChat: the main chat channel the setup wizard bound the roles to (conest-setup.json
@@ -167,13 +167,12 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 	if it.parent == "" {
 		return
 	}
-	id := teamChannelID(it.own)
-	it.wsName = id
-	if p.workspaces != nil {
-		for _, w := range p.workspaces(it.parent) {
-			if w.ID == id && w.Name != "" {
-				it.wsName = w.Name
-			}
+	// The name, also after the workspace was released (its chat no longer owns it; #597 G36: the
+	// done row showed the internal id 「room-2·」 then).
+	it.wsName = teamChannelID(it.own)
+	if p.wsName != nil {
+		if name := p.wsName(it.own); name != "" {
+			it.wsName = name
 		}
 	}
 }
