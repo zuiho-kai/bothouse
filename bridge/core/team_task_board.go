@@ -351,7 +351,12 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 			}
 			wsRows[it.wsName] = append(wsRows[it.wsName], row(it, who))
 		default:
-			own = append(own, row(it, boardLabel(it.Who)))
+			// A workspace's own board: the channel names the workspace already.
+			who := whoInWorkspace(it)
+			if who == "" {
+				who = boardLabel(it.Who)
+			}
+			own = append(own, row(it, who))
 		}
 	}
 	// Done today: the same thing done in several rounds shows once with a count; newest first.
@@ -366,7 +371,10 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		if !in(it) {
 			continue
 		}
-		ws, who := "", boardLabel(it.Who)
+		ws, who := "", whoInWorkspace(it)
+		if who == "" {
+			who = boardLabel(it.Who)
+		}
 		if it.parent == chat && it.own != chat {
 			if who = whoInWorkspace(it); who == "" {
 				ws = boardLabel(it.wsName)

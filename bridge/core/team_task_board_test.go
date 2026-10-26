@@ -51,7 +51,7 @@ not json
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 	// The workspace's own board lists its item without a block header.
-	if ws := renderTeamTaskBoard(items, nil, "feishu:oc_ws", now, nil); ws != "**任务板**\n#3 交接｜工作区1橘｜已交接｜10-26 02:02" {
+	if ws := renderTeamTaskBoard(items, nil, "feishu:oc_ws", now, nil); ws != "**任务板**\n#3 交接｜橘｜已交接｜10-26 02:02" {
 		t.Fatalf("workspace board = %q", ws)
 	}
 	if renderTeamTaskBoard(items, nil, "feishu:none", now, nil) != "" {
