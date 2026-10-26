@@ -314,8 +314,8 @@ func renderTeamTaskBoardFit(items, done []teamTaskBoardItem, chat string, now ti
 // per workspace of the chat; then paused; then done today (workspace items marked "<name>·").
 func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob, st teamTaskBoardStage) string {
 	in := func(it teamTaskBoardItem) bool { return it.shownIn(chat) }
-	row := func(it teamTaskBoardItem) string {
-		line := fmt.Sprintf("#%d %s｜%s｜%s｜%s", it.ID, shortLabel(it.What, st.whatCap), boardLabel(it.Who), shortLabel(it.Status, st.statusCap), boardLabel(it.At))
+	row := func(it teamTaskBoardItem, who string) string {
+		line := fmt.Sprintf("#%d %s｜%s｜%s｜%s", it.ID, shortLabel(it.What, st.whatCap), who, shortLabel(it.Status, st.statusCap), boardLabel(it.At))
 		if it.Paused != "" {
 			if it.PauseWhy != "" {
 				line += "｜暂停：" + shortLabel(it.PauseWhy, st.statusCap)
@@ -339,14 +339,19 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		}
 		switch {
 		case it.Paused != "":
-			held = append(held, row(it))
+			held = append(held, row(it, boardLabel(it.Who)))
 		case it.parent == chat && it.own != chat:
 			if _, ok := wsRows[it.wsName]; !ok {
 				wsOrder = append(wsOrder, it.wsName)
 			}
-			wsRows[it.wsName] = append(wsRows[it.wsName], row(it))
+			// Under its workspace's heading: the who without the workspace name.
+			who := whoInWorkspace(it)
+			if who == "" {
+				who = boardLabel(it.Who)
+			}
+			wsRows[it.wsName] = append(wsRows[it.wsName], row(it, who))
 		default:
-			own = append(own, row(it))
+			own = append(own, row(it, boardLabel(it.Who)))
 		}
 	}
 	// Done today: the same thing done in several rounds shows once with a count; newest first.
@@ -363,15 +368,10 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		}
 		ws, who := "", boardLabel(it.Who)
 		if it.parent == chat && it.own != chat {
-			ws = boardLabel(it.wsName) + "·"
-			// ws-handoff writes who as 「<workspace name><lead name>」 (board.py WS_NAME_RE): name the
-			// workspace once, 「工作区1·橘」 not 「工作区1·工作区1橘」 (#597 G38, v0.1.25 web check).
-			if rest, ok := strings.CutPrefix(it.Who, it.wsName); ok && it.wsName != "" {
-				if strings.TrimSpace(rest) == "" {
-					ws, who = boardLabel(it.wsName), ""
-				} else {
-					who = boardLabel(rest)
-				}
+			if who = whoInWorkspace(it); who == "" {
+				ws = boardLabel(it.wsName)
+			} else {
+				ws = boardLabel(it.wsName) + "·"
 			}
 		}
 		key := "- " + ws + who + "：" + boardLabel(it.What)
@@ -468,4 +468,16 @@ func cutTeamBoardLines(s string, limit int, note string) string {
 		out = append(out, ln)
 	}
 	return strings.Join(out, "\n")
+}
+
+// whoInWorkspace: a workspace item's who with its workspace named elsewhere (heading or 「<name>·」).
+// ws-handoff writes who as 「<workspace name><lead name>」 (board.py WS_NAME_RE), so the name is cut
+// off: 「工作区1·橘」 not 「工作区1·工作区1橘」 (#597 G38, v0.1.25 web check).
+func whoInWorkspace(it teamTaskBoardItem) string {
+	if it.wsName != "" {
+		if rest, ok := strings.CutPrefix(it.Who, it.wsName); ok {
+			return boardLabel(strings.TrimSpace(rest))
+		}
+	}
+	return boardLabel(it.Who)
 }
