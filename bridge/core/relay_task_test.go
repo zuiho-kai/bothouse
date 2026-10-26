@@ -69,12 +69,22 @@ func (s *taskRelaySession) SendMidTurn(prompt, _ string, _ []ImageAttachment, _ 
 
 func taskRelayManager(t *testing.T, p *PublicProgress, platform *progressTestPlatform, send func(string), starts *atomic.Int32) (*RelayManager, *taskRelaySession) {
 	t.Helper()
+	return taskRelayManagerWithAgent(t, p, platform, send, starts, nil)
+}
+
+// taskRelayManagerWithAgent lets a test inspect the target agent (e.g. the
+// session env it was started with). A nil agent gets the default controllable one.
+func taskRelayManagerWithAgent(t *testing.T, p *PublicProgress, platform *progressTestPlatform, send func(string), starts *atomic.Int32, agent *controllableAgent) (*RelayManager, *taskRelaySession) {
+	t.Helper()
 	session := &taskRelaySession{controllableAgentSession: newControllableSession("target"), onSend: send}
-	a := &controllableAgent{startSessionFn: func(context.Context, string) (AgentSession, error) { starts.Add(1); return session, nil }}
+	if agent == nil {
+		agent = &controllableAgent{}
+	}
+	agent.startSessionFn = func(context.Context, string) (AgentSession, error) { starts.Add(1); return session, nil }
 	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
 	source.publicProgress = p
 	dst := newProgressPlatform()
-	target := NewEngine("target", a, []Platform{dst}, "", LangEnglish)
+	target := NewEngine("target", agent, []Platform{dst}, "", LangEnglish)
 	rm := NewRelayManager("")
 	rm.RegisterEngine("source", source)
 	rm.RegisterEngine("target", target)
@@ -82,6 +92,16 @@ func taskRelayManager(t *testing.T, p *PublicProgress, platform *progressTestPla
 	source.SetRelayManager(rm)
 	rm.Bind("discord", "room", map[string]string{"source": "Source", "target": "Target"})
 	return rm, session
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			return strings.TrimPrefix(kv, prefix)
+		}
+	}
+	return ""
 }
 
 func taskRelayRequest(id string) RelayRequest {

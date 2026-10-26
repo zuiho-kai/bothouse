@@ -17698,7 +17698,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if err != nil {
 		return "", err
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil, nil)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil, nil)
 }
 
 // relayGateQuery is the text the gate searches the wiki with: the assignment
@@ -17714,14 +17714,15 @@ func relayGateQuery(message string) string {
 }
 
 // handleTrackedRelay owns execution and team lifecycle after the caller has
-// resolved its conversation key. Task-scoped relays can pass their scoped key
-// here to share timeout/drain behavior without sharing conversation history.
+// resolved its conversation key. sourceSessionKey stays the task identity for
+// reports and team work; ccSessionKey is where the process really runs, so it
+// gets CC_SESSION_KEY (a workspace B for a cross-workspace dispatch, else the
+// source session). Task-scoped relays can pass their scoped key here to share
+// timeout/drain behavior without sharing conversation history.
 // Closing stop (task relays' ten-minute watch; nil = never) closes the session
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
-// A value on nudge (nil = never) is folded into the running turn by
-// injectRelayReminder; the watch uses it once before its last window.
-func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, ccSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
 	if until := e.quotaCooling(); !until.IsZero() {
 		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
 	}
@@ -17745,7 +17746,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	}()
 
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		inj.SetSessionEnv(append(e.roleSessionEnv(sourceSessionKey), "CC_AGENT="+agent.Name()))
+		inj.SetSessionEnv(append(e.roleSessionEnv(ccSessionKey), "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, relaySessionKey)
 	e.applySessionInstructions(agent, relaySessionKey)
