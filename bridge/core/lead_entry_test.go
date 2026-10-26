@@ -118,3 +118,34 @@ func TestLeadEntryFileShape(t *testing.T) {
 		t.Fatalf("first-run baseline has at: %s", b)
 	}
 }
+
+// A config-driven switch written by the old switch script (config.toml changes, then a
+// restart) reaches #458's observer as a real handoff: the first run is only a baseline,
+// the next configured lead becomes a pending handoff from the old one.
+func TestConfiguredLeadSwitchReachesLeadHandoff(t *testing.T) {
+	dir := t.TempDir()
+	first := []LeadCandidate{{Project: "gge", Name: "G哥", Lead: true}, {Project: "deep", Name: "肥鱼"}}
+	if err := SeedConfiguredLead(dir, first); err != nil {
+		t.Fatal(err)
+	}
+	observer := &Engine{dataDir: dir, name: "gge"}
+	if h := observer.observeLeadSelection(); h != nil {
+		t.Fatalf("first baseline announced a handoff: %+v", h)
+	}
+
+	next := []LeadCandidate{{Project: "gge", Name: "G哥"}, {Project: "deep", Name: "肥鱼", Lead: true}}
+	if err := SeedConfiguredLead(dir, next); err != nil {
+		t.Fatal(err)
+	}
+	h := observer.observeLeadSelection()
+	if h == nil || h.From != "gge" || h.To != "deep" || h.Status != LeadHandoffPending {
+		t.Fatalf("config switch handoff = %+v", h)
+	}
+	st, err := ReadLeadHandoffState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Pending == nil || st.Pending.ID != h.ID || st.Lead != "deep" {
+		t.Fatalf("persisted handoff state = %+v", st)
+	}
+}
