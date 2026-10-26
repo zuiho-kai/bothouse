@@ -383,3 +383,23 @@ func TestStripStaleBlocks_ReinjectedDeliveryPrefix(t *testing.T) {
 		t.Fatalf("stripped = %q", got)
 	}
 }
+
+// A user may quote these blocks or mention their markers; matching only the
+// first line would silently eat their message.
+func TestStripStaleBlocks_UserQuotesInjectedBlocks(t *testing.T) {
+	for _, msg := range []string{
+		"[Bridge identity — current responder] 这段是干嘛的？",
+		"[Bridge identity — current responder]\nYour conversation name is \"x\"\n[Request and reference material]\n我粘贴的整段 prompt，帮我看看",
+		"我说的是 [Request and reference material] 这个标记",
+		"（你的记忆 wiki 目录页 ~/x/MEMORY.md）这句是什么意思",
+	} {
+		if got := stripStaleBlocks(msg); strings.TrimSpace(got) != msg {
+			t.Fatalf("drop user text %q -> %q", msg, got)
+		}
+	}
+	// A MEMORY.md block in the middle of a turn goes, and what follows stays.
+	mid := "先把这段记住\n（你的记忆 wiki 目录页 ~/x/MEMORY.md，新会话系统自动附上，不用回应）\n- [a](a/README.md) — 甲\n- [b](b/README.md) — 乙\n然后是我的问题"
+	if got := stripStaleBlocks(mid); got != "先把这段记住\n然后是我的问题" {
+		t.Fatalf("memory block: %q", got)
+	}
+}
