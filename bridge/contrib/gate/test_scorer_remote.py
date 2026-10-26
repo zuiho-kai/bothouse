@@ -1,5 +1,5 @@
 """jev 打分器和 gate 选打分器的顺序（假接口，不联网、不加载模型）：python3 -I contrib/gate/test_scorer_remote.py"""
-import importlib, io, json, math, os, sys, tempfile, types, unittest
+import contextlib, importlib, io, json, math, os, sys, tempfile, types, unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -117,16 +117,17 @@ class GateSelection(unittest.TestCase):
         self.assertEqual(set(g.SUBS), {"juzi"})
         self.assertEqual(g.SCORER_KIND, "jev")
 
-    def test_no_jev_exits_with_hint(self):  # 用户原话「这种直接报错，直接说没填jev模型，推荐本地下载0.6b或者用免费小模型」
+    def test_no_jev_runs_without_scoring_and_hints(self):  # 用户原话「这种直接报错，直接说没填jev模型，推荐本地下载0.6b或者用免费小模型」；#597 起 gate 照起只供 /context /lead，提示照打
         for jev in (None, {"url": "http://m/v1", "model": "q", "logprobs": False}):  # 没填 / 测试没拿到概率
             d = Path(tempfile.mkdtemp())
             if jev:
                 (d / "jev.json").write_text(json.dumps(jev))
-            with self.assertRaises(SystemExit) as cm:
-                load_gate(d)
-            msg = str(cm.exception.code)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                g = load_gate(d)
+            self.assertEqual(g.SCORER_KIND, "none")
             for want in ("没填 jev 模型", "硅基流动", "0.6B"):
-                self.assertIn(want, msg)
+                self.assertIn(want, out.getvalue())
 
     def test_explicit_gate_model_uses_local(self):
         self.assertEqual(load_gate(Path(tempfile.mkdtemp()), model="/models/q").SCORER_KIND, "local")

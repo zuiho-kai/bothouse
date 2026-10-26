@@ -197,6 +197,11 @@ func (e *Engine) retryFreshOnPromptTooLong(p Platform, msg Message, errMsg strin
 	}
 
 	msg.freshRetried = true
+	// #618 K1: the re-run's entry replaces the failed turn's (same message; its
+	// agent session was just dropped), in the same journal write.
+	if j := e.turnJournalStore(); j != nil {
+		msg.journalSupersedes = j.Active(interactiveKey)
+	}
 	e.processInteractiveMessageWith(p, &msg, session, agent, sessions, interactiveKey, workspaceDir, ccSessionKey)
 	return true
 }

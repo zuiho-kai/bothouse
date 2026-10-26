@@ -64,7 +64,7 @@ func (p *PublicProgress) taskLinks() []teamTaskLink {
 		r.mu.Lock()
 		t := r.record.Task
 		// A link is useful only once the platform has returned a real message.
-		if listedTaskState(t.State) && t.MessageID != "" && safeTaskURL(t.CardURL) {
+		if listedTaskState(t.State) && t.MessageID != "" && boardTaskURL(t.CardURL) {
 			links = append(links, teamTaskLink{ID: t.ID, SessionKey: t.SessionKey, Title: t.Title, URL: t.CardURL, State: t.State, UpdatedAt: t.UpdatedAt, Members: teamTaskMembers(t.Members)})
 		}
 		r.mu.Unlock()
@@ -79,6 +79,14 @@ func safeTaskURL(raw string) bool {
 		!strings.ContainsAny(raw, " \t\r\n()<>\\") && len(raw) <= 240
 }
 
+// boardTaskURL accepts a task for the board: a safe link, or no link at all.
+// cloud_web (Channels / DSH) edits the card in the room but has no message
+// permalink, so its CardURL stays empty; requiring https dropped every one of
+// its tasks from the board. Such tasks are listed without a link.
+func boardTaskURL(raw string) bool {
+	return raw == "" || safeTaskURL(raw)
+}
+
 // Keep task/role names on one line without permitting extra links or mentions.
 func taskIndexLabel(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
@@ -91,6 +99,13 @@ func taskIndexLabel(text string, limit int) string {
 }
 
 func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) string {
+	text, _ := teamBoardWithTasks(files, chat, lang)
+	return text
+}
+
+// teamBoardWithTasks is renderTeamBoardWithTasks and whether it shows live work: a member line
+// in work (teamBoardMembers) or a relay task in the index (only running / waiting are listed).
+func teamBoardWithTasks(files []teamFile, chat string, lang Language) (string, bool) {
 	type entry struct {
 		teamTaskLink
 		name, project string
@@ -100,7 +115,7 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 	for _, f := range files {
 		for _, task := range f.Tasks {
 			key := f.Project + "/" + task.ID
-			if seen[key] || chatOf(task.SessionKey) != chat || !listedTaskState(task.State) || !safeTaskURL(task.URL) {
+			if seen[key] || chatOf(task.SessionKey) != chat || !listedTaskState(task.State) || !boardTaskURL(task.URL) {
 				continue
 			}
 			seen[key] = true
@@ -111,9 +126,9 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 	for _, task := range tasks {
 		members = append(members, task.Members...)
 	}
-	board := renderTeamBoardMembers(files, chat, members)
+	board, live := teamBoardMembers(files, chat, members)
 	if len(tasks) == 0 {
-		return board
+		return board, live
 	}
 	sort.Slice(tasks, func(i, j int) bool {
 		a, b := tasks[i], tasks[j]
@@ -135,6 +150,9 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 			key = MsgBoardTasksWaiting
 		}
 		line := fmt.Sprintf("• [%s](%s) · %s", taskIndexLabel(task.Title, 50), task.URL, taskIndexLabel(task.name, 20))
+		if task.URL == "" {
+			line = fmt.Sprintf("• %s · %s", taskIndexLabel(task.Title, 50), taskIndexLabel(task.name, 20))
+		}
 		heading := ""
 		if key != group {
 			heading = "\n**" + i18n.T(key) + "**"
@@ -156,5 +174,5 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 		lines = append(lines, i18n.Tf(MsgBoardTasksMore, len(tasks)-shown))
 	}
 	title, roster, _ := strings.Cut(board, "\n")
-	return title + "\n" + strings.Join(lines, "\n") + "\n\n" + roster
+	return title + "\n" + strings.Join(lines, "\n") + "\n\n" + roster, true
 }

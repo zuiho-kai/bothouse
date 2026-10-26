@@ -22,9 +22,11 @@ func init() {
 	core.RegisterAgent("dsh", New)
 }
 
-// Agent embeds *acp.Agent; only Name() differs.
+// Agent embeds *acp.Agent; Name() differs, and it reads DSH's session logs
+// (handoff.go).
 type Agent struct {
 	*acp.Agent
+	home string // DSH_HOME, where the session logs are
 }
 
 // Name is the agent type in config, session keys and logs.
@@ -32,7 +34,8 @@ func (a *Agent) Name() string { return "dsh" }
 
 // New builds a DSH agent from project options.
 func New(opts map[string]any) (core.Agent, error) {
-	a, err := acp.New(applyDSHDefaults(opts))
+	opts = applyDSHDefaults(opts)
+	a, err := acp.New(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +43,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	if !ok {
 		return a, nil
 	}
-	return &Agent{Agent: base}, nil
+	return &Agent{Agent: base, home: defaultDSHHome(opts)}, nil
 }
 
 // applyDSHDefaults fills cmd "dsh", args ["--profile", "acp"] (dsh --help: the profile under

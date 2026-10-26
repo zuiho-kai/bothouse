@@ -32,6 +32,26 @@ func (bootstrapOnWriteStore) EnsureHook(event, command string) (bool, error) {
 	return config.EnsureWizardHook(event, command) // called after ApplyProjects wrote the config
 }
 
+// SetGatePort: the wizard moved the gate off a port another install's gate holds ([gate] port).
+func (configWizardStore) SetGatePort(port int) error { return config.SetGatePort(port) }
+
+func (bootstrapOnWriteStore) SetGatePort(port int) error {
+	if _, err := os.Stat(config.ConfigPath); os.IsNotExist(err) {
+		if err := bootstrapSetupConfig(config.ConfigPath); err != nil {
+			return err
+		}
+	}
+	return config.SetGatePort(port)
+}
+
+func (configWizardStore) SetMemoryIndex(project, path string) (bool, error) {
+	return config.SetWizardMemoryIndex(project, path)
+}
+
+func (bootstrapOnWriteStore) SetMemoryIndex(project, path string) (bool, error) {
+	return config.SetWizardMemoryIndex(project, path) // called after ApplyProjects wrote the config
+}
+
 func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	out := core.WizardSnapshot{Projects: make([]core.WizardExistingProject, 0, len(ps))}
 	for _, p := range ps {
@@ -122,6 +142,19 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	if port <= 0 {
 		port = 9820 // 来源：沿用 main.go 管理接口的默认端口
 	}
+	// Another bothouse (or anything else) on the port: take a free one and save it, so the
+	// service started after the wizard (main.go [management] port) listens on the same one.
+	if free := core.PickFreePort(port); free != port {
+		if err := config.SetManagementPort(free); err != nil {
+			fmt.Fprintf(os.Stderr, "port %d is taken and %s cannot be written: %v\n", port, configPath, err)
+			release()
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "port %d is taken; the setup wizard uses %d (saved to %s)\n", port, free, configPath)
+		port = free
+	}
+	core.SetLocalGatePort(cfg.Gate.Port)
+	core.PersistGatePort = config.SetGatePort
 	// /setup/apply writes tokens and keys: never serve it without auth.
 	token := cfg.Management.Token
 	if token == "" {
@@ -144,6 +177,9 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
 	wireAutostart(srv)
 	srv.Start()
+	// A machine with only DSH-native members stays in setup mode; their per-turn wiki pages and
+	// task board come from the gate (core.EnsureGateForDSH), so the gate runs here as well.
+	gateSup := startGate(cfg)
 	// The sign-in link carries the token: it goes into a file only you can read and into the
 	// browser; the terminal only shows it when no browser could be opened.
 	linkFile := setupLinkFile(configPath)
@@ -159,15 +195,18 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	case <-desktopShutdown:
 		slog.Info("shutdown requested", "source", "tray")
 		srv.Stop()
+		gateSup.Stop()
 		release()
 		stopDesktopService()
 	case sig := <-sigCh:
 		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
 		srv.Stop()
+		gateSup.Stop()
 		release()
 	case <-core.RestartCh:
 		slog.Info("shutdown requested", "source", "restart_command")
 		srv.Stop()
+		gateSup.Stop()
 		release()
 		exe, err := os.Executable()
 		if err == nil {
@@ -594,9 +633,9 @@ level = "info"
 [management]
 enabled = true
 host = "127.0.0.1" # this machine only; remove to listen on all interfaces
-port = 9820 # 来源：沿用 bothouse 管理接口默认端口
+port = %d # 来源：沿用 bothouse 管理接口默认端口 9820；被别的进程占着时换成空闲端口
 token = %q
-`, core.GenerateToken(16))
+`, core.PickFreePort(9820), core.GenerateToken(16))
 	return os.WriteFile(path, []byte(content), 0o600)
 }
 

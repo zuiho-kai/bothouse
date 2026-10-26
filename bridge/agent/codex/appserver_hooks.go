@@ -154,6 +154,13 @@ func (s *appServerSession) trustBothouseHooks() error {
 	if real, err := filepath.EvalSymlinks(s.workDir); err == nil && real != s.workDir {
 		cwds = append(cwds, real)
 	}
+	// Codex only loads project hooks (.codex/hooks.json) in trusted projects, and a fresh CODEX_HOME trusts
+	// nothing, so record trust for the role's own directory first. The hooks/list below runs after the write
+	// (and its reloadUserConfig), so it already sees the project trusted.
+	projectHint, err := s.trustRoleProject(cwds)
+	if err != nil {
+		return err
+	}
 	var resp appServerHooksListResponse
 	if err := s.request("hooks/list", map[string]any{"cwds": cwds}, &resp); err != nil {
 		return fmt.Errorf("step 1/3 hooks/list: %w", err)
@@ -170,8 +177,8 @@ func (s *appServerSession) trustBothouseHooks() error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("step 2/3 hooks/list: Codex did not report %d of the %d bothouse hooks in %s (cwds %s), so it would skip them: %s",
-			len(missing), len(want), filepath.Join(s.workDir, ".codex", "hooks.json"), strings.Join(cwds, ", "), strings.Join(missing, "; "))
+		return fmt.Errorf("step 2/3 hooks/list: Codex did not report %d of the %d bothouse hooks in %s (cwds %s), so it would skip them%s: %s",
+			len(missing), len(want), filepath.Join(s.workDir, ".codex", "hooks.json"), strings.Join(cwds, ", "), projectHint, strings.Join(missing, "; "))
 	}
 	edits := hookTrustEdits(resp)
 	if edits != nil {
@@ -197,4 +204,53 @@ func (s *appServerSession) trustBothouseHooks() error {
 	}
 	slog.Info("codex app-server: trusted bothouse hooks", "count", len(listed), "work_dir", s.workDir)
 	return nil
+}
+
+type appServerConfigReadResponse struct {
+	Config struct {
+		Projects map[string]struct {
+			TrustLevel *string `json:"trust_level"`
+		} `json:"projects"`
+	} `json:"config"`
+}
+
+// projectTrustEdits returns the config edit trusting the cwds that have no trust_level yet, or nil. A
+// trust_level the user already set (including "untrusted") is left alone.
+func projectTrustEdits(cfg appServerConfigReadResponse, cwds []string) []map[string]any {
+	add := map[string]any{}
+	for _, cwd := range cwds {
+		if p, ok := cfg.Config.Projects[cwd]; ok && p.TrustLevel != nil {
+			continue
+		}
+		add[cwd] = map[string]any{"trust_level": "trusted"}
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	return []map[string]any{{"keyPath": "projects", "value": add, "mergeStrategy": "upsert"}}
+}
+
+// trustRoleProject marks the role directory as a trusted Codex project when the session's config says
+// nothing about it. Codex writes its own config.toml through config/batchWrite, so the write lands in the
+// session's CODEX_HOME and other keys and projects stay as they are. hint explains a later hooks/list miss
+// when the user's config keeps the project untrusted.
+func (s *appServerSession) trustRoleProject(cwds []string) (hint string, err error) {
+	var cfg appServerConfigReadResponse
+	if err := s.request("config/read", map[string]any{}, &cfg); err != nil {
+		return "", fmt.Errorf("step 0/3 config/read (projects trust): %w", err)
+	}
+	for _, cwd := range cwds {
+		if p, ok := cfg.Config.Projects[cwd]; ok && p.TrustLevel != nil && !strings.EqualFold(*p.TrustLevel, "trusted") {
+			hint = fmt.Sprintf(" (the Codex config sets projects.%q.trust_level = %q; bothouse does not override it)", cwd, *p.TrustLevel)
+		}
+	}
+	edits := projectTrustEdits(cfg, cwds)
+	if edits == nil {
+		return hint, nil
+	}
+	if err := s.request("config/batchWrite", map[string]any{"edits": edits, "reloadUserConfig": true}, nil); err != nil {
+		return "", fmt.Errorf("step 0/3 config/batchWrite (projects trust_level): %w", err)
+	}
+	slog.Info("codex app-server: trusted role project", "cwds", strings.Join(cwds, ", "))
+	return hint, nil
 }

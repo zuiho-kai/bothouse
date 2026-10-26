@@ -1509,6 +1509,16 @@ func (cs *claudeSession) Close() error {
 	return nil
 }
 
+var _ core.AgentSessionForceKiller = (*claudeSession)(nil)
+
+// ForceKill SIGKILLs the session's whole process group right away (maomao
+// fork #618 K3). Engine.Stop calls it when Close runs past the shutdown
+// budget, so claude and its MCP children never outlive the bridge.
+func (cs *claudeSession) ForceKill() error {
+	cs.cancel()
+	return forceKillCmd(cs.cmd)
+}
+
 // shellJoinArgs joins args into a single string, quoting any arg that
 // contains whitespace so that a shell-style splitter (like my_cli's
 // splitCommandLine) preserves each arg as one token.
@@ -1567,3 +1577,14 @@ func filterEnv(env []string, key string) []string {
 	}
 	return out
 }
+
+// ProcessID is the CLI's pid (core.AgentProcessInfo, #618 K1 turn journal).
+func (cs *claudeSession) ProcessID() int {
+	if cs.cmd == nil || cs.cmd.Process == nil {
+		return 0
+	}
+	return cs.cmd.Process.Pid
+}
+
+// ProcessGroupID is the CLI's process group id (0 when unknown).
+func (cs *claudeSession) ProcessGroupID() int { return processGroupOf(cs.ProcessID()) }

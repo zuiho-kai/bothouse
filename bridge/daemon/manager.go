@@ -3,7 +3,6 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
-	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,6 +12,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	ccconnect "github.com/chenhg5/cc-connect"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 const (
@@ -154,6 +155,9 @@ func Resolve(cfg *Config) error {
 	if cfg.EnvPATH == "" {
 		cfg.EnvPATH = os.Getenv("PATH")
 	}
+	// The service PATH also gets the common CLI install dirs (after, deduplicated), so claude/codex
+	// installed there and the node their npm scripts need are found after login shells are gone.
+	cfg.EnvPATH = core.AppendPathDirs(cfg.EnvPATH, core.ExtraBinDirs()...)
 	if len(cfg.EnvExtra) == 0 {
 		cfg.EnvExtra = captureDaemonEnv(cfg.NoCaptureSecrets)
 		if !cfg.NoCaptureSecrets {

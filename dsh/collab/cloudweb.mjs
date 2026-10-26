@@ -205,9 +205,17 @@ export class CloudWebGateway {
       ws.close(WS_BAD_REGISTER, 'bad register');
       return undefined;
     }
+    const roomParam = url.searchParams.get('room');
+    const roomId = roomParam === null ? undefined : Number(roomParam.replace(/^room-/, ''));
+    if (roomId !== undefined && (!Number.isSafeInteger(roomId) || this.hub.store.room(roomId) === undefined)) {
+      send(ws, { type: 'register_ack', ok: false, error: 'unknown room' });
+      ws.close(WS_BAD_REGISTER, 'unknown room');
+      return undefined;
+    }
+    const rooms = roomId === undefined ? [] : [this.hub.store.settingsRoom(roomId)];
     const name = clean(url.searchParams.get('name') ?? '').slice(0, MAX_NAME) || existing?.name || id;
     // @-mentions resolve by name, so a bot may not reuse another member's name.
-    if (this.hub.memberList().some(m => m.id !== id && m.name.toLowerCase() === name.toLowerCase())) {
+    if (this.hub.memberList().some(m => m.id !== id && (!rooms.length || !m.rooms?.length || rooms.some(r => m.rooms.includes(r))) && m.name.toLowerCase() === name.toLowerCase())) {
       send(ws, { type: 'register_ack', ok: false, error: `name ${name} is already used by another member` });
       ws.close(WS_BAD_REGISTER, 'name taken');
       return undefined;
@@ -216,7 +224,7 @@ export class CloudWebGateway {
     // avatar=<built-in slug> or an http(s) image URL (cc-connect's own library); anything else falls back to the initial badge.
     let avatar = '';
     try { avatar = checkAvatar(url.searchParams.get('avatar'), { allowUrl: true }); } catch { avatar = ''; }
-    const member = { id, name, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}) };
+    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}) };
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);
@@ -246,7 +254,7 @@ export class CloudWebGateway {
       text = text.replace(FOOTER, '').trim();
       if (!text) return;
     }
-    const members = this.hub.routable();
+    const members = this.hub.routableIn(msg.room_id);
     const mentioned = mentions(text, members);
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
@@ -255,6 +263,7 @@ export class CloudWebGateway {
     const attached = metas.length && this.files ? this.files.wire(metas) : {};
     const quote = quotePrefix(this.hub.store.quote(msg));
     for (const { ws, member } of this.bots.values()) {
+      if (!members.some(m => m.id === member.id)) continue;
       if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
       if (answered.has(member.id)) continue;
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
@@ -282,8 +291,8 @@ export class CloudWebGateway {
    */
   nudge(memberId, msg) {
     const bot = this.bots.get(memberId);
-    if (bot === undefined) return false;
-    const members = this.hub.routable();
+    if (bot === undefined || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
+    const members = this.hub.routableIn(msg.room_id);
     const room = this.hub.store.room(msg.room_id);
     const frame = {
       type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',

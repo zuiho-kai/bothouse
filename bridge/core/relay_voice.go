@@ -133,7 +133,7 @@ func (rm *RelayManager) voiceTarget(req RelayRequest) (*Engine, string, error) {
 	}
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
-	binding := rm.bindings[chat]
+	binding := rm.effectiveBindingLocked(platform, chat)
 	target := rm.engines[req.To]
 	if binding == nil || binding.Platform != platform || binding.Bots[req.From] == "" || binding.Bots[req.To] == "" || target == nil || rm.engines[req.From] == nil {
 		return nil, "", fmt.Errorf("source and target must be bound in the configured voice channel")

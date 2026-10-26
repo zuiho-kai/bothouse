@@ -48,7 +48,9 @@ import json
 import re
 from aiohttp import WSCloseCode, WSMsgType, web
 
+from .errors import Conflict, WorkspaceError
 from .meeting import MAX_TEXT_CHARS, clean
+from .team_exit import TeamExit, exit_target
 
 MAX_NAME = 64  # bot id、显示名最长多少字。来源：沿用 hub.py MAX_NAME（存消息时作者按它截，不同长会认不出自己）。
 
@@ -60,7 +62,10 @@ WS_PATH = "/cloud-web/ws"
 # core/streaming.go finish）；typing：成员栏的「思考中」。
 # 按钮、card（交互卡片）不声明，cc-connect 自动降级成文字（docs/cloud-web.md「Handshake」）。
 # subtask_table：会画子进程表（subtask_table_from）；cc-connect 只对声明了它的 hub 发表，旧 hub 不会把表显示成原始数据。
-CAPABILITIES = ["text", "reconstruct_reply", "typing", "preview", "update_message", "delete_message", "subtask_table"]
+# team_workspace（#597 G1）：桥向 hub 要工作区（list/create/claim/release），帧照 conest
+# bridge/core/dsh_bundle/collab/cloudweb.mjs teamWorkspace、bridge/platform/cloud-web/protocol.go。
+CAPABILITIES = ["text", "reconstruct_reply", "typing", "preview", "update_message", "delete_message", "subtask_table",
+                "team_workspace"]
 REGISTER_TIMEOUT = 10.0  # 连上后多少秒内要发 register。来源：沿用 hub.py HELLO_TIMEOUT。
 HEARTBEAT = 30.0  # 来源：沿用 hub.py HEARTBEAT。
 WS_BAD_REGISTER = 4002  # 来源：沿用 hub.py WS_BAD_HELLO（RFC 6455 应用自定义关闭码段）。
@@ -219,6 +224,7 @@ class CloudWeb:
     def __init__(self, hub):
         self.hub = hub
         self.bots: dict[str, Bot] = {}
+        self.exit = None   # rh/team_exit.py TeamExit（attach 里建）
 
     # ---------- @ ----------
     def _aliases(self) -> list[tuple[str, str]]:
@@ -306,6 +312,10 @@ class CloudWeb:
         """hub 里新建了一条消息（Hub.notify_new 调）：转给在线的 bot。"""
         if msg["author_kind"] == "system" or not self.bots:
             return
+        # 用户回工作区 [ask] 的答案不给聊天频道的 bot（team_exit 贴回工作区），同 collab/cloudweb.mjs onNew
+        if self.exit is not None and self.exit.answer_for(msg):
+            return
+        target = exit_target(msg)   # 贴回工作区的答案只给提问的 bot
         from_bot = msg["author_kind"] == "role"
         text = msg["text"]
         if from_bot:
@@ -314,33 +324,47 @@ class CloudWeb:
             text = FOOTER.sub("", text).strip()
             if not text:
                 return   # 只有尾注
-        from .hub import session_key   # hub.py 导入本模块，放这里免得循环导入
-        chat = session_key(msg["room_id"])
         room = self.hub.room(msg["room_id"])
         author = self.bots.get(msg["author"]) if from_bot else None
         mentioned = self.mentions(text)
         sends = []
         for b in list(self.bots.values()):
-            if from_bot and msg["author"] == b.id:
+            if (target and target != b.id) or (from_bot and msg["author"] == b.id):
                 continue
             content = self.for_bot(text, b)
-            hit = b.id in mentioned or (from_bot and self.name_called(text, b.name))
+            hit = target == b.id or b.id in mentioned or (from_bot and self.name_called(text, b.name))
             if from_bot and not content:
                 continue   # 队友只发了个 @：同 Discord 丢掉，不空开一轮（复审第 3 条）
             if from_bot:
                 content = f"【{msg['name']}】{content}"
             elif hit and not content:
                 content = BARE_MENTION
-            frame = {"type": "message", "msg_id": f"hub-{msg['id']}", "chat_id": chat,
-                     "chat_type": "group", "user_id": msg["author"], "user_name": msg["name"], "content": content,
-                     "reply_ctx": chat, "mentioned": hit, "from_bot": from_bot}
-            if room is not None:
-                # 「队友状态」里显示频道名（conest core/team.go ChatName）；压成一行，频道名里的换行不能在队友状态里伪造出一行（审查第 3 条）
-                frame["chat_name"] = " ".join(room["name"].split())
+            frame = self._frame(msg, room, content, hit, from_bot)
             if author is not None and author.mention_id:
                 frame["user_mention_id"] = author.mention_id   # 认主角色派的活，同 Discord 作者 ID（conest cloud-web lead_return.go）
             sends.append(self._send(b.ws, frame))
         await asyncio.gather(*sends)
+
+    def _frame(self, msg: dict, room: dict | None, content: str, hit: bool, from_bot: bool) -> dict:
+        from .hub import session_key   # hub.py 导入本模块，放这里免得循环导入
+        chat = session_key(msg["room_id"])
+        frame = {"type": "message", "msg_id": f"hub-{msg['id']}", "chat_id": chat,
+                 "chat_type": "group", "user_id": msg["author"], "user_name": msg["name"], "content": content,
+                 "reply_ctx": chat, "mentioned": hit, "from_bot": from_bot}
+        if room is not None:
+            # 「队友状态」里显示频道名（conest core/team.go ChatName）；压成一行，频道名里的换行不能在队友状态里伪造出一行（审查第 3 条）
+            frame["chat_name"] = " ".join(room["name"].split())
+        return frame
+
+    async def nudge(self, bot_id: str, msg: dict) -> bool:
+        """把一条 system 消息当 @ 发给一个在线的 bot（on_new 不转 system）；不在线返回 False。
+        同 collab/cloudweb.mjs nudge：工作区 [ask] 被退回时叫醒提问的 bot（rh/team_exit.py）。"""
+        b = self.bots.get(bot_id)
+        if b is None:
+            return False
+        content = self.for_bot(msg["text"], b) or msg["text"]
+        await self._send(b.ws, self._frame(msg, self.hub.room(msg["room_id"]), content, True, False))
+        return True
 
     async def _send(self, ws: web.WebSocketResponse, frame: dict) -> None:
         try:
@@ -370,6 +394,9 @@ class CloudWeb:
                 await self.hub.set_bot_thinking(room, bot.id, t == "typing_start")
         elif t == "preview_start":
             await self._preview_start(bot, d)
+        elif t == "team_workspace":
+            ack = await self.team_workspace(d)
+            await self._send(bot.ws, {"type": "team_workspace_ack", "ref_id": d.get("ref_id"), **ack})
         elif t in ("update_message", "delete_message"):
             h = d.get("preview_handle")
             if not (isinstance(h, str) and h.isascii() and h.isdigit()):
@@ -385,6 +412,50 @@ class CloudWeb:
             if msg is not None:
                 await self.hub.broadcast({"type": "message", "message": msg}, msg["room_id"])
 
+    async def team_workspace(self, d: dict) -> dict:
+        """回一个 team_workspace 帧：op list | create | claim | release（带 park 也当 release，rh 没有任务表）。
+        照 collab/cloudweb.mjs teamWorkspace；dispatch_mode 不支持。建好、认领、放回后推一次频道列表给网页。"""
+        hub = self.hub
+        rid = self._room(d)
+        if rid is None:
+            return {"ok": False, "error": "room-missing"}
+        me = hub.room(rid)
+        view = lambda r: {"id": f"room-{r['id']}", "name": r["name"]}
+        op = d.get("op")
+        try:
+            if op == "dispatch_mode":
+                return {"ok": False, "error": "unsupported"}
+            if op == "list":
+                rooms = []
+                for w in hub.workspaces():
+                    if w["id"] == rid:
+                        continue
+                    owner = hub.workspace_owner(w["id"])
+                    rooms.append({**view(w), "parent_id": "" if w["parent_id"] is None else f"room-{w['parent_id']}",
+                                  "owner": "" if owner is None else f"room-{owner}", "active": 0})
+                return {"ok": True, "self": view(me), "rooms": rooms}
+            if op == "claim":
+                raw = str(d.get("workspace_id") or "").removeprefix("room-")
+                if not (raw.isascii() and raw.isdigit()):
+                    return {"ok": False, "error": "room-missing"}
+                w = hub.claim_workspace(rid, int(raw))
+                await hub.rooms_changed()
+                return {"ok": True, "room": {**view(w), "claim": hub.claim_id(w["id"])}}
+            if op == "release":
+                if me["kind"] != "workspace":
+                    return {"ok": False, "error": "not-workspace"}
+                claim = d.get("claim")
+                if hub.release_workspace(rid, None if claim in (None, "") else str(claim)):
+                    await hub.rooms_changed()
+                return {"ok": True, "room": view(me)}
+            if op == "create":
+                w = hub.create_workspace(rid)   # 名字 hub 自己编（工作区n+1），桥用回包里的
+                await hub.rooms_changed()
+                return {"ok": True, "room": {**view(w), "claim": hub.claim_id(w["id"])}}
+        except WorkspaceError as e:
+            return {"ok": False, "error": e.code}
+        return {"ok": False, "error": "bad-op"}
+
     def _body(self, content: object) -> tuple[str, str | None]:
         """(存进频道的正文, 卡片 JSON 或 None)。"""
         if not isinstance(content, str):
@@ -396,7 +467,6 @@ class CloudWeb:
         ref = d.get("ref_id")
         if not isinstance(ref, str):
             return
-        from .hub import Conflict   # hub.py 导入本模块，放这里免得循环导入
         room, (text, card) = self._room(d), self._body(d.get("content"))
         handle = ""
         if room is not None and clean(text, MAX_BOT_CHARS):
@@ -415,7 +485,6 @@ class CloudWeb:
         room = self._room(d)
         if not isinstance(content, str) or room is None:
             return
-        from .hub import Conflict   # hub.py 导入本模块，放这里免得循环导入
         text = self.for_display(content).strip()
         if not clean(text, MAX_BOT_CHARS):
             return
@@ -489,6 +558,8 @@ class CloudWeb:
 def attach(app: web.Application, hub) -> CloudWeb:
     cw = CloudWeb(hub)
     hub.listeners.append(cw.on_new)
+    cw.exit = TeamExit(hub, cw)   # 工作区的 [ask]/[report] 出口（#597 G1b）
+    hub.listeners.append(cw.exit.on_new)
     app.router.add_get(WS_PATH, cw.handle)
 
     async def close_bots(app):  # 同 hub.py close_all：不主动断，老进程会被 bot 的连接拖着不退

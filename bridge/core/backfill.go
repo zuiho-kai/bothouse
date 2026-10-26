@@ -22,14 +22,19 @@ import (
 type ChannelHistoryMessage struct {
 	ID     string
 	Author string
-	IsBot  bool
-	IsSelf bool // sent by this bot
+	// AuthorID: the author's platform id (the ten-minute watch matches a task's owner by it).
+	AuthorID string
+	IsBot    bool
+	IsSelf   bool // sent by this bot
 	// FromTurn: carries the agent's own text (maomao fork, AgentReplyMarker).
 	// The agent has these in its session; any other post under this bot's
 	// name (cron --exec output, relay answers, status lines) never went through it.
 	FromTurn bool
 	Content  string
-	Time     time.Time
+	// MentionIDs: platform ids of the users the post @-ed (Discord m.Mentions); Content may have
+	// the mentions replaced by names, so scripts (d10-fire) match a teammate by id here.
+	MentionIDs []string
+	Time       time.Time
 	// Attachments of the post (maomao fork): backfill downloads the images of the
 	// posts it shows and hands them to the agent as images, files go to disk.
 	Attachments []ChannelHistoryAttachment

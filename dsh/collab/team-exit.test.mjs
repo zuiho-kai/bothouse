@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
-import { TeamExit, askEvidenceProblems, ASK_MISSING_SELF_CHECK, ASK_MISSING_CATEGORY, ASK_NO_CHECK_NOT_EXEMPT } from './team-exit.mjs';
+import { TeamExit, exitMark, askEvidenceProblems, ASK_MISSING_SELF_CHECK, ASK_MISSING_CATEGORY, ASK_NO_CHECK_NOT_EXEMPT } from './team-exit.mjs';
 
 const tick = () => new Promise(r => setImmediate(r));
 
@@ -99,4 +99,16 @@ test('a plain reply between bounces resets the count; the next bad ask wakes aga
   await say('[ask]\n又问');
   assert.equal(back().length, 3);
   assert.equal(woken.length, 3, 'third bounce still wakes after a plain reply');
+});
+
+test('a mark on a later line counts only for a DSH member (lastLine); the bridge reads the first line only', async () => {
+  const text = '【接】#3\n\n先说明格式\n[report]\n做完了';
+  assert.equal(exitMark(text), undefined, 'first line only by default, as core/team_exit.go parseExitKind');
+  assert.deepEqual(exitMark(text, { lastLine: true }), { kind: 'report', body: '做完了' });
+  const { hub, ws, chat, back } = setup();
+  hub.setMember({ id: 'bot', name: 'Bot', kind: 'cloud-web', online: true });
+  hub.post(ws.id, { authorKind: 'role', author: 'bot', name: 'Bot', text: '解释一下格式：\n[ask] 开头的行是提问' });
+  await tick();
+  assert.equal(chat().length, 0, 'a bridge bot\'s reply with [ask] mid-text is neither forwarded nor bounced');
+  assert.equal(back().length, 0);
 });

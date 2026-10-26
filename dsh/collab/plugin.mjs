@@ -15,7 +15,7 @@ import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster } from './roster.mjs';
-import { Tasks } from './tasks.mjs';
+import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
@@ -47,6 +47,11 @@ export function resolveConfig(config, env = process.env) {
   if (!Array.isArray(rooms) || rooms.length === 0 || rooms.some(r => !Number.isSafeInteger(r?.id) || r.id <= 0 || typeof r.name !== 'string' || !r.name.trim())) {
     throw Error('conest-collab: rooms must be [{ id: positive integer, name }]');
   }
+  for (const room of rooms) {
+    if (room.workspacePath != null && room.workspacePath !== '' && (typeof room.workspacePath !== 'string' || !isAbsolute(room.workspacePath))) {
+      throw Error('conest-collab: rooms[].workspacePath must be an absolute path or empty');
+    }
+  }
   const members = c.dshMembers ?? [];
   const ids = new Set();
   for (const m of members) {
@@ -56,6 +61,9 @@ export function resolveConfig(config, env = process.env) {
     if (typeof m.name !== 'string' || !m.name.trim()) throw Error(`conest-collab: dshMembers ${m.id} needs a name`);
     if (m.model !== undefined && (typeof m.model?.provider !== 'string' || typeof m.model?.model !== 'string')) {
       throw Error(`conest-collab: dshMembers ${m.id} model must be { provider, model }`);
+    }
+    if (m.rooms !== undefined && (!Array.isArray(m.rooms) || m.rooms.some(id => !rooms.some(r => r.id === id)))) {
+      throw Error(`conest-collab: dshMembers ${m.id} rooms must contain configured chat channel ids`);
     }
     if (m.persona !== undefined && typeof m.persona !== 'string') throw Error(`conest-collab: dshMembers ${m.id} persona must be text`);
     try { checkAvatar(m.avatar); } catch (error) { throw Error(`conest-collab: dshMembers ${m.id} ${error.message}`); }
@@ -94,9 +102,10 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   for (const room of config.rooms) {
-    store.ensureRoom(room.id, room.name.trim());
+    store.ensureRoom(room.id, room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
   }
+  store.migrateMemberRooms();
   const leadState = new LeadState(config.leadFile, ctx.logger);
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
   hub.teamExit = new TeamExit(hub);
@@ -113,12 +122,11 @@ export async function apply(ctx, rawConfig) {
   hub.tasks = tasks;
   gateway.tasks = tasks;
   tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
-  // A workspace released after its last task clears its sessions (DSH members rebind from the
-  // store; local CLI members drop their ACP session) and shows up free in the room list.
-  tasks.onRelease(roomId => {
-    dsh.resetRoom(roomId);
-    hub.emit({ type: 'rooms', rooms: hub.store.roomsView() });
-  });
+  // A workspace released after its last task shows up free in the room list. Its sessions are
+  // cleared when a new claim takes it (store.resetSessions: DSH members rebind from the store; local
+  // CLI members drop their ACP session), not on release, so a rework goes on in them (#597 G35).
+  tasks.onRelease(() => hub.emit({ type: 'rooms', rooms: hub.store.roomsView() }));
+  hub.store.onSessionsReset(roomId => dsh.resetRoom(roomId));
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
@@ -185,11 +193,11 @@ export async function apply(ctx, rawConfig) {
     if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
     if (routed !== undefined) return routed;
-    const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner });
+    const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
     if (opened !== undefined) return opened;
     if (!owner(req)) {
       if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
-      return json(res, 401, { error: 'unauthorized' });
+      return refuse(req, res);
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
@@ -399,6 +407,16 @@ export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
 }
 
 /**
+ * #597 G26: a later ticket only opens workspaces (and later). Sent anywhere else, say where to go
+ * instead of a bare 401, so a member does not give up; the route's own auth is unchanged.
+ */
+export const TICKET_WRONG_ROUTE = '这个接口不认 X-Later-Ticket 票据。建工作区请用 POST /collab/api/rooms/{id}/workspaces（同一个票据头，JSON: title, owner, reason），任务和十分钟看门会自动开，不用再调 /tasks。';
+function refuse(req, res) {
+  if (req.headers?.['x-later-ticket'] !== undefined) return json(res, 403, { error: TICKET_WRONG_ROUTE });
+  return json(res, 401, { error: 'unauthorized' });
+}
+
+/**
  * #139 B task API, for the owner's browser and for cloud-web bots. The browser
  * always acts as the owner. Under the shared bot token a bot names itself in
  * body.actor, which is unverified (Tasks.perform: no owner, no review); a bot
@@ -418,7 +436,7 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review))?$/.exec(path);
   if (board === null && one === null) return undefined;
   const human = owner(req);
-  if (!human && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  if (!human && !gateway.authorized(req, url)) return Promise.resolve(refuse(req, res));
   // The browser is the owner; the shared bot token says nothing about which bot, so body.actor is unverified.
   const sender = body => (human ? { actor: OWNER, verified: true } : { actor: body?.actor, verified: false });
   const id = Number((board ?? one)[1]);
@@ -441,15 +459,57 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
  * opens the next 工作区<n+1> under that chat channel. Anyone else gets 401.
  * Returns undefined when the request is not for this route, else a Promise of the reply.
  */
-export function workspacesRoute(req, res, url, { store, hub, gateway, owner }) {
+export function workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh }) {
   const m = /^\/collab\/api\/rooms\/(\d+)\/workspaces\/?$/.exec(url.pathname);
   if (m === null || req.method !== 'POST') return undefined;
-  if (!owner(req) && !gateway.authorized(req, url)) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  if (!owner(req) && !gateway.authorized(req, url)) {
+    if (req.headers['x-later-ticket'] === undefined || !later || !tasks) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+    return ticketWorkspace(req, res, Number(m[1]), { store, hub, gateway, later, tasks, dsh });
+  }
   return withBody(req, res, () => {
     const workspace = store.createWorkspace(Number(m[1]));
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
     return { workspace };
   }, false);
+}
+
+/**
+ * #597 G24: a DSH member's (member, room) later ticket opens a workspace and hands the job over in
+ * one step. Only the primary role at request time may do it (tickets never expire, so a ticket of a
+ * former primary is refused here). The task is opened directly (owner defaults to the primary itself),
+ * the handoff line is a system message (no chat parsing, so an earlier @ dispatch is not opened twice)
+ * and the owner is woken explicitly. A ticket pasted into the channel is useless to anyone but the
+ * primary. An open chat-side task of the same owner from the primary is handed over and closed.
+ */
+function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, dsh }) {
+  const claims = later.verify(req.headers['x-later-ticket']);
+  if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  if (claims.room !== roomId) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
+  if (hub.selectedPrimaryMember()?.id !== claims.member) return Promise.resolve(json(res, 403, { error: 'only the primary role opens workspaces' }));
+  return withBody(req, res, body => {
+    const lead = claims.member;
+    const taskOwner = body?.owner === undefined || body.owner === '' ? lead : String(body.owner);
+    if (!hub.routable().some(r => r.id === taskOwner)) throw new CollabError('member-missing', 'unknown owner');
+    const title = String(body?.title ?? '').trim();
+    if (!title) throw new CollabError('invalid', 'workspace handoff requires a title');
+    if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+    const workspace = store.createWorkspace(roomId);
+    hub.emit({ type: 'rooms', rooms: store.roomsView() });
+    const name = hub.members.get(taskOwner)?.name ?? taskOwner;
+    const reason = typeof body?.reason === 'string' ? body.reason : undefined;
+    const { message } = hub.post(workspace.id, { authorKind: 'system', author: 'system', name: '交接',
+      text: `【交接】${name}：${title}${reason ? `\n${reason}` : ''}` });
+    const task = tasks.assign({ roomId: workspace.id, owner: taskOwner, actor: lead, title, reason, messageId: message.id, force: true });
+    tasks.q.setSource.run('workspace', task.id);
+    const chat = workspace.parent_id ?? roomId;
+    const open = tasks.q.openChat.get(chat, taskOwner, lead, ...WORKING);
+    if (open !== undefined) {
+      tasks.handBack(open.id, { actor: open.owner, messageId: message.id });
+      tasks.review(open.id, { actor: lead, verdict: 'done', note: `转到${workspace.name} #${task.id}` });
+    }
+    if (!dsh?.nudge(taskOwner, message)) gateway.nudge?.(taskOwner, message);
+    return { workspace, task: tasks.task(task.id) };
+  });
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };

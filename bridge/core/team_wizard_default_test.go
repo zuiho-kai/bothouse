@@ -30,8 +30,13 @@ func TestWizardTeamDefaults(t *testing.T) {
 		{"lead of a two-role team", wizardTwoRoles, "lead", true, true, "C酱"},
 		{"sub of a two-role team", wizardTwoRoles, "sub", true, false, "小助"},
 		{"not in the team", wizardTwoRoles, "other", false, false, ""},
-		{"single role", `{"platform":"discord","fallback_role":"solo","team":[{"project":"solo","name":"S"}]}`, "solo", false, false, ""},
+		{"single role = its own lead", `{"platform":"discord","fallback_role":"solo","team":[{"project":"solo","name":"S"}]}`, "solo", true, true, "S"},
+		{"single feishu role", `{"platform":"feishu","fallback_role":"solo","team":[{"project":"solo","name":"S"}]}`, "solo", true, true, "S"},
+		{"single cloud_web role", `{"cloud_web_fallback":"solo","cloud_web_team":[{"project":"solo","name":"S"}]}`, "solo", true, true, "S"},
 		{"no wizard state", ``, "lead", false, false, ""},
+		{"single cloud_web role next to a two-role Discord team", `{"fallback_role":"a","team":[{"project":"a","name":"A"},{"project":"b","name":"B"}],"cloud_web_fallback":"c","cloud_web_team":[{"project":"c","name":"C"}]}`, "c", false, false, ""},
+		{"Discord lead next to a single cloud_web role", `{"fallback_role":"a","team":[{"project":"a","name":"A"},{"project":"b","name":"B"}],"cloud_web_fallback":"c","cloud_web_team":[{"project":"c","name":"C"}]}`, "a", true, true, "A"},
+		{"single role in both teams", `{"fallback_role":"s","team":[{"project":"s","name":"S"}],"cloud_web_fallback":"s","cloud_web_team":[{"project":"s","name":"S"}]}`, "s", true, true, "S"},
 		{"fallback unset = first role", `{"team":[{"project":"a","name":"A"},{"project":"b","name":"B"}]}`, "a", true, true, "A"},
 		{"cloud_web team", `{"cloud_web_fallback":"b","cloud_web_team":[{"project":"a","name":"A"},{"project":"b","name":"B"}]}`, "b", true, true, "B"},
 		{"both teams, different leads", `{"fallback_role":"a","team":[{"project":"a","name":"A"},{"project":"b","name":"B"}],"cloud_web_fallback":"b","cloud_web_team":[{"project":"a","name":"A"},{"project":"b","name":"B"}]}`, "a", false, false, ""},
@@ -112,14 +117,16 @@ func TestWizardTeamLeadGetsBoard(t *testing.T) {
 	soloDir := t.TempDir()
 	writeSetupState(t, soloDir, `{"platform":"discord","fallback_role":"solo","team":[{"project":"solo","name":"S"}]}`)
 	solo := wizardEngine(t, soloDir, "solo")
-	if solo.team != nil || solo.teamWS != nil {
-		t.Fatal("single-role install must stay without team status")
+	if solo.team == nil || !solo.isTeamLead() || solo.teamWS == nil {
+		t.Fatal("single-role install must be its own lead with the board and workspaces")
 	}
-	if got := solo.withAgentIdentity("hi"); got != "hi" {
-		t.Fatalf("single-role install gained an identity block: %q", got)
+	if _, err := os.Stat(filepath.Join(soloDir, "team")); err != nil {
+		t.Fatalf("single-role install: team status dir not created: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(soloDir, "team")); !os.IsNotExist(err) {
-		t.Fatalf("single-role install created a team dir: %v", err)
+	// it still answers every unaddressed message, as before
+	soloP := &stubPlatformEngine{n: "discord"} // no team_lead_bot: the wizard writes none for one role
+	if solo.suppressUnaddressedGroup(soloP, &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}) {
+		t.Fatal("single role must answer an unaddressed message")
 	}
 }
 

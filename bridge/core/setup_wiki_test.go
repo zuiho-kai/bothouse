@@ -157,6 +157,9 @@ func TestSubWikiCommandShell(t *testing.T) {
 func TestApplyWizardAddsWikiCron(t *testing.T) {
 	noHardware(t)
 	wiki := fakeWiki(t, "")
+	if err := os.WriteFile(filepath.Join(wiki, mainWikiMark), []byte("juzi\n"), 0o644); err != nil { // one the wizard made
+		t.Fatal(err)
+	}
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	dir := t.TempDir()

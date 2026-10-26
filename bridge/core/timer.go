@@ -29,6 +29,9 @@ type TimerJob struct {
 	// InjectIfBusy: when the target session is mid-turn, write the prompt into that turn
 	// instead of queuing a new one after it. Falls back to queuing when injection fails.
 	InjectIfBusy bool      `json:"inject_if_busy,omitempty"`
+	// Handoff: the job wakes a workspace for a handed-over task (ws-handoff). Its turn is
+	// work, not a routine timer, so it runs as user "handoff" and gets the automatic card.
+	Handoff bool `json:"handoff,omitempty"`
 	SessionMode  string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
 	Mode         string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
 	TimeoutMins  *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes

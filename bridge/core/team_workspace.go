@@ -240,13 +240,23 @@ type TeamHandoff struct {
 	// user/bot id, mentioned in the nudge; "" = nobody is mentioned). Title: the task's short
 	// name for the nudge. Due: the next check time (zero: not watched, e.g. a handoff recorded
 	// before the watch existed). Renewed: renewals given for progress. Nudged: the nudge was
-	// sent. ParkFails: parks that failed at the check time (retried, then reported).
-	Owner     string    `json:"owner,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	Due       time.Time `json:"due,omitzero"`
-	Renewed   int       `json:"renewed,omitempty"`
-	Nudged    bool      `json:"nudged,omitempty"`
-	ParkFails int       `json:"park_fails,omitempty"`
+	// sent. ParkFails: parks that failed at the check time (retried, then reported). ReadFails: below.
+	Owner string `json:"owner,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Name: the workspace's name at the claim (「工作区n」). The Parents record goes at the release,
+	// this stays, so the task board still names the workspace of a finished task (TeamWorkspaceName).
+	Name        string    `json:"name,omitempty"`
+	Due         time.Time `json:"due,omitzero"`
+	Renewed     int       `json:"renewed,omitempty"`
+	BusyRenewed int       `json:"busy_renewed,omitempty"` // renewals given only because a session was busy
+	Nudged      bool      `json:"nudged,omitempty"`
+	ParkFails   int       `json:"park_fails,omitempty"`
+	// ReadFails: checks whose progress signal could not be read (the channel history request
+	// failed); retried like ParkFails, then counted as no progress. Since: the start of the
+	// window being checked, kept while a read is retried (a retry moves Due, not the window;
+	// zero: Due - watchCheckAfter, or At if later).
+	ReadFails int       `json:"read_fails,omitempty"`
+	Since     time.Time `json:"since,omitzero"`
 }
 
 // teamHandoffOpen: the handoff is in work (neither closed nor paused).
@@ -380,6 +390,31 @@ func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	return append([]TeamWorkspace(nil), st.Parents[teamChatKey(channel)]...)
+}
+
+// TeamWorkspaceName returns the name (「工作区n」) of workspace ws ("<platform>:<id>"): its record
+// under the chat that owns it now, else the name at its latest handoff (a released workspace, e.g.
+// one whose last task is done today); "" when none is recorded. Only names, never the id: the
+// task board shows it to users (#597 G36).
+func (e *Engine) TeamWorkspaceName(ws string) string {
+	if e == nil || e.dataDir == "" || ws == "" {
+		return ""
+	}
+	key := teamChatKey(ws)
+	plat, id, _ := strings.Cut(key, ":")
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if owner, w := teamWorkspaceOwnerLocked(st, plat, id); owner != "" && w.Name != "" {
+		return w.Name
+	}
+	hs := st.Handoffs[key]
+	for i := len(hs) - 1; i >= 0; i-- {
+		if hs[i].Name != "" {
+			return hs[i].Name
+		}
+	}
+	return ""
 }
 
 // SetTeamWorkspaces turns team mode D on or off. It only acts on the primary role
@@ -934,7 +969,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	}
 	wk := plat + ":" + wsID
 	now := time.Now()
-	h := TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title}
+	h := TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title, Name: w.Name}
 	if e.handoffWatchOn.Load() {
 		h.Due = now.Add(watchCheckAfter())
 	}
@@ -1129,6 +1164,32 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 		}()
 	}
 	return true, nil
+}
+
+// TeamHandoffEnded reports whether the workspace has stopped working on chat's task handed off
+// at or before bound: that handoff is closed (the workspace finished it and its session was reset,
+// releaseTeamWorkspace) or paused. The pick is ParkTeamWorkspaceFor's: chat's newest handoff at or
+// before bound (bound zero: chat's newest; chat "": any chat's). false when no such handoff is
+// recorded (not known to have ended). The team board uses it for a handoff item's live state.
+func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool {
+	if e == nil || e.dataDir == "" || workspace == "" {
+		return false
+	}
+	key := teamChatKey(workspace)
+	if chat != "" {
+		chat = teamChatKey(chat)
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	pick := -1
+	list := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
+	for i, h := range list {
+		if (chat != "" && teamChatKey(h.Chat) != chat) || (!bound.IsZero() && h.At.After(bound)) {
+			continue
+		}
+		pick = i
+	}
+	return pick >= 0 && !teamHandoffOpen(list[pick])
 }
 
 // ResetTeamWorkspaceSessions gives every session of this engine in workspace key

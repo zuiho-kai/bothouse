@@ -5,7 +5,8 @@
 """主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent / abort。
 
 先走确定性规则，规则定不了再让 jev（向导填的模型）读 A/B/C 三个选项的概率（见 scorer_remote.py）。
-没填 jev 就报错退出，不自己下载模型。
+没填 jev 时照样启动，只供 /context（每轮 wiki、任务板）和 /lead；/decide 回 503，cc-connect 按 gate_fallback 兜底
+（core/gate.go fallbackFor：被 @ 的回，其余归主角色）。不自己下载模型。
 每次判断写进 GATE_LOG（默认 <数据目录>/gate.jsonl），用来调规则或以后做微调。
 POST /decide  {content, mentioned, busy, has_images, has_files, buffered[]} → {action, reason}
 POST /context {key, text} → 每轮相关的 wiki 页（ctxsvc.py；wiki 目录 GATE_WIKI，默认 ~/wiki）
@@ -43,8 +44,10 @@ _team_file = os.environ.get("GATE_TEAM") or (SETUP_DIR / "gate-team.json" if (SE
 _team = json.loads(Path(_team_file).expanduser().read_text(encoding="utf-8"))
 LEAD = _team["lead"]["name"]
 LEAD_NAMES = [LEAD, *_team["lead"].get("aliases", [])]
-SUBS = {k: v["name"] for k, v in _team["subs"].items()}
-NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _team["subs"].items()}
+# DSH 成员（kind=dsh，安装向导导入 DSH 时登记）不是 Discord 队友：不进路由/队友表/名字正则，只给 lead.py 认身份和手册
+_bridge_subs = {k: v for k, v in _team["subs"].items() if v.get("kind") != "dsh"}
+SUBS = {k: v["name"] for k, v in _bridge_subs.items()}
+NAMES = {k: [v["name"], *v.get("aliases", [])] for k, v in _bridge_subs.items()}
 NAMES[""] = LEAD_NAMES
 SUB_LIST = "、".join(SUBS.values())
 lead.configure(_team)  # 主角色可切换（lead.py）：用同一份团队文件
@@ -85,19 +88,21 @@ def _member_text(t, k):
 SUFFIX = "{name}{state}。\n{history}用户刚发：「{msg}」\n\n判断（A 不回 / B 插入 / C 回复 / D 打断）："  # 末尾重提选项：不加的话偏向 A
 
 ACTIONS = ["silent", "insert", "reply", "abort"]  # abort：忙时叫停/暂停/换事 → cc-connect 先取消当前一轮再按 reply 投递（用户原话「我说暂停，还要等个40分钟」）
-# 忙时整句只是停止词就叫停：词表照 core/gate_local.go:29 的 localStopWords（暂停、停一下、别做了、stop、pause），
+# 忙时整句只是停止词就叫停：词表照 core/gate_local.go:33 的 localStopWords（停、暂停、停一下、别做了、stop、pause），
 # 去掉首尾空白和 isLocalStopWord 那组标点后整句匹配、不分大小写（用户原话「我说暂停，还要等个40分钟」）
-STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:暂停|停一下|别做了|stop|pause)[\s　。.!！~～、,，…]*", re.IGNORECASE)
+STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:停|暂停|停一下|别做了|stop|pause)[\s　。.!！~～、,，…]*", re.IGNORECASE)
+# 「别做了，改做X」：照 core/gate_local.go:46 localRedirectRe，从开头匹配；abort 后 cc-connect 先取消这一轮再按 reply 开新的一轮
+REDIRECT = re.compile(r"(?:先)?别做(?:这个|了)[，,、；;]?\s*改(?:做|成)\s*\S")
 # 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
-NO_JEV = """gate 没法启动：没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）。
-gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
+NO_JEV = """gate 没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）：只供每轮 wiki/任务板（/context）和 /lead，
+不判谁回（/decide 回 503，cc-connect 按 gate_fallback 兜底）。gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
   1. 用免费小模型：硅基流动的免费 Qwen 小模型。在安装向导（运行 cc-connect，浏览器里的 /setup）的 jev 一步填 Base URL、Key、模型名。
   2. 本地下载一个 0.6B 小模型：如 Qwen3 0.6B，用 mlx_lm.server 起 OpenAI 兼容接口
      （mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit），再把地址填进向导的 jev。LM Studio 不给概率，当不了 jev。"""
 
 
 def make_scorer():
-    """jev.json（向导写的、测出给概率的）→ RemoteScorer；显式设了 GATE_MODEL → 本机 scorer.py；都没有 → 报错退出。"""
+    """jev.json（向导写的、测出给概率的）→ RemoteScorer；显式设了 GATE_MODEL → 本机 scorer.py；都没有 → 不打分（None）。"""
     path = os.environ.get("GATE_JEV") or SETUP_DIR / "jev.json"
     jev = load_jev(path)
     if jev:
@@ -109,7 +114,14 @@ def make_scorer():
             raise SystemExit(f"gate 没法启动：设了 GATE_MODEL={MODEL}，但加载不了本机打分器（{e}）。"
                              "Apple 芯片用 uv run --with mlx-lm 运行；N 卡把 scorer_torch.py 放成 scorer.py。不想用本机模型就去掉 GATE_MODEL、在向导填 jev。")
         return Scorer(MODEL), "local"
-    raise SystemExit(NO_JEV.format(path=path))
+    print(NO_JEV.format(path=path), flush=True)
+    return _NoScorer(), "none"
+
+
+class _NoScorer:
+    """没 jev：模块里的 prepare 照常走完（拿到 None），/decide 在用到之前就回 503。"""
+    def prepare(self, *a, **k):
+        return None
 
 
 scorer, SCORER_KIND = make_scorer()
@@ -792,6 +804,12 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
+    def do_GET(self):
+        # 身份：bothouse 复用一个 gate 前先核对它服务的是不是自己的数据目录（core/gate_proc.go gateIsOurs）
+        if urllib.parse.urlsplit(self.path).path == "/whoami":
+            return self._json({"ok": True, "data_dir": str(datadir.data_dir().resolve()), "port": PORT})
+        self.send_error(404)
+
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
         bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
@@ -818,6 +836,14 @@ class H(BaseHTTPRequestHandler):
             return
         if url.path != "/decide" or (bot and bot not in SUBS):
             self.send_error(404); return
+        if not SUBS:  # 单角色（向导写的 gate-team.json 没有 subs）：没有队友可让，不打分；忙时叫停/改做照 core/gate_local.go applyLocalGate
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            own = split_reply((req.get("content") or "").strip())[1]
+            if req.get("busy") and req.get("mentioned") and not req.get("from_bot") and (STOP_WORDS.fullmatch(own) or REDIRECT.match(own)):
+                return self._json({"action": "abort", "reason": "no teammate; rule: 停止词/改做"})
+            return self._json({"action": "reply", "reason": "no teammate: reply"})
+        if SCORER_KIND == "none":  # 没 jev：不判谁回，cc-connect 按 gate_fallback 兜底（core/gate.go fallbackFor）
+            return self._json({"error": "no jev: /decide is off, use gate_fallback"}, 503)
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         t = time.time()
         try:
@@ -853,9 +879,10 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    try:
-        judge("你好", False, [])  # warm up (first forward compiles kernels / first remote call)
-    except ValueError as e:
-        print(f"warm-up: {e}", flush=True)
+    if SCORER_KIND != "none":
+        try:
+            judge("你好", False, [])  # warm up (first forward compiles kernels / first remote call)
+        except ValueError as e:
+            print(f"warm-up: {e}", flush=True)
     print(f"gate on 127.0.0.1:{PORT}  team={LEAD}+{SUB_LIST}  scorer={SCORER_KIND}  wiki={ctxsvc.WIKI or 'off'}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

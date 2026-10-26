@@ -16226,3 +16226,31 @@ func TestRestoreTurnMode_RestoresSessionWorkspaceAgentMode(t *testing.T) {
 		t.Errorf("SetLiveMode calls = %q, want %q", got, want)
 	}
 }
+
+type stubNoReplyCtxPlatform struct{ stubPlatformEngine }
+
+func (p *stubNoReplyCtxPlatform) ReconstructReplyCtx(sessionKey string) (any, error) {
+	return nil, fmt.Errorf("no stored reply context for session %q", sessionKey)
+}
+
+// A muted shell job runs even when its session has no reply context (cloud_web wiki jobs); others still fail.
+func TestExecuteCronJob_MutedShellNeedsNoReplyCtx(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh")
+	}
+	p := &stubNoReplyCtxPlatform{stubPlatformEngine{n: "cloud_web"}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	defer e.cancel()
+	dir := t.TempDir()
+	job := &CronJob{ID: "j", SessionKey: "cloud_web:wiki", Exec: "touch ran", WorkDir: dir, Mute: true}
+	if err := e.ExecuteCronJob(job); err != nil {
+		t.Fatalf("muted shell: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); err != nil {
+		t.Fatal("command did not run")
+	}
+	job.Mute = false
+	if err := e.ExecuteCronJob(job); err == nil || !strings.Contains(err.Error(), "reconstruct reply context") {
+		t.Fatalf("unmuted: %v", err)
+	}
+}

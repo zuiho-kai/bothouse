@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -170,7 +172,7 @@ func TestApplyWizardCloudWebDryRunPlansOptions(t *testing.T) {
 		t.Fatalf("team ids: lead=%q sub=%v", leadID, pl.writes[1].Options)
 	}
 	// two roles = a team: lead answers when no gate decides, the other only when named
-	if *pl.writes[0].GateFallback != "reply" || *pl.writes[1].GateFallback != "context" || *pl.writes[1].GateURL != defaultGateURL+"?bot=role-2" {
+	if *pl.writes[0].GateFallback != "reply" || *pl.writes[1].GateFallback != "context" || *pl.writes[1].GateURL != localGateURL()+"?bot=role-2" {
 		t.Fatalf("team gate: %v %v %v", *pl.writes[0].GateFallback, *pl.writes[1].GateFallback, *pl.writes[1].GateURL)
 	}
 	// the real run writes exactly that, in one batch, and remembers the cloud_web team separately
@@ -355,7 +357,7 @@ func TestApplyWizardCloudWebTeamSurvivesDiscordRun(t *testing.T) {
 		t.Fatalf("cloud_web 2: %+v", res)
 	}
 	c := store.projects["c"]
-	if c == nil || c.GateURL == nil || *c.GateURL != defaultGateURL+"?bot=c" || *c.GateFallback != "context" {
+	if c == nil || c.GateURL == nil || *c.GateURL != localGateURL()+"?bot=c" || *c.GateFallback != "context" {
 		t.Fatalf("c not wired as a sub: %+v", c)
 	}
 	if st := LoadSetupState(dir); len(st.CloudWebTeam) != 3 || len(st.Team) != 1 {
@@ -671,5 +673,131 @@ func TestApplyWizardCloudWebTeamLeadIDChangeUpdatesEarlierMembers(t *testing.T) 
 		if got := store.projects["manual"].Options["team_lead_bot"]; got != manualLead {
 			t.Fatalf("manual lead changed: %v", got)
 		}
+	}
+}
+
+// G5: no uv on PATH or in the usual bin dirs. Detection says it can start without downloading; the start
+// downloads uv into <data_dir>/tools/uv (one download when the gate asks at the same time) and runs the hub
+// with only-managed (never the macOS /usr/bin/python3 stub) and Pythons in <data_dir>/tools/python.
+func TestStartLocalHubDownloadsUV(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake uv is a shell script")
+	}
+	noLocalHub(t)
+	dataDir, _ := stubPythonEnv(t) // PATH without uv, fetchUV/uvRun restored afterwards
+	oldFS, oldLook, oldWait := hubSourceFS, lookPath, localHubStartWait
+	hubSourceFS = fstest.MapFS{"rh/hub.py": &fstest.MapFile{Data: []byte("# hub")}}
+	lookPath = func(string) (string, bool, error) { return "", false, exec.ErrNotFound }
+	localHubStartWait = 300 * time.Millisecond // 来源：测试里假 uv 不起 hub，不用等满 90 秒
+	t.Cleanup(func() { hubSourceFS, lookPath, localHubStartWait = oldFS, oldLook, oldWait })
+
+	asset := uvAsset(runtime.GOOS, runtime.GOARCH)
+	// the fake uv writes its arguments and environment next to src/ (its working dir) and exits
+	data, sum := fakeUVArchiveBody(t, asset, "#!/bin/sh\necho \"$@\" > ../uv-args.txt\n/usr/bin/env > ../uv-env.tmp && /bin/mv ../uv-env.tmp ../uv-env.txt\n")
+	var fetchMu sync.Mutex
+	fetches := 0
+	fetchUV = func(url string) ([]byte, error) {
+		if strings.HasSuffix(url, ".sha256") {
+			return sum, nil
+		}
+		fetchMu.Lock()
+		fetches++
+		fetchMu.Unlock()
+		time.Sleep(50 * time.Millisecond) // 来源：实现者定，让并发的两次请求重叠
+		return data, nil
+	}
+
+	st := GetLocalHubStatus(context.Background(), dataDir, "zh")
+	if !st.CanStart || st.Missing != "" || fetches != 0 {
+		t.Fatalf("detection: %+v, %d downloads (detection must not download)", st, fetches)
+	}
+
+	// the gate's Python lookup downloads uv at the same moment
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var gateUV string
+	var gateErr error
+	go func() { defer wg.Done(); gateUV, gateErr = ensureUV(dataDir) }()
+	_, err := StartLocalHub(context.Background(), dataDir, "zh")
+	wg.Wait()
+	if err == nil || !strings.Contains(err.Error(), "秒内起来") {
+		t.Fatalf("want the wait to time out (fake uv starts no hub): %v", err)
+	}
+	own := filepath.Join(dataDir, "tools", "uv", uvExe())
+	if gateErr != nil || gateUV != own {
+		t.Fatalf("gate uv %q %v, want %q", gateUV, gateErr, own)
+	}
+	if fetches != 1 {
+		t.Fatalf("uv downloaded %d times, want 1", fetches)
+	}
+	hubDir := filepath.Join(dataDir, "hub")
+	var env []byte
+	for i := 0; i < 100; i++ {
+		if env, err = os.ReadFile(filepath.Join(hubDir, "uv-env.txt")); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("the downloaded uv was not run: %v; log:%s", err, tailFile(filepath.Join(hubDir, "hub.log"), 600))
+	}
+	for _, want := range []string{"UV_PYTHON_PREFERENCE=only-managed", "UV_NO_CONFIG=1",
+		"UV_PYTHON_INSTALL_DIR=" + filepath.Join(dataDir, "tools", "python"), "RH_BOT_TOKEN="} {
+		if !strings.Contains(string(env), want) {
+			t.Errorf("hub env lacks %s", want)
+		}
+	}
+	if args, _ := os.ReadFile(filepath.Join(hubDir, "uv-args.txt")); !strings.Contains(string(args), "run --no-project --python >=3.11") {
+		t.Errorf("uv args: %s", args)
+	}
+
+	// a second start reuses the downloaded uv
+	if _, err := localHubUV(dataDir, true); err != nil || fetches != 1 {
+		t.Fatalf("second lookup: %v, %d downloads", err, fetches)
+	}
+}
+
+// G5: the user's own uv (found by lookPath) runs the hub as before: none of uvOwnEnv's variables, so it uses
+// the user's Pythons and uv.toml (mirrors); nothing is downloaded.
+func TestStartLocalHubUserUVKeepsEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake uv is a shell script")
+	}
+	noLocalHub(t)
+	dataDir, _ := stubPythonEnv(t)
+	bin := t.TempDir()
+	userUV := filepath.Join(bin, "uv")
+	if err := os.WriteFile(userUV, []byte("#!/bin/sh\n/usr/bin/env > ../uv-env.tmp && /bin/mv ../uv-env.tmp ../uv-env.txt\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldFS, oldLook, oldWait := hubSourceFS, lookPath, localHubStartWait
+	hubSourceFS = fstest.MapFS{"rh/hub.py": &fstest.MapFile{Data: []byte("# hub")}}
+	lookPath = func(string) (string, bool, error) { return userUV, true, nil }
+	localHubStartWait = 300 * time.Millisecond // 来源：测试里假 uv 不起 hub
+	t.Cleanup(func() { hubSourceFS, lookPath, localHubStartWait = oldFS, oldLook, oldWait })
+	fetchUV = func(url string) ([]byte, error) { t.Errorf("downloaded %s", url); return nil, exec.ErrNotFound }
+
+	_, err := StartLocalHub(context.Background(), dataDir, "zh")
+	if err == nil || !strings.Contains(err.Error(), "没在 0 秒内起来") {
+		t.Fatalf("want the 300ms wait (not widened for the user's uv) to time out: %v", err)
+	}
+	envFile := filepath.Join(dataDir, "hub", "uv-env.txt")
+	var env []byte
+	for i := 0; i < 100; i++ {
+		if env, err = os.ReadFile(envFile); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("the user's uv was not run: %v", err)
+	}
+	for _, bad := range []string{"UV_PYTHON_PREFERENCE=", "UV_NO_CONFIG=", "UV_PYTHON_INSTALL_DIR="} {
+		if strings.Contains(string(env), bad) {
+			t.Errorf("user uv got %s", bad)
+		}
+	}
+	if !strings.Contains(string(env), "RH_BOT_TOKEN=") {
+		t.Errorf("hub env lacks RH_BOT_TOKEN")
 	}
 }

@@ -44,6 +44,14 @@ export function mentions(text, members) {
   return new Set(split(text, members).map(([, id]) => id).filter(Boolean));
 }
 
+/** text with the @-mentions (and blanks) it opens with taken out. */
+export function withoutLeadingMentions(text, members) {
+  const parts = split(text, members);
+  let i = 0;
+  while (i < parts.length && (parts[i][1] !== null || !parts[i][0].trim())) i++;
+  return parts.slice(i).map(([seg]) => seg).join('').trimStart();
+}
+
 /** Stored/displayed form: every mention becomes @name. */
 export function forDisplay(text, members) {
   const byId = new Map(members.map(m => [m.id, m]));

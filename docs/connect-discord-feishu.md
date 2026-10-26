@@ -4,6 +4,8 @@
 两条路写的是同一份配置。命令行手动配的老办法放在文末附录。还没装 `bothouse` 的先看[从零用起](GETTING_STARTED.md)第 1 步（一行命令，不用 Go 和 Node）。
 多个机器人时向导默认开分流（一个主 bot 决定谁回话），bothouse 自动拉起 gate，装好 Python 3.12+ 和 jev 后自动启用智能判断，不用手动起，见下面第 2 节第 5 步。
 
+**多个角色可以全部选同一种 CLI。** 比如三个角色都选本机已经登录的 Codex，各自设置名字和人设，不必安装三份 CLI。Discord 仍需要每个角色一个不同的机器人 token；自建平台按不同角色名区分。DSH 网页的「添加成员」是另一条入口，完整操作和会话/记忆边界见[同模型多成员指南](single-cli-team.md)。
+
 ```
  选平台 ─▶ 接机器人 ─▶ 每个角色选本机 CLI ─▶ 人设 ─▶ 分流和主角色 ─▶ jev ─▶ 保存，看还要做什么 ─▶ 重启生效
  Discord：选已有机器人或填 token，选服务器、默认频道        （可选：挂第三方 API）
@@ -32,6 +34,7 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
      一个机器人 = 一个角色，「再加一个机器人」加下一个。
    - 飞书：扫码，自动建应用；扫完列出机器人所在的群，选默认聊天群（还没进群就先跳过，私聊照样能用）。
 3. **本机 CLI**：只列出这台机器上装了的（claude、codex、gemini、opencode 等），带版本和登录状态。默认用 CLI 自己的本地登录。
+   这个选择对每个角色分别保存，允许多个角色重复选择同一种 CLI；角色独立不等于获得独立的账号额度。
    想用第三方 API，勾「改用第三方 API」，选服务商、填 key（下面「第三方 API × 本机 CLI」）。
    「复制提示词」会生成一段话，交给本地 CLI 让它自己配。
 4. **人设**：点一个默认人设（橘、鲸鱼娘、龙娘、彩虹猫、渡鸦）填进去再改，或者自己写，或者留空。
@@ -196,7 +199,8 @@ bothouse 只是接进去：每个角色作为一个成员连平台的机器人�
 1. [Discord 开发者后台](https://discord.com/developers/applications) → New Application → Bot → Reset Token，复制 token。
    一个角色一个应用、一个 token。
 2. Bot 页打开 **Message Content Intent**（不开读不到消息正文）。
-3. OAuth2 → URL Generator：scopes 勾 `bot`、`applications.commands`；权限至少勾查看频道、发消息、读消息历史、加反应。
+3. OAuth2 → URL Generator：scopes 勾 `bot`、`applications.commands`；权限至少勾查看频道、发消息、读消息历史、加反应；团队模式还要管理频道（建工作区）和置顶消息。向导给的邀请链接已带齐这些权限；频道单独设了权限的，要去频道设置里给 bot 放开。
+   如果 bot 已在服务器，请到「服务器设置 → 身份组」里，给 bot 的身份组勾上缺的权限，重新点链接不会更新权限。
    用生成的链接把 bot 拉进你的服务器。
 4. token 写进 `~/.bothouse/config.toml` 对应 project 的 `[projects.platforms.options] token`，不进任何仓库。
 

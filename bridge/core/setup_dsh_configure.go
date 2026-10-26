@@ -70,6 +70,20 @@ func collabDataDir() string {
 	return filepath.Join(home, ".conest-collab")
 }
 
+// dshMembersFile: what ConfigureDSH writes for the collab plugin (dsh/collab/roster.mjs reads it).
+func dshMembersFile() string { return filepath.Join(collabDataDir(), "wizard-members.json") }
+
+// DSHRouteConfigured: the wizard has set up DSH-native members on this machine. They take their
+// per-turn wiki pages and task board from the local gate, so bothouse runs the gate for them.
+func DSHRouteConfigured() bool {
+	for _, f := range []string{dshMembersFile(), dshImportedFile()} { // the plugin renames it on import
+		if _, err := os.Stat(f); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // ConfigureDSH saves the key, disables the sign-in prompt and writes the roles for the plugin.
 func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	var res DSHConfigureResult
@@ -108,7 +122,11 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return res, err
 	}
-	res.MembersFile = filepath.Join(dir, "wizard-members.json")
+	res.MembersFile = dshMembersFile()
+	// The last run's imported roster is stale now: the wikis wait for the plugin to import this one.
+	if err := os.Remove(dshImportedFile()); err != nil && !os.IsNotExist(err) {
+		return res, fmt.Errorf("remove the old imported roles: %w", err)
+	}
 	b, _ := json.MarshalIndent(map[string]any{"members": req.Members}, "", "  ")
 	if err := os.WriteFile(res.MembersFile, b, 0o600); err != nil {
 		return res, err
@@ -276,6 +294,9 @@ const dshChannelsHash = "#channels"
 // walkthrough (2026-10-23, /tmp/dshux) saw it print within seconds, this leaves wide margin.
 const dshWebStartTimeout = 60 * time.Second
 
+// dshWikiImportWait: how long after the open step the member wikis wait for the plugin to import the roles.
+const dshWikiImportWait = 2 * time.Minute
+
 var (
 	dshWebMu  sync.Mutex
 	dshWebURL = regexp.MustCompile(`dsh web: (https?://\S+)`)
@@ -298,7 +319,13 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	statePath := dshWebStatePath()
 	var prev DSHWeb
 	if b, err := os.ReadFile(statePath); err == nil && json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && prev.URL != "" {
-		return prev, nil
+		// The collab plugin imports the wizard's roles only at boot: with roles still waiting, start it over.
+		if _, err := os.Stat(dshMembersFile()); err != nil {
+			return prev, nil
+		}
+		if err := stopDSHWebForImport(prev.PID); err != nil {
+			return DSHWeb{}, err
+		}
 	}
 	bin, err := LookDSH()
 	if err != nil {
@@ -321,7 +348,9 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		}
 	}
 	if dataDir != "" {
-		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json")}
+		// GATE_PORT: where the collab plugin asks the gate for each turn's wiki pages and task board
+		// (dsh/collab/gate-context.mjs), the port bothouse runs the gate on (gate_proc.go startLocked).
+		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
 		if fallback := dshFallbackLead(dataDir); fallback != "" {
 			env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
 		}
@@ -361,6 +390,21 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		case <-tick.C:
 		}
 	}
+}
+
+// dshWebStopWait: how long a running `dsh web` gets to exit before the wizard gives up on restarting it.
+var dshWebStopWait = 10 * time.Second
+
+// stopDSHWebForImport stops the `dsh web` at pid so a new one imports the waiting roles; it errs if it stays up.
+func stopDSHWebForImport(pid int) error {
+	stopProcess(pid)
+	for deadline := time.Now().Add(dshWebStopWait); processAlive(pid); time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("新角色还没导入：正在运行的 dsh web（pid %d）没有退出，结束它后再打开一次", pid)
+		}
+	}
+	_ = os.Remove(dshWebStatePath())
+	return nil
 }
 
 func dshFallbackLead(dataDir string) string {
@@ -423,10 +467,18 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		mgmtError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+	// before `dsh web` starts: it is given the gate port (GATE_PORT)
+	if err := pickGatePortForDSH(m.wizardDataDir, m.wizardStore); err != nil {
+		mgmtError(w, http.StatusInternalServerError, "gate port: "+err.Error())
+		return
+	}
 	web, err := openDSHWeb(r.Context(), m.wizardDataDir)
 	if err != nil {
 		mgmtError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	EnsureGateForDSH(m.wizardDataDir)
+	// the member ids exist once the plugin in `dsh web` has imported the roles: the wikis are named after them
+	go makeDSHMemberWikisOnImport(m.wizardDataDir, dshWikiImportWait)
 	mgmtJSON(w, http.StatusOK, web)
 }

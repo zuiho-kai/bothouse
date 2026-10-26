@@ -85,11 +85,11 @@ test('tasks opened from chat skip the ref check', () => {
 
 // #574 B2: a workspace task at its 10-minute check is renewed when the workspace has new role
 // messages (at most MAX_RENEWALS times), otherwise parked. Same rule as contrib/lead/d10-fire.
-function watchSetup() {
+function watchSetup(opts = {}) {
   const { hub } = setup();
   const ws = hub.store.createWorkspace(1);
   let now = 10000;
-  const tasks = new Tasks(hub, { now: () => now, setTimer: () => ({}), clearTimer() {} });
+  const tasks = new Tasks(hub, { now: () => now, setTimer: () => ({}), clearTimer() {}, ...opts });
   const woken = [];
   tasks.onWake((id, msg) => { woken.push([id, msg.text]); return true; });
   const t = tasks.assign({ roomId: ws.id, title: '看门', owner: 'ds', actor: 'lead' });
@@ -126,15 +126,31 @@ test('watch: a message in the window renews 10 minutes', () => {
   tasks.close();
 });
 
-test(`watch: after ${MAX_RENEWALS} renewals it parks even with new messages`, () => {
-  const { tasks, say, at, records } = watchSetup();
+test('watch: with a renewal cap it parks after the cap even with new messages', () => {
+  const { tasks, say, at, records } = watchSetup({ maxRenewals: 2 });
   say(300); assert.equal(at(CHECK_AFTER_S).renewals, 1);
   say(900); assert.equal(at(2 * CHECK_AFTER_S).renewals, 2);
   say(1500);
   const t = at(3 * CHECK_AFTER_S);
   assert.ok(t.paused_at, 'third check parks');
-  assert.equal(t.renewals, MAX_RENEWALS);
+  assert.equal(t.renewals, 2);
   assert.match(records()[0].text, /已续期 2 次，已暂停/);
+  tasks.close();
+});
+
+// #429: by default (MAX_RENEWALS 0) progress keeps renewing; only a quiet window parks.
+test('watch: by default it renews as long as there is progress', () => {
+  assert.equal(MAX_RENEWALS, 0);
+  const { tasks, say, at, records } = watchSetup();
+  for (let i = 1; i <= 5; i++) {
+    say(i * CHECK_AFTER_S - 300);
+    const t = at(i * CHECK_AFTER_S);
+    assert.equal(t.renewals, i);
+    assert.ok(!t.paused_at, `check ${i} with progress does not park`);
+  }
+  const t = at(6 * CHECK_AFTER_S);
+  assert.ok(t.paused_at, 'a quiet window parks');
+  assert.match(records()[0].text, /没有新进展/);
   tasks.close();
 });
 
@@ -161,6 +177,35 @@ test('watch: only the owner\'s own progress renews (not others, not a bare stanc
   const t = at(CHECK_AFTER_S);
   assert.equal(t.paused_at, null, 'the owner\'s own message renews');
   assert.equal(t.renewals, 1);
+  tasks.close();
+});
+
+// #597 K5b: a workspace the bridge claimed is the bridge's to watch (core/team_watch.go), so the
+// gateway neither renews, parks nor reminds there, and arms no timer for it; one watcher per handoff.
+test('watch: a bridge-claimed workspace is left to the bridge watch', () => {
+  const { hub } = setup();
+  const ws = hub.store.createWorkspace(1, { bridge: true });
+  const plain = hub.store.createWorkspace(1);
+  let now = 10000;
+  const timers = [];
+  const tasks = new Tasks(hub, { now: () => now, setTimer: (_, ms) => { timers.push(ms); return {}; }, clearTimer() {} });
+  tasks.onWake(() => true);
+  const t = tasks.assign({ roomId: ws.id, title: '桥认领', owner: 'ds', actor: 'lead' });
+  timers.length = 0;
+  now = 10000 + 3 * CHECK_AFTER_S;
+  tasks.tick();
+  assert.equal(tasks.task(t.id).paused_at, null, 'not parked here');
+  assert.equal(tasks.task(t.id).renewals, 0, 'not renewed here');
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'still claimed');
+  assert.equal(hub.store.page(ws.id, undefined, 200).filter(m => /已暂停|还没交回/.test(m.text)).length, 0, 'no pause record, no reminder');
+  assert.deepEqual(timers, [], 'no timer for a bridge-claimed workspace (a past due would spin)');
+  // A gateway claim of another workspace is still watched.
+  const u = tasks.assign({ roomId: plain.id, title: '网关的', owner: 'ds', actor: 'lead', force: true });
+  assert.deepEqual(timers.slice(-1), [CHECK_AFTER_S * 1000]);
+  now += CHECK_AFTER_S;
+  tasks.tick();
+  assert.ok(tasks.task(u.id).paused_at, 'gateway workspace parked');
+  assert.equal(tasks.task(t.id).paused_at, null, 'bridge one still untouched');
   tasks.close();
 });
 

@@ -83,3 +83,5 @@ func processKillOutput(output []byte) string {
 	}
 	return trimmed
 }
+
+func processGroupOf(pid int) int { return 0 }

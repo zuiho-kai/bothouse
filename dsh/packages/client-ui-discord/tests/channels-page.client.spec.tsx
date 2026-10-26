@@ -7,6 +7,7 @@ import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage
 import type { ChannelSnapshot } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import css from '../src/client/ChannelsPage.module.css'
 
 afterEach(cleanup)
 
@@ -33,6 +34,56 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
 }
 
 describe('channels page', () => {
+  it('keeps an offline primary visible with offline styling and its selected name', () => {
+    render(<ChannelsPage {...props({
+      ...ready, thinking: {}, messages: [],
+      members: [{ id: 'ju', name: '橘', kind: 'bot', online: false }],
+    })} />)
+    const member = screen.getByTitle(zh.mentionPick.replace('{name}', '橘'))
+    expect(member.parentElement?.classList.contains(css.offline)).toBe(true)
+    expect(member.textContent).toContain(zh.offline)
+    expect(screen.getByRole('button', { name: zh.lead }).textContent).toContain('橘')
+  })
+
+  it('keeps offline channel members in the legacy roster and dims them', () => {
+    const html = readFileSync(join(import.meta.dirname, '../../../collab/page.html'), 'utf8')
+    const source = html.slice(html.indexOf('function renderMembers()'), html.indexOf('function messageNode('))
+    const container = document.createElement('div')
+    container.innerHTML = '<div id="members"></div><div id="thinking"></div>'
+    const el = (tag: string, className = '', text = '') => {
+      const node = document.createElement(tag)
+      node.className = className
+      node.textContent = text
+      return node
+    }
+    new Function('state', '$', 'el', 'avatar', 'kindLabel', source + '\nrenderMembers();')({
+      room: 1, rooms: ready.rooms, thinking: {},
+      members: [
+        { id: 'ju', name: 'OfflinePrimary', kind: 'bot', online: false, rooms: [1] },
+        { id: 'other', name: 'OtherChannel', kind: 'bot', online: false, rooms: [2] },
+      ],
+    }, (id: string) => container.querySelector('#' + id), el, () => el('span'), {})
+    expect(container.querySelector('.member.offline')?.textContent).toContain('OfflinePrimary')
+    expect(container.querySelector('.member.offline')?.textContent).toContain('离线')
+    expect(container.textContent).not.toContain('OtherChannel')
+  })
+
+  it('filters member list and mention candidates by the workspace parent channel', () => {
+    const state: ChannelSnapshot = {
+      ...ready, roomId: 1000000, messages: [], thinking: {},
+      rooms: [...ready.rooms, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 2 }],
+      members: [
+        { id: 'a', name: 'GameOnly', kind: 'dsh', online: true, rooms: [1] },
+        { id: 'b', name: 'OfficeOnly', kind: 'dsh', online: true, rooms: [2] },
+      ],
+    }
+    render(<ChannelsPage {...props(state)} />)
+    expect(screen.queryByText('GameOnly')).toBeNull()
+    expect(screen.getAllByText('OfficeOnly').length).toBeGreaterThan(0)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '@' } })
+    expect(screen.getAllByRole('option').some(o => o.textContent?.includes('OfficeOnly'))).toBe(true)
+    expect(screen.getAllByRole('option').some(o => o.textContent?.includes('GameOnly'))).toBe(false)
+  })
   it('shows only six existing capabilities for a slash draft, with usage and no side effects', () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
@@ -415,7 +466,7 @@ describe('channels page', () => {
     expect(p.createRoom).not.toHaveBeenCalled()
   })
 
-  it('adds a member through the dialog and keeps the form on a refusal', async () => {
+  it('adds a globally visible member without a room scope and keeps the form on a refusal', async () => {
     const p = props({ ...ready, thinking: {} })
     ;(p.listModels as ReturnType<typeof vi.fn>).mockResolvedValue([
       { provider: 'relay', name: '中转站', models: [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }] },

@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
 # 用法：ws-handoff <交接文件> "<一句话任务>"
+#   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
 #   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行），和「参照实现」（文件:行，非代码活写
 #   「无（新建）」）；有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
 #   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
@@ -8,11 +9,10 @@
 #   工作区里挑（件数少的先，同件数编号小的先），都忙才 new（桥先复用空号，没有才建 工作区n+1），再 claim
 #   记一件交接（桥按件计数，连交时刚交的也算）。暂停的活（board pause → <桥> workspace park）不算件数，
 #   它的工作区已放回池子，会被先复用。
-#   配了 WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）就固定用它；配的频道已删时，
-#   用 Discord API 在当前频道（CC_SESSION_KEY）同分类下建「工作区」文字频道，并提示把 ID 写进团队文件。
+#   配了 WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）就固定用它（不读平台 token、不自己建频道）。
 # 来源：用户 2026-10-23「如果你觉得已经开始管不过来了，你可以去开新的频道，就叫工作区，然后把任务整个大颗粒度的交给那边的橘」
 #   「方便任意人当主角色，并且也能放到仓库」。
-import json, os, re, shutil, subprocess, sys, urllib.error, urllib.request
+import contextlib, io, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -24,20 +24,14 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
 REQUIRED = ["用户原话", "进度", "规矩"]
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>"\n'
+         "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。")
+# 交出成功后打给主角色的话（stdout 第二行起；第一行仍是 timer id）。来源：团队模式规矩「聊天频道要保持畅通…交出就结束本轮」
+DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep 或查任务板看进度。"
+        "工作区做完会用 [report] 把结果转回本频道，到时再看、再验收。")
 # 一个工作区进行中的活达到这么多件就算忙。来源：dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认
 # 达到 3 件就算忙」（团队模式规矩，用户 2026-10-24）；桥里同值 core/team_workspace.go teamWorkspaceBusy。
 BUSY = 3
-API = "https://discord.com/api/v10"
-
-
-def api(method, path, body=None):
-    req = urllib.request.Request(API + path, method=method,
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bot {_team.token()}",
-                                          "User-Agent": "DiscordBot (bothouse, 1)",
-                                          "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r)
 
 
 def missing_sections(text: str):
@@ -97,24 +91,13 @@ def check_notes(text: str):
     return None
 
 
-def ensure_channel() -> str:
+def fixed_channel(chat: str) -> str:
+    """配了 WS_CHANNEL / 团队文件 "workspace" 时固定用它；不带平台前缀就沿用当前聊天频道的平台（都没有按 discord）。
+    不再自己用平台 token 查/建频道：配的频道没了，timer add 会报错；不配就走桥的共享池（workspace new 由桥建频道/建群）。"""
     ws = _team.workspace()
-    if ws:
-        try:
-            api("GET", f"/channels/{ws}")
-            return ws
-        except urllib.error.HTTPError as e:
-            if e.code != 404:
-                raise
-    # DSH 会删名字带 KEY 的环境变量，退回 DSH 入口导出的 CC_SESSION（同 later）
-    cur = (os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")).removeprefix("discord:")
-    if not cur.isdigit():
-        sys.exit("ws-handoff: 没有可用的工作区频道，也没有当前频道（CC_SESSION_KEY）可取分类")
-    ch = api("GET", f"/channels/{cur}")
-    new = api("POST", f"/guilds/{ch['guild_id']}/channels",
-              {"name": "工作区", "type": 0, "parent_id": ch.get("parent_id")})
-    print(f'ws-handoff: 新建工作区频道 {new["id"]}，把 "workspace": "{new["id"]}" 写进团队文件', file=sys.stderr)
-    return new["id"]
+    if ":" in ws:
+        return ws
+    return f"{chat.split(':', 1)[0] if ':' in chat else 'discord'}:{ws}"
 
 
 def cc_bin() -> str:
@@ -185,8 +168,16 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
     return freed
 
 
-def pick_pool(chat: str):
-    """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名）。"""
+def claim_cmd(chat: str, wid: str, task: str):
+    """<桥> workspace claim：旗标写在工作区 id 前（Go flag 遇到第一个位置参数就停，写在后面的 --session-key/--title
+    会被丢掉）；--title 是任务简称，十分钟看门催促里用（cmd/cc-connect/workspace.go --title），同本机 ws-handoff bridge_claim。"""
+    return [cc_bin(), "workspace", "claim", "--session-key", chat, "--title", task[:60], str(wid)]
+
+
+def pick_pool(chat: str, task: str = ""):
+    """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）。
+    claim 不带 --owner：交接的 owner 为空时，桥的十分钟看门按本 bot 自己在工作区的发言（IsSelf）
+    算进展（core/team_watch.go ownerSpoke）；接手的就是本 bot 的主角色，不用另传 id。"""
     board.pause_stale()
     plat = chat.split(":", 1)[0]
     r = ws_cmd(chat, "list")
@@ -197,25 +188,36 @@ def pick_pool(chat: str):
           and str(w.get("owner") or "") in ("", parent) and int(w.get("open") or 0) < BUSY]
     ok.sort(key=lambda w: (int(w.get("open") or 0), num(w.get("name"))))
     for w in ok:
-        c = subprocess.run([cc_bin(), "workspace", "claim", str(w["id"]), "--session-key", chat],
-                           capture_output=True, text=True)
+        c = subprocess.run(claim_cmd(chat, w["id"], task), capture_output=True, text=True)
         if c.returncode == 0:
-            return f"{plat}:{w['id']}", str(w.get("name") or w["id"])
+            return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
         print(f"ws-handoff: {w.get('name')} 认领不了（{c.stderr.strip()}），换下一个", file=sys.stderr)
     w = (ws_cmd(chat, "new").get("workspace") or {})
     if not w.get("id"):
         sys.exit("ws-handoff: workspace new 没回工作区")
-    ws_cmd(chat, "claim", str(w["id"]))
+    c = subprocess.run(claim_cmd(chat, w["id"], task), capture_output=True, text=True)
+    if c.returncode != 0:
+        sys.exit(f"ws-handoff: workspace claim 失败：{c.stderr.strip() or c.stdout.strip()}")
     print(f"ws-handoff: 池里没有不忙的工作区，用 {w.get('name') or w['id']}", file=sys.stderr)
-    return f"{plat}:{w['id']}", str(w.get("name") or w["id"])
+    return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
 
 
-def timer_cmd(ws: str, path: str, task: str):
+def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>"):
+    """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
+    （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
+    轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
+    开工提示对照本机 ws-handoff timer_cmd：任务板编号、上报方式。--desc 带任务：桥把它当这一轮的任务名（谁在干啥、
+    频道任务板，core/team.go teamNoteTurn → boardDescOf），不是把开工提示当任务名（#597 G36）。"""
     prompt = (f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
-              f"先读交接 {path}，接手后发五段式说明，并把还没派的活当场派出去")
+              f"先读交接 {path}。这块活交活时已在任务板建好 #{nid}，接手后用 board update {nid} <状态> 更新，"
+              f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明，并把还没派的活当场派出去。"
+              f"有问题、要用户拍板用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，等聊天频道转回答复再做，"
+              f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
+              f"做完交回：这一轮最后一条回复的第一行只写 [report]，第二行起写结果，系统会转到聊天频道（中途发的话不转）；"
+              f"这是你手上最后一件活时，同一轮跑 `{cc_bin()} session new --after-turn` 空出工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
-            "--desc", "工作区接手", "--prompt", prompt]
+            "--handoff", "--desc", f"工作区接手：{task}", "--prompt", prompt]
 
 
 def record_last(path: str, ws: str, task: str, chat: str, nid=None):
@@ -248,30 +250,49 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
 
 def main(argv):
     if len(argv) != 2 or not argv[1].strip():
-        sys.exit('用法：ws-handoff <交接文件> "<一句话任务>"')
+        sys.exit(USAGE)
     path, task = os.path.abspath(os.path.expanduser(argv[0])), argv[1]
     if not os.path.isfile(path):
-        sys.exit(f"ws-handoff: 交接文件不存在 {path}")
+        sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
         err = check_notes(fh.read())
     if err:
         sys.exit(f"ws-handoff: {err}")
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
-    if _team.workspace() or ":" not in chat:
-        ws, name = ensure_channel(), "工作区"
+    parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
+    if _team.workspace():
+        ws, name = fixed_channel(chat), "工作区"
+    elif ":" not in chat:
+        sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
-        ws, name = pick_pool(chat)
-    r = subprocess.run(timer_cmd(ws, path, task), capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"ws-handoff: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
-    # 交活时就上任务板、绑这个工作区：放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做
+        ws, name, parent = pick_pool(chat, task)
+    # 先上任务板、绑这个工作区（编号要写进开工提示，同本机 ws-handoff 先 board_add 再叫醒）：
+    # 放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
     nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat)
-    board.refresh({board._chan_of(nid), board._cur_channel()})
+    r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
+    if r.returncode != 0:
+        # 叫醒失败：撤掉刚上的板和刚 claim 的那一件交接（只放这一件，同 board pause 的 park），不留给看门判无进展
+        # _park_once 返回 None（桥没响应、拒绝或出错）时交接还记在桥里，不能说撤掉了（审稿 pr410 必须改 2）
+        board.unadd(nid)
+        why = r.stderr.strip() or r.stdout.strip()
+        if not parent:
+            sys.exit(f"ws-handoff: timer add 失败（已撤掉任务板 #{nid}）：{why}")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            parked = board._park_once(cc_bin(), key, parent)
+        if parked is None:
+            m = re.search(r"工作区没放回（(.*)）", buf.getvalue(), re.S)
+            reason = (m.group(1) if m else buf.getvalue()).strip() or "workspace park 没成功"
+            sys.exit(f"ws-handoff: timer add 失败：{why}\n"
+                     f"任务板已撤，交接没放回（{reason}），桥恢复后跑 workspace park --session-key {key} --chat {parent}")
+        sys.exit(f"ws-handoff: timer add 失败（已撤掉任务板 #{nid} 和这件交接）：{why}")
     record_last(path, ws, task, chat, nid)
     print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
+    # 交出后主角色就收手：G27 实测里没有这句时，主角色在本轮 sleep 50 秒查任务板等工作区，聊天频道被占 8–11 分钟
+    print(DONE.format(name=name))
 
 
 if __name__ == "__main__":

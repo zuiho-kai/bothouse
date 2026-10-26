@@ -391,7 +391,7 @@ func TestSend_WithImages_PassesImageArgsAndDefaultPrompt(t *testing.T) {
 
 	argsFile := filepath.Join(workDir, "args.txt")
 	script := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE\"\n" +
+		"printf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE.tmp\" && mv \"$CODEX_ARGS_FILE.tmp\" \"$CODEX_ARGS_FILE\"\n" +
 		"printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"thread-1\"}'\n" +
 		"printf '%s\\n' '{\"type\":\"turn.completed\"}'\n"
 	powershellScript := `
@@ -455,7 +455,7 @@ func TestSend_ResumeWithImages_PlacesSessionBeforeImageFlags(t *testing.T) {
 
 	argsFile := filepath.Join(workDir, "args.txt")
 	script := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE\"\n" +
+		"printf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE.tmp\" && mv \"$CODEX_ARGS_FILE.tmp\" \"$CODEX_ARGS_FILE\"\n" +
 		"printf '%s\\n' '{\"type\":\"turn.completed\"}'\n"
 	powershellScript := `
 [IO.File]::WriteAllLines($env:CODEX_ARGS_FILE, (fakeCodexArgs))
@@ -504,7 +504,7 @@ func TestSend_UsesStdinForMultilinePrompt(t *testing.T) {
 	argsFile := filepath.Join(workDir, "args.txt")
 	stdinFile := filepath.Join(workDir, "stdin.txt")
 	script := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE\"\n" +
+		"printf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE.tmp\" && mv \"$CODEX_ARGS_FILE.tmp\" \"$CODEX_ARGS_FILE\"\n" +
 		"cat > \"$CODEX_STDIN_FILE\"\n" +
 		"printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"thread-stdin\"}'\n" +
 		"printf '%s\\n' '{\"type\":\"turn.completed\"}'\n"
@@ -684,7 +684,7 @@ func TestWriteFakeCodexScript_PreservesArgsWithSpaces(t *testing.T) {
 	}
 
 	argsFile := filepath.Join(workDir, "args.txt")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE\"\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE.tmp\" && mv \"$CODEX_ARGS_FILE.tmp\" \"$CODEX_ARGS_FILE\"\n"
 	powershellScript := `[IO.File]::WriteAllLines($env:CODEX_ARGS_FILE, (fakeCodexArgs))
 `
 	writeFakeCodexScript(t, binDir, script, powershellScript)
@@ -745,6 +745,8 @@ func writeFakeCodexScript(t *testing.T, dir, shellScript, powershellScript strin
 	}
 }
 
+// waitForArgsFile reads the args the fake codex wrote. The sh fakes write it whole (tmp file, then mv): with a plain
+// "printf > file" a loaded machine read it half-written and the arg checks failed.
 func waitForArgsFile(t *testing.T, path string) []string {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

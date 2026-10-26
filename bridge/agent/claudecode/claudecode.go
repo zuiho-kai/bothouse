@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -225,9 +224,12 @@ func New(opts map[string]any) (core.Agent, error) {
 	// skip the supervisor-side LookPath check and let spawn fail loudly
 	// at runtime if the target doesn't have claude installed.
 	if !spawnOpts.IsolationMode() {
-		if _, err := exec.LookPath(cmd); err != nil {
+		// Not on PATH: also try the common install dirs and start the absolute path found there.
+		resolved, err := core.ResolveCLI(cmd)
+		if err != nil {
 			return nil, fmt.Errorf("claudecode: %q CLI not found in PATH, please install it first", cmd)
 		}
+		cmd = resolved
 	}
 
 	// Parse project-level env from opts["env"] (set via [projects.agent.options.env] in config.toml).

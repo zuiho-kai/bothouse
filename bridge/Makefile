@@ -82,10 +82,11 @@ web:
 	cd web && $(PNPM) run build
 
 # The self-hosted platform (role-household hub) bundled for the setup wizard's 「在本机启动」
-# (internal/rhhub). HUB_FILES = rh/hub.py and the modules it imports (internal/rhhub/embed_test.go checks).
+# (internal/rhhub). HUB_FILES = rh/hub.py and every module it imports, recursively (internal/rhhub/embed_test.go
+# TestHubFilesCoverImports checks on every go test).
 HUB_SRC   := ../role-household/rh
 HUB_DST   := internal/rhhub/src/rh
-HUB_FILES := __init__.py hub.py cloudweb.py webpush.py meeting.py brain.py config.py voice.py lock.py
+HUB_FILES := __init__.py hub.py cloudweb.py webpush.py meeting.py brain.py config.py voice.py lock.py errors.py team_exit.py
 
 hubsrc:
 	mkdir -p $(HUB_DST)/static

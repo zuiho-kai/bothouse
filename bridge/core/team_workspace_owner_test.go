@@ -318,3 +318,28 @@ func TestWorkspaceUpgradeFreesOldRecords(t *testing.T) {
 		t.Fatalf("claim of A's unfinished ws2 = %v, want ErrTeamWorkspaceOwned", err)
 	}
 }
+
+// #597 G36: after the workspace's last task it is released (its chat no longer owns it), and the
+// chat's 「今天做完」 row still names it 「工作区1·」, not the internal id (v0.1.24 web check:
+// 「room-2·工作区1ayi：…」).
+func TestTaskBoardNamesReleasedWorkspace(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	e.sessions.GetOrCreateActive(exitWSKey).SetAgentSessionID("a1", "test")
+	e.startFreshSession(e.sessions, exitWSKey, exitWSKey, "", "")
+	if _, ok := e.WorkspaceParent("ws1"); ok {
+		t.Fatal("ws1 still owned after its lead session was reset")
+	}
+	done := placeTeamTaskBoard(e.teamTaskBoardPlacer(), []teamTaskBoardItem{{ID: 1, What: "写脚本", Who: "橘",
+		Status: "已完成", WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"}})
+	got := renderTeamTaskBoard(nil, done, "discord:chatA", time.Now(), nil)
+	if !strings.Contains(got, "- 工作区1·橘：写脚本") || strings.Contains(got, "ws1·") {
+		t.Fatalf("board =\n%s", got)
+	}
+	if n := e.TeamWorkspaceName("discord:nope"); n != "" {
+		t.Fatalf("unknown workspace name = %q", n)
+	}
+}

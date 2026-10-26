@@ -663,8 +663,7 @@ func (p *Platform) RegisterCommands(commands []core.BotCommandInfo) error {
 		if err != nil {
 			slog.Error("discord: failed to register slash commands — "+
 				"make sure the bot was invited with BOTH 'bot' AND 'applications.commands' OAuth2 scopes. "+
-				"Re-invite URL: https://discord.com/oauth2/authorize?client_id="+p.appID+
-				"&scope=bot+applications.commands&permissions=2147485696",
+				"Re-invite URL: "+core.DiscordInviteURL(p.appID, p.guildID),
 				"error", err, "guild_id", guildID)
 			return fmt.Errorf("discord: register slash commands (guild_id=%q): %w", guildID, err)
 		}
@@ -1727,12 +1726,25 @@ func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core
 			continue // maomao fork: "pinned a message" notice (channel task board)
 		}
 		out = append(out, core.ChannelHistoryMessage{
-			ID: m.ID, Author: m.Author.Username, IsBot: m.Author.Bot,
+			ID: m.ID, Author: m.Author.Username, AuthorID: m.Author.ID, IsBot: m.Author.Bot,
 			IsSelf: m.Author.ID == p.botID, FromTurn: p.turnSent.has(m.ID), Content: text, Time: m.Timestamp,
-			Attachments: historyAttachments(m.Attachments),
+			Attachments: historyAttachments(m.Attachments), MentionIDs: mentionIDs(m.Content, m.Mentions),
 		})
 	}
 	return out, nil
+}
+
+// mentionIDs: the user ids a post @-ed in its own text (ContentWithMentionsReplaced drops the raw
+// <@id>). Discord also lists the author of the message replied to (a reply pings by default);
+// that one is left out unless the text names them too (PR #377 review: a reply is not a new @).
+func mentionIDs(content string, users []*discordgo.User) []string {
+	var out []string
+	for _, u := range users {
+		if u != nil && u.ID != "" && (strings.Contains(content, "<@"+u.ID+">") || strings.Contains(content, "<@!"+u.ID+">")) {
+			out = append(out, u.ID)
+		}
+	}
+	return out
 }
 
 // historyAttachments lists a post's attachments for channel backfill (maomao fork); core

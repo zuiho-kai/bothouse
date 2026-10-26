@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -176,8 +177,9 @@ func TestWatchIgnoresOldHandoffs(t *testing.T) {
 }
 
 func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	e, p, w, h := watchFixture(t, "u1", "")
-	w.progress = func(string, TeamHandoff, time.Time) bool { return true }
+	w.progress = func(string, TeamHandoff, time.Time) (watchProgress, error) { return watchProgressReal, nil }
 	now := h.Due
 	for i := 1; i <= watchMaxRenew; i++ {
 		next := w.tick(now)
@@ -296,6 +298,104 @@ func TestWatchStartedFires(t *testing.T) {
 	t.Fatal("started watch did not park the task")
 }
 
+// #597 K5b: the bridge starts the watch with its API server (main: engines started, then
+// apiSrv.Start); BOTHOUSE_WATCH_TEST_SECONDS shortens the check so a claim is checked and, with
+// no progress, nudged once and parked.
+func TestWatchStartsWithAPIServer(t *testing.T) {
+	setWatchCheckAfter(t, watchCheckAfter()) // restore after the env var changed it
+	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "1")
+	e, _, p := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
+	e.teamWS = newTeamWorkspaces()
+	dir, err := os.MkdirTemp("", "k5b") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	old := activeAPISocket.Load()
+	t.Cleanup(func() {
+		if old != nil {
+			activeAPISocket.Store(old)
+		}
+	})
+	s, err := NewAPIServer(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.RegisterEngine("orange", e)
+	if e.handoffWatchOn.Load() {
+		t.Fatal("registering before Start must not start the watch")
+	}
+	s.Start()
+	t.Cleanup(s.Stop)
+	if !e.handoffWatchOn.Load() || watchCheckAfter() != time.Second {
+		t.Fatalf("Start: watch on %v, check after %v", e.handoffWatchOn.Load(), watchCheckAfter())
+	}
+	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "u1", "K5b"); err != nil {
+		t.Fatal(err)
+	}
+	if h := handoffsOf(e, "discord:ws1")[0]; h.Due.Sub(h.At) != time.Second {
+		t.Fatalf("claim due %v after the claim, want 1s", h.Due.Sub(h.At))
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !handoffsOf(e, "discord:ws1")[0].Parked.IsZero() {
+			time.Sleep(50 * time.Millisecond)
+			if n := len(p.sentTo("discord:ws1")); n != 1 {
+				t.Fatalf("one nudge, got %d", n)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the started bridge did not check the claim")
+}
+
+// A hot load (RegisterEngine after Start) or removal that changes the team workspace engine
+// moves the watch there: the old one is stopped first, so one file has one watcher.
+func TestWatchMovesWithTeamWorkspaceEngine(t *testing.T) {
+	setWatchCheckAfter(t, 30*time.Millisecond)
+	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "")
+	orange, _, p := exitFixture(t, nil)
+	orange.SetTeam(t.TempDir(), "橘", true)
+	orange.markPlatformReady(p)
+	orange.teamWS = newTeamWorkspaces()
+	alpha, _, _ := exitFixture(t, nil)
+	alpha.teamWS = newTeamWorkspaces()
+	other, _, _ := exitFixture(t, nil) // no team workspaces: never the watch engine
+	s := &APIServer{engines: map[string]*Engine{"orange": orange}}
+	s.watch.serving = true
+	s.startHandoffWatch()
+	s.RegisterEngine("beta", other)
+	if !orange.handoffWatchOn.Load() || other.handoffWatchOn.Load() {
+		t.Fatal("an engine without team workspaces does not take the watch")
+	}
+	s.RegisterEngine("alpha", alpha) // sorts first: teamWorkspaceEngine() is alpha now
+	if !alpha.handoffWatchOn.Load() || orange.handoffWatchOn.Load() {
+		t.Fatalf("hot load: watch on alpha %v, orange %v", alpha.handoffWatchOn.Load(), orange.handoffWatchOn.Load())
+	}
+	s.UnregisterEngine("alpha")
+	if alpha.handoffWatchOn.Load() || !orange.handoffWatchOn.Load() {
+		t.Fatalf("removal: watch on alpha %v, orange %v", alpha.handoffWatchOn.Load(), orange.handoffWatchOn.Load())
+	}
+	if err := orange.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "u1", "t"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !handoffsOf(orange, "discord:ws1")[0].Parked.IsZero() {
+			time.Sleep(100 * time.Millisecond)
+			if n := len(p.sentTo("discord:ws1")); n != 1 {
+				t.Fatalf("one watcher: one nudge, got %d", n)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the moved watch did not park the task")
+}
+
 func TestWatchListShowsDue(t *testing.T) {
 	e, _, _, h := watchFixture(t, "u1", "")
 	if got := e.teamWorkspaceWatchDue("discord:ws1"); !got.Equal(h.Due) {
@@ -349,5 +449,387 @@ func TestWatchConstantsMatchDSH(t *testing.T) {
 	}
 	if got := num(`export const MAX_RENEWALS = ([0-9 *]+);`); got != watchMaxRenew {
 		t.Fatalf("tasks.mjs MAX_RENEWALS = %d, Go watchMaxRenew = %d", got, watchMaxRenew)
+	}
+	// Status lines: every prefix of DSH NOTICE_PREFIXES and of d10-fire STATUS_PREFIXES is one
+	// here, and nothing else.
+	web, err := fs.ReadFile(embeddedDSH, "dsh_bundle/collab/cloudweb.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fire, err := os.ReadFile("../contrib/lead/d10-fire")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := regexp.MustCompile(`['"]([^'"]+)['"]`)
+	want := map[string]bool{}
+	for _, c := range []struct {
+		src  []byte
+		re   string
+		name string
+	}{
+		{web, `export const NOTICE_PREFIXES = \[([^\]]*)\];`, "cloudweb.mjs NOTICE_PREFIXES"},
+		{fire, `STATUS_PREFIXES = \(([^)]*)\)`, "d10-fire STATUS_PREFIXES"},
+	} {
+		m := regexp.MustCompile(c.re).FindSubmatch(c.src)
+		if m == nil {
+			t.Fatalf("%s not found", c.name)
+		}
+		for _, q := range quoted.FindAllSubmatch(m[1], -1) {
+			want[string(q[1])] = true
+		}
+	}
+	have := map[string]bool{}
+	for _, p := range watchStatusPrefixes {
+		have[p] = true
+	}
+	for p := range want {
+		if !have[p] {
+			t.Errorf("status prefix %q (DSH/d10-fire) missing from watchStatusPrefixes", p)
+		}
+	}
+	for p := range have {
+		if !want[p] {
+			t.Errorf("watchStatusPrefixes has %q, which neither DSH nor d10-fire has", p)
+		}
+	}
+	fireStance := regexp.MustCompile(`STANCE_PREFIXES = \(([^)]*)\)`).FindSubmatch(fire)
+	if fireStance == nil {
+		t.Fatal("d10-fire STANCE_PREFIXES not found")
+	}
+	var stances []string
+	for _, q := range quoted.FindAllSubmatch(fireStance[1], -1) {
+		stances = append(stances, string(q[1]))
+	}
+	if strings.Join(stances, " ") != strings.Join(watchStancePrefixes, " ") {
+		t.Errorf("d10-fire STANCE_PREFIXES %q, Go watchStancePrefixes %q", stances, watchStancePrefixes)
+	}
+}
+
+// historyTestPlatform: exitTestPlatform that also reads channel history (or fails to).
+type historyTestPlatform struct {
+	*exitTestPlatform
+	mu   sync.Mutex
+	msgs map[string][]ChannelHistoryMessage
+	err  error
+}
+
+func (p *historyTestPlatform) ChannelHistory(channelID, _ string, _ int) ([]ChannelHistoryMessage, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return nil, p.err
+	}
+	return append([]ChannelHistoryMessage(nil), p.msgs[channelID]...), nil
+}
+
+func (p *historyTestPlatform) post(channelID, authorID, content string, at time.Time) {
+	p.add(channelID, ChannelHistoryMessage{ID: content, AuthorID: authorID, IsBot: true, Content: content, Time: at})
+}
+
+// postSelf: a post of this bot (IsSelf).
+func (p *historyTestPlatform) postSelf(channelID, content string, at time.Time) {
+	p.add(channelID, ChannelHistoryMessage{ID: content, AuthorID: "self", IsBot: true, IsSelf: true, Content: content, Time: at})
+}
+
+func (p *historyTestPlatform) add(channelID string, m ChannelHistoryMessage) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.msgs == nil {
+		p.msgs = map[string][]ChannelHistoryMessage{}
+	}
+	p.msgs[channelID] = append(p.msgs[channelID], m)
+}
+
+// progressFixture: watchFixture whose platform reads channel history; the watch uses its real
+// progress signals (workspaceProgress) and a fake clock (tick(now)).
+func progressFixture(t *testing.T, owner string) (*Engine, *historyTestPlatform, *handoffWatch, TeamHandoff) {
+	t.Helper()
+	e, _, p := exitFixture(t, nil)
+	hp := &historyTestPlatform{exitTestPlatform: p}
+	e.platforms = []Platform{hp}
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(hp)
+	e.handoffWatchOn.Store(true)
+	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", owner, "K5a"); err != nil {
+		t.Fatal(err)
+	}
+	return e, hp, newHandoffWatch(e), handoffsOf(e, "discord:ws1")[0]
+}
+
+const k5aOwner = "1472561359660253256"
+
+// The owner posted work in the workspace channel in the last ten minutes: renewed by ten minutes,
+// silently, nothing parked.
+func TestWatchOwnerPostRenews(t *testing.T) {
+	e, p, w, h := progressFixture(t, "<@"+k5aOwner+">")
+	p.post("ws1", k5aOwner, "@橘 改完 team_watch.go，在跑测试", h.Due.Add(-time.Minute))
+	next := w.tick(h.Due)
+	if !next.Equal(h.Due.Add(watchCheckAfter())) {
+		t.Fatalf("renewed by %v, next %v", watchCheckAfter(), next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 1 || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
+		t.Fatalf("renewal 1, silent, not parked: %+v, sent %v", got, p.out)
+	}
+}
+
+// No owner named (ws-handoff before it passed --owner): this bot's own posts in the workspace
+// count; another author's do not; a stance line of this bot does not either.
+func TestWatchNoOwnerSelfPostRenews(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	at := h.Due.Add(-time.Minute)
+	p.post("ws1", k5aOwner, "别人的进度", at)
+	p.postSelf("ws1", "【接】已派龙娘", at)
+	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressNone {
+		t.Fatal("another author or a stance line of this bot is not progress")
+	}
+	p.postSelf("ws1", "龙娘交回了第一块，在派第二块", at)
+	w.tick(h.Due)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("this bot's post renews silently, got %+v, sent %v", got, p.out)
+	}
+}
+
+// Posts that are not progress: stance lines (also after a mention or a reply quote), gate status
+// lines, empty posts, someone else's posts, and the owner's posts before the window.
+func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	at := h.Due.Add(-time.Minute)
+	for _, c := range []string{"【接】已派子 agent，做完交回", "@橘 【问】owner 填什么", "@橘【接】已派子 agent，做完交回", "<@1>【接】马上做", "@橘[回复 龙娘：好] 【退】不做", "<@1> 【退】推荐鲸鱼娘", "[回复 橘：去做 K5a] 【升】太大了", "↪ 转给龙娘", "⏹ 已停", "📬 收到", "⏳ 模型满载冷却中，这条 3 分钟后再处理", "✅ 完成", "🔄 重试", "⏸ 暂停", "  "} {
+		p.post("ws1", k5aOwner, c, at)
+	}
+	p.post("ws1", "someone-else", "我在干活", at)
+	p.post("ws1", k5aOwner, "这条在派活之前", h.At.Add(-time.Minute))
+	w.tick(h.Due)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 0 || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("no progress: nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+// Progress every time: renewed at most twice (30 minutes in all), then nudged and parked.
+func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2)
+	e, p, w, h := progressFixture(t, k5aOwner)
+	now := h.Due
+	for i := 1; i <= watchMaxRenew; i++ {
+		p.post("ws1", k5aOwner, "进度：第"+strconv.Itoa(i)+"步做完", now.Add(-time.Second))
+		next := w.tick(now)
+		if !next.Equal(now.Add(watchCheckAfter())) {
+			t.Fatalf("renewal %d: next %v", i, next)
+		}
+		now = next
+	}
+	if len(p.out) != 0 {
+		t.Fatalf("renewals are silent, got %v", p.out)
+	}
+	p.post("ws1", k5aOwner, "进度：还在做", now.Add(-time.Second))
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("third check stops the watch, next %v", next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != watchMaxRenew || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("after %d renewals: one nudge and parked, got %+v, sent %v", watchMaxRenew, got, p.out)
+	}
+	if now.Sub(h.At) != time.Duration(watchMaxRenew+1)*watchCheckAfter() {
+		t.Fatalf("stopped %v after the claim", now.Sub(h.At))
+	}
+}
+
+// No post and no turn running: stopped at the first check.
+func TestWatchNoSignalStops(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	if next := w.tick(h.Due); !next.IsZero() {
+		t.Fatalf("stopped, next %v", next)
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+// A turn running for 12 minutes (the session stays locked past the check time) is progress, even
+// without any post and with no owner named: renewed, not stopped. Renewals used up: stopped
+// anyway.
+func TestWatchBusySessionIsNotStopped(t *testing.T) {
+	withWatchMaxRenew(t, 2)
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	now := h.Due.Add(2 * time.Minute) // 12 minutes after the claim
+	next := w.tick(now)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if next.IsZero() || got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("busy turn: renewed silently, got %+v, next %v, sent %v", got, next, p.out)
+	}
+	w.tick(next)
+	next = handoffsOf(e, "discord:ws1")[0].Due
+	w.tick(next)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Renewed != watchMaxRenew || got.Parked.IsZero() {
+		t.Fatalf("busy but renewals used up: parked, got %+v", got)
+	}
+}
+
+// A session of another engine (a teammate's role) in the workspace counts too; one of another
+// channel does not.
+func TestWatchBusyOnAnyEngine(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	mate, _, _ := exitFixture(t, nil)
+	w.engines = func() []*Engine { return []*Engine{e, mate} }
+	other := mate.sessions.GetOrCreateActive("discord:ws9:u1")
+	other.TryLock()
+	defer other.Unlock()
+	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressNone {
+		t.Fatal("a turn in another channel is not progress here")
+	}
+	s := mate.sessions.GetOrCreateActive("discord:ws1:mate")
+	s.TryLock()
+	defer s.Unlock()
+	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind == watchProgressNone {
+		t.Fatal("a teammate's turn in the workspace is progress")
+	}
+}
+
+// Reading the channel fails (a network blip, Discord 5xx/429): not a verdict. Retried after
+// watchRetryDelay without a nudge; still failing after watchParkRetries reads: no progress,
+// nudged and parked (not renewed, not dropped).
+func TestWatchSignalErrorRetriesThenNoProgress(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	p.post("ws1", k5aOwner, "进度：做完一半", h.Due.Add(-time.Minute))
+	p.err = errors.New("discord: channel history: 503")
+	now := h.Due
+	for i := 1; i < watchParkRetries; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if !next.Equal(now.Add(watchRetryDelay)) || got.ReadFails != i || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
+			t.Fatalf("read failure %d: retry in %v silently, got %+v, next %v, sent %v", i, watchRetryDelay, got, next, p.out)
+		}
+		now = next
+	}
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("retries used up: stopped, next %v", next)
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("read error after retries: nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+// The connection comes back on the retry: the post in the window renews and the failures reset.
+func TestWatchSignalErrorThenReconnectRenews(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	p.post("ws1", k5aOwner, "进度：做完一半", h.Due.Add(-time.Minute))
+	p.err = errors.New("discord: connection reset")
+	next := w.tick(h.Due)
+	p.mu.Lock()
+	p.err = nil
+	p.mu.Unlock()
+	w.tick(next)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 1 || got.ReadFails != 0 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("back online: renewed silently, got %+v, sent %v", got, p.out)
+	}
+}
+
+// A post at the start of the window, then a failed read and a recovery: the retry keeps the
+// window's start, so the post still counts and the task is renewed (not nudged or parked).
+func TestWatchSignalErrorKeepsWindowStart(t *testing.T) {
+	e, p, w, h := progressFixture(t, k5aOwner)
+	p.post("ws1", k5aOwner, "进度：开工了", h.At.Add(30*time.Second))
+	p.err = errors.New("discord: 503")
+	next := w.tick(h.Due)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.ReadFails != 1 || !got.Since.Equal(h.At) {
+		t.Fatalf("retry keeps the window start %v, got %+v", h.At, got)
+	}
+	p.mu.Lock()
+	p.err = nil
+	p.mu.Unlock()
+	w.tick(next)
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Renewed != 1 || got.ReadFails != 0 || !got.Since.IsZero() || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("post at the window start renews after the retry, got %+v, sent %v", got, p.out)
+	}
+}
+
+// feishuWatchFixture: watchFixture on Feishu, whose platform reads no channel history.
+func feishuWatchFixture(t *testing.T) (*Engine, *exitTestPlatform, *handoffWatch, TeamHandoff) {
+	t.Helper()
+	e, _, p := exitFixture(t, nil)
+	p.n = "feishu"
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
+	e.handoffWatchOn.Store(true)
+	if err := e.ClaimTeamWorkspaceFor("feishu:chatA", "ws1", "工作区1", `<at user_id="ou_x"></at>`, "K5a"); err != nil {
+		t.Fatal(err)
+	}
+	return e, p, newHandoffWatch(e), handoffsOf(e, "feishu:ws1")[0]
+}
+
+// Feishu (no channel history): a session of the workspace that ended a turn in the window is
+// progress (Session.UpdatedAt); none, or only an older one, is no progress.
+func TestWatchFeishuUsesSessionUpdate(t *testing.T) {
+	e, p, w, h := feishuWatchFixture(t)
+	s := e.sessions.GetOrCreateActive("feishu:ws1:ou_x")
+	s.mu.Lock()
+	s.UpdatedAt = h.At.Add(-time.Minute)
+	s.mu.Unlock()
+	if kind, err := w.workspaceProgress("feishu:ws1", h, h.At); kind != watchProgressNone || err != nil {
+		t.Fatalf("a turn before the window is no progress, got %v %v", kind, err)
+	}
+	s.mu.Lock()
+	s.UpdatedAt = h.Due.Add(-time.Minute)
+	s.mu.Unlock()
+	w.tick(h.Due)
+	got := handoffsOf(e, "feishu:ws1")[0]
+	if got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
+		t.Fatalf("a turn ended in the window renews silently, got %+v, sent %v", got, p.out)
+	}
+	// Next window: no turn since then: nudged and parked, not retried (no read error).
+	if next := w.tick(got.Due); !next.IsZero() {
+		t.Fatalf("no turn in the window: stopped, next %v", next)
+	}
+	if got := handoffsOf(e, "feishu:ws1")[0]; got.Parked.IsZero() || got.ReadFails != 0 || len(p.sentTo("feishu:ws1")) != 1 {
+		t.Fatalf("nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+func TestWatchOwnerID(t *testing.T) {
+	for in, want := range map[string]string{"123": "123", "<@123>": "123", "<@!123>": "123", "@123": "123", `<at user_id="ou_x"></at>`: "ou_x", " ": ""} {
+		if got := watchOwnerID(in); got != want {
+			t.Fatalf("watchOwnerID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// withWatchMaxRenew sets a renewal cap for one test (the default is no cap).
+func withWatchMaxRenew(t *testing.T, n int) {
+	t.Helper()
+	old := watchMaxRenew
+	watchMaxRenew = n
+	t.Cleanup(func() { watchMaxRenew = old })
+}
+
+// #429: by default progress keeps renewing past the old cap of two; a quiet window parks.
+func TestWatchRenewsWhileProgressByDefault(t *testing.T) {
+	if watchMaxRenew != 0 {
+		t.Fatalf("default watchMaxRenew = %d, want 0 (no cap)", watchMaxRenew)
+	}
+	e, p, w, h := watchFixture(t, "u1", "")
+	progress := watchProgressReal
+	w.progress = func(string, TeamHandoff, time.Time) (watchProgress, error) { return progress, nil }
+	now := h.Due
+	for i := 1; i <= 5; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if got.Renewed != i || !got.Parked.IsZero() || len(p.out) != 0 {
+			t.Fatalf("check %d with progress: renewed silently, got %+v, sent %v", i, got, p.out)
+		}
+		now = next
+	}
+	progress = watchProgressNone
+	w.tick(now)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("quiet window: nudged once and parked, got %+v, sent %v", got, p.out)
 	}
 }

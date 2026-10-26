@@ -206,6 +206,8 @@ type appServerSession struct {
 	// baseInstructions replaces codex's built-in base instructions on
 	// thread/start and thread/resume; "" keeps the built-in prompt.
 	baseInstructions string
+	// bin is the codex CLI to start (the adapter's resolved cmd); "" = "codex".
+	bin string
 
 	events chan core.Event
 
@@ -254,10 +256,11 @@ const (
 	appServerUsageRefreshTimeout = 1500 * time.Millisecond
 )
 
-func newAppServerSession(ctx context.Context, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, permissionProfile string, systemPrompt string, appendPrompt string, baseInstructions string) (*appServerSession, error) {
+func newAppServerSession(ctx context.Context, bin, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, permissionProfile string, systemPrompt string, appendPrompt string, baseInstructions string) (*appServerSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	s := &appServerSession{
 		url:               url,
+		bin:               bin,
 		workDir:           workDir,
 		model:             model,
 		effort:            effort,
@@ -323,7 +326,11 @@ func (s *appServerSession) connect() error {
 	if baseURL := strings.TrimSpace(s.baseURL); baseURL != "" {
 		args = append(args, "-c", fmt.Sprintf("openai_base_url=%q", baseURL))
 	}
-	cmd := exec.CommandContext(s.ctx, "codex", args...)
+	bin := s.bin
+	if bin == "" {
+		bin = "codex"
+	}
+	cmd := exec.CommandContext(s.ctx, bin, args...)
 	cmd.Dir = s.workDir
 	env := append([]string(nil), s.extraEnv...)
 	if s.codexHome != "" {

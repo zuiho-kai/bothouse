@@ -51,6 +51,18 @@ bothouse gives that to the primary role: every task has an owner, a source, and 
 
 The AIs are the ones you already have. Your local Claude Code, Codex and Gemini become roles as they are — same account, same subscription.
 
+## One CLI can power a whole team
+
+**Install one CLI, or configure one model in DSH, and add several independent members.** Each member has its own name, persona and conversation context. They can all use DeepSeek, or the same installed Codex CLI.
+
+For example, three DeepSeek members can split planning, implementation and review. Each keeps its own conversation and exchanges tasks and results through @-mentions in the public channel.
+
+In DSH web, open **Channels → Add member**, choose **DSH model** and the same DeepSeek model, then save a different name and responsibility for each of the three members. For several Codex members, choose **Local CLI → Codex** instead. Select a primary role and set the channel's **Dispatch mode** to **Full team** to assign work among these members.
+
+**The conversations are separate; the machine and account are not.** Public channel messages are supplied to members. Configured shared wiki pages and shared workspace files can also carry information between them. Members using the same account remain subject to that account's usage limits.
+
+See [one CLI / one model, multiple independent members](docs/single-cli-team.en.md) for steps, platform differences and the boundaries between conversations and shared memory.
+
 ## Quick start
 
 ### Core install
@@ -92,6 +104,11 @@ The packages are unsigned. macOS: drag **Bothouse.app** into Applications, then 
 2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → save (new roles default to YOLO / auto-approve permission mode, adjustable in project settings). Names start with the CLI label (`Codex`, then `Codex-2`); personas are optional and applied only when selected. Optional settings let you customize a name and keep it when selecting a library persona. Custom names display beside the backend, for example `Coder·Codex`, and stay when switching CLI; untouched default names follow the new backend. Existing roles keep their names and personas.
    Or tell your Claude Code / Codex "set up bothouse and connect it to Discord"; it asks for everything once.
 3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
+
+Several roles can use the same CLI with different personas. The wizard gives each
+new role its own working directory, persona, hooks and memory index. When calling
+`setup apply` with an explicit `work_dir`, use a separate directory for each role;
+a directory already assigned to another project is rejected.
 
 To let an AI decide who should answer (a small component we call the gate, think of it as a dispatcher), or to add the team memory, install two more pieces: see [the dispatcher and the team memory](docs/ccm-and-wiki.md) (Chinese).
 The full walkthrough is in [Getting started](docs/GETTING_STARTED.md) (Chinese). English docs are on the way.
@@ -232,7 +249,7 @@ the same team.
 - Ask for something big in the chat channel and the primary role hands the whole job to Workspace 1, then comes back to keep chatting with you. When Workspace 1 is busy, Workspace 2 opens on its own.
 - Inside a workspace the primary role splits the job and @s teammates; they reply 【接】 (taking it) and 【交回】 (handing it back). Anything that needs your decision comes back to the chat channel, so you only watch one place.
 - The task board groups work by chat channel → workspace → role: who is on what, and how much is done. Before handing off, the primary role checks whether that teammate is busy in another workspace.
-- Dispatch mode is per channel: single model with several processes, full team, or mixed (default).
+- Dispatch mode is per channel: single model with several processes (the role's own subtasks), full team (other channel members, which may all use the same model), or mixed (default). This controls where work goes, not whether members use different models.
 - In the DSH channel page, type "/" to see every capability and how to use it.
 
 ### A team, not a pile of chatbots
@@ -242,7 +259,7 @@ the same team.
 - Teammate status is an optional switch: turn it on and the primary role starts every turn knowing who's busy in which channel.
 - Add a message while an AI is working and it picks it up mid-task, no waiting.
 - To swap the primary role, just say "Whale, you lead now" or "Back to opus"; the default responder changes on the spot.
-- One session per channel, and it continues after a restart. Messages posted while a role was offline are handed to it before it answers.
+- Each role has its own session per channel; recovery after restart depends on the backend's capabilities. Messages posted while a role was offline are handed to it through the configured history-recovery path before it answers.
 
 ### jev, the dispatcher: a small model decides who answers
 
@@ -332,6 +349,7 @@ Modules and data flow: [Architecture](docs/ARCHITECTURE.md) (Chinese).
 | Doc | What's in it |
 | --- | --- |
 | [Getting started](docs/GETTING_STARTED.md) | Install, wizard, check it's online (Chinese) |
+| [One CLI / one model, multiple members](docs/single-cli-team.en.md) | Configure three DeepSeek or several Codex members; dispatch and context boundaries |
 | [Connect Discord or Feishu](docs/connect-discord-feishu.md) | Every wizard step, let an AI configure it, third-party APIs (Chinese) |
 | [The dispatcher and the team memory](docs/ccm-and-wiki.md) | The gate (who answers) and the shared wiki memory (Chinese) |
 | [Persona library and packs](docs/persona-packs.md) | Pick personas and avatars, make your own, install packs (Chinese) |

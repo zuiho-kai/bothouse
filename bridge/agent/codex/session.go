@@ -1015,6 +1015,16 @@ func (cs *codexSession) Close() error {
 	}
 }
 
+var _ core.AgentSessionForceKiller = (*codexSession)(nil)
+
+// ForceKill SIGKILLs every running codex exec process group right away
+// (maomao fork #618 K3); Engine.Stop calls it when Close runs past the
+// shutdown budget.
+func (cs *codexSession) ForceKill() error {
+	cs.cancel()
+	return forceKillAllCmds(cs.activeCmds())
+}
+
 var _ core.AgentSessionCanceller = (*codexSession)(nil)
 
 // CancelTurn (maomao fork, user 10-23「取消后不报错」) stops the running turn's
