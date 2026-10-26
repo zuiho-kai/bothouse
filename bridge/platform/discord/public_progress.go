@@ -298,7 +298,10 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 			if reopenErr := p.ReopenTaskThread(ctx, task); reopenErr == nil {
 				err = p.publishTaskFactPart(ctx, task, ev, lang, marker, part)
 			} else {
+				// Keep the reopen error: a rate limit or transient failure is
+				// retryable, unlike the original 50083 refusal.
 				slog.Warn("discord: reopen archived task thread failed", "task_id", task.ID, "thread", task.ThreadID, "error", reopenErr)
+				err = reopenErr
 			}
 		}
 		if err != nil {
