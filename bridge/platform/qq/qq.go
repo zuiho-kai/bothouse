@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -705,6 +706,27 @@ var cqUnescaper = strings.NewReplacer(
 	"&amp;", "&",
 )
 
+// plainAtToCQ turns a plain "@123456" the model wrote into a real OneBot at
+// segment, so the person is actually notified instead of seeing the text
+// "@123456". Existing CQ codes are left alone.
+//
+// Same approach as two public OneBot bridges, which both hit this: Gu-Heping's
+// openclaw-napcat-qq (src/util/cq-code.ts convertPlainAtToCq) and foggyww's
+// qqbot-claude (src/adapter/onebot.ts normalizeOutgoingMessage). Both treat it
+// as a safety net for the model writing "@id" instead of a CQ code, which is
+// what raw text output looks like.
+func plainAtToCQ(s string) string {
+	if !strings.Contains(s, "@") {
+		return s
+	}
+	return plainAtRe.ReplaceAllString(s, "${1}[CQ:at,qq=${2}]")
+}
+
+// plainAtRe matches "@123456" or "@all" that is not already inside a CQ code.
+// 6-12 digits: 来源 沿用上述两个项目的 \d{6,12}, which is the range a QQ
+// number has had for years.
+var plainAtRe = regexp.MustCompile(`(^|[^\w\[\]])(?:@)(\d{6,12}|all)\b`)
+
 // Reply sends a message as a reply to an incoming message.
 func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) error {
 	return p.Send(ctx, replyCtx, content)
@@ -718,7 +740,7 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 	}
 
 	params := map[string]any{
-		"message": content,
+		"message": plainAtToCQ(content),
 	}
 
 	if rctx.messageType == "group" {
