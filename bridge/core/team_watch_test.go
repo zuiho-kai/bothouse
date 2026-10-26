@@ -882,3 +882,80 @@ func TestWatchWorkspaceBranchPushRenews(t *testing.T) {
 		t.Fatalf("old push must not renew: %+v", got)
 	}
 }
+
+// The incident occurred after the ordinary two renewals were already spent.
+func TestWatchBackgroundRenewsBeyondOrdinaryLimit(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	bg := &bgTaskSession{controllableAgentSession: newControllableSession("bg")}
+	bg.set(1, time.Time{})
+	e.interactiveStates["discord:ws1:owner"] = &interactiveState{agentSession: bg}
+	now := h.Due
+	for i := 1; i <= 3; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i || len(p.out) != 0 {
+			t.Fatalf("live background work must renew at check %d: %+v, sent %v", i, got, p.out)
+		}
+		now = next
+	}
+	bg.set(0, time.Time{})
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("background ended without output: must park, next %v", next)
+	}
+}
+
+func TestWatchDeadBackgroundSessionParks(t *testing.T) {
+	for _, kind := range []string{"background-shell", "waiting-child"} {
+		t.Run(kind, func(t *testing.T) {
+			e, p, w, h := progressFixture(t, "")
+			bg := &bgTaskSession{controllableAgentSession: newControllableSession("bg")}
+			bg.set(1, time.Time{})
+			var as AgentSession = bg
+			if kind == "waiting-child" {
+				child := newSubTaskSession()
+				child.set(1, SubTask{ID: "lost-notification", Status: SubTaskWaiting, Background: true})
+				as = child
+			}
+			if kind == "waiting-child" {
+				as.(*subTaskSession).alive = false
+			} else {
+				bg.alive = false
+			}
+			e.interactiveStates["discord:ws1:owner"] = &interactiveState{agentSession: as}
+			if next := w.tick(h.Due); !next.IsZero() {
+				t.Fatalf("dead process must not renew: %v", next)
+			}
+			got := handoffsOf(e, "discord:ws1")[0]
+			if got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
+				t.Fatalf("stale background state must park: %+v, sent %v", got, p.out)
+			}
+		})
+	}
+}
+
+func TestWatchBackgroundRenewalCapSurvivesReload(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	bg := &bgTaskSession{controllableAgentSession: newControllableSession("bg")}
+	bg.set(1, time.Time{})
+	e.interactiveStates["discord:ws1:owner"] = &interactiveState{agentSession: bg}
+	now := h.Due
+	for i := 1; i <= 6; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i {
+			t.Fatalf("renewal %d must be allowed: %+v", i, got)
+		}
+		now = next
+		teamWorkspaceStore.mu.Lock()
+		delete(teamWorkspaceStore.cache, teamWorkspacePath(e.dataDir))
+		teamWorkspaceStore.mu.Unlock()
+		w = newHandoffWatch(e)
+	}
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("six renewals exhausted: must park, next %v", next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Parked.IsZero() || got.Renewed != 6 || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("background cap must park even after reload: %+v, sent %v", got, p.out)
+	}
+}

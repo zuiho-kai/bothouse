@@ -3,7 +3,8 @@ package core
 // Team mode: the ten-minute watch on workspace handoffs (#574 B9). Every claim of a pool
 // workspace records a check time (TeamHandoff.Due = claim + watchCheckAfter). At the check time
 // a handoff still in work either shows progress (renewed by watchCheckAfter, at most
-// watchMaxRenew times, silently) or is nudged once in the workspace channel and parked
+// watchMaxRenew times, or watchMaxBackgroundRenew with live background work, silently)
+// or is nudged once in the workspace channel and parked
 // (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). Same rule as the DSH
 // gateway's task watch (dsh/collab/tasks.mjs CHECK_AFTER_S, MAX_RENEWALS) and the lead's
 // d10-fire script. One watcher per bridge on the team workspace engine; the state lives in the
@@ -48,6 +49,10 @@ func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Lo
 // Var only so tests can change it; not configurable.
 // Source: d10-fire MAX_RENEW = 2 (lead ruling 2026-10-25, at most 30 minutes); same as tasks.mjs MAX_RENEWALS.
 var watchMaxRenew = 2
+
+// Live background work can extend a handoff to six ten-minute renewals in total.
+// Ordinary renewals also consume this budget; it survives restart via Renewed.
+const watchMaxBackgroundRenew = 6
 
 const (
 	// Source: B9 plan v3「park 返回其他错误…Due 推后 1 分钟重试，最多 3 次」.
@@ -253,7 +258,14 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		// drop the check.
 		return now.Add(watchRetryDelay)
 	}
-	if h.ParkFails == 0 && h.Renewed < watchMaxRenew && w.progress != nil {
+	parkReason := "no progress at the check time"
+	if h.Renewed >= watchMaxRenew {
+		parkReason = "renewals used up"
+	}
+	if h.Renewed >= watchMaxBackgroundRenew {
+		parkReason = "background renewal limit reached"
+	}
+	if h.ParkFails == 0 && h.Renewed < watchMaxBackgroundRenew {
 		since := h.Since
 		if since.IsZero() {
 			since = h.Due.Add(-watchCheckAfter())
@@ -261,7 +273,18 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				since = h.At
 			}
 		}
-		progressed, perr := w.progress(key, h, since)
+		// Check live background work even after the ordinary renewals are spent.
+		// A busy parent or channel post alone cannot extend that ordinary limit.
+		background, _ := w.workspaceBackgroundProgress(key, since)
+		maxRenew := watchMaxRenew
+		if background {
+			maxRenew = watchMaxBackgroundRenew
+		}
+		progressed := background
+		var perr error
+		if !background && h.Renewed < watchMaxRenew && w.progress != nil {
+			progressed, perr = w.progress(key, h, since)
+		}
 		if perr != nil {
 			// A failed read (network, Discord 5xx/429) is not a verdict: retry after
 			// watchRetryDelay, like a failed park; only when the retries are used up is it no
@@ -293,7 +316,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				return time.Time{}
 			}
 			if err == nil {
-				slog.Info("team watch: progress, renewed", "workspace", key, "chat", h.Chat, "renew", h.Renewed+1, "max", watchMaxRenew)
+				slog.Info("team watch: progress, renewed", "workspace", key, "chat", h.Chat, "renew", h.Renewed+1, "max", maxRenew, "background", background)
 				return due
 			}
 			slog.Warn("team watch: save renewal failed; parking instead", "workspace", key, "error", err)
@@ -319,7 +342,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	freed, err := w.park(key, h.Chat, h.At)
 	switch {
 	case err == nil:
-		slog.Info("team watch: no progress at the check time; task parked", "workspace", key, "chat", h.Chat, "freed", freed)
+		slog.Info("team watch: task parked", "workspace", key, "chat", h.Chat, "freed", freed, "reason", parkReason)
 		return time.Time{}
 	case errors.Is(err, ErrTeamWorkspaceNotOwned):
 		// Handed back, closed or the workspace went to someone else meanwhile: nothing to park.
@@ -375,7 +398,8 @@ var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 // workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
 // request failed (check retries it).
 func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (bool, error) {
-	if w.workspaceBusy(key) || w.workspaceBackgroundProgress(key, since) {
+	running, pushed := w.workspaceBackgroundProgress(key, since)
+	if w.workspaceBusy(key) || running || pushed {
 		slog.Info("team watch: a workspace session is running a turn or has background progress", "workspace", key, "chat", h.Chat)
 		return true, nil
 	}
@@ -389,7 +413,7 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 // workspaceBackgroundProgress reads the same native task state used by idle
 // cleanup and the child table. Inspect active agent processes even after the
 // parent turn unlocks; Session.Busy alone cannot describe their lifetime.
-func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) bool {
+func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) (running, pushed bool) {
 	dirs := make(map[string]bool)
 	for _, e := range w.engines() {
 		if e == nil {
@@ -407,22 +431,25 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 			state.mu.Lock()
 			as, dir := state.agentSession, state.workspaceDir
 			state.mu.Unlock()
+			if dir != "" {
+				dirs[dir] = true
+			}
+			if as == nil || !as.Alive() {
+				continue
+			}
 			if r, ok := as.(BackgroundTaskReporter); ok {
 				running, _ := r.BackgroundTasks()
 				if running > 0 {
-					return true
+					return true, false
 				}
 			}
 			if r, ok := as.(SubTaskReporter); ok {
 				_, tasks, _ := r.SubTasks()
 				for _, task := range tasks {
 					if task.Live() {
-						return true
+						return true, false
 					}
 				}
-			}
-			if dir != "" {
-				dirs[dir] = true
 			}
 		}
 	}
@@ -441,11 +468,11 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 		if _, at, ok := strings.Cut(ref, "@{"); ok {
 			seconds, err := strconv.ParseInt(strings.TrimSuffix(at, "}"), 10, 64)
 			if err == nil && seconds >= since.Unix() {
-				return true
+				return false, true
 			}
 		}
 	}
-	return false
+	return false, false
 }
 
 // errWatchNoHistory: the platform cannot read channel history (no ChannelHistoryReader).
