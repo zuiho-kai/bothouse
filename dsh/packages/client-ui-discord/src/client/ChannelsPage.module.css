@@ -498,7 +498,7 @@
 
 .composerBox:focus-within {
   border-color: var(--dsw-alias-label-tertiary);
-  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 2px;
 }
 
