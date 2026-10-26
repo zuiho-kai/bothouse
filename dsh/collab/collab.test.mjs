@@ -4411,7 +4411,7 @@ test('G24: the local workspace command carries a reason into the owner\'s turn i
     assert.match(later.workspaceInstructions('cc', 1), /交接说明[\s\S]*用户原话[\s\S]*参照[\s\S]*分支[\s\S]*验收标准/);
     const reason = '用户原话：登录页点了没反应。参照 auth/legacy.mjs，以 main 为底，验收：点登录跳到首页';
     const out = await new Promise(resolve => {
-      const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, 'workspace', later.origin, later.ticket('cc', 1), '修登录页', '', reason]);
+      const child = spawn(process.execPath, [scriptPath(new URL('./later.mjs', import.meta.url)), 'workspace', later.origin, later.ticket('cc', 1), '修登录页', '', reason]);
       let text = ''; child.stdout.on('data', d => { text += d; }); child.stderr.on('data', d => { text += d; });
       child.on('close', status => resolve({ status, text }));
     });
