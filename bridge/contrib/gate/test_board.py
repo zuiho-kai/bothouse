@@ -133,6 +133,7 @@ class Increments(unittest.TestCase):
         fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
         fake.chmod(0o755)
         os.environ["CC_BIN"] = str(fake)
+        os.environ["BOARD_AUTO_PRUNE"] = "0"  # 这里只看 park；暂停挂的自动收起定时见 test_board_prune.py
         try:
             board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="feishu:oc_1", chat="feishu:oc_chat:u1")
             os.environ["CC_SESSION_KEY"] = "feishu:oc_1:u1"
@@ -150,6 +151,7 @@ class Increments(unittest.TestCase):
             self.assertEqual([c.split()[1] for c in calls], ["park", "claim", "park"])
         finally:
             os.environ["CC_BIN"] = "false"
+            os.environ.pop("BOARD_AUTO_PRUNE", None)
 
     def test_park_names_chat_and_task(self):
         """审查 pr261-code.md 第 1 条：pause / 把「谁」改走时 park 带上交活的聊天频道和绑定时刻，桥只放这一件；
