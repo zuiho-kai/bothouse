@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,9 @@ type teamTaskBoardItem struct {
 	Paused   string `json:"paused"`
 	PauseWhy string `json:"pause_why"`
 	DoneAt   string `json:"done_at"` // board-done.jsonl: "MM-DD HH:MM", local time
+	// AutoPruned: board.py auto_prune moved this paused item to board-done.jsonl (the reason); not
+	// work done, so it stays out of "done today" (board resume brings it back).
+	AutoPruned string `json:"auto_pruned"`
 	// SK: the chat the item was added in ("<platform>:<id>"); for a handoff, the workspace.
 	SK string `json:"sk"`
 	// WS: the workspace a handoff item is bound to; dropped when the item leaves it (pause).
@@ -94,11 +98,33 @@ func readTeamTaskBoardDoneToday(dir string, now time.Time) []teamTaskBoardItem {
 	today := now.Format("01-02")
 	var out []teamTaskBoardItem
 	for _, it := range readTeamTaskBoardFile(dir, teamTaskBoardDoneFile) {
-		if strings.HasPrefix(it.DoneAt, today) {
+		if strings.HasPrefix(it.DoneAt, today) && it.AutoPruned == "" {
 			out = append(out, it)
 		}
 	}
 	return out
+}
+
+// teamTaskBoardWaitUser: a pause reason that waits on the user ("等用户", "等待用户", ws-up --ask's
+// "等待用户答复"). Same pattern as board.py WAIT_USER_RE (those items are kept by auto_prune's idle
+// rule); change both together.
+var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
+
+// teamTaskBoardWaitHours: whole hours a paused item has waited on the user, 0 below one hour or
+// when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
+// or last year when that is more than a day ahead (board.py _done_time).
+func teamTaskBoardWaitHours(it teamTaskBoardItem, now time.Time) int {
+	if it.Paused == "" || !teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+		return 0
+	}
+	at, err := time.ParseInLocation("2006-01-02 15:04", fmt.Sprintf("%d-%s", now.Year(), it.Paused), now.Location())
+	if err != nil {
+		return 0
+	}
+	if at.After(now.Add(24 * time.Hour)) {
+		at = at.AddDate(-1, 0, 0)
+	}
+	return int(now.Sub(at) / time.Hour)
 }
 
 // teamTaskBoardPlacer tells where items go: which chat a workspace belongs to and its name.
@@ -371,6 +397,9 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		if it.Paused != "" {
 			if it.PauseWhy != "" {
 				line += "｜暂停：" + shortLabel(it.PauseWhy, st.statusCap)
+			}
+			if h := teamTaskBoardWaitHours(it, now); h > 0 {
+				line += fmt.Sprintf("｜等你 %d 小时", h)
 			}
 			return line
 		}

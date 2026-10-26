@@ -56,6 +56,8 @@
   `../gate/ctxsvc.py` 把整张板附进每个 bot 每轮的上下文（板子变了才重推，没用过任务板不附）。
   板子不自己发置顶卡、不读平台 token：桥的原生团队板读同一个 `board.jsonl`，在条目所在频道的团队板里出一节「任务板」
   （四平台通用；`BOARD_DIR` 要和 `team_status_dir` 是同一个目录，产品默认都是 `<数据目录>/team`）。
+  暂停条目自动收起：`BOARD_AUTO_PRUNE=0` 关闭自动收起（默认开）；`BOARD_PRUNE_IDLE_HOURS` 是闲置门槛小时数（默认 24）。
+  `board prune [--dry-run]` 手动收一次（`--dry-run` 只列出不写），其他 board 命令也会顺带收；收起的条目进完成记录，`board resume <编号>` 可找回。
 - `later <任务板编号> <延时如 10m> "<到点要做什么>"`：挂 `cc-connect timer`，并在任务板上这条已有条目记「下次看 几点」（只改「下次看」，
   不新建回看条目），用户在团队板上看得见。所有角色（主和次）都能用：没有条目先 `board add` 正经条目；会话按 `CC_SESSION_KEY`、
   `CC_SESSION` 顺序取，都没有就报错、不写板；定时挂不上会把「下次看」改回原值。DSH 运行时会删掉名字含 KEY 的环境变量（dsh-subprocess 过滤
