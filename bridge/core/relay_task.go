@@ -170,7 +170,11 @@ func (p *PublicProgress) reclaimClosedTask(r *publicRun, session string) (func()
 		if errors.Is(err, errMainBotTurnStopping) {
 			return nil, fmt.Errorf("relay: task %s is not active: the current main-bot turn for session %s is stopping; wait for the next turn, do not redispatch", t.ID, session)
 		}
-		return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended, but automatic re-claim is not possible: %w. Re-claim it explicitly with task assign --id %s --run <current-run> --ref '<path:line or 无（新建）>' --member <member> --name <name> --title <title>, then retry", t.ID, session, err, t.ID)
+		if errors.Is(err, errNoLiveMainBotTurn) {
+			return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended: %w. Start a new turn and retry", t.ID, session, err)
+		}
+		command := "task assign --project " + shellQuoteRelay(p.project) + " --session " + shellQuoteRelay(session) + " --data-dir " + shellQuoteRelay(p.dataDir) + " --id " + shellQuoteRelay(t.ID)
+		return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended, but automatic re-claim is not possible: %w. Re-claim it explicitly with %s --run <current-run> --ref '<path:line or 无（新建）>' --member <member> --name <name> --title <title>, then retry", t.ID, session, err, command)
 	}
 	oldClosed, oldStopped := r.record.Closed, r.stopped
 	r.record.Closed = false
@@ -186,9 +190,16 @@ func (p *PublicProgress) reclaimClosedTask(r *publicRun, session string) (func()
 	p.delegations[token][key] = r
 	p.indexRun(r)
 	p.mu.Unlock()
+	run.mu.Lock()
+	oldCandidate := run.candidate
+	run.candidate = r
+	run.mu.Unlock()
 	return func() {
 		r.record.Closed = oldClosed
 		r.stopped = oldStopped
+		run.mu.Lock()
+		run.candidate = oldCandidate
+		run.mu.Unlock()
 		p.mu.Lock()
 		if p.delegations[token] != nil && p.delegations[token][key] == r {
 			delete(p.delegations[token], key)

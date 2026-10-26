@@ -750,7 +750,7 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 		// Naming the state is the point: an owner who asked for something new
 		// must not lose the card for it to an earlier card that already
 		// delivered a result, which is the most common wrong continuation.
-		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with --task " + taskID + " --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
+		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with " + prefix + " --run " + token + " --task " + taskID + " --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
 	}
 	return strings.NewReplacer(
 		"COMMAND", prefix,

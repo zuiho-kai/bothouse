@@ -409,9 +409,9 @@ func TestTaskRelayReclaimsClosedCardInNextTurn(t *testing.T) {
 	}
 }
 
-// When automatic re-claim is not possible the error must name the cause and
-// the command that re-opens the card, not just "task is not active".
-func TestTaskRelayClosedCardErrorNamesReclaimCommand(t *testing.T) {
+// No live turn means there is no --run to suggest; the error must say what to
+// do instead of handing the caller an impossible command.
+func TestTaskRelayClosedCardNoLiveTurnDoesNotSuggestRun(t *testing.T) {
 	p, _, run, id := taskRelayFixture(t)
 	p.finish(run, "result")
 
@@ -420,7 +420,38 @@ func TestTaskRelayClosedCardErrorNamesReclaimCommand(t *testing.T) {
 		t.Fatal("closed card accepted without a live turn")
 	}
 	msg := err.Error()
-	for _, want := range []string{id, "earlier turn", "task assign --id " + id, "--ref"} {
+	for _, want := range []string{id, "earlier turn", "no live main-bot turn", "Start a new turn"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "task assign") || strings.Contains(msg, "--run") {
+		t.Errorf("no-live error suggests an unusable dispatch: %q", msg)
+	}
+}
+
+// When automatic re-claim is ambiguous because more than one live turn exists,
+// the explicit command must carry the real CLI context so it can actually run.
+func TestTaskRelayClosedCardReclaimCommandIncludesCLIContext(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+	_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err == nil {
+		t.Fatal("closed card accepted with an ambiguous turn")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"more than one main-bot turn",
+		"task assign --project 'source'",
+		"--session 'discord:room:user'",
+		"--data-dir '" + p.dataDir + "'",
+		"--id '" + id + "'",
+		"--run <current-run>",
+		"--ref",
+	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error %q missing %q", msg, want)
 		}
@@ -571,6 +602,18 @@ func TestTaskRelayResumeNoteAdvertisesExplicitTaskForReclaimedCard(t *testing.T)
 	if taskArg == "" {
 		t.Fatalf("resume note must advertise --task %s: %s", id, instructions)
 	}
+	noteStart := strings.Index(instructions, "A card from earlier in this session")
+	if noteStart < 0 {
+		t.Fatalf("resume note missing from instructions: %s", instructions)
+	}
+	noteEnd := strings.Index(instructions[noteStart:], "; when the human asked for something else")
+	if noteEnd < 0 {
+		t.Fatalf("resume note end missing from instructions: %s", instructions)
+	}
+	note := instructions[noteStart : noteStart+noteEnd]
+	if !strings.Contains(note, "--run "+next) {
+		t.Fatalf("resume note must include --run %s: %s", next, note)
+	}
 
 	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
 		t.Fatal(err)
@@ -585,6 +628,48 @@ func TestTaskRelayResumeNoteAdvertisesExplicitTaskForReclaimedCard(t *testing.T)
 		Summary:    "continuing the earlier card",
 	}); err != nil {
 		t.Fatalf("advertised progress command failed: %v", err)
+	}
+	p.finish(next, "result")
+}
+
+// After an automatic re-claim, the card must be bound to the current run for
+// the whole turn: the first report may use --task, but the next ordinary
+// report (no --task) must resolve to the same card instead of the empty run.
+func TestTaskRelayReclaimedCardContinuesWithoutTaskID(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	_, resumeSeq, _, _, ok := p.resumeHint(next)
+	if !ok {
+		t.Fatal("resume hint missing for the closed card")
+	}
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Report(PublicProgressRequest{
+		Project:    "source",
+		SessionKey: "discord:room:user",
+		Run:        next,
+		TaskID:     id,
+		Seq:        resumeSeq,
+		Kind:       "update",
+		Summary:    "first with task",
+	}); err != nil {
+		t.Fatalf("first report: %v", err)
+	}
+	if _, err := p.Report(PublicProgressRequest{
+		Project:    "source",
+		SessionKey: "discord:room:user",
+		Run:        next,
+		Seq:        resumeSeq + 1,
+		Kind:       "update",
+		Summary:    "second without task",
+	}); err != nil {
+		t.Fatalf("ordinary progress after re-claim: %v", err)
+	}
+	task, found := p.Task(id)
+	if !found || task.LatestProgress != "second without task" {
+		t.Fatalf("second report did not reach the reclaimed card: %+v %v", task, found)
 	}
 	p.finish(next, "result")
 }

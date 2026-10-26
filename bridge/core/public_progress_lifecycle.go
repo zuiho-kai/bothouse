@@ -93,8 +93,20 @@ func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) 
 		return r, nil
 	}
 	r.mu.Unlock()
+	// A re-claimed card is bound to this run and is open after the first
+	// explicit --task report. Later ordinary progress (no --task) must still
+	// resolve to it, not to this run's empty record.
+	p.mu.Lock()
+	bound := false
+	for _, card := range p.delegations[req.Run] {
+		if card == cand {
+			bound = true
+			break
+		}
+	}
+	p.mu.Unlock()
 	cand.mu.Lock()
-	if !cand.record.Closed || cand.record.Task.SessionKey != req.SessionKey || cand.record.LastSeq == 0 ||
+	if (!cand.record.Closed && !bound) || cand.record.Task.SessionKey != req.SessionKey || cand.record.LastSeq == 0 ||
 		!resumableTask(cand.record.Task, cand.record.Accepted, time.Now()) || req.Seq != cand.record.LastSeq+1 {
 		cand.mu.Unlock()
 		if auto {
