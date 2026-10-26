@@ -260,7 +260,7 @@ the same team.
 - **Hand off, report back.** The primary role @s a teammate with a task. The teammate's final answer @s the primary role automatically, and the primary role wraps up.
 - Teammate status is an optional switch: turn it on and the primary role starts every turn knowing who's busy in which channel.
 - Add a message while an AI is working and it picks it up mid-task, no waiting.
-- To swap the primary role, just say "Whale, you lead now" or "Back to opus"; the default responder changes on the spot.
+- To swap the primary role, just say "Whale, you lead now" or "Back to opus"; the default responder changes on the spot. If the old lead can no longer reply, use `bothouse handoff switch --to <project>`; task cards, workspaces and pending questions keep their original task IDs, see [manual lead handoff](docs/LEAD_HANDOFF.md).
 - Each role has its own session per channel; recovery after restart depends on the backend's capabilities. Messages posted while a role was offline are handed to it through the configured history-recovery path before it answers.
 
 ### jev, the dispatcher: a small model decides who answers

@@ -55,10 +55,17 @@ type Session struct {
 	mu           sync.Mutex `json:"-"`
 	busy         bool       `json:"-"`
 	handoffTaken [2]string  // taken by a turn not yet sent (maomao fork)
-	freshCtx     bool       // maomao fork: agent started without resume; see freshContextImages
-	freshTaken   bool       // freshCtx taken by a turn not yet sent
-	memCtx       bool       // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
-	memTaken     bool       // memCtx taken by a turn not yet sent
+	// maomao fork: the lead handoff block assembled into a turn that has not
+	// yet returned a successful result (#274). It becomes part of TurnCtxSent
+	// only when the turn succeeds; a failed turn drops it so the next turn
+	// gets the complete record again.
+	leadHandoffTaken     string
+	leadHandoffTakenAt   time.Time
+	leadHandoffTakenSnap *LeadHandoffSnapshot
+	freshCtx             bool // maomao fork: agent started without resume; see freshContextImages
+	freshTaken           bool // freshCtx taken by a turn not yet sent
+	memCtx               bool // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
+	memTaken             bool // memCtx taken by a turn not yet sent
 	// maomao fork: posts up to freshDoneUpTo already went to an earlier fresh context
 	// (freshContextImages); freshDonePending replaces it once the turn is sent.
 	freshDoneUpTo, freshDonePending string
@@ -72,10 +79,15 @@ type Session struct {
 // to another conversation, or the agent compacts. A --resume that only forks a
 // new id keeps it.
 type TurnCtxSent struct {
-	Wiki           []string  `json:"wiki,omitempty"`
-	ReferenceSince time.Time `json:"-"`              // deliberately unknown after a bridge restart
-	ReferenceIDs map[string]bool `json:"-"` // agent output sent by this context only
-	Team           string    `json:"team,omitempty"` // teammate status key (without elapsed times)
+	Wiki           []string        `json:"wiki,omitempty"`
+	ReferenceSince time.Time       `json:"-"`              // deliberately unknown after a bridge restart
+	ReferenceIDs   map[string]bool `json:"-"`              // agent output sent by this context only
+	Team           string          `json:"team,omitempty"` // teammate status key (without elapsed times)
+	// LeadHandoff is the switch record this agent context already received, and
+	// LeadHandoffAt is the time of its last update block (#274). Both are reset
+	// with the rest of TurnCtx when the agent context is replaced.
+	LeadHandoff   string    `json:"lead_handoff,omitempty"`
+	LeadHandoffAt time.Time `json:"lead_handoff_at,omitempty"`
 }
 
 func (s *Session) TryLock() bool {

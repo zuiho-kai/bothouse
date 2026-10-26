@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -65,12 +66,28 @@ func (s *APIServer) handleTaskAssign(w http.ResponseWriter, r *http.Request) {
 		inputHTTPError(w, 409, errors.New("public progress unavailable"))
 		return
 	}
+	if s.rejectLateLead(w, req.Project) {
+		return
+	}
 	grant, err := p.AssignMember(req)
 	if err != nil {
 		inputHTTPError(w, 409, err)
 		return
 	}
 	apiJSON(w, 200, grant)
+}
+
+// rejectLateLead refuses coordination actions from a project that is no longer
+// the selected lead (#274). Reports and results stay writable: a late member
+// result is still linked to its original task; only new dispatch/acceptance is
+// kept with the current lead.
+func (s *APIServer) rejectLateLead(w http.ResponseWriter, project string) bool {
+	sel, ok := readLeadSelectionFull(s.dataDir)
+	if !ok || sel.Lead == "" || sel.Lead == project {
+		return false
+	}
+	inputHTTPError(w, 409, fmt.Errorf("%s is not the current lead (%s); task coordination stays with the current lead", project, sel.Lead))
+	return true
 }
 
 // progressFor resolves the project engine that owns public progress state.
@@ -146,6 +163,9 @@ func (s *APIServer) handleTaskAccept(w http.ResponseWriter, r *http.Request) {
 	progress := s.progressFor(req.Project)
 	if progress == nil {
 		inputHTTPError(w, 409, errors.New("public progress unavailable"))
+		return
+	}
+	if s.rejectLateLead(w, req.Project) {
 		return
 	}
 	task, err := progress.Accept(req.TaskID, req.Actor)

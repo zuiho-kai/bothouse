@@ -25,6 +25,7 @@ const DefaultMaxAttachmentSize int64 = 50 << 20
 // to send messages to active sessions.
 type APIServer struct {
 	socketPath string
+	dataDir    string
 	listener   net.Listener
 	server     *http.Server
 	mux        *http.ServeMux
@@ -91,6 +92,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 
 	s := &APIServer{
 		socketPath:         sockPath,
+		dataDir:            dataDir,
 		listener:           listener,
 		mux:                http.NewServeMux(),
 		engines:            make(map[string]*Engine),
@@ -103,6 +105,9 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)
 	s.mux.HandleFunc("/task/assign", s.handleTaskAssign)
+	s.mux.HandleFunc("/handoff/status", s.handleHandoffStatus)
+	s.mux.HandleFunc("/handoff/show", s.handleHandoffShow)
+	s.mux.HandleFunc("/handoff/switch", s.handleHandoffSwitch)
 	s.mux.HandleFunc("/sessions", s.handleSessions)
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
