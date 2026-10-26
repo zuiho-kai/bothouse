@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -52,6 +53,16 @@ func TestRelayTeamBind_ConfigTeamWithoutWizardState(t *testing.T) {
 	if _, err := rm.ResolveTaskReporter("lead", "ext", "discord", "discord:fresh-room:u1"); !errors.Is(err, ErrNotBoundInChannel) {
 		t.Fatal("external reporter accepted:", err)
 	}
+}
+
+// The /bind display for a sender uses that sender's team, so a config team shows its
+// members without a manual /bind.
+func TestRelayTeamBind_ConfigTeamBindingView(t *testing.T) {
+	teamDir := t.TempDir()
+	rm := configTeamManager(t,
+		configTeamEngine("lead", teamDir, "discord"),
+		configTeamEngine("worker", teamDir, "discord"),
+	)
 	b := rm.EffectiveBindingFor("discord", "fresh-room", "lead")
 	if b == nil || b.Bots["lead"] != "lead" || b.Bots["worker"] != "worker" || len(b.Bots) != 2 {
 		t.Fatalf("config team binding = %+v", b)
@@ -140,8 +151,66 @@ func TestRelayTeamBind_ConfigTeamVetoSurvivesRestart(t *testing.T) {
 	if taskSendBindErr(rm2, "lead", "worker", "discord:another:u1") {
 		t.Fatal("config team veto leaked to another chat")
 	}
+	// A whole-chat /bind remove also keeps the config team out of that chat.
+	rm2.Unbind("fresh")
+	if !taskSendBindErr(rm2, "lead", "worker", "discord:fresh:u1") {
+		t.Fatal("config team bound back after /bind remove")
+	}
 	rm2.AddToBind("discord", "room", "worker")
 	if taskSendBindErr(rm2, "lead", "worker", "discord:room:u1") {
 		t.Fatal("/bind worker did not lift the config team veto")
+	}
+}
+
+// A wizard team and a disjoint config team on one platform are two teams. A sender
+// only adds its own team; the other team's wizard-only (engine-less) member is not
+// pulled into this chat. A wizard team that shares a member with the config team is
+// the same team and keeps its engine-less member.
+func TestRelayTeamBind_WizardAndConfigTeamsStayApart(t *testing.T) {
+	dataDir := t.TempDir()
+	writeTeamState(t, dataDir, SetupState{
+		Platform: "discord",
+		Team: []SetupTeamEntry{
+			{Project: "w1", Name: "W1"}, {Project: "w2", Name: "W2"},
+		},
+	})
+	configDir := t.TempDir()
+	rm := NewRelayManager(dataDir)
+	for _, e := range []*Engine{
+		configTeamEngine("w1", filepath.Join(dataDir, "team"), "discord"),
+		configTeamEngine("w2", filepath.Join(dataDir, "team"), "discord"),
+		configTeamEngine("c1", configDir, "discord"),
+		configTeamEngine("c2", configDir, "discord"),
+	} {
+		rm.RegisterEngine(e.name, e)
+	}
+	if taskSendBindErr(rm, "w1", "w2", "discord:room:u1") {
+		t.Fatal("wizard team member refused")
+	}
+	if !taskSendBindErr(rm, "w1", "c1", "discord:room:u1") {
+		t.Fatal("config team member leaked into the wizard team's chat")
+	}
+	if taskSendBindErr(rm, "c1", "c2", "discord:room:u1") {
+		t.Fatal("config team member refused")
+	}
+	if !taskSendBindErr(rm, "c1", "w1", "discord:room:u1") {
+		t.Fatal("wizard team member leaked into the config team's chat")
+	}
+	if b := rm.EffectiveBindingFor("discord", "room", "c1"); b == nil || len(b.Bots) != 2 || b.Bots["w1"] != "" {
+		t.Fatalf("config team view leaked the wizard team: %+v", b)
+	}
+
+	// Same team: the wizard team shares w1 with the config team and adds dsh1, which
+	// has no engine in this bridge. The shared team keeps dsh1; the config team c1
+	// still does not get it.
+	writeTeamState(t, dataDir, SetupState{
+		Platform: "discord",
+		Team: []SetupTeamEntry{
+			{Project: "w1", Name: "W1"}, {Project: "w2", Name: "W2"}, {Project: "dsh1", Name: "DSH"},
+		},
+	})
+	b := rm.EffectiveBindingFor("discord", "room", "w1")
+	if b == nil || b.Bots["w1"] == "" || b.Bots["w2"] == "" || b.Bots["dsh1"] == "" || b.Bots["c1"] != "" {
+		t.Fatalf("same-team merge = %+v", b)
 	}
 }

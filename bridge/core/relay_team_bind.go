@@ -147,6 +147,25 @@ func mergeProjects(a, b []string) []string {
 	return out
 }
 
+// teamsOverlap reports whether the two explicit teams share a project. A wizard team
+// and a configured team that share a member are the same team (the wizard writes its
+// members' team_status_dir too, and may also hold members with no engine here); two
+// disjoint teams must stay apart.
+func teamsOverlap(a, b []string) bool {
+	seen := make(map[string]bool, len(a))
+	for _, p := range a {
+		if p != "" {
+			seen[p] = true
+		}
+	}
+	for _, p := range b {
+		if seen[p] {
+			return true
+		}
+	}
+	return false
+}
+
 // configuredTeam returns the projects sharing a non-empty team_status_dir with from on
 // platform (nil when fewer than two). It is the config.toml source: an old team that
 // never ran the wizard still has the same team_status_dir on every member. With no from
@@ -218,14 +237,17 @@ func (rm *RelayManager) inAnyTeam(project string) bool {
 	return false
 }
 
-// teamProjects is the team serving this chat for the sender from: the wizard team of the
-// platform when from belongs to it, plus the configured team sharing from's team_status_dir.
-// A chat gets one team only; projects outside it still need /bind.
+// teamProjects is the team serving this chat for the sender from: the configured team
+// sharing from's team_status_dir, or the wizard team of the platform when the two are
+// the same team. A chat gets one team only; projects outside it still need /bind.
 func (rm *RelayManager) teamProjects(platform, from string) []string {
 	wizard := rm.wizardTeam(platform)
 	configured := rm.configuredTeam(platform, from)
 	if len(configured) >= 2 {
-		if len(wizard) == 0 {
+		// Merge only when the wizard team is the same team: it can hold members with
+		// no engine here (a DSH entry on cloud_web), but a disjoint wizard team is a
+		// second team and must not leak into this sender's chat.
+		if len(wizard) == 0 || !teamsOverlap(configured, wizard) {
 			return configured
 		}
 		return mergeProjects(configured, wizard)
@@ -269,8 +291,8 @@ func (rm *RelayManager) effectiveBindingForLocked(platform, chatID, from string)
 	return out
 }
 
-// effectiveBindingLocked is effectiveBindingForLocked without a sender, for displays that
-// show the chat's effective binding (the bare /bind command, GET /relay/binding).
+// effectiveBindingLocked is effectiveBindingForLocked without a sender, for callers
+// that have no project context (GET /relay/binding without ?project).
 func (rm *RelayManager) effectiveBindingLocked(platform, chatID string) *RelayBinding {
 	return rm.effectiveBindingForLocked(platform, chatID, "")
 }
