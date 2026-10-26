@@ -61,7 +61,7 @@ func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if taskScope != "" {
 		key += ":task:" + taskScope
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", stop, complete)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, resolveKey, message, agent, sessions, key, taskScope != "", stop, complete)
 }
 
 func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, target *Engine, name string) (*RelayResponse, error) {
@@ -71,7 +71,7 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if source.publicProgress == nil {
 		return nil, errors.New("relay: task cards are not enabled on source")
 	}
-	if err := source.publicProgress.checkWorkspaceCard(req.SessionKey); err != nil {
+	if err := source.publicProgress.checkAssignmentCard(req.SessionKey, req.Workspace); err != nil {
 		return nil, err
 	}
 	d, cached, err := source.publicProgress.beginTaskRelay(req, name)
@@ -215,9 +215,10 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 			return nil, nil, fmt.Errorf("relay: workspace: %w", err)
 		}
 	}
-	// Bound in the source workspace (facts land on its card) and, when set, in
-	// the execution workspace (the target runs there).
-	for _, session := range taskReporterSessions(req.SessionKey, req.Workspace) {
+	// Bound in the card's channel (the source workspace, or the workspace
+	// holding a chat-channel source's card) and, when set, in the execution
+	// workspace (the target runs there).
+	for _, session := range taskReporterSessions(r.record.Task.cardSessionKey(), req.Workspace) {
 		if _, err := p.taskReporter(req.To, r.record.Platform, session, r.publisher); err != nil {
 			return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 		}
