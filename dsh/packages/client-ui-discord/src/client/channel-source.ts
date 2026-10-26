@@ -786,7 +786,11 @@ export function createChannelSource(transport: ChannelTransport): {
       return await request<LocalCli[]>('collab/api/clis')
     },
     async addMember(input) {
-      await request('collab/api/members', json('POST', input))
+      const roomId = snapshot.roomId
+      if (roomId === undefined) throw new Error('No channel is open')
+      const selected = snapshot.rooms.find(r => r.id === roomId)
+      const chatId = selected?.parent_id ?? roomId
+      await request('collab/api/members', json('POST', { ...input, rooms: [chatId] }))
     },
     async updateMember(id, input) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, json('PATCH', input))
